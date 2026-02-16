@@ -1,0 +1,33 @@
+---
+description: Uso del componente TablaBasica para pantallas CRUD (Empresas, Productos, Usuarios, etc.)
+globs: app/(app)/**/*.tsx
+---
+
+# TablaBasica
+
+El componente **TablaBasica** (`app/components/TablaBasica.tsx`) centraliza la configuración y el diseño de la tabla con toolbar (Crear, Editar, Borrar, búsqueda, opcional Importar) que se repite en pantallas como Empresas, Productos y Usuarios. Usar este componente en lugar de duplicar la misma UI.
+
+## Qué incluye TablaBasica
+
+- Cabecera con botón atrás y título
+- Toolbar: Crear, Editar, Borrar, campo de búsqueda, y opcionalmente botón Importar
+- Tabla con columnas redimensionables (web), selección de fila y paginación opcional
+- Estados de carga y error con opción de reintentar
+- Mensajes de tabla vacía / sin resultados de filtro
+
+## Qué queda en la pantalla
+
+- **Modales**: Crear/Editar e Importar siguen en la pantalla para poder personalizar formularios y lógica (validaciones, campos especiales, Excel, etc.).
+- **Datos y lógica**: fetch, filtrado, paginación, guardar, borrar, importar.
+
+## Uso básico
+
+1. Importar: `import { TablaBasica } from '../components/TablaBasica';`
+2. Pasar columnas, datos (filas a mostrar, ya filtradas/paginadas si aplica), `getValorCelda(item, col)` para el texto de cada celda.
+3. Conectar callbacks: `onBack`, `onCrear`, `onEditar`, `onBorrar`, `onSelectRow`, `onFiltroChange`, y si hay import: `showImport`, `onImportClick`, `importing`.
+4. Opcional: `paginacion` con `totalRegistros`, `pageSize`, `pageIndex`, `onPrevPage`, `onNextPage`.
+5. Renderizar los modales de Crear/Editar e Importar como hermanos del `TablaBasica` (mismo contenedor).
+
+## Ejemplo de referencia
+
+Ver `app/(app)/productos.tsx`: usa `TablaBasica` con paginación (50 por página), importación y modales propios para CRUD e importar Excel.
