@@ -5,9 +5,9 @@ import { MaterialIcons } from '@expo/vector-icons';
 const OPCIONES = [
   {
     id: 'cierres-teoricos',
-    label: 'Cierres teóricos',
+    label: 'Cierres de ventas teóricas',
     icon: 'receipt-long' as const,
-    descripcion: 'Cierres de sistema desde Ágora',
+    descripcion: 'Cierres teóricos de ventas',
   },
   {
     id: 'arqueo-caja',

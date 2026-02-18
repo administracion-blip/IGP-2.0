@@ -10,8 +10,8 @@ dotenv.config({ path: join(__dirname, '.env') });
 import express from 'express';
 import cors from 'cors';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, ScanCommand, QueryCommand, PutCommand, GetCommand, DeleteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { exportSystemCloseOuts } from './lib/agora/client.js';
+import { DynamoDBDocumentClient, ScanCommand, QueryCommand, PutCommand, GetCommand, DeleteCommand, UpdateCommand, BatchWriteCommand, BatchGetCommand } from '@aws-sdk/lib-dynamodb';
+import { exportSystemCloseOuts, exportPosCloseOuts } from './lib/agora/client.js';
 import { upsertBatch } from './lib/dynamo/salesCloseOuts.js';
 
 const app = express();
@@ -23,18 +23,237 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, message: 'API ERP OK', port: process.env.PORT || 3001 });
 });
 
+// Diagnóstico: si esto responde 200, el servidor tiene las rutas de closeouts
+app.get('/api/agora/closeouts-ready', (_req, res) => {
+  res.json({ ok: true, closeoutsRoute: 'registered' });
+});
+
 const region = process.env.AWS_REGION || 'eu-west-1';
 const tableName = process.env.DDB_USUARIOS || process.env.DYNAMODB_TABLE || 'igp_usuarios';
 const tableLocalesName = process.env.DDB_LOCALES || 'igp_Locales';
 const tableEmpresasName = process.env.DDB_EMPRESAS || 'igp_Empresas';
 const tableProductosName = process.env.DDB_PRODUCTOS || 'igp_Productos';
-const tableSalesCloseOutsName = process.env.DDB_SALES_CLOSEOUTS_TABLE || 'Igp_SalesCloseouts';
 const tableSaleCentersName = process.env.DDB_SALE_CENTERS_TABLE || 'Igp_SaleCenters';
+const tableSalesCloseOutsName = process.env.DDB_SALES_CLOSEOUTS_TABLE || 'Igp_SalesCloseouts';
 const tableMantenimientoName = process.env.DDB_MANTENIMIENTO_TABLE || 'Igp_Mantenimiento';
 const tableRolesPermisosName = process.env.DDB_ROLES_PERMISOS_TABLE || 'Igp_RolesPermisos';
 
 const client = new DynamoDBClient({ region });
 const docClient = DynamoDBDocumentClient.from(client);
+
+// GET /api/agora/closeouts - registrado aquí al inicio para evitar 404
+app.get('/api/agora/closeouts', async (req, res) => {
+  const businessDay = (req.query.businessDay && String(req.query.businessDay).trim()) || '';
+  const workplaceId = (req.query.workplaceId && String(req.query.workplaceId).trim()) || '';
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const result = await docClient.send(new ScanCommand({
+        TableName: tableSalesCloseOutsName,
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+    let list = items;
+    if (workplaceId) list = list.filter((i) => (i.PK ?? i.pk) === workplaceId);
+    if (businessDay && /^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
+      const sk = (i) => i.SK ?? i.sk ?? '';
+      list = list.filter((i) => sk(i) && sk(i).startsWith(businessDay));
+    }
+    list.sort((a, b) => ((a.SK ?? a.sk) || '').localeCompare((b.SK ?? b.sk) || ''));
+    for (const item of list) {
+      if ((item.PosId ?? item.posId) != null) continue;
+      const sk = String(item.SK ?? item.sk ?? '').trim();
+      const parts = sk.split('#');
+      if (parts.length === 3 && parts[1] && parts[1] !== '0') item.PosId = parts[1];
+    }
+    const posIdsNeedingName = [...new Set(list.filter((i) => (i.PosId ?? i.posId) != null && !(i.PosName ?? i.posName)).map((i) => String(i.PosId ?? i.posId)))];
+    if (posIdsNeedingName.length > 0) {
+      const scItems = [];
+      let scLastKey = null;
+      do {
+        const scResult = await docClient.send(new QueryCommand({
+          TableName: tableSaleCentersName,
+          KeyConditionExpression: 'PK = :pk',
+          ExpressionAttributeValues: { ':pk': 'GLOBAL' },
+          ...(scLastKey && { ExclusiveStartKey: scLastKey }),
+        }));
+        scItems.push(...(scResult.Items || []));
+        scLastKey = scResult.LastEvaluatedKey || null;
+      } while (scLastKey);
+      const posIdToNombre = Object.fromEntries(scItems.filter((s) => s.Id != null).map((s) => [String(s.Id), String(s.Nombre ?? s.nombre ?? '').trim()]));
+      for (const item of list) {
+        const pid = item.PosId ?? item.posId;
+        if (pid != null && !(item.PosName ?? item.posName) && posIdToNombre[String(pid)]) {
+          item.PosName = posIdToNombre[String(pid)];
+        }
+      }
+    }
+    const normalized = list.map((item) => {
+      if (!item || typeof item !== 'object') return item;
+      const a = item.Amounts ?? item.amounts ?? {};
+      const amounts = typeof a === 'object' && a !== null ? a : {};
+      const ensureArray = (arr) => (Array.isArray(arr) ? arr : []);
+      const toPayment = (p) => ({ MethodName: p?.MethodName ?? p?.methodName ?? p?.Name ?? p?.name ?? null, Amount: p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? null });
+      const skVal = item.SK ?? item.sk ?? '';
+      const extractNum = (s) => (!s || typeof s !== 'string' ? '' : s.trim().split('#').length >= 2 ? s.trim().split('#').pop() : '');
+      const numberVal = item.Number ?? item.number ?? extractNum(skVal);
+      return {
+        ...item,
+        PK: item.PK ?? item.pk ?? '',
+        SK: skVal,
+        BusinessDay: item.BusinessDay ?? item.businessDay ?? (skVal && String(skVal).split('#')[0]) ?? '',
+        Number: numberVal,
+        Amounts: amounts,
+        InvoicePayments: ensureArray(item.InvoicePayments ?? item.invoicePayments).map(toPayment),
+        TicketPayments: ensureArray(item.TicketPayments ?? item.ticketPayments).map(toPayment),
+        DeliveryNotePayments: ensureArray(item.DeliveryNotePayments ?? item.deliveryNotePayments).map(toPayment),
+        SalesOrderPayments: ensureArray(item.SalesOrderPayments ?? item.salesOrderPayments).map(toPayment),
+      };
+    });
+    res.json({ closeouts: normalized });
+  } catch (err) {
+    console.error('[agora/closeouts]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al listar cierres' });
+  }
+});
+
+// GET /api/agora/closeouts/totals-by-local?businessDay=YYYY-MM-DD
+// Devuelve sumatorio de total facturado (InvoicePayments) por local para el día indicado.
+app.get('/api/agora/closeouts/totals-by-local', async (req, res) => {
+  const businessDay = (req.query.businessDay && String(req.query.businessDay).trim()) || '';
+  if (!businessDay || !/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
+    return res.status(400).json({ error: 'businessDay obligatorio (YYYY-MM-DD)' });
+  }
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const result = await docClient.send(new ScanCommand({
+        TableName: tableSalesCloseOutsName,
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+    const list = items.filter((i) => {
+      const sk = String(i.SK ?? i.sk ?? '').trim();
+      return sk && sk.startsWith(businessDay);
+    });
+    const totalsByPk = {};
+    for (const item of list) {
+      const pk = String(item.PK ?? item.pk ?? '').trim();
+      const arr = item.InvoicePayments ?? item.invoicePayments;
+      let total = 0;
+      if (Array.isArray(arr)) {
+        for (const p of arr) {
+          total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
+        }
+      }
+      if (pk) {
+        totalsByPk[pk] = (totalsByPk[pk] || 0) + total;
+      }
+    }
+    const localeItems = [];
+    let locLastKey = null;
+    do {
+      const locResult = await docClient.send(new ScanCommand({
+        TableName: tableLocalesName,
+        ...(locLastKey && { ExclusiveStartKey: locLastKey }),
+      }));
+      localeItems.push(...(locResult.Items || []));
+      locLastKey = locResult.LastEvaluatedKey || null;
+    } while (locLastKey);
+    const pkToNombre = {};
+    for (const loc of localeItems) {
+      const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+      const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
+      if (code) pkToNombre[code] = nombre || code;
+    }
+    const result = Object.entries(totalsByPk)
+      .filter(([, total]) => total > 0)
+      .map(([workplaceId, total]) => ({
+        local: pkToNombre[workplaceId] ?? workplaceId,
+        total: Math.round(total * 100) / 100,
+        workplaceId,
+      }))
+      .sort((a, b) => b.total - a.total);
+    res.json({ businessDay, totals: result });
+  } catch (err) {
+    console.error('[agora/closeouts/totals-by-local]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al obtener totales' });
+  }
+});
+
+// GET /api/agora/closeouts/totals-by-local-ytd?year=YYYY
+// Devuelve sumatorio de total facturado (InvoicePayments) por local para el año indicado.
+app.get('/api/agora/closeouts/totals-by-local-ytd', async (req, res) => {
+  const year = (req.query.year && String(req.query.year).trim()) || '';
+  if (!year || !/^\d{4}$/.test(year)) {
+    return res.status(400).json({ error: 'year obligatorio (YYYY)' });
+  }
+  const prefix = year + '-';
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const result = await docClient.send(new ScanCommand({
+        TableName: tableSalesCloseOutsName,
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+    const list = items.filter((i) => {
+      const sk = String(i.SK ?? i.sk ?? '').trim();
+      return sk && sk.startsWith(prefix);
+    });
+    const totalsByPk = {};
+    for (const item of list) {
+      const pk = String(item.PK ?? item.pk ?? '').trim();
+      const arr = item.InvoicePayments ?? item.invoicePayments;
+      let total = 0;
+      if (Array.isArray(arr)) {
+        for (const p of arr) {
+          total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
+        }
+      }
+      if (pk) {
+        totalsByPk[pk] = (totalsByPk[pk] || 0) + total;
+      }
+    }
+    const localeItems = [];
+    let locLastKey = null;
+    do {
+      const locResult = await docClient.send(new ScanCommand({
+        TableName: tableLocalesName,
+        ...(locLastKey && { ExclusiveStartKey: locLastKey }),
+      }));
+      localeItems.push(...(locResult.Items || []));
+      locLastKey = locResult.LastEvaluatedKey || null;
+    } while (locLastKey);
+    const pkToNombre = {};
+    for (const loc of localeItems) {
+      const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+      const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
+      if (code) pkToNombre[code] = nombre || code;
+    }
+    const result = Object.entries(totalsByPk)
+      .filter(([, total]) => total > 0)
+      .map(([workplaceId, total]) => ({
+        local: pkToNombre[workplaceId] ?? workplaceId,
+        total: Math.round(total * 100) / 100,
+        workplaceId,
+      }))
+      .sort((a, b) => b.total - a.total);
+    res.json({ year, totals: result });
+  } catch (err) {
+    console.error('[agora/closeouts/totals-by-local-ytd]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al obtener totales YTD' });
+  }
+});
 
 // Cache en memoria para listado mínimo de locales (dropdowns). TTL 5 min.
 let cachedLocalesMinimal = null;
@@ -1036,98 +1255,817 @@ app.post('/api/agora/sale-centers/sync', async (req, res) => {
   }
 });
 
-// Mapea un SystemCloseOut de Ágora a ítem DynamoDB (PK=workplaceId, SK=businessDay#closeOutNumber).
-function mapCloseOutToItem(raw) {
-  const workplaceId = String(raw?.WorkplaceId ?? raw?.WokrplaceId ?? '');
-  const businessDay = raw?.BusinessDay ?? '';
-  const number = raw?.Number ?? '';
-  const sk = businessDay && number ? `${businessDay}#${number}` : '';
+// --- Cierres de ventas (Ágora → Igp_SalesCloseouts) ---
+const AGORA_PAYMENT_METHOD_ID = {
+  1: 'Efectivo', 2: 'Tarjeta', 4: 'Pendiente de cobro', 5: 'Prepago Transferencia', 7: 'AgoraPay',
+};
+const STRING_KEY_TO_CANONICAL = {
+  efectivo: 'Efectivo', tarjeta: 'Tarjeta', card: 'Tarjeta',
+  'pendiente de cobro': 'Pendiente de cobro', pending: 'Pendiente de cobro',
+  'prepago transferencia': 'Prepago Transferencia', transferencia: 'Prepago Transferencia',
+  agorapay: 'AgoraPay', 'agora pay': 'AgoraPay',
+};
+const CANONICAL_PAYMENT_NAMES = ['Efectivo', 'Tarjeta', 'Pendiente de cobro', 'Prepago Transferencia', 'AgoraPay'];
+
+function findValue(obj, keys, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 5) return null;
+  const keyList = Array.isArray(keys) ? keys : [keys];
+  const lower = (k) => String(k).toLowerCase();
+  for (const key of keyList) {
+    const v = obj[key];
+    if (v != null && v !== '') return v;
+    const found = Object.keys(obj || {}).find((k) => lower(k) === lower(key));
+    if (found && obj[found] != null && obj[found] !== '') return obj[found];
+  }
+  for (const val of Object.values(obj || {})) {
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      const v = findValue(val, keyList, depth + 1);
+      if (v != null && v !== '') return v;
+    }
+  }
+  return null;
+}
+
+function getMappableRaw(raw) {
+  if (!raw || typeof raw !== 'object') return raw;
+  let out = { ...raw };
+  const toMerge = [raw?.CloseOut ?? raw?.closeOut, raw?.Data ?? raw?.data, raw?.Record ?? raw?.record].filter((x) => x != null && typeof x === 'object' && !Array.isArray(x));
+  for (const obj of toMerge) {
+    out = { ...out, ...obj };
+    const inner = obj?.CloseOut ?? obj?.closeOut ?? obj?.Data ?? obj?.data;
+    if (inner && typeof inner === 'object' && !Array.isArray(inner)) out = { ...out, ...inner };
+  }
+  return out;
+}
+
+function extractAmountsAndPayments(raw) {
+  const r = getMappableRaw(raw);
+  const amounts = r?.Amounts ?? r?.amounts ?? r?.Totals ?? r?.totals ?? {};
+  let gross = findValue(amounts, ['GrossAmount', 'grossAmount', 'Total', 'total', 'Importe', 'importe'])
+    ?? findValue(r, ['GrossAmount', 'grossAmount', 'Total', 'total', 'ActualEndAmount', 'actualEndAmount']);
+  const net = findValue(amounts, ['NetAmount', 'netAmount']) ?? null;
+  const vat = findValue(amounts, ['VatAmount', 'vatAmount']) ?? null;
+  const surcharge = findValue(amounts, ['SurchargeAmount', 'surchargeAmount']) ?? null;
+
+  const balances = r?.Balances ?? r?.balances ?? [];
+  if ((gross == null || gross === 0) && Array.isArray(balances) && balances.length > 0) {
+    gross = balances.reduce((s, b) => s + (Number(b?.ActualEndAmount ?? b?.actualEndAmount ?? b?.ExpectedEndAmount ?? 0) || 0), 0);
+  }
+
+  const toPayment = (b) => {
+    const id = b?.PaymentMethodId ?? b?.paymentMethodId ?? b?.Id ?? b?.id;
+    const name = findValue(b, ['MethodName', 'methodName', 'Name', 'name'])
+      ?? (id != null ? (AGORA_PAYMENT_METHOD_ID[id] ?? AGORA_PAYMENT_METHOD_ID[String(id)] ?? `Método ${id}`) : null);
+    const amt = b?.ActualEndAmount ?? b?.actualEndAmount ?? b?.ExpectedEndAmount ?? b?.expectedEndAmount ?? b?.Amount ?? b?.amount ?? 0;
+    return { MethodName: name, Amount: typeof amt === 'number' ? amt : parseFloat(String(amt).replace(',', '.')) || 0 };
+  };
+
+  const resolveMethodName = (keyOrId) => {
+    if (keyOrId == null) return null;
+    const str = String(keyOrId).trim();
+    if (/^\d+$/.test(str)) {
+      const id = parseInt(str, 10);
+      return AGORA_PAYMENT_METHOD_ID[id] ?? AGORA_PAYMENT_METHOD_ID[String(id)] ?? null;
+    }
+    return (STRING_KEY_TO_CANONICAL[str.toLowerCase()] ?? str) || null;
+  };
+
+  let allPayments = [];
+  const totalsByMethod = r?.TotalsByMethod ?? r?.totalsByMethod ?? r?.PaymentsByMethod ?? r?.paymentsByMethod ?? amounts?.TotalsByMethod;
+  if (totalsByMethod && typeof totalsByMethod === 'object' && !Array.isArray(totalsByMethod)) {
+    for (const [key, val] of Object.entries(totalsByMethod)) {
+      if (val == null || (typeof val !== 'number' && String(val).trim() === '')) continue;
+      const name = resolveMethodName(key);
+      const amt = typeof val === 'number' ? val : parseFloat(String(val).replace(',', '.')) || 0;
+      if (name && amt >= 0) allPayments.push({ MethodName: name, Amount: amt });
+    }
+  }
+  const baseArrays = [
+    r?.InvoicePayments ?? r?.invoicePayments,
+    r?.TicketPayments ?? r?.ticketPayments ?? r?.TicketPayment ?? r?.ticketPayment,
+    r?.DeliveryNotePayments ?? r?.deliveryNotePayments,
+    r?.SalesOrderPayments ?? r?.salesOrderPayments,
+    r?.Payments ?? r?.payments,
+    r?.PaymentMethods ?? r?.paymentMethods,
+    r?.FormasPago ?? r?.formasPago,
+    balances,
+  ].filter(Array.isArray);
+  for (const arr of baseArrays) {
+    for (const p of arr) {
+      if (p?.PaymentMethodId != null || p?.paymentMethodId != null || p?.Id != null || p?.id != null) allPayments.push(toPayment(p));
+      else {
+        const name = findValue(p, ['MethodName', 'methodName', 'Name', 'name']);
+        const amt = findValue(p, ['Amount', 'amount', 'Value', 'value', 'ActualEndAmount', 'actualEndAmount']) ?? 0;
+        if (name != null || amt != null) allPayments.push({ MethodName: name ?? 'Sin nombre', Amount: typeof amt === 'number' ? amt : parseFloat(String(amt).replace(',', '.')) || 0 });
+      }
+    }
+  }
+
+  const byMethod = new Map();
+  for (const p of allPayments) {
+    const name = (p.MethodName ?? 'Sin nombre').toString().trim() || 'Sin nombre';
+    const amt = typeof p.Amount === 'number' ? p.Amount : parseFloat(String(p.Amount || 0).replace(',', '.')) || 0;
+    const prev = byMethod.get(name) ?? 0;
+    byMethod.set(name, prev + amt);
+  }
+  allPayments = [...byMethod.entries()].map(([name, amt]) => ({ MethodName: name === 'Sin nombre' ? null : name, Amount: amt })).filter((p) => p.MethodName != null || p.Amount != null);
+
+  if (allPayments.length > 0) {
+    const byName = new Map(allPayments.map((p) => [String(p.MethodName || '').trim(), p.Amount]).filter(([n]) => n));
+    const extras = [...byName.entries()].filter(([n]) => !CANONICAL_PAYMENT_NAMES.includes(n));
+    allPayments = [
+      ...CANONICAL_PAYMENT_NAMES.map((name) => ({ MethodName: name, Amount: byName.get(name) ?? 0 })),
+      ...extras.map(([name, amt]) => ({ MethodName: name, Amount: amt })),
+    ];
+  }
+
+  return {
+    Amounts: { GrossAmount: gross, NetAmount: net, VatAmount: vat, SurchargeAmount: surcharge },
+    InvoicePayments: allPayments,
+  };
+}
+
+function extractPosFromRaw(raw) {
+  const r = getMappableRaw(raw);
+  const posId = findValue(r, ['PosId', 'posId', 'PointOfSaleId', 'pointOfSaleId']) ?? r?.Pos?.Id ?? r?.PointOfSale?.Id ?? r?.PointsOfSale?.[0]?.Id ?? null;
+  const posName = findValue(r, ['PosName', 'posName', 'PointOfSaleName', 'pointOfSaleName']) ?? r?.Pos?.Name ?? r?.PointOfSale?.Name ?? r?.PointsOfSale?.[0]?.Name ?? null;
+  return { posId, posName };
+}
+
+function extractCloseOutNumber(raw) {
+  const r = getMappableRaw(raw);
+  let v = findValue(r, ['CloseOutNumber', 'closeOutNumber', 'Number', 'number', 'Numero', 'numero', 'Id', 'id', 'CloseOutId', 'CloseOutNo', 'Sequence']);
+  if (v != null && v !== '') return v;
+  const docs = r?.Documents ?? r?.documents ?? [];
+  if (Array.isArray(docs) && docs.length > 0) {
+    const d = docs[0];
+    v = findValue(d, ['LastNumber', 'lastNumber', 'UltimoNumero']) ?? findValue(d, ['FirstNumber', 'firstNumber']) ?? findValue(d, ['Number', 'number']);
+    if (v != null && v !== '') return v;
+  }
+  return null;
+}
+
+function extractCloseOutsArray(data, keys) {
+  if (!data) return [];
+  const unwrap = (d) => d?.Data ?? d?.data ?? d?.Result ?? d?.result ?? d?.Export ?? d?.export ?? d;
+  let cur = unwrap(data);
+  const k = Array.isArray(keys) ? keys : [keys];
+  for (const key of k) {
+    const v = cur?.[key];
+    if (Array.isArray(v)) return v;
+    if (v?.Items) return v.Items;
+    if (v?.items) return v.items;
+  }
+  if (Array.isArray(cur)) return cur;
+  return [];
+}
+
+function getGrossFromRaw(r) {
+  const raw = getMappableRaw(r);
+  const amounts = raw?.Amounts ?? raw?.amounts ?? raw?.Totals ?? raw?.totals ?? {};
+  let gross = findValue(amounts, ['GrossAmount', 'grossAmount', 'Total', 'total'])
+    ?? raw?.ActualEndAmount ?? raw?.actualEndAmount ?? raw?.ExpectedEndAmount ?? 0;
+  const balances = raw?.Balances ?? raw?.balances ?? [];
+  if ((gross == null || gross === 0) && Array.isArray(balances) && balances.length > 0) {
+    gross = balances.reduce((s, b) => s + (Number(b?.ActualEndAmount ?? b?.actualEndAmount ?? b?.ExpectedEndAmount ?? 0) || 0), 0);
+  }
+  return typeof gross === 'number' ? gross : parseFloat(String(gross || 0).replace(',', '.')) || 0;
+}
+
+function buildPaymentSourceByRecord(rawList, sysByWorkplace, usePos) {
+  const map = new Map();
+  if (!usePos || sysByWorkplace.size === 0) {
+    for (let i = 0; i < rawList.length; i++) {
+      const r = rawList[i];
+      const pk = String(r?.WorkplaceId ?? r?.workplaceId ?? '').trim() || '0';
+      const sys = sysByWorkplace.get(pk);
+      if (sys) map.set(r, sys);
+    }
+    return map;
+  }
+  const byWorkplace = new Map();
+  for (const r of rawList) {
+    const pk = String(r?.WorkplaceId ?? r?.workplaceId ?? '').trim() || '0';
+    if (!byWorkplace.has(pk)) byWorkplace.set(pk, []);
+    byWorkplace.get(pk).push(r);
+  }
+  for (const [pk, records] of byWorkplace) {
+    const sys = sysByWorkplace.get(pk);
+    if (!sys || !Array.isArray(sys?.InvoicePayments ?? sys?.invoicePayments)) continue;
+    const sysPayments = sys.InvoicePayments ?? sys.invoicePayments;
+    const totalGross = records.reduce((s, r) => s + getGrossFromRaw(r), 0);
+    const n = records.length;
+    for (const r of records) {
+      const recordGross = getGrossFromRaw(r);
+      if (recordGross === 0) continue;
+      const ratio = totalGross > 0 ? recordGross / totalGross : 1 / n;
+      const scaledPayments = sysPayments.map((p) => ({
+        MethodName: p?.MethodName ?? p?.methodName,
+        Amount: ((typeof p?.Amount === 'number' ? p.Amount : parseFloat(String(p?.Amount || 0).replace(',', '.')) || 0) * ratio),
+      }));
+      map.set(r, { InvoicePayments: scaledPayments });
+    }
+  }
+  return map;
+}
+
+function mapCloseOutToItem(raw, businessDayOverride = '', paymentSource = null) {
+  const r = getMappableRaw(raw);
+  let workplaceId = String(findValue(r, ['WorkplaceId', 'workplaceId', 'WokrplaceId', 'LocalId', 'localId', 'Workplace', 'workplace']) ?? r?.WorkplaceId ?? r?.Workplace?.Id ?? '') || '0';
+  if (!workplaceId.trim()) workplaceId = '0';
+  const workplaceName = findValue(r, ['WorkplaceName', 'workplaceName', 'LocalName', 'localName'])
+    ?? r?.Workplace?.Name ?? r?.Workplace?.name ?? null;
+  const businessDay = String(findValue(r, ['BusinessDay', 'businessDay', 'Fecha', 'fecha', 'Date', 'date']) ?? r?.BusinessDay ?? businessDayOverride ?? '') || businessDayOverride || '';
+  let number = extractCloseOutNumber(raw) ?? findValue(r, ['Number', 'number', 'CloseOutNumber', 'Numero', 'Id']) ?? '';
+  if (number == null || number === '') number = '';
+  const numStr = number != null && String(number).trim() !== '' ? String(number) : '0';
+  const { posId: posIdVal, posName } = extractPosFromRaw(r);
+  const posIdStr = posIdVal != null && posIdVal !== '' ? String(posIdVal) : '0';
+  const bd = businessDay || businessDayOverride;
+  const sk = bd ? (posIdStr !== '0' ? `${bd}#${posIdStr}#${numStr}` : `${bd}#${numStr}`) : '';
+  const extracted = extractAmountsAndPayments(raw);
+  const fromSource = paymentSource ? extractAmountsAndPayments(paymentSource) : null;
+  const amountsObj = extracted.Amounts;
+  const allPayments = (fromSource?.InvoicePayments?.length > 0 ? fromSource.InvoicePayments : extracted.InvoicePayments);
+  const documents = Array.isArray(r?.Documents) ? r.Documents : (Array.isArray(r?.documents) ? r.documents : []);
+  const openDate = findValue(r, ['OpenDate', 'openDate', 'FechaApertura']) ?? r?.OpenDate ?? null;
+  const closeDate = findValue(r, ['CloseDate', 'closeDate', 'FechaCierre']) ?? r?.CloseDate ?? null;
   const now = new Date().toISOString();
-  const amounts = raw?.Amounts ?? {};
-  const documents = Array.isArray(raw?.Documents) ? raw.Documents : [];
-  const invoicePayments = Array.isArray(raw?.InvoicePayments) ? raw.InvoicePayments : [];
-  const ticketPayments = Array.isArray(raw?.TicketPayments) ? raw.TicketPayments : [];
-  const deliveryNotePayments = Array.isArray(raw?.DeliveryNotePayments) ? raw.DeliveryNotePayments : [];
-  const salesOrderPayments = Array.isArray(raw?.SalesOrderPayments) ? raw.SalesOrderPayments : [];
   return {
     PK: workplaceId,
     SK: sk,
     Number: number,
-    BusinessDay: businessDay,
-    OpenDate: raw?.OpenDate ?? null,
-    CloseDate: raw?.CloseDate ?? null,
+    BusinessDay: bd,
+    OpenDate: openDate,
+    CloseDate: closeDate,
     WorkplaceId: workplaceId,
-    Amounts: {
-      GrossAmount: amounts?.GrossAmount ?? null,
-      NetAmount: amounts?.NetAmount ?? null,
-      VatAmount: amounts?.VatAmount ?? null,
-      SurchargeAmount: amounts?.SurchargeAmount ?? null,
-    },
+    WorkplaceName: workplaceName,
+    PosId: posIdVal,
+    PosName: posName,
+    Amounts: amountsObj,
     Documents: documents.map((d) => ({
-      Serie: d?.Serie ?? null,
-      FirstNumber: d?.FirstNumber ?? null,
-      LastNumber: d?.LastNumber ?? null,
-      Count: d?.Count ?? null,
-      Amount: d?.Amount ?? null,
+      Serie: findValue(d, ['Serie', 'serie']) ?? null,
+      FirstNumber: findValue(d, ['FirstNumber', 'firstNumber']) ?? null,
+      LastNumber: findValue(d, ['LastNumber', 'lastNumber']) ?? null,
+      Count: findValue(d, ['Count', 'count']) ?? null,
+      Amount: findValue(d, ['Amount', 'amount']) ?? null,
     })),
-    InvoicePayments: invoicePayments.map((p) => ({ MethodName: p?.MethodName ?? null, Amount: p?.Amount ?? null })),
-    TicketPayments: ticketPayments.map((p) => ({ MethodName: p?.MethodName ?? null, Amount: p?.Amount ?? null })),
-    DeliveryNotePayments: deliveryNotePayments.map((p) => ({ MethodName: p?.MethodName ?? null, Amount: p?.Amount ?? null })),
-    SalesOrderPayments: salesOrderPayments.map((p) => ({ MethodName: p?.MethodName ?? null, Amount: p?.Amount ?? null })),
+    InvoicePayments: allPayments,
+    TicketPayments: [],
+    DeliveryNotePayments: [],
+    SalesOrderPayments: [],
     createdAt: now,
     updatedAt: now,
     source: 'agora',
   };
 }
 
-// Listar cierres de ventas guardados (Igp_SalesCloseouts). Query: businessDay (YYYY-MM-DD), workplaceId (PK).
-app.get('/api/agora/closeouts', async (req, res) => {
-  const businessDay = (req.query.businessDay && String(req.query.businessDay).trim()) || '';
-  const workplaceId = (req.query.workplaceId && String(req.query.workplaceId).trim()) || '';
-  try {
-    const items = [];
-    let lastKey = null;
-    do {
-      const cmd = new ScanCommand({
-        TableName: tableSalesCloseOutsName,
-        ...(lastKey && { ExclusiveStartKey: lastKey }),
-      });
-      const result = await docClient.send(cmd);
-      items.push(...(result.Items || []));
-      lastKey = result.LastEvaluatedKey || null;
-    } while (lastKey);
-    let list = items;
-    if (workplaceId) list = list.filter((i) => i.PK === workplaceId);
-    if (businessDay && /^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
-      list = list.filter((i) => i.SK && i.SK.startsWith(businessDay));
-    }
-    list.sort((a, b) => (a.SK || '').localeCompare(b.SK || ''));
-    res.json({ closeouts: list });
-  } catch (err) {
-    console.error('[agora/closeouts list]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al listar cierres' });
-  }
-});
+function mapPosCloseOutToItem(raw, businessDayOverride = '') {
+  return mapCloseOutToItem(raw, businessDayOverride);
+}
+
+function extractNumberFromSk(sk) {
+  if (!sk || typeof sk !== 'string') return '';
+  const parts = String(sk).trim().split('#');
+  return parts.length >= 2 ? parts[parts.length - 1] : '';
+}
+
+function normalizeCloseOutForResponse(item) {
+  if (!item || typeof item !== 'object') return item;
+  const a = item.Amounts ?? item.amounts ?? {};
+  const amounts = typeof a === 'object' && a !== null ? a : {};
+  const ensureArray = (arr) => (Array.isArray(arr) ? arr : []);
+  const toPayment = (p) => ({
+    MethodName: p?.MethodName ?? p?.methodName ?? p?.Name ?? p?.name ?? null,
+    Amount: p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? null,
+  });
+  const skVal = item.SK ?? item.sk ?? '';
+  const numberVal = item.Number ?? item.number ?? extractNumberFromSk(skVal);
+  return {
+    ...item,
+    PK: item.PK ?? item.pk ?? '',
+    SK: skVal,
+    BusinessDay: item.BusinessDay ?? item.businessDay ?? (skVal && String(skVal).split('#')[0]) ?? '',
+    Number: numberVal !== '' && numberVal != null ? String(numberVal) : extractNumberFromSk(skVal) || '',
+    OpenDate: item.OpenDate ?? item.openDate ?? null,
+    CloseDate: item.CloseDate ?? item.closeDate ?? null,
+    WorkplaceId: item.WorkplaceId ?? item.workplaceId ?? item.PK ?? item.pk ?? '',
+    PosId: item.PosId ?? item.posId ?? null,
+    PosName: item.PosName ?? item.posName ?? null,
+    Amounts: {
+      GrossAmount: amounts.GrossAmount ?? amounts.grossAmount ?? amounts.Total ?? amounts.total ?? null,
+      NetAmount: amounts.NetAmount ?? amounts.netAmount ?? null,
+      VatAmount: amounts.VatAmount ?? amounts.vatAmount ?? null,
+      SurchargeAmount: amounts.SurchargeAmount ?? amounts.surchargeAmount ?? null,
+    },
+    InvoicePayments: ensureArray(item.InvoicePayments ?? item.invoicePayments).map(toPayment),
+    TicketPayments: ensureArray(item.TicketPayments ?? item.ticketPayments).map(toPayment),
+    DeliveryNotePayments: ensureArray(item.DeliveryNotePayments ?? item.deliveryNotePayments).map(toPayment),
+    SalesOrderPayments: ensureArray(item.SalesOrderPayments ?? item.salesOrderPayments).map(toPayment),
+  };
+}
 
 app.post('/api/agora/closeouts/sync', async (req, res) => {
   const body = req.body || {};
-  const businessDay = body.businessDay ? String(body.businessDay).trim() : '';
+  const businessDay = body.businessDay ? String(body.businessDay).trim() : new Date().toISOString().slice(0, 10);
   const workplaces = body.workplaces != null ? (Array.isArray(body.workplaces) ? body.workplaces : [body.workplaces]) : null;
 
-  if (!businessDay || !/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
-    return res.status(400).json({ error: 'body.businessDay es obligatorio y debe ser YYYY-MM-DD' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
+    return res.status(400).json({ error: 'businessDay obligatorio (YYYY-MM-DD)' });
   }
 
   try {
-    const data = await exportSystemCloseOuts(businessDay, workplaces ?? undefined);
-    const list = data?.SystemCloseOuts ?? data?.SystemCloseouts ?? data?.systemCloseOuts ?? (Array.isArray(data) ? data : []);
-    const rawList = Array.isArray(list) ? list : [];
-    const items = rawList.filter((r) => (r?.WorkplaceId ?? r?.WokrplaceId) != null).map(mapCloseOutToItem);
+    let rawList = [];
+    let usePos = false;
+    const [posData, sysData] = await Promise.all([
+      exportPosCloseOuts(businessDay, workplaces ?? undefined).catch((e) => ({ _err: e })),
+      exportSystemCloseOuts(businessDay, workplaces ?? undefined).catch((e) => ({ _err: e })),
+    ]);
+
+    const posList = !posData?._err ? extractCloseOutsArray(posData, ['PosCloseOuts', 'PosCloseouts', 'posCloseOuts']) : [];
+    const sysList = !sysData?._err ? extractCloseOutsArray(sysData, ['SystemCloseOuts', 'SystemCloseouts', 'systemCloseOuts']) : [];
+    const sysByWorkplace = new Map();
+    for (const s of sysList) {
+      const pk = String(s?.WorkplaceId ?? s?.workplaceId ?? '').trim() || '0';
+      if (Array.isArray(s?.InvoicePayments ?? s?.invoicePayments) && (s.InvoicePayments ?? s.invoicePayments).length > 0) {
+        sysByWorkplace.set(pk, s);
+      }
+    }
+    if (posList.length > 0) {
+      rawList = posList;
+      usePos = true;
+    } else if (sysList.length > 0) {
+      rawList = sysList;
+      usePos = false;
+    }
+
+    if (rawList.length === 0) {
+      return res.json({ ok: true, fetched: 0, upserted: 0, businessDay, source: usePos ? 'PosCloseOuts' : 'SystemCloseOuts' });
+    }
+
+    const paymentSourceByRecord = buildPaymentSourceByRecord(rawList, sysByWorkplace, usePos);
+    const items = rawList.map((r, idx) => {
+      const paymentSource = paymentSourceByRecord.get(r) ?? null;
+      const item = mapCloseOutToItem(r, businessDay, paymentSource);
+      if (!item.Number || item.Number === '') item.Number = String(idx + 1);
+      if (!item.SK || String(item.SK).trim() === '') {
+        item.SK = businessDay ? (item.PosId ? `${businessDay}#${item.PosId}#${item.Number}` : `${businessDay}#${item.Number}`) : '';
+      }
+      return item;
+    }).filter((i) => i.PK && i.SK && String(i.PK).trim() !== '' && String(i.SK).trim() !== '');
+
+    const workplaceIds = [...new Set(items.map((i) => i.PK).filter(Boolean))];
+    const keysToDeleteMap = new Map();
+    for (const pk of workplaceIds) {
+      let lastKey = null;
+      do {
+        const q = await docClient.send(new QueryCommand({
+          TableName: tableSalesCloseOutsName,
+          KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+          ExpressionAttributeValues: { ':pk': pk, ':sk': `${businessDay}#` },
+          ...(lastKey && { ExclusiveStartKey: lastKey }),
+        }));
+        for (const rec of q.Items || []) keysToDeleteMap.set(`${rec.PK}#${rec.SK}`, { PK: rec.PK, SK: rec.SK });
+        lastKey = q.LastEvaluatedKey || null;
+      } while (lastKey);
+    }
+    const keysToDelete = [...keysToDeleteMap.values()];
+    for (let i = 0; i < keysToDelete.length; i += 25) {
+      const chunk = keysToDelete.slice(i, i + 25);
+      await docClient.send(new BatchWriteCommand({
+        RequestItems: { [tableSalesCloseOutsName]: chunk.map((k) => ({ DeleteRequest: { Key: k } })) },
+      }));
+    }
+
     const upserted = await upsertBatch(docClient, tableSalesCloseOutsName, items);
-    return res.json({ ok: true, fetched: rawList.length, upserted, businessDay });
+    console.log('[agora/closeouts] Sync:', businessDay, 'fetched:', rawList.length, 'upserted:', upserted);
+    return res.json({ ok: true, fetched: rawList.length, upserted, businessDay, source: usePos ? 'PosCloseOuts' : 'SystemCloseOuts' });
   } catch (err) {
     console.error('[agora/closeouts/sync]', err.message || err);
     return res.status(500).json({ error: err.message || 'Error al sincronizar cierres' });
+  }
+});
+
+/** Valida que un registro crudo de Ágora tenga la estructura mínima esperada (Guía 8.1.6). */
+function validateAgoraCloseOut(raw) {
+  if (!raw || typeof raw !== 'object') return { valid: false, reason: 'Registro vacío o no objeto' };
+  const r = getMappableRaw(raw);
+  const workplaceId = findValue(r, ['WorkplaceId', 'workplaceId', 'LocalId', 'localId']) ?? r?.WorkplaceId ?? r?.Workplace?.Id;
+  if (!workplaceId && workplaceId !== 0) return { valid: false, reason: 'Falta WorkplaceId' };
+  const businessDay = findValue(r, ['BusinessDay', 'businessDay', 'Date', 'date']) ?? r?.BusinessDay;
+  if (!businessDay || !/^\d{4}-\d{2}-\d{2}$/.test(String(businessDay))) return { valid: false, reason: 'BusinessDay inválido o ausente' };
+  const amounts = r?.Amounts ?? r?.amounts ?? r?.Totals ?? r?.totals ?? {};
+  const gross = findValue(amounts, ['GrossAmount', 'grossAmount', 'Total', 'total']) ?? findValue(r, ['ActualEndAmount', 'actualEndAmount']);
+  const balances = r?.Balances ?? r?.balances ?? [];
+  const hasAmount = (gross != null && (typeof gross === 'number' || !Number.isNaN(parseFloat(String(gross))))) ||
+    (Array.isArray(balances) && balances.length > 0);
+  if (!hasAmount) return { valid: false, reason: 'Falta importe (GrossAmount/Total/Balances)' };
+  return { valid: true };
+}
+
+/**
+ * Sincronización completa: borra duplicados, elimina registros fuera de rango,
+ * y re-sincroniza desde Ágora para el rango indicado.
+ * POST /api/agora/closeouts/full-sync
+ * Body: { dateFrom?: 'YYYY-MM-DD', dateTo?: 'YYYY-MM-DD', deleteOutOfRange?: boolean }
+ * Por defecto: dateFrom=2025-01-01, dateTo=hoy
+ */
+app.post('/api/agora/closeouts/full-sync', async (req, res) => {
+  const body = req.body || {};
+  const today = new Date().toISOString().slice(0, 10);
+  const dateFrom = (body.dateFrom || '2025-01-01').toString().trim();
+  const dateTo = (body.dateTo || today).toString().trim();
+  const deleteOutOfRange = body.deleteOutOfRange !== false;
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+    return res.status(400).json({ error: 'dateFrom y dateTo deben ser YYYY-MM-DD' });
+  }
+  if (dateFrom > dateTo) {
+    return res.status(400).json({ error: 'dateFrom no puede ser mayor que dateTo' });
+  }
+
+  try {
+    let deletedOutOfRange = 0;
+    if (deleteOutOfRange) {
+      const allItems = [];
+      let lastKey = null;
+      do {
+        const scanRes = await docClient.send(new ScanCommand({
+          TableName: tableSalesCloseOutsName,
+          ...(lastKey && { ExclusiveStartKey: lastKey }),
+        }));
+        allItems.push(...(scanRes.Items || []));
+        lastKey = scanRes.LastEvaluatedKey || null;
+      } while (lastKey);
+
+      const keysToDelete = [];
+      const seenBusinessKey = new Set();
+      for (const item of allItems) {
+        const pk = item.PK ?? item.pk;
+        const sk = item.SK ?? item.sk;
+        const bd = item.BusinessDay ?? item.businessDay ?? (typeof sk === 'string' ? sk.split('#')[0] : '');
+        const posId = item.PosId ?? item.posId ?? (typeof sk === 'string' ? sk.split('#')[1] : '') ?? '';
+        const num = item.Number ?? item.number ?? (typeof sk === 'string' ? sk.split('#').pop() : '') ?? '';
+        const outOfRange = !bd || bd < dateFrom || bd > dateTo;
+        const businessKey = `${pk}|${bd}|${posId}|${num}`;
+        const isDuplicate = seenBusinessKey.has(businessKey);
+        if (outOfRange || isDuplicate) keysToDelete.push({ PK: pk, SK: sk });
+        if (!outOfRange) seenBusinessKey.add(businessKey);
+      }
+
+      for (let i = 0; i < keysToDelete.length; i += 25) {
+        const chunk = keysToDelete.slice(i, i + 25);
+        await docClient.send(new BatchWriteCommand({
+          RequestItems: { [tableSalesCloseOutsName]: chunk.map((k) => ({ DeleteRequest: { Key: k } })) },
+        }));
+        deletedOutOfRange += chunk.length;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (deletedOutOfRange > 0) console.log('[agora/closeouts/full-sync] Eliminados fuera de rango o duplicados:', deletedOutOfRange);
+    }
+
+    const days = [];
+    let d = new Date(dateFrom + 'T12:00:00');
+    const end = new Date(dateTo + 'T12:00:00');
+    while (d <= end) {
+      days.push(d.toISOString().slice(0, 10));
+      d.setDate(d.getDate() + 1);
+    }
+
+    let totalFetched = 0;
+    let totalUpserted = 0;
+    let totalSkipped = 0;
+    const errors = [];
+
+    for (let i = 0; i < days.length; i++) {
+      const businessDay = days[i];
+      try {
+        let rawList = [];
+        let usePos = false;
+        const [posData, sysData] = await Promise.all([
+          exportPosCloseOuts(businessDay).catch((e) => ({ _err: e })),
+          exportSystemCloseOuts(businessDay).catch((e) => ({ _err: e })),
+        ]);
+
+        const posList = !posData?._err ? extractCloseOutsArray(posData, ['PosCloseOuts', 'PosCloseouts', 'posCloseOuts']) : [];
+        const sysList = !sysData?._err ? extractCloseOutsArray(sysData, ['SystemCloseOuts', 'SystemCloseouts', 'systemCloseOuts']) : [];
+        const sysByWorkplace = new Map();
+        for (const s of sysList) {
+          const pk = String(s?.WorkplaceId ?? s?.workplaceId ?? '').trim() || '0';
+          if (Array.isArray(s?.InvoicePayments ?? s?.invoicePayments) && (s.InvoicePayments ?? s.invoicePayments).length > 0) {
+            sysByWorkplace.set(pk, s);
+          }
+        }
+        if (posList.length > 0) {
+          rawList = posList;
+          usePos = true;
+        } else if (sysList.length > 0) {
+          rawList = sysList;
+          usePos = false;
+        }
+
+        const validRaw = [];
+        for (const r of rawList) {
+          const v = validateAgoraCloseOut(r);
+          if (v.valid) validRaw.push(r);
+          else totalSkipped++;
+        }
+
+        if (validRaw.length === 0) continue;
+
+        const paymentSourceByRecord = buildPaymentSourceByRecord(validRaw, sysByWorkplace, usePos);
+        const items = validRaw.map((r, idx) => {
+          const paymentSource = paymentSourceByRecord.get(r) ?? null;
+          const item = mapCloseOutToItem(r, businessDay, paymentSource);
+          if (!item.Number || item.Number === '') item.Number = String(idx + 1);
+          if (!item.SK || String(item.SK).trim() === '') {
+            item.SK = businessDay ? (item.PosId ? `${businessDay}#${item.PosId}#${item.Number}` : `${businessDay}#${item.Number}`) : '';
+          }
+          return item;
+        }).filter((i) => i.PK && i.SK && String(i.PK).trim() !== '' && String(i.SK).trim() !== '');
+
+        const workplaceIds = [...new Set(items.map((i) => i.PK).filter(Boolean))];
+        const keysToDeleteMap = new Map();
+        for (const pk of workplaceIds) {
+          let lastKey = null;
+          do {
+            const q = await docClient.send(new QueryCommand({
+              TableName: tableSalesCloseOutsName,
+              KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+              ExpressionAttributeValues: { ':pk': pk, ':sk': `${businessDay}#` },
+              ...(lastKey && { ExclusiveStartKey: lastKey }),
+            }));
+            for (const rec of q.Items || []) keysToDeleteMap.set(`${rec.PK}#${rec.SK}`, { PK: rec.PK, SK: rec.SK });
+            lastKey = q.LastEvaluatedKey || null;
+          } while (lastKey);
+        }
+        const keysToDelete = [...keysToDeleteMap.values()];
+        for (let j = 0; j < keysToDelete.length; j += 25) {
+          const chunk = keysToDelete.slice(j, j + 25);
+          await docClient.send(new BatchWriteCommand({
+            RequestItems: { [tableSalesCloseOutsName]: chunk.map((k) => ({ DeleteRequest: { Key: k } })) },
+          }));
+        }
+
+        const upserted = await upsertBatch(docClient, tableSalesCloseOutsName, items);
+        totalFetched += validRaw.length;
+        totalUpserted += upserted;
+
+        if ((i + 1) % 30 === 0) console.log('[agora/closeouts/full-sync] Progreso:', i + 1, '/', days.length, 'días');
+        await new Promise((r) => setTimeout(r, 100));
+      } catch (err) {
+        errors.push({ day: businessDay, error: err.message || String(err) });
+      }
+    }
+
+    console.log('[agora/closeouts/full-sync] Completado:', { dateFrom, dateTo, deletedOutOfRange, totalFetched, totalUpserted, totalSkipped, errors: errors.length });
+    return res.json({
+      ok: true,
+      dateFrom,
+      dateTo,
+      deletedOutOfRange,
+      totalFetched,
+      totalUpserted,
+      totalSkipped,
+      daysProcessed: days.length,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (err) {
+    console.error('[agora/closeouts/full-sync]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error en sincronización completa' });
+  }
+});
+
+/**
+ * Completa campos faltantes en Igp_SalesCloseouts:
+ * - PosName desde Igp_SaleCenters (PK=GLOBAL, SK=PosId)
+ * - Amounts, OpenDate, CloseDate, InvoicePayments desde Ágora cuando falten
+ * POST /api/agora/closeouts/complete-fields
+ * Body: { limit?: number, dateFrom?: 'YYYY-MM-DD', dateTo?: 'YYYY-MM-DD', workplaceId?: string }
+ */
+app.post('/api/agora/closeouts/complete-fields', async (req, res) => {
+  const body = req.body || {};
+  const limit = Math.min(Math.max(parseInt(body.limit, 10) || 5000, 1), 10000);
+  const dateFrom = (body.dateFrom || '').toString().trim();
+  const dateTo = (body.dateTo || '').toString().trim();
+  const filterWorkplaceId = (body.workplaceId || '').toString().trim();
+
+  try {
+    const items = [];
+    let lastKey = null;
+
+    if (filterWorkplaceId) {
+      let keyCond = 'PK = :pk';
+      const exprValues = { ':pk': filterWorkplaceId };
+      if (dateFrom && /^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
+        keyCond += ' AND SK >= :dateFrom';
+        exprValues[':dateFrom'] = dateFrom;
+      }
+      if (dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+        keyCond += ' AND SK <= :dateToMax';
+        exprValues[':dateToMax'] = `${dateTo}\uffff`;
+      }
+      do {
+        const q = await docClient.send(new QueryCommand({
+          TableName: tableSalesCloseOutsName,
+          KeyConditionExpression: keyCond,
+          ExpressionAttributeValues: exprValues,
+          Limit: Math.min(limit - items.length, 100),
+          ...(lastKey && { ExclusiveStartKey: lastKey }),
+        }));
+        items.push(...(q.Items || []));
+        lastKey = q.LastEvaluatedKey || null;
+        if (items.length >= limit) break;
+      } while (lastKey);
+    } else {
+      const filterExpr = [];
+      const exprValues = {};
+      if (dateFrom && /^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
+        filterExpr.push('SK >= :dateFrom');
+        exprValues[':dateFrom'] = dateFrom;
+      }
+      if (dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+        filterExpr.push('SK <= :dateToMax');
+        exprValues[':dateToMax'] = `${dateTo}\uffff`;
+      }
+      do {
+        const scanParams = {
+          TableName: tableSalesCloseOutsName,
+          Limit: Math.min(limit - items.length, 100),
+          ...(lastKey && { ExclusiveStartKey: lastKey }),
+          ...(filterExpr.length > 0 && {
+            FilterExpression: filterExpr.join(' AND '),
+            ExpressionAttributeValues: exprValues,
+          }),
+        };
+        const scanRes = await docClient.send(new ScanCommand(scanParams));
+        items.push(...(scanRes.Items || []));
+        lastKey = scanRes.LastEvaluatedKey || null;
+        if (items.length >= limit) break;
+      } while (lastKey);
+    }
+
+    let posNameUpdated = 0;
+    let agoraUpdated = 0;
+    const errors = [];
+
+    const needPosName = items.filter((it) => {
+      const posId = it.PosId ?? it.posId;
+      const posName = it.PosName ?? it.posName ?? '';
+      return posId != null && posId !== '' && (!posName || String(posName).trim() === '');
+    });
+    const uniquePosIds = [...new Set(needPosName.map((it) => String(it.PosId ?? it.posId ?? '')))].filter(Boolean);
+
+    const posNameMap = new Map();
+    for (let i = 0; i < uniquePosIds.length; i += 100) {
+      const chunk = uniquePosIds.slice(i, i + 100);
+      const keys = chunk.map((id) => ({ PK: 'GLOBAL', SK: String(id) }));
+      let reqItems = { [tableSaleCentersName]: { Keys: keys } };
+      do {
+        const batchRes = await docClient.send(new BatchGetCommand({ RequestItems: reqItems }));
+        const results = batchRes.Responses?.[tableSaleCentersName] || [];
+        for (const r of results) {
+          const sk = r.SK ?? r.sk;
+          const nombre = r.Nombre ?? r.nombre ?? '';
+          if (sk && nombre) posNameMap.set(String(sk), nombre);
+        }
+        reqItems = batchRes.UnprocessedKeys || {};
+        if (Object.keys(reqItems).length > 0) await new Promise((r) => setTimeout(r, 100));
+      } while (Object.keys(reqItems).length > 0);
+    }
+
+    for (const it of needPosName) {
+      const posId = String(it.PosId ?? it.posId ?? '');
+      const posName = posNameMap.get(posId);
+      if (!posName) continue;
+      try {
+        await docClient.send(new UpdateCommand({
+          TableName: tableSalesCloseOutsName,
+          Key: { PK: it.PK, SK: it.SK },
+          UpdateExpression: 'SET PosName = if_not_exists(PosName, :nombre)',
+          ExpressionAttributeValues: { ':nombre': posName },
+        }));
+        posNameUpdated++;
+      } catch (e) {
+        errors.push({ type: 'PosName', key: `${it.PK}#${it.SK}`, error: e.message });
+      }
+    }
+
+    const needAgora = items.filter((it) => {
+      const amounts = it.Amounts ?? it.amounts ?? {};
+      const gross = amounts.GrossAmount ?? amounts.grossAmount ?? amounts.Total ?? amounts.total;
+      const openDate = it.OpenDate ?? it.openDate;
+      const closeDate = it.CloseDate ?? it.closeDate;
+      const payments = it.InvoicePayments ?? it.invoicePayments ?? [];
+      const hasGross = gross != null && (typeof gross === 'number' || !Number.isNaN(parseFloat(String(gross))));
+      const hasPayments = Array.isArray(payments) && payments.length > 0;
+      const businessDay = (it.SK ?? it.sk ?? '').split('#')[0];
+      return businessDay && /^\d{4}-\d{2}-\d{2}$/.test(businessDay) && (!hasGross || !openDate || !closeDate || !hasPayments);
+    });
+
+    const daysToFetch = [...new Set(needAgora.map((it) => {
+      const bd = (it.SK ?? it.sk ?? '').split('#')[0];
+      return `${it.PK}|${bd}`;
+    }))];
+
+    for (const dayKey of daysToFetch) {
+      const [workplaceId, businessDay] = dayKey.split('|');
+      if (!businessDay || !/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) continue;
+      try {
+        let rawList = [];
+        let usePos = false;
+        const [posData, sysData] = await Promise.all([
+          exportPosCloseOuts(businessDay, [workplaceId]).catch((e) => ({ _err: e })),
+          exportSystemCloseOuts(businessDay, [workplaceId]).catch((e) => ({ _err: e })),
+        ]);
+        const posList = !posData?._err ? extractCloseOutsArray(posData, ['PosCloseOuts', 'PosCloseouts', 'posCloseOuts']) : [];
+        const sysList = !sysData?._err ? extractCloseOutsArray(sysData, ['SystemCloseOuts', 'SystemCloseouts', 'systemCloseOuts']) : [];
+        const sysByWorkplace = new Map();
+        for (const s of sysList) {
+          const pk = String(s?.WorkplaceId ?? s?.workplaceId ?? '').trim() || '0';
+          if (Array.isArray(s?.InvoicePayments ?? s?.invoicePayments) && (s.InvoicePayments ?? s.invoicePayments).length > 0) {
+            sysByWorkplace.set(pk, s);
+          }
+        }
+        rawList = posList.length > 0 ? posList : sysList;
+        if (rawList.length === 0) continue;
+
+        const usePosLocal = posList.length > 0;
+        const paymentSourceByRecord = buildPaymentSourceByRecord(rawList, sysByWorkplace, usePosLocal);
+        const rawByKey = new Map();
+        for (const r of rawList) {
+          const paymentSource = paymentSourceByRecord.get(r) ?? null;
+          const mapped = mapCloseOutToItem(r, businessDay, paymentSource);
+          const mpk = mapped.PK ?? workplaceId;
+          const sk = mapped.SK ?? '';
+          if (mpk && sk) rawByKey.set(`${mpk}#${sk}`, mapped);
+        }
+
+        for (const it of needAgora) {
+          if (it.PK !== workplaceId) continue;
+          const bd = (it.SK ?? it.sk ?? '').split('#')[0];
+          if (bd !== businessDay) continue;
+          const key = `${it.PK}#${it.SK}`;
+          const mapped = rawByKey.get(key);
+          if (!mapped) continue;
+
+          const updates = [];
+          const exprNames = {};
+          const exprValues = {};
+          let idx = 0;
+          const addSet = (name, attr, val) => {
+            const n = name;
+            const v = `:v${idx}`;
+            exprNames[n] = attr;
+            exprValues[v] = val;
+            updates.push(`${n} = if_not_exists(${n}, ${v})`);
+            idx++;
+          };
+
+          const amounts = it.Amounts ?? it.amounts ?? {};
+          const gross = amounts.GrossAmount ?? amounts.grossAmount ?? amounts.Total ?? amounts.total;
+          if ((gross == null || gross === '') && mapped.Amounts) {
+            addSet('#amt', 'Amounts', mapped.Amounts);
+          }
+          if (!it.OpenDate && !it.openDate && mapped.OpenDate) addSet('#open', 'OpenDate', mapped.OpenDate);
+          if (!it.CloseDate && !it.closeDate && mapped.CloseDate) addSet('#close', 'CloseDate', mapped.CloseDate);
+          const payments = it.InvoicePayments ?? it.invoicePayments ?? [];
+          if ((!payments || payments.length === 0) && mapped.InvoicePayments?.length > 0) {
+            addSet('#inv', 'InvoicePayments', mapped.InvoicePayments);
+          }
+          if (updates.length === 0) continue;
+
+          try {
+            await docClient.send(new UpdateCommand({
+              TableName: tableSalesCloseOutsName,
+              Key: { PK: it.PK, SK: it.SK },
+              UpdateExpression: `SET ${updates.join(', ')}`,
+              ExpressionAttributeNames: exprNames,
+              ExpressionAttributeValues: exprValues,
+            }));
+            agoraUpdated++;
+          } catch (e) {
+            errors.push({ type: 'Agora', key: `${it.PK}#${it.SK}`, error: e.message });
+          }
+        }
+        await new Promise((r) => setTimeout(r, 150));
+      } catch (e) {
+        errors.push({ type: 'AgoraFetch', day: dayKey, error: e.message });
+      }
+    }
+
+    console.log('[agora/closeouts/complete-fields]', { scanned: items.length, posNameUpdated, agoraUpdated, errors: errors.length });
+    return res.json({
+      ok: true,
+      scanned: items.length,
+      posNameUpdated,
+      agoraUpdated,
+      totalUpdated: posNameUpdated + agoraUpdated,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (err) {
+    console.error('[agora/closeouts/complete-fields]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al completar campos' });
   }
 });
 
@@ -1479,5 +2417,5 @@ const port = process.env.PORT || 3001;
 const host = '0.0.0.0';
 app.listen(port, host, () => {
   console.log(`API ERP escuchando en http://localhost:${port} (también http://127.0.0.1:${port})`);
-  console.log(`Tabla usuarios: ${tableName} | Tabla locales: ${tableLocalesName} | Tabla empresas: ${tableEmpresasName} | Tabla productos: ${tableProductosName} | Cierres ventas: ${tableSalesCloseOutsName} | Centros venta: ${tableSaleCentersName} | Mantenimiento: ${tableMantenimientoName} | Roles/permisos: ${tableRolesPermisosName}`);
+  console.log(`Tabla usuarios: ${tableName} | Tabla locales: ${tableLocalesName} | Tabla empresas: ${tableEmpresasName} | Tabla productos: ${tableProductosName} | Centros venta: ${tableSaleCentersName} | Cierres ventas: ${tableSalesCloseOutsName} | Mantenimiento: ${tableMantenimientoName} | Roles/permisos: ${tableRolesPermisosName}`);
 });

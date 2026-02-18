@@ -1,27 +1,35 @@
 /**
- * Upsert de cierres de ventas (Ágora SystemCloseOuts) en DynamoDB.
- * Tabla: PK = workplaceId (string), SK = businessDay#closeOutNumber (string).
+ * Upsert de cierres de ventas (Ágora PosCloseOuts/SystemCloseOuts) en DynamoDB.
+ * Tabla Igp_SalesCloseouts: PK = workplaceId, SK = businessDay#posId#number
  */
 
-import { PutCommand } from '@aws-sdk/lib-dynamodb';
+import { BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
 
-/**
- * Inserta o actualiza un lote de ítems en Igp_SalesCloseouts.
- * PutCommand sobrescribe si ya existe el mismo PK/SK.
- * @param {import('@aws-sdk/lib-dynamodb').DynamoDBDocumentClient} docClient
- * @param {string} tableName
- * @param {Array<Record<string, unknown>>} items - cada uno debe tener PK (workplaceId) y SK (businessDay#number)
- * @returns {Promise<number>} cantidad de ítems escritos
- */
+const BATCH_SIZE = 25;
+
 export async function upsertBatch(docClient, tableName, items) {
   if (!items.length) return 0;
+  const seen = new Map();
   for (const item of items) {
-    await docClient.send(
-      new PutCommand({
-        TableName: tableName,
-        Item: item,
-      })
-    );
+    const pk = item.PK != null ? String(item.PK).trim() : '';
+    const sk = item.SK != null ? String(item.SK).trim() : '';
+    if (pk && sk) seen.set(`${pk}#${sk}`, { ...item, PK: pk, SK: sk });
   }
-  return items.length;
+  const deduped = [...seen.values()];
+  for (let i = 0; i < deduped.length; i += BATCH_SIZE) {
+    const chunk = deduped.slice(i, i + BATCH_SIZE);
+    let req = {
+      RequestItems: { [tableName]: chunk.map((it) => ({ PutRequest: { Item: it } })) },
+    };
+    let unprocessed;
+    do {
+      const res = await docClient.send(new BatchWriteCommand(req));
+      unprocessed = res.UnprocessedItems?.[tableName];
+      if (unprocessed?.length) {
+        req = { RequestItems: { [tableName]: unprocessed } };
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    } while (unprocessed?.length);
+  }
+  return deduped.length;
 }

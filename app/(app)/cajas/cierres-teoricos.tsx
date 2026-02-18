@@ -8,55 +8,106 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
+  Pressable,
   PanResponder,
+  Platform,
+  Switch,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+const REFETCH_INTERVAL_MS = 15_000;
+const SYNC_INTERVAL_MS = 120_000;
+const PAGE_SIZE = 100;
+const DEFAULT_COL_WIDTH = 72;
+const MIN_COL_WIDTH = 50;
+const MAX_COL_WIDTH = 180;
+
+
+/** Parsea respuesta como JSON de forma segura. Evita "Unexpected token '<'" cuando el servidor devuelve HTML. */
+async function safeJson<T = unknown>(res: Response): Promise<T> {
+  const text = await res.text();
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.startsWith('<')) {
+    throw new Error(res.ok ? 'Respuesta no válida del servidor' : `Error ${res.status}: ${res.statusText || 'Servidor no disponible'}`);
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(res.ok ? 'Respuesta no válida del servidor' : `Error ${res.status}: ${res.statusText || 'Servidor no disponible'}`);
+  }
+}
 
 const PAYMENT_KEYS = ['InvoicePayments', 'TicketPayments', 'DeliveryNotePayments', 'SalesOrderPayments'];
-const DEFAULT_COL_WIDTH = 100;
-const REFETCH_INTERVAL_MS = 15_000; // GET a DynamoDB cada 15 s (barato, tabla actualizada)
-const SYNC_INTERVAL_MS = 60_000;   // POST sync Agora → DynamoDB cada 1 min (trae registros nuevos)
 
-const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+/** Celda con tooltip al pasar el ratón (solo web). Muestra el texto completo en etiqueta amarillo pastel. */
+function CellWithTooltip({
+  fullText,
+  cellStyle,
+  textStyle,
+}: {
+  fullText: string;
+  cellStyle: object;
+  textStyle: object;
+}) {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const isWeb = Platform.OS === 'web';
+  return (
+    <View
+      style={[styles.cell, cellStyle]}
+      {...(isWeb && {
+        onMouseEnter: () => setShowTooltip(true),
+        onMouseLeave: () => setShowTooltip(false),
+      } as object)}
+    >
+      <Text style={textStyle} numberOfLines={1}>
+        {fullText}
+      </Text>
+      {isWeb && showTooltip && String(fullText).trim() !== '' && (
+        <View style={styles.cellTooltip} pointerEvents="none">
+          <Text style={styles.cellTooltipText} numberOfLines={10}>
+            {fullText}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+const KNOWN_PAYMENT_ORDER = ['Efectivo', 'Tarjeta', 'Pendiente de cobro', 'Prepago Transferencia', 'AgoraPay'];
+const PAYMENT_ALIASES: Record<string, string> = {
+  efectivo: 'Efectivo', tarjeta: 'Tarjeta', card: 'Tarjeta',
+  'pendiente de cobro': 'Pendiente de cobro', pending: 'Pendiente de cobro',
+  'prepago transferencia': 'Prepago Transferencia', transferencia: 'Prepago Transferencia',
+  agorapay: 'AgoraPay',
+};
+type CloseOut = Record<string, unknown>;
 
-/** Convierte YYYY-MM-DD a DD/MM/YYYY (europeo). */
-function dateToDDMMYYYY(iso: string): string {
-  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
-  const [y, m, d] = iso.split('-');
-  return `${d}/${m}/${y}`;
+function normalizePaymentName(name: string): string {
+  const k = name.trim().toLowerCase();
+  return PAYMENT_ALIASES[k] ?? KNOWN_PAYMENT_ORDER.find((m) => m.toLowerCase() === k) ?? name;
 }
 
-/** Parsea DD/MM/YYYY o D/M/YYYY a YYYY-MM-DD; devuelve '' si no es válido. */
-function parseDDMMYYYY(s: string): string {
-  const t = s.trim().replace(/\s/g, '');
-  const parts = t.split(/[/.-]/);
-  if (parts.length !== 3) return '';
-  const d = parseInt(parts[0], 10);
-  const m = parseInt(parts[1], 10);
-  const y = parseInt(parts[2], 10);
-  if (Number.isNaN(d) || Number.isNaN(m) || Number.isNaN(y)) return '';
-  if (y < 1900 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) return '';
-  const date = new Date(y, m - 1, d);
-  if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return '';
-  const mm = String(m).padStart(2, '0');
-  const dd = String(d).padStart(2, '0');
-  return `${y}-${mm}-${dd}`;
-}
-
-/** Genera los días a mostrar en un mes (incluye celdas vacías al inicio). */
-function getCalendarDays(year: number, month: number): (number | null)[] {
-  const first = new Date(year, month, 1);
-  const last = new Date(year, month + 1, 0);
-  const startWeekday = first.getDay();
-  const daysInMonth = last.getDate();
-  const out: (number | null)[] = [];
-  for (let i = 0; i < startWeekday; i++) out.push(null);
-  for (let d = 1; d <= daysInMonth; d++) out.push(d);
-  return out;
+/** Parsea dd/mm/yyyy o yyyy-mm-dd y devuelve yyyy-mm-dd para comparación con Business Day. */
+function parseDateToYYYYMMDD(input: string): string | null {
+  const s = input.trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})$/);
+  if (m) {
+    const d = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10);
+    let y = parseInt(m[3], 10);
+    if (y < 100) y += 2000;
+    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) {
+      const date = new Date(y, mo - 1, d);
+      if (date.getDate() === d && date.getMonth() === mo - 1 && date.getFullYear() === y) {
+        return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      }
+    }
+    return null;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  return null;
 }
 
 function getBusinessDay(item: CloseOut): string {
@@ -67,38 +118,32 @@ function getBusinessDay(item: CloseOut): string {
   return '';
 }
 
-function getMesFromBusinessDay(item: CloseOut): string {
-  const bd = getBusinessDay(item);
-  if (!bd || !/^\d{4}-\d{2}-\d{2}$/.test(bd)) return '—';
-  const d = new Date(bd + 'T12:00:00');
-  if (Number.isNaN(d.getTime())) return '—';
-  return MESES[d.getMonth()] ?? '—';
+function getAmounts(item: CloseOut): Record<string, unknown> | undefined {
+  const a = item.Amounts ?? item.amounts;
+  if (a != null && typeof a === 'object') return a as Record<string, unknown>;
+  return undefined;
 }
 
-function getAnioFromBusinessDay(item: CloseOut): string {
-  const bd = getBusinessDay(item);
-  if (!bd || !/^\d{4}-\d{2}-\d{2}$/.test(bd)) return '—';
-  const d = new Date(bd + 'T12:00:00');
-  if (Number.isNaN(d.getTime())) return '—';
-  return String(d.getFullYear());
+function getInvoicePaymentsTotal(item: CloseOut): number {
+  const arr = item.InvoicePayments ?? item.invoicePayments;
+  if (!Array.isArray(arr)) return 0;
+  return arr.reduce((s, p) => s + (Number(p?.Amount ?? (p as { amount?: number }).amount ?? 0) || 0), 0);
 }
 
-function getDiaSemanaFromBusinessDay(item: CloseOut): string {
-  const bd = getBusinessDay(item);
-  if (!bd || !/^\d{4}-\d{2}-\d{2}$/.test(bd)) return '—';
-  const d = new Date(bd + 'T12:00:00');
-  if (Number.isNaN(d.getTime())) return '—';
-  return DIAS_SEMANA[d.getDay()] ?? '—';
+function getAmountForMethod(item: CloseOut, methodName: string): number {
+  let total = 0;
+  const colCanonical = normalizePaymentName(methodName);
+  for (const key of PAYMENT_KEYS) {
+    const arr = item[key as keyof CloseOut];
+    if (!Array.isArray(arr)) continue;
+    for (const p of arr) {
+      const raw = (p?.MethodName ?? (p as { methodName?: string }).methodName ?? '').toString().trim() || 'Sin nombre';
+      const name = raw !== 'Sin nombre' ? normalizePaymentName(raw) : raw;
+      if (name === colCanonical) total += Number(p?.Amount ?? (p as { amount?: number }).amount ?? 0) || 0;
+    }
+  }
+  return total;
 }
-
-const MIN_COL_WIDTH = 50;
-const MAX_COL_WIDTH = 400;
-const PAGE_SIZE = 50;
-
-const KNOWN_PAYMENT_ORDER = ['Efectivo', 'Tarjeta', 'Pendiente de cobro', 'Prepago Transferencia', 'AgoraPay'];
-const BASE_COLUMNAS_BEFORE_PAYMENT = ['BusinessDay', 'PK', 'Local', 'Number', 'TotalFacturado'];
-const BASE_COLUMNAS_AFTER_PAYMENT = ['Mes', 'Año', 'DiaSemana', 'OpenDate', 'CloseDate', 'SK'];
-const FIXED_NON_PAYMENT_COLUMNAS = [...BASE_COLUMNAS_BEFORE_PAYMENT, ...BASE_COLUMNAS_AFTER_PAYMENT]; // incluye 'Local'
 
 function getUniquePaymentMethods(items: CloseOut[]): string[] {
   const set = new Set<string>();
@@ -107,7 +152,8 @@ function getUniquePaymentMethods(items: CloseOut[]): string[] {
       const arr = item[key as keyof CloseOut];
       if (!Array.isArray(arr)) continue;
       for (const p of arr) {
-        const name = (p?.MethodName ?? (p as { methodName?: string }).methodName ?? '').toString().trim() || 'Sin nombre';
+        const raw = (p?.MethodName ?? (p as { methodName?: string }).methodName ?? '').toString().trim() || 'Sin nombre';
+        const name = raw !== 'Sin nombre' ? normalizePaymentName(raw) : raw;
         set.add(name);
       }
     }
@@ -117,75 +163,14 @@ function getUniquePaymentMethods(items: CloseOut[]): string[] {
   return [...knownFirst, ...others];
 }
 
-const TOTALES_CHIP_COLORS = ['#dbeafe', '#dcfce7', '#fef3c7', '#e9d5ff', '#ccfbf1', '#fce7f3', '#fed7aa', '#ddd6fe'];
-
-type CloseOut = Record<string, unknown>;
-
-function getAmounts(item: CloseOut): Record<string, unknown> | undefined {
-  const a = item.Amounts ?? item.amounts;
-  if (a != null && typeof a === 'object') return a as Record<string, unknown>;
-  return undefined;
-}
-
-function getValorFromAmounts(amounts: Record<string, unknown> | undefined, key: string): string {
-  if (!amounts) return '—';
-  const v = amounts[key] ?? amounts[key.toLowerCase()] ?? amounts[key.toUpperCase()];
-  return v != null && v !== '' ? String(v) : '—';
-}
-
-function getAmountForMethod(item: CloseOut, methodName: string): string {
-  let total = 0;
-  for (const key of PAYMENT_KEYS) {
-    const arr = item[key as keyof CloseOut];
-    if (!Array.isArray(arr)) continue;
-    for (const p of arr) {
-      const name = (p?.MethodName ?? (p as { methodName?: string }).methodName ?? '').toString().trim() || 'Sin nombre';
-      if (name === methodName) total += Number(p?.Amount ?? (p as { amount?: number }).amount ?? 0) || 0;
-    }
-  }
-  return total ? total.toFixed(2) : '—';
-}
-
-function getValorCelda(item: CloseOut, col: string, agoraCodeToNombre?: Record<string, string>): string {
-  if (col === 'Local' && agoraCodeToNombre) {
-    const pk = String(item.PK ?? item.pk ?? '').trim();
-    return agoraCodeToNombre[pk] ?? '—';
-  }
-  if (col === 'TotalFacturado') {
-    return formatMoneda(getValorFromAmounts(getAmounts(item), 'GrossAmount'));
-  }
-  if (!FIXED_NON_PAYMENT_COLUMNAS.includes(col)) {
-    return formatMoneda(getAmountForMethod(item, col));
-  }
-  if (col === 'Mes') return getMesFromBusinessDay(item);
-  if (col === 'Año') return getAnioFromBusinessDay(item);
-  if (col === 'DiaSemana') return getDiaSemanaFromBusinessDay(item);
-  const v = item[col] ?? (item as Record<string, unknown>)[col.toLowerCase()];
-  return v != null && v !== '' ? String(v) : '—';
-}
-
-function getHeaderLabel(col: string): string {
-  return col === 'PK' ? 'AgoraID' : col === 'Local' ? 'Local' : col === 'TotalFacturado' ? 'Total facturado' : col === 'BusinessDay' ? 'Business Day' : col === 'DiaSemana' ? 'Día' : col;
-}
-
-function parseNum(s: string): number {
-  if (!s || s === '—') return 0;
-  const n = parseFloat(String(s).replace(',', '.').replace(/\s/g, ''));
-  return Number.isNaN(n) ? 0 : n;
-}
-
-/** Formato moneda europeo: 1.234,56 €. Si no es número, devuelve "—". */
 function formatMoneda(value: string | number): string {
   if (value === '' || value === '—' || value == null) return '—';
-  const n = typeof value === 'number' ? value : parseNum(String(value));
-  if (n === 0) return '—';
+  const n = typeof value === 'number' ? value : parseFloat(String(value).replace(',', '.').replace(/\s/g, ''));
+  if (Number.isNaN(n) || n === 0) return '—';
   const parts = n.toFixed(2).split('.');
   const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   return `${intPart},${parts[1]} €`;
 }
-
-const CHAR_WIDTH_ESTIMATE = 6;
-const CELL_PADDING_X = 12;
 
 type LocalItem = { AgoraCode?: string; agoraCode?: string; Nombre?: string; nombre?: string };
 
@@ -193,42 +178,34 @@ export default function CierresTeoricosScreen() {
   const router = useRouter();
   const [closeouts, setCloseouts] = useState<CloseOut[]>([]);
   const [locales, setLocales] = useState<LocalItem[]>([]);
+  const [saleCenters, setSaleCenters] = useState<{ Id?: number; Nombre?: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
-  const [modalSyncVisible, setModalSyncVisible] = useState(false);
-  const [businessDaySync, setBusinessDaySync] = useState('');
-  const [businessDaySyncTo, setBusinessDaySyncTo] = useState('');
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [syncProgress, setSyncProgress] = useState<string | null>(null);
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [colWidths, setColWidths] = useState<Record<string, number>>({});
+  const [syncFechaDesde, setSyncFechaDesde] = useState(() => {
+    const d = new Date();
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  });
+  const [syncFechaHasta, setSyncFechaHasta] = useState(() => {
+    const d = new Date();
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  });
+  const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
+  const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
+  const [filtroLocal, setFiltroLocal] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [modalFiltrosVisible, setModalFiltrosVisible] = useState(false);
-  const [filterLocals, setFilterLocals] = useState<string[]>([]);
-  const [filterBusinessDayFrom, setFilterBusinessDayFrom] = useState('');
-  const [filterBusinessDayTo, setFilterBusinessDayTo] = useState('');
-  const [filterYear, setFilterYear] = useState('');
-  const [filterMonth, setFilterMonth] = useState('');
-  const [displayDateFrom, setDisplayDateFrom] = useState('');
-  const [displayDateTo, setDisplayDateTo] = useState('');
-  const [calendarFor, setCalendarFor] = useState<'from' | 'to' | null>(null);
-  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
-  const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
-  const [anoDropdownOpen, setAnoDropdownOpen] = useState(false);
-  const [mesDropdownOpen, setMesDropdownOpen] = useState(false);
-  const resizeStartWidth = useRef(0);
-  const resizeCol = useRef<string | null>(null);
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const [soloConFacturacion, setSoloConFacturacion] = useState(true);
+  const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
 
   const refetchCloseouts = useCallback((silent = false) => {
-    if (!silent) {
-      setLoading(true);
-      setError(null);
-    }
+    if (!silent) { setLoading(true); setError(null); }
     fetch(`${API_URL}/api/agora/closeouts`)
-      .then((res) => res.json())
-      .then((data: { closeouts?: CloseOut[]; error?: string }) => {
+      .then((res) => safeJson<{ closeouts?: CloseOut[]; error?: string }>(res))
+      .then((data) => {
         if (data.error) {
           if (!silent) setError(data.error);
           setCloseouts([]);
@@ -240,16 +217,37 @@ export default function CierresTeoricosScreen() {
         if (!silent) setError(e.message || 'Error de conexión');
         setCloseouts([]);
       })
-      .finally(() => {
-        if (!silent) setLoading(false);
-      });
+      .finally(() => { if (!silent) setLoading(false); });
   }, []);
 
-  useEffect(() => {
-    refetchCloseouts();
+  const syncRangoFechas = useCallback(async (desde: string, hasta: string) => {
+    setSyncing(true);
+    const days: string[] = [];
+    let d = new Date(desde + 'T12:00:00');
+    const end = new Date(hasta + 'T12:00:00');
+    while (d <= end) {
+      days.push(d.toISOString().slice(0, 10));
+      d.setDate(d.getDate() + 1);
+    }
+    for (const day of days) {
+      try {
+        const res = await fetch(`${API_URL}/api/agora/closeouts/sync`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessDay: day }),
+        });
+        await safeJson<{ ok?: boolean }>(res);
+      } catch {
+        // seguir con el siguiente día
+      }
+    }
+    setSyncing(false);
+    setShowSyncModal(false);
+    refetchCloseouts(true);
   }, [refetchCloseouts]);
 
-  // Sincronizar el día actual en segundo plano al abrir la pantalla (así se ven cierres sin pulsar "Sincronizar")
+  useEffect(() => { refetchCloseouts(); }, [refetchCloseouts]);
+
   useEffect(() => {
     const today = new Date().toISOString().slice(0, 10);
     fetch(`${API_URL}/api/agora/closeouts/sync`, {
@@ -257,48 +255,46 @@ export default function CierresTeoricosScreen() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ businessDay: today }),
     })
-      .then((res) => res.json())
-      .then((data: { ok?: boolean }) => {
-        if (data.ok) refetchCloseouts(true);
-      })
+      .then((res) => safeJson<{ ok?: boolean }>(res))
+      .then((data) => { if (data.ok) refetchCloseouts(true); })
       .catch(() => {});
   }, [refetchCloseouts]);
 
-  // GET frecuente: refrescar tabla desde DynamoDB cada 15 s (barato)
   useEffect(() => {
     const id = setInterval(() => refetchCloseouts(true), REFETCH_INTERVAL_MS);
     return () => clearInterval(id);
   }, [refetchCloseouts]);
 
-  // Sync periódico: cada minuto traer de Agora el día actual y grabar en DynamoDB, luego refetch
   useEffect(() => {
-    const runSync = () => {
+    const id = setInterval(() => {
       const today = new Date().toISOString().slice(0, 10);
       fetch(`${API_URL}/api/agora/closeouts/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ businessDay: today }),
       })
-        .then((res) => res.json())
-        .then((data: { ok?: boolean }) => {
-          if (data.ok) refetchCloseouts(true);
-        })
+        .then((res) => safeJson<{ ok?: boolean }>(res))
+        .then((data) => { if (data.ok) refetchCloseouts(true); })
         .catch(() => {});
-    };
-    const id = setInterval(runSync, SYNC_INTERVAL_MS);
+    }, SYNC_INTERVAL_MS);
     return () => clearInterval(id);
   }, [refetchCloseouts]);
 
   useEffect(() => {
     fetch(`${API_URL}/api/locales`)
-      .then((res) => res.json())
-      .then((data: { locales?: LocalItem[] }) => {
-        setLocales(data.locales || []);
-      })
+      .then((res) => safeJson<{ locales?: LocalItem[] }>(res))
+      .then((data) => setLocales(data.locales || []))
       .catch(() => setLocales([]));
   }, []);
 
-  const agoraCodeToNombreMap = useMemo(() => {
+  useEffect(() => {
+    fetch(`${API_URL}/api/agora/sale-centers`)
+      .then((res) => safeJson<{ saleCenters?: { Id?: number; Nombre?: string }[] }>(res))
+      .then((data) => setSaleCenters(data.saleCenters || []))
+      .catch(() => setSaleCenters([]));
+  }, []);
+
+  const agoraCodeToNombre = useMemo(() => {
     const map: Record<string, string> = {};
     for (const loc of locales) {
       const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
@@ -308,259 +304,222 @@ export default function CierresTeoricosScreen() {
     return map;
   }, [locales]);
 
-  const paymentColumnas = useMemo(() => getUniquePaymentMethods(closeouts), [closeouts]);
-  const columnas = useMemo(
-    () => [...BASE_COLUMNAS_BEFORE_PAYMENT, ...paymentColumnas, ...BASE_COLUMNAS_AFTER_PAYMENT],
-    [paymentColumnas]
-  );
-
-  const localesUnicos = useMemo(() => {
-    const set = new Set<string>();
-    closeouts.forEach((item) => {
-      const pk = item.PK ?? item.pk;
-      if (pk != null && String(pk).trim()) set.add(String(pk).trim());
-    });
-    return Array.from(set).sort();
-  }, [closeouts]);
-
-  const anosUnicos = useMemo(() => {
-    const set = new Set<string>();
-    closeouts.forEach((item) => {
-      const bd = getBusinessDay(item);
-      if (bd.length >= 4) set.add(bd.slice(0, 4));
-    });
-    return Array.from(set).sort((a, b) => b.localeCompare(a));
-  }, [closeouts]);
-
-  useEffect(() => {
-    if (modalFiltrosVisible) {
-      setDisplayDateFrom(dateToDDMMYYYY(filterBusinessDayFrom));
-      setDisplayDateTo(dateToDDMMYYYY(filterBusinessDayTo));
+  const posIdToNombre = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const sc of saleCenters) {
+      if (sc.Id != null) map[String(sc.Id)] = String(sc.Nombre ?? '').trim() || '—';
     }
-  }, [modalFiltrosVisible, filterBusinessDayFrom, filterBusinessDayTo]);
+    return map;
+  }, [saleCenters]);
+
+  const paymentCols = useMemo(() => getUniquePaymentMethods(closeouts), [closeouts]);
+  const columnas = useMemo(() => {
+    const base = ['BusinessDay', 'Local', 'PosName', 'InvoicePayments'];
+    const orderedPayments = ['Efectivo', 'Tarjeta', 'Pendiente de cobro', 'Prepago Transferencia', 'AgoraPay'].filter((m) => paymentCols.includes(m));
+    const otherPayments = paymentCols.filter((m) => !orderedPayments.includes(m));
+    const dates = ['OpenDate', 'CloseDate', 'updatedAt'];
+    const rest = ['GrossAmount', 'NetAmount', 'VatAmount', 'SurchargeAmount', 'PK', 'SK', 'Number', 'WorkplaceId', 'PosId', 'Documents', 'TicketPayments', 'DeliveryNotePayments', 'SalesOrderPayments', 'createdAt', 'source'];
+    return [...base, ...orderedPayments, ...otherPayments, ...dates, ...rest];
+  }, [paymentCols]);
 
   const closeoutsFiltrados = useMemo(() => {
     let list = closeouts;
-    if (filterLocals.length > 0) {
-      const set = new Set(filterLocals);
-      list = list.filter((item) => set.has(String(item.PK ?? item.pk ?? '').trim()));
+    if (filtroLocal) {
+      list = list.filter((i) => (i.PK ?? i.pk) === filtroLocal);
     }
-    if (filterYear) {
-      list = list.filter((item) => getBusinessDay(item).slice(0, 4) === filterYear);
+    const desde = parseDateToYYYYMMDD(filtroFechaDesde);
+    const hasta = parseDateToYYYYMMDD(filtroFechaHasta);
+    if (desde) {
+      list = list.filter((i) => {
+        const bd = getBusinessDay(i);
+        return bd >= desde;
+      });
     }
-    if (filterMonth) {
-      list = list.filter((item) => getBusinessDay(item).slice(5, 7) === filterMonth);
-    }
-    if (filterBusinessDayFrom.trim() && /^\d{4}-\d{2}-\d{2}$/.test(filterBusinessDayFrom.trim())) {
-      const from = filterBusinessDayFrom.trim();
-      list = list.filter((item) => getBusinessDay(item).localeCompare(from) >= 0);
-    }
-    if (filterBusinessDayTo.trim() && /^\d{4}-\d{2}-\d{2}$/.test(filterBusinessDayTo.trim())) {
-      const to = filterBusinessDayTo.trim();
-      list = list.filter((item) => getBusinessDay(item).localeCompare(to) <= 0);
+    if (hasta) {
+      list = list.filter((i) => {
+        const bd = getBusinessDay(i);
+        return bd <= hasta;
+      });
     }
     const q = filtroBusqueda.trim().toLowerCase();
     if (q) {
-      list = list.filter((item) =>
-        columnas.some((col) => {
-          const val = getValorCelda(item, col, agoraCodeToNombreMap);
-          return val !== '—' && val.toLowerCase().includes(q);
-        })
-      );
-    }
-    return list.sort((a, b) => getBusinessDay(b).localeCompare(getBusinessDay(a)));
-  }, [closeouts, filtroBusqueda, filterLocals, filterYear, filterMonth, filterBusinessDayFrom, filterBusinessDayTo, columnas, agoraCodeToNombreMap]);
-
-  const textoFiltrosActivos = useMemo(() => {
-    const partes: string[] = [];
-    if (filterLocals.length > 0) {
-      partes.push(`Local: ${filterLocals.length === 1 ? filterLocals[0] : filterLocals.join(', ')}`);
-    }
-    if (filterYear) partes.push(`Año: ${filterYear}`);
-    if (filterMonth) partes.push(`Mes: ${MESES[parseInt(filterMonth, 10) - 1] ?? filterMonth}`);
-    if (filterBusinessDayFrom.trim() && /^\d{4}-\d{2}-\d{2}$/.test(filterBusinessDayFrom.trim())) {
-      partes.push(`Desde: ${dateToDDMMYYYY(filterBusinessDayFrom)}`);
-    }
-    if (filterBusinessDayTo.trim() && /^\d{4}-\d{2}-\d{2}$/.test(filterBusinessDayTo.trim())) {
-      partes.push(`Hasta: ${dateToDDMMYYYY(filterBusinessDayTo)}`);
-    }
-    return partes.length > 0 ? partes.join(' · ') : 'Sin filtros aplicados';
-  }, [filterLocals, filterYear, filterMonth, filterBusinessDayFrom, filterBusinessDayTo]);
-
-  const totalesFiltrados = useMemo(() => {
-    let totalFacturado = 0;
-    const formasPago: Record<string, number> = {};
-    paymentColumnas.forEach((col) => { formasPago[col] = 0; });
-    for (const item of closeoutsFiltrados) {
-      totalFacturado += parseNum(getValorFromAmounts(getAmounts(item), 'GrossAmount'));
-      paymentColumnas.forEach((col) => {
-        formasPago[col] += parseNum(getAmountForMethod(item, col));
+      list = list.filter((item) => {
+        const pk = String(item.PK ?? item.pk ?? '').trim();
+        const bd = getBusinessDay(item);
+        const pos = item.PosName ?? item.posName ?? item.PosId ?? item.posId ?? '';
+        const num = item.Number ?? item.number ?? '';
+        const gross = getAmounts(item)?.GrossAmount ?? getAmounts(item)?.grossAmount ?? '';
+        const local = agoraCodeToNombre[pk] ?? '';
+        const searchStr = `${pk} ${bd} ${pos} ${num} ${gross} ${local}`.toLowerCase();
+        return searchStr.includes(q);
       });
     }
-    return { totalFacturado, formasPago };
-  }, [closeoutsFiltrados, paymentColumnas]);
-
-  const totalPages = Math.max(1, Math.ceil(closeoutsFiltrados.length / PAGE_SIZE));
-  const safePage = Math.min(currentPage, totalPages);
-  const closeoutsPaginated = useMemo(() => {
-    const start = (safePage - 1) * PAGE_SIZE;
-    return closeoutsFiltrados.slice(start, start + PAGE_SIZE);
-  }, [closeoutsFiltrados, safePage]);
-
-  const contentBasedWidths = useMemo(() => {
-    const out: Record<string, number> = {};
-    for (const col of columnas) {
-      const headerLen = getHeaderLabel(col).length;
-      let maxLen = headerLen;
-      for (const item of closeoutsPaginated) {
-        const val = getValorCelda(item, col, agoraCodeToNombreMap);
-        if (val.length > maxLen) maxLen = val.length;
-      }
-      const w = CELL_PADDING_X + maxLen * CHAR_WIDTH_ESTIMATE;
-      out[col] = Math.max(MIN_COL_WIDTH, Math.min(MAX_COL_WIDTH, w));
+    if (soloConFacturacion) {
+      list = list.filter((item) => getInvoicePaymentsTotal(item) > 0);
     }
-    return out;
-  }, [closeoutsPaginated, columnas, agoraCodeToNombreMap]);
-
-  const getColWidth = useCallback((col: string): number => {
-    if (colWidths[col] != null) return colWidths[col];
-    return contentBasedWidths[col] ?? DEFAULT_COL_WIDTH;
-  }, [colWidths, contentBasedWidths]);
-
-  const tableMinWidth = useMemo(
-    () => columnas.reduce((sum, col) => sum + (colWidths[col] ?? contentBasedWidths[col] ?? DEFAULT_COL_WIDTH), 0),
-    [colWidths, contentBasedWidths, columnas]
-  );
-
-  const createResizePanResponder = useCallback((col: string) => {
-    return PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        resizeCol.current = col;
-        resizeStartWidth.current = colWidths[col] ?? contentBasedWidths[col] ?? DEFAULT_COL_WIDTH;
-      },
-      onPanResponderMove: (_, gestureState) => {
-        if (resizeCol.current === null) return;
-        const w = Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, resizeStartWidth.current + gestureState.dx));
-        setColWidths((prev) => ({ ...prev, [resizeCol.current!]: w }));
-      },
-      onPanResponderRelease: () => {
-        resizeCol.current = null;
-      },
+    list = [...list].sort((a, b) => {
+      const bdA = getBusinessDay(a);
+      const bdB = getBusinessDay(b);
+      return bdB.localeCompare(bdA);
     });
-  }, [colWidths, contentBasedWidths]);
+    return list;
+  }, [closeouts, filtroBusqueda, filtroLocal, filtroFechaDesde, filtroFechaHasta, soloConFacturacion, agoraCodeToNombre]);
 
-  const resizePanResponders = useMemo(
-    () => Object.fromEntries(columnas.map((col) => [col, createResizePanResponder(col)])),
-    [createResizePanResponder, columnas]
-  );
+  const { paginatedList, totalPages, totalCount, effectivePage } = useMemo(() => {
+    const total = closeoutsFiltrados.length;
+    const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const page = Math.max(1, Math.min(currentPage, pages));
+    const start = (page - 1) * PAGE_SIZE;
+    const paginatedList = closeoutsFiltrados.slice(start, start + PAGE_SIZE);
+    return { paginatedList, totalPages: pages, totalCount: total, effectivePage: page };
+  }, [closeoutsFiltrados, currentPage]);
+
+  const totalFacturado = useMemo(() => {
+    return closeoutsFiltrados.reduce((sum, item) => {
+      const arr = item.InvoicePayments ?? item.invoicePayments;
+      if (!Array.isArray(arr)) return sum;
+      const rowTotal = arr.reduce((s, p) => s + (Number(p?.Amount ?? (p as { amount?: number }).amount ?? 0) || 0), 0);
+      return sum + rowTotal;
+    }, 0);
+  }, [closeoutsFiltrados]);
 
   useEffect(() => {
-    setCurrentPage((p) => (p > totalPages ? totalPages : p));
-  }, [totalPages]);
+    if (currentPage > totalPages && totalPages > 0) setCurrentPage(1);
+  }, [currentPage, totalPages]);
 
-  const abrirModalSync = () => {
-    setModalSyncVisible(true);
-    setSyncMessage(null);
-    setSyncError(null);
-    const today = new Date().toISOString().slice(0, 10);
-    setBusinessDaySync(today);
-  };
-
-  const cerrarModalSync = () => {
-    setModalSyncVisible(false);
-    setSyncMessage(null);
-    setSyncError(null);
-    setSyncProgress(null);
-  };
-
-  /** Devuelve fechas YYYY-MM-DD entre desde y hasta (inclusive). */
-  const getDaysInRange = useCallback((desde: string, hasta: string): string[] => {
-    const d = new Date(desde + 'T12:00:00');
-    const h = new Date(hasta + 'T12:00:00');
-    if (d.getTime() > h.getTime()) return [];
-    const out: string[] = [];
-    const cur = new Date(d);
-    while (cur.getTime() <= h.getTime()) {
-      out.push(cur.toISOString().slice(0, 10));
-      cur.setDate(cur.getDate() + 1);
+  const getValorCelda = useCallback((item: CloseOut, col: string): string => {
+    if (col === 'Local') {
+      const pk = String(item.PK ?? item.pk ?? '').trim();
+      return agoraCodeToNombre[pk] ?? '—';
     }
-    return out;
+    if (paymentCols.includes(col)) {
+      const amt = getAmountForMethod(item, col);
+      return formatMoneda(amt);
+    }
+    if (['GrossAmount', 'NetAmount', 'VatAmount', 'SurchargeAmount'].includes(col)) {
+      const amounts = getAmounts(item);
+      const v = amounts?.[col] ?? amounts?.[col.charAt(0).toLowerCase() + col.slice(1)];
+      return formatMoneda(v != null ? String(v) : '—');
+    }
+    if (col === 'Documents') {
+      const arr = item.Documents ?? item.documents;
+      return Array.isArray(arr) ? String(arr.length) : '—';
+    }
+    if (['InvoicePayments', 'TicketPayments', 'DeliveryNotePayments', 'SalesOrderPayments'].includes(col)) {
+      const arr = item[col as keyof CloseOut] ?? (item as Record<string, unknown>)[col.charAt(0).toLowerCase() + col.slice(1)];
+      if (!Array.isArray(arr)) return '—';
+      const total = arr.reduce((s, p) => s + (Number(p?.Amount ?? (p as { amount?: number }).amount ?? 0) || 0), 0);
+      return formatMoneda(total);
+    }
+    if (col === 'PosName') {
+      const posName = item.PosName ?? item.posName;
+      const posId = item.PosId ?? item.posId;
+      const nombreFromMap = posId != null ? posIdToNombre[String(posId)] : undefined;
+      return (posName ?? nombreFromMap ?? posId ?? '—').toString();
+    }
+    const v = item[col as keyof CloseOut] ?? (item as Record<string, unknown>)[col.charAt(0).toLowerCase() + col.slice(1)];
+    if (v == null || v === '') return '—';
+    if (typeof v === 'object') return JSON.stringify(v).slice(0, 50) + (JSON.stringify(v).length > 50 ? '…' : '');
+    return String(v);
+  }, [agoraCodeToNombre, posIdToNombre, paymentCols]);
+
+  const getHeaderLabel = (col: string): string => {
+    const labels: Record<string, string> = {
+      PK: 'WorkplaceId', Local: 'Local', SK: 'SK', BusinessDay: 'Business Day', Number: 'Nº',
+      WorkplaceId: 'Workplace', PosId: 'TPV Id', PosName: 'TPV',
+      OpenDate: 'Apertura', CloseDate: 'Cierre',
+      GrossAmount: 'Bruto', NetAmount: 'Neto', VatAmount: 'IVA', SurchargeAmount: 'Recargo',
+      Documents: 'Docs', InvoicePayments: 'Total facturado', TicketPayments: 'Tickets', DeliveryNotePayments: 'Albaranes', SalesOrderPayments: 'Pedidos',
+      createdAt: 'Creado', updatedAt: 'Actualizado', source: 'Origen',
+    };
+    return labels[col] ?? col;
+  };
+
+  const isMonedaCol = (col: string) =>
+    ['GrossAmount', 'NetAmount', 'VatAmount', 'SurchargeAmount'].includes(col) || paymentCols.includes(col) ||
+    ['InvoicePayments', 'TicketPayments', 'DeliveryNotePayments', 'SalesOrderPayments'].includes(col);
+
+  const getColWidth = useCallback((col: string) => Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, columnWidths[col] ?? DEFAULT_COL_WIDTH)), [columnWidths]);
+
+  const resizeRef = useRef<{ col: string; startW: number; startX: number } | null>(null);
+  const columnWidthsRef = useRef(columnWidths);
+  columnWidthsRef.current = columnWidths;
+
+  const startResize = useCallback((col: string, clientX: number) => {
+    resizeRef.current = { col, startW: columnWidthsRef.current[col] ?? DEFAULT_COL_WIDTH, startX: clientX };
   }, []);
 
-  const ejecutarSync = async () => {
-    const day = businessDaySync.trim();
-    if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
-      setSyncError('Introduce al menos la fecha inicial (YYYY-MM-DD)');
-      return;
+  const onResizeMove = useCallback((clientX: number) => {
+    const r = resizeRef.current;
+    if (!r) return;
+    const dx = clientX - r.startX;
+    const newW = Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, r.startW + dx));
+    setColumnWidths((prev) => ({ ...prev, [r.col]: newW }));
+    r.startW = newW;
+    r.startX = clientX;
+  }, []);
+
+  const stopResize = useCallback(() => { resizeRef.current = null; }, []);
+
+  const handleWebResizeStart = useCallback((col: string) => (e: { nativeEvent: { clientX: number } }) => {
+    startResize(col, e.nativeEvent.clientX);
+    const onMove = (ev: MouseEvent) => onResizeMove(ev.clientX);
+    const onUp = () => { stopResize(); (globalThis as typeof window).removeEventListener('mousemove', onMove); (globalThis as typeof window).removeEventListener('mouseup', onUp); };
+    (globalThis as typeof window).addEventListener('mousemove', onMove);
+    (globalThis as typeof window).addEventListener('mouseup', onUp);
+  }, [startResize, onResizeMove, stopResize]);
+
+  const resizeHandlers = useMemo(() => {
+    const map: Record<string, ReturnType<typeof PanResponder.create>> = {};
+    for (const col of columnas) {
+      map[col] = PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: (_, g) => {
+          startResize(col, g.moveX);
+        },
+        onPanResponderMove: (_, g) => {
+          onResizeMove(g.moveX);
+        },
+        onPanResponderRelease: stopResize,
+      });
     }
-    const dayTo = businessDaySyncTo.trim();
-    const isRange = dayTo && /^\d{4}-\d{2}-\d{2}$/.test(dayTo);
-    const days = isRange ? getDaysInRange(day, dayTo) : [day];
-    if (days.length === 0) {
-      setSyncError('La fecha "Hasta" debe ser igual o posterior a "Desde".');
-      return;
-    }
-    if (days.length > 365) {
-      setSyncError('El rango no puede superar 365 días.');
-      return;
-    }
-    setSyncError(null);
-    setSyncMessage(null);
-    setSyncing(true);
-    let totalFetched = 0;
-    let totalUpserted = 0;
-    try {
-      for (let i = 0; i < days.length; i++) {
-        const d = days[i];
-        setSyncProgress(days.length > 1 ? `Sincronizando ${d} (${i + 1}/${days.length})…` : null);
-        const res = await fetch(`${API_URL}/api/agora/closeouts/sync`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ businessDay: d }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setSyncError(data.error || `Error al sincronizar ${d}`);
-          return;
-        }
-        totalFetched += data.fetched ?? 0;
-        totalUpserted += data.upserted ?? 0;
-      }
-      setSyncProgress(null);
-      setSyncMessage(
-        days.length > 1
-          ? `${days.length} días sincronizados. Total: ${totalFetched} obtenidos, ${totalUpserted} guardados.`
-          : `Sincronizados: ${totalFetched} obtenidos, ${totalUpserted} guardados.`
-      );
-      refetchCloseouts(true);
-    } catch (e) {
-      setSyncProgress(null);
-      setSyncError(e instanceof Error ? e.message : 'Error de conexión');
-    } finally {
-      setSyncing(false);
-    }
-  };
+    return map;
+  }, [columnas, startResize, onResizeMove, stopResize]);
 
   if (loading && closeouts.length === 0) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
-        <Text style={styles.loadingText}>Cargando cierres teóricos…</Text>
+      <View style={styles.container}>
+        <View style={styles.headerRow}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          </TouchableOpacity>
+          <Text style={styles.title}>Cierres de ventas teóricas</Text>
+        </View>
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color="#0ea5e9" />
+          <Text style={styles.loadingText}>Cargando cierres…</Text>
+        </View>
       </View>
     );
   }
 
   if (error && closeouts.length === 0) {
     return (
-      <View style={styles.center}>
-        <MaterialIcons name="error-outline" size={48} color="#f87171" />
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={() => refetchCloseouts()}>
-          <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
-          <Text style={styles.retryBtnText}>Reintentar</Text>
-        </TouchableOpacity>
+      <View style={styles.container}>
+        <View style={styles.headerRow}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          </TouchableOpacity>
+          <Text style={styles.title}>Cierres de ventas teóricas</Text>
+        </View>
+        <View style={styles.errorWrap}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={() => refetchCloseouts()}>
+            <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
+            <Text style={styles.retryBtnText}>Reintentar</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -571,616 +530,355 @@ export default function CierresTeoricosScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <MaterialIcons name="arrow-back" size={22} color="#334155" />
         </TouchableOpacity>
-        <Text style={styles.title}>Cierres teóricos</Text>
+        <Text style={styles.title}>Cierres de ventas teóricas</Text>
       </View>
 
       <View style={styles.toolbarRow}>
-        <TouchableOpacity
-          style={styles.syncBtn}
-          onPress={abrirModalSync}
-          accessibilityLabel="Sincronizar cierres desde Ágora"
-        >
-          <MaterialIcons name="sync" size={20} color="#0ea5e9" />
-          <Text style={styles.syncBtnText}>Sincronizar cierres</Text>
-        </TouchableOpacity>
         <View style={styles.searchWrap}>
           <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             value={filtroBusqueda}
             onChangeText={setFiltroBusqueda}
-            placeholder="Buscar en la tabla…"
+            placeholder="Buscar por local, TPV, fecha…"
             placeholderTextColor="#94a3b8"
           />
         </View>
         <TouchableOpacity
-          style={styles.syncBtn}
-          onPress={() => setModalFiltrosVisible(true)}
-          accessibilityLabel="Filtros"
+          style={[styles.toolbarBtn, syncing && styles.toolbarBtnDisabled]}
+          onPress={() => setShowSyncModal(true)}
+          disabled={syncing}
         >
-          <MaterialIcons name="filter-list" size={20} color="#0ea5e9" />
-          <Text style={styles.syncBtnText}>Filtros</Text>
+          <MaterialIcons name="sync" size={16} color="#0ea5e9" />
+          <Text style={styles.toolbarBtnText}>Sincronizar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.toolbarBtn, showFilterPanel && styles.toolbarBtnActive]}
+          onPress={() => setShowFilterPanel((v) => !v)}
+        >
+          <MaterialIcons name="filter-list" size={16} color={showFilterPanel ? '#fff' : '#64748b'} />
+          <Text style={[styles.toolbarBtnText, showFilterPanel && styles.toolbarBtnTextActive]}>Filtro</Text>
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.filtrosActivosLine}>{textoFiltrosActivos}</Text>
-
-      {closeoutsFiltrados.length > 0 ? (
-        <View style={styles.totalesRow}>
-          <View style={[styles.totalesChip, styles.totalesChipTotal]}>
-            <Text style={styles.totalesChipTotalLabel}>Total facturado</Text>
-            <Text style={styles.totalesChipTotalValue}>{formatMoneda(totalesFiltrados.totalFacturado)}</Text>
-          </View>
-          {paymentColumnas.map((col, idx) => (
-            <View key={col} style={[styles.totalesChip, { backgroundColor: TOTALES_CHIP_COLORS[idx % TOTALES_CHIP_COLORS.length] }]}>
-              <Text style={styles.totalesChipLabel}>{col}</Text>
-              <Text style={styles.totalesChipValue}>{formatMoneda(totalesFiltrados.formasPago[col] ?? 0)}</Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
-
-      <Text style={styles.subtitle}>
-        {closeoutsFiltrados.length === 0
-          ? '0 cierres'
-          : `${closeoutsFiltrados.length} cierre${closeoutsFiltrados.length !== 1 ? 's' : ''}`}
-        {closeoutsFiltrados.length > 0 && (
-          <Text style={styles.subtitlePage}> · Página {safePage} de {totalPages}</Text>
-        )}
-      </Text>
-
-      <View style={styles.tableWrap}>
-        <ScrollView horizontal style={styles.scroll} contentContainerStyle={[styles.scrollContent, { minWidth: tableMinWidth }]} showsHorizontalScrollIndicator>
-          <View style={[styles.table, { minWidth: tableMinWidth }]}>
-            <View style={styles.rowHeader}>
-              {columnas.map((col, colIdx) => {
-                const isMonedaCol = col === 'TotalFacturado' || paymentColumnas.includes(col);
-                return (
-                <View
-                  key={col}
-                  style={[
-                    styles.cellHeader,
-                    { width: getColWidth(col) },
-                    colIdx === columnas.length - 1 && styles.cellLast,
-                    isMonedaCol && styles.cellHeaderRight,
-                  ]}
-                >
-                  <Text style={[styles.cellHeaderText, col === 'TotalFacturado' && styles.cellHeaderTextBold, isMonedaCol && styles.cellHeaderTextRight]} numberOfLines={1} ellipsizeMode="tail">
-                    {getHeaderLabel(col)}
-                  </Text>
-                  {colIdx < columnas.length - 1 ? (
-                    <View
-                      style={styles.resizeHandle}
-                      {...(resizePanResponders[col]?.panHandlers ?? {})}
-                    />
-                  ) : null}
-                </View>
-              );})}
-            </View>
-            {closeoutsFiltrados.length === 0 ? (
-              <View style={[styles.row, styles.rowEmpty, { minWidth: tableMinWidth }]}>
-                <View style={[styles.cellEmpty, { width: tableMinWidth }]}>
-                  <Text style={styles.cellEmptyText}>
-                    {closeouts.length === 0
-                      ? 'No hay cierres. Usa "Sincronizar cierres" para importar desde Ágora.'
-                      : 'Ningún resultado con el filtro'}
-                  </Text>
-                </View>
-              </View>
-            ) : (
-              closeoutsPaginated.map((item, idx) => (
-                <View key={`${item.PK}-${item.SK}-${idx}`} style={styles.row}>
-                  {columnas.map((col, colIdx) => {
-                    const isMonedaCol = col === 'TotalFacturado' || paymentColumnas.includes(col);
-                    return (
-                    <View
-                      key={col}
-                      style={[
-                        styles.cell,
-                        { width: getColWidth(col) },
-                        colIdx === columnas.length - 1 && styles.cellLast,
-                        isMonedaCol && styles.cellRight,
-                      ]}
-                    >
-                      <Text style={[styles.cellText, col === 'TotalFacturado' && styles.cellTextBold, isMonedaCol && styles.cellTextRight]} numberOfLines={1} ellipsizeMode="tail">
-                        {getValorCelda(item, col, agoraCodeToNombreMap)}
-                      </Text>
-                    </View>
-                  );})}
-                </View>
-              ))
-            )}
-          </View>
-        </ScrollView>
+      <View style={styles.totalFacturadoBox}>
+        <Text style={styles.totalFacturadoLabel}>Total facturado</Text>
+        <Text style={styles.totalFacturadoValue}>{formatMoneda(totalFacturado)}</Text>
       </View>
 
-      {closeoutsFiltrados.length > PAGE_SIZE ? (
-        <View style={styles.paginationRow}>
-          <TouchableOpacity
-            style={[styles.pageBtn, safePage <= 1 && styles.pageBtnDisabled]}
-            onPress={() => setCurrentPage((p) => Math.max(1, p - 1))}
-            disabled={safePage <= 1}
-          >
-            <MaterialIcons name="chevron-left" size={20} color={safePage <= 1 ? '#94a3b8' : '#334155'} />
-            <Text style={[styles.pageBtnText, safePage <= 1 && styles.pageBtnTextDisabled]}>Anterior</Text>
-          </TouchableOpacity>
-          <Text style={styles.pageInfo}>
-            {(safePage - 1) * PAGE_SIZE + 1}-{Math.min(safePage * PAGE_SIZE, closeoutsFiltrados.length)} de {closeoutsFiltrados.length}
-          </Text>
-          <TouchableOpacity
-            style={[styles.pageBtn, safePage >= totalPages && styles.pageBtnDisabled]}
-            onPress={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-            disabled={safePage >= totalPages}
-          >
-            <Text style={[styles.pageBtnText, safePage >= totalPages && styles.pageBtnTextDisabled]}>Siguiente</Text>
-            <MaterialIcons name="chevron-right" size={20} color={safePage >= totalPages ? '#94a3b8' : '#334155'} />
-          </TouchableOpacity>
+      <View style={styles.soloFacturacionBox}>
+        <View style={styles.soloFacturacionSwitchWrap}>
+          <Switch
+            value={soloConFacturacion}
+            onValueChange={setSoloConFacturacion}
+            trackColor={{ false: '#e2e8f0', true: '#86efac' }}
+            thumbColor={soloConFacturacion ? '#22c55e' : '#94a3b8'}
+          />
         </View>
-      ) : null}
+        <Text style={styles.soloFacturacionLabel}>Mostrar solo registros con facturación</Text>
+      </View>
 
-      <Modal visible={modalFiltrosVisible} transparent animationType="fade" onRequestClose={() => { setModalFiltrosVisible(false); setLocalDropdownOpen(false); }}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => {}}>
-          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalContentWrap}>
-            <View style={styles.modalCard}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Filtros</Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    setModalFiltrosVisible(false);
-                    setLocalDropdownOpen(false);
-                  }}
-                  style={styles.modalClose}
-                >
-                  <MaterialIcons name="close" size={22} color="#64748b" />
-                </TouchableOpacity>
-              </View>
-              <View style={styles.modalBody}>
-                <Text style={styles.formLabel}>Local (selección múltiple)</Text>
-                <TouchableOpacity
-                  style={styles.dropdownTrigger}
-                  onPress={() => setLocalDropdownOpen((v) => !v)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.dropdownTriggerText} numberOfLines={1}>
-                    {filterLocals.length === 0
-                      ? 'Todos los locales'
-                      : filterLocals.length === 1
-                        ? filterLocals[0]
-                        : `${filterLocals.length} locales seleccionados`}
-                  </Text>
-                  <MaterialIcons name={localDropdownOpen ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
-                </TouchableOpacity>
-                {localDropdownOpen ? (
-                  <View style={styles.dropdownList}>
-                    <ScrollView style={styles.filterLocalsScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                      {localesUnicos.map((pk) => {
-                        const selected = filterLocals.includes(pk);
-                        return (
-                          <TouchableOpacity
-                            key={pk}
-                            style={[styles.filterLocalItem, selected && styles.filterLocalItemSelected]}
-                            onPress={() => setFilterLocals((prev) => (selected ? prev.filter((x) => x !== pk) : [...prev, pk]))}
-                          >
-                            <MaterialIcons name={selected ? 'check-box' : 'check-box-outline-blank'} size={20} color={selected ? '#0ea5e9' : '#94a3b8'} />
-                            <Text style={styles.filterLocalText}>{pk}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                ) : null}
-                <Text style={styles.formLabel}>Filtrar por año</Text>
-                <TouchableOpacity style={styles.dropdownTrigger} onPress={() => setAnoDropdownOpen((v) => !v)} activeOpacity={0.7}>
-                  <Text style={styles.dropdownTriggerText}>{filterYear || 'Todos los años'}</Text>
-                  <MaterialIcons name={anoDropdownOpen ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
-                </TouchableOpacity>
-                {anoDropdownOpen ? (
-                  <View style={styles.dropdownList}>
-                    <ScrollView style={styles.filterLocalsScroll} nestedScrollEnabled>
-                      <TouchableOpacity style={styles.filterLocalItem} onPress={() => { setFilterYear(''); setAnoDropdownOpen(false); }}>
-                        <Text style={styles.filterLocalText}>Todos los años</Text>
-                      </TouchableOpacity>
-                      {anosUnicos.map((y) => (
-                        <TouchableOpacity key={y} style={[styles.filterLocalItem, filterYear === y && styles.filterLocalItemSelected]} onPress={() => { setFilterYear(y); setAnoDropdownOpen(false); }}>
-                          <Text style={styles.filterLocalText}>{y}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                ) : null}
-                <Text style={styles.formLabel}>Filtrar por mes</Text>
-                <TouchableOpacity style={styles.dropdownTrigger} onPress={() => setMesDropdownOpen((v) => !v)} activeOpacity={0.7}>
-                  <Text style={styles.dropdownTriggerText}>
-                    {filterMonth ? MESES[parseInt(filterMonth, 10) - 1] : 'Todos los meses'}
-                  </Text>
-                  <MaterialIcons name={mesDropdownOpen ? 'expand-less' : 'expand-more'} size={20} color="#64748b" />
-                </TouchableOpacity>
-                {mesDropdownOpen ? (
-                  <View style={styles.dropdownList}>
-                    <ScrollView style={styles.filterLocalsScroll} nestedScrollEnabled>
-                      <TouchableOpacity style={[styles.filterLocalItem, !filterMonth && styles.filterLocalItemSelected]} onPress={() => { setFilterMonth(''); setMesDropdownOpen(false); }}>
-                        <Text style={styles.filterLocalText}>Todos los meses</Text>
-                      </TouchableOpacity>
-                      {MESES.map((nombre, i) => {
-                        const val = String(i + 1).padStart(2, '0');
-                        const sel = filterMonth === val;
-                        return (
-                          <TouchableOpacity key={val} style={[styles.filterLocalItem, sel && styles.filterLocalItemSelected]} onPress={() => { setFilterMonth(val); setMesDropdownOpen(false); }}>
-                            <Text style={styles.filterLocalText}>{nombre}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                ) : null}
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Desde (DD/MM/YYYY)</Text>
-                  <View style={styles.dateInputRow}>
-                    <TextInput
-                      style={styles.formInputFlex}
-                      value={displayDateFrom}
-                      onChangeText={(t) => {
-                        setDisplayDateFrom(t);
-                        const parsed = parseDDMMYYYY(t);
-                        if (parsed) setFilterBusinessDayFrom(parsed);
-                      }}
-                      placeholder="dd/mm/aaaa"
-                      placeholderTextColor="#94a3b8"
-                    />
-                    <TouchableOpacity style={styles.calendarBtn} onPress={() => { setCalendarFor('from'); setCalendarMonth(filterBusinessDayFrom ? new Date(filterBusinessDayFrom + 'T12:00:00') : new Date()); }}>
-                      <MaterialIcons name="calendar-today" size={22} color="#0ea5e9" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Hasta (DD/MM/YYYY)</Text>
-                  <View style={styles.dateInputRow}>
-                    <TextInput
-                      style={styles.formInputFlex}
-                      value={displayDateTo}
-                      onChangeText={(t) => {
-                        setDisplayDateTo(t);
-                        const parsed = parseDDMMYYYY(t);
-                        if (parsed) setFilterBusinessDayTo(parsed);
-                      }}
-                      placeholder="dd/mm/aaaa"
-                      placeholderTextColor="#94a3b8"
-                    />
-                    <TouchableOpacity style={styles.calendarBtn} onPress={() => { setCalendarFor('to'); setCalendarMonth(filterBusinessDayTo ? new Date(filterBusinessDayTo + 'T12:00:00') : new Date()); }}>
-                      <MaterialIcons name="calendar-today" size={22} color="#0ea5e9" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-              <View style={styles.modalFooter}>
-                <TouchableOpacity
-                  style={[styles.modalFooterBtn, styles.modalFooterBtnSecondary]}
-                  onPress={() => {
-                    setFilterLocals([]);
-                    setFilterBusinessDayFrom('');
-                    setFilterBusinessDayTo('');
-                    setFilterYear('');
-                    setFilterMonth('');
-                    setDisplayDateFrom('');
-                    setDisplayDateTo('');
-                    setCurrentPage(1);
-                    setLocalDropdownOpen(false);
-                    setAnoDropdownOpen(false);
-                    setMesDropdownOpen(false);
-                    setCalendarFor(null);
-                    setModalFiltrosVisible(false);
-                  }}
-                >
-                  <Text style={styles.modalFooterBtnTextSecondary}>Limpiar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.modalFooterBtn}
-                  onPress={() => {
-                    const from = parseDDMMYYYY(displayDateFrom);
-                    const to = parseDDMMYYYY(displayDateTo);
-                    if (from) setFilterBusinessDayFrom(from);
-                    if (to) setFilterBusinessDayTo(to);
-                    setCurrentPage(1);
-                    setLocalDropdownOpen(false);
-                    setAnoDropdownOpen(false);
-                    setMesDropdownOpen(false);
-                    setModalFiltrosVisible(false);
-                  }}
-                >
-                  <Text style={styles.modalFooterBtnText}>Aplicar</Text>
-                </TouchableOpacity>
-              </View>
+      {showFilterPanel && (
+        <View style={styles.filterPanel}>
+          <View style={styles.filterRow}>
+            <View style={styles.filterField}>
+              <Text style={styles.filterLabel}>Desde</Text>
+              <TextInput
+                style={styles.filterInput}
+                value={filtroFechaDesde}
+                onChangeText={setFiltroFechaDesde}
+                placeholder="dd/mm/yyyy"
+                placeholderTextColor="#94a3b8"
+              />
             </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-
-      <Modal visible={calendarFor !== null} transparent animationType="fade" onRequestClose={() => setCalendarFor(null)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setCalendarFor(null)}>
-          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.calendarModalWrap}>
-            <View style={styles.calendarCard}>
-              <View style={styles.calendarHeader}>
-                <TouchableOpacity onPress={() => setCalendarMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))}>
-                  <MaterialIcons name="chevron-left" size={28} color="#334155" />
+            <View style={styles.filterField}>
+              <Text style={styles.filterLabel}>Hasta</Text>
+              <TextInput
+                style={styles.filterInput}
+                value={filtroFechaHasta}
+                onChangeText={setFiltroFechaHasta}
+                placeholder="dd/mm/yyyy"
+                placeholderTextColor="#94a3b8"
+              />
+            </View>
+            <View style={styles.filterFieldLocal}>
+              <Text style={styles.filterLabel}>Local</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterLocalesWrap} contentContainerStyle={styles.filterLocalesContent}>
+                <TouchableOpacity
+                  style={[styles.filterChip, !filtroLocal && styles.filterChipActive]}
+                  onPress={() => setFiltroLocal('')}
+                >
+                  <Text style={[styles.filterChipText, !filtroLocal && styles.filterChipTextActive]}>Todos</Text>
                 </TouchableOpacity>
-                <Text style={styles.calendarTitle}>{MESES[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</Text>
-                <TouchableOpacity onPress={() => setCalendarMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))}>
-                  <MaterialIcons name="chevron-right" size={28} color="#334155" />
-                </TouchableOpacity>
-              </View>
-              <View style={styles.calendarWeekdays}>
-                {['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa'].map((d) => (
-                  <Text key={d} style={styles.calendarWeekday}>{d}</Text>
-                ))}
-              </View>
-              <View style={styles.calendarGrid}>
-                {getCalendarDays(calendarMonth.getFullYear(), calendarMonth.getMonth()).map((day, i) => {
-                  if (day === null) return <View key={`e-${i}`} style={styles.calendarDay} />;
-                  const iso = `${calendarMonth.getFullYear()}-${String(calendarMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                {locales.map((loc) => {
+                  const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+                  const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim() || code || '—';
+                  const sel = code !== '' && filtroLocal === code;
                   return (
                     <TouchableOpacity
-                      key={iso}
-                      style={styles.calendarDay}
-                      onPress={() => {
-                        if (calendarFor === 'from') {
-                          setFilterBusinessDayFrom(iso);
-                          setDisplayDateFrom(dateToDDMMYYYY(iso));
-                        } else {
-                          setFilterBusinessDayTo(iso);
-                          setDisplayDateTo(dateToDDMMYYYY(iso));
-                        }
-                        setCalendarFor(null);
-                      }}
+                      key={code || nombre}
+                      style={[styles.filterChip, sel && styles.filterChipActive]}
+                      onPress={() => setFiltroLocal(sel ? '' : code)}
                     >
-                      <Text style={styles.calendarDayText}>{day}</Text>
+                      <Text style={[styles.filterChipText, sel && styles.filterChipTextActive]} numberOfLines={1}>
+                        {nombre}
+                      </Text>
                     </TouchableOpacity>
                   );
                 })}
-              </View>
+              </ScrollView>
             </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
+            <TouchableOpacity style={styles.filterClearBtn} onPress={() => { setFiltroFechaDesde(''); setFiltroFechaHasta(''); setFiltroLocal(''); }}>
+              <MaterialIcons name="clear" size={14} color="#64748b" />
+              <Text style={styles.filterClearText}>Limpiar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      <Modal visible={showSyncModal} transparent animationType="fade">
+        <Pressable style={styles.modalOverlay} onPress={() => !syncing && setShowSyncModal(false)}>
+          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitle}>Sincronizar cierres</Text>
+            <Text style={styles.modalSubtitle}>Actualiza los datos desde Ágora entre las fechas seleccionadas</Text>
+            <Text style={styles.filterLabel}>Fecha desde</Text>
+            <TextInput
+              style={styles.filterInput}
+              value={syncFechaDesde}
+              onChangeText={setSyncFechaDesde}
+              placeholder="dd/mm/yyyy"
+              placeholderTextColor="#94a3b8"
+              editable={!syncing}
+            />
+            <Text style={styles.filterLabel}>Fecha hasta</Text>
+            <TextInput
+              style={styles.filterInput}
+              value={syncFechaHasta}
+              onChangeText={setSyncFechaHasta}
+              placeholder="dd/mm/yyyy"
+              placeholderTextColor="#94a3b8"
+              editable={!syncing}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnCancel]}
+                onPress={() => !syncing && setShowSyncModal(false)}
+                disabled={syncing}
+              >
+                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnPrimary, syncing && styles.toolbarBtnDisabled]}
+                onPress={() => {
+                  const desde = parseDateToYYYYMMDD(syncFechaDesde);
+                  const hasta = parseDateToYYYYMMDD(syncFechaHasta);
+                  if (desde && hasta && desde <= hasta) {
+                    syncRangoFechas(desde, hasta);
+                  }
+                }}
+                disabled={syncing}
+              >
+                {syncing ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <MaterialIcons name="sync" size={18} color="#fff" />
+                    <Text style={[styles.modalBtnPrimaryText, { marginLeft: 6 }]}>Sincronizar</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
       </Modal>
 
-      <Modal visible={modalSyncVisible} transparent animationType="fade" onRequestClose={cerrarModalSync}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => {}}>
-          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalContentWrap}>
-            <View style={styles.modalCard}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Sincronizar cierres (Ágora)</Text>
-                <TouchableOpacity onPress={cerrarModalSync} style={styles.modalClose}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
-                </TouchableOpacity>
-              </View>
-              <View style={styles.modalBody}>
-                <Text style={styles.modalHelp}>
-                  Introduce la fecha (o rango) a sincronizar. Se obtendrán los cierres de sistema desde Ágora y se guardarán en la base de datos. Para traer muchos días, indica "Desde" y "Hasta".
+      <View style={styles.infoRow}>
+        <Text style={styles.infoLine}>
+          {totalCount === 0
+            ? 'No hay cierres. Se sincronizan automáticamente cada 2 min desde Ágora.'
+            : `${totalCount} cierre${totalCount !== 1 ? 's' : ''} (ordenado por Business Day, más reciente primero)`}
+        </Text>
+        {totalCount > PAGE_SIZE && (
+          <View style={styles.pagination}>
+            <TouchableOpacity
+              style={[styles.pageBtn, effectivePage <= 1 && styles.pageBtnDisabled]}
+              onPress={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={effectivePage <= 1}
+            >
+              <MaterialIcons name="chevron-left" size={20} color={effectivePage <= 1 ? '#94a3b8' : '#334155'} />
+              <Text style={[styles.pageBtnText, effectivePage <= 1 && styles.pageBtnTextDisabled]}>Anterior</Text>
+            </TouchableOpacity>
+            <Text style={styles.pageInfo}>
+              Página {effectivePage} de {totalPages}
+            </Text>
+            <TouchableOpacity
+              style={[styles.pageBtn, effectivePage >= totalPages && styles.pageBtnDisabled]}
+              onPress={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={effectivePage >= totalPages}
+            >
+              <Text style={[styles.pageBtnText, effectivePage >= totalPages && styles.pageBtnTextDisabled]}>Siguiente</Text>
+              <MaterialIcons name="chevron-right" size={20} color={effectivePage >= totalPages ? '#94a3b8' : '#334155'} />
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
+      <ScrollView horizontal style={styles.tableScroll} showsHorizontalScrollIndicator>
+        <View style={styles.tableWrapper}>
+          <View style={styles.headerRowTable}>
+            {columnas.map((col) => (
+              <View key={col} style={[styles.cellHeader, isMonedaCol(col) && styles.cellRight, { width: getColWidth(col) }]}>
+                <Text style={styles.cellHeaderText} numberOfLines={1}>
+                  {getHeaderLabel(col)}
                 </Text>
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Desde (YYYY-MM-DD)</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    value={businessDaySync}
-                    onChangeText={setBusinessDaySync}
-                    placeholder="2025-01-01"
-                    placeholderTextColor="#94a3b8"
-                  />
-                </View>
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Hasta (opcional, YYYY-MM-DD)</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    value={businessDaySyncTo}
-                    onChangeText={setBusinessDaySyncTo}
-                    placeholder="2026-02-03"
-                    placeholderTextColor="#94a3b8"
-                  />
-                </View>
-                {syncProgress ? <Text style={styles.modalProgress}>{syncProgress}</Text> : null}
-                {syncError ? <Text style={styles.modalError}>{syncError}</Text> : null}
-                {syncMessage ? <Text style={styles.modalSuccess}>{syncMessage}</Text> : null}
-              </View>
-              <View style={styles.modalFooter}>
-                <TouchableOpacity
-                  style={styles.modalFooterBtn}
-                  onPress={ejecutarSync}
-                  disabled={syncing}
-                  accessibilityLabel="Sincronizar"
+                <View
+                  style={[styles.resizeHandle, Platform.OS === 'web' && (styles.resizeHandleWeb as object)]}
+                  {...(Platform.OS === 'web' ? { onMouseDown: handleWebResizeStart(col) } : (resizeHandlers[col]?.panHandlers || {}))}
                 >
-                  {syncing ? (
-                    <ActivityIndicator size="small" color="#0ea5e9" />
-                  ) : (
-                    <>
-                      <MaterialIcons name="sync" size={18} color="#0ea5e9" />
-                      <Text style={styles.modalFooterBtnText}>Sincronizar</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
+                  <View style={styles.resizeLine} />
+                </View>
               </View>
+            ))}
+          </View>
+          <ScrollView style={styles.tableInner} showsVerticalScrollIndicator>
+            <View style={styles.table}>
+              {paginatedList.length === 0 ? (
+                <View style={styles.emptyRow}>
+                  <Text style={styles.emptyText}>
+                    {closeouts.length === 0 ? 'No hay cierres. Sincronizando…' : 'Ningún resultado con el filtro'}
+                  </Text>
+                </View>
+              ) : (
+                paginatedList.map((item, idx) => {
+                  const rowKey = `${item.PK ?? ''}-${item.SK ?? ''}-${idx}`;
+                  const isSelected = selectedRowKey === rowKey;
+                  return (
+                    <Pressable
+                      key={rowKey}
+                      style={[styles.dataRow, isSelected && styles.dataRowSelected]}
+                      onPress={() => setSelectedRowKey(isSelected ? null : rowKey)}
+                    >
+                      {columnas.map((col) => {
+                        const valor = getValorCelda(item, col);
+                        return (
+                          <CellWithTooltip
+                            key={col}
+                            fullText={String(valor ?? '')}
+                            cellStyle={[isMonedaCol(col) && styles.cellRight, { width: getColWidth(col) }]}
+                            textStyle={[styles.cellText, col === 'InvoicePayments' && styles.cellBold]}
+                          />
+                        );
+                      })}
+                    </Pressable>
+                  );
+                })
+              )}
             </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+          </ScrollView>
+        </View>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
-  loadingText: { fontSize: 12, color: '#64748b' },
-  errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
-  retryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 8,
-    padding: 8,
-    backgroundColor: '#f8fafc',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  retryBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '500' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8 },
+  container: { flex: 1, padding: 10, backgroundColor: '#fff' },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
   backBtn: { padding: 4 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12 },
-  syncBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
-  },
-  syncBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '500' },
-  searchWrap: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    minWidth: 140,
-    maxWidth: 280,
-    height: 32,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-  },
+  title: { fontSize: 17, fontWeight: '600', color: '#1e293b', letterSpacing: -0.3 },
+  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 },
+  searchWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 8, paddingHorizontal: 10 },
   searchIcon: { marginRight: 6 },
-  searchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
-  filtrosActivosLine: {
-    fontSize: 10,
-    color: '#94a3b8',
-    marginBottom: 6,
-    paddingHorizontal: 2,
-  },
-  totalesRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'stretch',
-    gap: 8,
-    marginBottom: 8,
-  },
-  totalesChip: {
+  searchInput: { flex: 1, paddingVertical: 8, fontSize: 13, color: '#334155' },
+  toolbarBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#f8fafc', borderRadius: 6, borderWidth: 1, borderColor: '#e2e8f0' },
+  toolbarBtnDisabled: { opacity: 0.6 },
+  toolbarBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
+  toolbarBtnText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
+  toolbarBtnTextActive: { color: '#fff' },
+  totalFacturadoBox: { backgroundColor: '#d1fae5', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  soloFacturacionBox: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4, paddingHorizontal: 0, marginBottom: 10 },
+  soloFacturacionLabel: { fontSize: 11, color: '#94a3b8', fontWeight: '400' },
+  soloFacturacionSwitchWrap: { transform: [{ scale: 0.65 }] },
+  totalFacturadoLabel: { fontSize: 14, fontWeight: '600', color: '#065f46' },
+  totalFacturadoValue: { fontSize: 15, fontWeight: '700', color: '#047857' },
+  filterPanel: {
+    backgroundColor: '#fafbfc',
+    borderRadius: 6,
     paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.06)',
-    minWidth: 100,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  totalesChipTotal: { backgroundColor: '#1e3a5f', borderColor: '#1e40af' },
-  totalesChipLabel: { fontSize: 9, fontWeight: '600', color: '#475569', marginBottom: 2, textTransform: 'uppercase', textAlign: 'center' },
-  totalesChipValue: { fontSize: 11, fontWeight: '700', color: '#0f172a', textAlign: 'center' },
-  totalesChipTotalLabel: { fontSize: 9, fontWeight: '600', color: '#93c5fd', marginBottom: 2, textTransform: 'uppercase', textAlign: 'center' },
-  totalesChipTotalValue: { fontSize: 11, fontWeight: '700', color: '#bfdbfe', textAlign: 'center' },
-  subtitle: { fontSize: 12, color: '#64748b', marginBottom: 8 },
-  dropdownTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 36,
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    marginBottom: 4,
+    marginBottom: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#e5e7eb',
+    ...(Platform.OS === 'web' && { boxShadow: '0 1px 2px rgba(0,0,0,0.04)' } as object),
   },
-  dropdownTriggerText: { flex: 1, fontSize: 11, color: '#334155' },
-  dropdownList: { marginBottom: 8, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff' },
-  subtitlePage: { fontSize: 11, color: '#94a3b8' },
-  paginationRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 12, marginBottom: 8 },
-  pageBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, backgroundColor: '#f8fafc' },
-  pageBtnDisabled: { opacity: 0.6 },
+  filterRow: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap', gap: 10 },
+  filterField: { minWidth: 82, flex: 0 },
+  filterFieldLocal: { flex: 1, minWidth: 120 },
+  filterLabel: { fontSize: 10, fontWeight: '600', color: '#6b7280', marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.3 },
+  filterInput: { backgroundColor: '#fff', borderRadius: 4, paddingVertical: 2, paddingHorizontal: 6, fontSize: 10, color: '#334155', borderWidth: StyleSheet.hairlineWidth, borderColor: '#e5e7eb', minHeight: 24 },
+  filterLocalesWrap: { maxHeight: 26 },
+  filterLocalesContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  filterChip: { paddingVertical: 2, paddingHorizontal: 6, backgroundColor: '#f3f4f6', borderRadius: 4, borderWidth: StyleSheet.hairlineWidth, borderColor: '#e5e7eb' },
+  filterChipActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
+  filterChipText: { fontSize: 10, color: '#6b7280', fontWeight: '500' },
+  filterChipTextActive: { color: '#fff' },
+  filterClearBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 8, marginLeft: 4 },
+  filterClearText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalContent: { backgroundColor: '#fff', borderRadius: 12, padding: 20, width: '100%', maxWidth: 360 },
+  modalTitle: { fontSize: 17, fontWeight: '600', color: '#334155', marginBottom: 4 },
+  modalSubtitle: { fontSize: 12, color: '#64748b', marginBottom: 16 },
+  modalActions: { flexDirection: 'row', gap: 12, marginTop: 16, justifyContent: 'flex-end' },
+  modalBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 },
+  modalBtnCancel: { backgroundColor: '#f1f5f9' },
+  modalBtnCancelText: { fontSize: 13, color: '#64748b', fontWeight: '500' },
+  modalBtnPrimary: { backgroundColor: '#0ea5e9' },
+  modalBtnPrimaryText: { fontSize: 13, color: '#fff', fontWeight: '600', marginLeft: 6 },
+  infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 },
+  infoLine: { fontSize: 11, color: '#64748b', flex: 1 },
+  pagination: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  pageBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#f8fafc', borderRadius: 8 },
+  pageBtnDisabled: { opacity: 0.5 },
   pageBtnText: { fontSize: 12, color: '#334155', fontWeight: '500' },
   pageBtnTextDisabled: { color: '#94a3b8' },
-  pageInfo: { fontSize: 12, color: '#64748b' },
-  tableWrap: {
-    flex: 1,
-    minHeight: 120,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: '#f8fafc',
-  },
-  scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 20, flexGrow: 1 },
-  table: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: '#fff',
-    alignSelf: 'flex-start',
-  },
-  rowHeader: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
-  cellHeader: { minWidth: MIN_COL_WIDTH, paddingVertical: 4, paddingHorizontal: 6, borderRightWidth: 1, borderRightColor: '#cbd5e1', position: 'relative' },
-  resizeHandle: {
+  pageInfo: { fontSize: 12, color: '#64748b', fontWeight: '500' },
+  tableScroll: { flex: 1, backgroundColor: '#fff' },
+  tableWrapper: { flex: 1, flexDirection: 'column' },
+  tableInner: { flex: 1, backgroundColor: '#fff' },
+  table: { paddingBottom: 24, backgroundColor: '#fff' },
+  headerRowTable: { flexDirection: 'row', backgroundColor: '#f8fafc', borderBottomWidth: 1, borderColor: '#e2e8f0' },
+  dataRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: '#f1f5f9' },
+  dataRowSelected: { backgroundColor: '#dbeafe' },
+  cellHeader: { paddingHorizontal: 6, paddingVertical: 6, paddingRight: 18, justifyContent: 'center', position: 'relative' },
+  cell: { paddingHorizontal: 6, paddingVertical: 5, justifyContent: 'center', position: 'relative' },
+  cellTooltip: {
     position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: 10,
-    backgroundColor: 'rgba(0,0,0,0.04)',
-    cursor: 'col-resize' as 'pointer',
+    left: 0,
+    bottom: '100%',
+    marginBottom: 2,
+    backgroundColor: '#fef9c3',
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: 4,
+    maxWidth: 280,
+    zIndex: 1000,
+    opacity: 1,
+    ...(Platform.OS === 'web' && { boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } as object),
   },
-  cellHeaderText: { fontSize: 10, fontWeight: '600', color: '#334155' },
-  cellHeaderTextBold: { fontWeight: '700' },
-  cellHeaderTextRight: { textAlign: 'right' },
-  cellHeaderRight: { alignItems: 'flex-end' },
-  cellLast: { borderRightWidth: 0 },
-  row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#fff' },
-  rowEmpty: {},
-  cell: { minWidth: MIN_COL_WIDTH, paddingVertical: 4, paddingHorizontal: 6, borderRightWidth: 1, borderRightColor: '#e2e8f0' },
+  cellTooltipText: { fontSize: 10, color: '#713f12', lineHeight: 14 },
   cellRight: { alignItems: 'flex-end' },
-  cellText: { fontSize: 10, color: '#475569' },
-  cellTextBold: { fontWeight: '700' },
-  cellTextRight: { textAlign: 'right', alignSelf: 'stretch' },
-  cellEmpty: { paddingVertical: 28, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
-  cellEmptyText: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', textAlign: 'center' },
-  modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
-  modalContentWrap: { width: '100%', maxWidth: 420, padding: 24, alignItems: 'center' },
-  modalCard: { width: '100%', backgroundColor: 'rgba(255, 255, 255, 0.9)', borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: '#334155' },
-  modalClose: { padding: 4 },
-  modalBody: { paddingHorizontal: 20, paddingVertical: 16 },
-  modalHelp: { fontSize: 12, color: '#475569', marginBottom: 12, lineHeight: 18 },
-  formGroup: { marginBottom: 8 },
-  formLabel: { fontSize: 9, fontWeight: '500', color: '#475569', marginBottom: 2 },
-  formInput: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 13, color: '#334155' },
-  filterLocalsScroll: { maxHeight: 200 },
-  filterLocalItem: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4, paddingHorizontal: 4 },
-  filterLocalItemSelected: { backgroundColor: '#f0f9ff', borderRadius: 6 },
-  filterLocalText: { fontSize: 11, color: '#334155' },
-  dateInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  formInputFlex: { flex: 1, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 13, color: '#334155' },
-  calendarBtn: { padding: 8, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8 },
-  calendarModalWrap: { width: '100%', maxWidth: 340, padding: 24, alignItems: 'center' },
-  calendarCard: { width: '100%', backgroundColor: '#fff', borderRadius: 16, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12 },
-  calendarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-  calendarTitle: { fontSize: 16, fontWeight: '600', color: '#334155' },
-  calendarWeekdays: { flexDirection: 'row', marginBottom: 4 },
-  calendarWeekday: { flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '600', color: '#64748b' },
-  calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  calendarDay: { width: '14.28%', aspectRatio: 1, justifyContent: 'center', alignItems: 'center', padding: 2 },
-  calendarDayText: { fontSize: 14, color: '#334155' },
-  modalProgress: { fontSize: 11, color: '#64748b', marginTop: 8 },
-  modalError: { fontSize: 11, color: '#f87171', marginTop: 8 },
-  modalSuccess: { fontSize: 11, color: '#22c55e', marginTop: 8 },
-  modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: 6, paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
-  modalFooterBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
-  modalFooterBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '500' },
-  modalFooterBtnSecondary: { backgroundColor: 'transparent' },
-  modalFooterBtnTextSecondary: { fontSize: 12, color: '#64748b', fontWeight: '500' },
+  cellHeaderText: { fontSize: 10, fontWeight: '600', color: '#475569', letterSpacing: 0.2 },
+  cellText: { fontSize: 10, color: '#334155', letterSpacing: 0.1 },
+  cellBold: { fontWeight: '700' },
+  resizeHandle: { position: 'absolute', right: 0, top: 0, bottom: 0, width: 16, justifyContent: 'center', alignItems: 'flex-end' },
+  resizeHandleWeb: { cursor: 'col-resize' } as Record<string, unknown>,
+  resizeLine: { width: StyleSheet.hairlineWidth, height: '70%', backgroundColor: '#f1f5f9', borderRadius: 0 },
+  emptyRow: { padding: 24, alignItems: 'center' },
+  emptyText: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
+  loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  loadingText: { fontSize: 13, color: '#64748b' },
+  errorWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  errorText: { fontSize: 13, color: '#dc2626', textAlign: 'center' },
+  retryBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 10 },
+  retryBtnText: { fontSize: 13, color: '#0ea5e9', fontWeight: '500' },
 });
