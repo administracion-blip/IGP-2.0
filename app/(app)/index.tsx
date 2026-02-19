@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Platform, Animated } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Platform, Animated, ScrollView } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -18,9 +19,19 @@ function getYesterdayYYYYMMDD(): string {
   return d.toISOString().slice(0, 10);
 }
 
+function getLastYearSameDate(isoDate: string): string {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  return `${y - 1}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
 function formatBusinessDayToLabel(iso: string): string {
   const [y, m, d] = iso.split('-');
   return `${d}/${m}/${y}`;
+}
+
+function calcVariacionPct(actual: number, anterior: number): number | null {
+  if (anterior === 0) return actual > 0 ? 100 : null;
+  return Math.round(((actual - anterior) / anterior) * 1000) / 10;
 }
 
 type TotalByLocal = { local: string; total: number; workplaceId: string };
@@ -74,15 +85,32 @@ function TickerMarquee({ totals, formatMoneda }: { totals: TotalByLocal[]; forma
   );
 }
 
+function VariacionBadge({ pct }: { pct: number | null }) {
+  if (pct == null) return null;
+  const sube = pct > 0;
+  const color = sube ? '#22c55e' : '#f87171';
+  const icon = sube ? 'trending-up' : 'trending-down';
+  const sign = pct > 0 ? '+' : '';
+  return (
+    <View style={[styles.variacionBadge, { backgroundColor: sube ? 'rgba(34,197,94,0.2)' : 'rgba(248,113,113,0.2)' }]}>
+      <MaterialIcons name={icon} size={14} color={color} style={styles.variacionIcon} />
+      <Text style={[styles.variacionText, { color }]}>{sign}{pct}%</Text>
+    </View>
+  );
+}
+
 export default function AppHome() {
   const [totals, setTotals] = useState<TotalByLocal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ytdTotals, setYtdTotals] = useState<TotalByLocal[]>([]);
+  const [ytdLastYearTotals, setYtdLastYearTotals] = useState<TotalByLocal[]>([]);
   const [ytdLoading, setYtdLoading] = useState(true);
   const [ytdError, setYtdError] = useState<string | null>(null);
   const yesterday = getYesterdayYYYYMMDD();
+  const lastYearSameDate = getLastYearSameDate(yesterday);
   const currentYear = new Date().getFullYear();
+  const lastYear = currentYear - 1;
 
   useEffect(() => {
     fetch(`${API_URL}/api/agora/closeouts/totals-by-local?businessDay=${yesterday}`)
@@ -103,25 +131,45 @@ export default function AppHome() {
   }, [yesterday]);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/agora/closeouts/totals-by-local-ytd?year=${currentYear}`)
-      .then((res) => res.json())
-      .then((data: { totals?: TotalByLocal[]; error?: string }) => {
-        if (data.error) {
-          setYtdError(data.error);
+    const dateTo = yesterday;
+    const dateToLastYear = lastYearSameDate;
+    Promise.all([
+      fetch(`${API_URL}/api/agora/closeouts/totals-by-local-ytd?year=${currentYear}&dateTo=${dateTo}`).then((r) => r.json()),
+      fetch(`${API_URL}/api/agora/closeouts/totals-by-local-ytd?year=${lastYear}&dateTo=${dateToLastYear}`).then((r) => r.json()),
+    ])
+      .then(([dataCur, dataLast]) => {
+        if (dataCur.error) {
+          setYtdError(dataCur.error);
           setYtdTotals([]);
+          setYtdLastYearTotals([]);
         } else {
-          setYtdTotals(data.totals || []);
+          setYtdTotals(dataCur.totals || []);
+          setYtdLastYearTotals(dataLast.totals || []);
         }
       })
       .catch((err) => {
         setYtdError(err.message || 'Error al cargar');
         setYtdTotals([]);
+        setYtdLastYearTotals([]);
       })
       .finally(() => setYtdLoading(false));
-  }, [currentYear]);
+  }, [currentYear, yesterday, lastYearSameDate]);
+
+  const ytdTotalGeneral = ytdTotals.reduce((s, t) => s + t.total, 0);
+  const ytdLastYearTotalGeneral = ytdLastYearTotals.reduce((s, t) => s + t.total, 0);
+  const variacionGeneral = calcVariacionPct(ytdTotalGeneral, ytdLastYearTotalGeneral);
+
+  const byWorkplaceId = new Map<string, TotalByLocal>();
+  for (const t of ytdLastYearTotals) byWorkplaceId.set(t.workplaceId, t);
+  const localesConComparacion = ytdTotals.map((t) => {
+    const last = byWorkplaceId.get(t.workplaceId);
+    const lastTotal = last?.total ?? 0;
+    const pct = calcVariacionPct(t.total, lastTotal);
+    return { ...t, lastYearTotal: lastTotal, variacionPct: pct };
+  });
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
       <View style={styles.tickerBar}>
         <View style={styles.tickerLabel}>
           <Text style={styles.tickerLabelText}>Facturación {formatBusinessDayToLabel(yesterday)}</Text>
@@ -145,22 +193,39 @@ export default function AppHome() {
 
       <View style={styles.widgetsRow}>
         <View style={styles.ytdWidget}>
-          <Text style={styles.ytdTitle}>Facturación {currentYear}</Text>
+          <Text style={styles.ytdTitle}>Facturación {currentYear} hasta {formatBusinessDayToLabel(yesterday)}</Text>
           {ytdLoading ? (
             <ActivityIndicator size="small" color="#86efac" style={styles.ytdLoader} />
           ) : ytdError ? (
             <Text style={styles.ytdError}>{ytdError}</Text>
-          ) : ytdTotals.length === 0 ? (
-            <Text style={styles.ytdEmpty}>Sin datos del año</Text>
           ) : (
-            <View style={styles.ytdList}>
-              {[...ytdTotals].sort((a, b) => a.local.localeCompare(b.local)).map((item, idx) => (
-                <View key={item.workplaceId || idx} style={styles.ytdRow}>
-                  <Text style={styles.ytdLocal}>{item.local}</Text>
-                  <Text style={styles.ytdTotal}>{formatMoneda(item.total)}</Text>
+            <>
+              <View style={styles.ytdGeneralRow}>
+                <Text style={styles.ytdGeneralLabel}>Total</Text>
+                <View style={styles.ytdGeneralRight}>
+                  <Text style={styles.ytdGeneralTotal}>{formatMoneda(ytdTotalGeneral)}</Text>
+                  <VariacionBadge pct={variacionGeneral} />
                 </View>
-              ))}
-            </View>
+              </View>
+              <Text style={styles.ytdComparacionLabel}>vs. mismo periodo {lastYear}</Text>
+              <View style={styles.ytdList}>
+                {localesConComparacion.length === 0 ? (
+                  <Text style={styles.ytdEmpty}>Sin datos por local</Text>
+                ) : (
+                [...localesConComparacion].sort((a, b) => a.local.localeCompare(b.local)).map((item, idx) => (
+                  <View key={item.workplaceId || idx} style={styles.ytdRow}>
+                    <View style={styles.ytdLocalWrap}>
+                      <Text style={styles.ytdLocal}>{item.local}</Text>
+                    </View>
+                    <View style={styles.ytdRowRight}>
+                      <Text style={styles.ytdTotal}>{formatMoneda(item.total)}</Text>
+                      <VariacionBadge pct={item.variacionPct} />
+                    </View>
+                  </View>
+                ))
+                )}
+              </View>
+            </>
           )}
         </View>
       </View>
@@ -171,11 +236,13 @@ export default function AppHome() {
           Usa el menú lateral para acceder a Base de Datos y más opciones.
         </Text>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  scrollView: { flex: 1 },
+  scrollContent: { padding: 12, paddingBottom: 32 },
   container: {
     flex: 1,
     padding: 12,
@@ -263,17 +330,28 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     fontStyle: 'italic',
   },
+  variacionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginLeft: 8,
+  },
+  variacionIcon: { marginRight: 2 },
+  variacionText: { fontSize: 12, fontWeight: '700' },
   widgetsRow: {
     flexDirection: 'row',
     marginBottom: 16,
     alignItems: 'flex-start',
+    alignSelf: 'stretch',
   },
   ytdWidget: {
     backgroundColor: '#0f172a',
     borderRadius: 8,
     padding: 14,
     minWidth: 280,
-    maxWidth: 360,
+    alignSelf: 'stretch',
     overflow: 'hidden',
     ...(Platform.OS === 'web' && { boxShadow: '0 2px 8px rgba(15,23,42,0.3)' } as object),
   },
@@ -287,6 +365,30 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
   },
   ytdLoader: { marginVertical: 12 },
+  ytdGeneralRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 0,
+    marginBottom: 4,
+    borderBottomWidth: 2,
+    borderBottomColor: 'rgba(134,239,172,0.3)',
+  },
+  ytdGeneralLabel: { fontSize: 14, fontWeight: '600', color: '#94a3b8' },
+  ytdGeneralRight: { flexDirection: 'row', alignItems: 'center' },
+  ytdGeneralTotal: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#86efac',
+    ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
+  },
+  ytdComparacionLabel: {
+    fontSize: 11,
+    color: '#64748b',
+    marginBottom: 8,
+    fontStyle: 'italic',
+  },
   ytdList: { gap: 6 },
   ytdRow: {
     flexDirection: 'row',
@@ -294,13 +396,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 4,
     paddingHorizontal: 0,
+    gap: 40,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(255,255,255,0.12)',
   },
+  ytdRowRight: { flexDirection: 'row', alignItems: 'center', flexShrink: 0 },
+  ytdLocalWrap: { flexShrink: 0 },
   ytdLocal: {
     fontSize: 14,
     color: '#f8fafc',
     fontWeight: '600',
+    marginRight: 32,
     ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
     letterSpacing: 0.8,
   },
@@ -321,7 +427,7 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   welcome: {
-    flex: 1,
+    paddingVertical: 24,
     justifyContent: 'center',
   },
   title: {

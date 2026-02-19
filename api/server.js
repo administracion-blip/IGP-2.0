@@ -187,14 +187,17 @@ app.get('/api/agora/closeouts/totals-by-local', async (req, res) => {
   }
 });
 
-// GET /api/agora/closeouts/totals-by-local-ytd?year=YYYY
-// Devuelve sumatorio de total facturado (InvoicePayments) por local para el año indicado.
+// GET /api/agora/closeouts/totals-by-local-ytd?year=YYYY&dateTo=YYYY-MM-DD
+// Devuelve sumatorio de total facturado (InvoicePayments) por local para el año hasta dateTo (inclusive).
+// Si dateTo no se indica, incluye todo el año.
 app.get('/api/agora/closeouts/totals-by-local-ytd', async (req, res) => {
   const year = (req.query.year && String(req.query.year).trim()) || '';
+  const dateTo = (req.query.dateTo && String(req.query.dateTo).trim()) || '';
   if (!year || !/^\d{4}$/.test(year)) {
     return res.status(400).json({ error: 'year obligatorio (YYYY)' });
   }
   const prefix = year + '-';
+  const useDateTo = dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateTo) && dateTo.startsWith(year + '-');
   try {
     const items = [];
     let lastKey = null;
@@ -208,7 +211,12 @@ app.get('/api/agora/closeouts/totals-by-local-ytd', async (req, res) => {
     } while (lastKey);
     const list = items.filter((i) => {
       const sk = String(i.SK ?? i.sk ?? '').trim();
-      return sk && sk.startsWith(prefix);
+      if (!sk || !sk.startsWith(prefix)) return false;
+      if (useDateTo) {
+        const datePart = sk.split('#')[0] || '';
+        if (datePart > dateTo) return false;
+      }
+      return true;
     });
     const totalsByPk = {};
     for (const item of list) {
@@ -248,7 +256,7 @@ app.get('/api/agora/closeouts/totals-by-local-ytd', async (req, res) => {
         workplaceId,
       }))
       .sort((a, b) => b.total - a.total);
-    res.json({ year, totals: result });
+    res.json({ year, dateTo: useDateTo ? dateTo : null, totals: result });
   } catch (err) {
     console.error('[agora/closeouts/totals-by-local-ytd]', err.message || err);
     res.status(500).json({ error: err.message || 'Error al obtener totales YTD' });
