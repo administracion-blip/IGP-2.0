@@ -18,7 +18,6 @@ import { MaterialIcons } from '@expo/vector-icons';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const REFETCH_INTERVAL_MS = 15_000;
-const SYNC_INTERVAL_MS = 120_000;
 const PAGE_SIZE = 100;
 const DEFAULT_COL_WIDTH = 72;
 const MIN_COL_WIDTH = 50;
@@ -89,6 +88,22 @@ function normalizePaymentName(name: string): string {
 }
 
 /** Parsea dd/mm/yyyy o yyyy-mm-dd y devuelve yyyy-mm-dd para comparación con Business Day. */
+function formatBusinessDayLabel(iso: string): string {
+  if (!iso || typeof iso !== 'string') return '—';
+  const parts = iso.trim().split('-');
+  if (parts.length !== 3) return iso;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+const DIA_SEMANA_3 = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+function getDiaSemana3(iso: string): string {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso.trim())) return '—';
+  const [y, m, d] = iso.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  return DIA_SEMANA_3[date.getDay()] ?? '—';
+}
+
 function parseDateToYYYYMMDD(input: string): string | null {
   const s = input.trim();
   if (!s) return null;
@@ -181,6 +196,7 @@ export default function CierresTeoricosScreen() {
   const [saleCenters, setSaleCenters] = useState<{ Id?: number; Nombre?: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filtroBusquedaInput, setFiltroBusquedaInput] = useState('');
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
@@ -197,9 +213,41 @@ export default function CierresTeoricosScreen() {
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
   const [filtroLocal, setFiltroLocal] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
+    Local: Math.round(DEFAULT_COL_WIDTH * 1.2),
+    PosName: Math.round(DEFAULT_COL_WIDTH * 1.44),
+    DiaSemana: 48,
+  });
   const [soloConFacturacion, setSoloConFacturacion] = useState(true);
   const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
+  const [showFormModal, setShowFormModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<CloseOut | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletingItem, setDeletingItem] = useState<CloseOut | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formBusinessDay, setFormBusinessDay] = useState('');
+  const [formLocal, setFormLocal] = useState('');
+  const [formPosId, setFormPosId] = useState('');
+  const [formPosName, setFormPosName] = useState('');
+  const [formNumber, setFormNumber] = useState('1');
+  const [formPayments, setFormPayments] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formLocalDropdownOpen, setFormLocalDropdownOpen] = useState(false);
+  const [formPosDropdownOpen, setFormPosDropdownOpen] = useState(false);
+
+  const formPaymentMethods = useMemo(() => {
+    const known = [...KNOWN_PAYMENT_ORDER];
+    const fromForm = Object.keys(formPayments).filter((k) => !known.includes(k)).sort();
+    return [...known, ...fromForm];
+  }, [formPayments]);
+
+  const formTotalGross = useMemo(() => {
+    return formPaymentMethods.reduce((sum, method) => {
+      const v = formPayments[method];
+      const n = v ? parseFloat(String(v).replace(',', '.')) : 0;
+      return sum + (Number.isNaN(n) ? 0 : n);
+    }, 0);
+  }, [formPayments, formPaymentMethods]);
 
   const refetchCloseouts = useCallback((silent = false) => {
     if (!silent) { setLoading(true); setError(null); }
@@ -249,34 +297,7 @@ export default function CierresTeoricosScreen() {
   useEffect(() => { refetchCloseouts(); }, [refetchCloseouts]);
 
   useEffect(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    fetch(`${API_URL}/api/agora/closeouts/sync`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ businessDay: today }),
-    })
-      .then((res) => safeJson<{ ok?: boolean }>(res))
-      .then((data) => { if (data.ok) refetchCloseouts(true); })
-      .catch(() => {});
-  }, [refetchCloseouts]);
-
-  useEffect(() => {
     const id = setInterval(() => refetchCloseouts(true), REFETCH_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [refetchCloseouts]);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      const today = new Date().toISOString().slice(0, 10);
-      fetch(`${API_URL}/api/agora/closeouts/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessDay: today }),
-      })
-        .then((res) => safeJson<{ ok?: boolean }>(res))
-        .then((data) => { if (data.ok) refetchCloseouts(true); })
-        .catch(() => {});
-    }, SYNC_INTERVAL_MS);
     return () => clearInterval(id);
   }, [refetchCloseouts]);
 
@@ -293,6 +314,12 @@ export default function CierresTeoricosScreen() {
       .then((data) => setSaleCenters(data.saleCenters || []))
       .catch(() => setSaleCenters([]));
   }, []);
+
+  const DEBOUNCE_MS = 250;
+  useEffect(() => {
+    const t = setTimeout(() => setFiltroBusqueda(filtroBusquedaInput), DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [filtroBusquedaInput]);
 
   const agoraCodeToNombre = useMemo(() => {
     const map: Record<string, string> = {};
@@ -314,7 +341,7 @@ export default function CierresTeoricosScreen() {
 
   const paymentCols = useMemo(() => getUniquePaymentMethods(closeouts), [closeouts]);
   const columnas = useMemo(() => {
-    const base = ['BusinessDay', 'Local', 'PosName', 'InvoicePayments'];
+    const base = ['BusinessDay', 'DiaSemana', 'Local', 'PosName', 'InvoicePayments'];
     const orderedPayments = ['Efectivo', 'Tarjeta', 'Pendiente de cobro', 'Prepago Transferencia', 'AgoraPay'].filter((m) => paymentCols.includes(m));
     const otherPayments = paymentCols.filter((m) => !orderedPayments.includes(m));
     const dates = ['OpenDate', 'CloseDate', 'updatedAt'];
@@ -360,7 +387,11 @@ export default function CierresTeoricosScreen() {
     list = [...list].sort((a, b) => {
       const bdA = getBusinessDay(a);
       const bdB = getBusinessDay(b);
-      return bdB.localeCompare(bdA);
+      const cmpBd = bdB.localeCompare(bdA);
+      if (cmpBd !== 0) return cmpBd;
+      const localA = agoraCodeToNombre[String(a.PK ?? a.pk ?? '')] ?? String(a.PK ?? a.pk ?? '');
+      const localB = agoraCodeToNombre[String(b.PK ?? b.pk ?? '')] ?? String(b.PK ?? b.pk ?? '');
+      return localA.localeCompare(localB);
     });
     return list;
   }, [closeouts, filtroBusqueda, filtroLocal, filtroFechaDesde, filtroFechaHasta, soloConFacturacion, agoraCodeToNombre]);
@@ -373,6 +404,152 @@ export default function CierresTeoricosScreen() {
     const paginatedList = closeoutsFiltrados.slice(start, start + PAGE_SIZE);
     return { paginatedList, totalPages: pages, totalCount: total, effectivePage: page };
   }, [closeoutsFiltrados, currentPage]);
+
+  const selectedItem = useMemo(() => {
+    if (!selectedRowKey || !paginatedList) return null;
+    return paginatedList.find((item, idx) => `${item.PK ?? ''}-${item.SK ?? ''}-${idx}` === selectedRowKey) ?? null;
+  }, [selectedRowKey, paginatedList]);
+
+  const openAddModal = useCallback(() => {
+    const d = new Date();
+    setFormBusinessDay(`${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`);
+    setFormLocal('');
+    setFormPosId('');
+    setFormPosName('');
+    setFormNumber('1');
+    const init: Record<string, string> = {};
+    for (const m of KNOWN_PAYMENT_ORDER) init[m] = '';
+    setFormPayments(init);
+    setFormError(null);
+    setEditingItem(null);
+    setFormLocalDropdownOpen(false);
+    setFormPosDropdownOpen(false);
+    setShowFormModal(true);
+  }, []);
+
+  const openEditModal = useCallback(() => {
+    const item = selectedItem;
+    if (!item) return;
+    const bd = getBusinessDay(item);
+    const [y, m, d] = bd ? bd.split('-') : ['', '', ''];
+    setFormBusinessDay(bd ? `${d}/${m}/${y}` : '');
+    setFormLocal(String(item.PK ?? item.pk ?? ''));
+    setFormPosId(String(item.PosId ?? item.posId ?? ''));
+    setFormPosName(String(item.PosName ?? item.posName ?? ''));
+    setFormNumber(String(item.Number ?? item.number ?? '1'));
+    const arr = item.InvoicePayments ?? item.invoicePayments;
+    const payments: Record<string, string> = {};
+    for (const m of KNOWN_PAYMENT_ORDER) payments[m] = '';
+    if (Array.isArray(arr)) {
+      for (const p of arr) {
+        const name = normalizePaymentName(String(p?.MethodName ?? (p as { methodName?: string }).methodName ?? '').trim() || 'Sin nombre');
+        const amt = Number(p?.Amount ?? (p as { amount?: number }).amount ?? 0) || 0;
+        if (name && name !== 'Sin nombre') {
+          const prev = parseFloat(payments[name] || '0') || 0;
+          payments[name] = String(prev + amt);
+        }
+      }
+    }
+    setFormPayments(payments);
+    setFormError(null);
+    setEditingItem(item);
+    setFormLocalDropdownOpen(false);
+    setFormPosDropdownOpen(false);
+    setShowFormModal(true);
+  }, [selectedItem]);
+
+  const openDeleteModal = useCallback(() => {
+    if (selectedItem) {
+      setDeletingItem(selectedItem);
+      setFormError(null);
+      setShowDeleteModal(true);
+    }
+  }, [selectedItem]);
+
+  const handleSaveForm = useCallback(async () => {
+    const bd = parseDateToYYYYMMDD(formBusinessDay);
+    const pk = formLocal.trim();
+    if (!bd || !pk) {
+      setFormError('Fecha y local obligatorios');
+      return;
+    }
+    const invoicePayments = formPaymentMethods
+      .map((method) => {
+        const v = formPayments[method];
+        const n = v ? parseFloat(String(v).replace(',', '.')) : 0;
+        return { MethodName: method, Amount: Number.isNaN(n) ? 0 : n };
+      })
+      .filter((p) => p.Amount > 0);
+    const grossNum = invoicePayments.reduce((s, p) => s + p.Amount, 0);
+    setSaving(true);
+    setFormError(null);
+    try {
+      if (editingItem) {
+        const res = await fetch(`${API_URL}/api/agora/closeouts`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            PK: editingItem.PK ?? editingItem.pk,
+            SK: editingItem.SK ?? editingItem.sk,
+            BusinessDay: bd,
+            WorkplaceName: agoraCodeToNombre[pk] ?? pk,
+            PosId: formPosId.trim() || null,
+            PosName: formPosName.trim() || null,
+            Number: formNumber.trim() || '1',
+            InvoicePayments: invoicePayments,
+            Amounts: { GrossAmount: grossNum, NetAmount: null, VatAmount: null, SurchargeAmount: null },
+          }),
+        });
+        const data = await safeJson<{ ok?: boolean; error?: string }>(res);
+        if (data.error) throw new Error(data.error);
+      } else {
+        const res = await fetch(`${API_URL}/api/agora/closeouts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            PK: pk,
+            BusinessDay: bd,
+            PosId: formPosId.trim() || null,
+            PosName: formPosName.trim() || null,
+            Number: formNumber.trim() || '1',
+            WorkplaceName: agoraCodeToNombre[pk] ?? pk,
+            InvoicePayments: invoicePayments,
+            GrossAmount: grossNum,
+          }),
+        });
+        const data = await safeJson<{ ok?: boolean; error?: string }>(res);
+        if (data.error) throw new Error(data.error);
+      }
+      setShowFormModal(false);
+      refetchCloseouts(true);
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : 'Error al guardar');
+    } finally {
+      setSaving(false);
+    }
+  }, [formBusinessDay, formLocal, formPosId, formPosName, formNumber, formPayments, formPaymentMethods, editingItem, agoraCodeToNombre, refetchCloseouts]);
+
+  const handleDelete = useCallback(async () => {
+    const item = deletingItem;
+    if (!item) return;
+    const pk = String(item.PK ?? item.pk ?? '').trim();
+    const sk = String(item.SK ?? item.sk ?? '').trim();
+    setSaving(true);
+    setFormError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/agora/closeouts?PK=${encodeURIComponent(pk)}&SK=${encodeURIComponent(sk)}`, { method: 'DELETE' });
+      const data = await safeJson<{ ok?: boolean; error?: string }>(res);
+      if (data.error) throw new Error(data.error);
+      setShowDeleteModal(false);
+      setDeletingItem(null);
+      setSelectedRowKey(null);
+      refetchCloseouts(true);
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : 'Error al eliminar');
+    } finally {
+      setSaving(false);
+    }
+  }, [deletingItem, refetchCloseouts]);
 
   const totalFacturado = useMemo(() => {
     return closeoutsFiltrados.reduce((sum, item) => {
@@ -388,6 +565,9 @@ export default function CierresTeoricosScreen() {
   }, [currentPage, totalPages]);
 
   const getValorCelda = useCallback((item: CloseOut, col: string): string => {
+    if (col === 'DiaSemana') {
+      return getDiaSemana3(getBusinessDay(item));
+    }
     if (col === 'Local') {
       const pk = String(item.PK ?? item.pk ?? '').trim();
       return agoraCodeToNombre[pk] ?? '—';
@@ -425,7 +605,7 @@ export default function CierresTeoricosScreen() {
 
   const getHeaderLabel = (col: string): string => {
     const labels: Record<string, string> = {
-      PK: 'WorkplaceId', Local: 'Local', SK: 'SK', BusinessDay: 'Business Day', Number: 'Nº',
+      PK: 'WorkplaceId', Local: 'Local', SK: 'SK', BusinessDay: 'Business Day', DiaSemana: 'Día', Number: 'Nº',
       WorkplaceId: 'Workplace', PosId: 'TPV Id', PosName: 'TPV',
       OpenDate: 'Apertura', CloseDate: 'Cierre',
       GrossAmount: 'Bruto', NetAmount: 'Neto', VatAmount: 'IVA', SurchargeAmount: 'Recargo',
@@ -538,8 +718,8 @@ export default function CierresTeoricosScreen() {
           <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            value={filtroBusqueda}
-            onChangeText={setFiltroBusqueda}
+            value={filtroBusquedaInput}
+            onChangeText={setFiltroBusquedaInput}
             placeholder="Buscar por local, TPV, fecha…"
             placeholderTextColor="#94a3b8"
           />
@@ -558,6 +738,26 @@ export default function CierresTeoricosScreen() {
         >
           <MaterialIcons name="filter-list" size={16} color={showFilterPanel ? '#fff' : '#64748b'} />
           <Text style={[styles.toolbarBtnText, showFilterPanel && styles.toolbarBtnTextActive]}>Filtro</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.toolbarBtnAdd} onPress={openAddModal}>
+          <MaterialIcons name="add" size={16} color="#fff" />
+          <Text style={styles.toolbarBtnAddText}>Añadir</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.toolbarBtn, !selectedItem && styles.toolbarBtnDisabled]}
+          onPress={openEditModal}
+          disabled={!selectedItem}
+        >
+          <MaterialIcons name="edit" size={16} color={selectedItem ? '#0ea5e9' : '#94a3b8'} />
+          <Text style={[styles.toolbarBtnText, !selectedItem && styles.toolbarBtnTextDisabled]}>Editar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.toolbarBtn, !selectedItem && styles.toolbarBtnDisabled]}
+          onPress={openDeleteModal}
+          disabled={!selectedItem}
+        >
+          <MaterialIcons name="delete" size={16} color={selectedItem ? '#dc2626' : '#94a3b8'} />
+          <Text style={[styles.toolbarBtnText, !selectedItem && styles.toolbarBtnTextDisabled]}>Borrar</Text>
         </TouchableOpacity>
       </View>
 
@@ -692,11 +892,154 @@ export default function CierresTeoricosScreen() {
         </Pressable>
       </Modal>
 
+      <Modal visible={showFormModal} transparent animationType="fade">
+        <Pressable style={styles.modalOverlay} onPress={() => !saving && setShowFormModal(false)}>
+          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+            <ScrollView style={styles.formModalScroll} showsVerticalScrollIndicator>
+            <Text style={styles.modalTitle}>{editingItem ? 'Editar cierre' : 'Añadir cierre'}</Text>
+            {formError ? <Text style={styles.formError}>{formError}</Text> : null}
+            <Text style={styles.filterLabel}>Fecha (dd/mm/yyyy)</Text>
+            <TextInput
+              style={styles.filterInput}
+              value={formBusinessDay}
+              onChangeText={setFormBusinessDay}
+              placeholder="dd/mm/yyyy"
+              placeholderTextColor="#94a3b8"
+              editable={!saving && !editingItem}
+            />
+            <Text style={styles.filterLabel}>Local</Text>
+            <View style={styles.formDropdownWrap}>
+              <TouchableOpacity
+                style={styles.formDropdownTrigger}
+                onPress={() => !editingItem && setFormLocalDropdownOpen((v) => !v)}
+                disabled={!!editingItem}
+              >
+                <Text style={[styles.formDropdownText, !formLocal && styles.formDropdownPlaceholder]} numberOfLines={1}>
+                  {formLocal ? (agoraCodeToNombre[formLocal] ?? formLocal) : 'Selecciona un local'}
+                </Text>
+                <MaterialIcons name={formLocalDropdownOpen ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
+              </TouchableOpacity>
+              {formLocalDropdownOpen && (
+                <View style={styles.formDropdownList}>
+                  <ScrollView style={styles.formDropdownScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                    {locales.filter((loc) => String(loc.agoraCode ?? loc.AgoraCode ?? '').trim()).map((loc) => {
+                      const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+                      const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim() || code || '—';
+                      const sel = code && formLocal === code;
+                      return (
+                        <TouchableOpacity
+                          key={code || nombre}
+                          style={[styles.formDropdownOption, sel && styles.formDropdownOptionSelected]}
+                          onPress={() => { setFormLocal(code); setFormLocalDropdownOpen(false); }}
+                        >
+                          <Text style={[styles.formDropdownOptionText, sel && styles.formDropdownOptionTextSelected]} numberOfLines={1}>{nombre}</Text>
+                          {sel ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
+            <Text style={styles.filterLabel}>TPV</Text>
+            <View style={styles.formDropdownWrap}>
+              <TouchableOpacity
+                style={styles.formDropdownTrigger}
+                onPress={() => setFormPosDropdownOpen((v) => !v)}
+                disabled={!!editingItem}
+              >
+                <Text style={[styles.formDropdownText, !formPosId && !formPosName && styles.formDropdownPlaceholder]} numberOfLines={1}>
+                  {formPosId ? `${formPosName || saleCenters.find((s) => String(s.Id) === formPosId)?.Nombre || formPosId} (${formPosId})` : 'Selecciona un TPV'}
+                </Text>
+                <MaterialIcons name={formPosDropdownOpen ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
+              </TouchableOpacity>
+              {formPosDropdownOpen && (
+                <View style={styles.formDropdownList}>
+                  <ScrollView style={styles.formDropdownScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                    <TouchableOpacity
+                      style={[styles.formDropdownOption, !formPosId && !formPosName && styles.formDropdownOptionSelected]}
+                      onPress={() => { setFormPosId(''); setFormPosName(''); setFormPosDropdownOpen(false); }}
+                    >
+                      <Text style={styles.formDropdownOptionText}>Ninguno</Text>
+                      {!formPosId && !formPosName ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
+                    </TouchableOpacity>
+                    {saleCenters.map((sc) => {
+                      const id = sc.Id != null ? String(sc.Id) : '';
+                      const nombre = String(sc.Nombre ?? '').trim() || id || '—';
+                      return (
+                        <TouchableOpacity
+                          key={id || nombre}
+                          style={[styles.formDropdownOption, (formPosId === id) && styles.formDropdownOptionSelected]}
+                          onPress={() => { setFormPosId(id); setFormPosName(nombre); setFormPosDropdownOpen(false); }}
+                        >
+                          <Text style={[styles.formDropdownOptionText, (formPosId === id) && styles.formDropdownOptionTextSelected]} numberOfLines={1}>{nombre} ({id})</Text>
+                          {formPosId === id ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
+            <Text style={styles.filterLabel}>Número</Text>
+            <TextInput style={styles.filterInput} value={formNumber} onChangeText={setFormNumber} placeholder="1" placeholderTextColor="#94a3b8" editable={!saving && !editingItem} />
+            <Text style={styles.filterLabel}>Formas de pago (€)</Text>
+            {formPaymentMethods.map((method) => (
+              <View key={method} style={styles.formPaymentRow}>
+                <Text style={styles.formPaymentLabel}>{method}</Text>
+                <TextInput
+                  style={styles.formPaymentInput}
+                  value={formPayments[method] ?? ''}
+                  onChangeText={(t) => setFormPayments((p) => ({ ...p, [method]: t }))}
+                  placeholder="0"
+                  placeholderTextColor="#94a3b8"
+                  keyboardType="decimal-pad"
+                  editable={!saving}
+                />
+              </View>
+            ))}
+            <View style={styles.formTotalRow}>
+              <Text style={styles.formTotalLabel}>Total facturado</Text>
+              <Text style={styles.formTotalValue}>{formatMoneda(formTotalGross)}</Text>
+            </View>
+            </ScrollView>
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnCancel]} onPress={() => !saving && setShowFormModal(false)} disabled={saving}>
+                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnPrimary, saving && styles.toolbarBtnDisabled]} onPress={handleSaveForm} disabled={saving}>
+                {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.modalBtnPrimaryText}>Guardar</Text>}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={showDeleteModal} transparent animationType="fade">
+        <Pressable style={styles.modalOverlay} onPress={() => !saving && setShowDeleteModal(false)}>
+          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitle}>Eliminar cierre</Text>
+            <Text style={styles.modalSubtitle}>
+              ¿Eliminar el registro de {deletingItem ? (agoraCodeToNombre[String(deletingItem.PK ?? deletingItem.pk ?? '')] ?? deletingItem.PK) : ''} del {deletingItem ? formatBusinessDayLabel(getBusinessDay(deletingItem)) : ''}?
+            </Text>
+            {formError ? <Text style={styles.formError}>{formError}</Text> : null}
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnCancel]} onPress={() => !saving && (setShowDeleteModal(false), setDeletingItem(null))} disabled={saving}>
+                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnDanger, saving && styles.toolbarBtnDisabled]} onPress={handleDelete} disabled={saving}>
+                {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.modalBtnPrimaryText}>Eliminar</Text>}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <View style={styles.infoRow}>
         <Text style={styles.infoLine}>
           {totalCount === 0
             ? 'No hay cierres. Se sincronizan automáticamente cada 2 min desde Ágora.'
-            : `${totalCount} cierre${totalCount !== 1 ? 's' : ''} (ordenado por Business Day, más reciente primero)`}
+            : `${totalCount} cierre${totalCount !== 1 ? 's' : ''} (ordenado por Business Day, más reciente primero; luego por local)`}
         </Text>
         {totalCount > PAGE_SIZE && (
           <View style={styles.pagination}>
@@ -795,6 +1138,48 @@ const styles = StyleSheet.create({
   toolbarBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
   toolbarBtnText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
   toolbarBtnTextActive: { color: '#fff' },
+  toolbarBtnTextDisabled: { color: '#94a3b8' },
+  toolbarBtnAdd: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#22c55e', borderRadius: 6 },
+  toolbarBtnAddText: { fontSize: 11, color: '#fff', fontWeight: '600' },
+  formError: { fontSize: 12, color: '#dc2626', marginBottom: 8 },
+  formLocalesWrap: { maxHeight: 36, marginBottom: 8 },
+  formLocalesContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  formDropdownWrap: { marginBottom: 8 },
+  formDropdownTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+  },
+  formDropdownText: { fontSize: 10, color: '#334155', flex: 1 },
+  formDropdownPlaceholder: { color: '#94a3b8', fontSize: 10 },
+  formDropdownList: { marginTop: 4, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff', maxHeight: 180 },
+  formDropdownScroll: { maxHeight: 180 },
+  formDropdownOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e2e8f0',
+  },
+  formDropdownOptionSelected: { backgroundColor: '#f0f9ff' },
+  formDropdownOptionText: { fontSize: 10, color: '#334155', flex: 1 },
+  formDropdownOptionTextSelected: { color: '#0ea5e9', fontWeight: '500' },
+  formPaymentRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  formPaymentLabel: { fontSize: 12, color: '#475569', minWidth: 140 },
+  formPaymentInput: { flex: 1, backgroundColor: '#fff', borderRadius: 4, paddingVertical: 4, paddingHorizontal: 8, fontSize: 12, color: '#334155', borderWidth: StyleSheet.hairlineWidth, borderColor: '#e2e8f0' },
+  formTotalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
+  formTotalLabel: { fontSize: 13, fontWeight: '600', color: '#334155' },
+  formTotalValue: { fontSize: 14, fontWeight: '700', color: '#047857' },
+  formModalScroll: { maxHeight: 360 },
+  modalBtnDanger: { backgroundColor: '#dc2626' },
   totalFacturadoBox: { backgroundColor: '#d1fae5', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   soloFacturacionBox: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4, paddingHorizontal: 0, marginBottom: 10 },
   soloFacturacionLabel: { fontSize: 11, color: '#94a3b8', fontWeight: '400' },

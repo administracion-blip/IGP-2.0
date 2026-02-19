@@ -120,6 +120,110 @@ app.get('/api/agora/closeouts', async (req, res) => {
   }
 });
 
+// POST /api/agora/closeouts - Crear registro manual
+app.post('/api/agora/closeouts', async (req, res) => {
+  const body = req.body || {};
+  const pk = String(body.PK ?? body.pk ?? '').trim();
+  const businessDay = String(body.BusinessDay ?? body.businessDay ?? '').trim();
+  const posId = body.PosId ?? body.posId ?? null;
+  const number = String(body.Number ?? body.number ?? '1').trim() || '1';
+  if (!pk || !businessDay || !/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
+    return res.status(400).json({ error: 'PK (workplaceId) y BusinessDay (YYYY-MM-DD) obligatorios' });
+  }
+  const sk = posId != null && posId !== '' && String(posId) !== '0'
+    ? `${businessDay}#${posId}#${number}`
+    : `${businessDay}#${number}`;
+  const now = new Date().toISOString();
+  const invoicePayments = Array.isArray(body.InvoicePayments) ? body.InvoicePayments : (Array.isArray(body.invoicePayments) ? body.invoicePayments : []);
+  const gross = body.GrossAmount ?? body.grossAmount ?? invoicePayments.reduce((s, p) => s + (Number(p?.Amount ?? p?.amount ?? 0) || 0), 0);
+  const item = {
+    PK: pk,
+    SK: sk,
+    BusinessDay: businessDay,
+    WorkplaceId: pk,
+    WorkplaceName: body.WorkplaceName ?? body.workplaceName ?? pk,
+    PosId: posId,
+    PosName: body.PosName ?? body.posName ?? null,
+    Number: number,
+    Amounts: { GrossAmount: gross, NetAmount: body.NetAmount ?? body.netAmount ?? null, VatAmount: body.VatAmount ?? body.vatAmount ?? null, SurchargeAmount: body.SurchargeAmount ?? body.surchargeAmount ?? null },
+    InvoicePayments: invoicePayments,
+    TicketPayments: body.TicketPayments ?? body.ticketPayments ?? [],
+    DeliveryNotePayments: body.DeliveryNotePayments ?? body.deliveryNotePayments ?? [],
+    SalesOrderPayments: body.SalesOrderPayments ?? body.salesOrderPayments ?? [],
+    Documents: body.Documents ?? body.documents ?? [],
+    OpenDate: body.OpenDate ?? body.openDate ?? null,
+    CloseDate: body.CloseDate ?? body.closeDate ?? null,
+    createdAt: now,
+    updatedAt: now,
+    source: 'manual',
+  };
+  try {
+    await docClient.send(new PutCommand({ TableName: tableSalesCloseOutsName, Item: item }));
+    res.json({ ok: true, item: { PK: item.PK, SK: item.SK } });
+  } catch (err) {
+    console.error('[agora/closeouts POST]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al crear cierre' });
+  }
+});
+
+// PUT /api/agora/closeouts - Actualizar registro
+app.put('/api/agora/closeouts', async (req, res) => {
+  const body = req.body || {};
+  const pk = String(body.PK ?? body.pk ?? '').trim();
+  const sk = String(body.SK ?? body.sk ?? '').trim();
+  if (!pk || !sk) return res.status(400).json({ error: 'PK y SK obligatorios' });
+  const updates = [];
+  const exprNames = {};
+  const exprValues = {};
+  let idx = 0;
+  const addSet = (attr, val) => {
+    if (val === undefined) return;
+    const n = `#a${idx}`; const v = `:v${idx}`;
+    exprNames[n] = attr; exprValues[v] = val; updates.push(`${n} = ${v}`); idx++;
+  };
+  if (body.BusinessDay != null) addSet('BusinessDay', String(body.BusinessDay).trim());
+  if (body.WorkplaceName != null) addSet('WorkplaceName', String(body.WorkplaceName));
+  if (body.PosId !== undefined) addSet('PosId', body.PosId);
+  if (body.PosName !== undefined) addSet('PosName', body.PosName);
+  if (body.Number != null) addSet('Number', String(body.Number));
+  if (body.InvoicePayments != null) addSet('InvoicePayments', Array.isArray(body.InvoicePayments) ? body.InvoicePayments : []);
+  if (body.Amounts != null) addSet('Amounts', body.Amounts);
+  if (body.OpenDate !== undefined) addSet('OpenDate', body.OpenDate);
+  if (body.CloseDate !== undefined) addSet('CloseDate', body.CloseDate);
+  addSet('updatedAt', new Date().toISOString());
+  if (updates.length === 0) return res.status(400).json({ error: 'Ningún campo para actualizar' });
+  try {
+    await docClient.send(new UpdateCommand({
+      TableName: tableSalesCloseOutsName,
+      Key: { PK: pk, SK: sk },
+      UpdateExpression: `SET ${updates.join(', ')}`,
+      ExpressionAttributeNames: exprNames,
+      ExpressionAttributeValues: exprValues,
+    }));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[agora/closeouts PUT]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al actualizar cierre' });
+  }
+});
+
+// DELETE /api/agora/closeouts - Eliminar registro
+app.delete('/api/agora/closeouts', async (req, res) => {
+  const pk = (req.query.PK ?? req.query.pk ?? req.body?.PK ?? req.body?.pk ?? '').toString().trim();
+  const sk = (req.query.SK ?? req.query.sk ?? req.body?.SK ?? req.body?.sk ?? '').toString().trim();
+  if (!pk || !sk) return res.status(400).json({ error: 'PK y SK obligatorios' });
+  try {
+    await docClient.send(new DeleteCommand({
+      TableName: tableSalesCloseOutsName,
+      Key: { PK: pk, SK: sk },
+    }));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[agora/closeouts DELETE]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al eliminar cierre' });
+  }
+});
+
 // GET /api/agora/closeouts/totals-by-local?businessDay=YYYY-MM-DD
 // Devuelve sumatorio de total facturado (InvoicePayments) por local para el día indicado.
 app.get('/api/agora/closeouts/totals-by-local', async (req, res) => {
@@ -2423,7 +2527,38 @@ app.delete('/api/permisos', async (req, res) => {
 
 const port = process.env.PORT || 3001;
 const host = '0.0.0.0';
+const SYNC_CLOSEOUTS_INTERVAL_MS = parseInt(process.env.SYNC_CLOSEOUTS_INTERVAL_MS || '120000', 10) || 120000;
+const SYNC_CLOSEOUTS_RECENT_DAYS = parseInt(process.env.SYNC_CLOSEOUTS_RECENT_DAYS || '7', 10) || 7;
+const SYNC_CLOSEOUTS_ENABLED = process.env.SYNC_CLOSEOUTS_ENABLED === 'true';
+
+async function runCloseoutsSync() {
+  if (!SYNC_CLOSEOUTS_ENABLED) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const dateFrom = new Date(Date.now() - SYNC_CLOSEOUTS_RECENT_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    const res = await fetch(`${baseUrl}/api/agora/closeouts/full-sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dateFrom, dateTo: today, deleteOutOfRange: false }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      console.log(`[closeouts/sync] OK: ${dateFrom} → ${today} | upserted: ${data.totalUpserted ?? 0}`);
+    } else {
+      console.error('[closeouts/sync] Error:', data.error || res.statusText);
+    }
+  } catch (err) {
+    console.error('[closeouts/sync]', err.message || err);
+  }
+}
+
 app.listen(port, host, () => {
   console.log(`API ERP escuchando en http://localhost:${port} (también http://127.0.0.1:${port})`);
   console.log(`Tabla usuarios: ${tableName} | Tabla locales: ${tableLocalesName} | Tabla empresas: ${tableEmpresasName} | Tabla productos: ${tableProductosName} | Centros venta: ${tableSaleCentersName} | Cierres ventas: ${tableSalesCloseOutsName} | Mantenimiento: ${tableMantenimientoName} | Roles/permisos: ${tableRolesPermisosName}`);
+  if (SYNC_CLOSEOUTS_ENABLED) {
+    console.log(`Sincronización cierres Ágora: cada ${SYNC_CLOSEOUTS_INTERVAL_MS / 1000}s (últimos ${SYNC_CLOSEOUTS_RECENT_DAYS} días)`);
+    setTimeout(() => runCloseoutsSync(), 2000);
+    setInterval(runCloseoutsSync, SYNC_CLOSEOUTS_INTERVAL_MS);
+  }
 });
