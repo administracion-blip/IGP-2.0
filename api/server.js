@@ -11,7 +11,7 @@ import express from 'express';
 import cors from 'cors';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, QueryCommand, PutCommand, GetCommand, DeleteCommand, UpdateCommand, BatchWriteCommand, BatchGetCommand } from '@aws-sdk/lib-dynamodb';
-import { exportSystemCloseOuts, exportPosCloseOuts } from './lib/agora/client.js';
+import { exportSystemCloseOuts, exportPosCloseOuts, exportInvoices } from './lib/agora/client.js';
 import { upsertBatch } from './lib/dynamo/salesCloseOuts.js';
 
 const app = express();
@@ -100,7 +100,7 @@ app.get('/api/agora/closeouts', async (req, res) => {
       const skVal = item.SK ?? item.sk ?? '';
       const extractNum = (s) => (!s || typeof s !== 'string' ? '' : s.trim().split('#').length >= 2 ? s.trim().split('#').pop() : '');
       const numberVal = item.Number ?? item.number ?? extractNum(skVal);
-      return {
+      const base = {
         ...item,
         PK: item.PK ?? item.pk ?? '',
         SK: skVal,
@@ -112,6 +112,7 @@ app.get('/api/agora/closeouts', async (req, res) => {
         DeliveryNotePayments: ensureArray(item.DeliveryNotePayments ?? item.deliveryNotePayments).map(toPayment),
         SalesOrderPayments: ensureArray(item.SalesOrderPayments ?? item.salesOrderPayments).map(toPayment),
       };
+      return addExcelStyleFields(base);
     });
     res.json({ closeouts: normalized });
   } catch (err) {
@@ -1413,15 +1414,24 @@ function getMappableRaw(raw) {
 function extractAmountsAndPayments(raw) {
   const r = getMappableRaw(raw);
   const amounts = r?.Amounts ?? r?.amounts ?? r?.Totals ?? r?.totals ?? {};
-  let gross = findValue(amounts, ['GrossAmount', 'grossAmount', 'Total', 'total', 'Importe', 'importe'])
-    ?? findValue(r, ['GrossAmount', 'grossAmount', 'Total', 'total', 'ActualEndAmount', 'actualEndAmount']);
+  const totalsByMethod = r?.TotalsByMethod ?? r?.totalsByMethod ?? r?.PaymentsByMethod ?? r?.paymentsByMethod ?? amounts?.TotalsByMethod;
+  let gross = findValue(amounts, ['GrossAmount', 'grossAmount', 'Total', 'total', 'Importe', 'importe', 'Ventas', 'ventas', 'Sales', 'sales'])
+    ?? findValue(r, ['GrossAmount', 'grossAmount', 'Total', 'total', 'Ventas', 'ventas']);
   const net = findValue(amounts, ['NetAmount', 'netAmount']) ?? null;
   const vat = findValue(amounts, ['VatAmount', 'vatAmount']) ?? null;
   const surcharge = findValue(amounts, ['SurchargeAmount', 'surchargeAmount']) ?? null;
 
+  if ((gross == null || gross === 0) && totalsByMethod && typeof totalsByMethod === 'object' && !Array.isArray(totalsByMethod)) {
+    const sumFromTotals = Object.values(totalsByMethod).reduce((s, v) => {
+      const n = typeof v === 'number' ? v : parseFloat(String(v || 0).replace(',', '.')) || 0;
+      return s + n;
+    }, 0);
+    if (sumFromTotals > 0) gross = sumFromTotals;
+  }
   const balances = r?.Balances ?? r?.balances ?? [];
-  if ((gross == null || gross === 0) && Array.isArray(balances) && balances.length > 0) {
-    gross = balances.reduce((s, b) => s + (Number(b?.ActualEndAmount ?? b?.actualEndAmount ?? b?.ExpectedEndAmount ?? 0) || 0), 0);
+  if ((gross == null || gross === 0) && Array.isArray(balances) && balances.length > 1) {
+    const sumBalances = balances.reduce((s, b) => s + (Number(b?.ActualEndAmount ?? b?.actualEndAmount ?? b?.ExpectedEndAmount ?? 0) || 0), 0);
+    if (sumBalances > 0) gross = sumBalances;
   }
 
   const toPayment = (b) => {
@@ -1443,7 +1453,6 @@ function extractAmountsAndPayments(raw) {
   };
 
   let allPayments = [];
-  const totalsByMethod = r?.TotalsByMethod ?? r?.totalsByMethod ?? r?.PaymentsByMethod ?? r?.paymentsByMethod ?? amounts?.TotalsByMethod;
   if (totalsByMethod && typeof totalsByMethod === 'object' && !Array.isArray(totalsByMethod)) {
     for (const [key, val] of Object.entries(totalsByMethod)) {
       if (val == null || (typeof val !== 'number' && String(val).trim() === '')) continue;
@@ -1460,7 +1469,7 @@ function extractAmountsAndPayments(raw) {
     r?.Payments ?? r?.payments,
     r?.PaymentMethods ?? r?.paymentMethods,
     r?.FormasPago ?? r?.formasPago,
-    balances,
+    balances.length > 1 ? balances : [],
   ].filter(Array.isArray);
   for (const arr of baseArrays) {
     for (const p of arr) {
@@ -1489,6 +1498,10 @@ function extractAmountsAndPayments(raw) {
       ...CANONICAL_PAYMENT_NAMES.map((name) => ({ MethodName: name, Amount: byName.get(name) ?? 0 })),
       ...extras.map(([name, amt]) => ({ MethodName: name, Amount: amt })),
     ];
+    if ((gross == null || gross === 0)) {
+      const sumPayments = allPayments.reduce((s, p) => s + (Number(p?.Amount ?? 0) || 0), 0);
+      if (sumPayments > 0) gross = sumPayments;
+    }
   }
 
   return {
@@ -1530,6 +1543,62 @@ function extractCloseOutsArray(data, keys) {
   }
   if (Array.isArray(cur)) return cur;
   return [];
+}
+
+/**
+ * Agrega facturas por WorkplaceId + PosId para obtener Ventas/Efectivo/Tarjeta por TPV.
+ * Devuelve array de objetos compatibles con mapCloseOutToItem.
+ */
+function aggregateInvoicesByWorkplaceAndPos(invoices, businessDay) {
+  if (!Array.isArray(invoices) || invoices.length === 0) return [];
+  const groups = new Map(); // key: "workplaceId|posId"
+  const CANONICAL_NAMES = ['Efectivo', 'Tarjeta', 'Pendiente de cobro', 'Prepago Transferencia', 'AgoraPay'];
+
+  for (const inv of invoices) {
+    const workplaceId = String(inv?.Workplace?.Id ?? inv?.workplace?.id ?? inv?.WorkplaceId ?? inv?.workplaceId ?? '').trim() || '0';
+    const posId = inv?.Pos?.Id ?? inv?.pos?.id ?? inv?.PosId ?? inv?.posId ?? null;
+    const posName = inv?.Pos?.Name ?? inv?.pos?.name ?? inv?.PosName ?? inv?.posName ?? null;
+    const workplaceName = inv?.Workplace?.Name ?? inv?.workplace?.name ?? inv?.WorkplaceName ?? inv?.workplaceName ?? null;
+    const bd = String(inv?.BusinessDay ?? inv?.businessDay ?? businessDay ?? '').trim() || businessDay;
+
+    const key = `${workplaceId}|${posId ?? ''}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        WorkplaceId: workplaceId,
+        WorkplaceName: workplaceName,
+        PosId: posId,
+        PosName: posName,
+        BusinessDay: bd,
+        Amounts: { GrossAmount: 0 },
+        InvoicePayments: Object.fromEntries(CANONICAL_NAMES.map((n) => [n, 0])),
+      });
+    }
+    const g = groups.get(key);
+    if (!g.PosName && posName) g.PosName = posName;
+    if (!g.WorkplaceName && workplaceName) g.WorkplaceName = workplaceName;
+
+    const totals = inv?.Totals ?? inv?.totals ?? {};
+    const gross = totals?.GrossAmount ?? totals?.grossAmount ?? 0;
+    g.Amounts.GrossAmount += typeof gross === 'number' ? gross : parseFloat(String(gross).replace(',', '.')) || 0;
+
+    const payments = inv?.Payments ?? inv?.payments ?? [];
+    for (const p of payments) {
+      const name = (p?.MethodName ?? p?.methodName ?? p?.Name ?? p?.name ?? '').toString().trim();
+      const amt = typeof p?.Amount === 'number' ? p.Amount : parseFloat(String(p?.Amount ?? p?.amount ?? 0).replace(',', '.')) || 0;
+      if (name) {
+        const canon = CANONICAL_NAMES.find((c) => c.toLowerCase() === name.toLowerCase()) ?? name;
+        g.InvoicePayments[canon] = (g.InvoicePayments[canon] ?? 0) + amt;
+      }
+    }
+  }
+
+  return [...groups.values()].map((g) => {
+    const payments = [
+      ...CANONICAL_NAMES.filter((n) => (g.InvoicePayments[n] ?? 0) > 0).map((n) => ({ MethodName: n, Amount: g.InvoicePayments[n] })),
+      ...Object.entries(g.InvoicePayments).filter(([n]) => !CANONICAL_NAMES.includes(n) && (g.InvoicePayments[n] ?? 0) > 0).map(([n, a]) => ({ MethodName: n, Amount: a })),
+    ];
+    return { ...g, InvoicePayments: payments };
+  }).filter((g) => g.Amounts.GrossAmount > 0 || g.InvoicePayments.some((p) => (p?.Amount ?? 0) > 0));
 }
 
 function getGrossFromRaw(r) {
@@ -1598,7 +1667,10 @@ function mapCloseOutToItem(raw, businessDayOverride = '', paymentSource = null) 
   const extracted = extractAmountsAndPayments(raw);
   const fromSource = paymentSource ? extractAmountsAndPayments(paymentSource) : null;
   const amountsObj = extracted.Amounts;
-  const allPayments = (fromSource?.InvoicePayments?.length > 0 ? fromSource.InvoicePayments : extracted.InvoicePayments);
+  const gross = typeof amountsObj?.GrossAmount === 'number' ? amountsObj.GrossAmount : parseFloat(String(amountsObj?.GrossAmount ?? amountsObj?.grossAmount ?? 0).replace(',', '.')) || 0;
+  const sumExtracted = (extracted.InvoicePayments ?? []).reduce((s, p) => s + (typeof p?.Amount === 'number' ? p.Amount : parseFloat(String(p?.Amount ?? 0).replace(',', '.')) || 0), 0);
+  const posPaymentsReasonable = (extracted.InvoicePayments?.length ?? 0) > 0 && gross > 0 && Math.abs(sumExtracted - gross) <= Math.max(0.01, gross * 0.02);
+  const allPayments = posPaymentsReasonable ? extracted.InvoicePayments : (fromSource?.InvoicePayments?.length > 0 ? fromSource.InvoicePayments : extracted.InvoicePayments);
   const documents = Array.isArray(r?.Documents) ? r.Documents : (Array.isArray(r?.documents) ? r.documents : []);
   const openDate = findValue(r, ['OpenDate', 'openDate', 'FechaApertura']) ?? r?.OpenDate ?? null;
   const closeDate = findValue(r, ['CloseDate', 'closeDate', 'FechaCierre']) ?? r?.CloseDate ?? null;
@@ -1640,6 +1712,45 @@ function extractNumberFromSk(sk) {
   if (!sk || typeof sk !== 'string') return '';
   const parts = String(sk).trim().split('#');
   return parts.length >= 2 ? parts[parts.length - 1] : '';
+}
+
+/** Formato dd/mm/yyyy para Fecha Negocio (estructura Excel Ágora). */
+function formatFechaNegocio(iso) {
+  if (!iso || typeof iso !== 'string') return '';
+  const parts = String(iso).trim().split('-');
+  if (parts.length !== 3) return iso;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+/** Añade campos estilo Excel Ágora (TPV, FechaNegocio, Ventas, Efectivo, Tarjeta, etc.). */
+function addExcelStyleFields(item) {
+  if (!item || typeof item !== 'object') return item;
+  const ensureArray = (arr) => (Array.isArray(arr) ? arr : []);
+  const payments = ensureArray(item.InvoicePayments ?? item.invoicePayments);
+  const amounts = item.Amounts ?? item.amounts ?? {};
+  const gross = amounts.GrossAmount ?? amounts.grossAmount ?? amounts.Total ?? amounts.total;
+  const sumPayments = payments.reduce((s, p) => s + (Number(p?.Amount ?? p?.amount ?? 0) || 0), 0);
+  const ventas = gross != null ? (typeof gross === 'number' ? gross : parseFloat(String(gross).replace(',', '.')) || 0) : sumPayments;
+  const EXCEL_PAYMENT_KEYS = ['Efectivo', 'Tarjeta', 'Pendiente de cobro', 'Prepago Transferencia', 'AgoraPay'];
+  const byMethod = {};
+  for (const k of EXCEL_PAYMENT_KEYS) {
+    const p = payments.find((x) => (String(x?.MethodName ?? x?.methodName ?? '').trim()) === k);
+    byMethod[k] = p != null ? (typeof p.Amount === 'number' ? p.Amount : parseFloat(String(p?.Amount ?? p?.amount ?? 0).replace(',', '.')) || 0) : 0;
+  }
+  const posName = item.PosName ?? item.posName ?? '';
+  const posId = item.PosId ?? item.posId;
+  const tpvLabel = posName || (posId != null && posId !== '' ? `TPV ${posId}` : 'Cierre sistema');
+  return {
+    ...item,
+    TPV: tpvLabel,
+    FechaNegocio: formatFechaNegocio(item.BusinessDay ?? item.businessDay ?? ''),
+    Ventas: ventas,
+    Efectivo: byMethod.Efectivo,
+    Tarjeta: byMethod.Tarjeta,
+    'Pendiente de cobro': byMethod['Pendiente de cobro'],
+    'Prepago Transferencia': byMethod['Prepago Transferencia'],
+    AgoraPay: byMethod.AgoraPay,
+  };
 }
 
 function normalizeCloseOutForResponse(item) {
@@ -1688,12 +1799,14 @@ app.post('/api/agora/closeouts/sync', async (req, res) => {
 
   try {
     let rawList = [];
-    let usePos = false;
-    const [posData, sysData] = await Promise.all([
+    let source = 'none';
+    const [invData, posData, sysData] = await Promise.all([
+      exportInvoices(businessDay, workplaces ?? undefined).catch((e) => ({ _err: e })),
       exportPosCloseOuts(businessDay, workplaces ?? undefined).catch((e) => ({ _err: e })),
       exportSystemCloseOuts(businessDay, workplaces ?? undefined).catch((e) => ({ _err: e })),
     ]);
 
+    const invList = !invData?._err ? extractCloseOutsArray(invData, ['Invoices', 'invoices']) : [];
     const posList = !posData?._err ? extractCloseOutsArray(posData, ['PosCloseOuts', 'PosCloseouts', 'posCloseOuts']) : [];
     const sysList = !sysData?._err ? extractCloseOutsArray(sysData, ['SystemCloseOuts', 'SystemCloseouts', 'systemCloseOuts']) : [];
     const sysByWorkplace = new Map();
@@ -1703,19 +1816,25 @@ app.post('/api/agora/closeouts/sync', async (req, res) => {
         sysByWorkplace.set(pk, s);
       }
     }
-    if (posList.length > 0) {
-      rawList = posList;
-      usePos = true;
+    // Prioridad: Invoices (TPV+formas de pago) > SystemCloseOuts (por local) > PosCloseOuts (solo efectivo)
+    const aggregatedFromInvoices = aggregateInvoicesByWorkplaceAndPos(invList, businessDay);
+    if (aggregatedFromInvoices.length > 0) {
+      rawList = aggregatedFromInvoices;
+      source = 'Invoices';
     } else if (sysList.length > 0) {
       rawList = sysList;
-      usePos = false;
+      source = 'SystemCloseOuts';
+    } else if (posList.length > 0) {
+      rawList = posList;
+      source = 'PosCloseOuts';
     }
 
     if (rawList.length === 0) {
-      return res.json({ ok: true, fetched: 0, upserted: 0, businessDay, source: usePos ? 'PosCloseOuts' : 'SystemCloseOuts' });
+      return res.json({ ok: true, fetched: 0, upserted: 0, businessDay, source });
     }
 
-    const paymentSourceByRecord = buildPaymentSourceByRecord(rawList, sysByWorkplace, usePos);
+    const usePos = source === 'PosCloseOuts';
+    const paymentSourceByRecord = source === 'Invoices' ? new Map() : buildPaymentSourceByRecord(rawList, sysByWorkplace, usePos);
     const items = rawList.map((r, idx) => {
       const paymentSource = paymentSourceByRecord.get(r) ?? null;
       const item = mapCloseOutToItem(r, businessDay, paymentSource);
@@ -1750,8 +1869,8 @@ app.post('/api/agora/closeouts/sync', async (req, res) => {
     }
 
     const upserted = await upsertBatch(docClient, tableSalesCloseOutsName, items);
-    console.log('[agora/closeouts] Sync:', businessDay, 'fetched:', rawList.length, 'upserted:', upserted);
-    return res.json({ ok: true, fetched: rawList.length, upserted, businessDay, source: usePos ? 'PosCloseOuts' : 'SystemCloseOuts' });
+    console.log('[agora/closeouts] Sync:', businessDay, 'fetched:', rawList.length, 'upserted:', upserted, 'source:', source);
+    return res.json({ ok: true, fetched: rawList.length, upserted, businessDay, source });
   } catch (err) {
     console.error('[agora/closeouts/sync]', err.message || err);
     return res.status(500).json({ error: err.message || 'Error al sincronizar cierres' });
@@ -1853,12 +1972,14 @@ app.post('/api/agora/closeouts/full-sync', async (req, res) => {
       const businessDay = days[i];
       try {
         let rawList = [];
-        let usePos = false;
-        const [posData, sysData] = await Promise.all([
+        let source = 'none';
+        const [invData, posData, sysData] = await Promise.all([
+          exportInvoices(businessDay).catch((e) => ({ _err: e })),
           exportPosCloseOuts(businessDay).catch((e) => ({ _err: e })),
           exportSystemCloseOuts(businessDay).catch((e) => ({ _err: e })),
         ]);
 
+        const invList = !invData?._err ? extractCloseOutsArray(invData, ['Invoices', 'invoices']) : [];
         const posList = !posData?._err ? extractCloseOutsArray(posData, ['PosCloseOuts', 'PosCloseouts', 'posCloseOuts']) : [];
         const sysList = !sysData?._err ? extractCloseOutsArray(sysData, ['SystemCloseOuts', 'SystemCloseouts', 'systemCloseOuts']) : [];
         const sysByWorkplace = new Map();
@@ -1868,12 +1989,16 @@ app.post('/api/agora/closeouts/full-sync', async (req, res) => {
             sysByWorkplace.set(pk, s);
           }
         }
-        if (posList.length > 0) {
-          rawList = posList;
-          usePos = true;
+        const aggregatedFromInvoices = aggregateInvoicesByWorkplaceAndPos(invList, businessDay);
+        if (aggregatedFromInvoices.length > 0) {
+          rawList = aggregatedFromInvoices;
+          source = 'Invoices';
         } else if (sysList.length > 0) {
           rawList = sysList;
-          usePos = false;
+          source = 'SystemCloseOuts';
+        } else if (posList.length > 0) {
+          rawList = posList;
+          source = 'PosCloseOuts';
         }
 
         const validRaw = [];
@@ -1885,7 +2010,8 @@ app.post('/api/agora/closeouts/full-sync', async (req, res) => {
 
         if (validRaw.length === 0) continue;
 
-        const paymentSourceByRecord = buildPaymentSourceByRecord(validRaw, sysByWorkplace, usePos);
+        const usePos = source === 'PosCloseOuts';
+        const paymentSourceByRecord = source === 'Invoices' ? new Map() : buildPaymentSourceByRecord(validRaw, sysByWorkplace, usePos);
         const items = validRaw.map((r, idx) => {
           const paymentSource = paymentSourceByRecord.get(r) ?? null;
           const item = mapCloseOutToItem(r, businessDay, paymentSource);

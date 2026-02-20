@@ -1,0 +1,4865 @@
+{
+  "businessDay": "2026-02-13",
+  "posCloseOuts": {
+    "raw": {
+      "PosCloseOuts": [
+        {
+          "Id": 25441,
+          "PosId": 16,
+          "WorkplaceId": 2,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 0,
+          "ExpectedEndAmount": 0,
+          "ActualEndAmount": 0,
+          "Incident": "",
+          "OpenDate": "2026-02-13T13:40:25",
+          "OpenerUserId": 577,
+          "CloseDate": "2026-02-14T00:50:36",
+          "CloserUserId": 59,
+          "VerificationCode": "Bhtn7otNTgYz",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 0,
+              "ExpectedEndAmount": 0,
+              "ActualEndAmount": 0
+            }
+          ]
+        },
+        {
+          "Id": 25442,
+          "PosId": 15,
+          "WorkplaceId": 2,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 150,
+          "ExpectedEndAmount": 785.35,
+          "ActualEndAmount": 787.85,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T13:17:32",
+          "OpenerUserId": 577,
+          "CloseDate": "2026-02-14T00:50:35",
+          "CloserUserId": 59,
+          "VerificationCode": "70ewDfwBqR4k",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 150,
+              "ExpectedEndAmount": 785.35,
+              "ActualEndAmount": 787.85
+            }
+          ]
+        },
+        {
+          "Id": 25443,
+          "PosId": 42,
+          "WorkplaceId": 13,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 61,
+          "ExpectedEndAmount": 120.5,
+          "ActualEndAmount": 0,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T15:10:51",
+          "OpenerUserId": 400,
+          "CloseDate": "2026-02-14T01:33:02",
+          "CloserUserId": 222,
+          "VerificationCode": "mITBk1sy5Ohc",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 61,
+              "ExpectedEndAmount": 120.5,
+              "ActualEndAmount": 0
+            }
+          ]
+        },
+        {
+          "Id": 25444,
+          "PosId": 41,
+          "WorkplaceId": 13,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 0,
+          "ExpectedEndAmount": 0,
+          "ActualEndAmount": 0,
+          "Incident": "",
+          "OpenDate": "2026-02-13T13:25:20",
+          "OpenerUserId": 386,
+          "CloseDate": "2026-02-14T02:04:28",
+          "CloserUserId": 222,
+          "VerificationCode": "qNSMuPILKOez",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 0,
+              "ExpectedEndAmount": 0,
+              "ActualEndAmount": 0
+            }
+          ]
+        },
+        {
+          "Id": 25445,
+          "PosId": 40,
+          "WorkplaceId": 13,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 910.16,
+          "ExpectedEndAmount": 1402.06,
+          "ActualEndAmount": 1402.06,
+          "Incident": "",
+          "OpenDate": "2026-02-13T13:25:00",
+          "OpenerUserId": 386,
+          "CloseDate": "2026-02-14T02:04:27",
+          "CloserUserId": 222,
+          "VerificationCode": "9AdsEtw9rKzz",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 910.16,
+              "ExpectedEndAmount": 1402.06,
+              "ActualEndAmount": 1402.06
+            }
+          ]
+        },
+        {
+          "Id": 25446,
+          "PosId": 24,
+          "WorkplaceId": 5,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 0,
+          "ExpectedEndAmount": 0,
+          "ActualEndAmount": 0,
+          "Incident": "",
+          "OpenDate": "2026-02-13T14:14:18",
+          "OpenerUserId": 71,
+          "CloseDate": "2026-02-14T02:53:21",
+          "CloserUserId": 100,
+          "VerificationCode": "tVfnTkMjGHnR",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 0,
+              "ExpectedEndAmount": 0,
+              "ActualEndAmount": 0
+            }
+          ]
+        },
+        {
+          "Id": 25447,
+          "PosId": 21,
+          "WorkplaceId": 5,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 150,
+          "ExpectedEndAmount": 352.1,
+          "ActualEndAmount": 395.15,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T13:18:14",
+          "OpenerUserId": 71,
+          "CloseDate": "2026-02-14T02:53:20",
+          "CloserUserId": 100,
+          "VerificationCode": "aYd22mT0bIfr",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 150,
+              "ExpectedEndAmount": 352.1,
+              "ActualEndAmount": 395.15
+            }
+          ]
+        },
+        {
+          "Id": 25448,
+          "PosId": 18,
+          "WorkplaceId": 3,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 75,
+          "ExpectedEndAmount": 610,
+          "ActualEndAmount": 84,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T15:41:04",
+          "OpenerUserId": 418,
+          "CloseDate": "2026-02-14T02:57:11",
+          "CloserUserId": 12,
+          "VerificationCode": "99CDlZ22ZrPu",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 75,
+              "ExpectedEndAmount": 610,
+              "ActualEndAmount": 84
+            }
+          ]
+        },
+        {
+          "Id": 25449,
+          "PosId": 19,
+          "WorkplaceId": 3,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 0,
+          "ExpectedEndAmount": 0,
+          "ActualEndAmount": 0,
+          "Incident": "",
+          "OpenDate": "2026-02-13T19:17:26",
+          "OpenerUserId": 240,
+          "CloseDate": "2026-02-14T03:04:06",
+          "CloserUserId": 12,
+          "VerificationCode": "UWADhwsGYuTT",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 0,
+              "ExpectedEndAmount": 0,
+              "ActualEndAmount": 0
+            }
+          ]
+        },
+        {
+          "Id": 25450,
+          "PosId": 17,
+          "WorkplaceId": 3,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 75,
+          "ExpectedEndAmount": 954.5,
+          "ActualEndAmount": 75,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T15:35:30",
+          "OpenerUserId": 418,
+          "CloseDate": "2026-02-14T03:04:05",
+          "CloserUserId": 12,
+          "VerificationCode": "eAiLv8fqmKKs",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 75,
+              "ExpectedEndAmount": 954.5,
+              "ActualEndAmount": 75
+            }
+          ]
+        },
+        {
+          "Id": 25451,
+          "PosId": 49,
+          "WorkplaceId": 9,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 0,
+          "ExpectedEndAmount": 121,
+          "ActualEndAmount": 121,
+          "Incident": "",
+          "OpenDate": "2026-02-14T00:51:35",
+          "OpenerUserId": 504,
+          "CloseDate": "2026-02-14T03:08:17",
+          "CloserUserId": 395,
+          "VerificationCode": "MBE0Bc5OxM5D",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 0,
+              "ExpectedEndAmount": 121,
+              "ActualEndAmount": 121
+            }
+          ]
+        },
+        {
+          "Id": 25452,
+          "PosId": 55,
+          "WorkplaceId": 11,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 0,
+          "ExpectedEndAmount": 98,
+          "ActualEndAmount": 98,
+          "Incident": "",
+          "OpenDate": "2026-02-13T22:04:07",
+          "OpenerUserId": 389,
+          "CloseDate": "2026-02-14T03:08:34",
+          "CloserUserId": 389,
+          "VerificationCode": "unZDT0hzspVc",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 0,
+              "ExpectedEndAmount": 98,
+              "ActualEndAmount": 98
+            }
+          ]
+        },
+        {
+          "Id": 25453,
+          "PosId": 68,
+          "WorkplaceId": 16,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 0,
+          "ExpectedEndAmount": 0,
+          "ActualEndAmount": 0,
+          "Incident": "",
+          "OpenDate": "2026-02-13T16:36:27",
+          "OpenerUserId": 506,
+          "CloseDate": "2026-02-14T03:13:46",
+          "CloserUserId": 506,
+          "VerificationCode": "g2bD2W9muRmd",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 0,
+              "ExpectedEndAmount": 0,
+              "ActualEndAmount": 0
+            }
+          ]
+        },
+        {
+          "Id": 25454,
+          "PosId": 67,
+          "WorkplaceId": 16,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 150,
+          "ExpectedEndAmount": 265.15,
+          "ActualEndAmount": 265.05,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T15:06:54",
+          "OpenerUserId": 506,
+          "CloseDate": "2026-02-14T03:13:46",
+          "CloserUserId": 506,
+          "VerificationCode": "hfmdMYLBZ2SP",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 150,
+              "ExpectedEndAmount": 265.15,
+              "ActualEndAmount": 265.05
+            }
+          ]
+        },
+        {
+          "Id": 25455,
+          "PosId": 37,
+          "WorkplaceId": 12,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 75,
+          "ExpectedEndAmount": 578.5,
+          "ActualEndAmount": 201,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T22:13:53",
+          "OpenerUserId": 430,
+          "CloseDate": "2026-02-14T03:14:28",
+          "CloserUserId": 499,
+          "VerificationCode": "yKN0lUXuzGXh",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 75,
+              "ExpectedEndAmount": 578.5,
+              "ActualEndAmount": 201
+            }
+          ]
+        },
+        {
+          "Id": 25456,
+          "PosId": 50,
+          "WorkplaceId": 12,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 75,
+          "ExpectedEndAmount": 258.5,
+          "ActualEndAmount": 181,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T22:13:59",
+          "OpenerUserId": 430,
+          "CloseDate": "2026-02-14T03:16:32",
+          "CloserUserId": 499,
+          "VerificationCode": "nojZZvWH2fHR",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 75,
+              "ExpectedEndAmount": 258.5,
+              "ActualEndAmount": 181
+            }
+          ]
+        },
+        {
+          "Id": 25457,
+          "PosId": 39,
+          "WorkplaceId": 10,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 0,
+          "ExpectedEndAmount": 0,
+          "ActualEndAmount": 0,
+          "Incident": "",
+          "OpenDate": "2026-02-13T16:17:48",
+          "OpenerUserId": 600,
+          "CloseDate": "2026-02-14T03:16:43",
+          "CloserUserId": 455,
+          "VerificationCode": "uqEvUI0CgqMQ",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 0,
+              "ExpectedEndAmount": 0,
+              "ActualEndAmount": 0
+            }
+          ]
+        },
+        {
+          "Id": 25458,
+          "PosId": 32,
+          "WorkplaceId": 10,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 150,
+          "ExpectedEndAmount": 1305.4,
+          "ActualEndAmount": 1293,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T15:02:47",
+          "OpenerUserId": 600,
+          "CloseDate": "2026-02-14T03:16:42",
+          "CloserUserId": 455,
+          "VerificationCode": "HyP1NHYPpqAE",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 150,
+              "ExpectedEndAmount": 1305.4,
+              "ActualEndAmount": 1293
+            }
+          ]
+        },
+        {
+          "Id": 25459,
+          "PosId": 30,
+          "WorkplaceId": 9,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 150,
+          "ExpectedEndAmount": 373,
+          "ActualEndAmount": 373,
+          "Incident": "",
+          "OpenDate": "2026-02-13T22:30:32",
+          "OpenerUserId": 395,
+          "CloseDate": "2026-02-14T03:19:54",
+          "CloserUserId": 395,
+          "VerificationCode": "8KJ983PqAFZg",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 150,
+              "ExpectedEndAmount": 373,
+              "ActualEndAmount": 373
+            }
+          ]
+        },
+        {
+          "Id": 25460,
+          "PosId": 63,
+          "WorkplaceId": 15,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 250,
+          "ExpectedEndAmount": 576.5,
+          "ActualEndAmount": 250,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T23:41:28",
+          "OpenerUserId": 550,
+          "CloseDate": "2026-02-14T03:20:35",
+          "CloserUserId": 541,
+          "VerificationCode": "LM6NhSAdIYdq",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 250,
+              "ExpectedEndAmount": 576.5,
+              "ActualEndAmount": 250
+            }
+          ]
+        },
+        {
+          "Id": 25461,
+          "PosId": 29,
+          "WorkplaceId": 7,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 75,
+          "ExpectedEndAmount": 857.5,
+          "ActualEndAmount": 75,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T16:17:34",
+          "OpenerUserId": 580,
+          "CloseDate": "2026-02-14T03:23:27",
+          "CloserUserId": 499,
+          "VerificationCode": "YkUc3yGOWBht",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 75,
+              "ExpectedEndAmount": 857.5,
+              "ActualEndAmount": 75
+            }
+          ]
+        },
+        {
+          "Id": 25462,
+          "PosId": 62,
+          "WorkplaceId": 15,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 250,
+          "ExpectedEndAmount": 576.5,
+          "ActualEndAmount": 250,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T23:31:11",
+          "OpenerUserId": 550,
+          "CloseDate": "2026-02-14T03:23:37",
+          "CloserUserId": 541,
+          "VerificationCode": "vunEAvETNEzM",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 250,
+              "ExpectedEndAmount": 576.5,
+              "ActualEndAmount": 250
+            }
+          ]
+        },
+        {
+          "Id": 25463,
+          "PosId": 64,
+          "WorkplaceId": 15,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 0,
+          "ExpectedEndAmount": 28,
+          "ActualEndAmount": 0,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T23:03:58",
+          "OpenerUserId": 572,
+          "CloseDate": "2026-02-14T03:26:03",
+          "CloserUserId": 436,
+          "VerificationCode": "cJp6cUARkMy1",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 0,
+              "ExpectedEndAmount": 28,
+              "ActualEndAmount": 0
+            }
+          ]
+        },
+        {
+          "Id": 25464,
+          "PosId": 34,
+          "WorkplaceId": 7,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 75,
+          "ExpectedEndAmount": 734,
+          "ActualEndAmount": 564.5,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T16:16:05",
+          "OpenerUserId": 580,
+          "CloseDate": "2026-02-14T03:29:35",
+          "CloserUserId": 499,
+          "VerificationCode": "KvJ3qgTEYpSR",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 75,
+              "ExpectedEndAmount": 734,
+              "ActualEndAmount": 564.5
+            }
+          ]
+        },
+        {
+          "Id": 25465,
+          "PosId": 60,
+          "WorkplaceId": 15,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 250,
+          "ExpectedEndAmount": 666.3,
+          "ActualEndAmount": 250,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T15:39:42",
+          "OpenerUserId": 541,
+          "CloseDate": "2026-02-14T03:31:45",
+          "CloserUserId": 541,
+          "VerificationCode": "my5FPiUZk5cZ",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 250,
+              "ExpectedEndAmount": 666.3,
+              "ActualEndAmount": 250
+            }
+          ]
+        },
+        {
+          "Id": 25466,
+          "PosId": 57,
+          "WorkplaceId": 15,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 100,
+          "ExpectedEndAmount": 1099.2,
+          "ActualEndAmount": 100,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T15:36:07",
+          "OpenerUserId": 541,
+          "CloseDate": "2026-02-14T03:35:14",
+          "CloserUserId": 541,
+          "VerificationCode": "JteZMBtrteSF",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 100,
+              "ExpectedEndAmount": 1099.2,
+              "ActualEndAmount": 100
+            }
+          ]
+        },
+        {
+          "Id": 25467,
+          "PosId": 70,
+          "WorkplaceId": 7,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 75,
+          "ExpectedEndAmount": 1152,
+          "ActualEndAmount": 75,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T16:15:17",
+          "OpenerUserId": 580,
+          "CloseDate": "2026-02-14T03:35:13",
+          "CloserUserId": 499,
+          "VerificationCode": "JZI8ESybNRz4",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 75,
+              "ExpectedEndAmount": 1152,
+              "ActualEndAmount": 75
+            }
+          ]
+        },
+        {
+          "Id": 25468,
+          "PosId": 22,
+          "WorkplaceId": 6,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 150,
+          "ExpectedEndAmount": 326.5,
+          "ActualEndAmount": 326.5,
+          "Incident": "",
+          "OpenDate": "2026-02-13T22:12:57",
+          "OpenerUserId": 100,
+          "CloseDate": "2026-02-14T03:58:52",
+          "CloserUserId": 100,
+          "VerificationCode": "ljlf6Dt7NgXW",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 150,
+              "ExpectedEndAmount": 326.5,
+              "ActualEndAmount": 326.5
+            }
+          ]
+        },
+        {
+          "Id": 25469,
+          "PosId": 13,
+          "WorkplaceId": 1,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 200,
+          "ExpectedEndAmount": 355.5,
+          "ActualEndAmount": 352,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T22:17:45",
+          "OpenerUserId": 273,
+          "CloseDate": "2026-02-14T05:44:34",
+          "CloserUserId": 273,
+          "VerificationCode": "bkStQTeJkbtJ",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 200,
+              "ExpectedEndAmount": 355.5,
+              "ActualEndAmount": 352
+            }
+          ]
+        },
+        {
+          "Id": 25470,
+          "PosId": 9,
+          "WorkplaceId": 1,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 200,
+          "ExpectedEndAmount": 590,
+          "ActualEndAmount": 593,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-14T01:00:27",
+          "OpenerUserId": 273,
+          "CloseDate": "2026-02-14T06:04:33",
+          "CloserUserId": 273,
+          "VerificationCode": "7nhjuj2fJOaU",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 200,
+              "ExpectedEndAmount": 590,
+              "ActualEndAmount": 593
+            }
+          ]
+        },
+        {
+          "Id": 25471,
+          "PosId": 14,
+          "WorkplaceId": 1,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 200,
+          "ExpectedEndAmount": 280,
+          "ActualEndAmount": 286.25,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T23:07:32",
+          "OpenerUserId": 273,
+          "CloseDate": "2026-02-14T06:36:10",
+          "CloserUserId": 273,
+          "VerificationCode": "fFEddpfzT3EI",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 200,
+              "ExpectedEndAmount": 280,
+              "ActualEndAmount": 286.25
+            }
+          ]
+        },
+        {
+          "Id": 25472,
+          "PosId": 8,
+          "WorkplaceId": 1,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 200,
+          "ExpectedEndAmount": 289.5,
+          "ActualEndAmount": 289.5,
+          "Incident": "",
+          "OpenDate": "2026-02-13T23:16:13",
+          "OpenerUserId": 273,
+          "CloseDate": "2026-02-14T06:48:38",
+          "CloserUserId": 273,
+          "VerificationCode": "105O932WOQ4j",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 200,
+              "ExpectedEndAmount": 289.5,
+              "ActualEndAmount": 289.5
+            }
+          ]
+        },
+        {
+          "Id": 25473,
+          "PosId": 11,
+          "WorkplaceId": 1,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 200,
+          "ExpectedEndAmount": 273.5,
+          "ActualEndAmount": 291.5,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-14T00:10:25",
+          "OpenerUserId": 67,
+          "CloseDate": "2026-02-14T07:05:16",
+          "CloserUserId": 273,
+          "VerificationCode": "axfZKL471sXW",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 200,
+              "ExpectedEndAmount": 273.5,
+              "ActualEndAmount": 291.5
+            }
+          ]
+        },
+        {
+          "Id": 25474,
+          "PosId": 12,
+          "WorkplaceId": 1,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 0,
+          "ExpectedEndAmount": 175.5,
+          "ActualEndAmount": 350.5,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-14T00:40:36",
+          "OpenerUserId": 597,
+          "CloseDate": "2026-02-14T07:07:36",
+          "CloserUserId": 273,
+          "VerificationCode": "Evmtdt7yqs8H",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 0,
+              "ExpectedEndAmount": 175.5,
+              "ActualEndAmount": 350.5
+            }
+          ]
+        },
+        {
+          "Id": 25475,
+          "PosId": 1,
+          "WorkplaceId": 1,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 200,
+          "ExpectedEndAmount": 387,
+          "ActualEndAmount": 386,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T23:17:11",
+          "OpenerUserId": 273,
+          "CloseDate": "2026-02-14T07:18:33",
+          "CloserUserId": 278,
+          "VerificationCode": "sLgP8jAcjgPa",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 200,
+              "ExpectedEndAmount": 387,
+              "ActualEndAmount": 386
+            }
+          ]
+        },
+        {
+          "Id": 25476,
+          "PosId": 7,
+          "WorkplaceId": 1,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 200,
+          "ExpectedEndAmount": 635,
+          "ActualEndAmount": 596,
+          "Incident": "Desconocido",
+          "OpenDate": "2026-02-13T23:17:27",
+          "OpenerUserId": 273,
+          "CloseDate": "2026-02-14T07:27:53",
+          "CloserUserId": 273,
+          "VerificationCode": "CsTW5B7k5yCq",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 200,
+              "ExpectedEndAmount": 635,
+              "ActualEndAmount": 596
+            }
+          ]
+        },
+        {
+          "Id": 25477,
+          "PosId": 28,
+          "WorkplaceId": 11,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 50,
+          "ExpectedEndAmount": 194,
+          "ActualEndAmount": 194,
+          "Incident": "",
+          "OpenDate": "2026-02-13T15:42:16",
+          "OpenerUserId": 580,
+          "CloseDate": "2026-02-14T10:00:28",
+          "CloserUserId": 1,
+          "VerificationCode": "bAHnb6gFf10H",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 50,
+              "ExpectedEndAmount": 194,
+              "ActualEndAmount": 194
+            }
+          ]
+        },
+        {
+          "Id": 25478,
+          "PosId": 36,
+          "WorkplaceId": 11,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 0,
+          "ExpectedEndAmount": 0,
+          "ActualEndAmount": 0,
+          "Incident": "",
+          "OpenDate": "2026-02-13T16:29:22",
+          "OpenerUserId": 368,
+          "CloseDate": "2026-02-14T10:00:31",
+          "CloserUserId": 1,
+          "VerificationCode": "5Ajxm7W7xln0",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 0,
+              "ExpectedEndAmount": 0,
+              "ActualEndAmount": 0
+            }
+          ]
+        },
+        {
+          "Id": 25479,
+          "PosId": 58,
+          "WorkplaceId": 15,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 0,
+          "ExpectedEndAmount": 0,
+          "ActualEndAmount": 0,
+          "Incident": "",
+          "OpenDate": "2026-02-13T16:39:42",
+          "OpenerUserId": 566,
+          "CloseDate": "2026-02-14T10:00:33",
+          "CloserUserId": 1,
+          "VerificationCode": "r0G78hWf7ZjH",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 0,
+              "ExpectedEndAmount": 0,
+              "ActualEndAmount": 0
+            }
+          ]
+        },
+        {
+          "Id": 25480,
+          "PosId": 60,
+          "WorkplaceId": 15,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 0,
+          "ExpectedEndAmount": 0,
+          "ActualEndAmount": 0,
+          "Incident": "",
+          "OpenDate": "2026-02-14T03:33:50",
+          "OpenerUserId": 519,
+          "CloseDate": "2026-02-14T10:00:33",
+          "CloserUserId": 1,
+          "VerificationCode": "7Vh3ORae95nr",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 0,
+              "ExpectedEndAmount": 0,
+              "ActualEndAmount": 0
+            }
+          ]
+        },
+        {
+          "Id": 25481,
+          "PosId": 33,
+          "WorkplaceId": 11,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 100,
+          "ExpectedEndAmount": 1443,
+          "ActualEndAmount": 1443,
+          "Incident": "",
+          "OpenDate": "2026-02-13T15:41:38",
+          "OpenerUserId": 580,
+          "CloseDate": "2026-02-14T10:00:29",
+          "CloserUserId": 1,
+          "VerificationCode": "HRkqkQaoa9sY",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 100,
+              "ExpectedEndAmount": 1443,
+              "ActualEndAmount": 1443
+            }
+          ]
+        },
+        {
+          "Id": 25482,
+          "PosId": 61,
+          "WorkplaceId": 15,
+          "BusinessDay": "2026-02-13",
+          "InitialAmount": 250,
+          "ExpectedEndAmount": 250,
+          "ActualEndAmount": 250,
+          "Incident": "",
+          "OpenDate": "2026-02-13T20:20:43",
+          "OpenerUserId": 148,
+          "CloseDate": "2026-02-14T10:00:34",
+          "CloserUserId": 1,
+          "VerificationCode": "8Pf5Wc9fOExi",
+          "Balances": [
+            {
+              "PaymentMethodId": 1,
+              "InitialAmount": 250,
+              "ExpectedEndAmount": 250,
+              "ActualEndAmount": 250
+            }
+          ]
+        }
+      ]
+    },
+    "list": [
+      {
+        "Id": 25441,
+        "PosId": 16,
+        "WorkplaceId": 2,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 0,
+        "ExpectedEndAmount": 0,
+        "ActualEndAmount": 0,
+        "Incident": "",
+        "OpenDate": "2026-02-13T13:40:25",
+        "OpenerUserId": 577,
+        "CloseDate": "2026-02-14T00:50:36",
+        "CloserUserId": 59,
+        "VerificationCode": "Bhtn7otNTgYz",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 0,
+            "ExpectedEndAmount": 0,
+            "ActualEndAmount": 0
+          }
+        ]
+      },
+      {
+        "Id": 25442,
+        "PosId": 15,
+        "WorkplaceId": 2,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 150,
+        "ExpectedEndAmount": 785.35,
+        "ActualEndAmount": 787.85,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T13:17:32",
+        "OpenerUserId": 577,
+        "CloseDate": "2026-02-14T00:50:35",
+        "CloserUserId": 59,
+        "VerificationCode": "70ewDfwBqR4k",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 150,
+            "ExpectedEndAmount": 785.35,
+            "ActualEndAmount": 787.85
+          }
+        ]
+      },
+      {
+        "Id": 25443,
+        "PosId": 42,
+        "WorkplaceId": 13,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 61,
+        "ExpectedEndAmount": 120.5,
+        "ActualEndAmount": 0,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T15:10:51",
+        "OpenerUserId": 400,
+        "CloseDate": "2026-02-14T01:33:02",
+        "CloserUserId": 222,
+        "VerificationCode": "mITBk1sy5Ohc",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 61,
+            "ExpectedEndAmount": 120.5,
+            "ActualEndAmount": 0
+          }
+        ]
+      },
+      {
+        "Id": 25444,
+        "PosId": 41,
+        "WorkplaceId": 13,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 0,
+        "ExpectedEndAmount": 0,
+        "ActualEndAmount": 0,
+        "Incident": "",
+        "OpenDate": "2026-02-13T13:25:20",
+        "OpenerUserId": 386,
+        "CloseDate": "2026-02-14T02:04:28",
+        "CloserUserId": 222,
+        "VerificationCode": "qNSMuPILKOez",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 0,
+            "ExpectedEndAmount": 0,
+            "ActualEndAmount": 0
+          }
+        ]
+      },
+      {
+        "Id": 25445,
+        "PosId": 40,
+        "WorkplaceId": 13,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 910.16,
+        "ExpectedEndAmount": 1402.06,
+        "ActualEndAmount": 1402.06,
+        "Incident": "",
+        "OpenDate": "2026-02-13T13:25:00",
+        "OpenerUserId": 386,
+        "CloseDate": "2026-02-14T02:04:27",
+        "CloserUserId": 222,
+        "VerificationCode": "9AdsEtw9rKzz",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 910.16,
+            "ExpectedEndAmount": 1402.06,
+            "ActualEndAmount": 1402.06
+          }
+        ]
+      },
+      {
+        "Id": 25446,
+        "PosId": 24,
+        "WorkplaceId": 5,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 0,
+        "ExpectedEndAmount": 0,
+        "ActualEndAmount": 0,
+        "Incident": "",
+        "OpenDate": "2026-02-13T14:14:18",
+        "OpenerUserId": 71,
+        "CloseDate": "2026-02-14T02:53:21",
+        "CloserUserId": 100,
+        "VerificationCode": "tVfnTkMjGHnR",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 0,
+            "ExpectedEndAmount": 0,
+            "ActualEndAmount": 0
+          }
+        ]
+      },
+      {
+        "Id": 25447,
+        "PosId": 21,
+        "WorkplaceId": 5,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 150,
+        "ExpectedEndAmount": 352.1,
+        "ActualEndAmount": 395.15,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T13:18:14",
+        "OpenerUserId": 71,
+        "CloseDate": "2026-02-14T02:53:20",
+        "CloserUserId": 100,
+        "VerificationCode": "aYd22mT0bIfr",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 150,
+            "ExpectedEndAmount": 352.1,
+            "ActualEndAmount": 395.15
+          }
+        ]
+      },
+      {
+        "Id": 25448,
+        "PosId": 18,
+        "WorkplaceId": 3,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 75,
+        "ExpectedEndAmount": 610,
+        "ActualEndAmount": 84,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T15:41:04",
+        "OpenerUserId": 418,
+        "CloseDate": "2026-02-14T02:57:11",
+        "CloserUserId": 12,
+        "VerificationCode": "99CDlZ22ZrPu",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 75,
+            "ExpectedEndAmount": 610,
+            "ActualEndAmount": 84
+          }
+        ]
+      },
+      {
+        "Id": 25449,
+        "PosId": 19,
+        "WorkplaceId": 3,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 0,
+        "ExpectedEndAmount": 0,
+        "ActualEndAmount": 0,
+        "Incident": "",
+        "OpenDate": "2026-02-13T19:17:26",
+        "OpenerUserId": 240,
+        "CloseDate": "2026-02-14T03:04:06",
+        "CloserUserId": 12,
+        "VerificationCode": "UWADhwsGYuTT",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 0,
+            "ExpectedEndAmount": 0,
+            "ActualEndAmount": 0
+          }
+        ]
+      },
+      {
+        "Id": 25450,
+        "PosId": 17,
+        "WorkplaceId": 3,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 75,
+        "ExpectedEndAmount": 954.5,
+        "ActualEndAmount": 75,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T15:35:30",
+        "OpenerUserId": 418,
+        "CloseDate": "2026-02-14T03:04:05",
+        "CloserUserId": 12,
+        "VerificationCode": "eAiLv8fqmKKs",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 75,
+            "ExpectedEndAmount": 954.5,
+            "ActualEndAmount": 75
+          }
+        ]
+      },
+      {
+        "Id": 25451,
+        "PosId": 49,
+        "WorkplaceId": 9,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 0,
+        "ExpectedEndAmount": 121,
+        "ActualEndAmount": 121,
+        "Incident": "",
+        "OpenDate": "2026-02-14T00:51:35",
+        "OpenerUserId": 504,
+        "CloseDate": "2026-02-14T03:08:17",
+        "CloserUserId": 395,
+        "VerificationCode": "MBE0Bc5OxM5D",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 0,
+            "ExpectedEndAmount": 121,
+            "ActualEndAmount": 121
+          }
+        ]
+      },
+      {
+        "Id": 25452,
+        "PosId": 55,
+        "WorkplaceId": 11,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 0,
+        "ExpectedEndAmount": 98,
+        "ActualEndAmount": 98,
+        "Incident": "",
+        "OpenDate": "2026-02-13T22:04:07",
+        "OpenerUserId": 389,
+        "CloseDate": "2026-02-14T03:08:34",
+        "CloserUserId": 389,
+        "VerificationCode": "unZDT0hzspVc",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 0,
+            "ExpectedEndAmount": 98,
+            "ActualEndAmount": 98
+          }
+        ]
+      },
+      {
+        "Id": 25453,
+        "PosId": 68,
+        "WorkplaceId": 16,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 0,
+        "ExpectedEndAmount": 0,
+        "ActualEndAmount": 0,
+        "Incident": "",
+        "OpenDate": "2026-02-13T16:36:27",
+        "OpenerUserId": 506,
+        "CloseDate": "2026-02-14T03:13:46",
+        "CloserUserId": 506,
+        "VerificationCode": "g2bD2W9muRmd",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 0,
+            "ExpectedEndAmount": 0,
+            "ActualEndAmount": 0
+          }
+        ]
+      },
+      {
+        "Id": 25454,
+        "PosId": 67,
+        "WorkplaceId": 16,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 150,
+        "ExpectedEndAmount": 265.15,
+        "ActualEndAmount": 265.05,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T15:06:54",
+        "OpenerUserId": 506,
+        "CloseDate": "2026-02-14T03:13:46",
+        "CloserUserId": 506,
+        "VerificationCode": "hfmdMYLBZ2SP",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 150,
+            "ExpectedEndAmount": 265.15,
+            "ActualEndAmount": 265.05
+          }
+        ]
+      },
+      {
+        "Id": 25455,
+        "PosId": 37,
+        "WorkplaceId": 12,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 75,
+        "ExpectedEndAmount": 578.5,
+        "ActualEndAmount": 201,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T22:13:53",
+        "OpenerUserId": 430,
+        "CloseDate": "2026-02-14T03:14:28",
+        "CloserUserId": 499,
+        "VerificationCode": "yKN0lUXuzGXh",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 75,
+            "ExpectedEndAmount": 578.5,
+            "ActualEndAmount": 201
+          }
+        ]
+      },
+      {
+        "Id": 25456,
+        "PosId": 50,
+        "WorkplaceId": 12,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 75,
+        "ExpectedEndAmount": 258.5,
+        "ActualEndAmount": 181,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T22:13:59",
+        "OpenerUserId": 430,
+        "CloseDate": "2026-02-14T03:16:32",
+        "CloserUserId": 499,
+        "VerificationCode": "nojZZvWH2fHR",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 75,
+            "ExpectedEndAmount": 258.5,
+            "ActualEndAmount": 181
+          }
+        ]
+      },
+      {
+        "Id": 25457,
+        "PosId": 39,
+        "WorkplaceId": 10,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 0,
+        "ExpectedEndAmount": 0,
+        "ActualEndAmount": 0,
+        "Incident": "",
+        "OpenDate": "2026-02-13T16:17:48",
+        "OpenerUserId": 600,
+        "CloseDate": "2026-02-14T03:16:43",
+        "CloserUserId": 455,
+        "VerificationCode": "uqEvUI0CgqMQ",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 0,
+            "ExpectedEndAmount": 0,
+            "ActualEndAmount": 0
+          }
+        ]
+      },
+      {
+        "Id": 25458,
+        "PosId": 32,
+        "WorkplaceId": 10,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 150,
+        "ExpectedEndAmount": 1305.4,
+        "ActualEndAmount": 1293,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T15:02:47",
+        "OpenerUserId": 600,
+        "CloseDate": "2026-02-14T03:16:42",
+        "CloserUserId": 455,
+        "VerificationCode": "HyP1NHYPpqAE",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 150,
+            "ExpectedEndAmount": 1305.4,
+            "ActualEndAmount": 1293
+          }
+        ]
+      },
+      {
+        "Id": 25459,
+        "PosId": 30,
+        "WorkplaceId": 9,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 150,
+        "ExpectedEndAmount": 373,
+        "ActualEndAmount": 373,
+        "Incident": "",
+        "OpenDate": "2026-02-13T22:30:32",
+        "OpenerUserId": 395,
+        "CloseDate": "2026-02-14T03:19:54",
+        "CloserUserId": 395,
+        "VerificationCode": "8KJ983PqAFZg",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 150,
+            "ExpectedEndAmount": 373,
+            "ActualEndAmount": 373
+          }
+        ]
+      },
+      {
+        "Id": 25460,
+        "PosId": 63,
+        "WorkplaceId": 15,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 250,
+        "ExpectedEndAmount": 576.5,
+        "ActualEndAmount": 250,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T23:41:28",
+        "OpenerUserId": 550,
+        "CloseDate": "2026-02-14T03:20:35",
+        "CloserUserId": 541,
+        "VerificationCode": "LM6NhSAdIYdq",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 250,
+            "ExpectedEndAmount": 576.5,
+            "ActualEndAmount": 250
+          }
+        ]
+      },
+      {
+        "Id": 25461,
+        "PosId": 29,
+        "WorkplaceId": 7,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 75,
+        "ExpectedEndAmount": 857.5,
+        "ActualEndAmount": 75,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T16:17:34",
+        "OpenerUserId": 580,
+        "CloseDate": "2026-02-14T03:23:27",
+        "CloserUserId": 499,
+        "VerificationCode": "YkUc3yGOWBht",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 75,
+            "ExpectedEndAmount": 857.5,
+            "ActualEndAmount": 75
+          }
+        ]
+      },
+      {
+        "Id": 25462,
+        "PosId": 62,
+        "WorkplaceId": 15,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 250,
+        "ExpectedEndAmount": 576.5,
+        "ActualEndAmount": 250,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T23:31:11",
+        "OpenerUserId": 550,
+        "CloseDate": "2026-02-14T03:23:37",
+        "CloserUserId": 541,
+        "VerificationCode": "vunEAvETNEzM",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 250,
+            "ExpectedEndAmount": 576.5,
+            "ActualEndAmount": 250
+          }
+        ]
+      },
+      {
+        "Id": 25463,
+        "PosId": 64,
+        "WorkplaceId": 15,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 0,
+        "ExpectedEndAmount": 28,
+        "ActualEndAmount": 0,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T23:03:58",
+        "OpenerUserId": 572,
+        "CloseDate": "2026-02-14T03:26:03",
+        "CloserUserId": 436,
+        "VerificationCode": "cJp6cUARkMy1",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 0,
+            "ExpectedEndAmount": 28,
+            "ActualEndAmount": 0
+          }
+        ]
+      },
+      {
+        "Id": 25464,
+        "PosId": 34,
+        "WorkplaceId": 7,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 75,
+        "ExpectedEndAmount": 734,
+        "ActualEndAmount": 564.5,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T16:16:05",
+        "OpenerUserId": 580,
+        "CloseDate": "2026-02-14T03:29:35",
+        "CloserUserId": 499,
+        "VerificationCode": "KvJ3qgTEYpSR",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 75,
+            "ExpectedEndAmount": 734,
+            "ActualEndAmount": 564.5
+          }
+        ]
+      },
+      {
+        "Id": 25465,
+        "PosId": 60,
+        "WorkplaceId": 15,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 250,
+        "ExpectedEndAmount": 666.3,
+        "ActualEndAmount": 250,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T15:39:42",
+        "OpenerUserId": 541,
+        "CloseDate": "2026-02-14T03:31:45",
+        "CloserUserId": 541,
+        "VerificationCode": "my5FPiUZk5cZ",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 250,
+            "ExpectedEndAmount": 666.3,
+            "ActualEndAmount": 250
+          }
+        ]
+      },
+      {
+        "Id": 25466,
+        "PosId": 57,
+        "WorkplaceId": 15,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 100,
+        "ExpectedEndAmount": 1099.2,
+        "ActualEndAmount": 100,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T15:36:07",
+        "OpenerUserId": 541,
+        "CloseDate": "2026-02-14T03:35:14",
+        "CloserUserId": 541,
+        "VerificationCode": "JteZMBtrteSF",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 100,
+            "ExpectedEndAmount": 1099.2,
+            "ActualEndAmount": 100
+          }
+        ]
+      },
+      {
+        "Id": 25467,
+        "PosId": 70,
+        "WorkplaceId": 7,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 75,
+        "ExpectedEndAmount": 1152,
+        "ActualEndAmount": 75,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T16:15:17",
+        "OpenerUserId": 580,
+        "CloseDate": "2026-02-14T03:35:13",
+        "CloserUserId": 499,
+        "VerificationCode": "JZI8ESybNRz4",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 75,
+            "ExpectedEndAmount": 1152,
+            "ActualEndAmount": 75
+          }
+        ]
+      },
+      {
+        "Id": 25468,
+        "PosId": 22,
+        "WorkplaceId": 6,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 150,
+        "ExpectedEndAmount": 326.5,
+        "ActualEndAmount": 326.5,
+        "Incident": "",
+        "OpenDate": "2026-02-13T22:12:57",
+        "OpenerUserId": 100,
+        "CloseDate": "2026-02-14T03:58:52",
+        "CloserUserId": 100,
+        "VerificationCode": "ljlf6Dt7NgXW",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 150,
+            "ExpectedEndAmount": 326.5,
+            "ActualEndAmount": 326.5
+          }
+        ]
+      },
+      {
+        "Id": 25469,
+        "PosId": 13,
+        "WorkplaceId": 1,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 200,
+        "ExpectedEndAmount": 355.5,
+        "ActualEndAmount": 352,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T22:17:45",
+        "OpenerUserId": 273,
+        "CloseDate": "2026-02-14T05:44:34",
+        "CloserUserId": 273,
+        "VerificationCode": "bkStQTeJkbtJ",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 200,
+            "ExpectedEndAmount": 355.5,
+            "ActualEndAmount": 352
+          }
+        ]
+      },
+      {
+        "Id": 25470,
+        "PosId": 9,
+        "WorkplaceId": 1,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 200,
+        "ExpectedEndAmount": 590,
+        "ActualEndAmount": 593,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-14T01:00:27",
+        "OpenerUserId": 273,
+        "CloseDate": "2026-02-14T06:04:33",
+        "CloserUserId": 273,
+        "VerificationCode": "7nhjuj2fJOaU",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 200,
+            "ExpectedEndAmount": 590,
+            "ActualEndAmount": 593
+          }
+        ]
+      },
+      {
+        "Id": 25471,
+        "PosId": 14,
+        "WorkplaceId": 1,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 200,
+        "ExpectedEndAmount": 280,
+        "ActualEndAmount": 286.25,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T23:07:32",
+        "OpenerUserId": 273,
+        "CloseDate": "2026-02-14T06:36:10",
+        "CloserUserId": 273,
+        "VerificationCode": "fFEddpfzT3EI",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 200,
+            "ExpectedEndAmount": 280,
+            "ActualEndAmount": 286.25
+          }
+        ]
+      },
+      {
+        "Id": 25472,
+        "PosId": 8,
+        "WorkplaceId": 1,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 200,
+        "ExpectedEndAmount": 289.5,
+        "ActualEndAmount": 289.5,
+        "Incident": "",
+        "OpenDate": "2026-02-13T23:16:13",
+        "OpenerUserId": 273,
+        "CloseDate": "2026-02-14T06:48:38",
+        "CloserUserId": 273,
+        "VerificationCode": "105O932WOQ4j",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 200,
+            "ExpectedEndAmount": 289.5,
+            "ActualEndAmount": 289.5
+          }
+        ]
+      },
+      {
+        "Id": 25473,
+        "PosId": 11,
+        "WorkplaceId": 1,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 200,
+        "ExpectedEndAmount": 273.5,
+        "ActualEndAmount": 291.5,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-14T00:10:25",
+        "OpenerUserId": 67,
+        "CloseDate": "2026-02-14T07:05:16",
+        "CloserUserId": 273,
+        "VerificationCode": "axfZKL471sXW",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 200,
+            "ExpectedEndAmount": 273.5,
+            "ActualEndAmount": 291.5
+          }
+        ]
+      },
+      {
+        "Id": 25474,
+        "PosId": 12,
+        "WorkplaceId": 1,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 0,
+        "ExpectedEndAmount": 175.5,
+        "ActualEndAmount": 350.5,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-14T00:40:36",
+        "OpenerUserId": 597,
+        "CloseDate": "2026-02-14T07:07:36",
+        "CloserUserId": 273,
+        "VerificationCode": "Evmtdt7yqs8H",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 0,
+            "ExpectedEndAmount": 175.5,
+            "ActualEndAmount": 350.5
+          }
+        ]
+      },
+      {
+        "Id": 25475,
+        "PosId": 1,
+        "WorkplaceId": 1,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 200,
+        "ExpectedEndAmount": 387,
+        "ActualEndAmount": 386,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T23:17:11",
+        "OpenerUserId": 273,
+        "CloseDate": "2026-02-14T07:18:33",
+        "CloserUserId": 278,
+        "VerificationCode": "sLgP8jAcjgPa",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 200,
+            "ExpectedEndAmount": 387,
+            "ActualEndAmount": 386
+          }
+        ]
+      },
+      {
+        "Id": 25476,
+        "PosId": 7,
+        "WorkplaceId": 1,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 200,
+        "ExpectedEndAmount": 635,
+        "ActualEndAmount": 596,
+        "Incident": "Desconocido",
+        "OpenDate": "2026-02-13T23:17:27",
+        "OpenerUserId": 273,
+        "CloseDate": "2026-02-14T07:27:53",
+        "CloserUserId": 273,
+        "VerificationCode": "CsTW5B7k5yCq",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 200,
+            "ExpectedEndAmount": 635,
+            "ActualEndAmount": 596
+          }
+        ]
+      },
+      {
+        "Id": 25477,
+        "PosId": 28,
+        "WorkplaceId": 11,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 50,
+        "ExpectedEndAmount": 194,
+        "ActualEndAmount": 194,
+        "Incident": "",
+        "OpenDate": "2026-02-13T15:42:16",
+        "OpenerUserId": 580,
+        "CloseDate": "2026-02-14T10:00:28",
+        "CloserUserId": 1,
+        "VerificationCode": "bAHnb6gFf10H",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 50,
+            "ExpectedEndAmount": 194,
+            "ActualEndAmount": 194
+          }
+        ]
+      },
+      {
+        "Id": 25478,
+        "PosId": 36,
+        "WorkplaceId": 11,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 0,
+        "ExpectedEndAmount": 0,
+        "ActualEndAmount": 0,
+        "Incident": "",
+        "OpenDate": "2026-02-13T16:29:22",
+        "OpenerUserId": 368,
+        "CloseDate": "2026-02-14T10:00:31",
+        "CloserUserId": 1,
+        "VerificationCode": "5Ajxm7W7xln0",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 0,
+            "ExpectedEndAmount": 0,
+            "ActualEndAmount": 0
+          }
+        ]
+      },
+      {
+        "Id": 25479,
+        "PosId": 58,
+        "WorkplaceId": 15,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 0,
+        "ExpectedEndAmount": 0,
+        "ActualEndAmount": 0,
+        "Incident": "",
+        "OpenDate": "2026-02-13T16:39:42",
+        "OpenerUserId": 566,
+        "CloseDate": "2026-02-14T10:00:33",
+        "CloserUserId": 1,
+        "VerificationCode": "r0G78hWf7ZjH",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 0,
+            "ExpectedEndAmount": 0,
+            "ActualEndAmount": 0
+          }
+        ]
+      },
+      {
+        "Id": 25480,
+        "PosId": 60,
+        "WorkplaceId": 15,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 0,
+        "ExpectedEndAmount": 0,
+        "ActualEndAmount": 0,
+        "Incident": "",
+        "OpenDate": "2026-02-14T03:33:50",
+        "OpenerUserId": 519,
+        "CloseDate": "2026-02-14T10:00:33",
+        "CloserUserId": 1,
+        "VerificationCode": "7Vh3ORae95nr",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 0,
+            "ExpectedEndAmount": 0,
+            "ActualEndAmount": 0
+          }
+        ]
+      },
+      {
+        "Id": 25481,
+        "PosId": 33,
+        "WorkplaceId": 11,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 100,
+        "ExpectedEndAmount": 1443,
+        "ActualEndAmount": 1443,
+        "Incident": "",
+        "OpenDate": "2026-02-13T15:41:38",
+        "OpenerUserId": 580,
+        "CloseDate": "2026-02-14T10:00:29",
+        "CloserUserId": 1,
+        "VerificationCode": "HRkqkQaoa9sY",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 100,
+            "ExpectedEndAmount": 1443,
+            "ActualEndAmount": 1443
+          }
+        ]
+      },
+      {
+        "Id": 25482,
+        "PosId": 61,
+        "WorkplaceId": 15,
+        "BusinessDay": "2026-02-13",
+        "InitialAmount": 250,
+        "ExpectedEndAmount": 250,
+        "ActualEndAmount": 250,
+        "Incident": "",
+        "OpenDate": "2026-02-13T20:20:43",
+        "OpenerUserId": 148,
+        "CloseDate": "2026-02-14T10:00:34",
+        "CloserUserId": 1,
+        "VerificationCode": "8Pf5Wc9fOExi",
+        "Balances": [
+          {
+            "PaymentMethodId": 1,
+            "InitialAmount": 250,
+            "ExpectedEndAmount": 250,
+            "ActualEndAmount": 250
+          }
+        ]
+      }
+    ],
+    "speakeasy": []
+  },
+  "systemCloseOuts": {
+    "raw": {
+      "SystemCloseOuts": [
+        {
+          "Number": 92,
+          "BusinessDay": "2026-02-13",
+          "OpenDate": "2026-02-13T22:12:57",
+          "CloseDate": "2026-02-14T03:58:52",
+          "OpenerUserId": 100,
+          "CloserUserId": 100,
+          "WorkplaceId": 6,
+          "Documents": [
+            {
+              "Serie": "TLM",
+              "Amount": 992,
+              "FirstNumber": 10076,
+              "LastNumber": 10149,
+              "Count": 74
+            }
+          ],
+          "Amounts": {
+            "NetAmount": 901.74,
+            "GrossAmount": 992,
+            "SurchargeAmount": 0,
+            "VatAmount": 90.26
+          },
+          "InvoicePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 176.5
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 815.5
+            }
+          ],
+          "SalesOrderPayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "DeliveryNotePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "TicketPayment": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ]
+        },
+        {
+          "Number": 109,
+          "BusinessDay": "2026-02-13",
+          "OpenDate": "2026-02-13T15:06:54",
+          "CloseDate": "2026-02-14T03:13:46",
+          "OpenerUserId": 506,
+          "CloserUserId": 506,
+          "WorkplaceId": 16,
+          "Documents": [
+            {
+              "Serie": "T16",
+              "Amount": 869.8,
+              "FirstNumber": 4029,
+              "LastNumber": 4054,
+              "Count": 26
+            }
+          ],
+          "Amounts": {
+            "NetAmount": 790.71,
+            "GrossAmount": 869.8,
+            "SurchargeAmount": 0,
+            "VatAmount": 79.09
+          },
+          "InvoicePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 115.15
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 754.65
+            }
+          ],
+          "SalesOrderPayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "DeliveryNotePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "TicketPayment": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ]
+        },
+        {
+          "Number": 191,
+          "BusinessDay": "2026-02-13",
+          "OpenDate": "2026-02-13T15:36:07",
+          "CloseDate": "2026-02-14T10:00:34",
+          "OpenerUserId": 541,
+          "CloserUserId": 1,
+          "WorkplaceId": 15,
+          "Documents": [
+            {
+              "Serie": "TDI",
+              "Amount": 6174.2,
+              "FirstNumber": 66060,
+              "LastNumber": 66562,
+              "Count": 503
+            }
+          ],
+          "Amounts": {
+            "NetAmount": 5612.92,
+            "GrossAmount": 6174.2,
+            "SurchargeAmount": 0,
+            "VatAmount": 561.28
+          },
+          "InvoicePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 2096.5
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 195.1
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 3882.6
+            }
+          ],
+          "SalesOrderPayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "DeliveryNotePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "TicketPayment": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ]
+        },
+        {
+          "Number": 355,
+          "BusinessDay": "2026-02-13",
+          "OpenDate": "2026-02-13T22:13:53",
+          "CloseDate": "2026-02-14T03:16:32",
+          "OpenerUserId": 430,
+          "CloserUserId": 499,
+          "WorkplaceId": 12,
+          "Documents": [
+            {
+              "Serie": "TSE",
+              "Amount": 2677,
+              "FirstNumber": 64747,
+              "LastNumber": 64907,
+              "Count": 161
+            }
+          ],
+          "Amounts": {
+            "NetAmount": 2433.64,
+            "GrossAmount": 2677,
+            "SurchargeAmount": 0,
+            "VatAmount": 243.36
+          },
+          "InvoicePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 687
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 1990
+            }
+          ],
+          "SalesOrderPayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "DeliveryNotePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "TicketPayment": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ]
+        },
+        {
+          "Number": 504,
+          "BusinessDay": "2026-02-13",
+          "OpenDate": "2026-02-13T15:35:30",
+          "CloseDate": "2026-02-14T03:04:05",
+          "OpenerUserId": 418,
+          "CloserUserId": 12,
+          "WorkplaceId": 3,
+          "Documents": [
+            {
+              "Serie": "TIN",
+              "Amount": 3045.5,
+              "FirstNumber": 148833,
+              "LastNumber": 149078,
+              "Count": 246
+            }
+          ],
+          "Amounts": {
+            "NetAmount": 2768.6,
+            "GrossAmount": 3045.5,
+            "SurchargeAmount": 0,
+            "VatAmount": 276.9
+          },
+          "InvoicePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 1414.5
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 1631
+            }
+          ],
+          "SalesOrderPayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "DeliveryNotePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "TicketPayment": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ]
+        },
+        {
+          "Number": 607,
+          "BusinessDay": "2026-02-13",
+          "OpenDate": "2026-02-13T22:30:32",
+          "CloseDate": "2026-02-14T03:19:54",
+          "OpenerUserId": 395,
+          "CloserUserId": 395,
+          "WorkplaceId": 9,
+          "Documents": [
+            {
+              "Serie": "TFP",
+              "Amount": 934.5,
+              "FirstNumber": 66777,
+              "LastNumber": 66859,
+              "Count": 83
+            }
+          ],
+          "Amounts": {
+            "NetAmount": 849.58,
+            "GrossAmount": 934.5,
+            "SurchargeAmount": 0,
+            "VatAmount": 84.92
+          },
+          "InvoicePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 344
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 590.5
+            }
+          ],
+          "SalesOrderPayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "DeliveryNotePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "TicketPayment": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ]
+        },
+        {
+          "Number": 937,
+          "BusinessDay": "2026-02-13",
+          "OpenDate": "2026-02-13T13:25:00",
+          "CloseDate": "2026-02-14T02:04:27",
+          "OpenerUserId": 386,
+          "CloserUserId": 222,
+          "WorkplaceId": 13,
+          "Documents": [
+            {
+              "Serie": "TLR",
+              "Amount": 4821,
+              "FirstNumber": 93434,
+              "LastNumber": 93523,
+              "Count": 90
+            }
+          ],
+          "Amounts": {
+            "NetAmount": 4382.7,
+            "GrossAmount": 4821,
+            "SurchargeAmount": 0,
+            "VatAmount": 438.3
+          },
+          "InvoicePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 551.4
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 1360
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 2769.6
+            }
+          ],
+          "SalesOrderPayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "DeliveryNotePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "TicketPayment": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 140
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ]
+        },
+        {
+          "Number": 988,
+          "BusinessDay": "2026-02-13",
+          "OpenDate": "2026-02-13T13:18:14",
+          "CloseDate": "2026-02-14T02:53:20",
+          "OpenerUserId": 71,
+          "CloserUserId": 100,
+          "WorkplaceId": 5,
+          "Documents": [
+            {
+              "Serie": "TMS",
+              "Amount": 2086.1,
+              "FirstNumber": 53044,
+              "LastNumber": 53113,
+              "Count": 70
+            }
+          ],
+          "Amounts": {
+            "NetAmount": 1896.41,
+            "GrossAmount": 2086.1,
+            "SurchargeAmount": 0,
+            "VatAmount": 189.69
+          },
+          "InvoicePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 202.1
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 1884
+            }
+          ],
+          "SalesOrderPayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "DeliveryNotePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "TicketPayment": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ]
+        },
+        {
+          "Number": 1009,
+          "BusinessDay": "2026-02-13",
+          "OpenDate": "2026-02-13T15:02:47",
+          "CloseDate": "2026-02-14T03:16:42",
+          "OpenerUserId": 600,
+          "CloserUserId": 455,
+          "WorkplaceId": 10,
+          "Documents": [
+            {
+              "Serie": "TCA",
+              "Amount": 2502.3,
+              "FirstNumber": 73277,
+              "LastNumber": 73418,
+              "Count": 142
+            }
+          ],
+          "Amounts": {
+            "NetAmount": 2274.81,
+            "GrossAmount": 2502.3,
+            "SurchargeAmount": 0,
+            "VatAmount": 227.49
+          },
+          "InvoicePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 1155.4
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 1346.9
+            }
+          ],
+          "SalesOrderPayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "DeliveryNotePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "TicketPayment": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ]
+        },
+        {
+          "Number": 1013,
+          "BusinessDay": "2026-02-13",
+          "OpenDate": "2026-02-13T15:41:38",
+          "CloseDate": "2026-02-14T10:00:29",
+          "OpenerUserId": 580,
+          "CloserUserId": 1,
+          "WorkplaceId": 11,
+          "Documents": [
+            {
+              "Serie": "TPA",
+              "Amount": 5449.5,
+              "FirstNumber": 237515,
+              "LastNumber": 237990,
+              "Count": 476
+            }
+          ],
+          "Amounts": {
+            "NetAmount": 4954.4,
+            "GrossAmount": 5449.5,
+            "SurchargeAmount": 0,
+            "VatAmount": 495.1
+          },
+          "InvoicePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 1585
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 3864.5
+            }
+          ],
+          "SalesOrderPayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "DeliveryNotePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "TicketPayment": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ]
+        },
+        {
+          "Number": 1021,
+          "BusinessDay": "2026-02-13",
+          "OpenDate": "2026-02-13T16:15:17",
+          "CloseDate": "2026-02-14T03:35:13",
+          "OpenerUserId": 580,
+          "CloserUserId": 499,
+          "WorkplaceId": 7,
+          "Documents": [
+            {
+              "Serie": "TSA",
+              "Amount": 7089,
+              "FirstNumber": 286581,
+              "LastNumber": 287123,
+              "Count": 543
+            }
+          ],
+          "Amounts": {
+            "NetAmount": 6444.62,
+            "GrossAmount": 7089,
+            "SurchargeAmount": 0,
+            "VatAmount": 644.38
+          },
+          "InvoicePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 2518.5
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 4570.5
+            }
+          ],
+          "SalesOrderPayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "DeliveryNotePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "TicketPayment": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ]
+        },
+        {
+          "Number": 1042,
+          "BusinessDay": "2026-02-13",
+          "OpenDate": "2026-02-13T22:17:45",
+          "CloseDate": "2026-02-14T07:27:53",
+          "OpenerUserId": 273,
+          "CloserUserId": 273,
+          "WorkplaceId": 1,
+          "Documents": [
+            {
+              "Serie": "TCP",
+              "Amount": 6712.5,
+              "FirstNumber": 391335,
+              "LastNumber": 392165,
+              "Count": 831
+            }
+          ],
+          "Amounts": {
+            "NetAmount": 6102.92,
+            "GrossAmount": 6712.5,
+            "SurchargeAmount": 0,
+            "VatAmount": 609.58
+          },
+          "InvoicePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 1586
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 25.5
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 3211
+            }
+          ],
+          "SalesOrderPayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 1890
+            }
+          ],
+          "DeliveryNotePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "TicketPayment": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ]
+        },
+        {
+          "Number": 1046,
+          "BusinessDay": "2026-02-13",
+          "OpenDate": "2026-02-13T13:17:32",
+          "CloseDate": "2026-02-14T00:50:35",
+          "OpenerUserId": 577,
+          "CloserUserId": 59,
+          "WorkplaceId": 2,
+          "Documents": [
+            {
+              "Serie": "TFI",
+              "Amount": 2109.05,
+              "FirstNumber": 67375,
+              "LastNumber": 67438,
+              "Count": 64
+            }
+          ],
+          "Amounts": {
+            "NetAmount": 1917.25,
+            "GrossAmount": 2109.05,
+            "SurchargeAmount": 0,
+            "VatAmount": 191.8
+          },
+          "InvoicePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 609.4
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 635.35
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 864.3
+            }
+          ],
+          "SalesOrderPayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "DeliveryNotePayments": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ],
+          "TicketPayment": [
+            {
+              "MethodName": "AgoraPay",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Efectivo",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Pendiente de cobro",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Prepago Transferencia",
+              "Amount": 0
+            },
+            {
+              "MethodName": "Tarjeta",
+              "Amount": 0
+            }
+          ]
+        }
+      ]
+    },
+    "list": [
+      {
+        "Number": 92,
+        "BusinessDay": "2026-02-13",
+        "OpenDate": "2026-02-13T22:12:57",
+        "CloseDate": "2026-02-14T03:58:52",
+        "OpenerUserId": 100,
+        "CloserUserId": 100,
+        "WorkplaceId": 6,
+        "Documents": [
+          {
+            "Serie": "TLM",
+            "Amount": 992,
+            "FirstNumber": 10076,
+            "LastNumber": 10149,
+            "Count": 74
+          }
+        ],
+        "Amounts": {
+          "NetAmount": 901.74,
+          "GrossAmount": 992,
+          "SurchargeAmount": 0,
+          "VatAmount": 90.26
+        },
+        "InvoicePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 176.5
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 815.5
+          }
+        ],
+        "SalesOrderPayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "DeliveryNotePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "TicketPayment": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ]
+      },
+      {
+        "Number": 109,
+        "BusinessDay": "2026-02-13",
+        "OpenDate": "2026-02-13T15:06:54",
+        "CloseDate": "2026-02-14T03:13:46",
+        "OpenerUserId": 506,
+        "CloserUserId": 506,
+        "WorkplaceId": 16,
+        "Documents": [
+          {
+            "Serie": "T16",
+            "Amount": 869.8,
+            "FirstNumber": 4029,
+            "LastNumber": 4054,
+            "Count": 26
+          }
+        ],
+        "Amounts": {
+          "NetAmount": 790.71,
+          "GrossAmount": 869.8,
+          "SurchargeAmount": 0,
+          "VatAmount": 79.09
+        },
+        "InvoicePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 115.15
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 754.65
+          }
+        ],
+        "SalesOrderPayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "DeliveryNotePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "TicketPayment": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ]
+      },
+      {
+        "Number": 191,
+        "BusinessDay": "2026-02-13",
+        "OpenDate": "2026-02-13T15:36:07",
+        "CloseDate": "2026-02-14T10:00:34",
+        "OpenerUserId": 541,
+        "CloserUserId": 1,
+        "WorkplaceId": 15,
+        "Documents": [
+          {
+            "Serie": "TDI",
+            "Amount": 6174.2,
+            "FirstNumber": 66060,
+            "LastNumber": 66562,
+            "Count": 503
+          }
+        ],
+        "Amounts": {
+          "NetAmount": 5612.92,
+          "GrossAmount": 6174.2,
+          "SurchargeAmount": 0,
+          "VatAmount": 561.28
+        },
+        "InvoicePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 2096.5
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 195.1
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 3882.6
+          }
+        ],
+        "SalesOrderPayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "DeliveryNotePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "TicketPayment": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ]
+      },
+      {
+        "Number": 355,
+        "BusinessDay": "2026-02-13",
+        "OpenDate": "2026-02-13T22:13:53",
+        "CloseDate": "2026-02-14T03:16:32",
+        "OpenerUserId": 430,
+        "CloserUserId": 499,
+        "WorkplaceId": 12,
+        "Documents": [
+          {
+            "Serie": "TSE",
+            "Amount": 2677,
+            "FirstNumber": 64747,
+            "LastNumber": 64907,
+            "Count": 161
+          }
+        ],
+        "Amounts": {
+          "NetAmount": 2433.64,
+          "GrossAmount": 2677,
+          "SurchargeAmount": 0,
+          "VatAmount": 243.36
+        },
+        "InvoicePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 687
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 1990
+          }
+        ],
+        "SalesOrderPayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "DeliveryNotePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "TicketPayment": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ]
+      },
+      {
+        "Number": 504,
+        "BusinessDay": "2026-02-13",
+        "OpenDate": "2026-02-13T15:35:30",
+        "CloseDate": "2026-02-14T03:04:05",
+        "OpenerUserId": 418,
+        "CloserUserId": 12,
+        "WorkplaceId": 3,
+        "Documents": [
+          {
+            "Serie": "TIN",
+            "Amount": 3045.5,
+            "FirstNumber": 148833,
+            "LastNumber": 149078,
+            "Count": 246
+          }
+        ],
+        "Amounts": {
+          "NetAmount": 2768.6,
+          "GrossAmount": 3045.5,
+          "SurchargeAmount": 0,
+          "VatAmount": 276.9
+        },
+        "InvoicePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 1414.5
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 1631
+          }
+        ],
+        "SalesOrderPayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "DeliveryNotePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "TicketPayment": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ]
+      },
+      {
+        "Number": 607,
+        "BusinessDay": "2026-02-13",
+        "OpenDate": "2026-02-13T22:30:32",
+        "CloseDate": "2026-02-14T03:19:54",
+        "OpenerUserId": 395,
+        "CloserUserId": 395,
+        "WorkplaceId": 9,
+        "Documents": [
+          {
+            "Serie": "TFP",
+            "Amount": 934.5,
+            "FirstNumber": 66777,
+            "LastNumber": 66859,
+            "Count": 83
+          }
+        ],
+        "Amounts": {
+          "NetAmount": 849.58,
+          "GrossAmount": 934.5,
+          "SurchargeAmount": 0,
+          "VatAmount": 84.92
+        },
+        "InvoicePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 344
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 590.5
+          }
+        ],
+        "SalesOrderPayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "DeliveryNotePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "TicketPayment": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ]
+      },
+      {
+        "Number": 937,
+        "BusinessDay": "2026-02-13",
+        "OpenDate": "2026-02-13T13:25:00",
+        "CloseDate": "2026-02-14T02:04:27",
+        "OpenerUserId": 386,
+        "CloserUserId": 222,
+        "WorkplaceId": 13,
+        "Documents": [
+          {
+            "Serie": "TLR",
+            "Amount": 4821,
+            "FirstNumber": 93434,
+            "LastNumber": 93523,
+            "Count": 90
+          }
+        ],
+        "Amounts": {
+          "NetAmount": 4382.7,
+          "GrossAmount": 4821,
+          "SurchargeAmount": 0,
+          "VatAmount": 438.3
+        },
+        "InvoicePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 551.4
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 1360
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 2769.6
+          }
+        ],
+        "SalesOrderPayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "DeliveryNotePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "TicketPayment": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 140
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ]
+      },
+      {
+        "Number": 988,
+        "BusinessDay": "2026-02-13",
+        "OpenDate": "2026-02-13T13:18:14",
+        "CloseDate": "2026-02-14T02:53:20",
+        "OpenerUserId": 71,
+        "CloserUserId": 100,
+        "WorkplaceId": 5,
+        "Documents": [
+          {
+            "Serie": "TMS",
+            "Amount": 2086.1,
+            "FirstNumber": 53044,
+            "LastNumber": 53113,
+            "Count": 70
+          }
+        ],
+        "Amounts": {
+          "NetAmount": 1896.41,
+          "GrossAmount": 2086.1,
+          "SurchargeAmount": 0,
+          "VatAmount": 189.69
+        },
+        "InvoicePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 202.1
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 1884
+          }
+        ],
+        "SalesOrderPayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "DeliveryNotePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "TicketPayment": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ]
+      },
+      {
+        "Number": 1009,
+        "BusinessDay": "2026-02-13",
+        "OpenDate": "2026-02-13T15:02:47",
+        "CloseDate": "2026-02-14T03:16:42",
+        "OpenerUserId": 600,
+        "CloserUserId": 455,
+        "WorkplaceId": 10,
+        "Documents": [
+          {
+            "Serie": "TCA",
+            "Amount": 2502.3,
+            "FirstNumber": 73277,
+            "LastNumber": 73418,
+            "Count": 142
+          }
+        ],
+        "Amounts": {
+          "NetAmount": 2274.81,
+          "GrossAmount": 2502.3,
+          "SurchargeAmount": 0,
+          "VatAmount": 227.49
+        },
+        "InvoicePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 1155.4
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 1346.9
+          }
+        ],
+        "SalesOrderPayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "DeliveryNotePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "TicketPayment": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ]
+      },
+      {
+        "Number": 1013,
+        "BusinessDay": "2026-02-13",
+        "OpenDate": "2026-02-13T15:41:38",
+        "CloseDate": "2026-02-14T10:00:29",
+        "OpenerUserId": 580,
+        "CloserUserId": 1,
+        "WorkplaceId": 11,
+        "Documents": [
+          {
+            "Serie": "TPA",
+            "Amount": 5449.5,
+            "FirstNumber": 237515,
+            "LastNumber": 237990,
+            "Count": 476
+          }
+        ],
+        "Amounts": {
+          "NetAmount": 4954.4,
+          "GrossAmount": 5449.5,
+          "SurchargeAmount": 0,
+          "VatAmount": 495.1
+        },
+        "InvoicePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 1585
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 3864.5
+          }
+        ],
+        "SalesOrderPayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "DeliveryNotePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "TicketPayment": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ]
+      },
+      {
+        "Number": 1021,
+        "BusinessDay": "2026-02-13",
+        "OpenDate": "2026-02-13T16:15:17",
+        "CloseDate": "2026-02-14T03:35:13",
+        "OpenerUserId": 580,
+        "CloserUserId": 499,
+        "WorkplaceId": 7,
+        "Documents": [
+          {
+            "Serie": "TSA",
+            "Amount": 7089,
+            "FirstNumber": 286581,
+            "LastNumber": 287123,
+            "Count": 543
+          }
+        ],
+        "Amounts": {
+          "NetAmount": 6444.62,
+          "GrossAmount": 7089,
+          "SurchargeAmount": 0,
+          "VatAmount": 644.38
+        },
+        "InvoicePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 2518.5
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 4570.5
+          }
+        ],
+        "SalesOrderPayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "DeliveryNotePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "TicketPayment": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ]
+      },
+      {
+        "Number": 1042,
+        "BusinessDay": "2026-02-13",
+        "OpenDate": "2026-02-13T22:17:45",
+        "CloseDate": "2026-02-14T07:27:53",
+        "OpenerUserId": 273,
+        "CloserUserId": 273,
+        "WorkplaceId": 1,
+        "Documents": [
+          {
+            "Serie": "TCP",
+            "Amount": 6712.5,
+            "FirstNumber": 391335,
+            "LastNumber": 392165,
+            "Count": 831
+          }
+        ],
+        "Amounts": {
+          "NetAmount": 6102.92,
+          "GrossAmount": 6712.5,
+          "SurchargeAmount": 0,
+          "VatAmount": 609.58
+        },
+        "InvoicePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 1586
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 25.5
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 3211
+          }
+        ],
+        "SalesOrderPayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 1890
+          }
+        ],
+        "DeliveryNotePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "TicketPayment": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ]
+      },
+      {
+        "Number": 1046,
+        "BusinessDay": "2026-02-13",
+        "OpenDate": "2026-02-13T13:17:32",
+        "CloseDate": "2026-02-14T00:50:35",
+        "OpenerUserId": 577,
+        "CloserUserId": 59,
+        "WorkplaceId": 2,
+        "Documents": [
+          {
+            "Serie": "TFI",
+            "Amount": 2109.05,
+            "FirstNumber": 67375,
+            "LastNumber": 67438,
+            "Count": 64
+          }
+        ],
+        "Amounts": {
+          "NetAmount": 1917.25,
+          "GrossAmount": 2109.05,
+          "SurchargeAmount": 0,
+          "VatAmount": 191.8
+        },
+        "InvoicePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 609.4
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 635.35
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 864.3
+          }
+        ],
+        "SalesOrderPayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "DeliveryNotePayments": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ],
+        "TicketPayment": [
+          {
+            "MethodName": "AgoraPay",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Efectivo",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Pendiente de cobro",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Prepago Transferencia",
+            "Amount": 0
+          },
+          {
+            "MethodName": "Tarjeta",
+            "Amount": 0
+          }
+        ]
+      }
+    ],
+    "speakeasy": []
+  }
+}

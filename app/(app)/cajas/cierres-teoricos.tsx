@@ -104,6 +104,13 @@ function getDiaSemana3(iso: string): string {
   return DIA_SEMANA_3[date.getDay()] ?? '—';
 }
 
+function formatSyncSeconds(sec: number): string {
+  if (sec < 60) return `${sec} s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s > 0 ? `${m} min ${s} s` : `${m} min`;
+}
+
 function parseDateToYYYYMMDD(input: string): string | null {
   const s = input.trim();
   if (!s) return null;
@@ -140,14 +147,27 @@ function getAmounts(item: CloseOut): Record<string, unknown> | undefined {
 }
 
 function getInvoicePaymentsTotal(item: CloseOut): number {
+  const ventas = (item as Record<string, unknown>).Ventas;
+  if (ventas != null && (typeof ventas === 'number' || (typeof ventas === 'string' && ventas.trim() !== ''))) {
+    const n = typeof ventas === 'number' ? ventas : parseFloat(String(ventas).replace(',', '.'));
+    if (!Number.isNaN(n)) return n;
+  }
   const arr = item.InvoicePayments ?? item.invoicePayments;
   if (!Array.isArray(arr)) return 0;
   return arr.reduce((s, p) => s + (Number(p?.Amount ?? (p as { amount?: number }).amount ?? 0) || 0), 0);
 }
 
 function getAmountForMethod(item: CloseOut, methodName: string): number {
-  let total = 0;
   const colCanonical = normalizePaymentName(methodName);
+  const directKey = ['Efectivo', 'Tarjeta', 'Pendiente de cobro', 'Prepago Transferencia', 'AgoraPay'].find((k) => normalizePaymentName(k) === colCanonical);
+  if (directKey) {
+    const val = (item as Record<string, unknown>)[directKey];
+    if (val != null && (typeof val === 'number' || (typeof val === 'string' && val !== ''))) {
+      const n = typeof val === 'number' ? val : parseFloat(String(val).replace(',', '.'));
+      if (!Number.isNaN(n)) return n;
+    }
+  }
+  let total = 0;
   for (const key of PAYMENT_KEYS) {
     const arr = item[key as keyof CloseOut];
     if (!Array.isArray(arr)) continue;
@@ -201,6 +221,13 @@ export default function CierresTeoricosScreen() {
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(0);
+  const [syncTotalDays, setSyncTotalDays] = useState(0);
+  const [syncCurrentDay, setSyncCurrentDay] = useState(0);
+  const [syncElapsedSeconds, setSyncElapsedSeconds] = useState(0);
+  const [syncEstimatedRemainingSeconds, setSyncEstimatedRemainingSeconds] = useState<number | null>(null);
+  const syncStartTimeRef = useRef<number | null>(null);
+  const syncElapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [syncFechaDesde, setSyncFechaDesde] = useState(() => {
     const d = new Date();
     return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
@@ -270,6 +297,11 @@ export default function CierresTeoricosScreen() {
 
   const syncRangoFechas = useCallback(async (desde: string, hasta: string) => {
     setSyncing(true);
+    setSyncProgress(0);
+    setSyncElapsedSeconds(0);
+    setSyncEstimatedRemainingSeconds(null);
+    syncStartTimeRef.current = Date.now();
+
     const days: string[] = [];
     let d = new Date(desde + 'T12:00:00');
     const end = new Date(hasta + 'T12:00:00');
@@ -277,7 +309,16 @@ export default function CierresTeoricosScreen() {
       days.push(d.toISOString().slice(0, 10));
       d.setDate(d.getDate() + 1);
     }
-    for (const day of days) {
+    const totalDays = days.length;
+    setSyncTotalDays(totalDays);
+    setSyncCurrentDay(0);
+
+    syncElapsedIntervalRef.current = setInterval(() => {
+      setSyncElapsedSeconds((prev) => prev + 1);
+    }, 1000);
+
+    for (let i = 0; i < days.length; i++) {
+      const day = days[i];
       try {
         const res = await fetch(`${API_URL}/api/agora/closeouts/sync`, {
           method: 'POST',
@@ -288,11 +329,36 @@ export default function CierresTeoricosScreen() {
       } catch {
         // seguir con el siguiente día
       }
+      const completed = i + 1;
+      setSyncCurrentDay(completed);
+      setSyncProgress(Math.round((completed / totalDays) * 100));
+      if (completed > 0 && completed < totalDays) {
+        const elapsed = (Date.now() - (syncStartTimeRef.current ?? Date.now())) / 1000;
+        const avgPerDay = elapsed / completed;
+        const remaining = Math.ceil(avgPerDay * (totalDays - completed));
+        setSyncEstimatedRemainingSeconds(remaining);
+      }
+    }
+
+    if (syncElapsedIntervalRef.current) {
+      clearInterval(syncElapsedIntervalRef.current);
+      syncElapsedIntervalRef.current = null;
     }
     setSyncing(false);
+    setSyncProgress(100);
+    setSyncEstimatedRemainingSeconds(0);
     setShowSyncModal(false);
     refetchCloseouts(true);
   }, [refetchCloseouts]);
+
+  useEffect(() => {
+    return () => {
+      if (syncElapsedIntervalRef.current) {
+        clearInterval(syncElapsedIntervalRef.current);
+        syncElapsedIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => { refetchCloseouts(); }, [refetchCloseouts]);
 
@@ -576,7 +642,17 @@ export default function CierresTeoricosScreen() {
       const amt = getAmountForMethod(item, col);
       return formatMoneda(amt);
     }
-    if (['GrossAmount', 'NetAmount', 'VatAmount', 'SurchargeAmount'].includes(col)) {
+    if (col === 'GrossAmount') {
+      const ventas = (item as Record<string, unknown>).Ventas;
+      if (ventas != null && (typeof ventas === 'number' || (typeof ventas === 'string' && String(ventas).trim() !== ''))) {
+        const n = typeof ventas === 'number' ? ventas : parseFloat(String(ventas).replace(',', '.'));
+        if (!Number.isNaN(n)) return formatMoneda(n);
+      }
+      const amounts = getAmounts(item);
+      const v = amounts?.GrossAmount ?? amounts?.grossAmount;
+      return formatMoneda(v != null ? String(v) : '—');
+    }
+    if (['NetAmount', 'VatAmount', 'SurchargeAmount'].includes(col)) {
       const amounts = getAmounts(item);
       const v = amounts?.[col] ?? amounts?.[col.charAt(0).toLowerCase() + col.slice(1)];
       return formatMoneda(v != null ? String(v) : '—');
@@ -585,7 +661,11 @@ export default function CierresTeoricosScreen() {
       const arr = item.Documents ?? item.documents;
       return Array.isArray(arr) ? String(arr.length) : '—';
     }
-    if (['InvoicePayments', 'TicketPayments', 'DeliveryNotePayments', 'SalesOrderPayments'].includes(col)) {
+    if (col === 'InvoicePayments') {
+      const total = getInvoicePaymentsTotal(item);
+      return formatMoneda(total);
+    }
+    if (['TicketPayments', 'DeliveryNotePayments', 'SalesOrderPayments'].includes(col)) {
       const arr = item[col as keyof CloseOut] ?? (item as Record<string, unknown>)[col.charAt(0).toLowerCase() + col.slice(1)];
       if (!Array.isArray(arr)) return '—';
       const total = arr.reduce((s, p) => s + (Number(p?.Amount ?? (p as { amount?: number }).amount ?? 0) || 0), 0);
@@ -859,6 +939,23 @@ export default function CierresTeoricosScreen() {
               placeholderTextColor="#94a3b8"
               editable={!syncing}
             />
+            {syncing && (
+              <View style={styles.syncProgressWrap}>
+                <View style={styles.syncProgressBarBg}>
+                  <View style={[styles.syncProgressBarFill, { width: `${syncProgress}%` }]} />
+                </View>
+                <View style={styles.syncProgressInfo}>
+                  <Text style={styles.syncProgressText}>
+                    {syncCurrentDay} / {syncTotalDays} días ({syncProgress}%)
+                  </Text>
+                  <Text style={styles.syncProgressTimer}>
+                    {syncEstimatedRemainingSeconds != null && syncEstimatedRemainingSeconds > 0
+                      ? `Tiempo restante: ~${formatSyncSeconds(syncEstimatedRemainingSeconds)}`
+                      : `Tiempo transcurrido: ${formatSyncSeconds(syncElapsedSeconds)}`}
+                  </Text>
+                </View>
+              </View>
+            )}
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.modalBtnCancel]}
@@ -1213,6 +1310,12 @@ const styles = StyleSheet.create({
   modalContent: { backgroundColor: '#fff', borderRadius: 12, padding: 20, width: '100%', maxWidth: 360 },
   modalTitle: { fontSize: 17, fontWeight: '600', color: '#334155', marginBottom: 4 },
   modalSubtitle: { fontSize: 12, color: '#64748b', marginBottom: 16 },
+  syncProgressWrap: { marginTop: 16, marginBottom: 4 },
+  syncProgressBarBg: { height: 8, backgroundColor: '#e2e8f0', borderRadius: 4, overflow: 'hidden' },
+  syncProgressBarFill: { height: '100%', backgroundColor: '#0ea5e9', borderRadius: 4 },
+  syncProgressInfo: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, flexWrap: 'wrap', gap: 4 },
+  syncProgressText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
+  syncProgressTimer: { fontSize: 11, color: '#0ea5e9', fontWeight: '600' },
   modalActions: { flexDirection: 'row', gap: 12, marginTop: 16, justifyContent: 'flex-end' },
   modalBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 },
   modalBtnCancel: { backgroundColor: '#f1f5f9' },
@@ -1241,7 +1344,7 @@ const styles = StyleSheet.create({
     left: 0,
     bottom: '100%',
     marginBottom: 2,
-    backgroundColor: '#fef9c3',
+    backgroundColor: '#fef9c3', 
     paddingHorizontal: 6,
     paddingVertical: 4,
     borderRadius: 4,

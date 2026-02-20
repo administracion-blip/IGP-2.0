@@ -61,6 +61,64 @@ export async function exportSystemCloseOuts(businessDay, workplaces = null) {
   throw lastError;
 }
 
+/** Exporta cierres combinando PosCloseOuts y SystemCloseOuts en una sola petición. */
+export async function exportCloseOutsCombined(businessDay, workplaces = null) {
+  const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');
+  const token = process.env.AGORA_API_TOKEN || '';
+  if (!baseUrl || !token) throw new Error('AGORA_BASE_URL y AGORA_API_TOKEN son obligatorios');
+  const params = new URLSearchParams();
+  params.set('filter', 'PosCloseOuts,SystemCloseOuts');
+  params.set('business-day', businessDay);
+  if (workplaces != null && Array.isArray(workplaces) && workplaces.length > 0) {
+    params.set('workplaces', workplaces.join(','));
+  }
+  const url = `${baseUrl}/api/export/?${params.toString()}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { 'Api-Token': token, Accept: 'application/json' },
+  });
+  if (!res.ok) throw new Error(`Ágora ${res.status}: ${await res.text()}`);
+  return await res.json();
+}
+
+/** Exporta facturas (Invoices) para agregar por TPV y obtener Ventas/Efectivo/Tarjeta por TPV. */
+export async function exportInvoices(businessDay, workplaces = null) {
+  const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');
+  const token = process.env.AGORA_API_TOKEN || '';
+  if (!baseUrl || !token) throw new Error('AGORA_BASE_URL y AGORA_API_TOKEN son obligatorios');
+
+  const params = new URLSearchParams();
+  params.set('filter', 'Invoices');
+  params.set('business-day', businessDay);
+  params.set('include-processed', 'true');
+  if (workplaces != null && Array.isArray(workplaces) && workplaces.length > 0) {
+    params.set('workplaces', workplaces.join(','));
+  }
+  const url = `${baseUrl}/api/export/?${params.toString()}`;
+  let lastError;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        console.log(`[agora] Reintento ${attempt}/${MAX_RETRIES} Invoices business-day=${businessDay}`);
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 2000));
+      }
+      const res = await fetchWithTimeout(url, {
+        method: 'GET',
+        headers: { 'Api-Token': token },
+      });
+      if (res.status >= 500) throw new Error(`Ágora respondió ${res.status}`);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Ágora ${res.status}: ${text.slice(0, 200)}`);
+      }
+      return await res.json();
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
 /** Exporta cierres de caja por TPV (PosCloseOuts). */
 export async function exportPosCloseOuts(businessDay, workplaces = null) {
   const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');
