@@ -137,6 +137,7 @@ function AppLayoutContent() {
             <Stack.Screen name="reservas" />
             <Stack.Screen name="usuarios" />
             <Stack.Screen name="locales" />
+            <Stack.Screen name="almacenes" />
             <Stack.Screen name="empresas" />
             <Stack.Screen name="productos" />
             <Stack.Screen name="puntos-venta" />

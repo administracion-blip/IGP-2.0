@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Platform, Animated, ScrollView } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import WeatherWidget from '../components/WeatherWidget';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -35,6 +36,7 @@ function calcVariacionPct(actual: number, anterior: number): number | null {
 }
 
 type TotalByLocal = { local: string; total: number; workplaceId: string };
+type MonthTotal = { month: number; monthLabel: string; total: number };
 
 function TickerMarquee({ totals, formatMoneda }: { totals: TotalByLocal[]; formatMoneda: (v: number) => string }) {
   const translateX = useRef(new Animated.Value(0)).current;
@@ -105,6 +107,8 @@ export default function AppHome() {
   const [error, setError] = useState<string | null>(null);
   const [ytdTotals, setYtdTotals] = useState<TotalByLocal[]>([]);
   const [ytdLastYearTotals, setYtdLastYearTotals] = useState<TotalByLocal[]>([]);
+  const [ytdMonthly, setYtdMonthly] = useState<MonthTotal[]>([]);
+  const [ytdMonthlyLastYear, setYtdMonthlyLastYear] = useState<MonthTotal[]>([]);
   const [ytdLoading, setYtdLoading] = useState(true);
   const [ytdError, setYtdError] = useState<string | null>(null);
   const yesterday = getYesterdayYYYYMMDD();
@@ -136,21 +140,29 @@ export default function AppHome() {
     Promise.all([
       fetch(`${API_URL}/api/agora/closeouts/totals-by-local-ytd?year=${currentYear}&dateTo=${dateTo}`).then((r) => r.json()),
       fetch(`${API_URL}/api/agora/closeouts/totals-by-local-ytd?year=${lastYear}&dateTo=${dateToLastYear}`).then((r) => r.json()),
+      fetch(`${API_URL}/api/agora/closeouts/totals-by-month?year=${currentYear}&dateTo=${dateTo}`).then((r) => r.json()),
+      fetch(`${API_URL}/api/agora/closeouts/totals-by-month?year=${lastYear}&dateTo=${dateToLastYear}`).then((r) => r.json()),
     ])
-      .then(([dataCur, dataLast]) => {
+      .then(([dataCur, dataLast, dataMonthCur, dataMonthLast]) => {
         if (dataCur.error) {
           setYtdError(dataCur.error);
           setYtdTotals([]);
           setYtdLastYearTotals([]);
+          setYtdMonthly([]);
+          setYtdMonthlyLastYear([]);
         } else {
           setYtdTotals(dataCur.totals || []);
           setYtdLastYearTotals(dataLast.totals || []);
+          setYtdMonthly(dataMonthCur.months || []);
+          setYtdMonthlyLastYear(dataMonthLast.months || []);
         }
       })
       .catch((err) => {
         setYtdError(err.message || 'Error al cargar');
         setYtdTotals([]);
         setYtdLastYearTotals([]);
+        setYtdMonthly([]);
+        setYtdMonthlyLastYear([]);
       })
       .finally(() => setYtdLoading(false));
   }, [currentYear, yesterday, lastYearSameDate]);
@@ -167,6 +179,17 @@ export default function AppHome() {
     const pct = calcVariacionPct(t.total, lastTotal);
     return { ...t, lastYearTotal: lastTotal, variacionPct: pct };
   });
+
+  const lastMonthInRange = parseInt(yesterday.slice(5, 7), 10) || 12;
+  const byMonthLastYear = new Map<number, number>();
+  for (const m of ytdMonthlyLastYear) byMonthLastYear.set(m.month, m.total);
+  const mesesConComparacion = ytdMonthly
+    .filter((m) => m.month <= lastMonthInRange)
+    .map((m) => {
+      const lastTotal = byMonthLastYear.get(m.month) ?? 0;
+      const pct = calcVariacionPct(m.total, lastTotal);
+      return { ...m, lastYearTotal: lastTotal, variacionPct: pct };
+    });
 
   return (
     <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
@@ -225,9 +248,24 @@ export default function AppHome() {
                 ))
                 )}
               </View>
+              {mesesConComparacion.length > 0 && (
+                <>
+                  <Text style={styles.ytdMonthlyTitle}>Facturación por mes</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator style={styles.ytdMonthlyScroll} contentContainerStyle={styles.ytdMonthlyContent}>
+                    {mesesConComparacion.map((m) => (
+                      <View key={m.month} style={styles.ytdMonthCard}>
+                        <Text style={styles.ytdMonthLabel}>{m.monthLabel}</Text>
+                        <Text style={styles.ytdMonthTotal}>{formatMoneda(m.total)}</Text>
+                        <VariacionBadge pct={m.variacionPct} />
+                      </View>
+                    ))}
+                  </ScrollView>
+                </>
+              )}
             </>
           )}
         </View>
+        <WeatherWidget />
       </View>
 
       <View style={styles.welcome}>
@@ -345,8 +383,11 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     alignItems: 'flex-start',
     alignSelf: 'stretch',
+    gap: 16,
+    flexWrap: 'wrap',
   },
   ytdWidget: {
+    flex: 1,
     backgroundColor: '#0f172a',
     borderRadius: 8,
     padding: 14,
@@ -425,6 +466,47 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#94a3b8',
     fontStyle: 'italic',
+  },
+  ytdMonthlyTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+    marginTop: 14,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  ytdMonthlyScroll: {
+    marginHorizontal: -14,
+    maxHeight: 90,
+  },
+  ytdMonthlyContent: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingBottom: 4,
+  },
+  ytdMonthCard: {
+    backgroundColor: 'rgba(15,23,42,0.6)',
+    borderRadius: 6,
+    padding: 10,
+    minWidth: 88,
+    borderWidth: 1,
+    borderColor: 'rgba(134,239,172,0.15)',
+    alignItems: 'center',
+    gap: 4,
+  },
+  ytdMonthLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+  },
+  ytdMonthTotal: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#86efac',
+    ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
   },
   welcome: {
     paddingVertical: 24,

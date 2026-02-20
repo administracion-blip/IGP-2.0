@@ -8,6 +8,7 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const TABLAS = [
   { id: 'usuarios', label: 'Usuarios', icon: 'people' as const, descripcion: 'Cuentas y permisos de acceso' },
   { id: 'locales', label: 'Locales', icon: 'store' as const, descripcion: 'Sedes y puntos de venta' },
+  { id: 'almacenes', label: 'Almacenes', icon: 'local-shipping' as const, descripcion: 'Almacenes y depósitos' },
   { id: 'empresas', label: 'Empresas', icon: 'business' as const, descripcion: 'Listado de empresas' },
   { id: 'productos', label: 'Productos', icon: 'inventory' as const, descripcion: 'Carta y stock' },
   { id: 'puntos-venta', label: 'Puntos de Venta', icon: 'storefront' as const, descripcion: 'Puntos de venta y TPV' },
@@ -43,6 +44,7 @@ export default function BaseDatosScreen() {
   function handleSeleccionar(id: string) {
     if (id === 'usuarios') router.push('/usuarios');
     if (id === 'locales') router.push('/locales');
+    if (id === 'almacenes') router.push('/almacenes');
     if (id === 'empresas') router.push('/empresas');
     if (id === 'productos') router.push('/productos');
     if (id === 'puntos-venta') router.push('/puntos-venta');

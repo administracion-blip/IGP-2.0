@@ -33,6 +33,7 @@ const tableName = process.env.DDB_USUARIOS || process.env.DYNAMODB_TABLE || 'igp
 const tableLocalesName = process.env.DDB_LOCALES || 'igp_Locales';
 const tableEmpresasName = process.env.DDB_EMPRESAS || 'igp_Empresas';
 const tableProductosName = process.env.DDB_PRODUCTOS || 'igp_Productos';
+const tableAlmacenesName = process.env.DDB_ALMACENES || 'igp_Almacenes';
 const tableSaleCentersName = process.env.DDB_SALE_CENTERS_TABLE || 'Igp_SaleCenters';
 const tableSalesCloseOutsName = process.env.DDB_SALES_CLOSEOUTS_TABLE || 'Igp_SalesCloseouts';
 const tableMantenimientoName = process.env.DDB_MANTENIMIENTO_TABLE || 'Igp_Mantenimiento';
@@ -368,6 +369,64 @@ app.get('/api/agora/closeouts/totals-by-local-ytd', async (req, res) => {
   }
 });
 
+// GET /api/agora/closeouts/totals-by-month?year=YYYY&dateTo=YYYY-MM-DD
+// Devuelve facturación total por mes hasta dateTo (inclusive). Para comparar con año anterior.
+const MONTH_LABELS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+app.get('/api/agora/closeouts/totals-by-month', async (req, res) => {
+  const year = (req.query.year && String(req.query.year).trim()) || '';
+  const dateTo = (req.query.dateTo && String(req.query.dateTo).trim()) || '';
+  if (!year || !/^\d{4}$/.test(year)) {
+    return res.status(400).json({ error: 'year obligatorio (YYYY)' });
+  }
+  const prefix = year + '-';
+  const useDateTo = dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateTo) && dateTo.startsWith(year + '-');
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const result = await docClient.send(new ScanCommand({
+        TableName: tableSalesCloseOutsName,
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+    const list = items.filter((i) => {
+      const sk = String(i.SK ?? i.sk ?? '').trim();
+      if (!sk || !sk.startsWith(prefix)) return false;
+      if (useDateTo) {
+        const datePart = sk.split('#')[0] || '';
+        if (datePart > dateTo) return false;
+      }
+      return true;
+    });
+    const totalsByMonth = {};
+    for (const item of list) {
+      const sk = String(item.SK ?? item.sk ?? '').trim();
+      const datePart = sk.split('#')[0] || '';
+      const month = parseInt(datePart.slice(5, 7), 10) || 0;
+      if (month < 1 || month > 12) continue;
+      const arr = item.InvoicePayments ?? item.invoicePayments;
+      let total = 0;
+      if (Array.isArray(arr)) {
+        for (const p of arr) {
+          total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
+        }
+      }
+      totalsByMonth[month] = (totalsByMonth[month] || 0) + total;
+    }
+    const months = [];
+    for (let m = 1; m <= 12; m++) {
+      const total = Math.round((totalsByMonth[m] || 0) * 100) / 100;
+      months.push({ month: m, monthLabel: MONTH_LABELS[m - 1], total });
+    }
+    res.json({ year, dateTo: useDateTo ? dateTo : null, months });
+  } catch (err) {
+    console.error('[agora/closeouts/totals-by-month]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al obtener totales por mes' });
+  }
+});
+
 // Cache en memoria para listado mínimo de locales (dropdowns). TTL 5 min.
 let cachedLocalesMinimal = null;
 let cachedLocalesMinimalTime = 0;
@@ -395,6 +454,9 @@ const TABLE_EMPRESAS_ATTRS = ['id_empresa', 'Nombre', 'Cif', 'Iban', 'IbanAltern
 
 // Estructura de la tabla igp_Productos en AWS (clave de partición id_producto).
 const TABLE_PRODUCTOS_ATTRS = ['id_producto', 'Identificacion', 'Nombre', 'CostoPrecio'];
+
+// Estructura de la tabla igp_Almacenes en AWS (clave de partición id_Almacenes).
+const TABLE_ALMACENES_ATTRS = ['id_Almacenes', 'Nombre', 'Descripcion', 'Direccion'];
 
 // Tabla DynamoDB: atributos Email, Password; opcionales Nombre, id_usuario
 app.post('/api/login', async (req, res) => {
@@ -857,6 +919,99 @@ app.delete('/api/empresas', async (req, res) => {
   } catch (err) {
     console.error('DynamoDB error:', err);
     res.status(500).json({ error: err.message || 'Error al borrar la empresa' });
+  }
+});
+
+// --- Almacenes (tabla igp_Almacenes) ---
+app.get('/api/almacenes', async (req, res) => {
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const cmd = new ScanCommand({
+        TableName: tableAlmacenesName,
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      });
+      const result = await docClient.send(cmd);
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+    res.json({ almacenes: items });
+  } catch (err) {
+    console.error('DynamoDB error:', err);
+    res.status(500).json({ error: err.message || 'Error al listar almacenes' });
+  }
+});
+
+app.post('/api/almacenes', async (req, res) => {
+  const body = req.body || {};
+  if (!body.Nombre || !String(body.Nombre).trim()) {
+    return res.status(400).json({ error: 'Nombre es obligatorio' });
+  }
+  try {
+    const item = {};
+    for (const key of TABLE_ALMACENES_ATTRS) {
+      if (key === 'id_Almacenes') {
+        item[key] = body.id_Almacenes != null ? formatId6(body.id_Almacenes) : '000000';
+      } else {
+        const v = body[key];
+        item[key] = v != null && v !== '' ? String(v) : '';
+      }
+    }
+    await docClient.send(new PutCommand({
+      TableName: tableAlmacenesName,
+      Item: item,
+    }));
+    res.json({ ok: true, almacen: item });
+  } catch (err) {
+    console.error('DynamoDB error:', err);
+    res.status(500).json({ error: err.message || 'Error al guardar el almacén' });
+  }
+});
+
+app.put('/api/almacenes', async (req, res) => {
+  const body = req.body || {};
+  const idAlmacenes = body.id_Almacenes != null ? String(body.id_Almacenes) : '';
+  if (!idAlmacenes) return res.status(400).json({ error: 'id_Almacenes es obligatorio para editar' });
+  if (!body.Nombre || !String(body.Nombre).trim()) return res.status(400).json({ error: 'Nombre es obligatorio' });
+  try {
+    const getCmd = new GetCommand({
+      TableName: tableAlmacenesName,
+      Key: { id_Almacenes: idAlmacenes },
+    });
+    const got = await docClient.send(getCmd);
+    const existing = got.Item || {};
+    const item = {};
+    for (const key of TABLE_ALMACENES_ATTRS) {
+      if (key === 'id_Almacenes') item[key] = idAlmacenes;
+      else {
+        const v = body[key];
+        item[key] = v != null && v !== '' ? String(v) : String(existing[key] ?? '');
+      }
+    }
+    await docClient.send(new PutCommand({
+      TableName: tableAlmacenesName,
+      Item: item,
+    }));
+    res.json({ ok: true, almacen: item });
+  } catch (err) {
+    console.error('DynamoDB error:', err);
+    res.status(500).json({ error: err.message || 'Error al actualizar el almacén' });
+  }
+});
+
+app.delete('/api/almacenes', async (req, res) => {
+  const idAlmacenes = req.body?.id_Almacenes != null ? String(req.body.id_Almacenes) : req.query?.id_Almacenes != null ? String(req.query.id_Almacenes) : '';
+  if (!idAlmacenes) return res.status(400).json({ error: 'id_Almacenes es obligatorio para borrar' });
+  try {
+    await docClient.send(new DeleteCommand({
+      TableName: tableAlmacenesName,
+      Key: { id_Almacenes: idAlmacenes },
+    }));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DynamoDB error:', err);
+    res.status(500).json({ error: err.message || 'Error al borrar el almacén' });
   }
 });
 
