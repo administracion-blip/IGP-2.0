@@ -213,7 +213,7 @@ export default function CierresTeoricosScreen() {
   const router = useRouter();
   const [closeouts, setCloseouts] = useState<CloseOut[]>([]);
   const [locales, setLocales] = useState<LocalItem[]>([]);
-  const [saleCenters, setSaleCenters] = useState<{ Id?: number; Nombre?: string }[]>([]);
+  const [saleCenters, setSaleCenters] = useState<{ Id?: number; Nombre?: string; Local?: string; Activo?: boolean }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filtroBusquedaInput, setFiltroBusquedaInput] = useState('');
@@ -379,7 +379,7 @@ export default function CierresTeoricosScreen() {
 
   useEffect(() => {
     fetch(`${API_URL}/api/agora/sale-centers`)
-      .then((res) => safeJson<{ saleCenters?: { Id?: number; Nombre?: string }[] }>(res))
+      .then((res) => safeJson<{ saleCenters?: { Id?: number; Nombre?: string; Local?: string; Activo?: boolean }[] }>(res))
       .then((data) => setSaleCenters(data.saleCenters || []))
       .catch(() => setSaleCenters([]));
   }, []);
@@ -407,6 +407,23 @@ export default function CierresTeoricosScreen() {
     }
     return map;
   }, [saleCenters]);
+
+  const saleCentersPorLocal = useMemo(() => {
+    if (!formLocal.trim()) return saleCenters.filter((sc) => sc.Activo !== false);
+    const localName = String(agoraCodeToNombre[formLocal.trim()] ?? '').trim();
+    return saleCenters.filter((sc) => {
+      if (sc.Activo === false) return false;
+      const scLocal = String(sc.Local ?? '').trim();
+      return scLocal === localName;
+    });
+  }, [saleCenters, formLocal, agoraCodeToNombre]);
+
+  useEffect(() => {
+    if (formLocal && formPosId && !saleCentersPorLocal.some((sc) => String(sc.Id) === formPosId)) {
+      setFormPosId('');
+      setFormPosName('');
+    }
+  }, [formLocal, saleCentersPorLocal, formPosId]);
 
   const paymentCols = useMemo(() => getUniquePaymentMethods(closeouts), [closeouts]);
   const columnas = useMemo(() => {
@@ -1060,11 +1077,11 @@ export default function CierresTeoricosScreen() {
             <View style={styles.formDropdownWrap}>
               <TouchableOpacity
                 style={styles.formDropdownTrigger}
-                onPress={() => setFormPosDropdownOpen((v) => !v)}
-                disabled={!!editingItem}
+                onPress={() => !editingItem && formLocal && setFormPosDropdownOpen((v) => !v)}
+                disabled={!!editingItem || !formLocal}
               >
                 <Text style={[styles.formDropdownText, !formPosId && !formPosName && styles.formDropdownPlaceholder]} numberOfLines={1}>
-                  {formPosId ? `${formPosName || saleCenters.find((s) => String(s.Id) === formPosId)?.Nombre || formPosId} (${formPosId})` : 'Selecciona un TPV'}
+                  {!formLocal ? 'Selecciona un local primero' : formPosId ? `${formPosName || saleCentersPorLocal.find((s) => String(s.Id) === formPosId)?.Nombre || saleCenters.find((s) => String(s.Id) === formPosId)?.Nombre || formPosId} (${formPosId})` : saleCentersPorLocal.length === 0 ? 'No hay TPVs activos para este local' : 'Selecciona un TPV'}
                   </Text>
                 <MaterialIcons name={formPosDropdownOpen ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
                 </TouchableOpacity>
@@ -1078,7 +1095,7 @@ export default function CierresTeoricosScreen() {
                       <Text style={styles.formDropdownOptionText}>Ninguno</Text>
                       {!formPosId && !formPosName ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
                       </TouchableOpacity>
-                    {saleCenters.map((sc) => {
+                    {saleCentersPorLocal.map((sc) => {
                       const id = sc.Id != null ? String(sc.Id) : '';
                       const nombre = String(sc.Nombre ?? '').trim() || id || '—';
                         return (
