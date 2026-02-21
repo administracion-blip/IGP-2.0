@@ -40,6 +40,7 @@ const tableAgoraProductsName = process.env.DDB_AGORA_PRODUCTS_TABLE || 'Igp_Agor
 const tableSalesCloseOutsName = process.env.DDB_SALES_CLOSEOUTS_TABLE || 'Igp_SalesCloseouts';
 const tableMantenimientoName = process.env.DDB_MANTENIMIENTO_TABLE || 'Igp_Mantenimiento';
 const tableRolesPermisosName = process.env.DDB_ROLES_PERMISOS_TABLE || 'Igp_RolesPermisos';
+const tableGestionFestivosName = process.env.DDB_GESTION_FESTIVOS_TABLE || 'Igp_Gestionfestivosyestimaciones';
 
 const client = new DynamoDBClient({ region });
 const docClient = DynamoDBDocumentClient.from(client);
@@ -1233,6 +1234,106 @@ app.delete('/api/productos', async (req, res) => {
   } catch (err) {
     console.error('DynamoDB error:', err);
     res.status(500).json({ error: err.message || 'Error al borrar el producto' });
+  }
+});
+
+// --- Gestión festivos y estimaciones (Igp_Gestionfestivosyestimaciones) ---
+// Campos en DynamoDB: FechaComparativa, Festivo, NombreFestivo (PK, SK)
+app.get('/api/gestion-festivos', async (req, res) => {
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const result = await docClient.send(new ScanCommand({
+        TableName: tableGestionFestivosName,
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+    const registros = items
+      .filter((i) => i.PK != null && i.SK != null)
+      .map(({ PK, SK, ...rest }) => ({ id: `${PK}#${SK}`, PK, _pk: PK, _sk: SK, ...rest }))
+      .sort((a, b) => String(a.FechaComparativa ?? a.Fecha ?? '').localeCompare(String(b.FechaComparativa ?? b.Fecha ?? '')));
+    res.json({ registros });
+  } catch (err) {
+    if (err.name === 'ResourceNotFoundException') {
+      return res.json({ registros: [], error: 'Tabla no existe. Ejecuta: node api/scripts/create-gestion-festivos-table.js' });
+    }
+    console.error('[gestion-festivos GET]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al listar' });
+  }
+});
+
+app.post('/api/gestion-festivos', async (req, res) => {
+  const body = req.body || {};
+  const fechaComparativa = String(body.FechaComparativa ?? body.fechaComparativa ?? body.Fecha ?? body.fecha ?? '').trim();
+  if (!fechaComparativa) {
+    return res.status(400).json({ error: 'FechaComparativa obligatoria' });
+  }
+  try {
+    const id = crypto.randomUUID();
+    const festivo = body.Festivo === true || body.festivo === true || body.Festivo === 'true' || body.festivo === 'true';
+    const item = {
+      PK: 'GLOBAL',
+      SK: id,
+      FechaComparativa: fechaComparativa,
+      Festivo: festivo,
+      NombreFestivo: String(body.NombreFestivo ?? body.nombreFestivo ?? '').trim(),
+    };
+    await docClient.send(new PutCommand({
+      TableName: tableGestionFestivosName,
+      Item: item,
+    }));
+    res.json({ ok: true, registro: { id: `GLOBAL#${id}`, ...item } });
+  } catch (err) {
+    console.error('[gestion-festivos POST]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al crear' });
+  }
+});
+
+app.put('/api/gestion-festivos', async (req, res) => {
+  const body = req.body || {};
+  const idRaw = String(body.id ?? body.ID ?? '').trim();
+  if (!idRaw) return res.status(400).json({ error: 'id es obligatorio para editar' });
+  const [pk, sk] = idRaw.includes('#') ? idRaw.split('#') : ['GLOBAL', idRaw];
+  const fechaComparativa = String(body.FechaComparativa ?? body.fechaComparativa ?? body.Fecha ?? body.fecha ?? '').trim();
+  if (!fechaComparativa) {
+    return res.status(400).json({ error: 'FechaComparativa obligatoria' });
+  }
+  try {
+    const festivo = body.Festivo === true || body.festivo === true || body.Festivo === 'true' || body.festivo === 'true';
+    const item = {
+      PK: pk,
+      SK: sk,
+      FechaComparativa: fechaComparativa,
+      Festivo: festivo,
+      NombreFestivo: String(body.NombreFestivo ?? body.nombreFestivo ?? '').trim(),
+    };
+    await docClient.send(new PutCommand({
+      TableName: tableGestionFestivosName,
+      Item: item,
+    }));
+    res.json({ ok: true, registro: { id: `${pk}#${sk}`, ...item } });
+  } catch (err) {
+    console.error('[gestion-festivos PUT]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al actualizar' });
+  }
+});
+
+app.delete('/api/gestion-festivos', async (req, res) => {
+  const idRaw = (req.query?.id ?? req.body?.id ?? '').toString().trim();
+  if (!idRaw) return res.status(400).json({ error: 'id es obligatorio para borrar' });
+  const [pk, sk] = idRaw.includes('#') ? idRaw.split('#') : ['GLOBAL', idRaw];
+  try {
+    await docClient.send(new DeleteCommand({
+      TableName: tableGestionFestivosName,
+      Key: { PK: pk, SK: sk },
+    }));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[gestion-festivos DELETE]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al borrar' });
   }
 });
 

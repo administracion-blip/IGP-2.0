@@ -262,6 +262,9 @@ export default function CierresTeoricosScreen() {
   const [formLocalDropdownOpen, setFormLocalDropdownOpen] = useState(false);
   const [formPosDropdownOpen, setFormPosDropdownOpen] = useState(false);
 
+  const lastRowTapRef = useRef<{ rowKey: string; time: number } | null>(null);
+  const DOUBLE_TAP_MS = 350;
+
   const formPaymentMethods = useMemo(() => {
     const known = [...KNOWN_PAYMENT_ORDER];
     const fromForm = Object.keys(formPayments).filter((k) => !known.includes(k)).sort();
@@ -493,9 +496,7 @@ export default function CierresTeoricosScreen() {
     setShowFormModal(true);
   }, []);
 
-  const openEditModal = useCallback(() => {
-    const item = selectedItem;
-    if (!item) return;
+  const openEditModalForItem = useCallback((item: CloseOut) => {
     const bd = getBusinessDay(item);
     const [y, m, d] = bd ? bd.split('-') : ['', '', ''];
     setFormBusinessDay(bd ? `${d}/${m}/${y}` : '');
@@ -522,7 +523,24 @@ export default function CierresTeoricosScreen() {
     setFormLocalDropdownOpen(false);
     setFormPosDropdownOpen(false);
     setShowFormModal(true);
-  }, [selectedItem]);
+  }, []);
+
+  const openEditModal = useCallback(() => {
+    if (selectedItem) openEditModalForItem(selectedItem);
+  }, [selectedItem, openEditModalForItem]);
+
+  const handleRowPress = useCallback((rowKey: string, item: CloseOut) => {
+    const now = Date.now();
+    const last = lastRowTapRef.current;
+    if (last?.rowKey === rowKey && now - last.time < DOUBLE_TAP_MS) {
+      lastRowTapRef.current = null;
+      setSelectedRowKey(rowKey);
+      openEditModalForItem(item);
+      return;
+    }
+    lastRowTapRef.current = { rowKey, time: now };
+    setSelectedRowKey((prev) => (prev === rowKey ? null : rowKey));
+  }, [openEditModalForItem]);
 
   const openDeleteModal = useCallback(() => {
     if (selectedItem) {
@@ -1136,7 +1154,7 @@ export default function CierresTeoricosScreen() {
         <Text style={styles.infoLine}>
           {totalCount === 0
             ? 'No hay cierres. Se sincronizan automáticamente cada 2 min desde Ágora.'
-            : `${totalCount} cierre${totalCount !== 1 ? 's' : ''} (ordenado por Business Day, más reciente primero; luego por local)`}
+            : `${totalCount} cierre${totalCount !== 1 ? 's' : ''} (ordenado por Business Day, más reciente primero; luego por local). Doble clic en una fila para editar.`}
         </Text>
         {totalCount > PAGE_SIZE && (
           <View style={styles.pagination}>
@@ -1196,7 +1214,7 @@ export default function CierresTeoricosScreen() {
                     <Pressable
                       key={rowKey}
                       style={[styles.dataRow, isSelected && styles.dataRowSelected]}
-                      onPress={() => setSelectedRowKey(isSelected ? null : rowKey)}
+                      onPress={() => handleRowPress(rowKey, item)}
                     >
                       {columnas.map((col) => {
                         const valor = getValorCelda(item, col);

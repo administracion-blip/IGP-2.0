@@ -17,11 +17,14 @@ import {
   TouchableOpacity,
   TextInput,
   Platform,
+  Modal,
+  type ViewStyle,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../constants/icons';
 
 const DEFAULT_COL_WIDTH = 90;
+const DENSE_COL_WIDTH = 72;
 const MIN_COL_WIDTH = 40;
 const MAX_TEXT_LENGTH = 30;
 
@@ -71,6 +74,9 @@ export type TablaBasicaProps<T = Record<string, unknown>> = {
   showImport?: boolean;
   onImportClick?: () => void;
   importing?: boolean;
+  /** Mostrar botón Exportar Excel y callback */
+  showExport?: boolean;
+  onExportClick?: () => void;
   /** Paginación opcional: si se pasa, se muestra "X–Y de Z" y anterior/siguiente */
   paginacion?: PaginacionProps;
   /** Mensaje cuando no hay datos en la tabla */
@@ -81,6 +87,10 @@ export type TablaBasicaProps<T = Record<string, unknown>> = {
   columnasMoneda?: string[];
   /** Ocultar cabecera (botón atrás + título) para usar cabecera personalizada */
   hideHeader?: boolean;
+  /** Estilo opcional por fila (ej. resaltar fecha de hoy) */
+  getRowStyle?: (item: T, index: number) => ViewStyle | undefined;
+  /** Modo compacto: filas y tipografía más pequeñas */
+  dense?: boolean;
 };
 
 export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps<T>) {
@@ -104,19 +114,26 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     showImport = false,
     onImportClick,
     importing = false,
+    showExport = false,
+    onExportClick,
     paginacion,
     emptyMessage = 'No hay registros',
     emptyFilterMessage = 'Ningún resultado con el filtro',
     columnasMoneda = [],
     hideHeader = false,
+    getRowStyle,
+    dense = false,
   } = props;
 
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
+  const [importExportOpen, setImportExportOpen] = useState(false);
   const resizeRef = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
 
-  const getColWidth = useCallback((col: string) => columnWidths[col] ?? DEFAULT_COL_WIDTH, [columnWidths]);
+  const hasImportExport = showImport || showExport;
+
+  const getColWidth = useCallback((col: string) => columnWidths[col] ?? (dense ? DENSE_COL_WIDTH : DEFAULT_COL_WIDTH), [columnWidths, dense]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !resizingCol) return;
@@ -268,33 +285,80 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
             placeholderTextColor="#94a3b8"
           />
         </View>
-        {showImport && (
-          <View
-            style={styles.toolbarBtnWrap}
-            {...(Platform.OS === 'web'
-              ? ({
-                  onMouseEnter: () => setHoveredBtn('importar'),
-                  onMouseLeave: () => setHoveredBtn(null),
-                } as object)
-              : {})}
-          >
-            {hoveredBtn === 'importar' && (
-              <View style={styles.tooltip}>
-                <Text style={styles.tooltipText}>Importar</Text>
-              </View>
-            )}
-            <TouchableOpacity
-              style={styles.toolbarBtn}
-              onPress={onImportClick}
-              disabled={guardando || importing}
-              accessibilityLabel="Importar"
+        {hasImportExport && (
+          <View style={styles.toolbarBtnWrap}>
+            <View
+              style={styles.importExportDropdownWrap}
+              {...(Platform.OS === 'web'
+                ? ({
+                    onMouseEnter: () => setHoveredBtn('importexport'),
+                    onMouseLeave: () => setHoveredBtn(null),
+                  } as object)
+                : {})}
             >
-              <MaterialIcons
-                name="upload-file"
-                size={ICON_SIZE}
-                color={guardando || importing ? '#94a3b8' : '#0ea5e9'}
-              />
-            </TouchableOpacity>
+              {hoveredBtn === 'importexport' && !importExportOpen && (
+                <View style={styles.tooltip}>
+                  <Text style={styles.tooltipText}>Importar / Exportar Excel</Text>
+                </View>
+              )}
+              <TouchableOpacity
+                style={styles.toolbarBtn}
+                onPress={() => setImportExportOpen((v) => !v)}
+                disabled={guardando || importing}
+                accessibilityLabel="Importar / Exportar Excel"
+              >
+                <MaterialIcons
+                  name="import-export"
+                  size={ICON_SIZE}
+                  color={guardando || importing ? '#94a3b8' : '#0ea5e9'}
+                />
+              </TouchableOpacity>
+            </View>
+            <Modal
+              visible={importExportOpen}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setImportExportOpen(false)}
+            >
+              <TouchableOpacity
+                style={styles.importExportModalOverlay}
+                activeOpacity={1}
+                onPress={() => setImportExportOpen(false)}
+              >
+                <View style={styles.importExportModalContent}>
+                  <View style={styles.importExportMenu}>
+                    {showExport && onExportClick && (
+                      <TouchableOpacity
+                        style={[styles.importExportItem, (showExport && showImport) && styles.importExportItemBorder]}
+                        onPress={() => {
+                          setImportExportOpen(false);
+                          onExportClick();
+                        }}
+                        disabled={guardando}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialIcons name="download" size={18} color="#0ea5e9" />
+                        <Text style={styles.importExportItemText}>Exportar Excel</Text>
+                      </TouchableOpacity>
+                    )}
+                    {showImport && onImportClick && (
+                      <TouchableOpacity
+                        style={styles.importExportItem}
+                        onPress={() => {
+                          setImportExportOpen(false);
+                          onImportClick();
+                        }}
+                        disabled={guardando || importing}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialIcons name="upload-file" size={18} color="#0ea5e9" />
+                      <Text style={styles.importExportItemText}>Importar Excel</Text>
+                    </TouchableOpacity>
+                  )}
+                  </View>
+                </View>
+              </TouchableOpacity>
+            </Modal>
           </View>
         )}
       </View>
@@ -334,63 +398,82 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
         )}
       </View>
 
-      <ScrollView horizontal style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.table}>
-          <View style={styles.rowHeader}>
-            {columnas.map((col) => {
-              const isMoneda = columnasMoneda.some((c) => c.toLowerCase() === col.toLowerCase());
-              return (
-              <View key={col} style={[styles.cellHeader, { width: getColWidth(col) }, isMoneda && styles.cellHeaderRight]}>
-                <Text style={[styles.cellHeaderText, isMoneda && styles.cellHeaderTextRight]} numberOfLines={1} ellipsizeMode="tail">
-                  {col}
-                </Text>
-                {Platform.OS === 'web' && (
-                  <View
-                    style={styles.resizeHandle}
-                    {...({
-                      onMouseDown: (e: {
-                        nativeEvent?: { clientX: number };
-                        clientX?: number;
-                      }) => handleResizeStart(col, e),
-                    } as object)}
-                  />
-                )}
-              </View>
-            );})}
-          </View>
-          {datos.length === 0 ? (
-            <View style={styles.row}>
-              <View style={styles.cellEmpty}>
-                <Text style={styles.cellEmptyText}>
-                  {filtroBusqueda.trim() ? emptyFilterMessage : emptyMessage}
-                </Text>
-              </View>
+      <View style={styles.tableWrapper}>
+        <ScrollView
+          horizontal
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsHorizontalScrollIndicator
+        >
+          <View style={styles.table}>
+            <View style={[styles.rowHeader, dense && styles.rowHeaderDense]}>
+              {columnas.map((col) => {
+                const isMoneda = columnasMoneda.some((c) => c.toLowerCase() === col.toLowerCase());
+                return (
+                <View key={col} style={[styles.cellHeader, dense && styles.cellHeaderDense, { width: getColWidth(col) }, isMoneda && styles.cellHeaderRight]}>
+                  <Text style={[styles.cellHeaderText, dense && styles.cellHeaderTextDense, isMoneda && styles.cellHeaderTextRight]} numberOfLines={1} ellipsizeMode="tail">
+                    {col}
+                  </Text>
+                  {Platform.OS === 'web' && (
+                    <View
+                      style={styles.resizeHandle}
+                      {...({
+                        onMouseDown: (e: {
+                          nativeEvent?: { clientX: number };
+                          clientX?: number;
+                        }) => handleResizeStart(col, e),
+                      } as object)}
+                    />
+                  )}
+                </View>
+              );})}
             </View>
-          ) : (
-            datos.map((item, idx) => (
-              <TouchableOpacity
-                key={idx}
-                style={[styles.row, selectedRowIndex === idx && styles.rowSelected]}
-                onPress={() => seleccionarFila(idx)}
-                activeOpacity={0.8}
-              >
-                {columnas.map((col) => {
-                  const raw = getValorCelda(item, col);
-                  const text = raw.length > MAX_TEXT_LENGTH ? truncar(raw) : raw;
-                  const isMoneda = columnasMoneda.some((c) => c.toLowerCase() === col.toLowerCase());
-                  return (
-                    <View key={col} style={[styles.cell, { width: getColWidth(col) }, isMoneda && styles.cellRight]}>
-                      <Text style={[styles.cellText, isMoneda && styles.cellTextRight]} numberOfLines={1} ellipsizeMode="tail">
-                        {text}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </TouchableOpacity>
-            ))
-          )}
-        </View>
-      </ScrollView>
+            <ScrollView
+              style={styles.tableBodyScroll}
+              contentContainerStyle={styles.tableBodyContent}
+              showsVerticalScrollIndicator
+              nestedScrollEnabled
+            >
+              {datos.length === 0 ? (
+                <View style={styles.row}>
+                  <View style={styles.cellEmpty}>
+                    <Text style={styles.cellEmptyText}>
+                      {filtroBusqueda.trim() ? emptyFilterMessage : emptyMessage}
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                datos.map((item, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={[
+                      styles.row,
+                      dense && styles.rowDense,
+                      selectedRowIndex === idx && styles.rowSelected,
+                      getRowStyle?.(item, idx),
+                    ]}
+                    onPress={() => seleccionarFila(idx)}
+                    activeOpacity={0.8}
+                  >
+                    {columnas.map((col) => {
+                      const raw = getValorCelda(item, col);
+                      const text = raw.length > MAX_TEXT_LENGTH ? truncar(raw) : raw;
+                      const isMoneda = columnasMoneda.some((c) => c.toLowerCase() === col.toLowerCase());
+                      return (
+                        <View key={col} style={[styles.cell, dense && styles.cellDense, { width: getColWidth(col) }, isMoneda && styles.cellRight]}>
+                          <Text style={[styles.cellText, dense && styles.cellTextDense, isMoneda && styles.cellTextRight]} numberOfLines={1} ellipsizeMode="tail">
+                            {text}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </ScrollView>
+      </View>
     </View>
   );
 }
@@ -453,6 +536,40 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   toolbarBtnDisabled: { opacity: 0.6 },
+  importExportDropdownWrap: { position: 'relative' },
+  importExportModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    paddingTop: 100,
+    paddingRight: 20,
+  },
+  importExportModalContent: { alignItems: 'flex-end' },
+  importExportMenu: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 8,
+    minWidth: 160,
+  },
+  importExportItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  importExportItemBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  importExportItemText: { fontSize: 13, color: '#334155', fontWeight: '500' },
   subtitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -466,9 +583,11 @@ const styles = StyleSheet.create({
   pageBtn: { padding: 4 },
   pageBtnDisabled: { opacity: 0.5 },
   pageText: { fontSize: 11, color: '#64748b', marginHorizontal: 4 },
+  tableWrapper: { flex: 1, minHeight: 0 },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 20 },
   table: {
+    flex: 1,
     minWidth: '100%',
     borderWidth: 1,
     borderColor: '#e2e8f0',
@@ -476,12 +595,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#fff',
   },
+  tableBodyScroll: { flex: 1 },
+  tableBodyContent: { paddingBottom: 20 },
   rowHeader: {
     flexDirection: 'row',
     backgroundColor: '#e2e8f0',
     borderBottomWidth: 1,
     borderBottomColor: '#cbd5e1',
   },
+  rowHeaderDense: { minHeight: 20 },
   cellHeader: {
     minWidth: MIN_COL_WIDTH,
     paddingVertical: 6,
@@ -491,6 +613,8 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   cellHeaderText: { fontSize: 11, fontWeight: '600', color: '#334155' },
+  cellHeaderTextDense: { fontSize: 9 },
+  cellHeaderDense: { paddingVertical: 2, paddingHorizontal: 6 },
   cellHeaderTextRight: { textAlign: 'right' },
   cellHeaderRight: { alignItems: 'flex-end' },
   resizeHandle: {
@@ -507,6 +631,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e2e8f0',
     backgroundColor: '#fff',
   },
+  rowDense: { minHeight: 18 },
   rowSelected: { backgroundColor: '#e0f2fe' },
   cell: {
     minWidth: MIN_COL_WIDTH,
@@ -515,8 +640,10 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderRightColor: '#e2e8f0',
   },
+  cellDense: { paddingVertical: 1, paddingHorizontal: 6 },
   cellRight: { alignItems: 'flex-end' },
   cellText: { fontSize: 11, color: '#475569' },
+  cellTextDense: { fontSize: 9 },
   cellTextRight: { textAlign: 'right', alignSelf: 'stretch' },
   cellEmpty: {
     flex: 1,

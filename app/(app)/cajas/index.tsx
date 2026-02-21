@@ -15,6 +15,12 @@ const OPCIONES = [
     icon: 'account-balance-wallet' as const,
     descripcion: 'Arqueo y conteo de caja',
   },
+  {
+    id: 'comparativa-fechas-cajas',
+    label: 'Comparativa Fechas Cajas',
+    icon: 'event' as const,
+    descripcion: 'Festivos y estimaciones de ventas (Igp_Gestionfestivosyestimaciones)',
+  },
 ];
 
 export default function CajasIndexScreen() {
@@ -23,6 +29,7 @@ export default function CajasIndexScreen() {
   function handleSeleccionar(id: string) {
     if (id === 'cierres-teoricos') router.push('/cajas/cierres-teoricos');
     if (id === 'arqueo-caja') router.push('/cajas/arqueo-caja');
+    if (id === 'comparativa-fechas-cajas') router.push('/cajas/comparativa-fechas-cajas');
   }
 
   return (

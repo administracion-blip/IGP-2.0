@@ -7,7 +7,8 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "sync-closeouts": "node scripts/full-sync-closeouts.js",
-    "sync-closeouts:interval": "node scripts/sync-closeouts-interval.js"
+    "sync-closeouts:interval": "node scripts/sync-closeouts-interval.js",
+    "seed-gestion-festivos": "node scripts/seed-gestion-festivos.js"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.700.0",
