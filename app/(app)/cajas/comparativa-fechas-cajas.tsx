@@ -27,6 +27,17 @@ const COLUMNAS = ['PK', 'FechaComparativa', 'Festivo', 'NombreFestivo'];
 
 type Registro = Record<string, unknown>;
 
+function mesEnCurso(): { inicio: string; fin: string } {
+  const hoy = new Date();
+  const y = hoy.getFullYear();
+  const m = String(hoy.getMonth() + 1).padStart(2, '0');
+  const ultimoDia = new Date(y, hoy.getMonth() + 1, 0).getDate();
+  return {
+    inicio: `${y}-${m}-01`,
+    fin: `${y}-${m}-${String(ultimoDia).padStart(2, '0')}`,
+  };
+}
+
 function valorPorColumna(item: Registro, col: string): unknown {
   if (item[col] !== undefined && item[col] !== null) return item[col];
   const key = Object.keys(item).find((k) => k.toLowerCase() === col.toLowerCase());
@@ -49,6 +60,11 @@ export default function ComparativaFechasCajasScreen() {
   const [guardando, setGuardando] = useState(false);
   const [errorForm, setErrorForm] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [modalGenerarVisible, setModalGenerarVisible] = useState(false);
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
+  const [generandoRango, setGenerandoRango] = useState(false);
+  const [errorGenerar, setErrorGenerar] = useState<string | null>(null);
 
   const refetch = useCallback(() => {
     setLoading(true);
@@ -270,6 +286,45 @@ export default function ComparativaFechasCajasScreen() {
     }
   }, [refetch]);
 
+  const abrirModalGenerar = () => {
+    const mes = mesEnCurso();
+    setFechaDesde(mes.inicio);
+    setFechaHasta(mes.fin);
+    setErrorGenerar(null);
+    setModalGenerarVisible(true);
+  };
+
+  const generarRango = async () => {
+    if (!fechaDesde || !fechaHasta || !/^\d{4}-\d{2}-\d{2}$/.test(fechaDesde) || !/^\d{4}-\d{2}-\d{2}$/.test(fechaHasta)) {
+      setErrorGenerar('Indica fecha desde y hasta (YYYY-MM-DD)');
+      return;
+    }
+    if (fechaDesde > fechaHasta) {
+      setErrorGenerar('Fecha desde debe ser <= fecha hasta');
+      return;
+    }
+    setErrorGenerar(null);
+    setGenerandoRango(true);
+    try {
+      const res = await fetch(`${API_URL}/api/gestion-festivos/generar-rango`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dateFrom: fechaDesde, dateTo: fechaHasta }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorGenerar(data.error || 'Error al generar');
+        return;
+      }
+      refetch();
+      setModalGenerarVisible(false);
+    } catch (e) {
+      setErrorGenerar(e instanceof Error ? e.message : 'Error de conexión');
+    } finally {
+      setGenerandoRango(false);
+    }
+  };
+
   const hoy = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   const getRowStyle = useCallback(
@@ -313,6 +368,12 @@ export default function ComparativaFechasCajasScreen() {
 
   return (
     <View style={styles.container}>
+      <View style={styles.generarRow}>
+        <TouchableOpacity style={styles.btnGenerar} onPress={abrirModalGenerar} disabled={guardando}>
+          <MaterialIcons name="add-circle-outline" size={20} color="#0ea5e9" />
+          <Text style={styles.btnGenerarText}>Generar registros</Text>
+        </TouchableOpacity>
+      </View>
       <TablaBasica<Registro>
         title="Comparativa Fechas Cajas"
         onBack={() => router.back()}
@@ -418,12 +479,77 @@ export default function ComparativaFechasCajasScreen() {
           </KeyboardAvoidingView>
         </TouchableOpacity>
       </Modal>
+
+      <Modal visible={modalGenerarVisible} transparent animationType="fade" onRequestClose={() => setModalGenerarVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalGenerarVisible(false)}>
+          <KeyboardAvoidingView style={styles.modalWrap} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <TouchableOpacity style={styles.modalCard} activeOpacity={1} onPress={() => {}}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Generar registros por rango</Text>
+                <TouchableOpacity onPress={() => setModalGenerarVisible(false)} style={styles.modalClose}>
+                  <MaterialIcons name="close" size={22} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel}>Fecha desde *</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    value={fechaDesde}
+                    onChangeText={setFechaDesde}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor="#94a3b8"
+                  />
+                </View>
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel}>Fecha hasta *</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    value={fechaHasta}
+                    onChangeText={setFechaHasta}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor="#94a3b8"
+                  />
+                </View>
+              </ScrollView>
+              {errorGenerar ? <Text style={styles.formError}>{errorGenerar}</Text> : null}
+              <View style={styles.modalFooter}>
+                <TouchableOpacity
+                  style={styles.modalBtn}
+                  onPress={generarRango}
+                  disabled={generandoRango}
+                >
+                  {generandoRango ? (
+                    <ActivityIndicator size="small" color="#0ea5e9" />
+                  ) : (
+                    <MaterialIcons name="play-arrow" size={20} color="#0ea5e9" />
+                  )}
+                  <Text style={styles.modalBtnText}>Generar</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </KeyboardAvoidingView>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  generarRow: { flexDirection: 'row', marginBottom: 8 },
+  btnGenerar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#f0f9ff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#0ea5e9',
+  },
+  btnGenerarText: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
   modalWrap: { width: '100%', maxWidth: 420, padding: 24, alignItems: 'center' },
   modalCard: { width: '100%', backgroundColor: '#fff', borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },

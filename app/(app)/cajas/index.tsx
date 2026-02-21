@@ -21,6 +21,12 @@ const OPCIONES = [
     icon: 'event' as const,
     descripcion: 'Festivos y estimaciones de ventas (Igp_Gestionfestivosyestimaciones)',
   },
+  {
+    id: 'objetivos',
+    label: 'Objetivos',
+    icon: 'flag' as const,
+    descripcion: 'Comparativa de facturación real vs año anterior por local',
+  },
 ];
 
 export default function CajasIndexScreen() {
@@ -30,6 +36,7 @@ export default function CajasIndexScreen() {
     if (id === 'cierres-teoricos') router.push('/cajas/cierres-teoricos');
     if (id === 'arqueo-caja') router.push('/cajas/arqueo-caja');
     if (id === 'comparativa-fechas-cajas') router.push('/cajas/comparativa-fechas-cajas');
+    if (id === 'objetivos') router.push('/cajas/objetivos');
   }
 
   return (

@@ -289,6 +289,67 @@ app.delete('/api/agora/closeouts', async (req, res) => {
   }
 });
 
+// GET /api/agora/closeouts/totals-by-local-range?workplaceId=X&dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD
+// Devuelve sumatorio de total facturado por día para un local en el rango indicado.
+app.get('/api/agora/closeouts/totals-by-local-range', async (req, res) => {
+  const workplaceId = (req.query.workplaceId && String(req.query.workplaceId).trim()) || '';
+  const dateFrom = (req.query.dateFrom && String(req.query.dateFrom).trim()) || '';
+  const dateTo = (req.query.dateTo && String(req.query.dateTo).trim()) || '';
+  if (!workplaceId) {
+    return res.status(400).json({ error: 'workplaceId obligatorio' });
+  }
+  if (!dateFrom || !/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !dateTo || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+    return res.status(400).json({ error: 'dateFrom y dateTo obligatorios (YYYY-MM-DD)' });
+  }
+  if (dateFrom > dateTo) {
+    return res.status(400).json({ error: 'dateFrom debe ser <= dateTo' });
+  }
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const result = await docClient.send(new QueryCommand({
+        TableName: tableSalesCloseOutsName,
+        KeyConditionExpression: 'PK = :pk AND SK BETWEEN :skFrom AND :skTo',
+        ExpressionAttributeValues: {
+          ':pk': workplaceId,
+          ':skFrom': dateFrom,
+          ':skTo': `${dateTo}\uffff`,
+        },
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+    const totalsByDay = {};
+    for (const item of items) {
+      const sk = String(item.SK ?? item.sk ?? '').trim();
+      const businessDay = (sk && /^\d{4}-\d{2}-\d{2}/.test(sk) ? sk.slice(0, 10) : (sk && sk.split('#')[0])) || '';
+      if (!businessDay || !/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) continue;
+      const arr = item.InvoicePayments ?? item.invoicePayments;
+      let total = 0;
+      if (Array.isArray(arr)) {
+        for (const p of arr) {
+          total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
+        }
+      }
+      if (total === 0) {
+        const amounts = item.Amounts ?? item.amounts ?? {};
+        const gross = amounts.GrossAmount ?? amounts.grossAmount ?? amounts.Total ?? amounts.total;
+        total = Number(gross) || 0;
+      }
+      totalsByDay[businessDay] = (totalsByDay[businessDay] || 0) + total;
+    }
+    for (const d in totalsByDay) {
+      totalsByDay[d] = Math.round(totalsByDay[d] * 100) / 100;
+    }
+    res.json({ totals: totalsByDay });
+  } catch (err) {
+    console.error('[agora/closeouts/totals-by-local-range]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al obtener totales' });
+  }
+});
+
 // GET /api/agora/closeouts/totals-by-local?businessDay=YYYY-MM-DD
 // Devuelve sumatorio de total facturado (InvoicePayments) por local para el día indicado.
 app.get('/api/agora/closeouts/totals-by-local', async (req, res) => {
@@ -1334,6 +1395,43 @@ app.delete('/api/gestion-festivos', async (req, res) => {
   } catch (err) {
     console.error('[gestion-festivos DELETE]', err.message || err);
     res.status(500).json({ error: err.message || 'Error al borrar' });
+  }
+});
+
+// POST /api/gestion-festivos/generar-rango - Crea registros por día en el rango (PK=fecha, SK=0)
+app.post('/api/gestion-festivos/generar-rango', async (req, res) => {
+  const body = req.body || {};
+  const dateFrom = String(body.dateFrom ?? body.fechaDesde ?? body.fechaInicio ?? '').trim();
+  const dateTo = String(body.dateTo ?? body.fechaHasta ?? body.fechaFin ?? '').trim();
+  if (!dateFrom || !/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !dateTo || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+    return res.status(400).json({ error: 'dateFrom y dateTo obligatorios (YYYY-MM-DD)' });
+  }
+  if (dateFrom > dateTo) {
+    return res.status(400).json({ error: 'dateFrom debe ser <= dateTo' });
+  }
+  try {
+    let count = 0;
+    const start = new Date(dateFrom + 'T12:00:00');
+    const end = new Date(dateTo + 'T12:00:00');
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const fecha = d.toISOString().slice(0, 10);
+      const item = {
+        PK: fecha,
+        SK: '0',
+        FechaComparativa: fecha,
+        Festivo: false,
+        NombreFestivo: '',
+      };
+      await docClient.send(new PutCommand({
+        TableName: tableGestionFestivosName,
+        Item: item,
+      }));
+      count++;
+    }
+    res.json({ ok: true, creados: count });
+  } catch (err) {
+    console.error('[gestion-festivos generar-rango]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al generar registros' });
   }
 });
 
