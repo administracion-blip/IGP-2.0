@@ -7,7 +7,7 @@
  * - Los modales de Crear/Editar e Importar quedan en la pantalla que usa el componente.
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -91,6 +91,10 @@ export type TablaBasicaProps<T = Record<string, unknown>> = {
   getRowStyle?: (item: T, index: number) => ViewStyle | undefined;
   /** Modo compacto: filas y tipografía más pequeñas */
   dense?: boolean;
+  /** Contenido extra a la derecha del toolbar (ej. botón Generar) */
+  extraToolbarRight?: React.ReactNode;
+  /** Contenido extra entre los botones de acción y la búsqueda (ej. filtros Año/Mes) */
+  extraToolbarLeft?: React.ReactNode;
 };
 
 export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps<T>) {
@@ -123,6 +127,8 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     hideHeader = false,
     getRowStyle,
     dense = false,
+    extraToolbarRight,
+    extraToolbarLeft,
   } = props;
 
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
@@ -275,6 +281,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
             </View>
           ))}
         </View>
+        {extraToolbarLeft ? <View style={styles.extraToolbarLeft}>{extraToolbarLeft}</View> : null}
         <View style={styles.searchWrap}>
           <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
           <TextInput
@@ -361,6 +368,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
             </Modal>
           </View>
         )}
+        {extraToolbarRight ? <View style={styles.extraToolbarRight}>{extraToolbarRight}</View> : null}
       </View>
 
       <View style={styles.subtitleRow}>
@@ -516,6 +524,8 @@ const styles = StyleSheet.create({
   searchIcon: { marginRight: 6 },
   searchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
   toolbarBtnWrap: { position: 'relative' },
+  extraToolbarLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  extraToolbarRight: { marginLeft: 4 },
   tooltip: {
     position: 'absolute',
     bottom: '100%',

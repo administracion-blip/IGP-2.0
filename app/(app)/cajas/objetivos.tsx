@@ -463,6 +463,14 @@ export default function ObjetivosScreen() {
           >
             <View style={styles.tableWithProgress}>
               <View style={styles.progressSection}>
+                {localSeleccionado && (
+                  <View style={styles.progressLocalRow}>
+                    <Text style={styles.progressLocalName} numberOfLines={1}>{nombreLocal}</Text>
+                    <Text style={styles.progressRegistrosCount}>
+                      {registros.length} {registros.length === 1 ? 'registro' : 'registros'}
+                    </Text>
+                  </View>
+                )}
                 <View style={styles.progressHeader}>
                   <Text style={styles.progressLabel}>
                     {formatMoneda(sumReal)} / {formatMoneda(sumComp)}
@@ -649,6 +657,9 @@ const styles = StyleSheet.create({
   },
   tableWithProgress: { minWidth: 862 },
   progressSection: { marginBottom: 8 },
+  progressLocalRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: 4 },
+  progressLocalName: { fontSize: 14, fontWeight: '700', color: '#334155', flex: 1 },
+  progressRegistrosCount: { fontSize: 11, color: '#94a3b8', fontStyle: 'italic' },
   progressHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',

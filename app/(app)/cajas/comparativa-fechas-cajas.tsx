@@ -65,6 +65,10 @@ export default function ComparativaFechasCajasScreen() {
   const [fechaHasta, setFechaHasta] = useState('');
   const [generandoRango, setGenerandoRango] = useState(false);
   const [errorGenerar, setErrorGenerar] = useState<string | null>(null);
+  const [filtroAño, setFiltroAño] = useState<string | null>(null);
+  const [filtroMes, setFiltroMes] = useState<string | null>(null);
+  const [modalFiltroAño, setModalFiltroAño] = useState(false);
+  const [modalFiltroMes, setModalFiltroMes] = useState(false);
 
   const refetch = useCallback(() => {
     setLoading(true);
@@ -329,23 +333,52 @@ export default function ComparativaFechasCajasScreen() {
 
   const getRowStyle = useCallback(
     (item: Registro) => {
-      const fecha = String(item.FechaComparativa ?? item.PK ?? '');
+      const fecha = String(item.Fecha ?? item.PK ?? '');
       if (fecha === hoy) return { backgroundColor: '#fce7f3' };
       return undefined;
     },
     [hoy]
   );
 
+  const añosDisponibles = useMemo(() => {
+    const años = new Set<string>();
+    registros.forEach((r) => {
+      const fecha = String(r.Fecha ?? r.PK ?? '');
+      const m = fecha.match(/^(\d{4})-\d{2}-\d{2}$/);
+      if (m) años.add(m[1]);
+    });
+    return [...años].sort((a, b) => b.localeCompare(a));
+  }, [registros]);
+
+  const mesesNombres: Record<string, string> = {
+    '01': 'Enero', '02': 'Febrero', '03': 'Marzo', '04': 'Abril', '05': 'Mayo', '06': 'Junio',
+    '07': 'Julio', '08': 'Agosto', '09': 'Septiembre', '10': 'Octubre', '11': 'Noviembre', '12': 'Diciembre',
+  };
+
   const registrosFiltrados = useMemo(() => {
+    let list = registros;
+    if (filtroAño) {
+      list = list.filter((r) => {
+        const fecha = String(r.Fecha ?? r.PK ?? '');
+        return fecha.startsWith(filtroAño + '-');
+      });
+    }
+    if (filtroMes) {
+      list = list.filter((r) => {
+        const fecha = String(r.Fecha ?? r.PK ?? '');
+        const m = fecha.match(/^\d{4}-(\d{2})-\d{2}$/);
+        return m && m[1] === filtroMes;
+      });
+    }
     const q = filtroBusqueda.trim().toLowerCase();
-    if (!q) return registros;
-    return registros.filter((r) =>
+    if (!q) return list;
+    return list.filter((r) =>
       COLUMNAS.some((col) => {
         const val = valorCelda(r, col);
         return val !== '—' && val.toLowerCase().includes(q);
       })
     );
-  }, [registros, filtroBusqueda, valorCelda]);
+  }, [registros, filtroBusqueda, filtroAño, filtroMes, valorCelda]);
 
   const totalPages = Math.max(1, Math.ceil(registrosFiltrados.length / PAGE_SIZE));
   const pageIndexClamped = Math.min(Math.max(0, pageIndex), totalPages - 1);
@@ -368,12 +401,6 @@ export default function ComparativaFechasCajasScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.generarRow}>
-        <TouchableOpacity style={styles.btnGenerar} onPress={abrirModalGenerar} disabled={guardando}>
-          <MaterialIcons name="add-circle-outline" size={20} color="#0ea5e9" />
-          <Text style={styles.btnGenerarText}>Generar registros</Text>
-        </TouchableOpacity>
-      </View>
       <TablaBasica<Registro>
         title="Comparativa Fechas Cajas"
         onBack={() => router.back()}
@@ -396,6 +423,34 @@ export default function ComparativaFechasCajasScreen() {
         showImport
         onImportClick={importarExcel}
         importing={importing}
+        extraToolbarLeft={
+          <View style={styles.filtrosToolbar}>
+            <TouchableOpacity
+              style={[styles.btnFiltro, filtroAño && styles.btnFiltroActivo]}
+              onPress={() => setModalFiltroAño(true)}
+            >
+              <MaterialIcons name="calendar-today" size={14} color={filtroAño ? '#fff' : '#64748b'} />
+              <Text style={[styles.btnFiltroText, filtroAño && styles.btnFiltroTextActivo]}>
+                Año {filtroAño ?? 'Todos'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.btnFiltro, filtroMes && styles.btnFiltroActivo]}
+              onPress={() => setModalFiltroMes(true)}
+            >
+              <MaterialIcons name="date-range" size={14} color={filtroMes ? '#fff' : '#64748b'} />
+              <Text style={[styles.btnFiltroText, filtroMes && styles.btnFiltroTextActivo]}>
+                Mes {filtroMes ? mesesNombres[filtroMes] : 'Todos'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        }
+        extraToolbarRight={
+          <TouchableOpacity style={styles.btnGenerar} onPress={abrirModalGenerar} disabled={guardando}>
+            <MaterialIcons name="add-circle-outline" size={18} color="#16a34a" />
+            <Text style={styles.btnGenerarText}>Generar registros</Text>
+          </TouchableOpacity>
+        }
         paginacion={{
           totalRegistros: registrosFiltrados.length,
           pageSize: PAGE_SIZE,
@@ -480,6 +535,72 @@ export default function ComparativaFechasCajasScreen() {
         </TouchableOpacity>
       </Modal>
 
+      <Modal visible={modalFiltroAño} transparent animationType="fade" onRequestClose={() => setModalFiltroAño(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalFiltroAño(false)}>
+          <TouchableOpacity style={styles.modalFiltroWrap} activeOpacity={1} onPress={() => {}}>
+          <View style={styles.modalFiltroCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Filtrar por año</Text>
+              <TouchableOpacity onPress={() => setModalFiltroAño(false)} style={styles.modalClose}>
+                <MaterialIcons name="close" size={22} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalFiltroList}>
+              <TouchableOpacity
+                style={[styles.modalFiltroItem, !filtroAño && styles.modalFiltroItemActivo]}
+                onPress={() => { setFiltroAño(null); setModalFiltroAño(false); setPageIndex(0); }}
+              >
+                <Text style={[styles.modalFiltroItemText, !filtroAño && styles.modalFiltroItemTextActivo]}>Todos</Text>
+              </TouchableOpacity>
+              {añosDisponibles.map((año) => (
+                <TouchableOpacity
+                  key={año}
+                  style={[styles.modalFiltroItem, filtroAño === año && styles.modalFiltroItemActivo]}
+                  onPress={() => { setFiltroAño(año); setModalFiltroAño(false); setPageIndex(0); }}
+                >
+                  <Text style={[styles.modalFiltroItemText, filtroAño === año && styles.modalFiltroItemTextActivo]}>{año}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal visible={modalFiltroMes} transparent animationType="fade" onRequestClose={() => setModalFiltroMes(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalFiltroMes(false)}>
+          <TouchableOpacity style={styles.modalFiltroWrap} activeOpacity={1} onPress={() => {}}>
+          <View style={styles.modalFiltroCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Filtrar por mes</Text>
+              <TouchableOpacity onPress={() => setModalFiltroMes(false)} style={styles.modalClose}>
+                <MaterialIcons name="close" size={22} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalFiltroList}>
+              <TouchableOpacity
+                style={[styles.modalFiltroItem, !filtroMes && styles.modalFiltroItemActivo]}
+                onPress={() => { setFiltroMes(null); setModalFiltroMes(false); setPageIndex(0); }}
+              >
+                <Text style={[styles.modalFiltroItemText, !filtroMes && styles.modalFiltroItemTextActivo]}>Todos</Text>
+              </TouchableOpacity>
+              {(Object.keys(mesesNombres) as string[]).map((mes) => (
+                <TouchableOpacity
+                  key={mes}
+                  style={[styles.modalFiltroItem, filtroMes === mes && styles.modalFiltroItemActivo]}
+                  onPress={() => { setFiltroMes(mes); setModalFiltroMes(false); setPageIndex(0); }}
+                >
+                  <Text style={[styles.modalFiltroItemText, filtroMes === mes && styles.modalFiltroItemTextActivo]}>
+                    {mesesNombres[mes]}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       <Modal visible={modalGenerarVisible} transparent animationType="fade" onRequestClose={() => setModalGenerarVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalGenerarVisible(false)}>
           <KeyboardAvoidingView style={styles.modalWrap} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -537,19 +658,42 @@ export default function ComparativaFechasCajasScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  generarRow: { flexDirection: 'row', marginBottom: 8 },
+  filtrosToolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   btnGenerar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#f0f9ff',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#dcfce7',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#0ea5e9',
+    borderColor: '#86efac',
   },
-  btnGenerarText: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
+  btnGenerarText: { fontSize: 12, fontWeight: '600', color: '#16a34a' },
+  btnFiltro: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    height: 28,
+    justifyContent: 'center',
+    backgroundColor: '#f8fafc',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  btnFiltroActivo: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
+  btnFiltroText: { fontSize: 11, fontWeight: '500', color: '#64748b' },
+  btnFiltroTextActivo: { color: '#fff' },
+  modalFiltroWrap: { width: '100%', maxWidth: 280, alignItems: 'center' },
+  modalFiltroCard: { width: '100%', backgroundColor: '#fff', borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8, overflow: 'hidden' },
+  modalFiltroList: { maxHeight: 320, paddingVertical: 8 },
+  modalFiltroItem: { paddingVertical: 12, paddingHorizontal: 20 },
+  modalFiltroItemActivo: { backgroundColor: '#f0f9ff' },
+  modalFiltroItemText: { fontSize: 14, color: '#334155' },
+  modalFiltroItemTextActivo: { color: '#0ea5e9', fontWeight: '600' },
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
   modalWrap: { width: '100%', maxWidth: 420, padding: 24, alignItems: 'center' },
   modalCard: { width: '100%', backgroundColor: '#fff', borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
