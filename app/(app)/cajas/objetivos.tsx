@@ -89,6 +89,19 @@ function mesEnCurso(): { inicio: string; fin: string } {
   };
 }
 
+function nombreMesYAnio(): string {
+  const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const hoy = new Date();
+  return `${meses[hoy.getMonth()]} ${hoy.getFullYear()}`;
+}
+
+type LocalObjetivo = {
+  local: Local;
+  sumReal: number;
+  sumComp: number;
+  desvioPct: number | null;
+};
+
 export default function ObjetivosScreen() {
   const router = useRouter();
   const [fechaInicio, setFechaInicio] = useState(() => mesEnCurso().inicio);
@@ -100,6 +113,8 @@ export default function ObjetivosScreen() {
   const [error, setError] = useState<string | null>(null);
   const [registros, setRegistros] = useState<FilaObjetivo[]>([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [localesObjetivos, setLocalesObjetivos] = useState<LocalObjetivo[]>([]);
+  const [loadingLocalesObjetivos, setLoadingLocalesObjetivos] = useState(false);
 
   const cargarLocales = useCallback(() => {
     setLoadingLocales(true);
@@ -116,6 +131,78 @@ export default function ObjetivosScreen() {
   useEffect(() => {
     cargarLocales();
   }, [cargarLocales]);
+
+  const cargarLocalesObjetivos = useCallback(async () => {
+    if (locales.length === 0) return;
+    setLoadingLocalesObjetivos(true);
+    const { inicio: fechaInicioMes, fin: fechaFinMes } = mesEnCurso();
+    try {
+      const festivosRes = await fetch(`${API_URL}/api/gestion-festivos`);
+      const festivosData = await festivosRes.json();
+      const festivosList: FestivoReg[] = Array.isArray(festivosData.registros) ? festivosData.registros : [];
+      const festivosByFecha = Object.fromEntries(
+        festivosList
+          .filter((f) => f.PK || f.FechaComparativa)
+          .map((f) => [String(f.PK ?? f.FechaComparativa ?? '').slice(0, 10), f])
+      );
+      const d = new Date(fechaInicioMes + 'T12:00:00');
+      const end = new Date(fechaFinMes + 'T12:00:00');
+      let minComp = '';
+      let maxComp = '';
+      const fechaToComp: Record<string, string> = {};
+      while (d <= end) {
+        const fecha = d.toISOString().slice(0, 10);
+        const festivo = festivosByFecha[fecha];
+        const fechaComp = festivo?.FechaComparativa && /^\d{4}-\d{2}-\d{2}$/.test(String(festivo.FechaComparativa).slice(0, 10))
+          ? String(festivo.FechaComparativa).slice(0, 10)
+          : fechaComparacion(fecha);
+        fechaToComp[fecha] = fechaComp;
+        if (!minComp || fechaComp < minComp) minComp = fechaComp;
+        if (!maxComp || fechaComp > maxComp) maxComp = fechaComp;
+        d.setDate(d.getDate() + 1);
+      }
+      const resultados: LocalObjetivo[] = await Promise.all(
+        locales.map(async (loc) => {
+          const workplaceId = (loc.agoraCode ?? loc.AgoraCode ?? '').toString().trim();
+          if (!workplaceId) return { local: loc, sumReal: 0, sumComp: 0, desvioPct: null };
+          try {
+            const [totalsRealRes, totalsCompRes] = await Promise.all([
+              fetch(`${API_URL}/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${fechaInicioMes}&dateTo=${fechaFinMes}`),
+              fetch(`${API_URL}/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${minComp}&dateTo=${maxComp}`),
+            ]);
+            const totalsRealData = await totalsRealRes.json();
+            const totalsCompData = await totalsCompRes.json();
+            const totalsReal: Record<string, number> = totalsRealData.totals ?? {};
+            const totalsComp: Record<string, number> = totalsCompData.totals ?? {};
+            const d2 = new Date(fechaInicioMes + 'T12:00:00');
+            const end2 = new Date(fechaFinMes + 'T12:00:00');
+            let sumReal = 0;
+            let sumComp = 0;
+            while (d2 <= end2) {
+              const fecha = d2.toISOString().slice(0, 10);
+              const fechaComp = fechaToComp[fecha];
+              sumReal += totalsReal[fecha] ?? 0;
+              sumComp += totalsComp[fechaComp] ?? 0;
+              d2.setDate(d2.getDate() + 1);
+            }
+            const desvioPct = sumComp === 0 ? null : sumReal / sumComp - 1;
+            return { local: loc, sumReal, sumComp, desvioPct };
+          } catch {
+            return { local: loc, sumReal: 0, sumComp: 0, desvioPct: null };
+          }
+        })
+      );
+      setLocalesObjetivos(resultados);
+    } catch {
+      setLocalesObjetivos([]);
+    } finally {
+      setLoadingLocalesObjetivos(false);
+    }
+  }, [locales]);
+
+  useEffect(() => {
+    cargarLocalesObjetivos();
+  }, [cargarLocalesObjetivos]);
 
   const generar = useCallback(async () => {
     const workplaceId = (localSeleccionado?.agoraCode ?? localSeleccionado?.AgoraCode ?? '').toString().trim();
@@ -230,7 +317,7 @@ export default function ObjetivosScreen() {
         showsVerticalScrollIndicator
       >
       <View style={styles.mainRow}>
-        <View style={styles.widgetWrapper}>
+        <View style={styles.leftColumn}>
           <View style={styles.widget}>
         <Text style={styles.widgetTitle}>Generar comparativa</Text>
         <View style={styles.formRow}>
@@ -314,6 +401,56 @@ export default function ObjetivosScreen() {
             </TouchableOpacity>
         </View>
       </View>
+
+          <View style={[styles.widget, styles.widgetLocales]}>
+          <Text style={styles.widgetLocalesTitle}>{nombreMesYAnio()}</Text>
+          {loadingLocalesObjetivos ? (
+            <ActivityIndicator size="small" color="#64748b" style={styles.widgetLocalesLoader} />
+          ) : (
+            <ScrollView style={styles.localesListScroll} nestedScrollEnabled showsVerticalScrollIndicator>
+              {[...localesObjetivos]
+                .sort((a, b) => {
+                  const nomA = (a.local.nombre ?? a.local.Nombre ?? a.local.agoraCode ?? a.local.AgoraCode ?? '—').toString().trim().toLowerCase();
+                  const nomB = (b.local.nombre ?? b.local.Nombre ?? b.local.agoraCode ?? b.local.AgoraCode ?? '—').toString().trim().toLowerCase();
+                  return nomA.localeCompare(nomB);
+                })
+                .map((item) => {
+                const nom = (item.local.nombre ?? item.local.Nombre ?? item.local.agoraCode ?? item.local.AgoraCode ?? '—').toString().trim();
+                const pct = item.sumComp === 0 ? 0 : Math.min(100, (item.sumReal / item.sumComp) * 100);
+                const estilo = estiloTicker(item.desvioPct);
+                return (
+                  <View key={item.local.id_Locales ?? item.local.agoraCode ?? item.local.AgoraCode} style={styles.localesListItem}>
+                    <View style={styles.localesListHeader}>
+                      <Text style={styles.localesListNombre} numberOfLines={1}>
+                        {nom} <Text style={styles.localesListPct}>({pct.toFixed(1)}%)</Text>
+                      </Text>
+                      <View style={[styles.tickerBadge, { backgroundColor: estilo.backgroundColor }]}>
+                        {item.desvioPct != null && (
+                          <MaterialIcons
+                            name={item.desvioPct >= 0 ? 'trending-up' : 'trending-down'}
+                            size={12}
+                            color={estilo.color}
+                          />
+                        )}
+                        <Text style={[styles.tickerText, { color: estilo.color, fontSize: 11 }]}>
+                          {formatPctTicker(item.desvioPct)}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.localesListProgressTrack}>
+                      <View
+                        style={[
+                          styles.localesListProgressFill,
+                          { width: `${pct}%` },
+                        ]}
+                      />
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          )}
+          </View>
         </View>
 
         {registros.length > 0 && (
@@ -419,7 +556,7 @@ const styles = StyleSheet.create({
   mainScroll: { flex: 1 },
   mainScrollContent: { flexGrow: 1, paddingBottom: 20 },
   mainRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
-  widgetWrapper: { flexShrink: 0, minWidth: 220 },
+  leftColumn: { flexDirection: 'column', gap: 12, flexShrink: 0, minWidth: 220 },
   widget: {
     backgroundColor: '#f8fafc',
     borderRadius: 8,
@@ -491,6 +628,25 @@ const styles = StyleSheet.create({
   },
   btnGenerarDisabled: { opacity: 0.7 },
   btnGenerarText: { fontSize: 12, fontWeight: '600', color: '#fff' },
+  widgetLocales: { alignSelf: 'stretch', minHeight: 120, marginTop: 12 },
+  widgetLocalesTitle: { fontSize: 14, fontWeight: '700', color: '#334155', marginBottom: 10 },
+  widgetLocalesLoader: { marginVertical: 20 },
+  localesListScroll: { maxHeight: 480 },
+  localesListItem: { marginBottom: 10 },
+  localesListHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  localesListNombre: { fontSize: 12, fontWeight: '500', color: '#334155', flex: 1, marginRight: 8 },
+  localesListPct: { fontSize: 11, color: '#64748b', fontWeight: '400' },
+  localesListProgressTrack: {
+    height: 8,
+    backgroundColor: '#e2e8f0',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  localesListProgressFill: {
+    height: '100%',
+    borderRadius: 4,
+    backgroundColor: '#0ea5e9',
+  },
   tableWithProgress: { minWidth: 862 },
   progressSection: { marginBottom: 8 },
   progressHeader: {
@@ -510,7 +666,7 @@ const styles = StyleSheet.create({
   progressFill: {
     height: '100%',
     borderRadius: 6,
-    backgroundColor: '#ccff00',
+    backgroundColor: '#0ea5e9',
   },
   errorText: { fontSize: 12, color: '#dc2626', marginBottom: 8 },
   tableScroll: { flexGrow: 1 },
