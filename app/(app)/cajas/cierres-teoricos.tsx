@@ -321,8 +321,8 @@ export default function CierresTeoricosScreen() {
       const day = days[i];
       try {
         const res = await fetch(`${API_URL}/api/agora/closeouts/sync`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ businessDay: day }),
         });
         await safeJson<{ ok?: boolean }>(res);
@@ -757,7 +757,7 @@ export default function CierresTeoricosScreen() {
           <Text style={styles.title}>Cierres de ventas teóricas</Text>
         </View>
         <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color="#0ea5e9" />
           <Text style={styles.loadingText}>Cargando cierres…</Text>
         </View>
       </View>
@@ -774,11 +774,11 @@ export default function CierresTeoricosScreen() {
           <Text style={styles.title}>Cierres de ventas teóricas</Text>
         </View>
         <View style={styles.errorWrap}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={() => refetchCloseouts()}>
-            <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
-            <Text style={styles.retryBtnText}>Reintentar</Text>
-          </TouchableOpacity>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryBtn} onPress={() => refetchCloseouts()}>
+          <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
+          <Text style={styles.retryBtnText}>Reintentar</Text>
+        </TouchableOpacity>
         </View>
       </View>
     );
@@ -854,9 +854,9 @@ export default function CierresTeoricosScreen() {
             trackColor={{ false: '#e2e8f0', true: '#86efac' }}
             thumbColor={soloConFacturacion ? '#22c55e' : '#94a3b8'}
           />
-        </View>
+          </View>
         <Text style={styles.soloFacturacionLabel}>Mostrar solo registros con facturación</Text>
-      </View>
+            </View>
 
       {showFilterPanel && (
         <View style={styles.filterPanel}>
@@ -870,7 +870,7 @@ export default function CierresTeoricosScreen() {
                 placeholder="dd/mm/yyyy"
                 placeholderTextColor="#94a3b8"
               />
-            </View>
+                </View>
             <View style={styles.filterField}>
               <Text style={styles.filterLabel}>Hasta</Text>
               <TextInput
@@ -894,7 +894,7 @@ export default function CierresTeoricosScreen() {
                   const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
                   const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim() || code || '—';
                   const sel = code !== '' && filtroLocal === code;
-                  return (
+                    return (
                     <TouchableOpacity
                       key={code || nombre}
                       style={[styles.filterChip, sel && styles.filterChipActive]}
@@ -907,12 +907,12 @@ export default function CierresTeoricosScreen() {
                   );
                 })}
               </ScrollView>
-            </View>
+                    </View>
             <TouchableOpacity style={styles.filterClearBtn} onPress={() => { setFiltroFechaDesde(''); setFiltroFechaHasta(''); setFiltroLocal(''); }}>
               <MaterialIcons name="clear" size={14} color="#64748b" />
               <Text style={styles.filterClearText}>Limpiar</Text>
             </TouchableOpacity>
-          </View>
+                </View>
         </View>
       )}
 
@@ -943,7 +943,7 @@ export default function CierresTeoricosScreen() {
               <View style={styles.syncProgressWrap}>
                 <View style={styles.syncProgressBarBg}>
                   <View style={[styles.syncProgressBarFill, { width: `${syncProgress}%` }]} />
-                </View>
+          </View>
                 <View style={styles.syncProgressInfo}>
                   <Text style={styles.syncProgressText}>
                     {syncCurrentDay} / {syncTotalDays} días ({syncProgress}%)
@@ -953,20 +953,20 @@ export default function CierresTeoricosScreen() {
                       ? `Tiempo restante: ~${formatSyncSeconds(syncEstimatedRemainingSeconds)}`
                       : `Tiempo transcurrido: ${formatSyncSeconds(syncElapsedSeconds)}`}
                   </Text>
-                </View>
+      </View>
               </View>
             )}
             <View style={styles.modalActions}>
-              <TouchableOpacity
+          <TouchableOpacity
                 style={[styles.modalBtn, styles.modalBtnCancel]}
                 onPress={() => !syncing && setShowSyncModal(false)}
                 disabled={syncing}
               >
                 <Text style={styles.modalBtnCancelText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+          </TouchableOpacity>
+          <TouchableOpacity
                 style={[styles.modalBtn, styles.modalBtnPrimary, syncing && styles.toolbarBtnDisabled]}
-                onPress={() => {
+                  onPress={() => {
                   const desde = parseDateToYYYYMMDD(syncFechaDesde);
                   const hasta = parseDateToYYYYMMDD(syncFechaHasta);
                   if (desde && hasta && desde <= hasta) {
@@ -983,8 +983,8 @@ export default function CierresTeoricosScreen() {
                     <Text style={[styles.modalBtnPrimaryText, { marginLeft: 6 }]}>Sincronizar</Text>
                   </View>
                 )}
-              </TouchableOpacity>
-            </View>
+                </TouchableOpacity>
+              </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1002,20 +1002,20 @@ export default function CierresTeoricosScreen() {
               onChangeText={setFormBusinessDay}
               placeholder="dd/mm/yyyy"
               placeholderTextColor="#94a3b8"
-              editable={!saving && !editingItem}
+              editable={!saving}
             />
             <Text style={styles.filterLabel}>Local</Text>
             <View style={styles.formDropdownWrap}>
-              <TouchableOpacity
+                <TouchableOpacity
                 style={styles.formDropdownTrigger}
                 onPress={() => !editingItem && setFormLocalDropdownOpen((v) => !v)}
                 disabled={!!editingItem}
               >
                 <Text style={[styles.formDropdownText, !formLocal && styles.formDropdownPlaceholder]} numberOfLines={1}>
                   {formLocal ? (agoraCodeToNombre[formLocal] ?? formLocal) : 'Selecciona un local'}
-                </Text>
+                  </Text>
                 <MaterialIcons name={formLocalDropdownOpen ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
-              </TouchableOpacity>
+                </TouchableOpacity>
               {formLocalDropdownOpen && (
                 <View style={styles.formDropdownList}>
                   <ScrollView style={styles.formDropdownScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
@@ -1023,21 +1023,21 @@ export default function CierresTeoricosScreen() {
                       const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
                       const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim() || code || '—';
                       const sel = code && formLocal === code;
-                      return (
-                        <TouchableOpacity
+                        return (
+                          <TouchableOpacity
                           key={code || nombre}
                           style={[styles.formDropdownOption, sel && styles.formDropdownOptionSelected]}
                           onPress={() => { setFormLocal(code); setFormLocalDropdownOpen(false); }}
                         >
                           <Text style={[styles.formDropdownOptionText, sel && styles.formDropdownOptionTextSelected]} numberOfLines={1}>{nombre}</Text>
                           {sel ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
               )}
-            </View>
+                  </View>
             <Text style={styles.filterLabel}>TPV</Text>
             <View style={styles.formDropdownWrap}>
               <TouchableOpacity
@@ -1047,9 +1047,9 @@ export default function CierresTeoricosScreen() {
               >
                 <Text style={[styles.formDropdownText, !formPosId && !formPosName && styles.formDropdownPlaceholder]} numberOfLines={1}>
                   {formPosId ? `${formPosName || saleCenters.find((s) => String(s.Id) === formPosId)?.Nombre || formPosId} (${formPosId})` : 'Selecciona un TPV'}
-                </Text>
+                  </Text>
                 <MaterialIcons name={formPosDropdownOpen ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
-              </TouchableOpacity>
+                </TouchableOpacity>
               {formPosDropdownOpen && (
                 <View style={styles.formDropdownList}>
                   <ScrollView style={styles.formDropdownScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
@@ -1059,11 +1059,11 @@ export default function CierresTeoricosScreen() {
                     >
                       <Text style={styles.formDropdownOptionText}>Ninguno</Text>
                       {!formPosId && !formPosName ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-                    </TouchableOpacity>
+                      </TouchableOpacity>
                     {saleCenters.map((sc) => {
                       const id = sc.Id != null ? String(sc.Id) : '';
                       const nombre = String(sc.Nombre ?? '').trim() || id || '—';
-                      return (
+                        return (
                         <TouchableOpacity
                           key={id || nombre}
                           style={[styles.formDropdownOption, (formPosId === id) && styles.formDropdownOptionSelected]}
@@ -1071,43 +1071,43 @@ export default function CierresTeoricosScreen() {
                         >
                           <Text style={[styles.formDropdownOptionText, (formPosId === id) && styles.formDropdownOptionTextSelected]} numberOfLines={1}>{nombre} ({id})</Text>
                           {formPosId === id ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
               )}
-            </View>
+                  </View>
             <Text style={styles.filterLabel}>Número</Text>
             <TextInput style={styles.filterInput} value={formNumber} onChangeText={setFormNumber} placeholder="1" placeholderTextColor="#94a3b8" editable={!saving && !editingItem} />
             <Text style={styles.filterLabel}>Formas de pago (€)</Text>
             {formPaymentMethods.map((method) => (
               <View key={method} style={styles.formPaymentRow}>
                 <Text style={styles.formPaymentLabel}>{method}</Text>
-                <TextInput
+                    <TextInput
                   style={styles.formPaymentInput}
                   value={formPayments[method] ?? ''}
                   onChangeText={(t) => setFormPayments((p) => ({ ...p, [method]: t }))}
                   placeholder="0"
-                  placeholderTextColor="#94a3b8"
+                      placeholderTextColor="#94a3b8"
                   keyboardType="decimal-pad"
                   editable={!saving}
-                />
-              </View>
+                    />
+                  </View>
             ))}
             <View style={styles.formTotalRow}>
               <Text style={styles.formTotalLabel}>Total facturado</Text>
               <Text style={styles.formTotalValue}>{formatMoneda(formTotalGross)}</Text>
-            </View>
+                </View>
             </ScrollView>
             <View style={styles.modalActions}>
               <TouchableOpacity style={[styles.modalBtn, styles.modalBtnCancel]} onPress={() => !saving && setShowFormModal(false)} disabled={saving}>
                 <Text style={styles.modalBtnCancelText}>Cancelar</Text>
-              </TouchableOpacity>
+                </TouchableOpacity>
               <TouchableOpacity style={[styles.modalBtn, styles.modalBtnPrimary, saving && styles.toolbarBtnDisabled]} onPress={handleSaveForm} disabled={saving}>
                 {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.modalBtnPrimaryText}>Guardar</Text>}
-              </TouchableOpacity>
-            </View>
+                </TouchableOpacity>
+              </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1123,11 +1123,11 @@ export default function CierresTeoricosScreen() {
             <View style={styles.modalActions}>
               <TouchableOpacity style={[styles.modalBtn, styles.modalBtnCancel]} onPress={() => !saving && (setShowDeleteModal(false), setDeletingItem(null))} disabled={saving}>
                 <Text style={styles.modalBtnCancelText}>Cancelar</Text>
-              </TouchableOpacity>
+                </TouchableOpacity>
               <TouchableOpacity style={[styles.modalBtn, styles.modalBtnDanger, saving && styles.toolbarBtnDisabled]} onPress={handleDelete} disabled={saving}>
                 {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.modalBtnPrimaryText}>Eliminar</Text>}
-              </TouchableOpacity>
-            </View>
+                </TouchableOpacity>
+              </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1140,14 +1140,14 @@ export default function CierresTeoricosScreen() {
         </Text>
         {totalCount > PAGE_SIZE && (
           <View style={styles.pagination}>
-            <TouchableOpacity
+                    <TouchableOpacity
               style={[styles.pageBtn, effectivePage <= 1 && styles.pageBtnDisabled]}
               onPress={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={effectivePage <= 1}
             >
               <MaterialIcons name="chevron-left" size={20} color={effectivePage <= 1 ? '#94a3b8' : '#334155'} />
               <Text style={[styles.pageBtnText, effectivePage <= 1 && styles.pageBtnTextDisabled]}>Anterior</Text>
-            </TouchableOpacity>
+                    </TouchableOpacity>
             <Text style={styles.pageInfo}>
               Página {effectivePage} de {totalPages}
             </Text>
@@ -1159,9 +1159,9 @@ export default function CierresTeoricosScreen() {
               <Text style={[styles.pageBtnText, effectivePage >= totalPages && styles.pageBtnTextDisabled]}>Siguiente</Text>
               <MaterialIcons name="chevron-right" size={20} color={effectivePage >= totalPages ? '#94a3b8' : '#334155'} />
             </TouchableOpacity>
-          </View>
+              </View>
         )}
-      </View>
+            </View>
 
       <ScrollView horizontal style={styles.tableScroll} showsHorizontalScrollIndicator>
         <View style={styles.tableWrapper}>
@@ -1177,9 +1177,9 @@ export default function CierresTeoricosScreen() {
                 >
                   <View style={styles.resizeLine} />
                 </View>
-              </View>
+                </View>
             ))}
-          </View>
+              </View>
           <ScrollView style={styles.tableInner} showsVerticalScrollIndicator>
             <View style={styles.table}>
               {paginatedList.length === 0 ? (
@@ -1213,9 +1213,9 @@ export default function CierresTeoricosScreen() {
                   );
                 })
               )}
-            </View>
+              </View>
           </ScrollView>
-        </View>
+            </View>
       </ScrollView>
     </View>
   );

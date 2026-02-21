@@ -11,8 +11,9 @@ import express from 'express';
 import cors from 'cors';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, QueryCommand, PutCommand, GetCommand, DeleteCommand, UpdateCommand, BatchWriteCommand, BatchGetCommand } from '@aws-sdk/lib-dynamodb';
-import { exportSystemCloseOuts, exportPosCloseOuts, exportInvoices } from './lib/agora/client.js';
+import { exportSystemCloseOuts, exportPosCloseOuts, exportInvoices, exportWarehouses } from './lib/agora/client.js';
 import { upsertBatch } from './lib/dynamo/salesCloseOuts.js';
+import { syncProducts, getLastSync, setLastSync, shouldSkipSyncByThrottle, toApiProduct, pickAllowedFields } from './lib/dynamo/agoraProducts.js';
 
 const app = express();
 app.use(cors({ origin: true, credentials: false }));
@@ -35,6 +36,7 @@ const tableEmpresasName = process.env.DDB_EMPRESAS || 'igp_Empresas';
 const tableProductosName = process.env.DDB_PRODUCTOS || 'igp_Productos';
 const tableAlmacenesName = process.env.DDB_ALMACENES || 'igp_Almacenes';
 const tableSaleCentersName = process.env.DDB_SALE_CENTERS_TABLE || 'Igp_SaleCenters';
+const tableAgoraProductsName = process.env.DDB_AGORA_PRODUCTS_TABLE || 'Igp_AgoraProducts';
 const tableSalesCloseOutsName = process.env.DDB_SALES_CLOSEOUTS_TABLE || 'Igp_SalesCloseouts';
 const tableMantenimientoName = process.env.DDB_MANTENIMIENTO_TABLE || 'Igp_Mantenimiento';
 const tableRolesPermisosName = process.env.DDB_ROLES_PERMISOS_TABLE || 'Igp_RolesPermisos';
@@ -169,11 +171,71 @@ app.post('/api/agora/closeouts', async (req, res) => {
 });
 
 // PUT /api/agora/closeouts - Actualizar registro
+// Si BusinessDay cambia, la SK cambia (SK = businessDay#posId#number). DynamoDB no permite
+// actualizar la clave primaria, así que hay que borrar el viejo y crear uno nuevo.
 app.put('/api/agora/closeouts', async (req, res) => {
   const body = req.body || {};
   const pk = String(body.PK ?? body.pk ?? '').trim();
   const sk = String(body.SK ?? body.sk ?? '').trim();
   if (!pk || !sk) return res.status(400).json({ error: 'PK y SK obligatorios' });
+
+  const businessDay = body.BusinessDay != null ? String(body.BusinessDay).trim() : null;
+  const posId = body.PosId ?? body.posId ?? null;
+  const number = String(body.Number ?? body.number ?? '1').trim() || '1';
+
+  const newSk = businessDay && /^\d{4}-\d{2}-\d{2}$/.test(businessDay)
+    ? (posId != null && posId !== '' && String(posId) !== '0'
+        ? `${businessDay}#${posId}#${number}`
+        : `${businessDay}#${number}`)
+    : null;
+
+  const skChanged = newSk && newSk !== sk;
+
+  if (skChanged) {
+    try {
+      const getRes = await docClient.send(new GetCommand({
+        TableName: tableSalesCloseOutsName,
+        Key: { PK: pk, SK: sk },
+      }));
+      const existing = getRes.Item;
+      if (!existing) return res.status(404).json({ error: 'Registro no encontrado' });
+
+      const invoicePayments = Array.isArray(body.InvoicePayments) ? body.InvoicePayments : (existing.InvoicePayments ?? []);
+      const gross = body.Amounts?.GrossAmount ?? body.GrossAmount ?? invoicePayments.reduce((s, p) => s + (Number(p?.Amount ?? p?.amount ?? 0) || 0), 0);
+      const now = new Date().toISOString();
+      const newItem = {
+        PK: pk,
+        SK: newSk,
+        BusinessDay: businessDay,
+        WorkplaceId: pk,
+        WorkplaceName: body.WorkplaceName ?? body.workplaceName ?? existing.WorkplaceName ?? pk,
+        PosId: posId ?? existing.PosId,
+        PosName: body.PosName ?? body.posName ?? existing.PosName ?? null,
+        Number: number,
+        Amounts: body.Amounts ?? existing.Amounts ?? { GrossAmount: gross, NetAmount: null, VatAmount: null, SurchargeAmount: null },
+        InvoicePayments: invoicePayments,
+        TicketPayments: body.TicketPayments ?? body.ticketPayments ?? existing.TicketPayments ?? [],
+        DeliveryNotePayments: body.DeliveryNotePayments ?? body.deliveryNotePayments ?? existing.DeliveryNotePayments ?? [],
+        SalesOrderPayments: body.SalesOrderPayments ?? body.salesOrderPayments ?? existing.SalesOrderPayments ?? [],
+        Documents: body.Documents ?? body.documents ?? existing.Documents ?? [],
+        OpenDate: body.OpenDate ?? body.openDate ?? existing.OpenDate ?? null,
+        CloseDate: body.CloseDate ?? body.closeDate ?? existing.CloseDate ?? null,
+        createdAt: existing.createdAt ?? now,
+        updatedAt: now,
+        source: existing.source ?? 'manual',
+      };
+      await docClient.send(new PutCommand({ TableName: tableSalesCloseOutsName, Item: newItem }));
+      await docClient.send(new DeleteCommand({
+        TableName: tableSalesCloseOutsName,
+        Key: { PK: pk, SK: sk },
+      }));
+      return res.json({ ok: true });
+    } catch (err) {
+      console.error('[agora/closeouts PUT]', err.message || err);
+      return res.status(500).json({ error: err.message || 'Error al actualizar cierre' });
+    }
+  }
+
   const updates = [];
   const exprNames = {};
   const exprValues = {};
@@ -193,7 +255,7 @@ app.put('/api/agora/closeouts', async (req, res) => {
   if (body.OpenDate !== undefined) addSet('OpenDate', body.OpenDate);
   if (body.CloseDate !== undefined) addSet('CloseDate', body.CloseDate);
   addSet('updatedAt', new Date().toISOString());
-  if (updates.length === 0) return res.status(400).json({ error: 'Ningún campo para actualizar' });
+  if (updates.length <= 1) return res.status(400).json({ error: 'Ningún campo para actualizar' });
   try {
     await docClient.send(new UpdateCommand({
       TableName: tableSalesCloseOutsName,
@@ -455,8 +517,8 @@ const TABLE_EMPRESAS_ATTRS = ['id_empresa', 'Nombre', 'Cif', 'Iban', 'IbanAltern
 // Estructura de la tabla igp_Productos en AWS (clave de partición id_producto).
 const TABLE_PRODUCTOS_ATTRS = ['id_producto', 'Identificacion', 'Nombre', 'CostoPrecio'];
 
-// Estructura de la tabla igp_Almacenes en AWS (clave de partición id_Almacenes).
-const TABLE_ALMACENES_ATTRS = ['id_Almacenes', 'Nombre', 'Descripcion', 'Direccion'];
+// Estructura de la tabla igp_Almacenes en AWS (clave de partición Id).
+const TABLE_ALMACENES_ATTRS = ['Id', 'Nombre', 'Descripcion', 'Direccion'];
 
 // Tabla DynamoDB: atributos Email, Password; opcionales Nombre, id_usuario
 app.post('/api/login', async (req, res) => {
@@ -629,7 +691,10 @@ app.delete('/api/usuarios', async (req, res) => {
 function bodyLocalesVal(body, key) {
   if (body[key] != null && body[key] !== '') return body[key];
   const cap = key.split(' ').map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-  return body[cap];
+  if (body[cap] != null && body[cap] !== '') return body[cap];
+  // Fallback: "Almacen origen" (solo primera palabra capitalizada, resto original)
+  const alt = key.split(' ').map((p, i) => (i === 0 ? p.charAt(0).toUpperCase() + p.slice(1).toLowerCase() : p)).join(' ');
+  return body[alt];
 }
 
 app.get('/api/locales', async (req, res) => {
@@ -951,8 +1016,8 @@ app.post('/api/almacenes', async (req, res) => {
   try {
     const item = {};
     for (const key of TABLE_ALMACENES_ATTRS) {
-      if (key === 'id_Almacenes') {
-        item[key] = body.id_Almacenes != null ? formatId6(body.id_Almacenes) : '000000';
+      if (key === 'Id') {
+        item[key] = body.Id != null ? formatId6(body.Id) : '000000';
       } else {
         const v = body[key];
         item[key] = v != null && v !== '' ? String(v) : '';
@@ -971,19 +1036,19 @@ app.post('/api/almacenes', async (req, res) => {
 
 app.put('/api/almacenes', async (req, res) => {
   const body = req.body || {};
-  const idAlmacenes = body.id_Almacenes != null ? String(body.id_Almacenes) : '';
-  if (!idAlmacenes) return res.status(400).json({ error: 'id_Almacenes es obligatorio para editar' });
+  const idAlmacenes = body.Id != null ? String(body.Id) : '';
+  if (!idAlmacenes) return res.status(400).json({ error: 'Id es obligatorio para editar' });
   if (!body.Nombre || !String(body.Nombre).trim()) return res.status(400).json({ error: 'Nombre es obligatorio' });
   try {
     const getCmd = new GetCommand({
       TableName: tableAlmacenesName,
-      Key: { id_Almacenes: idAlmacenes },
+      Key: { Id: idAlmacenes },
     });
     const got = await docClient.send(getCmd);
     const existing = got.Item || {};
     const item = {};
     for (const key of TABLE_ALMACENES_ATTRS) {
-      if (key === 'id_Almacenes') item[key] = idAlmacenes;
+      if (key === 'Id') item[key] = idAlmacenes;
       else {
         const v = body[key];
         item[key] = v != null && v !== '' ? String(v) : String(existing[key] ?? '');
@@ -1001,17 +1066,80 @@ app.put('/api/almacenes', async (req, res) => {
 });
 
 app.delete('/api/almacenes', async (req, res) => {
-  const idAlmacenes = req.body?.id_Almacenes != null ? String(req.body.id_Almacenes) : req.query?.id_Almacenes != null ? String(req.query.id_Almacenes) : '';
-  if (!idAlmacenes) return res.status(400).json({ error: 'id_Almacenes es obligatorio para borrar' });
+  const idAlmacenes = req.body?.Id != null ? String(req.body.Id) : req.query?.Id != null ? String(req.query.Id) : '';
+  if (!idAlmacenes) return res.status(400).json({ error: 'Id es obligatorio para borrar' });
   try {
     await docClient.send(new DeleteCommand({
       TableName: tableAlmacenesName,
-      Key: { id_Almacenes: idAlmacenes },
+      Key: { Id: idAlmacenes },
     }));
     res.json({ ok: true });
   } catch (err) {
     console.error('DynamoDB error:', err);
     res.status(500).json({ error: err.message || 'Error al borrar el almacén' });
+  }
+});
+
+// Sincronizar almacenes desde Ágora (export-master Warehouses) → igp_Almacenes
+app.post('/api/agora/warehouses/sync', async (req, res) => {
+  try {
+    const rawList = await exportWarehouses();
+    const list = Array.isArray(rawList) ? rawList : [];
+
+    let added = 0;
+    let updated = 0;
+
+    for (const w of list) {
+      const id = w.Id ?? w.id;
+      if (id == null) continue;
+
+      const idStr = formatId6(id);
+      const nombre = String(w.Name ?? w.name ?? '').trim();
+      const fiscalInfo = w.FiscalInfo ?? w.fiscalInfo ?? {};
+      const descripcion = String(fiscalInfo.FiscalName ?? fiscalInfo.fiscalName ?? '').trim();
+      const parts = [
+        w.Street ?? w.street ?? '',
+        w.City ?? w.city ?? '',
+        w.Region ?? w.region ?? '',
+        w.ZipCode ?? w.zipCode ?? '',
+      ].filter(Boolean);
+      const direccion = parts.join(', ');
+
+      const item = {
+        Id: idStr,
+        Nombre: nombre || idStr,
+        Descripcion: descripcion,
+        Direccion: direccion,
+      };
+
+      const getCmd = new GetCommand({
+        TableName: tableAlmacenesName,
+        Key: { Id: idStr },
+      });
+      const got = await docClient.send(getCmd);
+      const existed = !!got.Item;
+
+      await docClient.send(new PutCommand({
+        TableName: tableAlmacenesName,
+        Item: item,
+      }));
+
+      if (existed) updated++;
+      else added++;
+    }
+
+    res.json({
+      ok: true,
+      totalFetched: list.length,
+      added,
+      updated,
+      totalUpserted: added + updated,
+    });
+  } catch (err) {
+    console.error('[agora/warehouses/sync]', err.message || err);
+    res.status(500).json({
+      error: err.message || 'Error al sincronizar almacenes desde Ágora',
+    });
   }
 });
 
@@ -1295,77 +1423,177 @@ app.get('/api/agora/test-connection', async (req, res) => {
   }
 });
 
+// Listar productos Ágora desde DynamoDB (Igp_AgoraProducts). Lectura rápida.
+// Los datos se obtienen tras sincronizar con POST /api/agora/products/sync.
 app.get('/api/agora/products', async (req, res) => {
+  const forceAgora = (req.query.source || req.query.force || '').toString().toLowerCase() === 'agora';
+  if (forceAgora) {
+    const baseUrl = (AGORA_API_BASE_URL || '').trim().replace(/\/+$/, '');
+    const token = (AGORA_API_TOKEN || '').trim();
+    if (!baseUrl || !token) {
+      return res.status(400).json({
+        error: 'Falta AGORA_API_BASE_URL o AGORA_API_TOKEN en .env.local',
+      });
+    }
+    const url = `${baseUrl}/api/export-master/?DataType=Products`;
+    try {
+      const r = await fetch(url, {
+        method: 'GET',
+        headers: { 'Api-Token': token, 'Content-Type': 'application/json' },
+      });
+      if (r.status === 401) {
+        return res.status(401).json({ error: 'Token inválido o no autorizado. Revisa AGORA_API_TOKEN en Agora.' });
+      }
+      if (!r.ok) {
+        const text = await r.text();
+        return res.status(r.status).json({ error: `Agora respondió ${r.status}: ${text.slice(0, 200)}` });
+      }
+      const data = await r.json().catch(() => null);
+      const rawList = Array.isArray(data)
+        ? data
+        : (data?.productos ?? data?.Products ?? data?.Items ?? data?.data ?? []);
+      const productos = rawList.map((p) => {
+        const picked = pickAllowedFields(p);
+        picked.Id = p.Id ?? p.id ?? p.Code ?? p.code ?? picked.Id;
+        picked.IGP = false;
+        return picked;
+      });
+      return res.json({ productos });
+    } catch (err) {
+      return res.status(500).json({ error: err.message || 'Error al conectar con Agora.' });
+    }
+  }
+
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const cmd = new QueryCommand({
+        TableName: tableAgoraProductsName,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': 'GLOBAL' },
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      });
+      const result = await docClient.send(cmd);
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+
+    const productos = items
+      .filter((i) => i.PK !== undefined && i.SK !== undefined && i.SK !== '__meta__')
+      .map((item) => toApiProduct(item))
+      .sort((a, b) => {
+        const idA = a.Id ?? a.id ?? a.Code ?? a.code ?? 0;
+        const idB = b.Id ?? b.id ?? b.Code ?? b.code ?? 0;
+        const na = typeof idA === 'number' ? idA : parseInt(String(idA).replace(/^0+/, ''), 10) || 0;
+        const nb = typeof idB === 'number' ? idB : parseInt(String(idB).replace(/^0+/, ''), 10) || 0;
+        return na - nb;
+      });
+
+    return res.json({ productos });
+  } catch (err) {
+    if (err.name === 'ResourceNotFoundException') {
+      return res.json({ productos: [], error: 'Tabla Igp_AgoraProducts no existe. Ejecuta sync o crea la tabla.' });
+    }
+    console.error('[agora/products list]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al listar productos Ágora' });
+  }
+});
+
+// Sincronizar productos Ágora → DynamoDB. Solo escribe registros nuevos o actualizados.
+// Solo llama al API de Ágora si han pasado AGORA_PRODUCTS_SYNC_THROTTLE_MINUTES (default 30)
+// o si se pasa ?force=1 para forzar.
+app.post('/api/agora/products/sync', async (req, res) => {
+  const force = (req.query.force || req.body?.force || '').toString() === '1' || (req.query.force || '').toString().toLowerCase() === 'true';
   const baseUrl = (AGORA_API_BASE_URL || '').trim().replace(/\/+$/, '');
   const token = (AGORA_API_TOKEN || '').trim();
 
   if (!baseUrl) {
-    return res.status(400).json({
-      error: 'Falta AGORA_API_BASE_URL en .env.local (ej: http://192.168.1.100:8984)',
-    });
+    return res.status(400).json({ error: 'Falta AGORA_API_BASE_URL en .env.local' });
   }
   if (!token) {
-    return res.status(400).json({
-      error: 'Falta AGORA_API_TOKEN en .env.local',
-    });
+    return res.status(400).json({ error: 'Falta AGORA_API_TOKEN en .env.local' });
   }
 
-  const url = `${baseUrl}/api/export-master/?DataType=Products`;
   try {
+    if (!force) {
+      const lastSync = await getLastSync(docClient, tableAgoraProductsName);
+      if (shouldSkipSyncByThrottle(lastSync)) {
+        return res.json({
+          ok: true,
+          skipped: true,
+          reason: 'recent',
+          message: 'Sincronización reciente. Usa ?force=1 para forzar.',
+        });
+      }
+    }
+
+    const url = `${baseUrl}/api/export-master/?DataType=Products`;
     const r = await fetch(url, {
       method: 'GET',
-      headers: {
-        'Api-Token': token,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Api-Token': token, 'Content-Type': 'application/json' },
     });
 
     if (r.status === 401) {
-      return res.status(401).json({
-        error: 'Token inválido o no autorizado. Revisa AGORA_API_TOKEN en Agora.',
-      });
+      return res.status(401).json({ error: 'Token inválido o no autorizado. Revisa AGORA_API_TOKEN en Agora.' });
     }
     if (!r.ok) {
       const text = await r.text();
-      return res.status(r.status).json({
-        error: `Agora respondió ${r.status}: ${text.slice(0, 200)}`,
-      });
+      return res.status(r.status).json({ error: `Agora respondió ${r.status}: ${text.slice(0, 200)}` });
     }
 
-    const rawText = await r.text();
-    const contentType = r.headers.get('content-type') || '';
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('[Agora products] content-type:', contentType);
-      console.log('[Agora products] raw (first 600 chars):', rawText.slice(0, 600));
-    }
-
-    let data;
-    try {
-      data = JSON.parse(rawText);
-    } catch {
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[Agora products] Response is not JSON (maybe XML?). Full length:', rawText.length);
-      }
-      return res.status(502).json({
-        error: 'Agora no devolvió JSON. Revisa la URL y el formato del API (export-master).',
-      });
-    }
-
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('[Agora products] Top-level keys:', Object.keys(data));
-      const arr = data.Products ?? data.productos ?? data.Items ?? data.data;
-      console.log('[Agora products] Array length:', Array.isArray(arr) ? arr.length : typeof arr);
-    }
-
-    const productos = Array.isArray(data)
+    const data = await r.json().catch(() => ({}));
+    const rawList = Array.isArray(data)
       ? data
       : (data.productos ?? data.Products ?? data.Items ?? data.data ?? []);
-    return res.json({ productos });
-  } catch (err) {
-    const msg = err.message || String(err);
-    return res.status(500).json({
-      error: `No se pudo conectar con Agora: ${msg}. Comprueba URL y que el servidor esté accesible.`,
+
+    const { added, updated, unchanged } = await syncProducts(docClient, tableAgoraProductsName, rawList);
+
+    await setLastSync(docClient, tableAgoraProductsName);
+
+    return res.json({
+      ok: true,
+      fetched: rawList.length,
+      added,
+      updated,
+      unchanged,
     });
+  } catch (err) {
+    if (err.name === 'ResourceNotFoundException') {
+      return res.status(404).json({
+        error: 'Tabla Igp_AgoraProducts no existe. Ejecuta: node api/scripts/create-agora-products-table.js',
+      });
+    }
+    console.error('[agora/products/sync]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al sincronizar productos Ágora' });
+  }
+});
+
+// Actualizar IGP (true/false) de un producto Ágora en DynamoDB.
+app.patch('/api/agora/products/:id', async (req, res) => {
+  const id = req.params.id;
+  const { IGP } = req.body || {};
+  if (id == null || id === '') {
+    return res.status(400).json({ error: 'Falta id en la URL' });
+  }
+  if (typeof IGP !== 'boolean') {
+    return res.status(400).json({ error: 'IGP debe ser true o false' });
+  }
+  const sk = String(id);
+  try {
+    await docClient.send(new UpdateCommand({
+      TableName: tableAgoraProductsName,
+      Key: { PK: 'GLOBAL', SK: sk },
+      UpdateExpression: 'SET IGP = :igp',
+      ExpressionAttributeValues: { ':igp': IGP },
+    }));
+    return res.json({ ok: true, id: sk, IGP });
+  } catch (err) {
+    if (err.name === 'ResourceNotFoundException') {
+      return res.status(404).json({ error: 'Producto no encontrado' });
+    }
+    console.error('[agora/products PATCH]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al actualizar IGP' });
   }
 });
 

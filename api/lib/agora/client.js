@@ -155,3 +155,19 @@ export async function exportPosCloseOuts(businessDay, workplaces = null) {
   }
   throw lastError;
 }
+
+/** Exporta maestros de almacenes desde Ágora (export-master filter=Warehouses). Guía 8.1.6 p.205-206. */
+export async function exportWarehouses() {
+  const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');
+  const token = process.env.AGORA_API_TOKEN || '';
+  if (!baseUrl || !token) throw new Error('AGORA_BASE_URL y AGORA_API_TOKEN son obligatorios');
+
+  const url = `${baseUrl}/api/export-master/?filter=Warehouses`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { 'Api-Token': token, Accept: 'application/json' },
+  });
+  if (!res.ok) throw new Error(`Ágora ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  return data.Warehouses || data.warehouses || [];
+}

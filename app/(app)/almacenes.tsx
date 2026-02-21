@@ -22,8 +22,17 @@ const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
 const MAX_TEXT_LENGTH = 30;
 
-const ATRIBUTOS_TABLA_ALMACENES = ['id_Almacenes', 'Nombre', 'Descripcion', 'Direccion'] as const;
-const ORDEN_COLUMNAS = [...ATRIBUTOS_TABLA_ALMACENES];
+const ATRIBUTOS_TABLA_ALMACENES = ['Id', 'Nombre', 'Descripcion', 'Direccion'] as const;
+const COL_LOCALES_ASIGNADOS = 'Locales asignados';
+const ORDEN_COLUMNAS = [...ATRIBUTOS_TABLA_ALMACENES, COL_LOCALES_ASIGNADOS];
+
+function parseAlmacenesOrigen(val: string | number | undefined): string[] {
+  if (val == null || String(val).trim() === '') return [];
+  return String(val)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 const CAMPOS_FORM: { key: (typeof ATRIBUTOS_TABLA_ALMACENES)[number]; label: string }[] = [
   { key: 'Nombre', label: 'Nombre' },
@@ -37,6 +46,7 @@ const INITIAL_FORM = Object.fromEntries(CAMPOS_FORM.map((c) => [c.key, ''])) as 
 >;
 
 type Almacen = Record<string, string | number | undefined>;
+type Local = Record<string, string | number | undefined>;
 
 function truncar(val: string): string {
   if (val.length <= MAX_TEXT_LENGTH) return val;
@@ -58,6 +68,8 @@ export default function AlmacenesScreen() {
   const [guardando, setGuardando] = useState(false);
   const [errorForm, setErrorForm] = useState<string | null>(null);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
+  const [sincronizando, setSincronizando] = useState(false);
+  const [locales, setLocales] = useState<Local[]>([]);
   const resizeRef = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
 
   const valorEnLocal = useCallback((item: Almacen, key: string) => {
@@ -80,7 +92,7 @@ export default function AlmacenesScreen() {
       form[key] = v != null ? String(v) : '';
     }
     setFormNuevo(form);
-    const idVal = valorEnLocal(almacen, 'id_Almacenes');
+    const idVal = valorEnLocal(almacen, 'Id');
     setEditingAlmacenId(idVal != null ? String(idVal) : null);
     setModalNuevoVisible(true);
     setErrorForm(null);
@@ -95,13 +107,23 @@ export default function AlmacenesScreen() {
 
   const ordenarPorId = useCallback((lista: Almacen[]) => {
     return [...lista].sort((a, b) => {
-      const idA = valorEnLocal(a, 'id_Almacenes');
-      const idB = valorEnLocal(b, 'id_Almacenes');
+      const idA = valorEnLocal(a, 'Id');
+      const idB = valorEnLocal(b, 'Id');
       const na = typeof idA === 'number' ? idA : parseInt(String(idA ?? 0).replace(/^0+/, ''), 10) || 0;
       const nb = typeof idB === 'number' ? idB : parseInt(String(idB ?? 0).replace(/^0+/, ''), 10) || 0;
       return na - nb;
     });
   }, [valorEnLocal]);
+
+  const refetchLocales = useCallback(() => {
+    fetch(`${API_URL}/api/locales`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.error) return;
+        setLocales(data.locales || []);
+      })
+      .catch(() => setLocales([]));
+  }, []);
 
   const refetchAlmacenes = useCallback(() => {
     fetch(`${API_URL}/api/almacenes`)
@@ -111,7 +133,8 @@ export default function AlmacenesScreen() {
         else setAlmacenes(ordenarPorId(data.almacenes || []));
       })
       .catch((e) => setError(e.message || 'Error de conexión'));
-  }, [ordenarPorId]);
+    refetchLocales();
+  }, [ordenarPorId, refetchLocales]);
 
   const guardarNuevo = async () => {
     if (!formNuevo.Nombre?.trim()) {
@@ -123,7 +146,7 @@ export default function AlmacenesScreen() {
     try {
       const body: Record<string, string> = {};
       for (const key of ATRIBUTOS_TABLA_ALMACENES) {
-        if (key === 'id_Almacenes') body[key] = editingAlmacenId != null ? editingAlmacenId : próximoId;
+        if (key === 'Id') body[key] = editingAlmacenId != null ? editingAlmacenId : próximoId;
         else body[key] = formNuevo[key] ?? '';
       }
       const res = await fetch(`${API_URL}/api/almacenes`, {
@@ -146,10 +169,28 @@ export default function AlmacenesScreen() {
     }
   };
 
+  const sincronizarAlmacenes = async () => {
+    setSincronizando(true);
+    try {
+      const res = await fetch(`${API_URL}/api/agora/warehouses/sync`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Error al sincronizar');
+        return;
+      }
+      refetchAlmacenes();
+      setSelectedRowIndex(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error de conexión');
+    } finally {
+      setSincronizando(false);
+    }
+  };
+
   const borrarSeleccionado = async () => {
     if (selectedRowIndex == null) return;
     const almacen = almacenesFiltrados[selectedRowIndex];
-    const id = valorEnLocal(almacen, 'id_Almacenes');
+    const id = valorEnLocal(almacen, 'Id');
     const idStr = id != null ? String(id) : '';
     if (!idStr) return;
     setGuardando(true);
@@ -157,7 +198,7 @@ export default function AlmacenesScreen() {
       const res = await fetch(`${API_URL}/api/almacenes`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id_Almacenes: idStr }),
+        body: JSON.stringify({ Id: idStr }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -176,7 +217,7 @@ export default function AlmacenesScreen() {
   const próximoId = useMemo(() => {
     if (!almacenes.length) return formatId6(1);
     const ids = almacenes.map((u) => {
-      const v = valorEnLocal(u, 'id_Almacenes');
+      const v = valorEnLocal(u, 'Id');
       const n = typeof v === 'number' ? v : parseInt(String(v ?? 0).replace(/^0+/, ''), 10);
       return Number.isNaN(n) ? 0 : n;
     });
@@ -191,22 +232,46 @@ export default function AlmacenesScreen() {
     { id: 'crear', label: 'Crear registro', icon: ICONS.add },
     { id: 'editar', label: 'Editar', icon: ICONS.edit },
     { id: 'borrar', label: 'Borrar', icon: ICONS.delete },
+    { id: 'sync', label: 'Sincronizar desde Ágora', icon: 'sync' },
   ];
 
-  const getColWidth = useCallback((col: string) => columnWidths[col] ?? DEFAULT_COL_WIDTH, [columnWidths]);
+  const localesPorAlmacen = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const alm of almacenes) {
+      const nombreAlm = String(alm.Nombre ?? alm.Id ?? '').trim();
+      if (!nombreAlm) continue;
+      const localesConEsteAlm = locales.filter((loc) => {
+        const almacenesOrig = parseAlmacenesOrigen(valorEnLocal(loc, 'Almacen origen') ?? valorEnLocal(loc, 'almacen origen'));
+        return almacenesOrig.includes(nombreAlm);
+      });
+      const nombresLocales = localesConEsteAlm.map((l) => String(valorEnLocal(l, 'Nombre') ?? valorEnLocal(l, 'nombre') ?? '').trim()).filter(Boolean);
+      map.set(nombreAlm, nombresLocales);
+    }
+    return map;
+  }, [almacenes, locales, valorEnLocal]);
+
+  const getColWidth = useCallback((col: string) => columnWidths[col] ?? (col === COL_LOCALES_ASIGNADOS ? 180 : DEFAULT_COL_WIDTH), [columnWidths]);
   const columnas = useMemo(() => [...ORDEN_COLUMNAS], []);
 
-  const valorCelda = useCallback((almacen: Almacen, col: string) => {
-    if (col.startsWith('id_')) {
+  const valorCelda = useCallback(
+    (almacen: Almacen, col: string) => {
+      if (col === COL_LOCALES_ASIGNADOS) {
+        const nombreAlm = String(almacen.Nombre ?? almacen.Id ?? '').trim();
+        const list = localesPorAlmacen.get(nombreAlm) ?? [];
+        return list.length > 0 ? list.join(', ') : '—';
+      }
+      if (col === 'Id' || col.startsWith('id_')) {
+        const key = Object.keys(almacen).find((k) => k.toLowerCase() === col.toLowerCase());
+        const raw = key != null ? almacen[key] : almacen[col as keyof Almacen];
+        return raw != null ? formatId6(raw) : '—';
+      }
       const key = Object.keys(almacen).find((k) => k.toLowerCase() === col.toLowerCase());
       const raw = key != null ? almacen[key] : almacen[col as keyof Almacen];
-      return raw != null ? formatId6(raw) : '—';
-    }
-    const key = Object.keys(almacen).find((k) => k.toLowerCase() === col.toLowerCase());
-    const raw = key != null ? almacen[key] : almacen[col as keyof Almacen];
-    if (raw !== undefined && raw !== null && String(raw).trim() !== '') return String(raw);
-    return '—';
-  }, []);
+      if (raw !== undefined && raw !== null && String(raw).trim() !== '') return String(raw);
+      return '—';
+    },
+    [localesPorAlmacen]
+  );
 
   const almacenesFiltrados = useMemo(() => {
     const q = filtroBusqueda.trim().toLowerCase();
@@ -238,6 +303,10 @@ export default function AlmacenesScreen() {
       cancelled = true;
     };
   }, [ordenarPorId]);
+
+  useEffect(() => {
+    refetchLocales();
+  }, [refetchLocales]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !resizingCol) return;
@@ -321,15 +390,20 @@ export default function AlmacenesScreen() {
                   if (btn.id === 'crear') abrirModalNuevo();
                   if (btn.id === 'editar' && selectedRowIndex != null) abrirModalEditar(almacenesFiltrados[selectedRowIndex]);
                   if (btn.id === 'borrar' && selectedRowIndex != null) borrarSeleccionado();
+                  if (btn.id === 'sync') sincronizarAlmacenes();
                 }}
-                disabled={guardando || ((btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null)}
+                disabled={guardando || sincronizando || ((btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null)}
                 accessibilityLabel={btn.label}
               >
-                <MaterialIcons
-                  name={btn.icon as any}
-                  size={ICON_SIZE}
-                  color={guardando || ((btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null) ? '#94a3b8' : '#0ea5e9'}
-                />
+                {btn.id === 'sync' && sincronizando ? (
+                  <ActivityIndicator size="small" color="#0ea5e9" />
+                ) : (
+                  <MaterialIcons
+                    name={(btn.id === 'sync' ? 'sync' : btn.icon) as any}
+                    size={ICON_SIZE}
+                    color={guardando || sincronizando || ((btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null) ? '#94a3b8' : '#0ea5e9'}
+                  />
+                )}
               </TouchableOpacity>
             </View>
           ))}
@@ -366,7 +440,7 @@ export default function AlmacenesScreen() {
           ) : (
             almacenesFiltrados.map((almacen, idx) => (
               <TouchableOpacity
-                key={valorCelda(almacen, 'id_Almacenes') + '-' + idx}
+                key={valorCelda(almacen, 'Id') + '-' + idx}
                 style={[styles.tableRow, selectedRowIndex === idx && styles.tableRowSelected]}
                 onPress={() => seleccionarFila(idx)}
                 activeOpacity={0.7}

@@ -1,0 +1,1328 @@
+{
+  "raw": {
+    "Warehouses": [
+      {
+        "Id": 1,
+        "Name": "Almacén General",
+        "Street": "San Matías, 22",
+        "City": "Granada",
+        "Region": "Granada",
+        "ZipCode": "18009",
+        "PurchaseOrderSerie": "PC",
+        "IncomingDeliveryNoteSerie": "AC",
+        "PurchaseInvoiceSerie": "FC",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "COCTEMATIAS SL",
+          "Cif": "B19632926"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 2,
+        "Name": "ALMACEN COLÓN",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPCP",
+        "IncomingDeliveryNoteSerie": "ACCP",
+        "PurchaseInvoiceSerie": "FPCP",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "NUEVO GRANERO 2019 S.L.",
+          "Cif": "B19663095"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 3,
+        "Name": "ALMACEN COLÓN BARRA1",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPCP",
+        "IncomingDeliveryNoteSerie": "ACCP",
+        "PurchaseInvoiceSerie": "FPCP",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "NUEVO GRANERO 2019 S.L.",
+          "Cif": "B19663095"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 4,
+        "Name": "ALMACEN COLÓN BARRA2",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPCP",
+        "IncomingDeliveryNoteSerie": "ACCP",
+        "PurchaseInvoiceSerie": "FPCP",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "NUEVO GRANERO 2019 S.L.",
+          "Cif": "B19663095"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 5,
+        "Name": "ALMACEN COLÓN COCTELERIA",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPCP",
+        "IncomingDeliveryNoteSerie": "ACCP",
+        "PurchaseInvoiceSerie": "FPCP",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "NUEVO GRANERO 2019 S.L.",
+          "Cif": "B19663095"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 6,
+        "Name": "ALMACEN COLÓN SOTANO",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPCP",
+        "IncomingDeliveryNoteSerie": "ACCP",
+        "PurchaseInvoiceSerie": "FPCP",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "NUEVO GRANERO 2019 S.L.",
+          "Cif": "B19663095"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 7,
+        "Name": "ALMACEN COLÓN ENJOY",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPCP",
+        "IncomingDeliveryNoteSerie": "ACCP",
+        "PurchaseInvoiceSerie": "FPCP",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "NUEVO GRANERO 2019 S.L.",
+          "Cif": "B19663095"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 8,
+        "Name": "ALMACEN FIERO",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PCFI",
+        "IncomingDeliveryNoteSerie": "ACFI",
+        "PurchaseInvoiceSerie": "FCFI",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "A CONTRAMANO REST SL",
+          "Cif": "B19713205"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 9,
+        "Name": "ALMACEN INSTANTE",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPIN",
+        "IncomingDeliveryNoteSerie": "APIN",
+        "PurchaseInvoiceSerie": "FPIN",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "DRINK&FUN S.L.",
+          "Cif": "B19535483"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 10,
+        "Name": "ALMACEN SIN RUMBO",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPSR",
+        "IncomingDeliveryNoteSerie": "APSR",
+        "PurchaseInvoiceSerie": "FPSR",
+        "FiscalInfo": {
+          "UseInDocuments": false,
+          "FiscalName": "",
+          "Cif": ""
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 11,
+        "Name": "ALMACEN MAMA SAMBA",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPMS",
+        "IncomingDeliveryNoteSerie": "APMS",
+        "PurchaseInvoiceSerie": "FPMS",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "MATIAGRAN SL",
+          "Cif": "B01610633"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 12,
+        "Name": "ALMACEN LA MULATA",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPLM",
+        "IncomingDeliveryNoteSerie": "APLM",
+        "PurchaseInvoiceSerie": "FPLM",
+        "FiscalInfo": {
+          "UseInDocuments": false,
+          "FiscalName": "",
+          "Cif": ""
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 13,
+        "Name": "ALMACEN PARIPE",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PCPA",
+        "IncomingDeliveryNoteSerie": "ACPA",
+        "PurchaseInvoiceSerie": "FCPA",
+        "FiscalInfo": {
+          "UseInDocuments": false,
+          "FiscalName": "",
+          "Cif": ""
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 14,
+        "Name": "ALMACEN SARAO",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PCSA",
+        "IncomingDeliveryNoteSerie": "ACSA",
+        "PurchaseInvoiceSerie": "FCSA",
+        "FiscalInfo": {
+          "UseInDocuments": false,
+          "FiscalName": "",
+          "Cif": ""
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 15,
+        "Name": "ALMACEN FUNKY PANDA",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PCFP",
+        "IncomingDeliveryNoteSerie": "ACFP",
+        "PurchaseInvoiceSerie": "FCFP",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "LEMON BAR S.L.",
+          "Cif": "B19563352"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 16,
+        "Name": "ALMACEN HANALEI",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PCHA",
+        "IncomingDeliveryNoteSerie": "ACHA",
+        "PurchaseInvoiceSerie": "FCHA",
+        "FiscalInfo": {
+          "UseInDocuments": false,
+          "FiscalName": "",
+          "Cif": ""
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 17,
+        "Name": "ALMACEN CAROCA",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PCCA",
+        "IncomingDeliveryNoteSerie": "ACCA",
+        "PurchaseInvoiceSerie": "FCCA",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "RESTAURACIONBIBRAMBLA S.L.",
+          "Cif": "B04997466"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 18,
+        "Name": "ALMACEN SPEAKEASY",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PCSE",
+        "IncomingDeliveryNoteSerie": "ACSE",
+        "PurchaseInvoiceSerie": "FCSE",
+        "FiscalInfo": {
+          "UseInDocuments": false,
+          "FiscalName": "",
+          "Cif": ""
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 19,
+        "Name": "ALMACEN GENERAL NEPTUNO",
+        "Street": "C/PEDRO ANTONIO DE ALARCON 19 BIS, 1B",
+        "City": "GRANADA",
+        "Region": "GRANADA",
+        "ZipCode": "18005",
+        "PurchaseOrderSerie": "PPLR.",
+        "IncomingDeliveryNoteSerie": "APLR.",
+        "PurchaseInvoiceSerie": "FPLR.",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "PASEO OBRA MAESTRA SL",
+          "Cif": "B06784151"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 20,
+        "Name": "ALMACEN COCINA LOCAMARIA",
+        "Street": "C/PEDRO ANTONIO DE ALARCON 19 BIS, 1B",
+        "City": "GRANADA",
+        "Region": "GRANADA",
+        "ZipCode": "18005",
+        "PurchaseOrderSerie": "PPLR.",
+        "IncomingDeliveryNoteSerie": "APLR.",
+        "PurchaseInvoiceSerie": "FPLR.",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "PASEO OBRA MAESTRA SL",
+          "Cif": "B06784151"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 21,
+        "Name": "ALMACEN SALA LOCAMARIA",
+        "Street": "C/PEDRO ANTONIO DE ALARCON 19 BIS, 1B",
+        "City": "GRANADA",
+        "Region": "GRANADA",
+        "ZipCode": "18005",
+        "PurchaseOrderSerie": "PPLR.",
+        "IncomingDeliveryNoteSerie": "APLR.",
+        "PurchaseInvoiceSerie": "FPLR.",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "PASEO OBRA MAESTRA SL",
+          "Cif": "B06784151"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 22,
+        "Name": "ALMACEN CONFUSO",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPLM",
+        "IncomingDeliveryNoteSerie": "APLM",
+        "PurchaseInvoiceSerie": "FPLM",
+        "FiscalInfo": {
+          "UseInDocuments": false,
+          "FiscalName": "",
+          "Cif": ""
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 23,
+        "Name": "ALMACEN MALAGRANA",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPLM",
+        "IncomingDeliveryNoteSerie": "APLM",
+        "PurchaseInvoiceSerie": "FPLM",
+        "FiscalInfo": {
+          "UseInDocuments": false,
+          "FiscalName": "",
+          "Cif": ""
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 24,
+        "Name": "ALMACEN CLIENTES EXTERNOS",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPLM",
+        "IncomingDeliveryNoteSerie": "APLM",
+        "PurchaseInvoiceSerie": "FPLM",
+        "FiscalInfo": {
+          "UseInDocuments": false,
+          "FiscalName": "",
+          "Cif": ""
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 25,
+        "Name": "ALMACEN PRODUCCION",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPLM",
+        "IncomingDeliveryNoteSerie": "APLM",
+        "PurchaseInvoiceSerie": "FPLM",
+        "FiscalInfo": {
+          "UseInDocuments": false,
+          "FiscalName": "",
+          "Cif": ""
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 26,
+        "Name": "ALMACEN KIOSKO LOCA MARIA BARRA",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPLR",
+        "IncomingDeliveryNoteSerie": "APLR",
+        "PurchaseInvoiceSerie": "FPLR",
+        "FiscalInfo": {
+          "UseInDocuments": false,
+          "FiscalName": "",
+          "Cif": ""
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 27,
+        "Name": "ALMACEN RITMO",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPLR",
+        "IncomingDeliveryNoteSerie": "APLR",
+        "PurchaseInvoiceSerie": "FPLR",
+        "FiscalInfo": {
+          "UseInDocuments": false,
+          "FiscalName": "",
+          "Cif": ""
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 28,
+        "Name": "ALMACEN LA GUARACHA",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PPLG",
+        "IncomingDeliveryNoteSerie": "APLG",
+        "PurchaseInvoiceSerie": "FPLG",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "SEBOTEST SL",
+          "Cif": "B19902022"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 29,
+        "Name": "ALMACEN DIDO",
+        "Street": "C/ANGEL GANIVET 8",
+        "City": "GRANADA",
+        "Region": "GRANADA",
+        "ZipCode": "18009",
+        "PurchaseOrderSerie": "PPDI",
+        "IncomingDeliveryNoteSerie": "APDI",
+        "PurchaseInvoiceSerie": "FPDI",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "LDMEG INVESTMENT SL",
+          "Cif": "B72629017"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 30,
+        "Name": "ALMACEN DIDO BARRA ISLA",
+        "Street": "C/ANGEL GANIVET 8",
+        "City": "GRANADA",
+        "Region": "GRANADA",
+        "ZipCode": "18009",
+        "PurchaseOrderSerie": "PPDI",
+        "IncomingDeliveryNoteSerie": "APDI",
+        "PurchaseInvoiceSerie": "FPDI",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "LDMEG INVESTMENT SL",
+          "Cif": "B72629017"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 31,
+        "Name": "ALMACEN DIDO BARRA AUX",
+        "Street": "C/ANGEL GANIVET 8",
+        "City": "GRANADA",
+        "Region": "GRANADA",
+        "ZipCode": "18009",
+        "PurchaseOrderSerie": "PPDI",
+        "IncomingDeliveryNoteSerie": "APDI",
+        "PurchaseInvoiceSerie": "FPDI",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "LDMEG INVESTMENT SL",
+          "Cif": "B72629017"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 32,
+        "Name": "ALMACEN DIDO BARRA FONDO",
+        "Street": "C/ANGEL GANIVET 8",
+        "City": "GRANADA",
+        "Region": "GRANADA",
+        "ZipCode": "18009",
+        "PurchaseOrderSerie": "PPDI",
+        "IncomingDeliveryNoteSerie": "APDI",
+        "PurchaseInvoiceSerie": "FPDI",
+        "FiscalInfo": {
+          "UseInDocuments": true,
+          "FiscalName": "LDMEG INVESTMENT SL",
+          "Cif": "B72629017"
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      },
+      {
+        "Id": 33,
+        "Name": "ALMACEN JAZMIN",
+        "Street": "",
+        "City": "",
+        "Region": "",
+        "ZipCode": "",
+        "PurchaseOrderSerie": "PC16",
+        "IncomingDeliveryNoteSerie": "AP16",
+        "PurchaseInvoiceSerie": "FP16",
+        "FiscalInfo": {
+          "UseInDocuments": false,
+          "FiscalName": "",
+          "Cif": ""
+        },
+        "UpdatePricePolicy": "PurchasePrice",
+        "UpdateProductionPricePolicy": "ProductionCost",
+        "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+        "RestockSupplierSearchMode": "Default"
+      }
+    ]
+  },
+  "list": [
+    {
+      "Id": 1,
+      "Name": "Almacén General",
+      "Street": "San Matías, 22",
+      "City": "Granada",
+      "Region": "Granada",
+      "ZipCode": "18009",
+      "PurchaseOrderSerie": "PC",
+      "IncomingDeliveryNoteSerie": "AC",
+      "PurchaseInvoiceSerie": "FC",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "COCTEMATIAS SL",
+        "Cif": "B19632926"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 2,
+      "Name": "ALMACEN COLÓN",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPCP",
+      "IncomingDeliveryNoteSerie": "ACCP",
+      "PurchaseInvoiceSerie": "FPCP",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "NUEVO GRANERO 2019 S.L.",
+        "Cif": "B19663095"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 3,
+      "Name": "ALMACEN COLÓN BARRA1",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPCP",
+      "IncomingDeliveryNoteSerie": "ACCP",
+      "PurchaseInvoiceSerie": "FPCP",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "NUEVO GRANERO 2019 S.L.",
+        "Cif": "B19663095"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 4,
+      "Name": "ALMACEN COLÓN BARRA2",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPCP",
+      "IncomingDeliveryNoteSerie": "ACCP",
+      "PurchaseInvoiceSerie": "FPCP",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "NUEVO GRANERO 2019 S.L.",
+        "Cif": "B19663095"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 5,
+      "Name": "ALMACEN COLÓN COCTELERIA",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPCP",
+      "IncomingDeliveryNoteSerie": "ACCP",
+      "PurchaseInvoiceSerie": "FPCP",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "NUEVO GRANERO 2019 S.L.",
+        "Cif": "B19663095"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 6,
+      "Name": "ALMACEN COLÓN SOTANO",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPCP",
+      "IncomingDeliveryNoteSerie": "ACCP",
+      "PurchaseInvoiceSerie": "FPCP",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "NUEVO GRANERO 2019 S.L.",
+        "Cif": "B19663095"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 7,
+      "Name": "ALMACEN COLÓN ENJOY",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPCP",
+      "IncomingDeliveryNoteSerie": "ACCP",
+      "PurchaseInvoiceSerie": "FPCP",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "NUEVO GRANERO 2019 S.L.",
+        "Cif": "B19663095"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 8,
+      "Name": "ALMACEN FIERO",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PCFI",
+      "IncomingDeliveryNoteSerie": "ACFI",
+      "PurchaseInvoiceSerie": "FCFI",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "A CONTRAMANO REST SL",
+        "Cif": "B19713205"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 9,
+      "Name": "ALMACEN INSTANTE",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPIN",
+      "IncomingDeliveryNoteSerie": "APIN",
+      "PurchaseInvoiceSerie": "FPIN",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "DRINK&FUN S.L.",
+        "Cif": "B19535483"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 10,
+      "Name": "ALMACEN SIN RUMBO",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPSR",
+      "IncomingDeliveryNoteSerie": "APSR",
+      "PurchaseInvoiceSerie": "FPSR",
+      "FiscalInfo": {
+        "UseInDocuments": false,
+        "FiscalName": "",
+        "Cif": ""
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 11,
+      "Name": "ALMACEN MAMA SAMBA",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPMS",
+      "IncomingDeliveryNoteSerie": "APMS",
+      "PurchaseInvoiceSerie": "FPMS",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "MATIAGRAN SL",
+        "Cif": "B01610633"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 12,
+      "Name": "ALMACEN LA MULATA",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPLM",
+      "IncomingDeliveryNoteSerie": "APLM",
+      "PurchaseInvoiceSerie": "FPLM",
+      "FiscalInfo": {
+        "UseInDocuments": false,
+        "FiscalName": "",
+        "Cif": ""
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 13,
+      "Name": "ALMACEN PARIPE",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PCPA",
+      "IncomingDeliveryNoteSerie": "ACPA",
+      "PurchaseInvoiceSerie": "FCPA",
+      "FiscalInfo": {
+        "UseInDocuments": false,
+        "FiscalName": "",
+        "Cif": ""
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 14,
+      "Name": "ALMACEN SARAO",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PCSA",
+      "IncomingDeliveryNoteSerie": "ACSA",
+      "PurchaseInvoiceSerie": "FCSA",
+      "FiscalInfo": {
+        "UseInDocuments": false,
+        "FiscalName": "",
+        "Cif": ""
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 15,
+      "Name": "ALMACEN FUNKY PANDA",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PCFP",
+      "IncomingDeliveryNoteSerie": "ACFP",
+      "PurchaseInvoiceSerie": "FCFP",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "LEMON BAR S.L.",
+        "Cif": "B19563352"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 16,
+      "Name": "ALMACEN HANALEI",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PCHA",
+      "IncomingDeliveryNoteSerie": "ACHA",
+      "PurchaseInvoiceSerie": "FCHA",
+      "FiscalInfo": {
+        "UseInDocuments": false,
+        "FiscalName": "",
+        "Cif": ""
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 17,
+      "Name": "ALMACEN CAROCA",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PCCA",
+      "IncomingDeliveryNoteSerie": "ACCA",
+      "PurchaseInvoiceSerie": "FCCA",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "RESTAURACIONBIBRAMBLA S.L.",
+        "Cif": "B04997466"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 18,
+      "Name": "ALMACEN SPEAKEASY",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PCSE",
+      "IncomingDeliveryNoteSerie": "ACSE",
+      "PurchaseInvoiceSerie": "FCSE",
+      "FiscalInfo": {
+        "UseInDocuments": false,
+        "FiscalName": "",
+        "Cif": ""
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 19,
+      "Name": "ALMACEN GENERAL NEPTUNO",
+      "Street": "C/PEDRO ANTONIO DE ALARCON 19 BIS, 1B",
+      "City": "GRANADA",
+      "Region": "GRANADA",
+      "ZipCode": "18005",
+      "PurchaseOrderSerie": "PPLR.",
+      "IncomingDeliveryNoteSerie": "APLR.",
+      "PurchaseInvoiceSerie": "FPLR.",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "PASEO OBRA MAESTRA SL",
+        "Cif": "B06784151"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 20,
+      "Name": "ALMACEN COCINA LOCAMARIA",
+      "Street": "C/PEDRO ANTONIO DE ALARCON 19 BIS, 1B",
+      "City": "GRANADA",
+      "Region": "GRANADA",
+      "ZipCode": "18005",
+      "PurchaseOrderSerie": "PPLR.",
+      "IncomingDeliveryNoteSerie": "APLR.",
+      "PurchaseInvoiceSerie": "FPLR.",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "PASEO OBRA MAESTRA SL",
+        "Cif": "B06784151"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 21,
+      "Name": "ALMACEN SALA LOCAMARIA",
+      "Street": "C/PEDRO ANTONIO DE ALARCON 19 BIS, 1B",
+      "City": "GRANADA",
+      "Region": "GRANADA",
+      "ZipCode": "18005",
+      "PurchaseOrderSerie": "PPLR.",
+      "IncomingDeliveryNoteSerie": "APLR.",
+      "PurchaseInvoiceSerie": "FPLR.",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "PASEO OBRA MAESTRA SL",
+        "Cif": "B06784151"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 22,
+      "Name": "ALMACEN CONFUSO",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPLM",
+      "IncomingDeliveryNoteSerie": "APLM",
+      "PurchaseInvoiceSerie": "FPLM",
+      "FiscalInfo": {
+        "UseInDocuments": false,
+        "FiscalName": "",
+        "Cif": ""
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 23,
+      "Name": "ALMACEN MALAGRANA",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPLM",
+      "IncomingDeliveryNoteSerie": "APLM",
+      "PurchaseInvoiceSerie": "FPLM",
+      "FiscalInfo": {
+        "UseInDocuments": false,
+        "FiscalName": "",
+        "Cif": ""
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 24,
+      "Name": "ALMACEN CLIENTES EXTERNOS",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPLM",
+      "IncomingDeliveryNoteSerie": "APLM",
+      "PurchaseInvoiceSerie": "FPLM",
+      "FiscalInfo": {
+        "UseInDocuments": false,
+        "FiscalName": "",
+        "Cif": ""
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 25,
+      "Name": "ALMACEN PRODUCCION",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPLM",
+      "IncomingDeliveryNoteSerie": "APLM",
+      "PurchaseInvoiceSerie": "FPLM",
+      "FiscalInfo": {
+        "UseInDocuments": false,
+        "FiscalName": "",
+        "Cif": ""
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 26,
+      "Name": "ALMACEN KIOSKO LOCA MARIA BARRA",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPLR",
+      "IncomingDeliveryNoteSerie": "APLR",
+      "PurchaseInvoiceSerie": "FPLR",
+      "FiscalInfo": {
+        "UseInDocuments": false,
+        "FiscalName": "",
+        "Cif": ""
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 27,
+      "Name": "ALMACEN RITMO",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPLR",
+      "IncomingDeliveryNoteSerie": "APLR",
+      "PurchaseInvoiceSerie": "FPLR",
+      "FiscalInfo": {
+        "UseInDocuments": false,
+        "FiscalName": "",
+        "Cif": ""
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 28,
+      "Name": "ALMACEN LA GUARACHA",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PPLG",
+      "IncomingDeliveryNoteSerie": "APLG",
+      "PurchaseInvoiceSerie": "FPLG",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "SEBOTEST SL",
+        "Cif": "B19902022"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 29,
+      "Name": "ALMACEN DIDO",
+      "Street": "C/ANGEL GANIVET 8",
+      "City": "GRANADA",
+      "Region": "GRANADA",
+      "ZipCode": "18009",
+      "PurchaseOrderSerie": "PPDI",
+      "IncomingDeliveryNoteSerie": "APDI",
+      "PurchaseInvoiceSerie": "FPDI",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "LDMEG INVESTMENT SL",
+        "Cif": "B72629017"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 30,
+      "Name": "ALMACEN DIDO BARRA ISLA",
+      "Street": "C/ANGEL GANIVET 8",
+      "City": "GRANADA",
+      "Region": "GRANADA",
+      "ZipCode": "18009",
+      "PurchaseOrderSerie": "PPDI",
+      "IncomingDeliveryNoteSerie": "APDI",
+      "PurchaseInvoiceSerie": "FPDI",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "LDMEG INVESTMENT SL",
+        "Cif": "B72629017"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 31,
+      "Name": "ALMACEN DIDO BARRA AUX",
+      "Street": "C/ANGEL GANIVET 8",
+      "City": "GRANADA",
+      "Region": "GRANADA",
+      "ZipCode": "18009",
+      "PurchaseOrderSerie": "PPDI",
+      "IncomingDeliveryNoteSerie": "APDI",
+      "PurchaseInvoiceSerie": "FPDI",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "LDMEG INVESTMENT SL",
+        "Cif": "B72629017"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 32,
+      "Name": "ALMACEN DIDO BARRA FONDO",
+      "Street": "C/ANGEL GANIVET 8",
+      "City": "GRANADA",
+      "Region": "GRANADA",
+      "ZipCode": "18009",
+      "PurchaseOrderSerie": "PPDI",
+      "IncomingDeliveryNoteSerie": "APDI",
+      "PurchaseInvoiceSerie": "FPDI",
+      "FiscalInfo": {
+        "UseInDocuments": true,
+        "FiscalName": "LDMEG INVESTMENT SL",
+        "Cif": "B72629017"
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    },
+    {
+      "Id": 33,
+      "Name": "ALMACEN JAZMIN",
+      "Street": "",
+      "City": "",
+      "Region": "",
+      "ZipCode": "",
+      "PurchaseOrderSerie": "PC16",
+      "IncomingDeliveryNoteSerie": "AP16",
+      "PurchaseInvoiceSerie": "FP16",
+      "FiscalInfo": {
+        "UseInDocuments": false,
+        "FiscalName": "",
+        "Cif": ""
+      },
+      "UpdatePricePolicy": "PurchasePrice",
+      "UpdateProductionPricePolicy": "ProductionCost",
+      "UpdateTransferCostPricePolicy": "WeightedAvgCostPrice",
+      "RestockSupplierSearchMode": "Default"
+    }
+  ]
+}

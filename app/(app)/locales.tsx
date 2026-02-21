@@ -11,6 +11,7 @@ import {
   Platform,
   KeyboardAvoidingView,
   Image,
+  useWindowDimensions,
   type ImageStyle,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -55,10 +56,27 @@ const INITIAL_FORM = Object.fromEntries(CAMPOS_FORM.map((c) => [c.key, ''])) as 
 
 const SEDE_OPCIONES = ['Grupo Paripe'] as const;
 
+const ALMACEN_SEPARATOR = ', ';
+
+function parseAlmacenesOrigen(val: string | number | undefined): string[] {
+  if (val == null || String(val).trim() === '') return [];
+  return String(val)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function joinAlmacenesOrigen(arr: string[]): string {
+  return arr.filter(Boolean).join(ALMACEN_SEPARATOR);
+}
+
 type Local = Record<string, string | number | undefined>;
 
 /** Ítem de igp_Empresas (API devuelve todos los atributos; puede incluir Sede/sede) */
 type EmpresaItem = { id_empresa?: string; Nombre?: string; sede?: string; Sede?: string };
+
+/** Ítem de igp_Almacenes (Id, Nombre, Descripcion, Direccion) */
+type AlmacenItem = { Id?: string; Nombre?: string; Descripcion?: string; Direccion?: string };
 
 type DireccionSuggestion = { description: string; place_id: string; lat?: number; lng?: number };
 
@@ -91,6 +109,9 @@ export default function LocalesScreen() {
   const [empresaDropdownOpen, setEmpresaDropdownOpen] = useState(false);
   const [empresaSearchFilter, setEmpresaSearchFilter] = useState('');
   const [empresasGrupoParipe, setEmpresasGrupoParipe] = useState<EmpresaItem[]>([]);
+  const [almacenDropdownOpen, setAlmacenDropdownOpen] = useState(false);
+  const [almacenSearchFilter, setAlmacenSearchFilter] = useState('');
+  const [almacenes, setAlmacenes] = useState<AlmacenItem[]>([]);
   const [imagenLoading, setImagenLoading] = useState(false);
   const [modalCrearEmpresaVisible, setModalCrearEmpresaVisible] = useState(false);
   const [formCrearEmpresa, setFormCrearEmpresa] = useState({ Nombre: '', Cif: '' });
@@ -109,6 +130,8 @@ export default function LocalesScreen() {
     setSedeSearchFilter('');
     setEmpresaDropdownOpen(false);
     setEmpresaSearchFilter('');
+    setAlmacenDropdownOpen(false);
+    setAlmacenSearchFilter('');
     setModalNuevoVisible(true);
     setErrorForm(null);
   };
@@ -134,6 +157,8 @@ export default function LocalesScreen() {
     setSedeSearchFilter('');
     setEmpresaDropdownOpen(false);
     setEmpresaSearchFilter('');
+    setAlmacenDropdownOpen(false);
+    setAlmacenSearchFilter('');
     setModalNuevoVisible(true);
     setErrorForm(null);
   };
@@ -153,8 +178,27 @@ export default function LocalesScreen() {
     setSedeSearchFilter('');
     setEmpresaDropdownOpen(false);
     setEmpresaSearchFilter('');
+    setAlmacenDropdownOpen(false);
+    setAlmacenSearchFilter('');
     setErrorForm(null);
   };
+
+  const almacenesFiltradosParaDropdown = useMemo(() => {
+    const q = almacenSearchFilter.trim().toLowerCase().replace(/\s+/g, ' ');
+    const list = !q ? almacenes : almacenes.filter((a) => {
+      const n = (a.Nombre ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+      const id = (a.Id ?? '').toLowerCase().trim();
+      const qParts = q.split(/\s+/).filter(Boolean);
+      const matchNombre = qParts.length === 0 ? true : qParts.every((part) => n.includes(part));
+      const matchId = id.includes(q);
+      return matchNombre || matchId;
+    });
+    return [...list].sort((a, b) => {
+      const na = (a.Nombre ?? a.Id ?? '').toLowerCase();
+      const nb = (b.Nombre ?? b.Id ?? '').toLowerCase();
+      return na.localeCompare(nb);
+    });
+  }, [almacenes, almacenSearchFilter]);
 
   const empresasFiltradasParaDropdown = useMemo(() => {
     const q = empresaSearchFilter.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -486,6 +530,14 @@ export default function LocalesScreen() {
     return ['id_Locales', COL_THUMBNAIL, ...rest];
   }, []);
 
+  const tableWidth = useMemo(
+    () => columnas.reduce((sum, col) => sum + getColWidth(col), 0),
+    [columnas, getColWidth]
+  );
+
+  const { height: windowHeight } = useWindowDimensions();
+  const scrollAreaHeight = Math.max(300, windowHeight - 280);
+
   const valorCelda = useCallback((local: Local, col: string) => {
     if (col.startsWith('id_')) {
       const key = Object.keys(local).find((k) => k.toLowerCase() === col.toLowerCase());
@@ -536,9 +588,23 @@ export default function LocalesScreen() {
       .catch(() => setEmpresasGrupoParipe([]));
   }, []);
 
+  const refetchAlmacenes = useCallback(() => {
+    fetch(`${API_URL}/api/almacenes`)
+      .then((res) => res.json())
+      .then((data: { almacenes?: AlmacenItem[] }) => {
+        const list = data.almacenes || [];
+        setAlmacenes(list);
+      })
+      .catch(() => setAlmacenes([]));
+  }, []);
+
   useEffect(() => {
     refetchEmpresas();
   }, [refetchEmpresas]);
+
+  useEffect(() => {
+    refetchAlmacenes();
+  }, [refetchAlmacenes]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !resizingCol) return;
@@ -648,28 +714,42 @@ export default function LocalesScreen() {
         {filtroBusqueda.trim() ? `${localesFiltrados.length} de ${locales.length} registro${locales.length !== 1 ? 's' : ''}` : `${locales.length} registro${locales.length !== 1 ? 's' : ''} en la tabla`}
       </Text>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContentVertical} showsVerticalScrollIndicator>
-        <ScrollView horizontal contentContainerStyle={styles.scrollContent} showsHorizontalScrollIndicator>
-          <View style={styles.table}>
-          <View style={styles.rowHeader}>
-            {columnas.map((col) => (
-              <View key={col} style={[styles.cellHeader, { width: getColWidth(col) }]}>
-                <Text style={styles.cellHeaderText} numberOfLines={1} ellipsizeMode="tail">
-                  {col === COL_THUMBNAIL ? 'Foto' : col}
-                </Text>
-                {Platform.OS === 'web' && col !== COL_THUMBNAIL && (
-                  <View
-                    style={styles.resizeHandle}
-                    {...({
-                      onMouseDown: (e: { nativeEvent?: { clientX: number }; clientX?: number }) =>
-                        handleResizeStart(col, e),
-                    } as object)}
-                  />
-                )}
-              </View>
-            ))}
-          </View>
-          {localesFiltrados.map((local, idx) => (
+      <ScrollView
+        horizontal
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContentHorizontal}
+        showsHorizontalScrollIndicator
+      >
+        <View style={[styles.tableWrapper, { minWidth: tableWidth }]}>
+          <ScrollView
+            style={[styles.scrollVertical, { maxHeight: scrollAreaHeight }]}
+            contentContainerStyle={styles.scrollContentVertical}
+            showsVerticalScrollIndicator
+          >
+            <View
+              style={[
+                styles.rowHeader,
+                ...(Platform.OS === 'web' ? [{ position: 'sticky', top: 0, zIndex: 10 } as Record<string, unknown>] : []),
+              ]}
+            >
+              {columnas.map((col) => (
+                <View key={col} style={[styles.cellHeader, { width: getColWidth(col) }]}>
+                  <Text style={styles.cellHeaderText} numberOfLines={1} ellipsizeMode="tail">
+                    {col === COL_THUMBNAIL ? 'Foto' : col}
+                  </Text>
+                  {Platform.OS === 'web' && col !== COL_THUMBNAIL && (
+                    <View
+                      style={styles.resizeHandle}
+                      {...({
+                        onMouseDown: (e: { nativeEvent?: { clientX: number }; clientX?: number }) =>
+                          handleResizeStart(col, e),
+                      } as object)}
+                    />
+                  )}
+                </View>
+              ))}
+            </View>
+            {localesFiltrados.map((local, idx) => (
             <TouchableOpacity
               key={idx}
               style={[styles.row, selectedRowIndex === idx && styles.rowSelected]}
@@ -711,8 +791,8 @@ export default function LocalesScreen() {
               })}
             </TouchableOpacity>
           ))}
-          </View>
-        </ScrollView>
+          </ScrollView>
+        </View>
       </ScrollView>
 
       <Modal visible={modalNuevoVisible} transparent animationType="fade" onRequestClose={cerrarModalNuevo}>
@@ -892,6 +972,93 @@ export default function LocalesScreen() {
                                     </TouchableOpacity>
                                   </>
                                 )}
+                              </ScrollView>
+                            </View>
+                          )}
+                        </View>
+                      ) : campo.key === 'Almacen origen' ? (
+                        <View key={campo.key} style={styles.formGroup}>
+                          <Text style={styles.formLabel}>{campo.label}</Text>
+                          <View style={styles.almacenChipsWrap}>
+                            {parseAlmacenesOrigen(formNuevo['Almacen origen']).map((nombre) => (
+                              <View key={nombre} style={styles.almacenChip}>
+                                <Text style={styles.almacenChipText} numberOfLines={1}>{nombre}</Text>
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    const arr = parseAlmacenesOrigen(formNuevo['Almacen origen']).filter((n) => n !== nombre);
+                                    setFormNuevo((prev) => ({ ...prev, 'Almacen origen': joinAlmacenesOrigen(arr) }));
+                                  }}
+                                  style={styles.almacenChipRemove}
+                                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                >
+                                  <MaterialIcons name="close" size={14} color="#64748b" />
+                                </TouchableOpacity>
+                              </View>
+                            ))}
+                            <TouchableOpacity
+                              style={[styles.formInput, styles.formInputRow, styles.almacenAddBtn]}
+                              onPress={() => setAlmacenDropdownOpen((o) => !o)}
+                              activeOpacity={0.7}
+                            >
+                              <MaterialIcons name="add" size={18} color="#0ea5e9" style={{ marginRight: 4 }} />
+                              <Text style={[styles.formInputText, styles.almacenAddText]}>Añadir almacén</Text>
+                              <MaterialIcons name={almacenDropdownOpen ? 'expand-less' : 'expand-more'} size={18} color="#64748b" style={styles.sedeChevron} />
+                            </TouchableOpacity>
+                          </View>
+                          {almacenDropdownOpen && (
+                            <View style={styles.empresaDropdownWrap}>
+                              <TextInput
+                                style={styles.empresaDropdownSearch}
+                                value={almacenSearchFilter}
+                                onChangeText={setAlmacenSearchFilter}
+                                placeholder="Buscar almacén…"
+                                placeholderTextColor="#94a3b8"
+                              />
+                              <ScrollView style={styles.empresaDropdownScroll} keyboardShouldPersistTaps="handled">
+                                {parseAlmacenesOrigen(formNuevo['Almacen origen']).length > 0 ? (
+                                  <TouchableOpacity
+                                    style={[styles.empresaDropdownOption, styles.dropdownVaciarOption]}
+                                    onPress={() => {
+                                      setFormNuevo((prev) => ({ ...prev, 'Almacen origen': '' }));
+                                      setAlmacenDropdownOpen(false);
+                                      setAlmacenSearchFilter('');
+                                    }}
+                                    activeOpacity={0.7}
+                                  >
+                                    <MaterialIcons name="clear" size={16} color="#94a3b8" style={{ marginRight: 6 }} />
+                                    <Text style={styles.dropdownVaciarText}>Vaciar todos</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {almacenes.length === 0 ? (
+                                  <View style={styles.empresaDropdownOption}>
+                                    <Text style={styles.empresaDropdownOptionText}>Sin almacenes. Sincroniza desde el módulo Almacenes.</Text>
+                                  </View>
+                                ) : (() => {
+                                  const yaSeleccionados = new Set(parseAlmacenesOrigen(formNuevo['Almacen origen']));
+                                  const disponibles = almacenesFiltradosParaDropdown.filter((alm) => !yaSeleccionados.has(alm.Nombre ?? alm.Id ?? ''));
+                                  return disponibles.length === 0 ? (
+                                    <View style={styles.empresaDropdownOption}>
+                                      <Text style={styles.empresaDropdownOptionText}>Todos los almacenes ya están asignados</Text>
+                                    </View>
+                                  ) : (
+                                    disponibles.map((alm) => {
+                                      const nombre = alm.Nombre ?? alm.Id ?? '';
+                                      return (
+                                        <TouchableOpacity
+                                          key={alm.Id ?? nombre}
+                                          style={styles.empresaDropdownOption}
+                                          onPress={() => {
+                                            const arr = [...parseAlmacenesOrigen(formNuevo['Almacen origen']), nombre];
+                                            setFormNuevo((prev) => ({ ...prev, 'Almacen origen': joinAlmacenesOrigen(arr) }));
+                                          }}
+                                          activeOpacity={0.7}
+                                        >
+                                          <Text style={styles.empresaDropdownOptionText}>{nombre || '—'}</Text>
+                                        </TouchableOpacity>
+                                      );
+                                    })
+                                  );
+                                })()}
                               </ScrollView>
                             </View>
                           )}
@@ -1110,8 +1277,9 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 12, color: '#64748b', marginBottom: 8 },
   scroll: { flex: 1 },
   scrollContentVertical: { paddingBottom: 20 },
-  scrollContent: { paddingBottom: 20 },
-  table: { minWidth: '100%', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff' },
+  scrollContentHorizontal: { paddingBottom: 20 },
+  scrollVertical: { flex: 1 },
+  tableWrapper: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff' },
   rowHeader: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
   cellHeader: { minWidth: MIN_COL_WIDTH, paddingVertical: 6, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#cbd5e1', position: 'relative' },
   cellHeaderText: { fontSize: 11, fontWeight: '600', color: '#334155' },
@@ -1171,6 +1339,12 @@ const styles = StyleSheet.create({
   direccionOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
   direccionOptionIcon: { marginRight: 8 },
   direccionOptionText: { flex: 1, fontSize: 11, color: '#334155' },
+  almacenChipsWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
+  almacenChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#e0f2fe', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 8, paddingVertical: 4, paddingLeft: 8, paddingRight: 4, maxWidth: 180 },
+  almacenChipText: { fontSize: 11, color: '#0c4a6e', flex: 1 },
+  almacenChipRemove: { padding: 2 },
+  almacenAddBtn: { alignSelf: 'flex-start', minWidth: 140 },
+  almacenAddText: { color: '#0ea5e9', fontWeight: '500' },
   imagenButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 12, backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 8 },
   imagenButtonText: { fontSize: 13, color: '#0ea5e9', fontWeight: '500' },
   imagenPreviewWrap: { marginTop: 8, position: 'relative', alignSelf: 'flex-start' },

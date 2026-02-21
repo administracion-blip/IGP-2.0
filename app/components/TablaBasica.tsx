@@ -79,6 +79,8 @@ export type TablaBasicaProps<T = Record<string, unknown>> = {
   emptyFilterMessage?: string;
   /** Nombres de columnas con formato moneda (alineación derecha) */
   columnasMoneda?: string[];
+  /** Ocultar cabecera (botón atrás + título) para usar cabecera personalizada */
+  hideHeader?: boolean;
 };
 
 export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps<T>) {
@@ -106,6 +108,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     emptyMessage = 'No hay registros',
     emptyFilterMessage = 'Ningún resultado con el filtro',
     columnasMoneda = [],
+    hideHeader = false,
   } = props;
 
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
@@ -199,12 +202,14 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
 
   return (
     <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
-        </TouchableOpacity>
-        <Text style={styles.title}>{title}</Text>
-      </View>
+      {!hideHeader && (
+        <View style={styles.headerRow}>
+          <TouchableOpacity onPress={onBack} style={styles.backBtn}>
+            <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          </TouchableOpacity>
+          <Text style={styles.title}>{title}</Text>
+        </View>
+      )}
 
       <View style={styles.toolbarRow}>
         <View style={styles.toolbar}>
