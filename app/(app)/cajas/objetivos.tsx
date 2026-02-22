@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import { InputFecha } from '../../components/InputFecha';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -89,6 +90,15 @@ function mesEnCurso(): { inicio: string; fin: string } {
   };
 }
 
+function ultimoDiaDelMes(fecha: string): string {
+  if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return fecha;
+  const d = new Date(fecha + 'T12:00:00');
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  const ultimoDia = new Date(y, m + 1, 0).getDate();
+  return `${y}-${String(m + 1).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`;
+}
+
 function nombreMesYAnio(): string {
   const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   const hoy = new Date();
@@ -131,6 +141,12 @@ export default function ObjetivosScreen() {
   useEffect(() => {
     cargarLocales();
   }, [cargarLocales]);
+
+  useEffect(() => {
+    if (fechaInicio && /^\d{4}-\d{2}-\d{2}$/.test(fechaInicio)) {
+      setFechaFin(ultimoDiaDelMes(fechaInicio));
+    }
+  }, [fechaInicio]);
 
   const cargarLocalesObjetivos = useCallback(async () => {
     if (locales.length === 0) return;
@@ -323,22 +339,23 @@ export default function ObjetivosScreen() {
         <View style={styles.formRow}>
           <View style={styles.formGroup}>
             <Text style={styles.formLabel}>Fecha inicio</Text>
-            <TextInput
-              style={styles.formInput}
+            <InputFecha
               value={fechaInicio}
-              onChangeText={setFechaInicio}
+              onChange={setFechaInicio}
+              format="iso"
               placeholder="YYYY-MM-DD"
-              placeholderTextColor="#94a3b8"
+              style={styles.formInput}
             />
           </View>
           <View style={styles.formGroup}>
             <Text style={styles.formLabel}>Fecha fin</Text>
-            <TextInput
-              style={styles.formInput}
+            <InputFecha
               value={fechaFin}
-              onChangeText={setFechaFin}
+              onChange={() => {}}
+              format="iso"
               placeholder="YYYY-MM-DD"
-              placeholderTextColor="#94a3b8"
+              style={[styles.formInput, styles.formInputDisabled]}
+              editable={false}
             />
           </View>
         </View>
@@ -407,7 +424,7 @@ export default function ObjetivosScreen() {
           {loadingLocalesObjetivos ? (
             <ActivityIndicator size="small" color="#64748b" style={styles.widgetLocalesLoader} />
           ) : (
-            <ScrollView style={styles.localesListScroll} nestedScrollEnabled showsVerticalScrollIndicator>
+            <View style={styles.localesListWrap}>
               {[...localesObjetivos]
                 .sort((a, b) => {
                   const nomA = (a.local.nombre ?? a.local.Nombre ?? a.local.agoraCode ?? a.local.AgoraCode ?? '—').toString().trim().toLowerCase();
@@ -428,11 +445,11 @@ export default function ObjetivosScreen() {
                         {item.desvioPct != null && (
                           <MaterialIcons
                             name={item.desvioPct >= 0 ? 'trending-up' : 'trending-down'}
-                            size={12}
+                            size={10}
                             color={estilo.color}
                           />
                         )}
-                        <Text style={[styles.tickerText, { color: estilo.color, fontSize: 11 }]}>
+                        <Text style={[styles.tickerText, { color: estilo.color, fontSize: 9 }]}>
                           {formatPctTicker(item.desvioPct)}
                         </Text>
                       </View>
@@ -448,7 +465,7 @@ export default function ObjetivosScreen() {
                   </View>
                 );
               })}
-            </ScrollView>
+            </View>
           )}
           </View>
         </View>
@@ -475,9 +492,21 @@ export default function ObjetivosScreen() {
                   <Text style={styles.progressLabel}>
                     {formatMoneda(sumReal)} / {formatMoneda(sumComp)}
                   </Text>
-                  <Text style={styles.progressPct}>
-                    {sumComp === 0 ? '0%' : `${Math.min(100, (sumReal / sumComp) * 100).toFixed(1)}%`}
-                  </Text>
+                  <View style={styles.progressHeaderRight}>
+                    <View style={[
+                      styles.progressRestanteBadge,
+                      (sumComp - sumReal) <= 0 ? styles.progressRestanteAlcanzado : styles.progressRestantePendiente,
+                    ]}>
+                      <Text style={styles.progressRestanteText}>
+                        {(sumComp - sumReal) <= 0
+                          ? 'Objetivo alcanzado'
+                          : `Faltan ${formatMoneda(sumComp - sumReal)}`}
+                      </Text>
+                    </View>
+                    <Text style={styles.progressPct}>
+                      {sumComp === 0 ? '0%' : `${Math.min(100, (sumReal / sumComp) * 100).toFixed(1)}%`}
+                    </Text>
+                  </View>
                 </View>
                 <View style={styles.progressTrack}>
                   <View
@@ -536,7 +565,15 @@ export default function ObjetivosScreen() {
                 <Text style={[styles.cell, styles.cellFecha, styles.cellBold]} numberOfLines={1}>{r.Fecha}</Text>
                 <Text style={[styles.cell, styles.cellFecha]} numberOfLines={1}>{r.FechaComparacion}</Text>
                 <Text style={[styles.cell, styles.cellFestivo]}>{r.Festivo ? 'Sí' : 'No'}</Text>
-                <Text style={[styles.cell, styles.cellNombre]} numberOfLines={1}>{r.NombreFestivo || '—'}</Text>
+                <View style={[styles.cell, styles.cellNombre]}>
+                  {r.NombreFestivo ? (
+                    <View style={styles.nombreFestivoBadge}>
+                      <Text style={styles.nombreFestivoText} numberOfLines={1}>{r.NombreFestivo}</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.cellText} numberOfLines={1}>—</Text>
+                  )}
+                </View>
                 <Text style={[styles.cell, styles.cellMoneda, styles.cellBold]}>{formatMoneda(r.TotalFacturadoReal)}</Text>
                 <Text style={[styles.cell, styles.cellMoneda]}>{formatMoneda(r.TotalFacturadoComparativa)}</Text>
                 <Text style={[styles.cell, styles.cellMoneda, styles.cellBold, colorDesvio(r.Desvio)]}>{formatMoneda(r.Desvio)}</Text>
@@ -575,7 +612,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   tableWrapper: { flex: 1, minWidth: 0 },
-  widgetTitle: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 4 },
+  widgetTitle: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 12 },
   formRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'flex-end' },
   formGroup: { flex: 1, minWidth: 90, maxWidth: 180 },
   formLabel: { fontSize: 11, fontWeight: '500', color: '#64748b', marginBottom: 1 },
@@ -589,6 +626,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#334155',
   },
+  formInputDisabled: { backgroundColor: '#f1f5f9', color: '#94a3b8' },
   dropdown: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -637,15 +675,15 @@ const styles = StyleSheet.create({
   btnGenerarDisabled: { opacity: 0.7 },
   btnGenerarText: { fontSize: 12, fontWeight: '600', color: '#fff' },
   widgetLocales: { alignSelf: 'stretch', minHeight: 120, marginTop: 12 },
-  widgetLocalesTitle: { fontSize: 14, fontWeight: '700', color: '#334155', marginBottom: 10 },
+  widgetLocalesTitle: { fontSize: 11, fontWeight: '700', color: '#334155', marginBottom: 8 },
   widgetLocalesLoader: { marginVertical: 20 },
-  localesListScroll: { maxHeight: 480 },
-  localesListItem: { marginBottom: 10 },
+  localesListWrap: {},
+  localesListItem: { marginBottom: 6 },
   localesListHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  localesListNombre: { fontSize: 12, fontWeight: '500', color: '#334155', flex: 1, marginRight: 8 },
-  localesListPct: { fontSize: 11, color: '#64748b', fontWeight: '400' },
+  localesListNombre: { fontSize: 10, fontWeight: '500', color: '#334155', flex: 1, marginRight: 8 },
+  localesListPct: { fontSize: 9, color: '#64748b', fontWeight: '400' },
   localesListProgressTrack: {
-    height: 8,
+    height: 6,
     backgroundColor: '#e2e8f0',
     borderRadius: 4,
     overflow: 'hidden',
@@ -666,8 +704,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 4,
   },
+  progressHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   progressLabel: { fontSize: 11, color: '#64748b', fontWeight: '500' },
   progressPct: { fontSize: 12, fontWeight: '700', color: '#334155' },
+  progressRestanteBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  progressRestanteAlcanzado: { backgroundColor: '#d1fae5' },
+  progressRestantePendiente: { backgroundColor: '#fef3c7' },
+  progressRestanteText: { fontSize: 11, fontWeight: '600', color: '#475569' },
   progressTrack: {
     height: 14,
     backgroundColor: '#e2e8f0',
@@ -714,6 +761,15 @@ const styles = StyleSheet.create({
   cellFecha: { width: 100 },
   cellFestivo: { width: 60 },
   cellNombre: { width: 120 },
+  cellText: { fontSize: 11, color: '#475569' },
+  nombreFestivoBadge: {
+    backgroundColor: '#fce7f3',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+  },
+  nombreFestivoText: { fontSize: 11, color: '#9d174d' },
   cellMoneda: { width: 110, textAlign: 'right' },
   cellPct: { width: 80, textAlign: 'right' },
   cellPctWrapper: { justifyContent: 'center', alignItems: 'flex-end', paddingVertical: 4 },

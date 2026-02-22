@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import { InputFecha } from '../../components/InputFecha';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const REFETCH_INTERVAL_MS = 15_000;
@@ -898,56 +899,56 @@ export default function CierresTeoricosScreen() {
           <View style={styles.filterRow}>
             <View style={styles.filterField}>
               <Text style={styles.filterLabel}>Desde</Text>
-              <TextInput
-                style={styles.filterInput}
+              <InputFecha
                 value={filtroFechaDesde}
-                onChangeText={setFiltroFechaDesde}
+                onChange={setFiltroFechaDesde}
+                format="dmy"
                 placeholder="dd/mm/yyyy"
-                placeholderTextColor="#94a3b8"
-              />
-                </View>
-            <View style={styles.filterField}>
-              <Text style={styles.filterLabel}>Hasta</Text>
-              <TextInput
                 style={styles.filterInput}
-                value={filtroFechaHasta}
-                onChangeText={setFiltroFechaHasta}
-                placeholder="dd/mm/yyyy"
-                placeholderTextColor="#94a3b8"
               />
             </View>
-            <View style={styles.filterFieldLocal}>
-              <Text style={styles.filterLabel}>Local</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterLocalesWrap} contentContainerStyle={styles.filterLocalesContent}>
-                <TouchableOpacity
-                  style={[styles.filterChip, !filtroLocal && styles.filterChipActive]}
-                  onPress={() => setFiltroLocal('')}
-                >
-                  <Text style={[styles.filterChipText, !filtroLocal && styles.filterChipTextActive]}>Todos</Text>
-                </TouchableOpacity>
-                {locales.map((loc) => {
-                  const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
-                  const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim() || code || '—';
-                  const sel = code !== '' && filtroLocal === code;
-                    return (
-                    <TouchableOpacity
-                      key={code || nombre}
-                      style={[styles.filterChip, sel && styles.filterChipActive]}
-                      onPress={() => setFiltroLocal(sel ? '' : code)}
-                    >
-                      <Text style={[styles.filterChipText, sel && styles.filterChipTextActive]} numberOfLines={1}>
-                        {nombre}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-                    </View>
+            <View style={styles.filterField}>
+              <Text style={styles.filterLabel}>Hasta</Text>
+              <InputFecha
+                value={filtroFechaHasta}
+                onChange={setFiltroFechaHasta}
+                format="dmy"
+                placeholder="dd/mm/yyyy"
+                style={styles.filterInput}
+              />
+            </View>
             <TouchableOpacity style={styles.filterClearBtn} onPress={() => { setFiltroFechaDesde(''); setFiltroFechaHasta(''); setFiltroLocal(''); }}>
               <MaterialIcons name="clear" size={14} color="#64748b" />
               <Text style={styles.filterClearText}>Limpiar</Text>
             </TouchableOpacity>
-                </View>
+          </View>
+          <View style={styles.filterRowLocal}>
+            <Text style={styles.filterLabel}>Local</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterLocalesWrap} contentContainerStyle={styles.filterLocalesContent}>
+              <TouchableOpacity
+                style={[styles.filterChip, !filtroLocal && styles.filterChipActive]}
+                onPress={() => setFiltroLocal('')}
+              >
+                <Text style={[styles.filterChipText, !filtroLocal && styles.filterChipTextActive]}>Todos</Text>
+              </TouchableOpacity>
+              {locales.map((loc) => {
+                const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+                const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim() || code || '—';
+                const sel = code !== '' && filtroLocal === code;
+                return (
+                  <TouchableOpacity
+                    key={code || nombre}
+                    style={[styles.filterChip, sel && styles.filterChipActive]}
+                    onPress={() => setFiltroLocal(sel ? '' : code)}
+                  >
+                    <Text style={[styles.filterChipText, sel && styles.filterChipTextActive]} numberOfLines={1}>
+                      {nombre}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
         </View>
       )}
 
@@ -957,21 +958,21 @@ export default function CierresTeoricosScreen() {
             <Text style={styles.modalTitle}>Sincronizar cierres</Text>
             <Text style={styles.modalSubtitle}>Actualiza los datos desde Ágora entre las fechas seleccionadas</Text>
             <Text style={styles.filterLabel}>Fecha desde</Text>
-            <TextInput
-              style={styles.filterInput}
+            <InputFecha
               value={syncFechaDesde}
-              onChangeText={setSyncFechaDesde}
+              onChange={setSyncFechaDesde}
+              format="dmy"
               placeholder="dd/mm/yyyy"
-              placeholderTextColor="#94a3b8"
+              style={styles.filterInput}
               editable={!syncing}
             />
             <Text style={styles.filterLabel}>Fecha hasta</Text>
-            <TextInput
-              style={styles.filterInput}
+            <InputFecha
               value={syncFechaHasta}
-              onChangeText={setSyncFechaHasta}
+              onChange={setSyncFechaHasta}
+              format="dmy"
               placeholder="dd/mm/yyyy"
-              placeholderTextColor="#94a3b8"
+              style={styles.filterInput}
               editable={!syncing}
             />
             {syncing && (
@@ -1031,12 +1032,12 @@ export default function CierresTeoricosScreen() {
             <Text style={styles.modalTitle}>{editingItem ? 'Editar cierre' : 'Añadir cierre'}</Text>
             {formError ? <Text style={styles.formError}>{formError}</Text> : null}
             <Text style={styles.filterLabel}>Fecha (dd/mm/yyyy)</Text>
-            <TextInput
-              style={styles.filterInput}
+            <InputFecha
               value={formBusinessDay}
-              onChangeText={setFormBusinessDay}
+              onChange={setFormBusinessDay}
+              format="dmy"
               placeholder="dd/mm/yyyy"
-              placeholderTextColor="#94a3b8"
+              style={styles.filterInput}
               editable={!saving}
             />
             <Text style={styles.filterLabel}>Local</Text>
@@ -1329,7 +1330,8 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' && { boxShadow: '0 1px 2px rgba(0,0,0,0.04)' } as object),
   },
   filterRow: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap', gap: 10 },
-  filterField: { minWidth: 82, flex: 0 },
+  filterRowLocal: { marginTop: 10, width: '100%' },
+  filterField: { minWidth: 135, flex: 0 },
   filterFieldLocal: { flex: 1, minWidth: 120 },
   filterLabel: { fontSize: 10, fontWeight: '600', color: '#6b7280', marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.3 },
   filterInput: { backgroundColor: '#fff', borderRadius: 4, paddingVertical: 2, paddingHorizontal: 6, fontSize: 10, color: '#334155', borderWidth: StyleSheet.hairlineWidth, borderColor: '#e5e7eb', minHeight: 24 },

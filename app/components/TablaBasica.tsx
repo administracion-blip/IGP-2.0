@@ -503,7 +503,7 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
   },
   retryBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '500' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
   backBtn: { padding: 4 },
   title: { fontSize: 18, fontWeight: '700', color: '#334155' },
   toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12 },

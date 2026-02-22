@@ -19,6 +19,7 @@ import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
 import { TablaBasica } from '../../components/TablaBasica';
+import { InputFecha } from '../../components/InputFecha';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -483,12 +484,12 @@ export default function ComparativaFechasCajasScreen() {
               <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Fecha comparativa *</Text>
-                  <TextInput
-                    style={styles.formInput}
+                  <InputFecha
                     value={formFechaComparativa}
-                    onChangeText={setFormFechaComparativa}
-                    placeholder="Ej: 2025-01-15 o texto descriptivo"
-                    placeholderTextColor="#94a3b8"
+                    onChange={setFormFechaComparativa}
+                    format="iso"
+                    placeholder="YYYY-MM-DD"
+                    style={styles.formInput}
                   />
                 </View>
                 <View style={styles.formGroup}>
@@ -614,22 +615,22 @@ export default function ComparativaFechasCajasScreen() {
               <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Fecha desde *</Text>
-                  <TextInput
-                    style={styles.formInput}
+                  <InputFecha
                     value={fechaDesde}
-                    onChangeText={setFechaDesde}
+                    onChange={setFechaDesde}
+                    format="iso"
                     placeholder="YYYY-MM-DD"
-                    placeholderTextColor="#94a3b8"
+                    style={styles.formInput}
                   />
                 </View>
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Fecha hasta *</Text>
-                  <TextInput
-                    style={styles.formInput}
+                  <InputFecha
                     value={fechaHasta}
-                    onChangeText={setFechaHasta}
+                    onChange={setFechaHasta}
+                    format="iso"
                     placeholder="YYYY-MM-DD"
-                    placeholderTextColor="#94a3b8"
+                    style={styles.formInput}
                   />
                 </View>
               </ScrollView>

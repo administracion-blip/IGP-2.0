@@ -1768,31 +1768,70 @@ app.post('/api/agora/products/sync', async (req, res) => {
   }
 });
 
-// Actualizar IGP (true/false) de un producto Ágora en DynamoDB.
+// Actualizar producto Ágora en DynamoDB. Campos editables: IGP, Name, CostPrice, BaseSaleFormatId, FamilyId, VatId.
 app.patch('/api/agora/products/:id', async (req, res) => {
   const id = req.params.id;
-  const { IGP } = req.body || {};
+  const body = req.body || {};
   if (id == null || id === '') {
     return res.status(400).json({ error: 'Falta id en la URL' });
   }
-  if (typeof IGP !== 'boolean') {
-    return res.status(400).json({ error: 'IGP debe ser true o false' });
-  }
   const sk = String(id);
+  const EDITABLE_FIELDS = ['IGP', 'Name', 'CostPrice', 'BaseSaleFormatId', 'FamilyId', 'VatId'];
+  const updates = {};
+  const removes = [];
+  for (const key of EDITABLE_FIELDS) {
+    const val = body[key] ?? body[key.toLowerCase()];
+    if (val === undefined) continue;
+    if (key === 'IGP') {
+      if (typeof val !== 'boolean') continue;
+      updates.IGP = val;
+    } else if (key === 'Name') {
+      updates.Name = String(val ?? '').trim();
+    } else if (key === 'CostPrice') {
+      const n = parseFloat(String(val).replace(',', '.'));
+      updates.CostPrice = Number.isNaN(n) ? 0 : n;
+    } else if (['BaseSaleFormatId', 'FamilyId', 'VatId'].includes(key)) {
+      const v = val != null ? String(val).trim() : '';
+      if (v) updates[key] = v;
+      else removes.push(key);
+    }
+  }
+  if (Object.keys(updates).length === 0 && removes.length === 0) {
+    return res.status(400).json({ error: 'Indica al menos un campo a actualizar (IGP, Name, CostPrice, BaseSaleFormatId, FamilyId, VatId)' });
+  }
   try {
-    await docClient.send(new UpdateCommand({
+    const exprNames = {};
+    const exprValues = {};
+    const setParts = [];
+    let vi = 0;
+    for (const [k, v] of Object.entries(updates)) {
+      exprNames[`#${k}`] = k;
+      exprValues[`:v${vi}`] = v;
+      setParts.push(`#${k} = :v${vi}`);
+      vi++;
+    }
+    const removeParts = removes.map((k) => {
+      exprNames[`#${k}`] = k;
+      return `#${k}`;
+    });
+    let updateExpr = '';
+    if (setParts.length) updateExpr += 'SET ' + setParts.join(', ');
+    if (removeParts.length) updateExpr += (updateExpr ? ' REMOVE ' : 'REMOVE ') + removeParts.join(', ');
+    const updateParams = {
       TableName: tableAgoraProductsName,
       Key: { PK: 'GLOBAL', SK: sk },
-      UpdateExpression: 'SET IGP = :igp',
-      ExpressionAttributeValues: { ':igp': IGP },
-    }));
-    return res.json({ ok: true, id: sk, IGP });
+      UpdateExpression: updateExpr,
+      ExpressionAttributeNames: exprNames,
+    };
+    if (Object.keys(exprValues).length) updateParams.ExpressionAttributeValues = exprValues;
+    await docClient.send(new UpdateCommand(updateParams));
+    return res.json({ ok: true, id: sk, ...updates });
   } catch (err) {
     if (err.name === 'ResourceNotFoundException') {
       return res.status(404).json({ error: 'Producto no encontrado' });
     }
     console.error('[agora/products PATCH]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al actualizar IGP' });
+    return res.status(500).json({ error: err.message || 'Error al actualizar producto' });
   }
 });
 

@@ -20,7 +20,11 @@
       }
     },
     "android": {
-      "permissions": ["READ_MEDIA_IMAGES", "READ_EXTERNAL_STORAGE", "CAMERA"],
+      "permissions": [
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE",
+        "CAMERA"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -39,7 +43,8 @@
           "photosPermission": "Necesario para elegir una foto del local.",
           "cameraPermission": "Opcional para hacer una foto del local."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ]
   }
 }
