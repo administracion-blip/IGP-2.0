@@ -29,7 +29,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     try {
-      const res = await fetch(`${API_URL}/api/permisos?rol=${encodeURIComponent(rol)}`);
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), 10000);
+      const res = await fetch(`${API_URL}/api/permisos?rol=${encodeURIComponent(rol)}`, { signal: controller.signal });
+      clearTimeout(id);
       const data = res.ok ? await res.json() : {};
       if (data.permisos && Array.isArray(data.permisos)) setPermisos(data.permisos);
       else setPermisos([]);

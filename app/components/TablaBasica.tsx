@@ -19,6 +19,7 @@ import {
   Platform,
   Modal,
   type ViewStyle,
+  type TextStyle,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../constants/icons';
@@ -95,6 +96,12 @@ export type TablaBasicaProps<T = Record<string, unknown>> = {
   extraToolbarRight?: React.ReactNode;
   /** Contenido extra entre los botones de acción y la búsqueda (ej. filtros Año/Mes) */
   extraToolbarLeft?: React.ReactNode;
+  /** Estilo opcional por columna (celda y texto) */
+  getColumnCellStyle?: (col: string) => { cell?: ViewStyle; text?: TextStyle } | undefined;
+  /** Ancho por defecto de columnas (si no se especifica, usa dense ? 72 : 90) */
+  defaultColWidth?: number;
+  /** Ocultar botones Crear, Editar, Borrar (solo lectura) */
+  hideToolbarActions?: boolean;
 };
 
 export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps<T>) {
@@ -129,8 +136,12 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     dense = false,
     extraToolbarRight,
     extraToolbarLeft,
+    getColumnCellStyle,
+    defaultColWidth,
+    hideToolbarActions = false,
   } = props;
 
+  const baseColWidth = defaultColWidth ?? (dense ? DENSE_COL_WIDTH : DEFAULT_COL_WIDTH);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
@@ -139,7 +150,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
 
   const hasImportExport = showImport || showExport;
 
-  const getColWidth = useCallback((col: string) => columnWidths[col] ?? (dense ? DENSE_COL_WIDTH : DEFAULT_COL_WIDTH), [columnWidths, dense]);
+  const getColWidth = useCallback((col: string) => columnWidths[col] ?? baseColWidth, [columnWidths, baseColWidth]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !resizingCol) return;
@@ -236,7 +247,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
 
       <View style={styles.toolbarRow}>
         <View style={styles.toolbar}>
-          {toolbarBtns.map((btn) => (
+          {!hideToolbarActions && toolbarBtns.map((btn) => (
             <View
               key={btn.id}
               style={styles.toolbarBtnWrap}
@@ -417,9 +428,10 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
             <View style={[styles.rowHeader, dense && styles.rowHeaderDense]}>
               {columnas.map((col) => {
                 const isMoneda = columnasMoneda.some((c) => c.toLowerCase() === col.toLowerCase());
+                const colStyle = getColumnCellStyle?.(col);
                 return (
-                <View key={col} style={[styles.cellHeader, dense && styles.cellHeaderDense, { width: getColWidth(col) }, isMoneda && styles.cellHeaderRight]}>
-                  <Text style={[styles.cellHeaderText, dense && styles.cellHeaderTextDense, isMoneda && styles.cellHeaderTextRight]} numberOfLines={1} ellipsizeMode="tail">
+                <View key={col} style={[styles.cellHeader, dense && styles.cellHeaderDense, { width: getColWidth(col) }, isMoneda && styles.cellHeaderRight, colStyle?.cell]}>
+                  <Text style={[styles.cellHeaderText, dense && styles.cellHeaderTextDense, isMoneda && styles.cellHeaderTextRight, colStyle?.text]} numberOfLines={1} ellipsizeMode="tail">
                     {col}
                   </Text>
                   {Platform.OS === 'web' && (
@@ -467,9 +479,10 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                       const raw = getValorCelda(item, col);
                       const text = raw.length > MAX_TEXT_LENGTH ? truncar(raw) : raw;
                       const isMoneda = columnasMoneda.some((c) => c.toLowerCase() === col.toLowerCase());
+                      const colStyle = getColumnCellStyle?.(col);
                       return (
-                        <View key={col} style={[styles.cell, dense && styles.cellDense, { width: getColWidth(col) }, isMoneda && styles.cellRight]}>
-                          <Text style={[styles.cellText, dense && styles.cellTextDense, isMoneda && styles.cellTextRight]} numberOfLines={1} ellipsizeMode="tail">
+                        <View key={col} style={[styles.cell, dense && styles.cellDense, { width: getColWidth(col) }, isMoneda && styles.cellRight, colStyle?.cell]}>
+                          <Text style={[styles.cellText, dense && styles.cellTextDense, isMoneda && styles.cellTextRight, colStyle?.text]} numberOfLines={1} ellipsizeMode="tail">
                             {text}
                           </Text>
                         </View>

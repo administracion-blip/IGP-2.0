@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Modal, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Modal, Pressable, ActivityIndicator } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AuthProvider, useAuth, AUTH_KEY } from '../contexts/AuthContext';
@@ -310,5 +310,17 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 11,
     color: '#64748b',
+  },
+  loadingWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#e2e8f0',
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#64748b',
+    fontWeight: '500',
   },
 });

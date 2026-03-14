@@ -24,7 +24,19 @@ import { InputFecha } from '../../components/InputFecha';
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
 const PAGE_SIZE = 50;
-const COLUMNAS = ['PK', 'FechaComparativa', 'Festivo', 'NombreFestivo'];
+const COLUMNAS = ['PK / FechaComparativa', 'PK', 'FechaComparativa', 'Festivo', 'NombreFestivo'];
+
+const DIAS_ABREV = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+function diaContraido(fecha: string | undefined): string {
+  if (!fecha || typeof fecha !== 'string') return '—';
+  const s = fecha.trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return '—';
+  const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+  if (isNaN(d.getTime())) return '—';
+  return DIAS_ABREV[d.getDay()] ?? '—';
+}
 
 type Registro = Record<string, unknown>;
 
@@ -94,6 +106,14 @@ export default function ComparativaFechasCajasScreen() {
   }, []);
 
   const valorCelda = useCallback((item: Registro, col: string): string => {
+    if (col === 'PK / FechaComparativa') {
+      const pkRaw = valorPorColumna(item, 'PK');
+      const fechaRaw = valorPorColumna(item, 'FechaComparativa');
+      const diaPk = diaContraido(pkRaw != null ? String(pkRaw) : undefined);
+      const diaFecha = diaContraido(fechaRaw != null ? String(fechaRaw) : undefined);
+      if (diaPk === '—' && diaFecha === '—') return '—';
+      return `${diaPk} / ${diaFecha}`;
+    }
     const raw = valorPorColumna(item, col);
     if (raw === undefined || raw === null) return '—';
     if (col === 'Festivo') {
@@ -468,6 +488,11 @@ export default function ComparativaFechasCajasScreen() {
         emptyMessage="No hay registros. Pulsa Crear para añadir."
         emptyFilterMessage="Ningún resultado con el filtro"
         getRowStyle={getRowStyle}
+        getColumnCellStyle={(col) =>
+          col === 'PK'
+            ? { cell: styles.cellPk, text: styles.cellPkText }
+            : undefined
+        }
         dense
       />
 
@@ -659,6 +684,8 @@ export default function ComparativaFechasCajasScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  cellPk: { backgroundColor: '#f1f5f9' },
+  cellPkText: { fontWeight: '700', color: '#334155' },
   filtrosToolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   btnGenerar: {
     flexDirection: 'row',
