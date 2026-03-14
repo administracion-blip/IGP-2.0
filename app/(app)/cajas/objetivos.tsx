@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -105,11 +106,26 @@ function nombreMesYAnio(): string {
   return `${meses[hoy.getMonth()]} ${hoy.getFullYear()}`;
 }
 
+function ayerYYYYMMDD(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function formatFechaCorta(iso: string): string {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso || '—';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
 type LocalObjetivo = {
   local: Local;
   sumReal: number;
   sumComp: number;
   desvioPct: number | null;
+  sumRealHastaAyer: number;
+  sumCompHastaAyer: number;
+  desvioPctHastaAyer: number | null;
 };
 
 export default function ObjetivosScreen() {
@@ -125,6 +141,13 @@ export default function ObjetivosScreen() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [localesObjetivos, setLocalesObjetivos] = useState<LocalObjetivo[]>([]);
   const [loadingLocalesObjetivos, setLoadingLocalesObjetivos] = useState(false);
+  const [rangosHastaAyer, setRangosHastaAyer] = useState<{
+    fechaInicioMes: string;
+    fechaHastaAyer: string;
+    minCompHastaAyer: string;
+    maxCompHastaAyer: string;
+  } | null>(null);
+  const [hoveredRangoKey, setHoveredRangoKey] = useState<string | null>(null);
 
   const cargarLocales = useCallback(() => {
     setLoadingLocales(true);
@@ -177,10 +200,25 @@ export default function ObjetivosScreen() {
         if (!maxComp || fechaComp > maxComp) maxComp = fechaComp;
         d.setDate(d.getDate() + 1);
       }
+      const fechaHastaAyer = ayerYYYYMMDD();
+      let minCompHastaAyer = '';
+      let maxCompHastaAyer = '';
+      const dRango = new Date(fechaInicioMes + 'T12:00:00');
+      const endRango = new Date(fechaHastaAyer + 'T12:00:00');
+      while (dRango <= endRango) {
+        const fecha = dRango.toISOString().slice(0, 10);
+        const fechaComp = fechaToComp[fecha];
+        if (fechaComp) {
+          if (!minCompHastaAyer || fechaComp < minCompHastaAyer) minCompHastaAyer = fechaComp;
+          if (!maxCompHastaAyer || fechaComp > maxCompHastaAyer) maxCompHastaAyer = fechaComp;
+        }
+        dRango.setDate(dRango.getDate() + 1);
+      }
+      setRangosHastaAyer({ fechaInicioMes, fechaHastaAyer, minCompHastaAyer, maxCompHastaAyer });
       const resultados: LocalObjetivo[] = await Promise.all(
         locales.map(async (loc) => {
           const workplaceId = (loc.agoraCode ?? loc.AgoraCode ?? '').toString().trim();
-          if (!workplaceId) return { local: loc, sumReal: 0, sumComp: 0, desvioPct: null };
+          if (!workplaceId) return { local: loc, sumReal: 0, sumComp: 0, desvioPct: null, sumRealHastaAyer: 0, sumCompHastaAyer: 0, desvioPctHastaAyer: null };
           try {
             const [totalsRealRes, totalsCompRes] = await Promise.all([
               fetch(`${API_URL}/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${fechaInicioMes}&dateTo=${fechaFinMes}`),
@@ -192,19 +230,45 @@ export default function ObjetivosScreen() {
             const totalsComp: Record<string, number> = totalsCompData.totals ?? {};
             const d2 = new Date(fechaInicioMes + 'T12:00:00');
             const end2 = new Date(fechaFinMes + 'T12:00:00');
+            const endHastaAyer = new Date(ayerYYYYMMDD() + 'T12:00:00');
             let sumReal = 0;
             let sumComp = 0;
+            let sumRealHastaAyer = 0;
+            let sumCompHastaAyer = 0;
             while (d2 <= end2) {
               const fecha = d2.toISOString().slice(0, 10);
               const fechaComp = fechaToComp[fecha];
-              sumReal += totalsReal[fecha] ?? 0;
-              sumComp += totalsComp[fechaComp] ?? 0;
+              const real = totalsReal[fecha] ?? 0;
+              const comp = totalsComp[fechaComp] ?? 0;
+              sumReal += real;
+              sumComp += comp;
+              if (d2 <= endHastaAyer) {
+                sumRealHastaAyer += real;
+                sumCompHastaAyer += comp;
+              }
               d2.setDate(d2.getDate() + 1);
             }
             const desvioPct = sumComp === 0 ? null : sumReal / sumComp - 1;
-            return { local: loc, sumReal, sumComp, desvioPct };
+            const desvioPctHastaAyer = sumCompHastaAyer === 0 ? null : sumRealHastaAyer / sumCompHastaAyer - 1;
+            return {
+              local: loc,
+              sumReal,
+              sumComp,
+              desvioPct,
+              sumRealHastaAyer,
+              sumCompHastaAyer,
+              desvioPctHastaAyer,
+            };
           } catch {
-            return { local: loc, sumReal: 0, sumComp: 0, desvioPct: null };
+            return {
+              local: loc,
+              sumReal: 0,
+              sumComp: 0,
+              desvioPct: null,
+              sumRealHastaAyer: 0,
+              sumCompHastaAyer: 0,
+              desvioPctHastaAyer: null,
+            };
           }
         })
       );
@@ -432,27 +496,17 @@ export default function ObjetivosScreen() {
                   return nomA.localeCompare(nomB);
                 })
                 .map((item) => {
+                const itemKey = String(item.local.id_Locales ?? item.local.agoraCode ?? item.local.AgoraCode ?? '');
                 const nom = (item.local.nombre ?? item.local.Nombre ?? item.local.agoraCode ?? item.local.AgoraCode ?? '—').toString().trim();
                 const pct = item.sumComp === 0 ? 0 : Math.min(100, (item.sumReal / item.sumComp) * 100);
-                const estilo = estiloTicker(item.desvioPct);
+                const pctHastaAyer = item.sumCompHastaAyer === 0 ? 0 : Math.min(100, (item.sumRealHastaAyer / item.sumCompHastaAyer) * 100);
+                const estiloHastaAyer = estiloTicker(item.desvioPctHastaAyer);
                 return (
-                  <View key={item.local.id_Locales ?? item.local.agoraCode ?? item.local.AgoraCode} style={styles.localesListItem}>
+                  <View key={itemKey} style={styles.localesListItem}>
                     <View style={styles.localesListHeader}>
                       <Text style={styles.localesListNombre} numberOfLines={1}>
                         {nom} <Text style={styles.localesListPct}>({pct.toFixed(1)}%)</Text>
                       </Text>
-                      <View style={[styles.tickerBadge, { backgroundColor: estilo.backgroundColor }]}>
-                        {item.desvioPct != null && (
-                          <MaterialIcons
-                            name={item.desvioPct >= 0 ? 'trending-up' : 'trending-down'}
-                            size={10}
-                            color={estilo.color}
-                          />
-                        )}
-                        <Text style={[styles.tickerText, { color: estilo.color, fontSize: 9 }]}>
-                          {formatPctTicker(item.desvioPct)}
-                        </Text>
-                      </View>
                     </View>
                     <View style={styles.localesListProgressTrack}>
                       <View
@@ -462,6 +516,48 @@ export default function ObjetivosScreen() {
                         ]}
                       />
                     </View>
+                    <View style={[styles.localesListProgressTrack, styles.localesListProgressTrackSecondary]}>
+                      <View
+                        style={[
+                          styles.localesListProgressFill,
+                          styles.localesListProgressFillSecondary,
+                          { width: `${pctHastaAyer}%` },
+                        ]}
+                      />
+                    </View>
+                    {rangosHastaAyer && (
+                      <View style={styles.localesListHastaAyerInfo}>
+                        <Text style={styles.localesListHastaAyerLabel}>
+                          Hasta ayer: {formatMoneda(item.sumRealHastaAyer)} / {formatMoneda(item.sumCompHastaAyer)}
+                        </Text>
+                        <View
+                          style={styles.localesListHastaAyerRangoWrap}
+                          {...(Platform.OS === 'web' && {
+                            onMouseEnter: () => setHoveredRangoKey(item.local.id_Locales ?? item.local.agoraCode ?? item.local.AgoraCode ?? ''),
+                            onMouseLeave: () => setHoveredRangoKey(null),
+                          } as any)}
+                        >
+                          <Text style={styles.localesListHastaAyerRango} numberOfLines={1}>
+                            Real {formatFechaCorta(rangosHastaAyer.fechaInicioMes)} → {formatFechaCorta(rangosHastaAyer.fechaHastaAyer)} | Comp. {formatFechaCorta(rangosHastaAyer.minCompHastaAyer)} → {formatFechaCorta(rangosHastaAyer.maxCompHastaAyer)}
+                          </Text>
+                          {Platform.OS === 'web' && hoveredRangoKey === (item.local.id_Locales ?? item.local.agoraCode ?? item.local.AgoraCode) && (
+                            <View style={styles.localesListRangoTooltip}>
+                              <Text style={styles.localesListRangoTooltipText}>
+                                Real {formatFechaCorta(rangosHastaAyer.fechaInicioMes)} → {formatFechaCorta(rangosHastaAyer.fechaHastaAyer)}{'\n'}Comp. {formatFechaCorta(rangosHastaAyer.minCompHastaAyer)} → {formatFechaCorta(rangosHastaAyer.maxCompHastaAyer)}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        <View style={[styles.tickerBadge, styles.tickerBadgeSmall, { backgroundColor: estiloHastaAyer.backgroundColor }]}>
+                          {item.desvioPctHastaAyer != null && (
+                            <MaterialIcons name={item.desvioPctHastaAyer >= 0 ? 'trending-up' : 'trending-down'} size={9} color={estiloHastaAyer.color} />
+                          )}
+                          <Text style={[styles.tickerText, { color: estiloHastaAyer.color, fontSize: 9 }]}>
+                            {formatPctTicker(item.desvioPctHastaAyer)}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
                   </View>
                 );
               })}
@@ -678,7 +774,13 @@ const styles = StyleSheet.create({
   widgetLocalesTitle: { fontSize: 11, fontWeight: '700', color: '#334155', marginBottom: 8 },
   widgetLocalesLoader: { marginVertical: 20 },
   localesListWrap: {},
-  localesListItem: { marginBottom: 6 },
+  localesListItem: {
+    marginBottom: 0,
+    paddingBottom: 10,
+    paddingTop: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
   localesListHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   localesListNombre: { fontSize: 10, fontWeight: '500', color: '#334155', flex: 1, marginRight: 8 },
   localesListPct: { fontSize: 9, color: '#64748b', fontWeight: '400' },
@@ -693,6 +795,43 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: '#0ea5e9',
   },
+  localesListProgressTrackSecondary: {
+    marginTop: 4,
+  },
+  localesListProgressFillSecondary: {
+    backgroundColor: '#94a3b8',
+  },
+  localesListHastaAyerInfo: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  localesListHastaAyerLabel: { fontSize: 9, color: '#475569', fontWeight: '600' },
+  localesListHastaAyerRangoWrap: { position: 'relative' as const, alignSelf: 'flex-start', flexShrink: 0 },
+  localesListHastaAyerRango: { fontSize: 8, color: '#94a3b8', maxWidth: 200 },
+  localesListRangoTooltip: {
+    position: 'absolute' as const,
+    bottom: '100%',
+    left: 0,
+    marginBottom: 4,
+    backgroundColor: '#fef08a',
+    borderWidth: 1,
+    borderColor: '#eab308',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    zIndex: 1000,
+    maxWidth: 320,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 8,
+  },
+  localesListRangoTooltipText: { fontSize: 10, color: '#334155', lineHeight: 16 },
+  tickerBadgeSmall: { paddingHorizontal: 6, paddingVertical: 2 },
   tableWithProgress: { minWidth: 862 },
   progressSection: { marginBottom: 8 },
   progressLocalRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: 4 },
