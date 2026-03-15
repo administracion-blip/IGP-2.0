@@ -728,7 +728,7 @@ export default function PedidosCompletadosScreen() {
                             <Text style={[styles.lineasTableCell, styles.lineasCellCantidad]}>{String(cant)}</Text>
                           )}
                         </View>
-                        <View style={[styles.lineasColArticulo, preparada && styles.lineasColArticuloPreparada]}>
+                        <View style={[styles.lineasColArticulo, preparada && styles.lineasColArticuloPreparada]} {...(Platform.OS === 'web' ? { title: String(l.ProductoNombre || l.ProductId || '—') } : {})}>
                           <Text style={[styles.lineasTableCell, preparada && styles.lineasCellArticuloPreparada]} numberOfLines={1}>{String(l.ProductoNombre || l.ProductId || '—')}</Text>
                         </View>
                         <View style={styles.lineasColPrecio}><Text style={[styles.lineasTableCell, { textAlign: 'right' }]}>{formatMoneda(precio)}</Text></View>
@@ -801,6 +801,7 @@ export default function PedidosCompletadosScreen() {
                                   <TouchableOpacity
                                     key={idProd || `p-${idx}`}
                                     style={[styles.selectDropdownItem, formLinea.ProductId === idProd && styles.selectDropdownItemActive]}
+                                    {...(Platform.OS === 'web' ? { title: nombre || idProd || '' } : {})}
                                     onPress={() => {
                                       const costPrice = valorEnLocal(prod, 'CostPrice');
                                       const precioStr = costPrice != null ? String(costPrice) : '';

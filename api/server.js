@@ -11,6 +11,8 @@ import express from 'express';
 import cors from 'cors';
 import { DynamoDBClient, DescribeTableCommand, UpdateTableCommand } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, QueryCommand, PutCommand, GetCommand, DeleteCommand, UpdateCommand, BatchWriteCommand, BatchGetCommand } from '@aws-sdk/lib-dynamodb';
+import { S3Client, PutObjectCommand, GetObjectCommand as S3GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { exportSystemCloseOuts, exportPosCloseOuts, exportInvoices, exportWarehouses, exportIncomingDeliveryNotes } from './lib/agora/client.js';
 import { upsertBatch } from './lib/dynamo/salesCloseOuts.js';
 import { syncProducts, getLastSync, setLastSync, shouldSkipSyncByThrottle, toApiProduct, pickAllowedFields } from './lib/dynamo/agoraProducts.js';
@@ -50,6 +52,9 @@ const tableAcuerdosImagenName = process.env.DDB_ACUERDOS_IMAGEN || 'Igp_Acuerdos
 
 const client = new DynamoDBClient({ region });
 const docClient = DynamoDBDocumentClient.from(client);
+
+const S3_BUCKET = process.env.S3_BUCKET || 'igp-2.0-files';
+const s3 = new S3Client({ region });
 
 const GSI_COMPRAS_NAME = 'ProductId-AlbaranFecha-index';
 let gsiComprasReady = false;
@@ -100,8 +105,9 @@ async function queryComprasPorProductos(productIds, fechaInicio, fechaFin) {
       const exprVals = { ':pid': pid };
       if (fechaInicio && fechaFin) {
         keyExpr += ' AND AlbaranFecha BETWEEN :fi AND :ff';
-        exprVals[':fi'] = fechaInicio;
-        exprVals[':ff'] = fechaFin;
+        // DynamoDB exige lower <= upper en BETWEEN
+        exprVals[':fi'] = fechaInicio <= fechaFin ? fechaInicio : fechaFin;
+        exprVals[':ff'] = fechaInicio <= fechaFin ? fechaFin : fechaInicio;
       } else if (fechaInicio) {
         keyExpr += ' AND AlbaranFecha >= :fi';
         exprVals[':fi'] = fechaInicio;
@@ -3637,6 +3643,10 @@ app.get('/api/acuerdos', async (req, res) => {
     do {
       const cmd = new ScanCommand({
         TableName: tableAcuerdosName,
+        ConsistentRead: true,
+        FilterExpression: '#sk = :meta',
+        ExpressionAttributeNames: { '#sk': 'SK' },
+        ExpressionAttributeValues: { ':meta': 'META' },
         ...(lastKey && { ExclusiveStartKey: lastKey }),
       });
       const result = await docClient.send(cmd);
@@ -3648,6 +3658,21 @@ app.get('/api/acuerdos', async (req, res) => {
   } catch (err) {
     console.error('[acuerdos GET]', err.message || err);
     return res.status(500).json({ error: err.message || 'Error al listar acuerdos' });
+  }
+});
+
+app.get('/api/acuerdos/:id', async (req, res) => {
+  try {
+    const got = await docClient.send(new GetCommand({
+      TableName: tableAcuerdosName,
+      Key: { PK: req.params.id, SK: 'META' },
+      ConsistentRead: true,
+    }));
+    if (!got.Item) return res.status(404).json({ error: 'Acuerdo no encontrado' });
+    return res.json({ ok: true, item: got.Item });
+  } catch (err) {
+    console.error('[acuerdos GET :id]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al obtener acuerdo' });
   }
 });
 
@@ -3671,6 +3696,9 @@ app.post('/api/acuerdos', async (req, res) => {
     updatedAt: now,
   };
   if (!item.PK) return res.status(400).json({ error: 'El identificador (PK) es obligatorio' });
+  if (item.FechaInicio && item.FechaFin && item.FechaInicio > item.FechaFin) {
+    return res.status(400).json({ error: 'La fecha de inicio no puede ser mayor que la fecha final' });
+  }
   try {
     await docClient.send(new PutCommand({ TableName: tableAcuerdosName, Item: item }));
     return res.json({ ok: true, item });
@@ -3697,6 +3725,15 @@ app.patch('/api/acuerdos/:id', async (req, res) => {
     vi++;
   }
   if (vi === 0) return res.status(400).json({ error: 'Indica al menos un campo a actualizar' });
+  if (body.FechaInicio !== undefined || body.FechaFin !== undefined) {
+    const got = await docClient.send(new GetCommand({ TableName: tableAcuerdosName, Key: { PK: pk, SK: 'META' } }));
+    const existing = got.Item || {};
+    const fechaInicio = body.FechaInicio !== undefined ? String(body.FechaInicio || '').trim() : (existing.FechaInicio || '');
+    const fechaFin = body.FechaFin !== undefined ? String(body.FechaFin || '').trim() : (existing.FechaFin || '');
+    if (fechaInicio && fechaFin && fechaInicio > fechaFin) {
+      return res.status(400).json({ error: 'La fecha de inicio no puede ser mayor que la fecha final' });
+    }
+  }
   try {
     await docClient.send(new UpdateCommand({
       TableName: tableAcuerdosName,
@@ -3754,7 +3791,14 @@ app.get('/api/acuerdos/totales', async (req, res) => {
     const acuerdosItems = [];
     let aKey = null;
     do {
-      const r = await docClient.send(new ScanCommand({ TableName: tableAcuerdosName, ...(aKey && { ExclusiveStartKey: aKey }) }));
+      const r = await docClient.send(new ScanCommand({
+        TableName: tableAcuerdosName,
+        ConsistentRead: true,
+        FilterExpression: '#sk = :meta',
+        ExpressionAttributeNames: { '#sk': 'SK' },
+        ExpressionAttributeValues: { ':meta': 'META' },
+        ...(aKey && { ExclusiveStartKey: aKey }),
+      }));
       acuerdosItems.push(...(r.Items || []));
       aKey = r.LastEvaluatedKey || null;
     } while (aKey);
@@ -3789,10 +3833,11 @@ app.get('/api/acuerdos/totales', async (req, res) => {
 
       let totalAcordado = 0, totalCompradas = 0;
       for (const d of detalles) {
+        const pid = String(d.ProductId ?? d.SK ?? '').trim();
         totalAcordado += d.Cantidad || 0;
-        totalCompradas += comprasPorProd[d.ProductId] || 0;
+        totalCompradas += comprasPorProd[pid] || 0;
       }
-      const porcentaje = totalAcordado > 0 ? Math.min(Math.round((totalCompradas / totalAcordado) * 1000) / 10, 100) : 0;
+      const porcentaje = totalAcordado > 0 ? Math.round((totalCompradas / totalAcordado) * 1000) / 10 : 0;
       result[pk] = { totalAcordado, totalCompradas, porcentaje };
     });
     await Promise.all(totalesPromises);
@@ -3818,6 +3863,7 @@ app.get('/api/acuerdos/:id/detalles-con-compras', async (req, res) => {
         TableName: tableAcuerdosDetallesName,
         KeyConditionExpression: 'PK = :pk',
         ExpressionAttributeValues: { ':pk': acuerdoId },
+        ConsistentRead: true,
         ...(dKey && { ExclusiveStartKey: dKey }),
       });
       const r = await docClient.send(cmd);
@@ -3830,8 +3876,12 @@ app.get('/api/acuerdos/:id/detalles-con-compras', async (req, res) => {
     }
 
     const productIds = new Set(detalles.map((d) => String(d.ProductId || d.SK || '').trim()));
-    const fechaInicio = acuerdo.FechaInicio || '';
-    const fechaFin = acuerdo.FechaFin || '';
+    let fechaInicio = acuerdo.FechaInicio || '';
+    let fechaFin = acuerdo.FechaFin || '';
+    // Garantizar que fechaInicio <= fechaFin para el BETWEEN de DynamoDB
+    if (fechaInicio && fechaFin && fechaInicio > fechaFin) {
+      [fechaInicio, fechaFin] = [fechaFin, fechaInicio];
+    }
 
     const comprasPorProducto = await queryComprasPorProductos(productIds, fechaInicio, fechaFin);
 
@@ -3840,15 +3890,15 @@ app.get('/api/acuerdos/:id/detalles-con-compras', async (req, res) => {
     const items = detalles.map((d) => {
       const acordado = d.Cantidad || 0;
       const compradas = comprasPorProducto[d.ProductId] || 0;
-      const restante = Math.max(0, acordado - compradas);
-      const porcentaje = acordado > 0 ? Math.min(Math.round((compradas / acordado) * 1000) / 10, 100) : 0;
+      const restante = acordado - compradas;
+      const porcentaje = acordado > 0 ? Math.round((compradas / acordado) * 1000) / 10 : 0;
       totalAcordado += acordado;
       totalCompradas += compradas;
       return { ...d, Compradas: compradas, Restante: restante, Porcentaje: porcentaje };
     });
     items.sort((a, b) => (a.ProductName || '').localeCompare(b.ProductName || ''));
 
-    return res.json({ ok: true, items, totalAcordado, totalCompradas, totalRestante: Math.max(0, totalAcordado - totalCompradas) });
+    return res.json({ ok: true, items, totalAcordado, totalCompradas, totalRestante: totalAcordado - totalCompradas });
   } catch (err) {
     console.error('[acuerdos detalles-con-compras]', err.message || err);
     return res.status(500).json({ error: err.message || 'Error al obtener detalles con compras' });
@@ -4077,6 +4127,109 @@ app.delete('/api/acuerdos/:id/imagen/:sk', async (req, res) => {
 });
 
 // ──────────────────────────────────────────
+// ──────────────────────────────────────────
+// Archivos de Acuerdos  (S3 + metadata en DynamoDB)
+// ──────────────────────────────────────────
+
+app.post('/api/acuerdos/:id/files/presign-upload', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { fileName, contentType } = req.body;
+    if (!fileName || !contentType) return res.status(400).json({ error: 'fileName y contentType requeridos' });
+
+    const fileKey = `acuerdos/${id}/${Date.now()}_${fileName}`;
+    const command = new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: fileKey,
+      ContentType: contentType,
+    });
+    const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
+    res.json({ uploadUrl, fileKey });
+  } catch (err) {
+    console.error('presign-upload error', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/acuerdos/:id/files', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { fileKey, fileName, contentType, size } = req.body;
+    if (!fileKey || !fileName) return res.status(400).json({ error: 'fileKey y fileName requeridos' });
+
+    const acuerdoRes = await docClient.send(new GetCommand({
+      TableName: tableAcuerdosName,
+      Key: { PK: id, SK: 'META' },
+    }));
+    const acuerdo = acuerdoRes.Item;
+    if (!acuerdo) return res.status(404).json({ error: 'Acuerdo no encontrado' });
+
+    const archivos = acuerdo.Archivos || [];
+    archivos.push({ fileKey, fileName, contentType: contentType || '', size: size || 0, uploadedAt: new Date().toISOString() });
+
+    await docClient.send(new UpdateCommand({
+      TableName: tableAcuerdosName,
+      Key: { PK: id, SK: 'META' },
+      UpdateExpression: 'SET Archivos = :a',
+      ExpressionAttributeValues: { ':a': archivos },
+    }));
+
+    res.json({ archivos });
+  } catch (err) {
+    console.error('save file meta error', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/acuerdos/:id/files', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const acuerdoRes = await docClient.send(new GetCommand({
+      TableName: tableAcuerdosName,
+      Key: { PK: id, SK: 'META' },
+    }));
+    const archivos = acuerdoRes.Item?.Archivos || [];
+
+    const withUrls = await Promise.all(archivos.map(async (f) => {
+      const cmd = new S3GetObjectCommand({ Bucket: S3_BUCKET, Key: f.fileKey });
+      const url = await getSignedUrl(s3, cmd, { expiresIn: 3600 });
+      return { ...f, url };
+    }));
+
+    res.json(withUrls);
+  } catch (err) {
+    console.error('list files error', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/acuerdos/:id/files/:encodedKey', async (req, res) => {
+  try {
+    const { id, encodedKey } = req.params;
+    const fileKey = decodeURIComponent(encodedKey);
+
+    await s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: fileKey }));
+
+    const acuerdoRes = await docClient.send(new GetCommand({
+      TableName: tableAcuerdosName,
+      Key: { PK: id, SK: 'META' },
+    }));
+    const archivos = (acuerdoRes.Item?.Archivos || []).filter(f => f.fileKey !== fileKey);
+
+    await docClient.send(new UpdateCommand({
+      TableName: tableAcuerdosName,
+      Key: { PK: id, SK: 'META' },
+      UpdateExpression: 'SET Archivos = :a',
+      ExpressionAttributeValues: { ':a': archivos },
+    }));
+
+    res.json({ ok: true, archivos });
+  } catch (err) {
+    console.error('delete file error', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Compras a Proveedor (Albaranes de Entrada)
 // ──────────────────────────────────────────
 

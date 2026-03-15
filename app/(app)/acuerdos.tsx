@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,8 +11,11 @@ import {
   ActivityIndicator,
   useWindowDimensions,
   Platform,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useProductosCache } from '../contexts/ProductosCache';
 import { jsPDF } from 'jspdf';
@@ -55,15 +58,16 @@ function DonutChart({ porcentaje, compradas, acordado, size = 120 }: { porcentaj
   const strokeWidth = isMini ? 5 : 12;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const pct = Math.min(Math.max(porcentaje, 0), 100);
-  const offset = circumference - (pct / 100) * circumference;
-  const color = pct >= 80 ? '#22c55e' : '#ef4444';
+  const pctVisual = Math.min(Math.max(porcentaje, 0), 100);
+  const pctText = Math.max(0, porcentaje);
+  const offset = circumference - (pctVisual / 100) * circumference;
+  const color = porcentaje >= 80 ? '#22c55e' : '#ef4444';
   const center = size / 2;
 
   if (Platform.OS !== 'web') {
     return (
       <View style={donutStyles.fallback}>
-        <Text style={[donutStyles.fallbackPct, { color, fontSize: isMini ? 11 : 24 }]}>{pct.toFixed(isMini ? 0 : 1)}%</Text>
+        <Text style={[donutStyles.fallbackPct, { color, fontSize: isMini ? 11 : 24 }]}>{pctText.toFixed(isMini ? 0 : 1)}%</Text>
         {!isMini && <Text style={donutStyles.fallbackSub}>{compradas.toLocaleString('es-ES')} / {acordado.toLocaleString('es-ES')}</Text>}
       </View>
     );
@@ -82,7 +86,7 @@ function DonutChart({ porcentaje, compradas, acordado, size = 120 }: { porcentaj
           />
         </svg>
         <View style={[donutStyles.textWrap, { width: size, height: size }]}>
-          <Text style={[donutStyles.pctText, { color, fontSize: isMini ? 11 : 20 }]}>{pct.toFixed(isMini ? 0 : 1)}%</Text>
+          <Text style={[donutStyles.pctText, { color, fontSize: isMini ? 11 : 20 }]}>{pctText.toFixed(isMini ? 0 : 1)}%</Text>
           {!isMini && <Text style={donutStyles.subText}>{compradas.toLocaleString('es-ES')} / {acordado.toLocaleString('es-ES')}</Text>}
         </View>
       </View>
@@ -106,6 +110,7 @@ const tooltipStyles = StyleSheet.create({
 });
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+const ACUERDOS_LAST_SELECTED_KEY = 'acuerdos-last-selected-pk';
 
 type Acuerdo = {
   PK: string;
@@ -197,10 +202,13 @@ export default function AcuerdosScreen() {
   const [guardando, setGuardando] = useState(false);
 
   const [seleccionado, setSeleccionado] = useState<Acuerdo | null>(null);
-  const [detalles, setDetalles] = useState<DetalleProducto[]>([]);
+  const [detallesPorAcuerdo, setDetallesPorAcuerdo] = useState<Record<string, DetalleProducto[]>>({});
+  const detalles = seleccionado ? (detallesPorAcuerdo[seleccionado.PK] ?? []) : [];
   const [loadingDetalles, setLoadingDetalles] = useState(false);
   const [prodDropdownOpen, setProdDropdownOpen] = useState(false);
   const [prodSearch, setProdSearch] = useState('');
+  const [prodFocusedIndex, setProdFocusedIndex] = useState(0);
+  const prodListScrollRef = useRef<ScrollView>(null);
 
   const [empresas, setEmpresas] = useState<Record<string, unknown>[]>([]);
   const [loadingEmpresas, setLoadingEmpresas] = useState(false);
@@ -220,6 +228,57 @@ export default function AcuerdosScreen() {
   const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
   const [localSearch, setLocalSearch] = useState('');
   const [accionDropdownOpen, setAccionDropdownOpen] = useState(false);
+  const [productoTooltip, setProductoTooltip] = useState<{ id: string; name: string } | null>(null);
+  const productoTooltipOpenedAt = useRef<number>(0);
+  const cargarDetallesAcuerdoRef = useRef<string | null>(null);
+  const cargarDetallesRequestIdRef = useRef<number>(0);
+  const seleccionadoRef = useRef<string | null>(null);
+  useEffect(() => { seleccionadoRef.current = seleccionado?.PK ?? null; }, [seleccionado]);
+
+  // Sincronizar totales y edits cuando cambia el acuerdo seleccionado o su caché
+  useEffect(() => {
+    if (!seleccionado) return;
+    const d = detallesPorAcuerdo[seleccionado.PK] || [];
+    if (d.length === 0) {
+      setTotalAcordado(0);
+      setTotalCompradas(0);
+      setTotalRestante(0);
+      setCantidadEdits({});
+      setAportacionEdits({});
+      setRappelEdits({});
+      setDescuentoEdits({});
+      return;
+    }
+    const acordado = d.reduce((s, x) => s + (x.Cantidad || 0), 0);
+    const compradas = d.reduce((s, x) => s + (x.Compradas || 0), 0);
+    setTotalAcordado(acordado);
+    setTotalCompradas(compradas);
+    setTotalRestante(acordado - compradas);
+    const edits: Record<string, string> = {};
+    const apEdits: Record<string, string> = {};
+    const raEdits: Record<string, string> = {};
+    const deEdits: Record<string, string> = {};
+    d.forEach((item: DetalleProducto) => {
+      edits[item.ProductId] = String(item.Cantidad || 0);
+      apEdits[item.ProductId] = String(item.Aportacion || 0);
+      raEdits[item.ProductId] = String(item.Rappel || 0);
+      deEdits[item.ProductId] = String(item.DescuentoExtra || 0);
+    });
+    setCantidadEdits(edits);
+    setAportacionEdits(apEdits);
+    setRappelEdits(raEdits);
+    setDescuentoEdits(deEdits);
+  }, [seleccionado?.PK, detallesPorAcuerdo]);
+
+  useEffect(() => {
+    if (seleccionado?.PK) AsyncStorage.setItem(ACUERDOS_LAST_SELECTED_KEY, seleccionado.PK);
+    else AsyncStorage.removeItem(ACUERDOS_LAST_SELECTED_KEY);
+  }, [seleccionado?.PK]);
+
+  type ArchivoMeta = { fileKey: string; fileName: string; contentType: string; size: number; uploadedAt: string; url?: string };
+  const [archivos, setArchivos] = useState<ArchivoMeta[]>([]);
+  const [loadingArchivos, setLoadingArchivos] = useState(false);
+  const [subiendoArchivo, setSubiendoArchivo] = useState(false);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -250,8 +309,10 @@ export default function AcuerdosScreen() {
         const fresh = items.find((a) => a.PK === prev.PK);
         return fresh || null;
       });
+      return items;
     } catch (err: any) {
       setError(err.message);
+      return [];
     } finally {
       setLoading(false);
     }
@@ -279,8 +340,6 @@ export default function AcuerdosScreen() {
       if (res.ok && data.totales) setTotalesPorAcuerdo(data.totales);
     } catch (_) {}
   }, []);
-
-  useEffect(() => { cargar().then(() => cargarTotales()); }, [cargar, cargarTotales]);
 
   const [formPK, setFormPK] = useState('');
 
@@ -312,7 +371,12 @@ export default function AcuerdosScreen() {
 
   const guardar = async () => {
     if (!formPK.trim()) return;
+    if (form.FechaInicio && form.FechaFin && form.FechaInicio > form.FechaFin) {
+      setError('La fecha de inicio no puede ser mayor que la fecha final');
+      return;
+    }
     setGuardando(true);
+    setError('');
     try {
       const payload: Record<string, string> = {
         Nombre: form.Nombre,
@@ -332,8 +396,17 @@ export default function AcuerdosScreen() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error');
       setModalVisible(false);
-      await cargar();
+      const creado = !editId ? (data.item as Acuerdo) : null;
+      const items = await cargar();
       cargarTotales();
+      if (creado) {
+        const a = items.find((x) => x.PK === creado.PK) || creado;
+        setSeleccionado(a);
+        cargarDetalles(a.PK, { showLoading: true });
+        cargarPagosImagen(a.PK);
+        cargarArchivos(a.PK);
+        cargarLocales();
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -375,41 +448,77 @@ export default function AcuerdosScreen() {
   const [totalCompradas, setTotalCompradas] = useState(0);
   const [totalRestante, setTotalRestante] = useState(0);
 
-  const cargarDetalles = useCallback(async (acuerdoPK: string) => {
-    setLoadingDetalles(true);
+  const cargarDetalles = useCallback(async (acuerdoPK: string, options?: { showLoading?: boolean }) => {
+    const requestId = ++cargarDetallesRequestIdRef.current;
+    cargarDetallesAcuerdoRef.current = acuerdoPK;
+    const showLoading = options?.showLoading !== false;
+    if (showLoading) setLoadingDetalles(true);
     try {
       const res = await fetch(`${API_URL}/api/acuerdos/${acuerdoPK}/detalles-con-compras`);
       const data = await res.json();
+      if (cargarDetallesRequestIdRef.current !== requestId) return;
       if (res.ok) {
-        const items = data.items || [];
-        setDetalles(items);
-        setTotalAcordado(data.totalAcordado || 0);
-        setTotalCompradas(data.totalCompradas || 0);
-        setTotalRestante(data.totalRestante || 0);
-        const edits: Record<string, string> = {};
-        const apEdits: Record<string, string> = {};
-        const raEdits: Record<string, string> = {};
-        const deEdits: Record<string, string> = {};
-        items.forEach((d: DetalleProducto) => {
-          edits[d.ProductId] = String(d.Cantidad || 0);
-          apEdits[d.ProductId] = String(d.Aportacion || 0);
-          raEdits[d.ProductId] = String(d.Rappel || 0);
-          deEdits[d.ProductId] = String(d.DescuentoExtra || 0);
+        const items = Array.isArray(data.items) ? data.items : [];
+        setDetallesPorAcuerdo((prev) => {
+          const existing = prev[acuerdoPK] || [];
+          if (items.length === 0 && existing.length > 0) return prev;
+          return { ...prev, [acuerdoPK]: items };
         });
-        setCantidadEdits(edits);
-        setAportacionEdits(apEdits);
-        setRappelEdits(raEdits);
-        setDescuentoEdits(deEdits);
+        if (acuerdoPK === seleccionadoRef.current) {
+          setTotalAcordado(data.totalAcordado || 0);
+          setTotalCompradas(data.totalCompradas || 0);
+          setTotalRestante(data.totalRestante || 0);
+          const edits: Record<string, string> = {};
+          const apEdits: Record<string, string> = {};
+          const raEdits: Record<string, string> = {};
+          const deEdits: Record<string, string> = {};
+          items.forEach((d: DetalleProducto) => {
+            edits[d.ProductId] = String(d.Cantidad || 0);
+            apEdits[d.ProductId] = String(d.Aportacion || 0);
+            raEdits[d.ProductId] = String(d.Rappel || 0);
+            deEdits[d.ProductId] = String(d.DescuentoExtra || 0);
+          });
+          setCantidadEdits(edits);
+          setAportacionEdits(apEdits);
+          setRappelEdits(raEdits);
+          setDescuentoEdits(deEdits);
+        }
       }
     } catch (_) { /* silencioso */ }
-    finally { setLoadingDetalles(false); }
+    finally {
+      if (cargarDetallesAcuerdoRef.current === acuerdoPK) setLoadingDetalles(false);
+    }
   }, []);
 
   const seleccionarAcuerdo = (a: Acuerdo) => {
     if (seleccionado?.PK === a.PK) { setSeleccionado(null); return; }
     setSeleccionado(a);
-    cargarDetalles(a.PK);
+    const cached = detallesPorAcuerdo[a.PK] || [];
+    const tieneCache = cached.length > 0;
+    if (tieneCache) {
+      const newAcordado = cached.reduce((s, x) => s + (x.Cantidad || 0), 0);
+      const newCompradas = cached.reduce((s, x) => s + (x.Compradas || 0), 0);
+      setTotalAcordado(newAcordado);
+      setTotalCompradas(newCompradas);
+      setTotalRestante(newAcordado - newCompradas);
+      const edits: Record<string, string> = {};
+      const apEdits: Record<string, string> = {};
+      const raEdits: Record<string, string> = {};
+      const deEdits: Record<string, string> = {};
+      cached.forEach((d: DetalleProducto) => {
+        edits[d.ProductId] = String(d.Cantidad || 0);
+        apEdits[d.ProductId] = String(d.Aportacion || 0);
+        raEdits[d.ProductId] = String(d.Rappel || 0);
+        deEdits[d.ProductId] = String(d.DescuentoExtra || 0);
+      });
+      setCantidadEdits(edits);
+      setAportacionEdits(apEdits);
+      setRappelEdits(raEdits);
+      setDescuentoEdits(deEdits);
+    }
+    cargarDetalles(a.PK, { showLoading: !tieneCache });
     cargarPagosImagen(a.PK);
+    cargarArchivos(a.PK);
     cargarLocales();
     if (!productosLastFetch) recargarProductos();
   };
@@ -431,11 +540,16 @@ export default function AcuerdosScreen() {
           Cantidad: 0, Aportacion: 0, Rappel: 0, DescuentoExtra: 0,
           Compradas: 0, Restante: 0, Porcentaje: 0,
         };
-        setDetalles((prev) => [...prev, nuevo].sort((a, b) => (a.ProductName || '').localeCompare(b.ProductName || '')));
+        setDetallesPorAcuerdo((prev) => ({
+          ...prev,
+          [seleccionado.PK]: [...(prev[seleccionado.PK] || []), nuevo].sort((a, b) => (a.ProductName || '').localeCompare(b.ProductName || '')),
+        }));
         setCantidadEdits((prev) => ({ ...prev, [id]: '0' }));
         setAportacionEdits((prev) => ({ ...prev, [id]: '0' }));
         setRappelEdits((prev) => ({ ...prev, [id]: '0' }));
         setDescuentoEdits((prev) => ({ ...prev, [id]: '0' }));
+        cargarTotales();
+        cargarDetalles(seleccionado.PK, { showLoading: false });
       }
     } catch (err: any) { setError(err.message); }
     setProdDropdownOpen(false);
@@ -472,23 +586,32 @@ export default function AcuerdosScreen() {
   const removeProductoDetalle = async (productId: string) => {
     if (!seleccionado) return;
     try {
-      await fetch(`${API_URL}/api/acuerdos/${seleccionado.PK}/detalles/${productId}`, { method: 'DELETE' });
-      setDetalles((prev) => {
-        const updated = prev.filter((d) => d.ProductId !== productId);
+      const res = await fetch(
+        `${API_URL}/api/acuerdos/${encodeURIComponent(seleccionado.PK)}/detalles/${encodeURIComponent(productId)}`,
+        { method: 'DELETE' }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data?.error || `Error al eliminar producto (${res.status})`);
+        return;
+      }
+      setDetallesPorAcuerdo((prev) => {
+        const current = prev[seleccionado.PK] || [];
+        const updated = current.filter((d) => d.ProductId !== productId);
         const newAcordado = updated.reduce((s, x) => s + (x.Cantidad || 0), 0);
         const newCompradas = updated.reduce((s, x) => s + (x.Compradas || 0), 0);
         setTotalAcordado(newAcordado);
         setTotalCompradas(newCompradas);
-        setTotalRestante(Math.max(0, newAcordado - newCompradas));
-        const pct = newAcordado > 0 ? Math.min(Math.round((newCompradas / newAcordado) * 1000) / 10, 100) : 0;
+        setTotalRestante(newAcordado - newCompradas);
+        const pct = newAcordado > 0 ? Math.round((newCompradas / newAcordado) * 1000) / 10 : 0;
         setTotalesPorAcuerdo((p) => ({ ...p, [seleccionado.PK]: { totalAcordado: newAcordado, totalCompradas: newCompradas, porcentaje: pct } }));
-        return updated;
+        return { ...prev, [seleccionado.PK]: updated };
       });
       setCantidadEdits((prev) => { const n = { ...prev }; delete n[productId]; return n; });
       setAportacionEdits((prev) => { const n = { ...prev }; delete n[productId]; return n; });
       setRappelEdits((prev) => { const n = { ...prev }; delete n[productId]; return n; });
       setDescuentoEdits((prev) => { const n = { ...prev }; delete n[productId]; return n; });
-    } catch (err: any) { setError(err.message); }
+    } catch (err: any) { setError(err.message || 'Error de conexión'); }
   };
 
   const cargarPagosImagen = useCallback(async (acuerdoPK: string) => {
@@ -512,6 +635,104 @@ export default function AcuerdosScreen() {
       setLocalesLoaded(true);
     } catch (_) {}
   }, [localesLoaded]);
+
+  const cargarArchivos = useCallback(async (acuerdoPK: string) => {
+    setLoadingArchivos(true);
+    try {
+      const res = await fetch(`${API_URL}/api/acuerdos/${acuerdoPK}/files`);
+      const data = await res.json();
+      if (res.ok) setArchivos(data);
+    } catch (_) {}
+    finally { setLoadingArchivos(false); }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        const items = await cargar();
+        if (cancelled) return;
+        cargarTotales();
+        const lastPK = await AsyncStorage.getItem(ACUERDOS_LAST_SELECTED_KEY);
+        if (lastPK) {
+          let a = items.find((x: Acuerdo) => x.PK === lastPK);
+          if (!a) {
+            try {
+              const res = await fetch(`${API_URL}/api/acuerdos/${encodeURIComponent(lastPK)}`);
+              const data = await res.json();
+              if (res.ok && data.item) {
+                a = data.item as Acuerdo;
+                setAcuerdos((prev) => {
+                  const exists = prev.some((x) => x.PK === a.PK);
+                  if (exists) return prev;
+                  return [a!, ...prev].sort((x, y) => (y.createdAt || '').localeCompare(x.createdAt || ''));
+                });
+              }
+            } catch (_) {}
+          }
+          if (a) {
+            setSeleccionado(a);
+            cargarDetalles(a.PK, { showLoading: true });
+            cargarPagosImagen(a.PK);
+            cargarArchivos(a.PK);
+            cargarLocales();
+          }
+        }
+      })();
+      return () => { cancelled = true; };
+    }, [cargar, cargarTotales, cargarDetalles, cargarPagosImagen, cargarArchivos, cargarLocales])
+  );
+
+  const subirArchivo = useCallback(async () => {
+    if (!seleccionado || Platform.OS !== 'web') return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.onchange = async () => {
+      const files = input.files;
+      if (!files || files.length === 0) return;
+      setSubiendoArchivo(true);
+      try {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const presignRes = await fetch(`${API_URL}/api/acuerdos/${seleccionado.PK}/files/presign-upload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileName: file.name, contentType: file.type }),
+          });
+          const { uploadUrl, fileKey } = await presignRes.json();
+
+          await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': file.type },
+            body: file,
+          });
+
+          await fetch(`${API_URL}/api/acuerdos/${seleccionado.PK}/files`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileKey, fileName: file.name, contentType: file.type, size: file.size }),
+          });
+        }
+        await cargarArchivos(seleccionado.PK);
+      } catch (err) {
+        console.error('Error subiendo archivo', err);
+      } finally {
+        setSubiendoArchivo(false);
+      }
+    };
+    input.click();
+  }, [seleccionado, cargarArchivos]);
+
+  const eliminarArchivo = useCallback(async (fileKey: string) => {
+    if (!seleccionado) return;
+    try {
+      await fetch(`${API_URL}/api/acuerdos/${seleccionado.PK}/files/${encodeURIComponent(fileKey)}`, { method: 'DELETE' });
+      setArchivos((prev) => prev.filter((f) => f.fileKey !== fileKey));
+    } catch (err) {
+      console.error('Error eliminando archivo', err);
+    }
+  }, [seleccionado]);
 
   const abrirImgModal = (pago?: PagoImagen) => {
     cargarLocales();
@@ -719,7 +940,7 @@ export default function AcuerdosScreen() {
           d.ProductName || d.ProductId,
           String(d.Cantidad || 0),
           String(d.Compradas || 0),
-          rest > 0 ? `-${rest}` : String(rest),
+          rest > 0 ? `-${rest}` : rest < 0 ? `+${Math.abs(rest)}` : String(rest),
           `${(d.Porcentaje || 0).toFixed(1)}%`,
           fmtNum(ta),
           fmtNum(d.Aportacion || 0),
@@ -740,7 +961,7 @@ export default function AcuerdosScreen() {
       prodBody.push([
         '', 'TOTAL',
         String(totAcord), String(totComp),
-        totRest > 0 ? `-${totRest}` : String(totRest),
+        totRest > 0 ? `-${totRest}` : totRest < 0 ? `+${Math.abs(totRest)}` : String(totRest),
         '', fmtNum(totTA), '', '', '',
         fmtNum(totPrevPago), fmtNum(totPrevConf),
       ]);
@@ -877,7 +1098,20 @@ export default function AcuerdosScreen() {
                       <TooltipBtn tooltip="Editar" onPress={() => abrirEditar(a)} style={styles.cardActionBtn}>
                         <MaterialIcons name="edit" size={18} color="#64748b" />
                       </TooltipBtn>
-                      <TooltipBtn tooltip="Eliminar" onPress={() => eliminar(a.PK)} style={styles.cardActionBtn}>
+                      <TooltipBtn
+                        tooltip="Eliminar"
+                        onPress={() => {
+                          Alert.alert(
+                            'Confirmar eliminación',
+                            `¿Quieres eliminar el acuerdo "${a.Marca || a.Nombre || a.PK}"? Esta acción no se puede deshacer.`,
+                            [
+                              { text: 'Cancelar', style: 'cancel' },
+                              { text: 'Eliminar', style: 'destructive', onPress: () => eliminar(a.PK) },
+                            ]
+                          );
+                        }}
+                        style={styles.cardActionBtn}
+                      >
                         <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
                       </TooltipBtn>
                     </View>
@@ -885,12 +1119,11 @@ export default function AcuerdosScreen() {
                   <View style={styles.cardBodyWithDonut}>
                     {(() => {
                       const t = totalesPorAcuerdo[a.PK];
-                      return t && t.totalAcordado > 0 ? (
-                        <DonutChart porcentaje={t.porcentaje} compradas={t.totalCompradas} acordado={t.totalAcordado} size={56} />
-                      ) : (
-                        <View style={styles.miniDonutPlaceholder}>
-                          <Text style={{ fontSize: 10, color: '#94a3b8' }}>—</Text>
-                        </View>
+                      const pct = t?.porcentaje ?? 0;
+                      const compradas = t?.totalCompradas ?? 0;
+                      const acordado = t?.totalAcordado ?? 0;
+                      return (
+                        <DonutChart porcentaje={pct} compradas={compradas} acordado={acordado || 1} size={56} />
                       );
                     })()}
                     <View style={styles.cardBodyInfo}>
@@ -1035,28 +1268,54 @@ export default function AcuerdosScreen() {
               <View style={styles.detailProductsSection}>
                 <View style={styles.detailProductsHeader}>
                   <Text style={styles.detailProductsSectionTitle}>Productos del acuerdo</Text>
-                  <TouchableOpacity style={styles.detailAddBtn} onPress={() => { setProdSearch(''); setProdDropdownOpen((o) => !o); }}>
+                  <TouchableOpacity style={styles.detailAddBtn} onPress={() => { setProdSearch(''); setProdFocusedIndex(0); setProdDropdownOpen((o) => !o); }}>
                     <MaterialIcons name="add" size={14} color="#0ea5e9" />
                     <Text style={styles.detailAddBtnText}>Añadir</Text>
                   </TouchableOpacity>
                 </View>
 
                 {prodDropdownOpen && (
-                  <View style={[styles.productoDropdown, { marginHorizontal: 14, marginBottom: 8 }]}>
-                    <View style={styles.productoDropdownSearch}>
-                      <MaterialIcons name="search" size={16} color="#94a3b8" />
-                      <TextInput style={styles.productoDropdownInput} value={prodSearch} onChangeText={setProdSearch} placeholder="Buscar producto…" placeholderTextColor="#94a3b8" autoFocus />
-                      <TouchableOpacity onPress={() => setProdDropdownOpen(false)}><MaterialIcons name="close" size={16} color="#94a3b8" /></TouchableOpacity>
+                  <View style={[styles.productoDropdown, styles.detailProdDropdown, { marginHorizontal: 14, marginBottom: 8 }]}>
+                    <View style={[styles.productoDropdownSearch, styles.detailProdDropdownSearch]}>
+                      <MaterialIcons name="search" size={14} color="#94a3b8" />
+                      <TextInput
+                        style={[styles.productoDropdownInput, styles.detailProdDropdownInput]}
+                        value={prodSearch}
+                        onChangeText={(v) => { setProdSearch(v); setProdFocusedIndex(0); }}
+                        placeholder="Buscar producto…"
+                        placeholderTextColor="#94a3b8"
+                        autoFocus
+                        {...(Platform.OS === 'web' ? {
+                          onKeyDown: (e: any) => {
+                            const list = productosFiltrados;
+                            if (list.length === 0) return;
+                            const key = e.key;
+                            if (key === 'ArrowDown') {
+                              e.preventDefault();
+                              setProdFocusedIndex((i) => Math.min(i + 1, list.length - 1));
+                            } else if (key === 'ArrowUp') {
+                              e.preventDefault();
+                              setProdFocusedIndex((i) => Math.max(i - 1, 0));
+                            } else if (key === 'Enter') {
+                              e.preventDefault();
+                              const idx = prodFocusedIndex >= 0 && prodFocusedIndex < list.length ? prodFocusedIndex : 0;
+                              addProductoDetalle(list[idx]);
+                              setProdDropdownOpen(false);
+                            }
+                          },
+                        } : {})}
+                      />
+                      <TouchableOpacity onPress={() => setProdDropdownOpen(false)}><MaterialIcons name="close" size={14} color="#94a3b8" /></TouchableOpacity>
                     </View>
-                    <ScrollView style={styles.productoDropdownList} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                      {loadingProductos ? <ActivityIndicator size="small" color="#0ea5e9" style={{ padding: 12 }} /> : (
-                        productosFiltrados.length === 0 ? <Text style={styles.productoDropdownEmpty}>Sin resultados</Text> :
+                    <ScrollView ref={prodListScrollRef} style={[styles.productoDropdownList, styles.detailProdDropdownList]} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                      {loadingProductos ? <ActivityIndicator size="small" color="#0ea5e9" style={{ padding: 8 }} /> : (
+                        productosFiltrados.length === 0 ? <Text style={[styles.productoDropdownEmpty, styles.detailProdDropdownEmpty]}>Sin resultados</Text> :
                         productosFiltrados.map((p, i) => {
                           const id = String(valorEnLocal(p, 'Id') ?? '').trim();
                           const name = String(valorEnLocal(p, 'Name') ?? valorEnLocal(p, 'Nombre') ?? id).trim();
                           return (
-                            <TouchableOpacity key={id || i} style={styles.productoDropdownItem} onPress={() => addProductoDetalle(p)}>
-                              <Text style={styles.productoDropdownItemText} numberOfLines={1}>{name}</Text>
+                            <TouchableOpacity key={id || i} style={[styles.productoDropdownItem, styles.detailProdDropdownItem]} onPress={() => addProductoDetalle(p)} {...(Platform.OS === 'web' ? { title: name } : {})}>
+                              <Text style={[styles.productoDropdownItemText, styles.detailProdDropdownItemText]} numberOfLines={1}>{name}</Text>
                             </TouchableOpacity>
                           );
                         })
@@ -1066,7 +1325,7 @@ export default function AcuerdosScreen() {
                 )}
 
                 {/* Tabla de productos */}
-                {loadingDetalles ? (
+                {loadingDetalles && detalles.length === 0 ? (
                   <ActivityIndicator size="small" color="#0ea5e9" style={{ marginTop: 20 }} />
                 ) : detalles.length === 0 ? (
                   <Text style={styles.detailEmpty}>Sin productos asignados</Text>
@@ -1093,27 +1352,29 @@ export default function AcuerdosScreen() {
                         return (
                           <View key={d.SK} style={styles.detailTableRow}>
                             <Text style={[styles.detailTableCell, { width: 60, fontSize: 10, color: '#64748b' }]} numberOfLines={1}>{d.ProductId}</Text>
-                            <Text style={[styles.detailTableCell, { width: 140 }]} numberOfLines={1}>{d.ProductName || d.ProductId}</Text>
+                            <View style={{ width: 140 }} {...(Platform.OS === 'web' ? { title: String(d.ProductName || d.ProductId || '') } : {})}>
+                              <Text style={[styles.detailTableCell]} numberOfLines={1}>{d.ProductName || d.ProductId}</Text>
+                            </View>
                             <View style={{ width: 70, alignItems: 'center' }}>
                               <TextInput
                                 style={styles.cantidadInput}
                                 value={cantidadEdits[d.ProductId] ?? String(d.Cantidad || 0)}
                                 onChangeText={(v) => setCantidadEdits((prev) => ({ ...prev, [d.ProductId]: v }))}
                                 onBlur={() => {
+                                  if (!seleccionado) return;
                                   const val = parseFloat(cantidadEdits[d.ProductId] || '0') || 0;
                                   actualizarCantidad(d.ProductId, val);
-                                  setDetalles((prev) => {
-                                    const updated = prev.map((x) => x.ProductId === d.ProductId ? { ...x, Cantidad: val, Restante: Math.max(0, val - x.Compradas), Porcentaje: val > 0 ? Math.min(Math.round((x.Compradas / val) * 1000) / 10, 100) : 0 } : x);
+                                  setDetallesPorAcuerdo((prev) => {
+                                    const current = prev[seleccionado.PK] || [];
+                                    const updated = current.map((x) => x.ProductId === d.ProductId ? { ...x, Cantidad: val, Restante: val - x.Compradas, Porcentaje: val > 0 ? Math.round((x.Compradas / val) * 1000) / 10 : 0 } : x);
                                     const newAcordado = updated.reduce((s, x) => s + (x.Cantidad || 0), 0);
                                     const newCompradas = updated.reduce((s, x) => s + (x.Compradas || 0), 0);
                                     setTotalAcordado(newAcordado);
                                     setTotalCompradas(newCompradas);
-                                    setTotalRestante(Math.max(0, newAcordado - newCompradas));
-                                    if (seleccionado) {
-                                      const pct = newAcordado > 0 ? Math.min(Math.round((newCompradas / newAcordado) * 1000) / 10, 100) : 0;
-                                      setTotalesPorAcuerdo((prev) => ({ ...prev, [seleccionado.PK]: { totalAcordado: newAcordado, totalCompradas: newCompradas, porcentaje: pct } }));
-                                    }
-                                    return updated;
+                                    setTotalRestante(newAcordado - newCompradas);
+                                    const pct = newAcordado > 0 ? Math.round((newCompradas / newAcordado) * 1000) / 10 : 0;
+                                    setTotalesPorAcuerdo((p) => ({ ...p, [seleccionado.PK]: { totalAcordado: newAcordado, totalCompradas: newCompradas, porcentaje: pct } }));
+                                    return { ...prev, [seleccionado.PK]: updated };
                                   });
                                 }}
                                 keyboardType="numeric"
@@ -1121,7 +1382,7 @@ export default function AcuerdosScreen() {
                               />
                             </View>
                             <Text style={[styles.detailTableCell, { width: 70, textAlign: 'center', fontWeight: '600' }]}>{(d.Compradas || 0).toLocaleString('es-ES')}</Text>
-                            <Text style={[styles.detailTableCell, { width: 70, textAlign: 'center', color: d.Restante > 0 ? '#ef4444' : '#0f172a', fontWeight: d.Restante > 0 ? '600' : '400' }]}>{d.Restante > 0 ? `-${d.Restante.toLocaleString('es-ES')}` : (d.Restante || 0).toLocaleString('es-ES')}</Text>
+                            <Text style={[styles.detailTableCell, { width: 70, textAlign: 'center', color: d.Restante > 0 ? '#ef4444' : (d.Restante || 0) < 0 ? '#16a34a' : '#0f172a', fontWeight: (d.Restante || 0) !== 0 ? '600' : '400' }]}>{d.Restante > 0 ? `-${d.Restante.toLocaleString('es-ES')}` : (d.Restante || 0) < 0 ? `+${Math.abs(d.Restante || 0).toLocaleString('es-ES')}` : (d.Restante || 0).toLocaleString('es-ES')}</Text>
                             <Text style={[styles.detailTableCell, { width: 55, textAlign: 'center', fontWeight: '700', color: pctColor }]}>{d.Porcentaje?.toFixed(1)}%</Text>
                             <Text style={[styles.detailTableCell, { width: 85, textAlign: 'center', fontWeight: '700', color: '#0f172a' }]}>
                               {((d.Aportacion || 0) + (d.Rappel || 0) + (d.DescuentoExtra || 0)).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
@@ -1132,9 +1393,10 @@ export default function AcuerdosScreen() {
                                 value={aportacionEdits[d.ProductId] ?? String(d.Aportacion || 0)}
                                 onChangeText={(v) => setAportacionEdits((prev) => ({ ...prev, [d.ProductId]: v }))}
                                 onBlur={() => {
+                                  if (!seleccionado) return;
                                   const val = parseFloat(aportacionEdits[d.ProductId] || '0') || 0;
                                   actualizarCampoDetalle(d.ProductId, 'Aportacion', val);
-                                  setDetalles((prev) => prev.map((x) => x.ProductId === d.ProductId ? { ...x, Aportacion: val } : x));
+                                  setDetallesPorAcuerdo((prev) => ({ ...prev, [seleccionado.PK]: (prev[seleccionado.PK] || []).map((x) => x.ProductId === d.ProductId ? { ...x, Aportacion: val } : x) }));
                                 }}
                                 keyboardType="numeric"
                                 selectTextOnFocus
@@ -1146,9 +1408,10 @@ export default function AcuerdosScreen() {
                                 value={rappelEdits[d.ProductId] ?? String(d.Rappel || 0)}
                                 onChangeText={(v) => setRappelEdits((prev) => ({ ...prev, [d.ProductId]: v }))}
                                 onBlur={() => {
+                                  if (!seleccionado) return;
                                   const val = parseFloat(rappelEdits[d.ProductId] || '0') || 0;
                                   actualizarCampoDetalle(d.ProductId, 'Rappel', val);
-                                  setDetalles((prev) => prev.map((x) => x.ProductId === d.ProductId ? { ...x, Rappel: val } : x));
+                                  setDetallesPorAcuerdo((prev) => ({ ...prev, [seleccionado.PK]: (prev[seleccionado.PK] || []).map((x) => x.ProductId === d.ProductId ? { ...x, Rappel: val } : x) }));
                                 }}
                                 keyboardType="numeric"
                                 selectTextOnFocus
@@ -1160,9 +1423,10 @@ export default function AcuerdosScreen() {
                                 value={descuentoEdits[d.ProductId] ?? String(d.DescuentoExtra || 0)}
                                 onChangeText={(v) => setDescuentoEdits((prev) => ({ ...prev, [d.ProductId]: v }))}
                                 onBlur={() => {
+                                  if (!seleccionado) return;
                                   const val = parseFloat(descuentoEdits[d.ProductId] || '0') || 0;
                                   actualizarCampoDetalle(d.ProductId, 'DescuentoExtra', val);
-                                  setDetalles((prev) => prev.map((x) => x.ProductId === d.ProductId ? { ...x, DescuentoExtra: val } : x));
+                                  setDetallesPorAcuerdo((prev) => ({ ...prev, [seleccionado.PK]: (prev[seleccionado.PK] || []).map((x) => x.ProductId === d.ProductId ? { ...x, DescuentoExtra: val } : x) }));
                                 }}
                                 keyboardType="numeric"
                                 selectTextOnFocus
@@ -1208,7 +1472,7 @@ export default function AcuerdosScreen() {
                     </View>
                     <View style={styles.detailResumenRow}>
                       <Text style={styles.detailResumenLabel}>Total restante</Text>
-                      <Text style={[styles.detailResumenValue, { color: totalRestante > 0 ? '#ef4444' : '#0f172a' }]}>{totalRestante > 0 ? `-${totalRestante.toLocaleString('es-ES')}` : totalRestante.toLocaleString('es-ES')} uds.</Text>
+                      <Text style={[styles.detailResumenValue, { color: totalRestante > 0 ? '#ef4444' : totalRestante < 0 ? '#16a34a' : '#0f172a' }]}>{totalRestante > 0 ? `-${totalRestante.toLocaleString('es-ES')}` : totalRestante < 0 ? `+${Math.abs(totalRestante).toLocaleString('es-ES')}` : totalRestante.toLocaleString('es-ES')} uds.</Text>
                     </View>
                   </View>
                 )}
@@ -1292,10 +1556,76 @@ export default function AcuerdosScreen() {
                   </View>
                 )}
               </View>
+
+              {/* Sección Documentos */}
+              <View style={styles.detailProductsSection}>
+                <View style={styles.detailProductsHeader}>
+                  <Text style={styles.detailProductsSectionTitle}>Documentos</Text>
+                  <TouchableOpacity style={styles.detailAddBtn} onPress={subirArchivo} disabled={subiendoArchivo}>
+                    {subiendoArchivo ? (
+                      <ActivityIndicator size="small" color="#0ea5e9" />
+                    ) : (
+                      <>
+                        <MaterialIcons name="upload-file" size={14} color="#0ea5e9" />
+                        <Text style={styles.detailAddBtnText}>Subir archivo</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                {loadingArchivos ? (
+                  <ActivityIndicator size="small" color="#0ea5e9" style={{ marginTop: 12 }} />
+                ) : archivos.length === 0 ? (
+                  <Text style={styles.detailEmpty}>Sin documentos adjuntos</Text>
+                ) : (
+                  <View style={{ gap: 6, marginTop: 8 }}>
+                    {archivos.map((f) => {
+                      const isImage = /^image\//i.test(f.contentType || '');
+                      const isPdf = /\/pdf$/i.test(f.contentType || '');
+                      const sizeKB = f.size ? (f.size / 1024).toFixed(1) : '?';
+                      return (
+                        <View key={f.fileKey} style={styles.fileCard}>
+                          {isImage && f.url && (
+                            <TouchableOpacity onPress={() => { if (Platform.OS === 'web') window.open(f.url!, '_blank'); }}>
+                              <img src={f.url} alt={f.fileName} style={{ width: 120, height: 80, objectFit: 'cover', borderRadius: 6, marginBottom: 4 } as any} />
+                            </TouchableOpacity>
+                          )}
+                          <View style={styles.fileCardRow}>
+                            <MaterialIcons name={isImage ? 'image' : isPdf ? 'picture-as-pdf' : 'insert-drive-file'} size={18} color={isImage ? '#0ea5e9' : isPdf ? '#ef4444' : '#64748b'} />
+                            <View style={{ flex: 1, marginLeft: 6 }}>
+                              <Text style={styles.fileCardName} numberOfLines={1}>{f.fileName}</Text>
+                              <Text style={styles.fileCardMeta}>{sizeKB} KB · {f.uploadedAt ? new Date(f.uploadedAt).toLocaleDateString('es-ES') : ''}</Text>
+                            </View>
+                            <TouchableOpacity onPress={() => { if (Platform.OS === 'web' && f.url) window.open(f.url, '_blank'); }} style={{ padding: 4 }}>
+                              <MaterialIcons name="open-in-new" size={16} color="#0ea5e9" />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => eliminarArchivo(f.fileKey)} style={{ padding: 4 }}>
+                              <MaterialIcons name="delete-outline" size={16} color="#ef4444" />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
             </ScrollView>
           </View>
         )}
       </View>
+
+      {/* Modal Tooltip Producto (web): nombre completo en la parte superior, sin recorte */}
+      {Platform.OS === 'web' && (
+        <Modal visible={!!productoTooltip} transparent animationType="fade">
+          <Pressable style={{ flex: 1, justifyContent: 'flex-start', alignItems: 'center', paddingTop: 16 }} onPress={() => setProductoTooltip(null)}>
+            {productoTooltip ? (
+              <View style={[tooltipStyles.bubble, { left: undefined, transform: undefined, maxWidth: 340, marginHorizontal: 20 }]}>
+                <Text style={[tooltipStyles.text, { whiteSpace: 'normal' as any, textAlign: 'center' }]}>{productoTooltip.name}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+        </Modal>
+      )}
 
       {/* Modal Pago por Imagen */}
       <Modal visible={imgModalVisible} transparent animationType="fade">
@@ -1582,6 +1912,13 @@ const styles = StyleSheet.create({
   productoDropdownList: { maxHeight: 170 },
   productoDropdownEmpty: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', padding: 12, textAlign: 'center' },
   productoDropdownItem: { paddingVertical: 8, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', flexDirection: 'row', alignItems: 'center' },
+  detailProdDropdown: { maxHeight: 160 },
+  detailProdDropdownSearch: { paddingVertical: 4, paddingHorizontal: 8 },
+  detailProdDropdownInput: { fontSize: 11 },
+  detailProdDropdownList: { maxHeight: 120 },
+  detailProdDropdownEmpty: { fontSize: 11, padding: 8 },
+  detailProdDropdownItem: { paddingVertical: 5, paddingHorizontal: 8 },
+  detailProdDropdownItemText: { fontSize: 11 },
   productoDropdownItemDisabled: { opacity: 0.4 },
   productoDropdownItemText: { fontSize: 13, color: '#334155', flex: 1 },
 
@@ -1619,11 +1956,11 @@ const styles = StyleSheet.create({
   detailEmpty: { fontSize: 13, color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', marginTop: 24, paddingHorizontal: 14 },
   detailTableScroll: { marginHorizontal: 14 },
   detailTableWrap: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', minWidth: 1018 },
-  detailTableHeader: { flexDirection: 'row', backgroundColor: '#f8fafc', paddingVertical: 6, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  detailTableHeaderText: { fontSize: 10, fontWeight: '700', color: '#475569', textTransform: 'uppercase' },
-  detailTableRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  detailTableCell: { fontSize: 12, color: '#334155' },
-  cantidadInput: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, fontSize: 13, color: '#334155', textAlign: 'center', width: 70 },
+  detailTableHeader: { flexDirection: 'row', backgroundColor: '#f8fafc', paddingVertical: 4, paddingHorizontal: 6, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  detailTableHeaderText: { fontSize: 9, fontWeight: '700', color: '#475569', textTransform: 'uppercase' },
+  detailTableRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 6, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  detailTableCell: { fontSize: 10, color: '#334155' },
+  cantidadInput: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1, fontSize: 11, color: '#334155', textAlign: 'center', width: 70 },
   detailResumen: { marginHorizontal: 14, marginTop: 12, backgroundColor: '#f0f9ff', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#bae6fd' },
   detailResumenRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   detailResumenLabel: { fontSize: 12, color: '#0369a1', fontWeight: '500' },
@@ -1639,4 +1976,8 @@ const styles = StyleSheet.create({
   imgCardDesc: { fontSize: 12, color: '#475569', fontStyle: 'italic', marginTop: 4 },
   imgAccionBadge: { backgroundColor: '#e0f2fe', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
   imgAccionBadgeText: { fontSize: 10, color: '#0369a1', fontWeight: '600' },
+  fileCard: { backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', padding: 8 },
+  fileCardRow: { flexDirection: 'row', alignItems: 'center' },
+  fileCardName: { fontSize: 12, fontWeight: '600', color: '#1e293b' },
+  fileCardMeta: { fontSize: 10, color: '#94a3b8', marginTop: 1 },
 });
