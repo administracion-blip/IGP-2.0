@@ -37,7 +37,7 @@ type Pedido = Record<string, string | number | undefined>;
 type Local = Record<string, string | number | undefined>;
 type Almacen = Record<string, string | number | undefined>;
 
-function valorEnLocal(item: Pedido | Local | Almacen, key: string): string | number | undefined {
+function valorEnLocal(item: Record<string, any>, key: string): any {
   if (item[key] !== undefined && item[key] !== null) return item[key];
   const found = Object.keys(item).find((k) => k.toLowerCase() === key.toLowerCase());
   return found != null ? item[found] : undefined;
