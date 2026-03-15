@@ -310,6 +310,7 @@ export default function AcuerdosScreen() {
   const [loadingEmpresas, setLoadingEmpresas] = useState(false);
   const [marcaDropdownOpen, setMarcaDropdownOpen] = useState(false);
   const [marcaSearch, setMarcaSearch] = useState('');
+  const [filtroMarca, setFiltroMarca] = useState('');
 
   const [pagosImagen, setPagosImagen] = useState<PagoImagen[]>([]);
   const [loadingPagos, setLoadingPagos] = useState(false);
@@ -522,13 +523,17 @@ export default function AcuerdosScreen() {
 
 
   const acuerdosOrdenados = useMemo(() => {
-    return [...acuerdos].sort((a, b) => {
+    const q = filtroMarca.trim().toLowerCase();
+    const filtered = q
+      ? acuerdos.filter((a) => (a.Marca || '').toLowerCase().includes(q))
+      : acuerdos;
+    return [...filtered].sort((a, b) => {
       const aActivo = a.Estado === 'Activo' ? 0 : 1;
       const bActivo = b.Estado === 'Activo' ? 0 : 1;
       if (aActivo !== bActivo) return aActivo - bActivo;
       return (a.FechaFin || '').localeCompare(b.FechaFin || '');
     });
-  }, [acuerdos]);
+  }, [acuerdos, filtroMarca]);
 
   const empresasFiltradas = useMemo(() => {
     const q = marcaSearch.trim().toLowerCase();
@@ -752,9 +757,18 @@ export default function AcuerdosScreen() {
     useCallback(() => {
       let cancelled = false;
       (async () => {
-        const items = await cargar();
+        const [items, totalesData] = await Promise.all([
+          cargar(),
+          (async () => {
+            try {
+              const res = await fetch(`${API_URL}/api/acuerdos/totales`);
+              const data = await res.json();
+              return res.ok && data.totales ? data.totales : {};
+            } catch (_) { return {}; }
+          })(),
+        ]);
         if (cancelled) return;
-        cargarTotales();
+        setTotalesPorAcuerdo(totalesData);
         const lastPK = await AsyncStorage.getItem(ACUERDOS_LAST_SELECTED_KEY);
         if (lastPK) {
           let a = items.find((x: Acuerdo) => x.PK === lastPK);
@@ -1177,7 +1191,21 @@ export default function AcuerdosScreen() {
 
       <View style={styles.splitContainer}>
         {/* Lista de acuerdos */}
-        <ScrollView style={[styles.list, seleccionado && !isCompact && { flex: 2 }]} contentContainerStyle={styles.listContent}>
+        <View style={[styles.list, seleccionado && !isCompact && { flex: 2 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, gap: 6, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' }}>
+          <MaterialIcons name="search" size={18} color="#94a3b8" />
+          <TextInput
+            value={filtroMarca}
+            onChangeText={setFiltroMarca}
+            placeholder="Filtrar por marca…"
+            placeholderTextColor="#94a3b8"
+            style={{ flex: 1, fontSize: 14, color: '#1e293b', padding: 6, outlineStyle: 'none' } as any}
+          />
+          {filtroMarca ? (
+            <TouchableOpacity onPress={() => setFiltroMarca('')}><MaterialIcons name="close" size={16} color="#94a3b8" /></TouchableOpacity>
+          ) : null}
+        </View>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.listContent}>
           {loading && acuerdos.length === 0 ? (
             <View style={styles.emptyWrap}><ActivityIndicator size="large" color="#0ea5e9" /><Text style={styles.emptyText}>Cargando…</Text></View>
           ) : acuerdos.length === 0 ? (
@@ -1238,6 +1266,7 @@ export default function AcuerdosScreen() {
             })
           )}
         </ScrollView>
+        </View>
 
         {/* Panel lateral: Detalle del acuerdo */}
         {seleccionado && (

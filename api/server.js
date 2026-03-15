@@ -13,7 +13,7 @@ import { DynamoDBClient, DescribeTableCommand, UpdateTableCommand } from '@aws-s
 import { DynamoDBDocumentClient, ScanCommand, QueryCommand, PutCommand, GetCommand, DeleteCommand, UpdateCommand, BatchWriteCommand, BatchGetCommand } from '@aws-sdk/lib-dynamodb';
 import { S3Client, PutObjectCommand, GetObjectCommand as S3GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { exportSystemCloseOuts, exportPosCloseOuts, exportInvoices, exportWarehouses, exportIncomingDeliveryNotes } from './lib/agora/client.js';
+import { exportSystemCloseOuts, exportPosCloseOuts, exportInvoices, exportWarehouses, exportIncomingDeliveryNotes, exportFamilies, exportVats } from './lib/agora/client.js';
 import { upsertBatch } from './lib/dynamo/salesCloseOuts.js';
 import { syncProducts, getLastSync, setLastSync, shouldSkipSyncByThrottle, toApiProduct, pickAllowedFields } from './lib/dynamo/agoraProducts.js';
 
@@ -2009,7 +2009,20 @@ app.get('/api/agora/products', async (req, res) => {
       const rawList = Array.isArray(data)
         ? data
         : (data?.productos ?? data?.Products ?? data?.Items ?? data?.data ?? []);
+      // Enriquecer con maestros de familias e impuestos (fallback silencioso)
+      const [fams, vts] = await Promise.all([
+        exportFamilies().catch(() => []),
+        exportVats().catch(() => []),
+      ]);
+      const fMap = new Map();
+      for (const f of fams) { const id = f.Id ?? f.id; if (id != null) fMap.set(String(id), f.Name ?? f.name ?? ''); }
+      const vMap = new Map();
+      for (const v of vts) { const id = v.Id ?? v.id; if (id != null) { const rate = v.VatRate ?? v.vatRate ?? 0; vMap.set(String(id), { name: v.Name ?? v.name ?? '', percent: typeof rate === 'number' ? Math.round(rate * 10000) / 100 : 0 }); } }
       const productos = rawList.map((p) => {
+        const fid = p.FamilyId ?? p.familyId;
+        if (fid != null && fMap.has(String(fid))) p.FamilyName = fMap.get(String(fid));
+        const vid = p.VatId ?? p.vatId;
+        if (vid != null && vMap.has(String(vid))) { const vat = vMap.get(String(vid)); p.VatName = vat.name; p.VatPercent = vat.percent; }
         const picked = pickAllowedFields(p);
         picked.Id = p.Id ?? p.id ?? p.Code ?? p.code ?? picked.Id;
         picked.IGP = false;
@@ -2105,6 +2118,39 @@ app.post('/api/agora/products/sync', async (req, res) => {
     const rawList = Array.isArray(data)
       ? data
       : (data.productos ?? data.Products ?? data.Items ?? data.data ?? []);
+
+    // Cargar maestros de familias e impuestos en paralelo (fallback silencioso)
+    const [familiesRaw, vatsRaw] = await Promise.all([
+      exportFamilies().catch(() => []),
+      exportVats().catch(() => []),
+    ]);
+    const familyMap = new Map();
+    for (const f of familiesRaw) {
+      const id = f.Id ?? f.id;
+      if (id != null) familyMap.set(String(id), f.Name ?? f.name ?? '');
+    }
+    const vatMap = new Map();
+    for (const v of vatsRaw) {
+      const id = v.Id ?? v.id;
+      if (id != null) {
+        const rate = v.VatRate ?? v.vatRate ?? 0;
+        vatMap.set(String(id), {
+          name: v.Name ?? v.name ?? '',
+          percent: typeof rate === 'number' ? Math.round(rate * 10000) / 100 : 0,
+        });
+      }
+    }
+    // Enriquecer productos con nombres de familia e impuesto
+    for (const p of rawList) {
+      const fid = p.FamilyId ?? p.familyId;
+      if (fid != null && familyMap.has(String(fid))) p.FamilyName = familyMap.get(String(fid));
+      const vid = p.VatId ?? p.vatId;
+      if (vid != null && vatMap.has(String(vid))) {
+        const vat = vatMap.get(String(vid));
+        p.VatName = vat.name;
+        p.VatPercent = vat.percent;
+      }
+    }
 
     const { added, updated, unchanged } = await syncProducts(docClient, tableAgoraProductsName, rawList);
 

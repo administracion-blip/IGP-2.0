@@ -194,6 +194,38 @@ export async function exportIncomingDeliveryNotes(businessDay, workplaces = null
   throw lastError;
 }
 
+/** Exporta maestros de familias desde Ágora (export-master filter=Families). Guía 8.1.6 p.40. */
+export async function exportFamilies() {
+  const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');
+  const token = process.env.AGORA_API_TOKEN || '';
+  if (!baseUrl || !token) throw new Error('AGORA_BASE_URL y AGORA_API_TOKEN son obligatorios');
+
+  const url = `${baseUrl}/api/export-master/?filter=Families`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { 'Api-Token': token, Accept: 'application/json' },
+  });
+  if (!res.ok) throw new Error(`Ágora ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  return data.Families || data.families || [];
+}
+
+/** Exporta maestros de impuestos desde Ágora (export-master filter=Vats). Guía 8.1.6 p.30-31. */
+export async function exportVats() {
+  const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');
+  const token = process.env.AGORA_API_TOKEN || '';
+  if (!baseUrl || !token) throw new Error('AGORA_BASE_URL y AGORA_API_TOKEN son obligatorios');
+
+  const url = `${baseUrl}/api/export-master/?filter=Vats`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { 'Api-Token': token, Accept: 'application/json' },
+  });
+  if (!res.ok) throw new Error(`Ágora ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  return data.Vats || data.vats || [];
+}
+
 /** Exporta maestros de almacenes desde Ágora (export-master filter=Warehouses). Guía 8.1.6 p.205-206. */
 export async function exportWarehouses() {
   const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');

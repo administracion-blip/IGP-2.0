@@ -12,7 +12,7 @@ const BATCH_SIZE = 25;
 const META_SK = '__meta__';
 
 /** Campos permitidos: solo estos se guardan en DynamoDB y se devuelven por API */
-const ALLOWED_FIELDS = ['Id', 'IGP', 'Name', 'CostPrice', 'BaseSaleFormatId', 'FamilyId', 'VatId'];
+const ALLOWED_FIELDS = ['Id', 'IGP', 'Name', 'CostPrice', 'BaseSaleFormatId', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'Active', 'IsSoldByWeight'];
 
 /**
  * Extrae solo los campos permitidos de un producto (sin IGP, que se gestiona aparte).
@@ -24,9 +24,15 @@ export function pickAllowedFields(p) {
   const out = {};
   for (const key of ALLOWED_FIELDS) {
     if (key === 'IGP') continue;
+    if (key === 'Active') continue;
+    if (key === 'IsSoldByWeight') continue;
     const val = p[key] ?? p[key.toLowerCase()];
     if (val !== undefined && val !== null) out[key] = val;
   }
+  const deletionDate = p.DeletionDate ?? p.deletionDate ?? null;
+  out.Active = !deletionDate;
+  const soldByWeight = p.IsSoldByWeight ?? p.isSoldByWeight ?? p.isSoldbyWeight ?? null;
+  out.IsSoldByWeight = soldByWeight === true || soldByWeight === 'true';
   return out;
 }
 

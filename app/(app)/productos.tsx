@@ -24,7 +24,7 @@ const PAGE_SIZE = 50;
 const MAX_TEXT_LENGTH = 30;
 
 /** Columnas preferidas para Productos Ágora (solo campos permitidos por API) */
-const PREFERRED_COLS_AGORA = ['Id', 'IGP', 'Name', 'CostPrice', 'BaseSaleFormatId', 'FamilyId', 'VatId'];
+const PREFERRED_COLS_AGORA = ['Id', 'IGP', 'Name', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'CostPrice', 'BaseSaleFormatId', 'Active', 'IsSoldByWeight'];
 
 const DEFAULT_COL_WIDTH = 90;
 const MAX_TEXT_LENGTH_TABLE = 30;
@@ -53,8 +53,8 @@ const OPERADORES_BOOL: { key: FiltroOperador; label: string }[] = [
   { key: 'false', label: 'es falso' },
 ];
 
-const COLUMNAS_NUMERICAS = ['CostPrice', 'Price'];
-const COLUMNAS_BOOLEANAS = ['IGP'];
+const COLUMNAS_NUMERICAS = ['CostPrice', 'Price', 'VatPercent'];
+const COLUMNAS_BOOLEANAS = ['IGP', 'Active', 'IsSoldByWeight'];
 
 function operadoresPorColumna(col: string) {
   if (COLUMNAS_BOOLEANAS.includes(col)) return OPERADORES_BOOL;
