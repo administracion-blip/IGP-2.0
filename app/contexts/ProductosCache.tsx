@@ -13,6 +13,7 @@ type ProductosCacheValue = {
   lastFetch: number | null;
   recargar: () => Promise<void>;
   sincronizar: () => Promise<{ added?: number; updated?: number; unchanged?: number } | null>;
+  updateProductoLocal: (id: string, patch: Record<string, unknown>) => void;
 };
 
 const ProductosCacheContext = createContext<ProductosCacheValue | null>(null);
@@ -87,6 +88,15 @@ export function ProductosCacheProvider({ children }: { children: React.ReactNode
     }
   }, [recargar]);
 
+  const updateProductoLocal = useCallback((id: string, patch: Record<string, unknown>) => {
+    setProductos((prev) =>
+      prev.map((p) => {
+        const pid = String(p.Id ?? p.id ?? p.Code ?? '');
+        return pid === id ? { ...p, ...patch } : p;
+      })
+    );
+  }, []);
+
   const productosIgp = React.useMemo(
     () => productos.filter((p) => p.IGP === true || p.IGP === 'true'),
     [productos]
@@ -94,7 +104,7 @@ export function ProductosCacheProvider({ children }: { children: React.ReactNode
 
   return (
     <ProductosCacheContext.Provider
-      value={{ productos, productosIgp, loading, syncing, error, lastFetch, recargar, sincronizar }}
+      value={{ productos, productosIgp, loading, syncing, error, lastFetch, recargar, sincronizar, updateProductoLocal }}
     >
       {children}
     </ProductosCacheContext.Provider>

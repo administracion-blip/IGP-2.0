@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -30,6 +30,71 @@ const DEFAULT_COL_WIDTH = 90;
 const MAX_TEXT_LENGTH_TABLE = 30;
 
 type Producto = Record<string, unknown>;
+
+type FiltroOperador = 'contiene' | 'igual' | 'empieza' | 'no_contiene' | '>' | '<' | '>=' | '<=' | '!=' | 'true' | 'false';
+type FiltroAvanzado = { id: string; columna: string; operador: FiltroOperador; valor: string };
+
+const OPERADORES_TEXTO: { key: FiltroOperador; label: string }[] = [
+  { key: 'contiene', label: 'contiene' },
+  { key: 'igual', label: 'es igual a' },
+  { key: 'empieza', label: 'empieza por' },
+  { key: 'no_contiene', label: 'no contiene' },
+];
+const OPERADORES_NUMERICO: { key: FiltroOperador; label: string }[] = [
+  { key: 'igual', label: '=' },
+  { key: '>', label: '>' },
+  { key: '<', label: '<' },
+  { key: '>=', label: '>=' },
+  { key: '<=', label: '<=' },
+  { key: '!=', label: '≠' },
+];
+const OPERADORES_BOOL: { key: FiltroOperador; label: string }[] = [
+  { key: 'true', label: 'es verdadero' },
+  { key: 'false', label: 'es falso' },
+];
+
+const COLUMNAS_NUMERICAS = ['CostPrice', 'Price'];
+const COLUMNAS_BOOLEANAS = ['IGP'];
+
+function operadoresPorColumna(col: string) {
+  if (COLUMNAS_BOOLEANAS.includes(col)) return OPERADORES_BOOL;
+  if (COLUMNAS_NUMERICAS.includes(col)) return OPERADORES_NUMERICO;
+  return OPERADORES_TEXTO;
+}
+
+function aplicarFiltro(item: Producto, filtro: FiltroAvanzado, valorFn: (item: Producto, col: string) => unknown): boolean {
+  const raw = valorFn(item, filtro.columna);
+
+  if (COLUMNAS_BOOLEANAS.includes(filtro.columna)) {
+    const boolVal = raw === true || raw === 'true';
+    return filtro.operador === 'true' ? boolVal : !boolVal;
+  }
+
+  if (COLUMNAS_NUMERICAS.includes(filtro.columna)) {
+    const num = parseFloat(String(raw ?? ''));
+    const target = parseFloat(filtro.valor.replace(',', '.'));
+    if (Number.isNaN(num) || Number.isNaN(target)) return false;
+    switch (filtro.operador) {
+      case 'igual': return num === target;
+      case '>': return num > target;
+      case '<': return num < target;
+      case '>=': return num >= target;
+      case '<=': return num <= target;
+      case '!=': return num !== target;
+      default: return true;
+    }
+  }
+
+  const str = String(raw ?? '').toLowerCase();
+  const q = filtro.valor.toLowerCase();
+  switch (filtro.operador) {
+    case 'contiene': return str.includes(q);
+    case 'igual': return str === q;
+    case 'empieza': return str.startsWith(q);
+    case 'no_contiene': return !str.includes(q);
+    default: return true;
+  }
+}
 
 /** Obtiene las columnas a partir de los datos devueltos por la API */
 function columnasFromProductos(
@@ -76,9 +141,14 @@ export default function ProductosScreen() {
     lastFetch,
     recargar: refetchProductosAgora,
     sincronizar: syncProductosAgoraGlobal,
+    updateProductoLocal,
   } = useProductosCache();
   const [filtroAgora, setFiltroAgora] = useState('');
   const [pageIndexAgora, setPageIndexAgora] = useState(0);
+  const [filtrosAvanzados, setFiltrosAvanzados] = useState<FiltroAvanzado[]>([]);
+  const [filtrosPanelOpen, setFiltrosPanelOpen] = useState(false);
+  const [operadorDropdownId, setOperadorDropdownId] = useState<string | null>(null);
+  const [columnaDropdownId, setColumnaDropdownId] = useState<string | null>(null);
   const [modalEditarVisible, setModalEditarVisible] = useState(false);
   const [productoEditando, setProductoEditando] = useState<Producto | null>(null);
   const [formName, setFormName] = useState('');
@@ -90,28 +160,55 @@ export default function ProductosScreen() {
   const [guardando, setGuardando] = useState(false);
   const [errorEditar, setErrorEditar] = useState<string | null>(null);
 
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const lastClickedRef = useRef<string | null>(null);
+  const [batchUpdating, setBatchUpdating] = useState(false);
+
+  const getProductId = (p: Producto): string => String(valorPorColumna(p, 'Id') ?? valorPorColumna(p, 'id') ?? valorPorColumna(p, 'Code') ?? '');
+
   const toggleAgoraProductIGP = useCallback(
     async (producto: Producto) => {
-      const id = valorPorColumna(producto, 'Id') ?? valorPorColumna(producto, 'id') ?? valorPorColumna(producto, 'Code');
-      if (id == null) return;
-      const idStr = String(id);
+      const idStr = getProductId(producto);
+      if (!idStr) return;
       const actual = valorPorColumna(producto, 'IGP');
       const nuevoVal = actual === true || actual === 'true' ? false : true;
+      updateProductoLocal(idStr, { IGP: nuevoVal });
       try {
-        const res = await fetch(`${API_URL}/api/agora/products/${encodeURIComponent(idStr)}`, {
+        await fetch(`${API_URL}/api/agora/products/${encodeURIComponent(idStr)}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ IGP: nuevoVal }),
         });
-        const data = await res.json();
-        if (res.ok && data.ok) {
-          await refetchProductosAgora();
-        }
       } catch {
-        // error silencioso, el usuario puede recargar manualmente
+        updateProductoLocal(idStr, { IGP: !nuevoVal });
       }
     },
-    [refetchProductosAgora]
+    [updateProductoLocal]
+  );
+
+  const batchToggleIGP = useCallback(
+    async (nuevoVal: boolean) => {
+      if (selectedIds.size === 0) return;
+      setBatchUpdating(true);
+      const ids = [...selectedIds];
+      ids.forEach((id) => updateProductoLocal(id, { IGP: nuevoVal }));
+      const batchSize = 5;
+      for (let i = 0; i < ids.length; i += batchSize) {
+        const chunk = ids.slice(i, i + batchSize);
+        await Promise.all(
+          chunk.map((id) =>
+            fetch(`${API_URL}/api/agora/products/${encodeURIComponent(id)}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ IGP: nuevoVal }),
+            }).catch(() => {})
+          )
+        );
+      }
+      setSelectedIds(new Set());
+      setBatchUpdating(false);
+    },
+    [selectedIds, updateProductoLocal]
   );
 
   const abrirModalEditar = useCallback((producto: Producto) => {
@@ -193,15 +290,24 @@ export default function ProductosScreen() {
   }, []);
 
   const productosAgoraFiltrados = useMemo(() => {
+    let resultado = productosAgora;
     const q = filtroAgora.trim().toLowerCase();
-    if (!q) return productosAgora;
-    return productosAgora.filter((p) =>
-      columnasAgora.some((col) => {
-        const val = valorCeldaAgora(p, col);
-        return val !== '—' && val.toLowerCase().includes(q);
-      })
-    );
-  }, [productosAgora, filtroAgora, columnasAgora, valorCeldaAgora]);
+    if (q) {
+      resultado = resultado.filter((p) =>
+        columnasAgora.some((col) => {
+          const val = valorCeldaAgora(p, col);
+          return val !== '—' && val.toLowerCase().includes(q);
+        })
+      );
+    }
+    const activos = filtrosAvanzados.filter((f) => f.columna && (COLUMNAS_BOOLEANAS.includes(f.columna) || f.valor.trim()));
+    if (activos.length > 0) {
+      resultado = resultado.filter((p) =>
+        activos.every((f) => aplicarFiltro(p, f, valorPorColumna))
+      );
+    }
+    return resultado;
+  }, [productosAgora, filtroAgora, columnasAgora, valorCeldaAgora, filtrosAvanzados]);
 
   const totalFiltradosAgora = productosAgoraFiltrados.length;
   const totalPagesAgora = Math.max(1, Math.ceil(totalFiltradosAgora / PAGE_SIZE));
@@ -218,7 +324,43 @@ export default function ProductosScreen() {
 
   useEffect(() => {
     setPageIndexAgora(0);
-  }, [filtroAgora]);
+  }, [filtroAgora, filtrosAvanzados]);
+
+  const addFiltro = () => {
+    const defaultCol = columnasAgora[0] || 'Id';
+    const ops = operadoresPorColumna(defaultCol);
+    setFiltrosAvanzados((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), columna: defaultCol, operador: ops[0].key, valor: '' },
+    ]);
+    setFiltrosPanelOpen(true);
+  };
+
+  const removeFiltro = (id: string) => {
+    setFiltrosAvanzados((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  const updateFiltro = (id: string, patch: Partial<FiltroAvanzado>) => {
+    setFiltrosAvanzados((prev) =>
+      prev.map((f) => {
+        if (f.id !== id) return f;
+        const updated = { ...f, ...patch };
+        if (patch.columna && patch.columna !== f.columna) {
+          const ops = operadoresPorColumna(patch.columna);
+          updated.operador = ops[0].key;
+          if (COLUMNAS_BOOLEANAS.includes(patch.columna)) updated.valor = '';
+        }
+        return updated;
+      })
+    );
+  };
+
+  const limpiarFiltros = () => {
+    setFiltrosAvanzados([]);
+    setFiltrosPanelOpen(false);
+  };
+
+  const filtrosActivos = filtrosAvanzados.filter((f) => f.columna && (COLUMNAS_BOOLEANAS.includes(f.columna) || f.valor.trim()));
 
   const goPrevPageAgora = () => setPageIndexAgora((p) => Math.max(0, p - 1));
   const goNextPageAgora = () => setPageIndexAgora((p) => Math.min(totalPagesAgora - 1, p + 1));
@@ -267,6 +409,46 @@ export default function ProductosScreen() {
               )}
               <Text style={styles.reloadBtnText}>Sincronizar</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.reloadBtn, filtrosActivos.length > 0 && styles.filterBtnActive]}
+              onPress={() => setFiltrosPanelOpen((o) => !o)}
+              accessibilityLabel="Filtros"
+            >
+              <MaterialIcons name="filter-list" size={22} color={filtrosActivos.length > 0 ? '#fff' : '#0ea5e9'} />
+              <Text style={[styles.reloadBtnText, filtrosActivos.length > 0 && { color: '#fff' }]}>
+                Filtros{filtrosActivos.length > 0 ? ` (${filtrosActivos.length})` : ''}
+              </Text>
+            </TouchableOpacity>
+            {selectedIds.size > 0 && (
+              <>
+                <View style={styles.selectionInfo}>
+                  <Text style={styles.selectionInfoText}>{selectedIds.size} seleccionado{selectedIds.size !== 1 ? 's' : ''}</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.reloadBtn, { backgroundColor: '#16a34a' }]}
+                  onPress={() => batchToggleIGP(true)}
+                  disabled={batchUpdating}
+                >
+                  {batchUpdating ? <ActivityIndicator size="small" color="#fff" /> : <MaterialIcons name="check-box" size={18} color="#fff" />}
+                  <Text style={[styles.reloadBtnText, { color: '#fff' }]}>Marcar IGP</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.reloadBtn, { backgroundColor: '#ef4444' }]}
+                  onPress={() => batchToggleIGP(false)}
+                  disabled={batchUpdating}
+                >
+                  {batchUpdating ? <ActivityIndicator size="small" color="#fff" /> : <MaterialIcons name="check-box-outline-blank" size={18} color="#fff" />}
+                  <Text style={[styles.reloadBtnText, { color: '#fff' }]}>Desmarcar IGP</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.reloadBtn}
+                  onPress={() => setSelectedIds(new Set())}
+                >
+                  <MaterialIcons name="deselect" size={18} color="#64748b" />
+                  <Text style={[styles.reloadBtnText, { color: '#64748b' }]}>Deseleccionar</Text>
+                </TouchableOpacity>
+              </>
+            )}
             <View style={styles.searchWrap}>
               <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
               <TextInput
@@ -281,6 +463,105 @@ export default function ProductosScreen() {
               <Text style={styles.lastFetchText}>Última carga: {lastFetchLabel}</Text>
             )}
           </View>
+          {filtrosPanelOpen && (
+            <View style={styles.filterPanel}>
+              {filtrosAvanzados.map((f) => {
+                const ops = operadoresPorColumna(f.columna);
+                const isBool = COLUMNAS_BOOLEANAS.includes(f.columna);
+                return (
+                  <View key={f.id} style={styles.filterRow}>
+                    <TouchableOpacity
+                      style={styles.filterDropdownBtn}
+                      onPress={() => { setColumnaDropdownId((prev) => (prev === f.id ? null : f.id)); setOperadorDropdownId(null); }}
+                    >
+                      <Text style={styles.filterDropdownBtnText} numberOfLines={1}>{f.columna}</Text>
+                      <MaterialIcons name="arrow-drop-down" size={16} color="#64748b" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.filterDropdownBtn}
+                      onPress={() => { setOperadorDropdownId((prev) => (prev === f.id ? null : f.id)); setColumnaDropdownId(null); }}
+                    >
+                      <Text style={styles.filterDropdownBtnText} numberOfLines={1}>{ops.find((o) => o.key === f.operador)?.label || f.operador}</Text>
+                      <MaterialIcons name="arrow-drop-down" size={16} color="#64748b" />
+                    </TouchableOpacity>
+                    {!isBool && (
+                      <TextInput
+                        style={styles.filterValueInput}
+                        value={f.valor}
+                        onChangeText={(v) => updateFiltro(f.id, { valor: v })}
+                        onFocus={() => { setColumnaDropdownId(null); setOperadorDropdownId(null); }}
+                        placeholder="Valor…"
+                        placeholderTextColor="#94a3b8"
+                        keyboardType={COLUMNAS_NUMERICAS.includes(f.columna) ? 'numeric' : 'default'}
+                      />
+                    )}
+                    <TouchableOpacity onPress={() => removeFiltro(f.id)} style={styles.filterRemoveBtn}>
+                      <MaterialIcons name="close" size={16} color="#ef4444" />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+              <View style={styles.filterActions}>
+                <TouchableOpacity style={styles.filterAddBtn} onPress={addFiltro}>
+                  <MaterialIcons name="add" size={16} color="#0ea5e9" />
+                  <Text style={styles.filterAddBtnText}>Añadir filtro</Text>
+                </TouchableOpacity>
+                {filtrosAvanzados.length > 0 && (
+                  <TouchableOpacity style={styles.filterClearBtn} onPress={limpiarFiltros}>
+                    <MaterialIcons name="delete-sweep" size={16} color="#94a3b8" />
+                    <Text style={styles.filterClearBtnText}>Limpiar filtros</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* Dropdown overlay para columna */}
+          <Modal visible={columnaDropdownId !== null} transparent animationType="none">
+            <Pressable style={styles.filterOverlay} onPress={() => setColumnaDropdownId(null)}>
+              <View style={styles.filterModalDropdown}>
+                <Text style={styles.filterModalTitle}>Seleccionar columna</Text>
+                <ScrollView style={{ maxHeight: 300 }} keyboardShouldPersistTaps="handled">
+                  {columnasAgora.map((col) => {
+                    const f = filtrosAvanzados.find((x) => x.id === columnaDropdownId);
+                    const isActive = f?.columna === col;
+                    return (
+                      <TouchableOpacity
+                        key={col}
+                        style={[styles.filterDropdownItem, isActive && styles.filterDropdownItemActive]}
+                        onPress={() => { if (columnaDropdownId) updateFiltro(columnaDropdownId, { columna: col }); setColumnaDropdownId(null); }}
+                      >
+                        <Text style={[styles.filterDropdownItemText, isActive && { color: '#0ea5e9', fontWeight: '600' }]}>{col}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </Pressable>
+          </Modal>
+
+          {/* Dropdown overlay para operador */}
+          <Modal visible={operadorDropdownId !== null} transparent animationType="none">
+            <Pressable style={styles.filterOverlay} onPress={() => setOperadorDropdownId(null)}>
+              <View style={styles.filterModalDropdown}>
+                <Text style={styles.filterModalTitle}>Seleccionar operador</Text>
+                {(() => {
+                  const f = filtrosAvanzados.find((x) => x.id === operadorDropdownId);
+                  if (!f) return null;
+                  const ops = operadoresPorColumna(f.columna);
+                  return ops.map((op) => (
+                    <TouchableOpacity
+                      key={op.key}
+                      style={[styles.filterDropdownItem, f.operador === op.key && styles.filterDropdownItemActive]}
+                      onPress={() => { if (operadorDropdownId) updateFiltro(operadorDropdownId, { operador: op.key }); setOperadorDropdownId(null); }}
+                    >
+                      <Text style={[styles.filterDropdownItemText, f.operador === op.key && { color: '#0ea5e9', fontWeight: '600' }]}>{op.label}</Text>
+                    </TouchableOpacity>
+                  ));
+                })()}
+              </View>
+            </Pressable>
+          </Modal>
           {!lastFetch && !loadingAgora && !errorAgora ? (
             <View style={styles.center}>
               <MaterialIcons name="cloud-download" size={48} color="#94a3b8" />
@@ -307,8 +588,26 @@ export default function ProductosScreen() {
                 {totalPagesAgora > 1 && ` · Página ${pageIndexClampedAgora + 1} de ${totalPagesAgora}`}
               </Text>
               <ScrollView horizontal style={styles.scroll} contentContainerStyle={[styles.scrollContent, { flexGrow: 1 }]}>
-                <View style={[styles.table, styles.tableAgora, { minWidth: columnasAgora.reduce((w, c) => w + (c === 'IGP' ? 56 : c === 'Name' ? 180 : DEFAULT_COL_WIDTH), 0) + 44 }]}>
+                <View style={[styles.table, styles.tableAgora, { minWidth: 32 + columnasAgora.reduce((w, c) => w + (c === 'IGP' ? 56 : c === 'Name' ? 180 : DEFAULT_COL_WIDTH), 0) + 44 }]}>
                   <View style={styles.rowHeaderAgora}>
+                    <TouchableOpacity
+                      style={[styles.cellHeaderAgora, styles.cellIGP, { width: 32 }]}
+                      onPress={() => {
+                        const pageIds = productosAgoraPagina.map((p) => getProductId(p)).filter(Boolean);
+                        const allSelected = pageIds.every((id) => selectedIds.has(id));
+                        setSelectedIds((prev) => {
+                          const next = new Set(prev);
+                          pageIds.forEach((id) => allSelected ? next.delete(id) : next.add(id));
+                          return next;
+                        });
+                      }}
+                    >
+                      <MaterialIcons
+                        name={productosAgoraPagina.length > 0 && productosAgoraPagina.every((p) => selectedIds.has(getProductId(p))) ? 'check-box' : productosAgoraPagina.some((p) => selectedIds.has(getProductId(p))) ? 'indeterminate-check-box' : 'check-box-outline-blank'}
+                        size={16}
+                        color="#64748b"
+                      />
+                    </TouchableOpacity>
                     {columnasAgora.map((col) => (
                       <View key={col} style={[styles.cellHeaderAgora, { width: col === 'IGP' ? 56 : col === 'Name' ? 180 : DEFAULT_COL_WIDTH }]}>
                         <Text style={styles.cellHeaderTextAgora} numberOfLines={1} ellipsizeMode="tail">{col}</Text>
@@ -320,12 +619,47 @@ export default function ProductosScreen() {
                   </View>
                   <ScrollView style={styles.agoraBodyScroll} nestedScrollEnabled>
                   {productosAgoraPagina.map((p, idx) => {
-                    const rowId = valorPorColumna(p, 'Id') ?? valorPorColumna(p, 'id');
+                    const rowId = getProductId(p);
+                    const isSelected = rowId ? selectedIds.has(rowId) : false;
                     return (
-                    <View
-                      key={rowId != null ? String(rowId) : `page-${pageIndexClampedAgora}-${idx}`}
-                      style={styles.rowAgora}
+                    <Pressable
+                      key={rowId || `page-${pageIndexClampedAgora}-${idx}`}
+                      style={[styles.rowAgora, isSelected && styles.rowSelected]}
+                      onPress={(e) => {
+                        if (!rowId) return;
+                        const nativeEvent = e.nativeEvent as any;
+                        const shiftKey = Platform.OS === 'web' && nativeEvent?.shiftKey;
+                        if (shiftKey && lastClickedRef.current) {
+                          const allIds = productosAgoraFiltrados.map((pr) => getProductId(pr));
+                          const fromIdx = allIds.indexOf(lastClickedRef.current);
+                          const toIdx = allIds.indexOf(rowId);
+                          if (fromIdx >= 0 && toIdx >= 0) {
+                            const start = Math.min(fromIdx, toIdx);
+                            const end = Math.max(fromIdx, toIdx);
+                            const rangeIds = allIds.slice(start, end + 1).filter(Boolean);
+                            setSelectedIds((prev) => {
+                              const next = new Set(prev);
+                              rangeIds.forEach((id) => next.add(id));
+                              return next;
+                            });
+                          }
+                        } else {
+                          setSelectedIds((prev) => {
+                            const next = new Set(prev);
+                            next.has(rowId) ? next.delete(rowId) : next.add(rowId);
+                            return next;
+                          });
+                        }
+                        lastClickedRef.current = rowId;
+                      }}
                     >
+                      <View style={[styles.cellAgora, styles.cellIGP, { width: 32 }]}>
+                        <MaterialIcons
+                          name={isSelected ? 'check-box' : 'check-box-outline-blank'}
+                          size={16}
+                          color={isSelected ? '#0ea5e9' : '#cbd5e1'}
+                        />
+                      </View>
                       {columnasAgora.map((col) => {
                         const isMoneda = col === 'CostPrice';
                         const isIGP = col === 'IGP';
@@ -336,7 +670,7 @@ export default function ProductosScreen() {
                             <TouchableOpacity
                               key={col}
                               style={[styles.cellAgora, styles.cellIGP, { width: colWidth }]}
-                              onPress={() => toggleAgoraProductIGP(p)}
+                              onPress={(ev) => { ev.stopPropagation(); toggleAgoraProductIGP(p); }}
                               activeOpacity={0.7}
                             >
                               <MaterialIcons
@@ -364,12 +698,12 @@ export default function ProductosScreen() {
                       })}
                       <TouchableOpacity
                         style={[styles.cellAgora, styles.cellEditarAgora, { width: 44 }]}
-                        onPress={() => abrirModalEditar(p)}
+                        onPress={(ev) => { ev.stopPropagation(); abrirModalEditar(p); }}
                         accessibilityLabel="Editar"
                       >
                         <MaterialIcons name="edit" size={16} color="#0ea5e9" />
                       </TouchableOpacity>
-                    </View>
+                    </Pressable>
                   );
                   })}
                   </ScrollView>
@@ -531,7 +865,7 @@ const styles = StyleSheet.create({
   backBtn: { padding: 4 },
   title: { fontSize: 18, fontWeight: '700', color: '#334155', flex: 1 },
   agoraContent: { flex: 1 },
-  agoraToolbar: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12 },
+  agoraToolbar: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' },
   reloadBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#f1f5f9', borderRadius: 8 },
   reloadBtnText: { fontSize: 13, color: '#0ea5e9', fontWeight: '500' },
   searchWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f5f9', borderRadius: 8, paddingHorizontal: 10 },
@@ -596,4 +930,25 @@ const styles = StyleSheet.create({
   importOptionLabel: { fontSize: 12, color: '#334155', fontWeight: '500' },
   importSuccessText: { fontSize: 11, color: '#22c55e', paddingHorizontal: 20, paddingVertical: 4 },
   lastFetchText: { fontSize: 10, color: '#94a3b8', fontStyle: 'italic' },
+  rowSelected: { backgroundColor: '#eff6ff' },
+  selectionInfo: { backgroundColor: '#e0f2fe', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6 },
+  selectionInfoText: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
+  filterBtnActive: { backgroundColor: '#0ea5e9' },
+  filterPanel: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, padding: 12, marginBottom: 10, gap: 8 },
+  filterRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  filterDropdownBtn: { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6, minWidth: 120 },
+  filterDropdownBtnText: { fontSize: 12, color: '#334155', flex: 1 },
+  filterOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.15)', justifyContent: 'center', alignItems: 'center' },
+  filterModalDropdown: { backgroundColor: '#fff', borderRadius: 10, padding: 8, minWidth: 220, maxWidth: 320, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 16, borderWidth: 1, borderColor: '#e2e8f0' },
+  filterModalTitle: { fontSize: 11, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', paddingHorizontal: 8, paddingVertical: 6 },
+  filterDropdownItem: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6 },
+  filterDropdownItemActive: { backgroundColor: '#f0f9ff' },
+  filterDropdownItemText: { fontSize: 13, color: '#334155' },
+  filterValueInput: { flex: 1, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, color: '#334155', minWidth: 80 },
+  filterRemoveBtn: { padding: 4 },
+  filterActions: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 },
+  filterAddBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6, borderWidth: 1, borderColor: '#0ea5e9', borderStyle: 'dashed' },
+  filterAddBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '600' },
+  filterClearBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 10 },
+  filterClearBtnText: { fontSize: 12, color: '#94a3b8' },
 });
