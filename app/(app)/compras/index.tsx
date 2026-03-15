@@ -21,6 +21,12 @@ const OPCIONES = [
     icon: 'list-alt' as const,
     descripcion: 'Artículos asociados a cada pedido',
   },
+  {
+    id: 'compras-proveedor',
+    label: 'Compras a Proveedor',
+    icon: 'receipt-long' as const,
+    descripcion: 'Albaranes de entrada desde Ágora',
+  },
 ];
 
 export default function ComprasIndexScreen() {
@@ -30,6 +36,7 @@ export default function ComprasIndexScreen() {
     if (id === 'pedidos') router.push('/compras/pedidos');
     if (id === 'pedidos-completados') router.push('/compras/pedidos-completados');
     if (id === 'detalles-pedidos') router.push('/compras/detalles-pedidos');
+    if (id === 'compras-proveedor') router.push('/compras/compras-proveedor');
   }
 
   return (

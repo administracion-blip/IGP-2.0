@@ -93,6 +93,10 @@ export default function EmpresasScreen() {
   const resizeRef = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
   const cifDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [edicionRapidaMode, setEdicionRapidaMode] = useState(false);
+  const [editValues, setEditValues] = useState<Record<string, Record<string, string>>>({});
+  const [guardandoRapido, setGuardandoRapido] = useState(false);
+
   const valorEnLocal = useCallback((local: Empresa, key: string) => {
     if (local[key] !== undefined && local[key] !== null) return local[key];
     const found = Object.keys(local).find((k) => k.toLowerCase() === key.toLowerCase());
@@ -504,6 +508,85 @@ export default function EmpresasScreen() {
     return empresasFiltrados.slice(start, start + PAGE_SIZE);
   }, [empresasFiltrados, pageIndexClamped]);
 
+  const entrarEdicionRapida = useCallback(() => {
+    const values: Record<string, Record<string, string>> = {};
+    empresasPagina.forEach((empresa) => {
+      const id = String(valorEnLocal(empresa, 'id_empresa') ?? '');
+      if (!id) return;
+      const rowValues: Record<string, string> = {};
+      for (const col of ATRIBUTOS_TABLA_EMPRESAS) {
+        if (col === 'id_empresa') continue;
+        const v = valorEnLocal(empresa, col);
+        if (col === 'Etiqueta') {
+          rowValues[col] = Array.isArray(v) ? v.join(', ') : v != null ? String(v) : '';
+        } else {
+          rowValues[col] = v != null ? String(v) : '';
+        }
+      }
+      values[id] = rowValues;
+    });
+    setEditValues(values);
+    setEdicionRapidaMode(true);
+  }, [empresasPagina, valorEnLocal]);
+
+  const cancelarEdicionRapida = useCallback(() => {
+    setEdicionRapidaMode(false);
+    setEditValues({});
+  }, []);
+
+  const guardarEdicionRapida = useCallback(async () => {
+    setGuardandoRapido(true);
+    try {
+      let errores = 0;
+      for (const empresa of empresasPagina) {
+        const id = String(valorEnLocal(empresa, 'id_empresa') ?? '');
+        if (!id || !editValues[id]) continue;
+
+        let changed = false;
+        for (const col of ATRIBUTOS_TABLA_EMPRESAS) {
+          if (col === 'id_empresa') continue;
+          const v = valorEnLocal(empresa, col);
+          const original =
+            col === 'Etiqueta'
+              ? (Array.isArray(v) ? v.join(', ') : v != null ? String(v) : '')
+              : (v != null ? String(v) : '');
+          if ((editValues[id][col] ?? '') !== original) {
+            changed = true;
+            break;
+          }
+        }
+        if (!changed) continue;
+
+        const body: Record<string, string | string[]> = { id_empresa: id };
+        for (const col of ATRIBUTOS_TABLA_EMPRESAS) {
+          if (col === 'id_empresa') continue;
+          if (col === 'Etiqueta') {
+            const v = editValues[id][col] ?? '';
+            body[col] = v ? v.split(',').map((s) => s.trim()).filter(Boolean) : [];
+          } else {
+            body[col] = editValues[id][col] ?? '';
+          }
+        }
+
+        const res = await fetch(`${API_URL}/api/empresas`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) errores++;
+      }
+      if (errores > 0) setError(`${errores} registro(s) fallaron al guardar`);
+      setEdicionRapidaMode(false);
+      setEditValues({});
+      refetchEmpresas();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al guardar');
+    } finally {
+      setGuardandoRapido(false);
+    }
+  }, [empresasPagina, editValues, valorEnLocal, refetchEmpresas]);
+
   useEffect(() => {
     setPageIndex((prev) => (prev >= totalPages ? Math.max(0, totalPages - 1) : prev));
   }, [totalPages]);
@@ -680,25 +763,57 @@ export default function EmpresasScreen() {
         >
           {hoveredBtn === 'edicion-rapida' && (
             <View style={styles.tooltip}>
-              <Text style={styles.tooltipText}>Edición rápida</Text>
+              <Text style={styles.tooltipText}>{edicionRapidaMode ? 'Salir de edición rápida' : 'Edición rápida'}</Text>
             </View>
           )}
           <TouchableOpacity
-            style={[styles.toolbarBtn, selectedRowIndex == null && styles.toolbarBtnDisabled]}
+            style={[styles.toolbarBtn, edicionRapidaMode && styles.toolbarBtnActive]}
             onPress={() => {
-              if (selectedRowIndex != null) abrirModalEditar(empresasPagina[selectedRowIndex]);
+              if (edicionRapidaMode) cancelarEdicionRapida();
+              else entrarEdicionRapida();
             }}
-            disabled={guardando || selectedRowIndex == null}
+            disabled={guardando || guardandoRapido}
             accessibilityLabel="Edición rápida"
           >
             <MaterialIcons
               name="speed"
               size={ICON_SIZE}
-              color={guardando || selectedRowIndex == null ? '#94a3b8' : '#0ea5e9'}
+              color={edicionRapidaMode ? '#fff' : '#0ea5e9'}
             />
           </TouchableOpacity>
         </View>
       </View>
+
+      {edicionRapidaMode && (
+        <View style={styles.quickEditBar}>
+          <View style={styles.quickEditBarLeft}>
+            <MaterialIcons name="edit" size={16} color="#0ea5e9" />
+            <Text style={styles.quickEditBarText}>Edición rápida activa — modifica las celdas directamente</Text>
+          </View>
+          <View style={styles.quickEditBarRight}>
+            <TouchableOpacity
+              style={styles.quickEditCancelBtn}
+              onPress={cancelarEdicionRapida}
+              disabled={guardandoRapido}
+            >
+              <MaterialIcons name="close" size={16} color="#64748b" />
+              <Text style={styles.quickEditCancelBtnText}>Cancelar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.quickEditSaveBtn}
+              onPress={guardarEdicionRapida}
+              disabled={guardandoRapido}
+            >
+              {guardandoRapido ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <MaterialIcons name="check" size={16} color="#fff" />
+              )}
+              <Text style={styles.quickEditSaveBtnText}>{guardandoRapido ? 'Guardando…' : 'Guardar cambios'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       <View style={styles.subtitleRow}>
         <Text style={styles.subtitle}>
@@ -761,6 +876,32 @@ export default function EmpresasScreen() {
               activeOpacity={0.8}
             >
               {columnas.map((col) => {
+                const empresaId = String(valorEnLocal(empresa, 'id_empresa') ?? '');
+                if (edicionRapidaMode && col !== 'id_empresa') {
+                  const editVal = editValues[empresaId]?.[col] ?? '';
+                  const v = valorEnLocal(empresa, col);
+                  const original =
+                    col === 'Etiqueta'
+                      ? (Array.isArray(v) ? v.join(', ') : v != null ? String(v) : '')
+                      : (v != null ? String(v) : '');
+                  const isModified = editVal !== original;
+                  return (
+                    <View key={col} style={[styles.cell, { width: getColWidth(col) }, styles.cellEditing, isModified && styles.cellModified]}>
+                      <TextInput
+                        style={styles.cellEditInput}
+                        value={editVal}
+                        onChangeText={(t) => {
+                          setEditValues((prev) => ({
+                            ...prev,
+                            [empresaId]: { ...(prev[empresaId] || {}), [col]: t },
+                          }));
+                        }}
+                        placeholder={col}
+                        placeholderTextColor="#cbd5e1"
+                      />
+                    </View>
+                  );
+                }
                 const raw = valorCelda(empresa, col);
                 const text = col === 'Nombre' ? raw : raw.length > MAX_TEXT_LENGTH ? truncar(raw) : raw;
                 return (
@@ -1011,4 +1152,65 @@ const styles = StyleSheet.create({
   importOptionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
   importOptionLabel: { fontSize: 12, color: '#334155', fontWeight: '500' },
   importSuccessText: { fontSize: 11, color: '#22c55e', paddingHorizontal: 20, paddingVertical: 4 },
+  toolbarBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
+  quickEditBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+    gap: 12,
+    flexWrap: 'wrap',
+  },
+  quickEditBarLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  quickEditBarText: { fontSize: 12, color: '#1e40af', fontWeight: '500' },
+  quickEditBarRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  quickEditCancelBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  quickEditCancelBtnText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
+  quickEditSaveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#0ea5e9',
+    borderRadius: 6,
+  },
+  quickEditSaveBtnText: { fontSize: 12, fontWeight: '600', color: '#fff' },
+  cellEditing: {
+    paddingVertical: 0,
+    paddingHorizontal: 2,
+    backgroundColor: '#f8fafc',
+  },
+  cellModified: {
+    backgroundColor: '#fef9c3',
+    borderBottomColor: '#facc15',
+  },
+  cellEditInput: {
+    flex: 1,
+    fontSize: 11,
+    color: '#334155',
+    paddingVertical: 3,
+    paddingHorizontal: 4,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 4,
+    backgroundColor: '#fff',
+    minHeight: 24,
+  },
 });

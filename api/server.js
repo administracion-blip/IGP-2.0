@@ -9,9 +9,9 @@ dotenv.config({ path: join(__dirname, '.env') });
 
 import express from 'express';
 import cors from 'cors';
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, DescribeTableCommand, UpdateTableCommand } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, QueryCommand, PutCommand, GetCommand, DeleteCommand, UpdateCommand, BatchWriteCommand, BatchGetCommand } from '@aws-sdk/lib-dynamodb';
-import { exportSystemCloseOuts, exportPosCloseOuts, exportInvoices, exportWarehouses } from './lib/agora/client.js';
+import { exportSystemCloseOuts, exportPosCloseOuts, exportInvoices, exportWarehouses, exportIncomingDeliveryNotes } from './lib/agora/client.js';
 import { upsertBatch } from './lib/dynamo/salesCloseOuts.js';
 import { syncProducts, getLastSync, setLastSync, shouldSkipSyncByThrottle, toApiProduct, pickAllowedFields } from './lib/dynamo/agoraProducts.js';
 
@@ -43,9 +43,111 @@ const tableRolesPermisosName = process.env.DDB_ROLES_PERMISOS_TABLE || 'Igp_Role
 const tableGestionFestivosName = process.env.DDB_GESTION_FESTIVOS_TABLE || 'Igp_Gestionfestivosyestimaciones';
 const tablePedidosName = process.env.DDB_PEDIDOS || 'Igp_Pedidos';
 const tablePedidosLineasName = process.env.DDB_PEDIDOS_LINEAS || 'Igp_PedidosLineas';
+const tableComprasProveedorName = process.env.DDB_COMPRAS_PROVEEDOR || 'Igp_ComprasAProveedor';
+const tableAcuerdosName = process.env.DDB_ACUERDOS || 'Igp_Acuerdos';
+const tableAcuerdosDetallesName = process.env.DDB_ACUERDOS_DETALLES || 'Igp_AcuerdosDetalles';
+const tableAcuerdosImagenName = process.env.DDB_ACUERDOS_IMAGEN || 'Igp_AcuerdosImagen';
 
 const client = new DynamoDBClient({ region });
 const docClient = DynamoDBDocumentClient.from(client);
+
+const GSI_COMPRAS_NAME = 'ProductId-AlbaranFecha-index';
+let gsiComprasReady = false;
+
+async function ensureComprasGSI() {
+  try {
+    const desc = await client.send(new DescribeTableCommand({ TableName: tableComprasProveedorName }));
+    const gsis = desc.Table?.GlobalSecondaryIndexes || [];
+    const existing = gsis.find((g) => g.IndexName === GSI_COMPRAS_NAME);
+    if (existing) {
+      gsiComprasReady = existing.IndexStatus === 'ACTIVE';
+      if (!gsiComprasReady) console.log(`[GSI] ${GSI_COMPRAS_NAME} existe pero está en estado ${existing.IndexStatus}, usando Scan como fallback`);
+      else console.log(`[GSI] ${GSI_COMPRAS_NAME} activo y listo`);
+      return;
+    }
+    console.log(`[GSI] Creando ${GSI_COMPRAS_NAME} en ${tableComprasProveedorName}…`);
+    await client.send(new UpdateTableCommand({
+      TableName: tableComprasProveedorName,
+      AttributeDefinitions: [
+        { AttributeName: 'ProductId', AttributeType: 'S' },
+        { AttributeName: 'AlbaranFecha', AttributeType: 'S' },
+      ],
+      GlobalSecondaryIndexUpdates: [{
+        Create: {
+          IndexName: GSI_COMPRAS_NAME,
+          KeySchema: [
+            { AttributeName: 'ProductId', KeyType: 'HASH' },
+            { AttributeName: 'AlbaranFecha', KeyType: 'RANGE' },
+          ],
+          Projection: { ProjectionType: 'INCLUDE', NonKeyAttributes: ['Quantity', 'PK', 'SK'] },
+          ProvisionedThroughput: desc.Table?.BillingModeSummary?.BillingMode === 'PAY_PER_REQUEST' ? undefined : { ReadCapacityUnits: 5, WriteCapacityUnits: 5 },
+        },
+      }],
+    }));
+    console.log(`[GSI] ${GSI_COMPRAS_NAME} creación iniciada. Estará activo en unos minutos. Usando Scan como fallback mientras tanto.`);
+  } catch (err) {
+    console.warn('[GSI] No se pudo crear/verificar el GSI:', err.message || err);
+  }
+}
+
+async function queryComprasPorProductos(productIds, fechaInicio, fechaFin) {
+  const comprasPorProducto = {};
+  if (!productIds || productIds.size === 0) return comprasPorProducto;
+
+  if (gsiComprasReady) {
+    const queries = [...productIds].map(async (pid) => {
+      let keyExpr = 'ProductId = :pid';
+      const exprVals = { ':pid': pid };
+      if (fechaInicio && fechaFin) {
+        keyExpr += ' AND AlbaranFecha BETWEEN :fi AND :ff';
+        exprVals[':fi'] = fechaInicio;
+        exprVals[':ff'] = fechaFin;
+      } else if (fechaInicio) {
+        keyExpr += ' AND AlbaranFecha >= :fi';
+        exprVals[':fi'] = fechaInicio;
+      } else if (fechaFin) {
+        keyExpr += ' AND AlbaranFecha <= :ff';
+        exprVals[':ff'] = fechaFin;
+      }
+      let total = 0;
+      let lastKey = null;
+      do {
+        const r = await docClient.send(new QueryCommand({
+          TableName: tableComprasProveedorName,
+          IndexName: GSI_COMPRAS_NAME,
+          KeyConditionExpression: keyExpr,
+          ExpressionAttributeValues: exprVals,
+          ...(lastKey && { ExclusiveStartKey: lastKey }),
+        }));
+        for (const item of (r.Items || [])) {
+          total += Number(item.Quantity) || 0;
+        }
+        lastKey = r.LastEvaluatedKey || null;
+      } while (lastKey);
+      comprasPorProducto[pid] = total;
+    });
+    await Promise.all(queries);
+  } else {
+    let cKey = null;
+    const allCompras = [];
+    do {
+      const r = await docClient.send(new ScanCommand({ TableName: tableComprasProveedorName, ...(cKey && { ExclusiveStartKey: cKey }) }));
+      allCompras.push(...(r.Items || []));
+      cKey = r.LastEvaluatedKey || null;
+    } while (cKey);
+    for (const c of allCompras) {
+      const pid = String(c.ProductId || '').trim();
+      if (!productIds.has(pid)) continue;
+      const fecha = c.AlbaranFecha || '';
+      if (fechaInicio && fecha < fechaInicio) continue;
+      if (fechaFin && fecha > fechaFin) continue;
+      comprasPorProducto[pid] = (comprasPorProducto[pid] || 0) + (Number(c.Quantity) || 0);
+    }
+  }
+  return comprasPorProducto;
+}
+
+ensureComprasGSI();
 
 // GET /api/agora/closeouts - registrado aquí al inicio para evitar 404
 app.get('/api/agora/closeouts', async (req, res) => {
@@ -3521,6 +3623,650 @@ app.delete('/api/permisos', async (req, res) => {
     const msg = err?.message || String(err);
     console.error('[permisos DELETE]', msg);
     return res.status(500).json({ error: msg || 'Error al borrar permiso' });
+  }
+});
+
+// ──────────────────────────────────────────
+// Acuerdos con Marcas (Rappel)
+// ──────────────────────────────────────────
+
+app.get('/api/acuerdos', async (req, res) => {
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const cmd = new ScanCommand({
+        TableName: tableAcuerdosName,
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      });
+      const result = await docClient.send(cmd);
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+    items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    return res.json({ ok: true, items });
+  } catch (err) {
+    console.error('[acuerdos GET]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al listar acuerdos' });
+  }
+});
+
+app.post('/api/acuerdos', async (req, res) => {
+  const body = req.body || {};
+  const pk = body.PK || crypto.randomUUID();
+  const now = new Date().toISOString();
+  const item = {
+    PK: pk,
+    SK: 'META',
+    Nombre: (body.Nombre || '').trim(),
+    Marca: (body.Marca || '').trim(),
+    FechaInicio: (body.FechaInicio || '').trim(),
+    FechaFin: (body.FechaFin || '').trim(),
+    Contacto: (body.Contacto || '').trim(),
+    Telefono: (body.Telefono || '').trim(),
+    Email: (body.Email || '').trim(),
+    Notas: (body.Notas || '').trim(),
+    Estado: body.Estado || 'Activo',
+    createdAt: now,
+    updatedAt: now,
+  };
+  if (!item.PK) return res.status(400).json({ error: 'El identificador (PK) es obligatorio' });
+  try {
+    await docClient.send(new PutCommand({ TableName: tableAcuerdosName, Item: item }));
+    return res.json({ ok: true, item });
+  } catch (err) {
+    console.error('[acuerdos POST]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al crear acuerdo' });
+  }
+});
+
+app.patch('/api/acuerdos/:id', async (req, res) => {
+  const pk = req.params.id;
+  const body = req.body || {};
+  const FIELDS = ['Nombre', 'Marca', 'FechaInicio', 'FechaFin', 'Contacto', 'Telefono', 'Email', 'Notas', 'Estado'];
+  const setParts = ['#updAt = :updAt'];
+  const exprNames = { '#updAt': 'updatedAt' };
+  const exprValues = { ':updAt': new Date().toISOString() };
+  let vi = 0;
+  for (const key of FIELDS) {
+    if (body[key] === undefined) continue;
+    const val = typeof body[key] === 'string' ? body[key].trim() : body[key];
+    exprNames[`#f${vi}`] = key;
+    exprValues[`:v${vi}`] = val;
+    setParts.push(`#f${vi} = :v${vi}`);
+    vi++;
+  }
+  if (vi === 0) return res.status(400).json({ error: 'Indica al menos un campo a actualizar' });
+  try {
+    await docClient.send(new UpdateCommand({
+      TableName: tableAcuerdosName,
+      Key: { PK: pk, SK: 'META' },
+      UpdateExpression: 'SET ' + setParts.join(', '),
+      ExpressionAttributeNames: exprNames,
+      ExpressionAttributeValues: exprValues,
+      ConditionExpression: 'attribute_exists(PK)',
+    }));
+    return res.json({ ok: true, id: pk });
+  } catch (err) {
+    if (err.name === 'ConditionalCheckFailedException') return res.status(404).json({ error: 'Acuerdo no encontrado' });
+    console.error('[acuerdos PATCH]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al actualizar acuerdo' });
+  }
+});
+
+app.delete('/api/acuerdos/:id', async (req, res) => {
+  try {
+    await docClient.send(new DeleteCommand({ TableName: tableAcuerdosName, Key: { PK: req.params.id, SK: 'META' } }));
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[acuerdos DELETE]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al eliminar acuerdo' });
+  }
+});
+
+// Detalles de acuerdo (productos asignados)
+
+app.get('/api/acuerdos/:id/detalles', async (req, res) => {
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const cmd = new QueryCommand({
+        TableName: tableAcuerdosDetallesName,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': req.params.id },
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      });
+      const result = await docClient.send(cmd);
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+    items.sort((a, b) => (a.ProductName || '').localeCompare(b.ProductName || ''));
+    return res.json({ ok: true, items });
+  } catch (err) {
+    console.error('[acuerdos detalles GET]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al listar detalles' });
+  }
+});
+
+app.get('/api/acuerdos/totales', async (req, res) => {
+  try {
+    const acuerdosItems = [];
+    let aKey = null;
+    do {
+      const r = await docClient.send(new ScanCommand({ TableName: tableAcuerdosName, ...(aKey && { ExclusiveStartKey: aKey }) }));
+      acuerdosItems.push(...(r.Items || []));
+      aKey = r.LastEvaluatedKey || null;
+    } while (aKey);
+
+    const allDetalles = [];
+    let dKey = null;
+    do {
+      const r = await docClient.send(new ScanCommand({ TableName: tableAcuerdosDetallesName, ...(dKey && { ExclusiveStartKey: dKey }) }));
+      allDetalles.push(...(r.Items || []));
+      dKey = r.LastEvaluatedKey || null;
+    } while (dKey);
+
+    const detallesPorAcuerdo = {};
+    for (const d of allDetalles) {
+      if (!detallesPorAcuerdo[d.PK]) detallesPorAcuerdo[d.PK] = [];
+      detallesPorAcuerdo[d.PK].push(d);
+    }
+
+    const result = {};
+    const totalesPromises = acuerdosItems.map(async (acuerdo) => {
+      const pk = acuerdo.PK;
+      const detalles = detallesPorAcuerdo[pk] || [];
+      if (detalles.length === 0) {
+        result[pk] = { totalAcordado: 0, totalCompradas: 0, porcentaje: 0 };
+        return;
+      }
+      const productIds = new Set(detalles.map((d) => String(d.ProductId || d.SK || '').trim()));
+      const fechaInicio = acuerdo.FechaInicio || '';
+      const fechaFin = acuerdo.FechaFin || '';
+
+      const comprasPorProd = await queryComprasPorProductos(productIds, fechaInicio, fechaFin);
+
+      let totalAcordado = 0, totalCompradas = 0;
+      for (const d of detalles) {
+        totalAcordado += d.Cantidad || 0;
+        totalCompradas += comprasPorProd[d.ProductId] || 0;
+      }
+      const porcentaje = totalAcordado > 0 ? Math.min(Math.round((totalCompradas / totalAcordado) * 1000) / 10, 100) : 0;
+      result[pk] = { totalAcordado, totalCompradas, porcentaje };
+    });
+    await Promise.all(totalesPromises);
+
+    return res.json({ ok: true, totales: result });
+  } catch (err) {
+    console.error('[acuerdos totales]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al obtener totales' });
+  }
+});
+
+app.get('/api/acuerdos/:id/detalles-con-compras', async (req, res) => {
+  const acuerdoId = req.params.id;
+  try {
+    const acuerdoRes = await docClient.send(new GetCommand({ TableName: tableAcuerdosName, Key: { PK: acuerdoId, SK: 'META' } }));
+    const acuerdo = acuerdoRes.Item;
+    if (!acuerdo) return res.status(404).json({ error: 'Acuerdo no encontrado' });
+
+    const detalles = [];
+    let dKey = null;
+    do {
+      const cmd = new QueryCommand({
+        TableName: tableAcuerdosDetallesName,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': acuerdoId },
+        ...(dKey && { ExclusiveStartKey: dKey }),
+      });
+      const r = await docClient.send(cmd);
+      detalles.push(...(r.Items || []));
+      dKey = r.LastEvaluatedKey || null;
+    } while (dKey);
+
+    if (detalles.length === 0) {
+      return res.json({ ok: true, items: [], totalAcordado: 0, totalCompradas: 0, totalRestante: 0 });
+    }
+
+    const productIds = new Set(detalles.map((d) => String(d.ProductId || d.SK || '').trim()));
+    const fechaInicio = acuerdo.FechaInicio || '';
+    const fechaFin = acuerdo.FechaFin || '';
+
+    const comprasPorProducto = await queryComprasPorProductos(productIds, fechaInicio, fechaFin);
+
+    let totalAcordado = 0;
+    let totalCompradas = 0;
+    const items = detalles.map((d) => {
+      const acordado = d.Cantidad || 0;
+      const compradas = comprasPorProducto[d.ProductId] || 0;
+      const restante = Math.max(0, acordado - compradas);
+      const porcentaje = acordado > 0 ? Math.min(Math.round((compradas / acordado) * 1000) / 10, 100) : 0;
+      totalAcordado += acordado;
+      totalCompradas += compradas;
+      return { ...d, Compradas: compradas, Restante: restante, Porcentaje: porcentaje };
+    });
+    items.sort((a, b) => (a.ProductName || '').localeCompare(b.ProductName || ''));
+
+    return res.json({ ok: true, items, totalAcordado, totalCompradas, totalRestante: Math.max(0, totalAcordado - totalCompradas) });
+  } catch (err) {
+    console.error('[acuerdos detalles-con-compras]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al obtener detalles con compras' });
+  }
+});
+
+app.post('/api/acuerdos/:id/detalles', async (req, res) => {
+  const pk = req.params.id;
+  const body = req.body || {};
+  const productId = (body.ProductId || '').trim();
+  const productName = (body.ProductName || '').trim();
+  const cantidad = typeof body.Cantidad === 'number' ? body.Cantidad : parseFloat(body.Cantidad) || 0;
+  if (!productId) return res.status(400).json({ error: 'ProductId es obligatorio' });
+  const now = new Date().toISOString();
+  const aportacion = typeof body.Aportacion === 'number' ? body.Aportacion : parseFloat(body.Aportacion) || 0;
+  const rappel = typeof body.Rappel === 'number' ? body.Rappel : parseFloat(body.Rappel) || 0;
+  const descuentoExtra = typeof body.DescuentoExtra === 'number' ? body.DescuentoExtra : parseFloat(body.DescuentoExtra) || 0;
+  const item = {
+    PK: pk,
+    SK: productId,
+    ProductId: productId,
+    ProductName: productName,
+    Cantidad: cantidad,
+    Aportacion: aportacion,
+    Rappel: rappel,
+    DescuentoExtra: descuentoExtra,
+    createdAt: now,
+  };
+  try {
+    await docClient.send(new PutCommand({ TableName: tableAcuerdosDetallesName, Item: item }));
+    return res.json({ ok: true, item });
+  } catch (err) {
+    console.error('[acuerdos detalles POST]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al añadir producto' });
+  }
+});
+
+app.patch('/api/acuerdos/:id/detalles/:productId', async (req, res) => {
+  const body = req.body || {};
+  const updates = [];
+  const values = {};
+  if (body.Cantidad !== undefined) { const v = typeof body.Cantidad === 'number' ? body.Cantidad : parseFloat(body.Cantidad) || 0; updates.push('Cantidad = :c'); values[':c'] = v; }
+  if (body.Aportacion !== undefined) { const v = typeof body.Aportacion === 'number' ? body.Aportacion : parseFloat(body.Aportacion) || 0; updates.push('Aportacion = :ap'); values[':ap'] = v; }
+  if (body.Rappel !== undefined) { const v = typeof body.Rappel === 'number' ? body.Rappel : parseFloat(body.Rappel) || 0; updates.push('Rappel = :ra'); values[':ra'] = v; }
+  if (body.DescuentoExtra !== undefined) { const v = typeof body.DescuentoExtra === 'number' ? body.DescuentoExtra : parseFloat(body.DescuentoExtra) || 0; updates.push('DescuentoExtra = :de'); values[':de'] = v; }
+  if (updates.length === 0) return res.status(400).json({ error: 'Nada que actualizar' });
+  try {
+    await docClient.send(new UpdateCommand({
+      TableName: tableAcuerdosDetallesName,
+      Key: { PK: req.params.id, SK: req.params.productId },
+      UpdateExpression: 'SET ' + updates.join(', '),
+      ExpressionAttributeValues: values,
+      ConditionExpression: 'attribute_exists(PK)',
+    }));
+    return res.json({ ok: true });
+  } catch (err) {
+    if (err.name === 'ConditionalCheckFailedException') return res.status(404).json({ error: 'Detalle no encontrado' });
+    console.error('[acuerdos detalles PATCH]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al actualizar detalle' });
+  }
+});
+
+app.delete('/api/acuerdos/:id/detalles/:productId', async (req, res) => {
+  try {
+    await docClient.send(new DeleteCommand({
+      TableName: tableAcuerdosDetallesName,
+      Key: { PK: req.params.id, SK: req.params.productId },
+    }));
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[acuerdos detalles DELETE]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al eliminar producto' });
+  }
+});
+
+app.get('/api/acuerdos/:id/seguimiento', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const getRes = await docClient.send(new GetCommand({ TableName: tableAcuerdosName, Key: { PK: id, SK: 'META' } }));
+    const acuerdo = getRes.Item;
+    if (!acuerdo) return res.status(404).json({ error: 'Acuerdo no encontrado' });
+
+    const detallesItems = [];
+    let dKey = null;
+    do {
+      const dCmd = new QueryCommand({
+        TableName: tableAcuerdosDetallesName,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': id },
+        ...(dKey && { ExclusiveStartKey: dKey }),
+      });
+      const dResult = await docClient.send(dCmd);
+      detallesItems.push(...(dResult.Items || []));
+      dKey = dResult.LastEvaluatedKey || null;
+    } while (dKey);
+
+    const productIds = new Set(detallesItems.map((p) => String(p.ProductId || p.SK || '').trim()).filter(Boolean));
+    if (productIds.size === 0) {
+      return res.json({ ok: true, acuerdo, compras: [], resumenProductos: [], totalUnidades: 0, objetivo: acuerdo.ObjetivoUnidades || 0, porcentaje: 0 });
+    }
+
+    const fechaInicio = acuerdo.FechaInicio || '';
+    const fechaFin = acuerdo.FechaFin || '';
+
+    const comprasPorProd = await queryComprasPorProductos(productIds, fechaInicio, fechaFin);
+
+    const totalUnidades = Object.values(comprasPorProd).reduce((sum, qty) => sum + qty, 0);
+    const objetivo = acuerdo.ObjetivoUnidades || 0;
+    const porcentaje = objetivo > 0 ? Math.min((totalUnidades / objetivo) * 100, 100) : 0;
+
+    const resumenProductos = [...productIds].map((pid) => {
+      const det = detallesItems.find((d) => String(d.ProductId || d.SK || '').trim() === pid);
+      return {
+        ProductId: pid,
+        ProductName: det?.ProductName || pid,
+        totalUnidades: comprasPorProd[pid] || 0,
+        totalImporte: 0,
+      };
+    }).filter((r) => r.totalUnidades > 0);
+
+    return res.json({
+      ok: true,
+      acuerdo,
+      compras: [],
+      resumenProductos,
+      totalUnidades,
+      objetivo,
+      porcentaje: Math.round(porcentaje * 100) / 100,
+    });
+  } catch (err) {
+    console.error('[acuerdos seguimiento]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al obtener seguimiento' });
+  }
+});
+
+// ──────────────────────────────────────────
+// Acuerdos - Pagos por Imagen
+// ──────────────────────────────────────────
+
+app.get('/api/acuerdos/:id/imagen', async (req, res) => {
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const cmd = new QueryCommand({
+        TableName: tableAcuerdosImagenName,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': req.params.id },
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      });
+      const r = await docClient.send(cmd);
+      items.push(...(r.Items || []));
+      lastKey = r.LastEvaluatedKey || null;
+    } while (lastKey);
+    items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    return res.json({ ok: true, items });
+  } catch (err) {
+    console.error('[acuerdos imagen GET]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al obtener pagos por imagen' });
+  }
+});
+
+app.post('/api/acuerdos/:id/imagen', async (req, res) => {
+  const body = req.body || {};
+  const sk = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const item = {
+    PK: req.params.id,
+    SK: sk,
+    Locales: Array.isArray(body.Locales) ? body.Locales : [],
+    Acciones: Array.isArray(body.Acciones) ? body.Acciones : [],
+    Importe: typeof body.Importe === 'number' ? body.Importe : parseFloat(body.Importe) || 0,
+    Justificantes: Array.isArray(body.Justificantes) ? body.Justificantes : [],
+    Descripcion: body.Descripcion || '',
+    Realizado: body.Realizado === true,
+    createdAt: now,
+    updatedAt: now,
+  };
+  try {
+    await docClient.send(new PutCommand({ TableName: tableAcuerdosImagenName, Item: item }));
+    return res.json({ ok: true, item });
+  } catch (err) {
+    console.error('[acuerdos imagen POST]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al crear pago por imagen' });
+  }
+});
+
+app.patch('/api/acuerdos/:id/imagen/:sk', async (req, res) => {
+  const body = req.body || {};
+  const updates = [];
+  const values = {};
+  const names = {};
+  if (body.Locales !== undefined) { updates.push('#lo = :lo'); values[':lo'] = Array.isArray(body.Locales) ? body.Locales : []; names['#lo'] = 'Locales'; }
+  if (body.Acciones !== undefined) { updates.push('#ac = :ac'); values[':ac'] = Array.isArray(body.Acciones) ? body.Acciones : []; names['#ac'] = 'Acciones'; }
+  if (body.Importe !== undefined) { updates.push('Importe = :im'); values[':im'] = typeof body.Importe === 'number' ? body.Importe : parseFloat(body.Importe) || 0; }
+  if (body.Justificantes !== undefined) { updates.push('Justificantes = :ju'); values[':ju'] = Array.isArray(body.Justificantes) ? body.Justificantes : []; }
+  if (body.Descripcion !== undefined) { updates.push('Descripcion = :de'); values[':de'] = body.Descripcion || ''; }
+  if (body.Realizado !== undefined) { updates.push('Realizado = :re'); values[':re'] = body.Realizado === true; }
+  updates.push('updatedAt = :ua'); values[':ua'] = new Date().toISOString();
+  try {
+    await docClient.send(new UpdateCommand({
+      TableName: tableAcuerdosImagenName,
+      Key: { PK: req.params.id, SK: req.params.sk },
+      UpdateExpression: 'SET ' + updates.join(', '),
+      ExpressionAttributeValues: values,
+      ...(Object.keys(names).length > 0 && { ExpressionAttributeNames: names }),
+    }));
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[acuerdos imagen PATCH]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al actualizar pago por imagen' });
+  }
+});
+
+app.delete('/api/acuerdos/:id/imagen/:sk', async (req, res) => {
+  try {
+    await docClient.send(new DeleteCommand({
+      TableName: tableAcuerdosImagenName,
+      Key: { PK: req.params.id, SK: req.params.sk },
+    }));
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[acuerdos imagen DELETE]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al eliminar pago por imagen' });
+  }
+});
+
+// ──────────────────────────────────────────
+// Compras a Proveedor (Albaranes de Entrada)
+// ──────────────────────────────────────────
+
+app.get('/api/agora/purchases', async (req, res) => {
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const cmd = new ScanCommand({
+        TableName: tableComprasProveedorName,
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      });
+      const result = await docClient.send(cmd);
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+
+    items.sort((a, b) => {
+      const da = a.AlbaranFecha || '';
+      const db = b.AlbaranFecha || '';
+      if (da !== db) return db.localeCompare(da);
+      const sa = `${a.AlbaranSerie || ''}${a.AlbaranNumero || ''}`;
+      const sb = `${b.AlbaranSerie || ''}${b.AlbaranNumero || ''}`;
+      return sa.localeCompare(sb);
+    });
+
+    return res.json({ ok: true, items, total: items.length });
+  } catch (err) {
+    console.error('[agora/purchases GET]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al listar compras a proveedor' });
+  }
+});
+
+app.post('/api/agora/purchases/sync', async (req, res) => {
+  const body = req.body || {};
+  const today = new Date().toISOString().slice(0, 10);
+  const default60daysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const dateFrom = (body.dateFrom || default60daysAgo).toString().trim();
+  const dateTo = (body.dateTo || today).toString().trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+    return res.status(400).json({ error: 'dateFrom y dateTo deben ser YYYY-MM-DD' });
+  }
+  if (dateFrom > dateTo) {
+    return res.status(400).json({ error: 'dateFrom no puede ser mayor que dateTo' });
+  }
+
+  try {
+    const days = [];
+    let d = new Date(dateFrom + 'T12:00:00');
+    const end = new Date(dateTo + 'T12:00:00');
+    while (d <= end) {
+      days.push(d.toISOString().slice(0, 10));
+      d.setDate(d.getDate() + 1);
+    }
+
+    let totalFetched = 0;
+    let totalUpserted = 0;
+    const errors = [];
+
+    for (let i = 0; i < days.length; i++) {
+      const businessDay = days[i];
+      try {
+        const data = await exportIncomingDeliveryNotes(businessDay);
+        const notes =
+          data?.IncomingDeliveryNotes ??
+          data?.incomingDeliveryNotes ??
+          (Array.isArray(data) ? data : []);
+        if (!Array.isArray(notes) || notes.length === 0) continue;
+
+        const flatLines = [];
+        for (const note of notes) {
+          const serie = note.Serie ?? note.serie ?? '';
+          const number = note.Number ?? note.number ?? '';
+          const noteDate = note.Date ?? note.date ?? businessDay;
+          const supplierDocNum = note.SupplierDocumentNumber ?? note.supplierDocumentNumber ?? '';
+          const confirmed = note.Confirmed ?? note.confirmed ?? false;
+          const invoiced = note.Invoiced ?? note.invoiced ?? false;
+
+          const supplier = note.Supplier ?? note.supplier ?? {};
+          const supplierId = supplier.Id ?? supplier.id ?? '';
+          const supplierName = supplier.FiscalName ?? supplier.fiscalName ?? '';
+          const supplierCif = supplier.Cif ?? supplier.cif ?? '';
+
+          const warehouse = note.Warehouse ?? note.warehouse ?? {};
+          const warehouseId = warehouse.Id ?? warehouse.id ?? '';
+          const warehouseName = warehouse.Name ?? warehouse.name ?? '';
+
+          const totals = note.Totals ?? note.totals ?? {};
+          const discounts = note.Discounts ?? note.discounts ?? {};
+
+          const lines = note.Lines ?? note.lines ?? [];
+          if (!Array.isArray(lines)) continue;
+
+          for (const line of lines) {
+            const idx = line.Index ?? line.index ?? 0;
+            const productId = line.ProductId ?? line.productId ?? '';
+            const productName = line.ProductName ?? line.productName ?? '';
+            const quantity = line.Quantity ?? line.quantity ?? 0;
+            const price = line.Price ?? line.price ?? 0;
+            const discountRate = line.DiscountRate ?? line.discountRate ?? 0;
+            const cashDiscount = line.CashDiscount ?? line.cashDiscount ?? 0;
+            const totalAmount = line.TotalAmount ?? line.totalAmount ?? 0;
+            const vatRate = line.VatRate ?? line.vatRate ?? 0;
+            const surchargeRate = line.SurchargeRate ?? line.surchargeRate ?? 0;
+            const purchaseUnitName = line.PurchaseUnitName ?? line.purchaseUnitName ?? '';
+            const familyId = line.FamilyId ?? line.familyId ?? '';
+            const familyName = line.FamilyName ?? line.familyName ?? '';
+            const lotNumber = line.LotNumber ?? line.lotNumber ?? '';
+            const notes = line.Notes ?? line.notes ?? '';
+
+            const pk = `${serie}#${number}`;
+            const sk = `${String(idx).padStart(4, '0')}`;
+
+            flatLines.push({
+              PK: pk,
+              SK: sk,
+              AlbaranSerie: serie,
+              AlbaranNumero: String(number),
+              AlbaranFecha: noteDate,
+              SupplierDocumentNumber: supplierDocNum,
+              Confirmed: confirmed,
+              Invoiced: invoiced,
+              SupplierId: String(supplierId),
+              SupplierName: supplierName,
+              SupplierCif: supplierCif,
+              WarehouseId: String(warehouseId),
+              WarehouseName: warehouseName,
+              LineIndex: idx,
+              ProductId: String(productId),
+              ProductName: productName,
+              Quantity: typeof quantity === 'number' ? quantity : parseFloat(String(quantity)) || 0,
+              Price: typeof price === 'number' ? price : parseFloat(String(price)) || 0,
+              DiscountRate: typeof discountRate === 'number' ? discountRate : parseFloat(String(discountRate)) || 0,
+              CashDiscount: typeof cashDiscount === 'number' ? cashDiscount : parseFloat(String(cashDiscount)) || 0,
+              TotalAmount: typeof totalAmount === 'number' ? totalAmount : parseFloat(String(totalAmount)) || 0,
+              VatRate: typeof vatRate === 'number' ? vatRate : parseFloat(String(vatRate)) || 0,
+              SurchargeRate: typeof surchargeRate === 'number' ? surchargeRate : parseFloat(String(surchargeRate)) || 0,
+              PurchaseUnitName: purchaseUnitName,
+              FamilyId: String(familyId),
+              FamilyName: familyName,
+              LotNumber: lotNumber,
+              LineNotes: notes,
+              AlbaranGrossAmount: totals.GrossAmount ?? totals.grossAmount ?? null,
+              AlbaranNetAmount: totals.NetAmount ?? totals.netAmount ?? null,
+              AlbaranDiscountRate: discounts.DiscountRate ?? discounts.discountRate ?? 0,
+              syncedAt: new Date().toISOString(),
+            });
+          }
+        }
+
+        if (flatLines.length === 0) continue;
+        totalFetched += flatLines.length;
+
+        for (let j = 0; j < flatLines.length; j += 25) {
+          const chunk = flatLines.slice(j, j + 25);
+          await docClient.send(
+            new BatchWriteCommand({
+              RequestItems: {
+                [tableComprasProveedorName]: chunk.map((item) => ({
+                  PutRequest: { Item: item },
+                })),
+              },
+            })
+          );
+          totalUpserted += chunk.length;
+        }
+      } catch (err) {
+        errors.push({ day: businessDay, error: err.message || String(err) });
+      }
+
+      if ((i + 1) % 30 === 0) {
+        console.log('[agora/purchases/sync] Progreso:', i + 1, '/', days.length, 'días');
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+
+    console.log('[agora/purchases/sync] Completado:', { dateFrom, dateTo, totalFetched, totalUpserted, errors: errors.length });
+    return res.json({
+      ok: true,
+      dateFrom,
+      dateTo,
+      totalFetched,
+      totalUpserted,
+      daysProcessed: days.length,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (err) {
+    console.error('[agora/purchases/sync]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al sincronizar compras a proveedor' });
   }
 });
 

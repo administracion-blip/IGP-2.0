@@ -156,6 +156,44 @@ export async function exportPosCloseOuts(businessDay, workplaces = null) {
   throw lastError;
 }
 
+/** Exporta albaranes de entrada (IncomingDeliveryNotes) para un día. Guía 8.1.6 p.172-179, 197. */
+export async function exportIncomingDeliveryNotes(businessDay, workplaces = null) {
+  const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');
+  const token = process.env.AGORA_API_TOKEN || '';
+  if (!baseUrl || !token) throw new Error('AGORA_BASE_URL y AGORA_API_TOKEN son obligatorios');
+
+  const params = new URLSearchParams();
+  params.set('filter', 'IncomingDeliveryNotes');
+  params.set('business-day', businessDay);
+  params.set('include-processed', 'true');
+  if (workplaces != null && Array.isArray(workplaces) && workplaces.length > 0) {
+    params.set('workplaces', workplaces.join(','));
+  }
+  const url = `${baseUrl}/api/export/?${params.toString()}`;
+  let lastError;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        console.log(`[agora] Reintento ${attempt}/${MAX_RETRIES} IncomingDeliveryNotes business-day=${businessDay}`);
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 2000));
+      }
+      const res = await fetchWithTimeout(url, {
+        method: 'GET',
+        headers: { 'Api-Token': token },
+      });
+      if (res.status >= 500) throw new Error(`Ágora respondió ${res.status}`);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Ágora ${res.status}: ${text.slice(0, 200)}`);
+      }
+      return await res.json();
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
 /** Exporta maestros de almacenes desde Ágora (export-master filter=Warehouses). Guía 8.1.6 p.205-206. */
 export async function exportWarehouses() {
   const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');

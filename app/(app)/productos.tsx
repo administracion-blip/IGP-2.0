@@ -16,6 +16,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { formatId6 } from '../utils/idFormat';
+import { useProductosCache } from '../contexts/ProductosCache';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -67,10 +68,15 @@ function valorPorColumna(item: Producto, col: string): unknown {
 
 export default function ProductosScreen() {
   const router = useRouter();
-  const [productosAgora, setProductosAgora] = useState<Producto[]>([]);
-  const [loadingAgora, setLoadingAgora] = useState(false);
-  const [syncingAgora, setSyncingAgora] = useState(false);
-  const [errorAgora, setErrorAgora] = useState<string | null>(null);
+  const {
+    productos: productosAgora,
+    loading: loadingAgora,
+    syncing: syncingAgora,
+    error: errorAgora,
+    lastFetch,
+    recargar: refetchProductosAgora,
+    sincronizar: syncProductosAgoraGlobal,
+  } = useProductosCache();
   const [filtroAgora, setFiltroAgora] = useState('');
   const [pageIndexAgora, setPageIndexAgora] = useState(0);
   const [modalEditarVisible, setModalEditarVisible] = useState(false);
@@ -83,36 +89,6 @@ export default function ProductosScreen() {
   const [formIGP, setFormIGP] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [errorEditar, setErrorEditar] = useState<string | null>(null);
-
-  const refetchProductosAgora = useCallback(() => {
-    setLoadingAgora(true);
-    setErrorAgora(null);
-    fetch(`${API_URL}/api/agora/products`)
-      .then((res) => res.json())
-      .then((data: { productos?: Producto[]; error?: string }) => {
-        if (data.error) {
-          setErrorAgora(data.error);
-          setProductosAgora([]);
-        } else {
-          setErrorAgora(null);
-          const list = Array.isArray(data.productos) ? data.productos : [];
-          setProductosAgora(
-            [...list].sort((a, b) => {
-              const idA = valorPorColumna(a, 'Id') ?? valorPorColumna(a, 'id');
-              const idB = valorPorColumna(b, 'Id') ?? valorPorColumna(b, 'id');
-              const na = typeof idA === 'number' ? idA : parseInt(String(idA ?? 0).replace(/^0+/, ''), 10) || 0;
-              const nb = typeof idB === 'number' ? idB : parseInt(String(idB ?? 0).replace(/^0+/, ''), 10) || 0;
-              return na - nb;
-            })
-          );
-        }
-      })
-      .catch((e) => {
-        setErrorAgora(e.message || 'Error de conexión');
-        setProductosAgora([]);
-      })
-      .finally(() => setLoadingAgora(false));
-  }, []);
 
   const toggleAgoraProductIGP = useCallback(
     async (producto: Producto) => {
@@ -129,19 +105,13 @@ export default function ProductosScreen() {
         });
         const data = await res.json();
         if (res.ok && data.ok) {
-          setProductosAgora((prev) =>
-            prev.map((p) => {
-              const pid = valorPorColumna(p, 'Id') ?? valorPorColumna(p, 'id') ?? valorPorColumna(p, 'Code');
-              if (pid != null && String(pid) === idStr) return { ...p, IGP: nuevoVal };
-              return p;
-            })
-          );
+          await refetchProductosAgora();
         }
       } catch {
-        setErrorAgora('Error al actualizar IGP');
+        // error silencioso, el usuario puede recargar manualmente
       }
     },
-    []
+    [refetchProductosAgora]
   );
 
   const abrirModalEditar = useCallback((producto: Producto) => {
@@ -187,23 +157,7 @@ export default function ProductosScreen() {
       });
       const data = await res.json();
       if (res.ok && data.ok) {
-        setProductosAgora((prev) =>
-          prev.map((p) => {
-            const pid = valorPorColumna(p, 'Id') ?? valorPorColumna(p, 'id');
-            if (pid != null && String(pid) === String(id)) {
-              return {
-                ...p,
-                Name: body.Name,
-                CostPrice: body.CostPrice,
-                BaseSaleFormatId: body.BaseSaleFormatId,
-                FamilyId: body.FamilyId,
-                VatId: body.VatId,
-                IGP: body.IGP,
-              };
-            }
-            return p;
-          })
-        );
+        await refetchProductosAgora();
         cerrarModalEditar();
       } else {
         setErrorEditar(data.error || 'Error al guardar');
@@ -213,25 +167,7 @@ export default function ProductosScreen() {
     } finally {
       setGuardando(false);
     }
-  }, [productoEditando, formName, formCostPrice, formBaseSaleFormatId, formFamilyId, formVatId, formIGP, cerrarModalEditar]);
-
-  const syncProductosAgora = useCallback(() => {
-    setSyncingAgora(true);
-    setErrorAgora(null);
-    fetch(`${API_URL}/api/agora/products/sync?force=1`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-      .then((res) => res.json())
-      .then((data: { ok?: boolean; added?: number; updated?: number; unchanged?: number; fetched?: number; error?: string }) => {
-        if (data.error) {
-          setErrorAgora(data.error);
-        } else if (data.ok) {
-          if ((data.added ?? 0) > 0 || (data.updated ?? 0) > 0) {
-            refetchProductosAgora();
-          }
-        }
-      })
-      .catch((e) => setErrorAgora(e.message || 'Error al sincronizar'))
-      .finally(() => setSyncingAgora(false));
-  }, [refetchProductosAgora]);
+  }, [productoEditando, formName, formCostPrice, formBaseSaleFormatId, formFamilyId, formVatId, formIGP, cerrarModalEditar, refetchProductosAgora]);
 
   /** Columnas para Productos Ágora */
   const columnasAgora = useMemo(
@@ -287,9 +223,11 @@ export default function ProductosScreen() {
   const goPrevPageAgora = () => setPageIndexAgora((p) => Math.max(0, p - 1));
   const goNextPageAgora = () => setPageIndexAgora((p) => Math.min(totalPagesAgora - 1, p + 1));
 
-  useEffect(() => {
-    refetchProductosAgora();
-  }, [refetchProductosAgora]);
+  const lastFetchLabel = useMemo(() => {
+    if (!lastFetch) return null;
+    const d = new Date(lastFetch);
+    return `${d.toLocaleDateString('es-ES')} ${d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`;
+  }, [lastFetch]);
 
   return (
     <View style={styles.container}>
@@ -318,7 +256,7 @@ export default function ProductosScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.reloadBtn}
-              onPress={syncProductosAgora}
+              onPress={syncProductosAgoraGlobal}
               disabled={syncingAgora}
               accessibilityLabel="Sincronizar desde Ágora"
             >
@@ -339,8 +277,16 @@ export default function ProductosScreen() {
                 placeholderTextColor="#94a3b8"
               />
             </View>
+            {lastFetchLabel && (
+              <Text style={styles.lastFetchText}>Última carga: {lastFetchLabel}</Text>
+            )}
           </View>
-          {loadingAgora && productosAgora.length === 0 ? (
+          {!lastFetch && !loadingAgora && !errorAgora ? (
+            <View style={styles.center}>
+              <MaterialIcons name="cloud-download" size={48} color="#94a3b8" />
+              <Text style={styles.emptyText}>Pulsa Recargar para cargar los productos desde la base de datos,{'\n'}o Sincronizar para descargar desde Ágora.</Text>
+            </View>
+          ) : loadingAgora && productosAgora.length === 0 ? (
             <View style={styles.center}>
               <ActivityIndicator size="large" color="#0ea5e9" />
               <Text style={styles.loadingText}>Cargando productos Ágora…</Text>
@@ -649,4 +595,5 @@ const styles = StyleSheet.create({
   importOptionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
   importOptionLabel: { fontSize: 12, color: '#334155', fontWeight: '500' },
   importSuccessText: { fontSize: 11, color: '#22c55e', paddingHorizontal: 20, paddingVertical: 4 },
+  lastFetchText: { fontSize: 10, color: '#94a3b8', fontStyle: 'italic' },
 });

@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
 import { InputFecha } from '../../components/InputFecha';
+import { useProductosCache } from '../../contexts/ProductosCache';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -127,9 +128,11 @@ export default function PedidosCompletadosScreen() {
   const [modalLineaFormVisible, setModalLineaFormVisible] = useState(false);
   const [formLinea, setFormLinea] = useState({ ProductId: '', ProductoNombre: '', Cantidad: '', PrecioUnitario: '', Iva: '', TotalRappel: '' });
   const [guardandoLinea, setGuardandoLinea] = useState(false);
-  const [productosIgp, setProductosIgp] = useState<Record<string, string | number | boolean>[]>([]);
-  const [loadingProductos, setLoadingProductos] = useState(false);
+  const { productosIgp: productosIgpCache, loading: loadingProductosCache, lastFetch: productosLastFetch, recargar: recargarProductos } = useProductosCache();
+  const productosIgp = productosIgpCache as Record<string, string | number | boolean>[];
+  const loadingProductos = loadingProductosCache;
   const [productoDropdownOpen, setProductoDropdownOpen] = useState(false);
+  const [productoBusqueda, setProductoBusqueda] = useState('');
   const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
 
   const refetch = useCallback(() => {
@@ -155,17 +158,10 @@ export default function PedidosCompletadosScreen() {
   }, [refetch]);
 
   useEffect(() => {
-    if (pedidoParaLineas) {
-      setLoadingProductos(true);
-      fetch(`${API_URL}/api/agora/products?igp=1`)
-        .then((r) => r.json())
-        .then((data) => setProductosIgp(Array.isArray(data.productos) ? data.productos : []))
-        .catch(() => setProductosIgp([]))
-        .finally(() => setLoadingProductos(false));
-    } else {
-      setProductosIgp([]);
+    if (pedidoParaLineas && !productosLastFetch) {
+      recargarProductos();
     }
-  }, [pedidoParaLineas]);
+  }, [pedidoParaLineas, productosLastFetch, recargarProductos]);
 
   const nombresPorLocalId = useMemo(() => {
     const map: Record<string, string> = {};
@@ -759,67 +755,76 @@ export default function PedidosCompletadosScreen() {
                 <Text style={styles.formLabel}>Producto</Text>
                 {loadingProductos ? (
                   <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 8 }} />
-                ) : Platform.OS === 'web' ? (
-                  <select
-                    value={formLinea.ProductId}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      const prod = productosIgp.find((p) => String(valorEnLocal(p, 'Id') ?? '').trim() === id);
-                      const nombre = prod ? String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? id) || '—').trim() : id;
-                      const costPrice = prod != null ? valorEnLocal(prod, 'CostPrice') : undefined;
-                      const precioStr = costPrice != null ? String(costPrice) : '';
-                      setFormLinea((f) => ({ ...f, ProductId: id, ProductoNombre: nombre, PrecioUnitario: precioStr }));
-                    }}
-                    style={styles.selectNative as object}
-                  >
-                    <option value="">— Seleccionar producto —</option>
-                    {productosIgp.map((prod, idx) => {
-                      const idProd = String(valorEnLocal(prod, 'Id') ?? '').trim();
-                      const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? idProd) || '—').trim();
-                      return <option key={idProd || `p-${idx}`} value={idProd}>{nombre || idProd || '—'}</option>;
-                    })}
-                  </select>
                 ) : (
                   <>
                     <TouchableOpacity
                       style={styles.selectTouchable}
-                      onPress={() => setProductoDropdownOpen(true)}
+                      onPress={() => { setProductoBusqueda(''); setProductoDropdownOpen(true); }}
                     >
                       <Text style={[styles.selectTouchableText, !formLinea.ProductoNombre && styles.selectTouchablePlaceholder]}>
-                        {formLinea.ProductoNombre || '— Seleccionar producto —'}
+                        {formLinea.ProductoNombre || 'Buscar producto…'}
                       </Text>
                       <MaterialIcons name="arrow-drop-down" size={24} color="#64748b" />
                     </TouchableOpacity>
                     <Modal visible={productoDropdownOpen} transparent animationType="fade">
                       <Pressable style={styles.modalOverlay} onPress={() => setProductoDropdownOpen(false)}>
                         <View style={styles.selectDropdownCard} onStartShouldSetResponder={() => true}>
+                          <View style={styles.dropdownSearchWrap}>
+                            <MaterialIcons name="search" size={18} color="#94a3b8" />
+                            <TextInput
+                              style={styles.dropdownSearchInput}
+                              value={productoBusqueda}
+                              onChangeText={setProductoBusqueda}
+                              placeholder="Buscar producto…"
+                              placeholderTextColor="#94a3b8"
+                              autoFocus
+                            />
+                            {productoBusqueda.length > 0 && (
+                              <TouchableOpacity onPress={() => setProductoBusqueda('')} hitSlop={8}>
+                                <MaterialIcons name="close" size={16} color="#94a3b8" />
+                              </TouchableOpacity>
+                            )}
+                          </View>
                           <ScrollView style={styles.selectDropdownList} keyboardShouldPersistTaps="handled">
-                            <TouchableOpacity
-                              style={styles.selectDropdownItem}
-                              onPress={() => { setFormLinea((f) => ({ ...f, ProductId: '', ProductoNombre: '', PrecioUnitario: '' })); setProductoDropdownOpen(false); }}
-                            >
-                              <Text style={styles.selectDropdownItemText}>— Ninguno —</Text>
-                            </TouchableOpacity>
-                            {productosIgp.map((prod, idx) => {
-                              const idProd = String(valorEnLocal(prod, 'Id') ?? '').trim();
-                              const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? idProd) || '—').trim();
-                              return (
-                                <TouchableOpacity
-                                  key={idProd || `p-${idx}`}
-                                  style={[styles.selectDropdownItem, formLinea.ProductId === idProd && styles.selectDropdownItemActive]}
-                                  onPress={() => {
-                                    const costPrice = valorEnLocal(prod, 'CostPrice');
-                                    const precioStr = costPrice != null ? String(costPrice) : '';
-                                    setFormLinea((f) => ({ ...f, ProductId: idProd, ProductoNombre: nombre, PrecioUnitario: precioStr }));
-                                    setProductoDropdownOpen(false);
-                                  }}
-                                >
-                                  <Text style={[styles.selectDropdownItemText, formLinea.ProductId === idProd && styles.selectDropdownItemTextActive]} numberOfLines={1}>
-                                    {nombre || idProd || '—'}
-                                  </Text>
-                                </TouchableOpacity>
-                              );
-                            })}
+                            {productosIgp
+                              .filter((prod) => {
+                                if (!productoBusqueda.trim()) return true;
+                                const q = productoBusqueda.trim().toLowerCase();
+                                const idProd = String(valorEnLocal(prod, 'Id') ?? '').toLowerCase();
+                                const nombre = String(valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? '').toLowerCase();
+                                return nombre.includes(q) || idProd.includes(q);
+                              })
+                              .map((prod, idx) => {
+                                const idProd = String(valorEnLocal(prod, 'Id') ?? '').trim();
+                                const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? idProd) || '—').trim();
+                                return (
+                                  <TouchableOpacity
+                                    key={idProd || `p-${idx}`}
+                                    style={[styles.selectDropdownItem, formLinea.ProductId === idProd && styles.selectDropdownItemActive]}
+                                    onPress={() => {
+                                      const costPrice = valorEnLocal(prod, 'CostPrice');
+                                      const precioStr = costPrice != null ? String(costPrice) : '';
+                                      setFormLinea((f) => ({ ...f, ProductId: idProd, ProductoNombre: nombre, PrecioUnitario: precioStr }));
+                                      setProductoDropdownOpen(false);
+                                    }}
+                                  >
+                                    <Text style={[styles.selectDropdownItemText, formLinea.ProductId === idProd && styles.selectDropdownItemTextActive]} numberOfLines={1}>
+                                      {nombre || idProd || '—'}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            {productosIgp.filter((prod) => {
+                              if (!productoBusqueda.trim()) return true;
+                              const q = productoBusqueda.trim().toLowerCase();
+                              const idProd = String(valorEnLocal(prod, 'Id') ?? '').toLowerCase();
+                              const nombre = String(valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? '').toLowerCase();
+                              return nombre.includes(q) || idProd.includes(q);
+                            }).length === 0 && (
+                              <View style={styles.selectDropdownItem}>
+                                <Text style={[styles.selectDropdownItemText, { color: '#94a3b8', fontStyle: 'italic' }]}>Sin resultados</Text>
+                              </View>
+                            )}
                           </ScrollView>
                         </View>
                       </Pressable>
@@ -1310,10 +1315,11 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
+    paddingVertical: 4,
+    fontSize: 13,
     color: '#334155',
     minWidth: 200,
+    minHeight: 36,
     width: '100%',
     cursor: 'pointer',
   },
@@ -1333,12 +1339,31 @@ const styles = StyleSheet.create({
   selectDropdownCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    maxHeight: 320,
-    minWidth: 280,
+    maxHeight: 400,
+    minWidth: 340,
     alignSelf: 'center',
     marginTop: 80,
+    overflow: 'hidden',
   },
-  selectDropdownList: { maxHeight: 300 },
+  dropdownSearchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    gap: 8,
+    backgroundColor: '#f8fafc',
+  },
+  dropdownSearchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#334155',
+    paddingVertical: 4,
+    paddingHorizontal: 0,
+    outlineStyle: 'none' as any,
+  },
+  selectDropdownList: { maxHeight: 340 },
   selectDropdownItem: { paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
   selectDropdownItemActive: { backgroundColor: '#f0f9ff' },
   selectDropdownItemText: { fontSize: 14, color: '#334155' },

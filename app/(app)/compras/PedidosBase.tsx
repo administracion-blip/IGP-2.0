@@ -17,7 +17,12 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
 import { InputFecha } from '../../components/InputFecha';
+import { valorEnLocal } from '../../utils/valorEnLocal';
 import { useProductosCache } from '../../contexts/ProductosCache';
+import { formatMoneda } from '../../utils/formatMoneda';
+import { formatFecha, formatCreadoEn, fechaToIso } from '../../utils/formatFecha';
+import { parseAlmacenesOrigen } from '../../utils/parseAlmacenesOrigen';
+import { Pedido, Local, Almacen } from '../../types';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -25,69 +30,21 @@ const COLUMNAS = ['Id', 'Fecha', 'CreadoEn', 'LocalId', 'Local', 'AlmacenOrigen'
 const ESTADOS = ['Borrador', 'Pendiente', 'Enviado', 'Exportado', 'Completado'] as const;
 const NOMBRE_ALMACEN_GENERAL = 'Almacén General';
 
-function parseAlmacenesOrigen(val: string | number | undefined): string[] {
-  if (val == null || String(val).trim() === '') return [];
-  return String(val)
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
+type PedidosBaseProps = {
+  readOnly?: boolean;
+  filtroEstado?: string;
+  title?: string;
+  emptyMessage?: string;
+  emptyFilterMessage?: string;
+};
 
-type Pedido = Record<string, string | number | undefined>;
-type Local = Record<string, string | number | undefined>;
-type Almacen = Record<string, string | number | undefined>;
-
-function valorEnLocal(item: Pedido | Local | Almacen, key: string): string | number | undefined {
-  if (item[key] !== undefined && item[key] !== null) return item[key];
-  const found = Object.keys(item).find((k) => k.toLowerCase() === key.toLowerCase());
-  return found != null ? item[found] : undefined;
-}
-
-function formatFecha(fecha: string | number | undefined): string {
-  if (fecha == null || String(fecha).trim() === '') return '—';
-  const s = String(fecha).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    const [y, m, d] = s.split('-');
-    return `${d}/${m}/${y}`;
-  }
-  return s;
-}
-
-function formatCreadoEn(val: string | number | undefined): string {
-  if (val == null || String(val).trim() === '') return '—';
-  const s = String(val).trim();
-  const dateMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (dateMatch) {
-    const [, y, m, d] = dateMatch;
-    const timeMatch = s.match(/T(\d{2}):(\d{2})/);
-    const time = timeMatch ? ` ${timeMatch[1]}:${timeMatch[2]}` : '';
-    return `${d}/${m}/${y}${time}`;
-  }
-  return s;
-}
-
-function formatMoneda(val: string | number | undefined): string {
-  if (val == null || String(val).trim() === '') return '—';
-  const n = typeof val === 'number' ? val : parseFloat(String(val));
-  if (Number.isNaN(n)) return String(val);
-  return n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
-}
-
-function fechaToIso(val: string): string {
-  const s = val.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})$/);
-  if (m) {
-    const d = m[1].padStart(2, '0');
-    const mo = m[2].padStart(2, '0');
-    let y = m[3];
-    if (y.length === 2) y = '20' + y;
-    return `${y}-${mo}-${d}`;
-  }
-  return s;
-}
-
-export default function PedidosScreen() {
+export default function PedidosBase({
+  readOnly = false,
+  filtroEstado,
+  title = 'Pedidos',
+  emptyMessage = 'No hay pedidos',
+  emptyFilterMessage = 'Ningún pedido coincide con el filtro',
+}: PedidosBaseProps) {
   const router = useRouter();
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [locales, setLocales] = useState<Local[]>([]);
@@ -228,9 +185,12 @@ export default function PedidosScreen() {
   }, [form.LocalId, almacenesPorLocalId, almacenes]);
 
   const pedidosFiltrados = useMemo(() => {
+    const base = filtroEstado
+      ? pedidos.filter((p) => String(valorEnLocal(p, 'Estado') ?? '') === filtroEstado)
+      : pedidos;
     const q = filtroBusqueda.trim().toLowerCase();
     const filtered = q
-      ? pedidos.filter((p) => {
+      ? base.filter((p) => {
           const partes = COLUMNAS.map((c) => {
             if (c === 'Local') {
               const localId = String(valorEnLocal(p, 'LocalId') ?? '').trim();
@@ -248,13 +208,13 @@ export default function PedidosScreen() {
           });
           return partes.join(' ').toLowerCase().includes(q);
         })
-      : pedidos;
+      : base;
     return [...filtered].sort((a, b) => {
       const ca = String(valorEnLocal(a, 'CreadoEn') ?? '').trim();
       const cb = String(valorEnLocal(b, 'CreadoEn') ?? '').trim();
       return ca.localeCompare(cb);
     });
-  }, [pedidos, filtroBusqueda, nombresPorLocalId, nombresPorAlmacenId]);
+  }, [pedidos, filtroEstado, filtroBusqueda, nombresPorLocalId, nombresPorAlmacenId]);
 
   const getValorCelda = useCallback((item: Pedido, col: string): string => {
     const v = valorEnLocal(item, col);
@@ -576,9 +536,9 @@ export default function PedidosScreen() {
     }
   }, [pedidoParaLineas, lineas, fetchLineas, refetch]);
 
-  const handleCrear = () => abrirModalCrear();
-  const handleEditar = (item: Pedido) => abrirModalEditar(item);
-  const handleBorrar = (item: Pedido) => abrirModalBorrar(item);
+  const handleCrear = readOnly ? () => {} : () => abrirModalCrear();
+  const handleEditar = readOnly ? (_item: Pedido) => {} : (item: Pedido) => abrirModalEditar(item);
+  const handleBorrar = readOnly ? (_item: Pedido) => {} : (item: Pedido) => abrirModalBorrar(item);
 
   const { width } = useWindowDimensions();
   const isWide = width > 768;
@@ -588,7 +548,7 @@ export default function PedidosScreen() {
       <View style={[styles.mainRow, !isWide && styles.mainRowColumn]}>
         <View style={styles.pedidosSection}>
           <TablaBasica<Pedido>
-            title="Pedidos"
+            title={title}
             onBack={() => router.back()}
             columnas={[...COLUMNAS]}
             defaultColWidth={76}
@@ -604,11 +564,12 @@ export default function PedidosScreen() {
             onCrear={handleCrear}
             onEditar={handleEditar}
             onBorrar={handleBorrar}
+            hideToolbarActions={readOnly}
             columnasMoneda={['TotalAlbaran']}
             getColumnCellStyle={(col) => col === 'TotalAlbaran' ? { text: { fontWeight: '700' } } : undefined}
-            getRowStyle={(item) => String(valorEnLocal(item, 'Estado') ?? '') === 'Completado' ? { backgroundColor: '#dcfce7' } : undefined}
-            emptyMessage="No hay pedidos"
-            emptyFilterMessage="Ningún pedido coincide con el filtro"
+            getRowStyle={readOnly ? () => ({ backgroundColor: '#dcfce7' }) : (item) => String(valorEnLocal(item, 'Estado') ?? '') === 'Completado' ? { backgroundColor: '#dcfce7' } : undefined}
+            emptyMessage={emptyMessage}
+            emptyFilterMessage={emptyFilterMessage}
           />
         </View>
         <View style={[styles.lineasSection, !isWide && styles.lineasSectionColumn]}>
@@ -890,6 +851,7 @@ export default function PedidosScreen() {
         </View>
       </View>
 
+      {!readOnly && (
       <Modal visible={modalFormVisible} transparent animationType="fade" onRequestClose={cerrarModalForm}>
         <Pressable style={styles.modalOverlay} onPress={cerrarModalForm}>
           <KeyboardAvoidingView style={styles.modalWrap} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -1118,7 +1080,9 @@ export default function PedidosScreen() {
           </KeyboardAvoidingView>
         </Pressable>
       </Modal>
+      )}
 
+      {!readOnly && (
       <Modal visible={modalBorrarVisible} transparent animationType="fade" onRequestClose={cerrarModalBorrar}>
         <Pressable style={styles.modalOverlay} onPress={cerrarModalBorrar}>
           <Pressable style={styles.modalCardBorrar} onPress={(e) => e.stopPropagation()}>
@@ -1156,6 +1120,7 @@ export default function PedidosScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+      )}
 
     </View>
   );

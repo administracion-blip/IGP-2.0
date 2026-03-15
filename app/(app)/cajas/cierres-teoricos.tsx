@@ -16,6 +16,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
+import * as XLSX from 'xlsx-js-style';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const REFETCH_INTERVAL_MS = 15_000;
@@ -262,6 +263,7 @@ export default function CierresTeoricosScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [formLocalDropdownOpen, setFormLocalDropdownOpen] = useState(false);
   const [formPosDropdownOpen, setFormPosDropdownOpen] = useState(false);
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
 
   const lastRowTapRef = useRef<{ rowKey: string; time: number } | null>(null);
   const DOUBLE_TAP_MS = 350;
@@ -735,6 +737,138 @@ export default function CierresTeoricosScreen() {
     ['GrossAmount', 'NetAmount', 'VatAmount', 'SurchargeAmount'].includes(col) || paymentCols.includes(col) ||
     ['InvoicePayments', 'TicketPayments', 'DeliveryNotePayments', 'SalesOrderPayments'].includes(col);
 
+  const exportColumnas = useMemo(() => {
+    return ['BusinessDay', 'DiaSemana', 'Local', 'PosName', 'InvoicePayments', 'Efectivo', 'Tarjeta', 'Pendiente de cobro', 'Prepago Transferencia', 'AgoraPay'];
+  }, []);
+
+  const buildExportRows = useCallback(() => {
+    return closeoutsFiltrados.map((item) => {
+      const row: Record<string, string> = {};
+      for (const col of exportColumnas) {
+        row[getHeaderLabel(col)] = getValorCelda(item, col);
+      }
+      return row;
+    });
+  }, [closeoutsFiltrados, exportColumnas, getValorCelda]);
+
+  const handleExportExcel = useCallback(() => {
+    setShowDownloadMenu(false);
+    const rows = buildExportRows();
+    const ws = XLSX.utils.json_to_sheet(rows);
+
+    const MONEY_W = 16;
+    const colWidthMap: Record<string, number> = {
+      BusinessDay: 12, DiaSemana: 5, Local: 18, PosName: 12,
+      InvoicePayments: MONEY_W, Efectivo: MONEY_W, Tarjeta: MONEY_W,
+      'Pendiente de cobro': MONEY_W, 'Prepago Transferencia': MONEY_W, AgoraPay: MONEY_W,
+    };
+    ws['!cols'] = exportColumnas.map((col) => ({ wch: colWidthMap[col] ?? 14 }));
+
+    const boldCols = new Set([2, 4]);
+    const headerBold = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '0EA5E9' } } };
+    const boldStyle = { font: { bold: true } };
+    const range = XLSX.utils.decode_range(ws['!ref'] ?? 'A1');
+
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const headerAddr = XLSX.utils.encode_cell({ r: 0, c });
+      if (ws[headerAddr]) ws[headerAddr].s = headerBold;
+    }
+
+    for (let r = range.s.r + 1; r <= range.e.r; r++) {
+      for (const ci of boldCols) {
+        const addr = XLSX.utils.encode_cell({ r, c: ci });
+        if (ws[addr]) ws[addr].s = boldStyle;
+      }
+    }
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Cierres Teóricos');
+    XLSX.writeFile(wb, `cierres_teoricos_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  }, [buildExportRows, exportColumnas]);
+
+  const handleExportPDF = useCallback(async () => {
+    setShowDownloadMenu(false);
+    if (Platform.OS !== 'web') return;
+
+    const g = globalThis as Record<string, unknown>;
+    const loadScript = (src: string, check: () => boolean): Promise<void> =>
+      new Promise((resolve, reject) => {
+        if (check()) { resolve(); return; }
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error(`No se pudo cargar ${src}`));
+        document.head.appendChild(s);
+      });
+
+    try {
+      await loadScript(
+        'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+        () => !!(g.jspdf),
+      );
+      await loadScript(
+        'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js',
+        () => !!(g.jspdf_autotable),
+      );
+    } catch {
+      alert('No se pudo cargar la librería de PDF. Comprueba tu conexión a internet.');
+      return;
+    }
+
+    const jspdfNs = g.jspdf as Record<string, unknown>;
+    const jsPDF = jspdfNs.jsPDF as new (opts: Record<string, string>) => Record<string, unknown>;
+    const autoTableMod = g.jspdf_autotable as Record<string, unknown> | undefined;
+    const autoTableFn = (autoTableMod?.default ?? autoTableMod) as
+      ((doc: unknown, opts: Record<string, unknown>) => void) | undefined;
+
+    const headers = exportColumnas.map(getHeaderLabel);
+    const body = closeoutsFiltrados.map((item) =>
+      exportColumnas.map((col) => getValorCelda(item, col)),
+    );
+
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    (doc.setFontSize as (n: number) => void)(14);
+    (doc.text as (t: string, x: number, y: number) => void)('Cierres de ventas teóricas', 14, 15);
+    (doc.setFontSize as (n: number) => void)(8);
+    (doc.text as (t: string, x: number, y: number) => void)(
+      `Generado: ${new Date().toLocaleString('es-ES')}  |  Registros: ${closeoutsFiltrados.length}  |  Total facturado: ${formatMoneda(totalFacturado)}`,
+      14, 21,
+    );
+
+    const localIdx = exportColumnas.indexOf('Local');
+    const totalIdx = exportColumnas.indexOf('InvoicePayments');
+    const moneyW = 22;
+    const columnStyles: Record<number, Record<string, unknown>> = {};
+    exportColumnas.forEach((col, i) => {
+      if (col === 'BusinessDay') columnStyles[i] = { cellWidth: 20 };
+      else if (col === 'DiaSemana') columnStyles[i] = { cellWidth: 10 };
+      else if (col === 'Local') columnStyles[i] = { cellWidth: 30, fontStyle: 'bold' };
+      else if (col === 'PosName') columnStyles[i] = { cellWidth: 32 };
+      else if (col === 'InvoicePayments') columnStyles[i] = { cellWidth: moneyW, fontStyle: 'bold' };
+      else columnStyles[i] = { cellWidth: moneyW };
+    });
+
+    const tableOpts = {
+      startY: 25,
+      head: [headers],
+      body,
+      theme: 'grid',
+      styles: { fontSize: 6, cellPadding: 1.5 },
+      headStyles: { fillColor: [14, 165, 233], fontSize: 6, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      margin: { left: 8, right: 8 },
+      columnStyles,
+    };
+
+    if (typeof autoTableFn === 'function') {
+      autoTableFn(doc, tableOpts);
+    } else if (typeof doc.autoTable === 'function') {
+      (doc.autoTable as (o: Record<string, unknown>) => void)(tableOpts);
+    }
+
+    (doc.save as (f: string) => void)(`cierres_teoricos_${new Date().toISOString().slice(0, 10)}.pdf`);
+  }, [closeoutsFiltrados, exportColumnas, getValorCelda, totalFacturado]);
+
   const getColWidth = useCallback((col: string) => Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, columnWidths[col] ?? DEFAULT_COL_WIDTH)), [columnWidths]);
 
   const resizeRef = useRef<{ col: string; startW: number; startX: number } | null>(null);
@@ -855,6 +989,32 @@ export default function CierresTeoricosScreen() {
           <MaterialIcons name="filter-list" size={16} color={showFilterPanel ? '#fff' : '#64748b'} />
           <Text style={[styles.toolbarBtnText, showFilterPanel && styles.toolbarBtnTextActive]}>Filtro</Text>
         </TouchableOpacity>
+        <View style={styles.downloadWrap}>
+          <TouchableOpacity
+            style={styles.toolbarBtn}
+            onPress={() => setShowDownloadMenu((v) => !v)}
+            disabled={closeoutsFiltrados.length === 0}
+          >
+            <MaterialIcons name="download" size={16} color={closeoutsFiltrados.length === 0 ? '#94a3b8' : '#0ea5e9'} />
+            <Text style={[styles.toolbarBtnText, closeoutsFiltrados.length === 0 && styles.toolbarBtnTextDisabled]}>Descargar</Text>
+          </TouchableOpacity>
+          {showDownloadMenu && (
+            <>
+              <Pressable style={styles.downloadOverlay} onPress={() => setShowDownloadMenu(false)} />
+              <View style={styles.downloadMenu}>
+                <TouchableOpacity style={styles.downloadMenuItem} onPress={handleExportExcel}>
+                  <MaterialIcons name="table-chart" size={16} color="#16a34a" />
+                  <Text style={styles.downloadMenuText}>Excel (.xlsx)</Text>
+                </TouchableOpacity>
+                <View style={styles.downloadMenuDivider} />
+                <TouchableOpacity style={styles.downloadMenuItem} onPress={handleExportPDF}>
+                  <MaterialIcons name="picture-as-pdf" size={16} color="#dc2626" />
+                  <Text style={styles.downloadMenuText}>PDF</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </View>
         <TouchableOpacity style={styles.toolbarBtnAdd} onPress={openAddModal}>
           <MaterialIcons name="add" size={16} color="#fff" />
           <Text style={styles.toolbarBtnAddText}>Añadir</Text>
@@ -1262,7 +1422,7 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
   backBtn: { padding: 4 },
   title: { fontSize: 17, fontWeight: '600', color: '#1e293b', letterSpacing: -0.3 },
-  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 },
+  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8, position: 'relative', zIndex: 100 },
   searchWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 8, paddingHorizontal: 10 },
   searchIcon: { marginRight: 6 },
   searchInput: { flex: 1, paddingVertical: 8, fontSize: 13, color: '#334155' },
@@ -1272,6 +1432,30 @@ const styles = StyleSheet.create({
   toolbarBtnText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
   toolbarBtnTextActive: { color: '#fff' },
   toolbarBtnTextDisabled: { color: '#94a3b8' },
+  downloadWrap: { position: 'relative', zIndex: 50 },
+  downloadOverlay: { position: 'fixed' as 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 49 },
+  downloadMenu: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    marginTop: 4,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    minWidth: 150,
+    zIndex: 100,
+    ...(Platform.OS === 'web' && { boxShadow: '0 4px 12px rgba(0,0,0,0.12)' } as object),
+  },
+  downloadMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  downloadMenuText: { fontSize: 12, color: '#334155', fontWeight: '500' },
+  downloadMenuDivider: { height: 1, backgroundColor: '#f1f5f9' },
   toolbarBtnAdd: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#22c55e', borderRadius: 6 },
   toolbarBtnAddText: { fontSize: 11, color: '#fff', fontWeight: '600' },
   formError: { fontSize: 12, color: '#dc2626', marginBottom: 8 },

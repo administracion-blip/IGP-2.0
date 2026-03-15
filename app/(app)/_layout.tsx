@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Platform, Modal, Pressable, A
 import { Stack, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AuthProvider, useAuth, AUTH_KEY } from '../contexts/AuthContext';
+import { ProductosCacheProvider } from '../contexts/ProductosCache';
 
 const MENU_ITEMS: { route: string; label: string; icon: string; permiso: string | null }[] = [
   { route: '/', label: 'Inicio', icon: 'home', permiso: null },
@@ -15,6 +16,7 @@ const MENU_ITEMS: { route: string; label: string; icon: string; permiso: string 
   { route: '/rrpp', label: 'Rrpp', icon: 'people', permiso: 'rrpp.ver' },
   { route: '/mystery-guest', label: 'Mystery Guest', icon: 'visibility', permiso: 'mystery_guest.ver' },
   { route: '/reservas', label: 'Reservas', icon: 'event-available', permiso: 'reservas.ver' },
+  { route: '/acuerdos', label: 'Acuerdos', icon: 'handshake', permiso: null },
 ];
 
 function AppLayoutContent() {
@@ -142,6 +144,7 @@ function AppLayoutContent() {
             <Stack.Screen name="productos" />
             <Stack.Screen name="puntos-venta" />
             <Stack.Screen name="permisos" />
+            <Stack.Screen name="acuerdos" />
           </Stack>
         </View>
       </View>
@@ -157,7 +160,9 @@ function AppLayoutContent() {
 export default function AppLayout() {
   return (
     <AuthProvider>
-      <AppLayoutContent />
+      <ProductosCacheProvider>
+        <AppLayoutContent />
+      </ProductosCacheProvider>
     </AuthProvider>
   );
 }
