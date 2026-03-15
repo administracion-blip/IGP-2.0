@@ -3806,7 +3806,11 @@ app.get('/api/acuerdos/totales', async (req, res) => {
     const allDetalles = [];
     let dKey = null;
     do {
-      const r = await docClient.send(new ScanCommand({ TableName: tableAcuerdosDetallesName, ...(dKey && { ExclusiveStartKey: dKey }) }));
+      const r = await docClient.send(new ScanCommand({
+        TableName: tableAcuerdosDetallesName,
+        ConsistentRead: true,
+        ...(dKey && { ExclusiveStartKey: dKey }),
+      }));
       allDetalles.push(...(r.Items || []));
       dKey = r.LastEvaluatedKey || null;
     } while (dKey);
@@ -3889,7 +3893,8 @@ app.get('/api/acuerdos/:id/detalles-con-compras', async (req, res) => {
     let totalCompradas = 0;
     const items = detalles.map((d) => {
       const acordado = d.Cantidad || 0;
-      const compradas = comprasPorProducto[d.ProductId] || 0;
+      const pid = String(d.ProductId ?? d.SK ?? '').trim();
+      const compradas = comprasPorProducto[pid] || 0;
       const restante = acordado - compradas;
       const porcentaje = acordado > 0 ? Math.round((compradas / acordado) * 1000) / 10 : 0;
       totalAcordado += acordado;

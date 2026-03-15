@@ -38,6 +38,101 @@ type PagoImagen = {
 
 const ACCIONES_IMAGEN = ['Inversión', 'Prescripción', 'Visibilidad', 'Cocktail/Carta', 'RRSS', 'Activaciones'];
 
+/** Polyfill: Alert.alert no funciona en web; usa modal de confirmación */
+function useConfirmDelete() {
+  const [visible, setVisible] = useState(false);
+  const [title, setTitle] = useState('');
+  const [message, setMessage] = useState('');
+  const onConfirmRef = useRef<(() => void) | null>(null);
+
+  const confirmDelete = useCallback((t: string, m: string, onConfirm: () => void) => {
+    if (Platform.OS === 'web') {
+      setTitle(t);
+      setMessage(m);
+      onConfirmRef.current = onConfirm;
+      setVisible(true);
+    } else {
+      Alert.alert(t, m, [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: onConfirm },
+      ]);
+    }
+  }, []);
+
+  const handleConfirm = useCallback(() => {
+    onConfirmRef.current?.();
+    setVisible(false);
+    onConfirmRef.current = null;
+  }, []);
+
+  const handleCancel = useCallback(() => {
+    setVisible(false);
+    onConfirmRef.current = null;
+  }, []);
+
+  const ModalConfirm = useCallback(() => (
+    <Modal visible={visible} transparent animationType="fade">
+      <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 }} onPress={handleCancel}>
+        <Pressable style={{ backgroundColor: "#fff", borderRadius: 12, padding: 24, maxWidth: 400, width: "100%" }} onPress={(e) => e.stopPropagation()}>
+          <Text style={{ fontSize: 18, fontWeight: '700', color: '#1e293b', marginBottom: 8 }}>{title}</Text>
+          <Text style={{ fontSize: 15, color: '#64748b', marginBottom: 24 }}>{message}</Text>
+          <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'flex-end' }}>
+            <TouchableOpacity onPress={handleCancel} style={{ paddingVertical: 10, paddingHorizontal: 20, backgroundColor: '#e2e8f0', borderRadius: 8 }}>
+              <Text style={{ fontSize: 15, fontWeight: '600', color: '#475569' }}>Cancelar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleConfirm} style={{ paddingVertical: 10, paddingHorizontal: 20, backgroundColor: '#ef4444', borderRadius: 8 }}>
+              <Text style={{ fontSize: 15, fontWeight: '600', color: '#fff' }}>Eliminar</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  ), [visible, title, message, handleConfirm, handleCancel]);
+
+  return { confirmDelete, ModalConfirm };
+}
+
+/** Botón de eliminación para web: usa listener DOM nativo en fase de captura para evitar que ScrollView intercepte el evento */
+function WebDeleteBtn({
+  productId,
+  productName,
+  onDelete,
+  onConfirmDelete,
+}: {
+  productId: string;
+  productName: string;
+  onDelete: (id: string) => void;
+  onConfirmDelete: (title: string, message: string, onConfirm: () => void) => void;
+}) {
+  const ref = useRef<any>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const node = (el as any)._nativeTag ?? el;
+    const handler = (e: Event) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const msg = `¿Quieres eliminar el producto "${productName}" del acuerdo?`;
+      onConfirmDelete('Confirmar eliminación', msg, () => onDelete(productId));
+    };
+    node.addEventListener('click', handler, true);
+    return () => node.removeEventListener('click', handler, true);
+  }, [productId, productName, onDelete, onConfirmDelete]);
+
+  return (
+    <View
+      ref={ref}
+      role="button"
+      // @ts-ignore
+      tabIndex={0}
+      style={{ width: 80, minWidth: 80, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, padding: 4, cursor: 'pointer' } as any}
+    >
+      <MaterialIcons name="close" size={14} color="#ef4444" />
+      <Text style={{ fontSize: 11, color: '#ef4444', fontWeight: '500' }}>Eliminar</Text>
+    </View>
+  );
+}
+
 function TooltipBtn({ tooltip, children, ...props }: { tooltip: string; children: React.ReactNode; style?: any; onPress?: () => void; disabled?: boolean }) {
   const [hover, setHover] = useState(false);
   const webProps = Platform.OS === 'web' ? { onMouseEnter: () => setHover(true), onMouseLeave: () => setHover(false) } : {};
@@ -191,6 +286,7 @@ export default function AcuerdosScreen() {
   const router = useRouter();
   const { width: winWidth } = useWindowDimensions();
   const { productosIgp, loading: loadingProductos, recargar: recargarProductos, lastFetch: productosLastFetch } = useProductosCache();
+  const { confirmDelete, ModalConfirm } = useConfirmDelete();
 
   const [acuerdos, setAcuerdos] = useState<Acuerdo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -464,9 +560,13 @@ export default function AcuerdosScreen() {
           if (items.length === 0 && existing.length > 0) return prev;
           return { ...prev, [acuerdoPK]: items };
         });
+        const ta = data.totalAcordado || 0;
+        const tc = data.totalCompradas || 0;
+        const pctAcuerdo = ta > 0 ? Math.round((tc / ta) * 1000) / 10 : 0;
+        setTotalesPorAcuerdo((p) => ({ ...p, [acuerdoPK]: { totalAcordado: ta, totalCompradas: tc, porcentaje: pctAcuerdo } }));
         if (acuerdoPK === seleccionadoRef.current) {
-          setTotalAcordado(data.totalAcordado || 0);
-          setTotalCompradas(data.totalCompradas || 0);
+          setTotalAcordado(ta);
+          setTotalCompradas(tc);
           setTotalRestante(data.totalRestante || 0);
           const edits: Record<string, string> = {};
           const apEdits: Record<string, string> = {};
@@ -501,6 +601,8 @@ export default function AcuerdosScreen() {
       setTotalAcordado(newAcordado);
       setTotalCompradas(newCompradas);
       setTotalRestante(newAcordado - newCompradas);
+      const pctCache = newAcordado > 0 ? Math.round((newCompradas / newAcordado) * 1000) / 10 : 0;
+      setTotalesPorAcuerdo((p) => ({ ...p, [a.PK]: { totalAcordado: newAcordado, totalCompradas: newCompradas, porcentaje: pctCache } }));
       const edits: Record<string, string> = {};
       const apEdits: Record<string, string> = {};
       const raEdits: Record<string, string> = {};
@@ -1071,6 +1173,8 @@ export default function AcuerdosScreen() {
         </View>
       ) : null}
 
+      {ModalConfirm()}
+
       <View style={styles.splitContainer}>
         {/* Lista de acuerdos */}
         <ScrollView style={[styles.list, seleccionado && !isCompact && { flex: 2 }]} contentContainerStyle={styles.listContent}>
@@ -1100,16 +1204,7 @@ export default function AcuerdosScreen() {
                       </TooltipBtn>
                       <TooltipBtn
                         tooltip="Eliminar"
-                        onPress={() => {
-                          Alert.alert(
-                            'Confirmar eliminación',
-                            `¿Quieres eliminar el acuerdo "${a.Marca || a.Nombre || a.PK}"? Esta acción no se puede deshacer.`,
-                            [
-                              { text: 'Cancelar', style: 'cancel' },
-                              { text: 'Eliminar', style: 'destructive', onPress: () => eliminar(a.PK) },
-                            ]
-                          );
-                        }}
+                        onPress={() => confirmDelete('Confirmar eliminación', `¿Quieres eliminar el acuerdo "${a.Marca || a.Nombre || a.PK}"? Esta acción no se puede deshacer.`, () => eliminar(a.PK))}
                         style={styles.cardActionBtn}
                       >
                         <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
@@ -1345,7 +1440,7 @@ export default function AcuerdosScreen() {
                         <Text style={[styles.detailTableHeaderText, { width: 80, textAlign: 'center' }]}>Dto. extra</Text>
                         <Text style={[styles.detailTableHeaderText, { width: 100, textAlign: 'center' }]}>Prev. Pago</Text>
                         <Text style={[styles.detailTableHeaderText, { width: 100, textAlign: 'center' }]}>Prev. Confirm.</Text>
-                        <Text style={[styles.detailTableHeaderText, { width: 28 }]} />
+                        <Text style={[styles.detailTableHeaderText, { width: 80 }]} />
                       </View>
                       {detalles.map((d) => {
                         const pctColor = d.Porcentaje >= 80 ? '#16a34a' : '#ef4444';
@@ -1445,9 +1540,25 @@ export default function AcuerdosScreen() {
                                 </>
                               );
                             })()}
-                            <TouchableOpacity onPress={() => removeProductoDetalle(d.ProductId)} style={{ width: 28, alignItems: 'center', padding: 2 }}>
-                              <MaterialIcons name="close" size={14} color="#ef4444" />
-                            </TouchableOpacity>
+                            {Platform.OS === 'web' ? (
+                              <WebDeleteBtn
+                                productId={d.ProductId}
+                                productName={d.ProductName || d.ProductId}
+                                onDelete={removeProductoDetalle}
+                                onConfirmDelete={confirmDelete}
+                              />
+                            ) : (
+                              <Pressable
+                                onPress={() => confirmDelete('Confirmar eliminación', `¿Quieres eliminar el producto "${d.ProductName || d.ProductId}" del acuerdo?`, () => removeProductoDetalle(d.ProductId))}
+                                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                style={({ pressed }) => ({
+                                  width: 32, minWidth: 32, height: 32, alignItems: 'center', justifyContent: 'center', padding: 4,
+                                  opacity: pressed ? 0.6 : 1,
+                                })}
+                              >
+                                <MaterialIcons name="close" size={14} color="#ef4444" />
+                              </Pressable>
+                            )}
                           </View>
                         );
                       })}
