@@ -506,38 +506,15 @@ export default function ObjetivosScreen() {
                 .map((item) => {
                 const itemKey = String(item.local.id_Locales ?? item.local.agoraCode ?? item.local.AgoraCode ?? '');
                 const nom = (item.local.nombre ?? item.local.Nombre ?? item.local.agoraCode ?? item.local.AgoraCode ?? '—').toString().trim();
-                const pct = item.sumComp === 0 ? 0 : Math.min(100, (item.sumReal / item.sumComp) * 100);
-                const pctHastaAyer = item.sumCompHastaAyer === 0 ? 0 : Math.min(100, (item.sumRealHastaAyer / item.sumCompHastaAyer) * 100);
+                const sumDesvioHastaAyer = item.sumRealHastaAyer - item.sumCompHastaAyer;
                 const estiloHastaAyer = estiloTicker(item.desvioPctHastaAyer);
                 return (
                   <View key={itemKey} style={styles.localesListItem}>
                     <View style={styles.localesListHeader}>
-                      <Text style={styles.localesListNombre} numberOfLines={1}>
-                        {nom} <Text style={styles.localesListPct}>({pct.toFixed(1)}%)</Text>
-                      </Text>
-                    </View>
-                    <View style={styles.localesListProgressTrack}>
-                      <View
-                        style={[
-                          styles.localesListProgressFill,
-                          { width: `${pct}%` },
-                        ]}
-                      />
-                    </View>
-                    <View style={[styles.localesListProgressTrack, styles.localesListProgressTrackSecondary]}>
-                      <View
-                        style={[
-                          styles.localesListProgressFill,
-                          styles.localesListProgressFillSecondary,
-                          { width: `${pctHastaAyer}%` },
-                        ]}
-                      />
+                      <Text style={styles.localesListNombre} numberOfLines={1}>{nom}</Text>
                     </View>
                     {rangosHastaAyer && (
                       <View style={styles.localesListHastaAyerInfo}>
-                        <Text style={styles.localesListHastaAyerLabel}>
-                          Hasta ayer: {formatMoneda(item.sumRealHastaAyer)} / {formatMoneda(item.sumCompHastaAyer)}
-                        </Text>
                         <View
                           style={styles.localesListHastaAyerRangoWrap}
                           {...(Platform.OS === 'web' && {
@@ -556,13 +533,29 @@ export default function ObjetivosScreen() {
                             </View>
                           )}
                         </View>
-                        <View style={[styles.tickerBadge, styles.tickerBadgeSmall, { backgroundColor: estiloHastaAyer.backgroundColor }]}>
-                          {item.desvioPctHastaAyer != null && (
-                            <MaterialIcons name={item.desvioPctHastaAyer >= 0 ? 'trending-up' : 'trending-down'} size={9} color={estiloHastaAyer.color} />
-                          )}
-                          <Text style={[styles.tickerText, { color: estiloHastaAyer.color, fontSize: 9 }]}>
-                            {formatPctTicker(item.desvioPctHastaAyer)}
-                          </Text>
+                        <View style={styles.localesListValoresRow}>
+                          <View style={styles.localesListValorItem}>
+                            <Text style={styles.localesListValorLabel}>Facturado</Text>
+                            <Text style={styles.localesListValorNum}>{formatMoneda(item.sumRealHastaAyer)}</Text>
+                          </View>
+                          <View style={styles.localesListValorItem}>
+                            <Text style={styles.localesListValorLabel}>Comparativa</Text>
+                            <Text style={[styles.localesListValorNum, styles.localesListValorSecundario]}>{formatMoneda(item.sumCompHastaAyer)}</Text>
+                          </View>
+                          <View style={styles.localesListValorItem}>
+                            <Text style={styles.localesListValorLabel}>Desvío</Text>
+                            <Text style={[styles.localesListValorNum, colorDesvio(sumDesvioHastaAyer)]}>{formatMoneda(sumDesvioHastaAyer)}</Text>
+                          </View>
+                          <View style={styles.localesListValorItem}>
+                            <View style={[styles.tickerBadge, styles.tickerBadgeSmall, { backgroundColor: estiloHastaAyer.backgroundColor }]}>
+                              {item.desvioPctHastaAyer != null && (
+                                <MaterialIcons name={item.desvioPctHastaAyer >= 0 ? 'trending-up' : 'trending-down'} size={9} color={estiloHastaAyer.color} />
+                              )}
+                              <Text style={[styles.tickerText, { color: estiloHastaAyer.color, fontSize: 9 }]}>
+                                {formatPctTicker(item.desvioPctHastaAyer)}
+                              </Text>
+                            </View>
+                          </View>
                         </View>
                       </View>
                     )}
@@ -808,7 +801,7 @@ const styles = StyleSheet.create({
   btnGenerarDisabled: { opacity: 0.7 },
   btnGenerarText: { fontSize: 12, fontWeight: '600', color: '#fff' },
   widgetLocales: { alignSelf: 'stretch', minHeight: 120, marginTop: 12 },
-  widgetLocalesTitle: { fontSize: 11, fontWeight: '700', color: '#334155', marginBottom: 8 },
+  widgetLocalesTitle: { fontSize: 15, fontWeight: '700', color: '#334155', marginBottom: 8 },
   widgetLocalesLoader: { marginVertical: 20 },
   localesListWrap: {},
   localesListItem: {
@@ -819,7 +812,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e2e8f0',
   },
   localesListHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  localesListNombre: { fontSize: 10, fontWeight: '500', color: '#334155', flex: 1, marginRight: 8 },
+  localesListNombre: { fontSize: 12, fontWeight: '500', color: '#334155', flex: 1, marginRight: 8 },
   localesListPct: { fontSize: 9, color: '#64748b', fontWeight: '400' },
   localesListProgressTrack: {
     height: 6,
@@ -839,12 +832,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#94a3b8',
   },
   localesListHastaAyerInfo: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
     gap: 6,
     marginTop: 4,
   },
+  localesListValoresRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 10,
+  },
+  localesListValorItem: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+  },
+  localesListValorLabel: { fontSize: 9, color: '#64748b', fontWeight: '500' },
+  localesListValorNum: { fontSize: 10, fontWeight: '600', color: '#334155' },
+  localesListValorSecundario: { color: '#64748b', fontWeight: '500' },
   localesListHastaAyerLabel: { fontSize: 9, color: '#475569', fontWeight: '600' },
   localesListHastaAyerRangoWrap: { position: 'relative' as const, alignSelf: 'flex-start', flexShrink: 0 },
   localesListHastaAyerRango: { fontSize: 8, color: '#94a3b8', maxWidth: 200 },
