@@ -102,6 +102,8 @@ export type TablaBasicaProps<T = Record<string, unknown>> = {
   defaultColWidth?: number;
   /** Ocultar botones Crear, Editar, Borrar (solo lectura) */
   hideToolbarActions?: boolean;
+  /** Renderizado personalizado de celda; si devuelve null usa el Text por defecto */
+  renderCell?: (item: T, col: string, defaultText: string) => React.ReactNode | null;
 };
 
 export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps<T>) {
@@ -139,6 +141,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     getColumnCellStyle,
     defaultColWidth,
     hideToolbarActions = false,
+    renderCell,
   } = props;
 
   const baseColWidth = defaultColWidth ?? (dense ? DENSE_COL_WIDTH : DEFAULT_COL_WIDTH);
@@ -480,11 +483,14 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                       const text = raw.length > MAX_TEXT_LENGTH ? truncar(raw) : raw;
                       const isMoneda = columnasMoneda.some((c) => c.toLowerCase() === col.toLowerCase());
                       const colStyle = getColumnCellStyle?.(col);
+                      const custom = renderCell?.(item, col, text) ?? null;
                       return (
                         <View key={col} style={[styles.cell, dense && styles.cellDense, { width: getColWidth(col) }, isMoneda && styles.cellRight, colStyle?.cell]}>
-                          <Text style={[styles.cellText, dense && styles.cellTextDense, isMoneda && styles.cellTextRight, colStyle?.text]} numberOfLines={1} ellipsizeMode="tail">
-                            {text}
-                          </Text>
+                          {custom !== null ? custom : (
+                            <Text style={[styles.cellText, dense && styles.cellTextDense, isMoneda && styles.cellTextRight, colStyle?.text]} numberOfLines={1} ellipsizeMode="tail">
+                              {text}
+                            </Text>
+                          )}
                         </View>
                       );
                     })}

@@ -382,6 +382,14 @@ export default function ObjetivosScreen() {
   const desvioPctTotal = sumComp === 0 ? null : sumReal / sumComp - 1;
   const tickerEstilo = estiloTicker(desvioPctTotal);
 
+  const ayerStr = ayerYYYYMMDD();
+  const registrosHastaAyer = registros.filter((r) => r.Fecha <= ayerStr);
+  const sumRealHoy = registrosHastaAyer.reduce((a, r) => a + r.TotalFacturadoReal, 0);
+  const sumCompHoy = registrosHastaAyer.reduce((a, r) => a + r.TotalFacturadoComparativa, 0);
+  const sumDesvioHoy = registrosHastaAyer.reduce((a, r) => a + r.Desvio, 0);
+  const desvioPctHoy = sumCompHoy === 0 ? null : sumRealHoy / sumCompHoy - 1;
+  const tickerEstiloHoy = estiloTicker(desvioPctHoy);
+
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
@@ -614,6 +622,35 @@ export default function ObjetivosScreen() {
                     ]}
                   />
                 </View>
+                {registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length && (
+                  <View style={styles.parcialBox}>
+                    <Text style={styles.parcialTitle}>Acumulado hasta ayer ({formatFechaCorta(ayerStr)})</Text>
+                    <View style={styles.parcialRow}>
+                      <View style={styles.parcialItem}>
+                        <Text style={styles.parcialLabel}>Facturado</Text>
+                        <Text style={[styles.parcialValue, { color: '#1e293b' }]}>{formatMoneda(sumRealHoy)}</Text>
+                      </View>
+                      <View style={styles.parcialItem}>
+                        <Text style={styles.parcialLabel}>Comparativa</Text>
+                        <Text style={[styles.parcialValue, { color: '#64748b' }]}>{formatMoneda(sumCompHoy)}</Text>
+                      </View>
+                      <View style={styles.parcialItem}>
+                        <Text style={styles.parcialLabel}>Desvío</Text>
+                        <Text style={[styles.parcialValue, colorDesvio(sumDesvioHoy)]}>{formatMoneda(sumDesvioHoy)}</Text>
+                      </View>
+                      <View style={styles.parcialItem}>
+                        <View style={[styles.tickerBadge, { backgroundColor: tickerEstiloHoy.backgroundColor }]}>
+                          {desvioPctHoy != null && (
+                            <MaterialIcons name={desvioPctHoy >= 0 ? 'trending-up' : 'trending-down'} size={14} color={tickerEstiloHoy.color} />
+                          )}
+                          <Text style={[styles.tickerText, { color: tickerEstiloHoy.color }]}>
+                            {formatPctTicker(desvioPctHoy)}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                )}
               </View>
             <View style={styles.table}>
             <View style={styles.rowHeader}>
@@ -922,4 +959,44 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   tickerText: { fontSize: 12, fontWeight: '700', letterSpacing: 0.3 },
+  parcialBox: {
+    marginTop: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    padding: 12,
+    alignItems: 'center',
+  },
+  parcialTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  parcialRow: {
+    flexDirection: 'row',
+    gap: 16,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  parcialItem: {
+    alignItems: 'center',
+    minWidth: 80,
+  },
+  parcialLabel: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: '#94a3b8',
+    marginBottom: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  parcialValue: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
 });

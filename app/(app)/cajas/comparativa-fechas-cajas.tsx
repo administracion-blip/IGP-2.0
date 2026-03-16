@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -82,6 +82,10 @@ export default function ComparativaFechasCajasScreen() {
   const [filtroMes, setFiltroMes] = useState<string | null>(null);
   const [modalFiltroAño, setModalFiltroAño] = useState(false);
   const [modalFiltroMes, setModalFiltroMes] = useState(false);
+  const [modoEdicion, setModoEdicion] = useState(false);
+  const [editValues, setEditValues] = useState<Record<string, { FechaComparativa: string; Festivo: boolean; NombreFestivo: string }>>({});
+  const editValuesRef = useRef<typeof editValues>({});
+  const [savingRows, setSavingRows] = useState<Set<string>>(new Set());
 
   const refetch = useCallback(() => {
     setLoading(true);
@@ -95,7 +99,7 @@ export default function ComparativaFechasCajasScreen() {
         } else {
           setError(null);
           const list = Array.isArray(data.registros) ? data.registros : [];
-          setRegistros([...list].sort((a, b) => String(b.FechaComparativa ?? b.PK ?? '').localeCompare(String(a.FechaComparativa ?? a.PK ?? ''))));
+          setRegistros([...list].sort((a, b) => String(a.PK ?? a.FechaComparativa ?? '').localeCompare(String(b.PK ?? b.FechaComparativa ?? ''))));
         }
       })
       .catch((e) => {
@@ -361,6 +365,129 @@ export default function ComparativaFechasCajasScreen() {
     [hoy]
   );
 
+  const getItemId = useCallback((item: Registro): string => {
+    return String(valorPorColumna(item, 'id') ?? '');
+  }, []);
+
+  const handleEditChange = useCallback((id: string, field: 'FechaComparativa' | 'Festivo' | 'NombreFestivo', value: string | boolean) => {
+    const row = { ...(editValuesRef.current[id] ?? { FechaComparativa: '', Festivo: false, NombreFestivo: '' }), [field]: value };
+    const next = { ...editValuesRef.current, [id]: row };
+    editValuesRef.current = next;
+    setEditValues(next);
+  }, []);
+
+  const guardarFilaInline = useCallback(async (id: string, overrideVals?: { FechaComparativa: string; Festivo: boolean; NombreFestivo: string }) => {
+    const vals = overrideVals ?? editValuesRef.current[id];
+    if (!vals) return;
+    setSavingRows((prev) => new Set(prev).add(id));
+    try {
+      const res = await fetch(`${API_URL}/api/gestion-festivos`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id,
+          FechaComparativa: vals.FechaComparativa,
+          Festivo: vals.Festivo,
+          NombreFestivo: vals.Festivo ? vals.NombreFestivo.trim() : '',
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error || 'Error al guardar');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error de conexión');
+    } finally {
+      setSavingRows((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }, []);
+
+  const initEditValues = useCallback(() => {
+    const vals: Record<string, { FechaComparativa: string; Festivo: boolean; NombreFestivo: string }> = {};
+    registros.forEach((r) => {
+      const id = getItemId(r);
+      if (!id) return;
+      const festivoRaw = valorPorColumna(r, 'Festivo');
+      vals[id] = {
+        FechaComparativa: String(valorPorColumna(r, 'FechaComparativa') ?? r.PK ?? ''),
+        Festivo: festivoRaw === true || festivoRaw === 'true' || String(festivoRaw).toLowerCase() === 'true',
+        NombreFestivo: String(valorPorColumna(r, 'NombreFestivo') ?? ''),
+      };
+    });
+    editValuesRef.current = vals;
+    setEditValues(vals);
+  }, [registros, getItemId]);
+
+  const toggleModoEdicion = useCallback(() => {
+    if (!modoEdicion) {
+      initEditValues();
+    } else {
+      refetch();
+    }
+    setModoEdicion((v) => !v);
+  }, [modoEdicion, initEditValues, refetch]);
+
+  const renderCeldaEditable = useCallback((item: Registro, col: string, _defaultText: string): React.ReactNode | null => {
+    if (!modoEdicion) return null;
+    const id = getItemId(item);
+    if (!id) return null;
+    const vals = editValues[id];
+    if (!vals) return null;
+    const saving = savingRows.has(id);
+
+    if (col === 'FechaComparativa') {
+      return (
+        <TextInput
+          style={styles.editInput}
+          value={vals.FechaComparativa}
+          onChangeText={(t) => handleEditChange(id, 'FechaComparativa', t)}
+          onBlur={() => guardarFilaInline(id)}
+          editable={!saving}
+          selectTextOnFocus
+        />
+      );
+    }
+    if (col === 'Festivo') {
+      return (
+        <TouchableOpacity
+          style={[styles.editFestivoBadge, vals.Festivo ? styles.editFestivoSi : styles.editFestivoNo]}
+          onPress={() => {
+            const newFestivo = !vals.Festivo;
+            const newNombre = newFestivo ? vals.NombreFestivo : '';
+            const newVals = { ...vals, Festivo: newFestivo, NombreFestivo: newNombre };
+            handleEditChange(id, 'Festivo', newFestivo);
+            if (!newFestivo) handleEditChange(id, 'NombreFestivo', '');
+            guardarFilaInline(id, newVals);
+          }}
+          disabled={saving}
+        >
+          <Text style={[styles.editFestivoText, vals.Festivo ? styles.editFestivoTextSi : styles.editFestivoTextNo]}>
+            {vals.Festivo ? 'Sí' : 'No'}
+          </Text>
+        </TouchableOpacity>
+      );
+    }
+    if (col === 'NombreFestivo') {
+      return (
+        <TextInput
+          style={[styles.editInput, !vals.Festivo && styles.editInputDisabled]}
+          value={vals.NombreFestivo}
+          onChangeText={(t) => handleEditChange(id, 'NombreFestivo', t)}
+          onBlur={() => guardarFilaInline(id)}
+          editable={vals.Festivo && !saving}
+          placeholder={vals.Festivo ? 'Nombre' : ''}
+          placeholderTextColor="#94a3b8"
+          selectTextOnFocus
+        />
+      );
+    }
+    return null;
+  }, [modoEdicion, editValues, savingRows, getItemId, handleEditChange, guardarFilaInline]);
+
   const añosDisponibles = useMemo(() => {
     const años = new Set<string>();
     registros.forEach((r) => {
@@ -467,11 +594,24 @@ export default function ComparativaFechasCajasScreen() {
           </View>
         }
         extraToolbarRight={
-          <TouchableOpacity style={styles.btnGenerar} onPress={abrirModalGenerar} disabled={guardando}>
-            <MaterialIcons name="add-circle-outline" size={18} color="#16a34a" />
-            <Text style={styles.btnGenerarText}>Generar registros</Text>
-          </TouchableOpacity>
+          <View style={styles.toolbarRightGroup}>
+            <TouchableOpacity
+              style={[styles.btnEdicion, modoEdicion && styles.btnEdicionActivo]}
+              onPress={toggleModoEdicion}
+              disabled={registros.length === 0}
+            >
+              <MaterialIcons name="edit" size={16} color={modoEdicion ? '#fff' : '#0ea5e9'} />
+              <Text style={[styles.btnEdicionText, modoEdicion && styles.btnEdicionTextActivo]}>
+                {modoEdicion ? 'Terminar edición' : 'Editar tabla'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.btnGenerar} onPress={abrirModalGenerar} disabled={guardando}>
+              <MaterialIcons name="add-circle-outline" size={18} color="#16a34a" />
+              <Text style={styles.btnGenerarText}>Generar registros</Text>
+            </TouchableOpacity>
+          </View>
         }
+        renderCell={renderCeldaEditable}
         paginacion={{
           totalRegistros: registrosFiltrados.length,
           pageSize: PAGE_SIZE,
@@ -740,4 +880,45 @@ const styles = StyleSheet.create({
   modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 20, paddingVertical: 16, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
   modalBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 16, backgroundColor: '#f0f9ff', borderRadius: 10, borderWidth: 1, borderColor: '#0ea5e9' },
   modalBtnText: { fontSize: 14, fontWeight: '600', color: '#0ea5e9' },
+  toolbarRightGroup: { flexDirection: 'row', gap: 6, alignItems: 'center' },
+  btnEdicion: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#f0f9ff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#0ea5e9',
+  },
+  btnEdicionActivo: { backgroundColor: '#0ea5e9' },
+  btnEdicionText: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+  btnEdicionTextActivo: { color: '#fff' },
+  editInput: {
+    fontSize: 10,
+    color: '#334155',
+    backgroundColor: '#f0f9ff',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  editInputDisabled: {
+    backgroundColor: '#f1f5f9',
+    borderColor: '#e2e8f0',
+    color: '#94a3b8',
+  },
+  editFestivoBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    alignSelf: 'flex-start',
+  },
+  editFestivoSi: { backgroundColor: '#dcfce7' },
+  editFestivoNo: { backgroundColor: '#f1f5f9' },
+  editFestivoText: { fontSize: 10, fontWeight: '600' },
+  editFestivoTextSi: { color: '#16a34a' },
+  editFestivoTextNo: { color: '#94a3b8' },
 });
