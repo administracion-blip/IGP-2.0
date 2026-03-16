@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,10 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
+import { captureRef } from 'react-native-view-shot';
+import * as FileSystemLegacy from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import { toPng } from 'html-to-image';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -126,6 +130,7 @@ type LocalObjetivo = {
   sumRealHastaAyer: number;
   sumCompHastaAyer: number;
   desvioPctHastaAyer: number | null;
+  ultimaFechaConDatos: string;
 };
 
 export default function ObjetivosScreen() {
@@ -148,6 +153,9 @@ export default function ObjetivosScreen() {
     maxCompHastaAyer: string;
   } | null>(null);
   const [hoveredRangoKey, setHoveredRangoKey] = useState<string | null>(null);
+  const widgetRef = useRef<View>(null);
+  const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  const [capturing, setCapturing] = useState(false);
 
   const cargarLocales = useCallback(() => {
     setLoadingLocales(true);
@@ -218,7 +226,7 @@ export default function ObjetivosScreen() {
       const resultados: LocalObjetivo[] = await Promise.all(
         locales.map(async (loc) => {
           const workplaceId = (loc.agoraCode ?? loc.AgoraCode ?? '').toString().trim();
-          if (!workplaceId) return { local: loc, sumReal: 0, sumComp: 0, desvioPct: null, sumRealHastaAyer: 0, sumCompHastaAyer: 0, desvioPctHastaAyer: null };
+          if (!workplaceId) return { local: loc, sumReal: 0, sumComp: 0, desvioPct: null, sumRealHastaAyer: 0, sumCompHastaAyer: 0, desvioPctHastaAyer: null, ultimaFechaConDatos: '' };
           try {
             const [totalsRealRes, totalsCompRes] = await Promise.all([
               fetch(`${API_URL}/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${fechaInicioMes}&dateTo=${fechaFinMes}`),
@@ -250,6 +258,10 @@ export default function ObjetivosScreen() {
             }
             const desvioPct = sumComp === 0 ? null : sumReal / sumComp - 1;
             const desvioPctHastaAyer = sumCompHastaAyer === 0 ? null : sumRealHastaAyer / sumCompHastaAyer - 1;
+            const ultimaFechaConDatos = Object.keys(totalsReal)
+              .filter((f) => (totalsReal[f] ?? 0) > 0)
+              .sort()
+              .pop() ?? '';
             return {
               local: loc,
               sumReal,
@@ -258,6 +270,7 @@ export default function ObjetivosScreen() {
               sumRealHastaAyer,
               sumCompHastaAyer,
               desvioPctHastaAyer,
+              ultimaFechaConDatos,
             };
           } catch {
             return {
@@ -268,6 +281,7 @@ export default function ObjetivosScreen() {
               sumRealHastaAyer: 0,
               sumCompHastaAyer: 0,
               desvioPctHastaAyer: null,
+              ultimaFechaConDatos: '',
             };
           }
         })
@@ -283,6 +297,119 @@ export default function ObjetivosScreen() {
   useEffect(() => {
     cargarLocalesObjetivos();
   }, [cargarLocalesObjetivos]);
+
+  const captureWidget = useCallback(async (): Promise<string | null> => {
+    if (!widgetRef.current) return null;
+    try {
+      if (Platform.OS === 'web') {
+        const node = widgetRef.current as unknown as HTMLElement;
+        const dataUrl = await toPng(node, {
+          cacheBust: true,
+          pixelRatio: 1.5,
+          filter: (domNode: HTMLElement) => {
+            if (domNode?.dataset?.captureHide) return false;
+            return true;
+          },
+        });
+        return dataUrl;
+      }
+      const uri = await captureRef(widgetRef, { format: 'jpg', quality: 0.9 });
+      return uri;
+    } catch (e) {
+      console.warn('captureWidget error:', e);
+      return null;
+    }
+  }, []);
+
+  const handleShareJPG = useCallback(async () => {
+    setShareMenuOpen(false);
+    setCapturing(true);
+    try {
+      const uri = await captureWidget();
+      if (!uri) return;
+      if (Platform.OS === 'web') {
+        const a = document.createElement('a');
+        a.href = uri;
+        a.download = `objetivos_${nombreMesYAnio().replace(/\s/g, '_')}.png`;
+        a.click();
+      } else {
+        await Sharing.shareAsync(uri, { mimeType: 'image/jpeg', dialogTitle: 'Guardar imagen' });
+      }
+    } finally {
+      setCapturing(false);
+    }
+  }, [captureWidget]);
+
+  const handleSharePDF = useCallback(async () => {
+    setShareMenuOpen(false);
+    setCapturing(true);
+    try {
+      const dataUrl = await captureWidget();
+      if (!dataUrl) return;
+      if (Platform.OS === 'web') {
+        const img = new Image();
+        img.src = dataUrl;
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error('No se pudo cargar la imagen'));
+        });
+        const pxW = img.naturalWidth || img.width;
+        const pxH = img.naturalHeight || img.height;
+        const margin = 10;
+        const pdfW = 210;
+        const imgW = pdfW - margin * 2;
+        const imgH = (pxH / pxW) * imgW;
+        const pdfH = imgH + 30;
+        const { jsPDF } = await import('jspdf');
+        const doc = new jsPDF({
+          orientation: pdfH > pdfW ? 'portrait' : 'landscape',
+          unit: 'mm',
+          format: [pdfW, pdfH],
+        });
+        doc.setFontSize(12);
+        doc.text(`Objetivos – ${nombreMesYAnio()}`, margin, 10);
+        doc.addImage(dataUrl, 'PNG', margin, 18, imgW, imgH);
+        doc.save(`objetivos_${nombreMesYAnio().replace(/\s/g, '_')}.pdf`);
+      } else {
+        const base64 = await FileSystemLegacy.readAsStringAsync(dataUrl, { encoding: FileSystemLegacy.EncodingType.Base64 });
+        const { jsPDF } = await import('jspdf');
+        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        doc.setFontSize(12);
+        doc.text(`Objetivos – ${nombreMesYAnio()}`, 10, 10);
+        doc.addImage(`data:image/jpeg;base64,${base64}`, 'JPEG', 5, 18, 200, 0);
+        const pdfBase64 = doc.output('datauristring').split(',')[1];
+        const pdfUri = `${FileSystemLegacy.cacheDirectory}objetivos.pdf`;
+        await FileSystemLegacy.writeAsStringAsync(pdfUri, pdfBase64, { encoding: FileSystemLegacy.EncodingType.Base64 });
+        await Sharing.shareAsync(pdfUri, { mimeType: 'application/pdf', dialogTitle: 'Guardar PDF' });
+      }
+    } catch (e) {
+      console.warn('handleSharePDF error:', e);
+    } finally {
+      setCapturing(false);
+    }
+  }, [captureWidget]);
+
+  const handleShareWhatsApp = useCallback(async () => {
+    setShareMenuOpen(false);
+    setCapturing(true);
+    try {
+      const uri = await captureWidget();
+      if (!uri) return;
+      if (Platform.OS === 'web') {
+        const a = document.createElement('a');
+        a.href = uri;
+        a.download = `objetivos_${nombreMesYAnio().replace(/\s/g, '_')}.png`;
+        a.click();
+        setTimeout(() => {
+          window.open('https://web.whatsapp.com/', '_blank');
+        }, 500);
+      } else {
+        await Sharing.shareAsync(uri, { mimeType: 'image/jpeg', dialogTitle: 'Compartir por WhatsApp' });
+      }
+    } finally {
+      setCapturing(false);
+    }
+  }, [captureWidget]);
 
   const generar = useCallback(async () => {
     const workplaceId = (localSeleccionado?.agoraCode ?? localSeleccionado?.AgoraCode ?? '').toString().trim();
@@ -491,8 +618,45 @@ export default function ObjetivosScreen() {
         </View>
       </View>
 
-          <View style={[styles.widget, styles.widgetLocales]}>
-          <Text style={styles.widgetLocalesTitle}>{nombreMesYAnio()}</Text>
+          <View ref={widgetRef} style={[styles.widget, styles.widgetLocales]} collapsable={false}>
+          <View style={styles.widgetLocalesHeader}>
+            <Text style={styles.widgetLocalesTitle}>{nombreMesYAnio()}</Text>
+            <View style={styles.shareWrap} {...{ dataSet: { captureHide: 'true' } }}>
+              <TouchableOpacity
+                style={styles.shareBtn}
+                onPress={() => setShareMenuOpen((v) => !v)}
+                disabled={capturing || loadingLocalesObjetivos}
+              >
+                {capturing ? (
+                  <ActivityIndicator size={12} color="#0ea5e9" />
+                ) : (
+                  <MaterialIcons name="share" size={14} color="#0ea5e9" />
+                )}
+              </TouchableOpacity>
+              <Modal visible={shareMenuOpen} transparent animationType="fade" onRequestClose={() => setShareMenuOpen(false)}>
+                <Pressable style={styles.shareOverlay} onPress={() => setShareMenuOpen(false)}>
+                  <Pressable onPress={() => {}}>
+                    <View style={styles.shareMenu}>
+                      <TouchableOpacity style={styles.shareMenuItem} onPress={handleShareJPG}>
+                        <MaterialIcons name="image" size={16} color="#0ea5e9" />
+                        <Text style={styles.shareMenuText}>Descargar JPG</Text>
+                      </TouchableOpacity>
+                      <View style={styles.shareMenuDivider} />
+                      <TouchableOpacity style={styles.shareMenuItem} onPress={handleSharePDF}>
+                        <MaterialIcons name="picture-as-pdf" size={16} color="#dc2626" />
+                        <Text style={styles.shareMenuText}>Descargar PDF</Text>
+                      </TouchableOpacity>
+                      <View style={styles.shareMenuDivider} />
+                      <TouchableOpacity style={styles.shareMenuItem} onPress={handleShareWhatsApp}>
+                        <MaterialIcons name="send" size={16} color="#25d366" />
+                        <Text style={styles.shareMenuText}>WhatsApp</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </Pressable>
+                </Pressable>
+              </Modal>
+            </View>
+          </View>
           {loadingLocalesObjetivos ? (
             <ActivityIndicator size="small" color="#64748b" style={styles.widgetLocalesLoader} />
           ) : (
@@ -508,10 +672,26 @@ export default function ObjetivosScreen() {
                 const nom = (item.local.nombre ?? item.local.Nombre ?? item.local.agoraCode ?? item.local.AgoraCode ?? '—').toString().trim();
                 const sumDesvioHastaAyer = item.sumRealHastaAyer - item.sumCompHastaAyer;
                 const estiloHastaAyer = estiloTicker(item.desvioPctHastaAyer);
+                const ayerCheck = ayerYYYYMMDD();
+                const datosAlDia = item.ultimaFechaConDatos >= ayerCheck;
                 return (
                   <View key={itemKey} style={styles.localesListItem}>
                     <View style={styles.localesListHeader}>
                       <Text style={styles.localesListNombre} numberOfLines={1}>{nom}</Text>
+                      <View style={[styles.syncBadge, datosAlDia ? styles.syncBadgeOk : styles.syncBadgeWarn]}>
+                        <MaterialIcons
+                          name={datosAlDia ? 'check-circle' : 'warning'}
+                          size={10}
+                          color={datosAlDia ? '#16a34a' : '#d97706'}
+                        />
+                        <Text style={[styles.syncBadgeText, datosAlDia ? styles.syncBadgeTextOk : styles.syncBadgeTextWarn]} numberOfLines={1}>
+                          {datosAlDia
+                            ? 'Actualizado'
+                            : item.ultimaFechaConDatos
+                              ? `Último dato: ${formatFechaCorta(item.ultimaFechaConDatos)}`
+                              : 'Sin datos'}
+                        </Text>
+                      </View>
                     </View>
                     {rangosHastaAyer && (
                       <View style={styles.localesListHastaAyerInfo}>
@@ -534,11 +714,11 @@ export default function ObjetivosScreen() {
                           )}
                         </View>
                         <View style={styles.localesListValoresRow}>
-                          <View style={styles.localesListValorItem}>
+                          <View style={styles.localesListValorItem} {...{ dataSet: { captureHide: 'true' } }}>
                             <Text style={styles.localesListValorLabel}>Facturado</Text>
                             <Text style={styles.localesListValorNum}>{formatMoneda(item.sumRealHastaAyer)}</Text>
                           </View>
-                          <View style={styles.localesListValorItem}>
+                          <View style={styles.localesListValorItem} {...{ dataSet: { captureHide: 'true' } }}>
                             <Text style={styles.localesListValorLabel}>Comparativa</Text>
                             <Text style={[styles.localesListValorNum, styles.localesListValorSecundario]}>{formatMoneda(item.sumCompHastaAyer)}</Text>
                           </View>
@@ -801,7 +981,34 @@ const styles = StyleSheet.create({
   btnGenerarDisabled: { opacity: 0.7 },
   btnGenerarText: { fontSize: 12, fontWeight: '600', color: '#fff' },
   widgetLocales: { alignSelf: 'stretch', minHeight: 120, marginTop: 12 },
-  widgetLocalesTitle: { fontSize: 15, fontWeight: '700', color: '#334155', marginBottom: 8 },
+  widgetLocalesHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  widgetLocalesTitle: { fontSize: 15, fontWeight: '700', color: '#334155' },
+  shareWrap: { position: 'relative', zIndex: 50 },
+  shareBtn: {
+    padding: 6,
+    borderRadius: 8,
+    backgroundColor: '#f0f9ff',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
+  shareOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.3)' },
+  shareMenu: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    minWidth: 200,
+    ...(Platform.OS === 'web' && { boxShadow: '0 8px 24px rgba(0,0,0,0.15)' } as object),
+  },
+  shareMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  shareMenuText: { fontSize: 12, color: '#334155', fontWeight: '500' },
+  shareMenuDivider: { height: 1, backgroundColor: '#f1f5f9' },
   widgetLocalesLoader: { marginVertical: 20 },
   localesListWrap: {},
   localesListItem: {
@@ -851,6 +1058,19 @@ const styles = StyleSheet.create({
   localesListValorLabel: { fontSize: 9, color: '#64748b', fontWeight: '500' },
   localesListValorNum: { fontSize: 10, fontWeight: '600', color: '#334155' },
   localesListValorSecundario: { color: '#64748b', fontWeight: '500' },
+  syncBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  syncBadgeOk: { backgroundColor: '#dcfce7' },
+  syncBadgeWarn: { backgroundColor: '#fef3c7' },
+  syncBadgeText: { fontSize: 8, fontWeight: '600' },
+  syncBadgeTextOk: { color: '#16a34a' },
+  syncBadgeTextWarn: { color: '#d97706' },
   localesListHastaAyerLabel: { fontSize: 9, color: '#475569', fontWeight: '600' },
   localesListHastaAyerRangoWrap: { position: 'relative' as const, alignSelf: 'flex-start', flexShrink: 0 },
   localesListHastaAyerRango: { fontSize: 8, color: '#94a3b8', maxWidth: 200 },
