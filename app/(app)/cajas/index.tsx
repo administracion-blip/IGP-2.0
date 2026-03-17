@@ -1,36 +1,42 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useAuth } from '../../contexts/AuthContext';
 
-const OPCIONES = [
+const OPCIONES: { id: string; label: string; icon: React.ComponentProps<typeof MaterialIcons>['name']; descripcion: string; permiso: string }[] = [
   {
     id: 'cierres-teoricos',
     label: 'Cierres de ventas teóricas',
-    icon: 'receipt-long' as const,
+    icon: 'receipt-long',
     descripcion: 'Cierres teóricos de ventas',
+    permiso: 'cierres.ver',
   },
   {
     id: 'arqueo-caja',
     label: 'Arqueo de Caja',
-    icon: 'account-balance-wallet' as const,
+    icon: 'account-balance-wallet',
     descripcion: 'Arqueo y conteo de caja',
+    permiso: 'cierres.ver',
   },
   {
     id: 'comparativa-fechas-cajas',
     label: 'Comparativa Fechas Cajas',
-    icon: 'event' as const,
+    icon: 'event',
     descripcion: 'Festivos y estimaciones de ventas (Igp_Gestionfestivosyestimaciones)',
+    permiso: 'comparativa.ver',
   },
   {
     id: 'objetivos',
     label: 'Objetivos',
-    icon: 'flag' as const,
+    icon: 'flag',
     descripcion: 'Comparativa de facturación real vs año anterior por local',
+    permiso: 'objetivos.ver',
   },
 ];
 
 export default function CajasIndexScreen() {
   const router = useRouter();
+  const { hasPermiso } = useAuth();
 
   function handleSeleccionar(id: string) {
     if (id === 'cierres-teoricos') router.push('/cajas/cierres-teoricos');
@@ -45,7 +51,7 @@ export default function CajasIndexScreen() {
       <Text style={styles.subtitle}>Selecciona una opción</Text>
 
       <View style={styles.grid}>
-        {OPCIONES.map((opcion) => (
+        {OPCIONES.filter((o) => hasPermiso(o.permiso)).map((opcion) => (
           <TouchableOpacity
             key={opcion.id}
             style={styles.card}

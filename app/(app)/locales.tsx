@@ -20,6 +20,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../constants/icons';
 import { formatId6 } from '../utils/idFormat';
+import { useAuth } from '../contexts/AuthContext';
 
 const MAX_IMAGEN_BASE64_LENGTH = 380000;
 
@@ -87,6 +88,7 @@ function truncar(val: string): string {
 
 export default function LocalesScreen() {
   const router = useRouter();
+  const { localPermitido } = useAuth();
   const [locales, setLocales] = useState<Local[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

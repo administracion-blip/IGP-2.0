@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
 import * as XLSX from 'xlsx-js-style';
+import { useAuth } from '../../contexts/AuthContext';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const REFETCH_INTERVAL_MS = 15_000;
@@ -213,6 +214,7 @@ type LocalItem = { AgoraCode?: string; agoraCode?: string; Nombre?: string; nomb
 
 export default function CierresTeoricosScreen() {
   const router = useRouter();
+  const { hasPermiso, localPermitido } = useAuth();
   const [closeouts, setCloseouts] = useState<CloseOut[]>([]);
   const [locales, setLocales] = useState<LocalItem[]>([]);
   const [saleCenters, setSaleCenters] = useState<{ Id?: number; Nombre?: string; Local?: string; Activo?: boolean }[]>([]);
@@ -376,9 +378,12 @@ export default function CierresTeoricosScreen() {
   useEffect(() => {
     fetch(`${API_URL}/api/locales`)
       .then((res) => safeJson<{ locales?: LocalItem[] }>(res))
-      .then((data) => setLocales(data.locales || []))
+      .then((data) => {
+        const all = data.locales || [];
+        setLocales(all.filter((l) => localPermitido(String(l.nombre ?? l.Nombre ?? '').trim())));
+      })
       .catch(() => setLocales([]));
-  }, []);
+  }, [localPermitido]);
 
   useEffect(() => {
     fetch(`${API_URL}/api/agora/sale-centers`)
@@ -438,8 +443,17 @@ export default function CierresTeoricosScreen() {
     return [...base, ...orderedPayments, ...otherPayments, ...dates, ...rest];
   }, [paymentCols]);
 
+  const allowedAgoraCodes = useMemo(() => {
+    const codes = new Set<string>();
+    for (const loc of locales) {
+      const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+      if (code) codes.add(code);
+    }
+    return codes;
+  }, [locales]);
+
   const closeoutsFiltrados = useMemo(() => {
-    let list = closeouts;
+    let list = closeouts.filter((i) => allowedAgoraCodes.size === 0 || allowedAgoraCodes.has(String(i.PK ?? i.pk ?? '').trim()));
     if (filtroLocal) {
       list = list.filter((i) => (i.PK ?? i.pk) === filtroLocal);
     }
@@ -483,7 +497,7 @@ export default function CierresTeoricosScreen() {
       return localA.localeCompare(localB);
     });
     return list;
-  }, [closeouts, filtroBusqueda, filtroLocal, filtroFechaDesde, filtroFechaHasta, soloConFacturacion, agoraCodeToNombre]);
+  }, [closeouts, filtroBusqueda, filtroLocal, filtroFechaDesde, filtroFechaHasta, soloConFacturacion, agoraCodeToNombre, allowedAgoraCodes]);
 
   const { paginatedList, totalPages, totalCount, effectivePage } = useMemo(() => {
     const total = closeoutsFiltrados.length;
@@ -974,14 +988,14 @@ export default function CierresTeoricosScreen() {
             placeholderTextColor="#94a3b8"
           />
         </View>
-        <TouchableOpacity
+        {hasPermiso('cierres.sincronizar') ? (<TouchableOpacity
           style={[styles.toolbarBtn, syncing && styles.toolbarBtnDisabled]}
           onPress={() => setShowSyncModal(true)}
           disabled={syncing}
         >
           <MaterialIcons name="sync" size={16} color="#0ea5e9" />
           <Text style={styles.toolbarBtnText}>Sincronizar</Text>
-        </TouchableOpacity>
+        </TouchableOpacity>) : null}
         <TouchableOpacity
           style={[styles.toolbarBtn, showFilterPanel && styles.toolbarBtnActive]}
           onPress={() => setShowFilterPanel((v) => !v)}
@@ -989,7 +1003,7 @@ export default function CierresTeoricosScreen() {
           <MaterialIcons name="filter-list" size={16} color={showFilterPanel ? '#fff' : '#64748b'} />
           <Text style={[styles.toolbarBtnText, showFilterPanel && styles.toolbarBtnTextActive]}>Filtro</Text>
         </TouchableOpacity>
-        <View style={styles.downloadWrap}>
+        {hasPermiso('cierres.exportar') ? (<View style={styles.downloadWrap}>
           <TouchableOpacity
             style={styles.toolbarBtn}
             onPress={() => setShowDownloadMenu((v) => !v)}
@@ -1014,27 +1028,27 @@ export default function CierresTeoricosScreen() {
               </View>
             </>
           )}
-        </View>
-        <TouchableOpacity style={styles.toolbarBtnAdd} onPress={openAddModal}>
+        </View>) : null}
+        {hasPermiso('cierres.crear') ? (<TouchableOpacity style={styles.toolbarBtnAdd} onPress={openAddModal}>
           <MaterialIcons name="add" size={16} color="#fff" />
           <Text style={styles.toolbarBtnAddText}>Añadir</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
+        </TouchableOpacity>) : null}
+        {hasPermiso('cierres.editar') ? (<TouchableOpacity
           style={[styles.toolbarBtn, !selectedItem && styles.toolbarBtnDisabled]}
           onPress={openEditModal}
           disabled={!selectedItem}
         >
           <MaterialIcons name="edit" size={16} color={selectedItem ? '#0ea5e9' : '#94a3b8'} />
           <Text style={[styles.toolbarBtnText, !selectedItem && styles.toolbarBtnTextDisabled]}>Editar</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
+        </TouchableOpacity>) : null}
+        {hasPermiso('cierres.borrar') ? (<TouchableOpacity
           style={[styles.toolbarBtn, !selectedItem && styles.toolbarBtnDisabled]}
           onPress={openDeleteModal}
           disabled={!selectedItem}
         >
           <MaterialIcons name="delete" size={16} color={selectedItem ? '#dc2626' : '#94a3b8'} />
           <Text style={[styles.toolbarBtnText, !selectedItem && styles.toolbarBtnTextDisabled]}>Borrar</Text>
-        </TouchableOpacity>
+        </TouchableOpacity>) : null}
       </View>
 
       <View style={styles.totalFacturadoBox}>

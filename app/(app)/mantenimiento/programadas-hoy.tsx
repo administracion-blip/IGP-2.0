@@ -101,7 +101,10 @@ export default function ProgramadasHoyScreen() {
           const fecha = match ? match[1] : '';
           return fecha === hoy && (i.estado ?? '') !== 'CANCELADA';
         });
-        setIncidencias(filtradas);
+        setIncidencias(filtradas.filter((i) => {
+          const lid = (i.local_id ?? '').toString().trim();
+          return !lid || lid in mapLocalIdToNombre;
+        }));
         setError(null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Error de conexión'))
@@ -109,7 +112,7 @@ export default function ProgramadasHoyScreen() {
         setLoading(false);
         setRefreshing(false);
       });
-  }, []);
+  }, [mapLocalIdToNombre]);
 
   useEffect(() => {
     refetch();

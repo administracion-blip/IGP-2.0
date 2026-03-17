@@ -17,6 +17,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../constants/icons';
 import { emailValido } from '../utils/validation';
 import { formatId6 } from '../utils/idFormat';
+import { useAuth, UserSession } from '../contexts/AuthContext';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -57,10 +58,11 @@ function truncar(val: string): string {
 
 export default function UsuariosScreen() {
   const router = useRouter();
+  const { hasPermiso, user, setUser } = useAuth();
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ Local: 160 });
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
@@ -74,6 +76,7 @@ export default function UsuariosScreen() {
   const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
   const [localSearchFilter, setLocalSearchFilter] = useState('');
   const [localesGrupoParipe, setLocalesGrupoParipe] = useState<LocalItem[]>([]);
+  const [formLocales, setFormLocales] = useState<string[]>([]);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
   const [modalCrearLocalVisible, setModalCrearLocalVisible] = useState(false);
   const [formCrearLocal, setFormCrearLocal] = useState({ Nombre: '' });
@@ -84,6 +87,7 @@ export default function UsuariosScreen() {
   const abrirModalNuevo = () => {
     setEditingUsuarioId(null);
     setFormNuevo(INITIAL_FORM);
+    setFormLocales([]);
     setModalNuevoVisible(true);
     setErrorForm(null);
     setRolDropdownOpen(false);
@@ -94,10 +98,16 @@ export default function UsuariosScreen() {
   const abrirModalEditar = (usuario: Usuario) => {
     const form: Record<string, string> = { ...INITIAL_FORM };
     for (const key of CAMPOS_FORM.map((c) => c.key)) {
+      if (key === 'Local') continue;
       const v = usuario[key];
       form[key] = v != null ? String(v) : '';
     }
     form.Password = '';
+    const rawLocal = usuario.Local;
+    const locArr = Array.isArray(rawLocal)
+      ? (rawLocal as string[]).filter((l) => l != null && String(l).trim() !== '').map((l) => String(l).trim())
+      : (rawLocal != null && String(rawLocal).trim() !== '' ? [String(rawLocal).trim()] : []);
+    setFormLocales(locArr);
     setFormNuevo(form);
     setEditingUsuarioId(usuario.id_usuario != null ? String(usuario.id_usuario) : null);
     setModalNuevoVisible(true);
@@ -110,6 +120,7 @@ export default function UsuariosScreen() {
   const cerrarModalNuevo = () => {
     setModalNuevoVisible(false);
     setFormNuevo(INITIAL_FORM);
+    setFormLocales([]);
     setEditingUsuarioId(null);
     setErrorForm(null);
     setRolDropdownOpen(false);
@@ -152,8 +163,7 @@ export default function UsuariosScreen() {
         return;
       }
       refetchLocales();
-      setFormNuevo((prev) => ({ ...prev, Local: nombre }));
-      setLocalDropdownOpen(false);
+      setFormLocales((prev) => prev.includes(nombre) ? prev : [...prev, nombre]);
       setLocalSearchFilter('');
       cerrarModalCrearLocal();
     } catch (e) {
@@ -212,14 +222,25 @@ export default function UsuariosScreen() {
       setErrorForm('El email debe contener @');
       return;
     }
+    if (isEdit) {
+      const original = usuarios.find((u) => String(u.id_usuario) === editingUsuarioId);
+      if (original && String(original.Rol) === 'Administrador' && formNuevo.Rol !== 'Administrador') {
+        const admins = usuarios.filter((u) => String(u.Rol) === 'Administrador');
+        if (admins.length <= 1) {
+          setErrorForm('Debe haber al menos un usuario con rol Administrador');
+          return;
+        }
+      }
+    }
     setErrorForm(null);
     setGuardando(true);
     try {
-      const body: Record<string, string | number> = {};
+      const body: Record<string, string | number | string[]> = {};
       for (const key of ATRIBUTOS_TABLA_USUARIOS) {
         if (key === 'id_usuario') body[key] = isEdit ? editingUsuarioId! : próximoId;
         else if (key === 'Email') body[key] = (formNuevo.Email ?? '').trim();
         else if (key === 'Password') body[key] = formNuevo.Password ?? '';
+        else if (key === 'Local') body[key] = formLocales;
         else body[key] = formNuevo[key] ?? '';
       }
       const url = `${API_URL}/api/usuarios`;
@@ -232,6 +253,16 @@ export default function UsuariosScreen() {
       if (!res.ok) {
         setErrorForm(data.error || 'Error al guardar');
         return;
+      }
+      if (isEdit && editingUsuarioId === user?.id_usuario) {
+        const updatedSession: UserSession = {
+          ...user!,
+          Nombre: (formNuevo.Nombre ?? '').trim() || user!.Nombre,
+          email: (formNuevo.Email ?? '').trim().toLowerCase() || user!.email,
+          Rol: (formNuevo.Rol ?? '').trim() || user!.Rol,
+          Locales: formLocales.length > 0 ? formLocales : user!.Locales,
+        };
+        setUser(updatedSession);
       }
       refetchUsuarios();
       setSelectedRowIndex(null);
@@ -248,6 +279,13 @@ export default function UsuariosScreen() {
     const usuario = usuariosFiltrados[selectedRowIndex];
     const id = usuario?.id_usuario != null ? String(usuario.id_usuario) : '';
     if (!id) return;
+    if (String(usuario.Rol) === 'Administrador') {
+      const admins = usuarios.filter((u) => String(u.Rol) === 'Administrador');
+      if (admins.length <= 1) {
+        setError('No se puede borrar: debe haber al menos un Administrador');
+        return;
+      }
+    }
     setGuardando(true);
     try {
       const res = await fetch(`${API_URL}/api/usuarios`, {
@@ -284,10 +322,10 @@ export default function UsuariosScreen() {
   };
 
   const toolbarBtns = [
-    { id: 'crear', label: 'Crear registro', icon: ICONS.add },
-    { id: 'editar', label: 'Editar', icon: ICONS.edit },
-    { id: 'borrar', label: 'Borrar', icon: ICONS.delete },
-  ];
+    hasPermiso('usuarios.crear') && { id: 'crear', label: 'Crear registro', icon: ICONS.add },
+    hasPermiso('usuarios.editar') && { id: 'editar', label: 'Editar', icon: ICONS.edit },
+    hasPermiso('usuarios.borrar') && { id: 'borrar', label: 'Borrar', icon: ICONS.delete },
+  ].filter(Boolean) as { id: string; label: string; icon: string }[];
 
   const getColWidth = useCallback((col: string) => columnWidths[col] ?? DEFAULT_COL_WIDTH, [columnWidths]);
 
@@ -303,6 +341,7 @@ export default function UsuariosScreen() {
     return usuarios.filter((u) => {
       return columnas.some((col) => {
         const val = u[col];
+        if (Array.isArray(val)) return val.some((v) => String(v).toLowerCase().includes(q));
         return val != null && String(val).toLowerCase().includes(q);
       });
     });
@@ -467,12 +506,15 @@ export default function UsuariosScreen() {
               activeOpacity={0.8}
             >
               {columnas.map((col) => {
-                const raw =
-                  col.startsWith('id_') && usuario[col] != null
-                    ? formatId6(usuario[col])
-                    : usuario[col] != null
-                      ? String(usuario[col])
-                      : '—';
+                let raw: string;
+                if (col.startsWith('id_') && usuario[col] != null) {
+                  raw = formatId6(usuario[col]);
+                } else if (col === 'Local') {
+                  const locVal = usuario[col];
+                  raw = Array.isArray(locVal) ? (locVal as string[]).join(', ') : (locVal != null ? String(locVal) : '—');
+                } else {
+                  raw = usuario[col] != null ? String(usuario[col]) : '—';
+                }
                 const text = raw.length > MAX_TEXT_LENGTH ? truncar(raw) : raw;
                 return (
                   <View key={col} style={[styles.cell, { width: getColWidth(col) }]}>
@@ -576,17 +618,33 @@ export default function UsuariosScreen() {
                       </View>
                     ) : campo.key === 'Local' ? (
                       <View key={campo.key} style={styles.formGroup}>
-                        <Text style={styles.formLabel}>{campo.label}</Text>
+                        <Text style={styles.formLabel}>{campo.label} (multi)</Text>
                         <TouchableOpacity
                           style={[styles.formInput, styles.formInputRow]}
                           onPress={() => setLocalDropdownOpen((o) => !o)}
                           activeOpacity={0.7}
                         >
-                          <Text style={[styles.formInputText, !formNuevo.Local && styles.formInputPlaceholder]} numberOfLines={1}>
-                            {formNuevo.Local || `${campo.label}…`}
+                          <Text style={[styles.formInputText, formLocales.length === 0 && styles.formInputPlaceholder]} numberOfLines={1}>
+                            {formLocales.length > 0 ? formLocales.join(', ') : 'Seleccionar locales…'}
                           </Text>
                           <MaterialIcons name={localDropdownOpen ? 'expand-less' : 'expand-more'} size={18} color="#64748b" style={styles.rolChevron} />
                         </TouchableOpacity>
+                        {formLocales.length > 0 && (
+                          <View style={styles.localesChipsWrap}>
+                            {formLocales.map((loc) => (
+                              <View key={loc} style={styles.localChip}>
+                                <Text style={styles.localChipText} numberOfLines={1}>{loc}</Text>
+                                <TouchableOpacity
+                                  onPress={() => setFormLocales((prev) => prev.filter((l) => l !== loc))}
+                                  style={styles.localChipRemove}
+                                  activeOpacity={0.7}
+                                >
+                                  <MaterialIcons name="close" size={14} color="#64748b" />
+                                </TouchableOpacity>
+                              </View>
+                            ))}
+                          </View>
+                        )}
                         {localDropdownOpen && (
                           <View style={styles.dropdownWrap}>
                             <TextInput
@@ -597,18 +655,17 @@ export default function UsuariosScreen() {
                               placeholderTextColor="#94a3b8"
                             />
                             <ScrollView style={styles.dropdownScroll} keyboardShouldPersistTaps="handled">
-                              {formNuevo.Local ? (
+                              {formLocales.length > 0 ? (
                                 <TouchableOpacity
                                   style={[styles.dropdownOption, styles.dropdownVaciarOption]}
                                   onPress={() => {
-                                    setFormNuevo((prev) => ({ ...prev, Local: '' }));
-                                    setLocalDropdownOpen(false);
+                                    setFormLocales([]);
                                     setLocalSearchFilter('');
                                   }}
                                   activeOpacity={0.7}
                                 >
                                   <MaterialIcons name="clear" size={16} color="#94a3b8" style={{ marginRight: 6 }} />
-                                  <Text style={styles.dropdownVaciarText}>Vaciar</Text>
+                                  <Text style={styles.dropdownVaciarText}>Quitar todos</Text>
                                 </TouchableOpacity>
                               ) : null}
                               {localesGrupoParipe.length === 0 ? (
@@ -644,18 +701,25 @@ export default function UsuariosScreen() {
                                 <>
                                   {localesFiltrados.map((loc) => {
                                     const nombre = loc.nombre ?? loc.Nombre ?? '';
+                                    const isSelected = formLocales.includes(nombre);
                                     return (
                                       <TouchableOpacity
                                         key={loc.id_Locales ?? nombre}
-                                        style={styles.dropdownOption}
+                                        style={[styles.dropdownOption, isSelected && styles.dropdownOptionSelected]}
                                         onPress={() => {
-                                          setFormNuevo((prev) => ({ ...prev, Local: nombre }));
-                                          setLocalDropdownOpen(false);
-                                          setLocalSearchFilter('');
+                                          setFormLocales((prev) =>
+                                            isSelected ? prev.filter((l) => l !== nombre) : [...prev, nombre]
+                                          );
                                         }}
                                         activeOpacity={0.7}
                                       >
-                                        <Text style={styles.dropdownOptionText}>{nombre || '—'}</Text>
+                                        <MaterialIcons
+                                          name={isSelected ? 'check-box' : 'check-box-outline-blank'}
+                                          size={18}
+                                          color={isSelected ? '#0ea5e9' : '#94a3b8'}
+                                          style={{ marginRight: 8 }}
+                                        />
+                                        <Text style={[styles.dropdownOptionText, isSelected && { color: '#0ea5e9', fontWeight: '600' }]}>{nombre || '—'}</Text>
                                       </TouchableOpacity>
                                     );
                                   })}
@@ -1063,12 +1127,25 @@ const styles = StyleSheet.create({
   dropdownWrap: { marginTop: 4, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', maxHeight: 200 },
   dropdownSearch: { paddingVertical: 6, paddingHorizontal: 8, fontSize: 11, color: '#334155', backgroundColor: '#f8fafc', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   dropdownScroll: { maxHeight: 150 },
-  dropdownOption: { paddingVertical: 5, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  dropdownOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
   dropdownOptionText: { fontSize: 11, color: '#334155' },
   dropdownVaciarOption: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderBottomColor: '#e2e8f0' },
   dropdownVaciarText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
   dropdownCrearNuevoOption: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0f9ff', borderBottomColor: '#e2e8f0' },
   dropdownCrearNuevoText: { fontSize: 11, color: '#0ea5e9', fontWeight: '600' },
+  dropdownOptionSelected: { backgroundColor: '#f0f9ff' },
+  localesChipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 },
+  localChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e0f2fe',
+    borderRadius: 12,
+    paddingVertical: 2,
+    paddingLeft: 8,
+    paddingRight: 4,
+  },
+  localChipText: { fontSize: 11, color: '#0369a1', fontWeight: '500', maxWidth: 120 },
+  localChipRemove: { padding: 2, marginLeft: 2 },
   modalError: {
     fontSize: 11,
     color: '#f87171',

@@ -26,6 +26,10 @@ router.get('/usuarios', async (req, res) => {
       const out = {};
       for (const key of TABLE_USUARIOS_ATTRS) {
         if (key === 'Password') continue;
+        if (key === 'Local') {
+          out[key] = normalizeLocal(item[key]);
+          continue;
+        }
         if (item[key] !== undefined) out[key] = item[key];
       }
       return out;
@@ -36,6 +40,12 @@ router.get('/usuarios', async (req, res) => {
     res.status(500).json({ error: err.message || 'Error al listar usuarios' });
   }
 });
+
+function normalizeLocal(val) {
+  if (Array.isArray(val)) return val.filter((l) => l != null && String(l).trim() !== '').map((l) => String(l).trim());
+  if (val != null && String(val).trim() !== '') return [String(val).trim()];
+  return [];
+}
 
 // Crear usuario (guardar en DynamoDB). Solo se escriben atributos de TABLE_USUARIOS_ATTRS.
 router.post('/usuarios', async (req, res) => {
@@ -54,6 +64,8 @@ router.post('/usuarios', async (req, res) => {
         item[key] = String(body.Email ?? '').trim().toLowerCase();
       } else if (key === 'Password') {
         item[key] = String(body.Password ?? '');
+      } else if (key === 'Local') {
+        item[key] = normalizeLocal(body.Local);
       } else {
         const v = body[key];
         item[key] = v != null && v !== '' ? String(v) : '';
@@ -101,6 +113,8 @@ router.put('/usuarios', async (req, res) => {
       } else if (key === 'Password') {
         const newPass = body.Password != null && String(body.Password).trim() !== '' ? String(body.Password) : (existing.Password ?? '');
         item[key] = newPass;
+      } else if (key === 'Local') {
+        item[key] = body.Local !== undefined ? normalizeLocal(body.Local) : normalizeLocal(existing.Local);
       } else {
         const v = body[key];
         item[key] = v != null && v !== '' ? String(v) : String(existing[key] ?? '');

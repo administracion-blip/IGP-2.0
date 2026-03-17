@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Platform, Animated, ScrollView } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import WeatherWidget from '../components/WeatherWidget';
+import { useAuth } from '../contexts/AuthContext';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -102,6 +103,7 @@ function VariacionBadge({ pct }: { pct: number | null }) {
 }
 
 export default function AppHome() {
+  const { localPermitido } = useAuth();
   const [totals, setTotals] = useState<TotalByLocal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -124,7 +126,7 @@ export default function AppHome() {
           setError(data.error);
           setTotals([]);
         } else {
-          setTotals(data.totals || []);
+          setTotals((data.totals || []).filter((t) => localPermitido(t.local)));
         }
       })
       .catch((err) => {
@@ -132,7 +134,7 @@ export default function AppHome() {
         setTotals([]);
       })
       .finally(() => setLoading(false));
-  }, [yesterday]);
+  }, [yesterday, localPermitido]);
 
   useEffect(() => {
     const dateTo = yesterday;
@@ -151,8 +153,8 @@ export default function AppHome() {
           setYtdMonthly([]);
           setYtdMonthlyLastYear([]);
         } else {
-          setYtdTotals(dataCur.totals || []);
-          setYtdLastYearTotals(dataLast.totals || []);
+          setYtdTotals((dataCur.totals || []).filter((t: TotalByLocal) => localPermitido(t.local)));
+          setYtdLastYearTotals((dataLast.totals || []).filter((t: TotalByLocal) => localPermitido(t.local)));
           setYtdMonthly(dataMonthCur.months || []);
           setYtdMonthlyLastYear(dataMonthLast.months || []);
         }
@@ -165,7 +167,7 @@ export default function AppHome() {
         setYtdMonthlyLastYear([]);
       })
       .finally(() => setYtdLoading(false));
-  }, [currentYear, yesterday, lastYearSameDate]);
+  }, [currentYear, yesterday, lastYearSameDate, localPermitido]);
 
   const ytdTotalGeneral = ytdTotals.reduce((s, t) => s + t.total, 0);
   const ytdLastYearTotalGeneral = ytdLastYearTotals.reduce((s, t) => s + t.total, 0);

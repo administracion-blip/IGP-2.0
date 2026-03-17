@@ -134,7 +134,11 @@ export default function MantenimientoScreen() {
           setError(data.error);
           return;
         }
-        const list = data.incidencias || [];
+        const all = data.incidencias || [];
+        const list = all.filter((i) => {
+          const lid = (i.local_id ?? '').toString().trim();
+          return !lid || lid in mapLocalIdToNombre;
+        });
         setIncidencias(list);
         const abiertas = list.filter(
           (i: Incidencia) =>
@@ -145,7 +149,7 @@ export default function MantenimientoScreen() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Error de conexión'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [mapLocalIdToNombre]);
 
   useFocusEffect(
     useCallback(() => {

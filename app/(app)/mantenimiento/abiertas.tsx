@@ -184,12 +184,15 @@ export default function IncidenciasAbiertasScreen() {
               (i.estado ?? '') !== 'CANCELADA' &&
               ((i.estado_valoracion ?? '') as string).toString().toUpperCase() !== 'REPARADO'
           );
-          setIncidencias(abiertas);
+          setIncidencias(abiertas.filter((i) => {
+            const lid = (i.local_id ?? '').toString().trim();
+            return !lid || lid in mapLocalIdToNombre;
+          }));
         }
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Error de conexión'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [mapLocalIdToNombre]);
 
   const assignarFechaProgramada = useCallback(
     async (payload: { local_id: string; id_incidencia: string; fecha_creacion: string }, fechaProgramada: string) => {

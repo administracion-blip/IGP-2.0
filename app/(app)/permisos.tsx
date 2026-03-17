@@ -26,6 +26,7 @@ const COLUMNAS_PERMISOS = ['rol', 'permiso'] as const;
 
 const ROLES_OPCIONES = ['Administrador', 'SuperUser', 'Administracion', 'Local', 'Socio'] as const;
 const PERMISOS_CODIGOS = [
+  // --- Módulos (menú lateral) ---
   'base_datos.ver',
   'mantenimiento.ver',
   'compras.ver',
@@ -35,18 +36,140 @@ const PERMISOS_CODIGOS = [
   'rrpp.ver',
   'mystery_guest.ver',
   'reservas.ver',
+  // --- Usuarios ---
+  'usuarios.ver',
+  'usuarios.crear',
+  'usuarios.editar',
+  'usuarios.borrar',
+  // --- Locales ---
+  'locales.ver',
+  'locales.crear',
+  'locales.editar',
+  'locales.borrar',
+  // --- Empresas ---
+  'empresas.ver',
+  'empresas.crear',
+  'empresas.editar',
+  'empresas.importar',
+  // --- Productos ---
+  'productos.ver',
+  'productos.editar',
+  'productos.sincronizar',
+  // --- Almacenes ---
+  'almacenes.ver',
+  'almacenes.crear',
+  'almacenes.editar',
+  'almacenes.borrar',
+  'almacenes.sincronizar',
+  // --- Puntos de venta ---
+  'puntos_venta.ver',
+  'puntos_venta.editar',
+  // --- Permisos ---
+  'permisos.ver',
+  'permisos.crear',
+  'permisos.editar',
+  'permisos.borrar',
+  // --- Cajas: Cierres teóricos ---
+  'cierres.ver',
+  'cierres.crear',
+  'cierres.editar',
+  'cierres.borrar',
+  'cierres.sincronizar',
+  'cierres.exportar',
+  // --- Cajas: Comparativa fechas ---
+  'comparativa.ver',
+  'comparativa.crear',
+  'comparativa.editar',
+  'comparativa.borrar',
+  'comparativa.importar',
+  'comparativa.exportar',
+  // --- Cajas: Objetivos ---
+  'objetivos.ver',
+  'objetivos.compartir',
+  // --- Mantenimiento ---
+  'mantenimiento.crear',
+  'mantenimiento.editar',
+  'mantenimiento.borrar',
+  // --- Compras: Pedidos ---
+  'pedidos.ver',
+  'pedidos.crear',
+  'pedidos.editar',
+  'pedidos.borrar',
+  // --- Compras: Compras proveedor ---
+  'compras_proveedor.ver',
+  'compras_proveedor.sincronizar',
+  // --- Acuerdos ---
+  'acuerdos.ver',
+  'acuerdos.crear',
+  'acuerdos.editar',
+  'acuerdos.borrar',
+  'acuerdos.exportar',
 ] as const;
 
 const PERMISOS_LABELS: Record<string, string> = {
-  'base_datos.ver': 'Base de datos',
-  'mantenimiento.ver': 'Mantenimiento',
-  'compras.ver': 'Compras',
-  'cajas.ver': 'Cajas',
-  'cashflow.ver': 'Cashflow',
-  'actuaciones.ver': 'Actuaciones',
-  'rrpp.ver': 'Rrpp',
-  'mystery_guest.ver': 'Mystery Guest',
-  'reservas.ver': 'Reservas',
+  'base_datos.ver': 'Base de datos (menú)',
+  'mantenimiento.ver': 'Mantenimiento (menú)',
+  'compras.ver': 'Compras (menú)',
+  'cajas.ver': 'Cajas (menú)',
+  'cashflow.ver': 'Cashflow (menú)',
+  'actuaciones.ver': 'Actuaciones (menú)',
+  'rrpp.ver': 'Rrpp (menú)',
+  'mystery_guest.ver': 'Mystery Guest (menú)',
+  'reservas.ver': 'Reservas (menú)',
+  'usuarios.ver': 'Usuarios · Ver',
+  'usuarios.crear': 'Usuarios · Crear',
+  'usuarios.editar': 'Usuarios · Editar',
+  'usuarios.borrar': 'Usuarios · Borrar',
+  'locales.ver': 'Locales · Ver',
+  'locales.crear': 'Locales · Crear',
+  'locales.editar': 'Locales · Editar',
+  'locales.borrar': 'Locales · Borrar',
+  'empresas.ver': 'Empresas · Ver',
+  'empresas.crear': 'Empresas · Crear',
+  'empresas.editar': 'Empresas · Editar',
+  'empresas.importar': 'Empresas · Importar',
+  'productos.ver': 'Productos · Ver',
+  'productos.editar': 'Productos · Editar',
+  'productos.sincronizar': 'Productos · Sincronizar',
+  'almacenes.ver': 'Almacenes · Ver',
+  'almacenes.crear': 'Almacenes · Crear',
+  'almacenes.editar': 'Almacenes · Editar',
+  'almacenes.borrar': 'Almacenes · Borrar',
+  'almacenes.sincronizar': 'Almacenes · Sincronizar',
+  'puntos_venta.ver': 'Puntos de venta · Ver',
+  'puntos_venta.editar': 'Puntos de venta · Editar',
+  'permisos.ver': 'Permisos · Ver',
+  'permisos.crear': 'Permisos · Crear',
+  'permisos.editar': 'Permisos · Editar',
+  'permisos.borrar': 'Permisos · Borrar',
+  'cierres.ver': 'Cierres teóricos · Ver',
+  'cierres.crear': 'Cierres teóricos · Crear',
+  'cierres.editar': 'Cierres teóricos · Editar',
+  'cierres.borrar': 'Cierres teóricos · Borrar',
+  'cierres.sincronizar': 'Cierres teóricos · Sincronizar',
+  'cierres.exportar': 'Cierres teóricos · Exportar',
+  'comparativa.ver': 'Comparativa fechas · Ver',
+  'comparativa.crear': 'Comparativa fechas · Crear',
+  'comparativa.editar': 'Comparativa fechas · Editar',
+  'comparativa.borrar': 'Comparativa fechas · Borrar',
+  'comparativa.importar': 'Comparativa fechas · Importar',
+  'comparativa.exportar': 'Comparativa fechas · Exportar',
+  'objetivos.ver': 'Objetivos · Ver',
+  'objetivos.compartir': 'Objetivos · Compartir',
+  'mantenimiento.crear': 'Mantenimiento · Crear',
+  'mantenimiento.editar': 'Mantenimiento · Editar',
+  'mantenimiento.borrar': 'Mantenimiento · Borrar',
+  'pedidos.ver': 'Pedidos · Ver',
+  'pedidos.crear': 'Pedidos · Crear',
+  'pedidos.editar': 'Pedidos · Editar',
+  'pedidos.borrar': 'Pedidos · Borrar',
+  'compras_proveedor.ver': 'Compras proveedor · Ver',
+  'compras_proveedor.sincronizar': 'Compras proveedor · Sincronizar',
+  'acuerdos.ver': 'Acuerdos (menú) · Ver',
+  'acuerdos.crear': 'Acuerdos · Crear',
+  'acuerdos.editar': 'Acuerdos · Editar',
+  'acuerdos.borrar': 'Acuerdos · Borrar',
+  'acuerdos.exportar': 'Acuerdos · Exportar',
 };
 
 type ItemPermiso = { rol: string; permiso: string };
@@ -555,29 +678,38 @@ export default function PermisosScreen() {
                       <View style={styles.selectBox}>
                         <ScrollView style={styles.permisosListScroll} nestedScrollEnabled showsVerticalScrollIndicator>
                           <View style={styles.permisosListInner}>
-                            {PERMISOS_CODIGOS.map((p) => {
+                            {PERMISOS_CODIGOS.map((p, i) => {
                               const selected = editingItem ? formPermiso === p : formPermisos.includes(p);
+                              const grupo = p.split('.')[0];
+                              const grupoAnterior = i > 0 ? PERMISOS_CODIGOS[i - 1].split('.')[0] : null;
+                              const mostrarSeparador = grupo !== grupoAnterior;
                               return (
-                                <TouchableOpacity
-                                  key={p}
-                                  style={[styles.selectOptionRow, selected && styles.selectOptionSelected]}
-                                  onPress={() =>
-                                    editingItem ? setFormPermiso(p) : togglePermiso(p)
-                                  }
-                                  activeOpacity={0.7}
-                                >
-                                  {!editingItem && (
-                                    <View style={[styles.checkbox, selected && styles.checkboxChecked]}>
-                                      {selected ? (
-                                        <MaterialIcons name="check" size={14} color="#fff" />
-                                      ) : null}
+                                <View key={p}>
+                                  {mostrarSeparador && (
+                                    <View style={styles.permisoGrupoSep}>
+                                      <Text style={styles.permisoGrupoText}>{(PERMISOS_LABELS[p] ?? p).split('·')[0].replace('(menú)', '').trim()}</Text>
                                     </View>
                                   )}
-                                  <Text style={[styles.selectOptionText, selected && styles.selectOptionTextSelected]} numberOfLines={1}>
-                                    {PERMISOS_LABELS[p] ?? p}
-                                  </Text>
-                                  <Text style={styles.selectOptionCode} numberOfLines={1}>{p}</Text>
-                                </TouchableOpacity>
+                                  <TouchableOpacity
+                                    style={[styles.selectOptionRow, selected && styles.selectOptionSelected]}
+                                    onPress={() =>
+                                      editingItem ? setFormPermiso(p) : togglePermiso(p)
+                                    }
+                                    activeOpacity={0.7}
+                                  >
+                                    {!editingItem && (
+                                      <View style={[styles.checkbox, selected && styles.checkboxChecked]}>
+                                        {selected ? (
+                                          <MaterialIcons name="check" size={14} color="#fff" />
+                                        ) : null}
+                                      </View>
+                                    )}
+                                    <Text style={[styles.selectOptionText, selected && styles.selectOptionTextSelected]} numberOfLines={1}>
+                                      {PERMISOS_LABELS[p] ?? p}
+                                    </Text>
+                                    <Text style={styles.selectOptionCode} numberOfLines={1}>{p}</Text>
+                                  </TouchableOpacity>
+                                </View>
                               );
                             })}
                           </View>
@@ -805,6 +937,8 @@ const styles = StyleSheet.create({
   selectOptionText: { fontSize: 13, color: '#334155', fontWeight: '500', flex: 1 },
   selectOptionTextSelected: { color: '#0369a1', fontWeight: '600' },
   selectOptionCode: { fontSize: 11, color: '#94a3b8', marginLeft: 8 },
+  permisoGrupoSep: { paddingHorizontal: 8, paddingVertical: 4, backgroundColor: '#f1f5f9', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  permisoGrupoText: { fontSize: 10, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 },
   permisosListScroll: { flex: 1, minHeight: 260, maxHeight: 320 },
   modalErrorWrap: {
     flexDirection: 'row',

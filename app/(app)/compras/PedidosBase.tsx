@@ -23,6 +23,7 @@ import { formatMoneda } from '../../utils/formatMoneda';
 import { formatFecha, formatCreadoEn, fechaToIso } from '../../utils/formatFecha';
 import { parseAlmacenesOrigen } from '../../utils/parseAlmacenesOrigen';
 import { Pedido, Local, Almacen } from '../../types';
+import { useAuth } from '../../contexts/AuthContext';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -46,6 +47,7 @@ export default function PedidosBase({
   emptyFilterMessage = 'Ningún pedido coincide con el filtro',
 }: PedidosBaseProps) {
   const router = useRouter();
+  const { localPermitido } = useAuth();
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [locales, setLocales] = useState<Local[]>([]);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
@@ -101,12 +103,13 @@ export default function PedidosBase({
       .then(([dataPedidos, dataLocales, dataAlmacenes]) => {
         if (dataPedidos.error) setError(dataPedidos.error);
         else setPedidos(dataPedidos.pedidos || []);
-        setLocales(dataLocales.locales || []);
+        const allLocales: Local[] = dataLocales.locales || [];
+        setLocales(allLocales.filter((l) => localPermitido(String(valorEnLocal(l, 'nombre') ?? valorEnLocal(l, 'Nombre') ?? '').trim())));
         setAlmacenes(dataAlmacenes.almacenes || []);
       })
       .catch((e) => setError(e.message || 'Error de conexión'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [localPermitido]);
 
   useEffect(() => {
     refetch();

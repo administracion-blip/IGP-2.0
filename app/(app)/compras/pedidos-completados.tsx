@@ -18,6 +18,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
 import { InputFecha } from '../../components/InputFecha';
 import { useProductosCache } from '../../contexts/ProductosCache';
+import { useAuth } from '../../contexts/AuthContext';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -91,6 +92,7 @@ const READ_ONLY = true;
 
 export default function PedidosCompletadosScreen() {
   const router = useRouter();
+  const { localPermitido } = useAuth();
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [locales, setLocales] = useState<Local[]>([]);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
@@ -146,12 +148,13 @@ export default function PedidosCompletadosScreen() {
       .then(([dataPedidos, dataLocales, dataAlmacenes]) => {
         if (dataPedidos.error) setError(dataPedidos.error);
         else setPedidos(dataPedidos.pedidos || []);
-        setLocales(dataLocales.locales || []);
+        const allLocales = dataLocales.locales || [];
+        setLocales(allLocales.filter((l: Record<string, any>) => localPermitido(String(valorEnLocal(l, 'nombre') ?? valorEnLocal(l, 'Nombre') ?? '').trim())));
         setAlmacenes(dataAlmacenes.almacenes || []);
       })
       .catch((e) => setError(e.message || 'Error de conexión'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [localPermitido]);
 
   useEffect(() => {
     refetch();

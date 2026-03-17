@@ -21,6 +21,7 @@ export type UserSession = {
   email: string;
   Nombre: string;
   Rol?: string;
+  Locales?: string[];
 };
 
 export default function LoginScreen() {

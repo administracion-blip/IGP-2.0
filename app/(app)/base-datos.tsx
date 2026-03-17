@@ -1,22 +1,24 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useAuth } from '../contexts/AuthContext';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
-const TABLAS = [
-  { id: 'usuarios', label: 'Usuarios', icon: 'people' as const, descripcion: 'Cuentas y permisos de acceso' },
-  { id: 'locales', label: 'Locales', icon: 'store' as const, descripcion: 'Sedes y puntos de venta' },
-  { id: 'almacenes', label: 'Almacenes', icon: 'local-shipping' as const, descripcion: 'Almacenes y depósitos' },
-  { id: 'empresas', label: 'Empresas', icon: 'business' as const, descripcion: 'Listado de empresas' },
-  { id: 'productos', label: 'Productos', icon: 'inventory' as const, descripcion: 'Carta y stock' },
-  { id: 'puntos-venta', label: 'Puntos de Venta', icon: 'storefront' as const, descripcion: 'Puntos de venta y TPV' },
-  { id: 'artistas', label: 'Artistas', icon: 'mic' as const, descripcion: 'Actuaciones y programación' },
+const TABLAS: { id: string; label: string; icon: React.ComponentProps<typeof MaterialIcons>['name']; descripcion: string; permiso: string }[] = [
+  { id: 'usuarios', label: 'Usuarios', icon: 'people', descripcion: 'Cuentas y permisos de acceso', permiso: 'usuarios.ver' },
+  { id: 'locales', label: 'Locales', icon: 'store', descripcion: 'Sedes y puntos de venta', permiso: 'locales.ver' },
+  { id: 'almacenes', label: 'Almacenes', icon: 'local-shipping', descripcion: 'Almacenes y depósitos', permiso: 'almacenes.ver' },
+  { id: 'empresas', label: 'Empresas', icon: 'business', descripcion: 'Listado de empresas', permiso: 'empresas.ver' },
+  { id: 'productos', label: 'Productos', icon: 'inventory', descripcion: 'Carta y stock', permiso: 'productos.ver' },
+  { id: 'puntos-venta', label: 'Puntos de Venta', icon: 'storefront', descripcion: 'Puntos de venta y TPV', permiso: 'puntos_venta.ver' },
+  { id: 'artistas', label: 'Artistas', icon: 'mic', descripcion: 'Actuaciones y programación', permiso: 'actuaciones.ver' },
 ];
 
 export default function BaseDatosScreen() {
   const router = useRouter();
+  const { hasPermiso } = useAuth();
   const [apiConectado, setApiConectado] = useState<boolean | null>(null);
   const [comprobando, setComprobando] = useState(true);
 
@@ -85,7 +87,7 @@ export default function BaseDatosScreen() {
       )}
 
       <View style={styles.grid}>
-        {TABLAS.map((tabla) => (
+        {TABLAS.filter((tabla) => hasPermiso(tabla.permiso)).map((tabla) => (
           <TouchableOpacity
             key={tabla.id}
             style={styles.card}

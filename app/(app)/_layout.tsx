@@ -16,7 +16,7 @@ const MENU_ITEMS: { route: string; label: string; icon: string; permiso: string 
   { route: '/rrpp', label: 'Rrpp', icon: 'people', permiso: 'rrpp.ver' },
   { route: '/mystery-guest', label: 'Mystery Guest', icon: 'visibility', permiso: 'mystery_guest.ver' },
   { route: '/reservas', label: 'Reservas', icon: 'event-available', permiso: 'reservas.ver' },
-  { route: '/acuerdos', label: 'Acuerdos', icon: 'handshake', permiso: null },
+  { route: '/acuerdos', label: 'Acuerdos', icon: 'handshake', permiso: 'acuerdos.ver' },
 ];
 
 function AppLayoutContent() {
@@ -70,6 +70,7 @@ function AppLayoutContent() {
         <Modal visible={configOpen} transparent animationType="fade">
           <Pressable style={styles.configOverlay} onPress={() => setConfigOpen(false)}>
             <Pressable style={styles.configDropdown} onPress={() => {}}>
+              {hasPermiso('permisos.ver') && (
               <TouchableOpacity
                 style={styles.configDropdownItem}
                 onPress={() => {
@@ -81,6 +82,7 @@ function AppLayoutContent() {
                 <MaterialIcons name="lock" size={18} color="#475569" />
                 <Text style={styles.configDropdownItemText}>Permisos</Text>
               </TouchableOpacity>
+              )}
               <TouchableOpacity
                 style={[styles.configDropdownItem, styles.configDropdownItemBorder]}
                 onPress={() => {

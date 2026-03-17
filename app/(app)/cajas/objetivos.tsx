@@ -18,6 +18,7 @@ import { captureRef } from 'react-native-view-shot';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { toPng } from 'html-to-image';
+import { useAuth } from '../../contexts/AuthContext';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -135,6 +136,7 @@ type LocalObjetivo = {
 
 export default function ObjetivosScreen() {
   const router = useRouter();
+  const { localPermitido } = useAuth();
   const [fechaInicio, setFechaInicio] = useState(() => mesEnCurso().inicio);
   const [fechaFin, setFechaFin] = useState(() => mesEnCurso().fin);
   const [localSeleccionado, setLocalSeleccionado] = useState<Local | null>(null);
@@ -163,11 +165,12 @@ export default function ObjetivosScreen() {
       .then((res) => res.json())
       .then((data: { locales?: Local[] }) => {
         const list = Array.isArray(data.locales) ? data.locales : [];
-        setLocales(list.filter((l) => (l.agoraCode ?? l.AgoraCode ?? '').toString().trim()));
+        const conAgora = list.filter((l) => (l.agoraCode ?? l.AgoraCode ?? '').toString().trim());
+        setLocales(conAgora.filter((l) => localPermitido(l.nombre ?? l.Nombre ?? '')));
       })
       .catch((e) => setError(e.message || 'Error al cargar locales'))
       .finally(() => setLoadingLocales(false));
-  }, []);
+  }, [localPermitido]);
 
   useEffect(() => {
     cargarLocales();

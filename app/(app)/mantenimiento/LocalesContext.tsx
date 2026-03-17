@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -21,6 +22,7 @@ type LocalesContextValue = {
 const LocalesContext = createContext<LocalesContextValue | null>(null);
 
 export function MantenimientoLocalesProvider({ children }: { children: React.ReactNode }) {
+  const { localPermitido } = useAuth();
   const [locales, setLocales] = useState<LocalItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -31,14 +33,15 @@ export function MantenimientoLocalesProvider({ children }: { children: React.Rea
     fetch(`${API_URL}/api/locales?minimal=1`)
       .then((res) => res.json())
       .then((data: { locales?: LocalItem[] }) => {
-        setLocales(Array.isArray(data.locales) ? data.locales : []);
+        const all = Array.isArray(data.locales) ? data.locales : [];
+        setLocales(all.filter((l) => localPermitido(String(l.nombre ?? l.Nombre ?? '').trim())));
       })
       .catch((e) => {
         setLocales([]);
         setError(e.message ?? 'Error al cargar locales');
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [localPermitido]);
 
   useEffect(() => {
     fetchLocales();

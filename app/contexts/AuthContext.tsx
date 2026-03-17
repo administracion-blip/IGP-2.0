@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const AUTH_KEY = 'erp_user';
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
-export type UserSession = { id_usuario: string; email: string; Nombre: string; Rol?: string };
+export type UserSession = { id_usuario: string; email: string; Nombre: string; Rol?: string; Locales?: string[] };
 
 type AuthContextValue = {
   user: UserSession | null;
@@ -13,6 +13,7 @@ type AuthContextValue = {
   setUser: (u: UserSession | null) => void;
   refetchPermisos: () => Promise<void>;
   hasPermiso: (codigo: string) => boolean;
+  localPermitido: (nombre: string) => boolean;
   logout: () => Promise<void>;
 };
 
@@ -66,6 +67,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const setUser = useCallback((u: UserSession | null) => {
     setUserState(u);
+    if (u) AsyncStorage.setItem(AUTH_KEY, JSON.stringify(u)).catch(() => {});
+    else AsyncStorage.removeItem(AUTH_KEY).catch(() => {});
     if (u?.Rol) fetchPermisos(u.Rol);
     else setPermisos([]);
   }, [fetchPermisos]);
@@ -74,10 +77,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (codigo: string) => {
       if (!codigo) return true;
       if (!user?.Rol) return true;
+      if (user.Rol === 'Administrador') return true;
       if (permisos.length === 0) return true;
       return permisos.includes(codigo);
     },
     [user?.Rol, permisos]
+  );
+
+  const localPermitido = useCallback(
+    (nombre: string) => {
+      if (!nombre) return false;
+      if (!user) return true;
+      if (user.Rol === 'Administrador') return true;
+      if (!user.Locales || user.Locales.length === 0) return true;
+      return user.Locales.some((l) => l.toLowerCase() === nombre.toLowerCase());
+    },
+    [user]
   );
 
   const logout = useCallback(async () => {
@@ -93,6 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser,
     refetchPermisos,
     hasPermiso,
+    localPermitido,
     logout,
   };
 

@@ -32,12 +32,17 @@ router.post('/login', async (req, res) => {
     }
 
     const user = items[0];
+    const rawLocal = user.Local;
+    const locales = Array.isArray(rawLocal)
+      ? rawLocal.filter((l) => l != null && String(l).trim() !== '').map((l) => String(l).trim())
+      : (rawLocal != null && String(rawLocal).trim() !== '' ? [String(rawLocal).trim()] : []);
     res.json({
       user: {
         id_usuario: user.id_usuario ?? user.Email ?? '',
         email: user.Email ?? '',
         Nombre: user.Nombre ?? user.Email ?? user.email ?? '',
         Rol: user.Rol ?? '',
+        Locales: locales,
       },
     });
   } catch (err) {

@@ -1,36 +1,42 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useAuth } from '../../contexts/AuthContext';
 
-const OPCIONES = [
+const OPCIONES: { id: string; label: string; icon: React.ComponentProps<typeof MaterialIcons>['name']; descripcion: string; permiso: string }[] = [
   {
     id: 'pedidos',
     label: 'Pedidos',
-    icon: 'local-shipping' as const,
+    icon: 'local-shipping',
     descripcion: 'Gestión de pedidos a proveedores',
+    permiso: 'pedidos.ver',
   },
   {
     id: 'pedidos-completados',
     label: 'Pedidos Completados',
-    icon: 'check-circle' as const,
+    icon: 'check-circle',
     descripcion: 'Pedidos con estado completado',
+    permiso: 'pedidos.ver',
   },
   {
     id: 'detalles-pedidos',
     label: 'Detalles Pedidos',
-    icon: 'list-alt' as const,
+    icon: 'list-alt',
     descripcion: 'Artículos asociados a cada pedido',
+    permiso: 'pedidos.ver',
   },
   {
     id: 'compras-proveedor',
     label: 'Compras a Proveedor',
-    icon: 'receipt-long' as const,
+    icon: 'receipt-long',
     descripcion: 'Albaranes de entrada desde Ágora',
+    permiso: 'compras_proveedor.ver',
   },
 ];
 
 export default function ComprasIndexScreen() {
   const router = useRouter();
+  const { hasPermiso } = useAuth();
 
   function handleSeleccionar(id: string) {
     if (id === 'pedidos') router.push('/compras/pedidos');
@@ -45,7 +51,7 @@ export default function ComprasIndexScreen() {
       <Text style={styles.subtitle}>Gestión de compras y proveedores. Selecciona una opción.</Text>
 
       <View style={styles.grid}>
-        {OPCIONES.map((opcion) => (
+        {OPCIONES.filter((o) => hasPermiso(o.permiso)).map((opcion) => (
           <TouchableOpacity
             key={opcion.id}
             style={styles.card}

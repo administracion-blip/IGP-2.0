@@ -20,6 +20,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useProductosCache } from '../contexts/ProductosCache';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { useAuth } from '../contexts/AuthContext';
 
 type DetalleProducto = { PK: string; SK: string; ProductId: string; ProductName: string; Cantidad: number; Aportacion: number; Rappel: number; DescuentoExtra: number; Compradas: number; Restante: number; Porcentaje: number; createdAt?: string };
 
@@ -284,6 +285,7 @@ function valorEnLocal(obj: Record<string, unknown>, key: string): unknown {
 
 export default function AcuerdosScreen() {
   const router = useRouter();
+  const { localPermitido } = useAuth();
   const { width: winWidth } = useWindowDimensions();
   const { productosIgp, loading: loadingProductos, recargar: recargarProductos, lastFetch: productosLastFetch } = useProductosCache();
   const { confirmDelete, ModalConfirm } = useConfirmDelete();
@@ -738,10 +740,10 @@ export default function AcuerdosScreen() {
       const data = await res.json();
       const list = (data.locales || []).map((l: any) => ({ id: l.id_Locales || l.Id || '', nombre: l.nombre || l.Nombre || '' }));
       list.sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
-      setLocales(list);
+      setLocales(list.filter((l: { nombre: string }) => localPermitido(l.nombre)));
       setLocalesLoaded(true);
     } catch (_) {}
-  }, [localesLoaded]);
+  }, [localesLoaded, localPermitido]);
 
   const cargarArchivos = useCallback(async (acuerdoPK: string) => {
     setLoadingArchivos(true);

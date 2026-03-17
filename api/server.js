@@ -680,6 +680,12 @@ function normalizeCif(val) {
 // Estructura exacta de la tabla igp_usuarios en AWS: solo estos atributos. No crear otros.
 const TABLE_USUARIOS_ATTRS = ['id_usuario', 'Nombre', 'Apellidos', 'Email', 'Password', 'Telefono', 'Rol', 'Local'];
 
+function normalizeLocal(val) {
+  if (Array.isArray(val)) return val.filter((l) => l != null && String(l).trim() !== '').map((l) => String(l).trim());
+  if (val != null && String(val).trim() !== '') return [String(val).trim()];
+  return [];
+}
+
 // Estructura exacta de la tabla igp_Locales en AWS (orden: id_Locales, nombre, agoraCode, empresa, ...).
 const TABLE_LOCALES_ATTRS = ['id_Locales', 'nombre', 'agoraCode', 'empresa', 'direccion', 'cp', 'municipio', 'provincia', 'almacen origen', 'sede', 'lat', 'lng', 'imagen'];
 
@@ -720,12 +726,17 @@ app.post('/api/login', async (req, res) => {
     }
 
     const user = items[0];
+    const rawLocal = user.Local;
+    const locales = Array.isArray(rawLocal)
+      ? rawLocal.filter((l) => l != null && String(l).trim() !== '').map((l) => String(l).trim())
+      : (rawLocal != null && String(rawLocal).trim() !== '' ? [String(rawLocal).trim()] : []);
     res.json({
       user: {
         id_usuario: user.id_usuario ?? user.Email ?? '',
         email: user.Email ?? '',
         Nombre: user.Nombre ?? user.Email ?? user.email ?? '',
         Rol: user.Rol ?? '',
+        Locales: locales,
       },
     });
   } catch (err) {
@@ -747,6 +758,10 @@ app.get('/api/usuarios', async (req, res) => {
       const out = {};
       for (const key of TABLE_USUARIOS_ATTRS) {
         if (key === 'Password') continue;
+        if (key === 'Local') {
+          out[key] = normalizeLocal(item[key]);
+          continue;
+        }
         if (item[key] !== undefined) out[key] = item[key];
       }
       return out;
@@ -775,6 +790,8 @@ app.post('/api/usuarios', async (req, res) => {
         item[key] = String(body.Email ?? '').trim().toLowerCase();
       } else if (key === 'Password') {
         item[key] = String(body.Password ?? '');
+      } else if (key === 'Local') {
+        item[key] = normalizeLocal(body.Local);
       } else {
         const v = body[key];
         item[key] = v != null && v !== '' ? String(v) : '';
@@ -822,6 +839,8 @@ app.put('/api/usuarios', async (req, res) => {
       } else if (key === 'Password') {
         const newPass = body.Password != null && String(body.Password).trim() !== '' ? String(body.Password) : (existing.Password ?? '');
         item[key] = newPass;
+      } else if (key === 'Local') {
+        item[key] = body.Local !== undefined ? normalizeLocal(body.Local) : normalizeLocal(existing.Local);
       } else {
         const v = body[key];
         item[key] = v != null && v !== '' ? String(v) : String(existing[key] ?? '');
