@@ -113,6 +113,12 @@ const PERMISOS_CODIGOS = [
   'facturacion.cobrar_pagar',
   'facturacion.series',
   'facturacion.exportar',
+  // --- Ajustes ---
+  'ajustes.ver',
+  'ajustes.sincronizaciones.agora_productos',
+  'ajustes.sincronizaciones.compras_proveedor',
+  'ajustes.sincronizaciones.closeouts',
+  'ajustes.sincronizaciones.almacenes',
 ] as const;
 
 const PERMISOS_LABELS: Record<string, string> = {
@@ -187,6 +193,12 @@ const PERMISOS_LABELS: Record<string, string> = {
   'facturacion.cobrar_pagar': 'Facturación · Cobrar/Pagar',
   'facturacion.series': 'Facturación · Series',
   'facturacion.exportar': 'Facturación · Exportar',
+  // --- Ajustes ---
+  'ajustes.ver': 'Ajustes (menú)',
+  'ajustes.sincronizaciones.agora_productos': 'Ajustes · Sync Productos Agora',
+  'ajustes.sincronizaciones.compras_proveedor': 'Ajustes · Sync Compras Proveedor',
+  'ajustes.sincronizaciones.closeouts': 'Ajustes · Sync Cierres de caja',
+  'ajustes.sincronizaciones.almacenes': 'Ajustes · Sync Almacenes',
 };
 
 type ItemPermiso = { rol: string; permiso: string };

@@ -84,6 +84,19 @@ function AppLayoutContent() {
                 <Text style={styles.configDropdownItemText}>Permisos</Text>
               </TouchableOpacity>
               )}
+              {hasPermiso('ajustes.ver') && (
+              <TouchableOpacity
+                style={[styles.configDropdownItem, styles.configDropdownItemBorder]}
+                onPress={() => {
+                  setConfigOpen(false);
+                  router.push('/ajustes');
+                }}
+                activeOpacity={0.7}
+              >
+                <MaterialIcons name="tune" size={18} color="#475569" />
+                <Text style={styles.configDropdownItemText}>Ajustes</Text>
+              </TouchableOpacity>
+              )}
               <TouchableOpacity
                 style={[styles.configDropdownItem, styles.configDropdownItemBorder]}
                 onPress={() => {
@@ -149,6 +162,7 @@ function AppLayoutContent() {
             <Stack.Screen name="permisos" />
             <Stack.Screen name="acuerdos" />
             <Stack.Screen name="facturacion" />
+            <Stack.Screen name="ajustes" />
           </Stack>
         </View>
       </View>

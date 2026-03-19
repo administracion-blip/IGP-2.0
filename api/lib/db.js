@@ -29,4 +29,5 @@ export const tables = {
   facturasPagos: process.env.DDB_FACTURAS_PAGOS || 'Igp_FacturasPagos',
   facturasSeries: process.env.DDB_FACTURAS_SERIES || 'Igp_FacturasSeries',
   facturasAuditoria: process.env.DDB_FACTURAS_AUDITORIA || 'Igp_FacturasAuditoria',
+  ajustes: process.env.DDB_AJUSTES || 'Igp_Ajustes',
 };

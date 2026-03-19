@@ -50,6 +50,7 @@ const tableComprasProveedorName = process.env.DDB_COMPRAS_PROVEEDOR || 'Igp_Comp
 const tableAcuerdosName = process.env.DDB_ACUERDOS || 'Igp_Acuerdos';
 const tableAcuerdosDetallesName = process.env.DDB_ACUERDOS_DETALLES || 'Igp_AcuerdosDetalles';
 const tableAcuerdosImagenName = process.env.DDB_ACUERDOS_IMAGEN || 'Igp_AcuerdosImagen';
+const tableAjustesName = process.env.DDB_AJUSTES || 'Igp_Ajustes';
 
 const client = new DynamoDBClient({ region });
 const docClient = DynamoDBDocumentClient.from(client);
@@ -2096,7 +2097,7 @@ app.get('/api/agora/products', async (req, res) => {
 // Solo llama al API de Ágora si han pasado AGORA_PRODUCTS_SYNC_THROTTLE_MINUTES (default 30)
 // o si se pasa ?force=1 para forzar.
 app.post('/api/agora/products/sync', async (req, res) => {
-  const force = (req.query.force || req.body?.force || '').toString() === '1' || (req.query.force || '').toString().toLowerCase() === 'true';
+  const force = req.body?.force === true || (req.query.force || req.body?.force || '').toString() === '1' || (req.query.force || '').toString().toLowerCase() === 'true';
   const baseUrl = (AGORA_API_BASE_URL || '').trim().replace(/\/+$/, '');
   const token = (AGORA_API_TOKEN || '').trim();
 
@@ -4599,6 +4600,179 @@ async function runCloseoutsSync() {
 
 app.use('/api', facturacionRouter);
 
+// ─── Ajustes ───
+
+app.get('/api/ajustes', async (req, res) => {
+  try {
+    const { categoria } = req.query;
+    let items = [];
+    let lastKey = null;
+    if (categoria) {
+      do {
+        const r = await docClient.send(new QueryCommand({
+          TableName: tableAjustesName,
+          KeyConditionExpression: 'PK = :pk',
+          ExpressionAttributeValues: { ':pk': categoria },
+          ...(lastKey && { ExclusiveStartKey: lastKey }),
+        }));
+        items.push(...(r.Items || []));
+        lastKey = r.LastEvaluatedKey || null;
+      } while (lastKey);
+    } else {
+      do {
+        const r = await docClient.send(new ScanCommand({ TableName: tableAjustesName, ...(lastKey && { ExclusiveStartKey: lastKey }) }));
+        items.push(...(r.Items || []));
+        lastKey = r.LastEvaluatedKey || null;
+      } while (lastKey);
+    }
+    return res.json({ ok: true, items });
+  } catch (err) {
+    console.error('[ajustes GET]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al listar ajustes' });
+  }
+});
+
+app.get('/api/ajustes/:pk/:sk', async (req, res) => {
+  try {
+    const { pk, sk } = req.params;
+    const r = await docClient.send(new GetCommand({ TableName: tableAjustesName, Key: { PK: pk, SK: sk } }));
+    if (!r.Item) return res.status(404).json({ error: 'Ajuste no encontrado' });
+    return res.json({ ok: true, item: r.Item });
+  } catch (err) {
+    console.error('[ajustes GET/:pk/:sk]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al obtener ajuste' });
+  }
+});
+
+app.post('/api/ajustes', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.PK || !body.SK) return res.status(400).json({ error: 'PK y SK son obligatorios' });
+    const item = { ...body, updatedAt: new Date().toISOString() };
+    await docClient.send(new PutCommand({ TableName: tableAjustesName, Item: item }));
+    return res.json({ ok: true, item });
+  } catch (err) {
+    console.error('[ajustes POST]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al crear ajuste' });
+  }
+});
+
+app.patch('/api/ajustes/:pk/:sk', async (req, res) => {
+  try {
+    const { pk, sk } = req.params;
+    const body = req.body || {};
+    const keys = Object.keys(body).filter((k) => k !== 'PK' && k !== 'SK');
+    if (keys.length === 0) return res.status(400).json({ error: 'Nada que actualizar' });
+
+    const exprParts = [];
+    const exprValues = {};
+    const exprNames = {};
+    keys.forEach((k, i) => {
+      const alias = `#f${i}`;
+      const val = `:v${i}`;
+      exprNames[alias] = k;
+      exprValues[val] = body[k];
+      exprParts.push(`${alias} = ${val}`);
+    });
+    exprNames['#upd'] = 'updatedAt';
+    exprValues[':upd'] = new Date().toISOString();
+    exprParts.push('#upd = :upd');
+
+    const r = await docClient.send(new UpdateCommand({
+      TableName: tableAjustesName,
+      Key: { PK: pk, SK: sk },
+      UpdateExpression: 'SET ' + exprParts.join(', '),
+      ExpressionAttributeNames: exprNames,
+      ExpressionAttributeValues: exprValues,
+      ReturnValues: 'ALL_NEW',
+    }));
+    return res.json({ ok: true, item: r.Attributes });
+  } catch (err) {
+    console.error('[ajustes PATCH]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al actualizar ajuste' });
+  }
+});
+
+app.delete('/api/ajustes/:pk/:sk', async (req, res) => {
+  try {
+    const { pk, sk } = req.params;
+    await docClient.send(new DeleteCommand({ TableName: tableAjustesName, Key: { PK: pk, SK: sk } }));
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[ajustes DELETE]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al eliminar ajuste' });
+  }
+});
+
+// ─── Scheduler de sincronizaciones automáticas ───
+const SYNC_SCHEDULER_INTERVAL_MS = 60 * 1000; // revisa cada minuto
+
+const SYNC_ENDPOINTS = {
+  agora_productos:    { path: '/api/agora/products/sync',    body: { force: true } },
+  compras_proveedor:  { path: '/api/agora/purchases/sync',   body: {} },
+  closeouts:          { path: '/api/agora/closeouts/sync',   body: {} },
+  almacenes:          { path: '/api/agora/warehouses/sync',  body: {} },
+};
+
+const DAY_MAP = { 0: 'sun', 1: 'mon', 2: 'tue', 3: 'wed', 4: 'thu', 5: 'fri', 6: 'sat' };
+const syncLastRun = {};
+
+async function checkAutoSyncs() {
+  try {
+    const { Items = [] } = await docClient.send(new ScanCommand({
+      TableName: tableAjustesName,
+      FilterExpression: 'PK = :pk AND Enabled = :e',
+      ExpressionAttributeValues: { ':pk': 'sincronizaciones', ':e': true },
+    }));
+
+    const now = new Date();
+    const dayKey = DAY_MAP[now.getDay()];
+    const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    for (const item of Items) {
+      const sk = item.SK;
+      const ep = SYNC_ENDPOINTS[sk];
+      if (!ep) continue;
+      if (!Array.isArray(item.Days) || !item.Days.includes(dayKey)) continue;
+      if (!Array.isArray(item.Times) || !item.Times.includes(hhmm)) continue;
+
+      const runKey = `${sk}_${hhmm}`;
+      const today = now.toISOString().slice(0, 10);
+      if (syncLastRun[runKey] === today) continue;
+
+      syncLastRun[runKey] = today;
+      console.log(`[auto-sync] Ejecutando ${sk} (${hhmm})`);
+
+      try {
+        const r = await fetch(`http://127.0.0.1:${port}${ep.path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(ep.body),
+        });
+        const d = await r.json();
+
+        const resultado = d.ok ? 'OK' : (d.error || 'Error');
+        await docClient.send(new UpdateCommand({
+          TableName: tableAjustesName,
+          Key: { PK: 'sincronizaciones', SK: sk },
+          UpdateExpression: 'SET UltimaSync = :u, Estado = :e, Resultado = :r, updatedAt = :t',
+          ExpressionAttributeValues: {
+            ':u': now.toISOString(),
+            ':e': d.ok ? 'ok' : 'error',
+            ':r': resultado,
+            ':t': now.toISOString(),
+          },
+        }));
+        console.log(`[auto-sync] ${sk} → ${resultado}`);
+      } catch (err) {
+        console.error(`[auto-sync] ${sk} error:`, err.message || err);
+      }
+    }
+  } catch (err) {
+    console.error('[auto-sync] scheduler error:', err.message || err);
+  }
+}
+
 // ─── Check vencimientos facturas ───
 const VENCIMIENTOS_INTERVAL_MS = 60 * 60 * 1000; // 1 hora
 
@@ -4637,4 +4811,8 @@ app.listen(port, host, () => {
   setTimeout(() => checkVencimientosFacturas(), 5000);
   setInterval(checkVencimientosFacturas, VENCIMIENTOS_INTERVAL_MS);
   console.log(`[vencimientos] Check automático cada ${VENCIMIENTOS_INTERVAL_MS / 60000} min`);
+
+  setTimeout(() => checkAutoSyncs(), 10000);
+  setInterval(checkAutoSyncs, SYNC_SCHEDULER_INTERVAL_MS);
+  console.log(`[auto-sync] Scheduler activo — revisa cada ${SYNC_SCHEDULER_INTERVAL_MS / 1000}s`);
 });
