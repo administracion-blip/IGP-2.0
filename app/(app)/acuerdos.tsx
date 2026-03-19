@@ -327,6 +327,37 @@ export default function AcuerdosScreen() {
   const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
   const [localSearch, setLocalSearch] = useState('');
   const [accionDropdownOpen, setAccionDropdownOpen] = useState(false);
+  const [comprasModalVisible, setComprasModalVisible] = useState(false);
+  const [comprasModalProduct, setComprasModalProduct] = useState<{ id: string; name: string } | null>(null);
+  const [comprasModalItems, setComprasModalItems] = useState<Record<string, unknown>[]>([]);
+  const [comprasModalLoading, setComprasModalLoading] = useState(false);
+
+  const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const comprasResumen = useMemo(() => {
+    let totalQty = 0, totalAmt = 0;
+    for (const c of comprasModalItems) {
+      totalQty += Number((c as any).Quantity) || 0;
+      totalAmt += Number((c as any).TotalAmount) || 0;
+    }
+    return { totalQty, totalAmt };
+  }, [comprasModalItems]);
+
+  const comprasGruposMes = useMemo(() => {
+    const map: Record<string, { label: string; items: Record<string, unknown>[]; totalQty: number; totalAmt: number }> = {};
+    for (const c of comprasModalItems) {
+      const fecha = (c as any).AlbaranFecha || '';
+      const key = fecha.slice(0, 7);
+      if (!map[key]) {
+        const [y, m] = key.split('-');
+        map[key] = { label: `${MESES_ES[parseInt(m, 10) - 1] || m} ${y}`, items: [], totalQty: 0, totalAmt: 0 };
+      }
+      map[key].items.push(c);
+      map[key].totalQty += Number((c as any).Quantity) || 0;
+      map[key].totalAmt += Number((c as any).TotalAmount) || 0;
+    }
+    return Object.entries(map).sort(([a], [b]) => b.localeCompare(a)).map(([, v]) => v);
+  }, [comprasModalItems]);
+
   const [productoTooltip, setProductoTooltip] = useState<{ id: string; name: string } | null>(null);
   const productoTooltipOpenedAt = useRef<number>(0);
   const cargarDetallesAcuerdoRef = useRef<string | null>(null);
@@ -373,6 +404,28 @@ export default function AcuerdosScreen() {
     if (seleccionado?.PK) AsyncStorage.setItem(ACUERDOS_LAST_SELECTED_KEY, seleccionado.PK);
     else AsyncStorage.removeItem(ACUERDOS_LAST_SELECTED_KEY);
   }, [seleccionado?.PK]);
+
+  const abrirComprasProducto = useCallback(async (productId: string, productName: string) => {
+    if (!seleccionado) return;
+    setComprasModalProduct({ id: productId, name: productName });
+    setComprasModalItems([]);
+    setComprasModalLoading(true);
+    setComprasModalVisible(true);
+    try {
+      const fi = seleccionado.FechaInicio || '';
+      const ff = seleccionado.FechaFin || '';
+      const params = new URLSearchParams({ productId });
+      if (fi) params.set('fechaInicio', fi);
+      if (ff) params.set('fechaFin', ff);
+      const res = await fetch(`${API_URL}/api/agora/purchases/por-producto?${params.toString()}`);
+      const json = await res.json();
+      setComprasModalItems(json.items || []);
+    } catch (e) {
+      console.error('Error cargando compras producto', e);
+    } finally {
+      setComprasModalLoading(false);
+    }
+  }, [seleccionado]);
 
   type ArchivoMeta = { fileKey: string; fileName: string; contentType: string; size: number; uploadedAt: string; url?: string };
   const [archivos, setArchivos] = useState<ArchivoMeta[]>([]);
@@ -1478,8 +1531,11 @@ export default function AcuerdosScreen() {
                         return (
                           <View key={d.SK} style={styles.detailTableRow}>
                             <Text style={[styles.detailTableCell, { width: 60, fontSize: 10, color: '#64748b' }]} numberOfLines={1}>{d.ProductId}</Text>
-                            <View style={{ width: 140 }} {...(Platform.OS === 'web' ? { title: String(d.ProductName || d.ProductId || '') } : {})}>
-                              <Text style={[styles.detailTableCell]} numberOfLines={1}>{d.ProductName || d.ProductId}</Text>
+                            <View style={{ width: 140, flexDirection: 'row', alignItems: 'center', gap: 4 }} {...(Platform.OS === 'web' ? { title: String(d.ProductName || d.ProductId || '') } : {})}>
+                              <TouchableOpacity onPress={() => abrirComprasProducto(d.ProductId, d.ProductName || d.ProductId)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                                <MaterialIcons name="visibility" size={13} color="#0ea5e9" />
+                              </TouchableOpacity>
+                              <Text style={[styles.detailTableCell, { flex: 1 }]} numberOfLines={1}>{d.ProductName || d.ProductId}</Text>
                             </View>
                             <View style={{ width: 70, alignItems: 'center' }}>
                               <TextInput
@@ -1994,9 +2050,96 @@ export default function AcuerdosScreen() {
         </Pressable>
       </Modal>
 
+      {/* Modal Compras por Producto */}
+      <Modal visible={comprasModalVisible} transparent animationType="fade">
+        <Pressable style={styles.overlay} onPress={(e) => { if (e.target === e.currentTarget) setComprasModalVisible(false); }}>
+          <View style={[styles.modal, { maxWidth: 960, width: '95%', maxHeight: '85%' }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>Compras a proveedor</Text>
+                <Text style={{ fontSize: 12, color: '#64748b', marginTop: -8 }}>
+                  {comprasModalProduct?.name || ''} ({comprasModalProduct?.id || ''})
+                  {seleccionado ? ` · ${formatFecha(seleccionado.FechaInicio)} – ${formatFecha(seleccionado.FechaFin)}` : ''}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setComprasModalVisible(false)} style={{ padding: 4 }}>
+                <MaterialIcons name="close" size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            {comprasModalLoading ? (
+              <ActivityIndicator size="large" color="#0ea5e9" style={{ marginTop: 40 }} />
+            ) : comprasModalItems.length === 0 ? (
+              <Text style={{ textAlign: 'center', color: '#94a3b8', marginTop: 40, fontSize: 14 }}>Sin registros de compra para este producto en el periodo del acuerdo</Text>
+            ) : (
+              <>
+                <Text style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
+                  {comprasModalItems.length} registro{comprasModalItems.length !== 1 ? 's' : ''}
+                  {' · '}<Text style={{ fontWeight: '700', color: '#0f172a' }}>{comprasResumen.totalQty.toLocaleString('es-ES')} uds.</Text>
+                  {' · '}<Text style={{ fontWeight: '700', color: '#0f172a' }}>{formatMoneda(comprasResumen.totalAmt)}</Text>
+                </Text>
+                <ScrollView horizontal nestedScrollEnabled>
+                  <View style={{ minWidth: 1100 }}>
+                    <View style={{ flexDirection: 'row', backgroundColor: '#f8fafc', paddingVertical: 6, paddingHorizontal: 6, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' }}>
+                      <Text style={[comprasColStyle, { width: 90 }]}>Fecha</Text>
+                      <Text style={[comprasColStyle, { width: 100 }]}>Albarán</Text>
+                      <Text style={[comprasColStyle, { width: 170 }]}>Proveedor</Text>
+                      <Text style={[comprasColStyle, { width: 70, textAlign: 'right' }]}>Cantidad</Text>
+                      <Text style={[comprasColStyle, { width: 70 }]}>Unidad</Text>
+                      <Text style={[comprasColStyle, { width: 80, textAlign: 'right' }]}>Precio</Text>
+                      <Text style={[comprasColStyle, { width: 60, textAlign: 'right' }]}>Dto.%</Text>
+                      <Text style={[comprasColStyle, { width: 90, textAlign: 'right' }]}>Total</Text>
+                      <Text style={[comprasColStyle, { width: 60, textAlign: 'right' }]}>IVA%</Text>
+                      <Text style={[comprasColStyle, { width: 120 }]}>Familia</Text>
+                      <Text style={[comprasColStyle, { width: 120 }]}>Almacén</Text>
+                      <Text style={[comprasColStyle, { width: 70, textAlign: 'center' }]}>Confirm.</Text>
+                    </View>
+                    <ScrollView style={{ maxHeight: 400 }} nestedScrollEnabled>
+                      {comprasGruposMes.map((grupo) => (
+                        <View key={grupo.label}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0f9ff', paddingVertical: 6, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: '#bae6fd' }}>
+                            <MaterialIcons name="date-range" size={13} color="#0369a1" style={{ marginRight: 6 }} />
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#0369a1', marginRight: 12 }}>{grupo.label}</Text>
+                            <View style={{ backgroundColor: '#dbeafe', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, marginRight: 8 }}>
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: '#1e40af' }}>{grupo.totalQty.toLocaleString('es-ES')} uds.</Text>
+                            </View>
+                            <View style={{ backgroundColor: '#d1fae5', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 }}>
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: '#065f46' }}>{formatMoneda(grupo.totalAmt)}</Text>
+                            </View>
+                          </View>
+                          {grupo.items.map((c: any, idx: number) => (
+                            <View key={`${c.PK}-${c.SK}-${idx}`} style={{ flexDirection: 'row', paddingVertical: 4, paddingHorizontal: 6, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
+                              <Text style={[comprasCellStyle, { width: 90 }]}>{formatFecha(c.AlbaranFecha || '')}</Text>
+                              <Text style={[comprasCellStyle, { width: 100 }]}>{`${c.AlbaranSerie || ''}-${c.AlbaranNumero || ''}`}</Text>
+                              <Text style={[comprasCellStyle, { width: 170 }]} numberOfLines={1}>{c.SupplierName || ''}</Text>
+                              <Text style={[comprasCellStyle, { width: 70, textAlign: 'right', fontWeight: '600' }]}>{(c.Quantity ?? 0).toLocaleString('es-ES')}</Text>
+                              <Text style={[comprasCellStyle, { width: 70 }]}>{c.PurchaseUnitName || ''}</Text>
+                              <Text style={[comprasCellStyle, { width: 80, textAlign: 'right' }]}>{formatMoneda(c.Price)}</Text>
+                              <Text style={[comprasCellStyle, { width: 60, textAlign: 'right' }]}>{c.DiscountRate ? `${(c.DiscountRate * 100).toFixed(1)}%` : ''}</Text>
+                              <Text style={[comprasCellStyle, { width: 90, textAlign: 'right', fontWeight: '600' }]}>{formatMoneda(c.TotalAmount)}</Text>
+                              <Text style={[comprasCellStyle, { width: 60, textAlign: 'right' }]}>{c.VatRate ? `${(c.VatRate * 100).toFixed(0)}%` : ''}</Text>
+                              <Text style={[comprasCellStyle, { width: 120 }]} numberOfLines={1}>{c.FamilyName || ''}</Text>
+                              <Text style={[comprasCellStyle, { width: 120 }]} numberOfLines={1}>{c.WarehouseName || ''}</Text>
+                              <Text style={[comprasCellStyle, { width: 70, textAlign: 'center' }]}>{c.Confirmed ? 'Sí' : 'No'}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                </ScrollView>
+              </>
+            )}
+          </View>
+        </Pressable>
+      </Modal>
+
     </View>
   );
 }
+
+const comprasColStyle: any = { fontSize: 10, fontWeight: '700', color: '#475569', textTransform: 'uppercase', paddingRight: 10 };
+const comprasCellStyle: any = { fontSize: 11, color: '#334155', paddingRight: 10 };
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },

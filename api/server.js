@@ -4301,6 +4301,81 @@ app.delete('/api/acuerdos/:id/files/:encodedKey', async (req, res) => {
   }
 });
 
+// Compras a Proveedor – detalle por producto (registros completos)
+app.get('/api/agora/purchases/por-producto', async (req, res) => {
+  const { productId, fechaInicio, fechaFin } = req.query;
+  if (!productId) return res.status(400).json({ error: 'productId es obligatorio' });
+
+  try {
+    let items = [];
+
+    if (gsiComprasReady) {
+      let keyExpr = 'ProductId = :pid';
+      const exprVals = { ':pid': String(productId) };
+      if (fechaInicio && fechaFin) {
+        keyExpr += ' AND AlbaranFecha BETWEEN :fi AND :ff';
+        exprVals[':fi'] = fechaInicio <= fechaFin ? fechaInicio : fechaFin;
+        exprVals[':ff'] = fechaInicio <= fechaFin ? fechaFin : fechaInicio;
+      } else if (fechaInicio) {
+        keyExpr += ' AND AlbaranFecha >= :fi';
+        exprVals[':fi'] = fechaInicio;
+      } else if (fechaFin) {
+        keyExpr += ' AND AlbaranFecha <= :ff';
+        exprVals[':ff'] = fechaFin;
+      }
+
+      const keys = [];
+      let lastKey = null;
+      do {
+        const r = await docClient.send(new QueryCommand({
+          TableName: tableComprasProveedorName,
+          IndexName: GSI_COMPRAS_NAME,
+          KeyConditionExpression: keyExpr,
+          ExpressionAttributeValues: exprVals,
+          ...(lastKey && { ExclusiveStartKey: lastKey }),
+        }));
+        for (const item of (r.Items || [])) {
+          if (item.PK && item.SK) keys.push({ PK: item.PK, SK: item.SK });
+        }
+        lastKey = r.LastEvaluatedKey || null;
+      } while (lastKey);
+
+      if (keys.length > 0) {
+        for (let i = 0; i < keys.length; i += 100) {
+          const chunk = keys.slice(i, i + 100);
+          const r = await docClient.send(new BatchGetCommand({
+            RequestItems: { [tableComprasProveedorName]: { Keys: chunk } },
+          }));
+          items.push(...(r.Responses?.[tableComprasProveedorName] || []));
+        }
+      }
+    } else {
+      let cKey = null;
+      const all = [];
+      do {
+        const r = await docClient.send(new ScanCommand({ TableName: tableComprasProveedorName, ...(cKey && { ExclusiveStartKey: cKey }) }));
+        all.push(...(r.Items || []));
+        cKey = r.LastEvaluatedKey || null;
+      } while (cKey);
+
+      const pid = String(productId).trim();
+      items = all.filter((c) => {
+        if (String(c.ProductId || '').trim() !== pid) return false;
+        const f = c.AlbaranFecha || '';
+        if (fechaInicio && f < fechaInicio) return false;
+        if (fechaFin && f > fechaFin) return false;
+        return true;
+      });
+    }
+
+    items.sort((a, b) => (b.AlbaranFecha || '').localeCompare(a.AlbaranFecha || ''));
+    return res.json({ ok: true, items, total: items.length });
+  } catch (err) {
+    console.error('[agora/purchases/por-producto]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al buscar compras por producto' });
+  }
+});
+
 // Compras a Proveedor (Albaranes de Entrada)
 // ──────────────────────────────────────────
 
