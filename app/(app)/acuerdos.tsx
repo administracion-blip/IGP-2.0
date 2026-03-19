@@ -1011,6 +1011,16 @@ export default function AcuerdosScreen() {
     return filtered.slice(0, 50);
   }, [productosIgp, prodSearch, detalles]);
 
+  const costPriceMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const p of (productosIgp || []) as Record<string, unknown>[]) {
+      const id = String(p.Id ?? p.id ?? '').trim();
+      const cost = Number(p.CostPrice ?? p.costPrice ?? 0) || 0;
+      if (id) map[id] = cost;
+    }
+    return map;
+  }, [productosIgp]);
+
   const isCompact = winWidth < 700;
 
   const generarPDF = useCallback(() => {
@@ -1518,7 +1528,9 @@ export default function AcuerdosScreen() {
                         <Text style={[styles.detailTableHeaderText, { width: 70, textAlign: 'center' }]}>Compradas</Text>
                         <Text style={[styles.detailTableHeaderText, { width: 70, textAlign: 'center' }]}>Restante</Text>
                         <Text style={[styles.detailTableHeaderText, { width: 55, textAlign: 'center' }]}>%</Text>
+                        <Text style={[styles.detailTableHeaderText, { width: 80, textAlign: 'center' }]}>P. Compra</Text>
                         <Text style={[styles.detailTableHeaderText, { width: 85, textAlign: 'center' }]}>Total aport.</Text>
+                        <Text style={[styles.detailTableHeaderText, { width: 80, textAlign: 'center' }]}>PMR</Text>
                         <Text style={[styles.detailTableHeaderText, { width: 80, textAlign: 'center' }]}>Aportación</Text>
                         <Text style={[styles.detailTableHeaderText, { width: 80, textAlign: 'center' }]}>Rappel</Text>
                         <Text style={[styles.detailTableHeaderText, { width: 80, textAlign: 'center' }]}>Dto. extra</Text>
@@ -1566,9 +1578,20 @@ export default function AcuerdosScreen() {
                             <Text style={[styles.detailTableCell, { width: 70, textAlign: 'center', fontWeight: '600' }]}>{(d.Compradas || 0).toLocaleString('es-ES')}</Text>
                             <Text style={[styles.detailTableCell, { width: 70, textAlign: 'center', color: d.Restante > 0 ? '#ef4444' : (d.Restante || 0) < 0 ? '#16a34a' : '#0f172a', fontWeight: (d.Restante || 0) !== 0 ? '600' : '400' }]}>{d.Restante > 0 ? `-${d.Restante.toLocaleString('es-ES')}` : (d.Restante || 0) < 0 ? `+${Math.abs(d.Restante || 0).toLocaleString('es-ES')}` : (d.Restante || 0).toLocaleString('es-ES')}</Text>
                             <Text style={[styles.detailTableCell, { width: 55, textAlign: 'center', fontWeight: '700', color: pctColor }]}>{d.Porcentaje?.toFixed(1)}%</Text>
+                            <View style={{ width: 80, alignItems: 'center', justifyContent: 'center' }}>
+                              <View style={{ backgroundColor: '#f1f5f9', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                <Text style={[styles.detailTableCell, { textAlign: 'center', fontWeight: '700', color: '#0f172a' }]}>{formatMoneda(costPriceMap[d.ProductId] || 0)}</Text>
+                              </View>
+                            </View>
                             <Text style={[styles.detailTableCell, { width: 85, textAlign: 'center', fontWeight: '700', color: '#0f172a' }]}>
                               {((d.Aportacion || 0) + (d.Rappel || 0) + (d.DescuentoExtra || 0)).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
                             </Text>
+                            {(() => {
+                              const totalAport = (d.Aportacion || 0) + (d.Rappel || 0) + (d.DescuentoExtra || 0);
+                              const costPrice = costPriceMap[d.ProductId] || 0;
+                              const pmr = costPrice - totalAport;
+                              return <Text style={[styles.detailTableCell, { width: 80, textAlign: 'center', fontWeight: '700', color: '#0d9488' }]}>{formatMoneda(pmr)}</Text>;
+                            })()}
                             <View style={{ width: 80, alignItems: 'center' }}>
                               <TextInput
                                 style={styles.cantidadInput}
@@ -2240,7 +2263,7 @@ const styles = StyleSheet.create({
   detailAddBtnText: { fontSize: 11, color: '#0ea5e9', fontWeight: '600' },
   detailEmpty: { fontSize: 13, color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', marginTop: 24, paddingHorizontal: 14 },
   detailTableScroll: { marginHorizontal: 14 },
-  detailTableWrap: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', minWidth: 1018 },
+  detailTableWrap: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', minWidth: 1178 },
   detailTableHeader: { flexDirection: 'row', backgroundColor: '#f8fafc', paddingVertical: 4, paddingHorizontal: 6, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   detailTableHeaderText: { fontSize: 9, fontWeight: '700', color: '#475569', textTransform: 'uppercase' },
   detailTableRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 6, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
