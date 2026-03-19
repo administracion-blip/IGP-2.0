@@ -24,7 +24,7 @@ const PAGE_SIZE = 50;
 const MAX_TEXT_LENGTH = 30;
 
 /** Columnas preferidas para Productos Ágora (solo campos permitidos por API) */
-const PREFERRED_COLS_AGORA = ['Id', 'IGP', 'Name', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'CostPrice', 'BaseSaleFormatId', 'Active', 'IsSoldByWeight'];
+const PREFERRED_COLS_AGORA = ['Id', 'IGP', 'Name', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'CostPrice', 'CostPrices', 'BaseSaleFormatId', 'Active', 'IsSoldByWeight'];
 
 const DEFAULT_COL_WIDTH = 90;
 const MAX_TEXT_LENGTH_TABLE = 30;
@@ -278,6 +278,14 @@ export default function ProductosScreen() {
   const valorCeldaAgora = useCallback((item: Producto, col: string) => {
     const raw = valorPorColumna(item, col);
     if (raw === undefined || raw === null) return '—';
+    if (col === 'CostPrices' && Array.isArray(raw)) {
+      if (!raw.length) return '—';
+      return raw.map((cp: any) => {
+        const wh = cp.WarehouseId ?? cp.warehouseId ?? '?';
+        const price = Number(cp.CostPrice ?? cp.costPrice ?? 0);
+        return `Alm.${wh}: ${price.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}€`;
+      }).join(', ');
+    }
     if (Array.isArray(raw)) return raw.length ? String(raw.join(', ')) : '—';
     if (typeof raw === 'object') return JSON.stringify(raw).slice(0, MAX_TEXT_LENGTH_TABLE);
     if (col === 'Price' || col === 'CostPrice') {

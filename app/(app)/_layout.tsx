@@ -17,6 +17,7 @@ const MENU_ITEMS: { route: string; label: string; icon: string; permiso: string 
   { route: '/mystery-guest', label: 'Mystery Guest', icon: 'visibility', permiso: 'mystery_guest.ver' },
   { route: '/reservas', label: 'Reservas', icon: 'event-available', permiso: 'reservas.ver' },
   { route: '/acuerdos', label: 'Acuerdos', icon: 'handshake', permiso: 'acuerdos.ver' },
+  { route: '/facturacion', label: 'Facturación', icon: 'receipt', permiso: 'facturacion.ver' },
 ];
 
 function AppLayoutContent() {
@@ -147,6 +148,7 @@ function AppLayoutContent() {
             <Stack.Screen name="puntos-venta" />
             <Stack.Screen name="permisos" />
             <Stack.Screen name="acuerdos" />
+            <Stack.Screen name="facturacion" />
           </Stack>
         </View>
       </View>

@@ -1,7 +1,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 
-const region = process.env.AWS_REGION || 'eu-west-1';
+const region = process.env.AWS_REGION || 'eu-west-3';
 
 const client = new DynamoDBClient({ region });
 export const docClient = DynamoDBDocumentClient.from(client);
@@ -24,4 +24,9 @@ export const tables = {
   acuerdos: process.env.DDB_ACUERDOS || 'Igp_Acuerdos',
   acuerdosDetalles: process.env.DDB_ACUERDOS_DETALLES || 'Igp_AcuerdosDetalles',
   acuerdosImagen: process.env.DDB_ACUERDOS_IMAGEN || 'Igp_AcuerdosImagen',
+  facturas: process.env.DDB_FACTURAS || 'Igp_Facturas',
+  facturasLineas: process.env.DDB_FACTURAS_LINEAS || 'Igp_FacturasLineas',
+  facturasPagos: process.env.DDB_FACTURAS_PAGOS || 'Igp_FacturasPagos',
+  facturasSeries: process.env.DDB_FACTURAS_SERIES || 'Igp_FacturasSeries',
+  facturasAuditoria: process.env.DDB_FACTURAS_AUDITORIA || 'Igp_FacturasAuditoria',
 };

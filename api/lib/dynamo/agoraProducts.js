@@ -12,7 +12,7 @@ const BATCH_SIZE = 25;
 const META_SK = '__meta__';
 
 /** Campos permitidos: solo estos se guardan en DynamoDB y se devuelven por API */
-const ALLOWED_FIELDS = ['Id', 'IGP', 'Name', 'CostPrice', 'BaseSaleFormatId', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'Active', 'IsSoldByWeight'];
+const ALLOWED_FIELDS = ['Id', 'IGP', 'Name', 'CostPrice', 'CostPrices', 'BaseSaleFormatId', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'Active', 'IsSoldByWeight'];
 
 /**
  * Extrae solo los campos permitidos de un producto (sin IGP, que se gestiona aparte).
@@ -33,6 +33,13 @@ export function pickAllowedFields(p) {
   out.Active = !deletionDate;
   const soldByWeight = p.IsSoldByWeight ?? p.isSoldByWeight ?? p.isSoldbyWeight ?? null;
   out.IsSoldByWeight = soldByWeight === true || soldByWeight === 'true';
+  const costPrices = p.CostPrices ?? p.costPrices ?? p.costprices ?? null;
+  if (Array.isArray(costPrices) && costPrices.length > 0) {
+    out.CostPrices = costPrices.map(cp => ({
+      WarehouseId: cp.WarehouseId ?? cp.warehouseId ?? cp.warehouseid,
+      CostPrice: cp.CostPrice ?? cp.costPrice ?? cp.costprice ?? 0,
+    })).filter(cp => cp.WarehouseId != null);
+  }
   return out;
 }
 

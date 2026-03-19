@@ -14,3 +14,6 @@ Cada vez que cambies cosas:
 git add .
 git commit -m "Describe el cambio"
 git push
+
+//ABRIR CON EXPO GO
+npm run dev:tunnel

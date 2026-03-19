@@ -18,7 +18,7 @@ dotenv.config({ path: join(__dirname, '..', '.env.local') });
 dotenv.config({ path: join(__dirname, '..', '.env') });
 
 const tableName = process.env.DDB_SALES_CLOSEOUTS_TABLE || 'Igp_SalesCloseouts';
-const region = process.env.AWS_REGION || 'eu-west-1';
+const region = process.env.AWS_REGION || 'eu-west-3';
 
 const client = new DynamoDBClient({ region });
 const docClient = DynamoDBDocumentClient.from(client);

@@ -16,6 +16,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { exportSystemCloseOuts, exportPosCloseOuts, exportInvoices, exportWarehouses, exportIncomingDeliveryNotes, exportFamilies, exportVats } from './lib/agora/client.js';
 import { upsertBatch } from './lib/dynamo/salesCloseOuts.js';
 import { syncProducts, getLastSync, setLastSync, shouldSkipSyncByThrottle, toApiProduct, pickAllowedFields } from './lib/dynamo/agoraProducts.js';
+import facturacionRouter from './routes/facturacion.js';
 
 const app = express();
 app.use(cors({ origin: true, credentials: false }));
@@ -31,7 +32,7 @@ app.get('/api/agora/closeouts-ready', (_req, res) => {
   res.json({ ok: true, closeoutsRoute: 'registered' });
 });
 
-const region = process.env.AWS_REGION || 'eu-west-1';
+const region = process.env.AWS_REGION || 'eu-west-3';
 const tableName = process.env.DDB_USUARIOS || process.env.DYNAMODB_TABLE || 'igp_usuarios';
 const tableLocalesName = process.env.DDB_LOCALES || 'igp_Locales';
 const tableEmpresasName = process.env.DDB_EMPRESAS || 'igp_Empresas';
@@ -4521,6 +4522,35 @@ async function runCloseoutsSync() {
   }
 }
 
+app.use('/api', facturacionRouter);
+
+// ─── Check vencimientos facturas ───
+const VENCIMIENTOS_INTERVAL_MS = 60 * 60 * 1000; // 1 hora
+
+async function checkVencimientosFacturas() {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/facturacion/check-vencimientos`, { method: 'POST' });
+    const data = await res.json();
+    if (data.actualizadas > 0) {
+      console.log(`[vencimientos] ${data.actualizadas} factura(s) marcada(s) como vencida(s)`);
+    }
+  } catch (err) {
+    console.error('[vencimientos]', err.message || err);
+  }
+
+  if (process.env.SMTP_USER) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/facturacion/enviar-recordatorios`, { method: 'POST' });
+      const data = await res.json();
+      if (data.enviados > 0) {
+        console.log(`[recordatorios] ${data.enviados} recordatorio(s) de cobro enviado(s)`);
+      }
+    } catch (err) {
+      console.error('[recordatorios]', err.message || err);
+    }
+  }
+}
+
 app.listen(port, host, () => {
   console.log(`API ERP escuchando en http://localhost:${port} (también http://127.0.0.1:${port})`);
   console.log(`Tabla usuarios: ${tableName} | Tabla locales: ${tableLocalesName} | Tabla empresas: ${tableEmpresasName} | Tabla productos: ${tableProductosName} | Centros venta: ${tableSaleCentersName} | Cierres ventas: ${tableSalesCloseOutsName} | Mantenimiento: ${tableMantenimientoName} | Roles/permisos: ${tableRolesPermisosName}`);
@@ -4529,4 +4559,7 @@ app.listen(port, host, () => {
     setTimeout(() => runCloseoutsSync(), 2000);
     setInterval(runCloseoutsSync, SYNC_CLOSEOUTS_INTERVAL_MS);
   }
+  setTimeout(() => checkVencimientosFacturas(), 5000);
+  setInterval(checkVencimientosFacturas, VENCIMIENTOS_INTERVAL_MS);
+  console.log(`[vencimientos] Check automático cada ${VENCIMIENTOS_INTERVAL_MS / 60000} min`);
 });

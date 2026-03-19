@@ -104,6 +104,15 @@ const PERMISOS_CODIGOS = [
   'acuerdos.editar',
   'acuerdos.borrar',
   'acuerdos.exportar',
+  // --- Facturación ---
+  'facturacion.ver',
+  'facturacion.crear',
+  'facturacion.editar',
+  'facturacion.emitir',
+  'facturacion.anular',
+  'facturacion.cobrar_pagar',
+  'facturacion.series',
+  'facturacion.exportar',
 ] as const;
 
 const PERMISOS_LABELS: Record<string, string> = {
@@ -170,6 +179,14 @@ const PERMISOS_LABELS: Record<string, string> = {
   'acuerdos.editar': 'Acuerdos · Editar',
   'acuerdos.borrar': 'Acuerdos · Borrar',
   'acuerdos.exportar': 'Acuerdos · Exportar',
+  'facturacion.ver': 'Facturación (menú) · Ver',
+  'facturacion.crear': 'Facturación · Crear',
+  'facturacion.editar': 'Facturación · Editar',
+  'facturacion.emitir': 'Facturación · Emitir',
+  'facturacion.anular': 'Facturación · Anular',
+  'facturacion.cobrar_pagar': 'Facturación · Cobrar/Pagar',
+  'facturacion.series': 'Facturación · Series',
+  'facturacion.exportar': 'Facturación · Exportar',
 };
 
 type ItemPermiso = { rol: string; permiso: string };
