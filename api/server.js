@@ -17,6 +17,7 @@ import { exportSystemCloseOuts, exportPosCloseOuts, exportInvoices, exportWareho
 import { upsertBatch } from './lib/dynamo/salesCloseOuts.js';
 import { syncProducts, getLastSync, setLastSync, shouldSkipSyncByThrottle, toApiProduct, pickAllowedFields } from './lib/dynamo/agoraProducts.js';
 import facturacionRouter from './routes/facturacion.js';
+import { normalizeCif, getCifFromEmpresaItem, getIdEmpresaFromItem } from './lib/empresaCif.js';
 
 const app = express();
 app.use(cors({ origin: true, credentials: false }));
@@ -675,10 +676,6 @@ function formatId6(val) {
   return String(Math.max(0, n)).padStart(6, '0');
 }
 
-function normalizeCif(val) {
-  return String(val ?? '').trim().toUpperCase();
-}
-
 // Estructura exacta de la tabla igp_usuarios en AWS: solo estos atributos. No crear otros.
 const TABLE_USUARIOS_ATTRS = ['id_usuario', 'Nombre', 'Apellidos', 'Email', 'Password', 'Telefono', 'Rol', 'Local'];
 
@@ -1049,8 +1046,8 @@ app.get('/api/empresas/check-cif', async (req, res) => {
       lastKey = result.LastEvaluatedKey || null;
     } while (lastKey);
     const exists = items.some((item) => {
-      const itemCif = normalizeCif(item?.Cif);
-      return itemCif && itemCif === cif && String(item.id_empresa ?? '') !== excludeId;
+      const itemCif = normalizeCif(getCifFromEmpresaItem(item));
+      return itemCif && itemCif === cif && getIdEmpresaFromItem(item) !== excludeId;
     });
     return res.json({ exists });
   } catch (err) {
@@ -1130,7 +1127,7 @@ app.put('/api/empresas', async (req, res) => {
       lastKey = result.LastEvaluatedKey || null;
     } while (lastKey);
     const dup = items.find(
-      (item) => normalizeCif(item?.Cif) === cifValue && String(item.id_empresa ?? '') !== idEmpresa
+      (item) => normalizeCif(getCifFromEmpresaItem(item)) === cifValue && getIdEmpresaFromItem(item) !== idEmpresa
     );
     if (dup) {
       return res.status(409).json({ error: 'CIF ya existe' });

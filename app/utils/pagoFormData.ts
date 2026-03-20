@@ -22,7 +22,7 @@ export async function buildPagoFormData(params: {
   fd.append('fecha', params.fecha);
   fd.append('importe', String(params.importe));
   fd.append('metodo_pago', params.metodo_pago);
-  if (params.referencia.trim()) fd.append('referencia', params.referencia.trim());
+  fd.append('referencia', params.referencia);
   if (params.usuario_id) fd.append('usuario_id', params.usuario_id);
   if (params.usuario_nombre) fd.append('usuario_nombre', params.usuario_nombre);
 
@@ -33,9 +33,10 @@ export async function buildPagoFormData(params: {
       const blob = await r.blob();
       fd.append('recibo', blob, a.name || 'recibo');
     } else {
-      // RN FormData acepta objeto { uri, name, type }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      fd.append('recibo', { uri: a.uri, name: a.name || 'recibo', type: a.mimeType || 'application/octet-stream' } as any);
+      fd.append(
+        'recibo',
+        { uri: a.uri, name: a.name, type: a.mimeType || 'application/octet-stream' } as unknown as Blob
+      );
     }
   }
 

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ScanCommand, GetCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
+import { normalizeCif, getCifFromEmpresaItem, getIdEmpresaFromItem } from '../lib/empresaCif.js';
 
 const router = Router();
 const tableEmpresasName = tables.empresas;
@@ -9,10 +10,6 @@ function formatId6(val) {
   if (val == null || val === '') return '000000';
   const n = parseInt(String(val).replace(/^0+/, ''), 10) || 0;
   return String(Math.max(0, n)).padStart(6, '0');
-}
-
-function normalizeCif(val) {
-  return String(val ?? '').trim().toUpperCase();
 }
 
 function normalizarEtiqueta(val) {
@@ -67,8 +64,8 @@ router.get('/empresas/check-cif', async (req, res) => {
       lastKey = result.LastEvaluatedKey || null;
     } while (lastKey);
     const exists = items.some((item) => {
-      const itemCif = normalizeCif(item?.Cif);
-      return itemCif && itemCif === cif && String(item.id_empresa ?? '') !== excludeId;
+      const itemCif = normalizeCif(getCifFromEmpresaItem(item));
+      return itemCif && itemCif === cif && getIdEmpresaFromItem(item) !== excludeId;
     });
     return res.json({ exists });
   } catch (err) {
@@ -98,7 +95,7 @@ router.post('/empresas', async (req, res) => {
       items.push(...(result.Items || []));
       lastKey = result.LastEvaluatedKey || null;
     } while (lastKey);
-    const dup = items.some((item) => normalizeCif(item?.Cif) === cifValue);
+    const dup = items.some((item) => normalizeCif(getCifFromEmpresaItem(item)) === cifValue);
     if (dup) {
       return res.status(409).json({ error: 'CIF ya existe' });
     }
@@ -148,7 +145,7 @@ router.put('/empresas', async (req, res) => {
       lastKey = result.LastEvaluatedKey || null;
     } while (lastKey);
     const dup = items.find(
-      (item) => normalizeCif(item?.Cif) === cifValue && String(item.id_empresa ?? '') !== idEmpresa
+      (item) => normalizeCif(getCifFromEmpresaItem(item)) === cifValue && getIdEmpresaFromItem(item) !== idEmpresa
     );
     if (dup) {
       return res.status(409).json({ error: 'CIF ya existe' });

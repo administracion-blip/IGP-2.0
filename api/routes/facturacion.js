@@ -17,12 +17,19 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { docClient, tables, deleteItemBySchema, keyForFacturaPrincipalId, keyForFacturaItem } from '../lib/db.js';
+import {
+  normalizeCif,
+  cifDigitsOnly,
+  getCifFromEmpresaItem,
+  getNombreFromEmpresaItem,
+  getIdEmpresaFromItem,
+} from '../lib/empresaCif.js';
+import { parseTextoFacturaCompleto, reconciliarFacturaOcr } from '../lib/ocrFacturaEntidades.js';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import multer from 'multer';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
 const Tesseract = require('tesseract.js');
 
 const router = Router();
@@ -1507,6 +1514,16 @@ router.post('/facturacion/ocr/extraer', upload.single('file'), async (req, res) 
   }
 });
 
+/** Tras elegir sociedad receptora: separar proveedor y opcionalmente ajustar importes (respeta campos_manuales). */
+router.post('/facturacion/ocr/reconciliar', async (req, res) => {
+  try {
+    const datos = await ejecutarReconciliarFacturaOcr(req.body || {});
+    res.json({ ok: true, datos });
+  } catch (err) {
+    res.status(400).json({ error: err.message || String(err) });
+  }
+});
+
 // ─── OCR POR ZONA (selección manual tipo a3) ───
 
 router.post('/facturacion/ocr/extraer-zona', async (req, res) => {
@@ -1553,8 +1570,21 @@ router.post('/facturacion/ocr/extraer-zona', async (req, res) => {
       return res.status(400).json({ error: 'Zona demasiado pequeña' });
     }
 
-    const croppedBuffer = await sharp(imgBuffer)
-      .extract({ left, top, width: cropW, height: cropH })
+    let croppedPipeline = sharp(imgBuffer)
+      .extract({ left, top, width: cropW, height: cropH });
+
+    const MIN_OCR_WIDTH = 1000;
+    if (cropW < MIN_OCR_WIDTH) {
+      const upscale = Math.ceil(MIN_OCR_WIDTH / cropW);
+      croppedPipeline = croppedPipeline.resize(cropW * upscale, cropH * upscale, {
+        kernel: 'lanczos3',
+        fit: 'fill',
+      });
+      console.log(`[OCR-zona] Upscale x${upscale} → ${cropW * upscale}x${cropH * upscale}`);
+    }
+
+    const croppedBuffer = await croppedPipeline
+      .sharpen()
       .png()
       .toBuffer();
 
@@ -1661,21 +1691,57 @@ function normalizeImporteFacturaEsp(raw) {
   return Number.isFinite(n) ? n : NaN;
 }
 
+/** Extrae el texto embebido de un PDF usando pdfjs-dist (sin necesidad de pdf-parse). */
+async function extractTextFromPdfWithPdfjs(pdfBuffer) {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const buf = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
+  const doc = await pdfjs.getDocument({
+    data: new Uint8Array(buf),
+    disableWorker: true,
+    useSystemFonts: true,
+  }).promise;
+  let fullText = '';
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const tc = await page.getTextContent();
+    fullText += tc.items.map((item) => item.str).join(' ') + '\n';
+  }
+  return fullText;
+}
+
 /** Rasteriza la página 1 del PDF a PNG para OCR (requiere canvas + pdfjs-dist). */
 async function renderPdfFirstPageToPngBuffer(pdfBuffer) {
   try {
     const { createCanvas } = await import('@napi-rs/canvas');
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    const getDocument = pdfjs.getDocument;
+
+    class NodeCanvasFactory {
+      create(width, height) {
+        const canvas = createCanvas(width, height);
+        return { canvas, context: canvas.getContext('2d') };
+      }
+      reset(pair, width, height) {
+        pair.canvas.width = width;
+        pair.canvas.height = height;
+      }
+      destroy(pair) {
+        pair.canvas.width = 0;
+        pair.canvas.height = 0;
+        pair.canvas = null;
+        pair.context = null;
+      }
+    }
+
     const buf = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
-    const loadingTask = getDocument({
+    const canvasFactory = new NodeCanvasFactory();
+    const doc = await pdfjs.getDocument({
       data: new Uint8Array(buf),
       disableWorker: true,
       useSystemFonts: true,
-    });
-    const pdf = await loadingTask.promise;
-    if (pdf.numPages < 1) return null;
-    const page = await pdf.getPage(1);
+      canvasFactory,
+    }).promise;
+    if (doc.numPages < 1) return null;
+    const page = await doc.getPage(1);
     const scale = 2;
     const viewport = page.getViewport({ scale });
     const w = Math.ceil(viewport.width);
@@ -1690,40 +1756,42 @@ async function renderPdfFirstPageToPngBuffer(pdfBuffer) {
   }
 }
 
-function pickProveedorCif(text, cifs) {
-  if (!cifs.length) return '';
-  if (cifs.length === 1) return cifs[0];
-  const lower = text.toLowerCase();
-  const clienteIdx = lower.search(/\b(cliente|destinatario|adquiriente)\b/);
-  const head = clienteIdx > 0 ? text.slice(0, clienteIdx) : text;
-  const cifRegex = /\b([A-Z]\d{7}[A-Z0-9]|\d{8}[A-Z])\b/gi;
-  const inHead = [];
-  let m;
-  while ((m = cifRegex.exec(head)) !== null) {
-    const c = m[1].toUpperCase();
-    if (!inHead.includes(c)) inHead.push(c);
-  }
-  if (inHead.length) return inHead[0];
-  return cifs[0];
-}
-
 function inferProveedorNombre(text, cifProveedor) {
   if (!text) return '';
+  const RECEPTOR_LABELS = /\b(cliente|destinatario|adquiriente|receptor|facturar\s*a|bill\s*to|comprador)\b/i;
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const cifNorm = (cifProveedor || '').replace(/\s/g, '');
+
   if (cifNorm) {
     const idx = lines.findIndex((l) => l.replace(/\s/g, '').includes(cifNorm));
-    if (idx > 0) {
-      const candidate = lines[idx - 1];
-      if (candidate.length >= 3 && candidate.length < 120 && !/^\d{1,2}[\/\-]/.test(candidate) && !/^[A-Z0-9]{8,}$/i.test(candidate)) {
-        return candidate.replace(/^[\s\-–—]+/, '').slice(0, 120);
+    if (idx >= 0) {
+      const nearbyBefore = lines.slice(Math.max(0, idx - 4), idx + 1).join(' ');
+      const isReceptorZone = RECEPTOR_LABELS.test(nearbyBefore);
+      if (!isReceptorZone && idx > 0) {
+        for (let i = idx - 1; i >= Math.max(0, idx - 3); i--) {
+          const candidate = lines[i];
+          if (candidate.length >= 3 && candidate.length < 120 &&
+              !/^\d{1,2}[\/\-]/.test(candidate) &&
+              !/^[A-Z0-9]{8,}$/i.test(candidate) &&
+              !RECEPTOR_LABELS.test(candidate) &&
+              !/^\d+[.,]\d{2}\s*€?$/.test(candidate)) {
+            return candidate.replace(/^[\s\-–—]+/, '').slice(0, 120);
+          }
+        }
       }
     }
   }
+
   const sl = text.match(
     /([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúñ0-9\s.,&\-]{3,80}(?:S\.?L\.?U\.?|S\.?L\.?|S\.?A\.?|S\.?C\.?O\.?O\.?P\.?))\.?/i
   );
-  if (sl) return sl[1].trim().replace(/\s+/g, ' ').slice(0, 120);
+  if (sl) {
+    const slPos = text.indexOf(sl[0]);
+    const ctxBefore = text.slice(Math.max(0, slPos - 120), slPos);
+    if (!RECEPTOR_LABELS.test(ctxBefore)) {
+      return sl[1].trim().replace(/\s+/g, ' ').slice(0, 120);
+    }
+  }
   return '';
 }
 
@@ -1740,11 +1808,12 @@ function averageOcrConfidence(conf) {
   return Math.round((sum / vals.length) * 100) / 100;
 }
 
-function normalizeCif(val) {
-  return String(val ?? '').trim().toUpperCase();
-}
-
-/** Busca en `igp_Empresas` por CIF (misma lógica que `/api/empresas/check-cif`). */
+/**
+ * Busca en `igp_Empresas` por CIF/NIF.
+ * 1) Coincidencia exacta tras normalizar (incl. homóglifos y atributo Cif/NIF).
+ * 2) Fallback: mismos dígitos (≥7) por si difiere letra de control / OCR.
+ * Si no hay match, log de diagnóstico en consola del API.
+ */
 async function buscarEmpresaPorCif(cifRaw) {
   const cif = normalizeCif(cifRaw);
   if (!cif) return null;
@@ -1760,7 +1829,42 @@ async function buscarEmpresaPorCif(cifRaw) {
     items.push(...(result.Items || []));
     lastKey = result.LastEvaluatedKey || null;
   } while (lastKey);
-  const found = items.find((item) => normalizeCif(item?.Cif) === cif);
+
+  const normFromItem = (item) => normalizeCif(getCifFromEmpresaItem(item));
+
+  let found = items.find((item) => normFromItem(item) === cif);
+
+  if (!found) {
+    const dOcr = cifDigitsOnly(cif);
+    if (dOcr.length >= 7) {
+      const digitMatches = items.filter((item) => {
+        const ni = normFromItem(item);
+        if (!ni) return false;
+        return cifDigitsOnly(ni) === dOcr;
+      });
+      if (digitMatches.length === 1) {
+        found = digitMatches[0];
+        console.log(
+          `[OCR-maestro] Coincidencia por dígitos del CIF/NIF (OCR="${cif}" vs maestro="${normFromItem(found)}") id=${getIdEmpresaFromItem(found)}`,
+        );
+      } else if (digitMatches.length > 1) {
+        console.warn(
+          `[OCR-maestro] Varios registros comparten los mismos dígitos (${dOcr}); no se aplica fallback. ids=${digitMatches.map(getIdEmpresaFromItem).join(',')}`,
+        );
+      }
+    }
+  }
+
+  if (!found) {
+    const withCif = items
+      .map((item) => ({ item, n: normFromItem(item) }))
+      .filter((x) => x.n);
+    const muestra = withCif.slice(0, 8).map((x) => x.n);
+    console.warn(
+      `[OCR-maestro] Sin coincidencia para CIF buscado (raw="${String(cifRaw).slice(0, 32)}" → normalizado="${cif}"). Tabla=${tables.empresas} filas=${items.length} con_CIF_normalizado=${withCif.length}. Muestra primeros CIF en maestro: ${JSON.stringify(muestra)}`,
+    );
+  }
+
   return found || null;
 }
 
@@ -1776,116 +1880,9 @@ function isPdfMime(mimetype, filename) {
   return mimetype === 'application/octet-stream' && n.endsWith('.pdf');
 }
 
-/**
- * Parsea texto plano de una factura y extrae datos estructurados (CIF, fechas, importes, nº factura).
- * Función pura y reutilizable: no hace I/O ni consulta BD.
- */
+/** Alias: parseo completo con entidades candidatas y retención (ver api/lib/ocrFacturaEntidades.js). */
 function parsearTextoFactura(text) {
-  const parseImporte = (str) => normalizeImporteFacturaEsp(str);
-  let m;
-
-  const cifs = [];
-  const cifRegex = /\b([A-Z]\d{7}[A-Z0-9]|\d{8}[A-Z])\b/gi;
-  while ((m = cifRegex.exec(text)) !== null) {
-    if (!cifs.includes(m[1].toUpperCase())) cifs.push(m[1].toUpperCase());
-  }
-  const proveedor_cif = pickProveedorCif(text, cifs);
-
-  const fechas = [];
-  const fechaRegex = /(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/g;
-  while ((m = fechaRegex.exec(text)) !== null) {
-    let y = m[3].length === 2 ? '20' + m[3] : m[3];
-    const yNum = parseInt(y, 10);
-    if (yNum < 2000 || yNum > 2100) continue;
-    const day = parseInt(m[1], 10);
-    const month = parseInt(m[2], 10);
-    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
-      fechas.push(`${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
-    }
-  }
-
-  let totalFactura = 0;
-  let baseImponible = 0;
-  let totalIva = 0;
-
-  const amountCapture = '(\\d{1,3}(?:[.,]\\d{3})*[.,]\\d{2})';
-  const totalRegex = new RegExp(
-    `(?:total\\s*(?:factura)?|importe\\s*total|total\\s*a\\s*pagar|total\\s*€?)[:\\s]*${amountCapture}\\s*€?`,
-    'gi'
-  );
-  const baseRegex = new RegExp(
-    `(?:base\\s*imponible|subtotal|base\\s+i)[:\\s]*${amountCapture}\\s*€?`,
-    'gi'
-  );
-  const ivaRegex = new RegExp(
-    `(?:cuota\\s*iva|iva\\s*(?:\\d+\\s*%?\\s*)?|total\\s*iva|importe\\s*iva)[:\\s]*${amountCapture}\\s*€?`,
-    'gi'
-  );
-
-  const totalMatches = [];
-  while ((m = totalRegex.exec(text)) !== null) {
-    const v = parseImporte(m[1]);
-    if (!Number.isNaN(v) && v > 0) totalMatches.push(v);
-  }
-  if (totalMatches.length > 0) totalFactura = totalMatches[totalMatches.length - 1];
-
-  const baseMatches = [];
-  while ((m = baseRegex.exec(text)) !== null) {
-    const v = parseImporte(m[1]);
-    if (!Number.isNaN(v) && v > 0) baseMatches.push(v);
-  }
-  if (baseMatches.length > 0) baseImponible = baseMatches[baseMatches.length - 1];
-
-  const ivaMatches = [];
-  while ((m = ivaRegex.exec(text)) !== null) {
-    const v = parseImporte(m[1]);
-    if (!Number.isNaN(v) && v > 0) ivaMatches.push(v);
-  }
-  if (ivaMatches.length > 0) totalIva = ivaMatches[ivaMatches.length - 1];
-
-  if (!totalFactura || !baseImponible) {
-    const allImportes = [];
-    const importePatterns = [
-      /(\d{1,3}(?:\.\d{3})*,\d{2})\s*€/g,
-      /€\s*(\d{1,3}(?:\.\d{3})*,\d{2})/g,
-      /(\d{1,3}(?:\.\d{3})*,\d{2})/g,
-      /(\d+\.\d{2})\s*€/g,
-      /€\s*(\d+\.\d{2})/g,
-      /\b(\d{1,3}(?:\.\d{3})+\.\d{2})\b/g,
-    ];
-    for (const regex of importePatterns) {
-      while ((m = regex.exec(text)) !== null) {
-        const val = parseImporte(m[1]);
-        if (!Number.isNaN(val) && val > 0.01) allImportes.push(val);
-      }
-    }
-    const unique = [...new Set(allImportes)].sort((a, b) => b - a);
-    if (!totalFactura && unique.length > 0) totalFactura = unique[0];
-    if (!baseImponible && unique.length > 1) baseImponible = unique[1];
-    if (!totalIva && unique.length > 2) totalIva = unique[2];
-  }
-
-  if (baseImponible && totalFactura && !totalIva) {
-    totalIva = Math.round((totalFactura - baseImponible) * 100) / 100;
-  }
-  if (totalFactura && totalIva && !baseImponible) {
-    baseImponible = Math.round((totalFactura - totalIva) * 100) / 100;
-  }
-
-  const numFacturas = [];
-  const nfPatterns = [
-    /(?:factura|fact\.?|fra\.?|invoice|nº\s*fact(?:ura)?|n[uú]m(?:ero)?\.?\s*(?:de\s+)?fact(?:ura)?)[:\s#nº.]*\s*([A-Z0-9][A-Z0-9\-\/. ]*[A-Z0-9])/gi,
-    /(?:nº|n\.º|núm\.?|número)[:\s]+([A-Z0-9][A-Z0-9\-\/]*)/gi,
-    /(?:invoice\s*(?:no|number|#)?)[:\s]*([A-Z0-9][A-Z0-9\-\/]*)/gi,
-  ];
-  for (const regex of nfPatterns) {
-    while ((m = regex.exec(text)) !== null) {
-      const val = m[1].trim();
-      if (val.length >= 1 && !numFacturas.includes(val)) numFacturas.push(val);
-    }
-  }
-
-  return { cifs, proveedor_cif, fechas, totalFactura, baseImponible, totalIva, totalMatches, baseMatches, ivaMatches, numFacturas };
+  return parseTextoFacturaCompleto(text);
 }
 
 /** Puntúa la calidad de un parseo para comparar texto embebido vs OCR. */
@@ -1895,6 +1892,7 @@ function scoreParseo(p) {
   if (p.totalFactura > 0) s += 3;
   if (p.baseImponible > 0) s += 2;
   if (p.totalIva > 0) s += 1;
+  if (p.retencion > 0 || (p.retencionMatches && p.retencionMatches.length > 0)) s += 1;
   if (p.fechas.length > 0) s += 2;
   if (p.numFacturas.length > 0) s += 2;
   return s;
@@ -1922,11 +1920,9 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
   // ── PDF: texto embebido primero → fallback OCR si el parseo es pobre ──
   } else if (isPdf) {
     try {
-      const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
-      const parsed = await pdfParse(buf);
-      text = (parsed && parsed.text) || '';
+      text = await extractTextFromPdfWithPdfjs(buffer);
     } catch (e) {
-      console.error('[OCR] pdf-parse falló, usando fallback:', e.message);
+      console.error('[OCR] pdfjs texto embebido falló, usando fallback regex:', e.message);
       text = extractTextFromPdfBufferFallback(buffer);
     }
 
@@ -1969,7 +1965,23 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
   console.log(`[OCR] Método final: ${metodo_extraccion} — Texto: ${text.length} chars`);
   console.log(`[OCR] Texto (primeros 500 chars):`, text.slice(0, 500));
 
-  const { cifs, proveedor_cif, fechas, totalFactura, baseImponible, totalIva, totalMatches, baseMatches, ivaMatches, numFacturas } = parseo;
+  const {
+    cifs,
+    entidades_candidatas,
+    proveedor_cif,
+    ambiguedad_proveedor,
+    fechas,
+    totalFactura,
+    baseImponible,
+    totalIva,
+    retencion,
+    totalMatches,
+    baseMatches,
+    ivaMatches,
+    retencionMatches,
+    numFacturas,
+    importes_coherentes,
+  } = parseo;
   const nombreOcrSugerido = inferProveedorNombre(text, proveedor_cif);
 
   let proveedor_nombre = '';
@@ -1979,8 +1991,8 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
     try {
       const emp = await buscarEmpresaPorCif(proveedor_cif);
       if (emp) {
-        proveedor_nombre = String(emp.Nombre || '').trim();
-        empresa_id = emp.id_empresa != null ? String(emp.id_empresa) : '';
+        proveedor_nombre = getNombreFromEmpresaItem(emp);
+        empresa_id = getIdEmpresaFromItem(emp);
         proveedor_en_maestros = true;
       }
     } catch (e) {
@@ -2007,12 +2019,18 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
     numero_factura: numFacturas.length > 0 ? 'media' : 'baja',
     base_imponible: baseImponible > 0 ? (baseMatches.length > 0 ? 'alta' : 'media') : 'baja',
     total_iva: totalIva > 0 ? (ivaMatches.length > 0 ? 'alta' : 'media') : 'baja',
+    retencion: retencion > 0 || (retencionMatches && retencionMatches.length > 0) ? 'alta' : 'baja',
   };
 
   const ocr_confianza_global = averageOcrConfidence(confianza);
 
+  const proveedorCifCanon = proveedor_cif ? normalizeCif(proveedor_cif) : '';
+  if (proveedorCifCanon && proveedorCifCanon !== proveedor_cif) {
+    console.log(`[OCR] CIF normalizado para respuesta: "${proveedor_cif}" → "${proveedorCifCanon}"`);
+  }
+
   return {
-    proveedor_cif: proveedor_cif || '',
+    proveedor_cif: proveedorCifCanon || proveedor_cif || '',
     proveedor_nombre: proveedor_nombre || '',
     empresa_id: empresa_id || '',
     proveedor_en_maestros,
@@ -2022,11 +2040,36 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
     total_factura: totalFactura,
     base_imponible: baseImponible,
     total_iva: totalIva,
+    retencion,
     confianza,
     texto_extraido: text.slice(0, 8000),
     metodo_extraccion,
     ocr_confianza_global,
+    entidades_candidatas,
+    ambiguedad_proveedor,
+    importes_coherentes,
+    proveedor_resuelto_por: 'extraccion',
+    receptor_resuelto_por: null,
+    match_por: null,
+    extraction_snapshot: {
+      proveedor_cif: proveedorCifCanon || proveedor_cif || '',
+      numero_factura_proveedor: numFacturas[0] || '',
+      fecha_emision: fechas[0] || '',
+      base_imponible: baseImponible,
+      total_iva: totalIva,
+      retencion,
+      total_factura: totalFactura,
+      confianza,
+    },
   };
+}
+
+async function ejecutarReconciliarFacturaOcr(body) {
+  return reconciliarFacturaOcr(body, {
+    buscarEmpresaPorCif,
+    getNombreFromEmpresaItem,
+    getIdEmpresaFromItem,
+  });
 }
 
 function extractTextFromPdfBufferFallback(buffer) {
@@ -2133,7 +2176,7 @@ router.post('/facturacion/ocr/confirmar', async (req, res) => {
         numero_factura_proveedor: b.numero_factura_proveedor || '',
         base_imponible: round2(b.base_imponible || 0),
         total_iva: round2(b.total_iva || 0),
-        total_retencion: 0,
+        total_retencion: round2(b.retencion ?? b.total_retencion ?? 0),
         total_factura: round2(b.total_factura || 0),
         total_cobrado: 0,
         saldo_pendiente: round2(b.total_factura || 0),

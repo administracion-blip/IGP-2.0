@@ -22,12 +22,36 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
 type Confianza = Record<string, string>;
 
+type EntidadCandidata = {
+  id: string;
+  cif: string;
+  nombre_candidato?: string;
+  direccion_candidata?: string;
+  contexto?: string;
+  score_emisor?: number;
+  score_receptor?: number;
+  rol_provisional?: string;
+};
+
 type EmpresaCatalogo = {
   id_empresa?: string;
   Nombre?: string;
   Cif?: string;
   Sede?: string;
 };
+
+type CamposManuales = Partial<Record<
+  | 'proveedor_cif'
+  | 'proveedor_nombre'
+  | 'numero_factura_proveedor'
+  | 'fecha_emision'
+  | 'base_imponible'
+  | 'total_iva'
+  | 'retencion'
+  | 'total_factura'
+  | 'observaciones',
+  boolean
+>>;
 
 type Borrador = {
   idx: number;
@@ -37,6 +61,8 @@ type Borrador = {
   sociedad_grupo_nombre: string;
   sociedad_grupo_cif: string;
   proveedor_cif: string;
+  /** CIF proveedor tras la primera extracción (para reconciliación API) */
+  proveedor_provisional_cif: string;
   proveedor_nombre: string;
   /** id en `igp_Empresas` si el CIF existe en maestro */
   empresa_id?: string;
@@ -48,9 +74,25 @@ type Borrador = {
   fecha_emision: string;
   base_imponible: number;
   total_iva: number;
+  retencion: number;
   total_factura: number;
   observaciones: string;
   confianza: Confianza;
+  /** Solo true si el usuario editó el campo a mano (no OCR ni reconciliación ni lookup) */
+  campos_manuales: CamposManuales;
+  entidades_candidatas: EntidadCandidata[];
+  texto_extraido: string;
+  extraction_snapshot: {
+    proveedor_cif: string;
+    numero_factura_proveedor: string;
+    fecha_emision: string;
+    base_imponible: number;
+    total_iva: number;
+    retencion: number;
+    total_factura: number;
+    confianza: Confianza;
+  };
+  reconciliacion_warning: string;
   /** Origen del texto: texto embebido del PDF, OCR de imagen u OCR tras rasterizar PDF escaneado */
   metodo_extraccion?: string;
   ocr_confianza_global?: number;
@@ -211,9 +253,12 @@ export default function RegistroMasivoScreen() {
         const field = zonaActiva.field;
         if (zonaActiva.numeric) {
           const numVal = parseFloat(texto.replace(/[^\d.,\-]/g, '').replace(',', '.')) || 0;
-          updateBorrador(selectedBorrador.idx, field, numVal);
+          patchBorrador(selectedBorrador.idx, { [field]: numVal } as Partial<Borrador>);
         } else {
-          updateBorrador(selectedBorrador.idx, field, texto);
+          patchBorrador(selectedBorrador.idx, { [field]: texto } as Partial<Borrador>);
+        }
+        if (field === 'proveedor_cif') {
+          setTimeout(() => lookupCifEnMaestro(selectedBorrador.idx, texto), 100);
         }
         alertMsg('Zona OCR', `Campo actualizado: "${texto}"`);
       } else {
@@ -263,22 +308,83 @@ export default function RegistroMasivoScreen() {
     setShowSociedadDropdown(false);
   }, [selectedIdx]);
 
-  const setSociedadGrupo = (idx: number, e: EmpresaCatalogo) => {
+  const setSociedadGrupo = async (idx: number, e: EmpresaCatalogo) => {
     const id = e.id_empresa != null ? String(e.id_empresa) : '';
+    const socCif = e.Cif != null ? String(e.Cif) : '';
+    const socNombre = e.Nombre != null ? String(e.Nombre) : '';
+
+    const prevRow = borradores.find((x) => x.idx === idx);
+
     setBorradores((prev) =>
       prev.map((b) =>
         b.idx === idx
           ? {
               ...b,
               sociedad_grupo_id: id,
-              sociedad_grupo_nombre: e.Nombre != null ? String(e.Nombre) : '',
-              sociedad_grupo_cif: e.Cif != null ? String(e.Cif) : '',
+              sociedad_grupo_nombre: socNombre,
+              sociedad_grupo_cif: socCif,
             }
           : b,
       ),
     );
     setSociedadSearch('');
     setShowSociedadDropdown(false);
+
+    if (!prevRow?.entidades_candidatas?.length) return;
+
+    try {
+      const res = await fetch(`${API_URL}/api/facturacion/ocr/reconciliar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sociedad_cif: socCif,
+          sociedad_nombre: socNombre,
+          entidades_candidatas: prevRow.entidades_candidatas,
+          texto_extraido: prevRow.texto_extraido || '',
+          extraction_snapshot: prevRow.extraction_snapshot,
+          campos_manuales: prevRow.campos_manuales || {},
+          proveedor_provisional_cif:
+            prevRow.proveedor_provisional_cif || prevRow.extraction_snapshot?.proveedor_cif || '',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Reconciliación fallida');
+      const d = data.datos;
+      if (!d) return;
+
+      setBorradores((prev) =>
+        prev.map((row) => {
+          if (row.idx !== idx) return row;
+          const m = row.campos_manuales || {};
+          const next: Borrador = {
+            ...row,
+            reconciliacion_warning: typeof d.warning === 'string' ? d.warning : '',
+          };
+          if (!m.proveedor_cif && d.proveedor_cif != null) next.proveedor_cif = String(d.proveedor_cif);
+          if (!m.proveedor_nombre && d.proveedor_nombre != null) next.proveedor_nombre = String(d.proveedor_nombre);
+          if (!m.proveedor_cif && !m.proveedor_nombre && d.empresa_id != null) next.empresa_id = String(d.empresa_id);
+          if (!m.proveedor_cif && !m.proveedor_nombre && typeof d.proveedor_en_maestros === 'boolean') {
+            next.proveedor_en_maestros = d.proveedor_en_maestros;
+          }
+          if (!m.proveedor_nombre && d.nombre_sugerido_ocr != null) next.nombre_sugerido_ocr = String(d.nombre_sugerido_ocr);
+          if (!m.numero_factura_proveedor && d.numero_factura_proveedor != null) {
+            next.numero_factura_proveedor = String(d.numero_factura_proveedor);
+          }
+          if (!m.fecha_emision && d.fecha_emision != null) {
+            const raw = String(d.fecha_emision);
+            next.fecha_emision = /^\d{4}-\d{2}-\d{2}/.test(raw) ? isoToDmy(raw.substring(0, 10)) : raw;
+          }
+          if (!m.base_imponible && d.base_imponible != null) next.base_imponible = Number(d.base_imponible);
+          if (!m.total_iva && d.total_iva != null) next.total_iva = Number(d.total_iva);
+          if (!m.retencion && d.retencion != null) next.retencion = Number(d.retencion);
+          if (!m.total_factura && d.total_factura != null) next.total_factura = Number(d.total_factura);
+          if (d.confianza && typeof d.confianza === 'object') next.confianza = { ...next.confianza, ...d.confianza };
+          return next;
+        }),
+      );
+    } catch (err: any) {
+      alertMsg('Reconciliación', err.message || 'No se pudo reconciliar con el documento');
+    }
   };
 
   const subirArchivos = useCallback(() => {
@@ -311,6 +417,16 @@ export default function RegistroMasivoScreen() {
           if (!res.ok) throw new Error(data.error ?? 'Error OCR');
 
           const d = data.datos;
+          const extSnap = d.extraction_snapshot || {
+            proveedor_cif: d.proveedor_cif || '',
+            numero_factura_proveedor: d.numero_factura_proveedor || '',
+            fecha_emision: d.fecha_emision || '',
+            base_imponible: d.base_imponible ?? 0,
+            total_iva: d.total_iva ?? 0,
+            retencion: d.retencion ?? 0,
+            total_factura: d.total_factura ?? 0,
+            confianza: d.confianza || {},
+          };
           nuevos.push({
             idx: baseIdx + i,
             archivo: data.archivo,
@@ -318,6 +434,7 @@ export default function RegistroMasivoScreen() {
             sociedad_grupo_nombre: '',
             sociedad_grupo_cif: '',
             proveedor_cif: d.proveedor_cif || '',
+            proveedor_provisional_cif: d.proveedor_cif || '',
             proveedor_nombre: d.proveedor_nombre || '',
             empresa_id: d.empresa_id || '',
             proveedor_en_maestros: Boolean(d.proveedor_en_maestros),
@@ -326,9 +443,15 @@ export default function RegistroMasivoScreen() {
             fecha_emision: d.fecha_emision ? isoToDmy(d.fecha_emision) : '',
             base_imponible: d.base_imponible || 0,
             total_iva: d.total_iva || 0,
+            retencion: typeof d.retencion === 'number' ? d.retencion : 0,
             total_factura: d.total_factura || 0,
             observaciones: '',
             confianza: d.confianza || {},
+            campos_manuales: {},
+            entidades_candidatas: Array.isArray(d.entidades_candidatas) ? d.entidades_candidatas : [],
+            texto_extraido: typeof d.texto_extraido === 'string' ? d.texto_extraido : '',
+            extraction_snapshot: extSnap,
+            reconciliacion_warning: '',
             metodo_extraccion: d.metodo_extraccion,
             ocr_confianza_global: typeof d.ocr_confianza_global === 'number' ? d.ocr_confianza_global : undefined,
             descartado: false,
@@ -380,11 +503,57 @@ export default function RegistroMasivoScreen() {
     }
   };
 
-  const updateBorrador = (idx: number, field: string, value: any) => {
+  /** Actualización desde API/OCR/reconciliación (no marca campos manuales). */
+  const patchBorrador = (idx: number, patch: Partial<Borrador>) => {
     setBorradores((prev) =>
-      prev.map((b) => b.idx === idx ? { ...b, [field]: value } : b)
+      prev.map((b) => (b.idx === idx ? { ...b, ...patch } : b)),
     );
   };
+
+  /** Edición explícita del usuario en formulario. */
+  const usuarioEditaCampo = (idx: number, field: keyof CamposManuales, value: any) => {
+    setBorradores((prev) =>
+      prev.map((b) =>
+        b.idx === idx
+          ? { ...b, [field]: value, campos_manuales: { ...b.campos_manuales, [field]: true } }
+          : b,
+      ),
+    );
+  };
+
+  const lookupCifEnMaestro = useCallback(
+    (idx: number, cifOverride?: string) => {
+      const cifRaw = cifOverride ?? borradores.find((b) => b.idx === idx)?.proveedor_cif;
+      if (!cifRaw) return;
+      const cifNorm = cifRaw.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+      if (cifNorm.length < 6) return;
+      const match = empresasCatalogo.find((e) => {
+        const ec = (e.Cif || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        return ec && ec === cifNorm;
+      });
+      if (match) {
+        setBorradores((prev) =>
+          prev.map((b) =>
+            b.idx === idx
+              ? {
+                  ...b,
+                  proveedor_nombre: String(match.Nombre || '').trim(),
+                  empresa_id: match.id_empresa != null ? String(match.id_empresa) : '',
+                  proveedor_en_maestros: true,
+                  nombre_sugerido_ocr: '',
+                  confianza: {
+                    ...b.confianza,
+                    proveedor_nombre: 'alta',
+                    proveedor_cif: 'alta',
+                  },
+                }
+              : b,
+          ),
+        );
+      }
+    },
+    [borradores, empresasCatalogo],
+  );
 
   const abrirModalCrearEmpresa = (b: Borrador) => {
     setNombreNuevaEmpresa((b.nombre_sugerido_ocr || '').trim());
@@ -428,13 +597,10 @@ export default function RegistroMasivoScreen() {
                   empresa_id: emp?.id_empresa != null ? String(emp.id_empresa) : '',
                   proveedor_en_maestros: true,
                   nombre_sugerido_ocr: '',
-                  confianza: {
-                    ...b.confianza,
-                    proveedor_nombre: 'alta',
-                  },
+                  confianza: { ...b.confianza, proveedor_nombre: 'alta' },
                 }
-              : b
-          )
+              : b,
+          ),
         );
       }
       showToast('Empresa creada', `${nombre} vinculada al CIF ${borradorModalEmpresa.proveedor_cif}`, 'success');
@@ -587,12 +753,12 @@ export default function RegistroMasivoScreen() {
                 />
                 <Text style={styles.fileInfoName} numberOfLines={1}>{selectedBorrador.archivo.nombre}</Text>
                 {selectedBorrador.descartado ? (
-                  <TouchableOpacity style={styles.restoreBtn} onPress={() => updateBorrador(selectedBorrador.idx, 'descartado', false)}>
+                  <TouchableOpacity style={styles.restoreBtn} onPress={() => patchBorrador(selectedBorrador.idx, { descartado: false })}>
                     <MaterialIcons name="undo" size={14} color="#059669" />
                     <Text style={{ fontSize: 11, color: '#059669', fontWeight: '500' }}>Restaurar</Text>
                   </TouchableOpacity>
                 ) : (
-                  <TouchableOpacity style={styles.discardBtn} onPress={() => updateBorrador(selectedBorrador.idx, 'descartado', true)}>
+                  <TouchableOpacity style={styles.discardBtn} onPress={() => patchBorrador(selectedBorrador.idx, { descartado: true })}>
                     <MaterialIcons name="close" size={14} color="#dc2626" />
                     <Text style={{ fontSize: 11, color: '#dc2626', fontWeight: '500' }}>Descartar</Text>
                   </TouchableOpacity>
@@ -665,6 +831,13 @@ export default function RegistroMasivoScreen() {
                 </View>
               )}
 
+              {!!selectedBorrador.reconciliacion_warning?.trim() && (
+                <View style={styles.reconWarn}>
+                  <MaterialIcons name="info-outline" size={14} color="#0369a1" />
+                  <Text style={styles.reconWarnText}>{selectedBorrador.reconciliacion_warning}</Text>
+                </View>
+              )}
+
               {selectedBorrador.proveedor_cif && !selectedBorrador.proveedor_en_maestros && (
                 <View style={styles.maestroWarn}>
                   <MaterialIcons name="store" size={16} color="#c2410c" />
@@ -719,14 +892,15 @@ export default function RegistroMasivoScreen() {
               )}
 
               <View style={styles.formGrid}>
-                <FieldRowZona label="CIF Proveedor" value={selectedBorrador.proveedor_cif} conf={selectedBorrador.confianza.proveedor_cif} onChange={(v) => updateBorrador(selectedBorrador.idx, 'proveedor_cif', v)} onZona={() => activarZona('proveedor_cif')} zonaActiva={zonaActiva?.field === 'proveedor_cif'} />
-                <FieldRowZona label="Nombre proveedor" value={selectedBorrador.proveedor_nombre} conf={selectedBorrador.confianza.proveedor_nombre} onChange={(v) => updateBorrador(selectedBorrador.idx, 'proveedor_nombre', v)} onZona={() => activarZona('proveedor_nombre')} zonaActiva={zonaActiva?.field === 'proveedor_nombre'} />
-                <FieldRowZona label="Nº Factura" value={selectedBorrador.numero_factura_proveedor} conf={selectedBorrador.confianza.numero_factura} onChange={(v) => updateBorrador(selectedBorrador.idx, 'numero_factura_proveedor', v)} onZona={() => activarZona('numero_factura_proveedor')} zonaActiva={zonaActiva?.field === 'numero_factura_proveedor'} />
-                <FieldRowZona label="Fecha emisión" value={selectedBorrador.fecha_emision} conf={selectedBorrador.confianza.fecha} onChange={(v) => updateBorrador(selectedBorrador.idx, 'fecha_emision', v)} placeholder="dd/mm/aaaa" onZona={() => activarZona('fecha_emision')} zonaActiva={zonaActiva?.field === 'fecha_emision'} />
-                <FieldRowZona label="Base imponible" value={String(selectedBorrador.base_imponible || '')} conf={selectedBorrador.confianza.base_imponible} onChange={(v) => updateBorrador(selectedBorrador.idx, 'base_imponible', parseFloat(v) || 0)} numeric onZona={() => activarZona('base_imponible', true)} zonaActiva={zonaActiva?.field === 'base_imponible'} />
-                <FieldRowZona label="IVA" value={String(selectedBorrador.total_iva || '')} conf={selectedBorrador.confianza.total_iva} onChange={(v) => updateBorrador(selectedBorrador.idx, 'total_iva', parseFloat(v) || 0)} numeric onZona={() => activarZona('total_iva', true)} zonaActiva={zonaActiva?.field === 'total_iva'} />
-                <FieldRowZona label="Total factura" value={String(selectedBorrador.total_factura || '')} conf={selectedBorrador.confianza.total} onChange={(v) => updateBorrador(selectedBorrador.idx, 'total_factura', parseFloat(v) || 0)} numeric onZona={() => activarZona('total_factura', true)} zonaActiva={zonaActiva?.field === 'total_factura'} />
-                <FieldRow label="Observaciones" value={selectedBorrador.observaciones} onChange={(v) => updateBorrador(selectedBorrador.idx, 'observaciones', v)} placeholder="Notas adicionales…" />
+                <FieldRowZona label="CIF Proveedor" value={selectedBorrador.proveedor_cif} conf={selectedBorrador.confianza.proveedor_cif} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'proveedor_cif', v)} onBlur={() => lookupCifEnMaestro(selectedBorrador.idx)} onZona={() => activarZona('proveedor_cif')} zonaActiva={zonaActiva?.field === 'proveedor_cif'} />
+                <FieldRowZona label="Nombre proveedor" value={selectedBorrador.proveedor_nombre} conf={selectedBorrador.confianza.proveedor_nombre} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'proveedor_nombre', v)} onZona={() => activarZona('proveedor_nombre')} zonaActiva={zonaActiva?.field === 'proveedor_nombre'} />
+                <FieldRowZona label="Nº Factura" value={selectedBorrador.numero_factura_proveedor} conf={selectedBorrador.confianza.numero_factura} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'numero_factura_proveedor', v)} onZona={() => activarZona('numero_factura_proveedor')} zonaActiva={zonaActiva?.field === 'numero_factura_proveedor'} />
+                <FieldRowZona label="Fecha emisión" value={selectedBorrador.fecha_emision} conf={selectedBorrador.confianza.fecha} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'fecha_emision', v)} placeholder="dd/mm/aaaa" onZona={() => activarZona('fecha_emision')} zonaActiva={zonaActiva?.field === 'fecha_emision'} />
+                <FieldRowZona label="Base imponible" value={String(selectedBorrador.base_imponible || '')} conf={selectedBorrador.confianza.base_imponible} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'base_imponible', parseFloat(v) || 0)} numeric onZona={() => activarZona('base_imponible', true)} zonaActiva={zonaActiva?.field === 'base_imponible'} />
+                <FieldRowZona label="IVA" value={String(selectedBorrador.total_iva || '')} conf={selectedBorrador.confianza.total_iva} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'total_iva', parseFloat(v) || 0)} numeric onZona={() => activarZona('total_iva', true)} zonaActiva={zonaActiva?.field === 'total_iva'} />
+                <FieldRowZona label="Retención" value={String(selectedBorrador.retencion ?? '')} conf={selectedBorrador.confianza.retencion} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'retencion', parseFloat(v) || 0)} numeric onZona={() => activarZona('retencion', true)} zonaActiva={zonaActiva?.field === 'retencion'} />
+                <FieldRowZona label="Total factura" value={String(selectedBorrador.total_factura || '')} conf={selectedBorrador.confianza.total} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'total_factura', parseFloat(v) || 0)} numeric onZona={() => activarZona('total_factura', true)} zonaActiva={zonaActiva?.field === 'total_factura'} />
+                <FieldRow label="Observaciones" value={selectedBorrador.observaciones} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'observaciones', v)} placeholder="Notas adicionales…" />
               </View>
             </ScrollView>
           </View>
@@ -785,7 +959,9 @@ export default function RegistroMasivoScreen() {
                           top: 0,
                           width: '100%',
                           height: '100%',
-                          cursor: zonaExtracting ? 'wait' : 'crosshair',
+                          cursor: zonaExtracting
+                            ? 'wait'
+                            : 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'24\'%3E%3Cline x1=\'12\' y1=\'0\' x2=\'12\' y2=\'24\' stroke=\'%23ff00ff\' stroke-width=\'2\'/%3E%3Cline x1=\'0\' y1=\'12\' x2=\'24\' y2=\'12\' stroke=\'%23ff00ff\' stroke-width=\'2\'/%3E%3C/svg%3E") 12 12, crosshair',
                           boxSizing: 'border-box',
                         } as any}
                       >
@@ -797,8 +973,8 @@ export default function RegistroMasivoScreen() {
                               top: Math.min(zonaRect.startY, zonaRect.endY),
                               width: Math.abs(zonaRect.endX - zonaRect.startX),
                               height: Math.abs(zonaRect.endY - zonaRect.startY),
-                              border: '2px dashed #0ea5e9',
-                              backgroundColor: 'rgba(14, 165, 233, 0.15)',
+                              border: '2px solid #ff00ff',
+                              backgroundColor: 'rgba(255, 0, 255, 0.18)',
                               borderRadius: 3,
                               pointerEvents: 'none',
                             } as any}
@@ -943,7 +1119,7 @@ function FieldRow({ label, value, conf, onChange, numeric, placeholder }: {
   );
 }
 
-function FieldRowZona({ label, value, conf, onChange, numeric, placeholder, onZona, zonaActiva }: {
+function FieldRowZona({ label, value, conf, onChange, numeric, placeholder, onZona, zonaActiva, onBlur }: {
   label: string;
   value: string;
   conf?: string;
@@ -952,6 +1128,7 @@ function FieldRowZona({ label, value, conf, onChange, numeric, placeholder, onZo
   placeholder?: string;
   onZona: () => void;
   zonaActiva?: boolean;
+  onBlur?: () => void;
 }) {
   return (
     <View style={styles.fieldRow}>
@@ -963,6 +1140,7 @@ function FieldRowZona({ label, value, conf, onChange, numeric, placeholder, onZo
         style={[styles.fieldInput, numeric && { textAlign: 'right' as const }]}
         value={value}
         onChangeText={onChange}
+        onBlur={onBlur}
         keyboardType={numeric ? 'decimal-pad' : 'default'}
         placeholder={placeholder}
         placeholderTextColor="#94a3b8"
@@ -1152,6 +1330,19 @@ const styles = StyleSheet.create({
     borderColor: '#fde68a',
   },
   dupWarnText: { fontSize: 10, color: '#b45309', flex: 1 },
+
+  reconWarn: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 5,
+    backgroundColor: '#f0f9ff',
+    borderRadius: 6,
+    padding: 6,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    marginBottom: 4,
+  },
+  reconWarnText: { fontSize: 10, color: '#0c4a6e', flex: 1, lineHeight: 14 },
 
   maestroWarn: {
     flexDirection: 'row',

@@ -13,22 +13,14 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
-import * as DocumentPicker from 'expo-document-picker';
-import type { DocumentPickerAsset } from 'expo-document-picker';
 import { useAuth } from '../../contexts/AuthContext';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { InputFecha } from '../../components/InputFecha';
 import { formatMoneda, METODOS_PAGO, labelFormaPago, type Factura } from '../../utils/facturacion';
 import { formatFecha, fechaToIso } from '../../utils/formatFecha';
 import { useLocalToast } from '../../components/Toast';
-import { buildPagoFormData } from '../../utils/pagoFormData';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
-
-function todayDmy(): string {
-  const d = new Date();
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-}
 const PAGE_SIZE = 50;
 
 /** ISO o dd/mm/aaaa en BD → dd/mm/aaaa para listado */
@@ -52,19 +44,6 @@ function dmyToIso(dmy: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(dmy)) return dmy;
   return '';
 }
-
-function keyEmisor(f: Factura): string {
-  const id = String(f.emisor_id ?? '').trim();
-  if (id) return `id:${id}`;
-  return `nom:${String(f.emisor_nombre ?? '').trim()}`;
-}
-
-function keyReceptor(f: Factura): string {
-  const id = String(f.empresa_id ?? '').trim();
-  if (id) return `id:${id}`;
-  return `nom:${String(f.empresa_nombre ?? '').trim()}`;
-}
-
 const MIN_COL_WIDTH = 40;
 
 type TabEstado = 'todas' | 'borrador' | 'pendiente_revision' | 'pendiente_pago' | 'parcialmente_pagada' | 'pagada' | 'anulada';
@@ -171,15 +150,10 @@ export default function FacturasGastoScreen() {
   const [modalBorrar, setModalBorrar] = useState(false);
   const [modalPagar, setModalPagar] = useState(false);
   const [pagoImporte, setPagoImporte] = useState('');
-  const [pagoFecha, setPagoFecha] = useState('');
   const [pagoMetodo, setPagoMetodo] = useState('transferencia');
   const [pagoReferencia, setPagoReferencia] = useState('');
-  const [pagoReciboAsset, setPagoReciboAsset] = useState<DocumentPickerAsset | null>(null);
   const [metodoDropdownOpen, setMetodoDropdownOpen] = useState(false);
 
-  const [filtroEmisorKey, setFiltroEmisorKey] = useState('');
-  const [filtroReceptorKey, setFiltroReceptorKey] = useState('');
-  const [modalFiltro, setModalFiltro] = useState<'emisor' | 'receptor' | 'estado' | null>(null);
 
   const fetchFacturas = useCallback(() => {
     setLoading(true);
@@ -201,39 +175,9 @@ export default function FacturasGastoScreen() {
     else { setSortCol(col); setSortDir('asc'); }
   }, [sortCol]);
 
-  const opcionesEmisor = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const f of facturas) {
-      const k = keyEmisor(f);
-      const label = (f.emisor_nombre || '').trim() || '—';
-      if (!m.has(k)) m.set(k, label);
-    }
-    return Array.from(m.entries()).sort((a, b) => a[1].localeCompare(b[1], 'es'));
-  }, [facturas]);
-
-  const opcionesReceptor = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const f of facturas) {
-      const k = keyReceptor(f);
-      const label = (f.empresa_nombre || '').trim() || '—';
-      if (!m.has(k)) m.set(k, label);
-    }
-    return Array.from(m.entries()).sort((a, b) => a[1].localeCompare(b[1], 'es'));
-  }, [facturas]);
-
-  const labelEmisorFiltro = filtroEmisorKey
-    ? opcionesEmisor.find(([k]) => k === filtroEmisorKey)?.[1] ?? '—'
-    : 'Todas las sociedades';
-  const labelReceptorFiltro = filtroReceptorKey
-    ? opcionesReceptor.find(([k]) => k === filtroReceptorKey)?.[1] ?? '—'
-    : 'Todos los proveedores';
-  const labelEstadoFiltro = TABS.find((t) => t.key === tabActivo)?.label ?? 'Todas';
-
   const filtradas = useMemo(() => {
     let list = facturas;
     if (tabActivo !== 'todas') list = list.filter((f) => f.estado === tabActivo);
-    if (filtroEmisorKey) list = list.filter((f) => keyEmisor(f) === filtroEmisorKey);
-    if (filtroReceptorKey) list = list.filter((f) => keyReceptor(f) === filtroReceptorKey);
     const isoDesde = dmyToIso(fechaDesde);
     const isoHasta = dmyToIso(fechaHasta);
     if (isoDesde) {
@@ -272,16 +216,13 @@ export default function FacturasGastoScreen() {
       });
     }
     return list;
-  }, [facturas, tabActivo, filtroEmisorKey, filtroReceptorKey, busqueda, fechaDesde, fechaHasta, sortCol, sortDir]);
+  }, [facturas, tabActivo, busqueda, fechaDesde, fechaHasta, sortCol, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(filtradas.length / PAGE_SIZE));
   const pageClamped = Math.min(Math.max(0, pageIndex), totalPages - 1);
   const paginadas = filtradas.slice(pageClamped * PAGE_SIZE, (pageClamped + 1) * PAGE_SIZE);
 
-  useEffect(() => {
-    setPageIndex(0);
-    setSelectedRowIndex(null);
-  }, [tabActivo, busqueda, fechaDesde, fechaHasta, filtroEmisorKey, filtroReceptorKey]);
+  useEffect(() => { setPageIndex(0); setSelectedRowIndex(null); }, [tabActivo, busqueda, fechaDesde, fechaHasta]);
 
   const selectedFactura: Factura | null = selectedRowIndex != null ? paginadas[selectedRowIndex] ?? null : null;
 
@@ -348,15 +289,7 @@ export default function FacturasGastoScreen() {
     if (!selectedFactura) return;
     if (id === 'editar') { router.push(`/facturacion/factura-detalle?id=${selectedFactura.id_factura}&modo=editar` as never); return; }
     if (id === 'emitir') { handleEmitir(); return; }
-    if (id === 'pagar') {
-      setPagoImporte(String(selectedFactura.saldo_pendiente ?? 0));
-      setPagoFecha(todayDmy());
-      setPagoMetodo('transferencia');
-      setPagoReferencia('');
-      setPagoReciboAsset(null);
-      setModalPagar(true);
-      return;
-    }
+    if (id === 'pagar') { setPagoImporte(String(selectedFactura.saldo_pendiente ?? 0)); setPagoMetodo('transferencia'); setPagoReferencia(''); setModalPagar(true); return; }
     if (id === 'borrar') { setModalBorrar(true); return; }
   };
 
@@ -413,27 +346,12 @@ export default function FacturasGastoScreen() {
     if (!selectedFactura) return;
     const importe = parseFloat(pagoImporte.replace(',', '.'));
     if (!importe || importe <= 0) { showToast('Aviso', 'El importe debe ser mayor que 0', 'warning'); return; }
-    const fechaIso = fechaToIso(pagoFecha.trim());
-    if (!fechaIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
-      showToast('Aviso', 'Indica una fecha válida (dd/mm/aaaa)', 'warning');
-      return;
-    }
     setProcesando(true);
     try {
-      const fd = await buildPagoFormData({
-        fecha: fechaIso,
-        importe,
-        metodo_pago: pagoMetodo,
-        referencia: pagoReferencia,
-        usuario_id: user?.id_usuario != null && String(user.id_usuario).trim() !== '' ? String(user.id_usuario) : undefined,
-        usuario_nombre: user?.Nombre,
-        recibo: pagoReciboAsset
-          ? { uri: pagoReciboAsset.uri, name: pagoReciboAsset.name || 'recibo', mimeType: pagoReciboAsset.mimeType }
-          : null,
-      });
       const res = await fetch(`${API_URL}/api/facturacion/facturas/${selectedFactura.id_factura}/pagos`, {
         method: 'POST',
-        body: fd,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ importe, metodo_pago: pagoMetodo, referencia: pagoReferencia }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al registrar pago');
@@ -502,6 +420,20 @@ export default function FacturasGastoScreen() {
         )}
       </View>
 
+      {/* Tabs */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll} contentContainerStyle={styles.tabsContent}>
+        {TABS.map((t) => (
+          <TouchableOpacity
+            key={t.key}
+            style={[styles.tab, tabActivo === t.key && styles.tabActive]}
+            onPress={() => setTabActivo(t.key)}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.tabText, tabActivo === t.key && styles.tabTextActive]}>{t.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
       {/* Toolbar */}
       <View style={styles.toolbarRow}>
         <View style={styles.toolbar}>
@@ -567,116 +499,6 @@ export default function FacturasGastoScreen() {
           <InputFecha value={fechaHasta} onChange={setFechaHasta} format="dmy" placeholder="dd/mm/aaaa" />
         </View>
       </View>
-
-      <View style={styles.filtrosEmpresaRow}>
-        <View style={styles.filtrosEmpresaHintWrap}>
-          <Text style={styles.filtrosEmpresaHint}>Filtros</Text>
-        </View>
-        <TouchableOpacity
-          style={[styles.filtroEmpresaBtn, tabActivo !== 'todas' && styles.filtroEmpresaBtnActive]}
-          onPress={() => setModalFiltro('estado')}
-          activeOpacity={0.7}
-        >
-          <MaterialIcons name="filter-list" size={16} color={tabActivo !== 'todas' ? '#0ea5e9' : '#64748b'} />
-          <Text style={[styles.filtroEmpresaBtnText, tabActivo !== 'todas' && styles.filtroEmpresaBtnTextActive]} numberOfLines={1}>
-            Estado: {labelEstadoFiltro}
-          </Text>
-          <MaterialIcons name="arrow-drop-down" size={20} color="#64748b" />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.filtroEmpresaBtn, !!filtroEmisorKey && styles.filtroEmpresaBtnActive]}
-          onPress={() => setModalFiltro('emisor')}
-          activeOpacity={0.7}
-        >
-          <MaterialIcons name="business" size={16} color={filtroEmisorKey ? '#0ea5e9' : '#64748b'} />
-          <Text style={[styles.filtroEmpresaBtnText, !!filtroEmisorKey && styles.filtroEmpresaBtnTextActive]} numberOfLines={1}>
-            Empresa: {labelEmisorFiltro}
-          </Text>
-          <MaterialIcons name="arrow-drop-down" size={20} color="#64748b" />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.filtroEmpresaBtn, !!filtroReceptorKey && styles.filtroEmpresaBtnActive]}
-          onPress={() => setModalFiltro('receptor')}
-          activeOpacity={0.7}
-        >
-          <MaterialIcons name="storefront" size={16} color={filtroReceptorKey ? '#0ea5e9' : '#64748b'} />
-          <Text style={[styles.filtroEmpresaBtnText, !!filtroReceptorKey && styles.filtroEmpresaBtnTextActive]} numberOfLines={1}>
-            Proveedor: {labelReceptorFiltro}
-          </Text>
-          <MaterialIcons name="arrow-drop-down" size={20} color="#64748b" />
-        </TouchableOpacity>
-      </View>
-
-      <Modal visible={modalFiltro != null} transparent animationType="fade" onRequestClose={() => setModalFiltro(null)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalFiltro(null)}>
-          <View style={styles.filtroEmpresaModalCard} onStartShouldSetResponder={() => true}>
-            {modalFiltro === 'estado' && (
-              <>
-                <Text style={styles.filtroEmpresaModalTitle}>Estado</Text>
-                <ScrollView style={styles.filtroEmpresaModalList} keyboardShouldPersistTaps="handled">
-                  {TABS.map((t) => (
-                    <TouchableOpacity
-                      key={t.key}
-                      style={[styles.filtroEmpresaOption, tabActivo === t.key && styles.filtroEmpresaOptionActive]}
-                      onPress={() => {
-                        setTabActivo(t.key);
-                        setModalFiltro(null);
-                      }}
-                    >
-                      <Text style={styles.filtroEmpresaOptionText}>{t.label}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </>
-            )}
-            {(modalFiltro === 'emisor' || modalFiltro === 'receptor') && (
-              <>
-                <Text style={styles.filtroEmpresaModalTitle}>
-                  {modalFiltro === 'emisor' ? 'Sociedad del grupo (empresa)' : 'Proveedor'}
-                </Text>
-                <ScrollView style={styles.filtroEmpresaModalList} keyboardShouldPersistTaps="handled">
-                  <TouchableOpacity
-                    style={[
-                      styles.filtroEmpresaOption,
-                      modalFiltro === 'emisor' ? !filtroEmisorKey && styles.filtroEmpresaOptionActive : !filtroReceptorKey && styles.filtroEmpresaOptionActive,
-                    ]}
-                    onPress={() => {
-                      if (modalFiltro === 'emisor') setFiltroEmisorKey('');
-                      else setFiltroReceptorKey('');
-                      setModalFiltro(null);
-                    }}
-                  >
-                    <Text style={styles.filtroEmpresaOptionText}>
-                      {modalFiltro === 'emisor' ? 'Todas las sociedades del grupo' : 'Todos los proveedores'}
-                    </Text>
-                  </TouchableOpacity>
-                  {(modalFiltro === 'emisor' ? opcionesEmisor : opcionesReceptor).map(([key, label]) => (
-                    <TouchableOpacity
-                      key={key}
-                      style={[
-                        styles.filtroEmpresaOption,
-                        modalFiltro === 'emisor'
-                          ? filtroEmisorKey === key && styles.filtroEmpresaOptionActive
-                          : filtroReceptorKey === key && styles.filtroEmpresaOptionActive,
-                      ]}
-                      onPress={() => {
-                        if (modalFiltro === 'emisor') setFiltroEmisorKey(key);
-                        else setFiltroReceptorKey(key);
-                        setModalFiltro(null);
-                      }}
-                    >
-                      <Text style={styles.filtroEmpresaOptionText} numberOfLines={2}>{label}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </>
-            )}
-            <TouchableOpacity style={styles.filtroEmpresaModalClose} onPress={() => setModalFiltro(null)}>
-              <Text style={styles.filtroEmpresaModalCloseText}>Cerrar</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
 
       {/* Resumen rápido */}
       {filtradas.length > 0 && (
@@ -759,7 +581,7 @@ export default function FacturasGastoScreen() {
                 <View style={styles.row}>
                   <View style={styles.cellEmpty}>
                     <Text style={styles.cellEmptyText}>
-                      {busqueda.trim() || fechaDesde || fechaHasta || tabActivo !== 'todas' || filtroEmisorKey || filtroReceptorKey
+                      {busqueda.trim() || fechaDesde || fechaHasta || tabActivo !== 'todas'
                         ? 'Ningún resultado con los filtros aplicados'
                         : 'No hay facturas de gasto'}
                     </Text>
@@ -841,10 +663,6 @@ export default function FacturasGastoScreen() {
             <Text style={styles.modalTitle}>Registrar pago</Text>
             <Text style={styles.modalLabel}>Factura: {selectedFactura?.id_factura} — Saldo: {selectedFactura ? formatMoneda(selectedFactura.saldo_pendiente) : ''}</Text>
 
-            <ScrollView style={styles.modalPagarScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            <Text style={[styles.modalFieldLabel, styles.modalFieldLabelFirst]}>Fecha del pago</Text>
-            <InputFecha value={pagoFecha} onChange={setPagoFecha} format="dmy" placeholder="dd/mm/aaaa" style={styles.modalInput} />
-
             <Text style={styles.modalFieldLabel}>Importe</Text>
             <TextInput
               style={styles.modalInput}
@@ -874,44 +692,14 @@ export default function FacturasGastoScreen() {
               </View>
             )}
 
-            <Text style={styles.modalFieldLabel}>Tipo de recibo (Proveedor)</Text>
+            <Text style={styles.modalFieldLabel}>Referencia (opcional)</Text>
             <TextInput
               style={styles.modalInput}
               value={pagoReferencia}
               onChangeText={setPagoReferencia}
-              placeholder="Ej. justificante bancario, talón…"
+              placeholder="Nº transferencia, cheque…"
               placeholderTextColor="#94a3b8"
             />
-
-            <Text style={styles.modalFieldLabel}>Adjuntar recibo (opcional)</Text>
-            <View style={styles.reciboRow}>
-              <TouchableOpacity
-                style={styles.reciboBtn}
-                onPress={async () => {
-                  try {
-                    const r = await DocumentPicker.getDocumentAsync({
-                      copyToCacheDirectory: true,
-                      multiple: false,
-                      type: ['image/*', 'application/pdf'],
-                    });
-                    if (!r.canceled && r.assets?.[0]) setPagoReciboAsset(r.assets[0]);
-                  } catch {
-                    showToast('Error', 'No se pudo seleccionar el archivo', 'error');
-                  }
-                }}
-              >
-                <MaterialIcons name="attach-file" size={18} color="#0ea5e9" />
-                <Text style={styles.reciboBtnText}>{pagoReciboAsset ? 'Cambiar archivo' : 'Elegir archivo'}</Text>
-              </TouchableOpacity>
-              {pagoReciboAsset ? (
-                <TouchableOpacity onPress={() => setPagoReciboAsset(null)} style={styles.reciboClear}>
-                  <Text style={styles.reciboClearText} numberOfLines={1}>
-                    {pagoReciboAsset.name || 'Archivo'} · Quitar
-                  </Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-            </ScrollView>
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setModalPagar(false)} disabled={procesando}>
@@ -967,6 +755,20 @@ const styles = StyleSheet.create({
   backBtn: { padding: 4 },
   title: { fontSize: 20, fontWeight: '700', color: '#334155' },
 
+  tabsScroll: { maxHeight: 36, marginBottom: 8 },
+  tabsContent: { flexDirection: 'row', gap: 4 },
+  tab: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+  },
+  tabActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
+  tabText: { fontSize: 11, fontWeight: '500', color: '#64748b' },
+  tabTextActive: { color: '#fff', fontWeight: '600' },
+
   toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 10, flexWrap: 'wrap' },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   toolbarBtnWrap: { position: 'relative' as const },
@@ -1008,53 +810,6 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
 
   dateFilters: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-
-  filtrosEmpresaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 8,
-    paddingVertical: 4,
-  },
-  filtrosEmpresaHintWrap: { width: '100%' as const },
-  filtrosEmpresaHint: { fontSize: 11, color: '#94a3b8' },
-  filtroEmpresaBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    maxWidth: 280,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    backgroundColor: '#fff',
-  },
-  filtroEmpresaBtnActive: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
-  filtroEmpresaBtnText: { flex: 1, fontSize: 12, color: '#475569', fontWeight: '500' },
-  filtroEmpresaBtnTextActive: { color: '#0369a1' },
-  filtroEmpresaModalCard: {
-    width: '90%',
-    maxWidth: 400,
-    maxHeight: '70%',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 12,
-    overflow: 'hidden',
-  },
-  filtroEmpresaModalTitle: { fontSize: 15, fontWeight: '700', color: '#334155', marginBottom: 8 },
-  filtroEmpresaModalList: { maxHeight: 320 },
-  filtroEmpresaOption: {
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    marginBottom: 4,
-  },
-  filtroEmpresaOptionActive: { backgroundColor: '#e0f2fe' },
-  filtroEmpresaOptionText: { fontSize: 13, color: '#334155' },
-  filtroEmpresaModalClose: { marginTop: 8, paddingVertical: 8, alignItems: 'center' },
-  filtroEmpresaModalCloseText: { fontSize: 13, color: '#0ea5e9', fontWeight: '600' },
 
   subtitleRow: {
     flexDirection: 'row',
@@ -1151,24 +906,6 @@ const styles = StyleSheet.create({
     width: '90%',
     maxWidth: 400,
   },
-  modalPagarScroll: { maxHeight: 380 },
-  modalFieldLabelFirst: { marginTop: 0 },
-  reciboRow: { gap: 8, marginBottom: 4 },
-  reciboBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    alignSelf: 'flex-start',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: '#bae6fd',
-    borderRadius: 8,
-    backgroundColor: '#f0f9ff',
-  },
-  reciboBtnText: { fontSize: 14, color: '#0284c7', fontWeight: '600' },
-  reciboClear: { paddingVertical: 4 },
-  reciboClearText: { fontSize: 12, color: '#64748b' },
   modalTitle: { fontSize: 16, fontWeight: '700', color: '#334155', marginBottom: 12 },
   modalWarningTitle: { fontSize: 13, fontWeight: '700', color: '#b45309', marginBottom: 8 },
   modalLabel: { fontSize: 12, color: '#64748b', marginBottom: 12, lineHeight: 18 },
