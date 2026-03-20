@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { formatId6 } from '../utils/idFormat';
 import { useProductosCache } from '../contexts/ProductosCache';
+import { useLocalToast } from '../components/Toast';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -281,29 +282,43 @@ export default function ProductosScreen() {
     [updateProductoLocal, getProductId]
   );
 
+  const { show: showToast, ToastView } = useLocalToast();
+
   const batchToggleIGP = useCallback(
     async (nuevoVal: boolean) => {
       if (selectedIds.size === 0) return;
       setBatchUpdating(true);
       const ids = [...selectedIds];
       ids.forEach((id) => updateProductoLocal(id, { IGP: nuevoVal }));
-      const batchSize = 5;
-      for (let i = 0; i < ids.length; i += batchSize) {
-        const chunk = ids.slice(i, i + batchSize);
-        await Promise.all(
-          chunk.map((id) =>
-            fetch(`${API_URL}/api/agora/products/${encodeURIComponent(id)}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ IGP: nuevoVal }),
-            }).catch(() => {})
-          )
-        );
+      try {
+        const res = await fetch(`${API_URL}/api/agora/products/igp/batch`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            updates: ids.map((id) => ({ id, IGP: nuevoVal })),
+          }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          if (data.totalFallidos > 0) {
+            showToast(
+              'Actualización parcial',
+              `${data.totalActualizados} actualizados. ${data.totalFallidos} fallaron.`,
+              'warning'
+            );
+          } else {
+            showToast('IGP actualizado', `${data.totalActualizados} registro(s) actualizado(s)`, 'success');
+          }
+        } else {
+          showToast('Error', data.error || 'Error al actualizar IGP', 'error');
+        }
+      } catch (e) {
+        showToast('Error', e instanceof Error ? e.message : 'Error de conexión', 'error');
       }
       setSelectedIds(new Set());
       setBatchUpdating(false);
     },
-    [selectedIds, updateProductoLocal]
+    [selectedIds, updateProductoLocal, showToast]
   );
 
   const abrirModalEditar = useCallback((producto: Producto) => {
@@ -950,6 +965,7 @@ export default function ProductosScreen() {
           </KeyboardAvoidingView>
         </Pressable>
       </Modal>
+      {ToastView}
     </View>
   );
 }

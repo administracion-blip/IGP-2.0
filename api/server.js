@@ -2195,6 +2195,58 @@ app.post('/api/agora/products/sync', async (req, res) => {
   }
 });
 
+// Actualizar IGP de varios productos en lote. Payload: { updates: [{ id, IGP }] }
+app.patch('/api/agora/products/igp/batch', async (req, res) => {
+  const body = req.body || {};
+  const raw = body.updates ?? body.Updates ?? [];
+  const updates = Array.isArray(raw) ? raw : [];
+  if (updates.length === 0) {
+    return res.status(400).json({ error: 'Indica updates: [{ id, IGP }]' });
+  }
+  const valid = updates
+    .map((u) => {
+      const id = u.id ?? u.Id ?? u.ID;
+      const igp = u.IGP ?? u.igp;
+      if (id == null || id === '') return null;
+      if (typeof igp !== 'boolean') return null;
+      return { id: String(id), IGP: igp };
+    })
+    .filter(Boolean);
+  if (valid.length === 0) {
+    return res.status(400).json({ error: 'Ningún elemento válido (id + IGP boolean)' });
+  }
+  const PARALLEL_SIZE = 25;
+  let updated = 0;
+  const failed = [];
+  for (let i = 0; i < valid.length; i += PARALLEL_SIZE) {
+    const chunk = valid.slice(i, i + PARALLEL_SIZE);
+    const results = await Promise.allSettled(
+      chunk.map(({ id, IGP }) =>
+        docClient.send(
+          new UpdateCommand({
+            TableName: tableAgoraProductsName,
+            Key: { PK: 'GLOBAL', SK: String(id) },
+            UpdateExpression: 'SET #igp = :v',
+            ExpressionAttributeNames: { '#igp': 'IGP' },
+            ExpressionAttributeValues: { ':v': IGP },
+          })
+        )
+      )
+    );
+    results.forEach((r, idx) => {
+      if (r.status === 'fulfilled') updated++;
+      else failed.push(chunk[idx].id);
+    });
+  }
+  return res.json({
+    ok: true,
+    totalSolicitados: valid.length,
+    totalActualizados: updated,
+    totalFallidos: failed.length,
+    idsFallidos: failed.length > 0 ? failed : undefined,
+  });
+});
+
 // Actualizar producto Ágora en DynamoDB. Campos editables: IGP, Name, CostPrice, BaseSaleFormatId, FamilyId, VatId.
 app.patch('/api/agora/products/:id', async (req, res) => {
   const id = req.params.id;
