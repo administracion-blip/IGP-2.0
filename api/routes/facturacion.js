@@ -909,33 +909,75 @@ router.get('/facturacion/facturas/:id/pagos', async (req, res) => {
   }
 });
 
-router.post('/facturacion/facturas/:id/pagos', async (req, res) => {
-  const id_factura = req.params.id;
-  const { fecha, importe, metodo_pago, cuenta_caja, referencia, observaciones, usuario_id, usuario_nombre } = req.body || {};
+/** Acepta JSON o multipart/form-data (campo archivo `recibo`). */
+function maybeUploadReciboPago(req, res, next) {
+  const ct = req.headers['content-type'] || '';
+  if (ct.includes('multipart/form-data')) {
+    return upload.single('recibo')(req, res, next);
+  }
+  next();
+}
 
-  if (!importe || Number(importe) <= 0) return res.status(400).json({ error: 'Importe debe ser mayor que 0' });
+router.post('/facturacion/facturas/:id/pagos', maybeUploadReciboPago, async (req, res) => {
+  const id_factura = req.params.id;
+  const b = req.body || {};
+  const fechaRaw = b.fecha;
+  const importe = b.importe;
+  const metodo_pago = b.metodo_pago;
+  const cuenta_caja = b.cuenta_caja;
+  const referencia = b.referencia;
+  const observaciones = b.observaciones;
+  const usuario_id = b.usuario_id;
+  const usuario_nombre = b.usuario_nombre;
+
+  const fechaIso = fechaToIsoGuardada(fechaRaw);
+  if (!fechaIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
+    return res.status(400).json({ error: 'La fecha es obligatoria (AAAA-MM-DD o dd/mm/aaaa)' });
+  }
+
+  const importeNum = round2(Number(importe));
+  if (!importe || Number.isNaN(importeNum) || importeNum <= 0) {
+    return res.status(400).json({ error: 'Importe debe ser mayor que 0' });
+  }
 
   try {
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const factura = existing.Item;
 
-    const importeNum = round2(Number(importe));
     const pagos = await scanAll(tables.facturasPagos, 'id_factura = :fid', { ':fid': id_factura });
     const nextIdx = pagos.length + 1;
     const id_pago = `P${String(nextIdx).padStart(3, '0')}`;
+
+    let recibo_file_key = '';
+    let recibo_nombre = '';
+    if (req.file && req.file.buffer) {
+      const ext = (req.file.originalname || 'file').split('.').pop() || 'bin';
+      recibo_file_key = `facturas/${id_factura}/recibos/${Date.now()}_${uuid().slice(0, 8)}.${ext}`;
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: S3_BUCKET,
+          Key: recibo_file_key,
+          Body: req.file.buffer,
+          ContentType: req.file.mimetype || 'application/octet-stream',
+        })
+      );
+      recibo_nombre = req.file.originalname || '';
+    }
 
     const pago = {
       id_entrada: `${id_factura}#${id_pago}`,
       id_factura,
       id_pago,
-      fecha: fecha || now().slice(0, 10),
+      fecha: fechaIso,
       importe: importeNum,
       metodo_pago: metodo_pago || '',
       cuenta_caja: cuenta_caja || '',
       referencia: referencia || '',
       observaciones: observaciones || '',
       justificante: '',
+      recibo_file_key: recibo_file_key || '',
+      recibo_nombre: recibo_nombre || '',
       creado_por: usuario_id || '',
       creado_en: now(),
     };

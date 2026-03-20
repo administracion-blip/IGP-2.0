@@ -13,11 +13,14 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import type { DocumentPickerAsset } from 'expo-document-picker';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatMoneda, labelEstado } from '../../utils/facturacion';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { InputFecha } from '../../components/InputFecha';
 import { useLocalToast } from '../../components/Toast';
+import { buildPagoFormData } from '../../utils/pagoFormData';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -35,6 +38,11 @@ function dmyToIso(dmy: string): string {
   return '';
 }
 
+function todayDmy(): string {
+  const d = new Date();
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}
+
 const PAGE_SIZE = 50;
 const MIN_COL_WIDTH = 60;
 
@@ -42,7 +50,9 @@ type Factura = {
   id_factura: string;
   numero_factura: string;
   fecha_emision: string;
+  emisor_id?: string;
   emisor_nombre: string;
+  empresa_id?: string;
   empresa_nombre: string;
   empresa_cif: string;
   base_imponible: number;
@@ -51,6 +61,19 @@ type Factura = {
   estado: string;
   saldo_pendiente: number;
 };
+
+/** Agrupa por sociedad emisora / cliente: prioriza id si existe. */
+function keyEmisor(f: Factura): string {
+  const id = String(f.emisor_id ?? '').trim();
+  if (id) return `id:${id}`;
+  return `nom:${String(f.emisor_nombre ?? '').trim()}`;
+}
+
+function keyReceptor(f: Factura): string {
+  const id = String(f.empresa_id ?? '').trim();
+  if (id) return `id:${id}`;
+  return `nom:${String(f.empresa_nombre ?? '').trim()}`;
+}
 
 const COLUMNAS = [
   { key: 'id_factura', label: 'ID' },
@@ -92,7 +115,7 @@ const METODOS_PAGO = ['transferencia', 'efectivo', 'tarjeta', 'bizum', 'domicili
 
 export default function FacturasVentaScreen() {
   const router = useRouter();
-  const { hasPermiso } = useAuth();
+  const { hasPermiso, user } = useAuth();
 
   const [facturas, setFacturas] = useState<Factura[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,11 +133,17 @@ export default function FacturasVentaScreen() {
   const [sortCol, setSortCol] = useState<string>('fecha_emision');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
+  const [filtroEmisorKey, setFiltroEmisorKey] = useState('');
+  const [filtroReceptorKey, setFiltroReceptorKey] = useState('');
+  const [modalFiltro, setModalFiltro] = useState<'emisor' | 'receptor' | 'estado' | null>(null);
+
   const [modalAnularVisible, setModalAnularVisible] = useState(false);
   const [modalCobrarVisible, setModalCobrarVisible] = useState(false);
   const [cobroImporte, setCobroImporte] = useState('');
+  const [cobroFecha, setCobroFecha] = useState('');
   const [cobroMetodo, setCobroMetodo] = useState<string>('transferencia');
   const [cobroReferencia, setCobroReferencia] = useState('');
+  const [cobroReciboAsset, setCobroReciboAsset] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [errorModal, setErrorModal] = useState<string | null>(null);
   const [haySeries, setHaySeries] = useState(true);
 
@@ -147,6 +176,34 @@ export default function FacturasVentaScreen() {
 
   useEffect(() => { refetch(); }, [refetch]);
 
+  const opcionesEmisor = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const f of facturas) {
+      const k = keyEmisor(f);
+      const label = (f.emisor_nombre || '').trim() || '—';
+      if (!m.has(k)) m.set(k, label);
+    }
+    return Array.from(m.entries()).sort((a, b) => a[1].localeCompare(b[1], 'es'));
+  }, [facturas]);
+
+  const opcionesReceptor = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const f of facturas) {
+      const k = keyReceptor(f);
+      const label = (f.empresa_nombre || '').trim() || '—';
+      if (!m.has(k)) m.set(k, label);
+    }
+    return Array.from(m.entries()).sort((a, b) => a[1].localeCompare(b[1], 'es'));
+  }, [facturas]);
+
+  const labelEmisorFiltro = filtroEmisorKey
+    ? opcionesEmisor.find(([k]) => k === filtroEmisorKey)?.[1] ?? '—'
+    : 'Todas las sociedades';
+  const labelReceptorFiltro = filtroReceptorKey
+    ? opcionesReceptor.find(([k]) => k === filtroReceptorKey)?.[1] ?? '—'
+    : 'Todos los clientes';
+  const labelEstadoFiltro = TABS_ESTADO.find((t) => t.key === filtroEstado)?.label ?? 'Todas';
+
   const toggleSort = useCallback((col: string) => {
     if (sortCol === col) setSortDir((d) => d === 'asc' ? 'desc' : 'asc');
     else { setSortCol(col); setSortDir('asc'); }
@@ -155,6 +212,8 @@ export default function FacturasVentaScreen() {
   const facturasFiltradas = useMemo(() => {
     let resultado = facturas;
     if (filtroEstado) resultado = resultado.filter((f) => f.estado === filtroEstado);
+    if (filtroEmisorKey) resultado = resultado.filter((f) => keyEmisor(f) === filtroEmisorKey);
+    if (filtroReceptorKey) resultado = resultado.filter((f) => keyReceptor(f) === filtroReceptorKey);
     if (filtroBusqueda.trim()) {
       const q = filtroBusqueda.trim().toLowerCase();
       resultado = resultado.filter(
@@ -183,7 +242,7 @@ export default function FacturasVentaScreen() {
       });
     }
     return resultado;
-  }, [facturas, filtroEstado, filtroBusqueda, fechaDesde, fechaHasta, sortCol, sortDir]);
+  }, [facturas, filtroEstado, filtroEmisorKey, filtroReceptorKey, filtroBusqueda, fechaDesde, fechaHasta, sortCol, sortDir]);
 
   const totalRegistros = facturasFiltradas.length;
   const totalPages = Math.max(1, Math.ceil(totalRegistros / PAGE_SIZE));
@@ -200,14 +259,14 @@ export default function FacturasVentaScreen() {
   useEffect(() => {
     setPageIndex(0);
     setSelectedId(null);
-  }, [filtroBusqueda, filtroEstado, fechaDesde, fechaHasta]);
+  }, [filtroBusqueda, filtroEstado, filtroEmisorKey, filtroReceptorKey, fechaDesde, fechaHasta]);
 
   const goPrevPage = () => { setPageIndex((p) => Math.max(0, p - 1)); setSelectedId(null); };
   const goNextPage = () => { setPageIndex((p) => Math.min(totalPages - 1, p + 1)); setSelectedId(null); };
 
   const selectedFactura = useMemo(
-    () => (selectedId ? facturasPagina.find((f) => f.id_factura === selectedId) ?? null : null),
-    [selectedId, facturasPagina]
+    () => (selectedId ? facturasFiltradas.find((f) => f.id_factura === selectedId) ?? null : null),
+    [selectedId, facturasFiltradas]
   );
 
   const getColWidth = useCallback((col: string) => columnWidths[col] ?? 120, [columnWidths]);
@@ -300,23 +359,41 @@ export default function FacturasVentaScreen() {
   const abrirModalCobrar = () => {
     if (!selectedFactura) return;
     setCobroImporte(selectedFactura.saldo_pendiente > 0 ? String(selectedFactura.saldo_pendiente) : '');
+    setCobroFecha(todayDmy());
     setCobroMetodo('transferencia');
     setCobroReferencia('');
+    setCobroReciboAsset(null);
     setErrorModal(null);
     setModalCobrarVisible(true);
   };
 
   const confirmarCobro = async () => {
     if (!selectedId) return;
-    const importe = parseFloat(cobroImporte);
+    const importe = parseFloat(String(cobroImporte).replace(',', '.'));
     if (isNaN(importe) || importe <= 0) { setErrorModal('El importe debe ser mayor que 0'); return; }
+    const fechaIso = dmyToIso(cobroFecha.trim());
+    if (!fechaIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
+      setErrorModal('Indica una fecha válida (dd/mm/aaaa)');
+      return;
+    }
     setOperando(true);
     setErrorModal(null);
     try {
+      const fd = await buildPagoFormData({
+        fecha: fechaIso,
+        importe,
+        metodo_pago: cobroMetodo,
+        referencia: cobroReferencia,
+        usuario_id: user?.id_usuario != null && String(user.id_usuario).trim() !== '' ? String(user.id_usuario) : undefined,
+        usuario_nombre: user?.Nombre,
+        recibo: cobroReciboAsset
+          ? { uri: cobroReciboAsset.uri, name: cobroReciboAsset.name || 'recibo', mimeType: cobroReciboAsset.mimeType }
+          : null,
+      });
+
       const res = await fetch(`${API_URL}/api/facturacion/facturas/${selectedId}/pagos`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ importe, metodo_pago: cobroMetodo, referencia: cobroReferencia.trim() || undefined }),
+        body: fd,
       });
       const data = await res.json();
       if (!res.ok) { setErrorModal(data.error || 'Error al registrar cobro'); setOperando(false); return; }
@@ -402,20 +479,6 @@ export default function FacturasVentaScreen() {
         <Text style={styles.title}>Facturas emitidas</Text>
       </View>
 
-      {/* Tabs de estado */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll} contentContainerStyle={styles.tabsContent}>
-        {TABS_ESTADO.map((tab) => (
-          <TouchableOpacity
-            key={tab.key}
-            style={[styles.tab, filtroEstado === tab.key && styles.tabActive]}
-            onPress={() => setFiltroEstado(tab.key)}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.tabText, filtroEstado === tab.key && styles.tabTextActive]}>{tab.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
       {/* Toolbar */}
       <View style={styles.toolbarRow}>
         <View style={styles.toolbar}>
@@ -500,6 +563,116 @@ export default function FacturasVentaScreen() {
           <InputFecha value={fechaHasta} onChange={setFechaHasta} format="dmy" placeholder="dd/mm/aaaa" style={styles.fechaInput} />
         </View>
       </View>
+
+      <View style={styles.filtrosEmpresaRow}>
+        <View style={styles.filtrosEmpresaHintWrap}>
+          <Text style={styles.filtrosEmpresaHint}>Filtros</Text>
+        </View>
+        <TouchableOpacity
+          style={[styles.filtroEmpresaBtn, !!filtroEstado && styles.filtroEmpresaBtnActive]}
+          onPress={() => setModalFiltro('estado')}
+          activeOpacity={0.7}
+        >
+          <MaterialIcons name="filter-list" size={16} color={filtroEstado ? '#0ea5e9' : '#64748b'} />
+          <Text style={[styles.filtroEmpresaBtnText, !!filtroEstado && styles.filtroEmpresaBtnTextActive]} numberOfLines={1}>
+            Estado: {labelEstadoFiltro}
+          </Text>
+          <MaterialIcons name="arrow-drop-down" size={20} color="#64748b" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.filtroEmpresaBtn, !!filtroEmisorKey && styles.filtroEmpresaBtnActive]}
+          onPress={() => setModalFiltro('emisor')}
+          activeOpacity={0.7}
+        >
+          <MaterialIcons name="business" size={16} color={filtroEmisorKey ? '#0ea5e9' : '#64748b'} />
+          <Text style={[styles.filtroEmpresaBtnText, !!filtroEmisorKey && styles.filtroEmpresaBtnTextActive]} numberOfLines={1}>
+            Emisor: {labelEmisorFiltro}
+          </Text>
+          <MaterialIcons name="arrow-drop-down" size={20} color="#64748b" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.filtroEmpresaBtn, !!filtroReceptorKey && styles.filtroEmpresaBtnActive]}
+          onPress={() => setModalFiltro('receptor')}
+          activeOpacity={0.7}
+        >
+          <MaterialIcons name="person" size={16} color={filtroReceptorKey ? '#0ea5e9' : '#64748b'} />
+          <Text style={[styles.filtroEmpresaBtnText, !!filtroReceptorKey && styles.filtroEmpresaBtnTextActive]} numberOfLines={1}>
+            Receptor: {labelReceptorFiltro}
+          </Text>
+          <MaterialIcons name="arrow-drop-down" size={20} color="#64748b" />
+        </TouchableOpacity>
+      </View>
+
+      <Modal visible={modalFiltro != null} transparent animationType="fade" onRequestClose={() => setModalFiltro(null)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalFiltro(null)}>
+          <View style={styles.filtroEmpresaModalCard} onStartShouldSetResponder={() => true}>
+            {modalFiltro === 'estado' && (
+              <>
+                <Text style={styles.filtroEmpresaModalTitle}>Estado de la factura</Text>
+                <ScrollView style={styles.filtroEmpresaModalList} keyboardShouldPersistTaps="handled">
+                  {TABS_ESTADO.map((tab) => (
+                    <TouchableOpacity
+                      key={tab.key === '' ? 'todas' : tab.key}
+                      style={[styles.filtroEmpresaOption, filtroEstado === tab.key && styles.filtroEmpresaOptionActive]}
+                      onPress={() => {
+                        setFiltroEstado(tab.key);
+                        setModalFiltro(null);
+                      }}
+                    >
+                      <Text style={styles.filtroEmpresaOptionText}>{tab.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </>
+            )}
+            {(modalFiltro === 'emisor' || modalFiltro === 'receptor') && (
+              <>
+                <Text style={styles.filtroEmpresaModalTitle}>
+                  {modalFiltro === 'emisor' ? 'Sociedad emisora' : 'Cliente (receptor)'}
+                </Text>
+                <ScrollView style={styles.filtroEmpresaModalList} keyboardShouldPersistTaps="handled">
+                  <TouchableOpacity
+                    style={[
+                      styles.filtroEmpresaOption,
+                      modalFiltro === 'emisor' ? !filtroEmisorKey && styles.filtroEmpresaOptionActive : !filtroReceptorKey && styles.filtroEmpresaOptionActive,
+                    ]}
+                    onPress={() => {
+                      if (modalFiltro === 'emisor') setFiltroEmisorKey('');
+                      else setFiltroReceptorKey('');
+                      setModalFiltro(null);
+                    }}
+                  >
+                    <Text style={styles.filtroEmpresaOptionText}>
+                      {modalFiltro === 'emisor' ? 'Todas las sociedades emisoras' : 'Todos los clientes'}
+                    </Text>
+                  </TouchableOpacity>
+                  {(modalFiltro === 'emisor' ? opcionesEmisor : opcionesReceptor).map(([key, label]) => (
+                    <TouchableOpacity
+                      key={key}
+                      style={[
+                        styles.filtroEmpresaOption,
+                        modalFiltro === 'emisor'
+                          ? filtroEmisorKey === key && styles.filtroEmpresaOptionActive
+                          : filtroReceptorKey === key && styles.filtroEmpresaOptionActive,
+                      ]}
+                      onPress={() => {
+                        if (modalFiltro === 'emisor') setFiltroEmisorKey(key);
+                        else setFiltroReceptorKey(key);
+                        setModalFiltro(null);
+                      }}
+                    >
+                      <Text style={styles.filtroEmpresaOptionText} numberOfLines={2}>{label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </>
+            )}
+            <TouchableOpacity style={styles.filtroEmpresaModalClose} onPress={() => setModalFiltro(null)}>
+              <Text style={styles.filtroEmpresaModalCloseText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Resumen rápido */}
       {facturasFiltradas.length > 0 && (
@@ -672,40 +845,72 @@ export default function FacturasVentaScreen() {
                     <MaterialIcons name="close" size={22} color="#64748b" />
                   </TouchableOpacity>
                 </View>
-                <View style={styles.modalBody}>
-                  <Text style={styles.formLabel}>Importe (€)</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    value={cobroImporte}
-                    onChangeText={setCobroImporte}
-                    keyboardType="decimal-pad"
-                    placeholder="0.00"
-                    placeholderTextColor="#94a3b8"
-                  />
-                  <Text style={styles.formLabel}>Método de pago</Text>
-                  <View style={styles.metodosGrid}>
-                    {METODOS_PAGO.map((m) => (
+                <ScrollView style={styles.modalBodyScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                  <View style={styles.modalBody}>
+                    <Text style={styles.formLabel}>Fecha del cobro</Text>
+                    <InputFecha value={cobroFecha} onChange={setCobroFecha} format="dmy" placeholder="dd/mm/aaaa" />
+                    <Text style={styles.formLabel}>Importe (€)</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={cobroImporte}
+                      onChangeText={setCobroImporte}
+                      keyboardType="decimal-pad"
+                      placeholder="0.00"
+                      placeholderTextColor="#94a3b8"
+                    />
+                    <Text style={styles.formLabel}>Método de pago</Text>
+                    <View style={styles.metodosGrid}>
+                      {METODOS_PAGO.map((m) => (
+                        <TouchableOpacity
+                          key={m}
+                          style={[styles.metodoOption, cobroMetodo === m && styles.metodoOptionSelected]}
+                          onPress={() => setCobroMetodo(m)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.metodoOptionText, cobroMetodo === m && styles.metodoOptionTextSelected]}>
+                            {m.charAt(0).toUpperCase() + m.slice(1)}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <Text style={styles.formLabel}>Tipo de recibo (Receptor)</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={cobroReferencia}
+                      onChangeText={setCobroReferencia}
+                      placeholder="Ej. justificante bancario, talón…"
+                      placeholderTextColor="#94a3b8"
+                    />
+                    <Text style={styles.formLabel}>Adjuntar recibo (opcional)</Text>
+                    <View style={styles.reciboRow}>
                       <TouchableOpacity
-                        key={m}
-                        style={[styles.metodoOption, cobroMetodo === m && styles.metodoOptionSelected]}
-                        onPress={() => setCobroMetodo(m)}
-                        activeOpacity={0.7}
+                        style={styles.reciboBtn}
+                        onPress={async () => {
+                          try {
+                            const r = await DocumentPicker.getDocumentAsync({
+                              copyToCacheDirectory: true,
+                              multiple: false,
+                              type: ['image/*', 'application/pdf'],
+                            });
+                            if (!r.canceled && r.assets?.[0]) setCobroReciboAsset(r.assets[0]);
+                          } catch {
+                            setErrorModal('No se pudo seleccionar el archivo');
+                          }
+                        }}
                       >
-                        <Text style={[styles.metodoOptionText, cobroMetodo === m && styles.metodoOptionTextSelected]}>
-                          {m.charAt(0).toUpperCase() + m.slice(1)}
-                        </Text>
+                        <MaterialIcons name="attach-file" size={18} color="#0ea5e9" />
+                        <Text style={styles.reciboBtnText}>{cobroReciboAsset ? 'Cambiar archivo' : 'Elegir archivo'}</Text>
                       </TouchableOpacity>
-                    ))}
+                      {cobroReciboAsset ? (
+                        <TouchableOpacity onPress={() => setCobroReciboAsset(null)} style={styles.reciboClear}>
+                          <Text style={styles.reciboClearText} numberOfLines={1}>
+                            {cobroReciboAsset.name || 'Archivo'} · Quitar
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
                   </View>
-                  <Text style={styles.formLabel}>Referencia (opcional)</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    value={cobroReferencia}
-                    onChangeText={setCobroReferencia}
-                    placeholder="Nº transferencia, recibo…"
-                    placeholderTextColor="#94a3b8"
-                  />
-                </View>
+                </ScrollView>
                 {errorModal && (
                   <View style={styles.modalErrorWrap}>
                     <MaterialIcons name="error-outline" size={16} color="#dc2626" />
@@ -757,20 +962,6 @@ const styles = StyleSheet.create({
   resumenLabel: { fontSize: 10, color: '#94a3b8' },
   resumenVal: { fontSize: 14, fontWeight: '700', color: '#334155' },
 
-  tabsScroll: { marginBottom: 8, flexGrow: 0 },
-  tabsContent: { gap: 6, paddingVertical: 2 },
-  tab: {
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#fff',
-  },
-  tabActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  tabText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
-  tabTextActive: { color: '#fff', fontWeight: '600' },
-
   toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12, flexWrap: 'wrap' },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   toolbarBtnWrap: { position: 'relative' },
@@ -806,6 +997,53 @@ const styles = StyleSheet.create({
   fechaFilterWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   fechaLabel: { fontSize: 11, color: '#64748b', fontWeight: '500' },
   fechaInput: { fontSize: 11, paddingVertical: 3, paddingHorizontal: 6, minHeight: 28, color: '#334155', width: 110 },
+
+  filtrosEmpresaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+    paddingVertical: 4,
+  },
+  filtrosEmpresaHintWrap: { width: '100%' },
+  filtrosEmpresaHint: { fontSize: 11, color: '#94a3b8' },
+  filtroEmpresaBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: 280,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+  },
+  filtroEmpresaBtnActive: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
+  filtroEmpresaBtnText: { flex: 1, fontSize: 12, color: '#475569', fontWeight: '500' },
+  filtroEmpresaBtnTextActive: { color: '#0369a1' },
+  filtroEmpresaModalCard: {
+    width: '90%',
+    maxWidth: 400,
+    maxHeight: '70%',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    overflow: 'hidden',
+  },
+  filtroEmpresaModalTitle: { fontSize: 15, fontWeight: '700', color: '#334155', marginBottom: 8 },
+  filtroEmpresaModalList: { maxHeight: 320 },
+  filtroEmpresaOption: {
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    marginBottom: 4,
+  },
+  filtroEmpresaOptionActive: { backgroundColor: '#e0f2fe' },
+  filtroEmpresaOptionText: { fontSize: 13, color: '#334155' },
+  filtroEmpresaModalClose: { marginTop: 8, paddingVertical: 8, alignItems: 'center' },
+  filtroEmpresaModalCloseText: { fontSize: 13, color: '#0ea5e9', fontWeight: '600' },
 
   subtitleRow: {
     flexDirection: 'row',
@@ -887,7 +1125,24 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#334155', marginBottom: 4 },
   modalSubtitle: { fontSize: 13, color: '#64748b', lineHeight: 18 },
   modalClose: { padding: 4, marginTop: -4 },
+  modalBodyScroll: { maxHeight: 420 },
   modalBody: { paddingHorizontal: 24, paddingVertical: 20, gap: 12 },
+  reciboRow: { gap: 8 },
+  reciboBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    borderRadius: 8,
+    backgroundColor: '#f0f9ff',
+  },
+  reciboBtnText: { fontSize: 14, color: '#0284c7', fontWeight: '600' },
+  reciboClear: { paddingVertical: 4 },
+  reciboClearText: { fontSize: 12, color: '#64748b' },
   formLabel: { fontSize: 12, fontWeight: '600', color: '#334155', marginBottom: 4 },
   formInput: {
     fontSize: 13,
