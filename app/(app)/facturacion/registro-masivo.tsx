@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -22,9 +22,20 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
 type Confianza = Record<string, string>;
 
+type EmpresaCatalogo = {
+  id_empresa?: string;
+  Nombre?: string;
+  Cif?: string;
+  Sede?: string;
+};
+
 type Borrador = {
   idx: number;
   archivo: { fileKey: string; nombre: string; tipo: string; size: number; previewUrl: string };
+  /** Sociedad del grupo (GRUPO PARIPE) que recibe el gasto → emisor_* en DynamoDB */
+  sociedad_grupo_id: string;
+  sociedad_grupo_nombre: string;
+  sociedad_grupo_cif: string;
   proveedor_cif: string;
   proveedor_nombre: string;
   /** id en `igp_Empresas` si el CIF existe en maestro */
@@ -88,8 +99,187 @@ export default function RegistroMasivoScreen() {
   const [nombreNuevaEmpresa, setNombreNuevaEmpresa] = useState('');
   const [creandoEmpresa, setCreandoEmpresa] = useState(false);
 
+  const [empresasCatalogo, setEmpresasCatalogo] = useState<EmpresaCatalogo[]>([]);
+  const [sociedadSearch, setSociedadSearch] = useState('');
+  const [showSociedadDropdown, setShowSociedadDropdown] = useState(false);
+
   const selectedBorrador = selectedIdx !== null ? borradores.find((b) => b.idx === selectedIdx) : null;
   const borradorModalEmpresa = modalEmpresaIdx !== null ? borradores.find((b) => b.idx === modalEmpresaIdx) : null;
+
+  // ── Selección de zona (tipo a3) ──
+  type ZonaTarget = { field: string; numeric?: boolean } | null;
+  const [zonaActiva, setZonaActiva] = useState<ZonaTarget>(null);
+  const [zonaRect, setZonaRect] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
+  const [zonaExtracting, setZonaExtracting] = useState(false);
+  const [zonaPreviewLoaded, setZonaPreviewLoaded] = useState(false);
+  const zonaRectRef = useRef<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
+  const zonaDraggingRef = useRef(false);
+
+  /** En modo zona: PDF → PNG rasterizado por API (no se puede usar <img> con URL de PDF). Imagen → URL firmada. */
+  const zonaImgSrc = useMemo(() => {
+    if (!zonaActiva || !selectedBorrador?.archivo?.previewUrl) return null;
+    if (selectedBorrador.archivo.tipo.includes('pdf')) {
+      return `${API_URL}/api/facturacion/ocr/preview-png?fileKey=${encodeURIComponent(selectedBorrador.archivo.fileKey)}`;
+    }
+    return selectedBorrador.archivo.previewUrl;
+  }, [zonaActiva, selectedBorrador?.archivo?.fileKey, selectedBorrador?.archivo?.previewUrl, selectedBorrador?.archivo?.tipo]);
+
+  useEffect(() => {
+    if (!zonaActiva) {
+      setZonaPreviewLoaded(false);
+      return;
+    }
+    setZonaPreviewLoaded(false);
+  }, [zonaActiva, zonaImgSrc]);
+
+  const activarZona = (field: string, numeric?: boolean) => {
+    setZonaActiva({ field, numeric });
+    setZonaRect(null);
+    zonaRectRef.current = null;
+    zonaDraggingRef.current = false;
+  };
+  const cancelarZona = () => {
+    setZonaActiva(null);
+    setZonaRect(null);
+    zonaRectRef.current = null;
+    zonaDraggingRef.current = false;
+  };
+
+  const handleZonaMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!zonaActiva || zonaExtracting) return;
+    e.preventDefault();
+    const x = e.nativeEvent.offsetX;
+    const y = e.nativeEvent.offsetY;
+    const r = { startX: x, startY: y, endX: x, endY: y };
+    zonaRectRef.current = r;
+    setZonaRect(r);
+    zonaDraggingRef.current = true;
+  };
+
+  const handleZonaMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!zonaDraggingRef.current || !zonaRectRef.current) return;
+    const x = e.nativeEvent.offsetX;
+    const y = e.nativeEvent.offsetY;
+    const r = { ...zonaRectRef.current, endX: x, endY: y };
+    zonaRectRef.current = r;
+    setZonaRect(r);
+  };
+
+  const handleZonaMouseUp = async (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!zonaActiva || !selectedBorrador) return;
+    if (!zonaDraggingRef.current) return;
+    zonaDraggingRef.current = false;
+    const x = e.nativeEvent.offsetX;
+    const y = e.nativeEvent.offsetY;
+    if (!zonaRectRef.current) return;
+    const prev = { ...zonaRectRef.current, endX: x, endY: y };
+    zonaRectRef.current = prev;
+    setZonaRect(prev);
+
+    const overlay = e.currentTarget;
+    const pageWidth = overlay.offsetWidth;
+    const pageHeight = overlay.offsetHeight;
+    const rx = Math.min(prev.startX, prev.endX);
+    const ry = Math.min(prev.startY, prev.endY);
+    const w = Math.abs(prev.endX - prev.startX);
+    const h = Math.abs(prev.endY - prev.startY);
+    if (w < 10 || h < 10) {
+      setZonaRect(null);
+      zonaRectRef.current = null;
+      return;
+    }
+
+    setZonaExtracting(true);
+    try {
+      const res = await fetch(`${API_URL}/api/facturacion/ocr/extraer-zona`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileKey: selectedBorrador.archivo.fileKey,
+          x: rx,
+          y: ry,
+          width: w,
+          height: h,
+          pageWidth,
+          pageHeight,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error extrayendo zona');
+      const texto = data.texto || '';
+      if (texto) {
+        const field = zonaActiva.field;
+        if (zonaActiva.numeric) {
+          const numVal = parseFloat(texto.replace(/[^\d.,\-]/g, '').replace(',', '.')) || 0;
+          updateBorrador(selectedBorrador.idx, field, numVal);
+        } else {
+          updateBorrador(selectedBorrador.idx, field, texto);
+        }
+        alertMsg('Zona OCR', `Campo actualizado: "${texto}"`);
+      } else {
+        alertMsg('Sin texto', 'No se pudo extraer texto de la zona seleccionada');
+      }
+    } catch (err: any) {
+      alertMsg('Error OCR zona', err.message);
+    } finally {
+      setZonaExtracting(false);
+      cancelarZona();
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/empresas`);
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.empresas)) setEmpresasCatalogo(data.empresas);
+      } catch {
+        /* silencioso */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const empresasGrupoParipe = useMemo(
+    () =>
+      empresasCatalogo.filter((e) => (e?.Sede || '').toUpperCase().includes('GRUPO PARIPE')),
+    [empresasCatalogo],
+  );
+
+  const empresasGrupoFiltradas = useMemo(() => {
+    if (!sociedadSearch.trim()) return empresasGrupoParipe;
+    const q = sociedadSearch.toLowerCase();
+    return empresasGrupoParipe.filter(
+      (e) =>
+        (e.Nombre || '').toLowerCase().includes(q) || (e.Cif || '').toLowerCase().includes(q),
+    );
+  }, [empresasGrupoParipe, sociedadSearch]);
+
+  useEffect(() => {
+    setSociedadSearch('');
+    setShowSociedadDropdown(false);
+  }, [selectedIdx]);
+
+  const setSociedadGrupo = (idx: number, e: EmpresaCatalogo) => {
+    const id = e.id_empresa != null ? String(e.id_empresa) : '';
+    setBorradores((prev) =>
+      prev.map((b) =>
+        b.idx === idx
+          ? {
+              ...b,
+              sociedad_grupo_id: id,
+              sociedad_grupo_nombre: e.Nombre != null ? String(e.Nombre) : '',
+              sociedad_grupo_cif: e.Cif != null ? String(e.Cif) : '',
+            }
+          : b,
+      ),
+    );
+    setSociedadSearch('');
+    setShowSociedadDropdown(false);
+  };
 
   const subirArchivos = useCallback(() => {
     if (Platform.OS !== 'web') {
@@ -124,6 +314,9 @@ export default function RegistroMasivoScreen() {
           nuevos.push({
             idx: baseIdx + i,
             archivo: data.archivo,
+            sociedad_grupo_id: '',
+            sociedad_grupo_nombre: '',
+            sociedad_grupo_cif: '',
             proveedor_cif: d.proveedor_cif || '',
             proveedor_nombre: d.proveedor_nombre || '',
             empresa_id: d.empresa_id || '',
@@ -259,6 +452,14 @@ export default function RegistroMasivoScreen() {
       alertMsg('Info', 'No hay borradores activos para confirmar');
       return;
     }
+    const sinSociedad = activos.find((b) => !String(b.sociedad_grupo_id || '').trim());
+    if (sinSociedad) {
+      alertMsg(
+        'Falta empresa',
+        'Selecciona la sociedad del grupo (GRUPO PARIPE) en todos los borradores activos.',
+      );
+      return;
+    }
     setGuardando(true);
     try {
       const res = await fetch(`${API_URL}/api/facturacion/ocr/confirmar`, {
@@ -271,6 +472,14 @@ export default function RegistroMasivoScreen() {
             forma_pago: '',
             condiciones_pago: '',
             observaciones: b.observaciones || `Archivo: ${b.archivo.nombre}`,
+            archivo: b.archivo
+              ? {
+                  fileKey: b.archivo.fileKey,
+                  nombre: b.archivo.nombre,
+                  tipo: b.archivo.tipo,
+                  size: b.archivo.size,
+                }
+              : undefined,
           })),
           usuario_id: user?.id_usuario,
           usuario_nombre: user?.Nombre,
@@ -390,6 +599,63 @@ export default function RegistroMasivoScreen() {
                 )}
               </View>
 
+              <View style={styles.sociedadBlock}>
+                <Text style={styles.sociedadTitle}>Empresa (GRUPO PARIPE) *</Text>
+                <Text style={styles.sociedadHint}>Sociedad del grupo que recibe el gasto (se guarda como emisor)</Text>
+                {empresasCatalogo.length > 0 && empresasGrupoParipe.length === 0 ? (
+                  <Text style={styles.sociedadMaestroWarn}>
+                    No hay empresas con sede «GRUPO PARIPE» en el maestro. Revisa el campo Sede en Empresas.
+                  </Text>
+                ) : null}
+                <View style={styles.sociedadSelector}>
+                  <TextInput
+                    style={styles.sociedadInput}
+                    placeholder="Buscar empresa por nombre o CIF…"
+                    placeholderTextColor="#94a3b8"
+                    value={sociedadSearch || selectedBorrador.sociedad_grupo_nombre || ''}
+                    onChangeText={(t) => {
+                      setSociedadSearch(t);
+                      setShowSociedadDropdown(true);
+                      setBorradores((prev) =>
+                        prev.map((b) =>
+                          b.idx === selectedBorrador.idx && b.sociedad_grupo_id
+                            ? { ...b, sociedad_grupo_id: '', sociedad_grupo_nombre: '', sociedad_grupo_cif: '' }
+                            : b,
+                        ),
+                      );
+                    }}
+                    onFocus={() => setShowSociedadDropdown(true)}
+                  />
+                  {showSociedadDropdown && empresasGrupoFiltradas.length > 0 && (
+                    <ScrollView style={styles.sociedadDropdown} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                      {empresasGrupoFiltradas.slice(0, 25).map((e) => {
+                        const id = e.id_empresa != null ? String(e.id_empresa) : '';
+                        return (
+                          <TouchableOpacity
+                            key={id || e.Cif || e.Nombre}
+                            style={styles.sociedadDropdownItem}
+                            onPress={() => setSociedadGrupo(selectedBorrador.idx, e)}
+                          >
+                            <Text style={styles.sociedadDropdownName} numberOfLines={2}>
+                              {e.Nombre || '—'}
+                            </Text>
+                            <Text style={styles.sociedadDropdownCif}>{e.Cif || ''}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
+                </View>
+                {selectedBorrador.sociedad_grupo_id ? (
+                  <Text style={styles.sociedadOk}>
+                    {selectedBorrador.sociedad_grupo_cif ? `${selectedBorrador.sociedad_grupo_cif} · ` : ''}
+                    {selectedBorrador.sociedad_grupo_nombre}
+                  </Text>
+                ) : (
+                  <Text style={styles.sociedadWarn}>Obligatorio antes de confirmar</Text>
+                )}
+              </View>
+
               {selectedBorrador.duplicados.length > 0 && (
                 <View style={styles.dupWarn}>
                   <MaterialIcons name="warning" size={14} color="#b45309" />
@@ -440,23 +706,122 @@ export default function RegistroMasivoScreen() {
                 </Text>
               </View>
 
+              {zonaActiva && (
+                <View style={styles.zonaActivaBanner}>
+                  <MaterialIcons name="crop-free" size={14} color="#0369a1" />
+                  <Text style={styles.zonaActivaText}>
+                    Dibuja un rectángulo sobre el documento para capturar «{zonaActiva.field}»
+                  </Text>
+                  <TouchableOpacity onPress={cancelarZona} style={styles.zonaActivaCancelBtn}>
+                    <Text style={styles.zonaActivaCancelText}>Cancelar</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
               <View style={styles.formGrid}>
-                <FieldRow label="CIF Proveedor" value={selectedBorrador.proveedor_cif} conf={selectedBorrador.confianza.proveedor_cif} onChange={(v) => updateBorrador(selectedBorrador.idx, 'proveedor_cif', v)} />
-                <FieldRow label="Nombre proveedor" value={selectedBorrador.proveedor_nombre} conf={selectedBorrador.confianza.proveedor_nombre} onChange={(v) => updateBorrador(selectedBorrador.idx, 'proveedor_nombre', v)} />
-                <FieldRow label="Nº Factura" value={selectedBorrador.numero_factura_proveedor} conf={selectedBorrador.confianza.numero_factura} onChange={(v) => updateBorrador(selectedBorrador.idx, 'numero_factura_proveedor', v)} />
-                <FieldRow label="Fecha emisión" value={selectedBorrador.fecha_emision} conf={selectedBorrador.confianza.fecha} onChange={(v) => updateBorrador(selectedBorrador.idx, 'fecha_emision', v)} placeholder="dd/mm/aaaa" />
-                <FieldRow label="Base imponible" value={String(selectedBorrador.base_imponible || '')} conf={selectedBorrador.confianza.base_imponible} onChange={(v) => updateBorrador(selectedBorrador.idx, 'base_imponible', parseFloat(v) || 0)} numeric />
-                <FieldRow label="IVA" value={String(selectedBorrador.total_iva || '')} conf={selectedBorrador.confianza.total_iva} onChange={(v) => updateBorrador(selectedBorrador.idx, 'total_iva', parseFloat(v) || 0)} numeric />
-                <FieldRow label="Total factura" value={String(selectedBorrador.total_factura || '')} conf={selectedBorrador.confianza.total} onChange={(v) => updateBorrador(selectedBorrador.idx, 'total_factura', parseFloat(v) || 0)} numeric />
+                <FieldRowZona label="CIF Proveedor" value={selectedBorrador.proveedor_cif} conf={selectedBorrador.confianza.proveedor_cif} onChange={(v) => updateBorrador(selectedBorrador.idx, 'proveedor_cif', v)} onZona={() => activarZona('proveedor_cif')} zonaActiva={zonaActiva?.field === 'proveedor_cif'} />
+                <FieldRowZona label="Nombre proveedor" value={selectedBorrador.proveedor_nombre} conf={selectedBorrador.confianza.proveedor_nombre} onChange={(v) => updateBorrador(selectedBorrador.idx, 'proveedor_nombre', v)} onZona={() => activarZona('proveedor_nombre')} zonaActiva={zonaActiva?.field === 'proveedor_nombre'} />
+                <FieldRowZona label="Nº Factura" value={selectedBorrador.numero_factura_proveedor} conf={selectedBorrador.confianza.numero_factura} onChange={(v) => updateBorrador(selectedBorrador.idx, 'numero_factura_proveedor', v)} onZona={() => activarZona('numero_factura_proveedor')} zonaActiva={zonaActiva?.field === 'numero_factura_proveedor'} />
+                <FieldRowZona label="Fecha emisión" value={selectedBorrador.fecha_emision} conf={selectedBorrador.confianza.fecha} onChange={(v) => updateBorrador(selectedBorrador.idx, 'fecha_emision', v)} placeholder="dd/mm/aaaa" onZona={() => activarZona('fecha_emision')} zonaActiva={zonaActiva?.field === 'fecha_emision'} />
+                <FieldRowZona label="Base imponible" value={String(selectedBorrador.base_imponible || '')} conf={selectedBorrador.confianza.base_imponible} onChange={(v) => updateBorrador(selectedBorrador.idx, 'base_imponible', parseFloat(v) || 0)} numeric onZona={() => activarZona('base_imponible', true)} zonaActiva={zonaActiva?.field === 'base_imponible'} />
+                <FieldRowZona label="IVA" value={String(selectedBorrador.total_iva || '')} conf={selectedBorrador.confianza.total_iva} onChange={(v) => updateBorrador(selectedBorrador.idx, 'total_iva', parseFloat(v) || 0)} numeric onZona={() => activarZona('total_iva', true)} zonaActiva={zonaActiva?.field === 'total_iva'} />
+                <FieldRowZona label="Total factura" value={String(selectedBorrador.total_factura || '')} conf={selectedBorrador.confianza.total} onChange={(v) => updateBorrador(selectedBorrador.idx, 'total_factura', parseFloat(v) || 0)} numeric onZona={() => activarZona('total_factura', true)} zonaActiva={zonaActiva?.field === 'total_factura'} />
                 <FieldRow label="Observaciones" value={selectedBorrador.observaciones} onChange={(v) => updateBorrador(selectedBorrador.idx, 'observaciones', v)} placeholder="Notas adicionales…" />
               </View>
             </ScrollView>
           </View>
 
-          {/* RIGHT: Preview */}
+          {/* RIGHT: Preview con selección de zona (PDF → PNG vía API; coordenadas sobre capa = misma referencia que extraer-zona) */}
           <View style={styles.previewPane}>
             {selectedBorrador.archivo.previewUrl ? (
-              selectedBorrador.archivo.tipo.includes('pdf') ? (
+              zonaActiva && Platform.OS === 'web' && zonaImgSrc ? (
+                <div
+                  style={{
+                    position: 'relative',
+                    width: '100%',
+                    height: '100%',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: '#e2e8f0',
+                    userSelect: 'none',
+                  } as any}
+                >
+                  {!zonaPreviewLoaded ? (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 } as any}>
+                      <ActivityIndicator size="large" color="#0ea5e9" />
+                      <span style={{ position: 'absolute', bottom: 24, fontSize: 11, color: '#64748b' } as any}>Generando vista para selección…</span>
+                    </div>
+                  ) : null}
+                  <div
+                    style={{
+                      position: 'relative',
+                      maxWidth: '100%',
+                      maxHeight: '100%',
+                      display: 'inline-block',
+                    } as any}
+                  >
+                    <img
+                      src={zonaImgSrc}
+                      alt="Seleccionar zona"
+                      onLoad={() => setZonaPreviewLoaded(true)}
+                      onError={() => alertMsg('Vista previa', 'No se pudo cargar la imagen de selección')}
+                      style={{
+                        maxWidth: '100%',
+                        maxHeight: '100%',
+                        objectFit: 'contain',
+                        display: 'block',
+                      } as any}
+                    />
+                    {zonaPreviewLoaded ? (
+                      <div
+                        onMouseDown={handleZonaMouseDown as any}
+                        onMouseMove={handleZonaMouseMove as any}
+                        onMouseUp={handleZonaMouseUp as any}
+                        style={{
+                          position: 'absolute',
+                          left: 0,
+                          top: 0,
+                          width: '100%',
+                          height: '100%',
+                          cursor: zonaExtracting ? 'wait' : 'crosshair',
+                          boxSizing: 'border-box',
+                        } as any}
+                      >
+                        {zonaRect && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: Math.min(zonaRect.startX, zonaRect.endX),
+                              top: Math.min(zonaRect.startY, zonaRect.endY),
+                              width: Math.abs(zonaRect.endX - zonaRect.startX),
+                              height: Math.abs(zonaRect.endY - zonaRect.startY),
+                              border: '2px dashed #0ea5e9',
+                              backgroundColor: 'rgba(14, 165, 233, 0.15)',
+                              borderRadius: 3,
+                              pointerEvents: 'none',
+                            } as any}
+                          />
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                  {zonaExtracting ? (
+                    <div style={{
+                      position: 'absolute',
+                      inset: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: 'rgba(255,255,255,0.65)',
+                      zIndex: 4,
+                    } as any}>
+                      <ActivityIndicator size="large" color="#0ea5e9" />
+                    </div>
+                  ) : null}
+                </div>
+              ) : selectedBorrador.archivo.tipo.includes('pdf') ? (
                 Platform.OS === 'web' ? (
                   <iframe
                     src={selectedBorrador.archivo.previewUrl}
@@ -578,6 +943,41 @@ function FieldRow({ label, value, conf, onChange, numeric, placeholder }: {
   );
 }
 
+function FieldRowZona({ label, value, conf, onChange, numeric, placeholder, onZona, zonaActiva }: {
+  label: string;
+  value: string;
+  conf?: string;
+  onChange: (v: string) => void;
+  numeric?: boolean;
+  placeholder?: string;
+  onZona: () => void;
+  zonaActiva?: boolean;
+}) {
+  return (
+    <View style={styles.fieldRow}>
+      <View style={styles.fieldLabelWrap}>
+        <Text style={styles.fieldLabel}>{label}</Text>
+        {conf && <View style={[styles.confDot, { backgroundColor: confColor(conf) }]} />}
+      </View>
+      <TextInput
+        style={[styles.fieldInput, numeric && { textAlign: 'right' as const }]}
+        value={value}
+        onChangeText={onChange}
+        keyboardType={numeric ? 'decimal-pad' : 'default'}
+        placeholder={placeholder}
+        placeholderTextColor="#94a3b8"
+      />
+      <TouchableOpacity
+        onPress={onZona}
+        style={[styles.zonaBtn, zonaActiva && styles.zonaBtnActive]}
+        activeOpacity={0.7}
+      >
+        <MaterialIcons name="crop-free" size={14} color={zonaActiva ? '#fff' : '#0ea5e9'} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
@@ -653,6 +1053,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRightWidth: 1,
     borderRightColor: '#e2e8f0',
+    overflow: 'visible' as const,
+    zIndex: 1,
   },
 
   previewPane: {
@@ -665,6 +1067,66 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 8,
   },
+
+  sociedadBlock: {
+    marginBottom: 8,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    zIndex: 40,
+  },
+  sociedadTitle: { fontSize: 12, fontWeight: '700' as const, color: '#334155', marginBottom: 4 },
+  sociedadHint: { fontSize: 10, color: '#64748b', marginBottom: 6, lineHeight: 14 },
+  sociedadMaestroWarn: {
+    fontSize: 10,
+    color: '#b45309',
+    marginBottom: 8,
+    lineHeight: 14,
+    backgroundColor: '#fffbeb',
+    padding: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  sociedadSelector: { position: 'relative' as const, zIndex: 50 },
+  sociedadInput: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: '#334155',
+    backgroundColor: '#f8fafc',
+  },
+  sociedadDropdown: {
+    position: 'absolute' as const,
+    top: '100%',
+    left: 0,
+    right: 0,
+    maxHeight: 200,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    marginTop: 4,
+    zIndex: 100,
+    elevation: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+  },
+  sociedadDropdownItem: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  sociedadDropdownName: { fontSize: 12, fontWeight: '600' as const, color: '#334155' },
+  sociedadDropdownCif: { fontSize: 10, color: '#64748b', marginTop: 2 },
+  sociedadOk: { fontSize: 10, color: '#059669', marginTop: 6, fontWeight: '500' as const },
+  sociedadWarn: { fontSize: 10, color: '#b45309', marginTop: 6 },
 
   fileInfoBar: {
     flexDirection: 'row',
@@ -787,6 +1249,35 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     backgroundColor: '#f8fafc',
   },
+
+  zonaBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#0ea5e9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f0f9ff',
+  },
+  zonaBtnActive: {
+    backgroundColor: '#0ea5e9',
+    borderColor: '#0369a1',
+  },
+  zonaActivaBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#e0f2fe',
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#7dd3fc',
+  },
+  zonaActivaText: { flex: 1, fontSize: 10, color: '#0369a1', fontWeight: '500' },
+  zonaActivaCancelBtn: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, backgroundColor: '#fff', borderWidth: 1, borderColor: '#bae6fd' },
+  zonaActivaCancelText: { fontSize: 10, color: '#0369a1', fontWeight: '600' },
 
   emptyDetail: {
     flex: 1,

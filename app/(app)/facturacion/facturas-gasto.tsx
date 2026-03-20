@@ -17,15 +17,24 @@ import { useAuth } from '../../contexts/AuthContext';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { InputFecha } from '../../components/InputFecha';
 import { formatMoneda, METODOS_PAGO, labelFormaPago, type Factura } from '../../utils/facturacion';
+import { formatFecha, fechaToIso } from '../../utils/formatFecha';
 import { useLocalToast } from '../../components/Toast';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const PAGE_SIZE = 50;
 
-function isoToDmy(iso: string): string {
-  if (!iso || iso.length < 10) return '—';
-  const [y, m, d] = iso.substring(0, 10).split('-');
-  return `${d}/${m}/${y}`;
+/** ISO o dd/mm/aaaa en BD → dd/mm/aaaa para listado */
+function formatFechaEmisionCelda(raw: string): string {
+  if (!raw?.trim()) return '—';
+  const iso = fechaToIso(raw.trim());
+  return formatFecha(iso);
+}
+
+function fechaEmisionComparable(s: string | undefined | null): string {
+  if (s == null || String(s).trim() === '') return '';
+  const str = String(s).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.substring(0, 10);
+  return fechaToIso(str);
 }
 
 function dmyToIso(dmy: string): string {
@@ -52,6 +61,7 @@ const TABS: { key: TabEstado; label: string }[] = [
 const COLUMNAS = [
   'id_factura',
   'fecha_emision',
+  'emisor_nombre',
   'empresa_nombre',
   'empresa_cif',
   'numero_factura_proveedor',
@@ -65,6 +75,7 @@ const COLUMNAS = [
 const COL_LABELS: Record<string, string> = {
   id_factura: 'ID',
   fecha_emision: 'Fecha',
+  emisor_nombre: 'Empresa',
   empresa_nombre: 'Proveedor',
   empresa_cif: 'CIF',
   numero_factura_proveedor: 'Nº Factura Prov.',
@@ -78,6 +89,7 @@ const COL_LABELS: Record<string, string> = {
 const DEFAULT_WIDTHS: Record<string, number> = {
   id_factura: 80,
   fecha_emision: 90,
+  emisor_nombre: 170,
   empresa_nombre: 160,
   empresa_cif: 100,
   numero_factura_proveedor: 130,
@@ -102,14 +114,15 @@ const TOOLBAR_BUTTONS: ToolbarBtn[] = [
   { id: 'crear', icon: 'add', label: 'Crear', permiso: 'facturacion.crear', needsSelection: false },
   { id: 'editar', icon: 'edit', label: 'Editar', permiso: 'facturacion.editar', needsSelection: true },
   { id: 'emitir', icon: 'send', label: 'Emitir', permiso: 'facturacion.emitir', needsSelection: true },
-  { id: 'anular', icon: 'block', label: 'Anular', permiso: 'facturacion.anular', needsSelection: true },
+  { id: 'borrar', icon: 'delete-outline', label: 'Borrar', permiso: 'facturacion.editar', needsSelection: true },
   { id: 'pagar', icon: 'payments', label: 'Pagar', permiso: 'facturacion.cobrar_pagar', needsSelection: true },
   { id: 'refresh', icon: 'refresh', label: 'Actualizar', permiso: '', needsSelection: false },
+  { id: 'ver_doc', icon: 'description', label: 'Ver documento', permiso: '', needsSelection: true },
 ];
 
 export default function FacturasGastoScreen() {
   const router = useRouter();
-  const { hasPermiso } = useAuth();
+  const { hasPermiso, user } = useAuth();
   const { show: showToast, ToastView } = useLocalToast();
 
   const [facturas, setFacturas] = useState<Factura[]>([]);
@@ -132,10 +145,9 @@ export default function FacturasGastoScreen() {
   const [sortCol, setSortCol] = useState<string>('fecha_emision');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
-  const [modalAnular, setModalAnular] = useState(false);
-  const [motivoAnulacion, setMotivoAnulacion] = useState('');
   const [procesando, setProcesando] = useState(false);
 
+  const [modalBorrar, setModalBorrar] = useState(false);
   const [modalPagar, setModalPagar] = useState(false);
   const [pagoImporte, setPagoImporte] = useState('');
   const [pagoMetodo, setPagoMetodo] = useState('transferencia');
@@ -168,11 +180,17 @@ export default function FacturasGastoScreen() {
     if (tabActivo !== 'todas') list = list.filter((f) => f.estado === tabActivo);
     const isoDesde = dmyToIso(fechaDesde);
     const isoHasta = dmyToIso(fechaHasta);
-    if (isoDesde) list = list.filter((f) => f.fecha_emision >= isoDesde);
-    if (isoHasta) list = list.filter((f) => f.fecha_emision <= isoHasta);
+    if (isoDesde) {
+      list = list.filter((f) => (fechaEmisionComparable(f.fecha_emision) || '') >= isoDesde);
+    }
+    if (isoHasta) {
+      list = list.filter((f) => (fechaEmisionComparable(f.fecha_emision) || '') <= isoHasta);
+    }
     if (busqueda.trim()) {
       const q = busqueda.toLowerCase();
       list = list.filter((f) =>
+        f.emisor_nombre?.toLowerCase().includes(q) ||
+        f.emisor_cif?.toLowerCase().includes(q) ||
         f.empresa_nombre?.toLowerCase().includes(q) ||
         f.empresa_cif?.toLowerCase().includes(q) ||
         f.numero_factura_proveedor?.toLowerCase().includes(q) ||
@@ -181,6 +199,12 @@ export default function FacturasGastoScreen() {
     }
     if (sortCol) {
       list = [...list].sort((a, b) => {
+        if (sortCol === 'fecha_emision') {
+          const fa = fechaEmisionComparable((a as Factura).fecha_emision);
+          const fb = fechaEmisionComparable((b as Factura).fecha_emision);
+          const cmp = fa.localeCompare(fb);
+          return sortDir === 'desc' ? -cmp : cmp;
+        }
         const va = (a as any)[sortCol] ?? '';
         const vb = (b as any)[sortCol] ?? '';
         const numA = typeof va === 'number' ? va : parseFloat(va);
@@ -229,18 +253,44 @@ export default function FacturasGastoScreen() {
     const val = (f as Record<string, unknown>)[col];
     if (val == null) return '';
     if (MONEDA_COLS.has(col)) return formatMoneda(Number(val));
-    if (col === 'fecha_emision' && typeof val === 'string') return isoToDmy(val);
+    if (col === 'fecha_emision' && typeof val === 'string') return formatFechaEmisionCelda(val);
+    if (col === 'emisor_nombre') {
+      const t = String(val ?? '').trim();
+      return t || '—';
+    }
     return String(val);
+  };
+
+  const verDocumento = async () => {
+    if (!selectedFactura) return;
+    try {
+      const res = await fetch(`${API_URL}/api/facturacion/facturas/${selectedFactura.id_factura}/adjuntos`);
+      const data = await res.json();
+      const adjuntos = data.adjuntos ?? [];
+      if (adjuntos.length === 0) {
+        showToast('Sin documento', 'Esta factura no tiene documento adjunto', 'warning');
+        return;
+      }
+      const url = adjuntos[0].url;
+      if (url && Platform.OS === 'web') {
+        window.open(url, '_blank');
+      } else {
+        showToast('Info', 'Abre la factura en modo edición para ver adjuntos', 'info');
+      }
+    } catch {
+      showToast('Error', 'No se pudo obtener el documento', 'error');
+    }
   };
 
   const handleToolbar = (id: string) => {
     if (id === 'refresh') { fetchFacturas(); return; }
     if (id === 'crear') { router.push('/facturacion/factura-detalle?tipo=IN&modo=crear' as never); return; }
+    if (id === 'ver_doc') { verDocumento(); return; }
     if (!selectedFactura) return;
     if (id === 'editar') { router.push(`/facturacion/factura-detalle?id=${selectedFactura.id_factura}&modo=editar` as never); return; }
     if (id === 'emitir') { handleEmitir(); return; }
-    if (id === 'anular') { setMotivoAnulacion(''); setModalAnular(true); return; }
     if (id === 'pagar') { setPagoImporte(String(selectedFactura.saldo_pendiente ?? 0)); setPagoMetodo('transferencia'); setPagoReferencia(''); setModalPagar(true); return; }
+    if (id === 'borrar') { setModalBorrar(true); return; }
   };
 
   const handleEmitir = async () => {
@@ -267,22 +317,26 @@ export default function FacturasGastoScreen() {
     }
   };
 
-  const handleAnular = async () => {
+  const handleBorrarDefinitivo = async () => {
     if (!selectedFactura) return;
     setProcesando(true);
     try {
-      const res = await fetch(`${API_URL}/api/facturacion/facturas/${selectedFactura.id_factura}/anular`, {
-        method: 'POST',
+      const res = await fetch(`${API_URL}/api/facturacion/facturas/${selectedFactura.id_factura}`, {
+        method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ motivo: motivoAnulacion }),
+        body: JSON.stringify({
+          usuario_id: user?.id_usuario ?? '',
+          usuario_nombre: user?.Nombre ?? '',
+        }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error al anular');
-      setModalAnular(false);
+      if (!res.ok) throw new Error(data.error || 'Error al eliminar la factura');
+      setModalBorrar(false);
+      showToast('Factura eliminada', 'La factura de gasto se ha borrado del sistema.', 'success');
       fetchFacturas();
       setSelectedRowIndex(null);
     } catch (e: unknown) {
-      showToast('Error', e instanceof Error ? e.message : 'Error al anular la factura', 'error');
+      showToast('Error', e instanceof Error ? e.message : 'No se pudo eliminar la factura', 'error');
     } finally {
       setProcesando(false);
     }
@@ -315,7 +369,6 @@ export default function FacturasGastoScreen() {
     if (procesando) return true;
     if (btn.needsSelection && selectedRowIndex == null) return true;
     if (btn.id === 'emitir' && selectedFactura?.estado !== 'borrador') return true;
-    if (btn.id === 'anular' && selectedFactura?.estado === 'anulada') return true;
     if (btn.id === 'pagar' && selectedFactura && (selectedFactura.estado === 'anulada' || selectedFactura.estado === 'pagada' || selectedFactura.estado === 'borrador')) return true;
     return false;
   };
@@ -567,27 +620,36 @@ export default function FacturasGastoScreen() {
         </ScrollView>
       </View>
 
-      {/* Modal Anular */}
-      <Modal visible={modalAnular} transparent animationType="fade" onRequestClose={() => setModalAnular(false)}>
-        <Pressable style={styles.modalOverlay} onPress={() => !procesando && setModalAnular(false)}>
+      {/* Modal Borrar (solo facturas IN; eliminación definitiva) */}
+      <Modal visible={modalBorrar} transparent animationType="fade" onRequestClose={() => !procesando && setModalBorrar(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => !procesando && setModalBorrar(false)}>
           <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Anular factura</Text>
-            <Text style={styles.modalLabel}>¿Seguro que desea anular la factura {selectedFactura?.id_factura}?</Text>
-            <Text style={styles.modalFieldLabel}>Motivo (opcional)</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={motivoAnulacion}
-              onChangeText={setMotivoAnulacion}
-              placeholder="Motivo de anulación…"
-              placeholderTextColor="#94a3b8"
-              multiline
-            />
+            <Text style={styles.modalTitle}>Eliminar factura de gasto</Text>
+            <Text style={styles.modalWarningTitle}>Esta acción no se puede deshacer</Text>
+            <Text style={styles.modalLabel}>
+              Se borrará la factura <Text style={styles.modalStrong}>{selectedFactura?.id_factura}</Text>
+              {selectedFactura?.empresa_nombre ? (
+                <> ({selectedFactura.empresa_nombre})</>
+              ) : null}
+              , incluyendo líneas, pagos asociados y documentos en almacenamiento.
+            </Text>
+            <Text style={styles.modalLabelMuted}>
+              Si solo quieres dejar constancia contable sin borrar el registro, usa «Anular» en lugar de eliminar.
+            </Text>
             <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setModalAnular(false)} disabled={procesando}>
+              <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setModalBorrar(false)} disabled={procesando}>
                 <Text style={styles.modalBtnCancelText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalBtnConfirm, procesando && styles.modalBtnDisabled]} onPress={handleAnular} disabled={procesando}>
-                {procesando ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.modalBtnConfirmText}>Anular</Text>}
+              <TouchableOpacity
+                style={[styles.modalBtnDanger, procesando && styles.modalBtnDisabled]}
+                onPress={handleBorrarDefinitivo}
+                disabled={procesando}
+              >
+                {procesando ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.modalBtnDangerText}>Eliminar definitivamente</Text>
+                )}
               </TouchableOpacity>
             </View>
           </Pressable>
@@ -845,7 +907,10 @@ const styles = StyleSheet.create({
     maxWidth: 400,
   },
   modalTitle: { fontSize: 16, fontWeight: '700', color: '#334155', marginBottom: 12 },
-  modalLabel: { fontSize: 12, color: '#64748b', marginBottom: 12 },
+  modalWarningTitle: { fontSize: 13, fontWeight: '700', color: '#b45309', marginBottom: 8 },
+  modalLabel: { fontSize: 12, color: '#64748b', marginBottom: 12, lineHeight: 18 },
+  modalLabelMuted: { fontSize: 11, color: '#94a3b8', marginBottom: 4, lineHeight: 16, fontStyle: 'italic' },
+  modalStrong: { fontWeight: '700', color: '#334155' },
   modalFieldLabel: { fontSize: 11, fontWeight: '600', color: '#334155', marginBottom: 4, marginTop: 8 },
   modalInput: {
     borderWidth: 1,
@@ -903,5 +968,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#0ea5e9',
   },
   modalBtnConfirmText: { fontSize: 13, color: '#fff', fontWeight: '600' },
+  modalBtnDanger: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#dc2626',
+  },
+  modalBtnDangerText: { fontSize: 13, color: '#fff', fontWeight: '600' },
   modalBtnDisabled: { opacity: 0.6 },
 });

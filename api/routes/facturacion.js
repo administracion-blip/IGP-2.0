@@ -7,7 +7,14 @@ import {
   QueryCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  CopyObjectCommand,
+  ListObjectsV2Command,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { docClient, tables } from '../lib/db.js';
 import crypto from 'crypto';
@@ -46,6 +53,64 @@ function now() {
 
 function round2(n) {
   return Math.round(n * 100) / 100;
+}
+
+/** Copia el fichero en S3 a `facturas/{id}/…` para asociarlo de forma estable a la factura. */
+/** Elimina todos los objetos bajo `facturas/{idFactura}/` (best-effort). */
+async function eliminarArchivosS3Factura(idFactura) {
+  const prefix = `facturas/${idFactura}/`;
+  try {
+    let continuationToken;
+    do {
+      const out = await s3.send(
+        new ListObjectsV2Command({
+          Bucket: S3_BUCKET,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+        })
+      );
+      for (const obj of out.Contents || []) {
+        if (obj.Key) await s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: obj.Key }));
+      }
+      continuationToken = out.IsTruncated ? out.NextContinuationToken : undefined;
+    } while (continuationToken);
+  } catch (e) {
+    console.error('[eliminar factura IN] S3:', e.message);
+  }
+}
+
+async function copiarDocumentoAFactura(sourceKey, idFactura, nombreOriginal) {
+  if (!sourceKey || typeof sourceKey !== 'string' || !sourceKey.startsWith('facturas/')) {
+    throw new Error('Origen de documento inválido');
+  }
+  const m = String(nombreOriginal || '').match(/\.([a-zA-Z0-9]{1,8})$/);
+  const ext = m ? m[1] : 'pdf';
+  const destKey = `facturas/${idFactura}/${Date.now()}_${uuid().slice(0, 8)}.${ext}`;
+  const copySource = `${S3_BUCKET}/${sourceKey.split('/').map(encodeURIComponent).join('/')}`;
+  await s3.send(
+    new CopyObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: destKey,
+      CopySource: copySource,
+    })
+  );
+  return destKey;
+}
+
+/** Normaliza fecha a yyyy-mm-dd (ISO). Acepta ya ISO o dd/mm/aaaa (u opcional dd/mm/yy). */
+function fechaToIsoGuardada(val) {
+  if (val == null || val === '') return '';
+  const s = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})$/);
+  if (m) {
+    const d = m[1].padStart(2, '0');
+    const mo = m[2].padStart(2, '0');
+    let y = m[3];
+    if (y.length === 2) y = '20' + y;
+    return `${y}-${mo}-${d}`;
+  }
+  return s;
 }
 
 function computeHash(factura) {
@@ -116,6 +181,63 @@ async function registrarAuditoria(id_factura, accion, usuario_id, usuario_nombre
       },
     })
   );
+}
+
+/**
+ * DeleteItem probando varias claves hasta acertar el esquema real de la tabla DynamoDB.
+ */
+async function deleteItemWithKeyCandidates(tableName, keyCandidates) {
+  const candidates = keyCandidates.filter((k) => k && Object.keys(k).length > 0);
+  if (candidates.length === 0) {
+    throw new Error(`Sin clave válida para borrar en ${tableName}`);
+  }
+  let lastErr;
+  for (const Key of candidates) {
+    try {
+      await docClient.send(new DeleteCommand({ TableName: tableName, Key }));
+      return;
+    } catch (e) {
+      lastErr = e;
+      const isKeySchemaErr =
+        e.name === 'ValidationException' ||
+        /schema|key element|does not match/i.test(String(e.message || ''));
+      if (!isKeySchemaErr) throw e;
+    }
+  }
+  if (lastErr) throw lastErr;
+}
+
+function keyCandidatesPago(p) {
+  const out = [];
+  if (p.id_factura && p.id_pago) out.push({ id_factura: p.id_factura, id_pago: p.id_pago });
+  if (p.id_entrada) out.push({ id_entrada: p.id_entrada });
+  if (p.id_factura && p.id_pago) out.push({ id_entrada: `${p.id_factura}#${p.id_pago}` });
+  return out;
+}
+
+function keyCandidatesLinea(l) {
+  const out = [];
+  if (l.id_factura && l.id_linea) out.push({ id_factura: l.id_factura, id_linea: l.id_linea });
+  if (l.id_entrada) out.push({ id_entrada: l.id_entrada });
+  if (l.id_factura && l.id_linea) out.push({ id_entrada: `${l.id_factura}#${l.id_linea}` });
+  return out;
+}
+
+/**
+ * Borra un ítem de auditoría respetando el esquema de clave de la tabla (puede ser solo id_entrada o compuesta).
+ */
+async function deleteAuditoriaItem(a, idFacturaFallback) {
+  const idFact = a.id_factura || idFacturaFallback;
+  const candidates = [];
+  if (idFact && a.id_entrada) candidates.push({ id_factura: idFact, id_entrada: a.id_entrada });
+  if (idFact && a.timestamp_accion) candidates.push({ id_factura: idFact, timestamp_accion: a.timestamp_accion });
+  if (a.id_entrada) candidates.push({ id_entrada: a.id_entrada });
+
+  if (candidates.length === 0) {
+    throw new Error('Registro de auditoría sin id_entrada ni timestamp_accion');
+  }
+
+  await deleteItemWithKeyCandidates(tables.facturasAuditoria, candidates);
 }
 
 // ─── SERIES ───
@@ -634,6 +756,53 @@ router.post('/facturacion/facturas/:id/anular', async (req, res) => {
     await registrarAuditoria(id, 'anulacion', usuario_id, usuario_nombre, { motivo });
 
     res.json({ ok: true, factura });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Eliminación física solo para facturas de gasto (IN): pagos, líneas, auditoría y registro. */
+router.delete('/facturacion/facturas/:id', async (req, res) => {
+  const id = req.params.id;
+  const { usuario_id, usuario_nombre } = req.body || {};
+
+  try {
+    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: { id_entrada: id } }));
+    if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    const factura = existing.Item;
+
+    if (factura.tipo !== 'IN') {
+      return res.status(403).json({
+        error: 'Solo se pueden eliminar facturas de gasto (recibidas). Las facturas de venta deben anularse.',
+      });
+    }
+
+    const pagos = await scanAll(tables.facturasPagos, 'id_factura = :fid', { ':fid': id });
+    for (const p of pagos) {
+      await deleteItemWithKeyCandidates(tables.facturasPagos, keyCandidatesPago(p));
+    }
+
+    const lineas = await scanAll(tables.facturasLineas, 'id_factura = :fid', { ':fid': id });
+    for (const l of lineas) {
+      await deleteItemWithKeyCandidates(tables.facturasLineas, keyCandidatesLinea(l));
+    }
+
+    const audits = await scanAll(tables.facturasAuditoria, 'id_factura = :fid', { ':fid': id });
+    for (const a of audits) {
+      await deleteAuditoriaItem(a, id);
+    }
+
+    await deleteItemWithKeyCandidates(tables.facturas, [{ id_entrada: id }, { id_factura: id }]);
+
+    await registrarAuditoria(id, 'eliminacion', usuario_id, usuario_nombre, {
+      tipo: 'IN',
+      motivo: 'borrado_definitivo_gasto',
+      estado_previo: factura.estado,
+    });
+
+    await eliminarArchivosS3Factura(id);
+
+    res.json({ ok: true, eliminada: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1261,12 +1430,25 @@ router.get('/facturacion/facturas/:id/adjuntos', async (req, res) => {
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: { id_entrada: id } }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
 
-    const adjuntos = existing.Item.adjuntos || [];
-    const withUrls = await Promise.all(adjuntos.map(async (a) => {
-      const cmd = new GetObjectCommand({ Bucket: S3_BUCKET, Key: a.fileKey });
-      const url = await getSignedUrl(s3, cmd, { expiresIn: 3600 });
-      return { ...a, url };
-    }));
+    let adjuntos = Array.isArray(existing.Item.adjuntos) ? [...existing.Item.adjuntos] : [];
+    if (adjuntos.length === 0 && existing.Item.documento_file_key) {
+      adjuntos = [
+        {
+          id: 'documento',
+          fileKey: existing.Item.documento_file_key,
+          nombre: existing.Item.documento_nombre || '',
+          tipo: 'application/octet-stream',
+          size: 0,
+        },
+      ];
+    }
+    const withUrls = await Promise.all(
+      adjuntos.map(async (a) => {
+        const cmd = new GetObjectCommand({ Bucket: S3_BUCKET, Key: a.fileKey });
+        const url = await getSignedUrl(s3, cmd, { expiresIn: 3600 });
+        return { ...a, url };
+      })
+    );
 
     res.json({ adjuntos: withUrls });
   } catch (err) {
@@ -1336,6 +1518,104 @@ router.post('/facturacion/ocr/extraer', upload.single('file'), async (req, res) 
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── OCR POR ZONA (selección manual tipo a3) ───
+
+router.post('/facturacion/ocr/extraer-zona', async (req, res) => {
+  const { fileKey, x, y, width, height, pageWidth, pageHeight } = req.body || {};
+  if (!fileKey || width == null || height == null) {
+    return res.status(400).json({ error: 'Faltan parámetros (fileKey, x, y, width, height)' });
+  }
+
+  try {
+    const sharp = (await import('sharp')).default;
+
+    const obj = await s3.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: fileKey }));
+    const chunks = [];
+    for await (const chunk of obj.Body) chunks.push(chunk);
+    const fileBuffer = Buffer.concat(chunks);
+
+    const mimetype = obj.ContentType || '';
+    const isImage = IMAGE_MIMES.includes(mimetype);
+    const isPdf = isPdfMime(mimetype, fileKey);
+
+    let imgBuffer;
+    if (isImage) {
+      imgBuffer = fileBuffer;
+    } else if (isPdf) {
+      imgBuffer = await renderPdfFirstPageToPngBuffer(fileBuffer);
+      if (!imgBuffer) return res.status(500).json({ error: 'No se pudo rasterizar el PDF' });
+    } else {
+      return res.status(400).json({ error: 'Tipo de archivo no soportado' });
+    }
+
+    const meta = await sharp(imgBuffer).metadata();
+    const imgW = meta.width || 1;
+    const imgH = meta.height || 1;
+
+    const scaleX = imgW / (pageWidth || imgW);
+    const scaleY = imgH / (pageHeight || imgH);
+
+    const left = Math.max(0, Math.round(x * scaleX));
+    const top = Math.max(0, Math.round(y * scaleY));
+    const cropW = Math.min(Math.round(width * scaleX), imgW - left);
+    const cropH = Math.min(Math.round(height * scaleY), imgH - top);
+
+    if (cropW < 5 || cropH < 5) {
+      return res.status(400).json({ error: 'Zona demasiado pequeña' });
+    }
+
+    const croppedBuffer = await sharp(imgBuffer)
+      .extract({ left, top, width: cropW, height: cropH })
+      .png()
+      .toBuffer();
+
+    const text = await ocrWithTesseract(croppedBuffer);
+    const cleaned = (text || '').trim().replace(/\n+/g, ' ');
+    console.log(`[OCR-zona] Extraído de zona (${cropW}x${cropH}): "${cleaned}"`);
+
+    res.json({ ok: true, texto: cleaned });
+  } catch (err) {
+    console.error('[OCR-zona] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Vista previa PNG página 1 (PDF) o imagen normalizada — para modo selección de zona en el cliente (<img> no puede mostrar PDF). */
+router.get('/facturacion/ocr/preview-png', async (req, res) => {
+  const fileKey = req.query.fileKey;
+  if (!fileKey || typeof fileKey !== 'string' || !fileKey.startsWith('facturas/') || fileKey.includes('..')) {
+    return res.status(400).json({ error: 'fileKey inválido' });
+  }
+
+  try {
+    const obj = await s3.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: fileKey }));
+    const chunks = [];
+    for await (const chunk of obj.Body) chunks.push(chunk);
+    const fileBuffer = Buffer.concat(chunks);
+    const mimetype = obj.ContentType || '';
+    const isImage = IMAGE_MIMES.includes(mimetype);
+    const isPdf = isPdfMime(mimetype, fileKey);
+
+    let pngBuffer;
+    if (isPdf) {
+      pngBuffer = await renderPdfFirstPageToPngBuffer(fileBuffer);
+      if (!pngBuffer) return res.status(500).json({ error: 'No se pudo rasterizar el PDF' });
+    } else if (isImage) {
+      const sharp = (await import('sharp')).default;
+      pngBuffer = await sharp(fileBuffer).png().toBuffer();
+    } else {
+      return res.status(400).json({ error: 'Tipo de archivo no soportado para vista previa' });
+    }
+
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'private, max-age=120');
+    return res.send(pngBuffer);
+  } catch (err) {
+    console.error('[OCR preview-png] Error:', err.message);
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -1504,61 +1784,22 @@ const MIN_TEXT_THRESHOLD = 50;
 function isPdfMime(mimetype, filename) {
   if (mimetype === 'application/pdf') return true;
   const n = (filename || '').toLowerCase();
+  if (n.endsWith('.pdf')) {
+    if (!mimetype || mimetype === 'application/octet-stream' || mimetype === 'binary/octet-stream') return true;
+  }
   return mimetype === 'application/octet-stream' && n.endsWith('.pdf');
 }
 
-async function extraerDatosBasicos(buffer, mimetype, filename) {
-  let text = '';
-  let metodo_extraccion = 'pdf_text';
-  const isImage = IMAGE_MIMES.includes(mimetype);
-  const isPdf = isPdfMime(mimetype, filename);
-
-  if (isPdf) {
-    try {
-      const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
-      const parsed = await pdfParse(buf);
-      text = (parsed && parsed.text) || '';
-    } catch (e) {
-      console.error('[OCR] pdf-parse falló, usando fallback:', e.message);
-      text = extractTextFromPdfBufferFallback(buffer);
-    }
-
-    if (text.trim().length < MIN_TEXT_THRESHOLD) {
-      console.log(`[OCR] PDF con poco texto (${text.trim().length} chars) — intentando OCR por imagen (pág. 1)…`);
-      const png = await renderPdfFirstPageToPngBuffer(buffer);
-      if (png) {
-        try {
-          const ocrText = await ocrWithTesseract(png);
-          if (ocrText && ocrText.trim().length > text.trim().length) {
-            text = ocrText;
-            metodo_extraccion = 'pdf_ocr_fallback';
-            console.log(`[OCR] PDF escaneado: Tesseract extrajo ${text.length} caracteres`);
-          }
-        } catch (e) {
-          console.error('[OCR] Tesseract en PDF rasterizado falló:', e.message);
-        }
-      }
-    } else {
-      metodo_extraccion = 'pdf_text';
-    }
-  } else if (isImage) {
-    metodo_extraccion = 'image_ocr';
-    console.log('[OCR] Imagen detectada, ejecutando Tesseract OCR…');
-    try {
-      text = await ocrWithTesseract(buffer);
-      console.log(`[OCR] Tesseract extrajo ${text.length} caracteres`);
-    } catch (e) {
-      console.error('[OCR] Tesseract falló en imagen:', e.message);
-    }
-  }
-
-  console.log(`[OCR] Texto extraído (${text.length} chars) [${metodo_extraccion}]:`, text.slice(0, 500));
-
+/**
+ * Parsea texto plano de una factura y extrae datos estructurados (CIF, fechas, importes, nº factura).
+ * Función pura y reutilizable: no hace I/O ni consulta BD.
+ */
+function parsearTextoFactura(text) {
   const parseImporte = (str) => normalizeImporteFacturaEsp(str);
+  let m;
 
   const cifs = [];
   const cifRegex = /\b([A-Z]\d{7}[A-Z0-9]|\d{8}[A-Z])\b/gi;
-  let m;
   while ((m = cifRegex.exec(text)) !== null) {
     if (!cifs.includes(m[1].toUpperCase())) cifs.push(m[1].toUpperCase());
   }
@@ -1658,6 +1899,91 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
     }
   }
 
+  return { cifs, proveedor_cif, fechas, totalFactura, baseImponible, totalIva, totalMatches, baseMatches, ivaMatches, numFacturas };
+}
+
+/** Puntúa la calidad de un parseo para comparar texto embebido vs OCR. */
+function scoreParseo(p) {
+  let s = 0;
+  if (p.proveedor_cif) s += 3;
+  if (p.totalFactura > 0) s += 3;
+  if (p.baseImponible > 0) s += 2;
+  if (p.totalIva > 0) s += 1;
+  if (p.fechas.length > 0) s += 2;
+  if (p.numFacturas.length > 0) s += 2;
+  return s;
+}
+
+async function extraerDatosBasicos(buffer, mimetype, filename) {
+  let text = '';
+  let metodo_extraccion = 'pdf_text';
+  let parseo;
+  const isImage = IMAGE_MIMES.includes(mimetype);
+  const isPdf = isPdfMime(mimetype, filename);
+
+  // ── IMAGEN: OCR directo ──
+  if (isImage) {
+    metodo_extraccion = 'image_ocr';
+    console.log('[OCR] Imagen detectada, ejecutando Tesseract OCR…');
+    try {
+      text = await ocrWithTesseract(buffer);
+      console.log(`[OCR] Tesseract extrajo ${text.length} caracteres`);
+    } catch (e) {
+      console.error('[OCR] Tesseract falló en imagen:', e.message);
+    }
+    parseo = parsearTextoFactura(text);
+
+  // ── PDF: texto embebido primero → fallback OCR si el parseo es pobre ──
+  } else if (isPdf) {
+    try {
+      const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+      const parsed = await pdfParse(buf);
+      text = (parsed && parsed.text) || '';
+    } catch (e) {
+      console.error('[OCR] pdf-parse falló, usando fallback:', e.message);
+      text = extractTextFromPdfBufferFallback(buffer);
+    }
+
+    metodo_extraccion = 'pdf_text';
+    parseo = parsearTextoFactura(text);
+    const scoreTxt = scoreParseo(parseo);
+    console.log(`[OCR] PDF texto embebido: ${text.trim().length} chars, score parseo=${scoreTxt}`);
+
+    const necesitaFallback = text.trim().length < MIN_TEXT_THRESHOLD || scoreTxt < 4;
+
+    if (necesitaFallback) {
+      console.log('[OCR] Texto embebido insuficiente o parseo pobre — intentando OCR por imagen (pág. 1)…');
+      const png = await renderPdfFirstPageToPngBuffer(buffer);
+      if (png) {
+        try {
+          const ocrText = await ocrWithTesseract(png);
+          console.log(`[OCR] Tesseract (PDF rasterizado) extrajo ${(ocrText || '').length} caracteres`);
+          if (ocrText) {
+            const parseoOcr = parsearTextoFactura(ocrText);
+            const scoreOcr = scoreParseo(parseoOcr);
+            console.log(`[OCR] Score texto embebido=${scoreTxt}, score OCR imagen=${scoreOcr}`);
+            if (scoreOcr > scoreTxt) {
+              text = ocrText;
+              parseo = parseoOcr;
+              metodo_extraccion = 'pdf_ocr_fallback';
+              console.log('[OCR] Usando resultado OCR (mejor que texto embebido)');
+            } else {
+              console.log('[OCR] Texto embebido igual o mejor que OCR, manteniendo texto embebido');
+            }
+          }
+        } catch (e) {
+          console.error('[OCR] Tesseract en PDF rasterizado falló:', e.message);
+        }
+      }
+    }
+  } else {
+    parseo = parsearTextoFactura(text);
+  }
+
+  console.log(`[OCR] Método final: ${metodo_extraccion} — Texto: ${text.length} chars`);
+  console.log(`[OCR] Texto (primeros 500 chars):`, text.slice(0, 500));
+
+  const { cifs, proveedor_cif, fechas, totalFactura, baseImponible, totalIva, totalMatches, baseMatches, ivaMatches, numFacturas } = parseo;
   const nombreOcrSugerido = inferProveedorNombre(text, proveedor_cif);
 
   let proveedor_nombre = '';
@@ -1704,7 +2030,6 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
     proveedor_nombre: proveedor_nombre || '',
     empresa_id: empresa_id || '',
     proveedor_en_maestros,
-    /** Solo si hay CIF y no está en maestro: sugerencia OCR para rellenar al crear empresa */
     nombre_sugerido_ocr: !proveedor_en_maestros && proveedor_cif ? nombreOcrSugerido || '' : '',
     numero_factura_proveedor: numFacturas[0] || '',
     fecha_emision: fechas[0] || '',
@@ -1757,6 +2082,40 @@ router.post('/facturacion/ocr/confirmar', async (req, res) => {
       if (b.descartado) continue;
 
       const id_factura = uuid();
+      const emisorId = b.sociedad_grupo_id || b.emisor_id || '';
+      const emisorNombre = b.sociedad_grupo_nombre || b.emisor_nombre || '';
+      const emisorCif = b.sociedad_grupo_cif || b.emisor_cif || '';
+      if (!emisorId && !emisorNombre) {
+        return res.status(400).json({
+          error: 'Falta la empresa del grupo (GRUPO PARIPE) en uno o más borradores. Selecciónala antes de confirmar.',
+        });
+      }
+
+      let adjuntos = [];
+      let documento_file_key = '';
+      let documento_nombre = '';
+      if (b.archivo && b.archivo.fileKey) {
+        let fileKeyFinal = String(b.archivo.fileKey);
+        documento_nombre = b.archivo.nombre != null ? String(b.archivo.nombre) : '';
+        try {
+          fileKeyFinal = await copiarDocumentoAFactura(fileKeyFinal, id_factura, documento_nombre);
+        } catch (e) {
+          console.error('[OCR confirmar] Copia S3 falló, se mantiene clave origen:', e.message);
+        }
+        documento_file_key = fileKeyFinal;
+        adjuntos = [
+          {
+            id: uuid(),
+            fileKey: fileKeyFinal,
+            nombre: documento_nombre,
+            tipo: b.archivo.tipo != null ? String(b.archivo.tipo) : '',
+            size: Number(b.archivo.size) || 0,
+            subido_en: now(),
+            subido_por: usuario_nombre || '',
+          },
+        ];
+      }
+
       const factura = {
         id_entrada: id_factura,
         id_factura,
@@ -1765,8 +2124,18 @@ router.post('/facturacion/ocr/confirmar', async (req, res) => {
         serie: b.serie || '',
         numero: 0,
         numero_factura: '',
-        fecha_emision: b.fecha_emision || '',
-        fecha_vencimiento: b.fecha_vencimiento || '',
+        fecha_emision: fechaToIsoGuardada(b.fecha_emision) || '',
+        fecha_vencimiento: fechaToIsoGuardada(b.fecha_vencimiento) || '',
+        emisor_id: emisorId,
+        emisor_nombre: emisorNombre,
+        emisor_cif: emisorCif,
+        emisor_direccion: b.emisor_direccion || '',
+        emisor_cp: b.emisor_cp || '',
+        emisor_municipio: b.emisor_municipio || '',
+        emisor_provincia: b.emisor_provincia || '',
+        emisor_email: b.emisor_email || '',
+        emisor_iban: b.emisor_iban || '',
+        emisor_iban_alternativo: b.emisor_iban_alternativo || '',
         empresa_id: b.empresa_id || '',
         empresa_nombre: b.proveedor_nombre || '',
         empresa_cif: b.proveedor_cif || '',
@@ -1786,15 +2155,9 @@ router.post('/facturacion/ocr/confirmar', async (req, res) => {
         condiciones_pago: b.condiciones_pago || '',
         observaciones: b.observaciones || 'Creada desde OCR/registro masivo',
         local_id: b.local_id || '',
-        adjuntos: b.archivo ? [{
-          id: uuid(),
-          fileKey: b.archivo.fileKey,
-          nombre: b.archivo.nombre,
-          tipo: b.archivo.tipo,
-          size: b.archivo.size || 0,
-          subido_en: now(),
-          subido_por: usuario_nombre || '',
-        }] : [],
+        documento_file_key,
+        documento_nombre,
+        adjuntos,
         version: 1,
         creado_por: usuario_id || '',
         creado_en: now(),

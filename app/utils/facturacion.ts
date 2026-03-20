@@ -55,6 +55,18 @@ export const ESTADOS_IN = [
 export type EstadoOut = (typeof ESTADOS_OUT)[number];
 export type EstadoIn = (typeof ESTADOS_IN)[number];
 
+/** Metadatos de adjunto en DynamoDB; `url` solo viene en GET /facturacion/facturas/:id/adjuntos */
+export type AdjuntoFactura = {
+  id?: string;
+  fileKey?: string;
+  nombre?: string;
+  tipo?: string;
+  size?: number;
+  subido_en?: string;
+  subido_por?: string;
+  url?: string;
+};
+
 export type LineaFactura = {
   id_linea?: string;
   producto_id?: string;
@@ -78,6 +90,10 @@ export type Factura = {
   serie: string;
   numero: number;
   estado: string;
+  /** Sociedad del grupo (p. ej. GRUPO PARIPE) en facturas IN; coincide con el selector «Empresa» en OCR */
+  emisor_id?: string;
+  emisor_nombre?: string;
+  emisor_cif?: string;
   empresa_id: string;
   empresa_nombre: string;
   empresa_cif: string;
@@ -98,7 +114,10 @@ export type Factura = {
   total_cobrado: number;
   saldo_pendiente: number;
   observaciones: string;
-  adjuntos: string[];
+  /** Clave S3 del documento principal (misma referencia que adjuntos[0] tras OCR) */
+  documento_file_key?: string;
+  documento_nombre?: string;
+  adjuntos: AdjuntoFactura[];
   local_id: string;
   es_rectificativa: boolean;
   factura_rectificada_id: string;

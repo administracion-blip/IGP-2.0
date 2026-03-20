@@ -271,17 +271,15 @@ export default function FacturaDetalleScreen() {
     modo === 'editar' &&
     ['emitida', 'parcialmente_cobrada', 'cobrada', 'pendiente_pago', 'parcialmente_pagada', 'pagada'].includes(estado);
 
+  /** Sociedad GRUPO PARIPE: emisor en ventas y en facturas recibidas (sociedad que recibe el gasto). */
   const emisorFiltradas = useMemo(() => {
-    let base = empresas;
-    if (esVenta) {
-      base = base.filter((e) => (e.sede || '').toUpperCase().includes('GRUPO PARIPE'));
-    }
+    let base = empresas.filter((e) => (e.sede || '').toUpperCase().includes('GRUPO PARIPE'));
     if (!emisorSearch.trim()) return base;
     const q = emisorSearch.toLowerCase();
     return base.filter(
       (e) => (e.nombre || '').toLowerCase().includes(q) || (e.cif || '').toLowerCase().includes(q),
     );
-  }, [empresas, emisorSearch, esVenta]);
+  }, [empresas, emisorSearch]);
 
   const empresasFiltradas = useMemo(() => {
     if (!empresaSearch.trim()) return empresas;
@@ -524,8 +522,14 @@ export default function FacturaDetalleScreen() {
 
   // ── Save (borrador) ──
   const guardarBorrador = async () => {
-    if (!emisorNombre) { alertMsg('Error', 'Selecciona un emisor'); return; }
-    if (!empresaId) { alertMsg('Error', 'Selecciona un receptor'); return; }
+    if (!emisorNombre) {
+      alertMsg('Error', esVenta ? 'Selecciona un emisor' : 'Selecciona la empresa del grupo (GRUPO PARIPE)');
+      return;
+    }
+    if (!empresaId) {
+      alertMsg('Error', esVenta ? 'Selecciona un receptor' : 'Selecciona el proveedor');
+      return;
+    }
     if (!serie) {
       if (seriesFiltradas.length === 0) alertMsg('Sin series', 'No hay series configuradas para este tipo de factura. Ve a Facturación > Series para crearlas.');
       else alertMsg('Error', 'Selecciona una serie');
@@ -958,15 +962,18 @@ export default function FacturaDetalleScreen() {
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-      {/* ── EMISOR + RECEPTOR ── */}
+      {/* ── EMISOR/EMPRESA + RECEPTOR/PROVEEDOR ── */}
       <View style={[styles.empresaRow, !isWide && { flexDirection: 'column' }]}>
-        {/* EMISOR */}
+        {/* EMISOR (OUT) o Empresa GRUPO PARIPE (IN) */}
         <View style={[styles.section, { flex: 1, zIndex: 110, overflow: 'visible' } as any]}>
-          <Text style={styles.sectionTitle}>Emisor *</Text>
+          <Text style={styles.sectionTitle}>{esVenta ? 'Emisor *' : 'Empresa *'}</Text>
+          {!esVenta ? (
+            <Text style={styles.sectionHint}>Solo sociedades con sede GRUPO PARIPE (receptora del gasto)</Text>
+          ) : null}
           <View style={styles.empresaSelector}>
             <TextInput
               style={styles.input}
-              placeholder="Buscar emisor por nombre o CIF…"
+              placeholder={esVenta ? 'Buscar emisor por nombre o CIF…' : 'Buscar empresa por nombre o CIF…'}
               placeholderTextColor="#94a3b8"
               value={emisorSearch || emisorNombre}
               onChangeText={(t) => {
@@ -1010,13 +1017,13 @@ export default function FacturaDetalleScreen() {
           ) : null}
         </View>
 
-        {/* RECEPTOR */}
+        {/* RECEPTOR (OUT) o Proveedor (IN) */}
         <View style={[styles.section, { flex: 1, zIndex: 100, overflow: 'visible' } as any]}>
-          <Text style={styles.sectionTitle}>Receptor *</Text>
+          <Text style={styles.sectionTitle}>{esVenta ? 'Receptor *' : 'Proveedor *'}</Text>
           <View style={styles.empresaSelector}>
             <TextInput
               style={styles.input}
-              placeholder="Buscar receptor por nombre o CIF…"
+              placeholder={esVenta ? 'Buscar receptor por nombre o CIF…' : 'Buscar proveedor por nombre o CIF…'}
               placeholderTextColor="#94a3b8"
               value={empresaSearch || empresaNombre}
               onChangeText={(t) => {
@@ -1817,6 +1824,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#334155',
     marginBottom: 10,
+  },
+  sectionHint: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: -6,
+    marginBottom: 8,
+    lineHeight: 15,
   },
   sectionHeaderRow: {
     flexDirection: 'row',
