@@ -16,6 +16,7 @@ import multer from 'multer';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
+const Tesseract = require('tesseract.js');
 
 const router = Router();
 
@@ -1338,24 +1339,222 @@ router.post('/facturacion/ocr/extraer', upload.single('file'), async (req, res) 
   }
 });
 
+async function ocrWithTesseract(imageBuffer) {
+  const worker = await Tesseract.createWorker('spa+eng');
+  try {
+    const { data } = await worker.recognize(imageBuffer);
+    return data.text || '';
+  } finally {
+    await worker.terminate();
+  }
+}
+
+/** Normaliza importes factura ES (miles con `.`, decimales con `,`) y fallback OCR/PDF (ej. 160.00). */
+function normalizeImporteFacturaEsp(raw) {
+  if (raw == null || raw === '') return NaN;
+  let s = String(raw).trim();
+  s = s.replace(/€/g, '').replace(/\u00A0/g, '').replace(/\s+/g, '');
+  s = s.replace(/[^\d.,\-]/g, '');
+  if (!s || s === '-') return NaN;
+
+  const lastComma = s.lastIndexOf(',');
+  const lastDot = s.lastIndexOf('.');
+
+  // Español: 1.234,56 — la coma decimal va después del último punto
+  if (lastComma > lastDot) {
+    const n = parseFloat(s.replace(/\./g, '').replace(',', '.'));
+    return Number.isFinite(n) ? n : NaN;
+  }
+  // US: 1,234.56
+  if (lastDot > lastComma && lastComma >= 0) {
+    const n = parseFloat(s.replace(/,/g, ''));
+    return Number.isFinite(n) ? n : NaN;
+  }
+  // Solo coma: 160,00
+  if (lastComma !== -1 && lastDot === -1) {
+    const n = parseFloat(s.replace(',', '.'));
+    return Number.isFinite(n) ? n : NaN;
+  }
+  // Solo puntos: 160.00 (decimal) o 1.234 (miles ES)
+  if (lastDot !== -1 && lastComma === -1) {
+    const parts = s.split('.');
+    if (parts.length === 2 && parts[1].length <= 2) {
+      return parseFloat(s);
+    }
+    if (parts.length > 2) {
+      const sign = s.startsWith('-') ? -1 : 1;
+      const n = parseFloat(s.replace(/^-/, '').split('.').join(''));
+      return Number.isFinite(n) ? sign * n : NaN;
+    }
+    if (parts.length === 2 && parts[1].length === 3) {
+      return parseFloat(s.replace('.', ''));
+    }
+    return parseFloat(s);
+  }
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/** Rasteriza la página 1 del PDF a PNG para OCR (requiere canvas + pdfjs-dist). */
+async function renderPdfFirstPageToPngBuffer(pdfBuffer) {
+  try {
+    const { createCanvas } = await import('@napi-rs/canvas');
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const getDocument = pdfjs.getDocument;
+    const buf = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
+    const loadingTask = getDocument({
+      data: new Uint8Array(buf),
+      disableWorker: true,
+      useSystemFonts: true,
+    });
+    const pdf = await loadingTask.promise;
+    if (pdf.numPages < 1) return null;
+    const page = await pdf.getPage(1);
+    const scale = 2;
+    const viewport = page.getViewport({ scale });
+    const w = Math.ceil(viewport.width);
+    const h = Math.ceil(viewport.height);
+    const canvas = createCanvas(w, h);
+    const ctx = canvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    return canvas.toBuffer('image/png');
+  } catch (e) {
+    console.error('[OCR] No se pudo rasterizar PDF para OCR:', e.message);
+    return null;
+  }
+}
+
+function pickProveedorCif(text, cifs) {
+  if (!cifs.length) return '';
+  if (cifs.length === 1) return cifs[0];
+  const lower = text.toLowerCase();
+  const clienteIdx = lower.search(/\b(cliente|destinatario|adquiriente)\b/);
+  const head = clienteIdx > 0 ? text.slice(0, clienteIdx) : text;
+  const cifRegex = /\b([A-Z]\d{7}[A-Z0-9]|\d{8}[A-Z])\b/gi;
+  const inHead = [];
+  let m;
+  while ((m = cifRegex.exec(head)) !== null) {
+    const c = m[1].toUpperCase();
+    if (!inHead.includes(c)) inHead.push(c);
+  }
+  if (inHead.length) return inHead[0];
+  return cifs[0];
+}
+
+function inferProveedorNombre(text, cifProveedor) {
+  if (!text) return '';
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const cifNorm = (cifProveedor || '').replace(/\s/g, '');
+  if (cifNorm) {
+    const idx = lines.findIndex((l) => l.replace(/\s/g, '').includes(cifNorm));
+    if (idx > 0) {
+      const candidate = lines[idx - 1];
+      if (candidate.length >= 3 && candidate.length < 120 && !/^\d{1,2}[\/\-]/.test(candidate) && !/^[A-Z0-9]{8,}$/i.test(candidate)) {
+        return candidate.replace(/^[\s\-–—]+/, '').slice(0, 120);
+      }
+    }
+  }
+  const sl = text.match(
+    /([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúñ0-9\s.,&\-]{3,80}(?:S\.?L\.?U\.?|S\.?L\.?|S\.?A\.?|S\.?C\.?O\.?O\.?P\.?))\.?/i
+  );
+  if (sl) return sl[1].trim().replace(/\s+/g, ' ').slice(0, 120);
+  return '';
+}
+
+function confianzaToScore(level) {
+  if (level === 'alta') return 0.85;
+  if (level === 'media') return 0.55;
+  return 0.25;
+}
+
+function averageOcrConfidence(conf) {
+  const vals = Object.values(conf).filter((v) => typeof v === 'string');
+  if (!vals.length) return 0;
+  const sum = vals.reduce((a, v) => a + confianzaToScore(v), 0);
+  return Math.round((sum / vals.length) * 100) / 100;
+}
+
+function normalizeCif(val) {
+  return String(val ?? '').trim().toUpperCase();
+}
+
+/** Busca en `igp_Empresas` por CIF (misma lógica que `/api/empresas/check-cif`). */
+async function buscarEmpresaPorCif(cifRaw) {
+  const cif = normalizeCif(cifRaw);
+  if (!cif) return null;
+  let lastKey = null;
+  const items = [];
+  do {
+    const result = await docClient.send(
+      new ScanCommand({
+        TableName: tables.empresas,
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      })
+    );
+    items.push(...(result.Items || []));
+    lastKey = result.LastEvaluatedKey || null;
+  } while (lastKey);
+  const found = items.find((item) => normalizeCif(item?.Cif) === cif);
+  return found || null;
+}
+
+const IMAGE_MIMES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/tiff', 'image/bmp'];
+const MIN_TEXT_THRESHOLD = 50;
+
+function isPdfMime(mimetype, filename) {
+  if (mimetype === 'application/pdf') return true;
+  const n = (filename || '').toLowerCase();
+  return mimetype === 'application/octet-stream' && n.endsWith('.pdf');
+}
+
 async function extraerDatosBasicos(buffer, mimetype, filename) {
   let text = '';
-  if (mimetype === 'application/pdf') {
+  let metodo_extraccion = 'pdf_text';
+  const isImage = IMAGE_MIMES.includes(mimetype);
+  const isPdf = isPdfMime(mimetype, filename);
+
+  if (isPdf) {
     try {
       const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
       const parsed = await pdfParse(buf);
-      text = parsed.text || '';
+      text = (parsed && parsed.text) || '';
     } catch (e) {
       console.error('[OCR] pdf-parse falló, usando fallback:', e.message);
       text = extractTextFromPdfBufferFallback(buffer);
     }
+
+    if (text.trim().length < MIN_TEXT_THRESHOLD) {
+      console.log(`[OCR] PDF con poco texto (${text.trim().length} chars) — intentando OCR por imagen (pág. 1)…`);
+      const png = await renderPdfFirstPageToPngBuffer(buffer);
+      if (png) {
+        try {
+          const ocrText = await ocrWithTesseract(png);
+          if (ocrText && ocrText.trim().length > text.trim().length) {
+            text = ocrText;
+            metodo_extraccion = 'pdf_ocr_fallback';
+            console.log(`[OCR] PDF escaneado: Tesseract extrajo ${text.length} caracteres`);
+          }
+        } catch (e) {
+          console.error('[OCR] Tesseract en PDF rasterizado falló:', e.message);
+        }
+      }
+    } else {
+      metodo_extraccion = 'pdf_text';
+    }
+  } else if (isImage) {
+    metodo_extraccion = 'image_ocr';
+    console.log('[OCR] Imagen detectada, ejecutando Tesseract OCR…');
+    try {
+      text = await ocrWithTesseract(buffer);
+      console.log(`[OCR] Tesseract extrajo ${text.length} caracteres`);
+    } catch (e) {
+      console.error('[OCR] Tesseract falló en imagen:', e.message);
+    }
   }
 
-  console.log(`[OCR] Texto extraído (${text.length} chars):`, text.slice(0, 500));
+  console.log(`[OCR] Texto extraído (${text.length} chars) [${metodo_extraccion}]:`, text.slice(0, 500));
 
-  function parseImporte(str) {
-    return parseFloat(str.replace(/\./g, '').replace(',', '.'));
-  }
+  const parseImporte = (str) => normalizeImporteFacturaEsp(str);
 
   const cifs = [];
   const cifRegex = /\b([A-Z]\d{7}[A-Z0-9]|\d{8}[A-Z])\b/gi;
@@ -1363,15 +1562,16 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
   while ((m = cifRegex.exec(text)) !== null) {
     if (!cifs.includes(m[1].toUpperCase())) cifs.push(m[1].toUpperCase());
   }
+  const proveedor_cif = pickProveedorCif(text, cifs);
 
   const fechas = [];
   const fechaRegex = /(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/g;
   while ((m = fechaRegex.exec(text)) !== null) {
     let y = m[3].length === 2 ? '20' + m[3] : m[3];
-    const yNum = parseInt(y);
+    const yNum = parseInt(y, 10);
     if (yNum < 2000 || yNum > 2100) continue;
-    const day = parseInt(m[1]);
-    const month = parseInt(m[2]);
+    const day = parseInt(m[1], 10);
+    const month = parseInt(m[2], 10);
     if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
       fechas.push(`${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
     }
@@ -1381,20 +1581,39 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
   let baseImponible = 0;
   let totalIva = 0;
 
-  const totalRegex = /(?:total\s*(?:factura)?|importe\s*total|total\s*a\s*pagar|total\s*€?)[:\s]*(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*€?/gi;
-  const baseRegex = /(?:base\s*imponible|subtotal|base\s+i)[:\s]*(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*€?/gi;
-  const ivaRegex = /(?:cuota\s*iva|iva\s*(?:\d+\s*%?\s*)?|total\s*iva|importe\s*iva)[:\s]*(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*€?/gi;
+  const amountCapture = '(\\d{1,3}(?:[.,]\\d{3})*[.,]\\d{2})';
+  const totalRegex = new RegExp(
+    `(?:total\\s*(?:factura)?|importe\\s*total|total\\s*a\\s*pagar|total\\s*€?)[:\\s]*${amountCapture}\\s*€?`,
+    'gi'
+  );
+  const baseRegex = new RegExp(
+    `(?:base\\s*imponible|subtotal|base\\s+i)[:\\s]*${amountCapture}\\s*€?`,
+    'gi'
+  );
+  const ivaRegex = new RegExp(
+    `(?:cuota\\s*iva|iva\\s*(?:\\d+\\s*%?\\s*)?|total\\s*iva|importe\\s*iva)[:\\s]*${amountCapture}\\s*€?`,
+    'gi'
+  );
 
   const totalMatches = [];
-  while ((m = totalRegex.exec(text)) !== null) totalMatches.push(parseImporte(m[1]));
+  while ((m = totalRegex.exec(text)) !== null) {
+    const v = parseImporte(m[1]);
+    if (!Number.isNaN(v) && v > 0) totalMatches.push(v);
+  }
   if (totalMatches.length > 0) totalFactura = totalMatches[totalMatches.length - 1];
 
   const baseMatches = [];
-  while ((m = baseRegex.exec(text)) !== null) baseMatches.push(parseImporte(m[1]));
+  while ((m = baseRegex.exec(text)) !== null) {
+    const v = parseImporte(m[1]);
+    if (!Number.isNaN(v) && v > 0) baseMatches.push(v);
+  }
   if (baseMatches.length > 0) baseImponible = baseMatches[baseMatches.length - 1];
 
   const ivaMatches = [];
-  while ((m = ivaRegex.exec(text)) !== null) ivaMatches.push(parseImporte(m[1]));
+  while ((m = ivaRegex.exec(text)) !== null) {
+    const v = parseImporte(m[1]);
+    if (!Number.isNaN(v) && v > 0) ivaMatches.push(v);
+  }
   if (ivaMatches.length > 0) totalIva = ivaMatches[ivaMatches.length - 1];
 
   if (!totalFactura || !baseImponible) {
@@ -1404,11 +1623,13 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
       /€\s*(\d{1,3}(?:\.\d{3})*,\d{2})/g,
       /(\d{1,3}(?:\.\d{3})*,\d{2})/g,
       /(\d+\.\d{2})\s*€/g,
+      /€\s*(\d+\.\d{2})/g,
+      /\b(\d{1,3}(?:\.\d{3})+\.\d{2})\b/g,
     ];
     for (const regex of importePatterns) {
       while ((m = regex.exec(text)) !== null) {
         const val = parseImporte(m[1]);
-        if (!isNaN(val) && val > 0.01) allImportes.push(val);
+        if (!Number.isNaN(val) && val > 0.01) allImportes.push(val);
       }
     }
     const unique = [...new Set(allImportes)].sort((a, b) => b - a);
@@ -1437,10 +1658,38 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
     }
   }
 
-  console.log('[OCR] Resultados:', { cifs, fechas, totalFactura, baseImponible, totalIva, numFacturas: numFacturas.slice(0, 3) });
+  const nombreOcrSugerido = inferProveedorNombre(text, proveedor_cif);
+
+  let proveedor_nombre = '';
+  let empresa_id = '';
+  let proveedor_en_maestros = false;
+  if (proveedor_cif) {
+    try {
+      const emp = await buscarEmpresaPorCif(proveedor_cif);
+      if (emp) {
+        proveedor_nombre = String(emp.Nombre || '').trim();
+        empresa_id = emp.id_empresa != null ? String(emp.id_empresa) : '';
+        proveedor_en_maestros = true;
+      }
+    } catch (e) {
+      console.error('[OCR] Error buscando empresa por CIF:', e.message);
+    }
+  }
+
+  console.log('[OCR] Resultados:', {
+    proveedor_cif,
+    proveedor_en_maestros,
+    fechas,
+    totalFactura,
+    baseImponible,
+    totalIva,
+    numFacturas: numFacturas.slice(0, 3),
+    metodo_extraccion,
+  });
 
   const confianza = {
-    proveedor_cif: cifs.length > 0 ? (cifs.length === 1 ? 'alta' : 'media') : 'baja',
+    proveedor_cif: proveedor_cif ? (cifs.length === 1 ? 'alta' : 'media') : 'baja',
+    proveedor_nombre: proveedor_en_maestros ? 'alta' : proveedor_cif ? 'baja' : 'baja',
     fecha: fechas.length > 0 ? (fechas.length === 1 ? 'alta' : 'media') : 'baja',
     total: totalFactura > 0 ? (totalMatches.length > 0 ? 'alta' : 'media') : 'baja',
     numero_factura: numFacturas.length > 0 ? 'media' : 'baja',
@@ -1448,16 +1697,24 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
     total_iva: totalIva > 0 ? (ivaMatches.length > 0 ? 'alta' : 'media') : 'baja',
   };
 
+  const ocr_confianza_global = averageOcrConfidence(confianza);
+
   return {
-    proveedor_cif: cifs[0] || '',
-    proveedor_nombre: '',
+    proveedor_cif: proveedor_cif || '',
+    proveedor_nombre: proveedor_nombre || '',
+    empresa_id: empresa_id || '',
+    proveedor_en_maestros,
+    /** Solo si hay CIF y no está en maestro: sugerencia OCR para rellenar al crear empresa */
+    nombre_sugerido_ocr: !proveedor_en_maestros && proveedor_cif ? nombreOcrSugerido || '' : '',
     numero_factura_proveedor: numFacturas[0] || '',
     fecha_emision: fechas[0] || '',
     total_factura: totalFactura,
     base_imponible: baseImponible,
     total_iva: totalIva,
     confianza,
-    texto_extraido: text.slice(0, 3000),
+    texto_extraido: text.slice(0, 8000),
+    metodo_extraccion,
+    ocr_confianza_global,
   };
 }
 

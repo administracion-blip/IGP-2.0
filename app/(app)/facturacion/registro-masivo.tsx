@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   Platform,
   useWindowDimensions,
+  Modal,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -25,6 +27,12 @@ type Borrador = {
   archivo: { fileKey: string; nombre: string; tipo: string; size: number; previewUrl: string };
   proveedor_cif: string;
   proveedor_nombre: string;
+  /** id en `igp_Empresas` si el CIF existe en maestro */
+  empresa_id?: string;
+  /** true si el nombre proviene de la tabla empresas (por CIF) */
+  proveedor_en_maestros?: boolean;
+  /** Sugerencia OCR del nombre si el CIF no está en maestro (para alta rápida) */
+  nombre_sugerido_ocr?: string;
   numero_factura_proveedor: string;
   fecha_emision: string;
   base_imponible: number;
@@ -32,6 +40,9 @@ type Borrador = {
   total_factura: number;
   observaciones: string;
   confianza: Confianza;
+  /** Origen del texto: texto embebido del PDF, OCR de imagen u OCR tras rasterizar PDF escaneado */
+  metodo_extraccion?: string;
+  ocr_confianza_global?: number;
   descartado: boolean;
   duplicados: { id_factura: string; numero_factura: string; empresa_nombre: string; total_factura: number }[];
   checkingDup: boolean;
@@ -50,6 +61,14 @@ function isoToDmy(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
+function metodoExtraccionLabel(m: string | undefined): string {
+  if (!m) return '';
+  if (m === 'pdf_text') return 'Texto embebido (PDF)';
+  if (m === 'image_ocr') return 'OCR (imagen)';
+  if (m === 'pdf_ocr_fallback') return 'OCR (PDF escaneado, pág. 1)';
+  return m;
+}
+
 export default function RegistroMasivoScreen() {
   const router = useRouter();
   const { user, hasPermiso } = useAuth();
@@ -65,8 +84,12 @@ export default function RegistroMasivoScreen() {
   const [guardando, setGuardando] = useState(false);
   const [step, setStep] = useState<'upload' | 'review'>('upload');
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const [modalEmpresaIdx, setModalEmpresaIdx] = useState<number | null>(null);
+  const [nombreNuevaEmpresa, setNombreNuevaEmpresa] = useState('');
+  const [creandoEmpresa, setCreandoEmpresa] = useState(false);
 
   const selectedBorrador = selectedIdx !== null ? borradores.find((b) => b.idx === selectedIdx) : null;
+  const borradorModalEmpresa = modalEmpresaIdx !== null ? borradores.find((b) => b.idx === modalEmpresaIdx) : null;
 
   const subirArchivos = useCallback(() => {
     if (Platform.OS !== 'web') {
@@ -103,6 +126,9 @@ export default function RegistroMasivoScreen() {
             archivo: data.archivo,
             proveedor_cif: d.proveedor_cif || '',
             proveedor_nombre: d.proveedor_nombre || '',
+            empresa_id: d.empresa_id || '',
+            proveedor_en_maestros: Boolean(d.proveedor_en_maestros),
+            nombre_sugerido_ocr: d.nombre_sugerido_ocr || '',
             numero_factura_proveedor: d.numero_factura_proveedor || '',
             fecha_emision: d.fecha_emision ? isoToDmy(d.fecha_emision) : '',
             base_imponible: d.base_imponible || 0,
@@ -110,6 +136,8 @@ export default function RegistroMasivoScreen() {
             total_factura: d.total_factura || 0,
             observaciones: '',
             confianza: d.confianza || {},
+            metodo_extraccion: d.metodo_extraccion,
+            ocr_confianza_global: typeof d.ocr_confianza_global === 'number' ? d.ocr_confianza_global : undefined,
             descartado: false,
             duplicados: [],
             checkingDup: false,
@@ -163,6 +191,66 @@ export default function RegistroMasivoScreen() {
     setBorradores((prev) =>
       prev.map((b) => b.idx === idx ? { ...b, [field]: value } : b)
     );
+  };
+
+  const abrirModalCrearEmpresa = (b: Borrador) => {
+    setNombreNuevaEmpresa((b.nombre_sugerido_ocr || '').trim());
+    setModalEmpresaIdx(b.idx);
+  };
+
+  const cerrarModalCrearEmpresa = () => {
+    setModalEmpresaIdx(null);
+    setNombreNuevaEmpresa('');
+    setCreandoEmpresa(false);
+  };
+
+  const crearEmpresaDesdeOcr = async () => {
+    if (!borradorModalEmpresa?.proveedor_cif) return;
+    const nombre = nombreNuevaEmpresa.trim();
+    if (!nombre) {
+      alertMsg('Falta nombre', 'Indica el nombre de la empresa para darla de alta.');
+      return;
+    }
+    setCreandoEmpresa(true);
+    try {
+      const res = await fetch(`${API_URL}/api/empresas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          Nombre: nombre,
+          Cif: borradorModalEmpresa.proveedor_cif,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo crear la empresa');
+      const emp = data.empresa;
+      const id = modalEmpresaIdx;
+      if (id != null) {
+        setBorradores((prev) =>
+          prev.map((b) =>
+            b.idx === id
+              ? {
+                  ...b,
+                  proveedor_nombre: emp?.Nombre != null ? String(emp.Nombre) : nombre,
+                  empresa_id: emp?.id_empresa != null ? String(emp.id_empresa) : '',
+                  proveedor_en_maestros: true,
+                  nombre_sugerido_ocr: '',
+                  confianza: {
+                    ...b.confianza,
+                    proveedor_nombre: 'alta',
+                  },
+                }
+              : b
+          )
+        );
+      }
+      showToast('Empresa creada', `${nombre} vinculada al CIF ${borradorModalEmpresa.proveedor_cif}`, 'success');
+      cerrarModalCrearEmpresa();
+    } catch (e: any) {
+      alertMsg('Error', e.message || 'Error al crear empresa');
+    } finally {
+      setCreandoEmpresa(false);
+    }
   };
 
   const confirmar = async () => {
@@ -311,17 +399,50 @@ export default function RegistroMasivoScreen() {
                 </View>
               )}
 
+              {selectedBorrador.proveedor_cif && !selectedBorrador.proveedor_en_maestros && (
+                <View style={styles.maestroWarn}>
+                  <MaterialIcons name="store" size={16} color="#c2410c" />
+                  <View style={styles.maestroWarnBody}>
+                    <Text style={styles.maestroWarnTitle}>Proveedor no encontrado en empresas</Text>
+                    <Text style={styles.maestroWarnText}>
+                      El CIF {selectedBorrador.proveedor_cif} no existe en el maestro. El nombre queda vacío; puedes darlo de alta ahora.
+                    </Text>
+                    {hasPermiso('empresas.crear') ? (
+                      <TouchableOpacity
+                        style={styles.maestroBtn}
+                        onPress={() => abrirModalCrearEmpresa(selectedBorrador)}
+                        activeOpacity={0.85}
+                      >
+                        <MaterialIcons name="add-business" size={16} color="#fff" />
+                        <Text style={styles.maestroBtnText}>Crear empresa en maestro</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <Text style={styles.maestroNoPerm}>Sin permiso para crear empresas. Pídeselo a un administrador.</Text>
+                    )}
+                  </View>
+                </View>
+              )}
+
               <View style={styles.legendRow}>
                 <Text style={styles.legendText}>
                   Confianza OCR: <Text style={{ color: '#059669' }}>●</Text> Alta{'  '}
                   <Text style={{ color: '#b45309' }}>●</Text> Media{'  '}
                   <Text style={{ color: '#dc2626' }}>●</Text> Baja
+                  {selectedBorrador.metodo_extraccion ? (
+                    <Text style={styles.metodoHint}>
+                      {'  ·  '}
+                      {metodoExtraccionLabel(selectedBorrador.metodo_extraccion)}
+                      {selectedBorrador.ocr_confianza_global != null
+                        ? ` (${Math.round(selectedBorrador.ocr_confianza_global * 100)}% global)`
+                        : ''}
+                    </Text>
+                  ) : null}
                 </Text>
               </View>
 
               <View style={styles.formGrid}>
                 <FieldRow label="CIF Proveedor" value={selectedBorrador.proveedor_cif} conf={selectedBorrador.confianza.proveedor_cif} onChange={(v) => updateBorrador(selectedBorrador.idx, 'proveedor_cif', v)} />
-                <FieldRow label="Nombre proveedor" value={selectedBorrador.proveedor_nombre} onChange={(v) => updateBorrador(selectedBorrador.idx, 'proveedor_nombre', v)} />
+                <FieldRow label="Nombre proveedor" value={selectedBorrador.proveedor_nombre} conf={selectedBorrador.confianza.proveedor_nombre} onChange={(v) => updateBorrador(selectedBorrador.idx, 'proveedor_nombre', v)} />
                 <FieldRow label="Nº Factura" value={selectedBorrador.numero_factura_proveedor} conf={selectedBorrador.confianza.numero_factura} onChange={(v) => updateBorrador(selectedBorrador.idx, 'numero_factura_proveedor', v)} />
                 <FieldRow label="Fecha emisión" value={selectedBorrador.fecha_emision} conf={selectedBorrador.confianza.fecha} onChange={(v) => updateBorrador(selectedBorrador.idx, 'fecha_emision', v)} placeholder="dd/mm/aaaa" />
                 <FieldRow label="Base imponible" value={String(selectedBorrador.base_imponible || '')} conf={selectedBorrador.confianza.base_imponible} onChange={(v) => updateBorrador(selectedBorrador.idx, 'base_imponible', parseFloat(v) || 0)} numeric />
@@ -371,6 +492,61 @@ export default function RegistroMasivoScreen() {
           <Text style={styles.emptyDetailText}>Selecciona un archivo para revisar</Text>
         </View>
       )}
+
+      <Modal
+        visible={modalEmpresaIdx !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={cerrarModalCrearEmpresa}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalKb}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalOverlay}>
+            <TouchableOpacity
+              style={StyleSheet.absoluteFillObject}
+              activeOpacity={1}
+              onPress={cerrarModalCrearEmpresa}
+            />
+            <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Nueva empresa</Text>
+            <Text style={styles.modalSubtitle}>
+              Se creará un registro en el maestro de empresas con el CIF detectado por OCR.
+            </Text>
+            <Text style={styles.modalCifLabel}>
+              CIF: <Text style={styles.modalCifValue}>{borradorModalEmpresa?.proveedor_cif || '—'}</Text>
+            </Text>
+            <Text style={styles.modalFieldLabel}>Nombre fiscal *</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={nombreNuevaEmpresa}
+              onChangeText={setNombreNuevaEmpresa}
+              placeholder="Razón social"
+              placeholderTextColor="#94a3b8"
+              autoFocus={Platform.OS === 'web'}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalBtnSecondary} onPress={cerrarModalCrearEmpresa}>
+                <Text style={styles.modalBtnSecondaryText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtnPrimary, creandoEmpresa && { opacity: 0.7 }]}
+                onPress={crearEmpresaDesdeOcr}
+                disabled={creandoEmpresa}
+              >
+                {creandoEmpresa ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.modalBtnPrimaryText}>Guardar empresa</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {ToastView}
     </View>
   );
@@ -515,8 +691,84 @@ const styles = StyleSheet.create({
   },
   dupWarnText: { fontSize: 10, color: '#b45309', flex: 1 },
 
+  maestroWarn: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: '#fff7ed',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#fdba74',
+    marginBottom: 6,
+  },
+  maestroWarnBody: { flex: 1, gap: 6 },
+  maestroWarnTitle: { fontSize: 12, fontWeight: '700' as const, color: '#9a3412' },
+  maestroWarnText: { fontSize: 10, color: '#7c2d12', lineHeight: 14 },
+  maestroBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    backgroundColor: '#ea580c',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    marginTop: 4,
+  },
+  maestroBtnText: { fontSize: 11, color: '#fff', fontWeight: '600' as const },
+  maestroNoPerm: { fontSize: 10, color: '#9a3412', fontStyle: 'italic' as const, marginTop: 2 },
+
+  modalKb: { flex: 1 },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    zIndex: 2,
+  },
+  modalTitle: { fontSize: 16, fontWeight: '700' as const, color: '#334155', marginBottom: 6 },
+  modalSubtitle: { fontSize: 11, color: '#64748b', marginBottom: 10, lineHeight: 16 },
+  modalCifLabel: { fontSize: 12, color: '#64748b', marginBottom: 10 },
+  modalCifValue: { fontWeight: '700' as const, color: '#0f172a' },
+  modalFieldLabel: { fontSize: 11, color: '#64748b', marginBottom: 4, fontWeight: '500' as const },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: '#334155',
+    marginBottom: 16,
+    backgroundColor: '#f8fafc',
+  },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
+  modalBtnSecondary: { paddingVertical: 8, paddingHorizontal: 12 },
+  modalBtnSecondaryText: { fontSize: 13, color: '#64748b', fontWeight: '500' as const },
+  modalBtnPrimary: {
+    backgroundColor: '#059669',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  modalBtnPrimaryText: { fontSize: 13, color: '#fff', fontWeight: '600' as const },
+
   legendRow: { paddingVertical: 2 },
-  legendText: { fontSize: 10, color: '#64748b' },
+  legendText: { fontSize: 10, color: '#64748b', flexWrap: 'wrap' as const },
+  metodoHint: { fontSize: 10, color: '#0ea5e9', fontWeight: '500' as const },
 
   formGrid: { gap: 6 },
 
