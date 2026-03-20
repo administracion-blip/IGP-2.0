@@ -27,9 +27,12 @@ import {
   calcularTotales,
   formatMoneda,
   labelFormaPago,
+  mapTipoReciboToFormaPago,
+  resolveMetodoPagoParaEnvio,
   type LineaFactura,
   type Factura,
 } from '../../utils/facturacion';
+import { fechaEmisionFacturaADmy } from '../../utils/formatFecha';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalToast, detectToastType } from '../../components/Toast';
 
@@ -58,6 +61,8 @@ type Empresa = {
   iban: string;
   ibanAlternativo: string;
   sede: string;
+  /** Desde Igp_empresas «Tipo de recibo» */
+  tipoRecibo?: string;
 };
 
 type Serie = { serie: string; descripcion: string; tipo: string; num_digitos?: number; ultimo_numero?: number; activa?: boolean };
@@ -214,6 +219,8 @@ export default function FacturaDetalleScreen() {
   const [pagoFecha, setPagoFecha] = useState(hoyDmy());
   const [pagoImporte, setPagoImporte] = useState('');
   const [pagoMetodo, setPagoMetodo] = useState('transferencia');
+  const [pagoMetodoOtro, setPagoMetodoOtro] = useState('');
+  const [pagoFechaEditadaManual, setPagoFechaEditadaManual] = useState(false);
   const [pagoReferencia, setPagoReferencia] = useState('');
   const [pagoObservaciones, setPagoObservaciones] = useState('');
   const [savingPago, setSavingPago] = useState(false);
@@ -315,6 +322,7 @@ export default function FacturaDetalleScreen() {
         iban: e.Iban ?? e.iban ?? '',
         ibanAlternativo: e.IbanAlternativo ?? e.ibanAlternativo ?? '',
         sede: e.Sede ?? e.sede ?? '',
+        tipoRecibo: e['Tipo de recibo'] != null ? String(e['Tipo de recibo']).trim() : undefined,
       })));
     }).catch(() => {});
     fetch(`${API_URL}/api/facturacion/series`).then((r) => r.json()).then((d) => setSeries(d.series ?? d ?? [])).catch(() => {});
@@ -677,11 +685,48 @@ export default function FacturaDetalleScreen() {
     }
   };
 
+  const abrirModalPago = () => {
+    setPagoFechaEditadaManual(false);
+    setPagoImporte('');
+    setPagoReferencia('');
+    setPagoObservaciones('');
+
+    const emp = empresas.find((e) => e.id_empresa === empresaId);
+    const { clave, otroTexto } = mapTipoReciboToFormaPago(emp?.tipoRecibo ?? '');
+    setPagoMetodo(clave);
+    setPagoMetodoOtro(clave === 'otro' ? otroTexto : '');
+
+    const hoy = hoyDmy();
+    const fechaFactura = fechaEmisionFacturaADmy(fechaEmision, hoy);
+    setPagoFecha(clave === 'tarjeta' ? fechaFactura : hoy);
+
+    setShowPagoModal(true);
+  };
+
+  const onSeleccionarMetodoPago = (fp: string) => {
+    setPagoMetodo(fp);
+    if (fp !== 'otro') setPagoMetodoOtro('');
+    if (pagoFechaEditadaManual) return;
+    const hoy = hoyDmy();
+    const fechaFactura = fechaEmisionFacturaADmy(fechaEmision, hoy);
+    setPagoFecha(fp === 'tarjeta' ? fechaFactura : hoy);
+  };
+
   // ── Registrar pago ──
   const registrarPago = async () => {
     const importe = parseFloat(pagoImporte);
     if (!pagoFecha || isNaN(importe) || importe <= 0) {
       alertMsg('Error', 'Indica fecha e importe válidos');
+      return;
+    }
+    const fechaIso = dmyToIso(pagoFecha);
+    if (!fechaIso) {
+      alertMsg('Error', 'Indica una fecha válida');
+      return;
+    }
+    const metodoEnvio = resolveMetodoPagoParaEnvio(pagoMetodo, pagoMetodoOtro);
+    if (metodoEnvio == null) {
+      alertMsg('Error', 'Describe el método de pago si eliges «Otro»');
       return;
     }
     setSavingPago(true);
@@ -690,9 +735,9 @@ export default function FacturaDetalleScreen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fecha: dmyToIso(pagoFecha),
+          fecha: fechaIso,
           importe,
-          metodo_pago: pagoMetodo,
+          metodo_pago: metodoEnvio,
           referencia: pagoReferencia,
           observaciones: pagoObservaciones,
           usuario_id: user?.id_usuario,
@@ -704,6 +749,7 @@ export default function FacturaDetalleScreen() {
       alertMsg('Registrado', 'Pago registrado correctamente');
       setShowPagoModal(false);
       setPagoImporte('');
+      setPagoMetodoOtro('');
       setPagoReferencia('');
       setPagoObservaciones('');
       fetchFactura();
@@ -1392,7 +1438,7 @@ export default function FacturaDetalleScreen() {
             <Text style={styles.sectionTitle}>
               {esVenta ? 'Cobros' : 'Pagos'}
             </Text>
-            <TouchableOpacity style={styles.btnSmall} onPress={() => { setPagoFecha(hoyISO()); setShowPagoModal(true); }}>
+            <TouchableOpacity style={styles.btnSmall} onPress={abrirModalPago}>
               <MaterialIcons name="add" size={16} color="#0ea5e9" />
               <Text style={styles.btnSmallText}>Registrar {esVenta ? 'cobro' : 'pago'}</Text>
             </TouchableOpacity>
@@ -1543,7 +1589,14 @@ export default function FacturaDetalleScreen() {
 
             <View style={styles.field}>
               <Text style={styles.label}>Fecha</Text>
-              <InputFecha value={pagoFecha} onChange={setPagoFecha} format="dmy" />
+              <InputFecha
+                value={pagoFecha}
+                onChange={(v) => {
+                  setPagoFecha(v);
+                  setPagoFechaEditadaManual(true);
+                }}
+                format="dmy"
+              />
             </View>
 
             <View style={styles.field}>
@@ -1566,7 +1619,7 @@ export default function FacturaDetalleScreen() {
                     <TouchableOpacity
                       key={fp}
                       style={[styles.chip, pagoMetodo === fp && styles.chipActive]}
-                      onPress={() => setPagoMetodo(fp)}
+                      onPress={() => onSeleccionarMetodoPago(fp)}
                     >
                       <Text style={[styles.chipText, pagoMetodo === fp && styles.chipTextActive]}>
                         {labelFormaPago(fp)}
@@ -1576,6 +1629,19 @@ export default function FacturaDetalleScreen() {
                 </ScrollView>
               </View>
             </View>
+
+            {pagoMetodo === 'otro' && (
+              <View style={styles.field}>
+                <Text style={styles.label}>Describe el método *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={pagoMetodoOtro}
+                  onChangeText={setPagoMetodoOtro}
+                  placeholder="Ej. Cheque, PayPal…"
+                  placeholderTextColor="#94a3b8"
+                />
+              </View>
+            )}
 
             <View style={styles.field}>
               <Text style={styles.label}>Referencia</Text>

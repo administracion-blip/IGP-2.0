@@ -226,3 +226,87 @@ export function labelFormaPago(fp: string): string {
   };
   return map[fp] || fp;
 }
+
+/** Etiqueta para listados: claves de catálogo con `labelFormaPago`; texto libre tal cual. */
+export function labelMetodoPagoDisplay(metodo: string | undefined | null): string {
+  const m = (metodo ?? '').trim();
+  if (!m) return '—';
+  return (FORMAS_PAGO as readonly string[]).includes(m) ? labelFormaPago(m) : m;
+}
+
+export type FormaPagoClave = (typeof FORMAS_PAGO)[number];
+
+/** Normaliza texto de «Tipo de recibo» para comparaciones flexibles. */
+export function normalizarTipoReciboTexto(s: string): string {
+  return String(s ?? '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Mapea «Tipo de recibo» → clave de catálogo.
+ * Orden de evaluación (evita falsos positivos): bizum → tarjeta → transferencia → domiciliacion → remesa → efectivo → otro.
+ */
+export function mapTipoReciboToFormaPago(tipoRecibo: string | null | undefined): { clave: FormaPagoClave; otroTexto: string } {
+  const raw = (tipoRecibo ?? '').trim();
+  if (!raw) return { clave: 'transferencia', otroTexto: '' };
+
+  const n = normalizarTipoReciboTexto(raw);
+
+  if (/\bbizum\b/.test(n)) return { clave: 'bizum', otroTexto: '' };
+
+  if (
+    /\bvisa\b/.test(n) ||
+    /\bmastercard\b/.test(n) ||
+    /\bmaestro\b/.test(n) ||
+    /\bamex\b/.test(n) ||
+    /\bamerican express\b/.test(n) ||
+    /\btarjeta\b/.test(n) ||
+    /\bcredito\b/.test(n) ||
+    /\bdebito\b/.test(n) ||
+    /\bcard\b/.test(n)
+  ) {
+    return { clave: 'tarjeta', otroTexto: '' };
+  }
+
+  if (/\btransferencia\b/.test(n) || /\btransfer\b/.test(n) || /transferencia\s+bancaria/.test(n) || /transfer\s+bancaria/.test(n)) {
+    return { clave: 'transferencia', otroTexto: '' };
+  }
+
+  if (
+    /\bdomiciliad/.test(n) ||
+    /\bdomiciliacion\b/.test(n) ||
+    /\badeudo\b/.test(n) ||
+    /\bsepa\b/.test(n) ||
+    (/\brecibo\b/.test(n) && /\b(banco|bancari|cuenta|domicili)/.test(n))
+  ) {
+    return { clave: 'domiciliacion', otroTexto: '' };
+  }
+
+  if (/\bremesa\b/.test(n)) return { clave: 'remesa', otroTexto: '' };
+
+  if (/\befectivo\b/.test(n) || /\bmetalico\b/.test(n) || /\bcash\b/.test(n)) {
+    return { clave: 'efectivo', otroTexto: '' };
+  }
+
+  const token = n.replace(/\s/g, '');
+  const known = FORMAS_PAGO.find((k) => k !== 'otro' && (k === token || k === n));
+  if (known) return { clave: known, otroTexto: '' };
+
+  return { clave: 'otro', otroTexto: raw };
+}
+
+/**
+ * Valor de `metodo_pago` para el API. Con «otro»: texto libre obligatorio (trim), no se envía el literal "otro" vacío.
+ */
+export function resolveMetodoPagoParaEnvio(claveSeleccion: string, textoOtro: string): string | null {
+  const c = (claveSeleccion || '').trim();
+  if (c !== 'otro') return c || null;
+  const t = (textoOtro ?? '').trim();
+  if (!t) return null;
+  if (normalizarTipoReciboTexto(t) === 'otro') return null;
+  return t;
+}

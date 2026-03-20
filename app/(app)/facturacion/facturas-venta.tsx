@@ -10,20 +10,34 @@ import {
   Modal,
   Platform,
   KeyboardAvoidingView,
+  Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
-import { formatMoneda, labelEstado } from '../../utils/facturacion';
+import {
+  formatMoneda,
+  labelEstado,
+  FORMAS_PAGO,
+  labelFormaPago,
+  mapTipoReciboToFormaPago,
+  resolveMetodoPagoParaEnvio,
+} from '../../utils/facturacion';
+import { fechaEmisionFacturaADmy, fechaEmisionFacturaAIso } from '../../utils/formatFecha';
+import { getTipoReciboFromEmpresasList, type EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { InputFecha } from '../../components/InputFecha';
 import { useLocalToast } from '../../components/Toast';
+import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
-function isoToDmy(iso: string): string {
-  if (!iso || iso.length < 10) return '—';
-  const [y, m, d] = iso.substring(0, 10).split('-');
+/** Fecha emisión factura (varios formatos BD) → dd/mm/aaaa para tabla */
+function fechaEmisionCelda(raw: string | undefined): string {
+  if (!raw?.trim()) return '—';
+  const iso = fechaEmisionFacturaAIso(raw.trim());
+  if (!iso) return '—';
+  const [y, m, d] = iso.split('-');
   return `${d}/${m}/${y}`;
 }
 
@@ -33,6 +47,18 @@ function dmyToIso(dmy: string): string {
   if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
   if (/^\d{4}-\d{2}-\d{2}$/.test(dmy)) return dmy;
   return '';
+}
+
+function hoyDmy(): string {
+  const d = new Date();
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}
+
+/** Evita que el click del icono dispare la selección de fila (p. ej. en web). */
+function absorberClickFila(e: { stopPropagation?: () => void; nativeEvent?: { stopPropagation?: () => void } }) {
+  if (typeof e.stopPropagation === 'function') e.stopPropagation();
+  const ne = e.nativeEvent;
+  if (ne && typeof ne.stopPropagation === 'function') ne.stopPropagation();
 }
 
 const PAGE_SIZE = 50;
@@ -45,10 +71,12 @@ type Factura = {
   emisor_nombre: string;
   empresa_nombre: string;
   empresa_cif: string;
+  empresa_id?: string;
   base_imponible: number;
   total_iva: number;
   total_factura: number;
   estado: string;
+  total_cobrado?: number;
   saldo_pendiente: number;
 };
 
@@ -62,6 +90,7 @@ const COLUMNAS = [
   { key: 'total_iva', label: 'IVA' },
   { key: 'total_factura', label: 'Total' },
   { key: 'estado', label: 'Estado' },
+  { key: 'pagado', label: 'Pagado' },
   { key: 'saldo_pendiente', label: 'Saldo pte.' },
 ] as const;
 
@@ -75,6 +104,7 @@ const DEFAULT_WIDTHS: Record<string, number> = {
   total_iva: 90,
   total_factura: 100,
   estado: 120,
+  pagado: 120,
   saldo_pendiente: 110,
 };
 
@@ -87,8 +117,6 @@ const TABS_ESTADO = [
   { key: 'vencida', label: 'Vencida' },
   { key: 'anulada', label: 'Anulada' },
 ] as const;
-
-const METODOS_PAGO = ['transferencia', 'efectivo', 'tarjeta', 'bizum', 'domiciliacion', 'otro'] as const;
 
 export default function FacturasVentaScreen() {
   const router = useRouter();
@@ -113,10 +141,21 @@ export default function FacturasVentaScreen() {
   const [modalAnularVisible, setModalAnularVisible] = useState(false);
   const [modalCobrarVisible, setModalCobrarVisible] = useState(false);
   const [cobroImporte, setCobroImporte] = useState('');
+  const [cobroFecha, setCobroFecha] = useState('');
   const [cobroMetodo, setCobroMetodo] = useState<string>('transferencia');
+  const [cobroMetodoOtro, setCobroMetodoOtro] = useState('');
+  const [cobroFechaEditadaManual, setCobroFechaEditadaManual] = useState(false);
+  const [cobroMetodoDropdownOpen, setCobroMetodoDropdownOpen] = useState(false);
   const [cobroReferencia, setCobroReferencia] = useState('');
   const [errorModal, setErrorModal] = useState<string | null>(null);
   const [haySeries, setHaySeries] = useState(true);
+  const [empresasCatalogo, setEmpresasCatalogo] = useState<EmpresaConTipoRecibo[]>([]);
+
+  const [modalDetallePagosVisible, setModalDetallePagosVisible] = useState(false);
+  const [detallePagosLoading, setDetallePagosLoading] = useState(false);
+  const [detallePagosError, setDetallePagosError] = useState<string | null>(null);
+  const [detallePagosLista, setDetallePagosLista] = useState<Record<string, unknown>[]>([]);
+  const [detallePagosFactura, setDetallePagosFactura] = useState<Factura | null>(null);
 
   const { show: showToast, ToastView } = useLocalToast();
 
@@ -128,6 +167,22 @@ export default function FacturasVentaScreen() {
       .then((d) => {
         const all = d.series ?? d ?? [];
         setHaySeries(all.some((s: any) => s.tipo === 'OUT'));
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/empresas`)
+      .then((r) => r.json())
+      .then((d) => {
+        const raw: unknown[] = d.empresas ?? d ?? [];
+        setEmpresasCatalogo(
+          raw.map((e: any) => ({
+            id_empresa: e.id_empresa ?? '',
+            tipoRecibo: e['Tipo de recibo'] != null ? String(e['Tipo de recibo']).trim() : undefined,
+            'Tipo de recibo': e['Tipo de recibo'],
+          })),
+        );
       })
       .catch(() => {});
   }, []);
@@ -172,6 +227,12 @@ export default function FacturasVentaScreen() {
 
     if (sortCol) {
       resultado = [...resultado].sort((a, b) => {
+        if (sortCol === 'pagado') {
+          const na = Number((a as Factura).total_cobrado ?? 0);
+          const nb = Number((b as Factura).total_cobrado ?? 0);
+          const cmp = na - nb;
+          return sortDir === 'desc' ? -cmp : cmp;
+        }
         const va = (a as any)[sortCol] ?? '';
         const vb = (b as any)[sortCol] ?? '';
         const numA = typeof va === 'number' ? va : parseFloat(va);
@@ -299,24 +360,85 @@ export default function FacturasVentaScreen() {
 
   const abrirModalCobrar = () => {
     if (!selectedFactura) return;
-    setCobroImporte(selectedFactura.saldo_pendiente > 0 ? String(selectedFactura.saldo_pendiente) : '');
-    setCobroMetodo('transferencia');
-    setCobroReferencia('');
     setErrorModal(null);
+    setCobroMetodoDropdownOpen(false);
+    setCobroFechaEditadaManual(false);
+    setCobroImporte(selectedFactura.saldo_pendiente > 0 ? String(selectedFactura.saldo_pendiente) : '');
+    setCobroReferencia('');
+
+    const tipoRecibo = getTipoReciboFromEmpresasList(empresasCatalogo, selectedFactura.empresa_id);
+    const { clave, otroTexto } = mapTipoReciboToFormaPago(tipoRecibo);
+    setCobroMetodo(clave);
+    setCobroMetodoOtro(clave === 'otro' ? otroTexto : '');
+
+    const hoy = hoyDmy();
+    const fechaFactura = fechaEmisionFacturaADmy(selectedFactura.fecha_emision, hoy);
+    setCobroFecha(clave === 'tarjeta' ? fechaFactura : hoy);
+
     setModalCobrarVisible(true);
   };
+
+  const aplicarFechaSegunMetodo = (metodo: string, fechaFacturaDmy: string, hoy: string) => {
+    if (metodo === 'tarjeta') return fechaFacturaDmy;
+    return hoy;
+  };
+
+  const onCambiarMetodoCobro = (m: string) => {
+    setCobroMetodo(m);
+    setCobroMetodoDropdownOpen(false);
+    if (m !== 'otro') setCobroMetodoOtro('');
+    if (!selectedFactura || cobroFechaEditadaManual) return;
+    const hoy = hoyDmy();
+    const fechaFactura = fechaEmisionFacturaADmy(selectedFactura.fecha_emision, hoy);
+    setCobroFecha(aplicarFechaSegunMetodo(m, fechaFactura, hoy));
+  };
+
+  const abrirModalDetallePagos = useCallback((factura: Factura) => {
+    setDetallePagosFactura(factura);
+    setModalDetallePagosVisible(true);
+    setDetallePagosLoading(true);
+    setDetallePagosError(null);
+    setDetallePagosLista([]);
+    fetch(`${API_URL}/api/facturacion/facturas/${factura.id_factura}/pagos`)
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Error al cargar cobros');
+        setDetallePagosLista(Array.isArray(data.pagos) ? data.pagos : []);
+      })
+      .catch((err) => setDetallePagosError(err instanceof Error ? err.message : 'Error de conexión'))
+      .finally(() => setDetallePagosLoading(false));
+  }, []);
+
+  const cerrarModalDetallePagos = useCallback(() => {
+    setModalDetallePagosVisible(false);
+    setDetallePagosFactura(null);
+    setDetallePagosError(null);
+    setDetallePagosLista([]);
+  }, []);
 
   const confirmarCobro = async () => {
     if (!selectedId) return;
     const importe = parseFloat(cobroImporte);
     if (isNaN(importe) || importe <= 0) { setErrorModal('El importe debe ser mayor que 0'); return; }
+    const fechaIso = dmyToIso(cobroFecha);
+    if (!fechaIso) { setErrorModal('Indica una fecha válida'); return; }
+    const metodoEnvio = resolveMetodoPagoParaEnvio(cobroMetodo, cobroMetodoOtro);
+    if (metodoEnvio == null) {
+      setErrorModal('Describe el método de pago (campo obligatorio si eliges «Otro»)');
+      return;
+    }
     setOperando(true);
     setErrorModal(null);
     try {
       const res = await fetch(`${API_URL}/api/facturacion/facturas/${selectedId}/pagos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ importe, metodo_pago: cobroMetodo, referencia: cobroReferencia.trim() || undefined }),
+        body: JSON.stringify({
+          fecha: fechaIso,
+          importe,
+          metodo_pago: metodoEnvio,
+          referencia: cobroReferencia.trim() || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) { setErrorModal(data.error || 'Error al registrar cobro'); setOperando(false); return; }
@@ -352,12 +474,13 @@ export default function FacturasVentaScreen() {
     switch (col) {
       case 'id_factura': return (item.id_factura || '').substring(0, 8) + '…';
       case 'numero_factura': return item.numero_factura || '—';
-      case 'fecha_emision': return isoToDmy(item.fecha_emision);
+      case 'fecha_emision': return fechaEmisionCelda(item.fecha_emision);
       case 'emisor_nombre': return item.emisor_nombre || '—';
       case 'empresa_nombre': return item.empresa_nombre || '—';
       case 'base_imponible': return formatMoneda(item.base_imponible ?? 0);
       case 'total_iva': return formatMoneda(item.total_iva ?? 0);
       case 'total_factura': return formatMoneda(item.total_factura ?? 0);
+      case 'pagado': return formatMoneda(Number(item.total_cobrado ?? 0));
       case 'saldo_pendiente': return formatMoneda(item.saldo_pendiente ?? 0);
       case 'estado': return labelEstado(item.estado);
       default: return '—';
@@ -586,16 +709,32 @@ export default function FacturasVentaScreen() {
             </View>
           ) : (
             facturasPagina.map((item) => (
-              <TouchableOpacity
+              <Pressable
                 key={item.id_factura}
                 style={[styles.row, selectedId === item.id_factura && styles.rowSelected]}
                 onPress={() => setSelectedId(selectedId === item.id_factura ? null : item.id_factura)}
-                activeOpacity={0.8}
               >
                 {COLUMNAS.map((col) => (
                   <View key={col.key} style={[styles.cell, { width: getColWidth(col.key) }]}>
                     {col.key === 'estado' ? (
                       <BadgeEstado estado={item.estado} />
+                    ) : col.key === 'pagado' ? (
+                      <View style={styles.cellPagadoRow}>
+                        <Text style={[styles.cellText, styles.cellTextFlex]} numberOfLines={1} ellipsizeMode="tail">
+                          {valorCelda(item, col.key)}
+                        </Text>
+                        <Pressable
+                          hitSlop={8}
+                          accessibilityLabel="Ver detalle de cobros"
+                          onPress={(e) => {
+                            absorberClickFila(e);
+                            abrirModalDetallePagos(item);
+                          }}
+                          style={styles.cellPagadoIconBtn}
+                        >
+                          <MaterialIcons name="receipt-long" size={18} color="#0369a1" />
+                        </Pressable>
+                      </View>
                     ) : (
                       <Text style={styles.cellText} numberOfLines={1} ellipsizeMode="tail">
                         {valorCelda(item, col.key)}
@@ -603,7 +742,7 @@ export default function FacturasVentaScreen() {
                     )}
                   </View>
                 ))}
-              </TouchableOpacity>
+              </Pressable>
             ))
           )}
         </View>
@@ -673,6 +812,15 @@ export default function FacturasVentaScreen() {
                   </TouchableOpacity>
                 </View>
                 <View style={styles.modalBody}>
+                  <Text style={styles.formLabel}>Fecha del cobro *</Text>
+                  <InputFecha
+                    value={cobroFecha}
+                    onChange={(v) => {
+                      setCobroFecha(v);
+                      setCobroFechaEditadaManual(true);
+                    }}
+                    format="dmy"
+                  />
                   <Text style={styles.formLabel}>Importe (€)</Text>
                   <TextInput
                     style={styles.formInput}
@@ -683,20 +831,40 @@ export default function FacturasVentaScreen() {
                     placeholderTextColor="#94a3b8"
                   />
                   <Text style={styles.formLabel}>Método de pago</Text>
-                  <View style={styles.metodosGrid}>
-                    {METODOS_PAGO.map((m) => (
-                      <TouchableOpacity
-                        key={m}
-                        style={[styles.metodoOption, cobroMetodo === m && styles.metodoOptionSelected]}
-                        onPress={() => setCobroMetodo(m)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={[styles.metodoOptionText, cobroMetodo === m && styles.metodoOptionTextSelected]}>
-                          {m.charAt(0).toUpperCase() + m.slice(1)}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                  <TouchableOpacity
+                    style={styles.modalSelect}
+                    onPress={() => setCobroMetodoDropdownOpen(!cobroMetodoDropdownOpen)}
+                  >
+                    <Text style={styles.modalSelectText}>{labelFormaPago(cobroMetodo)}</Text>
+                    <MaterialIcons name={cobroMetodoDropdownOpen ? 'expand-less' : 'expand-more'} size={18} color="#64748b" />
+                  </TouchableOpacity>
+                  {cobroMetodoDropdownOpen && (
+                    <View style={styles.dropdown}>
+                      {FORMAS_PAGO.map((m) => (
+                        <TouchableOpacity
+                          key={m}
+                          style={[styles.dropdownItem, cobroMetodo === m && styles.dropdownItemActive]}
+                          onPress={() => onCambiarMetodoCobro(m)}
+                        >
+                          <Text style={[styles.dropdownItemText, cobroMetodo === m && styles.dropdownItemTextActive]}>
+                            {labelFormaPago(m)}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                  {cobroMetodo === 'otro' && (
+                    <>
+                      <Text style={styles.formLabel}>Describe el método *</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        value={cobroMetodoOtro}
+                        onChangeText={setCobroMetodoOtro}
+                        placeholder="Ej. Cheque, PayPal…"
+                        placeholderTextColor="#94a3b8"
+                      />
+                    </>
+                  )}
                   <Text style={styles.formLabel}>Referencia (opcional)</Text>
                   <TextInput
                     style={styles.formInput}
@@ -736,6 +904,39 @@ export default function FacturasVentaScreen() {
           </KeyboardAvoidingView>
         </TouchableOpacity>
       </Modal>
+
+      <Modal visible={modalDetallePagosVisible} transparent animationType="fade" onRequestClose={cerrarModalDetallePagos}>
+        <Pressable style={styles.modalDetalleOverlay} onPress={cerrarModalDetallePagos}>
+          <Pressable style={[styles.modalContent, styles.modalDetalleModal]} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalDetalleHeaderRow}>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={styles.modalDetalleTitle}>Cobros registrados</Text>
+                <Text style={styles.modalDetalleSubtitle} numberOfLines={3}>
+                  {detallePagosFactura?.numero_factura
+                    ? `Nº factura: ${detallePagosFactura.numero_factura}`
+                    : detallePagosFactura?.id_factura
+                      ? `ID: ${detallePagosFactura.id_factura}`
+                      : ''}
+                  {detallePagosFactura?.empresa_nombre ? ` · ${detallePagosFactura.empresa_nombre}` : ''}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={cerrarModalDetallePagos} style={styles.modalDetalleClose} accessibilityLabel="Cerrar">
+                <MaterialIcons name="close" size={22} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <ModalDetallePagosTabla
+              loading={detallePagosLoading}
+              loadingText="Cargando cobros…"
+              error={detallePagosError}
+              emptyText="No hay cobros registrados"
+              pagos={detallePagosLista}
+              totalLabel="Total cobrado"
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {ToastView}
     </View>
   );
@@ -852,6 +1053,9 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#fff' },
   rowSelected: { backgroundColor: '#e0f2fe' },
   cell: { minWidth: MIN_COL_WIDTH, paddingVertical: 4, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#e2e8f0', justifyContent: 'center' },
+  cellPagadoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 },
+  cellTextFlex: { flex: 1, minWidth: 0 },
+  cellPagadoIconBtn: { padding: 2 },
   cellText: { fontSize: 11, color: '#475569' },
   emptyRow: { padding: 24, alignItems: 'center' },
   emptyText: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
@@ -862,6 +1066,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(15, 23, 42, 0.45)',
   },
+  /** Misma base que facturas recibidas: overlay + tarjeta compacta para detalle de cobros */
+  modalDetalleOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+    width: '90%',
+    maxWidth: 400,
+  },
+  modalDetalleModal: { maxWidth: 480 },
+  modalDetalleHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
+  modalDetalleTitle: { fontSize: 16, fontWeight: '700', color: '#334155', marginBottom: 4 },
+  modalDetalleSubtitle: { fontSize: 12, color: '#64748b', lineHeight: 18 },
+  modalDetalleClose: { padding: 4, marginTop: -4 },
   modalContentWrap: { width: '100%', maxWidth: 480, padding: 24, alignItems: 'center' },
   modalCardTouch: { width: '100%' },
   modalCard: {
@@ -899,18 +1122,30 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: '#f8fafc',
   },
-  metodosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
-  metodoOption: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+  modalSelect: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    backgroundColor: '#fff',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#f8fafc',
   },
-  metodoOptionSelected: { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' },
-  metodoOptionText: { fontSize: 12, color: '#334155', fontWeight: '500' },
-  metodoOptionTextSelected: { color: '#0369a1', fontWeight: '600' },
+  modalSelectText: { fontSize: 13, color: '#334155' },
+  dropdown: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    marginBottom: 4,
+    maxHeight: 200,
+  },
+  dropdownItem: { paddingHorizontal: 12, paddingVertical: 8 },
+  dropdownItemActive: { backgroundColor: '#e0f2fe' },
+  dropdownItemText: { fontSize: 12, color: '#334155' },
+  dropdownItemTextActive: { color: '#0369a1', fontWeight: '600' },
   modalErrorWrap: {
     flexDirection: 'row',
     alignItems: 'center',

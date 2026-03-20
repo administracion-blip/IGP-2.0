@@ -16,25 +16,32 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { InputFecha } from '../../components/InputFecha';
-import { formatMoneda, METODOS_PAGO, labelFormaPago, type Factura } from '../../utils/facturacion';
-import { formatFecha, fechaToIso } from '../../utils/formatFecha';
+import {
+  formatMoneda,
+  FORMAS_PAGO,
+  labelFormaPago,
+  mapTipoReciboToFormaPago,
+  resolveMetodoPagoParaEnvio,
+  type Factura,
+} from '../../utils/facturacion';
+import { formatFecha, fechaEmisionFacturaADmy, fechaEmisionFacturaAIso } from '../../utils/formatFecha';
+import { getTipoReciboFromEmpresasList, type EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
 import { useLocalToast } from '../../components/Toast';
+import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const PAGE_SIZE = 50;
 
-/** ISO o dd/mm/aaaa en BD → dd/mm/aaaa para listado */
+/** Fecha emisión en BD (varios formatos) → dd/mm/aaaa para listado */
 function formatFechaEmisionCelda(raw: string): string {
   if (!raw?.trim()) return '—';
-  const iso = fechaToIso(raw.trim());
-  return formatFecha(iso);
+  const iso = fechaEmisionFacturaAIso(raw.trim());
+  return iso ? formatFecha(iso) : '—';
 }
 
 function fechaEmisionComparable(s: string | undefined | null): string {
   if (s == null || String(s).trim() === '') return '';
-  const str = String(s).trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.substring(0, 10);
-  return fechaToIso(str);
+  return fechaEmisionFacturaAIso(String(s).trim()) ?? '';
 }
 
 function dmyToIso(dmy: string): string {
@@ -44,6 +51,19 @@ function dmyToIso(dmy: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(dmy)) return dmy;
   return '';
 }
+
+function hoyDmy(): string {
+  const d = new Date();
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}
+
+/** Evita que el click del icono dispare la selección de fila (p. ej. en web). */
+function absorberClickFila(e: { stopPropagation?: () => void; nativeEvent?: { stopPropagation?: () => void } }) {
+  if (typeof e.stopPropagation === 'function') e.stopPropagation();
+  const ne = e.nativeEvent;
+  if (ne && typeof ne.stopPropagation === 'function') ne.stopPropagation();
+}
+
 const MIN_COL_WIDTH = 40;
 
 type TabEstado = 'todas' | 'borrador' | 'pendiente_revision' | 'pendiente_pago' | 'parcialmente_pagada' | 'pagada' | 'anulada';
@@ -69,6 +89,7 @@ const COLUMNAS = [
   'total_iva',
   'total_factura',
   'estado',
+  'pagado',
   'saldo_pendiente',
 ] as const;
 
@@ -83,6 +104,7 @@ const COL_LABELS: Record<string, string> = {
   total_iva: 'IVA',
   total_factura: 'Total',
   estado: 'Estado',
+  pagado: 'Pagado',
   saldo_pendiente: 'Saldo Pte.',
 };
 
@@ -97,10 +119,11 @@ const DEFAULT_WIDTHS: Record<string, number> = {
   total_iva: 80,
   total_factura: 95,
   estado: 110,
+  pagado: 120,
   saldo_pendiente: 95,
 };
 
-const MONEDA_COLS = new Set(['base_imponible', 'total_iva', 'total_factura', 'saldo_pendiente']);
+const MONEDA_COLS = new Set(['base_imponible', 'total_iva', 'total_factura', 'pagado', 'saldo_pendiente']);
 
 type ToolbarBtn = {
   id: string;
@@ -150,10 +173,19 @@ export default function FacturasGastoScreen() {
   const [modalBorrar, setModalBorrar] = useState(false);
   const [modalPagar, setModalPagar] = useState(false);
   const [pagoImporte, setPagoImporte] = useState('');
+  const [pagoFecha, setPagoFecha] = useState('');
   const [pagoMetodo, setPagoMetodo] = useState('transferencia');
+  const [pagoMetodoOtro, setPagoMetodoOtro] = useState('');
+  const [pagoFechaEditadaManual, setPagoFechaEditadaManual] = useState(false);
   const [pagoReferencia, setPagoReferencia] = useState('');
   const [metodoDropdownOpen, setMetodoDropdownOpen] = useState(false);
+  const [empresasCatalogo, setEmpresasCatalogo] = useState<EmpresaConTipoRecibo[]>([]);
 
+  const [modalDetallePagosVisible, setModalDetallePagosVisible] = useState(false);
+  const [detallePagosLoading, setDetallePagosLoading] = useState(false);
+  const [detallePagosError, setDetallePagosError] = useState<string | null>(null);
+  const [detallePagosLista, setDetallePagosLista] = useState<Record<string, unknown>[]>([]);
+  const [detallePagosFactura, setDetallePagosFactura] = useState<Factura | null>(null);
 
   const fetchFacturas = useCallback(() => {
     setLoading(true);
@@ -169,6 +201,22 @@ export default function FacturasGastoScreen() {
   }, []);
 
   useEffect(() => { fetchFacturas(); }, [fetchFacturas]);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/empresas`)
+      .then((r) => r.json())
+      .then((d) => {
+        const raw: unknown[] = d.empresas ?? d ?? [];
+        setEmpresasCatalogo(
+          raw.map((e: any) => ({
+            id_empresa: e.id_empresa ?? '',
+            tipoRecibo: e['Tipo de recibo'] != null ? String(e['Tipo de recibo']).trim() : undefined,
+            'Tipo de recibo': e['Tipo de recibo'],
+          })),
+        );
+      })
+      .catch(() => {});
+  }, []);
 
   const toggleSort = useCallback((col: string) => {
     if (sortCol === col) setSortDir((d) => d === 'asc' ? 'desc' : 'asc');
@@ -203,6 +251,12 @@ export default function FacturasGastoScreen() {
           const fa = fechaEmisionComparable((a as Factura).fecha_emision);
           const fb = fechaEmisionComparable((b as Factura).fecha_emision);
           const cmp = fa.localeCompare(fb);
+          return sortDir === 'desc' ? -cmp : cmp;
+        }
+        if (sortCol === 'pagado') {
+          const na = Number((a as Factura).total_cobrado ?? 0);
+          const nb = Number((b as Factura).total_cobrado ?? 0);
+          const cmp = na - nb;
           return sortDir === 'desc' ? -cmp : cmp;
         }
         const va = (a as any)[sortCol] ?? '';
@@ -250,6 +304,7 @@ export default function FacturasGastoScreen() {
   };
 
   const getCellValue = (f: Factura, col: string): string => {
+    if (col === 'pagado') return formatMoneda(Number(f.total_cobrado ?? 0));
     const val = (f as Record<string, unknown>)[col];
     if (val == null) return '';
     if (MONEDA_COLS.has(col)) return formatMoneda(Number(val));
@@ -259,6 +314,58 @@ export default function FacturasGastoScreen() {
       return t || '—';
     }
     return String(val);
+  };
+
+  const abrirModalDetallePagos = useCallback((factura: Factura) => {
+    setDetallePagosFactura(factura);
+    setModalDetallePagosVisible(true);
+    setDetallePagosLoading(true);
+    setDetallePagosError(null);
+    setDetallePagosLista([]);
+    fetch(`${API_URL}/api/facturacion/facturas/${factura.id_factura}/pagos`)
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Error al cargar pagos');
+        setDetallePagosLista(Array.isArray(data.pagos) ? data.pagos : []);
+      })
+      .catch((err) => setDetallePagosError(err instanceof Error ? err.message : 'Error de conexión'))
+      .finally(() => setDetallePagosLoading(false));
+  }, []);
+
+  const cerrarModalDetallePagos = useCallback(() => {
+    setModalDetallePagosVisible(false);
+    setDetallePagosFactura(null);
+    setDetallePagosError(null);
+    setDetallePagosLista([]);
+  }, []);
+
+  const abrirModalPagar = () => {
+    if (!selectedFactura) return;
+    setMetodoDropdownOpen(false);
+    setPagoFechaEditadaManual(false);
+    setPagoImporte(String(selectedFactura.saldo_pendiente ?? 0));
+    setPagoReferencia('');
+
+    const tipoRecibo = getTipoReciboFromEmpresasList(empresasCatalogo, selectedFactura.empresa_id);
+    const { clave, otroTexto } = mapTipoReciboToFormaPago(tipoRecibo);
+    setPagoMetodo(clave);
+    setPagoMetodoOtro(clave === 'otro' ? otroTexto : '');
+
+    const hoy = hoyDmy();
+    const fechaFactura = fechaEmisionFacturaADmy(selectedFactura.fecha_emision, hoy);
+    setPagoFecha(clave === 'tarjeta' ? fechaFactura : hoy);
+
+    setModalPagar(true);
+  };
+
+  const onCambiarMetodoPago = (m: string) => {
+    setPagoMetodo(m);
+    setMetodoDropdownOpen(false);
+    if (m !== 'otro') setPagoMetodoOtro('');
+    if (!selectedFactura || pagoFechaEditadaManual) return;
+    const hoy = hoyDmy();
+    const fechaFactura = fechaEmisionFacturaADmy(selectedFactura.fecha_emision, hoy);
+    setPagoFecha(m === 'tarjeta' ? fechaFactura : hoy);
   };
 
   const verDocumento = async () => {
@@ -289,7 +396,10 @@ export default function FacturasGastoScreen() {
     if (!selectedFactura) return;
     if (id === 'editar') { router.push(`/facturacion/factura-detalle?id=${selectedFactura.id_factura}&modo=editar` as never); return; }
     if (id === 'emitir') { handleEmitir(); return; }
-    if (id === 'pagar') { setPagoImporte(String(selectedFactura.saldo_pendiente ?? 0)); setPagoMetodo('transferencia'); setPagoReferencia(''); setModalPagar(true); return; }
+    if (id === 'pagar') {
+      abrirModalPagar();
+      return;
+    }
     if (id === 'borrar') { setModalBorrar(true); return; }
   };
 
@@ -346,12 +456,24 @@ export default function FacturasGastoScreen() {
     if (!selectedFactura) return;
     const importe = parseFloat(pagoImporte.replace(',', '.'));
     if (!importe || importe <= 0) { showToast('Aviso', 'El importe debe ser mayor que 0', 'warning'); return; }
+    const fechaIso = dmyToIso(pagoFecha);
+    if (!fechaIso) { showToast('Aviso', 'Indica una fecha válida', 'warning'); return; }
+    const metodoEnvio = resolveMetodoPagoParaEnvio(pagoMetodo, pagoMetodoOtro);
+    if (metodoEnvio == null) {
+      showToast('Aviso', 'Describe el método de pago si eliges «Otro»', 'warning');
+      return;
+    }
     setProcesando(true);
     try {
       const res = await fetch(`${API_URL}/api/facturacion/facturas/${selectedFactura.id_factura}/pagos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ importe, metodo_pago: pagoMetodo, referencia: pagoReferencia }),
+        body: JSON.stringify({
+          fecha: fechaIso,
+          importe,
+          metodo_pago: metodoEnvio,
+          referencia: pagoReferencia.trim() || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al registrar pago');
@@ -589,17 +711,38 @@ export default function FacturasGastoScreen() {
                 </View>
               ) : (
                 paginadas.map((f, idx) => (
-                  <TouchableOpacity
+                  <Pressable
                     key={f.id_factura}
                     style={[styles.row, selectedRowIndex === idx && styles.rowSelected]}
                     onPress={() => setSelectedRowIndex(selectedRowIndex === idx ? null : idx)}
-                    activeOpacity={0.8}
                   >
                     {COLUMNAS.map((col) => {
                       if (col === 'estado') {
                         return (
                           <View key={col} style={[styles.cell, { width: getColWidth(col) }]}>
                             <BadgeEstado estado={f.estado} />
+                          </View>
+                        );
+                      }
+                      if (col === 'pagado') {
+                        return (
+                          <View key={col} style={[styles.cell, { width: getColWidth(col) }, styles.cellRight]}>
+                            <View style={styles.cellPagadoRow}>
+                              <Text style={[styles.cellText, styles.cellTextRight, styles.cellTextFlex]} numberOfLines={1} ellipsizeMode="tail">
+                                {getCellValue(f, col)}
+                              </Text>
+                              <Pressable
+                                hitSlop={8}
+                                accessibilityLabel="Ver detalle de pagos"
+                                onPress={(e) => {
+                                  absorberClickFila(e);
+                                  abrirModalDetallePagos(f);
+                                }}
+                                style={styles.cellPagadoIconBtn}
+                              >
+                                <MaterialIcons name="receipt-long" size={18} color="#0369a1" />
+                              </Pressable>
+                            </View>
                           </View>
                         );
                       }
@@ -612,7 +755,7 @@ export default function FacturasGastoScreen() {
                         </View>
                       );
                     })}
-                  </TouchableOpacity>
+                  </Pressable>
                 ))
               )}
             </ScrollView>
@@ -663,6 +806,16 @@ export default function FacturasGastoScreen() {
             <Text style={styles.modalTitle}>Registrar pago</Text>
             <Text style={styles.modalLabel}>Factura: {selectedFactura?.id_factura} — Saldo: {selectedFactura ? formatMoneda(selectedFactura.saldo_pendiente) : ''}</Text>
 
+            <Text style={styles.modalFieldLabel}>Fecha del pago *</Text>
+            <InputFecha
+              value={pagoFecha}
+              onChange={(v) => {
+                setPagoFecha(v);
+                setPagoFechaEditadaManual(true);
+              }}
+              format="dmy"
+            />
+
             <Text style={styles.modalFieldLabel}>Importe</Text>
             <TextInput
               style={styles.modalInput}
@@ -680,16 +833,28 @@ export default function FacturasGastoScreen() {
             </TouchableOpacity>
             {metodoDropdownOpen && (
               <View style={styles.dropdown}>
-                {METODOS_PAGO.map((m) => (
+                {FORMAS_PAGO.map((m) => (
                   <TouchableOpacity
                     key={m}
                     style={[styles.dropdownItem, pagoMetodo === m && styles.dropdownItemActive]}
-                    onPress={() => { setPagoMetodo(m); setMetodoDropdownOpen(false); }}
+                    onPress={() => onCambiarMetodoPago(m)}
                   >
                     <Text style={[styles.dropdownItemText, pagoMetodo === m && styles.dropdownItemTextActive]}>{labelFormaPago(m)}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
+            )}
+            {pagoMetodo === 'otro' && (
+              <>
+                <Text style={styles.modalFieldLabel}>Describe el método *</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={pagoMetodoOtro}
+                  onChangeText={setPagoMetodoOtro}
+                  placeholder="Ej. Cheque, PayPal…"
+                  placeholderTextColor="#94a3b8"
+                />
+              </>
             )}
 
             <Text style={styles.modalFieldLabel}>Referencia (opcional)</Text>
@@ -712,6 +877,39 @@ export default function FacturasGastoScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <Modal visible={modalDetallePagosVisible} transparent animationType="fade" onRequestClose={cerrarModalDetallePagos}>
+        <Pressable style={styles.modalOverlay} onPress={cerrarModalDetallePagos}>
+          <Pressable style={[styles.modalContent, styles.modalDetalleModal]} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalDetalleHeaderRow}>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={styles.modalDetalleTitle}>Pagos registrados</Text>
+                <Text style={styles.modalDetalleSubtitle} numberOfLines={3}>
+                  {detallePagosFactura?.numero_factura_proveedor
+                    ? `Factura proveedor: ${detallePagosFactura.numero_factura_proveedor}`
+                    : detallePagosFactura?.id_factura
+                      ? `ID: ${detallePagosFactura.id_factura}`
+                      : ''}
+                  {detallePagosFactura?.empresa_nombre ? ` · ${detallePagosFactura.empresa_nombre}` : ''}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={cerrarModalDetallePagos} style={styles.modalDetalleClose} accessibilityLabel="Cerrar">
+                <MaterialIcons name="close" size={22} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <ModalDetallePagosTabla
+              loading={detallePagosLoading}
+              loadingText="Cargando pagos…"
+              error={detallePagosError}
+              emptyText="No hay pagos registrados"
+              pagos={detallePagosLista}
+              totalLabel="Total pagado"
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {ToastView}
     </View>
   );
@@ -976,4 +1174,14 @@ const styles = StyleSheet.create({
   },
   modalBtnDangerText: { fontSize: 13, color: '#fff', fontWeight: '600' },
   modalBtnDisabled: { opacity: 0.6 },
+
+  modalDetalleModal: { maxWidth: 480 },
+  modalDetalleHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
+  modalDetalleTitle: { fontSize: 16, fontWeight: '700', color: '#334155', marginBottom: 4 },
+  modalDetalleSubtitle: { fontSize: 12, color: '#64748b', lineHeight: 18 },
+  modalDetalleClose: { padding: 4, marginTop: -4 },
+
+  cellPagadoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0, justifyContent: 'flex-end' },
+  cellTextFlex: { flex: 1, minWidth: 0 },
+  cellPagadoIconBtn: { padding: 2 },
 });
