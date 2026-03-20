@@ -16,7 +16,7 @@ import {
   ListObjectsV2Command,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { docClient, tables } from '../lib/db.js';
+import { docClient, tables, deleteItemBySchema, keyForFacturaPrincipalId, keyForFacturaItem } from '../lib/db.js';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import multer from 'multer';
@@ -183,63 +183,6 @@ async function registrarAuditoria(id_factura, accion, usuario_id, usuario_nombre
   );
 }
 
-/**
- * DeleteItem probando varias claves hasta acertar el esquema real de la tabla DynamoDB.
- */
-async function deleteItemWithKeyCandidates(tableName, keyCandidates) {
-  const candidates = keyCandidates.filter((k) => k && Object.keys(k).length > 0);
-  if (candidates.length === 0) {
-    throw new Error(`Sin clave válida para borrar en ${tableName}`);
-  }
-  let lastErr;
-  for (const Key of candidates) {
-    try {
-      await docClient.send(new DeleteCommand({ TableName: tableName, Key }));
-      return;
-    } catch (e) {
-      lastErr = e;
-      const isKeySchemaErr =
-        e.name === 'ValidationException' ||
-        /schema|key element|does not match/i.test(String(e.message || ''));
-      if (!isKeySchemaErr) throw e;
-    }
-  }
-  if (lastErr) throw lastErr;
-}
-
-function keyCandidatesPago(p) {
-  const out = [];
-  if (p.id_factura && p.id_pago) out.push({ id_factura: p.id_factura, id_pago: p.id_pago });
-  if (p.id_entrada) out.push({ id_entrada: p.id_entrada });
-  if (p.id_factura && p.id_pago) out.push({ id_entrada: `${p.id_factura}#${p.id_pago}` });
-  return out;
-}
-
-function keyCandidatesLinea(l) {
-  const out = [];
-  if (l.id_factura && l.id_linea) out.push({ id_factura: l.id_factura, id_linea: l.id_linea });
-  if (l.id_entrada) out.push({ id_entrada: l.id_entrada });
-  if (l.id_factura && l.id_linea) out.push({ id_entrada: `${l.id_factura}#${l.id_linea}` });
-  return out;
-}
-
-/**
- * Borra un ítem de auditoría respetando el esquema de clave de la tabla (puede ser solo id_entrada o compuesta).
- */
-async function deleteAuditoriaItem(a, idFacturaFallback) {
-  const idFact = a.id_factura || idFacturaFallback;
-  const candidates = [];
-  if (idFact && a.id_entrada) candidates.push({ id_factura: idFact, id_entrada: a.id_entrada });
-  if (idFact && a.timestamp_accion) candidates.push({ id_factura: idFact, timestamp_accion: a.timestamp_accion });
-  if (a.id_entrada) candidates.push({ id_entrada: a.id_entrada });
-
-  if (candidates.length === 0) {
-    throw new Error('Registro de auditoría sin id_entrada ni timestamp_accion');
-  }
-
-  await deleteItemWithKeyCandidates(tables.facturasAuditoria, candidates);
-}
-
 // ─── SERIES ───
 
 router.get('/facturacion/series', async (_req, res) => {
@@ -372,7 +315,7 @@ router.get('/facturacion/facturas', async (req, res) => {
 router.get('/facturacion/facturas/:id', async (req, res) => {
   try {
     const result = await docClient.send(
-      new GetCommand({ TableName: tables.facturas, Key: { id_entrada: req.params.id } })
+      new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(req.params.id) })
     );
     if (!result.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const lineas = await scanAll(tables.facturasLineas, 'id_factura = :fid', { ':fid': req.params.id });
@@ -551,7 +494,7 @@ router.put('/facturacion/facturas/:id', async (req, res) => {
   const body = req.body || {};
 
   try {
-    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: { id_entrada: id } }));
+    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
 
     const factura = existing.Item;
@@ -658,7 +601,7 @@ router.post('/facturacion/facturas/:id/emitir', async (req, res) => {
   const { usuario_id, usuario_nombre } = req.body || {};
 
   try {
-    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: { id_entrada: id } }));
+    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const factura = existing.Item;
 
@@ -727,13 +670,13 @@ router.post('/facturacion/facturas/:id/anular', async (req, res) => {
   const { motivo, usuario_id, usuario_nombre } = req.body || {};
 
   try {
-    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: { id_entrada: id } }));
+    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const factura = existing.Item;
 
     if (factura.estado === 'anulada') return res.status(400).json({ error: 'La factura ya está anulada' });
     if (factura.estado === 'borrador') {
-      await docClient.send(new DeleteCommand({ TableName: tables.facturas, Key: { id_entrada: id } }));
+      await docClient.send(new DeleteCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
       const lineas = await scanAll(tables.facturasLineas, 'id_factura = :fid', { ':fid': id });
       for (const l of lineas) {
         await docClient.send(new DeleteCommand({ TableName: tables.facturasLineas, Key: { id_factura: id, id_linea: l.id_linea } }));
@@ -767,7 +710,7 @@ router.delete('/facturacion/facturas/:id', async (req, res) => {
   const { usuario_id, usuario_nombre } = req.body || {};
 
   try {
-    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: { id_entrada: id } }));
+    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const factura = existing.Item;
 
@@ -779,20 +722,20 @@ router.delete('/facturacion/facturas/:id', async (req, res) => {
 
     const pagos = await scanAll(tables.facturasPagos, 'id_factura = :fid', { ':fid': id });
     for (const p of pagos) {
-      await deleteItemWithKeyCandidates(tables.facturasPagos, keyCandidatesPago(p));
+      await deleteItemBySchema(tables.facturasPagos, p);
     }
 
     const lineas = await scanAll(tables.facturasLineas, 'id_factura = :fid', { ':fid': id });
     for (const l of lineas) {
-      await deleteItemWithKeyCandidates(tables.facturasLineas, keyCandidatesLinea(l));
+      await deleteItemBySchema(tables.facturasLineas, l);
     }
 
     const audits = await scanAll(tables.facturasAuditoria, 'id_factura = :fid', { ':fid': id });
     for (const a of audits) {
-      await deleteAuditoriaItem(a, id);
+      await deleteItemBySchema(tables.facturasAuditoria, a);
     }
 
-    await deleteItemWithKeyCandidates(tables.facturas, [{ id_entrada: id }, { id_factura: id }]);
+    await deleteItemBySchema(tables.facturas, factura);
 
     await registrarAuditoria(id, 'eliminacion', usuario_id, usuario_nombre, {
       tipo: 'IN',
@@ -804,7 +747,8 @@ router.delete('/facturacion/facturas/:id', async (req, res) => {
 
     res.json({ ok: true, eliminada: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[DELETE /facturacion/facturas/:id]', id, err?.message, err?.stack);
+    res.status(500).json({ error: err.message || 'Error al eliminar la factura' });
   }
 });
 
@@ -815,7 +759,7 @@ router.post('/facturacion/facturas/:id/duplicar', async (req, res) => {
   const { serie, usuario_id, usuario_nombre } = req.body || {};
 
   try {
-    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: { id_entrada: id } }));
+    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const original = existing.Item;
 
@@ -882,7 +826,7 @@ router.post('/facturacion/facturas/:id/rectificar', async (req, res) => {
   const { serie_rectificativa, motivo, usuario_id, usuario_nombre } = req.body || {};
 
   try {
-    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: { id_entrada: id } }));
+    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const original = existing.Item;
 
@@ -972,7 +916,7 @@ router.post('/facturacion/facturas/:id/pagos', async (req, res) => {
   if (!importe || Number(importe) <= 0) return res.status(400).json({ error: 'Importe debe ser mayor que 0' });
 
   try {
-    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: { id_entrada: id_factura } }));
+    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const factura = existing.Item;
 
@@ -1035,7 +979,7 @@ router.delete('/facturacion/pagos/:id_factura/:id_pago', async (req, res) => {
 
     await docClient.send(new DeleteCommand({ TableName: tables.facturasPagos, Key: { id_factura, id_pago } }));
 
-    const facResult = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: { id_entrada: id_factura } }));
+    const facResult = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura) }));
     if (facResult.Item) {
       const factura = facResult.Item;
       const nuevoTotalCobrado = round2(Math.max(0, (factura.total_cobrado || 0) - pagoResult.Item.importe));
@@ -1168,7 +1112,7 @@ router.post('/facturacion/facturas/:id/enviar-email', async (req, res) => {
   if (!process.env.SMTP_USER) return res.status(500).json({ error: 'SMTP no configurado. Define SMTP_HOST, SMTP_USER y SMTP_PASS en variables de entorno.' });
 
   try {
-    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: { id_entrada: id } }));
+    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const factura = existing.Item;
 
@@ -1357,7 +1301,7 @@ router.post('/facturacion/check-vencimientos', async (req, res) => {
       await docClient.send(
         new UpdateCommand({
           TableName: tables.facturas,
-          Key: { id_entrada: f.id_entrada },
+          Key: await keyForFacturaItem(f),
           UpdateExpression: 'SET estado = :e, actualizado_en = :ts',
           ExpressionAttributeValues: { ':e': 'vencida', ':ts': now() },
         }),
@@ -1382,7 +1326,7 @@ router.post('/facturacion/facturas/:id/adjuntos', upload.single('file'), async (
   if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
 
   try {
-    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: { id_entrada: id } }));
+    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
 
     const ext = (req.file.originalname || 'file').split('.').pop();
@@ -1408,7 +1352,7 @@ router.post('/facturacion/facturas/:id/adjuntos', upload.single('file'), async (
 
     await docClient.send(new UpdateCommand({
       TableName: tables.facturas,
-      Key: { id_entrada: id },
+      Key: await keyForFacturaPrincipalId(id),
       UpdateExpression: 'SET adjuntos = :adj, actualizado_en = :ts',
       ExpressionAttributeValues: { ':adj': adjuntos, ':ts': now() },
     }));
@@ -1427,7 +1371,7 @@ router.post('/facturacion/facturas/:id/adjuntos', upload.single('file'), async (
 router.get('/facturacion/facturas/:id/adjuntos', async (req, res) => {
   const id = req.params.id;
   try {
-    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: { id_entrada: id } }));
+    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
 
     let adjuntos = Array.isArray(existing.Item.adjuntos) ? [...existing.Item.adjuntos] : [];
@@ -1461,7 +1405,7 @@ router.delete('/facturacion/facturas/:id/adjuntos/:adjId', async (req, res) => {
   const { usuario_id, usuario_nombre } = req.body || {};
 
   try {
-    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: { id_entrada: id } }));
+    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
 
     const adjuntos = existing.Item.adjuntos || [];
@@ -1473,7 +1417,7 @@ router.delete('/facturacion/facturas/:id/adjuntos/:adjId', async (req, res) => {
     const nuevos = adjuntos.filter((a) => a.id !== adjId);
     await docClient.send(new UpdateCommand({
       TableName: tables.facturas,
-      Key: { id_entrada: id },
+      Key: await keyForFacturaPrincipalId(id),
       UpdateExpression: 'SET adjuntos = :adj, actualizado_en = :ts',
       ExpressionAttributeValues: { ':adj': nuevos, ':ts': now() },
     }));
@@ -2215,7 +2159,7 @@ router.post('/facturacion/enviar-recordatorios', async (req, res) => {
 
         await docClient.send(new UpdateCommand({
           TableName: tables.facturas,
-          Key: { id_entrada: f.id_entrada },
+          Key: await keyForFacturaItem(f),
           UpdateExpression: 'SET ultimo_recordatorio = :h',
           ExpressionAttributeValues: { ':h': hoy },
         }));
