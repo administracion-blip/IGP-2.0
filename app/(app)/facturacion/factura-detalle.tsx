@@ -32,7 +32,7 @@ import {
   type LineaFactura,
   type Factura,
 } from '../../utils/facturacion';
-import { fechaEmisionFacturaADmy } from '../../utils/formatFecha';
+import { fechaEmisionFacturaADmy, textoFechaContabilizacionGasto } from '../../utils/formatFecha';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalToast, detectToastType } from '../../components/Toast';
 
@@ -168,7 +168,10 @@ export default function FacturaDetalleScreen() {
   const [observaciones, setObservaciones] = useState('');
   const [localId, setLocalId] = useState('');
   const [numFacturaProveedor, setNumFacturaProveedor] = useState('');
-  const [fechaContabilizacion, setFechaContabilizacion] = useState(hoyDmy());
+  /** ISO con hora; en facturas IN lo asigna el servidor al crear */
+  const [fechaContabilizacionIso, setFechaContabilizacionIso] = useState('');
+  const [contabilizadoPor, setContabilizadoPor] = useState('');
+  const [creadoEn, setCreadoEn] = useState('');
 
   // Emisor
   const [emisorId, setEmisorId] = useState('');
@@ -231,6 +234,8 @@ export default function FacturaDetalleScreen() {
   const [emailAsunto, setEmailAsunto] = useState('');
   const [emailCuerpo, setEmailCuerpo] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [modalCondicionesOpen, setModalCondicionesOpen] = useState(false);
+  const [modalFormaPagoOpen, setModalFormaPagoOpen] = useState(false);
 
   // ── Adjuntos ──
   type Adjunto = { id: string; fileKey: string; nombre: string; tipo: string; size: number; url?: string; subido_en: string; subido_por: string };
@@ -350,7 +355,9 @@ export default function FacturaDetalleScreen() {
       setObservaciones(f.observaciones ?? '');
       setLocalId(f.local_id ?? '');
       setNumFacturaProveedor(f.numero_factura_proveedor ?? '');
-      setFechaContabilizacion(isoToDmy(f.fecha_contabilizacion ?? ''));
+      setFechaContabilizacionIso(String(f.fecha_contabilizacion ?? '').trim());
+      setContabilizadoPor(String(f.contabilizado_por ?? '').trim());
+      setCreadoEn(String(f.creado_en ?? '').trim());
       setEmisorId(f.emisor_id ?? '');
       setEmisorNombre(f.emisor_nombre ?? '');
       setEmisorCif(f.emisor_cif ?? '');
@@ -520,7 +527,8 @@ export default function FacturaDetalleScreen() {
     observaciones,
     local_id: localId || null,
     numero_factura_proveedor: tipo === 'IN' ? numFacturaProveedor : null,
-    fecha_contabilizacion: tipo === 'IN' ? dmyToIso(fechaContabilizacion) || null : null,
+    /** Al crear IN el servidor fija fecha/hora/usuario; al editar se reenvía el ISO para no perder la hora */
+    ...(tipo === 'IN' && modo === 'editar' ? { fecha_contabilizacion: fechaContabilizacionIso || null } : {}),
     lineas: lineas.map((l) => ({ ...l, ...calcularLinea(l) })),
     ...totales,
     usuario_id: user?.id_usuario,
@@ -1177,43 +1185,33 @@ export default function FacturaDetalleScreen() {
             <InputFecha value={fechaVencimiento} onChange={setFechaVencimiento} format="dmy" editable={esEditable} />
           </View>
 
-          {/* Condiciones pago */}
-          <View style={styles.field}>
-            <Text style={styles.label}>Condiciones de pago</Text>
-            <View style={styles.pickerWrap}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {CONDICIONES_PAGO.map((c) => (
-                  <TouchableOpacity
-                    key={c}
-                    style={[styles.chip, condicionesPago === c && styles.chipActive]}
-                    onPress={() => esEditable && setCondicionesPago(c)}
-                    disabled={!esEditable}
-                  >
-                    <Text style={[styles.chipText, condicionesPago === c && styles.chipTextActive]}>{c}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+          {/* Condiciones + forma de pago: una fila, ambos desplegables */}
+          <View style={[styles.field, styles.fieldCondFormaRow]}>
+            <View style={styles.condFormaCol}>
+              <Text style={styles.label}>Condiciones de pago</Text>
+              {esEditable ? (
+                <TouchableOpacity style={styles.selectBtn} onPress={() => setModalCondicionesOpen(true)} activeOpacity={0.7}>
+                  <Text style={styles.selectBtnText} numberOfLines={1}>
+                    {condicionesPago}
+                  </Text>
+                  <MaterialIcons name="expand-more" size={22} color="#64748b" />
+                </TouchableOpacity>
+              ) : (
+                <Text style={styles.readOnlyInline}>{condicionesPago}</Text>
+              )}
             </View>
-          </View>
-
-          {/* Forma pago */}
-          <View style={styles.field}>
-            <Text style={styles.label}>Forma de pago</Text>
-            <View style={styles.pickerWrap}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {FORMAS_PAGO.map((fp) => (
-                  <TouchableOpacity
-                    key={fp}
-                    style={[styles.chip, formaPago === fp && styles.chipActive]}
-                    onPress={() => esEditable && setFormaPago(fp)}
-                    disabled={!esEditable}
-                  >
-                    <Text style={[styles.chipText, formaPago === fp && styles.chipTextActive]}>
-                      {labelFormaPago(fp)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+            <View style={styles.condFormaCol}>
+              <Text style={styles.label}>Forma de pago</Text>
+              {esEditable ? (
+                <TouchableOpacity style={styles.selectBtn} onPress={() => setModalFormaPagoOpen(true)} activeOpacity={0.7}>
+                  <Text style={styles.selectBtnText} numberOfLines={1}>
+                    {labelFormaPago(formaPago)}
+                  </Text>
+                  <MaterialIcons name="expand-more" size={22} color="#64748b" />
+                </TouchableOpacity>
+              ) : (
+                <Text style={styles.readOnlyInline}>{labelFormaPago(formaPago)}</Text>
+              )}
             </View>
           </View>
 
@@ -1233,7 +1231,18 @@ export default function FacturaDetalleScreen() {
               </View>
               <View style={styles.field}>
                 <Text style={styles.label}>Fecha contabilización</Text>
-                <InputFecha value={fechaContabilizacion} onChange={setFechaContabilizacion} format="dmy" editable={esEditable} />
+                <TextInput
+                  style={[styles.input, styles.inputReadOnly]}
+                  value={textoFechaContabilizacionGasto({
+                    fechaContabilizacion: fechaContabilizacionIso,
+                    contabilizadoPor,
+                    creadoEn,
+                  })}
+                  editable={false}
+                  multiline
+                  placeholder="—"
+                  placeholderTextColor="#94a3b8"
+                />
               </View>
             </>
           )}
@@ -1427,6 +1436,7 @@ export default function FacturaDetalleScreen() {
             total_retencion={totales.total_retencion}
             total_factura={totales.total_factura}
             desglose_iva={totales.desglose_iva}
+            desglose_retencion={totales.desglose_retencion}
           />
         </View>
       </View>
@@ -1534,6 +1544,65 @@ export default function FacturaDetalleScreen() {
       )}
 
       <View style={{ height: 40 }} />
+
+      {/* ── MODALES CONDICIONES / FORMA DE PAGO ── */}
+      <Modal visible={modalCondicionesOpen} transparent animationType="fade" onRequestClose={() => setModalCondicionesOpen(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setModalCondicionesOpen(false)}>
+          <Pressable style={[styles.modalContent, styles.modalPickerSheet]} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Condiciones de pago</Text>
+              <TouchableOpacity onPress={() => setModalCondicionesOpen(false)}>
+                <MaterialIcons name="close" size={22} color="#334155" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalPickerScroll} keyboardShouldPersistTaps="handled">
+              {CONDICIONES_PAGO.map((c) => (
+                <TouchableOpacity
+                  key={c}
+                  style={[styles.modalPickerRow, condicionesPago === c && styles.modalPickerRowActive]}
+                  onPress={() => {
+                    setCondicionesPago(c);
+                    setModalCondicionesOpen(false);
+                  }}
+                >
+                  <Text style={[styles.modalPickerRowText, condicionesPago === c && styles.modalPickerRowTextActive]}>{c}</Text>
+                  {condicionesPago === c ? <MaterialIcons name="check" size={20} color="#0369a1" /> : null}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={modalFormaPagoOpen} transparent animationType="fade" onRequestClose={() => setModalFormaPagoOpen(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setModalFormaPagoOpen(false)}>
+          <Pressable style={[styles.modalContent, styles.modalPickerSheet]} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Forma de pago</Text>
+              <TouchableOpacity onPress={() => setModalFormaPagoOpen(false)}>
+                <MaterialIcons name="close" size={22} color="#334155" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalPickerScroll} keyboardShouldPersistTaps="handled">
+              {FORMAS_PAGO.map((fp) => (
+                <TouchableOpacity
+                  key={fp}
+                  style={[styles.modalPickerRow, formaPago === fp && styles.modalPickerRowActive]}
+                  onPress={() => {
+                    setFormaPago(fp);
+                    setModalFormaPagoOpen(false);
+                  }}
+                >
+                  <Text style={[styles.modalPickerRowText, formaPago === fp && styles.modalPickerRowTextActive]}>
+                    {labelFormaPago(fp)}
+                  </Text>
+                  {formaPago === fp ? <MaterialIcons name="check" size={20} color="#0369a1" /> : null}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* ── MODAL PRODUCTOS ── */}
       <Modal visible={showProductModal} transparent animationType="fade">
@@ -1984,11 +2053,78 @@ const styles = StyleSheet.create({
   fieldFull: {
     flexBasis: '100%',
   },
+  /** Condiciones + forma de pago en una fila */
+  fieldCondFormaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    flexBasis: '100%',
+    minWidth: 280,
+  },
+  condFormaCol: {
+    flex: 1,
+    minWidth: 160,
+  },
+  selectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
+  },
+  selectBtnText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#334155',
+    marginRight: 4,
+  },
+  readOnlyInline: {
+    fontSize: 12,
+    color: '#334155',
+    paddingVertical: 8,
+  },
+  modalPickerSheet: {
+    maxWidth: 420,
+  },
+  modalPickerScroll: {
+    maxHeight: 320,
+  },
+  modalPickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  modalPickerRowActive: {
+    backgroundColor: '#f0f9ff',
+    borderRadius: 6,
+  },
+  modalPickerRowText: {
+    fontSize: 14,
+    color: '#334155',
+    flex: 1,
+  },
+  modalPickerRowTextActive: {
+    color: '#0369a1',
+    fontWeight: '600',
+  },
   label: {
     fontSize: 12,
     fontWeight: '600',
     color: '#334155',
     marginBottom: 4,
+  },
+  inputReadOnly: {
+    backgroundColor: '#f8fafc',
+    color: '#334155',
+    minHeight: 36,
   },
   numeroFacturaText: {
     fontSize: 20,

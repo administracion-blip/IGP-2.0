@@ -96,6 +96,8 @@ export type TablaBasicaProps<T = Record<string, unknown>> = {
   extraToolbarRight?: React.ReactNode;
   /** Contenido extra entre los botones de acción y la búsqueda (ej. filtros Año/Mes) */
   extraToolbarLeft?: React.ReactNode;
+  /** Oculta el campo «Buscar en la tabla» (p. ej. para colocar la búsqueda dentro de extraToolbarLeft) */
+  hideSearch?: boolean;
   /** Estilo opcional por columna (celda y texto) */
   getColumnCellStyle?: (col: string) => { cell?: ViewStyle; text?: TextStyle } | undefined;
   /** Ancho por defecto de columnas (si no se especifica, usa dense ? 72 : 90) */
@@ -106,6 +108,8 @@ export type TablaBasicaProps<T = Record<string, unknown>> = {
   toolbarCrearLabel?: string;
   /** Renderizado personalizado de celda; si devuelve null usa el Text por defecto */
   renderCell?: (item: T, col: string, defaultText: string) => React.ReactNode | null;
+  /** Panel opcional a la derecha de la tabla (misma fila, p. ej. calendario) */
+  rightPanel?: React.ReactNode;
 };
 
 export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps<T>) {
@@ -140,11 +144,13 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     dense = false,
     extraToolbarRight,
     extraToolbarLeft,
+    hideSearch = false,
     getColumnCellStyle,
     defaultColWidth,
     hideToolbarActions = false,
     toolbarCrearLabel,
     renderCell,
+    rightPanel,
   } = props;
 
   const baseColWidth = defaultColWidth ?? (dense ? DENSE_COL_WIDTH : DEFAULT_COL_WIDTH);
@@ -300,16 +306,18 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
           ))}
         </View>
         {extraToolbarLeft ? <View style={styles.extraToolbarLeft}>{extraToolbarLeft}</View> : null}
-        <View style={styles.searchWrap}>
-          <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            value={filtroBusqueda}
-            onChangeText={onFiltroChange}
-            placeholder="Buscar en la tabla…"
-            placeholderTextColor="#94a3b8"
-          />
-        </View>
+        {!hideSearch ? (
+          <View style={styles.searchWrap}>
+            <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              value={filtroBusqueda}
+              onChangeText={onFiltroChange}
+              placeholder="Buscar en la tabla…"
+              placeholderTextColor="#94a3b8"
+            />
+          </View>
+        ) : null}
         {hasImportExport && (
           <View style={styles.toolbarBtnWrap}>
             <View
@@ -424,14 +432,15 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
         )}
       </View>
 
-      <View style={styles.tableWrapper}>
-        <ScrollView
-          horizontal
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          showsHorizontalScrollIndicator
-        >
-          <View style={styles.table}>
+      <View style={styles.tableAndRightRow}>
+        <View style={[styles.tableWrapper, rightPanel != null && styles.tableWrapperSplit]}>
+          <ScrollView
+            horizontal
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            showsHorizontalScrollIndicator
+          >
+            <View style={styles.table}>
             <View style={[styles.rowHeader, dense && styles.rowHeaderDense]}>
               {columnas.map((col) => {
                 const isMoneda = columnasMoneda.some((c) => c.toLowerCase() === col.toLowerCase());
@@ -504,6 +513,8 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
             </ScrollView>
           </View>
         </ScrollView>
+        </View>
+        {rightPanel != null ? <View style={styles.rightPanelWrap}>{rightPanel}</View> : null}
       </View>
     </View>
   );
@@ -529,7 +540,14 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
   backBtn: { padding: 4 },
   title: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  toolbarRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8, gap: 12 },
+  toolbarRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+    gap: 12,
+    zIndex: 2,
+    overflow: 'visible',
+  },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   searchWrap: {
     flex: 1,
@@ -547,7 +565,7 @@ const styles = StyleSheet.create({
   searchIcon: { marginRight: 6 },
   searchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
   toolbarBtnWrap: { position: 'relative' },
-  extraToolbarLeft: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, flex: 1, minWidth: 0 },
+  extraToolbarLeft: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, flex: 1, minWidth: 0, overflow: 'visible', zIndex: 3 },
   extraToolbarRight: { marginLeft: 4 },
   tooltip: {
     position: 'absolute',
@@ -616,7 +634,24 @@ const styles = StyleSheet.create({
   pageBtn: { padding: 4 },
   pageBtnDisabled: { opacity: 0.5 },
   pageText: { fontSize: 11, color: '#64748b', marginHorizontal: 4 },
+  tableAndRightRow: {
+    flex: 1,
+    flexDirection: 'row',
+    minHeight: 0,
+    alignItems: 'stretch',
+    zIndex: 0,
+    gap: 12,
+  },
   tableWrapper: { flex: 1, minHeight: 0 },
+  /** Tabla ocupa ~mitad restante; el panel derecho lleva ~48% del ancho */
+  tableWrapperSplit: { flex: 1, minWidth: 0 },
+  rightPanelWrap: {
+    width: '48%' as const,
+    maxWidth: '50%' as const,
+    minWidth: 260,
+    minHeight: 200,
+    flexShrink: 0,
+  },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 20 },
   table: {
@@ -632,6 +667,7 @@ const styles = StyleSheet.create({
   tableBodyContent: { paddingBottom: 20 },
   rowHeader: {
     flexDirection: 'row',
+    alignItems: 'stretch',
     backgroundColor: '#e2e8f0',
     borderBottomWidth: 1,
     borderBottomColor: '#cbd5e1',
@@ -644,12 +680,13 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderRightColor: '#cbd5e1',
     position: 'relative',
+    justifyContent: 'center',
   },
   cellHeaderText: { fontSize: 11, fontWeight: '600', color: '#334155' },
   cellHeaderTextDense: { fontSize: 9 },
   cellHeaderDense: { paddingVertical: 2, paddingHorizontal: 6 },
   cellHeaderTextRight: { textAlign: 'right' },
-  cellHeaderRight: { alignItems: 'flex-end' },
+  cellHeaderRight: { alignItems: 'flex-end', justifyContent: 'center' },
   resizeHandle: {
     position: 'absolute',
     top: 0,
@@ -660,6 +697,7 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
+    alignItems: 'stretch',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
     backgroundColor: '#fff',
@@ -672,9 +710,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRightWidth: 1,
     borderRightColor: '#e2e8f0',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
   },
   cellDense: { paddingVertical: 1, paddingHorizontal: 6 },
-  cellRight: { alignItems: 'flex-end' },
+  cellRight: { alignItems: 'flex-end', justifyContent: 'center' },
   cellText: { fontSize: 11, color: '#475569' },
   cellTextDense: { fontSize: 9 },
   cellTextRight: { textAlign: 'right', alignSelf: 'stretch' },

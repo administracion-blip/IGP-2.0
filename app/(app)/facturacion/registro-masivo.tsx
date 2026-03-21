@@ -15,7 +15,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
-import { formatMoneda } from '../../utils/facturacion';
+import { formatMoneda, round2 } from '../../utils/facturacion';
 import { useLocalToast, detectToastType } from '../../components/Toast';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
@@ -46,6 +46,8 @@ type CamposManuales = Partial<Record<
   | 'numero_factura_proveedor'
   | 'fecha_emision'
   | 'base_imponible'
+  | 'tipo_iva_pct'
+  | 'retencion_pct'
   | 'total_iva'
   | 'retencion'
   | 'total_factura'
@@ -73,6 +75,10 @@ type Borrador = {
   numero_factura_proveedor: string;
   fecha_emision: string;
   base_imponible: number;
+  /** % tipo IVA sobre base imponible */
+  tipo_iva_pct: number;
+  /** % retención IRPF sobre base imponible */
+  retencion_pct: number;
   total_iva: number;
   retencion: number;
   total_factura: number;
@@ -120,6 +126,24 @@ function metodoExtraccionLabel(m: string | undefined): string {
   if (m === 'image_ocr') return 'OCR (imagen)';
   if (m === 'pdf_ocr_fallback') return 'OCR (PDF escaneado, pág. 1)';
   return m;
+}
+
+function derivarPctDesdeImportes(base: number, total_iva: number, retencion: number) {
+  if (base <= 0) return { tipo_iva_pct: 21, retencion_pct: 0 };
+  return {
+    tipo_iva_pct: round2((100 * total_iva) / base),
+    retencion_pct: round2((100 * retencion) / base),
+  };
+}
+
+function recalcImportesDesdePct(b: Borrador): Borrador {
+  const base = round2(Number(b.base_imponible) || 0);
+  const pctIva = Number(b.tipo_iva_pct) || 0;
+  const pctRet = Number(b.retencion_pct) || 0;
+  const total_iva = round2((base * pctIva) / 100);
+  const retencion = round2((base * pctRet) / 100);
+  const total_factura = round2(base + total_iva - retencion);
+  return { ...b, base_imponible: base, total_iva, retencion, total_factura };
 }
 
 export default function RegistroMasivoScreen() {
@@ -253,7 +277,19 @@ export default function RegistroMasivoScreen() {
         const field = zonaActiva.field;
         if (zonaActiva.numeric) {
           const numVal = parseFloat(texto.replace(/[^\d.,\-]/g, '').replace(',', '.')) || 0;
-          patchBorrador(selectedBorrador.idx, { [field]: numVal } as Partial<Borrador>);
+          const importesKeys: (keyof CamposManuales)[] = [
+            'tipo_iva_pct',
+            'retencion_pct',
+            'base_imponible',
+            'total_iva',
+            'retencion',
+            'total_factura',
+          ];
+          if (importesKeys.includes(field as keyof CamposManuales)) {
+            usuarioEditaCampo(selectedBorrador.idx, field as keyof CamposManuales, numVal);
+          } else {
+            patchBorrador(selectedBorrador.idx, { [field]: numVal } as Partial<Borrador>);
+          }
         } else {
           patchBorrador(selectedBorrador.idx, { [field]: texto } as Partial<Borrador>);
         }
@@ -356,7 +392,7 @@ export default function RegistroMasivoScreen() {
         prev.map((row) => {
           if (row.idx !== idx) return row;
           const m = row.campos_manuales || {};
-          const next: Borrador = {
+          let next: Borrador = {
             ...row,
             reconciliacion_warning: typeof d.warning === 'string' ? d.warning : '',
           };
@@ -379,6 +415,16 @@ export default function RegistroMasivoScreen() {
           if (!m.retencion && d.retencion != null) next.retencion = Number(d.retencion);
           if (!m.total_factura && d.total_factura != null) next.total_factura = Number(d.total_factura);
           if (d.confianza && typeof d.confianza === 'object') next.confianza = { ...next.confianza, ...d.confianza };
+          const pctR = derivarPctDesdeImportes(
+            Number(next.base_imponible) || 0,
+            Number(next.total_iva) || 0,
+            Number(next.retencion) || 0,
+          );
+          if (!m.tipo_iva_pct) next.tipo_iva_pct = pctR.tipo_iva_pct;
+          if (!m.retencion_pct) next.retencion_pct = pctR.retencion_pct;
+          if (m.tipo_iva_pct || m.retencion_pct) {
+            next = recalcImportesDesdePct(next);
+          }
           return next;
         }),
       );
@@ -427,6 +473,10 @@ export default function RegistroMasivoScreen() {
             total_factura: d.total_factura ?? 0,
             confianza: d.confianza || {},
           };
+          const base0 = d.base_imponible || 0;
+          const iva0 = d.total_iva || 0;
+          const ret0 = typeof d.retencion === 'number' ? d.retencion : 0;
+          const pct0 = derivarPctDesdeImportes(base0, iva0, ret0);
           nuevos.push({
             idx: baseIdx + i,
             archivo: data.archivo,
@@ -441,9 +491,11 @@ export default function RegistroMasivoScreen() {
             nombre_sugerido_ocr: d.nombre_sugerido_ocr || '',
             numero_factura_proveedor: d.numero_factura_proveedor || '',
             fecha_emision: d.fecha_emision ? isoToDmy(d.fecha_emision) : '',
-            base_imponible: d.base_imponible || 0,
-            total_iva: d.total_iva || 0,
-            retencion: typeof d.retencion === 'number' ? d.retencion : 0,
+            base_imponible: base0,
+            tipo_iva_pct: pct0.tipo_iva_pct,
+            retencion_pct: pct0.retencion_pct,
+            total_iva: iva0,
+            retencion: ret0,
             total_factura: d.total_factura || 0,
             observaciones: '',
             confianza: d.confianza || {},
@@ -510,14 +562,33 @@ export default function RegistroMasivoScreen() {
     );
   };
 
-  /** Edición explícita del usuario en formulario. */
-  const usuarioEditaCampo = (idx: number, field: keyof CamposManuales, value: any) => {
+  /** Edición explícita del usuario en formulario (importes coherentes con % IVA y % retención sobre la base). */
+  const usuarioEditaCampo = (idx: number, field: keyof CamposManuales, value: unknown) => {
     setBorradores((prev) =>
-      prev.map((b) =>
-        b.idx === idx
-          ? { ...b, [field]: value, campos_manuales: { ...b.campos_manuales, [field]: true } }
-          : b,
-      ),
+      prev.map((b) => {
+        if (b.idx !== idx) return b;
+        const campos_manuales = { ...b.campos_manuales, [field]: true } as CamposManuales;
+        let next: Borrador = { ...b, [field]: value, campos_manuales } as Borrador;
+
+        if (field === 'tipo_iva_pct' || field === 'retencion_pct' || field === 'base_imponible') {
+          next = recalcImportesDesdePct(next);
+        } else if (field === 'total_iva') {
+          const base = round2(Number(next.base_imponible) || 0);
+          const ti = round2(Number(value) || 0);
+          const pct = base > 0 ? round2((100 * ti) / base) : next.tipo_iva_pct;
+          const ret = round2(Number(next.retencion) || 0);
+          next = { ...next, total_iva: ti, tipo_iva_pct: pct, total_factura: round2(base + ti - ret) };
+        } else if (field === 'retencion') {
+          const base = round2(Number(next.base_imponible) || 0);
+          const ret = round2(Number(value) || 0);
+          const pct = base > 0 ? round2((100 * ret) / base) : next.retencion_pct;
+          const iva = round2(Number(next.total_iva) || 0);
+          next = { ...next, retencion: ret, retencion_pct: pct, total_factura: round2(base + iva - ret) };
+        } else if (field === 'total_factura') {
+          next = { ...next, total_factura: round2(Number(value) || 0) };
+        }
+        return next;
+      }),
     );
   };
 
@@ -897,8 +968,10 @@ export default function RegistroMasivoScreen() {
                 <FieldRowZona label="Nº Factura" value={selectedBorrador.numero_factura_proveedor} conf={selectedBorrador.confianza.numero_factura} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'numero_factura_proveedor', v)} onZona={() => activarZona('numero_factura_proveedor')} zonaActiva={zonaActiva?.field === 'numero_factura_proveedor'} />
                 <FieldRowZona label="Fecha emisión" value={selectedBorrador.fecha_emision} conf={selectedBorrador.confianza.fecha} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'fecha_emision', v)} placeholder="dd/mm/aaaa" onZona={() => activarZona('fecha_emision')} zonaActiva={zonaActiva?.field === 'fecha_emision'} />
                 <FieldRowZona label="Base imponible" value={String(selectedBorrador.base_imponible || '')} conf={selectedBorrador.confianza.base_imponible} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'base_imponible', parseFloat(v) || 0)} numeric onZona={() => activarZona('base_imponible', true)} zonaActiva={zonaActiva?.field === 'base_imponible'} />
-                <FieldRowZona label="IVA" value={String(selectedBorrador.total_iva || '')} conf={selectedBorrador.confianza.total_iva} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'total_iva', parseFloat(v) || 0)} numeric onZona={() => activarZona('total_iva', true)} zonaActiva={zonaActiva?.field === 'total_iva'} />
-                <FieldRowZona label="Retención" value={String(selectedBorrador.retencion ?? '')} conf={selectedBorrador.confianza.retencion} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'retencion', parseFloat(v) || 0)} numeric onZona={() => activarZona('retencion', true)} zonaActiva={zonaActiva?.field === 'retencion'} />
+                <FieldRowZona label="% tipo IVA" value={String(selectedBorrador.tipo_iva_pct ?? '')} conf={selectedBorrador.confianza.tipo_iva_pct} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'tipo_iva_pct', parseFloat(v.replace(',', '.')) || 0)} numeric onZona={() => activarZona('tipo_iva_pct', true)} zonaActiva={zonaActiva?.field === 'tipo_iva_pct'} />
+                <FieldRowZona label="IVA (€)" value={String(selectedBorrador.total_iva || '')} conf={selectedBorrador.confianza.total_iva} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'total_iva', parseFloat(v) || 0)} numeric onZona={() => activarZona('total_iva', true)} zonaActiva={zonaActiva?.field === 'total_iva'} />
+                <FieldRowZona label="% retención IRPF" value={String(selectedBorrador.retencion_pct ?? '')} conf={selectedBorrador.confianza.retencion_pct} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'retencion_pct', parseFloat(v.replace(',', '.')) || 0)} numeric onZona={() => activarZona('retencion_pct', true)} zonaActiva={zonaActiva?.field === 'retencion_pct'} />
+                <FieldRowZona label="Retención (€)" value={String(selectedBorrador.retencion ?? '')} conf={selectedBorrador.confianza.retencion} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'retencion', parseFloat(v) || 0)} numeric onZona={() => activarZona('retencion', true)} zonaActiva={zonaActiva?.field === 'retencion'} />
                 <FieldRowZona label="Total factura" value={String(selectedBorrador.total_factura || '')} conf={selectedBorrador.confianza.total} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'total_factura', parseFloat(v) || 0)} numeric onZona={() => activarZona('total_factura', true)} zonaActiva={zonaActiva?.field === 'total_factura'} />
                 <FieldRow label="Observaciones" value={selectedBorrador.observaciones} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'observaciones', v)} placeholder="Notas adicionales…" />
               </View>

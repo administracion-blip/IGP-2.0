@@ -10,6 +10,7 @@ const COLS_OUT = [
   { key: 'empresa_nombre', header: 'Empresa' },
   { key: 'empresa_cif', header: 'CIF' },
   { key: 'serie', header: 'Serie' },
+  { key: 'impuestos_resumen', header: 'Impuestos IVA/Ret.' },
   { key: 'base_imponible', header: 'Base imponible', numeric: true },
   { key: 'total_iva', header: 'IVA', numeric: true },
   { key: 'total_retencion', header: 'Retención', numeric: true },

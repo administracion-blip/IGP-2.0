@@ -22,8 +22,10 @@ import { formatFecha } from '../../utils/formatFecha';
 import { formatMoneda, labelEstado } from '../../utils/facturacion';
 import { API_BASE_URL as API_URL } from '../../utils/apiBaseUrl';
 import { ICON_SIZE } from '../../constants/icons';
+import { ActuacionesCalendario } from '../../components/actuaciones/ActuacionesCalendario';
 import { FirmaEnPantallaModal } from '../../components/FirmaEnPantallaModal';
 import { buildFirmaFormData } from '../../utils/uploadFirmaPng';
+import { empresaTieneEtiquetaMusicos } from '../../utils/etiquetaMusicos';
 
 type Actuacion = {
   id_actuacion: string;
@@ -46,6 +48,9 @@ type Actuacion = {
   pago_asociado_fecha?: string;
   pago_asociado_importe?: number | null;
   pago_asociado_estado?: string;
+  /** Clave S3 de la imagen de firma (vacío si no hay firma) */
+  firma_artista_key?: string;
+  fecha_firma?: string;
 };
 
 type FacturaOpt = {
@@ -54,12 +59,26 @@ type FacturaOpt = {
   proveedor: string;
   fecha_emision: string;
   total_factura: number;
+  base_imponible?: number | null;
+  empresa_id?: string;
   estado: string;
 };
 
 type LocalOpt = { id_Locales: string; nombre?: string; sede?: string };
 
-const COLUMNAS = ['Sel', 'Fecha', 'Hora', 'Local', 'Artista', 'Importe', 'Estado', 'Pago'] as const;
+const COLUMNAS = ['Sel', 'Fecha', 'Hora', 'Local', 'Artista', 'Importe', 'Estado', 'Firma', 'Pago'] as const;
+
+/** true si la fecha de actuación (ISO) es hoy o anterior (no futura) */
+function fechaActuacionPermiteFirma(fechaIso: string | undefined): boolean {
+  if (!fechaIso || fechaIso.length < 10) return false;
+  const actuacion = fechaIso.slice(0, 10);
+  const ahora = new Date();
+  const y = ahora.getFullYear();
+  const m = String(ahora.getMonth() + 1).padStart(2, '0');
+  const d = String(ahora.getDate()).padStart(2, '0');
+  const hoy = `${y}-${m}-${d}`;
+  return actuacion <= hoy;
+}
 
 type ConflictoOtro = {
   id_actuacion: string;
@@ -88,6 +107,8 @@ function getValorCelda(a: Actuacion, col: string): string {
       return a.importe_final != null ? String(a.importe_final) : a.importe_previsto != null ? String(a.importe_previsto) : '—';
     case 'Estado':
       return a.estado || '—';
+    case 'Firma':
+      return a.firma_artista_key?.trim() ? 'Sí' : 'No';
     case 'Pago':
       return a.pago_asociado_numero_factura?.trim() || a.id_factura_gasto ? 'Sí' : '—';
     default:
@@ -110,8 +131,8 @@ export default function ProgramacionScreen() {
 
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
-  const [filtroLocal, setFiltroLocal] = useState('');
-  const [filtroEstado, setFiltroEstado] = useState('');
+  /** Vacío = todos los locales; si no, solo actuaciones de esos ids */
+  const [filtroLocalesIds, setFiltroLocalesIds] = useState<string[]>([]);
 
   const [modalNuevos, setModalNuevos] = useState(false);
   const [fechaIniN, setFechaIniN] = useState('');
@@ -130,6 +151,12 @@ export default function ProgramacionScreen() {
   const [loadingFac, setLoadingFac] = useState(false);
   const [qFac, setQFac] = useState('');
   const [elegida, setElegida] = useState<FacturaOpt | null>(null);
+  /** Filtro opcional por empresa (proveedor con etiqueta MUSICOS) */
+  const [empresaAsocId, setEmpresaAsocId] = useState('');
+  const [asocEmpresaDropdownOpen, setAsocEmpresaDropdownOpen] = useState(false);
+  const [qProveedorAsoc, setQProveedorAsoc] = useState('');
+  const [empresasMusicos, setEmpresasMusicos] = useState<{ id_empresa: string; nombre: string; cif: string }[]>([]);
+  const [loadingEmpresasAsoc, setLoadingEmpresasAsoc] = useState(false);
 
   const [modalEdit, setModalEdit] = useState(false);
   const [form, setForm] = useState<Partial<Actuacion>>({});
@@ -153,6 +180,20 @@ export default function ProgramacionScreen() {
     );
   }, [actuaciones, filtroBusqueda]);
 
+  const mostrarSeccionFirma = useMemo(
+    () =>
+      !!(
+        form.id_actuacion &&
+        form.id_artista?.trim() &&
+        fechaActuacionPermiteFirma(form.fecha)
+      ),
+    [form.id_actuacion, form.id_artista, form.fecha]
+  );
+
+  useEffect(() => {
+    if (!mostrarSeccionFirma && modalFirma) setModalFirma(false);
+  }, [mostrarSeccionFirma, modalFirma]);
+
   const resumenLocalesGen = useMemo(() => {
     if (localesN.length === 0) return '';
     if (localesN.length === 1) {
@@ -163,10 +204,60 @@ export default function ProgramacionScreen() {
   }, [localesN, localesParipe]);
 
   const textoFiltroLocal = useMemo(() => {
-    if (!filtroLocal) return 'Todos los locales';
-    const loc = localesParipe.find((l) => l.id_Locales === filtroLocal);
-    return loc?.nombre?.trim() || filtroLocal;
-  }, [filtroLocal, localesParipe]);
+    if (filtroLocalesIds.length === 0) return 'Todos los locales';
+    if (filtroLocalesIds.length === 1) {
+      const loc = localesParipe.find((l) => l.id_Locales === filtroLocalesIds[0]);
+      return loc?.nombre?.trim() || filtroLocalesIds[0];
+    }
+    return `${filtroLocalesIds.length} locales`;
+  }, [filtroLocalesIds, localesParipe]);
+
+  /** Suma importes (final o previsto) de las actuaciones marcadas en Sel */
+  const sumaImportesSeleccionadas = useMemo(() => {
+    let s = 0;
+    let any = false;
+    for (const a of actuaciones) {
+      if (!selectedIds.has(a.id_actuacion)) continue;
+      const v =
+        a.importe_final != null && !Number.isNaN(Number(a.importe_final))
+          ? Number(a.importe_final)
+          : a.importe_previsto != null && !Number.isNaN(Number(a.importe_previsto))
+            ? Number(a.importe_previsto)
+            : null;
+      if (v != null) {
+        s += v;
+        any = true;
+      }
+    }
+    return any ? s : null;
+  }, [actuaciones, selectedIds]);
+
+  const comparacionAsoc = useMemo(() => {
+    if (sumaImportesSeleccionadas == null || elegida == null) return null;
+    const base = elegida.base_imponible;
+    if (base == null || Number.isNaN(Number(base))) return null;
+    const diff = sumaImportesSeleccionadas - Number(base);
+    const ok = Math.abs(diff) < 0.02;
+    return { diff, ok };
+  }, [sumaImportesSeleccionadas, elegida]);
+
+  const empresasMusicosFiltradas = useMemo(() => {
+    const q = qProveedorAsoc.trim().toLowerCase();
+    if (!q) return empresasMusicos;
+    return empresasMusicos.filter(
+      (e) =>
+        e.nombre.toLowerCase().includes(q) ||
+        (e.cif && e.cif.toLowerCase().includes(q)) ||
+        e.id_empresa.toLowerCase().includes(q),
+    );
+  }, [empresasMusicos, qProveedorAsoc]);
+
+  function toggleFiltroLocal(id: string) {
+    setFiltroLocalesIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      return [...prev, id];
+    });
+  }
 
   /** Rojo = importe editado mayor al sugerido; verde = menor; neutro = igual o sin sugerido. */
   const importeComparacion = useMemo(() => {
@@ -187,8 +278,7 @@ export default function ProgramacionScreen() {
     const qs = new URLSearchParams();
     if (fechaDesde) qs.set('fechaDesde', fechaDesde);
     if (fechaHasta) qs.set('fechaHasta', fechaHasta);
-    if (filtroLocal) qs.set('id_local', filtroLocal);
-    if (filtroEstado) qs.set('estado', filtroEstado);
+    if (filtroLocalesIds.length > 0) qs.set('id_locales', filtroLocalesIds.join(','));
     Promise.all([
       fetch(`${API_URL}/api/actuaciones?${qs}`).then((r) => r.json()),
       fetch(`${API_URL}/api/artistas`).then((r) => r.json()),
@@ -207,13 +297,19 @@ export default function ProgramacionScreen() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Error de red'))
       .finally(() => setLoading(false));
-  }, [fechaDesde, fechaHasta, filtroLocal, filtroEstado]);
+  }, [fechaDesde, fechaHasta, filtroLocalesIds]);
 
   const buscarFacturas = useCallback(async () => {
+    if (!empresaAsocId.trim()) {
+      setFacturas([]);
+      setLoadingFac(false);
+      return;
+    }
     setLoadingFac(true);
     try {
       const qs = new URLSearchParams();
       if (qFac.trim()) qs.set('q', qFac.trim());
+      qs.set('empresa_id', empresaAsocId.trim());
       const r = await fetch(`${API_URL}/api/actuaciones/facturas-gasto-asociables?${qs}`);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Error');
@@ -223,15 +319,66 @@ export default function ProgramacionScreen() {
     } finally {
       setLoadingFac(false);
     }
-  }, [qFac, showToast]);
+  }, [qFac, empresaAsocId, showToast]);
 
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
 
   useEffect(() => {
-    if (modalAsoc) void buscarFacturas();
+    if (!modalAsoc) return;
+    void buscarFacturas();
   }, [modalAsoc, buscarFacturas]);
+
+  useEffect(() => {
+    if (!modalAsoc) return;
+    setLoadingEmpresasAsoc(true);
+    fetch(`${API_URL}/api/empresas`)
+      .then((r) => r.json())
+      .then((d) => {
+        const raw = (d.empresas || []) as {
+          id_empresa?: string;
+          Nombre?: string;
+          Cif?: string;
+          Etiqueta?: unknown;
+        }[];
+        const filtradas = raw
+          .filter((e) => empresaTieneEtiquetaMusicos(e.Etiqueta))
+          .map((e) => ({
+            id_empresa: String(e.id_empresa ?? '').trim(),
+            nombre: String(e.Nombre ?? '').trim() || String(e.id_empresa ?? ''),
+            cif: String(e.Cif ?? '').trim(),
+          }))
+          .filter((e) => e.id_empresa !== '');
+        filtradas.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
+        setEmpresasMusicos(filtradas);
+      })
+      .catch(() => setEmpresasMusicos([]))
+      .finally(() => setLoadingEmpresasAsoc(false));
+  }, [modalAsoc]);
+
+  const empresaAsocInitRef = useRef(false);
+  /** Al cambiar de proveedor, quitar factura elegida; el listado se recarga vía `buscarFacturas` (deps del efecto del modal). */
+  useEffect(() => {
+    if (!modalAsoc) {
+      empresaAsocInitRef.current = false;
+      return;
+    }
+    if (!empresaAsocInitRef.current) {
+      empresaAsocInitRef.current = true;
+      return;
+    }
+    setElegida(null);
+  }, [empresaAsocId, modalAsoc]);
+
+  function cerrarModalAsoc() {
+    setModalAsoc(false);
+    setElegida(null);
+    setQFac('');
+    setQProveedorAsoc('');
+    setEmpresaAsocId('');
+    setAsocEmpresaDropdownOpen(false);
+  }
 
   function toggleSel(id: string) {
     setSelectedIds((prev) => {
@@ -261,9 +408,8 @@ export default function ProgramacionScreen() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Error');
       showToast('Asociado', `${d.actualizadas} actuaciones actualizadas.`, 'success');
-      setModalAsoc(false);
+      cerrarModalAsoc();
       setSelectedIds(new Set());
-      setElegida(null);
       fetchAll();
     } catch (e: unknown) {
       showToast('Error', e instanceof Error ? e.message : 'Error', 'error');
@@ -558,6 +704,7 @@ export default function ProgramacionScreen() {
           if (col === 'Sel') return { cell: { width: 44, minWidth: 44, maxWidth: 48 } };
           if (col === 'Fecha') return { cell: { minWidth: 96 } };
           if (col === 'Local') return { cell: { minWidth: 100 } };
+          if (col === 'Firma') return { cell: { width: 56, minWidth: 52, maxWidth: 60 } };
           return undefined;
         }}
         renderCell={(item, col) => {
@@ -603,22 +750,52 @@ export default function ProgramacionScreen() {
               </Text>
             );
           }
+          if (col === 'Firma') {
+            const ok = !!item.firma_artista_key?.trim();
+            return (
+              <View style={styles.firmaCell}>
+                <MaterialIcons
+                  name={ok ? 'check-circle' : 'radio-button-unchecked'}
+                  size={12}
+                  color={ok ? '#16a34a' : '#cbd5e1'}
+                />
+                <Text style={[styles.firmaBadgeText, ok ? styles.firmaSi : styles.firmaNo]} numberOfLines={1}>
+                  {ok ? 'Sí' : 'No'}
+                </Text>
+              </View>
+            );
+          }
           if (col === 'Pago') {
             const t = item.pago_asociado_numero_factura || item.id_factura_gasto;
             return <Text style={styles.cellSmall} numberOfLines={1}>{t ? String(t).slice(0, 14) + (String(t).length > 14 ? '…' : '') : '—'}</Text>;
           }
           return null;
         }}
+        hideSearch
         extraToolbarLeft={
           <View style={styles.filtersWrap}>
             <View style={styles.filtersRowTop}>
-              <TextInput
-                style={[styles.fInputEstado, styles.fInput]}
-                placeholder="Estado (ej. pendiente)"
-                value={filtroEstado}
-                onChangeText={setFiltroEstado}
-                placeholderTextColor="#94a3b8"
-              />
+              <View style={styles.toolbarSearchWrap}>
+                <MaterialIcons name="search" size={18} color="#64748b" style={styles.toolbarSearchIcon} />
+                <TextInput
+                  style={styles.toolbarSearchInput}
+                  value={filtroBusqueda}
+                  onChangeText={setFiltroBusqueda}
+                  placeholder="Buscar en la tabla…"
+                  placeholderTextColor="#94a3b8"
+                />
+              </View>
+              <TouchableOpacity
+                style={[styles.asocBtn, selectedIds.size === 0 && styles.asocBtnOff]}
+                disabled={selectedIds.size === 0}
+                onPress={() => setModalAsoc(true)}
+              >
+                <MaterialIcons name="link" size={ICON_SIZE - 2} color="#fff" />
+                <Text style={styles.asocBtnText}>Asociar ({selectedIds.size})</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.refreshBtn} onPress={fetchAll} disabled={loading}>
+                {loading ? <ActivityIndicator size="small" color="#0ea5e9" /> : <MaterialIcons name="refresh" size={ICON_SIZE} color="#0ea5e9" />}
+              </TouchableOpacity>
             </View>
             <View style={styles.filtersRowBottom}>
               <Text style={styles.filterLabelInline}>Local</Text>
@@ -637,30 +814,34 @@ export default function ProgramacionScreen() {
                   <View style={styles.filterToolbarList}>
                     <ScrollView style={styles.filterToolbarScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
                       <TouchableOpacity
-                        style={[styles.filterToolbarOpt, !filtroLocal && styles.filterToolbarOptOn]}
+                        style={[styles.filterToolbarOpt, filtroLocalesIds.length === 0 && styles.filterToolbarOptOn]}
                         onPress={() => {
-                          setFiltroLocal('');
-                          setFiltroLocalDropdownOpen(false);
+                          setFiltroLocalesIds([]);
                         }}
                       >
                         <Text style={styles.filterToolbarOptText}>Todos los locales</Text>
-                        {!filtroLocal ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
+                        {filtroLocalesIds.length === 0 ? (
+                          <MaterialIcons name="check-box" size={18} color="#0ea5e9" />
+                        ) : (
+                          <MaterialIcons name="check-box-outline-blank" size={18} color="#94a3b8" />
+                        )}
                       </TouchableOpacity>
                       {localesParipe.map((loc) => {
-                        const sel = filtroLocal === loc.id_Locales;
+                        const sel = filtroLocalesIds.includes(loc.id_Locales);
                         return (
                           <TouchableOpacity
                             key={loc.id_Locales}
                             style={[styles.filterToolbarOpt, sel && styles.filterToolbarOptOn]}
-                            onPress={() => {
-                              setFiltroLocal(loc.id_Locales);
-                              setFiltroLocalDropdownOpen(false);
-                            }}
+                            onPress={() => toggleFiltroLocal(loc.id_Locales)}
                           >
                             <Text style={styles.filterToolbarOptText} numberOfLines={2}>
                               {loc.nombre || loc.id_Locales}
                             </Text>
-                            {sel ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
+                            <MaterialIcons
+                              name={sel ? 'check-box' : 'check-box-outline-blank'}
+                              size={18}
+                              color={sel ? '#0ea5e9' : '#94a3b8'}
+                            />
                           </TouchableOpacity>
                         );
                       })}
@@ -688,21 +869,7 @@ export default function ProgramacionScreen() {
             </View>
           </View>
         }
-        extraToolbarRight={
-          <View style={styles.toolbarRight}>
-            <TouchableOpacity
-              style={[styles.asocBtn, selectedIds.size === 0 && styles.asocBtnOff]}
-              disabled={selectedIds.size === 0}
-              onPress={() => setModalAsoc(true)}
-            >
-              <MaterialIcons name="link" size={ICON_SIZE - 2} color="#fff" />
-              <Text style={styles.asocBtnText}>Asociar ({selectedIds.size})</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.refreshBtn} onPress={fetchAll} disabled={loading}>
-              {loading ? <ActivityIndicator size="small" color="#0ea5e9" /> : <MaterialIcons name="refresh" size={ICON_SIZE} color="#0ea5e9" />}
-            </TouchableOpacity>
-          </View>
-        }
+        rightPanel={<ActuacionesCalendario actuaciones={actuaciones} />}
       />
 
       <Modal visible={modalNuevos} transparent animationType="fade" onRequestClose={() => setModalNuevos(false)}>
@@ -812,41 +979,174 @@ export default function ProgramacionScreen() {
         </View>
       </Modal>
 
-      <Modal visible={modalAsoc} transparent animationType="fade" onRequestClose={() => setModalAsoc(false)}>
+      <Modal visible={modalAsoc} transparent animationType="fade" onRequestClose={cerrarModalAsoc}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Pago asociado</Text>
-              <TouchableOpacity onPress={() => setModalAsoc(false)}>
+              <TouchableOpacity onPress={cerrarModalAsoc}>
                 <MaterialIcons name="close" size={22} color="#64748b" />
               </TouchableOpacity>
             </View>
             <View style={styles.modalBodyPadded}>
-              <TextInput
-                style={styles.input}
-                placeholder="Buscar número, proveedor, CIF…"
-                value={qFac}
-                onChangeText={setQFac}
-                onSubmitEditing={buscarFacturas}
-              />
-              <TouchableOpacity style={styles.fBtn} onPress={buscarFacturas}>
-                <Text style={styles.fBtnText}>Buscar facturas músicos</Text>
-              </TouchableOpacity>
-              {loadingFac ? <ActivityIndicator color="#0ea5e9" style={{ marginVertical: 12 }} /> : null}
-              <ScrollView style={{ maxHeight: 280 }}>
-                {facturas.map((f) => (
-                  <TouchableOpacity
-                    key={f.id_factura}
-                    style={[styles.facRow, elegida?.id_factura === f.id_factura && styles.facRowOn]}
-                    onPress={() => setElegida(f)}
-                  >
-                    <Text style={styles.facTitle}>{f.numero_factura || '—'} · {f.proveedor}</Text>
-                    <Text style={styles.facSub}>
-                      {String(f.fecha_emision).slice(0, 10)} · {formatMoneda(f.total_factura)} · {labelEstado(f.estado)}
+              <Text style={styles.label}>Proveedor (etiqueta MUSICOS)</Text>
+              <View style={styles.asocEmpresaDropdownWrap}>
+                <TouchableOpacity
+                  style={styles.asocDropdownTrigger}
+                  onPress={() => setAsocEmpresaDropdownOpen((v) => !v)}
+                  activeOpacity={0.75}
+                >
+                  <View style={styles.asocTriggerTextCol}>
+                    <Text style={styles.asocDropdownTriggerText} numberOfLines={1}>
+                      {empresaAsocId
+                        ? empresasMusicos.find((e) => e.id_empresa === empresaAsocId)?.nombre || empresaAsocId
+                        : 'Selecciona proveedor…'}
                     </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+                    {empresaAsocId ? (
+                      <Text style={styles.asocTriggerCif} numberOfLines={1}>
+                        {empresasMusicos.find((e) => e.id_empresa === empresaAsocId)?.cif || ''}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <MaterialIcons name={asocEmpresaDropdownOpen ? 'expand-less' : 'expand-more'} size={20} color="#64748b" />
+                </TouchableOpacity>
+                {asocEmpresaDropdownOpen ? (
+                  <View style={styles.asocDropdownList}>
+                    <TextInput
+                      style={styles.asocProveedorSearch}
+                      placeholder="Buscar por nombre o CIF…"
+                      placeholderTextColor="#94a3b8"
+                      value={qProveedorAsoc}
+                      onChangeText={setQProveedorAsoc}
+                    />
+                    <ScrollView style={styles.asocDropdownScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                      {loadingEmpresasAsoc ? (
+                        <View style={styles.asocDropdownOpt}>
+                          <ActivityIndicator color="#0ea5e9" />
+                        </View>
+                      ) : empresasMusicosFiltradas.length === 0 ? (
+                        <View style={styles.asocDropdownOpt}>
+                          <Text style={styles.asocDropdownOptHint}>Ningún proveedor coincide</Text>
+                        </View>
+                      ) : (
+                        empresasMusicosFiltradas.map((e) => {
+                          const sel = empresaAsocId === e.id_empresa;
+                          return (
+                            <TouchableOpacity
+                              key={e.id_empresa}
+                              style={[styles.asocDropdownOpt, sel && styles.asocDropdownOptOn]}
+                              onPress={() => {
+                                setEmpresaAsocId(e.id_empresa);
+                                setAsocEmpresaDropdownOpen(false);
+                                setQProveedorAsoc('');
+                              }}
+                            >
+                              <View style={styles.asocDropdownOptCol}>
+                                <Text style={styles.asocDropdownOptText} numberOfLines={2}>
+                                  {e.nombre}
+                                </Text>
+                                {e.cif ? <Text style={styles.asocDropdownCif}>{e.cif}</Text> : null}
+                              </View>
+                              {sel ? <MaterialIcons name="check" size={16} color="#0ea5e9" /> : null}
+                            </TouchableOpacity>
+                          );
+                        })
+                      )}
+                    </ScrollView>
+                  </View>
+                ) : null}
+              </View>
+
+              <Text style={[styles.label, { marginTop: 12 }]}>Facturas recibidas pendientes (según proveedor)</Text>
+              <View style={styles.asocFacListBox}>
+                {!empresaAsocId ? (
+                  <Text style={styles.asocFacListEmpty}>
+                    Elige un proveedor arriba para cargar sus facturas pendientes de pago o revisión.
+                  </Text>
+                ) : (
+                  <>
+                    <View style={styles.asocFacSearchRow}>
+                      <TextInput
+                        style={styles.asocFacSearchInput}
+                        placeholder="Filtrar nº, CIF…"
+                        placeholderTextColor="#94a3b8"
+                        value={qFac}
+                        onChangeText={setQFac}
+                        onSubmitEditing={buscarFacturas}
+                      />
+                      <TouchableOpacity style={styles.asocFacSearchBtn} onPress={buscarFacturas}>
+                        <Text style={styles.asocFacSearchBtnText}>Buscar</Text>
+                      </TouchableOpacity>
+                    </View>
+                    {loadingFac ? <ActivityIndicator color="#0ea5e9" style={{ marginVertical: 10 }} /> : null}
+                    <ScrollView style={styles.asocFacScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                      {facturas.length === 0 && !loadingFac ? (
+                        <Text style={styles.asocFacListEmpty}>No hay facturas pendientes para este proveedor.</Text>
+                      ) : (
+                        facturas.map((f) => (
+                          <TouchableOpacity
+                            key={f.id_factura}
+                            style={[styles.facRow, elegida?.id_factura === f.id_factura && styles.facRowOn]}
+                            onPress={() => setElegida(f)}
+                          >
+                            <Text style={styles.facTitle}>{f.numero_factura || '—'} · {f.proveedor}</Text>
+                            <Text style={styles.facSub}>
+                              {String(f.fecha_emision).slice(0, 10)} · Total {formatMoneda(f.total_factura)}
+                              {f.base_imponible != null && !Number.isNaN(Number(f.base_imponible))
+                                ? ` · Base ${formatMoneda(Number(f.base_imponible))}`
+                                : ''}{' '}
+                              · {labelEstado(f.estado)}
+                            </Text>
+                          </TouchableOpacity>
+                        ))
+                      )}
+                    </ScrollView>
+                  </>
+                )}
+              </View>
+
+              <View style={styles.asocCompareBox}>
+                <Text style={styles.asocCompareTitle}>Importes seleccionados</Text>
+                <View style={styles.asocCompareRow}>
+                  <Text style={styles.asocCompareLabel}>Suma actuaciones (Sel)</Text>
+                  <Text style={styles.asocCompareVal}>
+                    {sumaImportesSeleccionadas != null ? formatMoneda(sumaImportesSeleccionadas) : '—'}
+                  </Text>
+                </View>
+                {elegida ? (
+                  <>
+                    <View style={styles.asocCompareRow}>
+                      <Text style={styles.asocCompareLabel}>Base imponible factura</Text>
+                      <Text style={styles.asocCompareVal}>
+                        {elegida.base_imponible != null && !Number.isNaN(Number(elegida.base_imponible))
+                          ? formatMoneda(Number(elegida.base_imponible))
+                          : '—'}
+                      </Text>
+                    </View>
+                    {comparacionAsoc ? (
+                      <Text
+                        style={[
+                          styles.asocCompareDiff,
+                          comparacionAsoc.ok ? styles.asocCompareOk : styles.asocCompareWarn,
+                        ]}
+                      >
+                        Diferencia (actuaciones − base){' '}
+                        {formatMoneda(comparacionAsoc.diff)}
+                        {comparacionAsoc.ok ? ' · Coincide' : ''}
+                      </Text>
+                    ) : elegida.base_imponible == null ? (
+                      <Text style={styles.asocCompareHint}>La factura no tiene base imponible registrada.</Text>
+                    ) : null}
+                  </>
+                ) : (
+                  <Text style={styles.asocCompareHint}>
+                    {empresaAsocId
+                      ? 'Elige una factura en el listado superior para comparar con la base imponible.'
+                      : 'Selecciona proveedor y una factura para comparar importes.'}
+                  </Text>
+                )}
+              </View>
+
               <TouchableOpacity style={styles.saveBtn} onPress={confirmarAsociacion}>
                 <Text style={styles.saveBtnText}>Confirmar asociación</Text>
               </TouchableOpacity>
@@ -990,33 +1290,43 @@ export default function ProgramacionScreen() {
                 value={form.observaciones || ''}
                 onChangeText={(t) => setForm((f) => ({ ...f, observaciones: t }))}
               />
-              <View style={styles.firmaRow}>
-                <TouchableOpacity
-                  style={[styles.firmaBtnHalf, !form.id_actuacion && styles.firmaBtnDis]}
-                  onPress={() => form.id_actuacion && setModalFirma(true)}
-                  disabled={!form.id_actuacion}
-                  activeOpacity={0.82}
-                >
-                  <MaterialIcons name="draw" size={22} color={form.id_actuacion ? '#0369a1' : '#94a3b8'} />
-                  <Text style={[styles.firmaBtnHalfTitle, !form.id_actuacion && styles.firmaBtnTitleDis]}>
-                    Firmar en pantalla
+              {mostrarSeccionFirma ? (
+                <>
+                  <View style={styles.firmaRow}>
+                    <TouchableOpacity
+                      style={[styles.firmaBtnHalf, !form.id_actuacion && styles.firmaBtnDis]}
+                      onPress={() => form.id_actuacion && setModalFirma(true)}
+                      disabled={!form.id_actuacion}
+                      activeOpacity={0.82}
+                    >
+                      <MaterialIcons name="draw" size={22} color={form.id_actuacion ? '#0369a1' : '#94a3b8'} />
+                      <Text style={[styles.firmaBtnHalfTitle, !form.id_actuacion && styles.firmaBtnTitleDis]}>
+                        Firmar en pantalla
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.firmaBtnHalf, !form.id_actuacion && styles.firmaBtnDis]}
+                      onPress={() => form.id_actuacion && subirFirmaArchivo(form.id_actuacion)}
+                      disabled={!form.id_actuacion}
+                      activeOpacity={0.82}
+                    >
+                      <MaterialIcons name="folder-open" size={22} color={form.id_actuacion ? '#0369a1' : '#94a3b8'} />
+                      <Text style={[styles.firmaBtnHalfTitle, !form.id_actuacion && styles.firmaBtnTitleDis]}>
+                        Subir imagen
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.firmaBtnHint}>
+                    Dibuja la firma en el recuadro o elige un archivo PNG/JPG desde el dispositivo.
                   </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.firmaBtnHalf, !form.id_actuacion && styles.firmaBtnDis]}
-                  onPress={() => form.id_actuacion && subirFirmaArchivo(form.id_actuacion)}
-                  disabled={!form.id_actuacion}
-                  activeOpacity={0.82}
-                >
-                  <MaterialIcons name="folder-open" size={22} color={form.id_actuacion ? '#0369a1' : '#94a3b8'} />
-                  <Text style={[styles.firmaBtnHalfTitle, !form.id_actuacion && styles.firmaBtnTitleDis]}>
-                    Subir imagen
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.firmaBtnHint}>
-                Dibuja la firma en el recuadro o elige un archivo PNG/JPG desde el dispositivo.
-              </Text>
+                </>
+              ) : form.id_actuacion && (!form.id_artista?.trim() || !fechaActuacionPermiteFirma(form.fecha)) ? (
+                <Text style={styles.firmaBloqueadaHint}>
+                  {!form.id_artista?.trim()
+                    ? 'Asigna un artista para poder registrar la firma.'
+                    : 'La firma solo está disponible cuando la fecha de la actuación sea hoy o una fecha pasada (no futura).'}
+                </Text>
+              ) : null}
               <Pressable style={[styles.saveBtn, saving && styles.saveBtnDis]} onPress={guardarEdicion} disabled={saving}>
                 {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Guardar</Text>}
               </Pressable>
@@ -1080,8 +1390,29 @@ export default function ProgramacionScreen() {
 
 const styles = StyleSheet.create({
   screenWrap: { flex: 1, backgroundColor: '#f8fafc' },
-  filtersWrap: { flexDirection: 'column', gap: 8, flex: 1, minWidth: 0, width: '100%' },
-  filtersRowTop: { flexDirection: 'row', alignItems: 'center', width: '100%' },
+  filtersWrap: { flexDirection: 'column', gap: 8, flex: 1, minWidth: 0, width: '100%', overflow: 'visible', zIndex: 1 },
+  filtersRowTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    width: '100%',
+  },
+  toolbarSearchWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 140,
+    maxWidth: 320,
+    height: 32,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+  },
+  toolbarSearchIcon: { marginRight: 6 },
+  toolbarSearchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
   filtersRowBottom: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1089,9 +1420,16 @@ const styles = StyleSheet.create({
     gap: 6,
     width: '100%',
   },
-  fInputEstado: { flex: 1, minWidth: 160, maxWidth: 360 },
   filterLabelInline: { fontSize: 11, fontWeight: '700', color: '#64748b', marginRight: -2 },
-  filterLocalDropdownWrap: { minWidth: 140, maxWidth: 220, flexGrow: 1, flexShrink: 1, zIndex: 10 },
+  filterLocalDropdownWrap: {
+    minWidth: 140,
+    maxWidth: 220,
+    flexGrow: 1,
+    flexShrink: 1,
+    zIndex: 9998,
+    elevation: 24,
+    overflow: 'visible',
+  },
   filterToolbarTrigger: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1114,8 +1452,9 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     borderRadius: 8,
     backgroundColor: '#fff',
-    maxHeight: 200,
-    elevation: 4,
+    maxHeight: 220,
+    zIndex: 10000,
+    elevation: 28,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.12,
@@ -1157,7 +1496,6 @@ const styles = StyleSheet.create({
   },
   fBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f5f9', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
   fBtnText: { color: '#0369a1', fontWeight: '600', fontSize: 12 },
-  toolbarRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   asocBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#059669', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
   asocBtnOff: { opacity: 0.45 },
   asocBtnText: { color: '#fff', fontWeight: '700', fontSize: 12 },
@@ -1240,6 +1578,17 @@ const styles = StyleSheet.create({
   firmaBtnTitle: { fontSize: 15, fontWeight: '700', color: '#0369a1', textAlign: 'center' },
   firmaBtnTitleDis: { color: '#94a3b8' },
   firmaBtnHint: { fontSize: 11, color: '#64748b', textAlign: 'center', marginTop: 8 },
+  firmaBloqueadaHint: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 10,
+    lineHeight: 18,
+    fontStyle: 'italic',
+  },
+  firmaCell: { flexDirection: 'row', alignItems: 'center', gap: 2, justifyContent: 'center' },
+  firmaBadgeText: { fontSize: 8, lineHeight: 10 },
+  firmaSi: { color: '#15803d', fontWeight: '700' },
+  firmaNo: { color: '#94a3b8', fontWeight: '600' },
   hintImporte: { fontSize: 10, color: '#94a3b8', lineHeight: 14, marginTop: 6, marginBottom: 2 },
   importeSugeridoLine: { fontSize: 11, color: '#64748b', marginBottom: 4, marginTop: 2 },
   importeSugeridoVal: { fontWeight: '700', color: '#334155' },
@@ -1346,6 +1695,106 @@ const styles = StyleSheet.create({
   facRowOn: { backgroundColor: '#e0f2fe' },
   facTitle: { fontSize: 13, fontWeight: '600', color: '#334155' },
   facSub: { fontSize: 11, color: '#64748b', marginTop: 2 },
+  asocEmpresaDropdownWrap: { marginBottom: 4, zIndex: 5 },
+  asocTriggerTextCol: { flex: 1, paddingRight: 8, minWidth: 0 },
+  asocTriggerCif: { fontSize: 11, color: '#0ea5e9', fontWeight: '600', marginTop: 2 },
+  asocDropdownTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+  },
+  asocDropdownTriggerText: { fontSize: 13, color: '#334155', flex: 1, paddingRight: 8 },
+  asocProveedorSearch: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e2e8f0',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    fontSize: 13,
+    backgroundColor: '#fff',
+    color: '#334155',
+  },
+  asocDropdownList: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+    maxHeight: 200,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+  },
+  asocDropdownScroll: { maxHeight: 132 },
+  asocDropdownOpt: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f1f5f9',
+  },
+  asocDropdownOptCol: { flex: 1, minWidth: 0, paddingRight: 6 },
+  asocDropdownCif: { fontSize: 10, color: '#0ea5e9', fontWeight: '600', marginTop: 2 },
+  asocDropdownOptOn: { backgroundColor: '#f0f9ff' },
+  asocDropdownOptText: { fontSize: 12, color: '#334155' },
+  asocDropdownOptHint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
+  asocFacListBox: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    backgroundColor: '#fafafa',
+    padding: 8,
+    minHeight: 120,
+  },
+  asocFacListEmpty: { fontSize: 12, color: '#64748b', lineHeight: 18, paddingVertical: 8 },
+  asocFacSearchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  asocFacSearchInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    fontSize: 13,
+    backgroundColor: '#fff',
+    color: '#334155',
+  },
+  asocFacSearchBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#e0f2fe',
+  },
+  asocFacSearchBtnText: { color: '#0369a1', fontWeight: '700', fontSize: 12 },
+  asocFacScroll: { maxHeight: 220 },
+  asocCompareBox: {
+    marginTop: 12,
+    marginBottom: 8,
+    padding: 12,
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  asocCompareTitle: { fontSize: 11, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: 8 },
+  asocCompareRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  asocCompareLabel: { fontSize: 13, color: '#475569', flex: 1 },
+  asocCompareVal: { fontSize: 13, fontWeight: '700', color: '#334155' },
+  asocCompareDiff: { fontSize: 12, fontWeight: '600', marginTop: 4 },
+  asocCompareOk: { color: '#15803d' },
+  asocCompareWarn: { color: '#c2410c' },
+  asocCompareHint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', marginTop: 4 },
   localReadonly: { fontSize: 14, color: '#64748b', paddingVertical: 8 },
   conflictoCard: {
     width: '100%',

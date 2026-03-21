@@ -62,6 +62,23 @@ function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
+/** Texto corto para listados: tipos de IVA y % de retención presentes en las líneas. */
+function buildImpuestosResumenFromLineas(lineas) {
+  if (!Array.isArray(lineas) || lineas.length === 0) return '';
+  const tiposIva = new Set();
+  const retPcts = new Set();
+  for (const l of lineas) {
+    const t = Number(l.tipo_iva);
+    if (!Number.isNaN(t)) tiposIva.add(t);
+    const r = Number(l.retencion_pct);
+    if (!Number.isNaN(r) && r > 0) retPcts.add(r);
+  }
+  const ivaPart = [...tiposIva].sort((a, b) => a - b).map((x) => `${x}%`).join(' · ');
+  const retPart = [...retPcts].sort((a, b) => a - b).map((x) => `${x}%`).join(' · ');
+  if (retPart) return `IVA ${ivaPart || '—'} · Ret ${retPart}`;
+  return `IVA ${ivaPart || '—'}`;
+}
+
 /** Copia el fichero en S3 a `facturas/{id}/…` para asociarlo de forma estable a la factura. */
 /** Elimina todos los objetos bajo `facturas/{idFactura}/` (best-effort). */
 async function eliminarArchivosS3Factura(idFactura) {
@@ -466,7 +483,10 @@ router.post('/facturacion/facturas', async (req, res) => {
       factura_rectificada_id: factura_rectificada_id || '',
       motivo_rectificacion: motivo_rectificacion || '',
       numero_factura_proveedor: numero_factura_proveedor || '',
-      fecha_contabilizacion: fecha_contabilizacion || '',
+      /** Facturas IN: fecha/hora de alta contable y usuario (automático al crear) */
+      fecha_contabilizacion: tipo === 'IN' ? now() : (fecha_contabilizacion || ''),
+      contabilizado_por: tipo === 'IN' ? (usuario_nombre || '') : '',
+      contabilizado_por_id: tipo === 'IN' ? (usuario_id || '') : '',
       creado_por: usuario_id || '',
       creado_en: now(),
       modificado_por: usuario_id || '',
@@ -480,6 +500,7 @@ router.post('/facturacion/facturas', async (req, res) => {
       verifactu_estado: 'no_enviado',
       verifactu_huella_completa: '',
       verifactu_cadena_encadenamiento: '',
+      impuestos_resumen: buildImpuestosResumenFromLineas(lineasToSave),
     };
 
     await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
@@ -586,6 +607,7 @@ router.put('/facturacion/facturas/:id', async (req, res) => {
       factura.total_retencion = round2(total_retencion);
       factura.total_factura = round2(base_imponible + total_iva - total_retencion);
       factura.saldo_pendiente = round2(factura.total_factura - (factura.total_cobrado || 0));
+      factura.impuestos_resumen = buildImpuestosResumenFromLineas(body.lineas);
     }
 
     factura.modificado_por = body.usuario_id || factura.modificado_por;
@@ -805,6 +827,11 @@ router.post('/facturacion/facturas/:id/duplicar', async (req, res) => {
     nueva.es_rectificativa = false;
     nueva.factura_rectificada_id = '';
     nueva.motivo_rectificacion = '';
+    if (nueva.tipo === 'IN') {
+      nueva.fecha_contabilizacion = now();
+      nueva.contabilizado_por = usuario_nombre || '';
+      nueva.contabilizado_por_id = usuario_id || '';
+    }
 
     await docClient.send(new PutCommand({ TableName: tables.facturas, Item: nueva }));
 
@@ -2110,6 +2137,13 @@ router.post('/facturacion/ocr/confirmar', async (req, res) => {
     for (const b of borradores) {
       if (b.descartado) continue;
 
+      const tipoIvaPct = Number(b.tipo_iva_pct);
+      const retPct = Number(b.retencion_pct);
+      const partesImp = [];
+      if (!Number.isNaN(tipoIvaPct)) partesImp.push(`IVA ${tipoIvaPct}%`);
+      if (!Number.isNaN(retPct) && retPct > 0) partesImp.push(`Ret ${retPct}%`);
+      const impuestosResumenOcr = partesImp.join(' · ') || '';
+
       const id_factura = uuid();
       const emisorId = b.sociedad_grupo_id || b.emisor_id || '';
       const emisorNombre = b.sociedad_grupo_nombre || b.emisor_nombre || '';
@@ -2194,6 +2228,10 @@ router.post('/facturacion/ocr/confirmar', async (req, res) => {
         modificado_en: '',
         origen: 'ocr',
         ocr_confianza: b.confianza || {},
+        impuestos_resumen: impuestosResumenOcr,
+        fecha_contabilizacion: now(),
+        contabilizado_por: usuario_nombre || '',
+        contabilizado_por_id: usuario_id || '',
       };
 
       await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));

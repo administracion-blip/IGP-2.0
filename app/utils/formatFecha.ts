@@ -23,6 +23,33 @@ export function formatCreadoEn(val: string | number | undefined | null): string 
   return s;
 }
 
+/** Fecha/hora ISO de contabilización + usuario (solo lectura en UI). */
+export function formatFechaContabilizacion(
+  iso: string | number | undefined | null,
+  usuario?: string | null,
+): string {
+  const fechaHora = formatCreadoEn(iso);
+  if (fechaHora === '—') return '—';
+  const u = usuario != null && String(usuario).trim() !== '' ? String(usuario).trim() : '';
+  return u ? `${fechaHora} · ${u}` : fechaHora;
+}
+
+/**
+ * Texto único para facturas IN: fecha y hora del alta + usuario que creó el registro.
+ * Usa `fecha_contabilizacion` + `contabilizado_por` (servidor al crear); si faltan datos viejos, cae en `creado_en`.
+ */
+export function textoFechaContabilizacionGasto(opts: {
+  fechaContabilizacion?: string | null;
+  contabilizadoPor?: string | null;
+  creadoEn?: string | null;
+}): string {
+  const fc = String(opts.fechaContabilizacion ?? '').trim();
+  const ce = String(opts.creadoEn ?? '').trim();
+  const iso = fc || ce;
+  const usuario = String(opts.contabilizadoPor ?? '').trim();
+  return formatFechaContabilizacion(iso, usuario || null);
+}
+
 /** Convierte dd/mm/yyyy (o dd/mm/yy) a formato ISO yyyy-mm-dd. Si ya es ISO lo devuelve tal cual. */
 export function fechaToIso(val: string): string {
   const s = val.trim();

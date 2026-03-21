@@ -287,6 +287,7 @@ router.get('/artistas/:id/imagen-url', async (req, res) => {
 router.get('/actuaciones/facturas-gasto-asociables', async (req, res) => {
   const q = (req.query.q || '').toLowerCase().trim();
   const { numero, proveedor, cif, fecha, importeMin, importeMax } = req.query;
+  const empresaIdFiltro = (req.query.empresa_id || '').trim();
 
   try {
     const facturas = await scanAll(tables.facturas, '#t = :t', { ':t': 'IN' }, { '#t': 'tipo' });
@@ -303,6 +304,10 @@ router.get('/actuaciones/facturas-gasto-asociables', async (req, res) => {
       if (!emp) return false;
       return empresaTieneEtiquetaMusicos(emp.Etiqueta);
     });
+
+    if (empresaIdFiltro) {
+      list = list.filter((f) => String(f.empresa_id || '') === empresaIdFiltro);
+    }
 
     const matchStr = (s, needle) => !needle || String(s ?? '').toLowerCase().includes(needle);
 
@@ -337,9 +342,11 @@ router.get('/actuaciones/facturas-gasto-asociables', async (req, res) => {
       id_factura: f.id_factura || f.id_entrada,
       numero_factura: f.numero_factura_proveedor || f.numero_factura || '',
       proveedor: f.empresa_nombre || '',
+      empresa_id: String(f.empresa_id || ''),
       empresa_cif: f.empresa_cif || '',
       fecha_emision: f.fecha_emision || '',
       total_factura: f.total_factura,
+      base_imponible: f.base_imponible != null && f.base_imponible !== '' ? Number(f.base_imponible) : null,
       estado: f.estado,
     }));
 
@@ -618,9 +625,19 @@ router.post('/actuaciones/mover-artista-aqui', async (req, res) => {
 router.get('/actuaciones', async (req, res) => {
   try {
     let items = await scanAll(tables.actuaciones);
-    const { fechaDesde, fechaHasta, id_artista, id_local, estado } = req.query;
+    const { fechaDesde, fechaHasta, id_artista, id_local, id_locales, estado } = req.query;
     if (id_artista) items = items.filter((x) => x.id_artista === id_artista);
-    if (id_local) items = items.filter((x) => formatId6(x.id_local) === formatId6(id_local));
+    if (id_locales != null && String(id_locales).trim() !== '') {
+      const ids = String(id_locales)
+        .split(',')
+        .map((s) => formatId6(s.trim()))
+        .filter(Boolean);
+      if (ids.length > 0) {
+        items = items.filter((x) => ids.includes(formatId6(x.id_local)));
+      }
+    } else if (id_local) {
+      items = items.filter((x) => formatId6(x.id_local) === formatId6(id_local));
+    }
     if (estado) items = items.filter((x) => String(x.estado || '') === String(estado));
     if (fechaDesde) items = items.filter((x) => String(x.fecha || '') >= String(fechaDesde));
     if (fechaHasta) items = items.filter((x) => String(x.fecha || '') <= String(fechaHasta));

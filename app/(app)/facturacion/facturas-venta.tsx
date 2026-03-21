@@ -11,6 +11,7 @@ import {
   Platform,
   KeyboardAvoidingView,
   Pressable,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -29,6 +30,7 @@ import { BadgeEstado } from '../../components/BadgeEstado';
 import { InputFecha } from '../../components/InputFecha';
 import { useLocalToast } from '../../components/Toast';
 import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
+import { FacturaVentaDetallePanel } from '../../components/FacturaVentaDetallePanel';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -74,20 +76,24 @@ type Factura = {
   empresa_id?: string;
   base_imponible: number;
   total_iva: number;
+  total_retencion?: number;
   total_factura: number;
   estado: string;
   total_cobrado?: number;
   saldo_pendiente: number;
+  impuestos_resumen?: string;
 };
 
 const COLUMNAS = [
   { key: 'id_factura', label: 'ID' },
-  { key: 'numero_factura', label: 'Nº Factura' },
   { key: 'fecha_emision', label: 'Fecha' },
+  { key: 'numero_factura', label: 'Nº Factura' },
   { key: 'emisor_nombre', label: 'Emisor' },
   { key: 'empresa_nombre', label: 'Receptor' },
+  { key: 'impuestos_resumen', label: 'Impuestos' },
   { key: 'base_imponible', label: 'Base imp.' },
   { key: 'total_iva', label: 'IVA' },
+  { key: 'total_retencion', label: 'Retención' },
   { key: 'total_factura', label: 'Total' },
   { key: 'estado', label: 'Estado' },
   { key: 'pagado', label: 'Pagado' },
@@ -96,8 +102,8 @@ const COLUMNAS = [
 
 const DEFAULT_WIDTHS: Record<string, number> = {
   id_factura: 100,
-  numero_factura: 140,
   fecha_emision: 100,
+  numero_factura: 140,
   emisor_nombre: 160,
   empresa_nombre: 160,
   base_imponible: 100,
@@ -120,7 +126,9 @@ const TABS_ESTADO = [
 
 export default function FacturasVentaScreen() {
   const router = useRouter();
-  const { hasPermiso } = useAuth();
+  const { hasPermiso, user } = useAuth();
+  const { width: winW } = useWindowDimensions();
+  const layoutSplit = Platform.OS === 'web' && winW >= 1024;
 
   const [facturas, setFacturas] = useState<Factura[]>([]);
   const [loading, setLoading] = useState(true);
@@ -477,8 +485,10 @@ export default function FacturasVentaScreen() {
       case 'fecha_emision': return fechaEmisionCelda(item.fecha_emision);
       case 'emisor_nombre': return item.emisor_nombre || '—';
       case 'empresa_nombre': return item.empresa_nombre || '—';
+      case 'impuestos_resumen': return (item.impuestos_resumen || '').trim() || '—';
       case 'base_imponible': return formatMoneda(item.base_imponible ?? 0);
       case 'total_iva': return formatMoneda(item.total_iva ?? 0);
+      case 'total_retencion': return formatMoneda(Number(item.total_retencion ?? 0));
       case 'total_factura': return formatMoneda(item.total_factura ?? 0);
       case 'pagado': return formatMoneda(Number(item.total_cobrado ?? 0));
       case 'saldo_pendiente': return formatMoneda(item.saldo_pendiente ?? 0);
@@ -676,77 +686,105 @@ export default function FacturasVentaScreen() {
         )}
       </View>
 
-      {/* Tabla */}
-      <ScrollView horizontal style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.table}>
-          <View style={styles.rowHeader}>
-            {COLUMNAS.map((col) => (
-              <TouchableOpacity
-                key={col.key}
-                style={[styles.cellHeader, { width: getColWidth(col.key) }]}
-                onPress={() => toggleSort(col.key)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.cellHeaderText} numberOfLines={1} ellipsizeMode="tail">{col.label}</Text>
-                {sortCol === col.key && (
-                  <MaterialIcons name={sortDir === 'asc' ? 'arrow-upward' : 'arrow-downward'} size={12} color="#334155" />
-                )}
-                {Platform.OS === 'web' && (
-                  <View
-                    style={styles.resizeHandle}
-                    onMouseDown={(e: { nativeEvent?: { clientX: number }; clientX?: number }) => handleResizeStart(col.key, e)}
-                  />
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {facturasPagina.length === 0 ? (
-            <View style={styles.emptyRow}>
-              <Text style={styles.emptyText}>
-                {facturas.length === 0 ? 'No hay facturas' : 'Sin resultados para el filtro aplicado'}
-              </Text>
+      {/* Tabla + panel detalle */}
+      <View style={[styles.tableSplitWrap, layoutSplit ? styles.tableSplitRow : styles.tableSplitCol]}>
+        <ScrollView
+          horizontal
+          style={[styles.scroll, styles.scrollTable, styles.tableScrollLtr]}
+          contentContainerStyle={styles.scrollContent}
+        >
+          <View style={styles.table}>
+            <View style={styles.rowHeader}>
+              {COLUMNAS.map((col) => (
+                <TouchableOpacity
+                  key={col.key}
+                  style={[styles.cellHeader, { width: getColWidth(col.key) }]}
+                  onPress={() => toggleSort(col.key)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.cellHeaderText} numberOfLines={1} ellipsizeMode="tail">{col.label}</Text>
+                  {sortCol === col.key && (
+                    <MaterialIcons name={sortDir === 'asc' ? 'arrow-upward' : 'arrow-downward'} size={12} color="#334155" />
+                  )}
+                  {Platform.OS === 'web' && (
+                    <View
+                      style={styles.resizeHandle}
+                      {...({
+                        onMouseDown: (e: { nativeEvent?: { clientX: number }; clientX?: number }) =>
+                          handleResizeStart(col.key, e),
+                      } as object)}
+                    />
+                  )}
+                </TouchableOpacity>
+              ))}
             </View>
-          ) : (
-            facturasPagina.map((item) => (
-              <Pressable
-                key={item.id_factura}
-                style={[styles.row, selectedId === item.id_factura && styles.rowSelected]}
-                onPress={() => setSelectedId(selectedId === item.id_factura ? null : item.id_factura)}
-              >
-                {COLUMNAS.map((col) => (
-                  <View key={col.key} style={[styles.cell, { width: getColWidth(col.key) }]}>
-                    {col.key === 'estado' ? (
-                      <BadgeEstado estado={item.estado} />
-                    ) : col.key === 'pagado' ? (
-                      <View style={styles.cellPagadoRow}>
-                        <Text style={[styles.cellText, styles.cellTextFlex]} numberOfLines={1} ellipsizeMode="tail">
+
+            {facturasPagina.length === 0 ? (
+              <View style={styles.emptyRow}>
+                <Text style={styles.emptyText}>
+                  {facturas.length === 0 ? 'No hay facturas' : 'Sin resultados para el filtro aplicado'}
+                </Text>
+              </View>
+            ) : (
+              facturasPagina.map((item) => (
+                <Pressable
+                  key={item.id_factura}
+                  style={[styles.row, selectedId === item.id_factura && styles.rowSelected]}
+                  onPress={() => setSelectedId(selectedId === item.id_factura ? null : item.id_factura)}
+                >
+                  {COLUMNAS.map((col) => (
+                    <View key={col.key} style={[styles.cell, { width: getColWidth(col.key) }]}>
+                      {col.key === 'estado' ? (
+                        <BadgeEstado estado={item.estado} compact />
+                      ) : col.key === 'pagado' ? (
+                        <View style={styles.cellPagadoRow}>
+                          <Text style={[styles.cellText, styles.cellTextFlex]} numberOfLines={1} ellipsizeMode="tail">
+                            {valorCelda(item, col.key)}
+                          </Text>
+                          <Pressable
+                            hitSlop={8}
+                            accessibilityLabel="Ver detalle de cobros"
+                            onPress={(e) => {
+                              absorberClickFila(e as { stopPropagation?: () => void; nativeEvent?: { stopPropagation?: () => void } });
+                              abrirModalDetallePagos(item);
+                            }}
+                            style={styles.cellPagadoIconBtn}
+                          >
+                            <MaterialIcons name="receipt-long" size={16} color="#0369a1" />
+                          </Pressable>
+                        </View>
+                      ) : (
+                        <Text style={styles.cellText} numberOfLines={col.key === 'impuestos_resumen' ? 2 : 1} ellipsizeMode="tail">
                           {valorCelda(item, col.key)}
                         </Text>
-                        <Pressable
-                          hitSlop={8}
-                          accessibilityLabel="Ver detalle de cobros"
-                          onPress={(e) => {
-                            absorberClickFila(e);
-                            abrirModalDetallePagos(item);
-                          }}
-                          style={styles.cellPagadoIconBtn}
-                        >
-                          <MaterialIcons name="receipt-long" size={18} color="#0369a1" />
-                        </Pressable>
-                      </View>
-                    ) : (
-                      <Text style={styles.cellText} numberOfLines={1} ellipsizeMode="tail">
-                        {valorCelda(item, col.key)}
-                      </Text>
-                    )}
-                  </View>
-                ))}
-              </Pressable>
-            ))
-          )}
+                      )}
+                    </View>
+                  ))}
+                </Pressable>
+              ))
+            )}
+          </View>
+        </ScrollView>
+
+        <View
+          style={[
+            styles.detailPanel,
+            layoutSplit && styles.detailPanelFlex,
+            layoutSplit ? styles.detailPanelSide : styles.detailPanelStack,
+          ]}
+        >
+          <Text style={styles.detailPanelTitle}>Detalle</Text>
+          <FacturaVentaDetallePanel
+            apiUrl={API_URL}
+            facturaId={selectedId}
+            puedeEditar={hasPermiso('facturacion.editar')}
+            usuarioId={user?.id_usuario}
+            usuarioNombre={user?.Nombre}
+            onGuardado={refetch}
+            onAbrirCompleto={(id) => router.push(`/facturacion/factura-detalle?id=${id}&modo=editar&tipo=OUT` as any)}
+          />
         </View>
-      </ScrollView>
+      </View>
 
       {/* Modal confirmar anulación */}
       <Modal visible={modalAnularVisible} transparent animationType="fade" onRequestClose={() => setModalAnularVisible(false)}>
@@ -1022,7 +1060,42 @@ const styles = StyleSheet.create({
   pageBtnDisabled: { opacity: 0.5 },
   pageText: { fontSize: 11, color: '#64748b', marginHorizontal: 4 },
 
-  scroll: { flex: 1 },
+  tableSplitWrap: { flex: 1, minHeight: 0 },
+  tableSplitRow: { flexDirection: 'row', alignItems: 'stretch' },
+  tableSplitCol: { flexDirection: 'column' },
+  detailPanel: {
+    backgroundColor: '#f8fafc',
+    borderColor: '#e2e8f0',
+  },
+  detailPanelFlex: {
+    flex: 1,
+    minHeight: 0,
+  },
+  detailPanelSide: {
+    width: 400,
+    flexShrink: 0,
+    alignSelf: 'stretch',
+    borderLeftWidth: 1,
+    minHeight: 280,
+  },
+  detailPanelStack: {
+    width: '100%',
+    maxHeight: 440,
+    borderTopWidth: 1,
+  },
+  detailPanelTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+
+  scroll: { flex: 1, minWidth: 0 },
+  scrollTable: { flex: 1, minWidth: 0 },
+  /** Orden fijo de columnas (ID primero); evita que en RTL el ID quede al final */
+  tableScrollLtr: { direction: 'ltr' },
   scrollContent: { paddingBottom: 20 },
   table: {
     minWidth: '100%',
@@ -1031,8 +1104,15 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: '#fff',
+    direction: 'ltr',
   },
-  rowHeader: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
+  rowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e2e8f0',
+    borderBottomWidth: 1,
+    borderBottomColor: '#cbd5e1',
+  },
   cellHeader: {
     minWidth: MIN_COL_WIDTH,
     paddingVertical: 6,
@@ -1041,7 +1121,7 @@ const styles = StyleSheet.create({
     borderRightColor: '#cbd5e1',
     position: 'relative',
   },
-  cellHeaderText: { fontSize: 11, fontWeight: '600', color: '#334155' },
+  cellHeaderText: { fontSize: 10, fontWeight: '600', color: '#334155', lineHeight: 13 },
   resizeHandle: {
     position: 'absolute',
     top: 0,
@@ -1050,13 +1130,26 @@ const styles = StyleSheet.create({
     height: '100%',
     cursor: 'col-resize' as 'pointer',
   },
-  row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#fff' },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    backgroundColor: '#fff',
+  },
   rowSelected: { backgroundColor: '#e0f2fe' },
-  cell: { minWidth: MIN_COL_WIDTH, paddingVertical: 4, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#e2e8f0', justifyContent: 'center' },
+  cell: {
+    minWidth: MIN_COL_WIDTH,
+    paddingVertical: 4,
+    paddingHorizontal: 7,
+    borderRightWidth: 1,
+    borderRightColor: '#e2e8f0',
+    justifyContent: 'center',
+  },
   cellPagadoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 },
   cellTextFlex: { flex: 1, minWidth: 0 },
   cellPagadoIconBtn: { padding: 2 },
-  cellText: { fontSize: 11, color: '#475569' },
+  cellText: { fontSize: 10, color: '#475569', lineHeight: 14, ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}) },
   emptyRow: { padding: 24, alignItems: 'center' },
   emptyText: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
 

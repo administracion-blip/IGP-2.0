@@ -10,6 +10,7 @@ import {
   Platform,
   Modal,
   Pressable,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -24,10 +25,16 @@ import {
   resolveMetodoPagoParaEnvio,
   type Factura,
 } from '../../utils/facturacion';
-import { formatFecha, fechaEmisionFacturaADmy, fechaEmisionFacturaAIso } from '../../utils/formatFecha';
+import {
+  formatFecha,
+  fechaEmisionFacturaADmy,
+  fechaEmisionFacturaAIso,
+  textoFechaContabilizacionGasto,
+} from '../../utils/formatFecha';
 import { getTipoReciboFromEmpresasList, type EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
 import { useLocalToast } from '../../components/Toast';
 import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
+import { FacturaVentaDetallePanel } from '../../components/FacturaVentaDetallePanel';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const PAGE_SIZE = 50;
@@ -66,6 +73,21 @@ function absorberClickFila(e: { stopPropagation?: () => void; nativeEvent?: { st
 
 const MIN_COL_WIDTH = 40;
 
+/** % IVA efectivo desde base y cuota (cabecera). */
+function tipoIvaImplicitoPct(f: Factura): number | null {
+  const base = Number(f.base_imponible) || 0;
+  const iva = Number(f.total_iva) || 0;
+  if (base <= 0) return null;
+  return Math.round((10000 * iva) / base) / 100;
+}
+
+function formatoTipoIvaPct(f: Factura): string {
+  const p = tipoIvaImplicitoPct(f);
+  if (p == null) return '—';
+  const s = Number.isInteger(p) ? String(p) : p.toFixed(2).replace('.', ',');
+  return `${s} %`;
+}
+
 type TabEstado = 'todas' | 'borrador' | 'pendiente_revision' | 'pendiente_pago' | 'parcialmente_pagada' | 'pagada' | 'anulada';
 
 const TABS: { key: TabEstado; label: string }[] = [
@@ -81,12 +103,15 @@ const TABS: { key: TabEstado; label: string }[] = [
 const COLUMNAS = [
   'id_factura',
   'fecha_emision',
+  'fecha_contabilizacion',
   'emisor_nombre',
   'empresa_nombre',
   'empresa_cif',
   'numero_factura_proveedor',
   'base_imponible',
+  'iva_tipo',
   'total_iva',
+  'total_retencion',
   'total_factura',
   'estado',
   'pagado',
@@ -96,12 +121,15 @@ const COLUMNAS = [
 const COL_LABELS: Record<string, string> = {
   id_factura: 'ID',
   fecha_emision: 'Fecha',
+  fecha_contabilizacion: 'F. contabilización',
   emisor_nombre: 'Empresa',
   empresa_nombre: 'Proveedor',
   empresa_cif: 'CIF',
   numero_factura_proveedor: 'Nº Factura Prov.',
   base_imponible: 'Base Imp.',
-  total_iva: 'IVA',
+  iva_tipo: '% IVA',
+  total_iva: 'IVA €',
+  total_retencion: 'Retención',
   total_factura: 'Total',
   estado: 'Estado',
   pagado: 'Pagado',
@@ -111,19 +139,29 @@ const COL_LABELS: Record<string, string> = {
 const DEFAULT_WIDTHS: Record<string, number> = {
   id_factura: 80,
   fecha_emision: 90,
+  fecha_contabilizacion: 210,
   emisor_nombre: 170,
   empresa_nombre: 160,
   empresa_cif: 100,
   numero_factura_proveedor: 130,
   base_imponible: 95,
-  total_iva: 80,
+  iva_tipo: 52,
+  total_iva: 72,
+  total_retencion: 88,
   total_factura: 95,
   estado: 110,
   pagado: 120,
   saldo_pendiente: 95,
 };
 
-const MONEDA_COLS = new Set(['base_imponible', 'total_iva', 'total_factura', 'pagado', 'saldo_pendiente']);
+const MONEDA_COLS = new Set([
+  'base_imponible',
+  'total_iva',
+  'total_retencion',
+  'total_factura',
+  'pagado',
+  'saldo_pendiente',
+]);
 
 type ToolbarBtn = {
   id: string;
@@ -146,6 +184,8 @@ const TOOLBAR_BUTTONS: ToolbarBtn[] = [
 export default function FacturasGastoScreen() {
   const router = useRouter();
   const { hasPermiso, user } = useAuth();
+  const { width: winW } = useWindowDimensions();
+  const layoutSplit = Platform.OS === 'web' && winW >= 1024;
   const { show: showToast, ToastView } = useLocalToast();
 
   const [facturas, setFacturas] = useState<Factura[]>([]);
@@ -157,7 +197,7 @@ export default function FacturasGastoScreen() {
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
 
-  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
 
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
@@ -253,6 +293,20 @@ export default function FacturasGastoScreen() {
           const cmp = fa.localeCompare(fb);
           return sortDir === 'desc' ? -cmp : cmp;
         }
+        if (sortCol === 'fecha_contabilizacion') {
+          const fa = String((a as Factura).fecha_contabilizacion || (a as Factura).creado_en || '');
+          const fb = String((b as Factura).fecha_contabilizacion || (b as Factura).creado_en || '');
+          const cmp = fa.localeCompare(fb);
+          return sortDir === 'desc' ? -cmp : cmp;
+        }
+        if (sortCol === 'iva_tipo') {
+          const pa = tipoIvaImplicitoPct(a as Factura);
+          const pb = tipoIvaImplicitoPct(b as Factura);
+          const na = pa ?? -1;
+          const nb = pb ?? -1;
+          const cmp = na - nb;
+          return sortDir === 'desc' ? -cmp : cmp;
+        }
         if (sortCol === 'pagado') {
           const na = Number((a as Factura).total_cobrado ?? 0);
           const nb = Number((b as Factura).total_cobrado ?? 0);
@@ -276,9 +330,12 @@ export default function FacturasGastoScreen() {
   const pageClamped = Math.min(Math.max(0, pageIndex), totalPages - 1);
   const paginadas = filtradas.slice(pageClamped * PAGE_SIZE, (pageClamped + 1) * PAGE_SIZE);
 
-  useEffect(() => { setPageIndex(0); setSelectedRowIndex(null); }, [tabActivo, busqueda, fechaDesde, fechaHasta]);
+  useEffect(() => { setPageIndex(0); setSelectedId(null); }, [tabActivo, busqueda, fechaDesde, fechaHasta]);
 
-  const selectedFactura: Factura | null = selectedRowIndex != null ? paginadas[selectedRowIndex] ?? null : null;
+  const selectedFactura: Factura | null = useMemo(
+    () => (selectedId ? filtradas.find((f) => f.id_factura === selectedId) ?? null : null),
+    [selectedId, filtradas],
+  );
 
   const getColWidth = useCallback((col: string) => columnWidths[col] ?? DEFAULT_WIDTHS[col] ?? 90, [columnWidths]);
 
@@ -304,6 +361,15 @@ export default function FacturasGastoScreen() {
   };
 
   const getCellValue = (f: Factura, col: string): string => {
+    if (col === 'fecha_contabilizacion') {
+      return textoFechaContabilizacionGasto({
+        fechaContabilizacion: f.fecha_contabilizacion,
+        contabilizadoPor: f.contabilizado_por,
+        creadoEn: f.creado_en,
+      });
+    }
+    if (col === 'iva_tipo') return formatoTipoIvaPct(f);
+    if (col === 'total_retencion') return formatMoneda(Number(f.total_retencion ?? 0));
     if (col === 'pagado') return formatMoneda(Number(f.total_cobrado ?? 0));
     const val = (f as Record<string, unknown>)[col];
     if (val == null) return '';
@@ -394,7 +460,10 @@ export default function FacturasGastoScreen() {
     if (id === 'crear') { router.push('/facturacion/factura-detalle?tipo=IN&modo=crear' as never); return; }
     if (id === 'ver_doc') { verDocumento(); return; }
     if (!selectedFactura) return;
-    if (id === 'editar') { router.push(`/facturacion/factura-detalle?id=${selectedFactura.id_factura}&modo=editar` as never); return; }
+    if (id === 'editar') {
+      router.push(`/facturacion/factura-detalle?id=${selectedFactura.id_factura}&modo=editar&tipo=IN` as never);
+      return;
+    }
     if (id === 'emitir') { handleEmitir(); return; }
     if (id === 'pagar') {
       abrirModalPagar();
@@ -419,7 +488,7 @@ export default function FacturasGastoScreen() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al emitir');
       fetchFacturas();
-      setSelectedRowIndex(null);
+      setSelectedId(null);
     } catch (e: unknown) {
       showToast('Error', e instanceof Error ? e.message : 'Error al emitir la factura', 'error');
     } finally {
@@ -444,7 +513,7 @@ export default function FacturasGastoScreen() {
       setModalBorrar(false);
       showToast('Factura eliminada', 'La factura de gasto se ha borrado del sistema.', 'success');
       fetchFacturas();
-      setSelectedRowIndex(null);
+      setSelectedId(null);
     } catch (e: unknown) {
       showToast('Error', e instanceof Error ? e.message : 'No se pudo eliminar la factura', 'error');
     } finally {
@@ -479,7 +548,7 @@ export default function FacturasGastoScreen() {
       if (!res.ok) throw new Error(data.error || 'Error al registrar pago');
       setModalPagar(false);
       fetchFacturas();
-      setSelectedRowIndex(null);
+      setSelectedId(null);
     } catch (e: unknown) {
       showToast('Error', e instanceof Error ? e.message : 'Error al registrar el pago', 'error');
     } finally {
@@ -489,7 +558,7 @@ export default function FacturasGastoScreen() {
 
   const isBtnDisabled = (btn: ToolbarBtn) => {
     if (procesando) return true;
-    if (btn.needsSelection && selectedRowIndex == null) return true;
+    if (btn.needsSelection && selectedId == null) return true;
     if (btn.id === 'emitir' && selectedFactura?.estado !== 'borrador') return true;
     if (btn.id === 'pagar' && selectedFactura && (selectedFactura.estado === 'anulada' || selectedFactura.estado === 'pagada' || selectedFactura.estado === 'borrador')) return true;
     return false;
@@ -651,7 +720,7 @@ export default function FacturasGastoScreen() {
           <View style={styles.pagination}>
             <TouchableOpacity
               style={[styles.pageBtn, pageClamped <= 0 && styles.pageBtnDisabled]}
-              onPress={() => { setPageIndex((p) => p - 1); setSelectedRowIndex(null); }}
+              onPress={() => { setPageIndex((p) => p - 1); setSelectedId(null); }}
               disabled={pageClamped <= 0}
             >
               <MaterialIcons name="chevron-left" size={20} color={pageClamped <= 0 ? '#94a3b8' : '#0ea5e9'} />
@@ -659,7 +728,7 @@ export default function FacturasGastoScreen() {
             <Text style={styles.pageText}>Página {pageClamped + 1} de {totalPages}</Text>
             <TouchableOpacity
               style={[styles.pageBtn, pageClamped >= totalPages - 1 && styles.pageBtnDisabled]}
-              onPress={() => { setPageIndex((p) => p + 1); setSelectedRowIndex(null); }}
+              onPress={() => { setPageIndex((p) => p + 1); setSelectedId(null); }}
               disabled={pageClamped >= totalPages - 1}
             >
               <MaterialIcons name="chevron-right" size={20} color={pageClamped >= totalPages - 1 ? '#94a3b8' : '#0ea5e9'} />
@@ -668,9 +737,16 @@ export default function FacturasGastoScreen() {
         )}
       </View>
 
-      {/* Table */}
-      <View style={styles.tableWrapper}>
-        <ScrollView horizontal style={styles.scroll} contentContainerStyle={styles.scrollContent} showsHorizontalScrollIndicator>
+      {/* Tabla + panel detalle */}
+      <View style={[styles.tableSplitWrap, layoutSplit ? styles.tableSplitRow : styles.tableSplitCol]}>
+        <View style={styles.tableOuter}>
+          <View style={styles.tableWrapper}>
+        <ScrollView
+          horizontal
+          style={[styles.scroll, styles.scrollTable, styles.tableScrollLtr]}
+          contentContainerStyle={styles.scrollContent}
+          showsHorizontalScrollIndicator
+        >
           <View style={styles.table}>
             {/* Header row */}
             <View style={styles.rowHeader}>
@@ -710,17 +786,17 @@ export default function FacturasGastoScreen() {
                   </View>
                 </View>
               ) : (
-                paginadas.map((f, idx) => (
+                paginadas.map((f) => (
                   <Pressable
                     key={f.id_factura}
-                    style={[styles.row, selectedRowIndex === idx && styles.rowSelected]}
-                    onPress={() => setSelectedRowIndex(selectedRowIndex === idx ? null : idx)}
+                    style={[styles.row, selectedId === f.id_factura && styles.rowSelected]}
+                    onPress={() => setSelectedId(selectedId === f.id_factura ? null : f.id_factura)}
                   >
                     {COLUMNAS.map((col) => {
                       if (col === 'estado') {
                         return (
                           <View key={col} style={[styles.cell, { width: getColWidth(col) }]}>
-                            <BadgeEstado estado={f.estado} />
+                            <BadgeEstado estado={f.estado} compact />
                           </View>
                         );
                       }
@@ -740,7 +816,7 @@ export default function FacturasGastoScreen() {
                                 }}
                                 style={styles.cellPagadoIconBtn}
                               >
-                                <MaterialIcons name="receipt-long" size={18} color="#0369a1" />
+                                <MaterialIcons name="receipt-long" size={16} color="#0369a1" />
                               </Pressable>
                             </View>
                           </View>
@@ -761,6 +837,30 @@ export default function FacturasGastoScreen() {
             </ScrollView>
           </View>
         </ScrollView>
+          </View>
+        </View>
+
+        <View
+          style={[
+            styles.detailPanel,
+            layoutSplit && styles.detailPanelFlex,
+            layoutSplit ? styles.detailPanelSide : styles.detailPanelStack,
+          ]}
+        >
+          <Text style={styles.detailPanelTitle}>Detalle</Text>
+          <FacturaVentaDetallePanel
+            apiUrl={API_URL}
+            facturaId={selectedId}
+            tipoFactura="IN"
+            puedeEditar={hasPermiso('facturacion.editar')}
+            usuarioId={user?.id_usuario}
+            usuarioNombre={user?.Nombre}
+            onGuardado={fetchFacturas}
+            onAbrirCompleto={(id) =>
+              router.push(`/facturacion/factura-detalle?id=${id}&modo=editar&tipo=IN` as never)
+            }
+          />
+        </View>
       </View>
 
       {/* Modal Borrar (solo facturas IN; eliminación definitiva) */}
@@ -1023,8 +1123,43 @@ const styles = StyleSheet.create({
   pageBtnDisabled: { opacity: 0.5 },
   pageText: { fontSize: 11, color: '#64748b', marginHorizontal: 4 },
 
+  tableSplitWrap: { flex: 1, minHeight: 0 },
+  tableSplitRow: { flexDirection: 'row', alignItems: 'stretch' },
+  tableSplitCol: { flexDirection: 'column' },
+  tableOuter: { flex: 1, minWidth: 0, minHeight: 0 },
   tableWrapper: { flex: 1, minHeight: 0 },
-  scroll: { flex: 1 },
+  scroll: { flex: 1, minWidth: 0 },
+  scrollTable: { flex: 1, minWidth: 0 },
+  /** Orden fijo de columnas (ID primero); evita que en RTL el ID quede al final */
+  tableScrollLtr: { direction: 'ltr' },
+  detailPanel: {
+    backgroundColor: '#f8fafc',
+    borderColor: '#e2e8f0',
+  },
+  detailPanelFlex: {
+    flex: 1,
+    minHeight: 0,
+  },
+  detailPanelSide: {
+    width: 400,
+    flexShrink: 0,
+    alignSelf: 'stretch',
+    borderLeftWidth: 1,
+    minHeight: 280,
+  },
+  detailPanelStack: {
+    width: '100%',
+    maxHeight: 440,
+    borderTopWidth: 1,
+  },
+  detailPanelTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
   scrollContent: { paddingBottom: 20 },
   table: {
     flex: 1,
@@ -1034,12 +1169,14 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: '#fff',
+    direction: 'ltr',
   },
   tableBodyScroll: { flex: 1 },
   tableBodyContent: { paddingBottom: 20 },
 
   rowHeader: {
     flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#e2e8f0',
     borderBottomWidth: 1,
     borderBottomColor: '#cbd5e1',
@@ -1052,7 +1189,7 @@ const styles = StyleSheet.create({
     borderRightColor: '#cbd5e1',
     position: 'relative' as const,
   },
-  cellHeaderText: { fontSize: 11, fontWeight: '600', color: '#334155' },
+  cellHeaderText: { fontSize: 10, fontWeight: '600', color: '#334155', lineHeight: 13 },
   cellHeaderRight: { alignItems: 'flex-end' as const },
   cellHeaderTextRight: { textAlign: 'right' as const },
   resizeHandle: {
@@ -1066,6 +1203,7 @@ const styles = StyleSheet.create({
 
   row: {
     flexDirection: 'row',
+    alignItems: 'center',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
     backgroundColor: '#fff',
@@ -1074,13 +1212,18 @@ const styles = StyleSheet.create({
   cell: {
     minWidth: MIN_COL_WIDTH,
     paddingVertical: 4,
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     borderRightWidth: 1,
     borderRightColor: '#e2e8f0',
     justifyContent: 'center',
   },
   cellRight: { alignItems: 'flex-end' as const },
-  cellText: { fontSize: 11, color: '#475569' },
+  cellText: {
+    fontSize: 10,
+    color: '#475569',
+    lineHeight: 14,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+  },
   cellTextRight: { textAlign: 'right' as const, alignSelf: 'stretch' as const },
   cellEmpty: {
     flex: 1,

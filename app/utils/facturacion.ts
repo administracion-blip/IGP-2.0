@@ -89,6 +89,8 @@ export type Factura = {
   tipo: 'OUT' | 'IN';
   serie: string;
   numero: number;
+  /** Nº factura legible (serie + correlativo), p. ej. FV-2024-000001 */
+  numero_factura?: string;
   estado: string;
   /** Sociedad del grupo (p. ej. GRUPO PARIPE) en facturas IN; coincide con el selector «Empresa» en OCR */
   emisor_id?: string;
@@ -123,12 +125,18 @@ export type Factura = {
   factura_rectificada_id: string;
   motivo_rectificacion: string;
   numero_factura_proveedor: string;
+  /** ISO con hora; facturas IN: asignado en servidor al crear */
   fecha_contabilizacion: string;
+  /** Usuario que contabilizó (IN, servidor al crear) */
+  contabilizado_por?: string;
+  contabilizado_por_id?: string;
   creado_por: string;
   creado_en: string;
   modificado_por: string;
   modificado_en: string;
   version: number;
+  /** Texto corto de tipos IVA / retención en líneas (listados) */
+  impuestos_resumen?: string;
 };
 
 export function round2(n: number): number {
@@ -143,12 +151,15 @@ export function calcularLinea(l: LineaFactura) {
   return { base_linea: base, iva_linea: iva, retencion_linea: retencion, total_linea: total };
 }
 
+export type DesgloseRetencion = { retencion_pct: number; base: number; retencion: number };
+
 export function calcularTotales(lineas: LineaFactura[]) {
   let base_imponible = 0;
   let total_iva = 0;
   let total_retencion = 0;
 
   const desglose: Record<number, { base: number; iva: number }> = {};
+  const desgloseRet: Record<number, { base: number; retencion: number }> = {};
 
   for (const l of lineas) {
     const calc = calcularLinea(l);
@@ -158,7 +169,19 @@ export function calcularTotales(lineas: LineaFactura[]) {
     if (!desglose[l.tipo_iva]) desglose[l.tipo_iva] = { base: 0, iva: 0 };
     desglose[l.tipo_iva].base += calc.base_linea;
     desglose[l.tipo_iva].iva += calc.iva_linea;
+    const rp = Number(l.retencion_pct) || 0;
+    if (rp > 0) {
+      if (!desgloseRet[rp]) desgloseRet[rp] = { base: 0, retencion: 0 };
+      desgloseRet[rp].base += calc.base_linea;
+      desgloseRet[rp].retencion += calc.retencion_linea;
+    }
   }
+
+  const desglose_retencion: DesgloseRetencion[] = Object.entries(desgloseRet).map(([pct, vals]) => ({
+    retencion_pct: Number(pct),
+    base: round2(vals.base),
+    retencion: round2(vals.retencion),
+  }));
 
   return {
     base_imponible: round2(base_imponible),
@@ -170,6 +193,7 @@ export function calcularTotales(lineas: LineaFactura[]) {
       base: round2(vals.base),
       iva: round2(vals.iva),
     })),
+    desglose_retencion,
   };
 }
 

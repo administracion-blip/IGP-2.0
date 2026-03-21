@@ -2,6 +2,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { formatMoneda } from '../utils/facturacion';
 
 type DesgloseIva = { tipo_iva: number; base: number; iva: number };
+type DesgloseRet = { retencion_pct: number; base: number; retencion: number };
 
 type Props = {
   base_imponible: number;
@@ -9,6 +10,7 @@ type Props = {
   total_retencion: number;
   total_factura: number;
   desglose_iva?: DesgloseIva[];
+  desglose_retencion?: DesgloseRet[];
   total_cobrado?: number;
   saldo_pendiente?: number;
   compact?: boolean;
@@ -20,6 +22,7 @@ export function ResumenTotales({
   total_retencion,
   total_factura,
   desglose_iva,
+  desglose_retencion,
   total_cobrado,
   saldo_pendiente,
   compact,
@@ -31,7 +34,16 @@ export function ResumenTotales({
         <Row key={d.tipo_iva} label={`IVA ${d.tipo_iva}% (s/ ${formatMoneda(d.base)})`} value={d.iva} />
       ))}
       {(!desglose_iva || desglose_iva.length === 0) && <Row label="IVA" value={total_iva} />}
-      {total_retencion > 0 && <Row label="Retención" value={-total_retencion} negative />}
+      {desglose_retencion && desglose_retencion.length > 0
+        ? desglose_retencion.map((d) => (
+            <Row
+              key={d.retencion_pct}
+              label={`Ret. ${d.retencion_pct}% (s/ ${formatMoneda(d.base)})`}
+              value={-d.retencion}
+              negative
+            />
+          ))
+        : total_retencion > 0 && <Row label="Retención" value={-total_retencion} negative />}
       <View style={styles.divider} />
       <Row label="TOTAL" value={total_factura} bold />
       {total_cobrado != null && total_cobrado > 0 && <Row label="Cobrado" value={total_cobrado} positive />}

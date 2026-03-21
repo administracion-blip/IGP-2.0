@@ -1,7 +1,7 @@
 /**
  * Modal para capturar la firma dibujando; devuelve PNG en base64 (sin prefijo data:).
  */
-import React, { useRef, useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
   Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import SignatureCanvas, { type SignatureViewRef } from 'react-native-signature-canvas';
+import { SignaturePad } from './signature';
 
 type Props = {
   visible: boolean;
@@ -22,36 +22,7 @@ type Props = {
   uploading?: boolean;
 };
 
-const WEB_STYLE = `
-  .m-signature-pad { box-shadow: none; border: 1px solid #e2e8f0; border-radius: 8px; }
-  .m-signature-pad--body { border: none; }
-  .m-signature-pad--footer { display: flex; justify-content: space-between; padding: 8px; }
-  body { background: #fff; }
-`;
-
 export function FirmaEnPantallaModal({ visible, onClose, onConfirm, uploading }: Props) {
-  const sigRef = useRef<SignatureViewRef | null>(null);
-  const [emptyHint, setEmptyHint] = useState(false);
-
-  function handleOK(signature: string) {
-    setEmptyHint(false);
-    const raw = signature.replace(/^data:image\/png;base64,/, '').trim();
-    if (!raw) {
-      setEmptyHint(true);
-      return;
-    }
-    onConfirm(raw);
-  }
-
-  function handleEmpty() {
-    setEmptyHint(true);
-  }
-
-  function handleClear() {
-    setEmptyHint(false);
-    sigRef.current?.clearSignature();
-  }
-
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
@@ -63,25 +34,15 @@ export function FirmaEnPantallaModal({ visible, onClose, onConfirm, uploading }:
             </TouchableOpacity>
           </View>
           <Text style={styles.sub}>Dibuja con el dedo o el ratón en el recuadro.</Text>
-          <View style={styles.canvasWrap}>
-            <SignatureCanvas
-              ref={sigRef}
-              onOK={handleOK}
-              onEmpty={handleEmpty}
-              onClear={handleClear}
-              autoClear={false}
-              descriptionText=""
-              clearText="Limpiar"
-              confirmText="Guardar firma"
-              webStyle={WEB_STYLE}
-              backgroundColor="#ffffff"
-              penColor="#0f172a"
-              minWidth={1.5}
-              maxWidth={3}
-              style={styles.signature}
+          <View style={styles.padSection}>
+            <SignaturePad
+              height={Platform.OS === 'web' ? 260 : 220}
+              onSave={(dataUrl) => {
+                const raw = dataUrl.replace(/^data:image\/png;base64,/, '');
+                onConfirm(raw);
+              }}
             />
           </View>
-          {emptyHint ? <Text style={styles.warn}>Firma en el área antes de guardar.</Text> : null}
           {uploading ? (
             <View style={styles.uploadingRow}>
               <ActivityIndicator color="#0ea5e9" />
@@ -124,17 +85,10 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 17, fontWeight: '700', color: '#334155' },
   sub: { fontSize: 12, color: '#64748b', paddingHorizontal: 14, paddingTop: 8 },
-  canvasWrap: {
-    height: Platform.OS === 'web' ? 260 : 220,
+  padSection: {
     marginHorizontal: 12,
     marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    overflow: 'hidden',
   },
-  signature: { flex: 1 },
-  warn: { fontSize: 12, color: '#dc2626', paddingHorizontal: 14, marginTop: 6 },
   uploadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
