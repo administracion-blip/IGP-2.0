@@ -2802,6 +2802,111 @@ function mapCloseOutToItem(raw, businessDayOverride = '', paymentSource = null) 
   };
 }
 
+/** Normaliza partes de la clave auxiliar BusinessDay|WorkplaceId|PosId (sin tocar importes ni pagos). */
+function normalizeCloseOutKeyPartStr(v) {
+  if (v == null) return '';
+  return String(v).trim();
+}
+
+/** PosId en clave: vacío si falta; number/string unificados sin fallos por null/undefined. */
+function normalizeCloseOutKeyPartPosId(posId) {
+  if (posId == null) return '';
+  return String(posId).trim();
+}
+
+function closeOutAuxiliaryKey(businessDay, workplaceId, posId) {
+  const b = normalizeCloseOutKeyPartStr(businessDay);
+  const w = normalizeCloseOutKeyPartStr(workplaceId);
+  const p = normalizeCloseOutKeyPartPosId(posId);
+  return `${b}|${w}|${p}`;
+}
+
+function rawToAuxiliaryKey(raw, businessDayOverride) {
+  const r = getMappableRaw(raw);
+  const workplaceId = normalizeCloseOutKeyPartStr(
+    findValue(r, ['WorkplaceId', 'workplaceId', 'WokrplaceId', 'LocalId', 'localId', 'Workplace', 'workplace']) ?? r?.WorkplaceId ?? r?.Workplace?.Id ?? ''
+  );
+  const bdRaw = findValue(r, ['BusinessDay', 'businessDay', 'Fecha', 'fecha', 'Date', 'date']) ?? r?.BusinessDay ?? businessDayOverride ?? '';
+  const bd = normalizeCloseOutKeyPartStr(bdRaw) || normalizeCloseOutKeyPartStr(businessDayOverride);
+  const { posId } = extractPosFromRaw(r);
+  return closeOutAuxiliaryKey(bd, workplaceId, posId);
+}
+
+function isEmptyOpenCloseDate(v) {
+  if (v == null) return true;
+  if (typeof v === 'string' && v.trim() === '') return true;
+  return false;
+}
+
+function extractOpenCloseDatesFromAuxiliaryRaw(raw) {
+  const r = getMappableRaw(raw);
+  const openDate = findValue(r, ['OpenDate', 'openDate', 'FechaApertura']) ?? r?.OpenDate ?? null;
+  const closeDate = findValue(r, ['CloseDate', 'closeDate', 'FechaCierre']) ?? r?.CloseDate ?? null;
+  return { openDate, closeDate };
+}
+
+/**
+ * Post-proceso: solo rellena OpenDate/CloseDate si estaban vacíos (sin re-formatear valores).
+ * Fuentes: primero PosCloseOuts, luego SystemCloseOuts sobrescribe la misma clave (prioridad System en duplicados).
+ * No modifica Amounts, InvoicePayments ni ningún otro campo.
+ */
+function enrichItemsOpenCloseDatesFromAuxiliary(items, businessDay, sysList, posList) {
+  const stats = {
+    itemsTotal: items.length,
+    vaciosOpenAntes: 0,
+    vaciosCloseAntes: 0,
+    rellenadosOpen: 0,
+    rellenadosClose: 0,
+    vaciosOpenDespues: 0,
+    vaciosCloseDespues: 0,
+  };
+  const auxByKey = new Map();
+  for (const r of posList || []) {
+    auxByKey.set(rawToAuxiliaryKey(r, businessDay), r);
+  }
+  for (const r of sysList || []) {
+    auxByKey.set(rawToAuxiliaryKey(r, businessDay), r);
+  }
+
+  for (const item of items) {
+    const wp = normalizeCloseOutKeyPartStr(item.PK ?? item.WorkplaceId ?? '');
+    const bd = normalizeCloseOutKeyPartStr(item.BusinessDay ?? businessDay) || normalizeCloseOutKeyPartStr(businessDay);
+    const k = closeOutAuxiliaryKey(bd, wp, item.PosId);
+
+    const openEmpty = isEmptyOpenCloseDate(item.OpenDate);
+    const closeEmpty = isEmptyOpenCloseDate(item.CloseDate);
+    if (openEmpty) stats.vaciosOpenAntes += 1;
+    if (closeEmpty) stats.vaciosCloseAntes += 1;
+
+    const aux = auxByKey.get(k);
+    if (aux) {
+      const { openDate, closeDate } = extractOpenCloseDatesFromAuxiliaryRaw(aux);
+      if (openEmpty && !isEmptyOpenCloseDate(openDate)) {
+        item.OpenDate = openDate;
+        stats.rellenadosOpen += 1;
+      }
+      if (closeEmpty && !isEmptyOpenCloseDate(closeDate)) {
+        item.CloseDate = closeDate;
+        stats.rellenadosClose += 1;
+      }
+    }
+    if (isEmptyOpenCloseDate(item.OpenDate)) stats.vaciosOpenDespues += 1;
+    if (isEmptyOpenCloseDate(item.CloseDate)) stats.vaciosCloseDespues += 1;
+  }
+  return stats;
+}
+
+function accumulateOpenCloseEnrichmentTotals(acc, s) {
+  acc.itemsTotal += s.itemsTotal;
+  acc.vaciosOpenAntes += s.vaciosOpenAntes;
+  acc.vaciosCloseAntes += s.vaciosCloseAntes;
+  acc.rellenadosOpen += s.rellenadosOpen;
+  acc.rellenadosClose += s.rellenadosClose;
+  acc.vaciosOpenDespues += s.vaciosOpenDespues;
+  acc.vaciosCloseDespues += s.vaciosCloseDespues;
+  return acc;
+}
+
 function mapPosCloseOutToItem(raw, businessDayOverride = '') {
   return mapCloseOutToItem(raw, businessDayOverride);
 }
@@ -2943,6 +3048,9 @@ app.post('/api/agora/closeouts/sync', async (req, res) => {
       return item;
     }).filter((i) => i.PK && i.SK && String(i.PK).trim() !== '' && String(i.SK).trim() !== '');
 
+    const openCloseEnrichment = enrichItemsOpenCloseDatesFromAuxiliary(items, businessDay, sysList, posList);
+    console.log('[agora/closeouts/open-close-enrich]', businessDay, openCloseEnrichment);
+
     const workplaceIds = [...new Set(items.map((i) => i.PK).filter(Boolean))];
     const keysToDeleteMap = new Map();
     for (const pk of workplaceIds) {
@@ -2968,7 +3076,14 @@ app.post('/api/agora/closeouts/sync', async (req, res) => {
 
     const upserted = await upsertBatch(docClient, tableSalesCloseOutsName, items);
     console.log('[agora/closeouts] Sync:', businessDay, 'fetched:', rawList.length, 'upserted:', upserted, 'source:', source);
-    return res.json({ ok: true, fetched: rawList.length, upserted, businessDay, source });
+    return res.json({
+      ok: true,
+      fetched: rawList.length,
+      upserted,
+      businessDay,
+      source,
+      openCloseEnrichment,
+    });
   } catch (err) {
     console.error('[agora/closeouts/sync]', err.message || err);
     return res.status(500).json({ error: err.message || 'Error al sincronizar cierres' });
@@ -3065,6 +3180,15 @@ app.post('/api/agora/closeouts/full-sync', async (req, res) => {
     let totalUpserted = 0;
     let totalSkipped = 0;
     const errors = [];
+    const openCloseEnrichmentTotals = {
+      itemsTotal: 0,
+      vaciosOpenAntes: 0,
+      vaciosCloseAntes: 0,
+      rellenadosOpen: 0,
+      rellenadosClose: 0,
+      vaciosOpenDespues: 0,
+      vaciosCloseDespues: 0,
+    };
 
     for (let i = 0; i < days.length; i++) {
       const businessDay = days[i];
@@ -3120,6 +3244,10 @@ app.post('/api/agora/closeouts/full-sync', async (req, res) => {
           return item;
         }).filter((i) => i.PK && i.SK && String(i.PK).trim() !== '' && String(i.SK).trim() !== '');
 
+        const openCloseEnrichment = enrichItemsOpenCloseDatesFromAuxiliary(items, businessDay, sysList, posList);
+        console.log('[agora/closeouts/open-close-enrich]', businessDay, openCloseEnrichment);
+        accumulateOpenCloseEnrichmentTotals(openCloseEnrichmentTotals, openCloseEnrichment);
+
         const workplaceIds = [...new Set(items.map((i) => i.PK).filter(Boolean))];
         const keysToDeleteMap = new Map();
         for (const pk of workplaceIds) {
@@ -3154,7 +3282,16 @@ app.post('/api/agora/closeouts/full-sync', async (req, res) => {
       }
     }
 
-    console.log('[agora/closeouts/full-sync] Completado:', { dateFrom, dateTo, deletedOutOfRange, totalFetched, totalUpserted, totalSkipped, errors: errors.length });
+    console.log('[agora/closeouts/full-sync] Completado:', {
+      dateFrom,
+      dateTo,
+      deletedOutOfRange,
+      totalFetched,
+      totalUpserted,
+      totalSkipped,
+      errors: errors.length,
+      openCloseEnrichmentTotals,
+    });
     return res.json({
       ok: true,
       dateFrom,
@@ -3164,6 +3301,7 @@ app.post('/api/agora/closeouts/full-sync', async (req, res) => {
       totalUpserted,
       totalSkipped,
       daysProcessed: days.length,
+      openCloseEnrichmentTotals,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (err) {
