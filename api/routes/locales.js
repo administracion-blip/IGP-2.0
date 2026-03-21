@@ -29,10 +29,17 @@ function bodyLocalesVal(body, key) {
   return body[alt];
 }
 
+/** Locales cuya sede pertenece al grupo (misma lógica que facturación: texto contiene PARIPE). */
+function localGrupoParipe(loc) {
+  const s = String(loc?.sede ?? loc?.Sede ?? '').toUpperCase();
+  return s.includes('PARIPE');
+}
+
 router.get('/locales', async (req, res) => {
   try {
     const minimal = req.query.minimal === '1' || req.query.minimal === 'true';
-    if (minimal && cachedLocalesMinimal != null && (Date.now() - cachedLocalesMinimalTime) < CACHE_LOCALES_TTL_MS) {
+    const grupoParipe = req.query.grupoParipe === '1' || req.query.grupoParipe === 'true';
+    if (minimal && !grupoParipe && cachedLocalesMinimal != null && (Date.now() - cachedLocalesMinimalTime) < CACHE_LOCALES_TTL_MS) {
       return res.json({ locales: cachedLocalesMinimal });
     }
     const items = [];
@@ -40,15 +47,18 @@ router.get('/locales', async (req, res) => {
     do {
       const cmd = new ScanCommand({
         TableName: tables.locales,
-        ...(minimal && { ProjectionExpression: 'id_Locales, nombre' }),
+        ...(minimal && !grupoParipe && { ProjectionExpression: 'id_Locales, nombre' }),
         ...(lastKey && { ExclusiveStartKey: lastKey }),
       });
       const result = await docClient.send(cmd);
       items.push(...(result.Items || []));
       lastKey = result.LastEvaluatedKey || null;
     } while (lastKey);
-    const locales = items.map((item) => (item ? { ...item } : {}));
-    if (minimal) {
+    let locales = items.map((item) => (item ? { ...item } : {}));
+    if (grupoParipe) {
+      locales = locales.filter(localGrupoParipe);
+    }
+    if (minimal && !grupoParipe) {
       cachedLocalesMinimal = locales;
       cachedLocalesMinimalTime = Date.now();
     }

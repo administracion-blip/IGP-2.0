@@ -102,6 +102,8 @@ export type TablaBasicaProps<T = Record<string, unknown>> = {
   defaultColWidth?: number;
   /** Ocultar botones Crear, Editar, Borrar (solo lectura) */
   hideToolbarActions?: boolean;
+  /** Texto del tooltip / accesibilidad del botón Crear (por defecto: «Crear registro») */
+  toolbarCrearLabel?: string;
   /** Renderizado personalizado de celda; si devuelve null usa el Text por defecto */
   renderCell?: (item: T, col: string, defaultText: string) => React.ReactNode | null;
 };
@@ -141,6 +143,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     getColumnCellStyle,
     defaultColWidth,
     hideToolbarActions = false,
+    toolbarCrearLabel,
     renderCell,
   } = props;
 
@@ -183,8 +186,9 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     setResizingCol(col);
   };
 
+  const crearLabel = toolbarCrearLabel ?? 'Crear registro';
   const toolbarBtns = [
-    { id: 'crear', label: 'Crear registro', icon: ICONS.add },
+    { id: 'crear', label: crearLabel, icon: ICONS.add },
     { id: 'editar', label: 'Editar', icon: ICONS.edit },
     { id: 'borrar', label: 'Borrar', icon: ICONS.delete },
   ];
@@ -525,7 +529,7 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
   backBtn: { padding: 4 },
   title: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12 },
+  toolbarRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8, gap: 12 },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   searchWrap: {
     flex: 1,
@@ -543,7 +547,7 @@ const styles = StyleSheet.create({
   searchIcon: { marginRight: 6 },
   searchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
   toolbarBtnWrap: { position: 'relative' },
-  extraToolbarLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  extraToolbarLeft: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, flex: 1, minWidth: 0 },
   extraToolbarRight: { marginLeft: 4 },
   tooltip: {
     position: 'absolute',

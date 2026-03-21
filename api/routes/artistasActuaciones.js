@@ -8,9 +8,10 @@ import {
   DeleteCommand,
   BatchWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { docClient, tables, keyForFacturaPrincipalId } from '../lib/db.js';
-import { calcularPropuestaImporte } from '../lib/tarifaActuacion.js';
+import { calcularPropuestaImporte, sanitizeTarifas, tarifasMatrizVacia } from '../lib/tarifaActuacion.js';
 import { empresaTieneEtiquetaMusicos } from '../lib/etiquetaMusicos.js';
 import { getIdEmpresaFromItem } from '../lib/empresaCif.js';
 
@@ -82,22 +83,58 @@ async function esFechaFestiva(fechaIso) {
 
 const ESTADOS_FACTURA_ASOCIABLE = new Set(['pendiente_revision', 'pendiente_pago', 'parcialmente_pagada']);
 
-/** DynamoDB no acepta NaN en números; el front puede enviar importe vacío → NaN. */
-function sanitizeTarifas(arr) {
-  if (!Array.isArray(arr)) return [];
-  return arr
-    .map((t) => {
-      if (!t || typeof t !== 'object') return null;
-      const raw = Number(t.importe);
-      const importe = Number.isFinite(raw) ? Math.round(raw * 100) / 100 : 0;
-      return {
-        ...(t.codigo != null && String(t.codigo).trim() !== '' ? { codigo: String(t.codigo).trim() } : {}),
-        tipo_dia: String(t.tipo_dia || 'laborable'),
-        franja: String(t.franja || 'noche'),
-        importe,
-      };
-    })
-    .filter(Boolean);
+function normalizarHoraActuacion(h) {
+  if (h == null || h === '') return '22:00';
+  const s = String(h).trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return s;
+  const hh = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+  const mm = Math.min(59, Math.max(0, parseInt(m[2], 10)));
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+/** Fechas inclusivas yyyy-mm-dd */
+function enumerarFechasIso(fechaInicio, fechaFin) {
+  const a = fechaAIso(String(fechaInicio || ''));
+  const b = fechaAIso(String(fechaFin || ''));
+  if (!a || !b || a > b) return [];
+  const out = [];
+  let cur = new Date(`${a}T12:00:00.000Z`);
+  const end = new Date(`${b}T12:00:00.000Z`);
+  while (cur <= end) {
+    out.push(cur.toISOString().slice(0, 10));
+    cur = new Date(cur.getTime() + 864e5);
+  }
+  return out;
+}
+
+async function findConflictoArtistaExcluyendo({ id_excluir, id_artista, fecha, hora_inicio }) {
+  if (!id_artista || String(id_artista).trim() === '') return null;
+  const items = await scanAll(tables.actuaciones);
+  const f = fechaAIso(String(fecha));
+  const h = normalizarHoraActuacion(hora_inicio);
+  for (const x of items) {
+    if (id_excluir != null && String(x.id_actuacion) === String(id_excluir)) continue;
+    if (String(x.id_artista || '') !== String(id_artista)) continue;
+    if (String(x.fecha || '') !== f) continue;
+    if (normalizarHoraActuacion(x.hora_inicio) !== h) continue;
+    return x;
+  }
+  return null;
+}
+
+function actuacionResumenConflicto(x) {
+  if (!x) return null;
+  return {
+    id_actuacion: String(x.id_actuacion),
+    fecha: String(x.fecha || ''),
+    hora_inicio: String(x.hora_inicio || ''),
+    id_local: String(x.id_local || ''),
+    local_nombre_snapshot: String(x.local_nombre_snapshot || ''),
+    estado: String(x.estado || ''),
+    id_artista: String(x.id_artista || ''),
+    artista_nombre_snapshot: String(x.artista_nombre_snapshot || ''),
+  };
 }
 
 function mensajeErrorDynamo(err) {
@@ -225,6 +262,26 @@ router.post('/artistas/:id/imagen', upload.single('file'), async (req, res) => {
   }
 });
 
+/** URL prefirmada GET temporal para mostrar la imagen del artista (S3 privado). */
+router.get('/artistas/:id/imagen-url', async (req, res) => {
+  try {
+    const r = await docClient.send(
+      new GetCommand({ TableName: tables.artistas, Key: { id_artista: req.params.id } })
+    );
+    if (!r.Item) return res.status(404).json({ error: 'Artista no encontrado' });
+    const key = r.Item.imagen_key;
+    if (key == null || String(key).trim() === '') {
+      return res.json({ url: null });
+    }
+    const cmd = new GetObjectCommand({ Bucket: S3_BUCKET, Key: String(key) });
+    const url = await getSignedUrl(s3, cmd, { expiresIn: 3600 });
+    res.json({ url, expiresIn: 3600 });
+  } catch (err) {
+    console.error('[artistas imagen-url]', err);
+    res.status(500).json({ error: err.message || 'Error al generar URL de imagen' });
+  }
+});
+
 // ─── Rutas específicas ANTES de /actuaciones/:id ───
 
 router.get('/actuaciones/facturas-gasto-asociables', async (req, res) => {
@@ -302,7 +359,7 @@ router.post('/actuaciones/calcular-importe', async (req, res) => {
     const fechaIso = fechaAIso(String(fecha));
     const hora = hora_inicio != null ? String(hora_inicio) : '22:00';
     const esFestivo = await esFechaFestiva(fechaIso);
-    const tarifas = Array.isArray(r.Item.tarifas) ? r.Item.tarifas : [];
+    const tarifas = r.Item.tarifas != null ? r.Item.tarifas : tarifasMatrizVacia();
     const out = calcularPropuestaImporte(fechaIso, hora, tarifas, esFestivo);
     res.json(out);
   } catch (err) {
@@ -381,13 +438,190 @@ router.post('/actuaciones/asociar-factura', async (req, res) => {
   }
 });
 
+async function crearItemHuecoActuacion({ fechaIso, horaIni, idLocFormatted, localNombre }) {
+  const esFestivo = await esFechaFestiva(fechaIso);
+  const prop = calcularPropuestaImporte(fechaIso, horaIni, tarifasMatrizVacia(), esFestivo);
+  const ts = now();
+  return {
+    id_actuacion: uuid(),
+    id_artista: '',
+    artista_nombre_snapshot: '',
+    fecha: fechaIso,
+    hora_inicio: horaIni,
+    hora_fin: '',
+    franja: prop.franja,
+    tipo_dia: prop.tipo_dia,
+    id_local: idLocFormatted,
+    local_nombre_snapshot: localNombre,
+    importe_previsto: null,
+    importe_final: null,
+    estado: 'pendiente',
+    firma_artista_key: '',
+    fecha_firma: '',
+    observaciones: '',
+    id_factura_gasto: '',
+    pago_asociado_numero_factura: '',
+    pago_asociado_proveedor: '',
+    pago_asociado_fecha: '',
+    pago_asociado_importe: null,
+    pago_asociado_estado: '',
+    fecha_asociacion_pago: '',
+    usuario_asociacion_pago: '',
+    created_at: ts,
+    updated_at: ts,
+  };
+}
+
+/** Genera huecos del calendario (sin unicidad fecha+local+hora). */
+router.post('/actuaciones/generar-base', async (req, res) => {
+  const body = req.body || {};
+  const { fecha_inicio, fecha_fin, id_local, id_locales, horas } = body;
+  /** Lista de ids de local únicos (6 dígitos). */
+  let idsLocales = [];
+  if (Array.isArray(id_locales) && id_locales.length > 0) {
+    idsLocales = [...new Set(id_locales.map((x) => formatId6(String(x))))].filter(Boolean);
+  } else if (id_local) {
+    idsLocales = [formatId6(id_local)];
+  }
+  if (idsLocales.length === 0) {
+    return res.status(400).json({ error: 'Indica id_local o id_locales (al menos un local)' });
+  }
+  if (!Array.isArray(horas) || horas.length === 0) {
+    return res.status(400).json({ error: 'horas debe ser un array no vacío' });
+  }
+  const fechas = enumerarFechasIso(fecha_inicio, fecha_fin);
+  if (fechas.length === 0) return res.status(400).json({ error: 'Rango de fechas inválido' });
+  try {
+    const creadas = [];
+    for (const idLoc of idsLocales) {
+      const loc = await docClient.send(
+        new GetCommand({ TableName: tables.locales, Key: { id_Locales: idLoc } })
+      );
+      const localNombre = loc.Item?.nombre || loc.Item?.Nombre || '';
+      for (const fechaIso of fechas) {
+        for (const hRaw of horas) {
+          const horaIni = normalizarHoraActuacion(hRaw);
+          const item = await crearItemHuecoActuacion({
+            fechaIso,
+            horaIni,
+            idLocFormatted: idLoc,
+            localNombre,
+          });
+          creadas.push(item);
+        }
+      }
+    }
+    for (let i = 0; i < creadas.length; i += 25) {
+      const chunk = creadas.slice(i, i + 25);
+      await docClient.send(
+        new BatchWriteCommand({
+          RequestItems: {
+            [tables.actuaciones]: chunk.map((Item) => ({ PutRequest: { Item } })),
+          },
+        })
+      );
+    }
+    res.json({ ok: true, creadas: creadas.length, actuaciones: creadas });
+  } catch (err) {
+    console.error('[actuaciones generar-base]', err);
+    res.status(500).json({ error: err.message || 'Error al generar actuaciones' });
+  }
+});
+
+/** Comprueba si el artista ya tiene otra actuación misma fecha y hora_inicio. */
+router.post('/actuaciones/conflicto-artista', async (req, res) => {
+  const { id_actuacion, id_artista, fecha, hora_inicio } = req.body || {};
+  if (!id_artista) return res.json({ conflicto: false });
+  try {
+    const otro = await findConflictoArtistaExcluyendo({
+      id_excluir: id_actuacion || null,
+      id_artista,
+      fecha,
+      hora_inicio: hora_inicio != null ? hora_inicio : '22:00',
+    });
+    if (!otro) return res.json({ conflicto: false });
+    return res.json({ conflicto: true, otro: actuacionResumenConflicto(otro) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Quita artista del registro conflicto y lo asigna al registro destino. */
+router.post('/actuaciones/mover-artista-aqui', async (req, res) => {
+  const body = req.body || {};
+  const id_vaciar = body.id_vaciar;
+  const id_asignar = body.id_asignar;
+  const id_artista = body.id_artista;
+  if (!id_vaciar || !id_asignar || !id_artista) {
+    return res.status(400).json({ error: 'id_vaciar, id_asignar e id_artista son obligatorios' });
+  }
+  try {
+    const [rV, rA] = await Promise.all([
+      docClient.send(new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: String(id_vaciar) } })),
+      docClient.send(new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: String(id_asignar) } })),
+    ]);
+    if (!rV.Item || !rA.Item) return res.status(404).json({ error: 'Actuación no encontrada' });
+    const ar = await docClient.send(
+      new GetCommand({ TableName: tables.artistas, Key: { id_artista: String(id_artista) } })
+    );
+    const artistaNombre = ar.Item?.nombre_artistico || '';
+    const fechaIso = fechaAIso(String(rA.Item.fecha));
+    const horaIni = normalizarHoraActuacion(rA.Item.hora_inicio);
+    const esFestivo = await esFechaFestiva(fechaIso);
+    const tarifas = ar.Item?.tarifas != null ? ar.Item.tarifas : tarifasMatrizVacia();
+    const prop = calcularPropuestaImporte(fechaIso, horaIni, tarifas, esFestivo);
+    const importePrev =
+      body.importe_previsto != null && body.importe_previsto !== ''
+        ? Number(body.importe_previsto)
+        : prop.importe_previsto != null
+          ? prop.importe_previsto
+          : null;
+    const importeFinal =
+      body.importe_final != null && body.importe_final !== '' ? Number(body.importe_final) : importePrev;
+
+    const ts = now();
+    const vaciar = {
+      ...rV.Item,
+      id_artista: '',
+      artista_nombre_snapshot: '',
+      importe_previsto: null,
+      importe_final: null,
+      estado: 'pendiente',
+      observaciones: '',
+      updated_at: ts,
+    };
+    const asignar = {
+      ...rA.Item,
+      id_artista: String(id_artista),
+      artista_nombre_snapshot: artistaNombre,
+      fecha: fechaIso,
+      hora_inicio: horaIni,
+      franja: prop.franja,
+      tipo_dia: prop.tipo_dia,
+      importe_previsto: importePrev,
+      importe_final: importeFinal,
+      observaciones: body.observaciones != null ? String(body.observaciones) : String(rA.Item.observaciones || ''),
+      estado: body.estado != null ? String(body.estado) : 'pendiente',
+      updated_at: ts,
+    };
+    await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: vaciar }));
+    await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: asignar }));
+    res.json({ ok: true, vaciado: vaciar, asignado: asignar });
+  } catch (err) {
+    console.error('[mover-artista-aqui]', err);
+    res.status(500).json({ error: err.message || 'Error al mover artista' });
+  }
+});
+
 // ─── ACTUACIONES CRUD (rutas con /item/:id) ───
 
 router.get('/actuaciones', async (req, res) => {
   try {
     let items = await scanAll(tables.actuaciones);
-    const { fechaDesde, fechaHasta, id_artista } = req.query;
+    const { fechaDesde, fechaHasta, id_artista, id_local, estado } = req.query;
     if (id_artista) items = items.filter((x) => x.id_artista === id_artista);
+    if (id_local) items = items.filter((x) => formatId6(x.id_local) === formatId6(id_local));
+    if (estado) items = items.filter((x) => String(x.estado || '') === String(estado));
     if (fechaDesde) items = items.filter((x) => String(x.fecha || '') >= String(fechaDesde));
     if (fechaHasta) items = items.filter((x) => String(x.fecha || '') <= String(fechaHasta));
     items.sort((a, b) => {
@@ -437,12 +671,12 @@ router.post('/actuaciones', async (req, res) => {
     const fechaIso = fechaAIso(String(body.fecha || ''));
     const horaIni = body.hora_inicio != null ? String(body.hora_inicio) : '22:00';
     const esFestivo = await esFechaFestiva(fechaIso);
-    let tarifas = [];
+    let tarifas = tarifasMatrizVacia();
     if (body.id_artista) {
       const ar = await docClient.send(
         new GetCommand({ TableName: tables.artistas, Key: { id_artista: body.id_artista } })
       );
-      tarifas = Array.isArray(ar.Item?.tarifas) ? ar.Item.tarifas : [];
+      if (ar.Item?.tarifas != null) tarifas = ar.Item.tarifas;
     }
     const prop = calcularPropuestaImporte(fechaIso, horaIni, tarifas, esFestivo);
     const importePrev =
@@ -482,6 +716,17 @@ router.post('/actuaciones', async (req, res) => {
       created_at: ts,
       updated_at: ts,
     };
+    if (String(item.id_artista || '') && !body.forzar_conflicto) {
+      const otro = await findConflictoArtistaExcluyendo({
+        id_excluir: null,
+        id_artista: item.id_artista,
+        fecha: item.fecha,
+        hora_inicio: item.hora_inicio,
+      });
+      if (otro) {
+        return res.status(409).json({ conflicto: true, otro: actuacionResumenConflicto(otro) });
+      }
+    }
     await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: item }));
     res.json({ ok: true, actuacion: item });
   } catch (err) {
@@ -536,6 +781,20 @@ router.put('/actuaciones/item/:id', async (req, res) => {
       }
     }
     if (body.fecha != null) item.fecha = fechaAIso(String(body.fecha));
+    const idArtFinal = String(item.id_artista || '');
+    const fechaFinal = String(item.fecha || '');
+    const horaFinal = normalizarHoraActuacion(item.hora_inicio);
+    if (idArtFinal && !body.forzar_conflicto) {
+      const otro = await findConflictoArtistaExcluyendo({
+        id_excluir: prev.id_actuacion,
+        id_artista: idArtFinal,
+        fecha: fechaFinal,
+        hora_inicio: horaFinal,
+      });
+      if (otro) {
+        return res.status(409).json({ conflicto: true, otro: actuacionResumenConflicto(otro) });
+      }
+    }
     await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: item }));
     res.json({ ok: true, actuacion: item });
   } catch (err) {
