@@ -17,6 +17,7 @@ import { exportSystemCloseOuts, exportPosCloseOuts, exportInvoices, exportWareho
 import { upsertBatch } from './lib/dynamo/salesCloseOuts.js';
 import { syncProducts, getLastSync, setLastSync, shouldSkipSyncByThrottle, toApiProduct, pickAllowedFields } from './lib/dynamo/agoraProducts.js';
 import facturacionRouter from './routes/facturacion.js';
+import artistasActuacionesRouter from './routes/artistasActuaciones.js';
 import { normalizeCif, getCifFromEmpresaItem, getIdEmpresaFromItem } from './lib/empresaCif.js';
 
 const app = express();
@@ -25,7 +26,7 @@ app.use(express.json());
 
 // Health check para verificar que el API está en marcha
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, message: 'API ERP OK', port: process.env.PORT || 3001 });
+  res.json({ ok: true, message: 'API ERP OK', port: process.env.PORT || 3002 });
 });
 
 // Diagnóstico: si esto responde 200, el servidor tiene las rutas de closeouts
@@ -4619,7 +4620,7 @@ app.post('/api/agora/purchases/sync', async (req, res) => {
   }
 });
 
-const port = process.env.PORT || 3001;
+const port = process.env.PORT || 3002;
 const host = '0.0.0.0';
 const SYNC_CLOSEOUTS_INTERVAL_MS = parseInt(process.env.SYNC_CLOSEOUTS_INTERVAL_MS || '120000', 10) || 120000;
 const SYNC_CLOSEOUTS_RECENT_DAYS = parseInt(process.env.SYNC_CLOSEOUTS_RECENT_DAYS || '7', 10) || 7;
@@ -4648,6 +4649,7 @@ async function runCloseoutsSync() {
 }
 
 app.use('/api', facturacionRouter);
+app.use('/api', artistasActuacionesRouter);
 
 // ─── Ajustes ───
 

@@ -41,7 +41,7 @@ Al abrir la pantalla **Puntos de venta**, la app:
 
 ```bash
 # Sincronizar puntos de venta desde Ágora (WorkplacesSummary)
-curl -X POST http://localhost:3001/api/agora/sale-centers/sync \
+curl -X POST http://localhost:3002/api/agora/sale-centers/sync \
   -H "Content-Type: application/json" \
   -d '{}'
 ```

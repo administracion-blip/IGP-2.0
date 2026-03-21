@@ -50,7 +50,7 @@ export default function BaseDatosScreen() {
     if (id === 'empresas') router.push('/empresas');
     if (id === 'productos') router.push('/productos');
     if (id === 'puntos-venta') router.push('/puntos-venta');
-    // Artistas: más adelante
+    if (id === 'artistas') router.push('/actuaciones/artistas');
   }
 
   return (

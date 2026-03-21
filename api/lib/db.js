@@ -31,6 +31,8 @@ export const tables = {
   facturasSeries: process.env.DDB_FACTURAS_SERIES || 'Igp_FacturasSeries',
   facturasAuditoria: process.env.DDB_FACTURAS_AUDITORIA || 'Igp_FacturasAuditoria',
   ajustes: process.env.DDB_AJUSTES || 'Igp_Ajustes',
+  artistas: process.env.DDB_ARTISTAS || 'Igp_Artistas',
+  actuaciones: process.env.DDB_ACTUACIONES || 'Igp_Actuaciones',
 };
 
 /**
