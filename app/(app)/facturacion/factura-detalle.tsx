@@ -24,7 +24,6 @@ import {
   FORMAS_PAGO,
   CONDICIONES_PAGO,
   calcularLinea,
-  calcularTotales,
   formatMoneda,
   labelFormaPago,
   mapTipoReciboToFormaPago,
@@ -32,6 +31,15 @@ import {
   type LineaFactura,
   type Factura,
 } from '../../utils/facturacion';
+import {
+  dmyToIso,
+  emptyLinea,
+  hoyDmy,
+  hydrateLineasDesdeFactura,
+  isoToDmy,
+  lineasPayloadForApi,
+} from '../../utils/facturaFormLogic';
+import { useFacturaFormLogic } from '../../hooks/useFacturaFormLogic';
 import { fechaEmisionFacturaADmy, textoFechaContabilizacionGasto } from '../../utils/formatFecha';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalToast, detectToastType } from '../../components/Toast';
@@ -80,55 +88,6 @@ type Pago = {
 };
 type AuditEntry = { accion: string; usuario_nombre: string; fecha: string; detalle?: string };
 
-const EMPTY_LINEA: LineaFactura = {
-  descripcion: '',
-  cantidad: 1,
-  precio_unitario: 0,
-  descuento_pct: 0,
-  tipo_iva: 21,
-  retencion_pct: 0,
-};
-
-function hoyISO() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function isoToDmy(iso: string): string {
-  if (!iso || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return '';
-  const [y, m, d] = iso.substring(0, 10).split('-');
-  return `${d}/${m}/${y}`;
-}
-
-function dmyToIso(dmy: string): string {
-  if (!dmy) return '';
-  const m = dmy.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
-  return dmy;
-}
-
-function hoyDmy() {
-  return isoToDmy(hoyISO());
-}
-
-function calcularFechaVencimiento(fechaEmisionDmy: string, condicion: string): string {
-  const iso = dmyToIso(fechaEmisionDmy);
-  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
-  const [y, m, d] = iso.split('-').map(Number);
-  const base = new Date(y, m - 1, d);
-  if (isNaN(base.getTime())) return '';
-  let dias = 0;
-  if (condicion === '15 días') dias = 15;
-  else if (condicion === '30 días') dias = 30;
-  else if (condicion === '60 días') dias = 60;
-  else if (condicion === '90 días') dias = 90;
-  base.setDate(base.getDate() + dias);
-  const ry = base.getFullYear();
-  const rm = String(base.getMonth() + 1).padStart(2, '0');
-  const rd = String(base.getDate()).padStart(2, '0');
-  return `${rd}/${rm}/${ry}`;
-}
-
 function confirmMsg(titulo: string, msg: string): Promise<boolean> {
   if (Platform.OS === 'web') return Promise.resolve(window.confirm(`${titulo}\n${msg}`));
   return new Promise((res) =>
@@ -157,14 +116,33 @@ export default function FacturaDetalleScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const facturaForm = useFacturaFormLogic({
+    modo,
+    loading,
+    initialFechaEmision: modo === 'crear' ? undefined : hoyDmy(),
+  });
+  const {
+    fechaEmision,
+    setFechaEmision,
+    fechaVencimiento,
+    setFechaVencimiento,
+    condicionesPago,
+    setCondicionesPago,
+    formaPago,
+    setFormaPago,
+    lineas,
+    setLineas,
+    totales,
+    updateLinea,
+    addLinea,
+    removeLinea,
+    markHydrationFromApi,
+  } = facturaForm;
+
   const [estado, setEstado] = useState('borrador');
   const [numeroFactura, setNumeroFactura] = useState('');
   const [serie, setSerie] = useState('');
-  const [fechaEmision, setFechaEmision] = useState(hoyDmy());
   const [fechaOperacion, setFechaOperacion] = useState('');
-  const [fechaVencimiento, setFechaVencimiento] = useState('');
-  const [condicionesPago, setCondicionesPago] = useState('contado');
-  const [formaPago, setFormaPago] = useState('transferencia');
   const [observaciones, setObservaciones] = useState('');
   const [localId, setLocalId] = useState('');
   const [numFacturaProveedor, setNumFacturaProveedor] = useState('');
@@ -197,7 +175,6 @@ export default function FacturaDetalleScreen() {
   const [empresaIban, setEmpresaIban] = useState('');
   const [empresaIbanAlt, setEmpresaIbanAlt] = useState('');
 
-  const [lineas, setLineas] = useState<LineaFactura[]>([{ ...EMPTY_LINEA }]);
   const [pagos, setPagos] = useState<Pago[]>([]);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const [version, setVersion] = useState(1);
@@ -271,8 +248,6 @@ export default function FacturaDetalleScreen() {
       });
   }, [serie, emisorId, fechaEmision, series, modo]);
 
-  const totales = useMemo(() => calcularTotales(lineas), [lineas]);
-
   const esEditable = estado === 'borrador' || (tipo === 'IN' && estado === 'pendiente_revision');
   const puedeEmitir = estado === 'borrador';
   const puedeRegistrarPago =
@@ -344,6 +319,7 @@ export default function FacturaDetalleScreen() {
       if (!res.ok) throw new Error('No se pudo cargar la factura');
       const data = await res.json();
       const f: Factura = data.factura ?? data;
+      markHydrationFromApi();
       setEstado(f.estado);
       setNumeroFactura(f.numero_factura ?? '');
       setSerie(f.serie);
@@ -380,8 +356,7 @@ export default function FacturaDetalleScreen() {
       setEmpresaIbanAlt(f.empresa_iban_alternativo ?? '');
       setVersion(f.version ?? 1);
 
-      const ls: LineaFactura[] = data.lineas ?? [];
-      setLineas(ls.length > 0 ? ls : [{ ...EMPTY_LINEA }]);
+      setLineas(hydrateLineasDesdeFactura(f, data.lineas));
       setPagos(data.pagos ?? []);
       setAuditLog(data.audit_log ?? []);
 
@@ -394,15 +369,9 @@ export default function FacturaDetalleScreen() {
     } finally {
       setLoading(false);
     }
-  }, [modo, facturaId]);
+  }, [modo, facturaId, markHydrationFromApi]);
 
   useEffect(() => { fetchFactura(); }, [fetchFactura]);
-
-  useEffect(() => {
-    if (modo === 'editar' && loading) return;
-    const nueva = calcularFechaVencimiento(fechaEmision, condicionesPago);
-    if (nueva) setFechaVencimiento(nueva);
-  }, [condicionesPago, fechaEmision]);
 
   // ── Emisor select ──
   const selectEmisor = (e: Empresa) => {
@@ -434,29 +403,6 @@ export default function FacturaDetalleScreen() {
     setEmpresaIbanAlt(e.ibanAlternativo);
     setEmpresaSearch('');
     setShowEmpresaDropdown(false);
-  };
-
-  // ── Lineas helpers ──
-  const updateLinea = (idx: number, field: keyof LineaFactura, value: string) => {
-    setLineas((prev) => {
-      const copy = [...prev];
-      const numFields: (keyof LineaFactura)[] = ['cantidad', 'precio_unitario', 'descuento_pct', 'tipo_iva', 'retencion_pct'];
-      if (numFields.includes(field)) {
-        (copy[idx] as any)[field] = value === '' ? 0 : parseFloat(value) || 0;
-      } else {
-        (copy[idx] as any)[field] = value;
-      }
-      return copy;
-    });
-  };
-
-  const addLinea = () => setLineas((prev) => [...prev, { ...EMPTY_LINEA }]);
-
-  const removeLinea = (idx: number) => {
-    setLineas((prev) => {
-      if (prev.length <= 1) return [{ ...EMPTY_LINEA }];
-      return prev.filter((_, i) => i !== idx);
-    });
   };
 
   // ── Products modal ──
@@ -529,7 +475,7 @@ export default function FacturaDetalleScreen() {
     numero_factura_proveedor: tipo === 'IN' ? numFacturaProveedor : null,
     /** Al crear IN el servidor fija fecha/hora/usuario; al editar se reenvía el ISO para no perder la hora */
     ...(tipo === 'IN' && modo === 'editar' ? { fecha_contabilizacion: fechaContabilizacionIso || null } : {}),
-    lineas: lineas.map((l) => ({ ...l, ...calcularLinea(l) })),
+    lineas: lineasPayloadForApi(lineas),
     ...totales,
     usuario_id: user?.id_usuario,
     usuario_nombre: user?.Nombre,

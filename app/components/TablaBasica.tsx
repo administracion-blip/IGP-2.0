@@ -69,6 +69,13 @@ export type TablaBasicaProps<T = Record<string, unknown>> = {
   onCrear: () => void;
   onEditar: (item: T) => void;
   onBorrar: (item: T) => void;
+  /**
+   * Selección externa (p. ej. columna de checkboxes): si `borrarSeleccionExternaCount > 0` y se define
+   * `onBorrarSeleccionExterna`, el botón Borrar se habilita sin fila resaltada y al pulsar se llama a
+   * este callback en lugar de `onBorrar` (prioridad sobre borrar una sola fila).
+   */
+  borrarSeleccionExternaCount?: number;
+  onBorrarSeleccionExterna?: () => void;
   /** Deshabilitar botones mientras se guarda */
   guardando?: boolean;
   /** Mostrar botón Importar y callback */
@@ -129,6 +136,8 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     onCrear,
     onEditar,
     onBorrar,
+    borrarSeleccionExternaCount = 0,
+    onBorrarSeleccionExterna,
     guardando = false,
     showImport = false,
     onImportClick,
@@ -221,7 +230,8 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
   };
 
   const editDisabled = guardando || selectedRowIndex == null;
-  const deleteDisabled = guardando || selectedRowIndex == null;
+  const tieneBorradoExterno = borrarSeleccionExternaCount > 0 && typeof onBorrarSeleccionExterna === 'function';
+  const deleteDisabled = guardando || (selectedRowIndex == null && !tieneBorradoExterno);
 
   if (loading && datos.length === 0) {
     return (
@@ -279,16 +289,24 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
               <TouchableOpacity
                 style={[
                   styles.toolbarBtn,
-                  (btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null && styles.toolbarBtnDisabled,
+                  btn.id === 'editar' && selectedRowIndex == null && styles.toolbarBtnDisabled,
+                  btn.id === 'borrar' && deleteDisabled && styles.toolbarBtnDisabled,
                 ]}
                 onPress={() => {
                   if (btn.id === 'crear') onCrear();
                   if (btn.id === 'editar' && selectedRowIndex != null) onEditar(datos[selectedRowIndex]);
-                  if (btn.id === 'borrar' && selectedRowIndex != null) onBorrar(datos[selectedRowIndex]);
+                  if (btn.id === 'borrar') {
+                    if (tieneBorradoExterno) {
+                      onBorrarSeleccionExterna!();
+                    } else if (selectedRowIndex != null) {
+                      onBorrar(datos[selectedRowIndex]);
+                    }
+                  }
                 }}
                 disabled={
                   guardando ||
-                  ((btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null)
+                  (btn.id === 'editar' && selectedRowIndex == null) ||
+                  (btn.id === 'borrar' && deleteDisabled)
                 }
                 accessibilityLabel={btn.label}
               >

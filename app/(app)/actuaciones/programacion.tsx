@@ -161,6 +161,11 @@ export default function ProgramacionScreen() {
   const [modalEdit, setModalEdit] = useState(false);
   const [form, setForm] = useState<Partial<Actuacion>>({});
   const [saving, setSaving] = useState(false);
+  /** Confirmación in-app antes de desasociar factura (mismo patrón que otros modales de la pantalla). */
+  const [modalDesasocConfirmOpen, setModalDesasocConfirmOpen] = useState(false);
+  /** Borrar varias actuaciones marcadas en Sel (toolbar Borrar). */
+  const [modalBorrarMultipleOpen, setModalBorrarMultipleOpen] = useState(false);
+  const [borrando, setBorrando] = useState(false);
   /** Desplegable de artista en modal editar. */
   const [artistaEditDropdownOpen, setArtistaEditDropdownOpen] = useState(false);
   const [modalFirma, setModalFirma] = useState(false);
@@ -471,6 +476,59 @@ export default function ProgramacionScreen() {
     return true;
   }
 
+  /** Cuerpo PUT para quitar la vinculación con factura de gasto (misma forma que un hueco nuevo). */
+  const bodyDesasociarFactura = useCallback((): Record<string, unknown> => {
+    return {
+      id_factura_gasto: '',
+      pago_asociado_numero_factura: '',
+      pago_asociado_proveedor: '',
+      pago_asociado_fecha: '',
+      pago_asociado_importe: null,
+      pago_asociado_estado: '',
+      fecha_asociacion_pago: '',
+      usuario_asociacion_pago: '',
+      estado: 'pendiente',
+    };
+  }, []);
+
+  const actuacionTieneFacturaAsociada = useMemo(() => {
+    const idFac = String(form.id_factura_gasto ?? '').trim();
+    const st = String(form.estado ?? '').trim().toLowerCase();
+    return Boolean(idFac) || st === 'asociada';
+  }, [form.id_factura_gasto, form.estado]);
+
+  function abrirConfirmDesasociar() {
+    if (!form.id_actuacion) return;
+    setModalDesasocConfirmOpen(true);
+  }
+
+  function cerrarConfirmDesasociar() {
+    setModalDesasocConfirmOpen(false);
+  }
+
+  function confirmarDesasociarDesdeModal() {
+    setModalDesasocConfirmOpen(false);
+    void ejecutarDesasociarFactura();
+  }
+
+  async function ejecutarDesasociarFactura() {
+    if (!form.id_actuacion) return;
+    setSaving(true);
+    try {
+      const ok = await ejecutarPut(form.id_actuacion, bodyDesasociarFactura());
+      if (ok) {
+        showToast('Desasociado', 'La actuación ya no está vinculada a la factura.', 'success');
+        cerrarModalEdit();
+        setForm({});
+        fetchAll();
+      }
+    } catch (e: unknown) {
+      showToast('Error', e instanceof Error ? e.message : 'Error', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function guardarEdicion() {
     if (!form.id_actuacion) return;
     setSaving(true);
@@ -620,6 +678,7 @@ export default function ProgramacionScreen() {
   function cerrarModalEdit() {
     setArtistaEditDropdownOpen(false);
     setModalFirma(false);
+    setModalDesasocConfirmOpen(false);
     setModalEdit(false);
   }
 
@@ -668,9 +727,36 @@ export default function ProgramacionScreen() {
       if (!r.ok) throw new Error(d.error || 'Error');
       showToast('Eliminado', 'Actuación eliminada.', 'success');
       setSelectedRowIndex(null);
+      setSelectedIds(new Set());
       fetchAll();
     } catch (e: unknown) {
       showToast('Error', e instanceof Error ? e.message : 'Error', 'error');
+    }
+  }
+
+  async function confirmarBorrarMultiple() {
+    const ids = [...selectedIds];
+    if (ids.length === 0) {
+      setModalBorrarMultipleOpen(false);
+      return;
+    }
+    setBorrando(true);
+    try {
+      for (const id of ids) {
+        const r = await fetch(`${API_URL}/api/actuaciones/item/${id}`, { method: 'DELETE' });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || `Error al borrar actuación`);
+      }
+      const n = ids.length;
+      showToast('Eliminado', n === 1 ? 'Actuación eliminada.' : `${n} actuaciones eliminadas.`, 'success');
+      setModalBorrarMultipleOpen(false);
+      setSelectedRowIndex(null);
+      setSelectedIds(new Set());
+      fetchAll();
+    } catch (e: unknown) {
+      showToast('Error', e instanceof Error ? e.message : 'Error', 'error');
+    } finally {
+      setBorrando(false);
     }
   }
 
@@ -694,7 +780,9 @@ export default function ProgramacionScreen() {
         onCrear={abrirNuevosRegistros}
         onEditar={(item) => abrirEditar(item)}
         onBorrar={(item) => borrarActuacion(item)}
-        guardando={saving || generando}
+        borrarSeleccionExternaCount={selectedIds.size}
+        onBorrarSeleccionExterna={() => setModalBorrarMultipleOpen(true)}
+        guardando={saving || generando || borrando}
         emptyMessage="No hay actuaciones. Pulsa + para nuevos registros base."
         emptyFilterMessage="Ningún resultado con el filtro"
         defaultColWidth={88}
@@ -747,6 +835,21 @@ export default function ProgramacionScreen() {
             return (
               <Text style={[styles.cellMoney, v == null && styles.cellMuted]}>
                 {v != null ? formatMoneda(v) : '—'}
+              </Text>
+            );
+          }
+          if (col === 'Estado') {
+            const raw = (item.estado || '').trim();
+            if (raw.toLowerCase() === 'asociada') {
+              return (
+                <View style={styles.estadoBadgeAsociada} accessibilityRole="text" accessibilityLabel="Estado asociada">
+                  <Text style={styles.estadoBadgeAsociadaText}>Asociada</Text>
+                </View>
+              );
+            }
+            return (
+              <Text style={styles.cellSmall} numberOfLines={1}>
+                {raw || '—'}
               </Text>
             );
           }
@@ -1290,6 +1393,46 @@ export default function ProgramacionScreen() {
                 value={form.observaciones || ''}
                 onChangeText={(t) => setForm((f) => ({ ...f, observaciones: t }))}
               />
+              {actuacionTieneFacturaAsociada ? (
+                <View style={styles.desasocBox}>
+                  <View style={styles.desasocRow}>
+                    <View style={styles.desasocTextCol}>
+                      <Text style={styles.desasocTitle}>Factura de gasto asociada</Text>
+                      {form.pago_asociado_numero_factura?.trim() ? (
+                        <Text style={styles.desasocLine} numberOfLines={2}>
+                          Nº: {form.pago_asociado_numero_factura}
+                          {form.pago_asociado_proveedor?.trim() ? ` · ${form.pago_asociado_proveedor}` : ''}
+                        </Text>
+                      ) : (
+                        <Text style={styles.desasocLine} numberOfLines={1}>
+                          Nº: —
+                        </Text>
+                      )}
+                      {form.id_factura_gasto?.trim() ? (
+                        <Text style={styles.desasocMeta} numberOfLines={1}>
+                          ID factura: {String(form.id_factura_gasto).slice(0, 12)}
+                          {String(form.id_factura_gasto).length > 12 ? '…' : ''}
+                        </Text>
+                      ) : (
+                        <Text style={styles.desasocMeta} numberOfLines={1}>
+                          ID factura: —
+                        </Text>
+                      )}
+                    </View>
+                    <TouchableOpacity
+                      style={[styles.desasocBtn, saving && styles.desasocBtnDis]}
+                      onPress={abrirConfirmDesasociar}
+                      disabled={saving}
+                      activeOpacity={0.85}
+                    >
+                      <MaterialIcons name="link-off" size={16} color="#b45309" />
+                      <Text style={styles.desasocBtnText} numberOfLines={2}>
+                        Desasociar factura
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
               {mostrarSeccionFirma ? (
                 <>
                   <View style={styles.firmaRow}>
@@ -1333,6 +1476,77 @@ export default function ProgramacionScreen() {
             </ScrollView>
           </View>
         </View>
+      </Modal>
+
+      <Modal
+        visible={modalDesasocConfirmOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={cerrarConfirmDesasociar}
+      >
+        <Pressable style={styles.desasocConfirmOverlay} onPress={cerrarConfirmDesasociar}>
+          <Pressable style={styles.desasocConfirmCard} onPress={(e) => e.stopPropagation()}>
+            <MaterialIcons name="link-off" size={36} color="#d97706" style={{ alignSelf: 'center' }} />
+            <Text style={styles.desasocConfirmTitle}>Desasociar factura</Text>
+            <Text style={styles.desasocConfirmText}>
+              Se quitará la vinculación con la factura de gasto. El estado de la actuación pasará a{' '}
+              <Text style={{ fontWeight: '700' }}>pendiente</Text>.
+            </Text>
+            <View style={styles.desasocConfirmBtns}>
+              <TouchableOpacity style={styles.cbCancel} onPress={cerrarConfirmDesasociar} disabled={saving}>
+                <Text style={styles.cbCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.desasocConfirmBtnOk}
+                onPress={confirmarDesasociarDesdeModal}
+                disabled={saving}
+              >
+                <Text style={styles.desasocConfirmBtnOkText}>Desasociar</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={modalBorrarMultipleOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !borrando && setModalBorrarMultipleOpen(false)}
+      >
+        <Pressable style={styles.desasocConfirmOverlay} onPress={() => !borrando && setModalBorrarMultipleOpen(false)}>
+          <Pressable style={styles.desasocConfirmCard} onPress={(e) => e.stopPropagation()}>
+            <MaterialIcons name="delete-outline" size={36} color="#dc2626" style={{ alignSelf: 'center' }} />
+            <Text style={styles.desasocConfirmTitle}>Eliminar actuaciones</Text>
+            <Text style={styles.desasocConfirmText}>
+              Se eliminarán{' '}
+              <Text style={{ fontWeight: '700' }}>
+                {selectedIds.size} {selectedIds.size === 1 ? 'actuación' : 'actuaciones'}
+              </Text>{' '}
+              seleccionada{selectedIds.size === 1 ? '' : 's'} en la columna Sel. Esta acción no se puede deshacer.
+            </Text>
+            <View style={styles.desasocConfirmBtns}>
+              <TouchableOpacity
+                style={styles.cbCancel}
+                onPress={() => setModalBorrarMultipleOpen(false)}
+                disabled={borrando}
+              >
+                <Text style={styles.cbCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.borrarMultiConfirmBtnOk}
+                onPress={() => void confirmarBorrarMultiple()}
+                disabled={borrando}
+              >
+                {borrando ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.borrarMultiConfirmBtnOkText}>Eliminar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <Modal visible={conflictoOpen} transparent animationType="fade" onRequestClose={() => setConflictoOpen(false)}>
@@ -1514,6 +1728,22 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   huecoBadgeText: { fontSize: 8, fontWeight: '700', color: '#9a3412', lineHeight: 11 },
+  /** Estado «asociada» en planificación */
+  estadoBadgeAsociada: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#d1fae5',
+    paddingHorizontal: 7.5,
+    paddingVertical: 3.5,
+    borderRadius: 7.5,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#a7f3d0',
+  },
+  estadoBadgeAsociadaText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#166534',
+    letterSpacing: 0.14,
+  },
   editArtistaDropdownWrap: { marginBottom: 4, zIndex: 30, position: 'relative' },
   editDropdownTrigger: {
     flexDirection: 'row',
@@ -1796,6 +2026,96 @@ const styles = StyleSheet.create({
   asocCompareWarn: { color: '#c2410c' },
   asocCompareHint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', marginTop: 4 },
   localReadonly: { fontSize: 14, color: '#64748b', paddingVertical: 8 },
+  desasocBox: {
+    marginTop: 8,
+    marginBottom: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    backgroundColor: '#fffbeb',
+  },
+  desasocRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  desasocTextCol: { flex: 1, minWidth: 0 },
+  desasocTitle: { fontSize: 12, fontWeight: '700', color: '#92400e', marginBottom: 4 },
+  desasocLine: { fontSize: 13, color: '#78350f', marginBottom: 2 },
+  desasocMeta: { fontSize: 11, color: '#a16207' },
+  desasocBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    maxWidth: 132,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#fbbf24',
+    backgroundColor: '#fff7ed',
+  },
+  desasocBtnDis: { opacity: 0.55 },
+  desasocBtnText: { fontSize: 11, fontWeight: '700', color: '#b45309', flexShrink: 1 },
+  desasocConfirmOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    padding: 20,
+  },
+  desasocConfirmCard: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 20,
+  },
+  desasocConfirmTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#334155',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  desasocConfirmText: {
+    fontSize: 14,
+    color: '#64748b',
+    textAlign: 'center',
+    marginTop: 10,
+    lineHeight: 20,
+  },
+  desasocConfirmBtns: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 20,
+    flexWrap: 'wrap',
+  },
+  desasocConfirmBtnOk: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: '#d97706',
+    borderWidth: 1,
+    borderColor: '#d97706',
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  desasocConfirmBtnOkText: { fontSize: 14, color: '#fff', fontWeight: '700' },
+  borrarMultiConfirmBtnOk: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: '#dc2626',
+    borderWidth: 1,
+    borderColor: '#b91c1c',
+    minWidth: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 40,
+  },
+  borrarMultiConfirmBtnOkText: { fontSize: 14, color: '#fff', fontWeight: '700' },
   conflictoCard: {
     width: '100%',
     maxWidth: 440,

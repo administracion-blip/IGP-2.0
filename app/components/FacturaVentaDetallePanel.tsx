@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,27 +16,18 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import {
   calcularLinea,
-  calcularTotales,
   formatMoneda,
   CONDICIONES_PAGO,
   FORMAS_PAGO,
   labelFormaPago,
-  type LineaFactura,
   type Factura,
 } from '../utils/facturacion';
+import { dmyToIso, hydrateLineasDesdeFactura, isoToDmy, lineasPayloadForApi } from '../utils/facturaFormLogic';
+import { useFacturaFormLogic } from '../hooks/useFacturaFormLogic';
 import { ResumenTotales } from './ResumenTotales';
 import { InputFecha } from './InputFecha';
 import { textoFechaContabilizacionGasto } from '../utils/formatFecha';
 import { BadgeEstado } from './BadgeEstado';
-
-const EMPTY_LINEA: LineaFactura = {
-  descripcion: '',
-  cantidad: 1,
-  precio_unitario: 0,
-  descuento_pct: 0,
-  tipo_iva: 21,
-  retencion_pct: 0,
-};
 
 /** Anchos fijos por columna (cabecera + filas en el mismo ScrollView) — sin flexGrow para que coincidan con los inputs */
 const LINEA_W_IDX = 22;
@@ -45,19 +36,6 @@ const LINEA_W_CONCEPTO = 200;
 const LINEA_W_NUM = 50;
 const LINEA_W_NUM_SM = 42;
 const LINEA_W_TOTALES = 120;
-
-function isoToDmy(iso: string): string {
-  if (!iso || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return '';
-  const [y, m, d] = iso.substring(0, 10).split('-');
-  return `${d}/${m}/${y}`;
-}
-
-function dmyToIso(dmy: string): string {
-  if (!dmy) return '';
-  const m = dmy.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
-  return dmy;
-}
 
 type AdjuntoItem = {
   id: string;
@@ -116,13 +94,32 @@ export function FacturaVentaDetallePanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const facturaForm = useFacturaFormLogic({
+    modo: 'editar',
+    loading,
+    initialFechaEmision: '',
+  });
+  const {
+    fechaEmision,
+    setFechaEmision,
+    fechaVencimiento,
+    setFechaVencimiento,
+    condicionesPago,
+    setCondicionesPago,
+    formaPago,
+    setFormaPago,
+    lineas,
+    setLineas,
+    totales,
+    updateLinea,
+    addLinea,
+    removeLinea,
+    markHydrationFromApi,
+  } = facturaForm;
+
   const [estado, setEstado] = useState('');
   const [numeroFactura, setNumeroFactura] = useState('');
   const [serie, setSerie] = useState('');
-  const [fechaEmision, setFechaEmision] = useState('');
-  const [fechaVencimiento, setFechaVencimiento] = useState('');
-  const [condicionesPago, setCondicionesPago] = useState('contado');
-  const [formaPago, setFormaPago] = useState('transferencia');
   const [observaciones, setObservaciones] = useState('');
   const [emisorId, setEmisorId] = useState('');
   const [emisorNombre, setEmisorNombre] = useState('');
@@ -134,7 +131,6 @@ export function FacturaVentaDetallePanel({
   const [fechaContabilizacionIso, setFechaContabilizacionIso] = useState('');
   const [contabilizadoPor, setContabilizadoPor] = useState('');
   const [creadoEn, setCreadoEn] = useState('');
-  const [lineas, setLineas] = useState<LineaFactura[]>([{ ...EMPTY_LINEA }]);
   const [version, setVersion] = useState(1);
   const [adjuntos, setAdjuntos] = useState<AdjuntoItem[]>([]);
   const [adjuntosLoading, setAdjuntosLoading] = useState(false);
@@ -168,8 +164,6 @@ export function FacturaVentaDetallePanel({
 
   const esEditable = puedeEditar && (estado === 'borrador' || estado === 'pendiente_revision');
 
-  const totales = useMemo(() => calcularTotales(lineas), [lineas]);
-
   useEffect(() => {
     if (!apiUrl) return;
     fetch(`${apiUrl}/api/empresas`)
@@ -200,6 +194,7 @@ export function FacturaVentaDetallePanel({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'No se pudo cargar');
       const f = (data.factura ?? data) as FacturaApi;
+      markHydrationFromApi();
       setEstado(f.estado ?? '');
       setNumeroFactura(f.numero_factura ?? '');
       setSerie(f.serie ?? '');
@@ -236,8 +231,7 @@ export function FacturaVentaDetallePanel({
       setContabilizadoPor(String(f.contabilizado_por ?? '').trim());
       setCreadoEn(String(f.creado_en ?? '').trim());
       setVersion(f.version ?? 1);
-      const ls: LineaFactura[] = data.lineas ?? [];
-      setLineas(ls.length > 0 ? ls : [{ ...EMPTY_LINEA }]);
+      setLineas(hydrateLineasDesdeFactura(f, data.lineas));
 
       fetch(`${apiUrl}/api/facturacion/facturas/${facturaId}/adjuntos`)
         .then((r) => r.json())
@@ -251,7 +245,7 @@ export function FacturaVentaDetallePanel({
     } finally {
       setLoading(false);
     }
-  }, [apiUrl, facturaId]);
+  }, [apiUrl, facturaId, markHydrationFromApi]);
 
   useEffect(() => {
     if (!facturaId) {
@@ -359,28 +353,6 @@ export function FacturaVentaDetallePanel({
     verifactuHash,
   ]);
 
-  const updateLinea = (idx: number, field: keyof LineaFactura, value: string) => {
-    setLineas((prev) => {
-      const copy = [...prev];
-      const numFields: (keyof LineaFactura)[] = ['cantidad', 'precio_unitario', 'descuento_pct', 'tipo_iva', 'retencion_pct'];
-      if (numFields.includes(field)) {
-        (copy[idx] as Record<string, unknown>)[field] = value === '' ? 0 : parseFloat(value.replace(',', '.')) || 0;
-      } else {
-        (copy[idx] as Record<string, unknown>)[field] = value;
-      }
-      return copy;
-    });
-  };
-
-  const addLinea = () => setLineas((prev) => [...prev, { ...EMPTY_LINEA }]);
-
-  const removeLinea = (idx: number) => {
-    setLineas((prev) => {
-      if (prev.length <= 1) return [{ ...EMPTY_LINEA }];
-      return prev.filter((_, i) => i !== idx);
-    });
-  };
-
   const guardar = async () => {
     if (!facturaId || !esEditable) return;
     if (!empresaNombre.trim()) {
@@ -390,8 +362,8 @@ export function FacturaVentaDetallePanel({
     setSaving(true);
     setError(null);
     try {
-      const lineasPayload = lineas.map((l) => ({ ...l, ...calcularLinea(l) }));
-      const t = calcularTotales(lineas);
+      const lineasPayload = lineasPayloadForApi(lineas);
+      const t = totales;
       const body: Record<string, unknown> = {
         tipo: tipoFactura,
         serie,

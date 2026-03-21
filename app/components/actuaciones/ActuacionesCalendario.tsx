@@ -1,17 +1,19 @@
 /**
- * Calendario de actuaciones: vista mes o semana (lunes inicio).
+ * Calendario de actuaciones: vista mes, semana (lunes inicio) o día (agenda del día).
  * En web: tooltip al pasar el ratón sobre un día con detalle de actuaciones.
  */
-import React, { useMemo, useState, useCallback, useRef } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, Image } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { formatFecha } from '../../utils/formatFecha';
 import { formatMoneda } from '../../utils/facturacion';
+import { API_BASE_URL } from '../../utils/apiBaseUrl';
 
 export type ActuacionCalItem = {
   id_actuacion: string;
   fecha: string;
   hora_inicio?: string;
+  id_artista?: string;
   id_local?: string;
   local_nombre_snapshot?: string;
   artista_nombre_snapshot?: string;
@@ -148,11 +150,15 @@ type Props = {
 
 export function ActuacionesCalendario({ actuaciones }: Props) {
   const hoy = useMemo(() => new Date(), []);
-  const [vista, setVista] = useState<'mes' | 'semana'>('mes');
+  const [vista, setVista] = useState<'mes' | 'semana' | 'dia'>('mes');
   const [mesY, setMesY] = useState(() => hoy.getFullYear());
   const [mesM, setMesM] = useState(() => hoy.getMonth());
   const [semanaInicio, setSemanaInicio] = useState(() => inicioSemanaLunes(hoy));
+  /** Día mostrado en vista «Día» (medianoche local). */
+  const [diaVista, setDiaVista] = useState(() => new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()));
   const [dayTooltip, setDayTooltip] = useState<TooltipState | null>(null);
+  /** Cache id_artista → URL prefirmada o null (sin imagen); solo vista día. */
+  const [artistaImagenUrl, setArtistaImagenUrl] = useState<Record<string, string | null>>({});
 
   const porFecha = useMemo(() => {
     const m = new Map<string, ActuacionCalItem[]>();
@@ -206,6 +212,58 @@ export function ActuacionesCalendario({ actuaciones }: Props) {
 
   const tituloMes = `${String(mesM + 1).padStart(2, '0')}/${mesY}`;
   const tituloSemana = `${formatFecha(padIso(semanaDias[0]))} – ${formatFecha(padIso(semanaDias[6]))}`;
+  const tituloDia = useMemo(() => {
+    const s = diaVista.toLocaleDateString('es-ES', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+  }, [diaVista]);
+
+  const isoDiaVista = useMemo(() => padIso(diaVista), [diaVista]);
+  const actuacionesDiaOrdenadas = useMemo(() => {
+    const list = porFecha.get(isoDiaVista) ?? [];
+    return ordenarPorHoraAsc(list);
+  }, [porFecha, isoDiaVista]);
+  const totalDiaVista = useMemo(() => sumaImportesDia(actuacionesDiaOrdenadas), [actuacionesDiaOrdenadas]);
+
+  const gruposDiaPorLocal = useMemo(
+    () => agruparActuacionesTooltipPorLocal(actuacionesDiaOrdenadas),
+    [actuacionesDiaOrdenadas],
+  );
+
+  useEffect(() => {
+    if (vista !== 'dia') return;
+    const ids = [
+      ...new Set(
+        actuacionesDiaOrdenadas.map((a) => String(a.id_artista || '').trim()).filter(Boolean),
+      ),
+    ];
+    if (ids.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const updates: Record<string, string | null> = {};
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const r = await fetch(`${API_BASE_URL}/api/artistas/${encodeURIComponent(id)}/imagen-url`);
+            const d = (await r.json()) as { url?: string | null };
+            updates[id] = d.url && typeof d.url === 'string' ? d.url : null;
+          } catch {
+            updates[id] = null;
+          }
+        }),
+      );
+      if (!cancelled) {
+        setArtistaImagenUrl((prev) => ({ ...prev, ...updates }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [vista, isoDiaVista, actuacionesDiaOrdenadas]);
 
   const tooltipTotalDia = useMemo(
     () => (dayTooltip ? sumaImportesDia(dayTooltip.items) : null),
@@ -234,12 +292,19 @@ export function ActuacionesCalendario({ actuaciones }: Props) {
   const prevSemana = useCallback(() => setSemanaInicio((s) => addDays(s, -7)), []);
   const nextSemana = useCallback(() => setSemanaInicio((s) => addDays(s, 7)), []);
 
+  const prevDia = useCallback(() => setDiaVista((d) => addDays(d, -1)), []);
+  const nextDia = useCallback(() => setDiaVista((d) => addDays(d, 1)), []);
+
   const irHoyMes = useCallback(() => {
     setMesY(hoy.getFullYear());
     setMesM(hoy.getMonth());
   }, [hoy]);
 
   const irHoySemana = useCallback(() => setSemanaInicio(inicioSemanaLunes(hoy)), [hoy]);
+
+  const irHoyDia = useCallback(() => {
+    setDiaVista(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()));
+  }, [hoy]);
 
   return (
     <View style={styles.root}>
@@ -250,23 +315,34 @@ export function ActuacionesCalendario({ actuaciones }: Props) {
         <TouchableOpacity style={[styles.modeBtn, vista === 'semana' && styles.modeBtnOn]} onPress={() => setVista('semana')}>
           <Text style={[styles.modeBtnText, vista === 'semana' && styles.modeBtnTextOn]}>Semana</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={[styles.modeBtn, vista === 'dia' && styles.modeBtnOn]} onPress={() => setVista('dia')}>
+          <Text style={[styles.modeBtnText, vista === 'dia' && styles.modeBtnTextOn]}>Día</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.navRow}>
-        <TouchableOpacity onPress={vista === 'mes' ? prevMes : prevSemana} hitSlop={8} style={styles.navIconBtn}>
+        <TouchableOpacity
+          onPress={vista === 'mes' ? prevMes : vista === 'semana' ? prevSemana : prevDia}
+          hitSlop={8}
+          style={styles.navIconBtn}
+        >
           <MaterialIcons name="chevron-left" size={22} color="#0ea5e9" />
         </TouchableOpacity>
-        <Text style={styles.navTitle} numberOfLines={1}>
-          {vista === 'mes' ? tituloMes : tituloSemana}
+        <Text style={[styles.navTitle, vista === 'dia' && styles.navTitleDia]} numberOfLines={vista === 'dia' ? 2 : 1}>
+          {vista === 'mes' ? tituloMes : vista === 'semana' ? tituloSemana : tituloDia}
         </Text>
-        <TouchableOpacity onPress={vista === 'mes' ? nextMes : nextSemana} hitSlop={8} style={styles.navIconBtn}>
+        <TouchableOpacity
+          onPress={vista === 'mes' ? nextMes : vista === 'semana' ? nextSemana : nextDia}
+          hitSlop={8}
+          style={styles.navIconBtn}
+        >
           <MaterialIcons name="chevron-right" size={22} color="#0ea5e9" />
         </TouchableOpacity>
       </View>
 
       <TouchableOpacity
         style={styles.hoyLink}
-        onPress={vista === 'mes' ? irHoyMes : irHoySemana}
+        onPress={vista === 'mes' ? irHoyMes : vista === 'semana' ? irHoySemana : irHoyDia}
         activeOpacity={0.7}
       >
         <Text style={styles.hoyLinkText}>Hoy</Text>
@@ -307,7 +383,7 @@ export function ActuacionesCalendario({ actuaciones }: Props) {
             </View>
           ))}
         </ScrollView>
-      ) : (
+      ) : vista === 'semana' ? (
         <ScrollView
           style={styles.semanaScroll}
           nestedScrollEnabled
@@ -338,6 +414,80 @@ export function ActuacionesCalendario({ actuaciones }: Props) {
                 );
               })}
             </View>
+          </View>
+        </ScrollView>
+      ) : (
+        <ScrollView style={styles.diaScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+          <View
+            style={[
+              styles.diaBloque,
+              diaVista.getFullYear() === hoy.getFullYear() &&
+                diaVista.getMonth() === hoy.getMonth() &&
+                diaVista.getDate() === hoy.getDate() &&
+                styles.diaBloqueHoy,
+            ]}
+          >
+            <View style={styles.diaBloqueResumen}>
+              <Text style={styles.diaBloqueResumenLbl}>Total del día</Text>
+              {totalDiaVista != null ? (
+                <Text style={styles.diaBloqueResumenVal}>{formatMoneda(totalDiaVista)}</Text>
+              ) : (
+                <Text style={styles.diaBloqueResumenVac}>—</Text>
+              )}
+            </View>
+            {actuacionesDiaOrdenadas.length === 0 ? (
+              <Text style={styles.diaVacio}>Sin actuaciones este día.</Text>
+            ) : (
+              gruposDiaPorLocal.map((grp, gIdx) => (
+                <View key={grp.key} style={gIdx > 0 ? styles.diaGrupoSep : undefined}>
+                  <View style={styles.diaGrupoHeader}>
+                    <MaterialIcons name="place" size={14} color="#0369a1" />
+                    <Text style={styles.diaGrupoNombre} numberOfLines={1}>
+                      {grp.nombre}
+                    </Text>
+                    {grp.sumaLocal != null ? (
+                      <Text style={styles.diaGrupoSuma}>{formatMoneda(grp.sumaLocal)}</Text>
+                    ) : (
+                      <Text style={styles.diaGrupoSumaMuted}>—</Text>
+                    )}
+                  </View>
+                  {grp.items.map((a) => {
+                    const idArt = String(a.id_artista || '').trim();
+                    const imgUrl = idArt ? artistaImagenUrl[idArt] : null;
+                    return (
+                      <View key={a.id_actuacion} style={styles.diaFilaLinea}>
+                        <Text style={styles.diaFilaHora}>{a.hora_inicio?.trim() || '—'}</Text>
+                        <View style={styles.diaThumbWrap}>
+                          {typeof imgUrl === 'string' && imgUrl.length > 0 ? (
+                            <Image
+                              source={{ uri: imgUrl }}
+                              style={styles.diaThumb}
+                              resizeMode="cover"
+                              accessibilityLabel="Foto artista"
+                            />
+                          ) : (
+                            <View style={styles.diaThumbPlaceholder}>
+                              <MaterialIcons name="person" size={18} color="#94a3b8" />
+                            </View>
+                          )}
+                        </View>
+                        <Text style={styles.diaFilaNombre} numberOfLines={1}>
+                          {a.artista_nombre_snapshot?.trim() || '(hueco)'}
+                        </Text>
+                        <View style={styles.diaBadgeCol}>
+                          {a.estado?.toLowerCase() === 'asociada' ? (
+                            <View style={styles.diaBadgeAsoc}>
+                              <Text style={styles.diaBadgeAsocTxt}>Asociada</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                        <Text style={styles.diaFilaImporte}>{precioActuacion(a)}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              ))
+            )}
           </View>
         </ScrollView>
       )}
@@ -509,7 +659,7 @@ function SemanaDiaColumna({ d, iso, list, esHoy, isLast, onShowTooltip, onHideTo
 
 const styles = StyleSheet.create({
   root: { flex: 1, minHeight: 200 },
-  modeRow: { flexDirection: 'row', gap: 6, marginBottom: 8 },
+  modeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
   modeBtn: {
     paddingVertical: 6,
     paddingHorizontal: 12,
@@ -529,6 +679,7 @@ const styles = StyleSheet.create({
   },
   navIconBtn: { padding: 4 },
   navTitle: { flex: 1, textAlign: 'center', fontSize: 13, fontWeight: '700', color: '#334155' },
+  navTitleDia: { fontSize: 12, lineHeight: 16 },
   hoyLink: { alignSelf: 'center', marginBottom: 8 },
   hoyLinkText: { fontSize: 11, color: '#0ea5e9', fontWeight: '600' },
   mesScroll: { flex: 1, maxHeight: Platform.OS === 'web' ? 480 : undefined },
@@ -674,4 +825,77 @@ const styles = StyleSheet.create({
   semanaDiaTotal: { fontSize: 8, fontWeight: '700', color: '#0ea5e9', textAlign: 'center' },
   semanaVacio: { fontSize: 11, color: '#cbd5e1', textAlign: 'center' },
   semanaLocalLine: { fontSize: 8, color: '#475569', marginBottom: 3, lineHeight: 11 },
+  diaScroll: { flex: 1, maxHeight: Platform.OS === 'web' ? 480 : undefined },
+  diaBloque: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    padding: 10,
+    overflow: 'hidden',
+  },
+  diaBloqueHoy: { borderColor: '#0ea5e9', backgroundColor: '#f8fafc' },
+  diaBloqueResumen: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    paddingBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e2e8f0',
+  },
+  diaBloqueResumenLbl: { fontSize: 11, fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4 },
+  diaBloqueResumenVal: { fontSize: 15, fontWeight: '700', color: '#0ea5e9' },
+  diaBloqueResumenVac: { fontSize: 14, color: '#cbd5e1', fontWeight: '600' },
+  diaVacio: { fontSize: 13, color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', paddingVertical: 16 },
+  diaGrupoSep: { marginTop: 12, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#e2e8f0' },
+  diaGrupoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+  diaGrupoNombre: { flex: 1, fontSize: 12, fontWeight: '800', color: '#0369a1', textTransform: 'uppercase', letterSpacing: 0.3 },
+  diaGrupoSuma: { fontSize: 12, fontWeight: '700', color: '#0ea5e9' },
+  diaGrupoSumaMuted: { fontSize: 12, color: '#94a3b8' },
+  diaFilaLinea: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f1f5f9',
+  },
+  diaFilaHora: {
+    width: 42,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0369a1',
+  },
+  diaThumbWrap: { width: 30, height: 30, flexShrink: 0 },
+  diaThumb: { width: 30, height: 30, borderRadius: 6, backgroundColor: '#f1f5f9' },
+  diaThumbPlaceholder: {
+    width: 30,
+    height: 30,
+    borderRadius: 6,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  diaFilaNombre: { flex: 1, fontSize: 12, fontWeight: '600', color: '#334155', minWidth: 0 },
+  diaBadgeCol: { width: 76, alignItems: 'flex-end', justifyContent: 'center', flexShrink: 0 },
+  diaFilaImporte: { width: 72, fontSize: 12, fontWeight: '700', color: '#0f172a', textAlign: 'right', flexShrink: 0 },
+  diaBadgeAsoc: {
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: '#d1fae5',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#a7f3d0',
+  },
+  diaBadgeAsocTxt: { fontSize: 8, fontWeight: '700', color: '#166534' },
 });
