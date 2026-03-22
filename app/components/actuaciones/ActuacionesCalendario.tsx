@@ -8,6 +8,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { formatFecha } from '../../utils/formatFecha';
 import { formatMoneda } from '../../utils/facturacion';
 import { API_BASE_URL } from '../../utils/apiBaseUrl';
+import { fechaComparacionParaObjetivo, type FestivoGestionRow } from '../../utils/objetivosComparativa';
 
 export type ActuacionCalItem = {
   id_actuacion: string;
@@ -24,6 +25,30 @@ export type ActuacionCalItem = {
 
 const DIAS_SEMANA = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
 const IS_WEB = Platform.OS === 'web';
+
+/** En web, montar el tooltip en document.body para que quede por encima de la toolbar del panel (z-index TablaBasica). */
+function portalTooltipToBody(children: React.ReactNode): React.ReactNode {
+  if (Platform.OS !== 'web' || typeof document === 'undefined') return children;
+  const { createPortal } = require('react-dom') as typeof import('react-dom');
+  return createPortal(children, document.body);
+}
+
+/** Sobre TotalFacturadoComparativa bruta para referencia neta (aprox. −10% impuestos). */
+const FACTOR_NETO_COMPARATIVA = 0.9;
+
+/**
+ * % que la suma de actuaciones (importes del local ese día) representa sobre la comparativa neta (comp × 0,9).
+ */
+function pctActuacionesSobreComparativaNeto(
+  totalFacturadoComparativa: number | null | undefined,
+  sumaLocal: number | null,
+): number | null {
+  if (sumaLocal == null || Number.isNaN(sumaLocal)) return null;
+  if (totalFacturadoComparativa == null || Number.isNaN(Number(totalFacturadoComparativa))) return null;
+  const refNeto = Number(totalFacturadoComparativa) * FACTOR_NETO_COMPARATIVA;
+  if (refNeto <= 0) return null;
+  return (sumaLocal / refNeto) * 100;
+}
 
 function padIso(d: Date): string {
   const y = d.getFullYear();
@@ -144,11 +169,15 @@ type TooltipState = {
   items: ActuacionCalItem[];
 };
 
+/** id_Locales + agoraCode (Agora workplace) para TotalFacturadoComparativa en vista día. */
+export type LocalAgoraLookup = { id_Locales: string; agoraCode?: string; AgoraCode?: string };
+
 type Props = {
   actuaciones: ActuacionCalItem[];
+  locales?: LocalAgoraLookup[];
 };
 
-export function ActuacionesCalendario({ actuaciones }: Props) {
+export function ActuacionesCalendario({ actuaciones, locales }: Props) {
   const hoy = useMemo(() => new Date(), []);
   const [vista, setVista] = useState<'mes' | 'semana' | 'dia'>('mes');
   const [mesY, setMesY] = useState(() => hoy.getFullYear());
@@ -159,6 +188,10 @@ export function ActuacionesCalendario({ actuaciones }: Props) {
   const [dayTooltip, setDayTooltip] = useState<TooltipState | null>(null);
   /** Cache id_artista → URL prefirmada o null (sin imagen); solo vista día. */
   const [artistaImagenUrl, setArtistaImagenUrl] = useState<Record<string, string | null>>({});
+  /** TotalFacturadoComparativa (Agora) por id de local, vista día; misma lógica que Objetivos. */
+  const [totalFacturadoComparativaPorLocal, setTotalFacturadoComparativaPorLocal] = useState<
+    Record<string, number | null>
+  >({});
 
   const porFecha = useMemo(() => {
     const m = new Map<string, ActuacionCalItem[]>();
@@ -233,6 +266,78 @@ export function ActuacionesCalendario({ actuaciones }: Props) {
     () => agruparActuacionesTooltipPorLocal(actuacionesDiaOrdenadas),
     [actuacionesDiaOrdenadas],
   );
+
+  const agoraPorLocalId = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const l of locales ?? []) {
+      const id = String(l.id_Locales || '').trim();
+      const code = String(l.agoraCode ?? l.AgoraCode ?? '').trim();
+      if (id && code) m[id] = code;
+    }
+    return m;
+  }, [locales]);
+
+  const gruposDiaKeysSig = useMemo(
+    () => gruposDiaPorLocal.map((g) => g.key).sort().join('|'),
+    [gruposDiaPorLocal],
+  );
+
+  useEffect(() => {
+    if (vista !== 'dia') {
+      setTotalFacturadoComparativaPorLocal({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const grupos = gruposDiaPorLocal;
+      if (grupos.length === 0) {
+        if (!cancelled) setTotalFacturadoComparativaPorLocal({});
+        return;
+      }
+      let festivosByFecha: Record<string, FestivoGestionRow> = {};
+      try {
+        const fr = await fetch(`${API_BASE_URL}/api/gestion-festivos`);
+        const fd = await fr.json();
+        const list = Array.isArray(fd.registros) ? fd.registros : [];
+        festivosByFecha = Object.fromEntries(
+          list
+            .filter((f: FestivoGestionRow) => f.PK || f.FechaComparativa)
+            .map((f: FestivoGestionRow) => [String(f.PK ?? f.FechaComparativa ?? '').slice(0, 10), f]),
+        );
+      } catch {
+        festivosByFecha = {};
+      }
+      const fechaComp = fechaComparacionParaObjetivo(isoDiaVista, festivosByFecha);
+      const out: Record<string, number | null> = {};
+      const tasks = grupos.map(async (g) => {
+        if (g.key === '__sin__') {
+          out[g.key] = null;
+          return;
+        }
+        const workplaceId = agoraPorLocalId[g.key];
+        if (!workplaceId) {
+          out[g.key] = null;
+          return;
+        }
+        try {
+          const url = `${API_BASE_URL}/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${fechaComp}&dateTo=${fechaComp}`;
+          const r = await fetch(url);
+          const d = (await r.json()) as { totals?: Record<string, number> };
+          const totals = d.totals ?? {};
+          const raw = totals[fechaComp];
+          if (raw == null || Number.isNaN(Number(raw))) out[g.key] = null;
+          else out[g.key] = Number(raw);
+        } catch {
+          out[g.key] = null;
+        }
+      });
+      await Promise.all(tasks);
+      if (!cancelled) setTotalFacturadoComparativaPorLocal(out);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [vista, isoDiaVista, gruposDiaKeysSig, agoraPorLocalId, gruposDiaPorLocal]);
 
   useEffect(() => {
     if (vista !== 'dia') return;
@@ -445,6 +550,35 @@ export function ActuacionesCalendario({ actuaciones }: Props) {
                     <Text style={styles.diaGrupoNombre} numberOfLines={1}>
                       {grp.nombre}
                     </Text>
+                    {totalFacturadoComparativaPorLocal[grp.key] != null &&
+                    !Number.isNaN(Number(totalFacturadoComparativaPorLocal[grp.key])) ? (
+                      <Text style={styles.diaGrupoCompObj} numberOfLines={1}>
+                        {formatMoneda(Number(totalFacturadoComparativaPorLocal[grp.key]))}
+                      </Text>
+                    ) : (
+                      <Text style={styles.diaGrupoCompObjMuted} numberOfLines={1}>
+                        —
+                      </Text>
+                    )}
+                    {(() => {
+                      const comp = totalFacturadoComparativaPorLocal[grp.key];
+                      const pct = pctActuacionesSobreComparativaNeto(comp, grp.sumaLocal);
+                      if (pct != null && !Number.isNaN(pct)) {
+                        return (
+                          <View
+                            style={styles.diaGrupoPctBadge}
+                            accessibilityLabel={`Actuaciones sobre comparativa neta: ${pct.toFixed(1)} por ciento`}
+                          >
+                            <Text style={styles.diaGrupoPctBadgeText}>{pct.toFixed(1)}%</Text>
+                          </View>
+                        );
+                      }
+                      return (
+                        <View style={styles.diaGrupoPctBadgeMuted}>
+                          <Text style={styles.diaGrupoPctBadgeTextMuted}>—</Text>
+                        </View>
+                      );
+                    })()}
                     {grp.sumaLocal != null ? (
                       <Text style={styles.diaGrupoSuma}>{formatMoneda(grp.sumaLocal)}</Text>
                     ) : (
@@ -492,64 +626,66 @@ export function ActuacionesCalendario({ actuaciones }: Props) {
         </ScrollView>
       )}
 
-      {IS_WEB && dayTooltip ? (
-        <View style={styles.tooltipOverlay} pointerEvents="none">
-          <View style={styles.tooltipCard}>
-            <View style={styles.tooltipTituloRow}>
-              <Text style={styles.tooltipTitulo}>{formatFecha(dayTooltip.iso)}</Text>
-              {tooltipTotalDia != null ? (
-                <Text style={styles.tooltipTituloTotal}>{formatMoneda(tooltipTotalDia)}</Text>
-              ) : null}
-            </View>
-            <View style={styles.tooltipTableHead}>
-              <Text style={[styles.tooltipTh, styles.tooltipColHora]}>Hora</Text>
-              <Text style={[styles.tooltipTh, styles.tooltipColArtGrupo]}>Artista</Text>
-              <Text style={[styles.tooltipTh, styles.tooltipColImp]}>Importe</Text>
-            </View>
-            {tooltipGruposPorLocal.map((grp, idx) => (
-              <View key={grp.key}>
-                <View style={[styles.tooltipLocalHeader, idx > 0 && styles.tooltipLocalHeaderSep]}>
-                  <View style={styles.tooltipLocalHeaderRow}>
-                    <Text style={styles.tooltipLocalHeaderText} numberOfLines={1}>
-                      {grp.nombre}
-                    </Text>
-                    {grp.sumaLocal != null ? (
-                      <Text style={styles.tooltipLocalHeaderSuma}>{formatMoneda(grp.sumaLocal)}</Text>
-                    ) : (
-                      <Text style={styles.tooltipLocalHeaderSumaMuted}>—</Text>
-                    )}
-                  </View>
+      {IS_WEB && dayTooltip
+        ? portalTooltipToBody(
+            <View style={styles.tooltipOverlay} pointerEvents="none">
+              <View style={styles.tooltipCard}>
+                <View style={styles.tooltipTituloRow}>
+                  <Text style={styles.tooltipTitulo}>{formatFecha(dayTooltip.iso)}</Text>
+                  {tooltipTotalDia != null ? (
+                    <Text style={styles.tooltipTituloTotal}>{formatMoneda(tooltipTotalDia)}</Text>
+                  ) : null}
                 </View>
-                {grp.items.map((a) => (
-                  <View key={a.id_actuacion} style={styles.tooltipFila}>
-                    <Text
-                      style={[styles.tooltipTd, styles.tooltipColHora, IS_WEB && styles.tooltipTdWebOneLine]}
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
-                    >
-                      {a.hora_inicio || '—'}
-                    </Text>
-                    <Text
-                      style={[styles.tooltipTd, styles.tooltipColArtGrupo, IS_WEB && styles.tooltipTdWebOneLine]}
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
-                    >
-                      {a.artista_nombre_snapshot?.trim() || '(hueco)'}
-                    </Text>
-                    <Text
-                      style={[styles.tooltipTd, styles.tooltipColImp, styles.tooltipTdImp, IS_WEB && styles.tooltipTdWebOneLine]}
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
-                    >
-                      {precioActuacion(a)}
-                    </Text>
+                <View style={styles.tooltipTableHead}>
+                  <Text style={[styles.tooltipTh, styles.tooltipColHora]}>Hora</Text>
+                  <Text style={[styles.tooltipTh, styles.tooltipColArtGrupo]}>Artista</Text>
+                  <Text style={[styles.tooltipTh, styles.tooltipColImp]}>Importe</Text>
+                </View>
+                {tooltipGruposPorLocal.map((grp, idx) => (
+                  <View key={grp.key}>
+                    <View style={[styles.tooltipLocalHeader, idx > 0 && styles.tooltipLocalHeaderSep]}>
+                      <View style={styles.tooltipLocalHeaderRow}>
+                        <Text style={styles.tooltipLocalHeaderText} numberOfLines={1}>
+                          {grp.nombre}
+                        </Text>
+                        {grp.sumaLocal != null ? (
+                          <Text style={styles.tooltipLocalHeaderSuma}>{formatMoneda(grp.sumaLocal)}</Text>
+                        ) : (
+                          <Text style={styles.tooltipLocalHeaderSumaMuted}>—</Text>
+                        )}
+                      </View>
+                    </View>
+                    {grp.items.map((a) => (
+                      <View key={a.id_actuacion} style={styles.tooltipFila}>
+                        <Text
+                          style={[styles.tooltipTd, styles.tooltipColHora, IS_WEB && styles.tooltipTdWebOneLine]}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
+                          {a.hora_inicio || '—'}
+                        </Text>
+                        <Text
+                          style={[styles.tooltipTd, styles.tooltipColArtGrupo, IS_WEB && styles.tooltipTdWebOneLine]}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
+                          {a.artista_nombre_snapshot?.trim() || '(hueco)'}
+                        </Text>
+                        <Text
+                          style={[styles.tooltipTd, styles.tooltipColImp, styles.tooltipTdImp, IS_WEB && styles.tooltipTdWebOneLine]}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
+                          {precioActuacion(a)}
+                        </Text>
+                      </View>
+                    ))}
                   </View>
                 ))}
               </View>
-            ))}
-          </View>
-        </View>
-      ) : null}
+            </View>,
+          )
+        : null}
     </View>
   );
 }
@@ -714,7 +850,8 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     bottom: 0,
-    zIndex: 99999,
+    /** Por encima de toolbars y controles (portal a document.body) */
+    zIndex: 2147483647,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 16,
@@ -857,6 +994,52 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   diaGrupoNombre: { flex: 1, fontSize: 12, fontWeight: '800', color: '#0369a1', textTransform: 'uppercase', letterSpacing: 0.3 },
+  /** TotalFacturadoComparativa (objetivos / Agora), entre nombre y suma actuaciones */
+  diaGrupoCompObj: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569',
+    flexShrink: 0,
+    marginHorizontal: 4,
+    maxWidth: 96,
+    textAlign: 'right',
+  },
+  diaGrupoCompObjMuted: {
+    fontSize: 11,
+    color: '#cbd5e1',
+    flexShrink: 0,
+    marginHorizontal: 4,
+    width: 28,
+    textAlign: 'right',
+  },
+  diaGrupoPctBadge: {
+    flexShrink: 0,
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1,
+    borderColor: '#7dd3fc',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    maxWidth: 72,
+  },
+  diaGrupoPctBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#0369a1',
+    textAlign: 'center',
+  },
+  diaGrupoPctBadgeMuted: {
+    flexShrink: 0,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    minWidth: 36,
+    alignItems: 'center',
+  },
+  diaGrupoPctBadgeTextMuted: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#cbd5e1',
+  },
   diaGrupoSuma: { fontSize: 12, fontWeight: '700', color: '#0ea5e9' },
   diaGrupoSumaMuted: { fontSize: 12, color: '#94a3b8' },
   diaFilaLinea: {

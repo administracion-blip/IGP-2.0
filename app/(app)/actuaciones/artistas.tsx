@@ -21,6 +21,7 @@ import { useLocalToast } from '../../components/Toast';
 import { TablaBasica } from '../../components/TablaBasica';
 import { ICON_SIZE } from '../../constants/icons';
 import { API_BASE_URL as API_URL } from '../../utils/apiBaseUrl';
+import { formatMoneda } from '../../utils/facturacion';
 
 const ESTILOS_OPTS = [
   'pop', 'rock', 'flamenco', 'rumba', 'jazz', 'latina', 'electronica', 'comercial', 'urbana', 'versiones', 'chill', 'tributo',
@@ -111,6 +112,27 @@ function arrayTarifasToMatriz(arr: unknown): TarifaMatriz {
   return out;
 }
 
+/** Texto escrito en celda de tarifa (€) → número para estado/API. */
+function parseEuroInputToNumber(t: string): number {
+  let s = t.replace(/€/g, '').replace(/\s/g, '').trim();
+  if (s === '') return 0;
+  if (s.includes(',')) {
+    s = s.replace(/\./g, '').replace(',', '.');
+  }
+  const n = parseFloat(s);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+}
+
+/** Valor numérico → texto editable sin símbolo € (al enfocar la celda). */
+function numeroATextoTarifaEditable(n: number): string {
+  if (n === 0) return '';
+  return new Intl.NumberFormat('es-ES', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(n);
+}
+
 function sanitizeMatrizDesdeObj(obj: unknown): TarifaMatriz {
   const out = tarifasMatrizVacia();
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return out;
@@ -179,6 +201,8 @@ export default function ArtistasScreen() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [tarifas, setTarifas] = useState<TarifaMatriz>(() => tarifasMatrizVacia());
+  /** Celda de tarifa en edición: texto libre; al desenfocar se muestra formatMoneda. */
+  const [focusedTarifa, setFocusedTarifa] = useState<{ key: string; text: string } | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
   const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
   const [artistaToDelete, setArtistaToDelete] = useState<Artista | null>(null);
@@ -259,6 +283,7 @@ export default function ArtistasScreen() {
   function abrirNuevo() {
     setEditing(emptyArtista());
     setTarifas(tarifasMatrizVacia());
+    setFocusedTarifa(null);
     setImagenPreviewUri(null);
     setImagenUrlServidor(null);
     setModalError(null);
@@ -268,6 +293,7 @@ export default function ArtistasScreen() {
   function abrirEditar(a: Artista) {
     setEditing({ ...a });
     setTarifas(tarifasDesdeApi(a.tarifas));
+    setFocusedTarifa(null);
     setImagenPreviewUri(null);
     setImagenUrlServidor(null);
     setModalError(null);
@@ -277,6 +303,7 @@ export default function ArtistasScreen() {
   function cerrarModal() {
     setModalOpen(false);
     setModalError(null);
+    setFocusedTarifa(null);
     setImagenPreviewUri(null);
     setImagenUrlServidor(null);
   }
@@ -704,10 +731,12 @@ export default function ArtistasScreen() {
               </View>
 
               <Text style={styles.label}>Tarifas (€)</Text>
-              <Text style={styles.tarifaHint}>
-                Tipo de día: festivo si aplica; si no, sábado/domingo = fin de semana; resto = laborable. Franjas: TARDE 12:00–22:59 (el tramo
-                09:31–11:59 se cobra como tarde). NOCHE 23:00–23:59 y 00:00–09:30.
-              </Text>
+              <View style={styles.tarifaHintBox}>
+                <Text style={styles.tarifaHint}>
+                  Tipo de día: festivo si aplica; si no, sábado/domingo = fin de semana; resto = laborable. Franjas: TARDE 12:00–22:59 (el tramo
+                  09:31–11:59 se cobra como tarde). NOCHE 23:00–23:59 y 00:00–09:30.
+                </Text>
+              </View>
               <View style={styles.tarifaTable}>
                 <View style={styles.tarifaTableRow}>
                   <View style={styles.tarifaTableCorner} />
@@ -722,24 +751,44 @@ export default function ArtistasScreen() {
                     <View style={styles.tarifaFranjaLabel}>
                       <Text style={styles.tarifaFranjaTitle}>{fr === 'tarde' ? 'Tarde' : 'Noche'}</Text>
                     </View>
-                    {(['laborable', 'fin_semana', 'festivo'] as const).map((td) => (
-                      <TextInput
-                        key={`${fr}-${td}`}
-                        style={styles.tarifaCellInput}
-                        keyboardType="decimal-pad"
-                        placeholder="0"
-                        value={tarifas[fr][td] === 0 ? '' : String(tarifas[fr][td])}
-                        onChangeText={(t) => {
-                          const cleaned = t.replace(',', '.').replace(/[^\d.]/g, '');
-                          const n = cleaned === '' ? 0 : parseFloat(cleaned);
-                          const imp = Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
-                          setTarifas((prev) => ({
-                            ...prev,
-                            [fr]: { ...prev[fr], [td]: imp },
-                          }));
-                        }}
-                      />
-                    ))}
+                    {(['laborable', 'fin_semana', 'festivo'] as const).map((td) => {
+                      const cellKey = `${fr}-${td}`;
+                      const imp = tarifas[fr][td];
+                      const editingCell = focusedTarifa?.key === cellKey;
+                      return (
+                        <TextInput
+                          key={cellKey}
+                          style={styles.tarifaCellInput}
+                          keyboardType="decimal-pad"
+                          placeholder="0,00 €"
+                          placeholderTextColor="#94a3b8"
+                          value={
+                            editingCell && focusedTarifa?.key === cellKey
+                              ? focusedTarifa.text
+                              : imp === 0
+                                ? ''
+                                : formatMoneda(imp)
+                          }
+                          onFocus={() => {
+                            setFocusedTarifa({
+                              key: cellKey,
+                              text: numeroATextoTarifaEditable(imp),
+                            });
+                          }}
+                          onChangeText={(t) => {
+                            setFocusedTarifa({ key: cellKey, text: t });
+                            const n = parseEuroInputToNumber(t);
+                            setTarifas((prev) => ({
+                              ...prev,
+                              [fr]: { ...prev[fr], [td]: n },
+                            }));
+                          }}
+                          onBlur={() => {
+                            setFocusedTarifa(null);
+                          }}
+                        />
+                      );
+                    })}
                   </View>
                 ))}
               </View>
@@ -1085,7 +1134,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
-  tarifaHint: { fontSize: 11, color: '#64748b', lineHeight: 16, marginBottom: 8 },
+  tarifaHintBox: {
+    backgroundColor: '#f1f5f9',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  tarifaHint: { fontSize: 10, color: '#64748b', lineHeight: 14 },
   tarifaTable: {
     borderWidth: 1,
     borderColor: '#e2e8f0',
@@ -1125,7 +1183,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     fontSize: 13,
     color: '#334155',
-    textAlign: 'center',
+    textAlign: 'right',
+    fontVariant: ['tabular-nums'],
     backgroundColor: '#fff',
   },
   saveBtn: { backgroundColor: '#0ea5e9', borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 12 },

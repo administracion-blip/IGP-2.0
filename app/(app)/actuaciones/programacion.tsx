@@ -64,7 +64,7 @@ type FacturaOpt = {
   estado: string;
 };
 
-type LocalOpt = { id_Locales: string; nombre?: string; sede?: string };
+type LocalOpt = { id_Locales: string; nombre?: string; sede?: string; agoraCode?: string; AgoraCode?: string };
 
 const COLUMNAS = ['Sel', 'Fecha', 'Hora', 'Local', 'Artista', 'Importe', 'Estado', 'Firma', 'Pago'] as const;
 
@@ -116,6 +116,18 @@ function getValorCelda(a: Actuacion, col: string): string {
   }
 }
 
+/** Texto usuario → "HH:MM" válido (24 h) o null */
+function parseHoraHHMM(raw: string): string | null {
+  const t = raw.trim();
+  if (!t) return null;
+  const m = /^(\d{1,2}):(\d{1,2})$/.exec(t);
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (!Number.isFinite(h) || !Number.isFinite(min) || h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
 export default function ProgramacionScreen() {
   const router = useRouter();
   const { user } = useAuth();
@@ -140,6 +152,8 @@ export default function ProgramacionScreen() {
   /** Locales seleccionados para generar huecos (multi-selección). */
   const [localesN, setLocalesN] = useState<string[]>([]);
   const [horasN, setHorasN] = useState<string[]>(['22:00']);
+  /** Texto del campo antes de pulsar «Añadir» (chips de horas en modal generar base). */
+  const [horaBorradorN, setHoraBorradorN] = useState('');
   const [generando, setGenerando] = useState(false);
   /** Desplegable de locales en «Nuevos registros base». */
   const [localesGenDropdownOpen, setLocalesGenDropdownOpen] = useState(false);
@@ -624,7 +638,22 @@ export default function ProgramacionScreen() {
     setLocalesN([]);
     setLocalesGenDropdownOpen(false);
     setHorasN(['22:00']);
+    setHoraBorradorN('');
     setModalNuevos(true);
+  }
+
+  function añadirHoraDesdeBorrador() {
+    const parsed = parseHoraHHMM(horaBorradorN);
+    if (!parsed) {
+      showToast('Hora no válida', 'Usa el formato HH:MM (ej. 22:00).', 'warning');
+      return;
+    }
+    if (horasN.includes(parsed)) {
+      showToast('Duplicada', 'Esa hora ya está en la lista.', 'warning');
+      return;
+    }
+    setHorasN([...horasN, parsed]);
+    setHoraBorradorN('');
   }
 
   function toggleLocalGenerar(id: string) {
@@ -972,7 +1001,7 @@ export default function ProgramacionScreen() {
             </View>
           </View>
         }
-        rightPanel={<ActuacionesCalendario actuaciones={actuaciones} />}
+        rightPanel={<ActuacionesCalendario actuaciones={actuaciones} locales={localesParipe} />}
       />
 
       <Modal visible={modalNuevos} transparent animationType="fade" onRequestClose={() => setModalNuevos(false)}>
@@ -1050,26 +1079,51 @@ export default function ProgramacionScreen() {
                 </View>
               )}
               <Text style={styles.label}>Horas</Text>
-              {horasN.map((h, idx) => (
-                <View key={idx} style={styles.horaRow}>
-                  <TextInput
-                    style={[styles.input, { flex: 1 }]}
-                    value={h}
-                    onChangeText={(t) => {
-                      const n = [...horasN];
-                      n[idx] = t;
-                      setHorasN(n);
-                    }}
-                    placeholder="16:00"
-                  />
-                  <TouchableOpacity onPress={() => setHorasN(horasN.filter((_, i) => i !== idx))}>
-                    <MaterialIcons name="delete-outline" size={22} color="#dc2626" />
-                  </TouchableOpacity>
+              <View style={styles.horasSectionBox}>
+                <View style={styles.horasChipsWrap}>
+                  {horasN.map((h, idx) => (
+                    <View key={`${h}-${idx}`} style={styles.horaChip}>
+                      <MaterialIcons name="schedule" size={16} color="#0369a1" />
+                      <Text style={styles.horaChipText}>{h}</Text>
+                      <TouchableOpacity
+                        onPress={() => setHorasN(horasN.filter((_, i) => i !== idx))}
+                        hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                        accessibilityLabel={`Quitar hora ${h}`}
+                      >
+                        <MaterialIcons name="close" size={18} color="#0369a1" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
                 </View>
-              ))}
-              <TouchableOpacity style={styles.addHora} onPress={() => setHorasN([...horasN, '22:00'])}>
-                <Text style={styles.addHoraText}>+ Añadir hora</Text>
-              </TouchableOpacity>
+                <View style={styles.horaInputRow}>
+                  <TextInput
+                    style={styles.horaInputHora}
+                    value={horaBorradorN}
+                    onChangeText={setHoraBorradorN}
+                    placeholder="HH:MM"
+                    placeholderTextColor="#94a3b8"
+                    keyboardType="default"
+                    onSubmitEditing={añadirHoraDesdeBorrador}
+                    returnKeyType="done"
+                  />
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.horaAddBtn,
+                      !horaBorradorN.trim() && styles.horaAddBtnDisabled,
+                      pressed && horaBorradorN.trim() ? { opacity: 0.88 } : null,
+                    ]}
+                    onPress={añadirHoraDesdeBorrador}
+                    disabled={!horaBorradorN.trim()}
+                    accessibilityRole="button"
+                    accessibilityLabel="Añadir hora"
+                  >
+                    <View style={styles.horaAddBtnInner}>
+                      <MaterialIcons name="add" size={18} color="#fff" />
+                      <Text style={styles.horaAddBtnText}>Añadir</Text>
+                    </View>
+                  </Pressable>
+                </View>
+              </View>
               <Pressable
                 style={[styles.saveBtn, generando && styles.saveBtnDis]}
                 onPress={confirmarGenerarBase}
@@ -1574,16 +1628,29 @@ export default function ProgramacionScreen() {
               </View>
             ) : null}
             <View style={styles.conflictoBtns}>
-              <TouchableOpacity style={styles.cbCancel} onPress={() => { setConflictoOpen(false); setPendingPutBody(null); }}>
-                <Text style={styles.cbCancelText}>Cancelar</Text>
+              <TouchableOpacity
+                style={[styles.cbCancel, styles.conflictoBtnCol]}
+                onPress={() => {
+                  setConflictoOpen(false);
+                  setPendingPutBody(null);
+                }}
+              >
+                <Text style={styles.cbCancelText} numberOfLines={2}>
+                  Cancelar
+                </Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.cbPrimary} onPress={conflictoGuardarIgual}>
-                <Text style={styles.cbPrimaryText}>Guardar igualmente</Text>
+              <TouchableOpacity style={[styles.cbGuardarIgual, styles.conflictoBtnCol]} onPress={conflictoGuardarIgual}>
+                <MaterialIcons name="warning" size={18} color="#fff" style={styles.cbGuardarIgualIcon} />
+                <Text style={styles.cbGuardarIgualText} numberOfLines={2}>
+                  Guardar igualmente
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.cbMover, styles.conflictoBtnCol]} onPress={conflictoMoverAqui}>
+                <Text style={styles.cbMoverText} numberOfLines={2}>
+                  Mover artista aquí
+                </Text>
               </TouchableOpacity>
             </View>
-            <TouchableOpacity style={styles.cbMover} onPress={conflictoMoverAqui}>
-              <Text style={styles.cbMoverText}>Mover artista aquí</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1914,9 +1981,55 @@ const styles = StyleSheet.create({
   localesGenSep: { color: '#94a3b8', fontSize: 12 },
   chipOn: { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' },
   chipText: { fontSize: 11, color: '#334155' },
-  horaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-  addHora: { padding: 10, alignItems: 'center' },
-  addHoraText: { color: '#0ea5e9', fontWeight: '600', fontSize: 13 },
+  horasSectionBox: {
+    backgroundColor: '#f1f5f9',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 10,
+    marginBottom: 4,
+  },
+  horasChipsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  horaChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1,
+    borderColor: '#7dd3fc',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    gap: 6,
+  },
+  horaChipText: { fontSize: 13, fontWeight: '600', color: '#0369a1' },
+  horaInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  horaInputHora: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    paddingHorizontal: 10,
+    fontSize: 13,
+    backgroundColor: '#fff',
+    color: '#334155',
+  },
+  horaAddBtn: {
+    backgroundColor: '#0ea5e9',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+  },
+  horaAddBtnDisabled: { opacity: 0.45 },
+  horaAddBtnInner: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  horaAddBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   hint: { fontSize: 11, color: '#94a3b8', marginBottom: 8 },
   saveBtn: { backgroundColor: '#0ea5e9', borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 16 },
   saveBtnDis: { opacity: 0.6 },
@@ -2129,11 +2242,40 @@ const styles = StyleSheet.create({
   conflictoBox: { marginTop: 12, padding: 12, backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
   conflictoSub: { fontSize: 11, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: 6 },
   conflictoDetail: { fontSize: 13, color: '#334155', marginBottom: 4 },
-  conflictoBtns: { flexDirection: 'row', gap: 10, marginTop: 16, justifyContent: 'flex-end', flexWrap: 'wrap' },
-  cbCancel: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-  cbCancelText: { color: '#475569', fontWeight: '600' },
-  cbPrimary: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, backgroundColor: '#0ea5e9' },
-  cbPrimaryText: { color: '#fff', fontWeight: '700' },
-  cbMover: { marginTop: 10, paddingVertical: 12, alignItems: 'center', borderRadius: 8, borderWidth: 1, borderColor: '#f59e0b', backgroundColor: '#fffbeb' },
-  cbMoverText: { color: '#b45309', fontWeight: '700' },
+  conflictoBtns: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 16,
+    alignItems: 'stretch',
+    flexWrap: 'nowrap',
+    justifyContent: 'space-between',
+  },
+  conflictoBtnCol: { flex: 1, minWidth: 0, justifyContent: 'center' },
+  cbCancel: { paddingVertical: 10, paddingHorizontal: 8, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', alignItems: 'center' },
+  cbCancelText: { color: '#475569', fontWeight: '600', fontSize: 12, textAlign: 'center' },
+  cbGuardarIgual: {
+    flexDirection: 'row',
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderRadius: 8,
+    backgroundColor: '#dc2626',
+    borderWidth: 1,
+    borderColor: '#b91c1c',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  cbGuardarIgualIcon: { flexShrink: 0 },
+  cbGuardarIgualText: { color: '#fff', fontWeight: '700', fontSize: 12, textAlign: 'center', flexShrink: 1 },
+  cbMover: {
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#f59e0b',
+    backgroundColor: '#fffbeb',
+  },
+  cbMoverText: { color: '#b45309', fontWeight: '700', fontSize: 12, textAlign: 'center' },
 });
