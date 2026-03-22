@@ -4,6 +4,14 @@
  */
 
 import { normalizeCif, cifDigitsOnly } from './empresaCif.js';
+import {
+  parseDesgloseFiscalFromText,
+  agregarResumenDesdeDesglose,
+  debeUsarAgregadosDesglose,
+  validarCoherenciaDesglose,
+  totalEsperadoDesdeDesglose,
+  usarValidacionDesgloseMultiple,
+} from './ocrFacturaDesglose.js';
 
 export const RECEPTOR_LABELS_CTX =
   /\b(cliente|destinatario|adquiriente|receptor|facturar\s*a|bill\s*to|ship\s*to|comprador|datos\s*del?\s*cliente)\b/i;
@@ -247,6 +255,21 @@ export function pickProveedorCif(text, cifs, entidades) {
   return scores[0].cif;
 }
 
+/**
+ * No elegir como proveedor un CIF cuya entidad queda claramente como receptor (p. ej. bloque «Datos del cliente»).
+ */
+export function pickProveedorCifExcluyendoReceptorFuerte(text, cifs, entidades) {
+  if (!cifs.length) return '';
+  const filtered = cifs.filter((cif) => {
+    const e = entidades?.find((x) => normalizeCif(x.cif) === normalizeCif(cif));
+    if (!e) return true;
+    const net = netEmisorScore(e);
+    return net > -2.5;
+  });
+  const usable = filtered.length ? filtered : cifs;
+  return pickProveedorCif(text, usable, entidades);
+}
+
 export function ambiguedadProveedorDesdeEntidades(entidades) {
   if (!entidades || entidades.length < 2) return false;
   const sorted = [...entidades].sort((a, b) => netEmisorScore(b) - netEmisorScore(a));
@@ -269,7 +292,7 @@ export function parseTextoFacturaCompleto(text) {
   while ((m = cifRegex.exec(text)) !== null) {
     if (!cifs.includes(m[1].toUpperCase())) cifs.push(m[1].toUpperCase());
   }
-  const proveedor_cif = pickProveedorCif(text, cifs, entidades_candidatas);
+  const proveedor_cif = pickProveedorCifExcluyendoReceptorFuerte(text, cifs, entidades_candidatas);
   const ambiguedad_proveedor = ambiguedadProveedorDesdeEntidades(entidades_candidatas);
 
   const fechas = [];
@@ -386,22 +409,47 @@ export function parseTextoFacturaCompleto(text) {
     baseImponible = Math.round((totalFactura - totalIva + retencion) * 100) / 100;
   }
 
-  const esperado = round2(baseImponible + totalIva - retencion);
-  let importes_coherentes =
-    totalFactura > 0 && baseImponible > 0 && Math.abs(totalFactura - esperado) <= 0.05;
+  const { lineas: desglose_impuestos, meta: desglose_parse_meta } = parseDesgloseFiscalFromText(
+    text,
+    parseImporte,
+  );
+  const usarAgregadosDesglose = debeUsarAgregadosDesglose(desglose_impuestos);
+  let recargo_equivalencia_total = 0;
+  let base_imponible_total = round2(baseImponible);
+
+  if (usarAgregadosDesglose && desglose_impuestos.length > 0) {
+    const agg = agregarResumenDesdeDesglose(desglose_impuestos);
+    baseImponible = agg.base_imponible_total;
+    base_imponible_total = agg.base_imponible_total;
+    totalIva = agg.iva_total;
+    retencion = agg.retencion_total;
+    recargo_equivalencia_total = agg.recargo_equivalencia_total;
+  }
+
+  const esperadoSimple = round2(baseImponible + totalIva - retencion);
+  let importes_coherentes;
+  if (usarAgregadosDesglose && desglose_impuestos.length > 0) {
+    const vd = validarCoherenciaDesglose(desglose_impuestos, totalFactura);
+    importes_coherentes = vd.importes_coherentes;
+  } else {
+    importes_coherentes =
+      totalFactura > 0 && baseImponible > 0 && Math.abs(totalFactura - esperadoSimple) <= 0.05;
+  }
 
   if (baseImponible > 0 && totalIva >= 0 && !totalFactura) {
-    totalFactura = esperado;
+    totalFactura = usarAgregadosDesglose && desglose_impuestos.length > 0
+      ? totalEsperadoDesdeDesglose(desglose_impuestos)
+      : esperadoSimple;
     importes_coherentes = true;
   }
-  if (baseImponible > 0 && totalIva >= 0 && totalFactura > 0 && retencionMatches.length === 0) {
-    const inferredRet = round2(baseImponible + totalIva - totalFactura);
-    if (inferredRet >= 0 && inferredRet <= baseImponible) {
-      retencion = inferredRet;
-      importes_coherentes = Math.abs(totalFactura - round2(baseImponible + totalIva - retencion)) <= 0.05;
-    }
-  }
-  if (baseImponible > 0 && totalIva >= 0 && retencion >= 0 && !importes_coherentes) {
+  /* Retención solo explícita (regex / desglose); no inferir por diferencia matemática. */
+  if (
+    !usarAgregadosDesglose &&
+    baseImponible > 0 &&
+    totalIva >= 0 &&
+    retencion >= 0 &&
+    !importes_coherentes
+  ) {
     totalFactura = round2(baseImponible + totalIva - retencion);
     importes_coherentes = true;
   }
@@ -427,8 +475,13 @@ export function parseTextoFacturaCompleto(text) {
     fechas,
     totalFactura: round2(totalFactura),
     baseImponible: round2(baseImponible),
+    base_imponible_total: round2(base_imponible_total),
     totalIva: round2(totalIva),
     retencion: round2(retencion),
+    recargo_equivalencia_total: round2(recargo_equivalencia_total),
+    desglose_impuestos,
+    desglose_parse_meta,
+    usar_desglose_multi: usarValidacionDesgloseMultiple(desglose_impuestos),
     totalMatches,
     baseMatches,
     ivaMatches,
@@ -602,8 +655,11 @@ export async function reconciliarFacturaOcr(body, deps) {
     numero_factura_proveedor: snap.numero_factura_proveedor || '',
     fecha_emision: snap.fecha_emision || '',
     base_imponible: round2(Number(snap.base_imponible) || 0),
+    base_imponible_total: round2(Number(snap.base_imponible_total ?? snap.base_imponible) || 0),
     total_iva: round2(Number(snap.total_iva) || 0),
     retencion: round2(Number(snap.retencion) || 0),
+    recargo_equivalencia_total: round2(Number(snap.recargo_equivalencia_total) || 0),
+    desglose_impuestos: Array.isArray(snap.desglose_impuestos) ? snap.desglose_impuestos : [],
     total_factura: round2(Number(snap.total_factura) || 0),
     confianza: snap.confianza && typeof snap.confianza === 'object' ? { ...snap.confianza } : {},
     proveedor_resuelto_por: 'extraccion',
@@ -620,6 +676,13 @@ export async function reconciliarFacturaOcr(body, deps) {
     if (!campos_manuales.total_iva) out.total_iva = parseoImportes.totalIva;
     if (!campos_manuales.retencion) out.retencion = parseoImportes.retencion;
     if (!campos_manuales.total_factura) out.total_factura = parseoImportes.totalFactura;
+    if (!campos_manuales.base_imponible) {
+      out.base_imponible_total = parseoImportes.base_imponible_total ?? parseoImportes.baseImponible;
+    }
+    out.recargo_equivalencia_total = parseoImportes.recargo_equivalencia_total ?? 0;
+    out.desglose_impuestos = Array.isArray(parseoImportes.desglose_impuestos)
+      ? parseoImportes.desglose_impuestos
+      : [];
     out.importes_recalculados = true;
   }
 
@@ -668,7 +731,8 @@ export async function reconciliarFacturaOcr(body, deps) {
     }
   }
 
-  const tf = round2(out.base_imponible + out.total_iva - out.retencion);
+  const reTot = round2(Number(out.recargo_equivalencia_total) || 0);
+  const tf = round2(out.base_imponible + out.total_iva + reTot - out.retencion);
   if (!campos_manuales.total_factura && Math.abs(tf - out.total_factura) > 0.05) {
     out.total_factura = tf;
   }

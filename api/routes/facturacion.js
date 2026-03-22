@@ -25,6 +25,12 @@ import {
   getIdEmpresaFromItem,
 } from '../lib/empresaCif.js';
 import { parseTextoFacturaCompleto, reconciliarFacturaOcr } from '../lib/ocrFacturaEntidades.js';
+import {
+  enriquecerFacturaOcrConOpenAI,
+  mergeExtraccionConIa,
+  isIaEnriquecimientoDisponible,
+} from '../lib/ocrEnriquecerIa.js';
+import { aplicarPostProcesadoPipeline } from '../lib/ocrFacturaValidacion.js';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import multer from 'multer';
@@ -1551,6 +1557,70 @@ router.post('/facturacion/ocr/reconciliar', async (req, res) => {
   }
 });
 
+/**
+ * Capa IA opcional: normaliza y valida datos ya extraídos (requiere OPENAI_API_KEY en el servidor).
+ * POST body: { datos: object, texto_extraido?: string }
+ */
+router.post('/facturacion/ocr/enriquecer-ia', async (req, res) => {
+  try {
+    const { datos, texto_extraido } = req.body || {};
+    if (!datos || typeof datos !== 'object') {
+      return res.status(400).json({ error: 'Falta objeto datos' });
+    }
+    if (!isIaEnriquecimientoDisponible()) {
+      return res.json({
+        ok: true,
+        skipped: true,
+        reason: 'Configure OPENAI_API_KEY en el servidor para activar la capa IA.',
+        datos,
+      });
+    }
+
+    const texto = texto_extraido != null ? String(texto_extraido) : String(datos.texto_extraido || '');
+    const iaParsed = await enriquecerFacturaOcrConOpenAI(datos, texto);
+    let merged = mergeExtraccionConIa(datos, iaParsed);
+
+    merged.texto_extraido = datos.texto_extraido;
+    merged.metodo_extraccion = datos.metodo_extraccion;
+    merged.entidades_candidatas = Array.isArray(datos.entidades_candidatas) ? datos.entidades_candidatas : [];
+    merged.ambiguedad_proveedor = datos.ambiguedad_proveedor;
+
+    if (merged.proveedor_cif) {
+      try {
+        const emp = await buscarEmpresaPorCif(merged.proveedor_cif);
+        if (emp) {
+          merged.proveedor_nombre = getNombreFromEmpresaItem(emp);
+          merged.empresa_id = getIdEmpresaFromItem(emp);
+          merged.proveedor_en_maestros = true;
+          merged.nombre_sugerido_ocr = '';
+          merged.confianza = {
+            ...merged.confianza,
+            proveedor_nombre: 'alta',
+            proveedor_cif: 'alta',
+          };
+        } else {
+          merged.proveedor_en_maestros = false;
+          merged.empresa_id = '';
+          merged.nombre_sugerido_ocr =
+            merged.proveedor_nombre || datos.nombre_sugerido_ocr || inferProveedorNombre(texto, merged.proveedor_cif) || '';
+        }
+      } catch (e) {
+        console.error('[OCR IA] buscarEmpresaPorCif:', e.message);
+      }
+    } else {
+      merged.proveedor_en_maestros = false;
+      merged.empresa_id = '';
+    }
+
+    aplicarPostProcesadoPipeline(merged, texto);
+
+    res.json({ ok: true, datos: merged });
+  } catch (err) {
+    console.error('[OCR IA]', err);
+    res.status(500).json({ error: err.message || String(err) });
+  }
+});
+
 // ─── OCR POR ZONA (selección manual tipo a3) ───
 
 router.post('/facturacion/ocr/extraer-zona', async (req, res) => {
@@ -1922,6 +1992,7 @@ function scoreParseo(p) {
   if (p.retencion > 0 || (p.retencionMatches && p.retencionMatches.length > 0)) s += 1;
   if (p.fechas.length > 0) s += 2;
   if (p.numFacturas.length > 0) s += 2;
+  if (Array.isArray(p.desglose_impuestos) && p.desglose_impuestos.length > 1) s += 2;
   return s;
 }
 
@@ -2000,8 +2071,12 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
     fechas,
     totalFactura,
     baseImponible,
+    base_imponible_total,
     totalIva,
     retencion,
+    recargo_equivalencia_total,
+    desglose_impuestos,
+    desglose_parse_meta,
     totalMatches,
     baseMatches,
     ivaMatches,
@@ -2056,7 +2131,7 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
     console.log(`[OCR] CIF normalizado para respuesta: "${proveedor_cif}" → "${proveedorCifCanon}"`);
   }
 
-  return {
+  const result = {
     proveedor_cif: proveedorCifCanon || proveedor_cif || '',
     proveedor_nombre: proveedor_nombre || '',
     empresa_id: empresa_id || '',
@@ -2066,8 +2141,13 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
     fecha_emision: fechas[0] || '',
     total_factura: totalFactura,
     base_imponible: baseImponible,
+    base_imponible_total: base_imponible_total ?? baseImponible,
     total_iva: totalIva,
     retencion,
+    recargo_equivalencia_total: recargo_equivalencia_total ?? 0,
+    desglose_impuestos: Array.isArray(desglose_impuestos) ? desglose_impuestos : [],
+    desglose_parse_meta:
+      desglose_parse_meta && typeof desglose_parse_meta === 'object' ? desglose_parse_meta : undefined,
     confianza,
     texto_extraido: text.slice(0, 8000),
     metodo_extraccion,
@@ -2087,8 +2167,16 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
       retencion,
       total_factura: totalFactura,
       confianza,
+      base_imponible_total: base_imponible_total ?? baseImponible,
+      recargo_equivalencia_total: recargo_equivalencia_total ?? 0,
+      desglose_impuestos: Array.isArray(desglose_impuestos) ? desglose_impuestos : [],
+      desglose_parse_meta:
+        desglose_parse_meta && typeof desglose_parse_meta === 'object' ? desglose_parse_meta : undefined,
     },
   };
+
+  aplicarPostProcesadoPipeline(result, text);
+  return result;
 }
 
 async function ejecutarReconciliarFacturaOcr(body) {
@@ -2137,12 +2225,33 @@ router.post('/facturacion/ocr/confirmar', async (req, res) => {
     for (const b of borradores) {
       if (b.descartado) continue;
 
-      const tipoIvaPct = Number(b.tipo_iva_pct);
-      const retPct = Number(b.retencion_pct);
+      const desgArr = Array.isArray(b.desglose_impuestos) ? b.desglose_impuestos : [];
       const partesImp = [];
-      if (!Number.isNaN(tipoIvaPct)) partesImp.push(`IVA ${tipoIvaPct}%`);
-      if (!Number.isNaN(retPct) && retPct > 0) partesImp.push(`Ret ${retPct}%`);
-      const impuestosResumenOcr = partesImp.join(' · ') || '';
+      if (
+        desgArr.length > 1 ||
+        desgArr.some((x) => x && x.tipo === 'recargo_equivalencia')
+      ) {
+        for (const L of desgArr) {
+          if (!L || !L.tipo) continue;
+          if (L.tipo === 'iva' && L.porcentaje != null && !Number.isNaN(Number(L.porcentaje))) {
+            partesImp.push(`IVA ${L.porcentaje}%`);
+          }
+          if (
+            L.tipo === 'recargo_equivalencia' &&
+            L.porcentaje != null &&
+            !Number.isNaN(Number(L.porcentaje))
+          ) {
+            partesImp.push(`R.E. ${L.porcentaje}%`);
+          }
+          if (L.tipo === 'retencion') partesImp.push('Retención');
+        }
+      } else {
+        const tipoIvaPct = Number(b.tipo_iva_pct);
+        const retPct = Number(b.retencion_pct);
+        if (!Number.isNaN(tipoIvaPct)) partesImp.push(`IVA ${tipoIvaPct}%`);
+        if (!Number.isNaN(retPct) && retPct > 0) partesImp.push(`Ret ${retPct}%`);
+      }
+      const impuestosResumenOcr = [...new Set(partesImp)].join(' · ') || '';
 
       const id_factura = uuid();
       const emisorId = b.sociedad_grupo_id || b.emisor_id || '';
@@ -2209,8 +2318,11 @@ router.post('/facturacion/ocr/confirmar', async (req, res) => {
         empresa_email: '',
         numero_factura_proveedor: b.numero_factura_proveedor || '',
         base_imponible: round2(b.base_imponible || 0),
+        base_imponible_total: round2(b.base_imponible_total ?? b.base_imponible ?? 0),
         total_iva: round2(b.total_iva || 0),
         total_retencion: round2(b.retencion ?? b.total_retencion ?? 0),
+        recargo_equivalencia_total: round2(b.recargo_equivalencia_total ?? 0),
+        desglose_impuestos: Array.isArray(b.desglose_impuestos) ? b.desglose_impuestos : [],
         total_factura: round2(b.total_factura || 0),
         total_cobrado: 0,
         saldo_pendiente: round2(b.total_factura || 0),
@@ -2228,6 +2340,10 @@ router.post('/facturacion/ocr/confirmar', async (req, res) => {
         modificado_en: '',
         origen: 'ocr',
         ocr_confianza: b.confianza || {},
+        ...(b.ia_meta && typeof b.ia_meta === 'object' ? { ocr_ia_meta: b.ia_meta } : {}),
+        ...(b.ocr_pipeline_meta && typeof b.ocr_pipeline_meta === 'object'
+          ? { ocr_pipeline_meta: b.ocr_pipeline_meta }
+          : {}),
         impuestos_resumen: impuestosResumenOcr,
         fecha_contabilizacion: now(),
         contabilizado_por: usuario_nombre || '',

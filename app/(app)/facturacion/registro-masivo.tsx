@@ -11,6 +11,7 @@ import {
   useWindowDimensions,
   Modal,
   KeyboardAvoidingView,
+  Switch,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -55,6 +56,15 @@ type CamposManuales = Partial<Record<
   boolean
 >>;
 
+type LineaDesglose = {
+  tipo: 'iva' | 'retencion' | 'recargo_equivalencia';
+  base: number;
+  porcentaje: number | null;
+  cuota: number;
+  origen?: string;
+  texto_origen?: string;
+};
+
 type Borrador = {
   idx: number;
   archivo: { fileKey: string; nombre: string; tipo: string; size: number; previewUrl: string };
@@ -75,12 +85,18 @@ type Borrador = {
   numero_factura_proveedor: string;
   fecha_emision: string;
   base_imponible: number;
-  /** % tipo IVA sobre base imponible */
-  tipo_iva_pct: number;
-  /** % retención IRPF sobre base imponible */
-  retencion_pct: number;
+  /** Suma bases IVA+R.E. si hay desglose (p. ej. multitranco) */
+  base_imponible_total?: number;
+  /** % tipo IVA — null si hay varios tramos (no forzar un único %) */
+  tipo_iva_pct: number | null;
+  /** % retención — null si no aplica un único % */
+  retencion_pct: number | null;
   total_iva: number;
   retencion: number;
+  /** Cuota total recargo equivalencia (no es retención IRPF) */
+  recargo_equivalencia_total?: number;
+  /** Líneas fiscales detectadas (IVA, R.E., retención) */
+  desglose_impuestos?: LineaDesglose[];
   total_factura: number;
   observaciones: string;
   confianza: Confianza;
@@ -102,6 +118,32 @@ type Borrador = {
   /** Origen del texto: texto embebido del PDF, OCR de imagen u OCR tras rasterizar PDF escaneado */
   metodo_extraccion?: string;
   ocr_confianza_global?: number;
+  /** Metadatos si se aplicó la capa IA en el API (OPENAI_API_KEY). */
+  ia_meta?: {
+    aplicada?: boolean;
+    modelo?: string;
+    tipo_documento?: string;
+    revision_sugerida?: boolean;
+    revision_obligatoria?: boolean;
+    motivos?: string[];
+    coherencia_importes?: boolean;
+    diferencia_importes?: number;
+    enriquecido_en?: string;
+    campos_corregidos_ia?: string[];
+  };
+  /** Validación post-OCR (importes, nº factura, retención). */
+  ocr_pipeline_meta?: {
+    importes_coherentes?: boolean;
+    diferencia_importes?: number;
+    revision_obligatoria?: boolean;
+    revision_sugerida?: boolean;
+    motivos_revision?: string[];
+    numero_factura_fue_normalizado?: boolean;
+    retencion_sospechosa?: boolean;
+    formula_usada?: string;
+    tiene_desglose_multiple?: boolean;
+    total_calculado_desde_desglose?: number;
+  };
   descartado: boolean;
   duplicados: { id_factura: string; numero_factura: string; empresa_nombre: string; total_factura: number }[];
   checkingDup: boolean;
@@ -128,7 +170,26 @@ function metodoExtraccionLabel(m: string | undefined): string {
   return m;
 }
 
-function derivarPctDesdeImportes(base: number, total_iva: number, retencion: number) {
+function esDesgloseMulti(b: {
+  desglose_impuestos?: LineaDesglose[];
+  recargo_equivalencia_total?: number;
+}) {
+  const arr = Array.isArray(b.desglose_impuestos) ? b.desglose_impuestos : [];
+  if (arr.length > 1) return true;
+  if (arr.some((x) => x.tipo === 'retencion' || x.tipo === 'recargo_equivalencia')) return true;
+  if ((Number(b.recargo_equivalencia_total) || 0) > 0) return true;
+  return false;
+}
+
+function derivarPctDesdeImportes(
+  base: number,
+  total_iva: number,
+  retencion: number,
+  meta?: { desglose_impuestos?: LineaDesglose[]; recargo_equivalencia_total?: number },
+) {
+  if (meta && esDesgloseMulti(meta)) {
+    return { tipo_iva_pct: null as number | null, retencion_pct: null as number | null };
+  }
   if (base <= 0) return { tipo_iva_pct: 21, retencion_pct: 0 };
   return {
     tipo_iva_pct: round2((100 * total_iva) / base),
@@ -136,7 +197,15 @@ function derivarPctDesdeImportes(base: number, total_iva: number, retencion: num
   };
 }
 
+function labelTipoLinea(t: string) {
+  if (t === 'iva') return 'IVA';
+  if (t === 'recargo_equivalencia') return 'Rec. equiv.';
+  if (t === 'retencion') return 'Retención';
+  return t;
+}
+
 function recalcImportesDesdePct(b: Borrador): Borrador {
+  if (esDesgloseMulti(b) && b.tipo_iva_pct == null && b.retencion_pct == null) return b;
   const base = round2(Number(b.base_imponible) || 0);
   const pctIva = Number(b.tipo_iva_pct) || 0;
   const pctRet = Number(b.retencion_pct) || 0;
@@ -145,6 +214,65 @@ function recalcImportesDesdePct(b: Borrador): Borrador {
   const total_factura = round2(base + total_iva - retencion);
   return { ...b, base_imponible: base, total_iva, retencion, total_factura };
 }
+
+function recalcTotalesDesdeDesglose(b: Borrador): Borrador {
+  const lineas = Array.isArray(b.desglose_impuestos) ? b.desglose_impuestos : [];
+  let base = 0;
+  let iva = 0;
+  let ret = 0;
+  for (const L of lineas) {
+    const bv = round2(Number(L.base) || 0);
+    const cv = round2(Number(L.cuota) || 0);
+    if (L.tipo === 'iva') { base = round2(base + bv); iva = round2(iva + cv); }
+    else if (L.tipo === 'retencion') { ret = round2(ret + cv); }
+  }
+  const total_factura = round2(base + iva - ret);
+  return {
+    ...b,
+    base_imponible: base,
+    base_imponible_total: base,
+    total_iva: iva,
+    retencion: ret,
+    recargo_equivalencia_total: 0,
+    tipo_iva_pct: null,
+    retencion_pct: ret > 0 && base > 0 ? round2((100 * ret) / base) : 0,
+    total_factura,
+  };
+}
+
+const LINEA_VACIA: LineaDesglose = { tipo: 'iva', base: 0, porcentaje: 0, cuota: 0, origen: 'manual' };
+
+function DesgloseNumInput({ initial, placeholder, onCommit }: { initial: number; placeholder: string; onCommit: (n: number) => void }) {
+  const [text, setText] = useState(initial ? String(initial) : '');
+  const prevInitial = useRef(initial);
+  useEffect(() => {
+    if (prevInitial.current !== initial) {
+      prevInitial.current = initial;
+      const parsed = parseFloat(text.replace(',', '.'));
+      if (initial !== parsed) {
+        setText(initial ? String(initial) : '');
+      }
+    }
+  }, [initial]);
+  return (
+    <TextInput
+      style={dsNumStyles.input}
+      value={text}
+      onChangeText={setText}
+      onBlur={() => {
+        const n = parseFloat(text.replace(',', '.')) || 0;
+        onCommit(round2(n));
+        setText(n ? String(n) : '');
+      }}
+      keyboardType="decimal-pad"
+      placeholder={placeholder}
+      placeholderTextColor="#94a3b8"
+    />
+  );
+}
+const dsNumStyles = StyleSheet.create({
+  input: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 4, fontSize: 13, color: '#1e293b', backgroundColor: '#fff', textAlign: 'right', minWidth: 60 },
+});
 
 export default function RegistroMasivoScreen() {
   const router = useRouter();
@@ -168,6 +296,8 @@ export default function RegistroMasivoScreen() {
   const [empresasCatalogo, setEmpresasCatalogo] = useState<EmpresaCatalogo[]>([]);
   const [sociedadSearch, setSociedadSearch] = useState('');
   const [showSociedadDropdown, setShowSociedadDropdown] = useState(false);
+  /** Si está activo y el API tiene OPENAI_API_KEY, se llama a /ocr/enriquecer-ia tras cada extracción. */
+  const [usarEnriquecimientoIa, setUsarEnriquecimientoIa] = useState(true);
 
   const selectedBorrador = selectedIdx !== null ? borradores.find((b) => b.idx === selectedIdx) : null;
   const borradorModalEmpresa = modalEmpresaIdx !== null ? borradores.find((b) => b.idx === modalEmpresaIdx) : null;
@@ -414,15 +544,19 @@ export default function RegistroMasivoScreen() {
           if (!m.total_iva && d.total_iva != null) next.total_iva = Number(d.total_iva);
           if (!m.retencion && d.retencion != null) next.retencion = Number(d.retencion);
           if (!m.total_factura && d.total_factura != null) next.total_factura = Number(d.total_factura);
+          if (d.base_imponible_total != null) next.base_imponible_total = Number(d.base_imponible_total);
+          if (d.recargo_equivalencia_total != null) next.recargo_equivalencia_total = Number(d.recargo_equivalencia_total);
+          if (Array.isArray(d.desglose_impuestos)) next.desglose_impuestos = d.desglose_impuestos as LineaDesglose[];
           if (d.confianza && typeof d.confianza === 'object') next.confianza = { ...next.confianza, ...d.confianza };
           const pctR = derivarPctDesdeImportes(
             Number(next.base_imponible) || 0,
             Number(next.total_iva) || 0,
             Number(next.retencion) || 0,
+            next,
           );
           if (!m.tipo_iva_pct) next.tipo_iva_pct = pctR.tipo_iva_pct;
           if (!m.retencion_pct) next.retencion_pct = pctR.retencion_pct;
-          if (m.tipo_iva_pct || m.retencion_pct) {
+          if ((m.tipo_iva_pct || m.retencion_pct) && !esDesgloseMulti(next)) {
             next = recalcImportesDesdePct(next);
           }
           return next;
@@ -462,7 +596,26 @@ export default function RegistroMasivoScreen() {
           const data = await res.json();
           if (!res.ok) throw new Error(data.error ?? 'Error OCR');
 
-          const d = data.datos;
+          let d = data.datos;
+          if (usarEnriquecimientoIa) {
+            try {
+              const rIa = await fetch(`${API_URL}/api/facturacion/ocr/enriquecer-ia`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  datos: d,
+                  texto_extraido: typeof d.texto_extraido === 'string' ? d.texto_extraido : '',
+                }),
+              });
+              const j = await rIa.json();
+              if (rIa.ok && j.ok && j.datos && !j.skipped) {
+                d = j.datos;
+              }
+            } catch (iaErr) {
+              console.warn('[Registro masivo] IA enriquecimiento:', iaErr);
+            }
+          }
+
           const extSnap = d.extraction_snapshot || {
             proveedor_cif: d.proveedor_cif || '',
             numero_factura_proveedor: d.numero_factura_proveedor || '',
@@ -472,11 +625,14 @@ export default function RegistroMasivoScreen() {
             retencion: d.retencion ?? 0,
             total_factura: d.total_factura ?? 0,
             confianza: d.confianza || {},
+            base_imponible_total: d.base_imponible_total ?? d.base_imponible ?? 0,
+            recargo_equivalencia_total: d.recargo_equivalencia_total ?? 0,
+            desglose_impuestos: Array.isArray(d.desglose_impuestos) ? d.desglose_impuestos : [],
           };
           const base0 = d.base_imponible || 0;
           const iva0 = d.total_iva || 0;
           const ret0 = typeof d.retencion === 'number' ? d.retencion : 0;
-          const pct0 = derivarPctDesdeImportes(base0, iva0, ret0);
+          const pct0 = derivarPctDesdeImportes(base0, iva0, ret0, d);
           nuevos.push({
             idx: baseIdx + i,
             archivo: data.archivo,
@@ -492,10 +648,13 @@ export default function RegistroMasivoScreen() {
             numero_factura_proveedor: d.numero_factura_proveedor || '',
             fecha_emision: d.fecha_emision ? isoToDmy(d.fecha_emision) : '',
             base_imponible: base0,
+            base_imponible_total: typeof d.base_imponible_total === 'number' ? d.base_imponible_total : base0,
             tipo_iva_pct: pct0.tipo_iva_pct,
             retencion_pct: pct0.retencion_pct,
             total_iva: iva0,
             retencion: ret0,
+            recargo_equivalencia_total: typeof d.recargo_equivalencia_total === 'number' ? d.recargo_equivalencia_total : 0,
+            desglose_impuestos: [],
             total_factura: d.total_factura || 0,
             observaciones: '',
             confianza: d.confianza || {},
@@ -506,6 +665,9 @@ export default function RegistroMasivoScreen() {
             reconciliacion_warning: '',
             metodo_extraccion: d.metodo_extraccion,
             ocr_confianza_global: typeof d.ocr_confianza_global === 'number' ? d.ocr_confianza_global : undefined,
+            ia_meta: d.ia_meta && typeof d.ia_meta === 'object' ? d.ia_meta : undefined,
+            ocr_pipeline_meta:
+              d.ocr_pipeline_meta && typeof d.ocr_pipeline_meta === 'object' ? d.ocr_pipeline_meta : undefined,
             descartado: false,
             duplicados: [],
             checkingDup: false,
@@ -527,7 +689,7 @@ export default function RegistroMasivoScreen() {
       }
     };
     input.click();
-  }, [borradores.length]);
+  }, [borradores.length, usarEnriquecimientoIa]);
 
   const checkDuplicados = async (borrador: Borrador) => {
     setBorradores((prev) =>
@@ -553,6 +715,55 @@ export default function RegistroMasivoScreen() {
         prev.map((b) => b.idx === borrador.idx ? { ...b, checkingDup: false } : b)
       );
     }
+  };
+
+  const desgloseLineas = (b: Borrador): LineaDesglose[] => {
+    const arr = Array.isArray(b.desglose_impuestos) ? b.desglose_impuestos : [];
+    return arr.length > 0 ? arr : [{ ...LINEA_VACIA }];
+  };
+
+  const desgloseAddLinea = (borradorIdx: number) => {
+    setBorradores((prev) =>
+      prev.map((b) => {
+        if (b.idx !== borradorIdx) return b;
+        const lineas = desgloseLineas(b);
+        return recalcTotalesDesdeDesglose({ ...b, desglose_impuestos: [...lineas, { ...LINEA_VACIA }] });
+      }),
+    );
+  };
+
+  const desgloseRemoveLinea = (borradorIdx: number, lineaIdx: number) => {
+    setBorradores((prev) =>
+      prev.map((b) => {
+        if (b.idx !== borradorIdx) return b;
+        const lineas = [...desgloseLineas(b)];
+        if (lineas.length <= 1) return b;
+        lineas.splice(lineaIdx, 1);
+        return recalcTotalesDesdeDesglose({ ...b, desglose_impuestos: lineas });
+      }),
+    );
+  };
+
+  const desgloseUpdateLinea = (
+    borradorIdx: number,
+    lineaIdx: number,
+    field: 'tipo' | 'base' | 'porcentaje',
+    value: unknown,
+  ) => {
+    setBorradores((prev) =>
+      prev.map((b) => {
+        if (b.idx !== borradorIdx) return b;
+        const lineas = desgloseLineas(b).map((L, i) => {
+          if (i !== lineaIdx) return L;
+          const updated = { ...L, [field]: value, origen: 'manual' };
+          const bVal = round2(Number(field === 'base' ? value : updated.base) || 0);
+          const pct = Number(field === 'porcentaje' ? value : updated.porcentaje) || 0;
+          updated.cuota = round2((bVal * pct) / 100);
+          return updated;
+        });
+        return recalcTotalesDesdeDesglose({ ...b, desglose_impuestos: lineas });
+      }),
+    );
   };
 
   /** Actualización desde API/OCR/reconciliación (no marca campos manuales). */
@@ -765,6 +976,16 @@ export default function RegistroMasivoScreen() {
           <View>
             <Text style={styles.title}>Registro masivo de facturas</Text>
             <Text style={styles.subtitle}>Sube PDFs o imágenes — extracción automática con revisión</Text>
+            <View style={styles.iaToggleRow}>
+              <Text style={styles.iaToggleLabel}>Validación IA</Text>
+              <Switch
+                value={usarEnriquecimientoIa}
+                onValueChange={setUsarEnriquecimientoIa}
+                trackColor={{ false: '#cbd5e1', true: '#bae6fd' }}
+                thumbColor={usarEnriquecimientoIa ? '#0ea5e9' : '#f4f4f5'}
+              />
+              <Text style={styles.iaToggleHint}>Requiere OPENAI_API_KEY en el API</Text>
+            </View>
           </View>
         </View>
         <View style={styles.headerActions}>
@@ -835,6 +1056,75 @@ export default function RegistroMasivoScreen() {
                   </TouchableOpacity>
                 )}
               </View>
+
+              {selectedBorrador.ocr_pipeline_meta ? (
+                <View
+                  style={[
+                    styles.pipelineBanner,
+                    selectedBorrador.ocr_pipeline_meta.revision_obligatoria && styles.pipelineBannerWarn,
+                  ]}
+                >
+                  <View style={styles.pipelineRow}>
+                    <MaterialIcons
+                      name={selectedBorrador.ocr_pipeline_meta.importes_coherentes ? 'check-circle' : 'error-outline'}
+                      size={16}
+                      color={selectedBorrador.ocr_pipeline_meta.importes_coherentes ? '#059669' : '#b45309'}
+                    />
+                    <Text style={styles.pipelineTitle}>
+                      {selectedBorrador.ocr_pipeline_meta.importes_coherentes
+                        ? selectedBorrador.ocr_pipeline_meta.tiene_desglose_multiple
+                          ? 'Importes cuadran (desglose múltiple: bases + IVA + R.E. − retención ≈ total)'
+                          : 'Importes cuadran (base + IVA − retención ≈ total)'
+                        : 'Importes incoherentes — revisión obligatoria'}
+                    </Text>
+                  </View>
+                  {selectedBorrador.ocr_pipeline_meta.diferencia_importes != null &&
+                  !selectedBorrador.ocr_pipeline_meta.importes_coherentes ? (
+                    <Text style={styles.pipelineDetail}>
+                      Diferencia: {selectedBorrador.ocr_pipeline_meta.diferencia_importes.toFixed(2)} €
+                      {selectedBorrador.ocr_pipeline_meta.formula_usada
+                        ? ` · ${selectedBorrador.ocr_pipeline_meta.formula_usada}`
+                        : ''}
+                    </Text>
+                  ) : null}
+                  {selectedBorrador.ocr_pipeline_meta.numero_factura_fue_normalizado ? (
+                    <Text style={styles.pipelineDetail}>Nº factura normalizado (se eliminaron datos colindantes)</Text>
+                  ) : null}
+                  {selectedBorrador.ocr_pipeline_meta.retencion_sospechosa ? (
+                    <Text style={styles.pipelineDetail}>
+                      Retención: posible confusión con IVA — comprobar en el PDF
+                    </Text>
+                  ) : null}
+                  {selectedBorrador.ocr_pipeline_meta.motivos_revision &&
+                  selectedBorrador.ocr_pipeline_meta.motivos_revision.length > 0 ? (
+                    <Text style={styles.pipelineMotivos}>
+                      {selectedBorrador.ocr_pipeline_meta.motivos_revision.join(' · ')}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+
+              {selectedBorrador.ia_meta?.aplicada ? (
+                <View style={styles.iaBanner}>
+                  <View style={styles.iaBadge}>
+                    <MaterialIcons name="auto-awesome" size={12} color="#0369a1" />
+                    <Text style={styles.iaBadgeText}>IA aplicada</Text>
+                  </View>
+                  {selectedBorrador.ia_meta.tipo_documento ? (
+                    <Text style={styles.iaTipoDoc}>{selectedBorrador.ia_meta.tipo_documento}</Text>
+                  ) : null}
+                  {selectedBorrador.ia_meta.revision_obligatoria || selectedBorrador.ia_meta.revision_sugerida ? (
+                    <Text style={styles.iaRevision}>
+                      {selectedBorrador.ia_meta.revision_obligatoria ? 'Revisión obligatoria: ' : 'Revisar: '}
+                      {selectedBorrador.ia_meta.motivos?.length
+                        ? selectedBorrador.ia_meta.motivos.join(' · ')
+                        : 'incoherencias o baja confianza en algún campo'}
+                    </Text>
+                  ) : (
+                    <Text style={styles.iaOk}>Modelo sin incidencias obligatorias</Text>
+                  )}
+                </View>
+              ) : null}
 
               <View style={styles.sociedadBlock}>
                 <Text style={styles.sociedadTitle}>Empresa (GRUPO PARIPE) *</Text>
@@ -964,15 +1254,119 @@ export default function RegistroMasivoScreen() {
 
               <View style={styles.formGrid}>
                 <FieldRowZona label="CIF Proveedor" value={selectedBorrador.proveedor_cif} conf={selectedBorrador.confianza.proveedor_cif} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'proveedor_cif', v)} onBlur={() => lookupCifEnMaestro(selectedBorrador.idx)} onZona={() => activarZona('proveedor_cif')} zonaActiva={zonaActiva?.field === 'proveedor_cif'} />
-                <FieldRowZona label="Nombre proveedor" value={selectedBorrador.proveedor_nombre} conf={selectedBorrador.confianza.proveedor_nombre} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'proveedor_nombre', v)} onZona={() => activarZona('proveedor_nombre')} zonaActiva={zonaActiva?.field === 'proveedor_nombre'} />
+                <ProveedorDropdownField
+                  borrador={selectedBorrador}
+                  empresas={empresasCatalogo}
+                  onSelect={(emp) => {
+                    setBorradores((prev) =>
+                      prev.map((b) =>
+                        b.idx === selectedBorrador.idx
+                          ? {
+                              ...b,
+                              proveedor_nombre: String(emp.Nombre || '').trim(),
+                              proveedor_cif: String(emp.Cif || '').trim(),
+                              empresa_id: emp.id_empresa != null ? String(emp.id_empresa) : '',
+                              proveedor_en_maestros: true,
+                              nombre_sugerido_ocr: '',
+                              campos_manuales: { ...b.campos_manuales, proveedor_nombre: true, proveedor_cif: true },
+                              confianza: { ...b.confianza, proveedor_nombre: 'alta', proveedor_cif: 'alta' },
+                            }
+                          : b,
+                      ),
+                    );
+                  }}
+                  onManualChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'proveedor_nombre', v)}
+                  onZona={() => activarZona('proveedor_nombre')}
+                  zonaActiva={zonaActiva?.field === 'proveedor_nombre'}
+                />
                 <FieldRowZona label="Nº Factura" value={selectedBorrador.numero_factura_proveedor} conf={selectedBorrador.confianza.numero_factura} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'numero_factura_proveedor', v)} onZona={() => activarZona('numero_factura_proveedor')} zonaActiva={zonaActiva?.field === 'numero_factura_proveedor'} />
                 <FieldRowZona label="Fecha emisión" value={selectedBorrador.fecha_emision} conf={selectedBorrador.confianza.fecha} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'fecha_emision', v)} placeholder="dd/mm/aaaa" onZona={() => activarZona('fecha_emision')} zonaActiva={zonaActiva?.field === 'fecha_emision'} />
-                <FieldRowZona label="Base imponible" value={String(selectedBorrador.base_imponible || '')} conf={selectedBorrador.confianza.base_imponible} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'base_imponible', parseFloat(v) || 0)} numeric onZona={() => activarZona('base_imponible', true)} zonaActiva={zonaActiva?.field === 'base_imponible'} />
-                <FieldRowZona label="% tipo IVA" value={String(selectedBorrador.tipo_iva_pct ?? '')} conf={selectedBorrador.confianza.tipo_iva_pct} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'tipo_iva_pct', parseFloat(v.replace(',', '.')) || 0)} numeric onZona={() => activarZona('tipo_iva_pct', true)} zonaActiva={zonaActiva?.field === 'tipo_iva_pct'} />
-                <FieldRowZona label="IVA (€)" value={String(selectedBorrador.total_iva || '')} conf={selectedBorrador.confianza.total_iva} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'total_iva', parseFloat(v) || 0)} numeric onZona={() => activarZona('total_iva', true)} zonaActiva={zonaActiva?.field === 'total_iva'} />
-                <FieldRowZona label="% retención IRPF" value={String(selectedBorrador.retencion_pct ?? '')} conf={selectedBorrador.confianza.retencion_pct} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'retencion_pct', parseFloat(v.replace(',', '.')) || 0)} numeric onZona={() => activarZona('retencion_pct', true)} zonaActiva={zonaActiva?.field === 'retencion_pct'} />
-                <FieldRowZona label="Retención (€)" value={String(selectedBorrador.retencion ?? '')} conf={selectedBorrador.confianza.retencion} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'retencion', parseFloat(v) || 0)} numeric onZona={() => activarZona('retencion', true)} zonaActiva={zonaActiva?.field === 'retencion'} />
-                <FieldRowZona label="Total factura" value={String(selectedBorrador.total_factura || '')} conf={selectedBorrador.confianza.total} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'total_factura', parseFloat(v) || 0)} numeric onZona={() => activarZona('total_factura', true)} zonaActiva={zonaActiva?.field === 'total_factura'} />
+              </View>
+
+              {/* ── Desglose fiscal editable ── */}
+              <View style={styles.desgloseBlock}>
+                <View style={styles.desgloseHeader}>
+                  <Text style={styles.desgloseTitle}>Desglose fiscal</Text>
+                  <TouchableOpacity onPress={() => desgloseAddLinea(selectedBorrador.idx)} style={styles.desgloseAddBtn}>
+                    <MaterialIcons name="add-circle-outline" size={15} color="#0369a1" />
+                    <Text style={styles.desgloseAddText}>Añadir línea</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {desgloseLineas(selectedBorrador).map((L, i) => {
+                  const numLineas = desgloseLineas(selectedBorrador).length;
+                  const esRet = L.tipo === 'retencion';
+                  return (
+                    <View key={`dsg-${i}`} style={[styles.desgloseCard, esRet && { borderColor: '#fca5a5' }]}>
+                      <View style={styles.desgloseCardTop}>
+                        <TouchableOpacity
+                          onPress={() => {
+                            const next = esRet ? 'iva' : 'retencion';
+                            desgloseUpdateLinea(selectedBorrador.idx, i, 'tipo', next);
+                          }}
+                          style={[styles.desgloseTipoBadge, esRet && { backgroundColor: '#fef2f2', borderColor: '#fca5a5' }]}
+                        >
+                          <Text style={[styles.desgloseTipoText, esRet && { color: '#dc2626' }]}>
+                            {esRet ? 'Retención' : 'IVA'}
+                          </Text>
+                          <MaterialIcons name="swap-horiz" size={12} color={esRet ? '#dc2626' : '#0369a1'} />
+                        </TouchableOpacity>
+                        <Text style={styles.desgloseCardLabel}>Línea {i + 1}</Text>
+                        {numLineas > 1 && (
+                          <TouchableOpacity onPress={() => desgloseRemoveLinea(selectedBorrador.idx, i)} style={styles.desgloseRemoveBtn}>
+                            <MaterialIcons name="delete-outline" size={16} color="#ef4444" />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                      <View style={styles.desgloseCardFields}>
+                        <View style={styles.desgloseFieldGroup}>
+                          <Text style={styles.desgloseFieldLabel}>{esRet ? 'Base retención' : 'Base imponible'}</Text>
+                          <DesgloseNumInput
+                            initial={L.base}
+                            placeholder="0,00"
+                            onCommit={(n) => desgloseUpdateLinea(selectedBorrador.idx, i, 'base', n)}
+                          />
+                        </View>
+                        <View style={[styles.desgloseFieldGroup, { flex: 0.5 }]}>
+                          <Text style={styles.desgloseFieldLabel}>% {esRet ? 'Ret.' : 'IVA'}</Text>
+                          <DesgloseNumInput
+                            initial={L.porcentaje ?? 0}
+                            placeholder="0"
+                            onCommit={(n) => desgloseUpdateLinea(selectedBorrador.idx, i, 'porcentaje', n)}
+                          />
+                        </View>
+                        <View style={styles.desgloseFieldGroup}>
+                          <Text style={styles.desgloseFieldLabel}>Cuota</Text>
+                          <Text style={styles.desgloseCuotaReadonly}>
+                            {L.cuota ? formatMoneda(L.cuota) : '0,00 €'}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
+
+                {desgloseLineas(selectedBorrador).some((l) => l.base > 0 || l.cuota > 0) && (
+                  <View style={styles.desgloseTotales}>
+                    <Text style={styles.desgloseTotalLine}>
+                      Base: {formatMoneda(selectedBorrador.base_imponible)}
+                      {'  ·  '}IVA: {formatMoneda(selectedBorrador.total_iva)}
+                      {selectedBorrador.retencion > 0
+                        ? `  ·  Ret.: −${formatMoneda(selectedBorrador.retencion)}`
+                        : ''}
+                      {'  ·  '}Total: {formatMoneda(selectedBorrador.total_factura)}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.formGrid}>
+                <View style={styles.fieldRow}>
+                  <View style={styles.fieldLabelWrap}>
+                    <Text style={styles.fieldLabel}>Total factura</Text>
+                  </View>
+                  <Text style={styles.totalFacturaReadonly}>{formatMoneda(selectedBorrador.total_factura || 0)}</Text>
+                </View>
                 <FieldRow label="Observaciones" value={selectedBorrador.observaciones} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'observaciones', v)} placeholder="Notas adicionales…" />
               </View>
             </ScrollView>
@@ -1166,6 +1560,130 @@ export default function RegistroMasivoScreen() {
   );
 }
 
+function ProveedorDropdownField({ borrador, empresas, onSelect, onManualChange, onZona, zonaActiva }: {
+  borrador: Borrador;
+  empresas: EmpresaCatalogo[];
+  onSelect: (e: EmpresaCatalogo) => void;
+  onManualChange: (v: string) => void;
+  onZona: () => void;
+  zonaActiva?: boolean;
+}) {
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+  const value = borrador.proveedor_nombre || '';
+  const conf = borrador.confianza?.proveedor_nombre;
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return empresas.slice(0, 50);
+    return empresas.filter((e) => {
+      const nom = (e.Nombre || '').toLowerCase();
+      const cif = (e.Cif || '').toLowerCase();
+      return nom.includes(q) || cif.includes(q);
+    }).slice(0, 50);
+  }, [search, empresas]);
+
+  return (
+    <View style={[styles.fieldRow, { zIndex: 100 }]}>
+      <View style={styles.fieldLabelWrap}>
+        <Text style={styles.fieldLabel}>Nombre proveedor</Text>
+        {conf && <View style={[styles.confDot, { backgroundColor: confColor(conf) }]} />}
+      </View>
+      <View style={{ flex: 1, position: 'relative' as const, zIndex: 100 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <TextInput
+            style={[styles.fieldInput, { flex: 1 }]}
+            value={open ? search : value}
+            onChangeText={(v) => {
+              if (open) {
+                setSearch(v);
+              } else {
+                onManualChange(v);
+              }
+            }}
+            onFocus={() => {
+              setSearch(value);
+              setOpen(true);
+            }}
+            placeholder="Buscar empresa…"
+            placeholderTextColor="#94a3b8"
+          />
+          <TouchableOpacity
+            onPress={() => { setSearch(value); setOpen(!open); }}
+            style={{ padding: 4 }}
+          >
+            <MaterialIcons name={open ? 'arrow-drop-up' : 'arrow-drop-down'} size={22} color="#64748b" />
+          </TouchableOpacity>
+        </View>
+        {open && (
+          <View style={provStyles.dropdown}>
+            <ScrollView style={{ maxHeight: 200 }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+              {filtered.length === 0 ? (
+                <Text style={provStyles.empty}>Sin resultados</Text>
+              ) : (
+                filtered.map((e) => (
+                  <TouchableOpacity
+                    key={e.id_empresa ?? e.Cif ?? e.Nombre}
+                    style={provStyles.item}
+                    onPress={() => {
+                      onSelect(e);
+                      setOpen(false);
+                      setSearch('');
+                    }}
+                  >
+                    <Text style={provStyles.itemName} numberOfLines={1}>{e.Nombre || '—'}</Text>
+                    <Text style={provStyles.itemCif}>{e.Cif || ''}</Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        )}
+      </View>
+      <TouchableOpacity
+        onPress={onZona}
+        style={[styles.zonaBtn, zonaActiva && styles.zonaBtnActive]}
+        activeOpacity={0.7}
+      >
+        <MaterialIcons name="crop-free" size={16} color={zonaActiva ? '#fff' : '#0369a1'} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const provStyles = StyleSheet.create({
+  dropdown: {
+    position: 'absolute' as const,
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 8,
+    marginTop: 2,
+    zIndex: 999,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+  },
+  item: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e2e8f0',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  itemName: { fontSize: 13, color: '#1e293b', flex: 1 },
+  itemCif: { fontSize: 11, color: '#64748b', fontFamily: 'monospace' },
+  empty: { padding: 12, fontSize: 12, color: '#94a3b8', textAlign: 'center' },
+});
+
 function FieldRow({ label, value, conf, onChange, numeric, placeholder }: {
   label: string;
   value: string;
@@ -1250,6 +1768,160 @@ const styles = StyleSheet.create({
   backBtn: { padding: 4 },
   title: { fontSize: 15, fontWeight: '700', color: '#334155' },
   subtitle: { fontSize: 10, color: '#64748b', marginTop: 1 },
+  iaToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 6,
+    flexWrap: 'wrap',
+  },
+  iaToggleLabel: { fontSize: 11, fontWeight: '600', color: '#475569' },
+  iaToggleHint: { fontSize: 9, color: '#94a3b8', flexShrink: 1 },
+  iaBanner: {
+    backgroundColor: '#f0f9ff',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+    gap: 6,
+  },
+  iaBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1,
+    borderColor: '#7dd3fc',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  iaBadgeText: { fontSize: 10, fontWeight: '800', color: '#0369a1' },
+  iaTipoDoc: { fontSize: 10, color: '#64748b', textTransform: 'capitalize' as const },
+  iaRevision: { fontSize: 10, color: '#b45309', lineHeight: 14 },
+  iaOk: { fontSize: 10, color: '#059669' },
+  pipelineBanner: {
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#86efac',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+    gap: 6,
+  },
+  pipelineBannerWarn: {
+    backgroundColor: '#fffbeb',
+    borderColor: '#fcd34d',
+  },
+  pipelineRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  pipelineTitle: { fontSize: 12, fontWeight: '700', color: '#14532d', flex: 1 },
+  pipelineDetail: { fontSize: 10, color: '#64748b', lineHeight: 14 },
+  pipelineMotivos: { fontSize: 10, color: '#92400e', lineHeight: 14 },
+  desgloseBlock: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+    gap: 8,
+  },
+  desgloseHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  desgloseTitle: { fontSize: 13, fontWeight: '700', color: '#1e293b' },
+  desgloseAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1,
+    borderColor: '#7dd3fc',
+  },
+  desgloseAddText: { fontSize: 11, color: '#0369a1', fontWeight: '600' },
+  desgloseCard: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    padding: 10,
+    gap: 8,
+  },
+  desgloseCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  desgloseTipoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1,
+    borderColor: '#7dd3fc',
+  },
+  desgloseTipoText: { fontSize: 11, fontWeight: '700', color: '#0369a1' },
+  desgloseCardLabel: { fontSize: 11, color: '#64748b', flex: 1 },
+  desgloseRemoveBtn: { padding: 4 },
+  desgloseCardFields: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'flex-end',
+  },
+  desgloseFieldGroup: {
+    flex: 1,
+    gap: 2,
+  },
+  desgloseFieldLabel: { fontSize: 10, color: '#64748b', fontWeight: '600' },
+  desgloseInput: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    fontSize: 12,
+    color: '#1e293b',
+    backgroundColor: '#fff',
+    textAlign: 'right' as const,
+  },
+  desgloseCuotaReadonly: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    fontSize: 12,
+    color: '#475569',
+    backgroundColor: '#f1f5f9',
+    textAlign: 'right' as const,
+    fontWeight: '600',
+  },
+  totalFacturaReadonly: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    fontSize: 14,
+    color: '#0f172a',
+    backgroundColor: '#f1f5f9',
+    textAlign: 'right' as const,
+    fontWeight: '700',
+  },
+  desgloseTotales: { paddingTop: 6, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
+  desgloseTotalLine: { fontSize: 11, color: '#0f172a', fontWeight: '600', lineHeight: 16 },
   headerActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
 
   navBtns: { flexDirection: 'row', alignItems: 'center', gap: 2, marginRight: 4 },
@@ -1496,7 +2168,7 @@ const styles = StyleSheet.create({
   legendText: { fontSize: 10, color: '#64748b', flexWrap: 'wrap' as const },
   metodoHint: { fontSize: 10, color: '#0ea5e9', fontWeight: '500' as const },
 
-  formGrid: { gap: 6 },
+  formGrid: { gap: 6, zIndex: 1 },
 
   fieldRow: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 280 },
   fieldLabelWrap: { flexDirection: 'row', alignItems: 'center', gap: 3, width: 110 },
