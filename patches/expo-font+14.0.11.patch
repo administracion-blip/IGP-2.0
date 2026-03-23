@@ -1,0 +1,22 @@
+diff --git a/node_modules/expo-font/build/ExpoFontLoader.web.js b/node_modules/expo-font/build/ExpoFontLoader.web.js
+index 3926897..2f77c02 100644
+--- a/node_modules/expo-font/build/ExpoFontLoader.web.js
++++ b/node_modules/expo-font/build/ExpoFontLoader.web.js
+@@ -136,10 +136,16 @@ const ExpoFontLoader = {
+         if (!isFontLoadingListenerSupported()) {
+             return Promise.resolve();
+         }
++        // Timeout ampliado y catch: evita "6000ms timeout exceeded" de fontfaceobserver en web
++        // (red lenta, pestaña en segundo plano, o fallos del detector de fuentes en algunos navegadores).
+         return new FontObserver(fontFamilyName, {
+             // @ts-expect-error: TODO(@kitten): Typings indicate that the polyfill may not support this?
+             display: resource.display,
+-        }).load(null, 6000);
++        })
++            .load(null, 30000)
++            .catch(() => {
++            /* La @font-face ya está inyectada; el icono puede pintarse igual tras el paint. */
++        });
+     },
+ };
+ const isServer = process.env.EXPO_OS === 'web' && typeof window === 'undefined';
