@@ -1033,8 +1033,13 @@ export default function RegistroMasivoScreen() {
 
       {step === 'review' && selectedBorrador && (
         <View style={styles.splitHorizontal}>
-          {/* LEFT: Editable form */}
-          <View style={styles.formPane}>
+          {/* LEFT: Editable form — ancho ~45–50% ventana (mín. 400, máx. 620) para desglose en una línea */}
+          <View
+            style={[
+              styles.formPane,
+              { width: Math.min(620, Math.max(400, Math.round(width * 0.48))) },
+            ]}
+          >
             <ScrollView contentContainerStyle={styles.formScroll} horizontal={false}>
               {/* File info bar */}
               <View style={styles.fileInfoBar}>
@@ -1298,7 +1303,7 @@ export default function RegistroMasivoScreen() {
                   const esRet = L.tipo === 'retencion';
                   return (
                     <View key={`dsg-${i}`} style={[styles.desgloseCard, esRet && { borderColor: '#fca5a5' }]}>
-                      <View style={styles.desgloseCardTop}>
+                      <View style={styles.desgloseCardRow}>
                         <TouchableOpacity
                           onPress={() => {
                             const next = esRet ? 'iva' : 'retencion';
@@ -1311,36 +1316,35 @@ export default function RegistroMasivoScreen() {
                           </Text>
                           <MaterialIcons name="swap-horiz" size={12} color={esRet ? '#dc2626' : '#0369a1'} />
                         </TouchableOpacity>
-                        <Text style={styles.desgloseCardLabel}>Línea {i + 1}</Text>
+                        <View style={styles.desgloseCardFields}>
+                          <View style={styles.desgloseFieldGroup}>
+                            <Text style={styles.desgloseFieldLabel}>{esRet ? 'Base retención' : 'Base imponible'}</Text>
+                            <DesgloseNumInput
+                              initial={L.base}
+                              placeholder="0,00"
+                              onCommit={(n) => desgloseUpdateLinea(selectedBorrador.idx, i, 'base', n)}
+                            />
+                          </View>
+                          <View style={[styles.desgloseFieldGroup, { flex: 0.5 }]}>
+                            <Text style={styles.desgloseFieldLabel}>% {esRet ? 'Ret.' : 'IVA'}</Text>
+                            <DesgloseNumInput
+                              initial={L.porcentaje ?? 0}
+                              placeholder="0"
+                              onCommit={(n) => desgloseUpdateLinea(selectedBorrador.idx, i, 'porcentaje', n)}
+                            />
+                          </View>
+                          <View style={styles.desgloseFieldGroup}>
+                            <Text style={styles.desgloseFieldLabel}>Cuota</Text>
+                            <Text style={styles.desgloseCuotaReadonly}>
+                              {L.cuota ? formatMoneda(L.cuota) : '0,00 €'}
+                            </Text>
+                          </View>
+                        </View>
                         {numLineas > 1 && (
                           <TouchableOpacity onPress={() => desgloseRemoveLinea(selectedBorrador.idx, i)} style={styles.desgloseRemoveBtn}>
                             <MaterialIcons name="delete-outline" size={16} color="#ef4444" />
                           </TouchableOpacity>
                         )}
-                      </View>
-                      <View style={styles.desgloseCardFields}>
-                        <View style={styles.desgloseFieldGroup}>
-                          <Text style={styles.desgloseFieldLabel}>{esRet ? 'Base retención' : 'Base imponible'}</Text>
-                          <DesgloseNumInput
-                            initial={L.base}
-                            placeholder="0,00"
-                            onCommit={(n) => desgloseUpdateLinea(selectedBorrador.idx, i, 'base', n)}
-                          />
-                        </View>
-                        <View style={[styles.desgloseFieldGroup, { flex: 0.5 }]}>
-                          <Text style={styles.desgloseFieldLabel}>% {esRet ? 'Ret.' : 'IVA'}</Text>
-                          <DesgloseNumInput
-                            initial={L.porcentaje ?? 0}
-                            placeholder="0"
-                            onCommit={(n) => desgloseUpdateLinea(selectedBorrador.idx, i, 'porcentaje', n)}
-                          />
-                        </View>
-                        <View style={styles.desgloseFieldGroup}>
-                          <Text style={styles.desgloseFieldLabel}>Cuota</Text>
-                          <Text style={styles.desgloseCuotaReadonly}>
-                            {L.cuota ? formatMoneda(L.cuota) : '0,00 €'}
-                          </Text>
-                        </View>
                       </View>
                     </View>
                   );
@@ -1853,12 +1857,13 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     borderRadius: 8,
     padding: 10,
-    gap: 8,
   },
-  desgloseCardTop: {
+  /** Una sola fila: badge IVA/Ret. + campos + borrar */
+  desgloseCardRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: 8,
+    flexWrap: 'nowrap' as const,
   },
   desgloseTipoBadge: {
     flexDirection: 'row',
@@ -1870,17 +1875,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#e0f2fe',
     borderWidth: 1,
     borderColor: '#7dd3fc',
+    flexShrink: 0,
+    alignSelf: 'flex-end',
   },
   desgloseTipoText: { fontSize: 11, fontWeight: '700', color: '#0369a1' },
-  desgloseCardLabel: { fontSize: 11, color: '#64748b', flex: 1 },
-  desgloseRemoveBtn: { padding: 4 },
+  desgloseRemoveBtn: { padding: 4, flexShrink: 0, alignSelf: 'flex-end' },
   desgloseCardFields: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
+    flexWrap: 'nowrap' as const,
     gap: 8,
     alignItems: 'flex-end',
   },
   desgloseFieldGroup: {
     flex: 1,
+    minWidth: 0,
     gap: 2,
   },
   desgloseFieldLabel: { fontSize: 10, color: '#64748b', fontWeight: '600' },
@@ -1972,7 +1982,7 @@ const styles = StyleSheet.create({
   },
 
   formPane: {
-    width: 380,
+    flexShrink: 0,
     backgroundColor: '#fff',
     borderRightWidth: 1,
     borderRightColor: '#e2e8f0',
@@ -1982,6 +1992,8 @@ const styles = StyleSheet.create({
 
   previewPane: {
     flex: 1,
+    flexShrink: 1,
+    minWidth: 260,
     backgroundColor: '#e2e8f0',
   },
   previewFallbackWrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },

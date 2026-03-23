@@ -1239,10 +1239,20 @@ export default function AcuerdosScreen() {
           <MaterialIcons name="arrow-back" size={22} color="#0ea5e9" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Acuerdos con Marcas</Text>
-        <TouchableOpacity style={styles.createBtn} onPress={abrirCrear}>
-          <MaterialIcons name="add" size={20} color="#fff" />
-          <Text style={styles.createBtnText}>Nuevo Acuerdo</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.productosAgoraBtn}
+            onPress={() => router.push('/productos')}
+            accessibilityLabel="Productos Ágora"
+          >
+            <MaterialIcons name="inventory-2" size={18} color="#0369a1" />
+            <Text style={styles.productosAgoraBtnText}>Ágora</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.createBtn} onPress={abrirCrear}>
+            <MaterialIcons name="add" size={20} color="#fff" />
+            <Text style={styles.createBtnText}>Nuevo Acuerdo</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {error ? (
@@ -2170,6 +2180,19 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', gap: 12 },
   backBtn: { padding: 4 },
   headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#0f172a' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  productosAgoraBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    backgroundColor: '#f0f9ff',
+  },
+  productosAgoraBtnText: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
   createBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, backgroundColor: '#0ea5e9' },
   createBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
   errorBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginHorizontal: 16, marginTop: 8, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca' },
