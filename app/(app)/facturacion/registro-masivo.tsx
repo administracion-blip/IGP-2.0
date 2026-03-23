@@ -546,7 +546,7 @@ export default function RegistroMasivoScreen() {
           if (!m.total_factura && d.total_factura != null) next.total_factura = Number(d.total_factura);
           if (d.base_imponible_total != null) next.base_imponible_total = Number(d.base_imponible_total);
           if (d.recargo_equivalencia_total != null) next.recargo_equivalencia_total = Number(d.recargo_equivalencia_total);
-          if (Array.isArray(d.desglose_impuestos)) next.desglose_impuestos = d.desglose_impuestos as LineaDesglose[];
+          /* Desglose fiscal solo manual: no fusionar líneas desde reconciliación */
           if (d.confianza && typeof d.confianza === 'object') next.confianza = { ...next.confianza, ...d.confianza };
           const pctR = derivarPctDesdeImportes(
             Number(next.base_imponible) || 0,
@@ -616,18 +616,20 @@ export default function RegistroMasivoScreen() {
             }
           }
 
-          const extSnap = d.extraction_snapshot || {
-            proveedor_cif: d.proveedor_cif || '',
-            numero_factura_proveedor: d.numero_factura_proveedor || '',
-            fecha_emision: d.fecha_emision || '',
-            base_imponible: d.base_imponible ?? 0,
-            total_iva: d.total_iva ?? 0,
-            retencion: d.retencion ?? 0,
-            total_factura: d.total_factura ?? 0,
-            confianza: d.confianza || {},
-            base_imponible_total: d.base_imponible_total ?? d.base_imponible ?? 0,
-            recargo_equivalencia_total: d.recargo_equivalencia_total ?? 0,
-            desglose_impuestos: Array.isArray(d.desglose_impuestos) ? d.desglose_impuestos : [],
+          const extSnap = {
+            ...(d.extraction_snapshot || {
+              proveedor_cif: d.proveedor_cif || '',
+              numero_factura_proveedor: d.numero_factura_proveedor || '',
+              fecha_emision: d.fecha_emision || '',
+              base_imponible: d.base_imponible ?? 0,
+              total_iva: d.total_iva ?? 0,
+              retencion: d.retencion ?? 0,
+              total_factura: d.total_factura ?? 0,
+              confianza: d.confianza || {},
+              base_imponible_total: d.base_imponible_total ?? d.base_imponible ?? 0,
+              recargo_equivalencia_total: d.recargo_equivalencia_total ?? 0,
+            }),
+            desglose_impuestos: [],
           };
           const base0 = d.base_imponible || 0;
           const iva0 = d.total_iva || 0;

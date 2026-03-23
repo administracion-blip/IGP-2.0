@@ -1613,6 +1613,14 @@ router.post('/facturacion/ocr/enriquecer-ia', async (req, res) => {
     }
 
     aplicarPostProcesadoPipeline(merged, texto);
+    /** Mismo criterio que extraer: desglose solo manual en UI. */
+    merged.desglose_impuestos = [];
+    if (merged.extraction_snapshot && typeof merged.extraction_snapshot === 'object') {
+      merged.extraction_snapshot = {
+        ...merged.extraction_snapshot,
+        desglose_impuestos: [],
+      };
+    }
 
     res.json({ ok: true, datos: merged });
   } catch (err) {
@@ -2176,6 +2184,14 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
   };
 
   aplicarPostProcesadoPipeline(result, text);
+  /** No enviar líneas de desglose al cliente: el usuario las introduce a mano en registro masivo. */
+  result.desglose_impuestos = [];
+  if (result.extraction_snapshot && typeof result.extraction_snapshot === 'object') {
+    result.extraction_snapshot = {
+      ...result.extraction_snapshot,
+      desglose_impuestos: [],
+    };
+  }
   return result;
 }
 

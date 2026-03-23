@@ -368,6 +368,8 @@ export function mergeExtraccionConIa(datosOriginales, ia) {
     valOrigDesg?.ok &&
     valIaDes?.ok;
 
+  const lineasPost = normalizarLineasDesgloseDesdeInput(base.desglose_impuestos || []);
+
   base.ia_meta = {
     aplicada: true,
     modelo: DEFAULT_MODEL,

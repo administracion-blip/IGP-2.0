@@ -659,7 +659,7 @@ export async function reconciliarFacturaOcr(body, deps) {
     total_iva: round2(Number(snap.total_iva) || 0),
     retencion: round2(Number(snap.retencion) || 0),
     recargo_equivalencia_total: round2(Number(snap.recargo_equivalencia_total) || 0),
-    desglose_impuestos: Array.isArray(snap.desglose_impuestos) ? snap.desglose_impuestos : [],
+    desglose_impuestos: [],
     total_factura: round2(Number(snap.total_factura) || 0),
     confianza: snap.confianza && typeof snap.confianza === 'object' ? { ...snap.confianza } : {},
     proveedor_resuelto_por: 'extraccion',
@@ -680,9 +680,7 @@ export async function reconciliarFacturaOcr(body, deps) {
       out.base_imponible_total = parseoImportes.base_imponible_total ?? parseoImportes.baseImponible;
     }
     out.recargo_equivalencia_total = parseoImportes.recargo_equivalencia_total ?? 0;
-    out.desglose_impuestos = Array.isArray(parseoImportes.desglose_impuestos)
-      ? parseoImportes.desglose_impuestos
-      : [];
+    out.desglose_impuestos = [];
     out.importes_recalculados = true;
   }
 
