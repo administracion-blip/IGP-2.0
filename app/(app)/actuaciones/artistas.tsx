@@ -456,7 +456,7 @@ export default function ArtistasScreen() {
       }
       setImagenSubiendo(true);
       try {
-        const data = await subirImagenAlServidor(editing.id_artista, asset.uri, asset.mimeType, asset.fileName);
+        const data = await subirImagenAlServidor(editing.id_artista, asset.uri, asset.mimeType ?? undefined, asset.fileName ?? undefined);
         if (data.imagen_key) {
           setEditing((prev) => (prev ? { ...prev, imagen_key: data.imagen_key } : prev));
         }
@@ -654,7 +654,9 @@ export default function ArtistasScreen() {
                 <Text style={styles.label}>Activo</Text>
                 <Switch
                   value={editing?.activo !== false}
-                  onValueChange={(v) => editing && setEditing({ ...editing, activo: v })}
+                  onValueChange={(v) => {
+                    if (editing) setEditing({ ...editing, activo: v });
+                  }}
                 />
               </View>
               <Text style={styles.label}>Teléfono</Text>

@@ -21,6 +21,7 @@ import { useProductosCache } from '../contexts/ProductosCache';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useAuth } from '../contexts/AuthContext';
+import { calcTiempoRestante } from '../lib/acuerdosFechas';
 
 type DetalleProducto = { PK: string; SK: string; ProductId: string; ProductName: string; Cantidad: number; Aportacion: number; Rappel: number; DescuentoExtra: number; Compradas: number; Restante: number; Porcentaje: number; createdAt?: string };
 
@@ -134,20 +135,23 @@ function WebDeleteBtn({
   );
 }
 
-function TooltipBtn({ tooltip, children, ...props }: { tooltip: string; children: React.ReactNode; style?: any; onPress?: () => void; disabled?: boolean }) {
-  const [hover, setHover] = useState(false);
-  const webProps = Platform.OS === 'web' ? { onMouseEnter: () => setHover(true), onMouseLeave: () => setHover(false) } : {};
-  return (
-    <View style={{ position: 'relative' }} {...webProps}>
-      <TouchableOpacity {...props}>{children}</TouchableOpacity>
-      {hover && (
-        <View style={tooltipStyles.bubble}>
-          <Text style={tooltipStyles.text}>{tooltip}</Text>
-        </View>
-      )}
-    </View>
-  );
-}
+const donutStyles = StyleSheet.create({
+  wrap: { alignItems: 'center', paddingVertical: 12 },
+  textWrap: { position: 'absolute', top: 0, left: 0, justifyContent: 'center', alignItems: 'center' },
+  pctText: { fontSize: 20, fontWeight: '800' },
+  subText: { fontSize: 10, color: '#64748b', marginTop: 2 },
+  fallback: { alignItems: 'center', paddingVertical: 12 },
+  fallbackPct: { fontSize: 24, fontWeight: '800' },
+  fallbackSub: { fontSize: 11, color: '#64748b', marginTop: 2 },
+});
+
+/** Web: nowrap en tooltip (no está en TextStyle de RN). */
+const tooltipTextWebNowrap = Platform.select({ web: { whiteSpace: 'nowrap' } as object, default: {} });
+
+const tooltipStyles = StyleSheet.create({
+  bubble: { position: 'absolute', top: '100%', left: '50%', transform: [{ translateX: -40 }], marginTop: 4, backgroundColor: '#1e293b', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, zIndex: 9999, elevation: 9999, minWidth: 80, alignItems: 'center' },
+  text: { fontSize: 11, color: '#f8fafc', fontWeight: '500' },
+});
 
 function DonutChart({ porcentaje, compradas, acordado, size = 120 }: { porcentaje: number; compradas: number; acordado: number; size?: number }) {
   const isMini = size <= 64;
@@ -190,20 +194,20 @@ function DonutChart({ porcentaje, compradas, acordado, size = 120 }: { porcentaj
   );
 }
 
-const donutStyles = StyleSheet.create({
-  wrap: { alignItems: 'center', paddingVertical: 12 },
-  textWrap: { position: 'absolute', top: 0, left: 0, justifyContent: 'center', alignItems: 'center' },
-  pctText: { fontSize: 20, fontWeight: '800' },
-  subText: { fontSize: 10, color: '#64748b', marginTop: 2 },
-  fallback: { alignItems: 'center', paddingVertical: 12 },
-  fallbackPct: { fontSize: 24, fontWeight: '800' },
-  fallbackSub: { fontSize: 11, color: '#64748b', marginTop: 2 },
-});
-
-const tooltipStyles = StyleSheet.create({
-  bubble: { position: 'absolute', top: '100%', left: '50%', transform: [{ translateX: -40 }], marginTop: 4, backgroundColor: '#1e293b', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, zIndex: 9999, elevation: 9999, minWidth: 80, alignItems: 'center' },
-  text: { fontSize: 11, color: '#f8fafc', fontWeight: '500', whiteSpace: 'nowrap' as any },
-});
+function TooltipBtn({ tooltip, children, ...props }: { tooltip: string; children: React.ReactNode; style?: any; onPress?: () => void; disabled?: boolean }) {
+  const [hover, setHover] = useState(false);
+  const webProps = Platform.OS === 'web' ? { onMouseEnter: () => setHover(true), onMouseLeave: () => setHover(false) } : {};
+  return (
+    <View style={{ position: 'relative' }} {...webProps}>
+      <TouchableOpacity {...props}>{children}</TouchableOpacity>
+      {hover && (
+        <View style={tooltipStyles.bubble}>
+          <Text style={[tooltipStyles.text, tooltipTextWebNowrap]}>{tooltip}</Text>
+        </View>
+      )}
+    </View>
+  );
+}
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const ACUERDOS_LAST_SELECTED_KEY = 'acuerdos-last-selected-pk';
@@ -247,36 +251,6 @@ function formatFecha(iso: string): string {
 function formatMoneda(n: number | null | undefined): string {
   if (n == null) return '0,00 €';
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
-}
-
-function calcTiempoRestante(fechaFin: string): { texto: string; vencido: boolean } {
-  if (!fechaFin) return { texto: 'Sin fecha fin', vencido: false };
-  const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0);
-  const fin = new Date(fechaFin + 'T00:00:00');
-  if (isNaN(fin.getTime())) return { texto: 'Fecha inválida', vencido: false };
-
-  const diff = fin.getTime() - hoy.getTime();
-  const absDiff = Math.abs(diff);
-  const vencido = diff < 0;
-
-  const desde = vencido ? fin : hoy;
-  const hasta = vencido ? hoy : fin;
-  let meses = (hasta.getFullYear() - desde.getFullYear()) * 12 + (hasta.getMonth() - desde.getMonth());
-  let dias = hasta.getDate() - desde.getDate();
-  if (dias < 0) {
-    meses -= 1;
-    const mesAnterior = new Date(hasta.getFullYear(), hasta.getMonth(), 0);
-    dias += mesAnterior.getDate();
-  }
-
-  let texto = '';
-  if (meses > 0 && dias > 0) texto = `${meses} ${meses === 1 ? 'mes' : 'meses'} y ${dias} ${dias === 1 ? 'día' : 'días'}`;
-  else if (meses > 0) texto = `${meses} ${meses === 1 ? 'mes' : 'meses'}`;
-  else if (dias > 0) texto = `${dias} ${dias === 1 ? 'día' : 'días'}`;
-  else return { texto: 'Finaliza hoy', vencido: false };
-
-  return { texto: vencido ? `Vencido hace ${texto}` : `Quedan ${texto}`, vencido };
 }
 
 function valorEnLocal(obj: Record<string, unknown>, key: string): unknown {
@@ -832,11 +806,12 @@ export default function AcuerdosScreen() {
               const res = await fetch(`${API_URL}/api/acuerdos/${encodeURIComponent(lastPK)}`);
               const data = await res.json();
               if (res.ok && data.item) {
-                a = data.item as Acuerdo;
+                const fetched = data.item as Acuerdo;
+                a = fetched;
                 setAcuerdos((prev) => {
-                  const exists = prev.some((x) => x.PK === a.PK);
+                  const exists = prev.some((x) => x.PK === fetched.PK);
                   if (exists) return prev;
-                  return [a!, ...prev].sort((x, y) => (y.createdAt || '').localeCompare(x.createdAt || ''));
+                  return [fetched, ...prev].sort((x, y) => (y.createdAt || '').localeCompare(x.createdAt || ''));
                 });
               }
             } catch (_) {}
@@ -1241,6 +1216,14 @@ export default function AcuerdosScreen() {
         <Text style={styles.headerTitle}>Acuerdos con Marcas</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity
+            style={styles.productosActivosBtn}
+            onPress={() => router.push('/acuerdos-productos-activos' as any)}
+            accessibilityLabel="Productos en acuerdos activos"
+          >
+            <MaterialIcons name="view-list" size={18} color="#0f766e" />
+            <Text style={styles.productosActivosBtnText}>Activos</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={styles.productosAgoraBtn}
             onPress={() => router.push('/productos')}
             accessibilityLabel="Productos Ágora"
@@ -1292,11 +1275,17 @@ export default function AcuerdosScreen() {
             acuerdosOrdenados.map((a) => {
               const estadoColor = a.Estado === 'Activo' ? '#16a34a' : a.Estado === 'Completado' ? '#0ea5e9' : a.Estado === 'Vencido' ? '#ef4444' : '#94a3b8';
               const isSelected = seleccionado?.PK === a.PK;
+              const tr = calcTiempoRestante(a.FechaFin);
               return (
                 <TouchableOpacity key={a.PK} activeOpacity={0.7} onPress={() => seleccionarAcuerdo(a)} style={[styles.card, isSelected && styles.cardSelected]}>
                   <View style={styles.cardHeader}>
                     <View style={styles.cardTitleWrap}>
-                      <Text style={styles.cardTitle}>{a.Marca || '—'}</Text>
+                      <Text style={styles.cardTitle} numberOfLines={1}>
+                        {a.Marca || '—'}
+                      </Text>
+                      <View style={styles.cardIdBadge}>
+                        <Text style={styles.cardIdBadgeText}>{a.PK.slice(0, 8)}</Text>
+                      </View>
                       <View style={[styles.badge, { backgroundColor: estadoColor + '18', borderColor: estadoColor }]}>
                         <Text style={[styles.badgeText, { color: estadoColor }]}>{a.Estado}</Text>
                       </View>
@@ -1326,8 +1315,10 @@ export default function AcuerdosScreen() {
                     })()}
                     <View style={styles.cardBodyInfo}>
                       <View style={styles.cardField}>
-                        <Text style={styles.cardFieldLabel}>Identificador</Text>
-                        <Text style={styles.cardFieldValue}>{a.Nombre || a.PK.slice(0, 8)}</Text>
+                        <Text style={styles.cardFieldLabel}>Restante</Text>
+                        <Text style={[styles.cardFieldValue, styles.cardCountdown, tr.vencido && { color: '#ef4444' }]}>
+                          {tr.texto}
+                        </Text>
                       </View>
                       <View style={styles.cardField}>
                         <Text style={styles.cardFieldLabel}>Periodo</Text>
@@ -1851,7 +1842,15 @@ export default function AcuerdosScreen() {
           <Pressable style={{ flex: 1, justifyContent: 'flex-start', alignItems: 'center', paddingTop: 16 }} onPress={() => setProductoTooltip(null)}>
             {productoTooltip ? (
               <View style={[tooltipStyles.bubble, { left: undefined, transform: undefined, maxWidth: 340, marginHorizontal: 20 }]}>
-                <Text style={[tooltipStyles.text, { whiteSpace: 'normal' as any, textAlign: 'center' }]}>{productoTooltip.name}</Text>
+                <Text
+                  style={[
+                    tooltipStyles.text,
+                    { textAlign: 'center' },
+                    Platform.OS === 'web' ? ({ whiteSpace: 'normal' } as object) : null,
+                  ]}
+                >
+                  {productoTooltip.name}
+                </Text>
               </View>
             ) : null}
           </Pressable>
@@ -2181,6 +2180,18 @@ const styles = StyleSheet.create({
   backBtn: { padding: 4 },
   headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#0f172a' },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  productosActivosBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#99f6e4',
+    backgroundColor: '#f0fdfa',
+  },
+  productosActivosBtnText: { fontSize: 12, fontWeight: '600', color: '#0f766e' },
   productosAgoraBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2205,8 +2216,18 @@ const styles = StyleSheet.create({
   card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
   cardSelected: { borderColor: '#0ea5e9', borderWidth: 2 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
-  cardTitle: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
+  cardTitle: { fontSize: 15, fontWeight: '700', color: '#0f172a', flexShrink: 1 },
+  cardIdBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+    flexShrink: 0,
+  },
+  cardIdBadgeText: { fontSize: 10, fontWeight: '700', color: '#64748b', fontFamily: Platform.select({ web: 'ui-monospace, monospace', default: 'monospace' }) },
   badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
   badgeText: { fontSize: 11, fontWeight: '600' },
   cardActions: { flexDirection: 'row', gap: 4 },
@@ -2218,6 +2239,7 @@ const styles = StyleSheet.create({
   cardField: { minWidth: 120, marginRight: 16 },
   cardFieldLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 2 },
   cardFieldValue: { fontSize: 13, color: '#334155' },
+  cardCountdown: { fontWeight: '600' },
   cardNotas: { fontSize: 12, color: '#64748b', fontStyle: 'italic', paddingHorizontal: 16, paddingBottom: 10 },
 
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },

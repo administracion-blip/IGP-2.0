@@ -96,6 +96,13 @@ export type Factura = {
   emisor_id?: string;
   emisor_nombre?: string;
   emisor_cif?: string;
+  emisor_direccion?: string;
+  emisor_cp?: string;
+  emisor_municipio?: string;
+  emisor_provincia?: string;
+  emisor_email?: string;
+  emisor_iban?: string;
+  emisor_iban_alternativo?: string;
   empresa_id: string;
   empresa_nombre: string;
   empresa_cif: string;
@@ -104,6 +111,8 @@ export type Factura = {
   empresa_municipio: string;
   empresa_provincia: string;
   empresa_email: string;
+  empresa_iban?: string;
+  empresa_iban_alternativo?: string;
   fecha_emision: string;
   fecha_operacion: string;
   fecha_vencimiento: string;

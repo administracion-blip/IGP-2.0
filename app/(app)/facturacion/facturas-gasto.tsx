@@ -65,9 +65,10 @@ function hoyDmy(): string {
 }
 
 /** Evita que el click del icono dispare la selección de fila (p. ej. en web). */
-function absorberClickFila(e: { stopPropagation?: () => void; nativeEvent?: { stopPropagation?: () => void } }) {
-  if (typeof e.stopPropagation === 'function') e.stopPropagation();
-  const ne = e.nativeEvent;
+function absorberClickFila(e: import('react-native').GestureResponderEvent) {
+  const ev = e as unknown as { stopPropagation?: () => void; nativeEvent?: { stopPropagation?: () => void } };
+  if (typeof ev.stopPropagation === 'function') ev.stopPropagation();
+  const ne = ev.nativeEvent;
   if (ne && typeof ne.stopPropagation === 'function') ne.stopPropagation();
 }
 

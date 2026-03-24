@@ -769,7 +769,7 @@ export default function FacturaDetalleScreen() {
       const { emisorData, clienteData, facturaData } = buildPdfParams();
       const doc = generarPDFFactura(emisorData, clienteData, facturaData, lineas);
       const blobUrl = doc.output('bloburl');
-      window.open(blobUrl as string, '_blank');
+      window.open(String(blobUrl), '_blank');
     } catch (e: any) {
       alertMsg('Error PDF', e.message ?? 'No se pudo generar la previsualización');
     }
@@ -2122,6 +2122,11 @@ const styles = StyleSheet.create({
   pickerWrap: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  pickerPlaceholder: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontStyle: 'italic',
   },
   chip: {
     paddingHorizontal: 10,

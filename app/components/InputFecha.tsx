@@ -116,13 +116,13 @@ export function InputFecha({
           onPress={() => {
             if (!editable) return;
             const input = webDateInputRef.current;
-            if (input) {
-              try {
-                if ('showPicker' in input) (input as HTMLInputElement & { showPicker: () => void }).showPicker();
-                else input.click();
-              } catch {
-                input.click();
-              }
+            if (!input) return;
+            const el = input as HTMLInputElement & { showPicker?: () => void };
+            try {
+              if (typeof el.showPicker === 'function') el.showPicker();
+              else el.click();
+            } catch {
+              el.click();
             }
           }}
           disabled={!editable}

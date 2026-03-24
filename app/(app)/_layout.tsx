@@ -161,6 +161,7 @@ function AppLayoutContent() {
             <Stack.Screen name="puntos-venta" />
             <Stack.Screen name="permisos" />
             <Stack.Screen name="acuerdos" />
+            <Stack.Screen name="acuerdos-productos-activos" />
             <Stack.Screen name="facturacion" />
             <Stack.Screen name="ajustes" />
           </Stack>

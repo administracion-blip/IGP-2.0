@@ -3916,6 +3916,102 @@ app.get('/api/acuerdos', async (req, res) => {
   }
 });
 
+/** Todas las líneas de producto de acuerdos en estado Activo y vigentes por fecha fin. */
+app.get('/api/acuerdos/productos-activos', async (req, res) => {
+  try {
+    const hoy = new Date().toISOString().slice(0, 10);
+    const acuerdosItems = [];
+    let aKey = null;
+    do {
+      const r = await docClient.send(new ScanCommand({
+        TableName: tableAcuerdosName,
+        ConsistentRead: true,
+        FilterExpression: '#sk = :meta',
+        ExpressionAttributeNames: { '#sk': 'SK' },
+        ExpressionAttributeValues: { ':meta': 'META' },
+        ...(aKey && { ExclusiveStartKey: aKey }),
+      }));
+      acuerdosItems.push(...(r.Items || []));
+      aKey = r.LastEvaluatedKey || null;
+    } while (aKey);
+
+    const allDetalles = [];
+    let dKey = null;
+    do {
+      const r = await docClient.send(new ScanCommand({
+        TableName: tableAcuerdosDetallesName,
+        ConsistentRead: true,
+        ...(dKey && { ExclusiveStartKey: dKey }),
+      }));
+      allDetalles.push(...(r.Items || []));
+      dKey = r.LastEvaluatedKey || null;
+    } while (dKey);
+
+    const detallesPorAcuerdo = {};
+    for (const d of allDetalles) {
+      if (!detallesPorAcuerdo[d.PK]) detallesPorAcuerdo[d.PK] = [];
+      detallesPorAcuerdo[d.PK].push(d);
+    }
+
+    const activos = acuerdosItems.filter((a) => {
+      if (a.Estado !== 'Activo') return false;
+      if (a.FechaFin && a.FechaFin < hoy) return false;
+      return true;
+    });
+
+    const items = [];
+    for (const acuerdo of activos) {
+      const pk = acuerdo.PK;
+      const detalles = detallesPorAcuerdo[pk] || [];
+      if (detalles.length === 0) continue;
+
+      let fechaInicio = acuerdo.FechaInicio || '';
+      let fechaFin = acuerdo.FechaFin || '';
+      if (fechaInicio && fechaFin && fechaInicio > fechaFin) {
+        [fechaInicio, fechaFin] = [fechaFin, fechaInicio];
+      }
+
+      const productIds = new Set(detalles.map((d) => String(d.ProductId || d.SK || '').trim()));
+      const comprasPorProducto = await queryComprasPorProductos(productIds, fechaInicio, fechaFin);
+
+      for (const d of detalles) {
+        const pid = String(d.ProductId ?? d.SK ?? '').trim();
+        const acordado = d.Cantidad || 0;
+        const compradas = comprasPorProducto[pid] || 0;
+        const restante = acordado - compradas;
+        const porcentaje = acordado > 0 ? Math.round((compradas / acordado) * 1000) / 10 : 0;
+        items.push({
+          ...d,
+          acuerdoPK: pk,
+          MarcaAcuerdo: acuerdo.Marca || '',
+          NombreAcuerdo: acuerdo.Nombre || '',
+          FechaInicioAcuerdo: fechaInicio,
+          FechaFinAcuerdo: fechaFin,
+          Compradas: compradas,
+          Restante: restante,
+          Porcentaje: porcentaje,
+        });
+      }
+    }
+
+    items.sort((a, b) => {
+      const m = (a.MarcaAcuerdo || '').localeCompare(b.MarcaAcuerdo || '', 'es');
+      if (m !== 0) return m;
+      return (a.ProductName || '').localeCompare(b.ProductName || '', 'es');
+    });
+
+    return res.json({
+      ok: true,
+      items,
+      totalLineas: items.length,
+      acuerdosActivosConProductos: activos.filter((a) => (detallesPorAcuerdo[a.PK] || []).length > 0).length,
+    });
+  } catch (err) {
+    console.error('[acuerdos productos-activos]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al listar productos de acuerdos activos' });
+  }
+});
+
 app.get('/api/acuerdos/:id', async (req, res) => {
   try {
     const got = await docClient.send(new GetCommand({

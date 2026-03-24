@@ -782,20 +782,20 @@ export default function PedidosScreen() {
                               .filter((prod) => {
                                 if (!productoBusqueda.trim()) return true;
                                 const q = productoBusqueda.trim().toLowerCase();
-                                const idProd = String(valorEnLocal(prod, 'Id') ?? '').toLowerCase();
-                                const nombre = String(valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? '').toLowerCase();
+                                const idProd = String(valorEnLocal(prod as Pedido, 'Id') ?? '').toLowerCase();
+                                const nombre = String(valorEnLocal(prod as Pedido, 'Name') ?? valorEnLocal(prod as Pedido, 'Nombre') ?? '').toLowerCase();
                                 return nombre.includes(q) || idProd.includes(q);
                               })
                               .map((prod, idx) => {
-                                const idProd = String(valorEnLocal(prod, 'Id') ?? '').trim();
-                                const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? idProd) || '—').trim();
+                                const idProd = String(valorEnLocal(prod as Pedido, 'Id') ?? '').trim();
+                                const nombre = String((valorEnLocal(prod as Pedido, 'Name') ?? valorEnLocal(prod as Pedido, 'Nombre') ?? idProd) || '—').trim();
                                 return (
                                   <TouchableOpacity
                                     key={idProd || `p-${idx}`}
                                     style={[styles.selectDropdownItem, formLinea.ProductId === idProd && styles.selectDropdownItemActive]}
                                     {...(Platform.OS === 'web' ? { title: nombre || idProd || '' } : {})}
                                     onPress={() => {
-                                      const costPrice = valorEnLocal(prod, 'CostPrice');
+                                      const costPrice = valorEnLocal(prod as Pedido, 'CostPrice');
                                       const precioStr = costPrice != null ? String(costPrice) : '';
                                       setFormLinea((f) => ({ ...f, ProductId: idProd, ProductoNombre: nombre, PrecioUnitario: precioStr }));
                                       setProductoDropdownOpen(false);
@@ -810,8 +810,8 @@ export default function PedidosScreen() {
                             {productosIgp.filter((prod) => {
                               if (!productoBusqueda.trim()) return true;
                               const q = productoBusqueda.trim().toLowerCase();
-                              const idProd = String(valorEnLocal(prod, 'Id') ?? '').toLowerCase();
-                              const nombre = String(valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? '').toLowerCase();
+                              const idProd = String(valorEnLocal(prod as Pedido, 'Id') ?? '').toLowerCase();
+                              const nombre = String(valorEnLocal(prod as Pedido, 'Name') ?? valorEnLocal(prod as Pedido, 'Nombre') ?? '').toLowerCase();
                               return nombre.includes(q) || idProd.includes(q);
                             }).length === 0 && (
                               <View style={styles.selectDropdownItem}>

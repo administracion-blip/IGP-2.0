@@ -9,7 +9,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "api": "cd api && npm run dev",
-    "dev": "concurrently -n api,expo -c blue,magenta \"npm run api\" \"expo start --web --port 8083\"",
+    "dev": "concurrently -n api,expo -c blue,magenta \"npm run api\" \"expo start --web --port 8084\"",
     "dev:tunnel": "concurrently -n api,expo -c blue,magenta \"npm run api\" \"expo start --tunnel\""
   },
   "dependencies": {
@@ -20,8 +20,8 @@
     "expo": "~54.0.33",
     "expo-constants": "~18.0.13",
     "expo-document-picker": "^14.0.8",
-    "expo-font": "~14.0.11",
     "expo-file-system": "^19.0.21",
+    "expo-font": "~14.0.11",
     "expo-image-manipulator": "~14.0.8",
     "expo-image-picker": "~17.0.10",
     "expo-linking": "~8.0.11",
@@ -48,6 +48,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
+    "@types/react-dom": "^19.2.3",
     "concurrently": "^9.1.2",
     "patch-package": "^8.0.1",
     "typescript": "~5.9.2"

@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   TextInput,
   PanResponder,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -19,7 +20,16 @@ const MIN_COL_WIDTH = 50;
 const MAX_COL_WIDTH = 280;
 const PAGE_SIZE = 50;
 
-type PuntoVentaItem = { Id?: number | string; Nombre?: string; Tipo?: string; Local?: string; Grupo?: string; Activo?: boolean };
+type PuntoVentaItem = {
+  Id?: number | string;
+  /** Algunas respuestas API usan minúscula */
+  id?: number | string;
+  Nombre?: string;
+  Tipo?: string;
+  Local?: string;
+  Grupo?: string;
+  Activo?: boolean;
+};
 
 const COLUMNAS: (keyof PuntoVentaItem)[] = ['Activo', 'Id', 'Nombre', 'Tipo', 'Local', 'Grupo'];
 
@@ -342,7 +352,15 @@ const styles = StyleSheet.create({
   table: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff', alignSelf: 'flex-start' },
   rowHeader: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
   cellHeader: { minWidth: MIN_COL_WIDTH, paddingVertical: 2, paddingHorizontal: 6, borderRightWidth: 1, borderRightColor: '#cbd5e1', position: 'relative' },
-  resizeHandle: { position: 'absolute', right: 0, top: 0, bottom: 0, width: 10, backgroundColor: 'rgba(0,0,0,0.04)', cursor: 'col-resize' },
+  resizeHandle: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 10,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+    ...(Platform.OS === 'web' ? { cursor: 'col-resize' as import('react-native').ViewStyle['cursor'] } : {}),
+  },
   cellHeaderText: { fontSize: 10, fontWeight: '600', color: '#334155' },
   cellLast: { borderRightWidth: 0 },
   row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#fff' },

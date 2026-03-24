@@ -309,7 +309,7 @@ export function FacturaVentaDetallePanel({
       const doc = generarPDFFactura(emisorData, clienteData, facturaData, lineas);
       const blobUrl = doc.output('bloburl');
       const w = globalThis as unknown as { open?: (u: string, t?: string) => void };
-      w.open?.(blobUrl as string, '_blank');
+      w.open?.(String(blobUrl), '_blank');
     } catch (e: unknown) {
       Alert.alert('Error PDF', e instanceof Error ? e.message : 'No se pudo generar la previsualización');
     } finally {

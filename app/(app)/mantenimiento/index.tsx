@@ -231,9 +231,9 @@ export default function MantenimientoScreen() {
   };
 
   const toolbarBtns = [
-    { id: 'crear', label: 'Reportar incidencia', icon: ICONS.add as const, onPress: () => router.push('/mantenimiento/reportar') },
-    { id: 'editar', label: 'Editar', icon: ICONS.edit as const, disabled: true },
-    { id: 'borrar', label: 'Borrar', icon: ICONS.delete as const, disabled: true },
+    { id: 'crear', label: 'Reportar incidencia', icon: ICONS.add, onPress: () => router.push('/mantenimiento/reportar') },
+    { id: 'editar', label: 'Editar', icon: ICONS.edit, disabled: true },
+    { id: 'borrar', label: 'Borrar', icon: ICONS.delete, disabled: true },
   ];
 
   return (
@@ -267,7 +267,10 @@ export default function MantenimientoScreen() {
             <TouchableOpacity
               key={btn.id}
               style={[styles.toolbarBtn, btn.disabled && styles.toolbarBtnDisabled]}
-              onPress={() => !btn.disabled && 'onPress' in btn && btn.onPress()}
+              onPress={() => {
+                if (btn.disabled) return;
+                if ('onPress' in btn && typeof btn.onPress === 'function') btn.onPress();
+              }}
               disabled={btn.disabled}
               accessibilityLabel={btn.label}
             >
