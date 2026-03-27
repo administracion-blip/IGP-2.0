@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -122,8 +122,13 @@ export default function AcuerdosProductosActivosScreen() {
   const router = useRouter();
   const { productosIgp } = useProductosCache();
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [items, setItems] = useState<Linea[]>([]);
+  const itemsRef = useRef<Linea[]>([]);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
   const [meta, setMeta] = useState({ totalLineas: 0, acuerdosActivosConProductos: 0 });
   const [busqueda, setBusqueda] = useState('');
 
@@ -176,8 +181,10 @@ export default function AcuerdosProductosActivosScreen() {
     setPmrMax('');
   }, []);
 
-  const cargar = useCallback(async () => {
-    setLoading(true);
+  const cargar = useCallback(async (opts?: { background?: boolean }) => {
+    const background = opts?.background === true;
+    if (background) setRefreshing(true);
+    else setLoading(true);
     setError('');
     try {
       const res = await fetch(`${API_URL}/api/acuerdos/productos-activos`);
@@ -191,14 +198,15 @@ export default function AcuerdosProductosActivosScreen() {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Error de red';
       setError(msg);
-      setItems([]);
+      if (!background) setItems([]);
     } finally {
-      setLoading(false);
+      if (background) setRefreshing(false);
+      else setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    cargar();
+    cargar({ background: false });
   }, [cargar]);
 
   const filtrados = useMemo(() => {
@@ -386,7 +394,8 @@ export default function AcuerdosProductosActivosScreen() {
   }, [filtradosFinales, buildExportRows, busqueda, filtrosAvanzadosActivos]);
 
   const hayFiltroCliente = busqueda.trim() !== '' || filtrosAvanzadosActivos;
-  const mostrandoParcial = !loading && !error && items.length > 0 && filtradosFinales.length < items.length;
+  const mostrandoParcial =
+    !loading && !error && items.length > 0 && filtradosFinales.length < items.length;
 
   return (
     <View style={styles.container}>
@@ -400,11 +409,20 @@ export default function AcuerdosProductosActivosScreen() {
             <Text style={styles.headerSub}>
               {meta.totalLineas} líneas · {meta.acuerdosActivosConProductos} acuerdos con productos
               {mostrandoParcial ? ` · Mostrando ${filtradosFinales.length} de ${items.length}` : null}
+              {refreshing ? ' · Actualizando…' : null}
             </Text>
           ) : null}
         </View>
-        <TouchableOpacity onPress={cargar} style={styles.refreshBtn} accessibilityLabel="Actualizar">
-          <MaterialIcons name="refresh" size={22} color="#64748b" />
+        <TouchableOpacity
+          onPress={() => cargar({ background: itemsRef.current.length > 0 })}
+          style={styles.refreshBtn}
+          accessibilityLabel="Actualizar"
+        >
+          {refreshing ? (
+            <ActivityIndicator size="small" color="#0ea5e9" />
+          ) : (
+            <MaterialIcons name="refresh" size={22} color="#64748b" />
+          )}
         </TouchableOpacity>
       </View>
 
@@ -559,7 +577,7 @@ export default function AcuerdosProductosActivosScreen() {
         </View>
       ) : null}
 
-      {loading ? (
+      {loading && items.length === 0 ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#0ea5e9" />
           <Text style={styles.loadingText}>Cargando productos…</Text>

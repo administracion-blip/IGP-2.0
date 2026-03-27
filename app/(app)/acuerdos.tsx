@@ -265,7 +265,12 @@ export default function AcuerdosScreen() {
   const { confirmDelete, ModalConfirm } = useConfirmDelete();
 
   const [acuerdos, setAcuerdos] = useState<Acuerdo[]>([]);
+  const acuerdosRef = useRef<Acuerdo[]>([]);
+  useEffect(() => {
+    acuerdosRef.current = acuerdos;
+  }, [acuerdos]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
   const [modalVisible, setModalVisible] = useState(false);
@@ -406,8 +411,10 @@ export default function AcuerdosScreen() {
   const [loadingArchivos, setLoadingArchivos] = useState(false);
   const [subiendoArchivo, setSubiendoArchivo] = useState(false);
 
-  const cargar = useCallback(async () => {
-    setLoading(true);
+  const cargar = useCallback(async (opts?: { background?: boolean }) => {
+    const background = opts?.background === true;
+    if (background) setRefreshing(true);
+    else setLoading(true);
     setError('');
     try {
       const res = await fetch(`${API_URL}/api/acuerdos`);
@@ -440,7 +447,8 @@ export default function AcuerdosScreen() {
       setError(err.message);
       return [];
     } finally {
-      setLoading(false);
+      if (background) setRefreshing(false);
+      else setLoading(false);
     }
   }, []);
 
@@ -523,7 +531,7 @@ export default function AcuerdosScreen() {
       if (!res.ok) throw new Error(data.error || 'Error');
       setModalVisible(false);
       const creado = !editId ? (data.item as Acuerdo) : null;
-      const items = await cargar();
+      const items = await cargar({ background: acuerdosRef.current.length > 0 });
       cargarTotales();
       if (creado) {
         const a = items.find((x) => x.PK === creado.PK) || creado;
@@ -543,7 +551,7 @@ export default function AcuerdosScreen() {
   const eliminar = async (id: string) => {
     try {
       await fetch(`${API_URL}/api/acuerdos/${id}`, { method: 'DELETE' });
-      await cargar();
+      await cargar({ background: acuerdosRef.current.length > 0 });
       cargarTotales();
     } catch (err: any) {
       setError(err.message);
@@ -787,7 +795,7 @@ export default function AcuerdosScreen() {
       let cancelled = false;
       (async () => {
         const [items, totalesData] = await Promise.all([
-          cargar(),
+          cargar({ background: acuerdosRef.current.length > 0 }),
           (async () => {
             try {
               const res = await fetch(`${API_URL}/api/acuerdos/totales`);
@@ -1259,6 +1267,7 @@ export default function AcuerdosScreen() {
             placeholderTextColor="#94a3b8"
             style={{ flex: 1, fontSize: 14, color: '#1e293b', padding: 6, outlineStyle: 'none' } as any}
           />
+          {refreshing ? <ActivityIndicator size="small" color="#0ea5e9" /> : null}
           {filtroMarca ? (
             <TouchableOpacity onPress={() => setFiltroMarca('')}><MaterialIcons name="close" size={16} color="#94a3b8" /></TouchableOpacity>
           ) : null}

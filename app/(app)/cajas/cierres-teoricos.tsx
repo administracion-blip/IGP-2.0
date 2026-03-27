@@ -283,22 +283,27 @@ export default function CierresTeoricosScreen() {
   }, [formPayments, formPaymentMethods]);
 
   const refetchCloseouts = useCallback((silent = false) => {
-    if (!silent) { setLoading(true); setError(null); }
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     fetch(`${API_URL}/api/agora/closeouts`)
       .then((res) => safeJson<{ closeouts?: CloseOut[]; error?: string }>(res))
       .then((data) => {
         if (data.error) {
           if (!silent) setError(data.error);
-          setCloseouts([]);
+          if (!silent) setCloseouts([]);
         } else {
           setCloseouts(Array.isArray(data.closeouts) ? data.closeouts : []);
         }
       })
       .catch((e) => {
         if (!silent) setError(e.message || 'Error de conexión');
-        setCloseouts([]);
+        if (!silent) setCloseouts([]);
       })
-      .finally(() => { if (!silent) setLoading(false); });
+      .finally(() => {
+        if (!silent) setLoading(false);
+      });
   }, []);
 
   const syncRangoFechas = useCallback(async (desde: string, hasta: string) => {
@@ -353,7 +358,6 @@ export default function CierresTeoricosScreen() {
     setSyncing(false);
     setSyncProgress(100);
     setSyncEstimatedRemainingSeconds(0);
-    setShowSyncModal(false);
     refetchCloseouts(true);
   }, [refetchCloseouts]);
 
@@ -963,6 +967,24 @@ export default function CierresTeoricosScreen() {
         <Text style={styles.title}>Cierres de ventas teóricas</Text>
       </View>
 
+      {syncing ? (
+        <View style={styles.syncBanner}>
+          <ActivityIndicator size="small" color="#0369a1" />
+          <View style={styles.syncBannerTextWrap}>
+            <Text style={styles.syncBannerTitle}>Sincronizando con Ágora…</Text>
+            <View style={styles.syncProgressBarBg}>
+              <View style={[styles.syncProgressBarFill, { width: `${syncProgress}%` }]} />
+            </View>
+            <Text style={styles.syncBannerSub}>
+              {syncCurrentDay} / {syncTotalDays} días ({syncProgress}%)
+              {syncEstimatedRemainingSeconds != null && syncEstimatedRemainingSeconds > 0
+                ? ` · ~${formatSyncSeconds(syncEstimatedRemainingSeconds)} restantes`
+                : ` · ${formatSyncSeconds(syncElapsedSeconds)} transcurridos`}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
       <View style={styles.toolbarRow}>
         <View style={styles.searchWrap}>
           <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
@@ -1113,7 +1135,7 @@ export default function CierresTeoricosScreen() {
       )}
 
       <Modal visible={showSyncModal} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => !syncing && setShowSyncModal(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setShowSyncModal(false)}>
           <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.modalTitle}>Sincronizar cierres</Text>
             <Text style={styles.modalSubtitle}>Actualiza los datos desde Ágora entre las fechas seleccionadas</Text>
@@ -1135,37 +1157,20 @@ export default function CierresTeoricosScreen() {
               style={styles.filterInput}
               editable={!syncing}
             />
-            {syncing && (
-              <View style={styles.syncProgressWrap}>
-                <View style={styles.syncProgressBarBg}>
-                  <View style={[styles.syncProgressBarFill, { width: `${syncProgress}%` }]} />
-          </View>
-                <View style={styles.syncProgressInfo}>
-                  <Text style={styles.syncProgressText}>
-                    {syncCurrentDay} / {syncTotalDays} días ({syncProgress}%)
-                  </Text>
-                  <Text style={styles.syncProgressTimer}>
-                    {syncEstimatedRemainingSeconds != null && syncEstimatedRemainingSeconds > 0
-                      ? `Tiempo restante: ~${formatSyncSeconds(syncEstimatedRemainingSeconds)}`
-                      : `Tiempo transcurrido: ${formatSyncSeconds(syncElapsedSeconds)}`}
-                  </Text>
-      </View>
-              </View>
-            )}
+            <Text style={styles.modalHint}>
+              Puedes cerrar este cuadro: la sincronización continúa en segundo plano y verás el progreso arriba.
+            </Text>
             <View style={styles.modalActions}>
-          <TouchableOpacity
-                style={[styles.modalBtn, styles.modalBtnCancel]}
-                onPress={() => !syncing && setShowSyncModal(false)}
-                disabled={syncing}
-              >
-                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnCancel]} onPress={() => setShowSyncModal(false)}>
+                <Text style={styles.modalBtnCancelText}>Cerrar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={[styles.modalBtn, styles.modalBtnPrimary, syncing && styles.toolbarBtnDisabled]}
-                  onPress={() => {
+                onPress={() => {
                   const desde = parseDateToYYYYMMDD(syncFechaDesde);
                   const hasta = parseDateToYYYYMMDD(syncFechaHasta);
                   if (desde && hasta && desde <= hasta) {
+                    setShowSyncModal(false);
                     syncRangoFechas(desde, hasta);
                   }
                 }}
@@ -1179,8 +1184,8 @@ export default function CierresTeoricosScreen() {
                     <Text style={[styles.modalBtnPrimaryText, { marginLeft: 6 }]}>Sincronizar</Text>
                   </View>
                 )}
-                </TouchableOpacity>
-              </View>
+              </TouchableOpacity>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1531,6 +1536,20 @@ const styles = StyleSheet.create({
   modalContent: { backgroundColor: '#fff', borderRadius: 12, padding: 20, width: '100%', maxWidth: 360 },
   modalTitle: { fontSize: 17, fontWeight: '600', color: '#334155', marginBottom: 4 },
   modalSubtitle: { fontSize: 12, color: '#64748b', marginBottom: 16 },
+  modalHint: { fontSize: 11, color: '#64748b', marginBottom: 12, lineHeight: 16 },
+  syncBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#e0f2fe',
+    borderBottomWidth: 1,
+    borderBottomColor: '#bae6fd',
+  },
+  syncBannerTextWrap: { flex: 1, minWidth: 0 },
+  syncBannerTitle: { fontSize: 13, fontWeight: '700', color: '#0369a1', marginBottom: 6 },
+  syncBannerSub: { fontSize: 11, color: '#0c4a6e', marginTop: 4 },
   syncProgressWrap: { marginTop: 16, marginBottom: 4 },
   syncProgressBarBg: { height: 8, backgroundColor: '#e2e8f0', borderRadius: 4, overflow: 'hidden' },
   syncProgressBarFill: { height: '100%', backgroundColor: '#0ea5e9', borderRadius: 4 },
