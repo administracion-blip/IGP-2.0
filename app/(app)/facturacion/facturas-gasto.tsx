@@ -138,21 +138,21 @@ const COL_LABELS: Record<string, string> = {
 };
 
 const DEFAULT_WIDTHS: Record<string, number> = {
-  id_factura: 80,
-  fecha_emision: 90,
-  fecha_contabilizacion: 210,
-  emisor_nombre: 170,
-  empresa_nombre: 160,
-  empresa_cif: 100,
-  numero_factura_proveedor: 130,
-  base_imponible: 95,
-  iva_tipo: 52,
-  total_iva: 72,
-  total_retencion: 88,
-  total_factura: 95,
-  estado: 110,
-  pagado: 120,
-  saldo_pendiente: 95,
+  id_factura: 74,
+  fecha_emision: 82,
+  fecha_contabilizacion: 180,
+  emisor_nombre: 150,
+  empresa_nombre: 140,
+  empresa_cif: 92,
+  numero_factura_proveedor: 118,
+  base_imponible: 88,
+  iva_tipo: 48,
+  total_iva: 68,
+  total_retencion: 80,
+  total_factura: 88,
+  estado: 100,
+  pagado: 108,
+  saldo_pendiente: 88,
 };
 
 const MONEDA_COLS = new Set([
@@ -762,7 +762,7 @@ export default function FacturasGastoScreen() {
                     {COL_LABELS[col] || col}
                   </Text>
                   {sortCol === col && (
-                    <MaterialIcons name={sortDir === 'asc' ? 'arrow-upward' : 'arrow-downward'} size={12} color="#334155" />
+                    <MaterialIcons name={sortDir === 'asc' ? 'arrow-upward' : 'arrow-downward'} size={10} color="#334155" />
                   )}
                   {Platform.OS === 'web' && (
                     <View
@@ -853,6 +853,7 @@ export default function FacturasGastoScreen() {
             apiUrl={API_URL}
             facturaId={selectedId}
             tipoFactura="IN"
+            compactPanel
             puedeEditar={hasPermiso('facturacion.editar')}
             usuarioId={user?.id_usuario}
             usuarioNombre={user?.Nombre}
@@ -1140,26 +1141,27 @@ const styles = StyleSheet.create({
   detailPanelFlex: {
     flex: 1,
     minHeight: 0,
+    maxWidth: 360,
   },
   detailPanelSide: {
-    width: 400,
+    width: 360,
     flexShrink: 0,
     alignSelf: 'stretch',
     borderLeftWidth: 1,
-    minHeight: 280,
+    minHeight: 220,
   },
   detailPanelStack: {
     width: '100%',
-    maxHeight: 440,
+    maxHeight: 380,
     borderTopWidth: 1,
   },
   detailPanelTitle: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: '#64748b',
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingHorizontal: 10,
+    paddingTop: 6,
+    paddingBottom: 3,
   },
   scrollContent: { paddingBottom: 20 },
   table: {
@@ -1184,13 +1186,13 @@ const styles = StyleSheet.create({
   },
   cellHeader: {
     minWidth: MIN_COL_WIDTH,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
     borderRightWidth: 1,
     borderRightColor: '#cbd5e1',
     position: 'relative' as const,
   },
-  cellHeaderText: { fontSize: 10, fontWeight: '600', color: '#334155', lineHeight: 13 },
+  cellHeaderText: { fontSize: 9, fontWeight: '600', color: '#334155', lineHeight: 11 },
   cellHeaderRight: { alignItems: 'flex-end' as const },
   cellHeaderTextRight: { textAlign: 'right' as const },
   resizeHandle: {
@@ -1212,17 +1214,17 @@ const styles = StyleSheet.create({
   rowSelected: { backgroundColor: '#e0f2fe' },
   cell: {
     minWidth: MIN_COL_WIDTH,
-    paddingVertical: 4,
-    paddingHorizontal: 7,
+    paddingVertical: 2,
+    paddingHorizontal: 5,
     borderRightWidth: 1,
     borderRightColor: '#e2e8f0',
     justifyContent: 'center',
   },
   cellRight: { alignItems: 'flex-end' as const },
   cellText: {
-    fontSize: 10,
+    fontSize: 9,
     color: '#475569',
-    lineHeight: 14,
+    lineHeight: 12,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
   cellTextRight: { textAlign: 'right' as const, alignSelf: 'stretch' as const },

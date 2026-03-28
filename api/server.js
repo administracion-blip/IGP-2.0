@@ -18,6 +18,7 @@ import { upsertBatch } from './lib/dynamo/salesCloseOuts.js';
 import { syncProducts, getLastSync, setLastSync, shouldSkipSyncByThrottle, toApiProduct, pickAllowedFields } from './lib/dynamo/agoraProducts.js';
 import facturacionRouter from './routes/facturacion.js';
 import artistasActuacionesRouter from './routes/artistasActuaciones.js';
+import arqueosRealesRouter from './routes/arqueosReales.js';
 import { normalizeCif, getCifFromEmpresaItem, getIdEmpresaFromItem } from './lib/empresaCif.js';
 
 const app = express();
@@ -662,6 +663,163 @@ app.get('/api/agora/closeouts/totals-by-month', async (req, res) => {
   } catch (err) {
     console.error('[agora/closeouts/totals-by-month]', err.message || err);
     res.status(500).json({ error: err.message || 'Error al obtener totales por mes' });
+  }
+});
+
+// GET /api/agora/closeouts/dashboard-home?dateTo=YYYY-MM-DD
+// Un solo Scan de cierres + locales en paralelo; sustituye 4 llamadas (YTD x2 + mes x2) del inicio.
+app.get('/api/agora/closeouts/dashboard-home', async (req, res) => {
+  const dateTo = (req.query.dateTo && String(req.query.dateTo).trim()) || '';
+  if (!dateTo || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+    return res.status(400).json({ error: 'dateTo obligatorio (YYYY-MM-DD)' });
+  }
+  const curYear = parseInt(dateTo.slice(0, 4), 10);
+  const lastYearNum = curYear - 1;
+  const dateToLastYear = `${lastYearNum}-${dateTo.slice(5, 10)}`;
+  const prefixCur = `${curYear}-`;
+  const prefixLast = `${lastYearNum}-`;
+  const useDateToCur = dateTo.startsWith(`${curYear}-`);
+  const useDateToLast = dateToLastYear.startsWith(`${lastYearNum}-`);
+
+  const sumInvoicePayments = (item) => {
+    const arr = item.InvoicePayments ?? item.invoicePayments;
+    let total = 0;
+    if (Array.isArray(arr)) {
+      for (const p of arr) {
+        total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
+      }
+    }
+    return total;
+  };
+
+  try {
+    const [items, localeItems] = await Promise.all([
+      (async () => {
+        const acc = [];
+        let lastKey = null;
+        do {
+          const result = await docClient.send(new ScanCommand({
+            TableName: tableSalesCloseOutsName,
+            ...(lastKey && { ExclusiveStartKey: lastKey }),
+          }));
+          acc.push(...(result.Items || []));
+          lastKey = result.LastEvaluatedKey || null;
+        } while (lastKey);
+        return acc;
+      })(),
+      (async () => {
+        const acc = [];
+        let locLastKey = null;
+        do {
+          const locResult = await docClient.send(new ScanCommand({
+            TableName: tableLocalesName,
+            ...(locLastKey && { ExclusiveStartKey: locLastKey }),
+          }));
+          acc.push(...(locResult.Items || []));
+          locLastKey = locResult.LastEvaluatedKey || null;
+        } while (locLastKey);
+        return acc;
+      })(),
+    ]);
+
+    const totalsTickerPk = {};
+    const ytdCurPk = {};
+    const ytdLastPk = {};
+    const monthCur = {};
+    const monthLast = {};
+
+    for (const item of items) {
+      const sk = String(item.SK ?? item.sk ?? '').trim();
+      if (!sk) continue;
+      const pk = String(item.PK ?? item.pk ?? '').trim();
+      if (!pk) continue;
+      const t = sumInvoicePayments(item);
+
+      if (sk.startsWith(dateTo)) {
+        totalsTickerPk[pk] = (totalsTickerPk[pk] || 0) + t;
+      }
+
+      const datePart = sk.split('#')[0] || '';
+
+      if (sk.startsWith(prefixCur)) {
+        if (!(useDateToCur && datePart > dateTo)) {
+          ytdCurPk[pk] = (ytdCurPk[pk] || 0) + t;
+          const mo = parseInt(datePart.slice(5, 7), 10) || 0;
+          if (mo >= 1 && mo <= 12) {
+            monthCur[mo] = (monthCur[mo] || 0) + t;
+          }
+        }
+      }
+      if (sk.startsWith(prefixLast)) {
+        if (!(useDateToLast && datePart > dateToLastYear)) {
+          ytdLastPk[pk] = (ytdLastPk[pk] || 0) + t;
+          const mo = parseInt(datePart.slice(5, 7), 10) || 0;
+          if (mo >= 1 && mo <= 12) {
+            monthLast[mo] = (monthLast[mo] || 0) + t;
+          }
+        }
+      }
+    }
+
+    const pkToNombre = {};
+    for (const loc of localeItems) {
+      const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+      const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
+      if (code) pkToNombre[code] = nombre || code;
+    }
+
+    const mapPkToTotals = (totalsByPk) =>
+      Object.entries(totalsByPk)
+        .filter(([, total]) => total > 0)
+        .map(([workplaceId, total]) => ({
+          local: pkToNombre[workplaceId] ?? workplaceId,
+          total: Math.round(total * 100) / 100,
+          workplaceId,
+        }))
+        .sort((a, b) => b.total - a.total);
+
+    const monthsCurArr = [];
+    const monthsLastArr = [];
+    for (let m = 1; m <= 12; m++) {
+      monthsCurArr.push({
+        month: m,
+        monthLabel: MONTH_LABELS[m - 1],
+        total: Math.round((monthCur[m] || 0) * 100) / 100,
+      });
+      monthsLastArr.push({
+        month: m,
+        monthLabel: MONTH_LABELS[m - 1],
+        total: Math.round((monthLast[m] || 0) * 100) / 100,
+      });
+    }
+
+    res.json({
+      dateTo,
+      totalsTicker: mapPkToTotals(totalsTickerPk),
+      ytdCurrent: {
+        year: curYear,
+        dateTo: useDateToCur ? dateTo : null,
+        totals: mapPkToTotals(ytdCurPk),
+      },
+      ytdLastYear: {
+        year: lastYearNum,
+        dateTo: useDateToLast ? dateToLastYear : null,
+        totals: mapPkToTotals(ytdLastPk),
+      },
+      monthsCurrent: {
+        year: curYear,
+        dateTo: useDateToCur ? dateTo : null,
+        months: monthsCurArr,
+      },
+      monthsLastYear: {
+        year: lastYearNum,
+        dateTo: useDateToLast ? dateToLastYear : null,
+        months: monthsLastArr,
+      },
+    });
+  } catch (err) {
+    console.error('[agora/closeouts/dashboard-home]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al cargar dashboard' });
   }
 });
 
@@ -4884,6 +5042,7 @@ async function runCloseoutsSync() {
 
 app.use('/api', facturacionRouter);
 app.use('/api', artistasActuacionesRouter);
+app.use('/api', arqueosRealesRouter);
 
 // ─── Ajustes ───
 

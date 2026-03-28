@@ -21,11 +21,6 @@ function getYesterdayYYYYMMDD(): string {
   return d.toISOString().slice(0, 10);
 }
 
-function getLastYearSameDate(isoDate: string): string {
-  const [y, m, d] = isoDate.split('-').map(Number);
-  return `${y - 1}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-}
-
 function formatBusinessDayToLabel(iso: string): string {
   const [y, m, d] = iso.split('-');
   return `${d}/${m}/${y}`;
@@ -114,60 +109,67 @@ export default function AppHome() {
   const [ytdLoading, setYtdLoading] = useState(true);
   const [ytdError, setYtdError] = useState<string | null>(null);
   const yesterday = getYesterdayYYYYMMDD();
-  const lastYearSameDate = getLastYearSameDate(yesterday);
   const currentYear = new Date().getFullYear();
   const lastYear = currentYear - 1;
 
   useEffect(() => {
-    fetch(`${API_URL}/api/agora/closeouts/totals-by-local?businessDay=${yesterday}`)
-      .then((res) => res.json())
-      .then((data: { totals?: TotalByLocal[]; error?: string }) => {
-        if (data.error) {
-          setError(data.error);
-          setTotals([]);
-        } else {
-          setTotals((data.totals || []).filter((t) => localPermitido(t.local)));
-        }
-      })
-      .catch((err) => {
-        setError(err.message || 'Error al cargar');
-        setTotals([]);
-      })
-      .finally(() => setLoading(false));
-  }, [yesterday, localPermitido]);
+    let cancelled = false;
+    setLoading(true);
+    setYtdLoading(true);
+    setError(null);
+    setYtdError(null);
 
-  useEffect(() => {
-    const dateTo = yesterday;
-    const dateToLastYear = lastYearSameDate;
-    Promise.all([
-      fetch(`${API_URL}/api/agora/closeouts/totals-by-local-ytd?year=${currentYear}&dateTo=${dateTo}`).then((r) => r.json()),
-      fetch(`${API_URL}/api/agora/closeouts/totals-by-local-ytd?year=${lastYear}&dateTo=${dateToLastYear}`).then((r) => r.json()),
-      fetch(`${API_URL}/api/agora/closeouts/totals-by-month?year=${currentYear}&dateTo=${dateTo}`).then((r) => r.json()),
-      fetch(`${API_URL}/api/agora/closeouts/totals-by-month?year=${lastYear}&dateTo=${dateToLastYear}`).then((r) => r.json()),
-    ])
-      .then(([dataCur, dataLast, dataMonthCur, dataMonthLast]) => {
-        if (dataCur.error) {
-          setYtdError(dataCur.error);
-          setYtdTotals([]);
-          setYtdLastYearTotals([]);
-          setYtdMonthly([]);
-          setYtdMonthlyLastYear([]);
-        } else {
-          setYtdTotals((dataCur.totals || []).filter((t: TotalByLocal) => localPermitido(t.local)));
-          setYtdLastYearTotals((dataLast.totals || []).filter((t: TotalByLocal) => localPermitido(t.local)));
-          setYtdMonthly(dataMonthCur.months || []);
-          setYtdMonthlyLastYear(dataMonthLast.months || []);
+    fetch(`${API_URL}/api/agora/closeouts/dashboard-home?dateTo=${encodeURIComponent(yesterday)}`)
+      .then((res) => res.json())
+      .then(
+        (data: {
+          error?: string;
+          totalsTicker?: TotalByLocal[];
+          ytdCurrent?: { totals?: TotalByLocal[] };
+          ytdLastYear?: { totals?: TotalByLocal[] };
+          monthsCurrent?: { months?: MonthTotal[] };
+          monthsLastYear?: { months?: MonthTotal[] };
+        }) => {
+          if (cancelled) return;
+          if (data.error) {
+            setError(data.error);
+            setYtdError(data.error);
+            setTotals([]);
+            setYtdTotals([]);
+            setYtdLastYearTotals([]);
+            setYtdMonthly([]);
+            setYtdMonthlyLastYear([]);
+            return;
+          }
+          setTotals((data.totalsTicker || []).filter((t) => localPermitido(t.local)));
+          setYtdTotals((data.ytdCurrent?.totals || []).filter((t) => localPermitido(t.local)));
+          setYtdLastYearTotals((data.ytdLastYear?.totals || []).filter((t) => localPermitido(t.local)));
+          setYtdMonthly(data.monthsCurrent?.months || []);
+          setYtdMonthlyLastYear(data.monthsLastYear?.months || []);
         }
-      })
+      )
       .catch((err) => {
-        setYtdError(err.message || 'Error al cargar');
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : 'Error al cargar';
+        setError(msg);
+        setYtdError(msg);
+        setTotals([]);
         setYtdTotals([]);
         setYtdLastYearTotals([]);
         setYtdMonthly([]);
         setYtdMonthlyLastYear([]);
       })
-      .finally(() => setYtdLoading(false));
-  }, [currentYear, yesterday, lastYearSameDate, localPermitido]);
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+          setYtdLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [yesterday, localPermitido]);
 
   const ytdTotalGeneral = ytdTotals.reduce((s, t) => s + t.total, 0);
   const ytdLastYearTotalGeneral = ytdLastYearTotals.reduce((s, t) => s + t.total, 0);

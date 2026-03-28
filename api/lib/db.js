@@ -33,6 +33,7 @@ export const tables = {
   ajustes: process.env.DDB_AJUSTES || 'Igp_Ajustes',
   artistas: process.env.DDB_ARTISTAS || 'Igp_Artistas',
   actuaciones: process.env.DDB_ACTUACIONES || 'Igp_Actuaciones',
+  arqueosReales: process.env.DDB_ARQUEOS_REALES || 'Igp_ArqueosReales',
 };
 
 /**

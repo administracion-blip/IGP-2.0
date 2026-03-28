@@ -285,6 +285,8 @@ export default function AcuerdosScreen() {
   const [prodDropdownOpen, setProdDropdownOpen] = useState(false);
   const [prodSearch, setProdSearch] = useState('');
   const [prodFocusedIndex, setProdFocusedIndex] = useState(0);
+  const [prodPickIds, setProdPickIds] = useState<string[]>([]);
+  const [addingBatchProductos, setAddingBatchProductos] = useState(false);
   const prodListScrollRef = useRef<ScrollView>(null);
 
   const [empresas, setEmpresas] = useState<Record<string, unknown>[]>([]);
@@ -667,11 +669,11 @@ export default function AcuerdosScreen() {
     if (!productosLastFetch) recargarProductos();
   };
 
-  const addProductoDetalle = async (prod: Record<string, unknown>) => {
-    if (!seleccionado) return;
+  const addProductoDetalle = async (prod: Record<string, unknown>, opts?: { skipClose?: boolean }): Promise<boolean> => {
+    if (!seleccionado) return false;
     const id = String(valorEnLocal(prod, 'Id') ?? '').trim();
     const name = String(valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? id).trim();
-    if (!id) return;
+    if (!id) return false;
     try {
       const res = await fetch(`${API_URL}/api/acuerdos/${seleccionado.PK}/detalles`, {
         method: 'POST',
@@ -694,10 +696,45 @@ export default function AcuerdosScreen() {
         setDescuentoEdits((prev) => ({ ...prev, [id]: '0' }));
         cargarTotales();
         cargarDetalles(seleccionado.PK, { showLoading: false });
+        if (!opts?.skipClose) {
+          setProdDropdownOpen(false);
+          setProdSearch('');
+          setProdPickIds([]);
+        }
+        return true;
       }
-    } catch (err: any) { setError(err.message); }
-    setProdDropdownOpen(false);
-    setProdSearch('');
+      return false;
+    } catch (err: any) {
+      setError(err.message);
+      if (!opts?.skipClose) {
+        setProdDropdownOpen(false);
+        setProdSearch('');
+      }
+      return false;
+    }
+  };
+
+  const addProductosSeleccionados = async () => {
+    if (!seleccionado || prodPickIds.length === 0) return;
+    const full = (productosIgp || []) as Record<string, unknown>[];
+    const byId = new Map(full.map((p) => [String(valorEnLocal(p, 'Id') ?? '').trim(), p]));
+    const uniq = [...new Set(prodPickIds)];
+    const ya = new Set(detalles.map((d) => d.ProductId));
+    setAddingBatchProductos(true);
+    try {
+      for (const id of uniq) {
+        if (ya.has(id)) continue;
+        const prod = byId.get(id);
+        if (!prod) continue;
+        const ok = await addProductoDetalle(prod, { skipClose: true });
+        if (ok) ya.add(id);
+      }
+    } finally {
+      setAddingBatchProductos(false);
+      setProdDropdownOpen(false);
+      setProdSearch('');
+      setProdPickIds([]);
+    }
   };
 
   const actualizarCantidad = async (productId: string, cantidad: number) => {
@@ -993,6 +1030,8 @@ export default function AcuerdosScreen() {
     });
     return filtered.slice(0, 50);
   }, [productosIgp, prodSearch, detalles]);
+
+  const prodPickSet = useMemo(() => new Set(prodPickIds), [prodPickIds]);
 
   const costPriceMap = useMemo(() => {
     const map: Record<string, number> = {};
@@ -1467,7 +1506,20 @@ export default function AcuerdosScreen() {
               <View style={styles.detailProductsSection}>
                 <View style={styles.detailProductsHeader}>
                   <Text style={styles.detailProductsSectionTitle}>Productos del acuerdo</Text>
-                  <TouchableOpacity style={styles.detailAddBtn} onPress={() => { setProdSearch(''); setProdFocusedIndex(0); setProdDropdownOpen((o) => !o); }}>
+                  <TouchableOpacity
+                    style={styles.detailAddBtn}
+                    onPress={() => {
+                      setProdDropdownOpen((o) => {
+                        const next = !o;
+                        if (next) {
+                          setProdSearch('');
+                          setProdFocusedIndex(0);
+                          setProdPickIds([]);
+                        }
+                        return next;
+                      });
+                    }}
+                  >
                     <MaterialIcons name="add" size={14} color="#0ea5e9" />
                     <Text style={styles.detailAddBtnText}>Añadir</Text>
                   </TouchableOpacity>
@@ -1504,6 +1556,19 @@ export default function AcuerdosScreen() {
                           },
                         } : {})}
                       />
+                      {prodPickIds.length > 0 ? (
+                        <TouchableOpacity
+                          style={[styles.detailProdAddSelectedBtn, addingBatchProductos && styles.detailProdAddSelectedBtnDisabled]}
+                          onPress={() => { void addProductosSeleccionados(); }}
+                          disabled={addingBatchProductos}
+                        >
+                          {addingBatchProductos ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <Text style={styles.detailProdAddSelectedBtnText}>Añadir ({prodPickIds.length})</Text>
+                          )}
+                        </TouchableOpacity>
+                      ) : null}
                       <TouchableOpacity onPress={() => setProdDropdownOpen(false)}><MaterialIcons name="close" size={14} color="#94a3b8" /></TouchableOpacity>
                     </View>
                     <ScrollView ref={prodListScrollRef} style={[styles.productoDropdownList, styles.detailProdDropdownList]} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
@@ -1512,9 +1577,23 @@ export default function AcuerdosScreen() {
                         productosFiltrados.map((p, i) => {
                           const id = String(valorEnLocal(p, 'Id') ?? '').trim();
                           const name = String(valorEnLocal(p, 'Name') ?? valorEnLocal(p, 'Nombre') ?? id).trim();
+                          const picked = prodPickSet.has(id);
                           return (
-                            <TouchableOpacity key={id || i} style={[styles.productoDropdownItem, styles.detailProdDropdownItem]} onPress={() => addProductoDetalle(p)} {...(Platform.OS === 'web' ? { title: name } : {})}>
-                              <Text style={[styles.productoDropdownItemText, styles.detailProdDropdownItemText]} numberOfLines={1}>{name}</Text>
+                            <TouchableOpacity
+                              key={id || i}
+                              style={[styles.productoDropdownItem, styles.detailProdDropdownItem, styles.detailProdDropdownItemRow]}
+                              onPress={() => {
+                                setProdPickIds((prev) => {
+                                  const s = new Set(prev);
+                                  if (s.has(id)) s.delete(id);
+                                  else s.add(id);
+                                  return [...s];
+                                });
+                              }}
+                              {...(Platform.OS === 'web' ? { title: name } : {})}
+                            >
+                              <MaterialIcons name={picked ? 'check-box' : 'check-box-outline-blank'} size={18} color={picked ? '#0ea5e9' : '#94a3b8'} />
+                              <Text style={[styles.productoDropdownItemText, styles.detailProdDropdownItemText, styles.detailProdDropdownItemLabel]} numberOfLines={1}>{name}</Text>
                             </TouchableOpacity>
                           );
                         })
@@ -2281,6 +2360,20 @@ const styles = StyleSheet.create({
   detailProdDropdownEmpty: { fontSize: 11, padding: 8 },
   detailProdDropdownItem: { paddingVertical: 5, paddingHorizontal: 8 },
   detailProdDropdownItemText: { fontSize: 11 },
+  detailProdAddSelectedBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: '#0ea5e9',
+    flexShrink: 0,
+    minWidth: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailProdAddSelectedBtnDisabled: { opacity: 0.55 },
+  detailProdAddSelectedBtnText: { fontSize: 10, fontWeight: '700', color: '#fff' },
+  detailProdDropdownItemRow: { gap: 6 },
+  detailProdDropdownItemLabel: { flex: 1, minWidth: 0 },
   productoDropdownItemDisabled: { opacity: 0.4 },
   productoDropdownItemText: { fontSize: 13, color: '#334155', flex: 1 },
 

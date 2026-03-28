@@ -343,3 +343,9 @@ export function resolveMetodoPagoParaEnvio(claveSeleccion: string, textoOtro: st
   if (normalizarTipoReciboTexto(t) === 'otro') return null;
   return t;
 }
+
+/** Maestro igp_Empresas: sede «Grupo Paripe» (registro masivo / cuadro de mando). */
+export function esEmpresaSedeGrupoParipe(e: { Sede?: string; sede?: string }): boolean {
+  const s = (e.Sede ?? e.sede ?? '').toString().trim().toUpperCase();
+  return s.includes('GRUPO PARIPE');
+}

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,13 +7,18 @@ import {
   ActivityIndicator,
   ScrollView,
   useWindowDimensions,
+  Modal,
+  Pressable,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
-import { formatMoneda, labelEstado, colorEstado } from '../../utils/facturacion';
+import { formatMoneda, labelEstado, colorEstado, esEmpresaSedeGrupoParipe } from '../../utils/facturacion';
 import { useAuth } from '../../contexts/AuthContext';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+
+type EmpresaOpt = { id: string; nombre: string };
 
 type MesMensual = {
   mes: string;
@@ -62,6 +67,12 @@ const OPCIONES: {
 
 const MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
+const AÑOS_RANGO = 16;
+
+function mesNombre(m: number) {
+  return MESES_CORTOS[m - 1] || String(m);
+}
+
 function mesLabel(yyyymm: string) {
   const m = parseInt(yyyymm.slice(5, 7), 10);
   return MESES_CORTOS[m - 1] || yyyymm;
@@ -74,14 +85,54 @@ export default function FacturacionIndexScreen() {
   const isWide = width >= 900;
   const [metricas, setMetricas] = useState<Metricas | null>(null);
   const [loading, setLoading] = useState(true);
+  const [empresaSeleccionadaId, setEmpresaSeleccionadaId] = useState('');
+  const [empresaModalOpen, setEmpresaModalOpen] = useState(false);
+  const [empresasGrupoParipe, setEmpresasGrupoParipe] = useState<EmpresaOpt[]>([]);
+
+  const [filtroAnio, setFiltroAnio] = useState(() => new Date().getFullYear());
+  const [filtroMes, setFiltroMes] = useState(() => new Date().getMonth() + 1);
+  const [anioModalOpen, setAnioModalOpen] = useState(false);
+  const [mesModalOpen, setMesModalOpen] = useState(false);
+
+  const añosOpciones = useMemo(() => {
+    const y = new Date().getFullYear();
+    return Array.from({ length: AÑOS_RANGO }, (_, i) => y - i);
+  }, []);
+
+  const mesesOrdenDesc = useMemo(() => Array.from({ length: 12 }, (_, i) => 12 - i), []);
 
   const fetchMetricas = useCallback(() => {
     setLoading(true);
-    fetch(`${API_URL}/api/facturacion/metricas`)
+    const params = new URLSearchParams();
+    if (empresaSeleccionadaId) params.set('empresaId', empresaSeleccionadaId);
+    params.set('anio', String(filtroAnio));
+    params.set('mes', String(filtroMes));
+    const q = `?${params.toString()}`;
+    fetch(`${API_URL}/api/facturacion/metricas${q}`)
       .then((r) => r.json())
       .then((data) => setMetricas(data.metricas || null))
       .catch(() => setMetricas(null))
       .finally(() => setLoading(false));
+  }, [empresaSeleccionadaId, filtroAnio, filtroMes]);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/empresas`)
+      .then((r) => r.json())
+      .then((d) => {
+        const raw: unknown[] = d.empresas ?? d ?? [];
+        const list: EmpresaOpt[] = raw
+          .filter((e): e is Record<string, unknown> => e != null && typeof e === 'object')
+          .filter((e) => esEmpresaSedeGrupoParipe(e))
+          .map((e) => {
+            const id = e.id_empresa != null ? String(e.id_empresa) : '';
+            const nombre = String(e.Nombre ?? e.nombre ?? '').trim() || id;
+            return { id, nombre };
+          })
+          .filter((x) => x.id)
+          .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+        setEmpresasGrupoParipe(list);
+      })
+      .catch(() => setEmpresasGrupoParipe([]));
   }, []);
 
   useEffect(() => {
@@ -89,6 +140,16 @@ export default function FacturacionIndexScreen() {
       .catch(() => {})
       .finally(() => fetchMetricas());
   }, [fetchMetricas]);
+
+  const labelEmpresaFiltro = useMemo(() => {
+    if (!empresaSeleccionadaId) return 'Todas las empresas (Grupo Paripe)';
+    return empresasGrupoParipe.find((e) => e.id === empresaSeleccionadaId)?.nombre ?? 'Empresa';
+  }, [empresaSeleccionadaId, empresasGrupoParipe]);
+
+  const labelPeriodoCorto = useMemo(
+    () => `${mesNombre(filtroMes)} ${filtroAnio}`,
+    [filtroAnio, filtroMes],
+  );
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -114,6 +175,139 @@ export default function FacturacionIndexScreen() {
         </TouchableOpacity>
       </View>
 
+      <View style={styles.filtrosRow}>
+        {empresasGrupoParipe.length > 0 ? (
+          <TouchableOpacity
+            style={styles.empresaFilterBtn}
+            onPress={() => setEmpresaModalOpen(true)}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name="business" size={18} color="#0369a1" />
+            <Text style={styles.empresaFilterBtnText} numberOfLines={1}>
+              {labelEmpresaFiltro}
+            </Text>
+            <MaterialIcons name="arrow-drop-down" size={20} color="#64748b" />
+          </TouchableOpacity>
+        ) : null}
+        <TouchableOpacity
+          style={styles.periodoFilterBtn}
+          onPress={() => setAnioModalOpen(true)}
+          activeOpacity={0.7}
+        >
+          <MaterialIcons name="calendar-today" size={16} color="#0369a1" />
+          <Text style={styles.periodoFilterBtnText} numberOfLines={1}>
+            {filtroAnio}
+          </Text>
+          <MaterialIcons name="arrow-drop-down" size={18} color="#64748b" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.periodoFilterBtn}
+          onPress={() => setMesModalOpen(true)}
+          activeOpacity={0.7}
+        >
+          <MaterialIcons name="date-range" size={16} color="#0369a1" />
+          <Text style={styles.periodoFilterBtnText} numberOfLines={1}>
+            {mesNombre(filtroMes)}
+          </Text>
+          <MaterialIcons name="arrow-drop-down" size={18} color="#64748b" />
+        </TouchableOpacity>
+      </View>
+
+      <Modal visible={empresaModalOpen} transparent animationType="fade" onRequestClose={() => setEmpresaModalOpen(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setEmpresaModalOpen(false)}>
+          <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitle}>Sociedad del grupo</Text>
+            <Text style={styles.modalHint}>
+              Métricas filtradas por emisor (emitidas) y sociedad receptora (recibidas).
+            </Text>
+            <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
+              <TouchableOpacity
+                style={[styles.modalRow, !empresaSeleccionadaId && styles.modalRowActive]}
+                onPress={() => {
+                  setEmpresaSeleccionadaId('');
+                  setEmpresaModalOpen(false);
+                }}
+              >
+                <MaterialIcons name="layers" size={18} color="#64748b" />
+                <Text style={styles.modalRowText}>Todas las empresas</Text>
+                {!empresaSeleccionadaId ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
+              </TouchableOpacity>
+              {empresasGrupoParipe.map((e) => (
+                <TouchableOpacity
+                  key={e.id}
+                  style={[styles.modalRow, empresaSeleccionadaId === e.id && styles.modalRowActive]}
+                  onPress={() => {
+                    setEmpresaSeleccionadaId(e.id);
+                    setEmpresaModalOpen(false);
+                  }}
+                >
+                  <MaterialIcons name="domain" size={18} color="#64748b" />
+                  <Text style={styles.modalRowText} numberOfLines={2}>{e.nombre}</Text>
+                  {empresaSeleccionadaId === e.id ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.modalClose} onPress={() => setEmpresaModalOpen(false)}>
+              <Text style={styles.modalCloseText}>Cerrar</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={anioModalOpen} transparent animationType="fade" onRequestClose={() => setAnioModalOpen(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setAnioModalOpen(false)}>
+          <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitle}>Año</Text>
+            <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
+              {añosOpciones.map((a) => (
+                <TouchableOpacity
+                  key={a}
+                  style={[styles.modalRow, filtroAnio === a && styles.modalRowActive]}
+                  onPress={() => {
+                    setFiltroAnio(a);
+                    setAnioModalOpen(false);
+                  }}
+                >
+                  <MaterialIcons name="event" size={18} color="#64748b" />
+                  <Text style={styles.modalRowText}>{a}</Text>
+                  {filtroAnio === a ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.modalClose} onPress={() => setAnioModalOpen(false)}>
+              <Text style={styles.modalCloseText}>Cerrar</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={mesModalOpen} transparent animationType="fade" onRequestClose={() => setMesModalOpen(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setMesModalOpen(false)}>
+          <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitle}>Mes</Text>
+            <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
+              {mesesOrdenDesc.map((m) => (
+                <TouchableOpacity
+                  key={m}
+                  style={[styles.modalRow, filtroMes === m && styles.modalRowActive]}
+                  onPress={() => {
+                    setFiltroMes(m);
+                    setMesModalOpen(false);
+                  }}
+                >
+                  <MaterialIcons name="calendar-month" size={18} color="#64748b" />
+                  <Text style={styles.modalRowText}>{mesNombre(m)}</Text>
+                  {filtroMes === m ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.modalClose} onPress={() => setMesModalOpen(false)}>
+              <Text style={styles.modalCloseText}>Cerrar</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {loading ? (
         <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 20 }} />
       ) : metricas ? (
@@ -135,6 +329,7 @@ export default function FacturacionIndexScreen() {
             {/* Evolución mensual */}
             <View style={[styles.chartCard, isWide && { flex: 2 }]}>
               <Text style={styles.chartTitle}>Evolución mensual (12 meses)</Text>
+              <Text style={styles.chartSubtitle}>KPI y totales: {labelPeriodoCorto}</Text>
               <BarChart data={metricas.mensual} width={isWide ? undefined : width - 40} />
             </View>
 
@@ -294,6 +489,73 @@ const styles = StyleSheet.create({
   },
   navBtnText: { fontSize: 11, fontWeight: '500', color: '#0369a1' },
 
+  empresaFilterBtn: {
+    flex: 1,
+    minWidth: 140,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#f0f9ff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
+  empresaFilterBtnText: { flex: 1, fontSize: 14, fontWeight: '600', color: '#0c4a6e' },
+
+  filtrosRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  periodoFilterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    minWidth: 88,
+  },
+  periodoFilterBtnText: { fontSize: 13, fontWeight: '600', color: '#334155', maxWidth: 120 },
+
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.45)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalSheet: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    maxHeight: '70%',
+    padding: 16,
+    ...(Platform.OS === 'web' ? { boxShadow: '0 8px 32px rgba(0,0,0,0.12)' } as object : {}),
+  },
+  modalTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 4 },
+  modalHint: { fontSize: 11, color: '#64748b', marginBottom: 12 },
+  modalList: { maxHeight: 360 },
+  modalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  modalRowActive: { backgroundColor: '#f0f9ff', borderColor: '#bae6fd' },
+  modalRowText: { flex: 1, fontSize: 14, color: '#334155' },
+  modalClose: { marginTop: 8, paddingVertical: 10, alignItems: 'center' },
+  modalCloseText: { fontSize: 14, fontWeight: '600', color: '#0ea5e9' },
+
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 },
   kpiCard: {
     minWidth: 150,
@@ -320,7 +582,8 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     padding: 14,
   },
-  chartTitle: { fontSize: 13, fontWeight: '600', color: '#334155', marginBottom: 10 },
+  chartTitle: { fontSize: 13, fontWeight: '600', color: '#334155', marginBottom: 4 },
+  chartSubtitle: { fontSize: 11, color: '#94a3b8', marginBottom: 8 },
 
   barChartArea: { flexDirection: 'row', alignItems: 'flex-end', gap: 4, paddingTop: 4 },
   barGroup: { alignItems: 'center', flex: 1 },

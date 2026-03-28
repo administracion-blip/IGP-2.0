@@ -1091,12 +1091,30 @@ router.delete('/facturacion/pagos/:id_factura/:id_pago', async (req, res) => {
 
 // ─── MÉTRICAS / RESUMEN ───
 
-router.get('/facturacion/metricas', async (_req, res) => {
+router.get('/facturacion/metricas', async (req, res) => {
   try {
+    const empresaIdFiltro = String(req.query.empresaId || '').trim();
+    const anioQ = parseInt(String(req.query.anio || ''), 10);
+    const mesQ = parseInt(String(req.query.mes || ''), 10);
+    const tieneFiltroMes = Number.isFinite(anioQ) && anioQ >= 1970 && anioQ <= 2100
+      && Number.isFinite(mesQ) && mesQ >= 1 && mesQ <= 12;
+    const prefijoMes = tieneFiltroMes
+      ? `${anioQ}-${String(mesQ).padStart(2, '0')}`
+      : null;
+
     const facturas = await scanAll(tables.facturas);
 
-    const out = facturas.filter((f) => f.tipo === 'OUT');
-    const inF = facturas.filter((f) => f.tipo === 'IN');
+    let out = facturas.filter((f) => f.tipo === 'OUT');
+    let inF = facturas.filter((f) => f.tipo === 'IN');
+    if (empresaIdFiltro) {
+      out = out.filter((f) => String(f.emisor_id || '').trim() === empresaIdFiltro);
+      inF = inF.filter((f) => String(f.emisor_id || '').trim() === empresaIdFiltro);
+    }
+    if (prefijoMes) {
+      const enMes = (f) => (f.fecha_emision || '').startsWith(prefijoMes);
+      out = out.filter(enMes);
+      inF = inF.filter(enMes);
+    }
 
     const activas = (arr) => arr.filter((f) => f.estado !== 'borrador' && f.estado !== 'anulada');
 
@@ -1109,19 +1127,36 @@ router.get('/facturacion/metricas', async (_req, res) => {
     const totalPagado = inF.reduce((s, f) => s + (f.total_cobrado || 0), 0);
     const totalPendientePago = inF.filter((f) => !['anulada', 'borrador', 'pagada'].includes(f.estado)).reduce((s, f) => s + (f.saldo_pendiente || 0), 0);
 
-    // Evolución mensual (últimos 12 meses)
-    const hoy = new Date();
+    // Evolución: 12 meses (sin filtro de mes: desde hoy; con filtro: 12 meses hasta el mes elegido)
+    const pad2 = (n) => String(n).padStart(2, '0');
     const meses = [];
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
-      meses.push(d.toISOString().slice(0, 7)); // "YYYY-MM"
+    if (prefijoMes) {
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(anioQ, mesQ - 1 - i, 1);
+        meses.push(`${d.getFullYear()}-${pad2(d.getMonth() + 1)}`);
+      }
+    } else {
+      const hoy = new Date();
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
+        meses.push(`${d.getFullYear()}-${pad2(d.getMonth() + 1)}`);
+      }
     }
 
-    const mensual = meses.map((mes) => {
-      const outMes = activas(out).filter((f) => (f.fecha_emision || '').startsWith(mes));
-      const inMes = activas(inF).filter((f) => (f.fecha_emision || '').startsWith(mes));
+    const outBase = prefijoMes ? facturas.filter((f) => f.tipo === 'OUT') : out;
+    const inBase = prefijoMes ? facturas.filter((f) => f.tipo === 'IN') : inF;
+    let outChart = outBase;
+    let inChart = inBase;
+    if (empresaIdFiltro) {
+      outChart = outChart.filter((f) => String(f.emisor_id || '').trim() === empresaIdFiltro);
+      inChart = inChart.filter((f) => String(f.emisor_id || '').trim() === empresaIdFiltro);
+    }
+
+    const mensual = meses.map((mesKey) => {
+      const outMes = activas(outChart).filter((f) => (f.fecha_emision || '').startsWith(mesKey));
+      const inMes = activas(inChart).filter((f) => (f.fecha_emision || '').startsWith(mesKey));
       return {
-        mes,
+        mes: mesKey,
         ingresos: round2(outMes.reduce((s, f) => s + (f.total_factura || 0), 0)),
         gastos: round2(inMes.reduce((s, f) => s + (f.total_factura || 0), 0)),
         cobrado: round2(outMes.reduce((s, f) => s + (f.total_cobrado || 0), 0)),
@@ -1160,6 +1195,9 @@ router.get('/facturacion/metricas', async (_req, res) => {
     inF.forEach((f) => { estadosIn[f.estado] = (estadosIn[f.estado] || 0) + 1; });
 
     res.json({
+      empresaId: empresaIdFiltro || null,
+      anio: tieneFiltroMes ? anioQ : null,
+      mes: tieneFiltroMes ? mesQ : null,
       metricas: {
         totalEmitido: round2(totalEmitido),
         totalCobrado: round2(totalCobrado),
@@ -1244,6 +1282,30 @@ router.get('/facturacion/metricas-avanzadas', async (req, res) => {
     const out = activas.filter((f) => f.tipo === 'OUT');
     const inF = activas.filter((f) => f.tipo === 'IN');
 
+    const empresaIdFiltro = String(req.query.empresaId || '').trim();
+    const outS = empresaIdFiltro ? out.filter((f) => String(f.emisor_id || '').trim() === empresaIdFiltro) : out;
+    /** Recibidas: misma sociedad del grupo que en emitidas (emisor = empresa receptora del gasto). */
+    const inS = empresaIdFiltro ? inF.filter((f) => String(f.emisor_id || '').trim() === empresaIdFiltro) : inF;
+
+    const empMap = new Map();
+    for (const f of activas) {
+      const id = String(f.emisor_id || '').trim();
+      if (!id) continue;
+      const nombre = String(f.emisor_nombre || '').trim() || id;
+      if (!empMap.has(id)) empMap.set(id, nombre);
+    }
+    const empresasOpciones = [...empMap.entries()]
+      .map(([id, nombre]) => ({ id, nombre }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+
+    const idsFacturasScope = new Set();
+    for (const f of outS) {
+      if (f.id_factura) idsFacturasScope.add(f.id_factura);
+    }
+    for (const f of inS) {
+      if (f.id_factura) idsFacturasScope.add(f.id_factura);
+    }
+
     // Desglose mensual últimos 24 meses
     const meses24 = [];
     for (let i = 23; i >= 0; i--) {
@@ -1252,8 +1314,8 @@ router.get('/facturacion/metricas-avanzadas', async (req, res) => {
     }
 
     const mensual = meses24.map((mes) => {
-      const oM = out.filter((f) => f.estado !== 'borrador' && (f.fecha_emision || '').startsWith(mes));
-      const iM = inF.filter((f) => f.estado !== 'borrador' && (f.fecha_emision || '').startsWith(mes));
+      const oM = outS.filter((f) => f.estado !== 'borrador' && (f.fecha_emision || '').startsWith(mes));
+      const iM = inS.filter((f) => f.estado !== 'borrador' && (f.fecha_emision || '').startsWith(mes));
       const ingresos = round2(oM.reduce((s, f) => s + (f.total_factura || 0), 0));
       const gastos = round2(iM.reduce((s, f) => s + (f.total_factura || 0), 0));
       return {
@@ -1277,8 +1339,8 @@ router.get('/facturacion/metricas-avanzadas', async (req, res) => {
         const d = new Date(anioActual, mStart + i, 1);
         return d.toISOString().slice(0, 7);
       });
-      const oQ = out.filter((f) => f.estado !== 'borrador' && mesesQ.some((m) => (f.fecha_emision || '').startsWith(m)));
-      const iQ = inF.filter((f) => f.estado !== 'borrador' && mesesQ.some((m) => (f.fecha_emision || '').startsWith(m)));
+      const oQ = outS.filter((f) => f.estado !== 'borrador' && mesesQ.some((m) => (f.fecha_emision || '').startsWith(m)));
+      const iQ = inS.filter((f) => f.estado !== 'borrador' && mesesQ.some((m) => (f.fecha_emision || '').startsWith(m)));
       const ing = round2(oQ.reduce((s, f) => s + (f.total_factura || 0), 0));
       const gas = round2(iQ.reduce((s, f) => s + (f.total_factura || 0), 0));
       return {
@@ -1294,10 +1356,10 @@ router.get('/facturacion/metricas-avanzadas', async (req, res) => {
     // Año actual vs anterior
     const anioAnt = String(anioActual - 1);
     const anioCur = String(anioActual);
-    const outAnt = out.filter((f) => f.estado !== 'borrador' && (f.fecha_emision || '').startsWith(anioAnt));
-    const outCur = out.filter((f) => f.estado !== 'borrador' && (f.fecha_emision || '').startsWith(anioCur));
-    const inAnt = inF.filter((f) => f.estado !== 'borrador' && (f.fecha_emision || '').startsWith(anioAnt));
-    const inCur = inF.filter((f) => f.estado !== 'borrador' && (f.fecha_emision || '').startsWith(anioCur));
+    const outAnt = outS.filter((f) => f.estado !== 'borrador' && (f.fecha_emision || '').startsWith(anioAnt));
+    const outCur = outS.filter((f) => f.estado !== 'borrador' && (f.fecha_emision || '').startsWith(anioCur));
+    const inAnt = inS.filter((f) => f.estado !== 'borrador' && (f.fecha_emision || '').startsWith(anioAnt));
+    const inCur = inS.filter((f) => f.estado !== 'borrador' && (f.fecha_emision || '').startsWith(anioCur));
 
     const comparativa = {
       anioActual: {
@@ -1316,7 +1378,7 @@ router.get('/facturacion/metricas-avanzadas', async (req, res) => {
 
     // Aging (antigüedad deuda)
     const hoyStr = hoy.toISOString().slice(0, 10);
-    const pendientes = out.filter((f) => (f.saldo_pendiente || 0) > 0 && !['anulada', 'borrador', 'cobrada'].includes(f.estado));
+    const pendientes = outS.filter((f) => (f.saldo_pendiente || 0) > 0 && !['anulada', 'borrador', 'cobrada'].includes(f.estado));
     const aging = { corriente: 0, '30d': 0, '60d': 0, '90d': 0, mas90: 0 };
     pendientes.forEach((f) => {
       const fv = f.fecha_vencimiento || f.fecha_emision || '';
@@ -1340,6 +1402,7 @@ router.get('/facturacion/metricas-avanzadas', async (req, res) => {
 
     // Actividad reciente (últimos pagos)
     const pagosRecientes = pagos
+      .filter((p) => idsFacturasScope.has(p.id_factura))
       .sort((a, b) => (b.creado_en || '').localeCompare(a.creado_en || ''))
       .slice(0, 10)
       .map((p) => ({
@@ -1358,6 +1421,8 @@ router.get('/facturacion/metricas-avanzadas', async (req, res) => {
       aging,
       ivaResumen,
       pagosRecientes,
+      empresasOpciones,
+      empresaId: empresaIdFiltro || null,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -66,10 +66,19 @@ function absorberClickFila(e: { stopPropagation?: () => void; nativeEvent?: { st
 const PAGE_SIZE = 50;
 const MIN_COL_WIDTH = 60;
 
+/** Clave estable para filtrar por emisor (id o nombre si no hay id). */
+function getEmisorKey(f: { emisor_id?: string; emisor_nombre?: string }): string {
+  const id = String(f.emisor_id || '').trim();
+  if (id) return id;
+  const n = String(f.emisor_nombre || '').trim();
+  return n ? `nom:${n}` : '';
+}
+
 type Factura = {
   id_factura: string;
   numero_factura: string;
   fecha_emision: string;
+  emisor_id?: string;
   emisor_nombre: string;
   empresa_nombre: string;
   empresa_cif: string;
@@ -85,33 +94,35 @@ type Factura = {
 };
 
 const COLUMNAS = [
-  { key: 'id_factura', label: 'ID' },
   { key: 'fecha_emision', label: 'Fecha' },
   { key: 'numero_factura', label: 'Nº Factura' },
   { key: 'emisor_nombre', label: 'Emisor' },
   { key: 'empresa_nombre', label: 'Receptor' },
+  { key: 'total_factura', label: 'Total' },
+  { key: 'estado', label: 'Estado' },
+  { key: 'id_factura', label: 'ID' },
   { key: 'impuestos_resumen', label: 'Impuestos' },
   { key: 'base_imponible', label: 'Base imp.' },
   { key: 'total_iva', label: 'IVA' },
   { key: 'total_retencion', label: 'Retención' },
-  { key: 'total_factura', label: 'Total' },
-  { key: 'estado', label: 'Estado' },
   { key: 'pagado', label: 'Pagado' },
   { key: 'saldo_pendiente', label: 'Saldo pte.' },
 ] as const;
 
 const DEFAULT_WIDTHS: Record<string, number> = {
-  id_factura: 100,
-  fecha_emision: 100,
-  numero_factura: 140,
-  emisor_nombre: 160,
-  empresa_nombre: 160,
-  base_imponible: 100,
-  total_iva: 90,
-  total_factura: 100,
-  estado: 120,
-  pagado: 120,
-  saldo_pendiente: 110,
+  fecha_emision: 82,
+  numero_factura: 116,
+  emisor_nombre: 132,
+  empresa_nombre: 132,
+  total_factura: 82,
+  estado: 100,
+  id_factura: 82,
+  impuestos_resumen: 100,
+  base_imponible: 82,
+  total_iva: 74,
+  total_retencion: 74,
+  pagado: 100,
+  saldo_pendiente: 92,
 };
 
 const TABS_ESTADO = [
@@ -145,6 +156,8 @@ export default function FacturasVentaScreen() {
   const [operando, setOperando] = useState(false);
   const [sortCol, setSortCol] = useState<string>('fecha_emision');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [filtroEmisorId, setFiltroEmisorId] = useState('');
+  const [emisorModalOpen, setEmisorModalOpen] = useState(false);
 
   const [modalAnularVisible, setModalAnularVisible] = useState(false);
   const [modalCobrarVisible, setModalCobrarVisible] = useState(false);
@@ -210,6 +223,19 @@ export default function FacturasVentaScreen() {
 
   useEffect(() => { refetch(); }, [refetch]);
 
+  const emisoresOpciones = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const f of facturas) {
+      const key = getEmisorKey(f);
+      if (!key) continue;
+      const label = String(f.emisor_nombre || '').trim() || key;
+      if (!m.has(key)) m.set(key, label);
+    }
+    return [...m.entries()]
+      .map(([id, nombre]) => ({ id, nombre }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  }, [facturas]);
+
   const toggleSort = useCallback((col: string) => {
     if (sortCol === col) setSortDir((d) => d === 'asc' ? 'desc' : 'asc');
     else { setSortCol(col); setSortDir('asc'); }
@@ -217,6 +243,9 @@ export default function FacturasVentaScreen() {
 
   const facturasFiltradas = useMemo(() => {
     let resultado = facturas;
+    if (filtroEmisorId) {
+      resultado = resultado.filter((f) => getEmisorKey(f) === filtroEmisorId);
+    }
     if (filtroEstado) resultado = resultado.filter((f) => f.estado === filtroEstado);
     if (filtroBusqueda.trim()) {
       const q = filtroBusqueda.trim().toLowerCase();
@@ -252,7 +281,7 @@ export default function FacturasVentaScreen() {
       });
     }
     return resultado;
-  }, [facturas, filtroEstado, filtroBusqueda, fechaDesde, fechaHasta, sortCol, sortDir]);
+  }, [facturas, filtroEmisorId, filtroEstado, filtroBusqueda, fechaDesde, fechaHasta, sortCol, sortDir]);
 
   const totalRegistros = facturasFiltradas.length;
   const totalPages = Math.max(1, Math.ceil(totalRegistros / PAGE_SIZE));
@@ -269,7 +298,7 @@ export default function FacturasVentaScreen() {
   useEffect(() => {
     setPageIndex(0);
     setSelectedId(null);
-  }, [filtroBusqueda, filtroEstado, fechaDesde, fechaHasta]);
+  }, [filtroBusqueda, filtroEstado, fechaDesde, fechaHasta, filtroEmisorId]);
 
   const goPrevPage = () => { setPageIndex((p) => Math.max(0, p - 1)); setSelectedId(null); };
   const goNextPage = () => { setPageIndex((p) => Math.min(totalPages - 1, p + 1)); setSelectedId(null); };
@@ -549,6 +578,60 @@ export default function FacturasVentaScreen() {
         ))}
       </ScrollView>
 
+      {emisoresOpciones.length > 0 ? (
+        <TouchableOpacity
+          style={styles.emisorFilterBtn}
+          onPress={() => setEmisorModalOpen(true)}
+          activeOpacity={0.7}
+        >
+          <MaterialIcons name="storefront" size={18} color="#0369a1" />
+          <Text style={styles.emisorFilterBtnText} numberOfLines={1}>
+            {filtroEmisorId
+              ? emisoresOpciones.find((e) => e.id === filtroEmisorId)?.nombre ?? 'Emisor'
+              : 'Todos los emisores'}
+          </Text>
+          <MaterialIcons name="arrow-drop-down" size={22} color="#64748b" />
+        </TouchableOpacity>
+      ) : null}
+
+      <Modal visible={emisorModalOpen} transparent animationType="fade" onRequestClose={() => setEmisorModalOpen(false)}>
+        <Pressable style={styles.emisorModalBackdrop} onPress={() => setEmisorModalOpen(false)}>
+          <Pressable style={styles.emisorModalSheet}>
+            <Text style={styles.emisorModalTitle}>Filtrar por emisor</Text>
+            <ScrollView style={styles.emisorModalList} keyboardShouldPersistTaps="handled">
+              <TouchableOpacity
+                style={[styles.emisorModalRow, !filtroEmisorId && styles.emisorModalRowActive]}
+                onPress={() => {
+                  setFiltroEmisorId('');
+                  setEmisorModalOpen(false);
+                }}
+              >
+                <MaterialIcons name="layers" size={18} color="#64748b" />
+                <Text style={styles.emisorModalRowText}>Todos los emisores</Text>
+                {!filtroEmisorId ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
+              </TouchableOpacity>
+              {emisoresOpciones.map((e) => (
+                <TouchableOpacity
+                  key={e.id}
+                  style={[styles.emisorModalRow, filtroEmisorId === e.id && styles.emisorModalRowActive]}
+                  onPress={() => {
+                    setFiltroEmisorId(e.id);
+                    setEmisorModalOpen(false);
+                  }}
+                >
+                  <MaterialIcons name="business" size={18} color="#64748b" />
+                  <Text style={styles.emisorModalRowText} numberOfLines={2}>{e.nombre}</Text>
+                  {filtroEmisorId === e.id ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.emisorModalClose} onPress={() => setEmisorModalOpen(false)}>
+              <Text style={styles.emisorModalCloseText}>Cerrar</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* Toolbar */}
       <View style={styles.toolbarRow}>
         <View style={styles.toolbar}>
@@ -704,7 +787,7 @@ export default function FacturasVentaScreen() {
                 >
                   <Text style={styles.cellHeaderText} numberOfLines={1} ellipsizeMode="tail">{col.label}</Text>
                   {sortCol === col.key && (
-                    <MaterialIcons name={sortDir === 'asc' ? 'arrow-upward' : 'arrow-downward'} size={12} color="#334155" />
+                    <MaterialIcons name={sortDir === 'asc' ? 'arrow-upward' : 'arrow-downward'} size={10} color="#334155" />
                   )}
                   {Platform.OS === 'web' && (
                     <View
@@ -777,6 +860,7 @@ export default function FacturasVentaScreen() {
           <FacturaVentaDetallePanel
             apiUrl={API_URL}
             facturaId={selectedId}
+            compactPanel
             puedeEditar={hasPermiso('facturacion.editar')}
             usuarioId={user?.id_usuario}
             usuarioNombre={user?.Nombre}
@@ -1010,6 +1094,50 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
   tabTextActive: { color: '#fff', fontWeight: '600' },
 
+  emisorFilterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    backgroundColor: '#f0f9ff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    alignSelf: 'stretch',
+  },
+  emisorFilterBtnText: { flex: 1, fontSize: 14, fontWeight: '600', color: '#0c4a6e' },
+  emisorModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.45)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  emisorModalSheet: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    maxHeight: '70%',
+    padding: 16,
+    ...(Platform.OS === 'web' ? { boxShadow: '0 8px 32px rgba(0,0,0,0.12)' } as object : {}),
+  },
+  emisorModalTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 12 },
+  emisorModalList: { maxHeight: 360 },
+  emisorModalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  emisorModalRowActive: { backgroundColor: '#f0f9ff', borderColor: '#bae6fd' },
+  emisorModalRowText: { flex: 1, fontSize: 14, color: '#334155' },
+  emisorModalClose: { marginTop: 8, paddingVertical: 10, alignItems: 'center' },
+  emisorModalCloseText: { fontSize: 14, fontWeight: '600', color: '#0ea5e9' },
+
   toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12, flexWrap: 'wrap' },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   toolbarBtnWrap: { position: 'relative' },
@@ -1070,31 +1198,32 @@ const styles = StyleSheet.create({
   detailPanelFlex: {
     flex: 1,
     minHeight: 0,
+    maxWidth: 360,
   },
   detailPanelSide: {
-    width: 400,
+    width: 360,
     flexShrink: 0,
     alignSelf: 'stretch',
     borderLeftWidth: 1,
-    minHeight: 280,
+    minHeight: 220,
   },
   detailPanelStack: {
     width: '100%',
-    maxHeight: 440,
+    maxHeight: 380,
     borderTopWidth: 1,
   },
   detailPanelTitle: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: '#64748b',
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingHorizontal: 10,
+    paddingTop: 6,
+    paddingBottom: 3,
   },
 
   scroll: { flex: 1, minWidth: 0 },
   scrollTable: { flex: 1, minWidth: 0 },
-  /** Orden fijo de columnas (ID primero); evita que en RTL el ID quede al final */
+  /** Orden fijo de columnas (fecha a la izquierda); evita que en RTL se invierta el orden */
   tableScrollLtr: { direction: 'ltr' },
   scrollContent: { paddingBottom: 20 },
   table: {
@@ -1115,13 +1244,13 @@ const styles = StyleSheet.create({
   },
   cellHeader: {
     minWidth: MIN_COL_WIDTH,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
     borderRightWidth: 1,
     borderRightColor: '#cbd5e1',
     position: 'relative',
   },
-  cellHeaderText: { fontSize: 10, fontWeight: '600', color: '#334155', lineHeight: 13 },
+  cellHeaderText: { fontSize: 9, fontWeight: '600', color: '#334155', lineHeight: 11 },
   resizeHandle: {
     position: 'absolute',
     top: 0,
@@ -1140,8 +1269,8 @@ const styles = StyleSheet.create({
   rowSelected: { backgroundColor: '#e0f2fe' },
   cell: {
     minWidth: MIN_COL_WIDTH,
-    paddingVertical: 4,
-    paddingHorizontal: 7,
+    paddingVertical: 2,
+    paddingHorizontal: 5,
     borderRightWidth: 1,
     borderRightColor: '#e2e8f0',
     justifyContent: 'center',
@@ -1149,7 +1278,7 @@ const styles = StyleSheet.create({
   cellPagadoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 },
   cellTextFlex: { flex: 1, minWidth: 0 },
   cellPagadoIconBtn: { padding: 2 },
-  cellText: { fontSize: 10, color: '#475569', lineHeight: 14, ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}) },
+  cellText: { fontSize: 9, color: '#475569', lineHeight: 12, ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}) },
   emptyRow: { padding: 24, alignItems: 'center' },
   emptyText: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
 

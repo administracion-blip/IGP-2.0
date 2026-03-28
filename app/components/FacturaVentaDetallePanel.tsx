@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -36,6 +36,20 @@ const LINEA_W_CONCEPTO = 200;
 const LINEA_W_NUM = 50;
 const LINEA_W_NUM_SM = 42;
 const LINEA_W_TOTALES = 120;
+
+function getLineWidths(compact: boolean) {
+  if (compact) {
+    return { IDX: 18, DEL: 24, CONCEPTO: 138, NUM: 44, NUM_SM: 36, TOTALES: 104 };
+  }
+  return {
+    IDX: LINEA_W_IDX,
+    DEL: LINEA_W_DEL,
+    CONCEPTO: LINEA_W_CONCEPTO,
+    NUM: LINEA_W_NUM,
+    NUM_SM: LINEA_W_NUM_SM,
+    TOTALES: LINEA_W_TOTALES,
+  };
+}
 
 type AdjuntoItem = {
   id: string;
@@ -78,6 +92,8 @@ type Props = {
   usuarioNombre?: string;
   onGuardado: () => void;
   onAbrirCompleto: (id: string) => void;
+  /** Panel lateral estrecho (p. ej. listado emitidas): menos padding, tipografía y columnas de líneas */
+  compactPanel?: boolean;
 };
 
 export function FacturaVentaDetallePanel({
@@ -89,6 +105,7 @@ export function FacturaVentaDetallePanel({
   usuarioNombre,
   onGuardado,
   onAbrirCompleto,
+  compactPanel = false,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -116,6 +133,9 @@ export function FacturaVentaDetallePanel({
     removeLinea,
     markHydrationFromApi,
   } = facturaForm;
+
+  const lw = useMemo(() => getLineWidths(compactPanel), [compactPanel]);
+  const lineRowMinH = compactPanel ? 28 : 32;
 
   const [estado, setEstado] = useState('');
   const [numeroFactura, setNumeroFactura] = useState('');
@@ -430,24 +450,32 @@ export function FacturaVentaDetallePanel({
   }
 
   return (
-    <ScrollView style={styles.scrollFlex} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-      <View style={styles.head}>
+    <ScrollView
+      style={styles.scrollFlex}
+      contentContainerStyle={[styles.scrollContent, compactPanel && styles.scrollContentCompact]}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={[styles.head, compactPanel && styles.headCompact]}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.num} numberOfLines={1}>{numeroFactura || '—'}</Text>
-          <Text style={styles.serie} numberOfLines={1}>{serie ? `Serie ${serie}` : ''}</Text>
+          <Text style={[styles.num, compactPanel && styles.numCompact]} numberOfLines={1}>{numeroFactura || '—'}</Text>
+          <Text style={[styles.serie, compactPanel && styles.serieCompact]} numberOfLines={1}>{serie ? `Serie ${serie}` : ''}</Text>
         </View>
         <BadgeEstado estado={estado} />
       </View>
 
-      <TouchableOpacity style={styles.linkFull} onPress={() => onAbrirCompleto(facturaId)} accessibilityLabel="Abrir ficha completa">
-        <MaterialIcons name="open-in-new" size={16} color="#0ea5e9" />
-        <Text style={styles.linkFullText}>Abrir ficha completa</Text>
+      <TouchableOpacity
+        style={[styles.linkFull, compactPanel && styles.linkFullCompact]}
+        onPress={() => onAbrirCompleto(facturaId)}
+        accessibilityLabel="Abrir ficha completa"
+      >
+        <MaterialIcons name="open-in-new" size={compactPanel ? 14 : 16} color="#0ea5e9" />
+        <Text style={[styles.linkFullText, compactPanel && styles.linkFullTextCompact]}>Abrir ficha completa</Text>
       </TouchableOpacity>
 
-      <View style={styles.actionsRow}>
+      <View style={[styles.actionsRow, compactPanel && styles.actionsRowCompact]}>
         {!esIn ? (
           <TouchableOpacity
-            style={[styles.pdfBtn, pdfLoading && styles.pdfBtnDis]}
+            style={[styles.pdfBtn, compactPanel && styles.pdfBtnCompact, pdfLoading && styles.pdfBtnDis]}
             onPress={previsualizarPDF}
             disabled={pdfLoading}
             accessibilityLabel="Previsualizar PDF"
@@ -455,13 +483,15 @@ export function FacturaVentaDetallePanel({
             {pdfLoading ? (
               <ActivityIndicator size="small" color="#0ea5e9" />
             ) : (
-              <MaterialIcons name="visibility" size={16} color="#0ea5e9" />
+              <MaterialIcons name="visibility" size={compactPanel ? 14 : 16} color="#0ea5e9" />
             )}
-            <Text style={styles.pdfBtnText}>{pdfLoading ? 'Generando…' : 'Previsualizar PDF'}</Text>
+            <Text style={[styles.pdfBtnText, compactPanel && styles.pdfBtnTextCompact]}>
+              {pdfLoading ? 'Generando…' : compactPanel ? 'PDF' : 'Previsualizar PDF'}
+            </Text>
           </TouchableOpacity>
         ) : null}
         <TouchableOpacity
-          style={[styles.adjuntosBtnCompact, !adjuntosLoading && adjuntos.length === 0 && styles.adjuntosBtnMuted]}
+          style={[styles.adjuntosBtnCompact, compactPanel && styles.adjuntosBtnExtraCompact, !adjuntosLoading && adjuntos.length === 0 && styles.adjuntosBtnMuted]}
           onPress={() => setModalAdjuntos(true)}
           disabled={adjuntosLoading}
           accessibilityLabel="Ver archivos adjuntos"
@@ -469,49 +499,53 @@ export function FacturaVentaDetallePanel({
           {adjuntosLoading ? (
             <ActivityIndicator size="small" color="#0ea5e9" />
           ) : (
-            <MaterialIcons name="attach-file" size={16} color={adjuntos.length === 0 ? '#94a3b8' : '#0ea5e9'} />
+            <MaterialIcons name="attach-file" size={compactPanel ? 14 : 16} color={adjuntos.length === 0 ? '#94a3b8' : '#0ea5e9'} />
           )}
-          <Text style={[styles.adjuntosBtnTextCompact, adjuntos.length === 0 && styles.adjuntosBtnTextMuted]}>
-            {adjuntosLoading ? 'Adjuntos…' : `Adjuntos${adjuntos.length ? ` (${adjuntos.length})` : ''}`}
+          <Text style={[styles.adjuntosBtnTextCompact, adjuntos.length === 0 && styles.adjuntosBtnTextMuted, compactPanel && styles.adjuntosBtnTextExtraCompact]}>
+            {adjuntosLoading
+              ? 'Adjuntos…'
+              : compactPanel
+                ? `Adj.${adjuntos.length ? ` ${adjuntos.length}` : ''}`
+                : `Adjuntos${adjuntos.length ? ` (${adjuntos.length})` : ''}`}
           </Text>
         </TouchableOpacity>
       </View>
 
       {error ? (
-        <View style={styles.errBox}>
-          <Text style={styles.errText}>{error}</Text>
+        <View style={[styles.errBox, compactPanel && styles.errBoxCompact]}>
+          <Text style={[styles.errText, compactPanel && styles.errTextCompact]}>{error}</Text>
         </View>
       ) : null}
 
-      <Text style={styles.secTitle}>Datos generales</Text>
-      <View style={styles.fechaRow}>
-        <View style={styles.fechaCol}>
-          <Text style={styles.label}>Fecha emisión</Text>
+      <Text style={[styles.secTitle, compactPanel && styles.secTitleCompact]}>Datos generales</Text>
+      <View style={[styles.fechaRow, compactPanel && styles.fechaRowCompact]}>
+        <View style={[styles.fechaCol, compactPanel && styles.fechaColCompact]}>
+          <Text style={[styles.label, compactPanel && styles.labelCompact]}>Fecha emisión</Text>
           <InputFecha
             value={fechaEmision}
             onChange={setFechaEmision}
             format="dmy"
             editable={esEditable}
-            style={[styles.input, styles.inputFechaEnFila]}
+            style={[styles.input, styles.inputFechaEnFila, compactPanel && styles.inputCompact]}
           />
         </View>
-        <View style={styles.fechaCol}>
-          <Text style={styles.label}>Vencimiento</Text>
+        <View style={[styles.fechaCol, compactPanel && styles.fechaColCompact]}>
+          <Text style={[styles.label, compactPanel && styles.labelCompact]}>Vencimiento</Text>
           <InputFecha
             value={fechaVencimiento}
             onChange={setFechaVencimiento}
             format="dmy"
             editable={esEditable}
-            style={[styles.input, styles.inputFechaEnFila]}
+            style={[styles.input, styles.inputFechaEnFila, compactPanel && styles.inputCompact]}
           />
         </View>
       </View>
 
-      <View style={styles.fechaRow}>
-        <View style={styles.fechaCol}>
-          <Text style={styles.label}>{lblEmisor}</Text>
+      <View style={[styles.fechaRow, compactPanel && styles.fechaRowCompact]}>
+        <View style={[styles.fechaCol, compactPanel && styles.fechaColCompact]}>
+          <Text style={[styles.label, compactPanel && styles.labelCompact]}>{lblEmisor}</Text>
           <TextInput
-            style={[styles.input, styles.inputFechaEnFila, !esEditable && styles.inputDisabled]}
+            style={[styles.input, styles.inputFechaEnFila, compactPanel && styles.inputCompact, !esEditable && styles.inputDisabled]}
             value={emisorNombre}
             onChangeText={setEmisorNombre}
             onBlur={sincronizarEmisorConCatalogo}
@@ -519,10 +553,10 @@ export function FacturaVentaDetallePanel({
             placeholder={esIn ? 'Empresa del grupo' : 'Nombre'}
           />
         </View>
-        <View style={styles.empresaColCif}>
-          <Text style={styles.label}>{esIn ? 'CIF empresa' : 'CIF/NIF'}</Text>
+        <View style={[styles.empresaColCif, compactPanel && styles.empresaColCifCompact]}>
+          <Text style={[styles.label, compactPanel && styles.labelCompact]}>{esIn ? 'CIF empresa' : 'CIF/NIF'}</Text>
           <TextInput
-            style={[styles.input, styles.inputFechaEnFila, !esEditable && styles.inputDisabled]}
+            style={[styles.input, styles.inputFechaEnFila, compactPanel && styles.inputCompact, !esEditable && styles.inputDisabled]}
             value={emisorCif}
             onChangeText={setEmisorCif}
             editable={esEditable}
@@ -531,21 +565,21 @@ export function FacturaVentaDetallePanel({
           />
         </View>
       </View>
-      <View style={styles.fechaRow}>
-        <View style={styles.fechaCol}>
-          <Text style={styles.label}>{lblEmpresa}</Text>
+      <View style={[styles.fechaRow, compactPanel && styles.fechaRowCompact]}>
+        <View style={[styles.fechaCol, compactPanel && styles.fechaColCompact]}>
+          <Text style={[styles.label, compactPanel && styles.labelCompact]}>{lblEmpresa}</Text>
           <TextInput
-            style={[styles.input, styles.inputFechaEnFila, !esEditable && styles.inputDisabled]}
+            style={[styles.input, styles.inputFechaEnFila, compactPanel && styles.inputCompact, !esEditable && styles.inputDisabled]}
             value={empresaNombre}
             onChangeText={setEmpresaNombre}
             editable={esEditable}
             placeholder={esIn ? 'Proveedor' : 'Cliente'}
           />
         </View>
-        <View style={styles.empresaColCif}>
-          <Text style={styles.label}>{esIn ? 'CIF proveedor' : 'CIF/NIF'}</Text>
+        <View style={[styles.empresaColCif, compactPanel && styles.empresaColCifCompact]}>
+          <Text style={[styles.label, compactPanel && styles.labelCompact]}>{esIn ? 'CIF proveedor' : 'CIF/NIF'}</Text>
           <TextInput
-            style={[styles.input, styles.inputFechaEnFila, !esEditable && styles.inputDisabled]}
+            style={[styles.input, styles.inputFechaEnFila, compactPanel && styles.inputCompact, !esEditable && styles.inputDisabled]}
             value={empresaCif}
             onChangeText={setEmpresaCif}
             editable={esEditable}
@@ -555,17 +589,17 @@ export function FacturaVentaDetallePanel({
       </View>
       {esIn ? (
         <>
-          <Text style={styles.label}>Nº factura proveedor</Text>
+          <Text style={[styles.label, compactPanel && styles.labelCompact]}>Nº factura proveedor</Text>
           <TextInput
-            style={[styles.input, !esEditable && styles.inputDisabled]}
+            style={[styles.input, compactPanel && styles.inputCompact, !esEditable && styles.inputDisabled]}
             value={numFacturaProveedor}
             onChangeText={setNumFacturaProveedor}
             editable={esEditable}
             placeholder="—"
           />
-          <Text style={styles.label}>Fecha contabilización</Text>
+          <Text style={[styles.label, compactPanel && styles.labelCompact]}>Fecha contabilización</Text>
           <TextInput
-            style={[styles.input, styles.inputDisabled]}
+            style={[styles.input, styles.inputDisabled, compactPanel && styles.inputCompact]}
             value={textoFechaContabilizacionGasto({
               fechaContabilizacion: fechaContabilizacionIso,
               contabilizadoPor,
@@ -579,31 +613,31 @@ export function FacturaVentaDetallePanel({
         </>
       ) : null}
 
-      <View style={styles.condFormaRow}>
-        <View style={styles.condFormaCol}>
-          <Text style={styles.label}>Condiciones</Text>
+      <View style={[styles.condFormaRow, compactPanel && styles.condFormaRowCompact]}>
+        <View style={[styles.condFormaCol, compactPanel && styles.condFormaColCompact]}>
+          <Text style={[styles.label, compactPanel && styles.labelCompact]}>Condiciones</Text>
           {esEditable ? (
-            <TouchableOpacity style={styles.selectBtn} onPress={() => setModalCondicionesOpen(true)} activeOpacity={0.7}>
-              <Text style={styles.selectBtnText} numberOfLines={1}>
+            <TouchableOpacity style={[styles.selectBtn, compactPanel && styles.selectBtnCompact]} onPress={() => setModalCondicionesOpen(true)} activeOpacity={0.7}>
+              <Text style={[styles.selectBtnText, compactPanel && styles.selectBtnTextCompact]} numberOfLines={1}>
                 {condicionesPago}
               </Text>
-              <MaterialIcons name="expand-more" size={22} color="#64748b" />
+              <MaterialIcons name="expand-more" size={compactPanel ? 18 : 22} color="#64748b" />
             </TouchableOpacity>
           ) : (
-            <Text style={styles.ro}>{condicionesPago}</Text>
+            <Text style={[styles.ro, compactPanel && styles.roCompact]}>{condicionesPago}</Text>
           )}
         </View>
-        <View style={styles.condFormaCol}>
-          <Text style={styles.label}>Forma de pago</Text>
+        <View style={[styles.condFormaCol, compactPanel && styles.condFormaColCompact]}>
+          <Text style={[styles.label, compactPanel && styles.labelCompact]}>Forma de pago</Text>
           {esEditable ? (
-            <TouchableOpacity style={styles.selectBtn} onPress={() => setModalFormaPagoOpen(true)} activeOpacity={0.7}>
-              <Text style={styles.selectBtnText} numberOfLines={1}>
+            <TouchableOpacity style={[styles.selectBtn, compactPanel && styles.selectBtnCompact]} onPress={() => setModalFormaPagoOpen(true)} activeOpacity={0.7}>
+              <Text style={[styles.selectBtnText, compactPanel && styles.selectBtnTextCompact]} numberOfLines={1}>
                 {labelFormaPago(formaPago)}
               </Text>
-              <MaterialIcons name="expand-more" size={22} color="#64748b" />
+              <MaterialIcons name="expand-more" size={compactPanel ? 18 : 22} color="#64748b" />
             </TouchableOpacity>
           ) : (
-            <Text style={styles.ro}>{labelFormaPago(formaPago)}</Text>
+            <Text style={[styles.ro, compactPanel && styles.roCompact]}>{labelFormaPago(formaPago)}</Text>
           )}
         </View>
       </View>
@@ -654,9 +688,9 @@ export function FacturaVentaDetallePanel({
         </Pressable>
       </Modal>
 
-      <Text style={styles.label}>Observaciones</Text>
+      <Text style={[styles.label, compactPanel && styles.labelCompact]}>Observaciones</Text>
       <TextInput
-        style={[styles.textArea, !esEditable && styles.inputDisabled]}
+        style={[styles.textArea, compactPanel && styles.textAreaCompact, !esEditable && styles.inputDisabled]}
         value={observaciones}
         onChangeText={setObservaciones}
         editable={esEditable}
@@ -664,49 +698,49 @@ export function FacturaVentaDetallePanel({
         placeholder="—"
       />
 
-      <Text style={styles.secTitle}>Líneas</Text>
+      <Text style={[styles.secTitle, compactPanel && styles.secTitleCompact]}>Líneas</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.lineaTableScroll} nestedScrollEnabled>
         <View style={styles.lineaTableColumn}>
           <View style={styles.lineaHeadersCard}>
-            <View style={styles.lineaOneRow}>
-              <View style={styles.lineaHdrBoxIdx}>
-                <Text style={[styles.lineaIdx, styles.lineaHdrCell]} numberOfLines={1}>
+            <View style={[styles.lineaOneRow, compactPanel && styles.lineaOneRowCompact]}>
+              <View style={[styles.lineaHdrBoxIdx, { width: lw.IDX, minHeight: lineRowMinH }]}>
+                <Text style={[styles.lineaIdx, styles.lineaHdrCell, compactPanel && styles.lineaHdrCellCompact]} numberOfLines={1}>
                   Nº
                 </Text>
               </View>
-              {esEditable && lineas.length > 1 ? <View style={styles.lineaHdrDelSpacer} /> : null}
-              <View style={styles.lineaHdrBoxDesc}>
-                <Text style={styles.lineaHdrConceptText} numberOfLines={2}>
+              {esEditable && lineas.length > 1 ? <View style={[styles.lineaHdrDelSpacer, { width: lw.DEL, minHeight: lineRowMinH }]} /> : null}
+              <View style={[styles.lineaHdrBoxDesc, { width: lw.CONCEPTO, minHeight: lineRowMinH }]}>
+                <Text style={[styles.lineaHdrConceptText, compactPanel && styles.lineaHdrConceptTextCompact]} numberOfLines={2}>
                   Concepto
                 </Text>
               </View>
-              <View style={styles.lineaHdrBoxNum}>
-                <Text style={styles.lineaHdrNumLabel} numberOfLines={1}>
+              <View style={[styles.lineaHdrBoxNum, { width: lw.NUM, minHeight: lineRowMinH }]}>
+                <Text style={[styles.lineaHdrNumLabel, compactPanel && styles.lineaHdrNumLabelCompact]} numberOfLines={1}>
                   Cant.
                 </Text>
               </View>
-              <View style={styles.lineaHdrBoxNum}>
-                <Text style={styles.lineaHdrNumLabel} numberOfLines={1}>
+              <View style={[styles.lineaHdrBoxNum, { width: lw.NUM, minHeight: lineRowMinH }]}>
+                <Text style={[styles.lineaHdrNumLabel, compactPanel && styles.lineaHdrNumLabelCompact]} numberOfLines={1}>
                   Precio
                 </Text>
               </View>
-              <View style={styles.lineaHdrBoxNumSm}>
-                <Text style={styles.lineaHdrNumLabelSm} numberOfLines={1}>
+              <View style={[styles.lineaHdrBoxNumSm, { width: lw.NUM_SM, minHeight: lineRowMinH }]}>
+                <Text style={[styles.lineaHdrNumLabelSm, compactPanel && styles.lineaHdrNumLabelSmCompact]} numberOfLines={1}>
                   Dto %
                 </Text>
               </View>
-              <View style={styles.lineaHdrBoxNumSm}>
-                <Text style={styles.lineaHdrNumLabelSm} numberOfLines={1}>
+              <View style={[styles.lineaHdrBoxNumSm, { width: lw.NUM_SM, minHeight: lineRowMinH }]}>
+                <Text style={[styles.lineaHdrNumLabelSm, compactPanel && styles.lineaHdrNumLabelSmCompact]} numberOfLines={1}>
                   IVA %
                 </Text>
               </View>
-              <View style={styles.lineaHdrBoxNumSm}>
-                <Text style={styles.lineaHdrNumLabelSm} numberOfLines={1}>
+              <View style={[styles.lineaHdrBoxNumSm, { width: lw.NUM_SM, minHeight: lineRowMinH }]}>
+                <Text style={[styles.lineaHdrNumLabelSm, compactPanel && styles.lineaHdrNumLabelSmCompact]} numberOfLines={1}>
                   Ret %
                 </Text>
               </View>
-              <View style={styles.lineaHdrBoxTotals}>
-                <Text style={styles.lineaHdrTotalsText} numberOfLines={2}>
+              <View style={[styles.lineaHdrBoxTotals, { width: lw.TOTALES, minHeight: lineRowMinH }]}>
+                <Text style={[styles.lineaHdrTotalsText, compactPanel && styles.lineaHdrTotalsTextCompact]} numberOfLines={2}>
                   Base → Total
                 </Text>
               </View>
@@ -716,24 +750,24 @@ export function FacturaVentaDetallePanel({
             const calc = calcularLinea(linea);
             return (
               <View key={idx} style={styles.lineaCard}>
-                <View style={styles.lineaOneRow}>
-                  <View style={styles.lineaHdrBoxIdx}>
+                <View style={[styles.lineaOneRow, compactPanel && styles.lineaOneRowCompact]}>
+                  <View style={[styles.lineaHdrBoxIdx, { width: lw.IDX, minHeight: lineRowMinH }]}>
                     <Text style={styles.lineaIdx}>#{idx + 1}</Text>
                   </View>
                   {esEditable && lineas.length > 1 ? (
-                    <TouchableOpacity onPress={() => removeLinea(idx)} hitSlop={8} style={styles.lineaDel}>
-                      <MaterialIcons name="close" size={16} color="#94a3b8" />
+                    <TouchableOpacity onPress={() => removeLinea(idx)} hitSlop={8} style={[styles.lineaDel, { width: lw.DEL, minHeight: lineRowMinH }]}>
+                      <MaterialIcons name="close" size={compactPanel ? 14 : 16} color="#94a3b8" />
                     </TouchableOpacity>
                   ) : null}
                   <TextInput
-                    style={[styles.inputDescLine, !esEditable && styles.inputDisabled]}
+                    style={[styles.inputDescLine, { width: lw.CONCEPTO, minHeight: lineRowMinH }, compactPanel && styles.inputDescLineCompact, !esEditable && styles.inputDisabled]}
                     value={linea.descripcion}
                     onChangeText={(v) => updateLinea(idx, 'descripcion', v)}
                     editable={esEditable}
                     placeholder="Concepto"
                   />
                   <TextInput
-                    style={[styles.inNum, !esEditable && styles.inputDisabled]}
+                    style={[styles.inNum, { width: lw.NUM, minHeight: lineRowMinH }, compactPanel && styles.inNumCompact, !esEditable && styles.inputDisabled]}
                     value={String(linea.cantidad)}
                     onChangeText={(v) => updateLinea(idx, 'cantidad', v)}
                     keyboardType="decimal-pad"
@@ -741,7 +775,7 @@ export function FacturaVentaDetallePanel({
                     placeholder="Cant"
                   />
                   <TextInput
-                    style={[styles.inNum, !esEditable && styles.inputDisabled]}
+                    style={[styles.inNum, { width: lw.NUM, minHeight: lineRowMinH }, compactPanel && styles.inNumCompact, !esEditable && styles.inputDisabled]}
                     value={String(linea.precio_unitario)}
                     onChangeText={(v) => updateLinea(idx, 'precio_unitario', v)}
                     keyboardType="decimal-pad"
@@ -749,7 +783,7 @@ export function FacturaVentaDetallePanel({
                     placeholder="€"
                   />
                   <TextInput
-                    style={[styles.inNumSm, !esEditable && styles.inputDisabled]}
+                    style={[styles.inNumSm, { width: lw.NUM_SM, minHeight: lineRowMinH }, compactPanel && styles.inNumSmCompact, !esEditable && styles.inputDisabled]}
                     value={String(linea.descuento_pct)}
                     onChangeText={(v) => updateLinea(idx, 'descuento_pct', v)}
                     keyboardType="decimal-pad"
@@ -757,7 +791,7 @@ export function FacturaVentaDetallePanel({
                     placeholder="Dto"
                   />
                   <TextInput
-                    style={[styles.inNumSm, !esEditable && styles.inputDisabled]}
+                    style={[styles.inNumSm, { width: lw.NUM_SM, minHeight: lineRowMinH }, compactPanel && styles.inNumSmCompact, !esEditable && styles.inputDisabled]}
                     value={String(linea.tipo_iva)}
                     onChangeText={(v) => updateLinea(idx, 'tipo_iva', v)}
                     keyboardType="decimal-pad"
@@ -765,15 +799,15 @@ export function FacturaVentaDetallePanel({
                     placeholder="IVA"
                   />
                   <TextInput
-                    style={[styles.inNumSm, !esEditable && styles.inputDisabled]}
+                    style={[styles.inNumSm, { width: lw.NUM_SM, minHeight: lineRowMinH }, compactPanel && styles.inNumSmCompact, !esEditable && styles.inputDisabled]}
                     value={String(linea.retencion_pct)}
                     onChangeText={(v) => updateLinea(idx, 'retencion_pct', v)}
                     keyboardType="decimal-pad"
                     editable={esEditable}
                     placeholder="Ret"
                   />
-                  <View style={styles.lineaHdrBoxTotals}>
-                    <Text style={styles.lineaTotals} numberOfLines={1}>
+                  <View style={[styles.lineaHdrBoxTotals, { width: lw.TOTALES, minHeight: lineRowMinH }]}>
+                    <Text style={[styles.lineaTotals, compactPanel && styles.lineaTotalsCompact]} numberOfLines={1}>
                       {formatMoneda(calc.base_linea)} → {formatMoneda(calc.total_linea)}
                     </Text>
                   </View>
@@ -784,13 +818,13 @@ export function FacturaVentaDetallePanel({
         </View>
       </ScrollView>
       {esEditable ? (
-        <TouchableOpacity style={styles.addLine} onPress={addLinea}>
-          <MaterialIcons name="add" size={18} color="#0ea5e9" />
-          <Text style={styles.addLineTxt}>Añadir línea</Text>
+        <TouchableOpacity style={[styles.addLine, compactPanel && styles.addLineCompact]} onPress={addLinea}>
+          <MaterialIcons name="add" size={compactPanel ? 16 : 18} color="#0ea5e9" />
+          <Text style={[styles.addLineTxt, compactPanel && styles.addLineTxtCompact]}>Añadir línea</Text>
         </TouchableOpacity>
       ) : null}
 
-      <Text style={styles.secTitle}>Totales</Text>
+      <Text style={[styles.secTitle, compactPanel && styles.secTitleCompact]}>Totales</Text>
       <ResumenTotales
         base_imponible={totales.base_imponible}
         total_iva={totales.total_iva}
@@ -802,12 +836,12 @@ export function FacturaVentaDetallePanel({
       />
 
       {esEditable && puedeEditar ? (
-        <TouchableOpacity style={[styles.saveBtn, saving && styles.saveBtnDis]} onPress={guardar} disabled={saving}>
-          {saving ? <ActivityIndicator color="#fff" size="small" /> : <MaterialIcons name="save" size={18} color="#fff" />}
-          <Text style={styles.saveBtnTxt}>{saving ? 'Guardando…' : 'Guardar cambios'}</Text>
+        <TouchableOpacity style={[styles.saveBtn, compactPanel && styles.saveBtnCompact, saving && styles.saveBtnDis]} onPress={guardar} disabled={saving}>
+          {saving ? <ActivityIndicator color="#fff" size="small" /> : <MaterialIcons name="save" size={compactPanel ? 16 : 18} color="#fff" />}
+          <Text style={[styles.saveBtnTxt, compactPanel && styles.saveBtnTxtCompact]}>{saving ? 'Guardando…' : 'Guardar cambios'}</Text>
         </TouchableOpacity>
       ) : (
-        <Text style={styles.hintReadonly}>
+        <Text style={[styles.hintReadonly, compactPanel && styles.hintReadonlyCompact]}>
           {estado !== 'borrador' && estado !== 'pendiente_revision'
             ? 'Factura emitida o cerrada: la edición solo está disponible en la ficha completa si aplica.'
             : 'Sin permiso de edición.'}
@@ -875,15 +909,21 @@ export function FacturaVentaDetallePanel({
 const styles = StyleSheet.create({
   scrollFlex: { flex: 1 },
   scrollContent: { padding: 12, paddingBottom: 32 },
+  scrollContentCompact: { padding: 8, paddingBottom: 20 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 8 },
   muted: { fontSize: 12, color: '#94a3b8' },
   placeholder: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, gap: 10 },
   placeholderText: { fontSize: 13, color: '#94a3b8', textAlign: 'center', maxWidth: 260 },
   head: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8, gap: 8 },
+  headCompact: { marginBottom: 4, gap: 4 },
   num: { fontSize: 16, fontWeight: '700', color: '#334155' },
+  numCompact: { fontSize: 14 },
   serie: { fontSize: 11, color: '#64748b' },
+  serieCompact: { fontSize: 10 },
   linkFull: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  linkFullCompact: { marginBottom: 4, gap: 4 },
   linkFullText: { fontSize: 12, color: '#0ea5e9', fontWeight: '600' },
+  linkFullTextCompact: { fontSize: 11 },
   actionsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -891,6 +931,7 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 12,
   },
+  actionsRowCompact: { gap: 6, marginBottom: 8 },
   pdfBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -903,8 +944,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     alignSelf: 'flex-start',
   },
+  pdfBtnCompact: { paddingVertical: 4, paddingHorizontal: 8, gap: 4, borderRadius: 6 },
   pdfBtnDis: { opacity: 0.7 },
   pdfBtnText: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+  pdfBtnTextCompact: { fontSize: 11 },
   adjuntosBtnCompact: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -919,6 +962,8 @@ const styles = StyleSheet.create({
   },
   adjuntosBtnMuted: { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' },
   adjuntosBtnTextCompact: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
+  adjuntosBtnExtraCompact: { paddingVertical: 4, paddingHorizontal: 8, gap: 4, borderRadius: 6 },
+  adjuntosBtnTextExtraCompact: { fontSize: 11 },
   adjuntosBtnTextMuted: { color: '#64748b', fontWeight: '500' },
   modalAdjOverlay: {
     flex: 1,
@@ -959,14 +1004,21 @@ const styles = StyleSheet.create({
   modalAdjMeta: { fontSize: 11, color: '#94a3b8', marginTop: 2 },
   modalAdjSinUrl: { fontSize: 10, color: '#94a3b8' },
   errBox: { backgroundColor: '#fef2f2', padding: 8, borderRadius: 8, marginBottom: 8 },
+  errBoxCompact: { padding: 6, marginBottom: 6 },
   errText: { fontSize: 12, color: '#b91c1c' },
+  errTextCompact: { fontSize: 11 },
   secTitle: { fontSize: 13, fontWeight: '700', color: '#475569', marginTop: 8, marginBottom: 6 },
+  secTitleCompact: { fontSize: 12, marginTop: 4, marginBottom: 4 },
   label: { fontSize: 11, color: '#64748b', marginBottom: 2 },
+  labelCompact: { fontSize: 10, marginBottom: 1 },
   /** Fecha emisión + vencimiento en una fila (panel estrecho: se apilan con flexWrap) */
   fechaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 8 },
+  fechaRowCompact: { gap: 8, marginBottom: 6 },
   fechaCol: { flex: 1, minWidth: 140 },
+  fechaColCompact: { minWidth: 100 },
   /** Columna CIF en la misma fila que razón social (más estrecha) */
   empresaColCif: { width: 148, minWidth: 120, maxWidth: 200, flexShrink: 0 },
+  empresaColCifCompact: { width: 112, minWidth: 88, maxWidth: 140 },
   inputFechaEnFila: { marginBottom: 0, alignSelf: 'stretch' },
   input: {
     borderWidth: 1,
@@ -979,6 +1031,13 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     backgroundColor: '#fff',
   },
+  inputCompact: {
+    paddingHorizontal: 8,
+    paddingVertical: Platform.OS === 'web' ? 6 : 5,
+    fontSize: 12,
+    marginBottom: 6,
+    borderRadius: 6,
+  },
   inputDisabled: { backgroundColor: '#f8fafc', color: '#64748b' },
   textArea: {
     borderWidth: 1,
@@ -990,10 +1049,14 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     marginBottom: 8,
   },
+  textAreaCompact: { padding: 8, minHeight: 44, fontSize: 12, marginBottom: 6 },
   ro: { fontSize: 13, color: '#334155', marginBottom: 8 },
+  roCompact: { fontSize: 12, marginBottom: 6 },
   /** Condiciones + forma de pago en una fila, cada una desplegable */
   condFormaRow: { flexDirection: 'row', gap: 10, marginBottom: 8, alignItems: 'flex-start' },
+  condFormaRowCompact: { gap: 8, marginBottom: 6 },
   condFormaCol: { flex: 1, minWidth: 120 },
+  condFormaColCompact: { minWidth: 96 },
   selectBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1005,7 +1068,9 @@ const styles = StyleSheet.create({
     paddingVertical: Platform.OS === 'web' ? 8 : 6,
     backgroundColor: '#fff',
   },
+  selectBtnCompact: { paddingHorizontal: 8, paddingVertical: Platform.OS === 'web' ? 6 : 5, borderRadius: 6 },
   selectBtnText: { flex: 1, fontSize: 13, color: '#334155', marginRight: 4 },
+  selectBtnTextCompact: { fontSize: 11 },
   modalPickerCard: {
     width: '100%',
     maxWidth: 400,
@@ -1049,18 +1114,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#f1f5f9',
   },
   lineaHdrCell: { color: '#64748b', fontWeight: '600' },
-  /** Misma anchura que el botón borrar de fila para alinear cabecera y datos */
-  lineaHdrDelSpacer: { width: LINEA_W_DEL, minHeight: 32, justifyContent: 'center' as const },
+  /** Misma anchura que el botón borrar de fila para alinear cabecera y datos (ancho vía lw en JSX) */
+  lineaHdrDelSpacer: { minHeight: 32, justifyContent: 'center' as const },
   /** Caja alineada con `#` / número de línea (mismo ancho que lineaIdx) */
   lineaHdrBoxIdx: {
-    width: LINEA_W_IDX,
     minHeight: 32,
     justifyContent: 'center' as const,
     alignItems: 'center' as const,
   },
   /** Misma anchura fija que `inputDescLine` */
   lineaHdrBoxDesc: {
-    width: LINEA_W_CONCEPTO,
     minHeight: 32,
     paddingHorizontal: 6,
     paddingVertical: 5,
@@ -1072,9 +1135,10 @@ const styles = StyleSheet.create({
     color: '#64748b',
     textAlign: 'left',
   },
+  lineaHdrConceptTextCompact: { fontSize: 9 },
+  lineaHdrCellCompact: { fontSize: 9 },
   /** Mismos márgenes que `inNum` (placeholder centrado) */
   lineaHdrBoxNum: {
-    width: LINEA_W_NUM,
     minHeight: 32,
     paddingHorizontal: 4,
     paddingVertical: 5,
@@ -1088,9 +1152,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     width: '100%',
   },
-  /** Mismos márgenes que `inNumSm` */
+  lineaHdrNumLabelCompact: { fontSize: 9 },
+  /** Mismos márgenes que `inNumSm` (ancho vía lw en JSX) */
   lineaHdrBoxNumSm: {
-    width: LINEA_W_NUM_SM,
     minHeight: 32,
     paddingHorizontal: 2,
     paddingVertical: 5,
@@ -1104,9 +1168,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     width: '100%',
   },
+  lineaHdrNumLabelSmCompact: { fontSize: 8 },
   /** Misma anchura fija que la columna de importes */
   lineaHdrBoxTotals: {
-    width: LINEA_W_TOTALES,
     minHeight: 32,
     paddingVertical: 5,
     justifyContent: 'center' as const,
@@ -1119,6 +1183,7 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     width: '100%',
   },
+  lineaHdrTotalsTextCompact: { fontSize: 8 },
   lineaCard: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fafafa' },
   lineaOneRow: {
     flexDirection: 'row',
@@ -1127,10 +1192,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     gap: 4,
   },
+  lineaOneRowCompact: { paddingVertical: 2, paddingHorizontal: 2, gap: 3 },
   lineaIdx: { fontSize: 10, fontWeight: '700', color: '#94a3b8', textAlign: 'center', width: '100%' },
-  lineaDel: { width: LINEA_W_DEL, minHeight: 32, justifyContent: 'center' as const, alignItems: 'center' as const },
+  lineaDel: { minHeight: 32, justifyContent: 'center' as const, alignItems: 'center' as const },
   inputDescLine: {
-    width: LINEA_W_CONCEPTO,
     minHeight: 32,
     borderWidth: 1,
     borderColor: '#e2e8f0',
@@ -1140,8 +1205,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     backgroundColor: '#fff',
   },
+  inputDescLineCompact: { fontSize: 11, paddingVertical: 4, paddingHorizontal: 4 },
   inNum: {
-    width: LINEA_W_NUM,
     minHeight: 32,
     borderWidth: 1,
     borderColor: '#e2e8f0',
@@ -1152,8 +1217,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     backgroundColor: '#fff',
   },
+  inNumCompact: { fontSize: 10, paddingVertical: 4 },
   inNumSm: {
-    width: LINEA_W_NUM_SM,
     minHeight: 32,
     borderWidth: 1,
     borderColor: '#e2e8f0',
@@ -1164,9 +1229,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     backgroundColor: '#fff',
   },
+  inNumSmCompact: { fontSize: 10, paddingVertical: 4 },
   lineaTotals: { fontSize: 10, color: '#64748b', textAlign: 'right', width: '100%' },
+  lineaTotalsCompact: { fontSize: 9 },
   addLine: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 12 },
+  addLineCompact: { marginBottom: 8 },
   addLineTxt: { fontSize: 13, color: '#0ea5e9', fontWeight: '600' },
+  addLineTxtCompact: { fontSize: 12 },
   saveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1177,7 +1246,10 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginTop: 12,
   },
+  saveBtnCompact: { paddingVertical: 8, marginTop: 8, borderRadius: 8, gap: 6 },
   saveBtnDis: { opacity: 0.7 },
   saveBtnTxt: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  saveBtnTxtCompact: { fontSize: 13 },
   hintReadonly: { fontSize: 11, color: '#94a3b8', marginTop: 8, fontStyle: 'italic' },
+  hintReadonlyCompact: { fontSize: 10, marginTop: 6 },
 });
