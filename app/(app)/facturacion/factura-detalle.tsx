@@ -753,7 +753,7 @@ export default function FacturaDetalleScreen() {
     try {
       const { descargarPDFFactura } = await import('../../components/FacturaPDF');
       const { emisorData, clienteData, facturaData } = buildPdfParams();
-      descargarPDFFactura(emisorData, clienteData, facturaData, lineas);
+      await descargarPDFFactura(emisorData, clienteData, facturaData, lineas);
     } catch (e: any) {
       alertMsg('Error PDF', e.message ?? 'No se pudo generar el PDF');
     }
@@ -767,7 +767,7 @@ export default function FacturaDetalleScreen() {
     try {
       const { generarPDFFactura } = await import('../../components/FacturaPDF');
       const { emisorData, clienteData, facturaData } = buildPdfParams();
-      const doc = generarPDFFactura(emisorData, clienteData, facturaData, lineas);
+      const doc = await generarPDFFactura(emisorData, clienteData, facturaData, lineas);
       const blobUrl = doc.output('bloburl');
       window.open(String(blobUrl), '_blank');
     } catch (e: any) {
@@ -847,7 +847,7 @@ export default function FacturaDetalleScreen() {
           cp: emisorCp, municipio: emisorMunicipio, provincia: emisorProvincia,
           email: emisorEmail, telefono: DATOS_EMISOR.telefono,
         };
-        const doc = generarPDFFactura(
+        const doc = await generarPDFFactura(
           emisorData,
           { nombre: empresaNombre, cif: empresaCif, direccion: empresaDireccion, cp: empresaCp, municipio: empresaMunicipio, provincia: empresaProvincia, email: empresaEmail },
           { id_factura: facturaId, tipo, serie, numero: 0, estado, fecha_emision: fechaEmision, fecha_operacion: fechaOperacion || undefined, fecha_vencimiento: fechaVencimiento || undefined, condiciones_pago: condicionesPago, forma_pago: formaPago, observaciones: observaciones || undefined, numero_factura_proveedor: numFacturaProveedor || undefined, base_imponible: totales.base_imponible, total_iva: totales.total_iva, total_retencion: totales.total_retencion, total_factura: totales.total_factura },

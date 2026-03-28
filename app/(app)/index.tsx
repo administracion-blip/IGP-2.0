@@ -1,10 +1,13 @@
 import { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Platform, Animated, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Platform, Animated, ScrollView, useWindowDimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import WeatherWidget from '../components/WeatherWidget';
 import { useAuth } from '../contexts/AuthContext';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+
+/** Ancho máximo del contenido en tablet / web ancha (márgenes laterales automáticos). */
+const HOME_CONTENT_MAX_WIDTH = 1120;
 
 function formatMoneda(value: string | number): string {
   if (value === '' || value === '—' || value == null) return '—';
@@ -98,6 +101,7 @@ function VariacionBadge({ pct }: { pct: number | null }) {
 }
 
 export default function AppHome() {
+  const { width: windowWidth } = useWindowDimensions();
   const { localPermitido } = useAuth();
   const [totals, setTotals] = useState<TotalByLocal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -195,8 +199,16 @@ export default function AppHome() {
       return { ...m, lastYearTotal: lastTotal, variacionPct: pct };
     });
 
+  const homeInnerStyle =
+    windowWidth >= 768
+      ? [styles.homeInner, { maxWidth: HOME_CONTENT_MAX_WIDTH }]
+      : styles.homeInner;
+
   return (
     <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
+      <View style={homeInnerStyle}>
+      <WeatherWidget />
+
       <View style={styles.tickerBar}>
         <View style={styles.tickerLabel}>
           <Text style={styles.tickerLabelText}>Facturación {formatBusinessDayToLabel(yesterday)}</Text>
@@ -218,27 +230,26 @@ export default function AppHome() {
         )}
       </View>
 
-      <View style={styles.widgetsRow}>
-        <View style={styles.ytdWidget}>
-          <Text style={styles.ytdTitle}>Facturación {currentYear} hasta {formatBusinessDayToLabel(yesterday)}</Text>
-          {ytdLoading ? (
-            <ActivityIndicator size="small" color="#86efac" style={styles.ytdLoader} />
-          ) : ytdError ? (
-            <Text style={styles.ytdError}>{ytdError}</Text>
-          ) : (
-            <>
-              <View style={styles.ytdGeneralRow}>
-                <Text style={styles.ytdGeneralLabel}>Total</Text>
-                <View style={styles.ytdGeneralRight}>
-                  <Text style={styles.ytdGeneralTotal}>{formatMoneda(ytdTotalGeneral)}</Text>
-                  <VariacionBadge pct={variacionGeneral} />
-                </View>
+      <View style={styles.ytdWidget}>
+        <Text style={styles.ytdTitle}>Facturación {currentYear} hasta {formatBusinessDayToLabel(yesterday)}</Text>
+        {ytdLoading ? (
+          <ActivityIndicator size="small" color="#86efac" style={styles.ytdLoader} />
+        ) : ytdError ? (
+          <Text style={styles.ytdError}>{ytdError}</Text>
+        ) : (
+          <>
+            <View style={styles.ytdGeneralRow}>
+              <Text style={styles.ytdGeneralLabel}>Total</Text>
+              <View style={styles.ytdGeneralRight}>
+                <Text style={styles.ytdGeneralTotal}>{formatMoneda(ytdTotalGeneral)}</Text>
+                <VariacionBadge pct={variacionGeneral} />
               </View>
-              <Text style={styles.ytdComparacionLabel}>vs. mismo periodo {lastYear}</Text>
-              <View style={styles.ytdList}>
-                {localesConComparacion.length === 0 ? (
-                  <Text style={styles.ytdEmpty}>Sin datos por local</Text>
-                ) : (
+            </View>
+            <Text style={styles.ytdComparacionLabel}>vs. mismo periodo {lastYear}</Text>
+            <View style={styles.ytdList}>
+              {localesConComparacion.length === 0 ? (
+                <Text style={styles.ytdEmpty}>Sin datos por local</Text>
+              ) : (
                 [...localesConComparacion].sort((a, b) => a.local.localeCompare(b.local)).map((item, idx) => (
                   <View key={item.workplaceId || idx} style={styles.ytdRow}>
                     <View style={styles.ytdLocalWrap}>
@@ -250,26 +261,24 @@ export default function AppHome() {
                     </View>
                   </View>
                 ))
-                )}
-              </View>
-              {mesesConComparacion.length > 0 && (
-                <>
-                  <Text style={styles.ytdMonthlyTitle}>Facturación por mes</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator style={styles.ytdMonthlyScroll} contentContainerStyle={styles.ytdMonthlyContent}>
-                    {mesesConComparacion.map((m) => (
-                      <View key={m.month} style={styles.ytdMonthCard}>
-                        <Text style={styles.ytdMonthLabel}>{m.monthLabel}</Text>
-                        <Text style={styles.ytdMonthTotal}>{formatMoneda(m.total)}</Text>
-                        <VariacionBadge pct={m.variacionPct} />
-                      </View>
-                    ))}
-                  </ScrollView>
-                </>
               )}
-            </>
-          )}
-        </View>
-        <WeatherWidget />
+            </View>
+            {mesesConComparacion.length > 0 && (
+              <>
+                <Text style={styles.ytdMonthlyTitle}>Facturación por mes</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator style={styles.ytdMonthlyScroll} contentContainerStyle={styles.ytdMonthlyContent}>
+                  {mesesConComparacion.map((m) => (
+                    <View key={m.month} style={styles.ytdMonthCard}>
+                      <Text style={styles.ytdMonthLabel}>{m.monthLabel}</Text>
+                      <Text style={styles.ytdMonthTotal}>{formatMoneda(m.total)}</Text>
+                      <VariacionBadge pct={m.variacionPct} />
+                    </View>
+                  ))}
+                </ScrollView>
+              </>
+            )}
+          </>
+        )}
       </View>
 
       <View style={styles.welcome}>
@@ -278,21 +287,31 @@ export default function AppHome() {
           Usa el menú lateral para acceder a Base de Datos y más opciones.
         </Text>
       </View>
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   scrollView: { flex: 1 },
-  scrollContent: { padding: 12, paddingBottom: 32 },
+  scrollContent: {
+    padding: 12,
+    paddingBottom: 32,
+    alignItems: 'center',
+    flexGrow: 1,
+  },
+  homeInner: {
+    width: '100%',
+    alignSelf: 'center',
+  },
   container: {
     flex: 1,
     padding: 12,
   },
   tickerBar: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'stretch',
+    justifyContent: 'flex-start',
     backgroundColor: '#0f172a',
     borderRadius: 8,
     marginBottom: 16,
@@ -301,12 +320,14 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' && { boxShadow: '0 2px 8px rgba(15,23,42,0.3)' } as object),
   },
   tickerLabel: {
-    paddingHorizontal: 14,
+    flexShrink: 0,
+    maxWidth: '42%',
+    paddingHorizontal: 12,
     paddingVertical: 12,
     borderRightWidth: 1,
     borderRightColor: 'rgba(255,255,255,0.12)',
     justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   tickerLabelText: {
     fontSize: 13,
@@ -335,9 +356,9 @@ const styles = StyleSheet.create({
   tickerMarqueeSegment: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 24,
-    paddingRight: 24,
+    justifyContent: 'flex-start',
+    flexWrap: 'nowrap',
+    paddingRight: 8,
   },
   tickerContent: {
     flex: 1,
@@ -347,12 +368,15 @@ const styles = StyleSheet.create({
   tickerItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    flexShrink: 0,
+    marginRight: 24,
   },
   tickerItemLocal: {
     fontSize: 15,
     fontWeight: '600',
     color: '#f8fafc',
+    marginRight: 10,
+    flexShrink: 0,
     ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
     letterSpacing: 0.8,
   },
@@ -382,20 +406,11 @@ const styles = StyleSheet.create({
   },
   variacionIcon: { marginRight: 2 },
   variacionText: { fontSize: 12, fontWeight: '700' },
-  widgetsRow: {
-    flexDirection: 'row',
-    marginBottom: 16,
-    alignItems: 'flex-start',
-    alignSelf: 'stretch',
-    gap: 16,
-    flexWrap: 'wrap',
-  },
   ytdWidget: {
-    flex: 1,
     backgroundColor: '#0f172a',
     borderRadius: 8,
     padding: 14,
-    minWidth: 280,
+    marginBottom: 16,
     alignSelf: 'stretch',
     overflow: 'hidden',
     ...(Platform.OS === 'web' && { boxShadow: '0 2px 8px rgba(15,23,42,0.3)' } as object),

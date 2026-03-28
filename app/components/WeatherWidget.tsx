@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Platform } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, Platform, ScrollView } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
 const GRANADA_LAT = 37.1773;
@@ -39,7 +39,8 @@ function getWeatherLabel(code: number): string {
   return WEATHER_CODE_MAP[code] ?? 'Desconocido';
 }
 
-function getWeatherIcon(code: number): string {
+/** Nombres según glyphmaps/MaterialIcons.json (@expo/vector-icons), kebab-case */
+function getWeatherIcon(code: number): React.ComponentProps<typeof MaterialIcons>['name'] {
   if (code === 0) return 'wb-sunny';
   if (code >= 1 && code <= 3) return 'cloud';
   if (code >= 45 && code <= 48) return 'foggy';
@@ -114,8 +115,11 @@ export default function WeatherWidget() {
   if (loading) {
     return (
       <View style={styles.widget}>
-        <Text style={styles.title}>Tiempo en Granada</Text>
-        <ActivityIndicator size="small" color="#7dd3fc" style={styles.loader} />
+        <View style={styles.mainRow}>
+          <Text style={styles.headline}>Tiempo</Text>
+          <ActivityIndicator size="small" color="#7dd3fc" style={styles.loaderInline} />
+          <Text style={styles.loadingHint}>Granada</Text>
+        </View>
       </View>
     );
   }
@@ -123,8 +127,10 @@ export default function WeatherWidget() {
   if (error || !data) {
     return (
       <View style={styles.widget}>
-        <Text style={styles.title}>Tiempo en Granada</Text>
-        <Text style={styles.error}>{error || 'Sin datos'}</Text>
+        <View style={styles.mainRow}>
+          <Text style={styles.headline}>Tiempo · Granada</Text>
+          <Text style={styles.error}>{error || 'Sin datos'}</Text>
+        </View>
       </View>
     );
   }
@@ -133,36 +139,53 @@ export default function WeatherWidget() {
 
   return (
     <View style={styles.widget}>
-      <Text style={styles.title}>Tiempo en Granada</Text>
-      <View style={styles.todayRow}>
-        <MaterialIcons name={getWeatherIcon(current.weather_code) as any} size={40} color="#7dd3fc" />
-        <View style={styles.todayInfo}>
-          <Text style={styles.todayTemp}>{Math.round(current.temperature_2m)}°</Text>
-          <Text style={styles.todayLabel}>{getWeatherLabel(current.weather_code)}</Text>
-          {current.precipitation_probability != null && current.precipitation_probability > 0 && (
-            <Text style={styles.rainProb}>Lluvia {current.precipitation_probability}%</Text>
-          )}
+      <View style={styles.mainRow}>
+        <View style={styles.headBlock}>
+          <Text style={styles.headline}>Tiempo</Text>
+          <Text style={styles.subHead}>Granada</Text>
         </View>
-      </View>
-      <View style={styles.forecastList}>
-        {daily.time.slice(0, 8).map((dateStr, i) => (
-          <View key={dateStr} style={styles.forecastRow}>
-            <Text style={styles.forecastDay}>{formatDayLabel(dateStr, i)}</Text>
-            <MaterialIcons
-              name={getWeatherIcon(daily.weather_code[i] ?? 0) as any}
-              size={18}
-              color="#94a3b8"
-            />
-            <Text style={styles.forecastTemp}>
-              {Math.round(daily.temperature_2m_max[i] ?? 0)}° / {Math.round(daily.temperature_2m_min[i] ?? 0)}°
-            </Text>
-            {(daily.precipitation_probability_max[i] ?? 0) > 0 ? (
-              <Text style={styles.forecastRain}>{daily.precipitation_probability_max[i]}%</Text>
-            ) : (
-              <Text style={styles.forecastRainEmpty}>—</Text>
-            )}
+
+        <View style={styles.currentCluster}>
+          <View style={styles.todayIconWrap}>
+            <MaterialIcons name={getWeatherIcon(current.weather_code)} size={34} color="#7dd3fc" />
           </View>
-        ))}
+          <View style={styles.currentTexts}>
+            <Text style={styles.todayTemp}>{Math.round(current.temperature_2m)}°</Text>
+            <Text style={styles.todayLabel} numberOfLines={1}>
+              {getWeatherLabel(current.weather_code)}
+            </Text>
+            {current.precipitation_probability != null && current.precipitation_probability > 0 ? (
+              <Text style={styles.rainProb}>Lluvia {current.precipitation_probability}%</Text>
+            ) : null}
+          </View>
+        </View>
+
+        <View style={styles.verticalRule} />
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.forecastScroll}
+          contentContainerStyle={styles.forecastScrollContent}
+        >
+          {daily.time.slice(0, 8).map((dateStr, i) => {
+            const rain = daily.precipitation_probability_max[i] ?? 0;
+            return (
+              <View key={dateStr} style={styles.dayChip}>
+                <Text style={styles.dayChipLabel}>{formatDayLabel(dateStr, i)}</Text>
+                <MaterialIcons name={getWeatherIcon(daily.weather_code[i] ?? 0)} size={22} color="#94a3b8" />
+                <Text style={styles.dayChipTemp}>
+                  {Math.round(daily.temperature_2m_max[i] ?? 0)}° / {Math.round(daily.temperature_2m_min[i] ?? 0)}°
+                </Text>
+                {rain > 0 ? (
+                  <Text style={styles.dayChipRain}>{rain}%</Text>
+                ) : (
+                  <Text style={styles.dayChipRainEmpty}>—</Text>
+                )}
+              </View>
+            );
+          })}
+        </ScrollView>
       </View>
     </View>
   );
@@ -172,88 +195,130 @@ const styles = StyleSheet.create({
   widget: {
     backgroundColor: '#0f172a',
     borderRadius: 8,
-    padding: 14,
-    minWidth: 260,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    width: '100%',
     alignSelf: 'stretch',
     overflow: 'hidden',
     ...(Platform.OS === 'web' && { boxShadow: '0 2px 8px rgba(15,23,42,0.3)' } as object),
   },
-  title: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#94a3b8',
-    marginBottom: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
-  },
-  loader: { marginVertical: 12 },
-  error: {
-    fontSize: 12,
-    color: '#fca5a5',
-  },
-  todayRow: {
+  mainRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 14,
-    paddingBottom: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: 'rgba(125,211,252,0.3)',
+    minHeight: 52,
   },
-  todayInfo: { marginLeft: 12 },
+  headBlock: {
+    flexShrink: 0,
+    marginRight: 10,
+    justifyContent: 'center',
+  },
+  headline: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
+  },
+  subHead: {
+    fontSize: 10,
+    color: '#64748b',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  loaderInline: { marginHorizontal: 10 },
+  loadingHint: { fontSize: 12, color: '#64748b' },
+  currentCluster: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  todayIconWrap: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  currentTexts: {
+    marginLeft: 8,
+    maxWidth: 140,
+    justifyContent: 'center',
+  },
   todayTemp: {
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: '700',
     color: '#7dd3fc',
     ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
   },
   todayLabel: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#f8fafc',
     fontWeight: '500',
-    marginTop: 2,
+    marginTop: 0,
   },
   rainProb: {
-    fontSize: 12,
+    fontSize: 10,
     color: '#38bdf8',
-    marginTop: 4,
+    marginTop: 2,
     fontWeight: '600',
   },
-  forecastList: { gap: 6 },
-  forecastRow: {
+  verticalRule: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: 'stretch',
+    minHeight: 44,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    marginHorizontal: 10,
+    flexShrink: 0,
+  },
+  forecastScroll: {
+    flex: 1,
+    minWidth: 0,
+  },
+  forecastScrollContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    paddingRight: 4,
+  },
+  dayChip: {
+    width: 72,
+    alignItems: 'center',
     paddingVertical: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.12)',
-    gap: 8,
+    paddingHorizontal: 4,
+    marginRight: 8,
+    borderRadius: 6,
+    backgroundColor: 'rgba(15,23,42,0.6)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(148,163,184,0.25)',
   },
-  forecastDay: {
-    fontSize: 12,
+  dayChipLabel: {
+    fontSize: 10,
     color: '#94a3b8',
-    fontWeight: '600',
-    minWidth: 52,
+    fontWeight: '700',
+    marginBottom: 4,
   },
-  forecastTemp: {
-    fontSize: 12,
+  dayChipTemp: {
+    fontSize: 10,
     color: '#f8fafc',
     fontWeight: '600',
-    flex: 1,
-    textAlign: 'right',
+    marginTop: 2,
     ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
   },
-  forecastRain: {
-    fontSize: 11,
+  dayChipRain: {
+    fontSize: 9,
     color: '#38bdf8',
+    marginTop: 2,
     fontWeight: '600',
-    minWidth: 32,
-    textAlign: 'right',
   },
-  forecastRainEmpty: {
-    fontSize: 11,
+  dayChipRainEmpty: {
+    fontSize: 9,
     color: '#64748b',
-    minWidth: 32,
-    textAlign: 'right',
+    marginTop: 2,
+  },
+  error: {
+    fontSize: 12,
+    color: '#fca5a5',
+    flex: 1,
+    marginLeft: 8,
   },
 });

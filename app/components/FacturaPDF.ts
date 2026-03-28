@@ -1,5 +1,3 @@
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { calcularLinea, formatMoneda, labelEstado, labelFormaPago, type LineaFactura } from '../utils/facturacion';
 
 type DatosEmisor = {
@@ -66,12 +64,14 @@ function formatFecha(iso: string | undefined): string {
   return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
-export function generarPDFFactura(
+export async function generarPDFFactura(
   emisor: DatosEmisor,
   cliente: DatosCliente,
   factura: DatosFactura,
   lineas: LineaFactura[],
-): jsPDF {
+): Promise<import('jspdf').jsPDF> {
+  const [{ jsPDF }, autoTableMod] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+  const autoTable = autoTableMod.default;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 15;
@@ -384,12 +384,12 @@ export function generarPDFFactura(
   return doc;
 }
 
-export function descargarPDFFactura(
+export async function descargarPDFFactura(
   emisor: DatosEmisor,
   cliente: DatosCliente,
   factura: DatosFactura,
   lineas: LineaFactura[],
 ) {
-  const doc = generarPDFFactura(emisor, cliente, factura, lineas);
+  const doc = await generarPDFFactura(emisor, cliente, factura, lineas);
   doc.save(`${factura.id_factura}.pdf`);
 }

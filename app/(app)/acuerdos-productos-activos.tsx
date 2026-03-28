@@ -13,8 +13,6 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -331,8 +329,10 @@ export default function AcuerdosProductosActivosScreen() {
     }
   }, [filtradosFinales, buildExportRows]);
 
-  const exportarPDF = useCallback(() => {
+  const exportarPDF = useCallback(async () => {
     if (filtradosFinales.length === 0) return;
+    const [{ jsPDF }, autoTableMod] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+    const autoTable = autoTableMod.default;
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const pageW = doc.internal.pageSize.getWidth();
     let y = 12;

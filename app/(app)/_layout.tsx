@@ -1,5 +1,15 @@
-import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Modal, Pressable, ActivityIndicator } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Platform,
+  Modal,
+  Pressable,
+  ActivityIndicator,
+  useWindowDimensions,
+} from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AuthProvider, useAuth, AUTH_KEY } from '../contexts/AuthContext';
@@ -22,8 +32,15 @@ const MENU_ITEMS: { route: string; label: string; icon: string; permiso: string 
 
 function AppLayoutContent() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
   const { user, loading, hasPermiso, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(Platform.OS === 'web');
+  const didInitTabletSidebar = useRef(false);
+  useEffect(() => {
+    if (Platform.OS === 'web' || didInitTabletSidebar.current || width < 768) return;
+    didInitTabletSidebar.current = true;
+    setSidebarOpen(true);
+  }, [width]);
   const [configOpen, setConfigOpen] = useState(false);
   const [configLabelVisible, setConfigLabelVisible] = useState(false);
 
@@ -132,7 +149,9 @@ function AppLayoutContent() {
                 onPress={() => router.push(item.route as any)}
                 activeOpacity={0.7}
               >
-                <MaterialIcons name={item.icon as any} size={18} color="#0ea5e9" />
+                <View style={styles.menuIconWrap}>
+                  <MaterialIcons name={item.icon as any} size={20} color="#0ea5e9" />
+                </View>
                 {sidebarOpen ? <Text style={styles.menuItemText}>{item.label}</Text> : null}
               </TouchableOpacity>
             ))}
@@ -307,17 +326,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,
-    paddingHorizontal: 10,
-    gap: 8,
+    paddingHorizontal: 8,
+  },
+  menuIconWrap: {
+    width: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   menuItemCollapsed: {
-    paddingHorizontal: 10,
+    paddingHorizontal: 6,
     justifyContent: 'center',
   },
   menuItemText: {
     fontSize: 12,
     color: '#334155',
     fontWeight: '400',
+    marginLeft: 8,
+    flexShrink: 1,
   },
   content: {
     flex: 1,

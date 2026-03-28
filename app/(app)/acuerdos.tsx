@@ -18,8 +18,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useProductosCache } from '../contexts/ProductosCache';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import * as FileSystemLegacy from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { useAuth } from '../contexts/AuthContext';
 import { calcTiempoRestante } from '../lib/acuerdosFechas';
 
@@ -1045,8 +1045,10 @@ export default function AcuerdosScreen() {
 
   const isCompact = winWidth < 700;
 
-  const generarPDF = useCallback(() => {
+  const generarPDF = useCallback(async () => {
     if (!seleccionado) return;
+    const [{ jsPDF }, autoTableMod] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+    const autoTable = autoTableMod.default;
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const pageW = doc.internal.pageSize.getWidth();
     let y = 15;
@@ -1250,7 +1252,22 @@ export default function AcuerdosScreen() {
     }
 
     const fileName = `Acuerdo_${(seleccionado.Marca || seleccionado.PK).replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`;
-    doc.save(fileName);
+    if (Platform.OS === 'web') {
+      doc.save(fileName);
+    } else {
+      const dataUri = doc.output('datauristring');
+      const base64 = dataUri.split(',')[1] || '';
+      const cacheDir = FileSystemLegacy.cacheDirectory ?? '';
+      const fileUri = `${cacheDir}${fileName}`;
+      try {
+        await FileSystemLegacy.writeAsStringAsync(fileUri, base64, {
+          encoding: FileSystemLegacy.EncodingType.Base64,
+        });
+        await Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: fileName });
+      } catch {
+        /* noop */
+      }
+    }
   }, [seleccionado, detalles, pagosImagen, locales, totalAcuerdo, totalAcuerdoGenerado, aportacionVolumen, aportacionVolumenGenerado, totalImporteImagen, totalImporteImagenRealizado, totalAcordado, totalCompradas]);
 
   return (

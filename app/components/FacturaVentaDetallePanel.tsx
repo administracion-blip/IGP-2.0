@@ -326,7 +326,7 @@ export function FacturaVentaDetallePanel({
         motivo_rectificacion: motivoRectificacion || undefined,
         verifactu_hash: verifactuHash || undefined,
       };
-      const doc = generarPDFFactura(emisorData, clienteData, facturaData, lineas);
+      const doc = await generarPDFFactura(emisorData, clienteData, facturaData, lineas);
       const blobUrl = doc.output('bloburl');
       const w = globalThis as unknown as { open?: (u: string, t?: string) => void };
       w.open?.(String(blobUrl), '_blank');
