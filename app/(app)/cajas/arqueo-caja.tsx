@@ -63,9 +63,25 @@ function parseDateToYYYYMMDD(input: string): string | null {
   return null;
 }
 
-function todayDmy(): string {
-  const d = new Date();
+/** dd/mm/yyyy a partir de un Date (hora local). */
+function dateToDmy(d: Date): string {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}
+
+/**
+ * Fecha de negocio por defecto: hasta las 09:30 se asume que aún se arquea el día anterior
+ * (cierres de madrugada); desde las 09:31, el día natural es hoy.
+ */
+function defaultBusinessDayDmy(): string {
+  const now = new Date();
+  const minutesOfDay = now.getHours() * 60 + now.getMinutes();
+  const cutoff = 9 * 60 + 30; // 09:30
+  if (minutesOfDay <= cutoff) {
+    const y = new Date(now);
+    y.setDate(y.getDate() - 1);
+    return dateToDmy(y);
+  }
+  return dateToDmy(now);
 }
 
 function formatMoneda(n: number): string {
@@ -103,7 +119,7 @@ export default function ArqueoCajaScreen() {
   const [locales, setLocales] = useState<LocalItem[]>([]);
   const [saleCenters, setSaleCenters] = useState<{ Id?: number; Nombre?: string; Local?: string; Activo?: boolean }[]>([]);
 
-  const [businessDayDmy, setBusinessDayDmy] = useState(todayDmy);
+  const [businessDayDmy, setBusinessDayDmy] = useState(() => defaultBusinessDayDmy());
   const [formLocal, setFormLocal] = useState('');
   const [formPosId, setFormPosId] = useState('');
   const [formPosName, setFormPosName] = useState('');
@@ -122,6 +138,7 @@ export default function ArqueoCajaScreen() {
 
   const [localModalOpen, setLocalModalOpen] = useState(false);
   const [posModalOpen, setPosModalOpen] = useState(false);
+  const [syncingCloseouts, setSyncingCloseouts] = useState(false);
 
   const businessDayIso = useMemo(() => parseDateToYYYYMMDD(businessDayDmy), [businessDayDmy]);
 
@@ -218,6 +235,35 @@ export default function ArqueoCajaScreen() {
       })
       .finally(() => setLoadingCompare(false));
   }, [businessDayIso, formLocal, formPosId]);
+
+  /** Misma acción que en Cierres teóricos: trae cierres de Ágora y los guarda en Dynamo para poder comparar. */
+  const sincronizarCierresTeoricos = useCallback(async () => {
+    if (!businessDayIso || !formLocal.trim()) {
+      setError('Indica fecha de negocio y local para sincronizar.');
+      return;
+    }
+    setSyncingCloseouts(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/agora/closeouts/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          businessDay: businessDayIso,
+          workplaces: formLocal.trim(),
+        }),
+      });
+      const data = await safeJson<{ ok?: boolean; error?: string; upserted?: number }>(res);
+      if (!res.ok || (data as { error?: string }).error) {
+        throw new Error((data as { error?: string }).error || 'Error al sincronizar cierres');
+      }
+      fetchCompare();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al sincronizar cierres teóricos');
+    } finally {
+      setSyncingCloseouts(false);
+    }
+  }, [businessDayIso, formLocal, fetchCompare]);
 
   useEffect(() => {
     const t = setTimeout(fetchCompare, 300);
@@ -336,7 +382,7 @@ export default function ArqueoCajaScreen() {
               <MaterialIcons name="arrow-drop-down" size={22} color="#64748b" />
             </TouchableOpacity>
           </View>
-          <View style={styles.filtrosCol}>
+          <View style={styles.filtrosColSelect}>
             <Text style={styles.labelFiltros}>TPV</Text>
             <TouchableOpacity
               style={[styles.selectBtn, !formLocal && styles.selectDisabled]}
@@ -356,6 +402,35 @@ export default function ArqueoCajaScreen() {
               <MaterialIcons name="arrow-drop-down" size={22} color="#64748b" />
             </TouchableOpacity>
           </View>
+        </View>
+
+        <View style={styles.syncRow}>
+          <TouchableOpacity
+            style={[
+              styles.syncBtn,
+              (!businessDayIso || !formLocal.trim() || syncingCloseouts) && styles.syncBtnDisabled,
+            ]}
+            onPress={sincronizarCierresTeoricos}
+            disabled={!businessDayIso || !formLocal.trim() || syncingCloseouts}
+            activeOpacity={0.7}
+          >
+            {syncingCloseouts ? (
+              <ActivityIndicator size="small" color="#0ea5e9" />
+            ) : (
+              <MaterialIcons name="sync" size={18} color="#0ea5e9" />
+            )}
+            <Text
+              style={[
+                styles.syncBtnText,
+                (!businessDayIso || !formLocal.trim()) && styles.syncBtnTextDisabled,
+              ]}
+            >
+              Sincronizar cierres teóricos
+            </Text>
+          </TouchableOpacity>
+          <Text style={styles.syncHint}>
+            Descarga de Ágora el cierre del día para este local, guarda en la tabla de cierres teóricos y actualiza la comparativa (elige también el TPV para ver el teórico por TPV).
+          </Text>
         </View>
 
         <Modal visible={localModalOpen} transparent animationType="fade" onRequestClose={() => setLocalModalOpen(false)}>
@@ -564,6 +639,27 @@ const styles = StyleSheet.create({
     maxWidth: 288,
     alignSelf: 'flex-start',
   },
+  syncRow: {
+    width: '100%',
+    marginBottom: 14,
+    gap: 8,
+  },
+  syncBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: '#f0f9ff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
+  syncBtnDisabled: { opacity: 0.55 },
+  syncBtnText: { fontSize: 14, fontWeight: '600', color: '#0369a1' },
+  syncBtnTextDisabled: { color: '#94a3b8' },
+  syncHint: { fontSize: 11, color: '#64748b', lineHeight: 16 },
   labelFiltros: {
     fontSize: 10,
     fontWeight: '600',
