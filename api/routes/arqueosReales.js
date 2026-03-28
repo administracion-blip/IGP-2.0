@@ -78,6 +78,24 @@ function mergeTeoricoAmounts(items) {
   return sum;
 }
 
+/** Diferencias por método: real − teórico. */
+function buildDiff(teorico, realParsed) {
+  return {
+    Efectivo: round2(realParsed.efectivoReal - teorico.Efectivo),
+    Tarjeta: round2(realParsed.tarjetaReal - teorico.Tarjeta),
+    'Pendiente de cobro': round2(realParsed.pendienteCobroReal - teorico['Pendiente de cobro']),
+    'Prepago Transferencia': round2(realParsed.prepagoTransferenciaReal - teorico['Prepago Transferencia']),
+    AgoraPay: round2(realParsed.agoraPayReal - teorico.AgoraPay),
+  };
+}
+
+/** Suma algebraica de las diferencias por método (descuadre total). */
+function sumDescuadreFromDiff(diff) {
+  let s = 0;
+  for (const k of PAYMENT_LABELS) s += diff[k];
+  return round2(s);
+}
+
 // GET /api/cajas/arqueos-reales?workplaceId=&businessDay=opcional
 router.get('/cajas/arqueos-reales', async (req, res) => {
   const workplaceId = String(req.query.workplaceId || '').trim();
@@ -143,13 +161,8 @@ router.get('/cajas/arqueos-reales/compare', async (req, res) => {
           agoraPayReal: 0,
         };
 
-    const diff = {
-      Efectivo: round2(realParsed.efectivoReal - teorico.Efectivo),
-      Tarjeta: round2(realParsed.tarjetaReal - teorico.Tarjeta),
-      'Pendiente de cobro': round2(realParsed.pendienteCobroReal - teorico['Pendiente de cobro']),
-      'Prepago Transferencia': round2(realParsed.prepagoTransferenciaReal - teorico['Prepago Transferencia']),
-      AgoraPay: round2(realParsed.agoraPayReal - teorico.AgoraPay),
-    };
+    const diff = buildDiff(teorico, realParsed);
+    const descuadreTotal = sumDescuadreFromDiff(diff);
 
     res.json({
       workplaceId,
@@ -161,6 +174,7 @@ router.get('/cajas/arqueos-reales/compare', async (req, res) => {
       real: realParsed,
       realGuardado: real,
       diff,
+      descuadreTotal,
     });
   } catch (err) {
     console.error('[cajas/arqueos-reales/compare]', err.message || err);
@@ -187,6 +201,31 @@ router.put('/cajas/arqueos-reales', async (req, res) => {
     Key: { PK: pk, SK: sk },
   })).then((r) => r.Item);
 
+  const realParsed = {
+    efectivoReal: parseNum(body.efectivoReal ?? body.efectivo_real),
+    tarjetaReal: parseNum(body.tarjetaReal ?? body.tarjeta_real),
+    pendienteCobroReal: parseNum(body.pendienteCobroReal ?? body.pendiente_cobro_real),
+    prepagoTransferenciaReal: parseNum(body.prepagoTransferenciaReal ?? body.prepago_transferencia_real),
+    agoraPayReal: parseNum(body.agoraPayReal ?? body.agora_pay_real),
+  };
+
+  const skPrefixClose = `${businessDay}#${posIdStr}#`;
+  let descuadreTotal = 0;
+  try {
+    const qClose = await docClient.send(new QueryCommand({
+      TableName: tableCloseouts,
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+      ExpressionAttributeValues: { ':pk': pk, ':sk': skPrefixClose },
+    }));
+    const teorico = mergeTeoricoAmounts(qClose.Items || []);
+    const diff = buildDiff(teorico, realParsed);
+    descuadreTotal = sumDescuadreFromDiff(diff);
+  } catch (e) {
+    console.error('[cajas/arqueos-reales PUT] descuadre', e.message || e);
+    const diff = buildDiff(mergeTeoricoAmounts([]), realParsed);
+    descuadreTotal = sumDescuadreFromDiff(diff);
+  }
+
   const item = {
     PK: pk,
     SK: sk,
@@ -194,11 +233,13 @@ router.put('/cajas/arqueos-reales', async (req, res) => {
     PosId: posIdStr,
     PosName: body.PosName ?? body.posName ?? existing?.PosName ?? '',
     WorkplaceName: body.WorkplaceName ?? body.workplaceName ?? existing?.WorkplaceName ?? '',
-    efectivoReal: parseNum(body.efectivoReal ?? body.efectivo_real),
-    tarjetaReal: parseNum(body.tarjetaReal ?? body.tarjeta_real),
-    pendienteCobroReal: parseNum(body.pendienteCobroReal ?? body.pendiente_cobro_real),
-    prepagoTransferenciaReal: parseNum(body.prepagoTransferenciaReal ?? body.prepago_transferencia_real),
-    agoraPayReal: parseNum(body.agoraPayReal ?? body.agora_pay_real),
+    efectivoReal: realParsed.efectivoReal,
+    tarjetaReal: realParsed.tarjetaReal,
+    pendienteCobroReal: realParsed.pendienteCobroReal,
+    prepagoTransferenciaReal: realParsed.prepagoTransferenciaReal,
+    agoraPayReal: realParsed.agoraPayReal,
+    descuadreTotal,
+    descuadreActualizadoEn: now,
     creadoEn: existing?.creadoEn ?? now,
     actualizadoEn: now,
     usuarioId: body.usuarioId ?? body.usuario_id ?? existing?.usuarioId ?? '',

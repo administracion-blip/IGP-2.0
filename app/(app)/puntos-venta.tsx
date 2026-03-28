@@ -9,6 +9,7 @@ import {
   TextInput,
   PanResponder,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -48,6 +49,8 @@ function isActivo(item: PuntoVentaItem): boolean {
 
 export default function PuntosVentaScreen() {
   const router = useRouter();
+  const { height: windowHeight } = useWindowDimensions();
+  const tableViewportHeight = Math.max(200, Math.min(windowHeight - 280, windowHeight * 0.68));
   const [saleCenters, setSaleCenters] = useState<PuntoVentaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -253,8 +256,21 @@ export default function PuntosVentaScreen() {
         {filtrados.length > 0 && <Text style={styles.subtitlePage}> · Página {safePage} de {totalPages}</Text>}
       </Text>
 
-      <View style={styles.tableWrap}>
-        <ScrollView horizontal style={styles.scroll} contentContainerStyle={[styles.scrollContent, { minWidth: tableMinWidth }]} showsHorizontalScrollIndicator>
+      <View style={[styles.tableWrap, { height: tableViewportHeight }]}>
+        <ScrollView
+          style={styles.scrollVertical}
+          contentContainerStyle={styles.scrollVerticalContent}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator
+          keyboardShouldPersistTaps="handled"
+        >
+          <ScrollView
+            horizontal
+            nestedScrollEnabled
+            style={styles.scrollHorizontal}
+            contentContainerStyle={[styles.scrollContent, { minWidth: tableMinWidth }]}
+            showsHorizontalScrollIndicator
+          >
           <View style={[styles.table, { minWidth: tableMinWidth }]}>
             <View style={styles.rowHeader}>
                 {columnas.map((col, colIdx) => (
@@ -302,6 +318,7 @@ export default function PuntosVentaScreen() {
                 })
               )}
             </View>
+          </ScrollView>
         </ScrollView>
       </View>
 
@@ -323,7 +340,7 @@ export default function PuntosVentaScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10 },
+  container: { flex: 1, padding: 10, minHeight: 0 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
   loadingText: { fontSize: 12, color: '#64748b' },
   errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
@@ -346,9 +363,18 @@ const styles = StyleSheet.create({
   pageBtnText: { fontSize: 12, color: '#334155', fontWeight: '500' },
   pageBtnTextDisabled: { color: '#94a3b8' },
   pageInfo: { fontSize: 12, color: '#64748b' },
-  tableWrap: { flex: 1, minHeight: 120, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#f8fafc' },
-  scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 20, flexGrow: 1 },
+  tableWrap: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#f8fafc',
+  },
+  scrollVertical: { flex: 1, minHeight: 0 },
+  scrollVerticalContent: { paddingBottom: 4 },
+  scrollHorizontal: {},
+  scrollContent: { paddingBottom: 12 },
   table: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff', alignSelf: 'flex-start' },
   rowHeader: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
   cellHeader: { minWidth: MIN_COL_WIDTH, paddingVertical: 2, paddingHorizontal: 6, borderRightWidth: 1, borderRightColor: '#cbd5e1', position: 'relative' },

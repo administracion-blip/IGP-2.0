@@ -90,6 +90,8 @@ type CompareResponse = {
     agoraPayReal: number;
   };
   diff: Record<string, number>;
+  /** Suma de diferencias (coincide con descuadreTotal guardado en Dynamo al guardar). */
+  descuadreTotal?: number;
   closeoutsCount: number;
   error?: string;
 };
@@ -174,6 +176,13 @@ export default function ArqueoCajaScreen() {
       AgoraPay: parseEuroInput(agoraReal) - (t.AgoraPay ?? 0),
     };
   }, [compare, efectivoReal, tarjetaReal, pendienteReal, prepagoReal, agoraReal]);
+
+  const descuadreEnVivo = useMemo(() => {
+    if (!diffsEnVivo) return null;
+    let s = 0;
+    for (const row of LABELS) s += diffsEnVivo[row.teoricoKey] ?? 0;
+    return Math.round(s * 100) / 100;
+  }, [diffsEnVivo]);
 
   const fetchCompare = useCallback(() => {
     if (!businessDayIso || !formLocal.trim() || !formPosId) {
@@ -299,7 +308,7 @@ export default function ArqueoCajaScreen() {
         </Text>
 
         <View style={styles.filtrosRow}>
-          <View style={styles.filtrosCol}>
+          <View style={styles.filtrosColFecha}>
             <Text style={styles.labelFiltros}>Fecha negocio</Text>
             <InputFecha
               value={businessDayDmy}
@@ -309,7 +318,7 @@ export default function ArqueoCajaScreen() {
               style={styles.inputFechaCompact}
             />
           </View>
-          <View style={styles.filtrosCol}>
+          <View style={styles.filtrosColSelect}>
             <Text style={styles.labelFiltros}>Local</Text>
             <TouchableOpacity
               style={styles.selectBtn}
@@ -431,7 +440,22 @@ export default function ArqueoCajaScreen() {
 
         {compare && businessDayIso && formPosId ? (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Teórico vs real</Text>
+            <View style={styles.cardTitleRow}>
+              <Text style={styles.cardTitle}>Teórico vs real</Text>
+              {descuadreEnVivo != null ? (
+                <View style={styles.descuadreBox}>
+                  <Text style={styles.descuadreLabel}>Descuadre</Text>
+                  <Text
+                    style={[
+                      styles.descuadreVal,
+                      Math.abs(descuadreEnVivo) < 0.01 ? styles.diffOk : styles.diffBad,
+                    ]}
+                  >
+                    {formatMoneda(descuadreEnVivo)}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
             <Text style={styles.cardMeta}>
               Cierres teóricos encontrados: {compare.closeoutsCount}
             </Text>
@@ -525,9 +549,20 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 18,
   },
-  filtrosCol: {
-    flex: 1,
-    minWidth: 108,
+  /** Fecha: crece un poco en pantallas anchas, sin ocupar todo el ancho. */
+  filtrosColFecha: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 132,
+    maxWidth: 200,
+  },
+  /** Local / TPV: solo el ancho necesario (hasta un máximo). */
+  filtrosColSelect: {
+    flexGrow: 0,
+    flexShrink: 1,
+    minWidth: 140,
+    maxWidth: 288,
+    alignSelf: 'flex-start',
   },
   labelFiltros: {
     fontSize: 10,
@@ -547,6 +582,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    alignSelf: 'stretch',
+    maxWidth: '100%',
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 8,
@@ -556,7 +593,7 @@ const styles = StyleSheet.create({
     minHeight: 40,
   },
   selectDisabled: { opacity: 0.5 },
-  selectText: { flex: 1, fontSize: 13, color: '#334155', marginRight: 4 },
+  selectText: { flexShrink: 1, fontSize: 13, color: '#334155', marginRight: 4, minWidth: 0 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(15,23,42,0.5)',
@@ -565,6 +602,9 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' ? { zIndex: 9999 } as object : {}),
   },
   modalSheet: {
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 400,
     backgroundColor: '#fff',
     borderRadius: 12,
     maxHeight: '80%',
@@ -610,7 +650,33 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
-  cardTitle: { fontSize: 15, fontWeight: '700', color: '#334155', marginBottom: 4 },
+  cardTitleRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 4,
+  },
+  cardTitle: { fontSize: 15, fontWeight: '700', color: '#334155', flexShrink: 1 },
+  descuadreBox: {
+    alignItems: 'flex-end',
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  descuadreLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 2,
+  },
+  descuadreVal: { fontSize: 15, fontWeight: '700' },
   cardMeta: { fontSize: 11, color: '#94a3b8', marginBottom: 12 },
   rowCompare: { marginBottom: 14, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingBottom: 12 },
   rowLabel: { fontSize: 12, fontWeight: '600', color: '#64748b', marginBottom: 6 },
