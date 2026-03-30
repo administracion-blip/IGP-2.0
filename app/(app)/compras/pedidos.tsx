@@ -88,6 +88,26 @@ function fechaToIso(val: string): string {
   return s;
 }
 
+/** Fecha de hoy solo para mostrar/editar en el formulario (dd/mm/yyyy). */
+function fechaHoyDmy(): string {
+  const hoy = new Date();
+  const d = String(hoy.getDate()).padStart(2, '0');
+  const m = String(hoy.getMonth() + 1).padStart(2, '0');
+  const y = hoy.getFullYear();
+  return `${d}/${m}/${y}`;
+}
+
+/** Convierte valor de API (ISO u otro) al formato visual del formulario. */
+function itemFechaToFormDmy(fecha: string | number | undefined): string {
+  if (fecha == null || String(fecha).trim() === '') return '';
+  const s = String(fecha).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, mo, d] = s.split('-');
+    return `${d}/${mo}/${y}`;
+  }
+  return s;
+}
+
 export default function PedidosScreen() {
   const router = useRouter();
   const { localPermitido } = useAuth();
@@ -172,6 +192,15 @@ export default function PedidosScreen() {
       if (id) map[id] = nombre;
     }
     return map;
+  }, [locales]);
+
+  /** Locales del desplegable ordenados por nombre (español). */
+  const localesOrdenados = useMemo(() => {
+    return [...locales].sort((a, b) => {
+      const na = String(valorEnLocal(a, 'nombre') ?? valorEnLocal(a, 'Nombre') ?? '').trim();
+      const nb = String(valorEnLocal(b, 'nombre') ?? valorEnLocal(b, 'Nombre') ?? '').trim();
+      return na.localeCompare(nb, 'es', { sensitivity: 'base' });
+    });
   }, [locales]);
 
   const nombresPorAlmacenId = useMemo(() => {
@@ -303,7 +332,7 @@ export default function PedidosScreen() {
       AlmacenOrigenId: almacenGeneralId,
       AlmacenDestinoId: '',
       TotalAlbaran: '0',
-      Fecha: new Date().toISOString().slice(0, 10),
+      Fecha: fechaHoyDmy(),
       Estado: 'Borrador',
       Notas: '',
     });
@@ -315,14 +344,14 @@ export default function PedidosScreen() {
     const id = valorEnLocal(item, 'Id');
     setEditingPedidoId(id != null ? String(id) : null);
     const fecha = valorEnLocal(item, 'Fecha');
-    const fechaStr = fecha != null ? String(fecha) : '';
+    const fechaStr = itemFechaToFormDmy(fecha != null ? String(fecha) : undefined);
     setForm({
       Id: id != null ? String(id) : '',
       LocalId: valorEnLocal(item, 'LocalId') != null ? String(valorEnLocal(item, 'LocalId')) : '',
       AlmacenOrigenId: valorEnLocal(item, 'AlmacenOrigenId') != null ? String(valorEnLocal(item, 'AlmacenOrigenId')) : '',
       AlmacenDestinoId: valorEnLocal(item, 'AlmacenDestinoId') != null ? String(valorEnLocal(item, 'AlmacenDestinoId')) : '',
       TotalAlbaran: valorEnLocal(item, 'TotalAlbaran') != null ? String(valorEnLocal(item, 'TotalAlbaran')) : '0',
-      Fecha: fechaStr,
+      Fecha: fechaStr || fechaHoyDmy(),
       Estado: valorEnLocal(item, 'Estado') != null ? String(valorEnLocal(item, 'Estado')) : 'Borrador',
       Notas: valorEnLocal(item, 'Notas') != null ? String(valorEnLocal(item, 'Notas')) : '',
     });
@@ -342,6 +371,27 @@ export default function PedidosScreen() {
       setErrorForm('Id es obligatorio');
       return;
     }
+    if (!form.LocalId.trim()) {
+      setErrorForm('Selecciona un local.');
+      return;
+    }
+    if (!form.AlmacenOrigenId.trim()) {
+      setErrorForm('Selecciona un almacén de origen.');
+      return;
+    }
+    if (!form.AlmacenDestinoId.trim()) {
+      if (form.LocalId.trim() && almacenesDestinoParaLocal.length === 0) {
+        setErrorForm('Este local no tiene almacenes de destino configurados.');
+      } else {
+        setErrorForm('Selecciona un almacén de destino.');
+      }
+      return;
+    }
+    const fechaIso = fechaToIso(form.Fecha).trim();
+    if (!fechaIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
+      setErrorForm('Indica una fecha válida (dd/mm/aaaa).');
+      return;
+    }
     setErrorForm(null);
     setGuardando(true);
     try {
@@ -351,7 +401,7 @@ export default function PedidosScreen() {
         AlmacenOrigenId: form.AlmacenOrigenId.trim(),
         AlmacenDestinoId: form.AlmacenDestinoId.trim(),
         TotalAlbaran: totalAlbaranCalculado,
-        Fecha: fechaToIso(form.Fecha) || form.Fecha.trim(),
+        Fecha: fechaIso,
         Estado: form.Estado || 'Borrador',
         Notas: form.Notas.trim(),
       };
@@ -401,6 +451,18 @@ export default function PedidosScreen() {
       if (!res.ok) {
         setError(data.error || 'Error al borrar');
         return;
+      }
+      const borradoId = idStr.trim();
+      if (
+        pedidoParaLineas &&
+        String(valorEnLocal(pedidoParaLineas, 'Id') ?? '').trim() === borradoId
+      ) {
+        setPedidoParaLineas(null);
+        setLineas([]);
+        setEditModeLineas(false);
+        setLineasEditValues({});
+        setModalLineaFormVisible(false);
+        setFormLinea({ ProductId: '', ProductoNombre: '', Cantidad: '', PrecioUnitario: '', Iva: '', TotalRappel: '' });
       }
       refetch();
       setSelectedRowIndex(null);
@@ -908,16 +970,15 @@ export default function PedidosScreen() {
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Id *</Text>
                   <TextInput
-                    style={[styles.formInput, editingPedidoId != null && styles.formInputDisabled]}
+                    style={[styles.formInput, styles.formInputDisabled]}
                     value={form.Id}
-                    onChangeText={(v) => setForm((f) => ({ ...f, Id: v }))}
                     placeholder="PED-001"
                     placeholderTextColor="#94a3b8"
-                    editable={editingPedidoId == null}
+                    editable={false}
                   />
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Local</Text>
+                  <Text style={styles.formLabel}>Local *</Text>
                   {Platform.OS === 'web' ? (
                     <select
                       value={form.LocalId}
@@ -928,7 +989,7 @@ export default function PedidosScreen() {
                       style={styles.selectNative as object}
                     >
                       <option value="">— Seleccionar local —</option>
-                      {locales.map((loc, idx) => {
+                      {localesOrdenados.map((loc, idx) => {
                         const idLoc = String(valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'Id_Locales') ?? '').trim();
                         const nombre = String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? idLoc) || '—').trim();
                         return <option key={idLoc || `loc-${idx}`} value={idLoc}>{nombre || idLoc || '—'}</option>;
@@ -953,9 +1014,9 @@ export default function PedidosScreen() {
                                 style={styles.selectDropdownItem}
                                 onPress={() => { setForm((f) => ({ ...f, LocalId: '', AlmacenDestinoId: '' })); setLocalDropdownOpen(false); }}
                               >
-                                <Text style={styles.selectDropdownItemText}>— Ninguno —</Text>
+                                <Text style={styles.selectDropdownItemText}>— Seleccionar local —</Text>
                               </TouchableOpacity>
-                              {locales.map((loc, idx) => {
+                              {localesOrdenados.map((loc, idx) => {
                                 const idLoc = String(valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'Id_Locales') ?? '').trim();
                                 const nombre = String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? idLoc) || '—').trim();
                                 return (
@@ -981,16 +1042,10 @@ export default function PedidosScreen() {
                   )}
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Almacén origen</Text>
+                  <Text style={styles.formLabel}>Almacén origen *</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerRow}>
                     {editingPedidoId != null ? (
                       <>
-                        <TouchableOpacity
-                          style={[styles.pickerChip, !form.AlmacenOrigenId && styles.pickerChipActive]}
-                          onPress={() => setForm((f) => ({ ...f, AlmacenOrigenId: '' }))}
-                        >
-                          <Text style={[styles.pickerChipText, !form.AlmacenOrigenId && styles.pickerChipTextActive]}>—</Text>
-                        </TouchableOpacity>
                         {almacenes.map((alm) => {
                           const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
                           const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
@@ -1032,14 +1087,8 @@ export default function PedidosScreen() {
                   </ScrollView>
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Almacén destino</Text>
+                  <Text style={styles.formLabel}>Almacén destino *</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerRow}>
-                    <TouchableOpacity
-                      style={[styles.pickerChip, !form.AlmacenDestinoId && styles.pickerChipActive]}
-                      onPress={() => setForm((f) => ({ ...f, AlmacenDestinoId: '' }))}
-                    >
-                      <Text style={[styles.pickerChipText, !form.AlmacenDestinoId && styles.pickerChipTextActive]}>—</Text>
-                    </TouchableOpacity>
                     {almacenesDestinoParaLocal.map((alm) => {
                       const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
                       const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
@@ -1069,12 +1118,12 @@ export default function PedidosScreen() {
                   />
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Fecha</Text>
+                  <Text style={styles.formLabel}>Fecha *</Text>
                   <InputFecha
                     value={form.Fecha}
                     onChange={(v) => setForm((f) => ({ ...f, Fecha: v }))}
-                    format="iso"
-                    placeholder="YYYY-MM-DD"
+                    format="dmy"
+                    placeholder="dd/mm/aaaa"
                     style={styles.formInput}
                   />
                 </View>

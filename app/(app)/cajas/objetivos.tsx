@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -175,6 +175,17 @@ export default function ObjetivosScreen() {
   useEffect(() => {
     cargarLocales();
   }, [cargarLocales]);
+
+  /** Desplegable «Local» en Generar comparativa: orden alfabético por nombre (español). */
+  const localesDropdownOrdenados = useMemo(
+    () =>
+      [...locales].sort((a, b) => {
+        const na = String(a.nombre ?? a.Nombre ?? a.agoraCode ?? a.AgoraCode ?? '').trim();
+        const nb = String(b.nombre ?? b.Nombre ?? b.agoraCode ?? b.AgoraCode ?? '').trim();
+        return na.localeCompare(nb, 'es', { sensitivity: 'base' });
+      }),
+    [locales]
+  );
 
   useEffect(() => {
     if (fechaInicio && /^\d{4}-\d{2}-\d{2}$/.test(fechaInicio)) {
@@ -577,9 +588,9 @@ export default function ObjetivosScreen() {
               <Modal visible transparent animationType="fade">
                 <Pressable style={styles.dropdownOverlay} onPress={() => setDropdownOpen(false)}>
                   <View style={styles.dropdownList}>
-                    {locales.length > 0 ? (
+                    {localesDropdownOrdenados.length > 0 ? (
                       <ScrollView style={styles.dropdownListScroll} nestedScrollEnabled showsVerticalScrollIndicator>
-                        {locales.map((loc) => {
+                        {localesDropdownOrdenados.map((loc) => {
                           const code = (loc.agoraCode ?? loc.AgoraCode ?? '').toString().trim();
                           const nom = (loc.nombre ?? loc.Nombre ?? code).toString().trim();
                           return (
@@ -858,7 +869,7 @@ export default function ObjetivosScreen() {
                   {desvioPctTotal != null && (
                     <MaterialIcons
                       name={desvioPctTotal >= 0 ? 'trending-up' : 'trending-down'}
-                      size={14}
+                      size={12}
                       color={tickerEstilo.color}
                     />
                   )}
@@ -868,27 +879,37 @@ export default function ObjetivosScreen() {
                 </View>
               </View>
             </View>
-            {registros.map((r, idx) => (
-              <View key={idx} style={styles.row}>
-                <Text style={[styles.cell, styles.cellDia]}>{diaVirtual(r.Fecha, r.FechaComparacion)}</Text>
-                <Text style={[styles.cell, styles.cellFecha, styles.cellBold]} numberOfLines={1}>{r.Fecha}</Text>
-                <Text style={[styles.cell, styles.cellFecha]} numberOfLines={1}>{r.FechaComparacion}</Text>
-                <Text style={[styles.cell, styles.cellFestivo]}>{r.Festivo ? 'Sí' : 'No'}</Text>
-                <View style={[styles.cell, styles.cellNombre]}>
-                  {r.NombreFestivo ? (
-                    <View style={styles.nombreFestivoBadge}>
-                      <Text style={styles.nombreFestivoText} numberOfLines={1}>{r.NombreFestivo}</Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.cellText} numberOfLines={1}>—</Text>
-                  )}
+            <ScrollView
+              style={[
+                styles.tableBodyScroll,
+                Platform.OS === 'web' && ({ maxHeight: 'min(72vh, 640px)' } as Record<string, unknown>),
+              ]}
+              contentContainerStyle={styles.tableBodyScrollContent}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator
+            >
+              {registros.map((r, idx) => (
+                <View key={idx} style={styles.row}>
+                  <Text style={[styles.cell, styles.cellDia]}>{diaVirtual(r.Fecha, r.FechaComparacion)}</Text>
+                  <Text style={[styles.cell, styles.cellFecha, styles.cellBold]} numberOfLines={1}>{r.Fecha}</Text>
+                  <Text style={[styles.cell, styles.cellFecha]} numberOfLines={1}>{r.FechaComparacion}</Text>
+                  <Text style={[styles.cell, styles.cellFestivo]}>{r.Festivo ? 'Sí' : 'No'}</Text>
+                  <View style={[styles.cell, styles.cellNombre]}>
+                    {r.NombreFestivo ? (
+                      <View style={styles.nombreFestivoBadge}>
+                        <Text style={styles.nombreFestivoText} numberOfLines={1}>{r.NombreFestivo}</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.cellText} numberOfLines={1}>—</Text>
+                    )}
+                  </View>
+                  <Text style={[styles.cell, styles.cellMoneda, styles.cellBold]}>{formatMoneda(r.TotalFacturadoReal)}</Text>
+                  <Text style={[styles.cell, styles.cellMoneda]}>{formatMoneda(r.TotalFacturadoComparativa)}</Text>
+                  <Text style={[styles.cell, styles.cellMoneda, styles.cellBold, colorDesvio(r.Desvio)]}>{formatMoneda(r.Desvio)}</Text>
+                  <Text style={[styles.cell, styles.cellPct, styles.cellBold, colorDesvio(r.DesvioPct)]}>{formatPct(r.DesvioPct)}</Text>
                 </View>
-                <Text style={[styles.cell, styles.cellMoneda, styles.cellBold]}>{formatMoneda(r.TotalFacturadoReal)}</Text>
-                <Text style={[styles.cell, styles.cellMoneda]}>{formatMoneda(r.TotalFacturadoComparativa)}</Text>
-                <Text style={[styles.cell, styles.cellMoneda, styles.cellBold, colorDesvio(r.Desvio)]}>{formatMoneda(r.Desvio)}</Text>
-                <Text style={[styles.cell, styles.cellPct, styles.cellBold, colorDesvio(r.DesvioPct)]}>{formatPct(r.DesvioPct)}</Text>
-              </View>
-            ))}
+              ))}
+            </ScrollView>
           </View>
             </View>
           </ScrollView>
@@ -1140,6 +1161,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: '#fff',
+    flexDirection: 'column',
+  },
+  /** Altura máxima base del cuerpo con scroll (en web se amplía con estilo inline). */
+  tableBodyScroll: {
+    flexGrow: 0,
+    maxHeight: 420,
+  },
+  tableBodyScrollContent: {
+    flexGrow: 0,
+    paddingBottom: 6,
   },
   rowHeader: {
     flexDirection: 'row',
@@ -1147,47 +1178,47 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#cbd5e1',
   },
-  cellHeader: { fontSize: 11, fontWeight: '600', color: '#334155', paddingVertical: 8, paddingHorizontal: 8 },
+  cellHeader: { fontSize: 10, fontWeight: '600', color: '#334155', paddingVertical: 4, paddingHorizontal: 6 },
   rowSummary: {
     flexDirection: 'row',
     backgroundColor: '#f1f5f9',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
-  cellSummary: { fontSize: 11, fontWeight: '600', color: '#334155', paddingVertical: 6, paddingHorizontal: 8 },
+  cellSummary: { fontSize: 10, fontWeight: '600', color: '#334155', paddingVertical: 3, paddingHorizontal: 6 },
   row: {
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
-  cell: { fontSize: 11, color: '#475569', paddingVertical: 6, paddingHorizontal: 8 },
+  cell: { fontSize: 10, color: '#475569', paddingVertical: 3, paddingHorizontal: 6, lineHeight: 14 },
   cellBold: { fontWeight: '700' },
   cellDia: { width: 72 },
   cellFecha: { width: 100 },
   cellFestivo: { width: 60 },
   cellNombre: { width: 120 },
-  cellText: { fontSize: 11, color: '#475569' },
+  cellText: { fontSize: 10, color: '#475569', lineHeight: 14 },
   nombreFestivoBadge: {
     backgroundColor: '#fce7f3',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
     alignSelf: 'flex-start',
   },
-  nombreFestivoText: { fontSize: 11, color: '#9d174d' },
+  nombreFestivoText: { fontSize: 10, color: '#9d174d', lineHeight: 13 },
   cellMoneda: { width: 110, textAlign: 'right' },
   cellPct: { width: 80, textAlign: 'right' },
-  cellPctWrapper: { justifyContent: 'center', alignItems: 'flex-end', paddingVertical: 4 },
+  cellPctWrapper: { justifyContent: 'center', alignItems: 'flex-end', paddingVertical: 2 },
   tickerBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
     alignSelf: 'flex-end',
-    gap: 4,
+    gap: 2,
   },
-  tickerText: { fontSize: 12, fontWeight: '700', letterSpacing: 0.3 },
+  tickerText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.2 },
   parcialBox: {
     marginTop: 12,
     backgroundColor: '#f8fafc',

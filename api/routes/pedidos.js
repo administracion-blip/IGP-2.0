@@ -106,11 +106,31 @@ router.put('/pedidos', async (req, res) => {
   }
 });
 
-// DELETE /pedidos
+// DELETE /pedidos — borra también todas las líneas (evita huérfanas si se reutiliza el mismo Id)
 router.delete('/pedidos', async (req, res) => {
   const id = req.body?.Id != null ? String(req.body.Id).trim() : req.query?.id != null ? String(req.query.id).trim() : '';
   if (!id) return res.status(400).json({ error: 'Id es obligatorio para borrar' });
   try {
+    let lastKey = null;
+    do {
+      const q = await docClient.send(new QueryCommand({
+        TableName: tables.pedidosLineas,
+        KeyConditionExpression: 'PedidoId = :pid',
+        ExpressionAttributeValues: { ':pid': id },
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      for (const linea of q.Items || []) {
+        const pid = String(linea.PedidoId ?? id);
+        const li = linea.LineaIndex != null ? String(linea.LineaIndex).trim() : '';
+        if (!li) continue;
+        await docClient.send(new DeleteCommand({
+          TableName: tables.pedidosLineas,
+          Key: { PedidoId: pid, LineaIndex: li },
+        }));
+      }
+      lastKey = q.LastEvaluatedKey || null;
+    } while (lastKey);
+
     await docClient.send(new DeleteCommand({ TableName: tables.pedidos, Key: { Id: id } }));
     res.json({ ok: true });
   } catch (err) {

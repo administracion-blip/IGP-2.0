@@ -8,7 +8,8 @@
     "dev": "node --watch server.js",
     "sync-closeouts": "node scripts/full-sync-closeouts.js",
     "sync-closeouts:interval": "node scripts/sync-closeouts-interval.js",
-    "seed-gestion-festivos": "node scripts/seed-gestion-festivos.js"
+    "seed-gestion-festivos": "node scripts/seed-gestion-festivos.js",
+    "cleanup-pedidos-lineas-huerfanas": "node scripts/cleanup-pedidos-lineas-huerfanas.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1009.0",
@@ -19,6 +20,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^4.21.0",
+    "multer": "^2.1.1",
     "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^4.10.38",
     "sharp": "^0.34.5",

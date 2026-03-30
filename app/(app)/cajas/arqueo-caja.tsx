@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,13 +11,100 @@ import {
   Platform,
   Modal,
   Pressable,
+  Image,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
 import { useAuth } from '../../contexts/AuthContext';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+
+/** Bancos permitidos en boletas (valor guardado = id). Logos vía Wikimedia; si falla la carga, se usa badge de color. */
+const BANCOS_ARQUEO = [
+  {
+    id: 'BBVA',
+    label: 'BBVA',
+    color: '#004481',
+    logoUrl:
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/BBVA_logo.svg/256px-BBVA_logo.svg.png',
+  },
+  {
+    id: 'CAIXABANK',
+    label: 'CaixaBank',
+    color: '#007EAE',
+    logoUrl:
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Logo_CaixaBank.svg/256px-Logo_CaixaBank.svg.png',
+  },
+  {
+    id: 'SANTANDER',
+    label: 'Santander',
+    color: '#EC0000',
+    logoUrl:
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/Banco_Santander_Logotipo.svg/256px-Banco_Santander_Logotipo.svg.png',
+  },
+  {
+    id: 'SABADELL',
+    label: 'Sabadell',
+    color: '#006D2C',
+    logoUrl:
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Banco_Sabadell_logo.svg/256px-Banco_Sabadell_logo.svg.png',
+  },
+] as const;
+
+type BancoArqueoId = (typeof BANCOS_ARQUEO)[number]['id'];
+
+const BANCOS_ARQUEO_IDS: BancoArqueoId[] = BANCOS_ARQUEO.map((b) => b.id);
+
+function normalizarBancoIdDesdeOcr(texto: string): BancoArqueoId | '' {
+  const u = String(texto || '').toUpperCase();
+  if (u.includes('BBVA')) return 'BBVA';
+  if (u.includes('CAIXA')) return 'CAIXABANK';
+  if (u.includes('SANTANDER')) return 'SANTANDER';
+  if (u.includes('SABADELL')) return 'SABADELL';
+  return '';
+}
+
+function etiquetaBanco(id: string): string {
+  return BANCOS_ARQUEO.find((b) => b.id === id)?.label ?? '—';
+}
+
+function BankLogoBadge({ bancoId, width = 88, height = 28 }: { bancoId: string; width?: number; height?: number }) {
+  const b = BANCOS_ARQUEO.find((x) => x.id === bancoId);
+  const [failed, setFailed] = useState(false);
+  if (!b) {
+    return <View style={{ width, height }} />;
+  }
+  if (failed || !b.logoUrl) {
+    return (
+      <View
+        style={{
+          width,
+          height,
+          backgroundColor: b.color,
+          borderRadius: 6,
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingHorizontal: 6,
+        }}
+      >
+        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }} numberOfLines={1}>
+          {b.label}
+        </Text>
+      </View>
+    );
+  }
+  return (
+    <Image
+      source={{ uri: b.logoUrl }}
+      style={{ width, height: height * 0.9 }}
+      resizeMode="contain"
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 const LABELS = [
   { key: 'efectivo', teoricoKey: 'Efectivo', label: 'Efectivo', realField: 'efectivoReal' as const },
@@ -134,7 +221,83 @@ type CompareResponse = {
   descuadreTotal?: number;
   closeoutsCount: number;
   error?: string;
+  realGuardado?: {
+    tarjetaLineas?: TarjetaLineaPersisted[];
+  };
 };
+
+/** Línea de boleta tarjeta guardada en Dynamo (sin URIs locales). */
+type TarjetaLineaPersisted = {
+  id?: string;
+  banco?: string;
+  importe?: string;
+  numeroComercio?: string;
+  fechaHora?: string;
+  imagenKey?: string;
+  ocrCompletado?: boolean;
+};
+
+type TarjetaLinea = TarjetaLineaPersisted & {
+  id: string;
+  localUri?: string;
+  previewUrl?: string;
+};
+
+function newTarjetaLinea(): TarjetaLinea {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    banco: '',
+    importe: '',
+    numeroComercio: '',
+    fechaHora: '',
+    imagenKey: '',
+    ocrCompletado: false,
+  };
+}
+
+function normalizeTarjetaLineaFromApi(raw: unknown): TarjetaLinea {
+  const x = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const bancoRaw = String(x.banco ?? '');
+  const banco =
+    BANCOS_ARQUEO_IDS.includes(bancoRaw as BancoArqueoId) ? (bancoRaw as BancoArqueoId) : '';
+  return {
+    id: String(x.id ?? `line-${Date.now()}`),
+    banco,
+    importe: String(x.importe ?? ''),
+    numeroComercio: String(x.numeroComercio ?? x.numero_comercio ?? ''),
+    fechaHora: String(x.fechaHora ?? x.fecha_hora ?? ''),
+    imagenKey: String(x.imagenKey ?? x.imagen_key ?? ''),
+    ocrCompletado: Boolean(x.ocrCompletado ?? x.ocr_completado),
+  };
+}
+
+async function appendImagenOcrTarjeta(form: FormData, uri: string) {
+  if (Platform.OS === 'web') {
+    const res = await fetch(uri);
+    const blob = await res.blob();
+    form.append('imagen', blob, 'ticket.jpg');
+  } else {
+    form.append('imagen', { uri, name: 'ticket.jpg', type: 'image/jpeg' } as unknown as Blob);
+  }
+}
+
+async function obtenerUriImagen(source: 'library' | 'camera'): Promise<string | null> {
+  if (source === 'camera') {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) return null;
+    const res = await ImagePicker.launchCameraAsync({ quality: 0.85 });
+    if (res.canceled || !res.assets?.[0]?.uri) return null;
+    return res.assets[0].uri;
+  }
+  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!perm.granted) return null;
+  const res = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    quality: 0.85,
+  });
+  if (res.canceled || !res.assets?.[0]?.uri) return null;
+  return res.assets[0].uri;
+}
 
 export default function ArqueoCajaScreen() {
   const router = useRouter();
@@ -150,9 +313,10 @@ export default function ArqueoCajaScreen() {
 
   const [efectivoReal, setEfectivoReal] = useState('');
   const [tarjetaReal, setTarjetaReal] = useState('');
+  const [tarjetaLineas, setTarjetaLineas] = useState<TarjetaLinea[]>([]);
+  const [ocrLineId, setOcrLineId] = useState<string | null>(null);
   const [pendienteReal, setPendienteReal] = useState('');
   const [prepagoReal, setPrepagoReal] = useState('');
-  const [agoraReal, setAgoraReal] = useState('');
 
   const [compare, setCompare] = useState<CompareResponse | null>(null);
   const [loadingCompare, setLoadingCompare] = useState(false);
@@ -165,6 +329,20 @@ export default function ArqueoCajaScreen() {
   const [conteoEfectivoOpen, setConteoEfectivoOpen] = useState(false);
   const [conteoCantidades, setConteoCantidades] = useState<string[]>(() => EFECTIVO_DENOMINACIONES.map(() => ''));
   const [syncingCloseouts, setSyncingCloseouts] = useState(false);
+  const [tarjetaBoletasModalOpen, setTarjetaBoletasModalOpen] = useState(false);
+  /** En el modal, fila con detalle desplegado (campos OCR; la foto se ve en miniatura o al ampliar). */
+  const [tarjetaLineaExpandidaId, setTarjetaLineaExpandidaId] = useState<string | null>(null);
+  /** Vista previa a pantalla completa al pulsar la miniatura. */
+  const [tarjetaLightboxUri, setTarjetaLightboxUri] = useState<string | null>(null);
+  const [tarjetaBancoPickerLineId, setTarjetaBancoPickerLineId] = useState<string | null>(null);
+
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const tarjetaCamposDosColumnas = windowWidth >= 480;
+  /** Altura máxima del scroll del modal (~mitad de pantalla, acotada). */
+  const tarjetaModalScrollMaxH = useMemo(
+    () => Math.min(560, Math.max(180, windowHeight * 0.42)),
+    [windowHeight],
+  );
 
   const businessDayIso = useMemo(() => parseDateToYYYYMMDD(businessDayDmy), [businessDayDmy]);
 
@@ -208,17 +386,33 @@ export default function ArqueoCajaScreen() {
     }
   }, [formLocal, saleCentersPorLocal, formPosId]);
 
+  const totalTarjetaImporte = useMemo(() => {
+    if (tarjetaLineas.length > 0) {
+      let s = 0;
+      for (const l of tarjetaLineas) s += parseEuroInput(l.importe);
+      return Math.round(s * 100) / 100;
+    }
+    return parseEuroInput(tarjetaReal);
+  }, [tarjetaLineas, tarjetaReal]);
+
+  useEffect(() => {
+    if (tarjetaLineas.length === 0) return;
+    const s = tarjetaLineas.reduce((acc, l) => acc + parseEuroInput(l.importe), 0);
+    const rounded = Math.round(s * 100) / 100;
+    setTarjetaReal(rounded.toFixed(2).replace('.', ','));
+  }, [tarjetaLineas]);
+
   const diffsEnVivo = useMemo(() => {
     if (!compare) return null;
     const t = compare.teorico;
     return {
       Efectivo: parseEuroInput(efectivoReal) - (t.Efectivo ?? 0),
-      Tarjeta: parseEuroInput(tarjetaReal) - (t.Tarjeta ?? 0),
+      Tarjeta: totalTarjetaImporte - (t.Tarjeta ?? 0),
       'Pendiente de cobro': parseEuroInput(pendienteReal) - (t['Pendiente de cobro'] ?? 0),
       'Prepago Transferencia': parseEuroInput(prepagoReal) - (t['Prepago Transferencia'] ?? 0),
-      AgoraPay: parseEuroInput(agoraReal) - (t.AgoraPay ?? 0),
+      AgoraPay: 0,
     };
-  }, [compare, efectivoReal, tarjetaReal, pendienteReal, prepagoReal, agoraReal]);
+  }, [compare, efectivoReal, totalTarjetaImporte, pendienteReal, prepagoReal]);
 
   const descuadreEnVivo = useMemo(() => {
     if (!diffsEnVivo) return null;
@@ -269,11 +463,32 @@ export default function ArqueoCajaScreen() {
         }
         setCompare(data);
         const r = data.real;
+        const rg = (data as CompareResponse).realGuardado;
+        const incoming = Array.isArray(rg?.tarjetaLineas) ? rg.tarjetaLineas : [];
+        if (incoming.length > 0) {
+          const normalized = incoming.map(normalizeTarjetaLineaFromApi);
+          setTarjetaLineas(normalized);
+          Promise.all(
+            normalized.map(async (l) => {
+              if (!l.imagenKey || l.localUri) return l;
+              try {
+                const rurl = await fetch(
+                  `${API_URL}/api/cajas/arqueos-reales/ticket-image-url?key=${encodeURIComponent(l.imagenKey)}`,
+                );
+                const d = await safeJson<{ url?: string }>(rurl);
+                return { ...l, previewUrl: d.url };
+              } catch {
+                return l;
+              }
+            }),
+          ).then((lines) => setTarjetaLineas(lines));
+        } else {
+          setTarjetaLineas([]);
+        }
         setEfectivoReal(String(r.efectivoReal ?? ''));
         setTarjetaReal(String(r.tarjetaReal ?? ''));
         setPendienteReal(String(r.pendienteCobroReal ?? ''));
         setPrepagoReal(String(r.prepagoTransferenciaReal ?? ''));
-        setAgoraReal(String(r.agoraPayReal ?? ''));
       })
       .catch((e) => {
         setError(e.message || 'Error al cargar comparativa');
@@ -321,6 +536,18 @@ export default function ArqueoCajaScreen() {
       setError('Indica fecha, local y TPV');
       return;
     }
+    for (const l of tarjetaLineas) {
+      const tieneImagen = !!(l.localUri || l.previewUrl || l.imagenKey);
+      if (!tieneImagen) continue;
+      if (!l.ocrCompletado) {
+        setError('En cada boleta con imagen debes ejecutar OCR al menos una vez.');
+        return;
+      }
+      if (!l.banco || !BANCOS_ARQUEO_IDS.includes(l.banco as BancoArqueoId)) {
+        setError('Selecciona el banco en cada boleta con imagen.');
+        return;
+      }
+    }
     setSaving(true);
     setError(null);
     setSaveOk(false);
@@ -333,9 +560,18 @@ export default function ArqueoCajaScreen() {
         WorkplaceName: agoraCodeToNombre[formLocal.trim()] ?? formLocal,
         efectivoReal: efectivoReal.replace(',', '.'),
         tarjetaReal: tarjetaReal.replace(',', '.'),
+        tarjetaLineas: tarjetaLineas.map((l) => ({
+          id: l.id,
+          banco: l.banco,
+          importe: l.importe,
+          numeroComercio: l.numeroComercio,
+          fechaHora: l.fechaHora,
+          imagenKey: l.imagenKey,
+          ocrCompletado: Boolean(l.ocrCompletado),
+        })),
         pendienteCobroReal: pendienteReal.replace(',', '.'),
         prepagoTransferenciaReal: prepagoReal.replace(',', '.'),
-        agoraPayReal: agoraReal.replace(',', '.'),
+        agoraPayReal: compare ? String(compare.teorico.AgoraPay ?? 0) : '0',
         usuarioId: user?.id_usuario,
         usuarioNombre: user?.Nombre,
       };
@@ -356,12 +592,105 @@ export default function ArqueoCajaScreen() {
     }
   };
 
+  const openTarjetaBoletasModal = useCallback(() => {
+    setTarjetaBoletasModalOpen(true);
+  }, []);
+
+  const addTarjetaLinea = useCallback(() => {
+    const nl = newTarjetaLinea();
+    setTarjetaLineas((prev) => {
+      if (prev.length >= 20) return prev;
+      return [...prev, nl];
+    });
+    setTarjetaLineaExpandidaId(null);
+  }, []);
+
+  const removeTarjetaLinea = useCallback((id: string) => {
+    setTarjetaLineas((prev) => prev.filter((l) => l.id !== id));
+  }, []);
+
+  const quitarLineasTarjeta = useCallback(() => {
+    setTarjetaLineas([]);
+  }, []);
+
+  const updateTarjetaLinea = useCallback((id: string, patch: Partial<TarjetaLinea>) => {
+    setTarjetaLineas((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  }, []);
+
+  const pickImageTarjetaLinea = useCallback(async (lineId: string, source: 'library' | 'camera') => {
+    const uri = await obtenerUriImagen(source);
+    if (!uri) return;
+    setTarjetaLineas((prev) =>
+      prev.map((l) =>
+        l.id === lineId
+          ? { ...l, localUri: uri, previewUrl: undefined, ocrCompletado: false, imagenKey: '' }
+          : l,
+      ),
+    );
+  }, []);
+
+  const escanearTarjetaLinea = useCallback(
+    async (line: TarjetaLinea) => {
+      if (!businessDayIso || !formLocal.trim()) {
+        setError('Indica fecha y local antes de escanear.');
+        return;
+      }
+      const uri = line.localUri || line.previewUrl;
+      if (!uri) {
+        setError('Añade una imagen antes de escanear.');
+        return;
+      }
+      setOcrLineId(line.id);
+      setError(null);
+      try {
+        const form = new FormData();
+        form.append('workplaceId', formLocal.trim());
+        form.append('businessDay', businessDayIso);
+        form.append('lineId', line.id);
+        await appendImagenOcrTarjeta(form, uri);
+        const resp = await fetch(`${API_URL}/api/cajas/arqueos-reales/ocr-ticket`, { method: 'POST', body: form });
+        const data = await safeJson<{
+          ok?: boolean;
+          error?: string;
+          banco?: string;
+          importe?: string;
+          numeroComercio?: string;
+          fechaHora?: string;
+          imagenKey?: string;
+          imagenUrl?: string;
+        }>(resp);
+        if (!resp.ok || data.error) throw new Error(data.error || 'Error al escanear');
+        const bancoOcr = normalizarBancoIdDesdeOcr(data.banco ?? '');
+        setTarjetaLineas((prev) =>
+          prev.map((l) =>
+            l.id === line.id
+              ? {
+                  ...l,
+                  banco: bancoOcr || l.banco,
+                  importe: data.importe ?? l.importe,
+                  numeroComercio: data.numeroComercio ?? l.numeroComercio,
+                  fechaHora: data.fechaHora ?? l.fechaHora,
+                  imagenKey: data.imagenKey ?? l.imagenKey,
+                  previewUrl: data.imagenUrl ?? l.previewUrl,
+                  ocrCompletado: true,
+                }
+              : l,
+          ),
+        );
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Error al escanear');
+      } finally {
+        setOcrLineId(null);
+      }
+    },
+    [businessDayIso, formLocal],
+  );
+
   const setters: Record<string, React.Dispatch<React.SetStateAction<string>>> = {
     efectivoReal: setEfectivoReal,
     tarjetaReal: setTarjetaReal,
     pendienteCobroReal: setPendienteReal,
     prepagoTransferenciaReal: setPrepagoReal,
-    agoraPayReal: setAgoraReal,
   };
 
   const values: Record<string, string> = {
@@ -369,7 +698,6 @@ export default function ArqueoCajaScreen() {
     tarjetaReal,
     pendienteCobroReal: pendienteReal,
     prepagoTransferenciaReal: prepagoReal,
-    agoraPayReal: agoraReal,
   };
 
   if (!hasPermiso('cierres.ver')) {
@@ -669,6 +997,290 @@ export default function ArqueoCajaScreen() {
           </Pressable>
         </Modal>
 
+        <Modal
+          visible={tarjetaBoletasModalOpen}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setTarjetaBoletasModalOpen(false)}
+        >
+          <Pressable style={styles.modalBackdrop} onPress={() => setTarjetaBoletasModalOpen(false)}>
+            <Pressable style={[styles.modalSheet, styles.tarjetaModalSheet]} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.tarjetaModalHeader}>
+                <Text style={styles.tarjetaModalTitle}>Boletas tarjeta</Text>
+                <TouchableOpacity
+                  onPress={() => setTarjetaBoletasModalOpen(false)}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                >
+                  <MaterialIcons name="close" size={24} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.tarjetaModalLead}>
+                Total = suma de importes. Con imagen: OCR obligatorio una vez (botón verde al completar). Pulsa la miniatura para ampliar foto.
+              </Text>
+              <ScrollView
+                style={[styles.tarjetaModalScroll, { maxHeight: tarjetaModalScrollMaxH }]}
+                contentContainerStyle={styles.tarjetaModalScrollContent}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                showsVerticalScrollIndicator
+              >
+                {tarjetaLineas.length === 0 ? (
+                  <Text style={styles.tarjetaModalEmpty}>No hay líneas. Pulsa «Añadir boleta» abajo.</Text>
+                ) : null}
+                {tarjetaLineas.map((line, idx) => {
+                  const imgUri = line.localUri || line.previewUrl;
+                  const expanded = tarjetaLineaExpandidaId === line.id;
+                  return (
+                    <View key={line.id} style={styles.tarjetaModalLineCard}>
+                      <View style={styles.tarjetaTableRow}>
+                        {imgUri ? (
+                          <TouchableOpacity
+                            onPress={() => setTarjetaLightboxUri(imgUri)}
+                            activeOpacity={0.85}
+                            accessibilityLabel="Ver foto ampliada"
+                          >
+                            <Image source={{ uri: imgUri }} style={styles.tarjetaThumb} resizeMode="cover" />
+                          </TouchableOpacity>
+                        ) : (
+                          <View style={styles.tarjetaThumbPlaceholder}>
+                            <MaterialIcons name="image" size={22} color="#cbd5e1" />
+                          </View>
+                        )}
+                        <View style={styles.tarjetaTableRowMain}>
+                          <Text style={styles.tarjetaTableBoleta}>Boleta {idx + 1}</Text>
+                          <TextInput
+                            style={styles.tarjetaTableImporte}
+                            value={line.importe}
+                            onChangeText={(text) => updateTarjetaLinea(line.id, { importe: text })}
+                            keyboardType="decimal-pad"
+                            placeholder="Importe"
+                            placeholderTextColor="#94a3b8"
+                          />
+                          <Text style={styles.tarjetaTableBancoHint} numberOfLines={1}>
+                            {line.banco ? etiquetaBanco(line.banco) : 'Sin banco'}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          style={styles.tarjetaExpandBtn}
+                          onPress={() => setTarjetaLineaExpandidaId(expanded ? null : line.id)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <MaterialIcons name={expanded ? 'expand-less' : 'expand-more'} size={24} color="#64748b" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.tarjetaRowDeleteBtn}
+                          onPress={() => {
+                            removeTarjetaLinea(line.id);
+                            if (tarjetaLineaExpandidaId === line.id) setTarjetaLineaExpandidaId(null);
+                          }}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <MaterialIcons name="delete-outline" size={22} color="#b91c1c" />
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.tarjetaTableIconRow}>
+                        {Platform.OS !== 'web' ? (
+                          <TouchableOpacity
+                            style={styles.tarjetaIconOnly}
+                            onPress={() => pickImageTarjetaLinea(line.id, 'camera')}
+                            accessibilityLabel="Cámara"
+                          >
+                            <MaterialIcons name="photo-camera" size={20} color="#0369a1" />
+                          </TouchableOpacity>
+                        ) : null}
+                        <TouchableOpacity
+                          style={styles.tarjetaIconOnly}
+                          onPress={() => pickImageTarjetaLinea(line.id, 'library')}
+                          accessibilityLabel="Galería"
+                        >
+                          <MaterialIcons name="photo-library" size={20} color="#0369a1" />
+                        </TouchableOpacity>
+                        {imgUri ? (
+                          <TouchableOpacity
+                            style={[
+                              styles.tarjetaIconOnly,
+                              line.ocrCompletado && styles.tarjetaIconOnlyOcrOk,
+                              ocrLineId === line.id && styles.tarjetaLineaBtnDis,
+                            ]}
+                            onPress={() => escanearTarjetaLinea(line)}
+                            disabled={ocrLineId === line.id}
+                            accessibilityLabel={line.ocrCompletado ? 'OCR completado' : 'Escanear OCR'}
+                          >
+                            {ocrLineId === line.id ? (
+                              <ActivityIndicator size="small" color={line.ocrCompletado ? '#15803d' : '#0369a1'} />
+                            ) : (
+                              <MaterialIcons
+                                name="document-scanner"
+                                size={20}
+                                color={line.ocrCompletado ? '#15803d' : '#0369a1'}
+                              />
+                            )}
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                      {expanded ? (
+                        <View style={styles.tarjetaModalDetail}>
+                          {!imgUri ? (
+                            <TouchableOpacity
+                              style={styles.tarjetaSinFotoRow}
+                              onPress={() => pickImageTarjetaLinea(line.id, 'library')}
+                            >
+                              <MaterialIcons name="add-a-photo" size={18} color="#0369a1" />
+                              <Text style={styles.tarjetaSinFotoText}>Añadir imagen (galería)</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                          {tarjetaCamposDosColumnas ? (
+                            <>
+                              <View style={styles.tarjetaDetailRow2}>
+                                <TouchableOpacity
+                                  style={[styles.tarjetaLineaInputCompact, styles.tarjetaBancoSelect, styles.tarjetaLineaFieldGrow]}
+                                  onPress={() => setTarjetaBancoPickerLineId(line.id)}
+                                  activeOpacity={0.75}
+                                >
+                                  {line.banco ? (
+                                    <View style={styles.tarjetaBancoSelectInner}>
+                                      <BankLogoBadge bancoId={line.banco} width={84} height={26} />
+                                      <MaterialIcons name="arrow-drop-down" size={20} color="#64748b" />
+                                    </View>
+                                  ) : (
+                                    <Text style={styles.tarjetaBancoSelectPlaceholder}>Seleccionar banco</Text>
+                                  )}
+                                </TouchableOpacity>
+                                <TextInput
+                                  style={[styles.tarjetaLineaInputCompact, styles.tarjetaLineaFieldGrow]}
+                                  value={line.numeroComercio}
+                                  onChangeText={(text) => updateTarjetaLinea(line.id, { numeroComercio: text })}
+                                  placeholder="Nº comercio"
+                                  placeholderTextColor="#94a3b8"
+                                />
+                              </View>
+                              <TextInput
+                                style={styles.tarjetaLineaInputCompact}
+                                value={line.fechaHora}
+                                onChangeText={(text) => updateTarjetaLinea(line.id, { fechaHora: text })}
+                                placeholder="Fecha y hora"
+                                placeholderTextColor="#94a3b8"
+                              />
+                            </>
+                          ) : (
+                            <>
+                              <TouchableOpacity
+                                style={[styles.tarjetaLineaInputCompact, styles.tarjetaBancoSelect]}
+                                onPress={() => setTarjetaBancoPickerLineId(line.id)}
+                                activeOpacity={0.75}
+                              >
+                                {line.banco ? (
+                                  <View style={styles.tarjetaBancoSelectInner}>
+                                    <BankLogoBadge bancoId={line.banco} width={88} height={26} />
+                                    <MaterialIcons name="arrow-drop-down" size={20} color="#64748b" />
+                                  </View>
+                                ) : (
+                                  <Text style={styles.tarjetaBancoSelectPlaceholder}>Seleccionar banco</Text>
+                                )}
+                              </TouchableOpacity>
+                              <TextInput
+                                style={styles.tarjetaLineaInputCompact}
+                                value={line.numeroComercio}
+                                onChangeText={(text) => updateTarjetaLinea(line.id, { numeroComercio: text })}
+                                placeholder="Nº comercio / afiliación"
+                                placeholderTextColor="#94a3b8"
+                              />
+                              <TextInput
+                                style={styles.tarjetaLineaInputCompact}
+                                value={line.fechaHora}
+                                onChangeText={(text) => updateTarjetaLinea(line.id, { fechaHora: text })}
+                                placeholder="Fecha y hora"
+                                placeholderTextColor="#94a3b8"
+                              />
+                            </>
+                          )}
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+              <View style={styles.tarjetaModalFooter}>
+                <TouchableOpacity
+                  style={[styles.tarjetaModalFooterBtn, tarjetaLineas.length >= 20 && styles.tarjetaModalFooterBtnDis]}
+                  onPress={addTarjetaLinea}
+                  disabled={tarjetaLineas.length >= 20}
+                >
+                  <MaterialIcons name="add-circle-outline" size={20} color="#0369a1" />
+                  <Text style={styles.tarjetaModalFooterBtnText}>Añadir boleta</Text>
+                </TouchableOpacity>
+                {tarjetaLineas.length > 0 ? (
+                  <TouchableOpacity style={styles.tarjetaModalFooterLink} onPress={quitarLineasTarjeta}>
+                    <Text style={styles.tarjetaModalFooterLinkText}>Usar solo un importe (sin líneas)</Text>
+                  </TouchableOpacity>
+                ) : null}
+                <TouchableOpacity style={styles.tarjetaModalCerrar} onPress={() => setTarjetaBoletasModalOpen(false)}>
+                  <Text style={styles.tarjetaModalCerrarText}>Cerrar</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        <Modal
+          visible={tarjetaLightboxUri != null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setTarjetaLightboxUri(null)}
+        >
+          <View style={styles.tarjetaLightboxWrap}>
+            <TouchableOpacity
+              style={styles.tarjetaLightboxClose}
+              onPress={() => setTarjetaLightboxUri(null)}
+              hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
+            >
+              <MaterialIcons name="close" size={28} color="#f8fafc" />
+            </TouchableOpacity>
+            <Pressable style={styles.tarjetaLightboxInner} onPress={() => setTarjetaLightboxUri(null)}>
+              {tarjetaLightboxUri ? (
+                <Image source={{ uri: tarjetaLightboxUri }} style={styles.tarjetaLightboxImg} resizeMode="contain" />
+              ) : null}
+            </Pressable>
+          </View>
+        </Modal>
+
+        <Modal
+          visible={tarjetaBancoPickerLineId != null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setTarjetaBancoPickerLineId(null)}
+        >
+          <Pressable style={styles.modalBackdrop} onPress={() => setTarjetaBancoPickerLineId(null)}>
+            <Pressable style={[styles.modalSheet, styles.bankPickerSheet]} onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.bankPickerTitle}>Seleccionar banco</Text>
+              <ScrollView style={styles.bankPickerList} keyboardShouldPersistTaps="handled">
+                {BANCOS_ARQUEO.map((b) => {
+                  const sel = tarjetaLineas.find((l) => l.id === tarjetaBancoPickerLineId)?.banco === b.id;
+                  return (
+                    <TouchableOpacity
+                      key={b.id}
+                      style={[styles.bankPickerRow, sel && styles.bankPickerRowActive]}
+                      onPress={() => {
+                        const id = tarjetaBancoPickerLineId;
+                        if (id) updateTarjetaLinea(id, { banco: b.id });
+                        setTarjetaBancoPickerLineId(null);
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <BankLogoBadge bancoId={b.id} width={104} height={30} />
+                      <Text style={styles.bankPickerLabel}>{b.label}</Text>
+                      {sel ? <MaterialIcons name="check" size={22} color="#0ea5e9" /> : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+              <TouchableOpacity style={styles.bankPickerCerrar} onPress={() => setTarjetaBancoPickerLineId(null)}>
+                <Text style={styles.bankPickerCerrarText}>Cancelar</Text>
+              </TouchableOpacity>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
         {loadingCompare && formLocal && formPosId && businessDayIso ? (
           <ActivityIndicator style={{ marginVertical: 12 }} color="#0ea5e9" />
         ) : null}
@@ -705,6 +1317,73 @@ export default function ArqueoCajaScreen() {
               const t = compare.teorico[row.teoricoKey] ?? 0;
               const diff = diffsEnVivo ? diffsEnVivo[row.teoricoKey] ?? 0 : 0;
               const v = values[row.realField];
+
+              if (row.key === 'tarjeta') {
+                return (
+                  <View key={row.key} style={styles.rowCompare}>
+                    <Text style={styles.rowLabel}>{row.label}</Text>
+                    <View style={styles.rowCols}>
+                      <View style={styles.colTeo}>
+                        <Text style={styles.colHdr}>Teórico</Text>
+                        <Text style={styles.colVal}>{formatMoneda(t)}</Text>
+                      </View>
+                      <View style={styles.colReal}>
+                        <Text style={styles.colHdr}>Real</Text>
+                        {tarjetaLineas.length > 0 ? (
+                          <View style={styles.tarjetaRealSumRow}>
+                            <TouchableOpacity
+                              style={styles.tarjetaModalOpenBtn}
+                              onPress={openTarjetaBoletasModal}
+                              accessibilityLabel={`Gestionar boletas, ${tarjetaLineas.length} líneas`}
+                            >
+                              <MaterialIcons name="receipt-long" size={18} color="#0ea5e9" />
+                              <Text style={styles.tarjetaModalOpenBtnText}>Boletas ({tarjetaLineas.length})</Text>
+                            </TouchableOpacity>
+                            <TextInput
+                              style={[styles.inputNum, styles.inputNumEfectivo]}
+                              value={formatMoneda(totalTarjetaImporte).replace(' €', '')}
+                              editable={false}
+                              placeholder="0,00"
+                              placeholderTextColor="#94a3b8"
+                            />
+                          </View>
+                        ) : (
+                          <View style={styles.efectivoRealRow}>
+                            <TouchableOpacity
+                              style={styles.conteoEfectivoBtn}
+                              onPress={openTarjetaBoletasModal}
+                              accessibilityLabel="Abrir boletas por líneas"
+                            >
+                              <MaterialIcons name="receipt-long" size={18} color="#0ea5e9" />
+                            </TouchableOpacity>
+                            <TextInput
+                              style={[styles.inputNum, styles.inputNumEfectivo]}
+                              value={v}
+                              onChangeText={setters[row.realField]}
+                              keyboardType="decimal-pad"
+                              placeholder="0,00"
+                              placeholderTextColor="#94a3b8"
+                            />
+                          </View>
+                        )}
+                      </View>
+                      <View style={styles.colDiff}>
+                        <Text style={styles.colHdr}>Dif.</Text>
+                        <Text style={[styles.colVal, Math.abs(diff) < 0.01 ? styles.diffOk : styles.diffBad]}>
+                          {formatMoneda(diff)}
+                        </Text>
+                      </View>
+                    </View>
+                    {tarjetaLineas.length > 0 ? (
+                      <TouchableOpacity onPress={openTarjetaBoletasModal} style={styles.tarjetaHintUnderRow}>
+                        <Text style={styles.tarjetaHintUnderRowText}>Editar boletas y fotos en el panel</Text>
+                        <MaterialIcons name="open-in-new" size={14} color="#0ea5e9" />
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                );
+              }
+
               return (
                 <View key={row.key} style={styles.rowCompare}>
                   <Text style={styles.rowLabel}>{row.label}</Text>
@@ -717,6 +1396,13 @@ export default function ArqueoCajaScreen() {
                       <Text style={styles.colHdr}>Real</Text>
                       {row.key === 'efectivo' ? (
                         <View style={styles.efectivoRealRow}>
+                          <TouchableOpacity
+                            style={styles.conteoEfectivoBtn}
+                            onPress={() => setConteoEfectivoOpen(true)}
+                            accessibilityLabel="Contar billetes y monedas"
+                          >
+                            <MaterialIcons name="calculate" size={18} color="#0ea5e9" />
+                          </TouchableOpacity>
                           <TextInput
                             style={[styles.inputNum, styles.inputNumEfectivo]}
                             value={v}
@@ -725,13 +1411,11 @@ export default function ArqueoCajaScreen() {
                             placeholder="0,00"
                             placeholderTextColor="#94a3b8"
                           />
-                          <TouchableOpacity
-                            style={styles.conteoEfectivoBtn}
-                            onPress={() => setConteoEfectivoOpen(true)}
-                            accessibilityLabel="Contar billetes y monedas"
-                          >
-                            <MaterialIcons name="calculate" size={22} color="#0ea5e9" />
-                          </TouchableOpacity>
+                        </View>
+                      ) : row.key === 'agora' ? (
+                        <View style={styles.agoraRealSync}>
+                          <Text style={styles.agoraRealSyncText}>{formatMoneda(t)}</Text>
+                          <MaterialIcons name="sync" size={16} color="#64748b" />
                         </View>
                       ) : (
                         <TextInput
@@ -979,20 +1663,273 @@ const styles = StyleSheet.create({
     color: '#334155',
     backgroundColor: '#f8fafc',
   },
-  efectivoRealRow: {
+  /** AgoraPay real = teórico (sincronizado), no editable. */
+  agoraRealSync: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#f1f5f9',
+    minHeight: 38,
+  },
+  agoraRealSyncText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#334155',
+    flex: 1,
+  },
+  efectivoRealRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     minWidth: 0,
   },
   inputNumEfectivo: { flex: 1, minWidth: 0 },
   conteoEfectivoBtn: {
-    padding: 8,
-    borderRadius: 8,
+    padding: 5,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#bae6fd',
     backgroundColor: '#f0f9ff',
+    flexShrink: 0,
   },
+  tarjetaRealSumRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 0,
+  },
+  tarjetaModalOpenBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    backgroundColor: '#f0f9ff',
+    flexShrink: 0,
+  },
+  tarjetaModalOpenBtnText: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
+  tarjetaHintUnderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    alignSelf: 'flex-start',
+  },
+  tarjetaHintUnderRowText: { fontSize: 11, color: '#64748b' },
+  tarjetaModalSheet: {
+    maxWidth: 560,
+    width: '100%',
+    maxHeight: '92%',
+    padding: 16,
+    paddingBottom: 12,
+  },
+  tarjetaModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  tarjetaModalTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a', flex: 1, marginRight: 8 },
+  tarjetaModalLead: { fontSize: 11, color: '#64748b', lineHeight: 16, marginBottom: 8 },
+  tarjetaModalScroll: { flexGrow: 0 },
+  tarjetaModalScrollContent: { paddingBottom: 6, gap: 8 },
+  tarjetaModalEmpty: { fontSize: 13, color: '#94a3b8', fontStyle: 'italic', marginBottom: 4 },
+  tarjetaModalLineCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 8,
+    gap: 6,
+  },
+  tarjetaTableRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  tarjetaThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 6,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  tarjetaThumbPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 6,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tarjetaTableRowMain: { flex: 1, minWidth: 0 },
+  tarjetaTableBoleta: { fontSize: 11, fontWeight: '700', color: '#64748b', marginBottom: 2 },
+  tarjetaTableImporte: {
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#334155',
+    backgroundColor: '#fff',
+  },
+  tarjetaTableBancoHint: { fontSize: 11, color: '#94a3b8', marginTop: 2 },
+  tarjetaExpandBtn: { padding: 2, marginTop: 4 },
+  tarjetaRowDeleteBtn: { padding: 2, marginTop: 4 },
+  tarjetaTableIconRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 0,
+  },
+  tarjetaIconOnly: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#f0f9ff',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
+  tarjetaIconOnlyOcrOk: {
+    backgroundColor: '#dcfce7',
+    borderColor: '#86efac',
+  },
+  tarjetaBancoSelect: {
+    justifyContent: 'center',
+    minHeight: 40,
+  },
+  tarjetaBancoSelectInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    width: '100%',
+  },
+  tarjetaBancoSelectPlaceholder: {
+    fontSize: 13,
+    color: '#94a3b8',
+  },
+  bankPickerSheet: {
+    maxWidth: 400,
+    maxHeight: '85%',
+    paddingBottom: 12,
+    ...(Platform.OS === 'web' ? { zIndex: 10001 } as object : {}),
+  },
+  bankPickerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 12,
+  },
+  bankPickerList: { maxHeight: 320 },
+  bankPickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginBottom: 8,
+    backgroundColor: '#fff',
+  },
+  bankPickerRowActive: {
+    borderColor: '#bae6fd',
+    backgroundColor: '#f0f9ff',
+  },
+  bankPickerLabel: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  bankPickerCerrar: { alignSelf: 'center', paddingVertical: 8, marginTop: 4 },
+  bankPickerCerrarText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
+  tarjetaModalDetail: { gap: 6, marginTop: 2, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
+  tarjetaSinFotoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 6,
+    marginBottom: 2,
+  },
+  tarjetaSinFotoText: { fontSize: 12, color: '#0369a1', fontWeight: '600' },
+  tarjetaDetailRow2: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
+  tarjetaLineaFieldGrow: { flex: 1, minWidth: 0 },
+  tarjetaLineaInputCompact: {
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    fontSize: 13,
+    color: '#334155',
+    backgroundColor: '#fff',
+  },
+  tarjetaLineaBtnDis: { opacity: 0.6 },
+  tarjetaLightboxWrap: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.92)',
+    justifyContent: 'center',
+    padding: 12,
+  },
+  tarjetaLightboxClose: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 48 : 24,
+    right: 16,
+    zIndex: 2,
+    padding: 8,
+  },
+  tarjetaLightboxInner: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tarjetaLightboxImg: {
+    width: '100%',
+    height: '100%',
+    maxHeight: 720,
+  },
+  tarjetaModalFooter: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+    gap: 10,
+    alignItems: 'stretch',
+  },
+  tarjetaModalFooterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: '#f0f9ff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
+  tarjetaModalFooterBtnDis: { opacity: 0.45 },
+  tarjetaModalFooterBtnText: { fontSize: 14, fontWeight: '600', color: '#0369a1' },
+  tarjetaModalFooterLink: { alignSelf: 'center', paddingVertical: 4 },
+  tarjetaModalFooterLinkText: { fontSize: 12, color: '#0ea5e9', fontWeight: '600' },
+  tarjetaModalCerrar: { alignSelf: 'center', paddingVertical: 8 },
+  tarjetaModalCerrarText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
   /** Más aire respecto a los bordes de pantalla que el backdrop genérico. */
   modalBackdropConteo: {
     flex: 1,

@@ -3,10 +3,25 @@
  * PK = workplaceId, SK = yyyy-mm-dd#posId
  */
 import express from 'express';
+import multer from 'multer';
+import { randomUUID } from 'crypto';
 import { QueryCommand, GetCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import sharp from 'sharp';
+import Tesseract from 'tesseract.js';
 import { docClient, tables } from '../lib/db.js';
+import { parseTextoTicketTarjeta } from '../lib/ocrTicketTarjeta.js';
 
 const router = express.Router();
+const uploadOcr = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024 },
+});
+
+const region = process.env.AWS_REGION || 'eu-west-3';
+const S3_BUCKET = process.env.S3_BUCKET || 'igp-2.0-files';
+const s3 = new S3Client({ region });
 const tableArqueos = tables.arqueosReales;
 const tableCloseouts = tables.salesCloseOuts;
 
@@ -96,6 +111,42 @@ function sumDescuadreFromDiff(diff) {
   return round2(s);
 }
 
+const MAX_TARJETA_LINEAS = 20;
+
+/** @returns {Array<Record<string, string>>|null} null = no enviar; [] = sin líneas */
+function sanitizeTarjetaLineas(body) {
+  const raw = body?.tarjetaLineas ?? body?.tarjeta_lineas;
+  if (raw === undefined) return null;
+  if (!Array.isArray(raw)) return null;
+  if (raw.length === 0) return [];
+  const out = [];
+  for (let i = 0; i < Math.min(raw.length, MAX_TARJETA_LINEAS); i++) {
+    const x = raw[i];
+    if (!x || typeof x !== 'object') continue;
+    out.push({
+      id: String(x.id ?? `line-${i}`).slice(0, 64),
+      banco: String(x.banco ?? '').trim().slice(0, 80),
+      importe: String(x.importe ?? '').trim().slice(0, 24),
+      numeroComercio: String(x.numeroComercio ?? x.numero_comercio ?? '').trim().slice(0, 40),
+      fechaHora: String(x.fechaHora ?? x.fecha_hora ?? '').trim().slice(0, 64),
+      imagenKey: String(x.imagenKey ?? x.imagen_key ?? '').trim().slice(0, 512),
+      ocrCompletado: Boolean(x.ocrCompletado ?? x.ocr_completado),
+    });
+  }
+  return out;
+}
+
+function sumTarjetaLineas(lineas) {
+  let s = 0;
+  for (const l of lineas) s += parseNum(l.importe);
+  return round2(s);
+}
+
+function validTicketKey(key) {
+  if (!key || typeof key !== 'string') return false;
+  return key.startsWith('arqueos-tickets/') && !key.includes('..');
+}
+
 // GET /api/cajas/arqueos-reales?workplaceId=&businessDay=opcional
 router.get('/cajas/arqueos-reales', async (req, res) => {
   const workplaceId = String(req.query.workplaceId || '').trim();
@@ -182,6 +233,96 @@ router.get('/cajas/arqueos-reales/compare', async (req, res) => {
   }
 });
 
+// POST /api/cajas/arqueos-reales/ocr-ticket — multipart: imagen + opcional workplaceId, businessDay, lineId
+router.post('/cajas/arqueos-reales/ocr-ticket', uploadOcr.single('imagen'), async (req, res) => {
+  const file = req.file;
+  if (!file?.buffer) return res.status(400).json({ error: 'Falta imagen (campo imagen)' });
+  const workplaceId = String(req.body.workplaceId || '').trim();
+  const businessDay = String(req.body.businessDay || '').trim();
+  const lineId = String(req.body.lineId || '').trim() || randomUUID();
+  try {
+    let buf = file.buffer;
+    try {
+      buf = await sharp(buf)
+        .rotate()
+        .resize({ width: 1600, height: 2400, fit: 'inside', withoutEnlargement: true })
+        .greyscale()
+        .normalize()
+        .jpeg({ quality: 82 })
+        .toBuffer();
+    } catch (e) {
+      console.warn('[ocr-ticket] sharp', e.message || e);
+    }
+
+    const { data } = await Tesseract.recognize(buf, 'spa+eng', { logger: () => {} });
+    const text = data?.text || '';
+    const parsed = parseTextoTicketTarjeta(text);
+
+    let imagenKey = '';
+    try {
+      const prefix =
+        workplaceId && businessDay && /^\d{4}-\d{2}-\d{2}$/.test(businessDay)
+          ? `arqueos-tickets/${workplaceId}/${businessDay}/${lineId}-${randomUUID()}.jpg`
+          : `arqueos-tickets/anon/${randomUUID()}.jpg`;
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: S3_BUCKET,
+          Key: prefix,
+          Body: buf,
+          ContentType: 'image/jpeg',
+        }),
+      );
+      imagenKey = prefix;
+    } catch (e) {
+      console.error('[ocr-ticket] S3', e.message || e);
+    }
+
+    let imagenUrl = '';
+    if (imagenKey) {
+      try {
+        imagenUrl = await getSignedUrl(
+          s3,
+          new GetObjectCommand({ Bucket: S3_BUCKET, Key: imagenKey }),
+          { expiresIn: 900 },
+        );
+      } catch (_) {
+        /* noop */
+      }
+    }
+
+    res.json({
+      ok: true,
+      imagenKey,
+      imagenUrl,
+      banco: parsed.banco,
+      importe: parsed.importe,
+      numeroComercio: parsed.numeroComercio,
+      fechaHora: parsed.fechaHora,
+      ocrRaw: String(parsed.ocrRaw || '').slice(0, 2000),
+    });
+  } catch (err) {
+    console.error('[cajas/arqueos-reales/ocr-ticket]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al leer el ticket' });
+  }
+});
+
+// GET /api/cajas/arqueos-reales/ticket-image-url?key=arqueos-tickets/...
+router.get('/cajas/arqueos-reales/ticket-image-url', async (req, res) => {
+  const key = String(req.query.key || '').trim();
+  if (!validTicketKey(key)) return res.status(400).json({ error: 'key no válida' });
+  try {
+    const url = await getSignedUrl(
+      s3,
+      new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }),
+      { expiresIn: 900 },
+    );
+    res.json({ url });
+  } catch (err) {
+    console.error('[cajas/arqueos-reales/ticket-image-url]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al generar URL' });
+  }
+});
+
 // PUT /api/cajas/arqueos-reales — crear o actualizar
 router.put('/cajas/arqueos-reales', async (req, res) => {
   const body = req.body || {};
@@ -201,9 +342,20 @@ router.put('/cajas/arqueos-reales', async (req, res) => {
     Key: { PK: pk, SK: sk },
   })).then((r) => r.Item);
 
+  const lineasSan = sanitizeTarjetaLineas(body);
+  const lineasEfectivas =
+    lineasSan !== null
+      ? lineasSan
+      : (Array.isArray(existing?.tarjetaLineas) ? existing.tarjetaLineas : []);
+
+  const tarjetaRealNum =
+    lineasEfectivas.length > 0
+      ? sumTarjetaLineas(lineasEfectivas)
+      : parseNum(body.tarjetaReal ?? body.tarjeta_real);
+
   const realParsed = {
     efectivoReal: parseNum(body.efectivoReal ?? body.efectivo_real),
-    tarjetaReal: parseNum(body.tarjetaReal ?? body.tarjeta_real),
+    tarjetaReal: tarjetaRealNum,
     pendienteCobroReal: parseNum(body.pendienteCobroReal ?? body.pendiente_cobro_real),
     prepagoTransferenciaReal: parseNum(body.prepagoTransferenciaReal ?? body.prepago_transferencia_real),
     agoraPayReal: parseNum(body.agoraPayReal ?? body.agora_pay_real),
@@ -238,6 +390,7 @@ router.put('/cajas/arqueos-reales', async (req, res) => {
     pendienteCobroReal: realParsed.pendienteCobroReal,
     prepagoTransferenciaReal: realParsed.prepagoTransferenciaReal,
     agoraPayReal: realParsed.agoraPayReal,
+    tarjetaLineas: lineasEfectivas,
     descuadreTotal,
     descuadreActualizadoEn: now,
     creadoEn: existing?.creadoEn ?? now,
