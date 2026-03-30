@@ -27,6 +27,30 @@ const LABELS = [
   { key: 'agora', teoricoKey: 'AgoraPay', label: 'AgoraPay', realField: 'agoraPayReal' as const },
 ] as const;
 
+/** Billetes y monedas en euros (cantidad entera × valor). */
+const EFECTIVO_DENOMINACIONES: { value: number; label: string }[] = [
+  { value: 500, label: '500 €' },
+  { value: 200, label: '200 €' },
+  { value: 100, label: '100 €' },
+  { value: 50, label: '50 €' },
+  { value: 20, label: '20 €' },
+  { value: 10, label: '10 €' },
+  { value: 5, label: '5 €' },
+  { value: 2, label: '2 €' },
+  { value: 1, label: '1 €' },
+  { value: 0.5, label: '0,50 €' },
+  { value: 0.2, label: '0,20 €' },
+  { value: 0.1, label: '0,10 €' },
+  { value: 0.05, label: '0,05 €' },
+  { value: 0.02, label: '0,02 €' },
+  { value: 0.01, label: '0,01 €' },
+];
+
+const EFECTIVO_BILLETES = EFECTIVO_DENOMINACIONES.slice(0, 7);
+const EFECTIVO_MONEDAS = EFECTIVO_DENOMINACIONES.slice(7);
+const IDX_BILLETE_BASE = 0;
+const IDX_MONEDA_BASE = 7;
+
 type LocalItem = { AgoraCode?: string; agoraCode?: string; Nombre?: string; nombre?: string };
 
 async function safeJson<T = unknown>(res: Response): Promise<T> {
@@ -138,6 +162,8 @@ export default function ArqueoCajaScreen() {
 
   const [localModalOpen, setLocalModalOpen] = useState(false);
   const [posModalOpen, setPosModalOpen] = useState(false);
+  const [conteoEfectivoOpen, setConteoEfectivoOpen] = useState(false);
+  const [conteoCantidades, setConteoCantidades] = useState<string[]>(() => EFECTIVO_DENOMINACIONES.map(() => ''));
   const [syncingCloseouts, setSyncingCloseouts] = useState(false);
 
   const businessDayIso = useMemo(() => parseDateToYYYYMMDD(businessDayDmy), [businessDayDmy]);
@@ -200,6 +226,26 @@ export default function ArqueoCajaScreen() {
     for (const row of LABELS) s += diffsEnVivo[row.teoricoKey] ?? 0;
     return Math.round(s * 100) / 100;
   }, [diffsEnVivo]);
+
+  const totalConteoEfectivo = useMemo(() => {
+    let s = 0;
+    conteoCantidades.forEach((raw, i) => {
+      const q = parseInt(String(raw).replace(/\D/g, ''), 10);
+      if (!Number.isFinite(q) || q < 0) return;
+      s += q * EFECTIVO_DENOMINACIONES[i].value;
+    });
+    return Math.round(s * 100) / 100;
+  }, [conteoCantidades]);
+
+  const limpiarConteoEfectivo = useCallback(() => {
+    setConteoCantidades(EFECTIVO_DENOMINACIONES.map(() => ''));
+  }, []);
+
+  const aplicarConteoEfectivo = useCallback(() => {
+    const t = totalConteoEfectivo;
+    setEfectivoReal(t.toFixed(2).replace('.', ','));
+    setConteoEfectivoOpen(false);
+  }, [totalConteoEfectivo]);
 
   const fetchCompare = useCallback(() => {
     if (!businessDayIso || !formLocal.trim() || !formPosId) {
@@ -502,6 +548,127 @@ export default function ArqueoCajaScreen() {
           </Pressable>
         </Modal>
 
+        <Modal visible={conteoEfectivoOpen} transparent animationType="fade" onRequestClose={() => setConteoEfectivoOpen(false)}>
+          <Pressable style={styles.modalBackdropConteo} onPress={() => setConteoEfectivoOpen(false)}>
+            <Pressable style={[styles.modalSheet, styles.modalSheetConteo]} onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.modalTitle}>Conteo de efectivo</Text>
+              <Text style={styles.conteoIntro}>
+                Indica cuántas piezas de cada denominación. El total se aplicará al campo «Efectivo real».
+              </Text>
+              <ScrollView
+                style={styles.conteoScroll}
+                contentContainerStyle={styles.conteoScrollContent}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+              >
+                <View style={styles.conteoTwoCols}>
+                  <View style={styles.conteoCol}>
+                    <View style={[styles.conteoColHeader, styles.conteoColHeaderBilletes]}>
+                      <View style={styles.conteoColIconCircle}>
+                        <MaterialIcons name="receipt-long" size={22} color="#0f766e" />
+                      </View>
+                      <Text style={styles.conteoColTitle}>Billetes</Text>
+                    </View>
+                    {EFECTIVO_BILLETES.map((den, i) => {
+                      const idx = IDX_BILLETE_BASE + i;
+                      const raw = conteoCantidades[idx] ?? '';
+                      const qty = parseInt(raw, 10);
+                      const q = Number.isFinite(qty) && qty > 0 ? qty : 0;
+                      const sub = Math.round(q * den.value * 100) / 100;
+                      return (
+                        <View key={den.label} style={styles.conteoRow}>
+                          <MaterialIcons name="note" size={14} color="#94a3b8" style={styles.conteoRowMiniIcon} />
+                          <Text style={styles.conteoDenomLabel} numberOfLines={1}>
+                            {den.label}
+                          </Text>
+                          <View style={styles.conteoQtySubGroup}>
+                            <TextInput
+                              style={styles.conteoQtyInput}
+                              value={raw}
+                              onChangeText={(text) => {
+                                const digits = text.replace(/[^\d]/g, '');
+                                setConteoCantidades((prev) => {
+                                  const next = [...prev];
+                                  next[idx] = digits;
+                                  return next;
+                                });
+                              }}
+                              keyboardType="number-pad"
+                              placeholder="0"
+                              placeholderTextColor="#94a3b8"
+                            />
+                            <Text style={styles.conteoSub} numberOfLines={1}>
+                              {q > 0 ? formatMoneda(sub) : '—'}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                  <View style={styles.conteoCol}>
+                    <View style={[styles.conteoColHeader, styles.conteoColHeaderMonedas]}>
+                      <View style={[styles.conteoColIconCircle, styles.conteoColIconCircleMonedas]}>
+                        <MaterialIcons name="toll" size={22} color="#b45309" />
+                      </View>
+                      <Text style={styles.conteoColTitle}>Monedas</Text>
+                    </View>
+                    {EFECTIVO_MONEDAS.map((den, i) => {
+                      const idx = IDX_MONEDA_BASE + i;
+                      const raw = conteoCantidades[idx] ?? '';
+                      const qty = parseInt(raw, 10);
+                      const q = Number.isFinite(qty) && qty > 0 ? qty : 0;
+                      const sub = Math.round(q * den.value * 100) / 100;
+                      return (
+                        <View key={den.label} style={styles.conteoRow}>
+                          <MaterialIcons name="lens" size={14} color="#d97706" style={styles.conteoRowMiniIcon} />
+                          <Text style={styles.conteoDenomLabel} numberOfLines={1}>
+                            {den.label}
+                          </Text>
+                          <View style={styles.conteoQtySubGroup}>
+                            <TextInput
+                              style={styles.conteoQtyInput}
+                              value={raw}
+                              onChangeText={(text) => {
+                                const digits = text.replace(/[^\d]/g, '');
+                                setConteoCantidades((prev) => {
+                                  const next = [...prev];
+                                  next[idx] = digits;
+                                  return next;
+                                });
+                              }}
+                              keyboardType="number-pad"
+                              placeholder="0"
+                              placeholderTextColor="#94a3b8"
+                            />
+                            <Text style={styles.conteoSub} numberOfLines={1}>
+                              {q > 0 ? formatMoneda(sub) : '—'}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              </ScrollView>
+              <View style={styles.conteoTotalBar}>
+                <Text style={styles.conteoTotalLabel}>Total</Text>
+                <Text style={styles.conteoTotalVal}>{formatMoneda(totalConteoEfectivo)}</Text>
+              </View>
+              <View style={styles.conteoActions}>
+                <TouchableOpacity style={styles.conteoBtnSecondary} onPress={limpiarConteoEfectivo}>
+                  <Text style={styles.conteoBtnSecondaryText}>Poner a cero</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.conteoBtnSecondary} onPress={() => setConteoEfectivoOpen(false)}>
+                  <Text style={styles.conteoBtnSecondaryText}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.conteoBtnPrimary} onPress={aplicarConteoEfectivo}>
+                  <Text style={styles.conteoBtnPrimaryText}>Aplicar</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
         {loadingCompare && formLocal && formPosId && businessDayIso ? (
           <ActivityIndicator style={{ marginVertical: 12 }} color="#0ea5e9" />
         ) : null}
@@ -548,14 +715,34 @@ export default function ArqueoCajaScreen() {
                     </View>
                     <View style={styles.colReal}>
                       <Text style={styles.colHdr}>Real</Text>
-                      <TextInput
-                        style={styles.inputNum}
-                        value={v}
-                        onChangeText={setters[row.realField]}
-                        keyboardType="decimal-pad"
-                        placeholder="0,00"
-                        placeholderTextColor="#94a3b8"
-                      />
+                      {row.key === 'efectivo' ? (
+                        <View style={styles.efectivoRealRow}>
+                          <TextInput
+                            style={[styles.inputNum, styles.inputNumEfectivo]}
+                            value={v}
+                            onChangeText={setters[row.realField]}
+                            keyboardType="decimal-pad"
+                            placeholder="0,00"
+                            placeholderTextColor="#94a3b8"
+                          />
+                          <TouchableOpacity
+                            style={styles.conteoEfectivoBtn}
+                            onPress={() => setConteoEfectivoOpen(true)}
+                            accessibilityLabel="Contar billetes y monedas"
+                          >
+                            <MaterialIcons name="calculate" size={22} color="#0ea5e9" />
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <TextInput
+                          style={styles.inputNum}
+                          value={v}
+                          onChangeText={setters[row.realField]}
+                          keyboardType="decimal-pad"
+                          placeholder="0,00"
+                          placeholderTextColor="#94a3b8"
+                        />
+                      )}
                     </View>
                     <View style={styles.colDiff}>
                       <Text style={styles.colHdr}>Dif.</Text>
@@ -792,6 +979,141 @@ const styles = StyleSheet.create({
     color: '#334155',
     backgroundColor: '#f8fafc',
   },
+  efectivoRealRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 0,
+  },
+  inputNumEfectivo: { flex: 1, minWidth: 0 },
+  conteoEfectivoBtn: {
+    padding: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    backgroundColor: '#f0f9ff',
+  },
+  /** Más aire respecto a los bordes de pantalla que el backdrop genérico. */
+  modalBackdropConteo: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.5)',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    paddingVertical: 36,
+    ...(Platform.OS === 'web' ? { zIndex: 9999 } as object : {}),
+  },
+  modalSheetConteo: { maxWidth: 640, paddingHorizontal: 20, paddingVertical: 18 },
+  conteoIntro: { fontSize: 12, color: '#64748b', marginBottom: 10, lineHeight: 18 },
+  conteoScroll: { maxHeight: 320 },
+  /** Aire entre el contenido y la barra de scroll (columna monedas / borde derecho). */
+  conteoScrollContent: { paddingRight: 14 },
+  /** Cantidad + subtotal juntos, sin hueco flexible entre medias. */
+  conteoQtySubGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
+  conteoTwoCols: {
+    flexDirection: 'row',
+    gap: 18,
+    alignItems: 'flex-start',
+  },
+  conteoCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  conteoColHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+    paddingBottom: 8,
+    borderBottomWidth: 2,
+  },
+  conteoColHeaderBilletes: { borderBottomColor: '#5eead4' },
+  conteoColHeaderMonedas: { borderBottomColor: '#fcd34d' },
+  conteoColIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: '#f0fdfa',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  conteoColIconCircleMonedas: { backgroundColor: '#fffbeb' },
+  conteoColTitle: { fontSize: 14, fontWeight: '700', color: '#334155', flex: 1 },
+  conteoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 5,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    gap: 2,
+  },
+  conteoRowMiniIcon: { width: 14, marginRight: 0 },
+  /** Ancho fijo: la cantidad queda pegada al texto, sin hueco flexible en medio. */
+  conteoDenomLabel: {
+    width: 56,
+    flexShrink: 0,
+    marginRight: 2,
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  conteoQtyInput: {
+    width: 48,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 6,
+    paddingHorizontal: 4,
+    paddingVertical: 5,
+    fontSize: 13,
+    color: '#334155',
+    backgroundColor: '#fff',
+    textAlign: 'center',
+  },
+  conteoSub: {
+    width: 76,
+    flexShrink: 0,
+    fontSize: 10,
+    color: '#64748b',
+    textAlign: 'right',
+  },
+  conteoTotalBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  conteoTotalLabel: { fontSize: 14, fontWeight: '700', color: '#334155' },
+  conteoTotalVal: { fontSize: 16, fontWeight: '700', color: '#0ea5e9' },
+  conteoActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 14,
+    justifyContent: 'flex-end',
+  },
+  conteoBtnSecondary: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+  },
+  conteoBtnSecondaryText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+  conteoBtnPrimary: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: '#0ea5e9',
+  },
+  conteoBtnPrimaryText: { fontSize: 14, fontWeight: '700', color: '#fff' },
   diffOk: { color: '#059669' },
   diffBad: { color: '#dc2626' },
   hint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', marginTop: 8 },
