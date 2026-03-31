@@ -19,11 +19,13 @@ import { syncProducts, getLastSync, setLastSync, shouldSkipSyncByThrottle, toApi
 import facturacionRouter from './routes/facturacion.js';
 import artistasActuacionesRouter from './routes/artistasActuaciones.js';
 import arqueosRealesRouter from './routes/arqueosReales.js';
+import mysteryGuestRouter from './routes/mysteryGuest.js';
 import { normalizeCif, getCifFromEmpresaItem, getIdEmpresaFromItem } from './lib/empresaCif.js';
 
 const app = express();
 app.use(cors({ origin: true, credentials: false }));
-app.use(express.json());
+/** Mystery Guest y otros envían base64 (fotos); el límite por defecto (~100kb) rompe el guardado. */
+app.use(express.json({ limit: '15mb' }));
 
 // Health check para verificar que el API está en marcha
 app.get('/api/health', (_req, res) => {
@@ -5063,6 +5065,7 @@ async function runCloseoutsSync() {
 app.use('/api', facturacionRouter);
 app.use('/api', artistasActuacionesRouter);
 app.use('/api', arqueosRealesRouter);
+app.use('/api', mysteryGuestRouter);
 
 // ─── Ajustes ───
 

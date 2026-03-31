@@ -54,7 +54,23 @@ function AppLayoutContent() {
     router.replace('/login');
   }
 
-  if (loading || !user) return null;
+  if (loading) {
+    return (
+      <View style={styles.loadingWrap}>
+        <ActivityIndicator size="large" color="#0ea5e9" />
+        <Text style={styles.loadingText}>Cargando sesión…</Text>
+      </View>
+    );
+  }
+
+  if (!user) {
+    return (
+      <View style={styles.loadingWrap}>
+        <ActivityIndicator size="large" color="#0ea5e9" />
+        <Text style={styles.loadingText}>Redirigiendo al inicio de sesión…</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.wrapper}>

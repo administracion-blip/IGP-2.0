@@ -47,22 +47,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user?.Rol, fetchPermisos]);
 
   useEffect(() => {
-    AsyncStorage.getItem(AUTH_KEY).then((stored) => {
-      if (stored) {
-        try {
-          const u = JSON.parse(stored) as UserSession;
-          setUserState(u);
-          if (u.Rol) fetchPermisos(u.Rol).finally(() => setLoading(false));
-          else setLoading(false);
-        } catch {
-          setUserState(null);
-          setLoading(false);
-        }
-      } else {
-        setUserState(null);
+    let finished = false;
+    const safetyMs = 15000;
+    const safetyId = setTimeout(() => {
+      if (!finished) {
+        finished = true;
         setLoading(false);
       }
-    });
+    }, safetyMs);
+
+    AsyncStorage.getItem(AUTH_KEY)
+      .then((stored) => {
+        if (stored) {
+          try {
+            const u = JSON.parse(stored) as UserSession;
+            setUserState(u);
+            if (u.Rol) {
+              fetchPermisos(u.Rol).finally(() => {
+                if (!finished) {
+                  finished = true;
+                  clearTimeout(safetyId);
+                  setLoading(false);
+                }
+              });
+            } else {
+              if (!finished) {
+                finished = true;
+                clearTimeout(safetyId);
+                setLoading(false);
+              }
+            }
+          } catch {
+            setUserState(null);
+            if (!finished) {
+              finished = true;
+              clearTimeout(safetyId);
+              setLoading(false);
+            }
+          }
+        } else {
+          setUserState(null);
+          if (!finished) {
+            finished = true;
+            clearTimeout(safetyId);
+            setLoading(false);
+          }
+        }
+      })
+      .catch(() => {
+        setUserState(null);
+        if (!finished) {
+          finished = true;
+          clearTimeout(safetyId);
+          setLoading(false);
+        }
+      });
+
+    return () => clearTimeout(safetyId);
   }, [fetchPermisos]);
 
   const setUser = useCallback((u: UserSession | null) => {

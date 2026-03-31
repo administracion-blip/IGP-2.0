@@ -19,6 +19,8 @@ import * as Sharing from 'expo-sharing';
 import { useProductosCache } from '../contexts/ProductosCache';
 import { calcTiempoRestante } from '../lib/acuerdosFechas';
 import { InputFecha } from '../components/InputFecha';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -331,8 +333,6 @@ export default function AcuerdosProductosActivosScreen() {
 
   const exportarPDF = useCallback(async () => {
     if (filtradosFinales.length === 0) return;
-    const [{ jsPDF }, autoTableMod] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
-    const autoTable = autoTableMod.default;
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const pageW = doc.internal.pageSize.getWidth();
     let y = 12;

@@ -19,6 +19,7 @@ import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { toPng } from 'html-to-image';
 import { useAuth } from '../../contexts/AuthContext';
+import { jsPDF } from 'jspdf';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -115,6 +116,24 @@ function ayerYYYYMMDD(): string {
   const d = new Date();
   d.setDate(d.getDate() - 1);
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Fecha de negocio (YYYY-MM-DD), misma regla que arqueo de caja:
+ * hasta las 09:30 (inclusive) corresponde el día anterior; desde las 09:31, el día natural.
+ */
+function fechaJornadaNegocioIso(): string {
+  const now = new Date();
+  const minutesOfDay = now.getHours() * 60 + now.getMinutes();
+  const cutoff = 9 * 60 + 30;
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (minutesOfDay <= cutoff) {
+    d.setDate(d.getDate() - 1);
+  }
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function formatFechaCorta(iso: string): string {
@@ -374,7 +393,6 @@ export default function ObjetivosScreen() {
         const imgW = pdfW - margin * 2;
         const imgH = (pxH / pxW) * imgW;
         const pdfH = imgH + 30;
-        const { jsPDF } = await import('jspdf');
         const doc = new jsPDF({
           orientation: pdfH > pdfW ? 'portrait' : 'landscape',
           unit: 'mm',
@@ -386,7 +404,6 @@ export default function ObjetivosScreen() {
         doc.save(`objetivos_${nombreMesYAnio().replace(/\s/g, '_')}.pdf`);
       } else {
         const base64 = await FileSystemLegacy.readAsStringAsync(dataUrl, { encoding: FileSystemLegacy.EncodingType.Base64 });
-        const { jsPDF } = await import('jspdf');
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         doc.setFontSize(12);
         doc.text(`Objetivos – ${nombreMesYAnio()}`, 10, 10);
@@ -530,6 +547,8 @@ export default function ObjetivosScreen() {
   const sumDesvioHoy = registrosHastaAyer.reduce((a, r) => a + r.Desvio, 0);
   const desvioPctHoy = sumCompHoy === 0 ? null : sumRealHoy / sumCompHoy - 1;
   const tickerEstiloHoy = estiloTicker(desvioPctHoy);
+
+  const fechaJornadaNegocio = fechaJornadaNegocioIso();
 
   return (
     <View style={styles.container}>
@@ -889,7 +908,10 @@ export default function ObjetivosScreen() {
               showsVerticalScrollIndicator
             >
               {registros.map((r, idx) => (
-                <View key={idx} style={styles.row}>
+                <View
+                  key={idx}
+                  style={[styles.row, r.Fecha === fechaJornadaNegocio && styles.rowJornadaActual]}
+                >
                   <Text style={[styles.cell, styles.cellDia]}>{diaVirtual(r.Fecha, r.FechaComparacion)}</Text>
                   <Text style={[styles.cell, styles.cellFecha, styles.cellBold]} numberOfLines={1}>{r.Fecha}</Text>
                   <Text style={[styles.cell, styles.cellFecha]} numberOfLines={1}>{r.FechaComparacion}</Text>
@@ -1190,6 +1212,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
+  },
+  /** Fila cuyo campo Fecha coincide con la jornada de negocio actual (corte 09:30, como arqueo de caja). */
+  rowJornadaActual: {
+    backgroundColor: '#e0f2fe',
+    borderLeftWidth: 3,
+    borderLeftColor: '#0284c7',
   },
   cell: { fontSize: 10, color: '#475569', paddingVertical: 3, paddingHorizontal: 6, lineHeight: 14 },
   cellBold: { fontWeight: '700' },

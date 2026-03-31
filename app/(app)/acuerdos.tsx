@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,8 @@ import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useAuth } from '../contexts/AuthContext';
 import { calcTiempoRestante } from '../lib/acuerdosFechas';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 type DetalleProducto = { PK: string; SK: string; ProductId: string; ProductName: string; Cantidad: number; Aportacion: number; Rappel: number; DescuentoExtra: number; Compradas: number; Restante: number; Porcentaje: number; createdAt?: string };
 
@@ -248,6 +250,83 @@ function formatFecha(iso: string): string {
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
+/** Fecha local dd/mm/aaaa para insertar en notas (Ctrl+espacio en web). */
+function fechaHoyDmy(): string {
+  const d = new Date();
+  const day = String(d.getDate()).padStart(2, '0');
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const y = d.getFullYear();
+  return `${day}/${m}/${y}`;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+const NOTAS_CONTENIDO_FONT_SIZE = 11;
+
+/** Línea `dd/mm/aaaa` + `:` o `-` (notas antiguas o nuevas) + resto del texto. */
+const NOTAS_LINEA_FECHA = /^(\d{1,2}\/\d{1,2}\/\d{4})\s*[-:]\s*(.*)$/;
+
+/** Convierte texto plano a HTML para el editor web (fechas en azul, negrita y cursiva; separador « - »). */
+function plainNotasToHtmlForEditor(plain: string): string {
+  if (!plain) return '';
+  return plain
+    .split('\n')
+    .map((line) => {
+      const m = line.match(NOTAS_LINEA_FECHA);
+      if (m) {
+        return `<span style="font-size:${NOTAS_CONTENIDO_FONT_SIZE}px;color:#2563eb;font-weight:700;font-style:italic">${m[1]}</span> - ${escapeHtml(m[2])}`;
+      }
+      return escapeHtml(line);
+    })
+    .join('<br>');
+}
+
+const NOTAS_FECHA_STYLE = {
+  fontSize: NOTAS_CONTENIDO_FONT_SIZE,
+  color: '#2563eb',
+  fontWeight: '700' as const,
+  fontStyle: 'italic' as const,
+};
+
+/** Muestra notas con la parte `dd/mm/aaaa` destacada (misma lógica que el editor web). */
+function NotasTextoConFechas({ text, baseStyle }: { text: string; baseStyle: object }) {
+  if (!text?.trim()) {
+    return (
+      <Text style={[baseStyle, { color: '#94a3b8', fontSize: NOTAS_CONTENIDO_FONT_SIZE }]}>Sin notas</Text>
+    );
+  }
+  const lines = text.split('\n');
+  return (
+    <Text style={[baseStyle, { fontStyle: 'normal', fontSize: NOTAS_CONTENIDO_FONT_SIZE }]}>
+      {lines.map((line, i) => {
+        const m = line.match(NOTAS_LINEA_FECHA);
+        const nl = i > 0 ? '\n' : '';
+        if (m) {
+          return (
+            <Text key={i}>
+              {nl}
+              <Text style={NOTAS_FECHA_STYLE}>{m[1]}</Text>
+              <Text> - {m[2]}</Text>
+            </Text>
+          );
+        }
+        return (
+          <Text key={i}>
+            {nl}
+            {line}
+          </Text>
+        );
+      })}
+    </Text>
+  );
+}
+
 function formatMoneda(n: number | null | undefined): string {
   if (n == null) return '0,00 €';
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
@@ -313,6 +392,12 @@ export default function AcuerdosScreen() {
   const [comprasModalItems, setComprasModalItems] = useState<Record<string, unknown>[]>([]);
   const [comprasModalLoading, setComprasModalLoading] = useState(false);
 
+  const [notasModalVisible, setNotasModalVisible] = useState(false);
+  const [notasDraft, setNotasDraft] = useState('');
+  const [guardandoNotas, setGuardandoNotas] = useState(false);
+  const [notasModalError, setNotasModalError] = useState('');
+  const notasEditorWebRef = useRef<HTMLDivElement | null>(null);
+
   const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   const comprasResumen = useMemo(() => {
     let totalQty = 0, totalAmt = 0;
@@ -345,6 +430,17 @@ export default function AcuerdosScreen() {
   const cargarDetallesRequestIdRef = useRef<number>(0);
   const seleccionadoRef = useRef<string | null>(null);
   useEffect(() => { seleccionadoRef.current = seleccionado?.PK ?? null; }, [seleccionado]);
+
+  useEffect(() => {
+    if (!seleccionado) setNotasModalVisible(false);
+  }, [seleccionado]);
+
+  useLayoutEffect(() => {
+    if (!notasModalVisible || Platform.OS !== 'web') return;
+    const el = notasEditorWebRef.current;
+    if (!el) return;
+    el.innerHTML = plainNotasToHtmlForEditor(seleccionado?.Notas || '');
+  }, [notasModalVisible, seleccionado?.PK]);
 
   // Sincronizar totales y edits cuando cambia el acuerdo seleccionado o su caché
   useEffect(() => {
@@ -453,6 +549,85 @@ export default function AcuerdosScreen() {
       else setLoading(false);
     }
   }, []);
+
+  const abrirModalNotas = useCallback(() => {
+    if (!seleccionado) return;
+    setNotasDraft(seleccionado.Notas || '');
+    setNotasModalError('');
+    setNotasModalVisible(true);
+  }, [seleccionado]);
+
+  const guardarNotasModal = useCallback(async () => {
+    if (!seleccionado) return;
+    setGuardandoNotas(true);
+    setNotasModalError('');
+    const textoNotas =
+      Platform.OS === 'web' && notasEditorWebRef.current
+        ? notasEditorWebRef.current.innerText.trim()
+        : notasDraft.trim();
+    try {
+      const res = await fetch(`${API_URL}/api/acuerdos/${encodeURIComponent(seleccionado.PK)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ Notas: textoNotas }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al guardar');
+      setNotasModalVisible(false);
+      await cargar({ background: true });
+    } catch (e: any) {
+      setNotasModalError(e.message || 'Error');
+    } finally {
+      setGuardandoNotas(false);
+    }
+  }, [seleccionado, notasDraft, cargar]);
+
+  /** Nativo: Ctrl+espacio inserta `dd/mm/aaaa - ` (onKeyPress; ver comentario en web). */
+  const handleNotasKeyPress = useCallback(
+    (e: any) => {
+      if (Platform.OS === 'web') return;
+      if (guardandoNotas) return;
+      const dom = e?.nativeEvent ?? e;
+      const ctrl = !!(dom?.ctrlKey ?? e?.ctrlKey);
+      const isSpace =
+        dom?.code === 'Space' || dom?.key === ' ' || e?.code === 'Space' || e?.key === ' ';
+      if (!ctrl || !isSpace) return;
+      e?.preventDefault?.();
+      if (typeof dom?.preventDefault === 'function') dom.preventDefault();
+      const insert = `${fechaHoyDmy()} - `;
+      const target = (e?.target ?? dom?.target) as HTMLTextAreaElement;
+      if (target && typeof target.selectionStart === 'number') {
+        const start = target.selectionStart;
+        const end = target.selectionEnd;
+        const v = String(target.value ?? '');
+        const next = v.slice(0, start) + insert + v.slice(end);
+        setNotasDraft(next);
+        requestAnimationFrame(() => {
+          try {
+            const pos = start + insert.length;
+            target.setSelectionRange(pos, pos);
+          } catch {
+            /* noop */
+          }
+        });
+      } else {
+        setNotasDraft((prev) => (prev ? `${prev}${insert}` : insert));
+      }
+    },
+    [guardandoNotas]
+  );
+
+  const handleNotasWebKeyDown = useCallback(
+    (e: any) => {
+      if (guardandoNotas) return;
+      if (e.ctrlKey && (e.code === 'Space' || e.key === ' ')) {
+        e.preventDefault();
+        const html = `<span style="font-size:${NOTAS_CONTENIDO_FONT_SIZE}px;color:#2563eb;font-weight:700;font-style:italic">${fechaHoyDmy()}</span> - `;
+        document.execCommand('insertHTML', false, html);
+      }
+    },
+    [guardandoNotas]
+  );
 
   const cargarEmpresas = useCallback(async () => {
     if (empresas.length > 0) return;
@@ -1047,8 +1222,6 @@ export default function AcuerdosScreen() {
 
   const generarPDF = useCallback(async () => {
     if (!seleccionado) return;
-    const [{ jsPDF }, autoTableMod] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
-    const autoTable = autoTableMod.default;
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const pageW = doc.internal.pageSize.getWidth();
     let y = 15;
@@ -1080,7 +1253,6 @@ export default function AcuerdosScreen() {
     if (seleccionado.Contacto) infoLines.push(['Contacto', seleccionado.Contacto]);
     if (seleccionado.Telefono) infoLines.push(['Teléfono', seleccionado.Telefono]);
     if (seleccionado.Email) infoLines.push(['Email', seleccionado.Email]);
-    if (seleccionado.Notas) infoLines.push(['Notas', seleccionado.Notas]);
 
     const colX = 14;
     const col2X = pageW / 2 + 10;
@@ -1391,7 +1563,6 @@ export default function AcuerdosScreen() {
                       </View>
                     </View>
                   </View>
-                  {a.Notas ? <Text style={styles.cardNotas}>{a.Notas}</Text> : null}
                 </TouchableOpacity>
               );
             })
@@ -1413,6 +1584,9 @@ export default function AcuerdosScreen() {
                   })()}
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <TooltipBtn tooltip="Ver y editar notas" onPress={abrirModalNotas} style={{ padding: 4 }}>
+                    <MaterialIcons name="note" size={20} color="#6366f1" />
+                  </TooltipBtn>
                   {Platform.OS === 'web' && (
                     <TooltipBtn tooltip="Descargar PDF" onPress={generarPDF} style={{ padding: 4 }}>
                       <MaterialIcons name="picture-as-pdf" size={20} color="#ef4444" />
@@ -1469,15 +1643,17 @@ export default function AcuerdosScreen() {
                         <Text style={styles.detailInfoValue}>{seleccionado.Email}</Text>
                       </View>
                     ) : null}
-                    {seleccionado.Notas ? (
-                      <View style={styles.detailInfoRow}>
-                        <Text style={styles.detailInfoLabel}>Notas</Text>
-                        <Text style={[styles.detailInfoValue, { fontStyle: 'italic' }]}>{seleccionado.Notas}</Text>
-                      </View>
-                    ) : null}
                     <Text style={styles.detailInfoConcat}>
                       {seleccionado.Marca || '—'} ({formatFecha(seleccionado.FechaInicio)} - {formatFecha(seleccionado.FechaFin)})
                     </Text>
+                    <View style={styles.detailNotasBlock}>
+                      <View style={[styles.detailInfoRow, styles.detailNotasRowInner]}>
+                        <Text style={styles.detailInfoLabel}>Notas</Text>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <NotasTextoConFechas text={seleccionado.Notas || ''} baseStyle={styles.detailInfoValue} />
+                        </View>
+                      </View>
+                    </View>
                   </View>
                   {/* Columna derecha: donut + totales económicos */}
                   <View style={styles.detailInfoRight}>
@@ -2271,6 +2447,86 @@ export default function AcuerdosScreen() {
         </Pressable>
       </Modal>
 
+      <Modal visible={notasModalVisible} transparent animationType="fade" onRequestClose={() => !guardandoNotas && setNotasModalVisible(false)}>
+        <Pressable style={styles.overlay} onPress={(e) => { if (e.target === e.currentTarget && !guardandoNotas) setNotasModalVisible(false); }}>
+          <View style={[styles.modal, styles.notasModalCard]}>
+            <Text style={[styles.modalTitle, styles.notasModalTitle]}>Notas del acuerdo</Text>
+            {seleccionado ? (
+              <Text style={styles.notasModalSubtitle}>{seleccionado.Marca || seleccionado.Nombre || seleccionado.PK}</Text>
+            ) : null}
+            {Platform.OS === 'web' ? (
+              <>
+                {/* eslint-disable-next-line react/no-unknown-property -- DOM web */}
+                <div
+                  ref={notasEditorWebRef}
+                  contentEditable={!guardandoNotas}
+                  suppressContentEditableWarning
+                  onInput={(e) => setNotasDraft((e.target as HTMLDivElement).innerText)}
+                  onKeyDown={handleNotasWebKeyDown}
+                  className="acuerdos-notas-editor"
+                  style={{
+                    minHeight: 160,
+                    maxHeight: 320,
+                    overflow: 'auto',
+                    borderWidth: 1,
+                    borderStyle: 'solid',
+                    borderColor: '#e2e8f0',
+                    borderRadius: 8,
+                    padding: 12,
+                    fontSize: NOTAS_CONTENIDO_FONT_SIZE,
+                    color: '#334155',
+                    outline: 'none',
+                    whiteSpace: 'pre-wrap',
+                    backgroundColor: '#f8fafc',
+                  }}
+                />
+                <Text style={styles.notasModalHint}>
+                  Ctrl+espacio: inserta la fecha (azul, pequeña, negrita y cursiva), « - » y el cursor a la derecha para escribir.
+                </Text>
+              </>
+            ) : (
+              <>
+                <TextInput
+                  style={[styles.input, styles.inputMultiline, styles.notasModalInput]}
+                  multiline
+                  value={notasDraft}
+                  onChangeText={setNotasDraft}
+                  placeholder="Observaciones… (Ctrl+espacio: fecha dd/mm/aaaa - y escribe después del guion)"
+                  placeholderTextColor="#94a3b8"
+                  editable={!guardandoNotas}
+                  textAlignVertical="top"
+                  onKeyPress={handleNotasKeyPress}
+                />
+                <Text style={styles.notasModalHint}>
+                  Ctrl+espacio inserta la fecha, guion y espacio; escribe a continuación.
+                </Text>
+              </>
+            )}
+            {notasModalError ? <Text style={styles.notasModalError}>{notasModalError}</Text> : null}
+            <View style={styles.notasModalActions}>
+              <TouchableOpacity
+                style={styles.notasModalBtnGhost}
+                onPress={() => !guardandoNotas && setNotasModalVisible(false)}
+                disabled={guardandoNotas}
+              >
+                <Text style={styles.notasModalBtnGhostText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.notasModalBtnPrimary}
+                onPress={guardarNotasModal}
+                disabled={guardandoNotas}
+              >
+                {guardandoNotas ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.notasModalBtnPrimaryText}>Guardar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+
     </View>
   );
 }
@@ -2345,10 +2601,20 @@ const styles = StyleSheet.create({
   cardFieldLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 2 },
   cardFieldValue: { fontSize: 13, color: '#334155' },
   cardCountdown: { fontWeight: '600' },
-  cardNotas: { fontSize: 12, color: '#64748b', fontStyle: 'italic', paddingHorizontal: 16, paddingBottom: 10 },
 
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
   modal: { backgroundColor: '#fff', borderRadius: 14, width: '90%', maxWidth: 560, maxHeight: '90%', padding: 20 },
+  notasModalCard: { maxWidth: 480 },
+  notasModalTitle: { marginBottom: 4 },
+  notasModalSubtitle: { fontSize: 12, color: '#64748b', marginBottom: 14 },
+  notasModalInput: { minHeight: 160, maxHeight: 320, fontSize: 11 },
+  notasModalHint: { fontSize: 11, color: '#94a3b8', marginTop: 6, lineHeight: 16 },
+  notasModalError: { fontSize: 12, color: '#dc2626', marginTop: 8 },
+  notasModalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 14 },
+  notasModalBtnGhost: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: '#f1f5f9' },
+  notasModalBtnGhostText: { fontSize: 14, fontWeight: '600', color: '#475569' },
+  notasModalBtnPrimary: { paddingVertical: 10, paddingHorizontal: 18, borderRadius: 8, backgroundColor: '#6366f1', minWidth: 100, alignItems: 'center' },
+  notasModalBtnPrimaryText: { fontSize: 14, fontWeight: '600', color: '#fff' },
   modalTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a', marginBottom: 16 },
   label: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 4, marginTop: 10 },
   input: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14, color: '#334155' },
@@ -2412,8 +2678,18 @@ const styles = StyleSheet.create({
   detailInfoRight: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
   detailInfoRow: { flexDirection: 'row', marginBottom: 6 },
   detailInfoLabel: { width: 70, fontSize: 11, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', paddingTop: 2 },
+  detailNotasBlock: {
+    backgroundColor: '#f1f5f9',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  detailNotasRowInner: { marginBottom: 0, alignItems: 'flex-start' },
   detailInfoValue: { flex: 1, fontSize: 13, color: '#334155' },
-  detailInfoConcat: { fontSize: 12, fontStyle: 'italic', color: '#64748b', marginTop: 6 },
+  detailInfoConcat: { fontSize: 12, fontStyle: 'italic', color: '#64748b', marginTop: 6, marginBottom: 10 },
   totalCard: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, padding: 8 },
   totalCardTitle: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: 1 },
   totalCardValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginBottom: 4 },
