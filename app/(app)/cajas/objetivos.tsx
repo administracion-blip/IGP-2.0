@@ -106,10 +106,15 @@ function ultimoDiaDelMes(fecha: string): string {
   return `${y}-${String(m + 1).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`;
 }
 
-function nombreMesYAnio(): string {
+/** Título del widget: mes y año del periodo seleccionado (primer día en ISO). */
+function nombreMesYAnioDesdeFecha(iso: string): string {
   const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-  const hoy = new Date();
-  return `${meses[hoy.getMonth()]} ${hoy.getFullYear()}`;
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const hoy = new Date();
+    return `${meses[hoy.getMonth()]} ${hoy.getFullYear()}`;
+  }
+  const [y, m] = iso.split('-').map(Number);
+  return `${meses[m - 1]} ${y}`;
 }
 
 function ayerYYYYMMDD(): string {
@@ -169,7 +174,8 @@ export default function ObjetivosScreen() {
   const [loadingLocalesObjetivos, setLoadingLocalesObjetivos] = useState(false);
   const [rangosHastaAyer, setRangosHastaAyer] = useState<{
     fechaInicioMes: string;
-    fechaHastaAyer: string;
+    /** Fin del rango «Real» mostrado (min(fin periodo, ayer)); mismo día que inicio si aún no hay días cerrados en el periodo. */
+    fechaFinRealHastaAyer: string;
     minCompHastaAyer: string;
     maxCompHastaAyer: string;
   } | null>(null);
@@ -214,8 +220,29 @@ export default function ObjetivosScreen() {
 
   const cargarLocalesObjetivos = useCallback(async () => {
     if (locales.length === 0) return;
+    if (
+      !fechaInicio ||
+      !fechaFin ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(fechaInicio) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(fechaFin) ||
+      fechaInicio > fechaFin
+    ) {
+      setLocalesObjetivos([]);
+      setRangosHastaAyer(null);
+      setLoadingLocalesObjetivos(false);
+      return;
+    }
     setLoadingLocalesObjetivos(true);
-    const { inicio: fechaInicioMes, fin: fechaFinMes } = mesEnCurso();
+    const fechaInicioMes = fechaInicio;
+    const fechaFinMes = fechaFin;
+    const fechaHastaAyerStr = ayerYYYYMMDD();
+    /** Último día del periodo a considerar para «hasta ayer» (comparación lexicográfica ISO). */
+    const finPeriodoHastaAyer =
+      fechaHastaAyerStr < fechaInicioMes
+        ? fechaInicioMes
+        : fechaFinMes < fechaHastaAyerStr
+          ? fechaFinMes
+          : fechaHastaAyerStr;
     try {
       const festivosRes = await fetch(`${API_URL}/api/gestion-festivos`);
       const festivosData = await festivosRes.json();
@@ -241,11 +268,10 @@ export default function ObjetivosScreen() {
         if (!maxComp || fechaComp > maxComp) maxComp = fechaComp;
         d.setDate(d.getDate() + 1);
       }
-      const fechaHastaAyer = ayerYYYYMMDD();
       let minCompHastaAyer = '';
       let maxCompHastaAyer = '';
       const dRango = new Date(fechaInicioMes + 'T12:00:00');
-      const endRango = new Date(fechaHastaAyer + 'T12:00:00');
+      const endRango = new Date(finPeriodoHastaAyer + 'T12:00:00');
       while (dRango <= endRango) {
         const fecha = dRango.toISOString().slice(0, 10);
         const fechaComp = fechaToComp[fecha];
@@ -255,7 +281,12 @@ export default function ObjetivosScreen() {
         }
         dRango.setDate(dRango.getDate() + 1);
       }
-      setRangosHastaAyer({ fechaInicioMes, fechaHastaAyer, minCompHastaAyer, maxCompHastaAyer });
+      setRangosHastaAyer({
+        fechaInicioMes,
+        fechaFinRealHastaAyer: finPeriodoHastaAyer,
+        minCompHastaAyer,
+        maxCompHastaAyer,
+      });
       const resultados: LocalObjetivo[] = await Promise.all(
         locales.map(async (loc) => {
           const workplaceId = (loc.agoraCode ?? loc.AgoraCode ?? '').toString().trim();
@@ -271,7 +302,6 @@ export default function ObjetivosScreen() {
             const totalsComp: Record<string, number> = totalsCompData.totals ?? {};
             const d2 = new Date(fechaInicioMes + 'T12:00:00');
             const end2 = new Date(fechaFinMes + 'T12:00:00');
-            const endHastaAyer = new Date(ayerYYYYMMDD() + 'T12:00:00');
             let sumReal = 0;
             let sumComp = 0;
             let sumRealHastaAyer = 0;
@@ -283,7 +313,7 @@ export default function ObjetivosScreen() {
               const comp = totalsComp[fechaComp] ?? 0;
               sumReal += real;
               sumComp += comp;
-              if (d2 <= endHastaAyer) {
+              if (fecha <= fechaHastaAyerStr) {
                 sumRealHastaAyer += real;
                 sumCompHastaAyer += comp;
               }
@@ -325,11 +355,13 @@ export default function ObjetivosScreen() {
     } finally {
       setLoadingLocalesObjetivos(false);
     }
-  }, [locales]);
+  }, [locales, fechaInicio, fechaFin]);
 
   useEffect(() => {
     cargarLocalesObjetivos();
   }, [cargarLocalesObjetivos]);
+
+  const tituloWidgetPeriodo = useMemo(() => nombreMesYAnioDesdeFecha(fechaInicio), [fechaInicio]);
 
   const captureWidget = useCallback(async (): Promise<string | null> => {
     if (!widgetRef.current) return null;
@@ -363,7 +395,7 @@ export default function ObjetivosScreen() {
       if (Platform.OS === 'web') {
         const a = document.createElement('a');
         a.href = uri;
-        a.download = `objetivos_${nombreMesYAnio().replace(/\s/g, '_')}.png`;
+        a.download = `objetivos_${tituloWidgetPeriodo.replace(/\s/g, '_')}.png`;
         a.click();
       } else {
         await Sharing.shareAsync(uri, { mimeType: 'image/jpeg', dialogTitle: 'Guardar imagen' });
@@ -371,7 +403,7 @@ export default function ObjetivosScreen() {
     } finally {
       setCapturing(false);
     }
-  }, [captureWidget]);
+  }, [captureWidget, tituloWidgetPeriodo]);
 
   const handleSharePDF = useCallback(async () => {
     setShareMenuOpen(false);
@@ -399,14 +431,14 @@ export default function ObjetivosScreen() {
           format: [pdfW, pdfH],
         });
         doc.setFontSize(12);
-        doc.text(`Objetivos – ${nombreMesYAnio()}`, margin, 10);
+        doc.text(`Objetivos – ${tituloWidgetPeriodo}`, margin, 10);
         doc.addImage(dataUrl, 'PNG', margin, 18, imgW, imgH);
-        doc.save(`objetivos_${nombreMesYAnio().replace(/\s/g, '_')}.pdf`);
+        doc.save(`objetivos_${tituloWidgetPeriodo.replace(/\s/g, '_')}.pdf`);
       } else {
         const base64 = await FileSystemLegacy.readAsStringAsync(dataUrl, { encoding: FileSystemLegacy.EncodingType.Base64 });
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         doc.setFontSize(12);
-        doc.text(`Objetivos – ${nombreMesYAnio()}`, 10, 10);
+        doc.text(`Objetivos – ${tituloWidgetPeriodo}`, 10, 10);
         doc.addImage(`data:image/jpeg;base64,${base64}`, 'JPEG', 5, 18, 200, 0);
         const pdfBase64 = doc.output('datauristring').split(',')[1];
         const pdfUri = `${FileSystemLegacy.cacheDirectory}objetivos.pdf`;
@@ -418,7 +450,7 @@ export default function ObjetivosScreen() {
     } finally {
       setCapturing(false);
     }
-  }, [captureWidget]);
+  }, [captureWidget, tituloWidgetPeriodo]);
 
   const handleShareWhatsApp = useCallback(async () => {
     setShareMenuOpen(false);
@@ -429,7 +461,7 @@ export default function ObjetivosScreen() {
       if (Platform.OS === 'web') {
         const a = document.createElement('a');
         a.href = uri;
-        a.download = `objetivos_${nombreMesYAnio().replace(/\s/g, '_')}.png`;
+        a.download = `objetivos_${tituloWidgetPeriodo.replace(/\s/g, '_')}.png`;
         a.click();
         setTimeout(() => {
           window.open('https://web.whatsapp.com/', '_blank');
@@ -440,7 +472,7 @@ export default function ObjetivosScreen() {
     } finally {
       setCapturing(false);
     }
-  }, [captureWidget]);
+  }, [captureWidget, tituloWidgetPeriodo]);
 
   const generar = useCallback(async () => {
     const workplaceId = (localSeleccionado?.agoraCode ?? localSeleccionado?.AgoraCode ?? '').toString().trim();
@@ -653,7 +685,7 @@ export default function ObjetivosScreen() {
 
           <View ref={widgetRef} style={[styles.widget, styles.widgetLocales]} collapsable={false}>
           <View style={styles.widgetLocalesHeader}>
-            <Text style={styles.widgetLocalesTitle}>{nombreMesYAnio()}</Text>
+            <Text style={styles.widgetLocalesTitle}>{tituloWidgetPeriodo}</Text>
             <View style={styles.shareWrap} {...{ dataSet: { captureHide: 'true' } }}>
               <TouchableOpacity
                 style={styles.shareBtn}
@@ -736,12 +768,12 @@ export default function ObjetivosScreen() {
                           } as any)}
                         >
                           <Text style={styles.localesListHastaAyerRango} numberOfLines={1}>
-                            Real {formatFechaCorta(rangosHastaAyer.fechaInicioMes)} → {formatFechaCorta(rangosHastaAyer.fechaHastaAyer)} | Comp. {formatFechaCorta(rangosHastaAyer.minCompHastaAyer)} → {formatFechaCorta(rangosHastaAyer.maxCompHastaAyer)}
+                            Real {formatFechaCorta(rangosHastaAyer.fechaInicioMes)} → {formatFechaCorta(rangosHastaAyer.fechaFinRealHastaAyer)} | Comp. {formatFechaCorta(rangosHastaAyer.minCompHastaAyer)} → {formatFechaCorta(rangosHastaAyer.maxCompHastaAyer)}
                           </Text>
                           {Platform.OS === 'web' && hoveredRangoKey === (item.local.id_Locales ?? item.local.agoraCode ?? item.local.AgoraCode) && (
                             <View style={styles.localesListRangoTooltip}>
                               <Text style={styles.localesListRangoTooltipText}>
-                                Real {formatFechaCorta(rangosHastaAyer.fechaInicioMes)} → {formatFechaCorta(rangosHastaAyer.fechaHastaAyer)}{'\n'}Comp. {formatFechaCorta(rangosHastaAyer.minCompHastaAyer)} → {formatFechaCorta(rangosHastaAyer.maxCompHastaAyer)}
+                                Real {formatFechaCorta(rangosHastaAyer.fechaInicioMes)} → {formatFechaCorta(rangosHastaAyer.fechaFinRealHastaAyer)}{'\n'}Comp. {formatFechaCorta(rangosHastaAyer.minCompHastaAyer)} → {formatFechaCorta(rangosHastaAyer.maxCompHastaAyer)}
                               </Text>
                             </View>
                           )}
