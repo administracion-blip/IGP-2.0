@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
   Pressable,
   useWindowDimensions,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
 import { InputFecha } from '../../components/InputFecha';
@@ -110,6 +110,7 @@ function itemFechaToFormDmy(fecha: string | number | undefined): string {
 
 export default function PedidosScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ crear?: string }>();
   const { localPermitido } = useAuth();
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [locales, setLocales] = useState<Local[]>([]);
@@ -145,6 +146,7 @@ export default function PedidosScreen() {
   const [lineasEditValues, setLineasEditValues] = useState<Record<string, string>>({});
   const [guardandoCantidades, setGuardandoCantidades] = useState(false);
   const [guardandoPreparada, setGuardandoPreparada] = useState<string | null>(null);
+  const [borrandoLinea, setBorrandoLinea] = useState<string | null>(null);
   const [modalLineaFormVisible, setModalLineaFormVisible] = useState(false);
   const [formLinea, setFormLinea] = useState({ ProductId: '', ProductoNombre: '', Cantidad: '', PrecioUnitario: '', Iva: '', TotalRappel: '' });
   const [guardandoLinea, setGuardandoLinea] = useState(false);
@@ -340,6 +342,23 @@ export default function PedidosScreen() {
     setModalFormVisible(true);
   };
 
+  const autoCrearDone = useRef(false);
+  const abrirLineasTrasPedido = useRef(false);
+
+  useEffect(() => {
+    if (params.crear === '1' && !loading && !autoCrearDone.current) {
+      autoCrearDone.current = true;
+      abrirModalCrear();
+    }
+  }, [params.crear, loading]);
+
+  useEffect(() => {
+    if (abrirLineasTrasPedido.current && pedidoParaLineas && !loadingLineas) {
+      abrirLineasTrasPedido.current = false;
+      setModalLineaFormVisible(true);
+    }
+  }, [pedidoParaLineas, loading, loadingLineas]);
+
   const abrirModalEditar = (item: Pedido) => {
     const id = valorEnLocal(item, 'Id');
     setEditingPedidoId(id != null ? String(id) : null);
@@ -415,9 +434,19 @@ export default function PedidosScreen() {
         setErrorForm(data.error || 'Error al guardar');
         return;
       }
-      refetch();
-      setSelectedRowIndex(null);
+      const esCreacion = editingPedidoId == null;
       cerrarModalForm();
+
+      if (esCreacion) {
+        abrirLineasTrasPedido.current = true;
+        const nuevoPedido = { ...body } as Pedido;
+        setPedidoParaLineas(nuevoPedido);
+        setLineas([]);
+        setFormLinea({ ProductId: '', ProductoNombre: '', Cantidad: '', PrecioUnitario: '', Iva: '', TotalRappel: '' });
+      } else {
+        setSelectedRowIndex(null);
+      }
+      refetch();
     } catch (e) {
       setErrorForm('No se pudo conectar con el servidor');
     } finally {
@@ -587,7 +616,6 @@ export default function PedidosScreen() {
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Error al crear línea');
       setFormLinea({ ProductId: '', ProductoNombre: '', Cantidad: '', PrecioUnitario: '', Iva: '', TotalRappel: '' });
-      setModalLineaFormVisible(false);
       fetchLineas(pedidoId);
       refetch();
     } catch (e) {
@@ -596,6 +624,28 @@ export default function PedidosScreen() {
       setGuardandoLinea(false);
     }
   }, [pedidoParaLineas, formLinea, fetchLineas, refetch]);
+
+  const handleDeleteLinea = useCallback(async (lineaIndex: string) => {
+    if (!pedidoParaLineas) return;
+    const pedidoId = String(valorEnLocal(pedidoParaLineas, 'Id') ?? '');
+    if (!pedidoId) return;
+    setBorrandoLinea(lineaIndex);
+    try {
+      const res = await fetch(`${API_URL}/api/pedidos/${pedidoId}/lineas`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ LineaIndex: lineaIndex }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Error al borrar línea');
+      fetchLineas(pedidoId);
+      refetch();
+    } catch (e) {
+      alert((e as Error).message || 'Error al borrar línea');
+    } finally {
+      setBorrandoLinea(null);
+    }
+  }, [pedidoParaLineas, fetchLineas, refetch]);
 
   const togglePreparadaLinea = useCallback(async (lineaIndex: string) => {
     if (!pedidoParaLineas) return;
@@ -706,12 +756,10 @@ export default function PedidosScreen() {
                     <MaterialIcons name="edit" size={14} color="#0ea5e9" />
                     <Text style={styles.lineasEditarBtnText}>Editar</Text>
                   </TouchableOpacity>
-                  {!modalLineaFormVisible && (
-                    <TouchableOpacity style={styles.lineasAddBtn} onPress={() => setModalLineaFormVisible(true)} disabled={loadingLineas}>
-                      <MaterialIcons name="add" size={14} color="#16a34a" />
-                      <Text style={styles.lineasAddBtnText}>Añadir línea</Text>
-                    </TouchableOpacity>
-                  )}
+                  <TouchableOpacity style={styles.lineasAddBtn} onPress={() => setModalLineaFormVisible(true)} disabled={loadingLineas || modalLineaFormVisible}>
+                    <MaterialIcons name="add" size={14} color={modalLineaFormVisible ? '#94a3b8' : '#16a34a'} />
+                    <Text style={[styles.lineasAddBtnText, modalLineaFormVisible && { color: '#94a3b8' }]}>Añadir línea</Text>
+                  </TouchableOpacity>
                 </>
               ) : (
                 <View style={styles.lineasEditActions}>
@@ -738,6 +786,7 @@ export default function PedidosScreen() {
                   <View style={styles.lineasColTotalRappel}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, styles.lineasHeaderTwoLines, { textAlign: 'right' }]}>Total{'\n'}Rappel</Text></View>
                   <View style={styles.lineasColTotal}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, { textAlign: 'right' }]}>Total</Text></View>
                   <View style={styles.lineasColId}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, { textAlign: 'center' }]}>ID</Text></View>
+                  <View style={styles.lineasColDelete}><Text style={styles.lineasTableCell}>{' '}</Text></View>
                 </View>
                 {lineas.length === 0 ? (
                   <View style={styles.lineasTableEmpty}>
@@ -794,6 +843,19 @@ export default function PedidosScreen() {
                             <Text style={styles.lineasCellIdText} numberOfLines={1}>{String(l.ProductId ?? '—')}</Text>
                           </View>
                         </View>
+                        <View style={styles.lineasColDelete}>
+                          <TouchableOpacity
+                            onPress={() => handleDeleteLinea(key)}
+                            disabled={borrandoLinea !== null}
+                            style={styles.lineasDeleteBtn}
+                          >
+                            {borrandoLinea === key ? (
+                              <ActivityIndicator size="small" color="#ef4444" />
+                            ) : (
+                              <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
+                            )}
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     );
                   })
@@ -805,7 +867,8 @@ export default function PedidosScreen() {
           )}
           {pedidoParaLineas && modalLineaFormVisible && (
             <View style={styles.lineaForm}>
-              <View style={styles.formGroup}>
+              <View style={styles.formRow}>
+              <View style={[styles.formGroup, { flex: 1, marginBottom: 0 }]}>
                 <Text style={styles.formLabel}>Producto</Text>
                 {loadingProductos ? (
                   <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 8 }} />
@@ -887,7 +950,7 @@ export default function PedidosScreen() {
                   </>
                 )}
               </View>
-              <View style={styles.formGroup}>
+              <View style={[styles.formGroup, { width: 90, marginBottom: 0 }]}>
                 <Text style={styles.formLabel}>Cantidad</Text>
                 <TextInput
                   style={[styles.formInput, styles.formInputCompact]}
@@ -897,6 +960,7 @@ export default function PedidosScreen() {
                   placeholderTextColor="#94a3b8"
                   keyboardType="decimal-pad"
                 />
+              </View>
               </View>
               <View style={styles.formRow}>
                 <View style={[styles.formGroup, styles.formGroupFlex]}>
@@ -1434,6 +1498,8 @@ const styles = StyleSheet.create({
   lineasCheckBtnActive: {},
   lineasColCantidad: { width: 52 },
   lineasColId: { width: 60, alignItems: 'center', justifyContent: 'center' },
+  lineasColDelete: { width: 36, alignItems: 'center', justifyContent: 'center' },
+  lineasDeleteBtn: { padding: 4 },
   lineasColArticulo: { flex: 1, minWidth: 120 },
   lineasColArticuloPreparada: { backgroundColor: '#dcfce7' },
   lineasCellArticuloPreparada: { color: '#16a34a', fontWeight: '600' },

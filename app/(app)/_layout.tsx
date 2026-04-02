@@ -28,6 +28,7 @@ const MENU_ITEMS: { route: string; label: string; icon: string; permiso: string 
   { route: '/reservas', label: 'Reservas', icon: 'event-available', permiso: 'reservas.ver' },
   { route: '/acuerdos', label: 'Acuerdos', icon: 'handshake', permiso: 'acuerdos.ver' },
   { route: '/facturacion', label: 'Facturación', icon: 'receipt', permiso: 'facturacion.ver' },
+  { route: '/planning-dia', label: 'Planning del Día', icon: 'today', permiso: 'planning_dia.ver' },
 ];
 
 function AppLayoutContent() {
@@ -199,6 +200,7 @@ function AppLayoutContent() {
             <Stack.Screen name="acuerdos-productos-activos" />
             <Stack.Screen name="facturacion" />
             <Stack.Screen name="ajustes" />
+            <Stack.Screen name="planning-dia" />
           </Stack>
         </View>
       </View>

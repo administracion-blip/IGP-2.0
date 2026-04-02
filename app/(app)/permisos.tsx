@@ -120,6 +120,8 @@ const PERMISOS_CODIGOS = [
   'ajustes.sincronizaciones.closeouts',
   'ajustes.sincronizaciones.almacenes',
   'ajustes.sincronizaciones.empleados',
+  // --- Planning del Día ---
+  'planning_dia.ver',
 ] as const;
 
 const PERMISOS_LABELS: Record<string, string> = {
