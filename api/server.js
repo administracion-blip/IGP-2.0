@@ -20,6 +20,7 @@ import facturacionRouter from './routes/facturacion.js';
 import artistasActuacionesRouter from './routes/artistasActuaciones.js';
 import arqueosRealesRouter from './routes/arqueosReales.js';
 import mysteryGuestRouter from './routes/mysteryGuest.js';
+import personalRouter from './routes/personal.js';
 import { normalizeCif, getCifFromEmpresaItem, getIdEmpresaFromItem } from './lib/empresaCif.js';
 
 const app = express();
@@ -5066,6 +5067,7 @@ app.use('/api', facturacionRouter);
 app.use('/api', artistasActuacionesRouter);
 app.use('/api', arqueosRealesRouter);
 app.use('/api', mysteryGuestRouter);
+app.use('/api', personalRouter);
 
 // ─── Ajustes ───
 

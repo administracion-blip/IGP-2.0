@@ -14,6 +14,7 @@ const TABLAS: { id: string; label: string; icon: React.ComponentProps<typeof Mat
   { id: 'productos', label: 'Productos', icon: 'inventory', descripcion: 'Carta y stock', permiso: 'productos.ver' },
   { id: 'puntos-venta', label: 'Puntos de Venta', icon: 'storefront', descripcion: 'Puntos de venta y TPV', permiso: 'puntos_venta.ver' },
   { id: 'artistas', label: 'Artistas', icon: 'mic', descripcion: 'Actuaciones y programación', permiso: 'actuaciones.ver' },
+  { id: 'personal', label: 'Personal', icon: 'badge', descripcion: 'Empleados (Factorial HR)', permiso: 'personal.ver' },
 ];
 
 export default function BaseDatosScreen() {
@@ -51,6 +52,7 @@ export default function BaseDatosScreen() {
     if (id === 'productos') router.push('/productos');
     if (id === 'puntos-venta') router.push('/puntos-venta');
     if (id === 'artistas') router.push('/actuaciones/artistas');
+    if (id === 'personal') router.push('/personal');
   }
 
   return (

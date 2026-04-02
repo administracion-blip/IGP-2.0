@@ -36,6 +36,8 @@ export const tables = {
   arqueosReales: process.env.DDB_ARQUEOS_REALES || 'Igp_ArqueosReales',
   /** Nombre en AWS: Igp_MysteryGuest (DDB_MISTERY_GUEST si difiere). */
   mysteryGuest: process.env.DDB_MISTERY_GUEST || 'Igp_MysteryGuest',
+  /** Empleados sincronizados desde Factorial HR. PK = EMPLOYEE#<id>, SK = METADATA. */
+  empleados: process.env.DDB_EMPLEADOS || 'Igp_Empleados',
 };
 
 /**

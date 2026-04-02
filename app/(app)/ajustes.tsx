@@ -63,6 +63,14 @@ const SYNC_ITEMS: SyncConfig[] = [
     permiso: 'ajustes.sincronizaciones.almacenes',
     descripcion: 'Sincroniza almacenes desde Agora',
   },
+  {
+    id: 'empleados_factorial',
+    label: 'Empleados',
+    icon: 'badge',
+    endpoint: '/api/personal/employees/sync',
+    permiso: 'ajustes.sincronizaciones.empleados',
+    descripcion: 'Sincroniza empleados desde Factorial HR',
+  },
 ];
 
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
@@ -238,7 +246,7 @@ export default function AjustesScreen() {
 
   // --- Config modal helpers ---
   const abrirConfig = useCallback((id: string) => {
-    const st = syncStates[id];
+    const st = syncStates[id] ?? defaultState();
     setCfgEnabled(st.enabled);
     setCfgDays([...st.days]);
     setCfgTimes([...st.times].sort());
@@ -346,7 +354,7 @@ export default function AjustesScreen() {
           ) : (
             <View style={styles.cardsGrid}>
               {visibleItems.map((item) => {
-                const st = syncStates[item.id];
+                const st = syncStates[item.id] ?? defaultState();
                 return (
                   <View key={item.id} style={[styles.card, { minWidth: winWidth < 500 ? '100%' as any : 260, maxWidth: winWidth < 500 ? '100%' as any : 360 }]}>
                     {/* Cabecera */}

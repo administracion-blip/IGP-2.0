@@ -119,6 +119,7 @@ const PERMISOS_CODIGOS = [
   'ajustes.sincronizaciones.compras_proveedor',
   'ajustes.sincronizaciones.closeouts',
   'ajustes.sincronizaciones.almacenes',
+  'ajustes.sincronizaciones.empleados',
 ] as const;
 
 const PERMISOS_LABELS: Record<string, string> = {
