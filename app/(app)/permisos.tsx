@@ -14,6 +14,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../constants/icons';
+import { authHeaders } from '../utils/authToken';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -234,7 +235,8 @@ export default function PermisosScreen() {
   const refetch = useCallback(() => {
     setError(null);
     setLoading(true);
-    fetch(`${API_URL}/api/permisos/todos`)
+    authHeaders()
+      .then((hdrs) => fetch(`${API_URL}/api/permisos/todos`, { headers: hdrs }))
       .then((res) => res.json())
       .then((data: { items?: ItemPermiso[]; error?: string }) => {
         if (data.error) setError(data.error);
@@ -303,9 +305,10 @@ export default function PermisosScreen() {
           return;
         }
         if (editingItem.rol !== rol || editingItem.permiso !== permiso) {
+          const hdrs = await authHeaders();
           const delRes = await fetch(`${API_URL}/api/permisos`, {
             method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
+            headers: hdrs,
             body: JSON.stringify({ rol: editingItem.rol, permiso: editingItem.permiso }),
           });
           if (!delRes.ok) {
@@ -320,9 +323,10 @@ export default function PermisosScreen() {
           setGuardando(false);
           return;
         }
+        const hdrs2 = await authHeaders();
         const res = await fetch(`${API_URL}/api/permisos`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: hdrs2,
           body: JSON.stringify({ rol, permiso }),
         });
         const data = await res.json();
@@ -338,10 +342,11 @@ export default function PermisosScreen() {
           return;
         }
         let failed = false;
+        const hdrs3 = await authHeaders();
         for (const permiso of formPermisos) {
           const res = await fetch(`${API_URL}/api/permisos`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: hdrs3,
             body: JSON.stringify({ rol, permiso }),
           });
           const data = await res.json();
@@ -372,9 +377,10 @@ export default function PermisosScreen() {
     if (!item) return;
     setGuardando(true);
     try {
+      const hdrs = await authHeaders();
       const res = await fetch(`${API_URL}/api/permisos`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: hdrs,
         body: JSON.stringify({ rol: item.rol, permiso: item.permiso }),
       });
       const data = await res.json();

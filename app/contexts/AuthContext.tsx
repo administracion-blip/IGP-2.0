@@ -1,17 +1,20 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getToken, removeToken } from '../utils/authToken';
 
 const AUTH_KEY = 'erp_user';
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
 export type UserSession = { id_usuario: string; email: string; Nombre: string; Rol?: string; Locales?: string[] };
+export type PermisosStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
 type AuthContextValue = {
   user: UserSession | null;
   permisos: string[];
+  permisosStatus: PermisosStatus;
   loading: boolean;
   setUser: (u: UserSession | null) => void;
-  refetchPermisos: () => Promise<void>;
+  refetchSession: () => Promise<void>;
   hasPermiso: (codigo: string) => boolean;
   localPermitido: (nombre: string) => boolean;
   logout: () => Promise<void>;
@@ -22,113 +25,93 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUserState] = useState<UserSession | null>(null);
   const [permisos, setPermisos] = useState<string[]>([]);
+  const [permisosStatus, setPermisosStatus] = useState<PermisosStatus>('idle');
   const [loading, setLoading] = useState(true);
 
-  const fetchPermisos = useCallback(async (rol: string) => {
-    if (!rol.trim()) {
-      setPermisos([]);
-      return;
-    }
+  const fetchSession = useCallback(async (): Promise<UserSession | null> => {
+    const token = await getToken();
+    if (!token) return null;
+    setPermisosStatus('loading');
     try {
       const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 10000);
-      const res = await fetch(`${API_URL}/api/permisos?rol=${encodeURIComponent(rol)}`, { signal: controller.signal });
-      clearTimeout(id);
-      const data = res.ok ? await res.json() : {};
-      if (data.permisos && Array.isArray(data.permisos)) setPermisos(data.permisos);
-      else setPermisos([]);
+      const tid = setTimeout(() => controller.abort(), 10000);
+      const res = await fetch(`${API_URL}/api/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      });
+      clearTimeout(tid);
+      if (!res.ok) {
+        setPermisosStatus('error');
+        if (res.status === 401) {
+          await AsyncStorage.removeItem(AUTH_KEY);
+          await removeToken();
+          setUserState(null);
+          setPermisos([]);
+        }
+        return null;
+      }
+      const data = await res.json();
+      const u = data.user as UserSession;
+      setUserState(u);
+      setPermisos(Array.isArray(data.permisos) ? data.permisos : []);
+      setPermisosStatus('loaded');
+      await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(u));
+      return u;
     } catch {
-      setPermisos([]);
+      setPermisosStatus('error');
+      const stored = await AsyncStorage.getItem(AUTH_KEY).catch(() => null);
+      if (stored) {
+        try {
+          setUserState(JSON.parse(stored) as UserSession);
+        } catch { /* ignore */ }
+      }
+      return null;
     }
   }, []);
 
-  const refetchPermisos = useCallback(async () => {
-    if (user?.Rol) await fetchPermisos(user.Rol);
-  }, [user?.Rol, fetchPermisos]);
+  const refetchSession = useCallback(async () => {
+    await fetchSession();
+  }, [fetchSession]);
 
   useEffect(() => {
-    let finished = false;
-    const safetyMs = 15000;
-    const safetyId = setTimeout(() => {
-      if (!finished) {
-        finished = true;
+    let cancelled = false;
+    const safetyId = setTimeout(() => { if (!cancelled) setLoading(false); }, 15000);
+    fetchSession().finally(() => {
+      if (!cancelled) {
+        clearTimeout(safetyId);
         setLoading(false);
       }
-    }, safetyMs);
-
-    AsyncStorage.getItem(AUTH_KEY)
-      .then((stored) => {
-        if (stored) {
-          try {
-            const u = JSON.parse(stored) as UserSession;
-            setUserState(u);
-            if (u.Rol) {
-              fetchPermisos(u.Rol).finally(() => {
-                if (!finished) {
-                  finished = true;
-                  clearTimeout(safetyId);
-                  setLoading(false);
-                }
-              });
-            } else {
-              if (!finished) {
-                finished = true;
-                clearTimeout(safetyId);
-                setLoading(false);
-              }
-            }
-          } catch {
-            setUserState(null);
-            if (!finished) {
-              finished = true;
-              clearTimeout(safetyId);
-              setLoading(false);
-            }
-          }
-        } else {
-          setUserState(null);
-          if (!finished) {
-            finished = true;
-            clearTimeout(safetyId);
-            setLoading(false);
-          }
-        }
-      })
-      .catch(() => {
-        setUserState(null);
-        if (!finished) {
-          finished = true;
-          clearTimeout(safetyId);
-          setLoading(false);
-        }
-      });
-
-    return () => clearTimeout(safetyId);
-  }, [fetchPermisos]);
+    });
+    return () => { cancelled = true; clearTimeout(safetyId); };
+  }, [fetchSession]);
 
   const setUser = useCallback((u: UserSession | null) => {
     setUserState(u);
-    if (u) AsyncStorage.setItem(AUTH_KEY, JSON.stringify(u)).catch(() => {});
-    else AsyncStorage.removeItem(AUTH_KEY).catch(() => {});
-    if (u?.Rol) fetchPermisos(u.Rol);
-    else setPermisos([]);
-  }, [fetchPermisos]);
+    if (u) {
+      AsyncStorage.setItem(AUTH_KEY, JSON.stringify(u)).catch(() => {});
+      fetchSession();
+    } else {
+      AsyncStorage.removeItem(AUTH_KEY).catch(() => {});
+      setPermisos([]);
+      setPermisosStatus('idle');
+    }
+  }, [fetchSession]);
 
   const hasPermiso = useCallback(
     (codigo: string) => {
       if (!codigo) return true;
-      if (!user?.Rol) return true;
+      if (!user) return false;
       if (user.Rol === 'Administrador') return true;
-      if (permisos.length === 0) return true;
+      if (permisosStatus !== 'loaded') return false;
       return permisos.includes(codigo);
     },
-    [user?.Rol, permisos]
+    [user, permisos, permisosStatus]
   );
 
   const localPermitido = useCallback(
     (nombre: string) => {
       if (!nombre) return false;
-      if (!user) return true;
+      if (!user) return false;
       if (user.Rol === 'Administrador') return true;
       if (!user.Locales || user.Locales.length === 0) return true;
       return user.Locales.some((l) => l.toLowerCase() === nombre.toLowerCase());
@@ -138,16 +121,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     await AsyncStorage.removeItem(AUTH_KEY);
+    await removeToken();
     setUserState(null);
     setPermisos([]);
+    setPermisosStatus('idle');
   }, []);
 
   const value: AuthContextValue = {
     user,
     permisos,
+    permisosStatus,
     loading,
     setUser,
-    refetchPermisos,
+    refetchSession,
     hasPermiso,
     localPermitido,
     logout,

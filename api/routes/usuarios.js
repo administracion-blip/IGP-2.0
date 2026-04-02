@@ -1,8 +1,14 @@
 import express from 'express';
+import bcrypt from 'bcrypt';
 import { ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 
 const router = express.Router();
+const BCRYPT_ROUNDS = 10;
+
+function isBcryptHash(str) {
+  return typeof str === 'string' && /^\$2[aby]\$\d{2}\$/.test(str);
+}
 
 // Formato mínimo 6 dígitos para campos id_ (000001, 000002, ...).
 function formatId6(val) {
@@ -63,7 +69,7 @@ router.post('/usuarios', async (req, res) => {
       } else if (key === 'Email') {
         item[key] = String(body.Email ?? '').trim().toLowerCase();
       } else if (key === 'Password') {
-        item[key] = String(body.Password ?? '');
+        item[key] = await bcrypt.hash(String(body.Password ?? ''), BCRYPT_ROUNDS);
       } else if (key === 'Local') {
         item[key] = normalizeLocal(body.Local);
       } else {
@@ -78,7 +84,8 @@ router.post('/usuarios', async (req, res) => {
     });
 
     await docClient.send(cmd);
-    res.json({ ok: true, usuario: item });
+    const { Password: _, ...safeItem } = item;
+    res.json({ ok: true, usuario: safeItem });
   } catch (err) {
     console.error('DynamoDB error:', err);
     res.status(500).json({ error: err.message || 'Error al guardar el usuario' });
@@ -111,8 +118,12 @@ router.put('/usuarios', async (req, res) => {
       } else if (key === 'Email') {
         item[key] = String(body.Email ?? '').trim().toLowerCase();
       } else if (key === 'Password') {
-        const newPass = body.Password != null && String(body.Password).trim() !== '' ? String(body.Password) : (existing.Password ?? '');
-        item[key] = newPass;
+        const rawPass = body.Password != null ? String(body.Password).trim() : '';
+        if (rawPass) {
+          item[key] = isBcryptHash(rawPass) ? rawPass : await bcrypt.hash(rawPass, BCRYPT_ROUNDS);
+        } else {
+          item[key] = existing.Password ?? '';
+        }
       } else if (key === 'Local') {
         item[key] = body.Local !== undefined ? normalizeLocal(body.Local) : normalizeLocal(existing.Local);
       } else {
@@ -125,7 +136,8 @@ router.put('/usuarios', async (req, res) => {
       TableName: tables.usuarios,
       Item: item,
     }));
-    res.json({ ok: true, usuario: item });
+    const { Password: _, ...safeItem } = item;
+    res.json({ ok: true, usuario: safeItem });
   } catch (err) {
     console.error('DynamoDB error:', err);
     res.status(500).json({ error: err.message || 'Error al actualizar el usuario' });

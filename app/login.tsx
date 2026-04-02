@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { saveToken } from './utils/authToken';
 import { emailValido } from './utils/validation';
 
 const AUTH_KEY = 'erp_user';
@@ -60,6 +61,7 @@ export default function LoginScreen() {
         return;
       }
       await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(data.user));
+      if (data.token) await saveToken(data.token);
       router.replace('/(app)');
     } catch (e) {
       const msg =

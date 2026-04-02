@@ -1,10 +1,12 @@
 import express from 'express';
 import { QueryCommand, ScanCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
-router.get('/permisos', async (req, res) => {
+// GET /permisos?rol= — protegido (AuthContext usa /api/me ahora)
+router.get('/permisos', requireAuth, async (req, res) => {
   const rol = (req.query.rol ?? '').toString().trim();
   if (!rol) {
     return res.json({ permisos: [] });
@@ -38,7 +40,7 @@ router.get('/permisos', async (req, res) => {
   }
 });
 
-router.get('/permisos/todos', async (req, res) => {
+router.get('/permisos/todos', requireAuth, requireRole('Administrador'), async (req, res) => {
   try {
     let items = [];
     let lastKey = null;
@@ -71,7 +73,7 @@ router.get('/permisos/todos', async (req, res) => {
   }
 });
 
-router.post('/permisos', async (req, res) => {
+router.post('/permisos', requireAuth, requireRole('Administrador'), async (req, res) => {
   const rol = (req.body?.rol ?? '').toString().trim();
   const permiso = (req.body?.permiso ?? '').toString().trim();
   if (!rol || !permiso) {
@@ -94,7 +96,7 @@ router.post('/permisos', async (req, res) => {
   }
 });
 
-router.delete('/permisos', async (req, res) => {
+router.delete('/permisos', requireAuth, requireRole('Administrador'), async (req, res) => {
   const rol = (req.body?.rol ?? req.query?.rol ?? '').toString().trim();
   const permiso = (req.body?.permiso ?? req.query?.permiso ?? '').toString().trim();
   if (!rol || !permiso) {
