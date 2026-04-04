@@ -5,6 +5,7 @@ import {
   GetCommand,
   PutCommand,
   UpdateCommand,
+  DeleteCommand,
   BatchWriteCommand,
   BatchGetCommand,
 } from '@aws-sdk/lib-dynamodb';
@@ -14,6 +15,9 @@ import {
   exportPosCloseOuts,
   exportInvoices,
   exportWarehouses,
+  exportFamilies,
+  exportVats,
+  exportIncomingDeliveryNotes,
 } from '../lib/agora/client.js';
 import { upsertBatch } from '../lib/dynamo/salesCloseOuts.js';
 import {
@@ -24,15 +28,34 @@ import {
   toApiProduct,
   pickAllowedFields,
 } from '../lib/dynamo/agoraProducts.js';
+import {
+  MONTH_LABELS,
+  extractNumberFromSk,
+  formatFechaNegocio,
+  addExcelStyleFields,
+  normalizeCloseOutForResponse,
+} from '../lib/agora/closeoutReadHelpers.js';
+import {
+  enrichItemsOpenCloseDatesFromAuxiliary,
+  accumulateOpenCloseEnrichmentTotals,
+} from '../lib/agora/closeoutSyncHelpers.js';
+import {
+  GSI_COMPRAS_NAME,
+  isGsiReady,
+} from '../lib/dynamo/comprasProveedor.js';
 
 const router = Router();
-const AGORA_API_BASE_URL = process.env.AGORA_API_BASE_URL || '';
-const AGORA_API_TOKEN = process.env.AGORA_API_TOKEN || '';
+const env = () => ({
+  AGORA_API_BASE_URL: process.env.AGORA_API_BASE_URL || '',
+  AGORA_API_TOKEN: process.env.AGORA_API_TOKEN || '',
+});
 
 const tableAgoraProductsName = tables.agoraProducts;
 const tableSaleCentersName = tables.saleCenters;
 const tableSalesCloseOutsName = tables.salesCloseOuts;
 const tableAlmacenesName = tables.almacenes;
+const tableLocalesName = tables.locales;
+const tableComprasProveedorName = tables.comprasProveedor;
 
 function formatId6(val) {
   if (val == null || val === '') return '000000';
@@ -550,65 +573,6 @@ function mapCloseOutToItem(raw, businessDayOverride = '', paymentSource = null) 
   };
 }
 
-function extractNumberFromSk(sk) {
-  if (!sk || typeof sk !== 'string') return '';
-  const parts = String(sk).trim().split('#');
-  return parts.length >= 2 ? parts[parts.length - 1] : '';
-}
-
-function formatFechaNegocio(iso) {
-  if (!iso || typeof iso !== 'string') return '';
-  const parts = String(iso).trim().split('-');
-  if (parts.length !== 3) return iso;
-  return `${parts[2]}/${parts[1]}/${parts[0]}`;
-}
-
-function addExcelStyleFields(item) {
-  if (!item || typeof item !== 'object') return item;
-  const ensureArray = (arr) => (Array.isArray(arr) ? arr : []);
-  const payments = ensureArray(item.InvoicePayments ?? item.invoicePayments);
-  const amounts = item.Amounts ?? item.amounts ?? {};
-  const gross = amounts.GrossAmount ?? amounts.grossAmount ?? amounts.Total ?? amounts.total;
-  const sumPayments = payments.reduce((s, p) => s + (Number(p?.Amount ?? p?.amount ?? 0) || 0), 0);
-  const ventas =
-    gross != null
-      ? typeof gross === 'number'
-        ? gross
-        : parseFloat(String(gross).replace(',', '.')) || 0
-      : sumPayments;
-  const EXCEL_PAYMENT_KEYS = [
-    'Efectivo',
-    'Tarjeta',
-    'Pendiente de cobro',
-    'Prepago Transferencia',
-    'AgoraPay',
-  ];
-  const byMethod = {};
-  for (const k of EXCEL_PAYMENT_KEYS) {
-    const p = payments.find((x) => (String(x?.MethodName ?? x?.methodName ?? '').trim()) === k);
-    byMethod[k] =
-      p != null
-        ? typeof p.Amount === 'number'
-          ? p.Amount
-          : parseFloat(String(p?.Amount ?? p?.amount ?? 0).replace(',', '.')) || 0
-        : 0;
-  }
-  const posName = item.PosName ?? item.posName ?? '';
-  const posId = item.PosId ?? item.posId;
-  const tpvLabel = posName || (posId != null && posId !== '' ? `TPV ${posId}` : 'Cierre sistema');
-  return {
-    ...item,
-    TPV: tpvLabel,
-    FechaNegocio: formatFechaNegocio(item.BusinessDay ?? item.businessDay ?? ''),
-    Ventas: ventas,
-    Efectivo: byMethod.Efectivo,
-    Tarjeta: byMethod.Tarjeta,
-    'Pendiente de cobro': byMethod['Pendiente de cobro'],
-    'Prepago Transferencia': byMethod['Prepago Transferencia'],
-    AgoraPay: byMethod.AgoraPay,
-  };
-}
-
 function validateAgoraCloseOut(raw) {
   if (!raw || typeof raw !== 'object') return { valid: false, reason: 'Registro vacío o no objeto' };
   const r = getMappableRaw(raw);
@@ -635,7 +599,500 @@ function validateAgoraCloseOut(raw) {
 
 // --- Rutas ---
 
+// --- Fase C: lectura / dashboard de cierres ---
+
+router.get('/agora/closeouts', async (req, res) => {
+  const businessDay = (req.query.businessDay && String(req.query.businessDay).trim()) || '';
+  const workplaceId = (req.query.workplaceId && String(req.query.workplaceId).trim()) || '';
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const result = await docClient.send(new ScanCommand({
+        TableName: tableSalesCloseOutsName,
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+    let list = items;
+    if (workplaceId) list = list.filter((i) => (i.PK ?? i.pk) === workplaceId);
+    if (businessDay && /^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
+      const sk = (i) => i.SK ?? i.sk ?? '';
+      list = list.filter((i) => sk(i) && sk(i).startsWith(businessDay));
+    }
+    list.sort((a, b) => ((a.SK ?? a.sk) || '').localeCompare((b.SK ?? b.sk) || ''));
+    for (const item of list) {
+      if ((item.PosId ?? item.posId) != null) continue;
+      const sk = String(item.SK ?? item.sk ?? '').trim();
+      const parts = sk.split('#');
+      if (parts.length === 3 && parts[1] && parts[1] !== '0') item.PosId = parts[1];
+    }
+    const posIdsNeedingName = [...new Set(list.filter((i) => (i.PosId ?? i.posId) != null && !(i.PosName ?? i.posName)).map((i) => String(i.PosId ?? i.posId)))];
+    if (posIdsNeedingName.length > 0) {
+      const scItems = [];
+      let scLastKey = null;
+      do {
+        const scResult = await docClient.send(new QueryCommand({
+          TableName: tableSaleCentersName,
+          KeyConditionExpression: 'PK = :pk',
+          ExpressionAttributeValues: { ':pk': 'GLOBAL' },
+          ...(scLastKey && { ExclusiveStartKey: scLastKey }),
+        }));
+        scItems.push(...(scResult.Items || []));
+        scLastKey = scResult.LastEvaluatedKey || null;
+      } while (scLastKey);
+      const posIdToNombre = Object.fromEntries(scItems.filter((s) => s.Id != null).map((s) => [String(s.Id), String(s.Nombre ?? s.nombre ?? '').trim()]));
+      for (const item of list) {
+        const pid = item.PosId ?? item.posId;
+        if (pid != null && !(item.PosName ?? item.posName) && posIdToNombre[String(pid)]) {
+          item.PosName = posIdToNombre[String(pid)];
+        }
+      }
+    }
+    const normalized = list.map((item) => {
+      if (!item || typeof item !== 'object') return item;
+      const a = item.Amounts ?? item.amounts ?? {};
+      const amounts = typeof a === 'object' && a !== null ? a : {};
+      const ensureArray = (arr) => (Array.isArray(arr) ? arr : []);
+      const toPayment = (p) => ({ MethodName: p?.MethodName ?? p?.methodName ?? p?.Name ?? p?.name ?? null, Amount: p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? null });
+      const skVal = item.SK ?? item.sk ?? '';
+      const extractNum = (s) => (!s || typeof s !== 'string' ? '' : s.trim().split('#').length >= 2 ? s.trim().split('#').pop() : '');
+      const numberVal = item.Number ?? item.number ?? extractNum(skVal);
+      const base = {
+        ...item,
+        PK: item.PK ?? item.pk ?? '',
+        SK: skVal,
+        BusinessDay: item.BusinessDay ?? item.businessDay ?? (skVal && String(skVal).split('#')[0]) ?? '',
+        Number: numberVal,
+        Amounts: amounts,
+        InvoicePayments: ensureArray(item.InvoicePayments ?? item.invoicePayments).map(toPayment),
+        TicketPayments: ensureArray(item.TicketPayments ?? item.ticketPayments).map(toPayment),
+        DeliveryNotePayments: ensureArray(item.DeliveryNotePayments ?? item.deliveryNotePayments).map(toPayment),
+        SalesOrderPayments: ensureArray(item.SalesOrderPayments ?? item.salesOrderPayments).map(toPayment),
+      };
+      return addExcelStyleFields(base);
+    });
+    res.json({ closeouts: normalized });
+  } catch (err) {
+    console.error('[agora/closeouts]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al listar cierres' });
+  }
+});
+
+router.get('/agora/closeouts/totals-by-local-range', async (req, res) => {
+  const workplaceId = (req.query.workplaceId && String(req.query.workplaceId).trim()) || '';
+  const dateFrom = (req.query.dateFrom && String(req.query.dateFrom).trim()) || '';
+  const dateTo = (req.query.dateTo && String(req.query.dateTo).trim()) || '';
+  if (!workplaceId) {
+    return res.status(400).json({ error: 'workplaceId obligatorio' });
+  }
+  if (!dateFrom || !/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !dateTo || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+    return res.status(400).json({ error: 'dateFrom y dateTo obligatorios (YYYY-MM-DD)' });
+  }
+  if (dateFrom > dateTo) {
+    return res.status(400).json({ error: 'dateFrom debe ser <= dateTo' });
+  }
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const result = await docClient.send(new QueryCommand({
+        TableName: tableSalesCloseOutsName,
+        KeyConditionExpression: 'PK = :pk AND SK BETWEEN :skFrom AND :skTo',
+        ExpressionAttributeValues: {
+          ':pk': workplaceId,
+          ':skFrom': dateFrom,
+          ':skTo': `${dateTo}\uffff`,
+        },
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+    const totalsByDay = {};
+    for (const item of items) {
+      const sk = String(item.SK ?? item.sk ?? '').trim();
+      const businessDay = (sk && /^\d{4}-\d{2}-\d{2}/.test(sk) ? sk.slice(0, 10) : (sk && sk.split('#')[0])) || '';
+      if (!businessDay || !/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) continue;
+      const arr = item.InvoicePayments ?? item.invoicePayments;
+      let total = 0;
+      if (Array.isArray(arr)) {
+        for (const p of arr) {
+          total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
+        }
+      }
+      if (total === 0) {
+        const amounts = item.Amounts ?? item.amounts ?? {};
+        const gross = amounts.GrossAmount ?? amounts.grossAmount ?? amounts.Total ?? amounts.total;
+        total = Number(gross) || 0;
+      }
+      totalsByDay[businessDay] = (totalsByDay[businessDay] || 0) + total;
+    }
+    for (const d in totalsByDay) {
+      totalsByDay[d] = Math.round(totalsByDay[d] * 100) / 100;
+    }
+    res.json({ totals: totalsByDay });
+  } catch (err) {
+    console.error('[agora/closeouts/totals-by-local-range]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al obtener totales' });
+  }
+});
+
+router.get('/agora/closeouts/totals-by-local', async (req, res) => {
+  const businessDay = (req.query.businessDay && String(req.query.businessDay).trim()) || '';
+  if (!businessDay || !/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
+    return res.status(400).json({ error: 'businessDay obligatorio (YYYY-MM-DD)' });
+  }
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const result = await docClient.send(new ScanCommand({
+        TableName: tableSalesCloseOutsName,
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+    const list = items.filter((i) => {
+      const sk = String(i.SK ?? i.sk ?? '').trim();
+      return sk && sk.startsWith(businessDay);
+    });
+    const totalsByPk = {};
+    for (const item of list) {
+      const pk = String(item.PK ?? item.pk ?? '').trim();
+      const arr = item.InvoicePayments ?? item.invoicePayments;
+      let total = 0;
+      if (Array.isArray(arr)) {
+        for (const p of arr) {
+          total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
+        }
+      }
+      if (pk) {
+        totalsByPk[pk] = (totalsByPk[pk] || 0) + total;
+      }
+    }
+    const localeItems = [];
+    let locLastKey = null;
+    do {
+      const locResult = await docClient.send(new ScanCommand({
+        TableName: tableLocalesName,
+        ...(locLastKey && { ExclusiveStartKey: locLastKey }),
+      }));
+      localeItems.push(...(locResult.Items || []));
+      locLastKey = locResult.LastEvaluatedKey || null;
+    } while (locLastKey);
+    const pkToNombre = {};
+    for (const loc of localeItems) {
+      const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+      const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
+      if (code) pkToNombre[code] = nombre || code;
+    }
+    const result = Object.entries(totalsByPk)
+      .filter(([, total]) => total > 0)
+      .map(([workplaceId, total]) => ({
+        local: pkToNombre[workplaceId] ?? workplaceId,
+        total: Math.round(total * 100) / 100,
+        workplaceId,
+      }))
+      .sort((a, b) => b.total - a.total);
+    res.json({ businessDay, totals: result });
+  } catch (err) {
+    console.error('[agora/closeouts/totals-by-local]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al obtener totales' });
+  }
+});
+
+router.get('/agora/closeouts/totals-by-local-ytd', async (req, res) => {
+  const year = (req.query.year && String(req.query.year).trim()) || '';
+  const dateTo = (req.query.dateTo && String(req.query.dateTo).trim()) || '';
+  if (!year || !/^\d{4}$/.test(year)) {
+    return res.status(400).json({ error: 'year obligatorio (YYYY)' });
+  }
+  const prefix = year + '-';
+  const useDateTo = dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateTo) && dateTo.startsWith(year + '-');
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const result = await docClient.send(new ScanCommand({
+        TableName: tableSalesCloseOutsName,
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+    const list = items.filter((i) => {
+      const sk = String(i.SK ?? i.sk ?? '').trim();
+      if (!sk || !sk.startsWith(prefix)) return false;
+      if (useDateTo) {
+        const datePart = sk.split('#')[0] || '';
+        if (datePart > dateTo) return false;
+      }
+      return true;
+    });
+    const totalsByPk = {};
+    for (const item of list) {
+      const pk = String(item.PK ?? item.pk ?? '').trim();
+      const arr = item.InvoicePayments ?? item.invoicePayments;
+      let total = 0;
+      if (Array.isArray(arr)) {
+        for (const p of arr) {
+          total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
+        }
+      }
+      if (pk) {
+        totalsByPk[pk] = (totalsByPk[pk] || 0) + total;
+      }
+    }
+    const localeItems = [];
+    let locLastKey = null;
+    do {
+      const locResult = await docClient.send(new ScanCommand({
+        TableName: tableLocalesName,
+        ...(locLastKey && { ExclusiveStartKey: locLastKey }),
+      }));
+      localeItems.push(...(locResult.Items || []));
+      locLastKey = locResult.LastEvaluatedKey || null;
+    } while (locLastKey);
+    const pkToNombre = {};
+    for (const loc of localeItems) {
+      const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+      const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
+      if (code) pkToNombre[code] = nombre || code;
+    }
+    const result = Object.entries(totalsByPk)
+      .filter(([, total]) => total > 0)
+      .map(([workplaceId, total]) => ({
+        local: pkToNombre[workplaceId] ?? workplaceId,
+        total: Math.round(total * 100) / 100,
+        workplaceId,
+      }))
+      .sort((a, b) => b.total - a.total);
+    res.json({ year, dateTo: useDateTo ? dateTo : null, totals: result });
+  } catch (err) {
+    console.error('[agora/closeouts/totals-by-local-ytd]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al obtener totales YTD' });
+  }
+});
+
+router.get('/agora/closeouts/totals-by-month', async (req, res) => {
+  const year = (req.query.year && String(req.query.year).trim()) || '';
+  const dateTo = (req.query.dateTo && String(req.query.dateTo).trim()) || '';
+  if (!year || !/^\d{4}$/.test(year)) {
+    return res.status(400).json({ error: 'year obligatorio (YYYY)' });
+  }
+  const prefix = year + '-';
+  const useDateTo = dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateTo) && dateTo.startsWith(year + '-');
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const result = await docClient.send(new ScanCommand({
+        TableName: tableSalesCloseOutsName,
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+    const list = items.filter((i) => {
+      const sk = String(i.SK ?? i.sk ?? '').trim();
+      if (!sk || !sk.startsWith(prefix)) return false;
+      if (useDateTo) {
+        const datePart = sk.split('#')[0] || '';
+        if (datePart > dateTo) return false;
+      }
+      return true;
+    });
+    const totalsByMonth = {};
+    for (const item of list) {
+      const sk = String(item.SK ?? item.sk ?? '').trim();
+      const datePart = sk.split('#')[0] || '';
+      const month = parseInt(datePart.slice(5, 7), 10) || 0;
+      if (month < 1 || month > 12) continue;
+      const arr = item.InvoicePayments ?? item.invoicePayments;
+      let total = 0;
+      if (Array.isArray(arr)) {
+        for (const p of arr) {
+          total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
+        }
+      }
+      totalsByMonth[month] = (totalsByMonth[month] || 0) + total;
+    }
+    const months = [];
+    for (let m = 1; m <= 12; m++) {
+      const total = Math.round((totalsByMonth[m] || 0) * 100) / 100;
+      months.push({ month: m, monthLabel: MONTH_LABELS[m - 1], total });
+    }
+    res.json({ year, dateTo: useDateTo ? dateTo : null, months });
+  } catch (err) {
+    console.error('[agora/closeouts/totals-by-month]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al obtener totales por mes' });
+  }
+});
+
+router.get('/agora/closeouts/dashboard-home', async (req, res) => {
+  const dateTo = (req.query.dateTo && String(req.query.dateTo).trim()) || '';
+  if (!dateTo || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+    return res.status(400).json({ error: 'dateTo obligatorio (YYYY-MM-DD)' });
+  }
+  const curYear = parseInt(dateTo.slice(0, 4), 10);
+  const lastYearNum = curYear - 1;
+  const dateToLastYear = `${lastYearNum}-${dateTo.slice(5, 10)}`;
+  const prefixCur = `${curYear}-`;
+  const prefixLast = `${lastYearNum}-`;
+  const useDateToCur = dateTo.startsWith(`${curYear}-`);
+  const useDateToLast = dateToLastYear.startsWith(`${lastYearNum}-`);
+
+  const sumInvoicePayments = (item) => {
+    const arr = item.InvoicePayments ?? item.invoicePayments;
+    let total = 0;
+    if (Array.isArray(arr)) {
+      for (const p of arr) {
+        total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
+      }
+    }
+    return total;
+  };
+
+  try {
+    const [items, localeItems] = await Promise.all([
+      (async () => {
+        const acc = [];
+        let lastKey = null;
+        do {
+          const result = await docClient.send(new ScanCommand({
+            TableName: tableSalesCloseOutsName,
+            ...(lastKey && { ExclusiveStartKey: lastKey }),
+          }));
+          acc.push(...(result.Items || []));
+          lastKey = result.LastEvaluatedKey || null;
+        } while (lastKey);
+        return acc;
+      })(),
+      (async () => {
+        const acc = [];
+        let locLastKey = null;
+        do {
+          const locResult = await docClient.send(new ScanCommand({
+            TableName: tableLocalesName,
+            ...(locLastKey && { ExclusiveStartKey: locLastKey }),
+          }));
+          acc.push(...(locResult.Items || []));
+          locLastKey = locResult.LastEvaluatedKey || null;
+        } while (locLastKey);
+        return acc;
+      })(),
+    ]);
+
+    const totalsTickerPk = {};
+    const ytdCurPk = {};
+    const ytdLastPk = {};
+    const monthCur = {};
+    const monthLast = {};
+
+    for (const item of items) {
+      const sk = String(item.SK ?? item.sk ?? '').trim();
+      if (!sk) continue;
+      const pk = String(item.PK ?? item.pk ?? '').trim();
+      if (!pk) continue;
+      const t = sumInvoicePayments(item);
+
+      if (sk.startsWith(dateTo)) {
+        totalsTickerPk[pk] = (totalsTickerPk[pk] || 0) + t;
+      }
+
+      const datePart = sk.split('#')[0] || '';
+
+      if (sk.startsWith(prefixCur)) {
+        if (!(useDateToCur && datePart > dateTo)) {
+          ytdCurPk[pk] = (ytdCurPk[pk] || 0) + t;
+          const mo = parseInt(datePart.slice(5, 7), 10) || 0;
+          if (mo >= 1 && mo <= 12) {
+            monthCur[mo] = (monthCur[mo] || 0) + t;
+          }
+        }
+      }
+      if (sk.startsWith(prefixLast)) {
+        if (!(useDateToLast && datePart > dateToLastYear)) {
+          ytdLastPk[pk] = (ytdLastPk[pk] || 0) + t;
+          const mo = parseInt(datePart.slice(5, 7), 10) || 0;
+          if (mo >= 1 && mo <= 12) {
+            monthLast[mo] = (monthLast[mo] || 0) + t;
+          }
+        }
+      }
+    }
+
+    const pkToNombre = {};
+    for (const loc of localeItems) {
+      const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+      const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
+      if (code) pkToNombre[code] = nombre || code;
+    }
+
+    const mapPkToTotals = (totalsByPk) =>
+      Object.entries(totalsByPk)
+        .filter(([, total]) => total > 0)
+        .map(([workplaceId, total]) => ({
+          local: pkToNombre[workplaceId] ?? workplaceId,
+          total: Math.round(total * 100) / 100,
+          workplaceId,
+        }))
+        .sort((a, b) => b.total - a.total);
+
+    const monthsCurArr = [];
+    const monthsLastArr = [];
+    for (let m = 1; m <= 12; m++) {
+      monthsCurArr.push({
+        month: m,
+        monthLabel: MONTH_LABELS[m - 1],
+        total: Math.round((monthCur[m] || 0) * 100) / 100,
+      });
+      monthsLastArr.push({
+        month: m,
+        monthLabel: MONTH_LABELS[m - 1],
+        total: Math.round((monthLast[m] || 0) * 100) / 100,
+      });
+    }
+
+    res.json({
+      dateTo,
+      totalsTicker: mapPkToTotals(totalsTickerPk),
+      ytdCurrent: {
+        year: curYear,
+        dateTo: useDateToCur ? dateTo : null,
+        totals: mapPkToTotals(ytdCurPk),
+      },
+      ytdLastYear: {
+        year: lastYearNum,
+        dateTo: useDateToLast ? dateToLastYear : null,
+        totals: mapPkToTotals(ytdLastPk),
+      },
+      monthsCurrent: {
+        year: curYear,
+        dateTo: useDateToCur ? dateTo : null,
+        months: monthsCurArr,
+      },
+      monthsLastYear: {
+        year: lastYearNum,
+        dateTo: useDateToLast ? dateToLastYear : null,
+        months: monthsLastArr,
+      },
+    });
+  } catch (err) {
+    console.error('[agora/closeouts/dashboard-home]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al cargar dashboard' });
+  }
+});
+
+router.get('/agora/closeouts-ready', (_req, res) => {
+  res.json({ ok: true, closeoutsRoute: 'registered' });
+});
+
 router.get('/agora/test-connection', async (req, res) => {
+  const { AGORA_API_BASE_URL, AGORA_API_TOKEN } = env();
   const baseUrl = (AGORA_API_BASE_URL || '').trim().replace(/\/+$/, '');
   const token = (AGORA_API_TOKEN || '').trim();
 
@@ -688,6 +1145,7 @@ router.get('/agora/test-connection', async (req, res) => {
 router.get('/agora/products', async (req, res) => {
   const forceAgora = (req.query.source || req.query.force || '').toString().toLowerCase() === 'agora';
   if (forceAgora) {
+    const { AGORA_API_BASE_URL, AGORA_API_TOKEN } = env();
     const baseUrl = (AGORA_API_BASE_URL || '').trim().replace(/\/+$/, '');
     const token = (AGORA_API_TOKEN || '').trim();
     if (!baseUrl || !token) {
@@ -714,7 +1172,19 @@ router.get('/agora/products', async (req, res) => {
       const rawList = Array.isArray(data)
         ? data
         : (data?.productos ?? data?.Products ?? data?.Items ?? data?.data ?? []);
+      const [fams, vts] = await Promise.all([
+        exportFamilies().catch(() => []),
+        exportVats().catch(() => []),
+      ]);
+      const fMap = new Map();
+      for (const f of fams) { const id = f.Id ?? f.id; if (id != null) fMap.set(String(id), f.Name ?? f.name ?? ''); }
+      const vMap = new Map();
+      for (const v of vts) { const id = v.Id ?? v.id; if (id != null) { const rate = v.VatRate ?? v.vatRate ?? 0; vMap.set(String(id), { name: v.Name ?? v.name ?? '', percent: typeof rate === 'number' ? Math.round(rate * 10000) / 100 : 0 }); } }
       const productos = rawList.map((p) => {
+        const fid = p.FamilyId ?? p.familyId;
+        if (fid != null && fMap.has(String(fid))) p.FamilyName = fMap.get(String(fid));
+        const vid = p.VatId ?? p.vatId;
+        if (vid != null && vMap.has(String(vid))) { const vat = vMap.get(String(vid)); p.VatName = vat.name; p.VatPercent = vat.percent; }
         const picked = pickAllowedFields(p);
         picked.Id = p.Id ?? p.id ?? p.Code ?? p.code ?? picked.Id;
         picked.IGP = false;
@@ -770,7 +1240,9 @@ router.get('/agora/products', async (req, res) => {
 });
 
 router.post('/agora/products/sync', async (req, res) => {
+  const { AGORA_API_BASE_URL, AGORA_API_TOKEN } = env();
   const force =
+    req.body?.force === true ||
     (req.query.force || req.body?.force || '').toString() === '1' ||
     (req.query.force || '').toString().toLowerCase() === 'true';
   const baseUrl = (AGORA_API_BASE_URL || '').trim().replace(/\/+$/, '');
@@ -817,6 +1289,37 @@ router.post('/agora/products/sync', async (req, res) => {
       ? data
       : (data.productos ?? data.Products ?? data.Items ?? data.data ?? []);
 
+    const [familiesRaw, vatsRaw] = await Promise.all([
+      exportFamilies().catch(() => []),
+      exportVats().catch(() => []),
+    ]);
+    const familyMap = new Map();
+    for (const f of familiesRaw) {
+      const id = f.Id ?? f.id;
+      if (id != null) familyMap.set(String(id), f.Name ?? f.name ?? '');
+    }
+    const vatMap = new Map();
+    for (const v of vatsRaw) {
+      const id = v.Id ?? v.id;
+      if (id != null) {
+        const rate = v.VatRate ?? v.vatRate ?? 0;
+        vatMap.set(String(id), {
+          name: v.Name ?? v.name ?? '',
+          percent: typeof rate === 'number' ? Math.round(rate * 10000) / 100 : 0,
+        });
+      }
+    }
+    for (const p of rawList) {
+      const fid = p.FamilyId ?? p.familyId;
+      if (fid != null && familyMap.has(String(fid))) p.FamilyName = familyMap.get(String(fid));
+      const vid = p.VatId ?? p.vatId;
+      if (vid != null && vatMap.has(String(vid))) {
+        const vat = vatMap.get(String(vid));
+        p.VatName = vat.name;
+        p.VatPercent = vat.percent;
+      }
+    }
+
     const { added, updated, unchanged } = await syncProducts(
       docClient,
       tableAgoraProductsName,
@@ -842,6 +1345,57 @@ router.post('/agora/products/sync', async (req, res) => {
     console.error('[agora/products/sync]', err.message || err);
     return res.status(500).json({ error: err.message || 'Error al sincronizar productos Ágora' });
   }
+});
+
+router.patch('/agora/products/igp/batch', async (req, res) => {
+  const body = req.body || {};
+  const raw = body.updates ?? body.Updates ?? [];
+  const updates = Array.isArray(raw) ? raw : [];
+  if (updates.length === 0) {
+    return res.status(400).json({ error: 'Indica updates: [{ id, IGP }]' });
+  }
+  const valid = updates
+    .map((u) => {
+      const id = u.id ?? u.Id ?? u.ID;
+      const igp = u.IGP ?? u.igp;
+      if (id == null || id === '') return null;
+      if (typeof igp !== 'boolean') return null;
+      return { id: String(id), IGP: igp };
+    })
+    .filter(Boolean);
+  if (valid.length === 0) {
+    return res.status(400).json({ error: 'Ningún elemento válido (id + IGP boolean)' });
+  }
+  const PARALLEL_SIZE = 25;
+  let updated = 0;
+  const failed = [];
+  for (let i = 0; i < valid.length; i += PARALLEL_SIZE) {
+    const chunk = valid.slice(i, i + PARALLEL_SIZE);
+    const results = await Promise.allSettled(
+      chunk.map(({ id, IGP }) =>
+        docClient.send(
+          new UpdateCommand({
+            TableName: tableAgoraProductsName,
+            Key: { PK: 'GLOBAL', SK: String(id) },
+            UpdateExpression: 'SET #igp = :v',
+            ExpressionAttributeNames: { '#igp': 'IGP' },
+            ExpressionAttributeValues: { ':v': IGP },
+          })
+        )
+      )
+    );
+    results.forEach((r, idx) => {
+      if (r.status === 'fulfilled') updated++;
+      else failed.push(chunk[idx].id);
+    });
+  }
+  return res.json({
+    ok: true,
+    totalSolicitados: valid.length,
+    totalActualizados: updated,
+    totalFallidos: failed.length,
+    idsFallidos: failed.length > 0 ? failed : undefined,
+  });
 });
 
 router.patch('/agora/products/:id', async (req, res) => {
@@ -975,6 +1529,7 @@ router.patch('/agora/sale-centers', async (req, res) => {
 });
 
 router.post('/agora/sale-centers/sync', async (req, res) => {
+  const { AGORA_API_BASE_URL, AGORA_API_TOKEN } = env();
   const baseUrl = (AGORA_API_BASE_URL || '').trim().replace(/\/+$/, '');
   const token = (AGORA_API_TOKEN || '').trim();
 
@@ -1206,6 +1761,9 @@ router.post('/agora/closeouts/sync', async (req, res) => {
         (i) => i.PK && i.SK && String(i.PK).trim() !== '' && String(i.SK).trim() !== ''
       );
 
+    const openCloseEnrichment = enrichItemsOpenCloseDatesFromAuxiliary(items, businessDay, sysList, posList);
+    console.log('[agora/closeouts/open-close-enrich]', businessDay, openCloseEnrichment);
+
     const workplaceIds = [...new Set(items.map((i) => i.PK).filter(Boolean))];
     const keysToDeleteMap = new Map();
     for (const pk of workplaceIds) {
@@ -1246,7 +1804,14 @@ router.post('/agora/closeouts/sync', async (req, res) => {
       'source:',
       source
     );
-    return res.json({ ok: true, fetched: rawList.length, upserted, businessDay, source });
+    return res.json({
+      ok: true,
+      fetched: rawList.length,
+      upserted,
+      businessDay,
+      source,
+      openCloseEnrichment,
+    });
   } catch (err) {
     console.error('[agora/closeouts/sync]', err.message || err);
     return res.status(500).json({ error: err.message || 'Error al sincronizar cierres' });
@@ -1331,6 +1896,15 @@ router.post('/agora/closeouts/full-sync', async (req, res) => {
     let totalUpserted = 0;
     let totalSkipped = 0;
     const errors = [];
+    const openCloseEnrichmentTotals = {
+      itemsTotal: 0,
+      vaciosOpenAntes: 0,
+      vaciosCloseAntes: 0,
+      rellenadosOpen: 0,
+      rellenadosClose: 0,
+      vaciosOpenDespues: 0,
+      vaciosCloseDespues: 0,
+    };
 
     for (let i = 0; i < days.length; i++) {
       const businessDay = days[i];
@@ -1398,6 +1972,10 @@ router.post('/agora/closeouts/full-sync', async (req, res) => {
             (i) => i.PK && i.SK && String(i.PK).trim() !== '' && String(i.SK).trim() !== ''
           );
 
+        const openCloseEnrichment = enrichItemsOpenCloseDatesFromAuxiliary(items, businessDay, sysList, posList);
+        console.log('[agora/closeouts/open-close-enrich]', businessDay, openCloseEnrichment);
+        accumulateOpenCloseEnrichmentTotals(openCloseEnrichmentTotals, openCloseEnrichment);
+
         const workplaceIds = [...new Set(items.map((i) => i.PK).filter(Boolean))];
         const keysToDeleteMap = new Map();
         for (const pk of workplaceIds) {
@@ -1448,6 +2026,7 @@ router.post('/agora/closeouts/full-sync', async (req, res) => {
       totalUpserted,
       totalSkipped,
       errors: errors.length,
+      openCloseEnrichmentTotals,
     });
     return res.json({
       ok: true,
@@ -1458,6 +2037,7 @@ router.post('/agora/closeouts/full-sync', async (req, res) => {
       totalUpserted,
       totalSkipped,
       daysProcessed: days.length,
+      openCloseEnrichmentTotals,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (err) {
@@ -1727,6 +2307,433 @@ router.post('/agora/closeouts/complete-fields', async (req, res) => {
   } catch (err) {
     console.error('[agora/closeouts/complete-fields]', err.message || err);
     return res.status(500).json({ error: err.message || 'Error al completar campos' });
+  }
+});
+
+router.post('/agora/closeouts', async (req, res) => {
+  const body = req.body || {};
+  const pk = String(body.PK ?? body.pk ?? '').trim();
+  const businessDay = String(body.BusinessDay ?? body.businessDay ?? '').trim();
+  const posId = body.PosId ?? body.posId ?? null;
+  const number = String(body.Number ?? body.number ?? '1').trim() || '1';
+  if (!pk || !businessDay || !/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
+    return res.status(400).json({ error: 'PK (workplaceId) y BusinessDay (YYYY-MM-DD) obligatorios' });
+  }
+  const sk = posId != null && posId !== '' && String(posId) !== '0'
+    ? `${businessDay}#${posId}#${number}`
+    : `${businessDay}#${number}`;
+  const now = new Date().toISOString();
+  const invoicePayments = Array.isArray(body.InvoicePayments) ? body.InvoicePayments : (Array.isArray(body.invoicePayments) ? body.invoicePayments : []);
+  const gross = body.GrossAmount ?? body.grossAmount ?? invoicePayments.reduce((s, p) => s + (Number(p?.Amount ?? p?.amount ?? 0) || 0), 0);
+  const item = {
+    PK: pk,
+    SK: sk,
+    BusinessDay: businessDay,
+    WorkplaceId: pk,
+    WorkplaceName: body.WorkplaceName ?? body.workplaceName ?? pk,
+    PosId: posId,
+    PosName: body.PosName ?? body.posName ?? null,
+    Number: number,
+    Amounts: { GrossAmount: gross, NetAmount: body.NetAmount ?? body.netAmount ?? null, VatAmount: body.VatAmount ?? body.vatAmount ?? null, SurchargeAmount: body.SurchargeAmount ?? body.surchargeAmount ?? null },
+    InvoicePayments: invoicePayments,
+    TicketPayments: body.TicketPayments ?? body.ticketPayments ?? [],
+    DeliveryNotePayments: body.DeliveryNotePayments ?? body.deliveryNotePayments ?? [],
+    SalesOrderPayments: body.SalesOrderPayments ?? body.salesOrderPayments ?? [],
+    Documents: body.Documents ?? body.documents ?? [],
+    OpenDate: body.OpenDate ?? body.openDate ?? null,
+    CloseDate: body.CloseDate ?? body.closeDate ?? null,
+    createdAt: now,
+    updatedAt: now,
+    source: 'manual',
+  };
+  try {
+    await docClient.send(new PutCommand({ TableName: tableSalesCloseOutsName, Item: item }));
+    res.json({ ok: true, item: { PK: item.PK, SK: item.SK } });
+  } catch (err) {
+    console.error('[agora/closeouts POST]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al crear cierre' });
+  }
+});
+
+router.put('/agora/closeouts', async (req, res) => {
+  const body = req.body || {};
+  const pk = String(body.PK ?? body.pk ?? '').trim();
+  const sk = String(body.SK ?? body.sk ?? '').trim();
+  if (!pk || !sk) return res.status(400).json({ error: 'PK y SK obligatorios' });
+
+  const businessDay = body.BusinessDay != null ? String(body.BusinessDay).trim() : null;
+  const posId = body.PosId ?? body.posId ?? null;
+  const number = String(body.Number ?? body.number ?? '1').trim() || '1';
+
+  const newSk = businessDay && /^\d{4}-\d{2}-\d{2}$/.test(businessDay)
+    ? (posId != null && posId !== '' && String(posId) !== '0'
+        ? `${businessDay}#${posId}#${number}`
+        : `${businessDay}#${number}`)
+    : null;
+
+  const skChanged = newSk && newSk !== sk;
+
+  if (skChanged) {
+    try {
+      const getRes = await docClient.send(new GetCommand({
+        TableName: tableSalesCloseOutsName,
+        Key: { PK: pk, SK: sk },
+      }));
+      const existing = getRes.Item;
+      if (!existing) return res.status(404).json({ error: 'Registro no encontrado' });
+
+      const invoicePayments = Array.isArray(body.InvoicePayments) ? body.InvoicePayments : (existing.InvoicePayments ?? []);
+      const gross = body.Amounts?.GrossAmount ?? body.GrossAmount ?? invoicePayments.reduce((s, p) => s + (Number(p?.Amount ?? p?.amount ?? 0) || 0), 0);
+      const now = new Date().toISOString();
+      const newItem = {
+        PK: pk,
+        SK: newSk,
+        BusinessDay: businessDay,
+        WorkplaceId: pk,
+        WorkplaceName: body.WorkplaceName ?? body.workplaceName ?? existing.WorkplaceName ?? pk,
+        PosId: posId ?? existing.PosId,
+        PosName: body.PosName ?? body.posName ?? existing.PosName ?? null,
+        Number: number,
+        Amounts: body.Amounts ?? existing.Amounts ?? { GrossAmount: gross, NetAmount: null, VatAmount: null, SurchargeAmount: null },
+        InvoicePayments: invoicePayments,
+        TicketPayments: body.TicketPayments ?? body.ticketPayments ?? existing.TicketPayments ?? [],
+        DeliveryNotePayments: body.DeliveryNotePayments ?? body.deliveryNotePayments ?? existing.DeliveryNotePayments ?? [],
+        SalesOrderPayments: body.SalesOrderPayments ?? body.salesOrderPayments ?? existing.SalesOrderPayments ?? [],
+        Documents: body.Documents ?? body.documents ?? existing.Documents ?? [],
+        OpenDate: body.OpenDate ?? body.openDate ?? existing.OpenDate ?? null,
+        CloseDate: body.CloseDate ?? body.closeDate ?? existing.CloseDate ?? null,
+        createdAt: existing.createdAt ?? now,
+        updatedAt: now,
+        source: existing.source ?? 'manual',
+      };
+      await docClient.send(new PutCommand({ TableName: tableSalesCloseOutsName, Item: newItem }));
+      await docClient.send(new DeleteCommand({
+        TableName: tableSalesCloseOutsName,
+        Key: { PK: pk, SK: sk },
+      }));
+      return res.json({ ok: true });
+    } catch (err) {
+      console.error('[agora/closeouts PUT]', err.message || err);
+      return res.status(500).json({ error: err.message || 'Error al actualizar cierre' });
+    }
+  }
+
+  const updates = [];
+  const exprNames = {};
+  const exprValues = {};
+  let idx = 0;
+  const addSet = (attr, val) => {
+    if (val === undefined) return;
+    const n = `#a${idx}`; const v = `:v${idx}`;
+    exprNames[n] = attr; exprValues[v] = val; updates.push(`${n} = ${v}`); idx++;
+  };
+  if (body.BusinessDay != null) addSet('BusinessDay', String(body.BusinessDay).trim());
+  if (body.WorkplaceName != null) addSet('WorkplaceName', String(body.WorkplaceName));
+  if (body.PosId !== undefined) addSet('PosId', body.PosId);
+  if (body.PosName !== undefined) addSet('PosName', body.PosName);
+  if (body.Number != null) addSet('Number', String(body.Number));
+  if (body.InvoicePayments != null) addSet('InvoicePayments', Array.isArray(body.InvoicePayments) ? body.InvoicePayments : []);
+  if (body.Amounts != null) addSet('Amounts', body.Amounts);
+  if (body.OpenDate !== undefined) addSet('OpenDate', body.OpenDate);
+  if (body.CloseDate !== undefined) addSet('CloseDate', body.CloseDate);
+  addSet('updatedAt', new Date().toISOString());
+  if (updates.length <= 1) return res.status(400).json({ error: 'Ningún campo para actualizar' });
+  try {
+    await docClient.send(new UpdateCommand({
+      TableName: tableSalesCloseOutsName,
+      Key: { PK: pk, SK: sk },
+      UpdateExpression: `SET ${updates.join(', ')}`,
+      ExpressionAttributeNames: exprNames,
+      ExpressionAttributeValues: exprValues,
+    }));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[agora/closeouts PUT]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al actualizar cierre' });
+  }
+});
+
+router.delete('/agora/closeouts', async (req, res) => {
+  const pk = (req.query.PK ?? req.query.pk ?? req.body?.PK ?? req.body?.pk ?? '').toString().trim();
+  const sk = (req.query.SK ?? req.query.sk ?? req.body?.SK ?? req.body?.sk ?? '').toString().trim();
+  if (!pk || !sk) return res.status(400).json({ error: 'PK y SK obligatorios' });
+  try {
+    await docClient.send(new DeleteCommand({
+      TableName: tableSalesCloseOutsName,
+      Key: { PK: pk, SK: sk },
+    }));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[agora/closeouts DELETE]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al eliminar cierre' });
+  }
+});
+
+// ──────────────────────────────────────────
+// Compras a Proveedor (Purchases)
+// ──────────────────────────────────────────
+
+router.get('/agora/purchases/por-producto', async (req, res) => {
+  const { productId, fechaInicio, fechaFin } = req.query;
+  if (!productId) return res.status(400).json({ error: 'productId es obligatorio' });
+
+  try {
+    let items = [];
+
+    if (isGsiReady()) {
+      let keyExpr = 'ProductId = :pid';
+      const exprVals = { ':pid': String(productId) };
+      if (fechaInicio && fechaFin) {
+        keyExpr += ' AND AlbaranFecha BETWEEN :fi AND :ff';
+        exprVals[':fi'] = fechaInicio <= fechaFin ? fechaInicio : fechaFin;
+        exprVals[':ff'] = fechaInicio <= fechaFin ? fechaFin : fechaInicio;
+      } else if (fechaInicio) {
+        keyExpr += ' AND AlbaranFecha >= :fi';
+        exprVals[':fi'] = fechaInicio;
+      } else if (fechaFin) {
+        keyExpr += ' AND AlbaranFecha <= :ff';
+        exprVals[':ff'] = fechaFin;
+      }
+
+      const keys = [];
+      let lastKey = null;
+      do {
+        const r = await docClient.send(new QueryCommand({
+          TableName: tableComprasProveedorName,
+          IndexName: GSI_COMPRAS_NAME,
+          KeyConditionExpression: keyExpr,
+          ExpressionAttributeValues: exprVals,
+          ...(lastKey && { ExclusiveStartKey: lastKey }),
+        }));
+        for (const item of (r.Items || [])) {
+          if (item.PK && item.SK) keys.push({ PK: item.PK, SK: item.SK });
+        }
+        lastKey = r.LastEvaluatedKey || null;
+      } while (lastKey);
+
+      if (keys.length > 0) {
+        for (let i = 0; i < keys.length; i += 100) {
+          const chunk = keys.slice(i, i + 100);
+          const r = await docClient.send(new BatchGetCommand({
+            RequestItems: { [tableComprasProveedorName]: { Keys: chunk } },
+          }));
+          items.push(...(r.Responses?.[tableComprasProveedorName] || []));
+        }
+      }
+    } else {
+      let cKey = null;
+      const all = [];
+      do {
+        const r = await docClient.send(new ScanCommand({ TableName: tableComprasProveedorName, ...(cKey && { ExclusiveStartKey: cKey }) }));
+        all.push(...(r.Items || []));
+        cKey = r.LastEvaluatedKey || null;
+      } while (cKey);
+
+      const pid = String(productId).trim();
+      items = all.filter((c) => {
+        if (String(c.ProductId || '').trim() !== pid) return false;
+        const f = c.AlbaranFecha || '';
+        if (fechaInicio && f < fechaInicio) return false;
+        if (fechaFin && f > fechaFin) return false;
+        return true;
+      });
+    }
+
+    items.sort((a, b) => (b.AlbaranFecha || '').localeCompare(a.AlbaranFecha || ''));
+    return res.json({ ok: true, items, total: items.length });
+  } catch (err) {
+    console.error('[agora/purchases/por-producto]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al buscar compras por producto' });
+  }
+});
+
+router.get('/agora/purchases', async (req, res) => {
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const cmd = new ScanCommand({
+        TableName: tableComprasProveedorName,
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      });
+      const result = await docClient.send(cmd);
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+
+    items.sort((a, b) => {
+      const da = a.AlbaranFecha || '';
+      const db = b.AlbaranFecha || '';
+      if (da !== db) return db.localeCompare(da);
+      const sa = `${a.AlbaranSerie || ''}${a.AlbaranNumero || ''}`;
+      const sb = `${b.AlbaranSerie || ''}${b.AlbaranNumero || ''}`;
+      return sa.localeCompare(sb);
+    });
+
+    return res.json({ ok: true, items, total: items.length });
+  } catch (err) {
+    console.error('[agora/purchases GET]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al listar compras a proveedor' });
+  }
+});
+
+router.post('/agora/purchases/sync', async (req, res) => {
+  const body = req.body || {};
+  const today = new Date().toISOString().slice(0, 10);
+  const default60daysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const dateFrom = (body.dateFrom || default60daysAgo).toString().trim();
+  const dateTo = (body.dateTo || today).toString().trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+    return res.status(400).json({ error: 'dateFrom y dateTo deben ser YYYY-MM-DD' });
+  }
+  if (dateFrom > dateTo) {
+    return res.status(400).json({ error: 'dateFrom no puede ser mayor que dateTo' });
+  }
+
+  try {
+    const days = [];
+    let d = new Date(dateFrom + 'T12:00:00');
+    const end = new Date(dateTo + 'T12:00:00');
+    while (d <= end) {
+      days.push(d.toISOString().slice(0, 10));
+      d.setDate(d.getDate() + 1);
+    }
+
+    let totalFetched = 0;
+    let totalUpserted = 0;
+    const errors = [];
+
+    for (let i = 0; i < days.length; i++) {
+      const businessDay = days[i];
+      try {
+        const data = await exportIncomingDeliveryNotes(businessDay);
+        const notes =
+          data?.IncomingDeliveryNotes ??
+          data?.incomingDeliveryNotes ??
+          (Array.isArray(data) ? data : []);
+        if (!Array.isArray(notes) || notes.length === 0) continue;
+
+        const flatLines = [];
+        for (const note of notes) {
+          const serie = note.Serie ?? note.serie ?? '';
+          const number = note.Number ?? note.number ?? '';
+          const noteDate = note.Date ?? note.date ?? businessDay;
+          const supplierDocNum = note.SupplierDocumentNumber ?? note.supplierDocumentNumber ?? '';
+          const confirmed = note.Confirmed ?? note.confirmed ?? false;
+          const invoiced = note.Invoiced ?? note.invoiced ?? false;
+
+          const supplier = note.Supplier ?? note.supplier ?? {};
+          const supplierId = supplier.Id ?? supplier.id ?? '';
+          const supplierName = supplier.FiscalName ?? supplier.fiscalName ?? '';
+          const supplierCif = supplier.Cif ?? supplier.cif ?? '';
+
+          const warehouse = note.Warehouse ?? note.warehouse ?? {};
+          const warehouseId = warehouse.Id ?? warehouse.id ?? '';
+          const warehouseName = warehouse.Name ?? warehouse.name ?? '';
+
+          const totals = note.Totals ?? note.totals ?? {};
+          const discounts = note.Discounts ?? note.discounts ?? {};
+
+          const lines = note.Lines ?? note.lines ?? [];
+          if (!Array.isArray(lines)) continue;
+
+          for (const line of lines) {
+            const idx = line.Index ?? line.index ?? 0;
+            const productId = line.ProductId ?? line.productId ?? '';
+            const productName = line.ProductName ?? line.productName ?? '';
+            const quantity = line.Quantity ?? line.quantity ?? 0;
+            const price = line.Price ?? line.price ?? 0;
+            const discountRate = line.DiscountRate ?? line.discountRate ?? 0;
+            const cashDiscount = line.CashDiscount ?? line.cashDiscount ?? 0;
+            const totalAmount = line.TotalAmount ?? line.totalAmount ?? 0;
+            const vatRate = line.VatRate ?? line.vatRate ?? 0;
+            const surchargeRate = line.SurchargeRate ?? line.surchargeRate ?? 0;
+            const purchaseUnitName = line.PurchaseUnitName ?? line.purchaseUnitName ?? '';
+            const familyId = line.FamilyId ?? line.familyId ?? '';
+            const familyName = line.FamilyName ?? line.familyName ?? '';
+            const lotNumber = line.LotNumber ?? line.lotNumber ?? '';
+            const lineNotes = line.Notes ?? line.notes ?? '';
+
+            const pk = `${serie}#${number}`;
+            const sk = `${String(idx).padStart(4, '0')}`;
+
+            flatLines.push({
+              PK: pk,
+              SK: sk,
+              AlbaranSerie: serie,
+              AlbaranNumero: String(number),
+              AlbaranFecha: noteDate,
+              SupplierDocumentNumber: supplierDocNum,
+              Confirmed: confirmed,
+              Invoiced: invoiced,
+              SupplierId: String(supplierId),
+              SupplierName: supplierName,
+              SupplierCif: supplierCif,
+              WarehouseId: String(warehouseId),
+              WarehouseName: warehouseName,
+              LineIndex: idx,
+              ProductId: String(productId),
+              ProductName: productName,
+              Quantity: typeof quantity === 'number' ? quantity : parseFloat(String(quantity)) || 0,
+              Price: typeof price === 'number' ? price : parseFloat(String(price)) || 0,
+              DiscountRate: typeof discountRate === 'number' ? discountRate : parseFloat(String(discountRate)) || 0,
+              CashDiscount: typeof cashDiscount === 'number' ? cashDiscount : parseFloat(String(cashDiscount)) || 0,
+              TotalAmount: typeof totalAmount === 'number' ? totalAmount : parseFloat(String(totalAmount)) || 0,
+              VatRate: typeof vatRate === 'number' ? vatRate : parseFloat(String(vatRate)) || 0,
+              SurchargeRate: typeof surchargeRate === 'number' ? surchargeRate : parseFloat(String(surchargeRate)) || 0,
+              PurchaseUnitName: purchaseUnitName,
+              FamilyId: String(familyId),
+              FamilyName: familyName,
+              LotNumber: lotNumber,
+              LineNotes: lineNotes,
+              AlbaranGrossAmount: totals.GrossAmount ?? totals.grossAmount ?? null,
+              AlbaranNetAmount: totals.NetAmount ?? totals.netAmount ?? null,
+              AlbaranDiscountRate: discounts.DiscountRate ?? discounts.discountRate ?? 0,
+              syncedAt: new Date().toISOString(),
+            });
+          }
+        }
+
+        if (flatLines.length === 0) continue;
+        totalFetched += flatLines.length;
+
+        for (let j = 0; j < flatLines.length; j += 25) {
+          const chunk = flatLines.slice(j, j + 25);
+          await docClient.send(
+            new BatchWriteCommand({
+              RequestItems: {
+                [tableComprasProveedorName]: chunk.map((item) => ({
+                  PutRequest: { Item: item },
+                })),
+              },
+            })
+          );
+          totalUpserted += chunk.length;
+        }
+      } catch (err) {
+        errors.push({ day: businessDay, error: err.message || String(err) });
+      }
+
+      if ((i + 1) % 30 === 0) {
+        console.log('[agora/purchases/sync] Progreso:', i + 1, '/', days.length, 'días');
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+
+    console.log('[agora/purchases/sync] Completado:', { dateFrom, dateTo, totalFetched, totalUpserted, errors: errors.length });
+    return res.json({
+      ok: true,
+      dateFrom,
+      dateTo,
+      totalFetched,
+      totalUpserted,
+      daysProcessed: days.length,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (err) {
+    console.error('[agora/purchases/sync]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al sincronizar compras a proveedor' });
   }
 });
 

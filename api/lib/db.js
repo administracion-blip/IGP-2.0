@@ -3,7 +3,7 @@ import { DynamoDBDocumentClient, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 
 const region = process.env.AWS_REGION || 'eu-west-3';
 
-const client = new DynamoDBClient({ region });
+export const client = new DynamoDBClient({ region });
 export const docClient = DynamoDBDocumentClient.from(client);
 
 /** Nombres de tabla (necesarios para borrado legacy). Debe ir antes de deleteItemBySchema. */
