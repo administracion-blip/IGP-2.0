@@ -12,6 +12,7 @@ import {
   PanResponder,
   Platform,
   Switch,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -142,6 +143,100 @@ function getBusinessDay(item: CloseOut): string {
   return '';
 }
 
+/** Clave estable PK+SK para selección (JSON evita ambigüedad con separadores en SK). */
+function stableRowId(item: CloseOut): string {
+  const pk = String(item.PK ?? item.pk ?? '').trim();
+  const sk = String(item.SK ?? item.sk ?? '').trim();
+  return JSON.stringify([pk, sk]);
+}
+
+function subtractOneDayISO(iso: string): string | null {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso.trim())) return null;
+  const [y, m, d] = iso.trim().split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() - 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/** Misma regla que el API (agora closeouts PUT). */
+function buildSkForCloseout(businessDay: string, item: CloseOut): string {
+  const posId = item.PosId ?? item.posId;
+  const number = String(item.Number ?? item.number ?? '1').trim() || '1';
+  if (posId != null && posId !== '' && String(posId) !== '0') {
+    return `${businessDay}#${posId}#${number}`;
+  }
+  return `${businessDay}#${number}`;
+}
+
+function findCloseoutByRowId(rowId: string, list: CloseOut[]): CloseOut | null {
+  try {
+    const [pk, sk] = JSON.parse(rowId) as [string, string];
+    return list.find((i) => String(i.PK ?? i.pk ?? '').trim() === pk && String(i.SK ?? i.sk ?? '').trim() === sk) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Devuelve mensaje de error si hay colisión, o null si está bien. */
+function checkShiftDayCollisions(selectedItems: CloseOut[], allCloseouts: CloseOut[]): string | null {
+  if (selectedItems.length === 0) return 'No hay registros seleccionados.';
+  const selectedSet = new Set(selectedItems.map(stableRowId));
+  const targets = new Map<string, CloseOut[]>();
+  for (const item of selectedItems) {
+    const newBd = subtractOneDayISO(getBusinessDay(item));
+    if (!newBd) return 'Algún registro no tiene fecha de negocio válida.';
+    const newSk = buildSkForCloseout(newBd, item);
+    const pk = String(item.PK ?? item.pk ?? '').trim();
+    const key = `${pk}|${newSk}`;
+    if (!targets.has(key)) targets.set(key, []);
+    targets.get(key)!.push(item);
+  }
+  for (const [, arr] of targets) {
+    if (arr.length > 1) {
+      return 'Varios registros seleccionados coincidirían en el mismo local, día y TPV al retroceder un día.';
+    }
+  }
+  for (const item of selectedItems) {
+    const newBd = subtractOneDayISO(getBusinessDay(item))!;
+    const newSk = buildSkForCloseout(newBd, item);
+    const pk = String(item.PK ?? item.pk ?? '').trim();
+    const occupant = allCloseouts.find(
+      (c) => String(c.PK ?? c.pk ?? '').trim() === pk && String(c.SK ?? c.sk ?? '').trim() === newSk,
+    );
+    if (!occupant) continue;
+    if (stableRowId(occupant) === stableRowId(item)) continue;
+    if (!selectedSet.has(stableRowId(occupant))) {
+      return 'Ya existe otro cierre en la fecha destino para ese local y TPV. Libera o mueve ese registro antes de continuar.';
+    }
+  }
+  return null;
+}
+
+function buildPutBodyFromItem(item: CloseOut, newBusinessDay: string, agoraCodeToNombre: Record<string, string>) {
+  const pk = String(item.PK ?? item.pk ?? '').trim();
+  const arr = item.InvoicePayments ?? item.invoicePayments;
+  const invoicePayments = Array.isArray(arr)
+    ? arr
+        .map((p) => ({
+          MethodName: String(p?.MethodName ?? (p as { methodName?: string }).methodName ?? '').trim() || 'Sin nombre',
+          Amount: Number(p?.Amount ?? (p as { amount?: number }).amount ?? 0) || 0,
+        }))
+        .filter((p) => p.MethodName !== 'Sin nombre' && p.Amount > 0)
+    : [];
+  const grossNum = invoicePayments.reduce((s, p) => s + p.Amount, 0);
+  return {
+    PK: item.PK ?? item.pk,
+    SK: item.SK ?? item.sk,
+    BusinessDay: newBusinessDay,
+    WorkplaceName: item.WorkplaceName ?? (item as Record<string, unknown>).workplaceName ?? agoraCodeToNombre[pk] ?? pk,
+    PosId: item.PosId ?? item.posId ?? null,
+    PosName: item.PosName ?? item.posName ?? null,
+    Number: String(item.Number ?? item.number ?? '1').trim() || '1',
+    InvoicePayments: invoicePayments,
+    Amounts: { GrossAmount: grossNum, NetAmount: null, VatAmount: null, SurchargeAmount: null },
+  };
+}
+
 function getAmounts(item: CloseOut): Record<string, unknown> | undefined {
   const a = item.Amounts ?? item.amounts;
   if (a != null && typeof a === 'object') return a as Record<string, unknown>;
@@ -243,16 +338,21 @@ export default function CierresTeoricosScreen() {
   const [filtroLocal, setFiltroLocal] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
+    __sel: 40,
     Local: Math.round(DEFAULT_COL_WIDTH * 1.2),
     PosName: Math.round(DEFAULT_COL_WIDTH * 1.44),
     DiaSemana: 48,
   });
   const [soloConFacturacion, setSoloConFacturacion] = useState(true);
   const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
+  /** Selección múltiple (mismas claves que `stableRowId`). */
+  const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
+  const [shiftSaving, setShiftSaving] = useState(false);
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingItem, setEditingItem] = useState<CloseOut | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deletingItem, setDeletingItem] = useState<CloseOut | null>(null);
+  /** Registros pendientes de borrar (uno o varios). */
+  const [deletingItems, setDeletingItems] = useState<CloseOut[]>([]);
   const [saving, setSaving] = useState(false);
   const [formBusinessDay, setFormBusinessDay] = useState('');
   const [formLocal, setFormLocal] = useState('');
@@ -434,7 +534,7 @@ export default function CierresTeoricosScreen() {
 
   const paymentCols = useMemo(() => getUniquePaymentMethods(closeouts), [closeouts]);
   const columnas = useMemo(() => {
-    const base = ['BusinessDay', 'DiaSemana', 'Local', 'PosName', 'InvoicePayments'];
+    const base = ['__sel', 'BusinessDay', 'DiaSemana', 'Local', 'PosName', 'InvoicePayments'];
     const orderedPayments = ['Efectivo', 'Tarjeta', 'Pendiente de cobro', 'Prepago Transferencia', 'AgoraPay'].filter((m) => paymentCols.includes(m));
     const otherPayments = paymentCols.filter((m) => !orderedPayments.includes(m));
     const dates = ['OpenDate', 'CloseDate', 'updatedAt'];
@@ -499,9 +599,11 @@ export default function CierresTeoricosScreen() {
   }, [closeoutsFiltrados, currentPage]);
 
   const selectedItem = useMemo(() => {
-    if (!selectedRowKey || !paginatedList) return null;
-    return paginatedList.find((item, idx) => `${item.PK ?? ''}-${item.SK ?? ''}-${idx}` === selectedRowKey) ?? null;
-  }, [selectedRowKey, paginatedList]);
+    if (!selectedRowKey) return null;
+    return closeoutsFiltrados.find((item) => stableRowId(item) === selectedRowKey) ?? null;
+  }, [selectedRowKey, closeoutsFiltrados]);
+
+  const canDeleteSelection = selectedRowIds.length > 0 || !!selectedItem;
 
   const openAddModal = useCallback(() => {
     const d = new Date();
@@ -566,13 +668,75 @@ export default function CierresTeoricosScreen() {
     setSelectedRowKey((prev) => (prev === rowKey ? null : rowKey));
   }, [openEditModalForItem]);
 
+  const toggleRowSelected = useCallback((rowId: string) => {
+    setSelectedRowIds((prev) => (prev.includes(rowId) ? prev.filter((id) => id !== rowId) : [...prev, rowId]));
+  }, []);
+
+  const toggleSelectAllOnPage = useCallback(() => {
+    setSelectedRowIds((prev) => {
+      const ids = paginatedList.map((item) => stableRowId(item));
+      if (ids.length === 0) return prev;
+      const allOn = ids.every((id) => prev.includes(id));
+      if (allOn) return prev.filter((id) => !ids.includes(id));
+      const set = new Set(prev);
+      for (const id of ids) set.add(id);
+      return Array.from(set);
+    });
+  }, [paginatedList]);
+
+  const handleBulkShiftDayBack = useCallback(async () => {
+    const items = selectedRowIds.map((id) => findCloseoutByRowId(id, closeouts)).filter(Boolean) as CloseOut[];
+    if (items.length === 0) {
+      Alert.alert('Selección', 'Marca al menos un cierre con la casilla de la izquierda.');
+      return;
+    }
+    const err = checkShiftDayCollisions(items, closeouts);
+    if (err) {
+      Alert.alert('No se puede retroceder la fecha', err);
+      return;
+    }
+    setShiftSaving(true);
+    try {
+      for (const item of items) {
+        const newBd = subtractOneDayISO(getBusinessDay(item));
+        if (!newBd) throw new Error('Fecha inválida');
+        const body = buildPutBodyFromItem(item, newBd, agoraCodeToNombre);
+        const res = await fetch(`${API_URL}/api/agora/closeouts`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await safeJson<{ ok?: boolean; error?: string }>(res);
+        if (data.error) throw new Error(data.error);
+      }
+      setSelectedRowIds([]);
+      setSelectedRowKey(null);
+      refetchCloseouts(true);
+    } catch (e) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo actualizar');
+    } finally {
+      setShiftSaving(false);
+    }
+  }, [selectedRowIds, closeouts, agoraCodeToNombre, refetchCloseouts]);
+
   const openDeleteModal = useCallback(() => {
+    if (selectedRowIds.length > 0) {
+      const items = selectedRowIds.map((id) => findCloseoutByRowId(id, closeouts)).filter(Boolean) as CloseOut[];
+      if (items.length === 0) {
+        Alert.alert('Selección', 'No se encontraron los registros marcados. Actualiza la lista e inténtalo de nuevo.');
+        return;
+      }
+      setDeletingItems(items);
+      setFormError(null);
+      setShowDeleteModal(true);
+      return;
+    }
     if (selectedItem) {
-      setDeletingItem(selectedItem);
+      setDeletingItems([selectedItem]);
       setFormError(null);
       setShowDeleteModal(true);
     }
-  }, [selectedItem]);
+  }, [selectedRowIds, closeouts, selectedItem]);
 
   const handleSaveForm = useCallback(async () => {
     const bd = parseDateToYYYYMMDD(formBusinessDay);
@@ -638,26 +802,29 @@ export default function CierresTeoricosScreen() {
   }, [formBusinessDay, formLocal, formPosId, formPosName, formNumber, formPayments, formPaymentMethods, editingItem, agoraCodeToNombre, refetchCloseouts]);
 
   const handleDelete = useCallback(async () => {
-    const item = deletingItem;
-    if (!item) return;
-    const pk = String(item.PK ?? item.pk ?? '').trim();
-    const sk = String(item.SK ?? item.sk ?? '').trim();
+    if (deletingItems.length === 0) return;
+    const toRemove = new Set(deletingItems.map((it) => stableRowId(it)));
     setSaving(true);
     setFormError(null);
     try {
-      const res = await fetch(`${API_URL}/api/agora/closeouts?PK=${encodeURIComponent(pk)}&SK=${encodeURIComponent(sk)}`, { method: 'DELETE' });
-      const data = await safeJson<{ ok?: boolean; error?: string }>(res);
-      if (data.error) throw new Error(data.error);
+      for (const item of deletingItems) {
+        const pk = String(item.PK ?? item.pk ?? '').trim();
+        const sk = String(item.SK ?? item.sk ?? '').trim();
+        const res = await fetch(`${API_URL}/api/agora/closeouts?PK=${encodeURIComponent(pk)}&SK=${encodeURIComponent(sk)}`, { method: 'DELETE' });
+        const data = await safeJson<{ ok?: boolean; error?: string }>(res);
+        if (data.error) throw new Error(data.error);
+      }
       setShowDeleteModal(false);
-      setDeletingItem(null);
+      setDeletingItems([]);
       setSelectedRowKey(null);
+      setSelectedRowIds((prev) => prev.filter((id) => !toRemove.has(id)));
       refetchCloseouts(true);
     } catch (e) {
       setFormError(e instanceof Error ? e.message : 'Error al eliminar');
     } finally {
       setSaving(false);
     }
-  }, [deletingItem, refetchCloseouts]);
+  }, [deletingItems, refetchCloseouts]);
 
   const totalFacturado = useMemo(() => {
     return closeoutsFiltrados.reduce((sum, item) => {
@@ -673,6 +840,7 @@ export default function CierresTeoricosScreen() {
   }, [currentPage, totalPages]);
 
   const getValorCelda = useCallback((item: CloseOut, col: string): string => {
+    if (col === '__sel') return '';
     if (col === 'DiaSemana') {
       return getDiaSemana3(getBusinessDay(item));
     }
@@ -727,6 +895,7 @@ export default function CierresTeoricosScreen() {
 
   const getHeaderLabel = (col: string): string => {
     const labels: Record<string, string> = {
+      __sel: '',
       PK: 'WorkplaceId', Local: 'Local', SK: 'SK', BusinessDay: 'Business Day', DiaSemana: 'Día', Number: 'Nº',
       WorkplaceId: 'Workplace', PosId: 'TPV Id', PosName: 'TPV',
       OpenDate: 'Apertura', CloseDate: 'Cierre',
@@ -1050,12 +1219,26 @@ export default function CierresTeoricosScreen() {
           <Text style={[styles.toolbarBtnText, !selectedItem && styles.toolbarBtnTextDisabled]}>Editar</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.toolbarBtn, !selectedItem && styles.toolbarBtnDisabled]}
+          style={[styles.toolbarBtn, !canDeleteSelection && styles.toolbarBtnDisabled]}
           onPress={openDeleteModal}
-          disabled={!selectedItem}
+          disabled={!canDeleteSelection}
         >
-          <MaterialIcons name="delete" size={16} color={selectedItem ? '#dc2626' : '#94a3b8'} />
-          <Text style={[styles.toolbarBtnText, !selectedItem && styles.toolbarBtnTextDisabled]}>Borrar</Text>
+          <MaterialIcons name="delete" size={16} color={canDeleteSelection ? '#dc2626' : '#94a3b8'} />
+          <Text style={[styles.toolbarBtnText, !canDeleteSelection && styles.toolbarBtnTextDisabled]}>Borrar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.toolbarBtn, (selectedRowIds.length === 0 || shiftSaving) && styles.toolbarBtnDisabled]}
+          onPress={handleBulkShiftDayBack}
+          disabled={selectedRowIds.length === 0 || shiftSaving}
+        >
+          {shiftSaving ? (
+            <ActivityIndicator size="small" color="#0ea5e9" />
+          ) : (
+            <MaterialIcons name="today" size={16} color={selectedRowIds.length > 0 ? '#0ea5e9' : '#94a3b8'} />
+          )}
+          <Text style={[styles.toolbarBtnText, (selectedRowIds.length === 0 || shiftSaving) && styles.toolbarBtnTextDisabled]}>
+            −1 día
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -1314,15 +1497,21 @@ export default function CierresTeoricosScreen() {
       </Modal>
 
       <Modal visible={showDeleteModal} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => !saving && setShowDeleteModal(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => !saving && (setShowDeleteModal(false), setDeletingItems([]))}>
           <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Eliminar cierre</Text>
+            <Text style={styles.modalTitle}>
+              {deletingItems.length > 1 ? 'Eliminar cierres' : 'Eliminar cierre'}
+            </Text>
             <Text style={styles.modalSubtitle}>
-              ¿Eliminar el registro de {deletingItem ? (agoraCodeToNombre[String(deletingItem.PK ?? deletingItem.pk ?? '')] ?? deletingItem.PK) : ''} del {deletingItem ? formatBusinessDayLabel(getBusinessDay(deletingItem)) : ''}?
+              {deletingItems.length === 0
+                ? ''
+                : deletingItems.length === 1
+                  ? `¿Eliminar el registro de ${agoraCodeToNombre[String(deletingItems[0].PK ?? deletingItems[0].pk ?? '')] ?? deletingItems[0].PK} del ${formatBusinessDayLabel(getBusinessDay(deletingItems[0]))}?`
+                  : `¿Eliminar ${deletingItems.length} registros seleccionados? Esta acción no se puede deshacer.`}
             </Text>
             {formError ? <Text style={styles.formError}>{formError}</Text> : null}
             <View style={styles.modalActions}>
-              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnCancel]} onPress={() => !saving && (setShowDeleteModal(false), setDeletingItem(null))} disabled={saving}>
+              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnCancel]} onPress={() => !saving && (setShowDeleteModal(false), setDeletingItems([]))} disabled={saving}>
                 <Text style={styles.modalBtnCancelText}>Cancelar</Text>
                 </TouchableOpacity>
               <TouchableOpacity style={[styles.modalBtn, styles.modalBtnDanger, saving && styles.toolbarBtnDisabled]} onPress={handleDelete} disabled={saving}>
@@ -1337,7 +1526,7 @@ export default function CierresTeoricosScreen() {
         <Text style={styles.infoLine}>
           {totalCount === 0
             ? 'No hay cierres. Se sincronizan automáticamente cada 2 min desde Ágora.'
-            : `${totalCount} cierre${totalCount !== 1 ? 's' : ''} (ordenado por Business Day, más reciente primero; luego por local). Doble clic en una fila para editar.`}
+            : `${totalCount} cierre${totalCount !== 1 ? 's' : ''} (ordenado por Business Day, más reciente primero; luego por local). Casillas: selección múltiple. Doble clic en una fila para editar.`}
         </Text>
         {totalCount > PAGE_SIZE && (
           <View style={styles.pagination}>
@@ -1369,9 +1558,28 @@ export default function CierresTeoricosScreen() {
           <View style={styles.headerRowTable}>
             {columnas.map((col) => (
               <View key={col} style={[styles.cellHeader, isMonedaCol(col) && styles.cellRight, { width: getColWidth(col) }]}>
-                <Text style={styles.cellHeaderText} numberOfLines={1}>
-                  {getHeaderLabel(col)}
-                </Text>
+                {col === '__sel' ? (
+                  <TouchableOpacity
+                    onPress={toggleSelectAllOnPage}
+                    style={styles.headerCheckboxWrap}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityLabel="Seleccionar todos en esta página"
+                  >
+                    <MaterialIcons
+                      name={
+                        paginatedList.length > 0 && paginatedList.every((it) => selectedRowIds.includes(stableRowId(it)))
+                          ? 'check-box'
+                          : 'check-box-outline-blank'
+                      }
+                      size={18}
+                      color="#64748b"
+                    />
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={styles.cellHeaderText} numberOfLines={1}>
+                    {getHeaderLabel(col)}
+                  </Text>
+                )}
                 <View
                   style={[styles.resizeHandle, Platform.OS === 'web' && (styles.resizeHandleWeb as object)]}
                   {...(Platform.OS === 'web' ? { onMouseDown: handleWebResizeStart(col) } : (resizeHandlers[col]?.panHandlers || {}))}
@@ -1391,15 +1599,37 @@ export default function CierresTeoricosScreen() {
                 </View>
               ) : (
                 paginatedList.map((item, idx) => {
-                  const rowKey = `${item.PK ?? ''}-${item.SK ?? ''}-${idx}`;
+                  const rowKey = stableRowId(item);
                   const isSelected = selectedRowKey === rowKey;
                   return (
                     <Pressable
-                      key={rowKey}
+                      key={`${rowKey}-${idx}`}
                       style={[styles.dataRow, isSelected && styles.dataRowSelected]}
                       onPress={() => handleRowPress(rowKey, item)}
                     >
                       {columnas.map((col) => {
+                        if (col === '__sel') {
+                          const rid = stableRowId(item);
+                          const checked = selectedRowIds.includes(rid);
+                          return (
+                            <TouchableOpacity
+                              key={col}
+                              style={[styles.cell, styles.selCell, { width: getColWidth(col) }]}
+                              onPress={(e) => {
+                                if (Platform.OS === 'web') (e as { stopPropagation?: () => void }).stopPropagation?.();
+                                toggleRowSelected(rid);
+                              }}
+                              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                              accessibilityLabel={checked ? 'Desmarcar fila' : 'Marcar fila'}
+                            >
+                              <MaterialIcons
+                                name={checked ? 'check-box' : 'check-box-outline-blank'}
+                                size={18}
+                                color={checked ? '#0ea5e9' : '#94a3b8'}
+                              />
+                            </TouchableOpacity>
+                          );
+                        }
                         const valor = getValorCelda(item, col);
                         return (
                           <CellWithTooltip
@@ -1579,6 +1809,8 @@ const styles = StyleSheet.create({
   dataRowSelected: { backgroundColor: '#dbeafe' },
   cellHeader: { paddingHorizontal: 6, paddingVertical: 6, paddingRight: 18, justifyContent: 'center', position: 'relative' },
   cell: { paddingHorizontal: 6, paddingVertical: 5, justifyContent: 'center', position: 'relative' },
+  selCell: { alignItems: 'center', justifyContent: 'center' },
+  headerCheckboxWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', minWidth: 24 },
   cellTooltip: {
     position: 'absolute',
     left: 0,
