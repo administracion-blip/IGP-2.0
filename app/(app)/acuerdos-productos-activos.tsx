@@ -19,6 +19,7 @@ import * as Sharing from 'expo-sharing';
 import { useProductosCache } from '../contexts/ProductosCache';
 import { calcTiempoRestante } from '../lib/acuerdosFechas';
 import { InputFecha } from '../components/InputFecha';
+import { ComprasProveedorModal } from '../components/ComprasProveedorModal';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -34,6 +35,7 @@ const W = {
   vigencia: 152,
   pCompra: 74,
   pmr: 74,
+  acciones: 40,
 } as const;
 
 const TABLE_MIN_WIDTH =
@@ -45,7 +47,8 @@ const TABLE_MIN_WIDTH =
   W.pct +
   W.vigencia +
   W.pCompra +
-  W.pmr;
+  W.pmr +
+  W.acciones;
 
 type Linea = {
   PK: string;
@@ -140,6 +143,8 @@ export default function AcuerdosProductosActivosScreen() {
   const [pmrMin, setPmrMin] = useState('');
   const [pmrMax, setPmrMax] = useState('');
   const [showFiltrosModal, setShowFiltrosModal] = useState(false);
+  const [comprasModalVisible, setComprasModalVisible] = useState(false);
+  const [comprasModalRow, setComprasModalRow] = useState<Linea | null>(null);
 
   const costPriceMap = useMemo(() => {
     const map: Record<string, number> = {};
@@ -605,6 +610,7 @@ export default function AcuerdosProductosActivosScreen() {
                 <Text style={[styles.th, { width: W.vigencia }]}>Vigencia</Text>
                 <Text style={[styles.th, { width: W.pCompra, textAlign: 'center' }]}>P. compra</Text>
                 <Text style={[styles.th, { width: W.pmr, textAlign: 'center' }]}>PMR</Text>
+                <Text style={[styles.th, { width: W.acciones, textAlign: 'center' }]} />
               </View>
 
               {grupos.map((g) => (
@@ -675,6 +681,12 @@ export default function AcuerdosProductosActivosScreen() {
                         <Text style={[styles.td, { width: W.pmr, textAlign: 'center', fontWeight: '700', color: '#0d9488' }]}>
                           {formatMoneda(pmr)}
                         </Text>
+                        <TouchableOpacity
+                          style={{ width: W.acciones, alignItems: 'center', justifyContent: 'center' }}
+                          onPress={() => { setComprasModalRow(row); setComprasModalVisible(true); }}
+                        >
+                          <MaterialIcons name="local-shipping" size={16} color="#0284c7" />
+                        </TouchableOpacity>
                       </View>
                     );
                   })}
@@ -683,6 +695,17 @@ export default function AcuerdosProductosActivosScreen() {
             </View>
           </ScrollView>
         </ScrollView>
+      )}
+
+      {comprasModalRow && (
+        <ComprasProveedorModal
+          visible={comprasModalVisible}
+          onClose={() => { setComprasModalVisible(false); setComprasModalRow(null); }}
+          productName={comprasModalRow.ProductName || comprasModalRow.ProductId}
+          productId={comprasModalRow.ProductId}
+          fechaInicio={comprasModalRow.FechaInicioAcuerdo || ''}
+          fechaFin={comprasModalRow.FechaFinAcuerdo || ''}
+        />
       )}
     </View>
   );

@@ -90,7 +90,7 @@ export default function FacturacionIndexScreen() {
   const [empresasGrupoParipe, setEmpresasGrupoParipe] = useState<EmpresaOpt[]>([]);
 
   const [filtroAnio, setFiltroAnio] = useState(() => new Date().getFullYear());
-  const [filtroMes, setFiltroMes] = useState(() => new Date().getMonth() + 1);
+  const [filtroMes, setFiltroMes] = useState(0);
   const [anioModalOpen, setAnioModalOpen] = useState(false);
   const [mesModalOpen, setMesModalOpen] = useState(false);
 
@@ -106,7 +106,7 @@ export default function FacturacionIndexScreen() {
     const params = new URLSearchParams();
     if (empresaSeleccionadaId) params.set('empresaId', empresaSeleccionadaId);
     params.set('anio', String(filtroAnio));
-    params.set('mes', String(filtroMes));
+    if (filtroMes >= 1 && filtroMes <= 12) params.set('mes', String(filtroMes));
     const q = `?${params.toString()}`;
     fetch(`${API_URL}/api/facturacion/metricas${q}`)
       .then((r) => r.json())
@@ -147,7 +147,7 @@ export default function FacturacionIndexScreen() {
   }, [empresaSeleccionadaId, empresasGrupoParipe]);
 
   const labelPeriodoCorto = useMemo(
-    () => `${mesNombre(filtroMes)} ${filtroAnio}`,
+    () => filtroMes === 0 ? `${filtroAnio}` : `${mesNombre(filtroMes)} ${filtroAnio}`,
     [filtroAnio, filtroMes],
   );
 
@@ -207,7 +207,7 @@ export default function FacturacionIndexScreen() {
         >
           <MaterialIcons name="date-range" size={16} color="#0369a1" />
           <Text style={styles.periodoFilterBtnText} numberOfLines={1}>
-            {mesNombre(filtroMes)}
+            {filtroMes === 0 ? 'Todo el año' : mesNombre(filtroMes)}
           </Text>
           <MaterialIcons name="arrow-drop-down" size={18} color="#64748b" />
         </TouchableOpacity>
@@ -286,6 +286,14 @@ export default function FacturacionIndexScreen() {
           <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.modalTitle}>Mes</Text>
             <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
+              <TouchableOpacity
+                style={[styles.modalRow, filtroMes === 0 && styles.modalRowActive]}
+                onPress={() => { setFiltroMes(0); setMesModalOpen(false); }}
+              >
+                <MaterialIcons name="layers" size={18} color="#64748b" />
+                <Text style={styles.modalRowText}>Todo el año</Text>
+                {filtroMes === 0 ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
+              </TouchableOpacity>
               {mesesOrdenDesc.map((m) => (
                 <TouchableOpacity
                   key={m}

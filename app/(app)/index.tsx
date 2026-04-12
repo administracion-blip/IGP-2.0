@@ -1,5 +1,5 @@
-import { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Platform, Animated, ScrollView, useWindowDimensions } from 'react-native';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, Platform, Animated, ScrollView, useWindowDimensions, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import WeatherWidget from '../components/WeatherWidget';
 import { useAuth } from '../contexts/AuthContext';
@@ -113,22 +113,42 @@ export default function AppHome() {
   const [ytdLoading, setYtdLoading] = useState(true);
   const [ytdError, setYtdError] = useState<string | null>(null);
   const yesterday = getYesterdayYYYYMMDD();
-  const currentYear = new Date().getFullYear();
-  const lastYear = currentYear - 1;
+  const realCurrentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(realCurrentYear);
+  const isCurrentYear = selectedYear === realCurrentYear;
+  const dateTo = isCurrentYear ? yesterday : `${selectedYear}-12-31`;
+  const lastYear = selectedYear - 1;
 
+  const goYearBack = useCallback(() => setSelectedYear((y) => y - 1), []);
+  const goYearForward = useCallback(() => setSelectedYear((y) => Math.min(y + 1, realCurrentYear)), [realCurrentYear]);
+
+  // Ticker de ayer: siempre fijo al día anterior
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    setYtdLoading(true);
     setError(null);
-    setYtdError(null);
-
     fetch(`${API_URL}/api/agora/closeouts/dashboard-home?dateTo=${encodeURIComponent(yesterday)}`)
+      .then((res) => res.json())
+      .then((data: { error?: string; totalsTicker?: TotalByLocal[] }) => {
+        if (cancelled) return;
+        if (data.error) { setError(data.error); setTotals([]); return; }
+        setTotals((data.totalsTicker || []).filter((t) => localPermitido(t.local)));
+      })
+      .catch((err) => { if (!cancelled) { setError(err instanceof Error ? err.message : 'Error al cargar'); setTotals([]); } })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [yesterday, localPermitido]);
+
+  // Widget YTD: reacciona al año seleccionado
+  useEffect(() => {
+    let cancelled = false;
+    setYtdLoading(true);
+    setYtdError(null);
+    fetch(`${API_URL}/api/agora/closeouts/dashboard-home?dateTo=${encodeURIComponent(dateTo)}`)
       .then((res) => res.json())
       .then(
         (data: {
           error?: string;
-          totalsTicker?: TotalByLocal[];
           ytdCurrent?: { totals?: TotalByLocal[] };
           ytdLastYear?: { totals?: TotalByLocal[] };
           monthsCurrent?: { months?: MonthTotal[] };
@@ -136,16 +156,10 @@ export default function AppHome() {
         }) => {
           if (cancelled) return;
           if (data.error) {
-            setError(data.error);
             setYtdError(data.error);
-            setTotals([]);
-            setYtdTotals([]);
-            setYtdLastYearTotals([]);
-            setYtdMonthly([]);
-            setYtdMonthlyLastYear([]);
+            setYtdTotals([]); setYtdLastYearTotals([]); setYtdMonthly([]); setYtdMonthlyLastYear([]);
             return;
           }
-          setTotals((data.totalsTicker || []).filter((t) => localPermitido(t.local)));
           setYtdTotals((data.ytdCurrent?.totals || []).filter((t) => localPermitido(t.local)));
           setYtdLastYearTotals((data.ytdLastYear?.totals || []).filter((t) => localPermitido(t.local)));
           setYtdMonthly(data.monthsCurrent?.months || []);
@@ -153,27 +167,14 @@ export default function AppHome() {
         }
       )
       .catch((err) => {
-        if (cancelled) return;
-        const msg = err instanceof Error ? err.message : 'Error al cargar';
-        setError(msg);
-        setYtdError(msg);
-        setTotals([]);
-        setYtdTotals([]);
-        setYtdLastYearTotals([]);
-        setYtdMonthly([]);
-        setYtdMonthlyLastYear([]);
-      })
-      .finally(() => {
         if (!cancelled) {
-          setLoading(false);
-          setYtdLoading(false);
+          setYtdError(err instanceof Error ? err.message : 'Error al cargar');
+          setYtdTotals([]); setYtdLastYearTotals([]); setYtdMonthly([]); setYtdMonthlyLastYear([]);
         }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [yesterday, localPermitido]);
+      })
+      .finally(() => { if (!cancelled) setYtdLoading(false); });
+    return () => { cancelled = true; };
+  }, [dateTo, localPermitido]);
 
   const ytdTotalGeneral = ytdTotals.reduce((s, t) => s + t.total, 0);
   const ytdLastYearTotalGeneral = ytdLastYearTotals.reduce((s, t) => s + t.total, 0);
@@ -188,7 +189,7 @@ export default function AppHome() {
     return { ...t, lastYearTotal: lastTotal, variacionPct: pct };
   });
 
-  const lastMonthInRange = parseInt(yesterday.slice(5, 7), 10) || 12;
+  const lastMonthInRange = isCurrentYear ? (parseInt(yesterday.slice(5, 7), 10) || 12) : 12;
   const byMonthLastYear = new Map<number, number>();
   for (const m of ytdMonthlyLastYear) byMonthLastYear.set(m.month, m.total);
   const mesesConComparacion = ytdMonthly
@@ -231,7 +232,17 @@ export default function AppHome() {
       </View>
 
       <View style={styles.ytdWidget}>
-        <Text style={styles.ytdTitle}>Facturación {currentYear} hasta {formatBusinessDayToLabel(yesterday)}</Text>
+        <View style={styles.ytdTitleRow}>
+          <TouchableOpacity onPress={goYearBack} style={styles.ytdYearBtn} activeOpacity={0.6}>
+            <MaterialIcons name="chevron-left" size={20} color="#94a3b8" />
+          </TouchableOpacity>
+          <Text style={styles.ytdTitle}>
+            Facturación {selectedYear}{isCurrentYear ? ` hasta ${formatBusinessDayToLabel(yesterday)}` : ' (año completo)'}
+          </Text>
+          <TouchableOpacity onPress={goYearForward} style={[styles.ytdYearBtn, isCurrentYear && styles.ytdYearBtnDisabled]} activeOpacity={isCurrentYear ? 1 : 0.6} disabled={isCurrentYear}>
+            <MaterialIcons name="chevron-right" size={20} color={isCurrentYear ? '#334155' : '#94a3b8'} />
+          </TouchableOpacity>
+        </View>
         {ytdLoading ? (
           <ActivityIndicator size="small" color="#86efac" style={styles.ytdLoader} />
         ) : ytdError ? (
@@ -246,19 +257,18 @@ export default function AppHome() {
               </View>
             </View>
             <Text style={styles.ytdComparacionLabel}>vs. mismo periodo {lastYear}</Text>
-            <View style={styles.ytdList}>
+            <View style={[styles.ytdGrid, windowWidth >= 1024 ? styles.ytdGrid3 : windowWidth >= 640 ? styles.ytdGrid2 : styles.ytdGrid1]}>
               {localesConComparacion.length === 0 ? (
                 <Text style={styles.ytdEmpty}>Sin datos por local</Text>
               ) : (
                 [...localesConComparacion].sort((a, b) => a.local.localeCompare(b.local)).map((item, idx) => (
-                  <View key={item.workplaceId || idx} style={styles.ytdRow}>
-                    <View style={styles.ytdLocalWrap}>
-                      <Text style={styles.ytdLocal}>{item.local}</Text>
-                    </View>
-                    <View style={styles.ytdRowRight}>
-                      <Text style={styles.ytdTotal}>{formatMoneda(item.total)}</Text>
+                  <View key={item.workplaceId || idx} style={[styles.ytdCard, windowWidth >= 1024 ? styles.ytdCard3 : windowWidth >= 640 ? styles.ytdCard2 : styles.ytdCard1]}>
+                    <Text style={styles.ytdCardLocal} numberOfLines={1}>{item.local}</Text>
+                    <View style={styles.ytdCardRow}>
+                      <Text style={styles.ytdCardTotal}>{formatMoneda(item.total)}</Text>
                       <VariacionBadge pct={item.variacionPct} />
                     </View>
+                    <Text style={styles.ytdCardLastYear}>{lastYear}: {formatMoneda(item.lastYearTotal)}</Text>
                   </View>
                 ))
               )}
@@ -272,6 +282,9 @@ export default function AppHome() {
                       <Text style={styles.ytdMonthLabel}>{m.monthLabel}</Text>
                       <Text style={styles.ytdMonthTotal}>{formatMoneda(m.total)}</Text>
                       <VariacionBadge pct={m.variacionPct} />
+                      <Text style={styles.ytdMonthLastYear}>
+                        {m.monthLabel} {lastYear}: {formatMoneda(m.lastYearTotal)}
+                      </Text>
                     </View>
                   ))}
                 </ScrollView>
@@ -419,7 +432,8 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#94a3b8',
-    marginBottom: 10,
+    flex: 1,
+    textAlign: 'center',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
@@ -449,33 +463,47 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     fontStyle: 'italic',
   },
-  ytdList: { gap: 6 },
-  ytdRow: {
+  ytdGrid: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 4,
-    paddingHorizontal: 0,
-    gap: 40,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.12)',
+    flexWrap: 'wrap',
   },
-  ytdRowRight: { flexDirection: 'row', alignItems: 'center', flexShrink: 0 },
-  ytdLocalWrap: { flexShrink: 0 },
-  ytdLocal: {
-    fontSize: 14,
+  ytdGrid1: { gap: 6 },
+  ytdGrid2: { gap: 8 },
+  ytdGrid3: { gap: 8 },
+  ytdCard: {
+    backgroundColor: 'rgba(30,41,59,0.7)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(134,239,172,0.12)',
+    padding: 10,
+  },
+  ytdCard1: { width: '100%' },
+  ytdCard2: { width: '48.5%' } as any,
+  ytdCard3: { width: '32%' } as any,
+  ytdCardLocal: {
+    fontSize: 12,
     color: '#f8fafc',
-    fontWeight: '600',
-    marginRight: 32,
+    fontWeight: '700',
+    marginBottom: 4,
     ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
   },
-  ytdTotal: {
+  ytdCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
+  },
+  ytdCardTotal: {
     fontSize: 14,
     fontWeight: '700',
     color: '#86efac',
     ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
     letterSpacing: 0.8,
+  },
+  ytdCardLastYear: {
+    fontSize: 10,
+    color: '#64748b',
   },
   ytdError: {
     fontSize: 12,
@@ -497,7 +525,7 @@ const styles = StyleSheet.create({
   },
   ytdMonthlyScroll: {
     marginHorizontal: -14,
-    maxHeight: 90,
+    maxHeight: 110,
   },
   ytdMonthlyContent: {
     flexDirection: 'row',
@@ -526,6 +554,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#86efac',
     ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
+  },
+  ytdMonthLastYear: {
+    fontSize: 9,
+    color: '#64748b',
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  ytdTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 4,
+  },
+  ytdYearBtn: {
+    padding: 4,
+    borderRadius: 4,
+  },
+  ytdYearBtnDisabled: {
+    opacity: 0.3,
   },
   welcome: {
     paddingVertical: 24,
