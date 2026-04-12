@@ -344,6 +344,7 @@ export default function MysteryGuestScreen() {
   const [valoraciones, setValoraciones] = useState<ValoracionMg[]>([]);
   const [loadingLista, setLoadingLista] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<ValoracionMg | null>(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [fechaForm, setFechaForm] = useState(() => ahoraDmyHm());
@@ -726,52 +727,256 @@ export default function MysteryGuestScreen() {
         {loadingLista ? (
           <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 16 }} />
         ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator style={styles.tableScroll}>
-            <View style={styles.table}>
-              <View style={[styles.tableRow, styles.tableHeaderRow]}>
-                <Text style={[styles.th, styles.colNum]}>#</Text>
-                <Text style={[styles.th, styles.colLlegada]}>Llegada</Text>
-                <Text style={[styles.th, styles.colVisitante]}>Visitante</Text>
-                <Text style={[styles.th, styles.colFecha]}>Fecha visita</Text>
-                <Text style={[styles.th, styles.colLocal]}>Local</Text>
-                <Text style={[styles.th, styles.colPunt]}>Media</Text>
-                <Text style={[styles.th, styles.colPunt]}>Exp.</Text>
-                <Text style={[styles.th, styles.colFotosProd]}>Fotos</Text>
-                <Text style={[styles.th, styles.colNotas]}>Notas</Text>
-              </View>
-              {valoraciones.map((v, idx) => {
-                const id = String(v.id_MisteryGuest ?? '');
-                const lid = String(v.LocalId ?? '').trim();
-                const nomLocal = (nombrePorLocalId[lid] ?? lid) || '—';
-                const { media, exp } = textoMediaYExp(v);
-                const visitante =
-                  (v.UsuarioNombre != null && String(v.UsuarioNombre).trim()) ||
-                  (v.UsuarioId != null && String(v.UsuarioId).trim()) ||
-                  '';
-                return (
-                  <View key={id || `${v.Fecha}-${lid}-${idx}`} style={[styles.tableRow, idx % 2 === 1 && styles.tableRowAlt]}>
-                    <Text style={[styles.td, styles.colNum]}>{idx + 1}</Text>
-                    <Text style={[styles.td, styles.colLlegada]}>{formatLlegada(v.CreadoEn)}</Text>
-                    <Text style={[styles.td, styles.colVisitante]} numberOfLines={2}>
-                      {visitante || '—'}
-                    </Text>
-                    <Text style={[styles.td, styles.colFecha]}>{formatFechaVisitaStorage(v.Fecha)}</Text>
-                    <Text style={[styles.td, styles.colLocal]} numberOfLines={2}>
-                      {nomLocal}
-                    </Text>
-                    <Text style={[styles.td, styles.colPunt]}>{media}</Text>
-                    <Text style={[styles.td, styles.colPunt]}>{exp}</Text>
-                    <Text style={[styles.td, styles.colFotosProd]}>
-                      {Array.isArray(v.ProductoFotos) && v.ProductoFotos.length > 0 ? String(v.ProductoFotos.length) : '—'}
-                    </Text>
-                    <Text style={[styles.td, styles.colNotas]} numberOfLines={3}>
-                      {v.Notas ? truncNotas(v.Notas) : '—'}
-                    </Text>
+          <View style={styles.displayBody}>
+            <View style={[styles.tableColumn, selected && styles.tableColumnWithDetail]}>
+              <ScrollView horizontal showsHorizontalScrollIndicator style={styles.tableScroll}>
+                <View style={styles.table}>
+                  <View style={[styles.tableRow, styles.tableHeaderRow]}>
+                    <Text style={[styles.th, styles.colNum]}>#</Text>
+                    <Text style={[styles.th, styles.colLlegada]}>Llegada</Text>
+                    <Text style={[styles.th, styles.colVisitante]}>Visitante</Text>
+                    <Text style={[styles.th, styles.colFecha]}>Fecha visita</Text>
+                    <Text style={[styles.th, styles.colLocal]}>Local</Text>
+                    <Text style={[styles.th, styles.colPunt]}>Media</Text>
+                    <Text style={[styles.th, styles.colPunt]}>Exp.</Text>
+                    <Text style={[styles.th, styles.colFotosProd]}>Fotos</Text>
+                    <Text style={[styles.th, styles.colNotas]}>Notas</Text>
                   </View>
-                );
-              })}
+                  {valoraciones.map((v, idx) => {
+                    const id = String(v.id_MisteryGuest ?? '');
+                    const lid = String(v.LocalId ?? '').trim();
+                    const nomLocal = (nombrePorLocalId[lid] ?? lid) || '—';
+                    const { media, exp } = textoMediaYExp(v);
+                    const visitante =
+                      (v.UsuarioNombre != null && String(v.UsuarioNombre).trim()) ||
+                      (v.UsuarioId != null && String(v.UsuarioId).trim()) ||
+                      '';
+                    const isSelected = selected?.id_MisteryGuest === id && id !== '';
+                    return (
+                      <TouchableOpacity
+                        key={id || `${v.Fecha}-${lid}-${idx}`}
+                        style={[styles.tableRow, idx % 2 === 1 && styles.tableRowAlt, isSelected && styles.tableRowSelected]}
+                        onPress={() => setSelected(isSelected ? null : v)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.td, styles.colNum]}>{idx + 1}</Text>
+                        <Text style={[styles.td, styles.colLlegada]}>{formatLlegada(v.CreadoEn)}</Text>
+                        <Text style={[styles.td, styles.colVisitante]} numberOfLines={2}>
+                          {visitante || '—'}
+                        </Text>
+                        <Text style={[styles.td, styles.colFecha]}>{formatFechaVisitaStorage(v.Fecha)}</Text>
+                        <Text style={[styles.td, styles.colLocal]} numberOfLines={2}>
+                          {nomLocal}
+                        </Text>
+                        <Text style={[styles.td, styles.colPunt]}>{media}</Text>
+                        <Text style={[styles.td, styles.colPunt]}>{exp}</Text>
+                        <Text style={[styles.td, styles.colFotosProd]}>
+                          {Array.isArray(v.ProductoFotos) && v.ProductoFotos.length > 0 ? String(v.ProductoFotos.length) : '—'}
+                        </Text>
+                        <Text style={[styles.td, styles.colNotas]} numberOfLines={3}>
+                          {v.Notas ? truncNotas(v.Notas) : '—'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </ScrollView>
             </View>
-          </ScrollView>
+
+            {selected && (() => {
+              const sLid = String(selected.LocalId ?? '').trim();
+              const sNomLocal = (nombrePorLocalId[sLid] ?? sLid) || '—';
+              const sVisitante =
+                (selected.UsuarioNombre != null && String(selected.UsuarioNombre).trim()) ||
+                (selected.UsuarioId != null && String(selected.UsuarioId).trim()) ||
+                '—';
+              const sMedias = selected.MediasPorCategoria ?? (
+                selected.Respuestas ? mgMediasPorCategoria(selected.Respuestas as Record<string, number>) : null
+              );
+              const sMediaGlobal = selected.MediaGlobal ??
+                (sMedias ? mgMediaGlobalCategorias(sMedias) : null);
+
+              return (
+                <View style={styles.detailPanel}>
+                  <View style={styles.detailHeader}>
+                    <Text style={styles.detailTitle}>Detalles</Text>
+                    <TouchableOpacity onPress={() => setSelected(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <MaterialIcons name="close" size={20} color="#64748b" />
+                    </TouchableOpacity>
+                  </View>
+
+                  <ScrollView style={styles.detailScroll} showsVerticalScrollIndicator>
+                    <View style={styles.detailSection}>
+                      <Text style={styles.detailSectionTitle}>Información general</Text>
+                      <View style={styles.detailRow}>
+                        <Text style={styles.detailLabel}>Fecha visita</Text>
+                        <Text style={styles.detailValue}>{formatFechaVisitaStorage(selected.Fecha)}</Text>
+                      </View>
+                      {selected.FechaDia ? (
+                        <View style={styles.detailRow}>
+                          <Text style={styles.detailLabel}>Día (filtro)</Text>
+                          <Text style={styles.detailValue}>{selected.FechaDia}</Text>
+                        </View>
+                      ) : null}
+                      <View style={styles.detailRow}>
+                        <Text style={styles.detailLabel}>Local</Text>
+                        <Text style={styles.detailValue}>{sNomLocal}</Text>
+                      </View>
+                      <View style={styles.detailRow}>
+                        <Text style={styles.detailLabel}>Visitante</Text>
+                        <Text style={styles.detailValue}>{sVisitante}</Text>
+                      </View>
+                      <View style={styles.detailRow}>
+                        <Text style={styles.detailLabel}>Llegada (registro)</Text>
+                        <Text style={styles.detailValue}>{formatLlegada(selected.CreadoEn)}</Text>
+                      </View>
+                    </View>
+
+                    {sMedias && Object.keys(sMedias).length > 0 ? (
+                      <View style={styles.detailSection}>
+                        <Text style={styles.detailSectionTitle}>Medias por categoría</Text>
+                        {MG_CUESTIONARIO.map((cat) => {
+                          const mediaVal = sMedias[cat.id];
+                          return mediaVal != null ? (
+                            <View key={cat.id} style={styles.detailRow}>
+                              <Text style={styles.detailLabel}>{cat.nombre}</Text>
+                              <Text style={styles.detailValue}>{mediaVal} / 5</Text>
+                            </View>
+                          ) : null;
+                        })}
+                        {sMediaGlobal != null && sMediaGlobal > 0 ? (
+                          <View style={[styles.detailRow, styles.detailRowHighlight]}>
+                            <Text style={[styles.detailLabel, styles.detailLabelBold]}>Media global</Text>
+                            <Text style={[styles.detailValue, styles.detailValueBold]}>{sMediaGlobal} / 5</Text>
+                          </View>
+                        ) : null}
+                        {selected.ExperienciaGeneral != null ? (
+                          <View style={styles.detailRow}>
+                            <Text style={styles.detailLabel}>Experiencia general</Text>
+                            <View style={styles.starsWrap}>
+                              {[1, 2, 3, 4, 5].map((i) => (
+                                <MaterialIcons
+                                  key={i}
+                                  name={i <= selected.ExperienciaGeneral! ? 'star' : 'star-border'}
+                                  size={18}
+                                  color={i <= selected.ExperienciaGeneral! ? '#f59e0b' : '#cbd5e1'}
+                                />
+                              ))}
+                            </View>
+                          </View>
+                        ) : null}
+                      </View>
+                    ) : null}
+
+                    {selected.Servicio != null && selected.Producto != null && selected.Limpieza != null ? (
+                      <View style={styles.detailSection}>
+                        <Text style={styles.detailSectionTitle}>Puntuaciones (legado)</Text>
+                        <View style={styles.detailRow}>
+                          <Text style={styles.detailLabel}>Servicio</Text>
+                          <Text style={styles.detailValue}>{selected.Servicio} / 5</Text>
+                        </View>
+                        <View style={styles.detailRow}>
+                          <Text style={styles.detailLabel}>Producto</Text>
+                          <Text style={styles.detailValue}>{selected.Producto} / 5</Text>
+                        </View>
+                        <View style={styles.detailRow}>
+                          <Text style={styles.detailLabel}>Limpieza</Text>
+                          <Text style={styles.detailValue}>{selected.Limpieza} / 5</Text>
+                        </View>
+                        {selected.Valoracion != null ? (
+                          <View style={styles.detailRow}>
+                            <Text style={styles.detailLabel}>Valoración</Text>
+                            <Text style={styles.detailValue}>{selected.Valoracion}</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    ) : null}
+
+                    {selected.Respuestas && typeof selected.Respuestas === 'object' ? (
+                      <View style={styles.detailSection}>
+                        <Text style={styles.detailSectionTitle}>Cuestionario detallado</Text>
+                        {MG_CUESTIONARIO.map((cat) => (
+                          <View key={cat.id} style={styles.detailCatBlock}>
+                            <Text style={styles.detailCatTitle}>{cat.nombre}</Text>
+                            {cat.preguntas.map((pr) => {
+                              const val = (selected.Respuestas as Record<string, number>)[pr.id];
+                              return (
+                                <View key={pr.id} style={styles.detailRow}>
+                                  <Text style={styles.detailLabel}>{pr.texto}</Text>
+                                  <View style={styles.starsWrap}>
+                                    {[1, 2, 3, 4, 5].map((i) => (
+                                      <MaterialIcons
+                                        key={i}
+                                        name={i <= (val ?? 0) ? 'star' : 'star-border'}
+                                        size={16}
+                                        color={i <= (val ?? 0) ? '#f59e0b' : '#cbd5e1'}
+                                      />
+                                    ))}
+                                  </View>
+                                </View>
+                              );
+                            })}
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+
+                    {(selected.ServicioComentario || selected.ProductoComentario || selected.LimpiezaComentario || selected.AmbienteComentario) ? (
+                      <View style={styles.detailSection}>
+                        <Text style={styles.detailSectionTitle}>Comentarios por categoría</Text>
+                        {selected.ServicioComentario ? (
+                          <View style={styles.detailCommentBlock}>
+                            <Text style={styles.detailLabel}>Servicio</Text>
+                            <Text style={styles.detailCommentText}>{selected.ServicioComentario}</Text>
+                          </View>
+                        ) : null}
+                        {selected.ProductoComentario ? (
+                          <View style={styles.detailCommentBlock}>
+                            <Text style={styles.detailLabel}>Producto</Text>
+                            <Text style={styles.detailCommentText}>{selected.ProductoComentario}</Text>
+                          </View>
+                        ) : null}
+                        {selected.LimpiezaComentario ? (
+                          <View style={styles.detailCommentBlock}>
+                            <Text style={styles.detailLabel}>Limpieza</Text>
+                            <Text style={styles.detailCommentText}>{selected.LimpiezaComentario}</Text>
+                          </View>
+                        ) : null}
+                        {selected.AmbienteComentario ? (
+                          <View style={styles.detailCommentBlock}>
+                            <Text style={styles.detailLabel}>Ambiente</Text>
+                            <Text style={styles.detailCommentText}>{selected.AmbienteComentario}</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    ) : null}
+
+                    {Array.isArray(selected.ProductoFotos) && selected.ProductoFotos.length > 0 ? (
+                      <View style={styles.detailSection}>
+                        <Text style={styles.detailSectionTitle}>Fotos del producto</Text>
+                        <View style={styles.detailFotoGrid}>
+                          {selected.ProductoFotos.map((uri, fi) => (
+                            <Image key={`detail-foto-${fi}`} source={{ uri }} style={styles.detailFotoThumb} />
+                          ))}
+                        </View>
+                      </View>
+                    ) : null}
+
+                    {selected.Notas ? (
+                      <View style={styles.detailSection}>
+                        <Text style={styles.detailSectionTitle}>Notas</Text>
+                        <Text style={styles.detailCommentText}>{selected.Notas}</Text>
+                      </View>
+                    ) : null}
+
+                    <View style={styles.detailSection}>
+                      <Text style={styles.detailIdText}>ID: {selected.id_MisteryGuest ?? '—'}</Text>
+                    </View>
+                  </ScrollView>
+                </View>
+              );
+            })()}
+          </View>
         )}
       </View>
 
@@ -1254,4 +1459,60 @@ const styles = StyleSheet.create({
     color: '#334155',
     textAlignVertical: 'top',
   },
+  displayBody: { flex: 1, flexDirection: 'row', gap: 12 },
+  tableColumn: { flex: 1, minWidth: 0 },
+  tableColumnWithDetail: { flex: 2 },
+  tableRowSelected: { backgroundColor: '#dbeafe', borderLeftWidth: 3, borderLeftColor: '#0ea5e9' },
+  detailPanel: {
+    flex: 3,
+    minWidth: 320,
+    maxWidth: 520,
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    padding: 14,
+  },
+  detailHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  detailTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
+  detailScroll: { flex: 1 },
+  detailSection: { marginBottom: 12 },
+  detailSectionTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0369a1',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 6,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    gap: 8,
+  },
+  detailRowHighlight: { backgroundColor: '#e0f2fe', borderRadius: 4, paddingHorizontal: 8, marginVertical: 2 },
+  detailLabel: { fontSize: 12, color: '#64748b', flex: 1 },
+  detailLabelBold: { fontWeight: '700', color: '#0369a1' },
+  detailValue: { fontSize: 12, color: '#0f172a', fontWeight: '500', flexShrink: 0, textAlign: 'right' },
+  detailValueBold: { fontWeight: '800', fontSize: 13, color: '#0c4a6e' },
+  detailCatBlock: { marginBottom: 8 },
+  detailCatTitle: { fontSize: 12, fontWeight: '700', color: '#334155', marginBottom: 4, marginTop: 4 },
+  detailCommentBlock: { marginBottom: 8 },
+  detailCommentText: { fontSize: 12, color: '#334155', lineHeight: 18, marginTop: 2 },
+  detailFotoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  detailFotoThumb: { width: 80, height: 80, borderRadius: 6 },
+  detailIdText: { fontSize: 10, color: '#94a3b8', fontStyle: 'italic' },
 });
