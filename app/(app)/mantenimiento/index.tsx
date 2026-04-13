@@ -6,6 +6,8 @@ import {
   ScrollView,
   ActivityIndicator,
   TouchableOpacity,
+  TextInput,
+  Modal,
   Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -23,6 +25,7 @@ const PAGE_SIZE = 50;
 
 const COLUMNAS_INCIDENCIAS = [
   'fecha_creacion',
+  'espera',
   'fecha_programada',
   'fecha_completada',
   'estado_valoracion',
@@ -78,6 +81,14 @@ function formatearSoloFecha(iso: string | undefined): string {
   }
 }
 
+function calcularDiasEspera(fechaCreacion: string | undefined): number {
+  if (!fechaCreacion) return 0;
+  const creacion = new Date(fechaCreacion);
+  if (isNaN(creacion.getTime())) return 0;
+  const ahora = new Date();
+  return Math.floor((ahora.getTime() - creacion.getTime()) / (1000 * 60 * 60 * 24));
+}
+
 /** Colores pastel por estado: fondo claro + texto más oscuro del mismo tono */
 function estilosEstado(estado: string | undefined): { backgroundColor: string; color: string } {
   const e = (estado ?? '').toString().trim();
@@ -108,11 +119,22 @@ export default function MantenimientoScreen() {
     descripcion: 160,
     fecha_creacion: 130,
     nombre_local: 120,
+    espera: 80,
   });
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   const [resizingCol, setResizingCol] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+  const [modalBorrarVisible, setModalBorrarVisible] = useState(false);
+  const [modalEditarVisible, setModalEditarVisible] = useState(false);
+  const [editTitulo, setEditTitulo] = useState('');
+  const [editDescripcion, setEditDescripcion] = useState('');
+  const [editZona, setEditZona] = useState('');
+  const [editPrioridad, setEditPrioridad] = useState('');
   const resizeRef = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
+
+  const ZONAS_EDIT = ['barra', 'cocina', 'baños', 'almacén', 'sala', 'terraza', 'otros'] as const;
+  const PRIORIDADES_EDIT = ['baja', 'media', 'alta', 'urgente'] as const;
 
   const mapLocalIdToNombre = useMemo(() => {
     const m: Record<string, string> = {};
@@ -163,6 +185,18 @@ export default function MantenimientoScreen() {
 
   const valorCelda = useCallback(
     (inc: Incidencia, col: string): string => {
+      if (col === 'espera') {
+        const estado = (inc.estado ?? '').toString();
+        let dias: number;
+        if (estado === 'Reparacion' && inc.fecha_completada) {
+          const creacion = new Date(inc.fecha_creacion as string);
+          const completada = new Date(inc.fecha_completada as string);
+          dias = Math.floor((completada.getTime() - creacion.getTime()) / (1000 * 60 * 60 * 24));
+        } else {
+          dias = calcularDiasEspera(inc.fecha_creacion as string);
+        }
+        return dias === 0 ? 'Hoy' : dias === 1 ? '1 día' : `${dias} días`;
+      }
       if (col === 'fecha_creacion') return formatearFecha(inc.fecha_creacion as string);
       if (col === 'fecha_programada') return formatearSoloFecha(inc.fecha_programada as string);
       if (col === 'fecha_completada') return inc.fecha_completada ? formatearFecha(inc.fecha_completada as string) : '—';
@@ -230,10 +264,89 @@ export default function MantenimientoScreen() {
     setResizingCol(col);
   };
 
+  const incSeleccionada = selectedRowIndex !== null ? incidenciasPagina[selectedRowIndex] : null;
+  const haySeleccion = incSeleccionada !== null;
+
+  const abrirModalBorrar = useCallback(() => {
+    if (!incSeleccionada) return;
+    setModalBorrarVisible(true);
+  }, [incSeleccionada]);
+
+  const ejecutarBorrado = useCallback(async () => {
+    if (!incSeleccionada) return;
+    const localId = (incSeleccionada.local_id ?? '').toString().trim();
+    const idIncidencia = (incSeleccionada.id_incidencia ?? '').toString().trim();
+    const fechaCreacion = (incSeleccionada.fecha_creacion ?? '').toString().trim();
+    if (!localId || !idIncidencia || !fechaCreacion) return;
+    setModalBorrarVisible(false);
+    setGuardando(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/mantenimiento/incidencias`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ local_id: localId, id_incidencia: idIncidencia, fecha_creacion: fechaCreacion }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error ?? 'Error al borrar'); return; }
+      setSelectedRowIndex(null);
+      refetch();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error de conexión');
+    } finally {
+      setGuardando(false);
+    }
+  }, [incSeleccionada, refetch]);
+
+  const abrirModalEditar = useCallback(() => {
+    if (!incSeleccionada) return;
+    setEditTitulo((incSeleccionada.titulo ?? '').toString());
+    setEditDescripcion((incSeleccionada.descripcion ?? '').toString());
+    setEditZona((incSeleccionada.zona ?? '').toString().toLowerCase());
+    setEditPrioridad((incSeleccionada.prioridad_reportada ?? '').toString().toLowerCase());
+    setModalEditarVisible(true);
+  }, [incSeleccionada]);
+
+  const ejecutarEdicion = useCallback(async () => {
+    if (!incSeleccionada) return;
+    const localId = (incSeleccionada.local_id ?? '').toString().trim();
+    const idIncidencia = (incSeleccionada.id_incidencia ?? '').toString().trim();
+    const fechaCreacion = (incSeleccionada.fecha_creacion ?? '').toString().trim();
+    if (!localId || !idIncidencia || !fechaCreacion) return;
+    if (!editTitulo.trim()) { setError('El título es obligatorio'); return; }
+    setModalEditarVisible(false);
+    setGuardando(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/mantenimiento/incidencias`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          local_id: localId,
+          id_incidencia: idIncidencia,
+          fecha_creacion: fechaCreacion,
+          editar_campos: true,
+          titulo: editTitulo.trim(),
+          descripcion: editDescripcion.trim(),
+          zona: editZona,
+          prioridad_reportada: editPrioridad,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error ?? 'Error al editar'); return; }
+      setSelectedRowIndex(null);
+      refetch();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error de conexión');
+    } finally {
+      setGuardando(false);
+    }
+  }, [incSeleccionada, editTitulo, editDescripcion, editZona, editPrioridad, refetch]);
+
   const toolbarBtns = [
     { id: 'crear', label: 'Reportar incidencia', icon: ICONS.add, onPress: () => router.push('/mantenimiento/reportar') },
-    { id: 'editar', label: 'Editar', icon: ICONS.edit, disabled: true },
-    { id: 'borrar', label: 'Borrar', icon: ICONS.delete, disabled: true },
+    { id: 'editar', label: 'Editar', icon: ICONS.edit, disabled: !haySeleccion || guardando, onPress: abrirModalEditar },
+    { id: 'borrar', label: 'Borrar', icon: ICONS.delete, disabled: !haySeleccion || guardando, onPress: abrirModalBorrar },
   ];
 
   return (
@@ -258,6 +371,14 @@ export default function MantenimientoScreen() {
         <TouchableOpacity style={styles.btn} onPress={() => router.push('/mantenimiento/programadas-hoy')} activeOpacity={0.7}>
           <MaterialIcons name="today" size={22} color="#0ea5e9" />
           <Text style={styles.btnText}>Reparaciones de hoy</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.btn} onPress={() => router.push('/mantenimiento/reparaciones-realizadas')} activeOpacity={0.7}>
+          <MaterialIcons name="check-circle-outline" size={22} color="#0ea5e9" />
+          <Text style={styles.btnText}>Reparaciones realizadas</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.btn} onPress={() => router.push('/mantenimiento/recurrentes')} activeOpacity={0.7}>
+          <MaterialIcons name="event-repeat" size={22} color="#0ea5e9" />
+          <Text style={styles.btnText}>Reparaciones recurrentes</Text>
         </TouchableOpacity>
       </View>
 
@@ -344,6 +465,39 @@ export default function MantenimientoScreen() {
                   const text = col === 'titulo' || col === 'descripcion' ? (raw.length > MAX_TEXT_LENGTH ? truncar(raw) : raw) : raw;
                   const esEstado = col === 'estado';
                   const estadoStyles = esEstado ? estilosEstado(inc.estado as string) : null;
+
+                  if (col === 'espera') {
+                    const estado = (inc.estado ?? '').toString();
+                    let dias: number;
+                    if (estado === 'Reparacion' && inc.fecha_completada) {
+                      const creacion = new Date(inc.fecha_creacion as string);
+                      const completada = new Date(inc.fecha_completada as string);
+                      dias = Math.floor((completada.getTime() - creacion.getTime()) / (1000 * 60 * 60 * 24));
+                    } else {
+                      dias = calcularDiasEspera(inc.fecha_creacion as string);
+                    }
+                    const alerta = dias > 7 && (estado === 'Nuevo' || estado === 'Programado');
+                    return (
+                      <View
+                        key={col}
+                        style={[
+                          styles.cell,
+                          { width: getColWidth(col), flexDirection: 'row', alignItems: 'center', gap: 4 },
+                          alerta && { backgroundColor: '#fef2f2' },
+                        ]}
+                      >
+                        {alerta && <MaterialIcons name="warning" size={14} color="#dc2626" />}
+                        <Text
+                          style={[styles.cellText, alerta && { color: '#dc2626', fontWeight: '700' }]}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
+                          {text}
+                        </Text>
+                      </View>
+                    );
+                  }
+
                   return (
                     <View
                       key={col}
@@ -368,6 +522,89 @@ export default function MantenimientoScreen() {
           </View>
         </ScrollView>
       )}
+
+      <Modal visible={modalBorrarVisible} transparent animationType="fade" onRequestClose={() => setModalBorrarVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalBorrarVisible(false)}>
+          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalContentWrap}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Borrar incidencia</Text>
+                <TouchableOpacity onPress={() => setModalBorrarVisible(false)} style={styles.modalClose}>
+                  <MaterialIcons name="close" size={22} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.modalBody}>
+                <Text style={styles.modalMessage}>
+                  ¿Estás seguro de que deseas borrar la incidencia «{incSeleccionada ? (incSeleccionada.titulo ?? '').toString() : ''}»?
+                </Text>
+                <View style={styles.modalFooter}>
+                  <TouchableOpacity style={styles.modalBtnNo} onPress={() => setModalBorrarVisible(false)}>
+                    <Text style={styles.modalBtnNoText}>No</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.modalBtnSi} onPress={ejecutarBorrado} disabled={guardando}>
+                    <Text style={styles.modalBtnSiText}>Sí, borrar</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal visible={modalEditarVisible} transparent animationType="fade" onRequestClose={() => setModalEditarVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalEditarVisible(false)}>
+          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalEditWrap}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Editar incidencia</Text>
+                <TouchableOpacity onPress={() => setModalEditarVisible(false)} style={styles.modalClose}>
+                  <MaterialIcons name="close" size={22} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.modalEditScroll} keyboardShouldPersistTaps="handled">
+                <View style={styles.modalBody}>
+                  <View style={styles.modalField}>
+                    <Text style={styles.modalLabel}>Título *</Text>
+                    <TextInput style={styles.modalInput} value={editTitulo} onChangeText={setEditTitulo} placeholder="Título" placeholderTextColor="#94a3b8" />
+                  </View>
+                  <View style={styles.modalField}>
+                    <Text style={styles.modalLabel}>Descripción</Text>
+                    <TextInput style={[styles.modalInput, styles.modalTextArea]} value={editDescripcion} onChangeText={setEditDescripcion} placeholder="Descripción" placeholderTextColor="#94a3b8" multiline numberOfLines={3} />
+                  </View>
+                  <View style={styles.modalField}>
+                    <Text style={styles.modalLabel}>Zona</Text>
+                    <View style={styles.modalSelectWrap}>
+                      {ZONAS_EDIT.map((z) => (
+                        <TouchableOpacity key={z} style={[styles.modalOptionBtn, editZona === z && styles.modalOptionBtnSelected]} onPress={() => setEditZona(z)}>
+                          <Text style={[styles.modalOptionText, editZona === z && styles.modalOptionTextSelected]}>{z}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                  <View style={styles.modalField}>
+                    <Text style={styles.modalLabel}>Prioridad</Text>
+                    <View style={styles.modalSelectWrap}>
+                      {PRIORIDADES_EDIT.map((p) => (
+                        <TouchableOpacity key={p} style={[styles.modalOptionBtn, editPrioridad === p && styles.modalOptionBtnSelected]} onPress={() => setEditPrioridad(p)}>
+                          <Text style={[styles.modalOptionText, editPrioridad === p && styles.modalOptionTextSelected]}>{p}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                  <View style={styles.modalFooter}>
+                    <TouchableOpacity style={styles.modalBtnNo} onPress={() => setModalEditarVisible(false)}>
+                      <Text style={styles.modalBtnNoText}>Cancelar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.modalBtnGuardar} onPress={ejecutarEdicion} disabled={guardando}>
+                      {guardando ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.modalBtnGuardarText}>Guardar</Text>}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -437,4 +674,30 @@ const styles = StyleSheet.create({
   rowSelected: { backgroundColor: '#e0f2fe' },
   cell: { minWidth: MIN_COL_WIDTH, paddingVertical: 4, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#e2e8f0' },
   cellText: { fontSize: 11, color: '#475569' },
+  modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
+  modalContentWrap: { width: '100%', maxWidth: 360, padding: 24, alignItems: 'center' },
+  modalEditWrap: { width: '100%', maxWidth: 480, padding: 24, alignItems: 'center' },
+  modalEditScroll: { maxHeight: 500 },
+  modalCard: { width: '100%', backgroundColor: '#fff', borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  modalTitle: { fontSize: 18, fontWeight: '600', color: '#334155' },
+  modalClose: { padding: 4 },
+  modalBody: { padding: 20 },
+  modalMessage: { fontSize: 14, color: '#475569', marginBottom: 20, lineHeight: 20 },
+  modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 8 },
+  modalBtnNo: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: '#f1f5f9', borderRadius: 10 },
+  modalBtnNoText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
+  modalBtnSi: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: '#dc2626', borderRadius: 10 },
+  modalBtnSiText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  modalBtnGuardar: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: '#0ea5e9', borderRadius: 10 },
+  modalBtnGuardarText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  modalField: { marginBottom: 14 },
+  modalLabel: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 6 },
+  modalInput: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12, fontSize: 14, color: '#334155', backgroundColor: '#fff' },
+  modalTextArea: { minHeight: 60, textAlignVertical: 'top' },
+  modalSelectWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  modalOptionBtn: { paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8 },
+  modalOptionBtnSelected: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
+  modalOptionText: { fontSize: 12, color: '#475569' },
+  modalOptionTextSelected: { color: '#0ea5e9', fontWeight: '500' },
 });

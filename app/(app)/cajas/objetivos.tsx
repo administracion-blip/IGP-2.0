@@ -20,8 +20,26 @@ import * as Sharing from 'expo-sharing';
 import { toPng } from 'html-to-image';
 import { useAuth } from '../../contexts/AuthContext';
 import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+
+const OBJETIVOS_TABLA_HEADERS = [
+  'Día',
+  'Fecha',
+  'FechaComparacion',
+  'Festivo',
+  'NombreFestivo',
+  'TotalFacturadoReal',
+  'TotalFacturadoComparativa',
+  'Desvio',
+  'DesvioPct',
+] as const;
+
+function objetivosExportFileSlug(nombre: string): string {
+  return nombre.replace(/[^\w\-]+/g, '_').replace(/_+/g, '_').slice(0, 48) || 'local';
+}
 
 type Local = { id_Locales?: string; nombre?: string; Nombre?: string; agoraCode?: string; AgoraCode?: string };
 type FestivoReg = { PK?: string; FechaComparativa?: string; Festivo?: boolean; NombreFestivo?: string };
@@ -84,6 +102,20 @@ function diaSemana(fecha: string): string {
 
 function diaVirtual(fecha: string, fechaComparacion: string): string {
   return `${diaSemana(fecha)}/${diaSemana(fechaComparacion)}`;
+}
+
+function filaObjetivoToExportCells(r: FilaObjetivo): (string | number)[] {
+  return [
+    diaVirtual(r.Fecha, r.FechaComparacion),
+    r.Fecha,
+    r.FechaComparacion,
+    r.Festivo ? 'Sí' : 'No',
+    r.NombreFestivo || '',
+    r.TotalFacturadoReal,
+    r.TotalFacturadoComparativa,
+    r.Desvio,
+    r.DesvioPct == null ? '' : r.DesvioPct,
+  ];
 }
 
 function mesEnCurso(): { inicio: string; fin: string } {
@@ -158,6 +190,198 @@ type LocalObjetivo = {
   ultimaFechaConDatos: string;
 };
 
+async function obtenerFilasObjetivos(
+  workplaceId: string,
+  fechaInicio: string,
+  fechaFin: string,
+): Promise<FilaObjetivo[]> {
+  const [totalsRealRes, festivosRes] = await Promise.all([
+    fetch(`${API_URL}/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${fechaInicio}&dateTo=${fechaFin}`),
+    fetch(`${API_URL}/api/gestion-festivos`),
+  ]);
+  const totalsRealData = await totalsRealRes.json();
+  const festivosData = await festivosRes.json();
+  const totalsReal: Record<string, number> = totalsRealData.totals ?? {};
+  const festivosList: FestivoReg[] = Array.isArray(festivosData.registros) ? festivosData.registros : [];
+  const festivosByFecha = Object.fromEntries(
+    festivosList
+      .filter((f) => f.PK || f.FechaComparativa)
+      .map((f) => [String(f.PK ?? f.FechaComparativa ?? '').slice(0, 10), f]),
+  );
+
+  let minComp = '';
+  let maxComp = '';
+  const d = new Date(fechaInicio + 'T12:00:00');
+  const end = new Date(fechaFin + 'T12:00:00');
+  const fechaToComp: Record<string, string> = {};
+  while (d <= end) {
+    const fecha = d.toISOString().slice(0, 10);
+    const festivo = festivosByFecha[fecha];
+    const fechaComp =
+      festivo?.FechaComparativa && /^\d{4}-\d{2}-\d{2}$/.test(String(festivo.FechaComparativa).slice(0, 10))
+        ? String(festivo.FechaComparativa).slice(0, 10)
+        : fechaComparacion(fecha);
+    fechaToComp[fecha] = fechaComp;
+    if (!minComp || fechaComp < minComp) minComp = fechaComp;
+    if (!maxComp || fechaComp > maxComp) maxComp = fechaComp;
+    d.setDate(d.getDate() + 1);
+  }
+
+  const totalsCompRes = await fetch(
+    `${API_URL}/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${minComp}&dateTo=${maxComp}`,
+  );
+  const totalsCompData = await totalsCompRes.json();
+  const totalsComp: Record<string, number> = totalsCompData.totals ?? {};
+
+  const filas: FilaObjetivo[] = [];
+  const d2 = new Date(fechaInicio + 'T12:00:00');
+  const end2 = new Date(fechaFin + 'T12:00:00');
+  while (d2 <= end2) {
+    const fecha = d2.toISOString().slice(0, 10);
+    const fechaComp = fechaToComp[fecha];
+    const real = totalsReal[fecha] ?? 0;
+    const comp = totalsComp[fechaComp] ?? 0;
+    const festivo = festivosByFecha[fecha];
+    const esFestivo = String(festivo?.Festivo).toLowerCase() === 'true';
+    const nombreFestivo = String(festivo?.NombreFestivo ?? '').trim();
+    const desvio = real - comp;
+    const desvioPct = comp === 0 ? null : real / comp - 1;
+    filas.push({
+      Fecha: fecha,
+      FechaComparacion: fechaComp,
+      Festivo: esFestivo,
+      NombreFestivo: nombreFestivo,
+      TotalFacturadoReal: real,
+      TotalFacturadoComparativa: comp,
+      Desvio: desvio,
+      DesvioPct: desvioPct,
+    });
+    d2.setDate(d2.getDate() + 1);
+  }
+  return filas;
+}
+
+function generarPdfObjetivos(
+  filas: FilaObjetivo[],
+  nombreLocal: string,
+  fechaInicio: string,
+  fechaFin: string,
+  tituloWidgetPeriodo: string,
+): jsPDF {
+  const ayer = ayerYYYYMMDD();
+  const filasHastaAyer = filas.filter((r) => r.Fecha <= ayer);
+  const sumReal = filas.reduce((a, r) => a + r.TotalFacturadoReal, 0);
+  const sumComp = filas.reduce((a, r) => a + r.TotalFacturadoComparativa, 0);
+  const sumDesvio = filas.reduce((a, r) => a + r.Desvio, 0);
+  const desvioPctTotal = sumComp === 0 ? null : sumReal / sumComp - 1;
+  const sumRealHoy = filasHastaAyer.reduce((a, r) => a + r.TotalFacturadoReal, 0);
+  const sumCompHoy = filasHastaAyer.reduce((a, r) => a + r.TotalFacturadoComparativa, 0);
+  const sumDesvioHoy = filasHastaAyer.reduce((a, r) => a + r.Desvio, 0);
+  const desvioPctHoy = sumCompHoy === 0 ? null : sumRealHoy / sumCompHoy - 1;
+
+  const body = filas.map((r) => {
+    const row = filaObjetivoToExportCells(r);
+    return [
+      String(row[0]),
+      String(row[1]),
+      String(row[2]),
+      String(row[3]),
+      String(row[4]).slice(0, 36),
+      typeof row[5] === 'number' ? formatMoneda(row[5]) : String(row[5]),
+      typeof row[6] === 'number' ? formatMoneda(row[6]) : String(row[6]),
+      typeof row[7] === 'number' ? formatMoneda(row[7]) : String(row[7]),
+      row[8] === '' || row[8] == null ? '—' : formatPct(typeof row[8] === 'number' ? row[8] : Number(row[8])),
+    ];
+  });
+
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  let y = 12;
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Objetivos — comparativa diaria', 14, y);
+  y += 6;
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(60);
+  doc.text(String(nombreLocal), 14, y);
+  y += 5;
+  doc.text(`Periodo: ${fechaInicio} → ${fechaFin} · ${tituloWidgetPeriodo}`, 14, y);
+  y += 4;
+  doc.text(`Generado: ${new Date().toLocaleString('es-ES')}`, 14, y);
+  y += 5;
+  if (filasHastaAyer.length > 0 && filasHastaAyer.length < filas.length) {
+    const line = `Acumulado hasta ayer (${formatFechaCorta(ayer)}): facturado ${formatMoneda(sumRealHoy)} · comparativa ${formatMoneda(sumCompHoy)} · desvío ${formatMoneda(sumDesvioHoy)} · ${formatPctTicker(desvioPctHoy)}`;
+    const split = doc.splitTextToSize(line, pageW - 28);
+    doc.text(split, 14, y);
+    y += split.length * 4 + 2;
+  }
+  doc.setTextColor(0);
+
+  const COL_FECHA = 1;
+  const COL_NOMBRE_FESTIVO = 4;
+  const COL_TOTAL_REAL = 5;
+  const COL_DESVIO_PCT = 8;
+  const pinkFestivo: [number, number, number] = [219, 39, 119];
+  const verdePct: [number, number, number] = [5, 150, 105];
+  const rojoPct: [number, number, number] = [220, 38, 38];
+
+  autoTable(doc, {
+    startY: y,
+    head: [OBJETIVOS_TABLA_HEADERS as unknown as string[]],
+    body,
+    foot: [
+      [
+        'TOTALES', '', '', '', '',
+        formatMoneda(sumReal),
+        formatMoneda(sumComp),
+        formatMoneda(sumDesvio),
+        desvioPctTotal == null ? '—' : formatPct(desvioPctTotal),
+      ],
+    ],
+    showFoot: 'lastPage',
+    theme: 'striped',
+    styles: { fontSize: 7, cellPadding: 1.2 },
+    headStyles: { fillColor: [14, 165, 233], textColor: 255, fontStyle: 'bold' },
+    footStyles: { fillColor: [241, 245, 249], textColor: 30, fontStyle: 'bold' },
+    margin: { left: 10, right: 10 },
+    tableWidth: pageW - 20,
+    didParseCell: (data) => {
+      if (data.section === 'body') {
+        const colIdx = data.column.index;
+        if (colIdx === COL_FECHA) {
+          data.cell.styles.fontStyle = 'bold';
+        }
+        if (colIdx === COL_NOMBRE_FESTIVO) {
+          const nombreF = String(filas[data.row.index]?.NombreFestivo ?? '').trim();
+          if (nombreF) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.textColor = pinkFestivo;
+          }
+        }
+        if (colIdx === COL_TOTAL_REAL) {
+          data.cell.styles.fontStyle = 'bold';
+        }
+        if (colIdx === COL_DESVIO_PCT) {
+          data.cell.styles.fontStyle = 'bold';
+          const pct = filas[data.row.index]?.DesvioPct;
+          if (pct != null && !Number.isNaN(pct)) {
+            data.cell.styles.textColor = pct >= 0 ? verdePct : rojoPct;
+          }
+        }
+      }
+      if (data.section === 'foot' && data.column.index === COL_DESVIO_PCT) {
+        data.cell.styles.fontStyle = 'bold';
+        if (desvioPctTotal != null) {
+          data.cell.styles.textColor = desvioPctTotal >= 0 ? verdePct : rojoPct;
+        }
+      }
+    },
+  });
+
+  return doc;
+}
+
 export default function ObjetivosScreen() {
   const router = useRouter();
   const { localPermitido } = useAuth();
@@ -182,6 +406,11 @@ export default function ObjetivosScreen() {
   const [hoveredRangoKey, setHoveredRangoKey] = useState<string | null>(null);
   const widgetRef = useRef<View>(null);
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [showMassDownload, setShowMassDownload] = useState(false);
+  const [massSelectedLocals, setMassSelectedLocals] = useState<Set<string>>(new Set());
+  const [massDownloading, setMassDownloading] = useState(false);
+  const [massProgress, setMassProgress] = useState({ current: 0, total: 0, localName: '' });
   const [capturing, setCapturing] = useState(false);
 
   const cargarLocales = useCallback(() => {
@@ -476,86 +705,13 @@ export default function ObjetivosScreen() {
 
   const generar = useCallback(async () => {
     const workplaceId = (localSeleccionado?.agoraCode ?? localSeleccionado?.AgoraCode ?? '').toString().trim();
-    if (!workplaceId) {
-      setError('Selecciona un local');
-      return;
-    }
-    if (!fechaInicio || !fechaFin || !/^\d{4}-\d{2}-\d{2}$/.test(fechaInicio) || !/^\d{4}-\d{2}-\d{2}$/.test(fechaFin)) {
-      setError('Indica rango de fechas (YYYY-MM-DD)');
-      return;
-    }
-    if (fechaInicio > fechaFin) {
-      setError('Fecha inicio debe ser <= fecha fin');
-      return;
-    }
+    if (!workplaceId) { setError('Selecciona un local'); return; }
+    if (!fechaInicio || !fechaFin || !/^\d{4}-\d{2}-\d{2}$/.test(fechaInicio) || !/^\d{4}-\d{2}-\d{2}$/.test(fechaFin)) { setError('Indica rango de fechas (YYYY-MM-DD)'); return; }
+    if (fechaInicio > fechaFin) { setError('Fecha inicio debe ser <= fecha fin'); return; }
     setError(null);
     setGenerando(true);
     try {
-      const [totalsRealRes, festivosRes] = await Promise.all([
-        fetch(`${API_URL}/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${fechaInicio}&dateTo=${fechaFin}`),
-        fetch(`${API_URL}/api/gestion-festivos`),
-      ]);
-      const totalsRealData = await totalsRealRes.json();
-      const festivosData = await festivosRes.json();
-      const totalsReal: Record<string, number> = totalsRealData.totals ?? {};
-      const festivosList: FestivoReg[] = Array.isArray(festivosData.registros) ? festivosData.registros : [];
-      const festivosByFecha = Object.fromEntries(
-        festivosList
-          .filter((f) => f.PK || f.FechaComparativa)
-          .map((f) => [String(f.PK ?? f.FechaComparativa ?? '').slice(0, 10), f])
-      );
-
-      // Calcular FechaComparacion desde tabla comparativa (o año anterior si no existe)
-      let minComp = '';
-      let maxComp = '';
-      const d = new Date(fechaInicio + 'T12:00:00');
-      const end = new Date(fechaFin + 'T12:00:00');
-      const fechaToComp: Record<string, string> = {};
-      while (d <= end) {
-        const fecha = d.toISOString().slice(0, 10);
-        const festivo = festivosByFecha[fecha];
-        const fechaComp = festivo?.FechaComparativa && /^\d{4}-\d{2}-\d{2}$/.test(String(festivo.FechaComparativa).slice(0, 10))
-          ? String(festivo.FechaComparativa).slice(0, 10)
-          : fechaComparacion(fecha);
-        fechaToComp[fecha] = fechaComp;
-        if (!minComp || fechaComp < minComp) minComp = fechaComp;
-        if (!maxComp || fechaComp > maxComp) maxComp = fechaComp;
-        d.setDate(d.getDate() + 1);
-      }
-
-      const totalsCompRes = await fetch(
-        `${API_URL}/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${minComp}&dateTo=${maxComp}`
-      );
-      const totalsCompData = await totalsCompRes.json();
-      const totalsComp: Record<string, number> = totalsCompData.totals ?? {};
-
-      const filas: FilaObjetivo[] = [];
-      const d2 = new Date(fechaInicio + 'T12:00:00');
-      const end2 = new Date(fechaFin + 'T12:00:00');
-      while (d2 <= end2) {
-        const fecha = d2.toISOString().slice(0, 10);
-        const fechaComp = fechaToComp[fecha];
-        const real = totalsReal[fecha] ?? 0;
-        // TotalFacturadoComparativa = facturación Igp_SalesCloseouts para este local en FechaComparacion
-        const comp = totalsComp[fechaComp] ?? 0;
-        const festivo = festivosByFecha[fecha];
-        const esFestivo = String(festivo?.Festivo).toLowerCase() === 'true';
-        const nombreFestivo = String(festivo?.NombreFestivo ?? '').trim();
-        const desvio = real - comp;
-        const desvioPct = comp === 0 ? null : real / comp - 1;
-        filas.push({
-          Fecha: fecha,
-          FechaComparacion: fechaComp,
-          Festivo: esFestivo,
-          NombreFestivo: nombreFestivo,
-          TotalFacturadoReal: real,
-          TotalFacturadoComparativa: comp,
-          Desvio: desvio,
-          DesvioPct: desvioPct,
-        });
-        d2.setDate(d2.getDate() + 1);
-      }
-      setRegistros(filas);
+      setRegistros(await obtenerFilasObjetivos(workplaceId, fechaInicio, fechaFin));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al generar');
       setRegistros([]);
@@ -581,6 +737,165 @@ export default function ObjetivosScreen() {
   const tickerEstiloHoy = estiloTicker(desvioPctHoy);
 
   const fechaJornadaNegocio = fechaJornadaNegocioIso();
+
+  const exportarTablaObjetivosExcel = useCallback(() => {
+    if (registros.length === 0) return;
+    setExportMenuOpen(false);
+    const slug = objetivosExportFileSlug(String(nombreLocal));
+    const stamp = new Date().toISOString().slice(0, 10);
+    const fname = `objetivos_${slug}_${stamp}.xlsx`;
+
+    const meta: (string | number)[][] = [
+      ['Objetivos — detalle local', String(nombreLocal)],
+      ['Periodo', `${fechaInicio} → ${fechaFin}`, tituloWidgetPeriodo],
+      ['Generado', new Date().toLocaleString('es-ES')],
+      [],
+    ];
+    if (registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length) {
+      meta.push([
+        `Acumulado hasta ayer (${formatFechaCorta(ayerStr)}): facturado ${formatMoneda(sumRealHoy)} · comparativa ${formatMoneda(sumCompHoy)} · desvío ${formatMoneda(sumDesvioHoy)} · ${formatPctTicker(desvioPctHoy)}`,
+      ]);
+      meta.push([]);
+    }
+
+    const header = [...OBJETIVOS_TABLA_HEADERS];
+    const body = registros.map(filaObjetivoToExportCells);
+    const totales: (string | number)[] = [
+      'TOTALES',
+      '',
+      '',
+      '',
+      '',
+      sumReal,
+      sumComp,
+      sumDesvio,
+      desvioPctTotal ?? '',
+    ];
+    const aoa: (string | number)[][] = [...meta, header, ...body, totales];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Objetivos');
+
+    if (Platform.OS === 'web') {
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fname;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      const base64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+      const cacheDir = FileSystemLegacy.cacheDirectory ?? '';
+      const fileUri = `${cacheDir}${fname}`;
+      FileSystemLegacy.writeAsStringAsync(fileUri, base64, { encoding: FileSystemLegacy.EncodingType.Base64 })
+        .then(() =>
+          Sharing.shareAsync(fileUri, {
+            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            dialogTitle: fname,
+          })
+        )
+        .catch(() => {});
+    }
+  }, [
+    registros,
+    nombreLocal,
+    fechaInicio,
+    fechaFin,
+    tituloWidgetPeriodo,
+    sumReal,
+    sumComp,
+    sumDesvio,
+    desvioPctTotal,
+    registrosHastaAyer.length,
+    ayerStr,
+    sumRealHoy,
+    sumCompHoy,
+    sumDesvioHoy,
+    desvioPctHoy,
+  ]);
+
+  const exportarTablaObjetivosPDF = useCallback(() => {
+    if (registros.length === 0) return;
+    setExportMenuOpen(false);
+    const slug = objetivosExportFileSlug(String(nombreLocal));
+    const fname = `objetivos_${slug}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    const doc = generarPdfObjetivos(registros, String(nombreLocal), fechaInicio, fechaFin, tituloWidgetPeriodo);
+
+    if (Platform.OS === 'web') {
+      doc.save(fname);
+    } else {
+      const dataUri = doc.output('datauristring');
+      const base64 = dataUri.split(',')[1] || '';
+      const cacheDir = FileSystemLegacy.cacheDirectory ?? '';
+      const fileUri = `${cacheDir}${fname}`;
+      FileSystemLegacy.writeAsStringAsync(fileUri, base64, { encoding: FileSystemLegacy.EncodingType.Base64 })
+        .then(() => Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: fname }))
+        .catch(() => {});
+    }
+  }, [registros, nombreLocal, fechaInicio, fechaFin, tituloWidgetPeriodo]);
+
+  const handleOpenMassDownload = useCallback(() => {
+    setExportMenuOpen(false);
+    setMassSelectedLocals(new Set());
+    setMassProgress({ current: 0, total: 0, localName: '' });
+    setShowMassDownload(true);
+  }, []);
+
+  const toggleMassLocal = useCallback((code: string) => {
+    setMassSelectedLocals((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code); else next.add(code);
+      return next;
+    });
+  }, []);
+
+  const toggleMassAll = useCallback(() => {
+    setMassSelectedLocals((prev) => {
+      const allCodes = localesDropdownOrdenados.map((l) => (l.agoraCode ?? l.AgoraCode ?? '').toString().trim()).filter(Boolean);
+      return prev.size === allCodes.length ? new Set() : new Set(allCodes);
+    });
+  }, [localesDropdownOrdenados]);
+
+  const handleMassDownload = useCallback(async () => {
+    if (massSelectedLocals.size === 0) return;
+    if (!fechaInicio || !fechaFin || fechaInicio > fechaFin) return;
+    setMassDownloading(true);
+    const selected = localesDropdownOrdenados.filter((l) => {
+      const code = (l.agoraCode ?? l.AgoraCode ?? '').toString().trim();
+      return massSelectedLocals.has(code);
+    });
+    setMassProgress({ current: 0, total: selected.length, localName: '' });
+
+    for (let i = 0; i < selected.length; i++) {
+      const loc = selected[i];
+      const code = (loc.agoraCode ?? loc.AgoraCode ?? '').toString().trim();
+      const nombre = String(loc.nombre ?? loc.Nombre ?? code);
+      setMassProgress({ current: i, total: selected.length, localName: nombre });
+      try {
+        const filas = await obtenerFilasObjetivos(code, fechaInicio, fechaFin);
+        if (filas.length === 0) continue;
+        const doc = generarPdfObjetivos(filas, nombre, fechaInicio, fechaFin, tituloWidgetPeriodo);
+        const slug = objetivosExportFileSlug(nombre);
+        const fname = `objetivos_${slug}_${new Date().toISOString().slice(0, 10)}.pdf`;
+        if (Platform.OS === 'web') {
+          doc.save(fname);
+          await new Promise((r) => setTimeout(r, 350));
+        } else {
+          const dataUri = doc.output('datauristring');
+          const base64 = dataUri.split(',')[1] || '';
+          const cacheDir = FileSystemLegacy.cacheDirectory ?? '';
+          const fileUri = `${cacheDir}${fname}`;
+          await FileSystemLegacy.writeAsStringAsync(fileUri, base64, { encoding: FileSystemLegacy.EncodingType.Base64 });
+          await Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: fname });
+        }
+      } catch { /* continuar con el siguiente local */ }
+    }
+    setMassProgress((p) => ({ ...p, current: selected.length, localName: '' }));
+    setMassDownloading(false);
+    setShowMassDownload(false);
+  }, [massSelectedLocals, localesDropdownOrdenados, fechaInicio, fechaFin, tituloWidgetPeriodo]);
 
   return (
     <View style={styles.container}>
@@ -824,10 +1139,130 @@ export default function ObjetivosScreen() {
               <View style={styles.progressSection}>
                 {localSeleccionado && (
                   <View style={styles.progressLocalRow}>
-                    <Text style={styles.progressLocalName} numberOfLines={1}>{nombreLocal}</Text>
-                    <Text style={styles.progressRegistrosCount}>
-                      {registros.length} {registros.length === 1 ? 'registro' : 'registros'}
-                    </Text>
+                    <View style={styles.progressLocalTextCol}>
+                      <Text style={styles.progressLocalName} numberOfLines={1}>{nombreLocal}</Text>
+                      <Text style={styles.progressRegistrosCount}>
+                        {registros.length} {registros.length === 1 ? 'registro' : 'registros'}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={[styles.exportTablaBtn, registros.length === 0 && styles.exportTablaBtnDisabled]}
+                      onPress={() => registros.length > 0 && setExportMenuOpen(true)}
+                      disabled={registros.length === 0}
+                      accessibilityLabel="Exportar tabla"
+                    >
+                      <MaterialIcons name="file-download" size={16} color={registros.length === 0 ? '#cbd5e1' : '#0369a1'} />
+                      <Text style={[styles.exportTablaBtnText, registros.length === 0 && styles.exportTablaBtnTextDisabled]}>
+                        Exportar
+                      </Text>
+                    </TouchableOpacity>
+                    <Modal visible={exportMenuOpen} transparent animationType="fade" onRequestClose={() => setExportMenuOpen(false)}>
+                      <Pressable style={styles.shareOverlay} onPress={() => setExportMenuOpen(false)}>
+                        <Pressable onPress={() => {}}>
+                          <View style={styles.shareMenu}>
+                            <Text style={styles.exportMenuTitle}>Formato de exportación</Text>
+                            <TouchableOpacity style={styles.shareMenuItem} onPress={exportarTablaObjetivosExcel}>
+                              <MaterialIcons name="table-chart" size={18} color="#16a34a" />
+                              <Text style={styles.shareMenuText}>Excel (.xlsx)</Text>
+                            </TouchableOpacity>
+                            <View style={styles.shareMenuDivider} />
+                            <TouchableOpacity style={styles.shareMenuItem} onPress={exportarTablaObjetivosPDF}>
+                              <MaterialIcons name="picture-as-pdf" size={18} color="#dc2626" />
+                              <Text style={styles.shareMenuText}>PDF</Text>
+                            </TouchableOpacity>
+                            <View style={styles.shareMenuDivider} />
+                            <TouchableOpacity style={styles.shareMenuItem} onPress={handleOpenMassDownload}>
+                              <MaterialIcons name="download-for-offline" size={18} color="#7c3aed" />
+                              <Text style={styles.shareMenuText}>Descarga masiva (PDF)</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </Pressable>
+                      </Pressable>
+                    </Modal>
+                    <Modal visible={showMassDownload} transparent animationType="fade" onRequestClose={() => !massDownloading && setShowMassDownload(false)}>
+                      <Pressable style={styles.shareOverlay} onPress={() => !massDownloading && setShowMassDownload(false)}>
+                        <Pressable onPress={() => {}} style={styles.massModal}>
+                          <Text style={styles.massTitle}>Descarga masiva de PDF</Text>
+                          <Text style={styles.massSubtitle}>
+                            Periodo: {fechaInicio} → {fechaFin} · {tituloWidgetPeriodo}
+                          </Text>
+                          <View style={styles.massSelectAllRow}>
+                            <TouchableOpacity
+                              style={styles.massCheckRow}
+                              onPress={toggleMassAll}
+                              disabled={massDownloading}
+                            >
+                              <MaterialIcons
+                                name={massSelectedLocals.size === localesDropdownOrdenados.length ? 'check-box' : 'check-box-outline-blank'}
+                                size={20}
+                                color={massSelectedLocals.size === localesDropdownOrdenados.length ? '#0ea5e9' : '#94a3b8'}
+                              />
+                              <Text style={styles.massSelectAllText}>Seleccionar todos</Text>
+                            </TouchableOpacity>
+                            <Text style={styles.massCountText}>
+                              {massSelectedLocals.size} de {localesDropdownOrdenados.length}
+                            </Text>
+                          </View>
+                          <ScrollView style={styles.massListScroll} nestedScrollEnabled>
+                            {localesDropdownOrdenados.map((loc) => {
+                              const code = (loc.agoraCode ?? loc.AgoraCode ?? '').toString().trim();
+                              const nombre = String(loc.nombre ?? loc.Nombre ?? code);
+                              const checked = massSelectedLocals.has(code);
+                              return (
+                                <TouchableOpacity
+                                  key={code}
+                                  style={styles.massCheckRow}
+                                  onPress={() => toggleMassLocal(code)}
+                                  disabled={massDownloading}
+                                >
+                                  <MaterialIcons
+                                    name={checked ? 'check-box' : 'check-box-outline-blank'}
+                                    size={20}
+                                    color={checked ? '#0ea5e9' : '#cbd5e1'}
+                                  />
+                                  <Text style={[styles.massLocalName, checked && styles.massLocalNameSelected]}>{nombre}</Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </ScrollView>
+                          {massDownloading && (
+                            <View style={styles.massProgressWrap}>
+                              <View style={styles.massProgressBarBg}>
+                                <View style={[styles.massProgressBarFill, { width: `${massProgress.total > 0 ? Math.round((massProgress.current / massProgress.total) * 100) : 0}%` }]} />
+                              </View>
+                              <Text style={styles.massProgressText}>
+                                {massProgress.current} / {massProgress.total}{massProgress.localName ? ` — ${massProgress.localName}` : ''}
+                              </Text>
+                            </View>
+                          )}
+                          <View style={styles.massActions}>
+                            <TouchableOpacity
+                              style={styles.massCancelBtn}
+                              onPress={() => !massDownloading && setShowMassDownload(false)}
+                              disabled={massDownloading}
+                            >
+                              <Text style={styles.massCancelText}>Cancelar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.massDownloadBtn, (massSelectedLocals.size === 0 || massDownloading) && styles.massDownloadBtnDisabled]}
+                              onPress={handleMassDownload}
+                              disabled={massSelectedLocals.size === 0 || massDownloading}
+                            >
+                              {massDownloading ? (
+                                <ActivityIndicator size="small" color="#fff" />
+                              ) : (
+                                <>
+                                  <MaterialIcons name="download" size={16} color="#fff" />
+                                  <Text style={styles.massDownloadText}>
+                                    Descargar {massSelectedLocals.size > 0 ? `(${massSelectedLocals.size})` : ''}
+                                  </Text>
+                                </>
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        </Pressable>
+                      </Pressable>
+                    </Modal>
                   </View>
                 )}
                 <View style={styles.progressHeader}>
@@ -1175,8 +1610,40 @@ const styles = StyleSheet.create({
   tickerBadgeSmall: { paddingHorizontal: 6, paddingVertical: 2 },
   tableWithProgress: { minWidth: 862 },
   progressSection: { marginBottom: 8 },
-  progressLocalRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: 4 },
-  progressLocalName: { fontSize: 14, fontWeight: '700', color: '#334155', flex: 1 },
+  progressLocalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 4,
+  },
+  progressLocalTextCol: { flex: 1, minWidth: 0 },
+  exportTablaBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: '#f0f9ff',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    flexShrink: 0,
+  },
+  exportTablaBtnDisabled: { opacity: 0.55 },
+  exportTablaBtnText: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
+  exportTablaBtnTextDisabled: { color: '#94a3b8' },
+  exportMenuTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  progressLocalName: { fontSize: 14, fontWeight: '700', color: '#334155' },
   progressRegistrosCount: { fontSize: 11, color: '#94a3b8', fontStyle: 'italic' },
   progressHeader: {
     flexDirection: 'row',
@@ -1278,6 +1745,55 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
     gap: 2,
   },
+  massModal: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '80%',
+  },
+  massTitle: { fontSize: 16, fontWeight: '700', color: '#1e293b', marginBottom: 4 },
+  massSubtitle: { fontSize: 11, color: '#64748b', marginBottom: 12 },
+  massSelectAllRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    marginBottom: 4,
+  },
+  massSelectAllText: { fontSize: 12, fontWeight: '600', color: '#334155', marginLeft: 8 },
+  massCountText: { fontSize: 11, color: '#94a3b8' },
+  massListScroll: { maxHeight: 260, marginBottom: 12 },
+  massCheckRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    gap: 8,
+  },
+  massLocalName: { fontSize: 12, color: '#475569' },
+  massLocalNameSelected: { color: '#0ea5e9', fontWeight: '500' },
+  massProgressWrap: { marginBottom: 12 },
+  massProgressBarBg: { height: 6, backgroundColor: '#e2e8f0', borderRadius: 3, overflow: 'hidden', marginBottom: 4 },
+  massProgressBarFill: { height: '100%', backgroundColor: '#0ea5e9', borderRadius: 3 },
+  massProgressText: { fontSize: 11, color: '#64748b', textAlign: 'center' },
+  massActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
+  massCancelBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: '#f1f5f9' },
+  massCancelText: { fontSize: 13, color: '#64748b', fontWeight: '500' },
+  massDownloadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: '#7c3aed',
+  },
+  massDownloadBtnDisabled: { opacity: 0.5 },
+  massDownloadText: { fontSize: 13, color: '#fff', fontWeight: '600' },
   tickerText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.2 },
   parcialBox: {
     marginTop: 12,

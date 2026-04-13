@@ -9,6 +9,8 @@ export default function MantenimientoLayout() {
         <Stack.Screen name="reportar" />
         <Stack.Screen name="abiertas" />
         <Stack.Screen name="programadas-hoy" />
+        <Stack.Screen name="reparaciones-realizadas" />
+        <Stack.Screen name="recurrentes" />
       </Stack>
     </MantenimientoLocalesProvider>
   );

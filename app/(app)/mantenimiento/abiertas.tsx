@@ -20,6 +20,12 @@ import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
+function resolverUriFoto(uri: string): string {
+  const u = uri.trim();
+  if (u.startsWith('http') || u.startsWith('data:')) return u;
+  return `${API_URL}${u.startsWith('/') ? '' : '/'}${u}`;
+}
+
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
 const MAX_TEXT_LENGTH = 30;
@@ -159,6 +165,8 @@ export default function IncidenciasAbiertasScreen() {
   const [programandoIncidencia, setProgramandoIncidencia] = useState(false);
   const [marcandoReparadoKey, setMarcandoReparadoKey] = useState<string | null>(null);
   const [dragOverCalendarIso, setDragOverCalendarIso] = useState<string | null>(null);
+  const [soloProgramadas, setSoloProgramadas] = useState(false);
+  const [programadasDiaModalIso, setProgramadasDiaModalIso] = useState<string | null>(null);
   const resizeRef = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
 
   const refetchIncidencias = useCallback(() => {
@@ -309,15 +317,29 @@ export default function IncidenciasAbiertasScreen() {
   );
 
   const incidenciasFiltrados = useMemo(() => {
+    let lista = incidencias;
+    if (soloProgramadas) {
+      lista = lista.filter(
+        (inc) =>
+          inc.fecha_programada != null &&
+          String(inc.fecha_programada).trim() !== '' &&
+          (inc.estado ?? '').toString() === 'Programado',
+      );
+    } else {
+      lista = lista.filter((inc) => {
+        const estado = (inc.estado ?? '').toString();
+        return estado !== 'Programado' && estado !== 'Reparacion';
+      });
+    }
     const q = filtroBusqueda.trim().toLowerCase();
-    if (!q) return incidencias;
-    return incidencias.filter((inc) =>
+    if (!q) return lista;
+    return lista.filter((inc) =>
       COLUMNAS_INCIDENCIAS.some((col) => {
         const val = valorCelda(inc, col);
         return val !== '—' && val.toLowerCase().includes(q);
       })
     );
-  }, [incidencias, filtroBusqueda, valorCelda]);
+  }, [incidencias, filtroBusqueda, valorCelda, soloProgramadas]);
 
   const totalFiltrados = incidenciasFiltrados.length;
   const totalPages = Math.max(1, Math.ceil(totalFiltrados / PAGE_SIZE));
@@ -362,6 +384,37 @@ export default function IncidenciasAbiertasScreen() {
     });
     return map;
   }, [incidencias, mapLocalIdToNombre]);
+
+  const incidenciasPorDiaProgramada = useMemo(() => {
+    const map = new Map<string, Incidencia[]>();
+    incidencias.forEach((inc) => {
+      const fp = inc.fecha_programada;
+      if (fp === undefined || fp === null || String(fp).trim() === '') return;
+      const str = String(fp).trim();
+      const match = str.match(/^(\d{4}-\d{2}-\d{2})/);
+      const iso = match ? match[1] : null;
+      if (!iso) return;
+      if (!map.has(iso)) map.set(iso, []);
+      map.get(iso)!.push(inc);
+    });
+    return map;
+  }, [incidencias]);
+
+  const programadasDiaAgrupadasPorLocal = useMemo(() => {
+    if (!programadasDiaModalIso) return [] as { localId: string; nombreLocal: string; incidencias: Incidencia[] }[];
+    const list = incidenciasPorDiaProgramada.get(programadasDiaModalIso) ?? [];
+    const byLocal = new Map<string, Incidencia[]>();
+    list.forEach((inc) => {
+      const localId = (inc.local_id ?? '').toString().trim() || '_sin_local';
+      if (!byLocal.has(localId)) byLocal.set(localId, []);
+      byLocal.get(localId)!.push(inc);
+    });
+    return Array.from(byLocal.entries()).map(([localId, incidenciasGrupo]) => ({
+      localId,
+      nombreLocal: localId === '_sin_local' ? 'Sin local' : (mapLocalIdToNombre[localId] ?? localId),
+      incidencias: incidenciasGrupo,
+    }));
+  }, [programadasDiaModalIso, incidenciasPorDiaProgramada, mapLocalIdToNombre]);
 
   useEffect(() => {
     setPageIndex((prev) => (prev >= totalPages ? Math.max(0, totalPages - 1) : prev));
@@ -571,6 +624,17 @@ export default function IncidenciasAbiertasScreen() {
             <MaterialIcons name="view-module" size={20} color={viewMode === 'deck' ? '#0ea5e9' : '#94a3b8'} />
           </TouchableOpacity>
         </View>
+        <TouchableOpacity
+          style={[styles.filterProgramadasBtn, soloProgramadas && styles.filterProgramadasBtnActive]}
+          onPress={() => setSoloProgramadas((v) => !v)}
+          activeOpacity={0.7}
+          accessibilityLabel="Filtrar solo programadas"
+        >
+          <MaterialIcons name="event-available" size={18} color={soloProgramadas ? '#fff' : '#0ea5e9'} />
+          <Text style={[styles.filterProgramadasText, soloProgramadas && styles.filterProgramadasTextActive]}>
+            Programadas
+          </Text>
+        </TouchableOpacity>
         {multiSelectMode && (
           <TouchableOpacity style={styles.cancelSelectBtn} onPress={salirMultiSelect}>
             <MaterialIcons name="close" size={ICON_SIZE} color="#64748b" />
@@ -632,6 +696,16 @@ export default function IncidenciasAbiertasScreen() {
                   const programadasWeek = programadasPorDia.get(iso);
                   const isTodayWeek = (() => { const t = new Date(); return t.getFullYear() === d.getFullYear() && t.getMonth() === d.getMonth() && t.getDate() === d.getDate(); })();
                   const isDragOverWeek = Platform.OS === 'web' && dragOverCalendarIso === iso && !isPast;
+                  const programadasListBtn = (
+                    <TouchableOpacity
+                      style={styles.calendarDayListBtn}
+                      onPress={() => setProgramadasDiaModalIso(iso)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityLabel="Ver listado de reparaciones programadas este día"
+                    >
+                      <MaterialIcons name="format-list-bulleted" size={14} color="#86198f" />
+                    </TouchableOpacity>
+                  );
                   const weekDayContent = (
                     <View style={[styles.calendarWeekDayCol, isPast && styles.calendarDayPast, isDragOverWeek && styles.calendarDayDragOver]}>
                       <Text style={styles.calendarWeekDayLabel}>{nombre}</Text>
@@ -644,6 +718,17 @@ export default function IncidenciasAbiertasScreen() {
                           <Text style={[styles.calendarDayPorLocal, isPast && styles.calendarDayPast]} numberOfLines={2} ellipsizeMode="tail">
                             {programadasWeek.porLocal.map((p) => `${p.nombre}:${p.count}`).join(' ')}
                           </Text>
+                          {Platform.OS === 'web'
+                            ? createElement(
+                                'div',
+                                {
+                                  onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
+                                  onClick: (e: React.MouseEvent) => e.stopPropagation(),
+                                  style: { marginTop: 4, alignSelf: 'center' },
+                                },
+                                programadasListBtn
+                              )
+                            : programadasListBtn}
                         </>
                       )}
                     </View>
@@ -959,6 +1044,158 @@ export default function IncidenciasAbiertasScreen() {
       </ScrollView>
       )}
 
+      <Modal
+        visible={programadasDiaModalIso !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setProgramadasDiaModalIso(null)}
+      >
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setProgramadasDiaModalIso(null)}>
+          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalProgramadasWrap}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle} numberOfLines={2}>
+                  Reparaciones programadas — {programadasDiaModalIso ? formatearSoloFecha(programadasDiaModalIso) : ''}
+                </Text>
+                <TouchableOpacity onPress={() => setProgramadasDiaModalIso(null)} style={styles.modalClose}>
+                  <MaterialIcons name="close" size={22} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView
+                style={styles.modalProgramadasScroll}
+                contentContainerStyle={styles.modalProgramadasScrollContent}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+              >
+                {programadasDiaAgrupadasPorLocal.map((grupo, gi) => (
+                  <View
+                    key={grupo.localId}
+                    style={[styles.modalProgramadasGroup, gi === 0 && styles.modalProgramadasGroupFirst]}
+                  >
+                    <View style={styles.modalProgramadasGroupHeader}>
+                      <Text style={styles.modalProgramadasGroupTitle}>{grupo.nombreLocal}</Text>
+                      <View style={styles.modalProgramadasGroupBadge}>
+                        <Text style={styles.modalProgramadasGroupBadgeText}>
+                          {grupo.incidencias.length} {grupo.incidencias.length === 1 ? 'reparación' : 'reparaciones'}
+                        </Text>
+                      </View>
+                    </View>
+                    {grupo.incidencias.map((inc, i) => {
+                      const prioridadRaw = (inc.prioridad_reportada ?? '—').toString().trim();
+                      const prioridadKey = prioridadRaw.toLowerCase();
+                      const prioridadLabel =
+                        prioridadKey && prioridadKey !== '—'
+                          ? prioridadKey.charAt(0).toUpperCase() + prioridadKey.slice(1)
+                          : '—';
+                      const prioridadColor = getPrioridadColor(prioridadRaw);
+                      const fotosRaw = Array.isArray(inc.fotos)
+                        ? inc.fotos.filter((x): x is string => typeof x === 'string' && x.trim() !== '')
+                        : [];
+                      const urisMini = fotosRaw.slice(0, 3).map((raw) => resolverUriFoto(raw));
+                      const estadoTxt = (inc.estado ?? '—').toString().trim() || '—';
+                      const zonaTxt = (inc.zona ?? '').toString().trim() || '—';
+                      return (
+                        <View
+                          key={`${String(inc.local_id)}-${String(inc.id_incidencia)}-${String(inc.fecha_creacion)}-${i}`}
+                          style={styles.modalProgramadasRow}
+                        >
+                          <View style={styles.modalProgramadasRowFotosCol}>
+                            {[0, 1, 2].map((idx) => {
+                              const uri = urisMini[idx];
+                              if (uri) {
+                                const thumb = (
+                                  <TouchableOpacity
+                                    onPress={() => setExpandedPhotoUri(uri)}
+                                    style={styles.modalProgramadasFotoThumbWrap}
+                                    activeOpacity={0.8}
+                                    accessibilityLabel="Ampliar foto"
+                                  >
+                                    <Image
+                                      source={{ uri }}
+                                      style={styles.modalProgramadasFotoThumb as ImageStyle}
+                                      resizeMode="cover"
+                                    />
+                                  </TouchableOpacity>
+                                );
+                                return Platform.OS === 'web' ? (
+                                  createElement(
+                                    'div',
+                                    {
+                                      key: `f-${idx}`,
+                                      onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
+                                      onClick: (e: React.MouseEvent) => e.stopPropagation(),
+                                      style: { display: 'flex' },
+                                    },
+                                    thumb
+                                  )
+                                ) : (
+                                  <React.Fragment key={`f-${idx}`}>{thumb}</React.Fragment>
+                                );
+                              }
+                              return <View key={`e-${idx}`} style={[styles.modalProgramadasFotoThumb, styles.modalProgramadasFotoEmpty]} />;
+                            })}
+                          </View>
+                          <View style={styles.modalProgramadasRowTextCol}>
+                            <Text style={styles.modalProgramadasTitulo} numberOfLines={2}>
+                              {(inc.titulo ?? '—').toString()}
+                            </Text>
+                            <View style={styles.modalProgramadasRowChips}>
+                              <Text style={styles.modalProgramadasZonaInline} numberOfLines={1}>
+                                {zonaTxt}
+                              </Text>
+                              <View style={styles.modalProgramadasEstadoPill}>
+                                <Text style={styles.modalProgramadasEstadoPillText} numberOfLines={1}>
+                                  {estadoTxt}
+                                </Text>
+                              </View>
+                              <View style={[styles.modalProgramadasPrioridadPill, { backgroundColor: prioridadColor }]}>
+                                <Text style={styles.modalProgramadasPrioridadPillText} numberOfLines={1}>
+                                  {prioridadLabel}
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal visible={modalBorrarVisible} transparent animationType="fade" onRequestClose={cerrarModalBorrar}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={cerrarModalBorrar}>
+          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalContentWrap}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>{incidenciasToDelete.length === 1 ? 'Borrar Incidencia' : 'Borrar Incidencias'}</Text>
+                <TouchableOpacity onPress={cerrarModalBorrar} style={styles.modalClose}>
+                  <MaterialIcons name="close" size={22} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.modalBody}>
+                <Text style={styles.modalMessage}>
+                  {incidenciasToDelete.length === 1
+                    ? '¿Estás seguro de que deseas borrar esta incidencia?'
+                    : `¿Estás seguro de que deseas borrar las ${incidenciasToDelete.length} incidencias seleccionadas?`}
+                </Text>
+                <View style={styles.modalFooter}>
+                  <TouchableOpacity style={styles.modalBtnNo} onPress={cerrarModalBorrar}>
+                    <Text style={styles.modalBtnNoText}>No</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.modalBtnSi} onPress={ejecutarBorrado} disabled={guardando}>
+                    <Text style={styles.modalBtnSiText}>Sí</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       <Modal visible={expandedPhotoUri !== null} transparent animationType="fade" onRequestClose={() => setExpandedPhotoUri(null)}>
         <TouchableOpacity
           style={[styles.photoOverlay, Platform.OS === 'web' && styles.photoOverlayWeb]}
@@ -995,36 +1232,6 @@ export default function IncidenciasAbiertasScreen() {
               <MaterialIcons name="close" size={28} color="#fff" />
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
-      </Modal>
-
-      <Modal visible={modalBorrarVisible} transparent animationType="fade" onRequestClose={cerrarModalBorrar}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={cerrarModalBorrar}>
-          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalContentWrap}>
-            <View style={styles.modalCard}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>{incidenciasToDelete.length === 1 ? 'Borrar Incidencia' : 'Borrar Incidencias'}</Text>
-                <TouchableOpacity onPress={cerrarModalBorrar} style={styles.modalClose}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
-                </TouchableOpacity>
-              </View>
-              <View style={styles.modalBody}>
-                <Text style={styles.modalMessage}>
-                  {incidenciasToDelete.length === 1
-                    ? '¿Estás seguro de que deseas borrar esta incidencia?'
-                    : `¿Estás seguro de que deseas borrar las ${incidenciasToDelete.length} incidencias seleccionadas?`}
-                </Text>
-                <View style={styles.modalFooter}>
-                  <TouchableOpacity style={styles.modalBtnNo} onPress={cerrarModalBorrar}>
-                    <Text style={styles.modalBtnNoText}>No</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.modalBtnSi} onPress={ejecutarBorrado} disabled={guardando}>
-                    <Text style={styles.modalBtnSiText}>Sí</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
     </View>
@@ -1109,6 +1316,17 @@ const styles = StyleSheet.create({
   calendarDayPast: { opacity: 0.5 },
   calendarDayTotalLabel: { fontSize: 9, fontWeight: '700', color: '#c026d3', marginTop: 0, marginBottom: 0, lineHeight: 12, textAlign: 'center' },
   calendarDayPorLocal: { fontSize: 8, color: '#64748b', marginTop: 0, marginBottom: 0, lineHeight: 10, textAlign: 'center' },
+  calendarDayListBtn: {
+    marginTop: 4,
+    padding: 4,
+    borderRadius: 6,
+    backgroundColor: '#fae8ff',
+    borderWidth: 1,
+    borderColor: '#e9d5ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+  },
   calendarWeekRow: { flexDirection: 'row', gap: 6 },
   calendarWeekDayCol: { flex: 1, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 6, backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 0.5, borderColor: '#f1f5f9', overflow: 'hidden' },
   calendarWeekDayLabel: { fontSize: 12, fontWeight: '600', color: '#64748b', marginBottom: 6 },
@@ -1252,6 +1470,20 @@ const styles = StyleSheet.create({
   cell: { minWidth: MIN_COL_WIDTH, paddingVertical: 4, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#e2e8f0' },
   cellCheckbox: { width: 40, minWidth: 40, alignItems: 'center', justifyContent: 'center' },
   cellText: { fontSize: 11, color: '#475569' },
+  filterProgramadasBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+  },
+  filterProgramadasBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
+  filterProgramadasText: { fontSize: 12, color: '#0ea5e9', fontWeight: '600' },
+  filterProgramadasTextActive: { color: '#fff' },
   cancelSelectBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1266,6 +1498,74 @@ const styles = StyleSheet.create({
   cancelSelectBtnText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
   modalContentWrap: { width: '100%', maxWidth: 360, padding: 24, alignItems: 'center' },
+  modalProgramadasWrap: { width: '100%', maxWidth: 560, padding: 24, alignItems: 'center', maxHeight: '92%' as const },
+  modalProgramadasScroll: { maxHeight: 420 },
+  modalProgramadasScrollContent: { paddingHorizontal: 16, paddingBottom: 16 },
+  modalProgramadasGroup: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
+  modalProgramadasGroupFirst: { marginTop: 0, paddingTop: 0, borderTopWidth: 0 },
+  modalProgramadasGroupHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 2, gap: 8 },
+  modalProgramadasGroupTitle: { fontSize: 13, fontWeight: '700', color: '#0369a1', flex: 1, minWidth: 0 },
+  modalProgramadasGroupBadge: { backgroundColor: '#e0f2fe', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, flexShrink: 0 },
+  modalProgramadasGroupBadgeText: { fontSize: 10, fontWeight: '600', color: '#0369a1' },
+  modalProgramadasRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  modalProgramadasRowFotosCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flexShrink: 0,
+    width: 128,
+    justifyContent: 'flex-start',
+  },
+  modalProgramadasRowTextCol: { flex: 1, minWidth: 0, justifyContent: 'center', gap: 6 },
+  modalProgramadasTitulo: { fontSize: 13, fontWeight: '700', color: '#334155', lineHeight: 18 },
+  modalProgramadasRowChips: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  modalProgramadasZonaInline: {
+    fontSize: 11,
+    color: '#64748b',
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 48,
+    marginRight: 2,
+  },
+  modalProgramadasEstadoPill: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    flexShrink: 0,
+    maxWidth: '100%',
+  },
+  modalProgramadasEstadoPillText: { fontSize: 10, fontWeight: '600', color: '#475569' },
+  modalProgramadasPrioridadPill: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    flexShrink: 0,
+    maxWidth: '100%',
+  },
+  modalProgramadasPrioridadPillText: { fontSize: 10, fontWeight: '700', color: '#fff' },
+  modalProgramadasFotoThumbWrap: { borderRadius: 6, overflow: 'hidden' },
+  modalProgramadasFotoThumb: { width: 40, height: 40, borderRadius: 6, backgroundColor: '#e2e8f0' },
+  modalProgramadasFotoEmpty: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderStyle: 'dashed',
+    backgroundColor: '#f8fafc',
+  },
   modalCard: { width: '100%', backgroundColor: '#fff', borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   modalTitle: { fontSize: 18, fontWeight: '600', color: '#334155' },

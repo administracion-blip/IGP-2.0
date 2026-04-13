@@ -1,0 +1,100 @@
+---
+description: Reglas globales de arquitectura, patrones y comportamiento para el proyecto IGP-2.0
+globs:
+alwaysApply: true
+---
+
+# Arquitectura IGP-2.0
+
+Reglas de arquitectura y código para el proyecto IGP-2.0. Prioriza coherencia con el proyecto existente, cambios mínimos bien integrados y reutilización de patrones ya presentes en el repositorio.
+
+## Contexto general
+
+- App ERP/intranet: frontend Expo/React Native + web, backend Node/Express.
+- Base de datos principal: DynamoDB en AWS.
+- La app crece por módulos sin degradar mantenibilidad.
+- Cada cambio debe respetar la arquitectura existente, evitar deuda técnica innecesaria, reutilizar componentes/patrones, no concentrar lógica en archivos núcleo si debe vivir en módulos, y quedar preparado para escalar.
+
+## Backend (`api/`)
+
+### `server.js` — solo infraestructura
+
+`api/server.js` se limita a: configuración global, middlewares, healthcheck, montaje de routers y jobs globales. **No meter lógica de negocio nueva aquí.** Si necesitas tocarlo, justifica por qué es estructural.
+
+### Rutas y dominios
+
+- Cada dominio funcional tiene su archivo en `api/routes/` (ej. `facturacion.js`, `mysteryGuest.js`, `acuerdos.js`).
+- Lógica reutilizable va en `api/lib/` o subcarpetas por dominio (`api/lib/jobs/`, `api/lib/dynamo/`, etc.).
+- No duplicar lógica que ya exista en otros módulos.
+- Mantener convenciones de nombres coherentes con el resto del proyecto.
+- Manejar errores de forma homogénea y predecible.
+- No mezclar acceso a DynamoDB/S3/AWS desordenado dentro de rutas largas si puede encapsularse.
+
+## Frontend (`app/`)
+
+### Componentes y pantallas
+
+- Antes de crear una pantalla o componente nuevo, revisar si existe un patrón reusable similar.
+- Para tablas/listados/CRUD, usar `TablaBasica` si encaja (ver rule `tabla-basica.mdc`).
+- No duplicar componentes si el comportamiento ya existe con variaciones menores — extraer a componente compartido en `app/components/`.
+
+### Estilo visual
+
+Mantener el look & feel actual: tipografía clara, jerarquía visual limpia, componentes consistentes. No introducir estilos ajenos al sistema visual existente.
+
+### Separación de responsabilidades
+
+- Evitar demasiada lógica directamente en JSX.
+- Cuando un archivo supere ~500 líneas o tenga lógica reutilizable, extraer hooks (`app/hooks/`) o utilidades (`app/lib/`).
+- Las pantallas más simples pueden mantener todo en un solo archivo, coherente con el patrón mayoritario del proyecto.
+- No conectar componentes visuales directamente a lógica AWS compleja si debe pasar por API.
+
+### Estructura de carpetas frontend
+
+- `app/(app)/` — pantallas de la app (una por módulo).
+- `app/components/` — componentes compartidos reutilizables.
+- `app/hooks/` — hooks de lógica extraída.
+- `app/lib/` — utilidades y lógica de negocio frontend.
+- `app/contexts/` — contextos React (auth, caché, etc.).
+
+## DynamoDB
+
+- Diseñar tablas para los accesos concretos del ERP, no tablas genéricas.
+- Pensar primero en patrones reales de consulta.
+- Documentar siempre: PK, SK si aplica, GSIs necesarios, claves de acceso, criterios de ordenación/filtrado.
+- Usar nombres coherentes con el proyecto.
+- Evitar scans innecesarios si se pueden resolver con claves o índices.
+- Si introduces cachés o tablas intermedias, explicar su función real en el flujo.
+
+## Proceso de implementación
+
+### Antes de escribir código
+
+1. Revisar archivos similares existentes en el proyecto.
+2. Identificar el patrón real usado actualmente.
+3. Proponer la solución más consistente con ese patrón.
+4. Evitar refactorizaciones grandes no pedidas, salvo que sean imprescindibles.
+
+### Al implementar (cambios medianos/grandes)
+
+1. Enumerar qué archivos se van a tocar y por qué.
+2. Implementar.
+3. Si hay alternativas, elegir la más alineada con el proyecto actual, no la más teórica.
+
+### Calidad
+
+- No dejar código inventado ni placeholders ambiguos.
+- No cambiar nombres, estructura o arquitectura sin motivo claro.
+- No romper compatibilidad con módulos existentes si no es imprescindible.
+- Si se detecta deuda técnica relevante, indicarla al final sin bloquear el trabajo.
+- Equilibrio entre rapidez, claridad, escalabilidad y coherencia.
+
+## Reglas de comportamiento
+
+- No inventar una arquitectura paralela al proyecto.
+- No convertir un cambio pequeño en una refactorización masiva.
+- No meter lógica nueva en `server.js` salvo necesidad estructural real.
+- No duplicar componentes si ya existe una base reusable.
+- Priorizar consistencia con IGP-2.0 sobre soluciones más "bonitas" pero ajenas al código existente.
+- Si hay duda entre dos opciones, elegir la más simple y más parecida a lo que el proyecto ya hace.
+- Responder siempre en español.

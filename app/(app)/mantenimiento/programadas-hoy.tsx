@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo, createElement } from 'react';
 import {
   View,
   Text,
@@ -7,12 +7,23 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   RefreshControl,
+  Image,
+  Modal,
+  Platform,
+  useWindowDimensions,
+  type ImageStyle,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+
+function resolverUriFoto(uri: string): string {
+  const u = uri.trim();
+  if (u.startsWith('http') || u.startsWith('data:')) return u;
+  return `${API_URL}${u.startsWith('/') ? '' : '/'}${u}`;
+}
 
 type Incidencia = Record<string, string | number | string[] | undefined>;
 
@@ -68,12 +79,21 @@ function formatearFecha(iso: string | undefined): string {
 
 export default function ProgramadasHoyScreen() {
   const router = useRouter();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const photoExpandedSize = useMemo(
+    () => ({
+      width: Math.min(windowWidth * 0.9, 900),
+      height: Math.min(windowHeight * 0.85, 700),
+    }),
+    [windowWidth, windowHeight]
+  );
   const { locales } = useMantenimientoLocales();
   const [incidencias, setIncidencias] = useState<Incidencia[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [marcandoReparadoKey, setMarcandoReparadoKey] = useState<string | null>(null);
+  const [expandedPhotoUri, setExpandedPhotoUri] = useState<string | null>(null);
 
   const mapLocalIdToNombre = useMemo(() => {
     const m: Record<string, string> = {};
@@ -234,11 +254,49 @@ export default function ProgramadasHoyScreen() {
                           <Text style={styles.prioridadBadgeText}>{prioridadLabel}</Text>
                         </View>
                       </View>
-                      <Text style={styles.cardDesc}>{(inc.descripcion ?? '—').toString()}</Text>
+                      <Text style={styles.cardDesc} numberOfLines={2} ellipsizeMode="tail">
+                        {(inc.descripcion ?? '—').toString()}
+                      </Text>
                       <View style={styles.cardMeta}>
                         <Text style={styles.cardMetaText}>{(inc.categoria ?? '—').toString()}</Text>
                         <Text style={styles.cardMetaText}> • </Text>
                         <Text style={styles.cardMetaText}>{(inc.zona ?? '—').toString()}</Text>
+                      </View>
+                      <View style={styles.cardFotosRow}>
+                        {[0, 1, 2].map((fi) => {
+                          const fotosList = Array.isArray(inc.fotos)
+                            ? inc.fotos.filter((x): x is string => typeof x === 'string' && x.trim() !== '')
+                            : [];
+                          const raw = fotosList[fi];
+                          if (raw) {
+                            const uri = resolverUriFoto(raw);
+                            const thumb = (
+                              <TouchableOpacity
+                                onPress={() => setExpandedPhotoUri(uri)}
+                                style={styles.cardFotoThumbWrap}
+                                activeOpacity={0.8}
+                                accessibilityLabel="Ampliar foto"
+                              >
+                                <Image source={{ uri }} style={styles.cardFotoThumb as ImageStyle} resizeMode="cover" />
+                              </TouchableOpacity>
+                            );
+                            return Platform.OS === 'web' ? (
+                              createElement(
+                                'div',
+                                {
+                                  key: `f-${fi}`,
+                                  onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
+                                  onClick: (e: React.MouseEvent) => e.stopPropagation(),
+                                  style: { display: 'flex' },
+                                },
+                                thumb
+                              )
+                            ) : (
+                              <View key={`f-${fi}`}>{thumb}</View>
+                            );
+                          }
+                          return <View key={`e-${fi}`} style={[styles.cardFotoThumb, styles.cardFotoEmpty]} />;
+                        })}
                       </View>
                       <View style={styles.cardReparadoWrap}>
                         {(inc.estado_valoracion ?? '').toString().toUpperCase() === 'REPARADO' ? (
@@ -272,6 +330,45 @@ export default function ProgramadasHoyScreen() {
           )}
         </ScrollView>
       )}
+
+      <Modal visible={expandedPhotoUri !== null} transparent animationType="fade" onRequestClose={() => setExpandedPhotoUri(null)}>
+        <TouchableOpacity
+          style={[styles.photoOverlay, Platform.OS === 'web' && styles.photoOverlayWeb]}
+          activeOpacity={1}
+          onPress={() => setExpandedPhotoUri(null)}
+        >
+          <View style={styles.photoExpandedWrap} pointerEvents="box-none">
+            {expandedPhotoUri ? (
+              <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={styles.photoExpandedTouch}>
+                {Platform.OS === 'web' ? (
+                  createElement('img', {
+                    src: expandedPhotoUri,
+                    alt: 'Foto ampliada',
+                    style: {
+                      maxWidth: '90vw',
+                      maxHeight: '85vh',
+                      width: photoExpandedSize.width,
+                      height: photoExpandedSize.height,
+                      objectFit: 'contain',
+                    },
+                    onClick: (e: { stopPropagation: () => void }) => e.stopPropagation(),
+                  })
+                ) : (
+                  <Image
+                    key={expandedPhotoUri}
+                    source={{ uri: expandedPhotoUri }}
+                    style={[styles.photoExpanded as ImageStyle, { width: photoExpandedSize.width, height: photoExpandedSize.height }]}
+                    resizeMode="contain"
+                  />
+                )}
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity style={styles.photoCloseBtn} onPress={() => setExpandedPhotoUri(null)}>
+              <MaterialIcons name="close" size={28} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -315,8 +412,7 @@ const styles = StyleSheet.create({
   card: {
     width: '31%',
     minWidth: 100,
-    height: 100,
-    aspectRatio: 1,
+    minHeight: 132,
     backgroundColor: '#fff',
     borderRadius: 10,
     borderWidth: 1,
@@ -331,7 +427,11 @@ const styles = StyleSheet.create({
   cardDesc: { fontSize: 10, color: '#64748b', lineHeight: 14, marginBottom: 4 },
   cardMeta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
   cardMetaText: { fontSize: 9, color: '#94a3b8' },
-  cardReparadoWrap: { marginTop: -6, alignItems: 'flex-end' },
+  cardFotosRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
+  cardFotoThumbWrap: { borderRadius: 4, overflow: 'hidden' },
+  cardFotoThumb: { width: 28, height: 28, borderRadius: 4, backgroundColor: '#e2e8f0' },
+  cardFotoEmpty: { borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
+  cardReparadoWrap: { marginTop: 4, alignItems: 'flex-end' },
   cardReparadoRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   cardReparadoText: { fontSize: 9, fontWeight: '600', color: '#0d9488' },
   cardReparadoBtn: {
@@ -345,4 +445,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#99f6e4',
   },
+  photoOverlay: { flex: 1, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
+  photoOverlayWeb: Platform.OS === 'web' ? { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999 } : {},
+  photoExpandedWrap: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'absolute' as const,
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+  },
+  photoExpandedTouch: { justifyContent: 'center', alignItems: 'center' },
+  photoExpanded: { maxWidth: '100%', maxHeight: '100%' },
+  photoCloseBtn: { position: 'absolute', top: 16, right: 16, padding: 8, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 24 },
 });
