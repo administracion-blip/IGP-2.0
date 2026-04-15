@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   useWindowDimensions,
+  Modal,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -81,6 +83,158 @@ function formatPct(n: number | null | undefined): string {
   return (n * 100).toFixed(1) + '%';
 }
 
+function fechaLineaISO(item: CompraLinea): string {
+  const s = (item.AlbaranFecha || '').trim();
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : '';
+}
+
+function albaranKey(item: CompraLinea): string {
+  return `${String(item.AlbaranSerie ?? '')}\u0001${String(item.AlbaranNumero ?? '')}`;
+}
+
+function albaranLabel(item: CompraLinea): string {
+  const s = String(item.AlbaranSerie ?? '').trim();
+  const n = String(item.AlbaranNumero ?? '').trim();
+  if (!s && !n) return '—';
+  return `${s}-${n}`;
+}
+
+function idNorm(id: string | undefined): string {
+  const t = (id ?? '').toString().trim();
+  return t || '__sin_id__';
+}
+
+function toggleInList(list: string[], id: string): string[] {
+  if (list.includes(id)) return list.filter((x) => x !== id);
+  return [...list, id];
+}
+
+/** Devuelve yyyy-mm-dd o null si el texto no es una fecha válida dd/mm/yyyy */
+function parseDdMmYyyyToIso(s: string): string | null {
+  const t = s.trim().replace(/\s/g, '');
+  if (!t) return null;
+  const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const dd = parseInt(m[1], 10);
+  const mm = parseInt(m[2], 10);
+  const yyyy = parseInt(m[3], 10);
+  if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+  const d = new Date(yyyy, mm - 1, dd);
+  if (d.getFullYear() !== yyyy || d.getMonth() !== mm - 1 || d.getDate() !== dd) return null;
+  return `${yyyy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+}
+
+type OpcionFiltro = { id: string; label: string };
+
+type FiltroDropdownKey = 'alb' | 'prod' | 'prov' | 'fam' | 'alm';
+
+function ComprasFiltroDropdown({
+  title,
+  options,
+  value,
+  onToggleId,
+  fieldKey,
+  openKey,
+  setOpenKey,
+}: {
+  title: string;
+  options: OpcionFiltro[];
+  value: string[];
+  onToggleId: (id: string) => void;
+  fieldKey: FiltroDropdownKey;
+  openKey: FiltroDropdownKey | null;
+  setOpenKey: (k: FiltroDropdownKey | null) => void;
+}) {
+  const open = openKey === fieldKey;
+  const [searchQ, setSearchQ] = useState('');
+  const prevOpen = useRef(open);
+  useEffect(() => {
+    if (!open && prevOpen.current) setSearchQ('');
+    prevOpen.current = open;
+  }, [open]);
+
+  const MAX_VISIBLE = 80;
+  const filtered = useMemo(() => {
+    const q = searchQ.trim().toLowerCase();
+    const selectedSet = new Set(value);
+    const selectedFirst: OpcionFiltro[] = [];
+    const rest: OpcionFiltro[] = [];
+    const base = q
+      ? options.filter((o) => o.label.toLowerCase().includes(q) || o.id.toLowerCase().includes(q))
+      : options;
+    base.forEach((o) => {
+      if (selectedSet.has(o.id)) selectedFirst.push(o);
+      else rest.push(o);
+    });
+    return { selected: selectedFirst, rest, totalMatches: base.length };
+  }, [options, searchQ, value]);
+
+  const visibleRest = filtered.rest.slice(0, MAX_VISIBLE - filtered.selected.length);
+  const visibleAll = [...filtered.selected, ...visibleRest];
+  const hiddenCount = filtered.totalMatches - visibleAll.length;
+
+  const summary =
+    value.length === 0
+      ? `Elegir… (${options.length} opciones)`
+      : `${value.length} seleccionado${value.length === 1 ? '' : 's'}`;
+  return (
+    <View style={styles.modalFiltrosBlock}>
+      <Text style={styles.modalFiltrosSectionTitle}>{title}</Text>
+      <TouchableOpacity
+        style={styles.dropdownTrigger}
+        onPress={() => setOpenKey(open ? null : fieldKey)}
+        activeOpacity={0.75}
+      >
+        <Text style={styles.dropdownTriggerText} numberOfLines={1}>
+          {summary}
+        </Text>
+        <MaterialIcons name={open ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
+      </TouchableOpacity>
+      {open ? (
+        <>
+          <TextInput
+            style={styles.dropdownSearch}
+            value={searchQ}
+            onChangeText={setSearchQ}
+            placeholder={`Buscar en ${title.toLowerCase()}…`}
+            placeholderTextColor="#94a3b8"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <ScrollView style={styles.dropdownPanel} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+            {visibleAll.length === 0 ? (
+              <Text style={styles.dropdownEmpty}>Sin coincidencias</Text>
+            ) : (
+              visibleAll.map((o) => {
+                const active = value.includes(o.id);
+                return (
+                  <TouchableOpacity
+                    key={o.id}
+                    style={[styles.dropdownRow, active && styles.dropdownRowOn]}
+                    onPress={() => onToggleId(o.id)}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialIcons name={active ? 'check-box' : 'check-box-outline-blank'} size={20} color={active ? '#0ea5e9' : '#94a3b8'} />
+                    <Text style={[styles.dropdownRowText, active && styles.dropdownRowTextOn]} numberOfLines={3}>
+                      {o.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })
+            )}
+            {hiddenCount > 0 ? (
+              <Text style={styles.dropdownMore}>
+                +{hiddenCount} opciones más. Escribe para acotar.
+              </Text>
+            ) : null}
+          </ScrollView>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
 export default function ComprasProveedorScreen() {
   const router = useRouter();
   const { width: winWidth } = useWindowDimensions();
@@ -92,6 +246,15 @@ export default function ComprasProveedorScreen() {
   const [syncResult, setSyncResult] = useState('');
   const [busqueda, setBusqueda] = useState('');
   const [lastLoad, setLastLoad] = useState<Date | null>(null);
+  const [modalFiltrosVisible, setModalFiltrosVisible] = useState(false);
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
+  const [selAlbaranes, setSelAlbaranes] = useState<string[]>([]);
+  const [selProductos, setSelProductos] = useState<string[]>([]);
+  const [selProveedores, setSelProveedores] = useState<string[]>([]);
+  const [selFamilias, setSelFamilias] = useState<string[]>([]);
+  const [selAlmacenes, setSelAlmacenes] = useState<string[]>([]);
+  const [filtroDropdownId, setFiltroDropdownId] = useState<FiltroDropdownKey | null>(null);
 
   const cargarDatos = useCallback(async () => {
     setLoading(true);
@@ -138,18 +301,115 @@ export default function ComprasProveedorScreen() {
     cargarDatos();
   }, [cargarDatos]);
 
+  const opcionesFiltros = useMemo(() => {
+    const albaranes = new Map<string, string>();
+    const productos = new Map<string, string>();
+    const proveedores = new Map<string, string>();
+    const familias = new Map<string, string>();
+    const almacenes = new Map<string, string>();
+    items.forEach((it) => {
+      const ak = albaranKey(it);
+      if (!albaranes.has(ak)) albaranes.set(ak, albaranLabel(it));
+      const pid = idNorm(it.ProductId as string);
+      const plab = (it.ProductName || it.ProductId || '—').toString();
+      if (!productos.has(pid)) productos.set(pid, plab);
+      const sid = idNorm(it.SupplierId as string);
+      const slab = (it.SupplierName || it.SupplierId || '—').toString();
+      if (!proveedores.has(sid)) proveedores.set(sid, slab);
+      const fid = idNorm(it.FamilyId as string);
+      const flab = (it.FamilyName || it.FamilyId || '—').toString();
+      if (!familias.has(fid)) familias.set(fid, flab);
+      const wid = idNorm(it.WarehouseId as string);
+      const wlab = (it.WarehouseName || it.WarehouseId || '—').toString();
+      if (!almacenes.has(wid)) almacenes.set(wid, wlab);
+    });
+    const sortOpt = (a: OpcionFiltro, b: OpcionFiltro) => a.label.localeCompare(b.label, 'es');
+    return {
+      albaranes: Array.from(albaranes.entries()).map(([id, label]) => ({ id, label })).sort(sortOpt),
+      productos: Array.from(productos.entries()).map(([id, label]) => ({ id, label })).sort(sortOpt),
+      proveedores: Array.from(proveedores.entries()).map(([id, label]) => ({ id, label })).sort(sortOpt),
+      familias: Array.from(familias.entries()).map(([id, label]) => ({ id, label })).sort(sortOpt),
+      almacenes: Array.from(almacenes.entries()).map(([id, label]) => ({ id, label })).sort(sortOpt),
+    };
+  }, [items]);
+
   const filtrados = useMemo(() => {
-    if (!busqueda.trim()) return items;
+    let list = items;
+    const isoDesde = parseDdMmYyyyToIso(fechaDesde);
+    const isoHasta = parseDdMmYyyyToIso(fechaHasta);
+    if (isoDesde) {
+      list = list.filter((it) => {
+        const f = fechaLineaISO(it);
+        return !f || f >= isoDesde;
+      });
+    }
+    if (isoHasta) {
+      list = list.filter((it) => {
+        const f = fechaLineaISO(it);
+        return !f || f <= isoHasta;
+      });
+    }
+    if (selAlbaranes.length > 0) {
+      const setA = new Set(selAlbaranes);
+      list = list.filter((it) => setA.has(albaranKey(it)));
+    }
+    if (selProductos.length > 0) {
+      const setP = new Set(selProductos);
+      list = list.filter((it) => setP.has(idNorm(it.ProductId as string)));
+    }
+    if (selProveedores.length > 0) {
+      const setS = new Set(selProveedores);
+      list = list.filter((it) => setS.has(idNorm(it.SupplierId as string)));
+    }
+    if (selFamilias.length > 0) {
+      const setF = new Set(selFamilias);
+      list = list.filter((it) => setF.has(idNorm(it.FamilyId as string)));
+    }
+    if (selAlmacenes.length > 0) {
+      const setW = new Set(selAlmacenes);
+      list = list.filter((it) => setW.has(idNorm(it.WarehouseId as string)));
+    }
+    if (!busqueda.trim()) return list;
     const q = busqueda.trim().toLowerCase();
-    return items.filter((item) =>
+    return list.filter((item) =>
       (item.ProductName || '').toLowerCase().includes(q) ||
       (item.ProductId || '').toLowerCase().includes(q) ||
       (item.SupplierName || '').toLowerCase().includes(q) ||
       (item.AlbaranNumero || '').toLowerCase().includes(q) ||
       (item.FamilyName || '').toLowerCase().includes(q) ||
-      (item.WarehouseName || '').toLowerCase().includes(q)
+      (item.WarehouseName || '').toLowerCase().includes(q) ||
+      (item.AlbaranSerie || '').toLowerCase().includes(q)
     );
-  }, [items, busqueda]);
+  }, [
+    items,
+    busqueda,
+    fechaDesde,
+    fechaHasta,
+    selAlbaranes,
+    selProductos,
+    selProveedores,
+    selFamilias,
+    selAlmacenes,
+  ]);
+
+  const filtrosActivosCount = useMemo(() => {
+    let n = 0;
+    if (parseDdMmYyyyToIso(fechaDesde)) n += 1;
+    if (parseDdMmYyyyToIso(fechaHasta)) n += 1;
+    n += selAlbaranes.length + selProductos.length + selProveedores.length + selFamilias.length + selAlmacenes.length;
+    return n;
+  }, [fechaDesde, fechaHasta, selAlbaranes, selProductos, selProveedores, selFamilias, selAlmacenes]);
+
+  const limpiarFiltrosAvanzados = useCallback(() => {
+    setFechaDesde('');
+    setFechaHasta('');
+    setSelAlbaranes([]);
+    setSelProductos([]);
+    setSelProveedores([]);
+    setSelFamilias([]);
+    setSelAlmacenes([]);
+    setFiltroDropdownId(null);
+  }, []);
 
   const PAGE_SIZE = 100;
   const [page, setPage] = useState(0);
@@ -159,7 +419,9 @@ export default function ComprasProveedorScreen() {
     [filtrados, page]
   );
 
-  useEffect(() => { setPage(0); }, [busqueda]);
+  useEffect(() => {
+    setPage(0);
+  }, [busqueda, fechaDesde, fechaHasta, selAlbaranes, selProductos, selProveedores, selFamilias, selAlmacenes]);
 
   const totalWidth = COLUMNAS.reduce((s, c) => s + c.width, 0);
 
@@ -212,6 +474,19 @@ export default function ComprasProveedorScreen() {
               </TouchableOpacity>
             )}
           </View>
+          <TouchableOpacity
+            style={[styles.filtrosBtn, filtrosActivosCount > 0 && styles.filtrosBtnActive]}
+            onPress={() => {
+              setFiltroDropdownId(null);
+              setModalFiltrosVisible(true);
+            }}
+            activeOpacity={0.75}
+          >
+            <MaterialIcons name="filter-list" size={20} color={filtrosActivosCount > 0 ? '#fff' : '#0ea5e9'} />
+            <Text style={[styles.filtrosBtnText, filtrosActivosCount > 0 && styles.filtrosBtnTextActive]}>
+              Filtros{filtrosActivosCount > 0 ? ` (${filtrosActivosCount})` : ''}
+            </Text>
+          </TouchableOpacity>
           <Text style={styles.resultCount}>
             {filtrados.length !== items.length ? `${filtrados.length} de ` : ''}{items.length} registros
           </Text>
@@ -257,6 +532,89 @@ export default function ComprasProveedorScreen() {
         </View>
       ) : null}
 
+      <Modal visible={modalFiltrosVisible} transparent animationType="fade" onRequestClose={() => setModalFiltrosVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalFiltrosVisible(false)}>
+          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalFiltrosWrap}>
+            <View style={styles.modalFiltrosCard}>
+              <View style={styles.modalFiltrosHeader}>
+                <Text style={styles.modalFiltrosTitle}>Filtros</Text>
+                <TouchableOpacity onPress={() => setModalFiltrosVisible(false)} hitSlop={8}>
+                  <MaterialIcons name="close" size={22} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView
+                style={styles.modalFiltrosScroll}
+                contentContainerStyle={styles.modalFiltrosScrollContent}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+              >
+                <Text style={styles.modalFiltrosSectionTitle}>Rango de fechas (albarán)</Text>
+                <Text style={styles.modalFiltrosHint}>
+                  Formato dd/mm/aaaa. Deja vacío un extremo para no acotar por ese lado. Solo se filtra si la fecha es válida.
+                </Text>
+                <View style={styles.modalFiltrosFechasRow}>
+                  <View style={styles.modalFiltrosFechaField}>
+                    <Text style={styles.modalFiltrosLabel}>Desde</Text>
+                    <TextInput
+                      style={styles.modalFiltrosInput}
+                      value={fechaDesde}
+                      onChangeText={setFechaDesde}
+                      placeholder="01/01/2026"
+                      placeholderTextColor="#94a3b8"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      keyboardType={Platform.OS === 'web' ? 'default' : 'numbers-and-punctuation'}
+                    />
+                  </View>
+                  <View style={styles.modalFiltrosFechaField}>
+                    <Text style={styles.modalFiltrosLabel}>Hasta</Text>
+                    <TextInput
+                      style={styles.modalFiltrosInput}
+                      value={fechaHasta}
+                      onChangeText={setFechaHasta}
+                      placeholder="31/12/2026"
+                      placeholderTextColor="#94a3b8"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      keyboardType={Platform.OS === 'web' ? 'default' : 'numbers-and-punctuation'}
+                    />
+                  </View>
+                </View>
+
+                {(
+                  [
+                    { key: 'alb' as const, title: 'Albarán', opts: opcionesFiltros.albaranes, sel: selAlbaranes, setSel: setSelAlbaranes },
+                    { key: 'prod' as const, title: 'Producto', opts: opcionesFiltros.productos, sel: selProductos, setSel: setSelProductos },
+                    { key: 'prov' as const, title: 'Proveedor', opts: opcionesFiltros.proveedores, sel: selProveedores, setSel: setSelProveedores },
+                    { key: 'fam' as const, title: 'Familia', opts: opcionesFiltros.familias, sel: selFamilias, setSel: setSelFamilias },
+                    { key: 'alm' as const, title: 'Almacén', opts: opcionesFiltros.almacenes, sel: selAlmacenes, setSel: setSelAlmacenes },
+                  ] as const
+                ).map((sec) => (
+                  <ComprasFiltroDropdown
+                    key={sec.key}
+                    title={sec.title}
+                    options={sec.opts}
+                    value={sec.sel}
+                    onToggleId={(id) => sec.setSel((p) => toggleInList(p, id))}
+                    fieldKey={sec.key}
+                    openKey={filtroDropdownId}
+                    setOpenKey={setFiltroDropdownId}
+                  />
+                ))}
+              </ScrollView>
+              <View style={styles.modalFiltrosFooter}>
+                <TouchableOpacity style={styles.modalFiltrosLimpiar} onPress={limpiarFiltrosAvanzados}>
+                  <Text style={styles.modalFiltrosLimpiarText}>Limpiar filtros</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.modalFiltrosCerrar} onPress={() => setModalFiltrosVisible(false)}>
+                  <Text style={styles.modalFiltrosCerrarText}>Listo</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Table */}
       <ScrollView style={styles.tableWrap} horizontal>
         <View style={{ minWidth: Math.max(totalWidth, winWidth - 40) }}>
@@ -284,7 +642,9 @@ export default function ComprasProveedorScreen() {
                 <Text style={styles.emptyText}>
                   {items.length === 0
                     ? 'No hay datos. Pulsa "Sincronizar Ágora" para importar albaranes de entrada.'
-                    : 'Sin resultados para la búsqueda.'}
+                    : filtrosActivosCount > 0 || busqueda.trim()
+                      ? 'Sin resultados con los filtros o la búsqueda actuales.'
+                      : 'Sin resultados para la búsqueda.'}
                 </Text>
               </View>
             ) : (
@@ -366,4 +726,131 @@ const styles = StyleSheet.create({
   pagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, gap: 12, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
   pageBtn: { padding: 4 },
   pageText: { fontSize: 12, color: '#64748b' },
+  filtrosBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#0ea5e9',
+    backgroundColor: '#f0f9ff',
+    flexShrink: 0,
+  },
+  filtrosBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0284c7' },
+  filtrosBtnText: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
+  filtrosBtnTextActive: { color: '#fff' },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    padding: 16,
+  },
+  modalFiltrosWrap: { width: '100%', maxWidth: 520, maxHeight: '88%' as const },
+  modalFiltrosCard: {
+    width: '100%',
+    maxHeight: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  modalFiltrosHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+  },
+  modalFiltrosTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a' },
+  modalFiltrosScroll: { maxHeight: 420 },
+  modalFiltrosScrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
+  modalFiltrosSectionTitle: { fontSize: 13, fontWeight: '700', color: '#334155', marginBottom: 6 },
+  modalFiltrosHint: { fontSize: 11, color: '#94a3b8', marginBottom: 10, lineHeight: 16 },
+  modalFiltrosFechasRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
+  modalFiltrosFechaField: { flex: 1, minWidth: 0 },
+  modalFiltrosLabel: { fontSize: 11, fontWeight: '600', color: '#64748b', marginBottom: 4 },
+  modalFiltrosInput: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: '#334155',
+    backgroundColor: '#fff',
+  },
+  modalFiltrosBlock: { marginBottom: 18, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  dropdownTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#fff',
+  },
+  dropdownTriggerText: { flex: 1, fontSize: 13, color: '#334155', fontWeight: '500' },
+  dropdownPanel: {
+    marginTop: 6,
+    maxHeight: 220,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    backgroundColor: '#fafafa',
+  },
+  dropdownRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  dropdownRowOn: { backgroundColor: '#f0f9ff' },
+  dropdownRowText: { flex: 1, fontSize: 12, color: '#475569' },
+  dropdownRowTextOn: { color: '#0c4a6e', fontWeight: '600' },
+  dropdownSearch: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 13,
+    color: '#334155',
+    backgroundColor: '#f8fafc',
+  },
+  dropdownEmpty: { padding: 12, fontSize: 12, color: '#94a3b8', textAlign: 'center', fontStyle: 'italic' },
+  dropdownMore: { padding: 10, fontSize: 11, color: '#64748b', textAlign: 'center', fontStyle: 'italic', backgroundColor: '#f8fafc', borderTopWidth: 1, borderTopColor: '#e2e8f0' },
+  modalFiltrosFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+    backgroundColor: '#fafafa',
+  },
+  modalFiltrosLimpiar: { paddingVertical: 8, paddingHorizontal: 12 },
+  modalFiltrosLimpiarText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
+  modalFiltrosCerrar: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    backgroundColor: '#0ea5e9',
+  },
+  modalFiltrosCerrarText: { fontSize: 14, fontWeight: '700', color: '#fff' },
 });
