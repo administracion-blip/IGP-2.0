@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useComprasProveedorCache } from '../../contexts/ComprasProveedorCache';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -239,13 +240,11 @@ export default function ComprasProveedorScreen() {
   const router = useRouter();
   const { width: winWidth } = useWindowDimensions();
 
-  const [items, setItems] = useState<CompraLinea[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const { compras: items, loading, error, lastFetch, recargar } = useComprasProveedorCache();
+
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState('');
   const [busqueda, setBusqueda] = useState('');
-  const [lastLoad, setLastLoad] = useState<Date | null>(null);
   const [modalFiltrosVisible, setModalFiltrosVisible] = useState(false);
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
@@ -255,22 +254,6 @@ export default function ComprasProveedorScreen() {
   const [selFamilias, setSelFamilias] = useState<string[]>([]);
   const [selAlmacenes, setSelAlmacenes] = useState<string[]>([]);
   const [filtroDropdownId, setFiltroDropdownId] = useState<FiltroDropdownKey | null>(null);
-
-  const cargarDatos = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch(`${API_URL}/api/agora/purchases`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error al cargar datos');
-      setItems(data.items || []);
-      setLastLoad(new Date());
-    } catch (err: any) {
-      setError(err.message || 'Error de conexión');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   const sincronizar = useCallback(async (fullSync = false) => {
     setSyncing(true);
@@ -289,17 +272,17 @@ export default function ComprasProveedorScreen() {
         `Sincronizado: ${data.totalUpserted ?? 0} líneas (${data.dateFrom} → ${data.dateTo}, ${data.daysProcessed ?? 0} días)` +
         (data.errors?.length ? ` · ${data.errors.length} errores` : '')
       );
-      await cargarDatos();
+      await recargar({ force: true });
     } catch (err: any) {
       setSyncResult(`Error: ${err.message}`);
     } finally {
       setSyncing(false);
     }
-  }, [cargarDatos]);
+  }, [recargar]);
 
   useEffect(() => {
-    cargarDatos();
-  }, [cargarDatos]);
+    recargar();
+  }, [recargar]);
 
   const opcionesFiltros = useMemo(() => {
     const albaranes = new Map<string, string>();
@@ -451,7 +434,7 @@ export default function ComprasProveedorScreen() {
           <Text style={styles.headerTitle}>Compras a Proveedor</Text>
           <Text style={styles.headerSubtitle}>
             {items.length} líneas
-            {lastLoad ? ` · Última carga: ${lastLoad.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` : ''}
+            {lastFetch ? ` · Última carga: ${new Date(lastFetch).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` : ''}
           </Text>
         </View>
       </View>
@@ -492,7 +475,7 @@ export default function ComprasProveedorScreen() {
           </Text>
         </View>
         <View style={styles.toolbarRight}>
-          <TouchableOpacity style={styles.reloadBtn} onPress={cargarDatos} disabled={loading}>
+          <TouchableOpacity style={styles.reloadBtn} onPress={() => recargar({ force: true })} disabled={loading}>
             {loading ? (
               <ActivityIndicator size="small" color="#0ea5e9" />
             ) : (

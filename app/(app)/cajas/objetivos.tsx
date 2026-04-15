@@ -538,8 +538,8 @@ export default function ObjetivosScreen() {
             while (d2 <= end2) {
               const fecha = d2.toISOString().slice(0, 10);
               const fechaComp = fechaToComp[fecha];
-              const real = totalsReal[fecha] ?? 0;
-              const comp = totalsComp[fechaComp] ?? 0;
+        const real = totalsReal[fecha] ?? 0;
+        const comp = totalsComp[fechaComp] ?? 0;
               sumReal += real;
               sumComp += comp;
               if (fecha <= fechaHastaAyerStr) {
@@ -913,7 +913,7 @@ export default function ObjetivosScreen() {
       >
       <View style={styles.mainRow}>
         <View style={styles.leftColumn}>
-          <View style={styles.widget}>
+      <View style={styles.widget}>
         <Text style={styles.widgetTitle}>Generar comparativa</Text>
         <View style={styles.formRow}>
           <View style={styles.formGroup}>
@@ -957,23 +957,23 @@ export default function ObjetivosScreen() {
                     {localesDropdownOrdenados.length > 0 ? (
                       <ScrollView style={styles.dropdownListScroll} nestedScrollEnabled showsVerticalScrollIndicator>
                         {localesDropdownOrdenados.map((loc) => {
-                          const code = (loc.agoraCode ?? loc.AgoraCode ?? '').toString().trim();
-                          const nom = (loc.nombre ?? loc.Nombre ?? code).toString().trim();
-                          return (
-                            <TouchableOpacity
-                              key={loc.id_Locales ?? code}
-                              style={styles.dropdownItem}
-                              onPress={() => {
-                                setLocalSeleccionado(loc);
-                                setDropdownOpen(false);
-                              }}
-                            >
+                      const code = (loc.agoraCode ?? loc.AgoraCode ?? '').toString().trim();
+                      const nom = (loc.nombre ?? loc.Nombre ?? code).toString().trim();
+                      return (
+                        <TouchableOpacity
+                          key={loc.id_Locales ?? code}
+                          style={styles.dropdownItem}
+                          onPress={() => {
+                            setLocalSeleccionado(loc);
+                            setDropdownOpen(false);
+                          }}
+                        >
                               <Text style={styles.dropdownItemText} numberOfLines={1} ellipsizeMode="tail">
                                 {nom || code || '—'}
                               </Text>
-                            </TouchableOpacity>
-                          );
-                        })}
+                        </TouchableOpacity>
+                      );
+                    })}
                       </ScrollView>
                     ) : !loadingLocales ? (
                       <Text style={styles.dropdownEmpty}>No hay locales con AgoraCode</Text>
@@ -984,17 +984,17 @@ export default function ObjetivosScreen() {
             )}
           </View>
           <TouchableOpacity
-              style={[styles.btnGenerar, generando && styles.btnGenerarDisabled]}
-              onPress={generar}
-              disabled={generando}
-            >
-              {generando ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
+            style={[styles.btnGenerar, generando && styles.btnGenerarDisabled]}
+            onPress={generar}
+            disabled={generando}
+          >
+            {generando ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
                 <MaterialIcons name="play-arrow" size={16} color="#fff" />
-              )}
-              <Text style={styles.btnGenerarText}>Generar</Text>
-            </TouchableOpacity>
+            )}
+            <Text style={styles.btnGenerarText}>Generar</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -1127,7 +1127,7 @@ export default function ObjetivosScreen() {
           </View>
         </View>
 
-        {registros.length > 0 && (
+      {registros.length > 0 && (
         <View style={styles.tableWrapper}>
           <ScrollView
             horizontal
@@ -1325,7 +1325,7 @@ export default function ObjetivosScreen() {
                   </View>
                 )}
               </View>
-            <View style={styles.table}>
+          <View style={styles.table}>
             <View style={styles.rowHeader}>
               <Text style={[styles.cellHeader, styles.cellDia]}>Día</Text>
               <Text style={[styles.cellHeader, styles.cellFecha]}>Fecha</Text>
@@ -1374,15 +1374,15 @@ export default function ObjetivosScreen() {
               nestedScrollEnabled
               showsVerticalScrollIndicator
             >
-              {registros.map((r, idx) => (
+            {registros.map((r, idx) => (
                 <View
                   key={idx}
                   style={[styles.row, r.Fecha === fechaJornadaNegocio && styles.rowJornadaActual]}
                 >
                   <Text style={[styles.cell, styles.cellDia]}>{diaVirtual(r.Fecha, r.FechaComparacion)}</Text>
                   <Text style={[styles.cell, styles.cellFecha, styles.cellBold]} numberOfLines={1}>{r.Fecha}</Text>
-                  <Text style={[styles.cell, styles.cellFecha]} numberOfLines={1}>{r.FechaComparacion}</Text>
-                  <Text style={[styles.cell, styles.cellFestivo]}>{r.Festivo ? 'Sí' : 'No'}</Text>
+                <Text style={[styles.cell, styles.cellFecha]} numberOfLines={1}>{r.FechaComparacion}</Text>
+                <Text style={[styles.cell, styles.cellFestivo]}>{r.Festivo ? 'Sí' : 'No'}</Text>
                   <View style={[styles.cell, styles.cellNombre]}>
                     {r.NombreFestivo ? (
                       <View style={styles.nombreFestivoBadge}>
@@ -1393,17 +1393,17 @@ export default function ObjetivosScreen() {
                     )}
                   </View>
                   <Text style={[styles.cell, styles.cellMoneda, styles.cellBold]}>{formatMoneda(r.TotalFacturadoReal)}</Text>
-                  <Text style={[styles.cell, styles.cellMoneda]}>{formatMoneda(r.TotalFacturadoComparativa)}</Text>
+                <Text style={[styles.cell, styles.cellMoneda]}>{formatMoneda(r.TotalFacturadoComparativa)}</Text>
                   <Text style={[styles.cell, styles.cellMoneda, styles.cellBold, colorDesvio(r.Desvio)]}>{formatMoneda(r.Desvio)}</Text>
                   <Text style={[styles.cell, styles.cellPct, styles.cellBold, colorDesvio(r.DesvioPct)]}>{formatPct(r.DesvioPct)}</Text>
-                </View>
-              ))}
+              </View>
+            ))}
             </ScrollView>
           </View>
-            </View>
-          </ScrollView>
+          </View>
+        </ScrollView>
         </View>
-        )}
+      )}
       </View>
       </ScrollView>
 

@@ -111,7 +111,7 @@ function itemFechaToFormDmy(fecha: string | number | undefined): string {
 export default function PedidosScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ crear?: string }>();
-  const { localPermitido } = useAuth();
+  const { localPermitido, hasPermiso } = useAuth();
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [locales, setLocales] = useState<Local[]>([]);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
@@ -691,9 +691,43 @@ export default function PedidosScreen() {
     }
   }, [pedidoParaLineas, lineas, fetchLineas, refetch]);
 
+  const enviarPedido = useCallback(async () => {
+    if (!pedidoParaLineas) return;
+    const pedidoId = String(valorEnLocal(pedidoParaLineas, 'Id') ?? '');
+    if (!pedidoId) return;
+    try {
+      const res = await fetch(`${API_URL}/api/pedidos`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ Id: pedidoId, Estado: 'Enviado' }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Error al enviar pedido');
+      setPedidoParaLineas((p) => (p ? { ...p, Estado: 'Enviado' } : null));
+      refetch();
+    } catch (e) {
+      alert((e as Error).message || 'Error al enviar pedido');
+    }
+  }, [pedidoParaLineas, refetch]);
+
+  const estadoPedidoActual = pedidoParaLineas ? String(valorEnLocal(pedidoParaLineas, 'Estado') ?? '') : '';
+  const pedidoEnviado = estadoPedidoActual === 'Enviado';
+  const puedeEditarEnviado = hasPermiso('pedidos.editar_enviado');
+  const puedeBorrarEnviado = hasPermiso('pedidos.borrar_enviado');
+  const bloqueadoEditar = pedidoEnviado && !puedeEditarEnviado;
+  const bloqueadoBorrar = pedidoEnviado && !puedeBorrarEnviado;
+
   const handleCrear = () => abrirModalCrear();
-  const handleEditar = (item: Pedido) => abrirModalEditar(item);
-  const handleBorrar = (item: Pedido) => abrirModalBorrar(item);
+  const handleEditar = (item: Pedido) => {
+    const est = String(valorEnLocal(item, 'Estado') ?? '');
+    if (est === 'Enviado' && !puedeEditarEnviado) return;
+    abrirModalEditar(item);
+  };
+  const handleBorrar = (item: Pedido) => {
+    const est = String(valorEnLocal(item, 'Estado') ?? '');
+    if (est === 'Enviado' && !puedeBorrarEnviado) return;
+    abrirModalBorrar(item);
+  };
 
   const { width } = useWindowDimensions();
   const isWide = width > 768;
@@ -752,14 +786,20 @@ export default function PedidosScreen() {
             <View style={styles.lineasEditBar}>
               {!editModeLineas ? (
                 <>
-                  <TouchableOpacity style={styles.lineasEditarBtn} onPress={entrarModoEditarLineas} disabled={loadingLineas || lineas.length === 0}>
-                    <MaterialIcons name="edit" size={14} color="#0ea5e9" />
-                    <Text style={styles.lineasEditarBtnText}>Editar</Text>
+                  <TouchableOpacity style={[styles.lineasEditarBtn, bloqueadoEditar && styles.btnDisabledOpacity]} onPress={entrarModoEditarLineas} disabled={loadingLineas || lineas.length === 0 || bloqueadoEditar}>
+                    <MaterialIcons name="edit" size={14} color={bloqueadoEditar ? '#94a3b8' : '#0ea5e9'} />
+                    <Text style={[styles.lineasEditarBtnText, bloqueadoEditar && { color: '#94a3b8' }]}>Editar</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.lineasAddBtn} onPress={() => setModalLineaFormVisible(true)} disabled={loadingLineas || modalLineaFormVisible}>
-                    <MaterialIcons name="add" size={14} color={modalLineaFormVisible ? '#94a3b8' : '#16a34a'} />
-                    <Text style={[styles.lineasAddBtnText, modalLineaFormVisible && { color: '#94a3b8' }]}>Añadir línea</Text>
+                  <TouchableOpacity style={[styles.lineasAddBtn, bloqueadoEditar && styles.btnDisabledOpacity]} onPress={() => setModalLineaFormVisible(true)} disabled={loadingLineas || modalLineaFormVisible || bloqueadoEditar}>
+                    <MaterialIcons name="add" size={14} color={modalLineaFormVisible || bloqueadoEditar ? '#94a3b8' : '#16a34a'} />
+                    <Text style={[styles.lineasAddBtnText, (modalLineaFormVisible || bloqueadoEditar) && { color: '#94a3b8' }]}>Añadir línea</Text>
                   </TouchableOpacity>
+                  {!pedidoEnviado && (
+                    <TouchableOpacity style={styles.enviarPedidoBtn} onPress={enviarPedido}>
+                      <MaterialIcons name="send" size={14} color="#9a3412" />
+                      <Text style={styles.enviarPedidoBtnText}>Enviar pedido</Text>
+                    </TouchableOpacity>
+                  )}
                 </>
               ) : (
                 <View style={styles.lineasEditActions}>
@@ -846,13 +886,13 @@ export default function PedidosScreen() {
                         <View style={styles.lineasColDelete}>
                           <TouchableOpacity
                             onPress={() => handleDeleteLinea(key)}
-                            disabled={borrandoLinea !== null}
+                            disabled={borrandoLinea !== null || bloqueadoBorrar}
                             style={styles.lineasDeleteBtn}
                           >
                             {borrandoLinea === key ? (
                               <ActivityIndicator size="small" color="#ef4444" />
                             ) : (
-                              <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
+                              <MaterialIcons name="delete-outline" size={18} color={bloqueadoBorrar ? '#d1d5db' : '#ef4444'} />
                             )}
                           </TouchableOpacity>
                         </View>
@@ -922,7 +962,10 @@ export default function PedidosScreen() {
                                     onPress={() => {
                                       const costPrice = valorEnLocal(prod as Pedido, 'CostPrice');
                                       const precioStr = costPrice != null ? String(costPrice) : '';
-                                      setFormLinea((f) => ({ ...f, ProductId: idProd, ProductoNombre: nombre, PrecioUnitario: precioStr }));
+                                      const purchaseVat = valorEnLocal(prod as Pedido, 'PurchaseVatPercent');
+                                      const fallbackVat = valorEnLocal(prod as Pedido, 'VatPercent');
+                                      const ivaStr = purchaseVat != null ? String(purchaseVat) : (fallbackVat != null ? String(fallbackVat) : '');
+                                      setFormLinea((f) => ({ ...f, ProductId: idProd, ProductoNombre: nombre, PrecioUnitario: precioStr, Iva: ivaStr }));
                                       setProductoDropdownOpen(false);
                                     }}
                                   >
@@ -997,15 +1040,6 @@ export default function PedidosScreen() {
                 </View>
               </View>
               <View style={styles.lineaFormBtns}>
-                <TouchableOpacity
-                  style={[styles.modalBtn, styles.modalBtnCancel]}
-                  onPress={() => {
-                    setModalLineaFormVisible(false);
-                    setFormLinea({ ProductId: '', ProductoNombre: '', Cantidad: '', PrecioUnitario: '', Iva: '', TotalRappel: '' });
-                  }}
-                >
-                  <Text style={styles.modalBtnCancelText}>Cancelar</Text>
-                </TouchableOpacity>
                 <TouchableOpacity style={styles.modalBtn} onPress={handleAddLinea} disabled={guardandoLinea || !formLinea.ProductId?.trim()}>
                   {guardandoLinea ? (
                     <ActivityIndicator size="small" color="#0ea5e9" />
@@ -1522,6 +1556,19 @@ const styles = StyleSheet.create({
     borderColor: '#86efac',
   },
   lineasAddBtnText: { fontSize: 12, fontWeight: '600', color: '#16a34a' },
+  enviarPedidoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: '#fed7aa',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#fdba74',
+  },
+  enviarPedidoBtnText: { fontSize: 12, fontWeight: '600', color: '#9a3412' },
+  btnDisabledOpacity: { opacity: 0.5 },
   lineaForm: { marginTop: 8, paddingTop: 12, paddingHorizontal: 16, marginHorizontal: 0, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
   lineaFormBtns: { flexDirection: 'row', gap: 12, marginTop: 12, justifyContent: 'flex-end' },
 });

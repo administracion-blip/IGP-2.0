@@ -27,6 +27,7 @@ import {
   shouldSkipSyncByThrottle,
   toApiProduct,
   pickAllowedFields,
+  updatePurchaseVatRates,
 } from '../lib/dynamo/agoraProducts.js';
 import {
   MONTH_LABELS,
@@ -2547,8 +2548,24 @@ router.get('/agora/purchases/por-producto', async (req, res) => {
   }
 });
 
+// --- Caché en memoria para GET /agora/purchases (TTL 5 min) ---
+const _purchasesCache = { data: null, ts: 0 };
+const _PURCHASES_TTL = 5 * 60 * 1000;
+
+function invalidatePurchasesCache() {
+  _purchasesCache.data = null;
+  _purchasesCache.ts = 0;
+}
+
 router.get('/agora/purchases', async (req, res) => {
   try {
+    const forceRefresh = req.query.refresh === '1';
+    const now = Date.now();
+
+    if (!forceRefresh && _purchasesCache.data && (now - _purchasesCache.ts) < _PURCHASES_TTL) {
+      return res.json({ ..._purchasesCache.data, cached: true });
+    }
+
     const items = [];
     let lastKey = null;
     do {
@@ -2570,7 +2587,11 @@ router.get('/agora/purchases', async (req, res) => {
       return sa.localeCompare(sb);
     });
 
-    return res.json({ ok: true, items, total: items.length });
+    const payload = { ok: true, items, total: items.length };
+    _purchasesCache.data = payload;
+    _purchasesCache.ts = now;
+
+    return res.json({ ...payload, cached: false });
   } catch (err) {
     console.error('[agora/purchases GET]', err.message || err);
     return res.status(500).json({ error: err.message || 'Error al listar compras a proveedor' });
@@ -2603,6 +2624,7 @@ router.post('/agora/purchases/sync', async (req, res) => {
     let totalFetched = 0;
     let totalUpserted = 0;
     const errors = [];
+    const purchaseVatMap = new Map();
 
     for (let i = 0; i < days.length; i++) {
       const businessDay = days[i];
@@ -2654,6 +2676,10 @@ router.post('/agora/purchases/sync', async (req, res) => {
             const familyName = line.FamilyName ?? line.familyName ?? '';
             const lotNumber = line.LotNumber ?? line.lotNumber ?? '';
             const lineNotes = line.Notes ?? line.notes ?? '';
+
+            if (productId && typeof vatRate === 'number' && vatRate > 0) {
+              purchaseVatMap.set(String(productId), vatRate);
+            }
 
             const pk = `${serie}#${number}`;
             const sk = `${String(idx).padStart(4, '0')}`;
@@ -2721,13 +2747,25 @@ router.post('/agora/purchases/sync', async (req, res) => {
       await new Promise((r) => setTimeout(r, 150));
     }
 
-    console.log('[agora/purchases/sync] Completado:', { dateFrom, dateTo, totalFetched, totalUpserted, errors: errors.length });
+    let purchaseVatUpdated = 0;
+    if (purchaseVatMap.size > 0) {
+      try {
+        purchaseVatUpdated = await updatePurchaseVatRates(docClient, tableAgoraProductsName, purchaseVatMap);
+        console.log('[agora/purchases/sync] PurchaseVatPercent actualizado en', purchaseVatUpdated, 'productos');
+      } catch (err) {
+        console.error('[agora/purchases/sync] Error actualizando PurchaseVatPercent:', err.message || err);
+      }
+    }
+
+    invalidatePurchasesCache();
+    console.log('[agora/purchases/sync] Completado:', { dateFrom, dateTo, totalFetched, totalUpserted, purchaseVatUpdated, errors: errors.length });
     return res.json({
       ok: true,
       dateFrom,
       dateTo,
       totalFetched,
       totalUpserted,
+      purchaseVatUpdated,
       daysProcessed: days.length,
       errors: errors.length > 0 ? errors : undefined,
     });

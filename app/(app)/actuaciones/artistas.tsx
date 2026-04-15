@@ -56,7 +56,7 @@ async function appendImagenAlFormData(form: FormData, uri: string, nombreArchivo
   }
 }
 
-const COLUMNAS_TABLA = ['Nombre', 'Imagen', 'Componentes', 'Tipo', 'Estilos', 'Activo', 'Teléfono', 'Email'] as const;
+const COLUMNAS_TABLA = ['Nombre', 'Imagen', 'Componentes', 'Tipo', 'Estilos', 'Activo', 'Teléfono', 'Email', 'T. Laborable', 'T. Fin semana', 'T. Festivo', 'N. Laborable', 'N. Fin semana', 'N. Festivo'] as const;
 
 /** Matriz fija: franjas tarde/noche × tipo de día (coherente con api/lib/tarifaActuacion.js). */
 type TipoDiaColumna = 'laborable' | 'fin_semana' | 'festivo';
@@ -183,6 +183,18 @@ function getValorCeldaArtista(item: Artista, col: string): string {
       return item.telefono_contacto?.trim() || '—';
     case 'Email':
       return item.email_contacto?.trim() || '—';
+    case 'T. Laborable':
+    case 'T. Fin semana':
+    case 'T. Festivo':
+    case 'N. Laborable':
+    case 'N. Fin semana':
+    case 'N. Festivo': {
+      const t = tarifasDesdeApi(item.tarifas);
+      const franja = col.startsWith('T.') ? 'tarde' : 'noche';
+      const tipoDia = col.includes('Laborable') ? 'laborable' : col.includes('Fin semana') ? 'fin_semana' : 'festivo';
+      const v = t[franja][tipoDia];
+      return v > 0 ? formatMoneda(v) : '—';
+    }
     default:
       return '—';
   }

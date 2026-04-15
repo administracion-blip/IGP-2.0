@@ -6,13 +6,13 @@
  */
 
 import crypto from 'node:crypto';
-import { QueryCommand, BatchWriteCommand, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { QueryCommand, BatchWriteCommand, GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 
 const BATCH_SIZE = 25;
 const META_SK = '__meta__';
 
 /** Campos permitidos: solo estos se guardan en DynamoDB y se devuelven por API */
-const ALLOWED_FIELDS = ['Id', 'IGP', 'Name', 'CostPrice', 'CostPrices', 'BaseSaleFormatId', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'Active', 'IsSoldByWeight'];
+const ALLOWED_FIELDS = ['Id', 'IGP', 'Name', 'CostPrice', 'CostPrices', 'BaseSaleFormatId', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'PurchaseVatPercent', 'Active', 'IsSoldByWeight'];
 
 /**
  * Extrae solo los campos permitidos de un producto (sin IGP, que se gestiona aparte).
@@ -24,6 +24,7 @@ export function pickAllowedFields(p) {
   const out = {};
   for (const key of ALLOWED_FIELDS) {
     if (key === 'IGP') continue;
+    if (key === 'PurchaseVatPercent') continue;
     if (key === 'Active') continue;
     if (key === 'IsSoldByWeight') continue;
     const val = p[key] ?? p[key.toLowerCase()];
@@ -51,6 +52,7 @@ export function pickAllowedFields(p) {
 export function toApiProduct(item) {
   const picked = pickAllowedFields(item);
   picked.IGP = item.IGP === true;
+  if (item.PurchaseVatPercent != null) picked.PurchaseVatPercent = item.PurchaseVatPercent;
   return picked;
 }
 
@@ -65,7 +67,8 @@ export function hashProduct(product) {
   delete copy.PK;
   delete copy.SK;
   delete copy._hash;
-  delete copy.IGP; // Campo propio IGP: no forma parte del hash (datos Ágora)
+  delete copy.IGP;
+  delete copy.PurchaseVatPercent;
   const keys = Object.keys(copy).sort();
   const obj = {};
   for (const k of keys) obj[k] = copy[k];
@@ -140,6 +143,7 @@ export async function syncProducts(docClient, tableName, productsFromAgora) {
       added++;
     } else if ((existing._hash ?? '') !== item._hash) {
       item.IGP = existing.IGP === true;
+      if (existing.PurchaseVatPercent != null) item.PurchaseVatPercent = existing.PurchaseVatPercent;
       toWrite.push(item);
       updated++;
     } else {
@@ -217,4 +221,38 @@ export function shouldSkipSyncByThrottle(lastSyncTs) {
   if (lastSyncTs == null) return false;
   const elapsed = (Date.now() - lastSyncTs) / (60 * 1000);
   return elapsed < SYNC_THROTTLE_MINUTES;
+}
+
+/**
+ * Actualiza PurchaseVatPercent en la tabla de productos a partir de las líneas de albaranes de entrada.
+ * Recibe un Map<ProductId (string), VatRate (number, decimal ej 0.10)>.
+ * Convierte a porcentaje (10, 21…) para mantener coherencia con VatPercent.
+ * @param {import('@aws-sdk/lib-dynamodb').DynamoDBDocumentClient} docClient
+ * @param {string} tableName
+ * @param {Map<string, number>} productVatMap
+ * @returns {Promise<number>} número de productos actualizados
+ */
+export async function updatePurchaseVatRates(docClient, tableName, productVatMap) {
+  if (!productVatMap || productVatMap.size === 0) return 0;
+  let updated = 0;
+  const entries = [...productVatMap.entries()];
+  for (let i = 0; i < entries.length; i += 25) {
+    const chunk = entries.slice(i, i + 25);
+    await Promise.allSettled(
+      chunk.map(([productId, vatRateDecimal]) => {
+        const percent = Math.round(vatRateDecimal * 10000) / 100;
+        return docClient.send(
+          new UpdateCommand({
+            TableName: tableName,
+            Key: { PK: 'GLOBAL', SK: String(productId) },
+            UpdateExpression: 'SET #pvp = :v',
+            ExpressionAttributeNames: { '#pvp': 'PurchaseVatPercent' },
+            ExpressionAttributeValues: { ':v': percent },
+            ConditionExpression: 'attribute_exists(PK)',
+          })
+        ).then(() => { updated++; }).catch(() => {});
+      })
+    );
+  }
+  return updated;
 }

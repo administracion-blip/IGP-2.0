@@ -10,6 +10,8 @@ import {
   Modal,
   Platform,
   KeyboardAvoidingView,
+  Linking,
+  Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -17,6 +19,8 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { ICONS, ICON_SIZE } from '../constants/icons';
 import { formatId6 } from '../utils/idFormat';
 
@@ -59,6 +63,19 @@ const INITIAL_FORM = Object.fromEntries(
   CAMPOS_FORM.map((c) => [c.key, c.key === 'Etiqueta' ? ([] as string[]) : ''])
 ) as Record<(typeof ATRIBUTOS_TABLA_EMPRESAS)[number], string | string[]>;
 
+const CAMPOS_FICHA: { key: (typeof ATRIBUTOS_TABLA_EMPRESAS)[number]; label: string }[] = [
+  { key: 'Nombre', label: 'Nombre' },
+  { key: 'Cif', label: 'CIF' },
+  { key: 'Iban', label: 'IBAN' },
+  { key: 'IbanAlternativo', label: 'IBAN alternativo' },
+  { key: 'Direccion', label: 'Dirección' },
+  { key: 'Cp', label: 'Código Postal' },
+  { key: 'Municipio', label: 'Municipio' },
+  { key: 'Provincia', label: 'Provincia' },
+  { key: 'Email', label: 'Email' },
+  { key: 'Telefono', label: 'Teléfono' },
+];
+
 type Empresa = Record<string, string | number | undefined>;
 
 function truncar(val: string): string {
@@ -83,6 +100,7 @@ export default function EmpresasScreen() {
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
   const [pageIndex, setPageIndex] = useState(0);
   const [modalImportVisible, setModalImportVisible] = useState(false);
+  const [modalExportarVisible, setModalExportarVisible] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
@@ -92,6 +110,8 @@ export default function EmpresasScreen() {
   const [cifCheckError, setCifCheckError] = useState<string | null>(null);
   const resizeRef = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
   const cifDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [fichaVisible, setFichaVisible] = useState(false);
 
   const [edicionRapidaMode, setEdicionRapidaMode] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, Record<string, string>>>({});
@@ -461,6 +481,7 @@ export default function EmpresasScreen() {
     { id: 'crear', label: 'Crear registro', icon: ICONS.add },
     { id: 'editar', label: 'Editar', icon: ICONS.edit },
     { id: 'borrar', label: 'Borrar', icon: ICONS.delete },
+    { id: 'ficha', label: 'Ficha empresa', icon: 'badge' as const },
   ];
 
   const getColWidth = useCallback((col: string) => columnWidths[col] ?? DEFAULT_COL_WIDTH, [columnWidths]);
@@ -498,6 +519,90 @@ export default function EmpresasScreen() {
       });
     });
   }, [empresas, filtroBusqueda, columnas, valorCelda]);
+
+  const exportarExcel = useCallback(() => {
+    const headers = [...ORDEN_COLUMNAS];
+    const rows = empresasFiltrados.map((e) =>
+      ORDEN_COLUMNAS.map((col) => {
+        const v = valorEnLocal(e, col);
+        if (col.startsWith('id_')) return formatId6(v ?? '');
+        if (col === 'Etiqueta') return Array.isArray(v) ? v.join(', ') : v != null ? String(v) : '';
+        return v ?? '';
+      })
+    );
+    const data = [headers, ...rows];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Empresas');
+    if (Platform.OS === 'web') {
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `empresas_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      const base64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+      const fileUri = `${FileSystemLegacy.cacheDirectory ?? ''}empresas_export.xlsx`;
+      FileSystemLegacy.writeAsStringAsync(fileUri, base64, { encoding: FileSystemLegacy.EncodingType.Base64 })
+        .then(() => Sharing.shareAsync(fileUri, { mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', dialogTitle: 'Guardar empresas_export.xlsx' }))
+        .catch(() => {});
+    }
+    setModalExportarVisible(false);
+  }, [empresasFiltrados, valorEnLocal]);
+
+  const exportarPDF = useCallback(() => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Empresas', 14, 15);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${empresasFiltrados.length} registros · ${new Date().toLocaleDateString('es-ES')}`, 14, 21);
+
+    const head = [ORDEN_COLUMNAS.map((c) => c === 'id_empresa' ? 'ID' : c)];
+    const body = empresasFiltrados.map((e) =>
+      ORDEN_COLUMNAS.map((col) => {
+        const v = valorEnLocal(e, col);
+        if (col.startsWith('id_')) return formatId6(v ?? '');
+        if (col === 'Etiqueta') return Array.isArray(v) ? v.join(', ') : v != null ? String(v) : '';
+        return v != null ? String(v) : '';
+      })
+    );
+
+    autoTable(doc, {
+      startY: 26,
+      head,
+      body,
+      styles: { fontSize: 7, cellPadding: 2 },
+      headStyles: { fillColor: [14, 165, 233], textColor: 255, fontStyle: 'bold', fontSize: 7 },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      margin: { left: 8, right: 8 },
+    });
+
+    const pageCount = doc.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Pág. ${i}/${pageCount}`, pageW - 14, doc.internal.pageSize.getHeight() - 8, { align: 'right' });
+    }
+
+    const fileName = `empresas_${new Date().toISOString().slice(0, 10)}.pdf`;
+    if (Platform.OS === 'web') {
+      doc.save(fileName);
+    } else {
+      const base64 = doc.output('datauristring').split(',')[1];
+      const fileUri = `${FileSystemLegacy.cacheDirectory ?? ''}${fileName}`;
+      FileSystemLegacy.writeAsStringAsync(fileUri, base64, { encoding: FileSystemLegacy.EncodingType.Base64 })
+        .then(() => Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: fileName }))
+        .catch(() => {});
+    }
+    setModalExportarVisible(false);
+  }, [empresasFiltrados, valorEnLocal]);
 
   const totalFiltrados = empresasFiltrados.length;
   const totalPages = Math.max(1, Math.ceil(totalFiltrados / PAGE_SIZE));
@@ -700,17 +805,18 @@ export default function EmpresasScreen() {
               <TouchableOpacity
                 style={[
                   styles.toolbarBtn,
-                  (btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null && styles.toolbarBtnDisabled,
+                  (btn.id === 'editar' || btn.id === 'borrar' || btn.id === 'ficha') && selectedRowIndex == null && styles.toolbarBtnDisabled,
                 ]}
                 onPress={() => {
                   if (btn.id === 'crear') abrirModalNuevo();
                   if (btn.id === 'editar' && selectedRowIndex != null) abrirModalEditar(empresasPagina[selectedRowIndex]);
                   if (btn.id === 'borrar' && selectedRowIndex != null) borrarSeleccionado();
+                  if (btn.id === 'ficha' && selectedRowIndex != null) setFichaVisible(true);
                 }}
-                disabled={guardando || ((btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null)}
+                disabled={guardando || ((btn.id === 'editar' || btn.id === 'borrar' || btn.id === 'ficha') && selectedRowIndex == null)}
                 accessibilityLabel={btn.label}
               >
-                <MaterialIcons name={btn.icon} size={ICON_SIZE} color={guardando || ((btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null) ? '#94a3b8' : '#0ea5e9'} />
+                <MaterialIcons name={btn.icon} size={ICON_SIZE} color={guardando || ((btn.id === 'editar' || btn.id === 'borrar' || btn.id === 'ficha') && selectedRowIndex == null) ? '#94a3b8' : '#0ea5e9'} />
               </TouchableOpacity>
             </View>
           ))}
@@ -750,6 +856,29 @@ export default function EmpresasScreen() {
             accessibilityLabel="Importar"
           >
             <MaterialIcons name="upload-file" size={ICON_SIZE} color={guardando || importing ? '#94a3b8' : '#0ea5e9'} />
+          </TouchableOpacity>
+        </View>
+        <View
+          style={styles.toolbarBtnWrap}
+          {...(Platform.OS === 'web'
+            ? ({
+                onMouseEnter: () => setHoveredBtn('exportar'),
+                onMouseLeave: () => setHoveredBtn(null),
+              } as object)
+            : {})}
+        >
+          {hoveredBtn === 'exportar' && (
+            <View style={styles.tooltip}>
+              <Text style={styles.tooltipText}>Exportar</Text>
+            </View>
+          )}
+          <TouchableOpacity
+            style={styles.toolbarBtn}
+            onPress={() => setModalExportarVisible(true)}
+            disabled={guardando}
+            accessibilityLabel="Exportar"
+          >
+            <MaterialIcons name="download" size={ICON_SIZE} color={guardando ? '#94a3b8' : '#0ea5e9'} />
           </TouchableOpacity>
         </View>
         <View
@@ -1068,6 +1197,100 @@ export default function EmpresasScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      <Modal visible={modalExportarVisible} transparent animationType="fade" onRequestClose={() => setModalExportarVisible(false)}>
+        <Pressable style={styles.fichaOverlay} onPress={(e) => { if (e.target === e.currentTarget) setModalExportarVisible(false); }}>
+          <View style={styles.fichaCard}>
+            <View style={styles.fichaHeader}>
+              <View style={styles.fichaHeaderLeft}>
+                <MaterialIcons name="download" size={20} color="#0ea5e9" />
+                <Text style={styles.fichaTitle}>Exportar datos</Text>
+              </View>
+              <TouchableOpacity onPress={() => setModalExportarVisible(false)} style={styles.fichaClose}>
+                <MaterialIcons name="close" size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+            <View style={{ paddingHorizontal: 20, paddingVertical: 16, gap: 14 }}>
+              <Text style={{ fontSize: 12, color: '#64748b' }}>
+                {empresasFiltrados.length} registro{empresasFiltrados.length !== 1 ? 's' : ''} a exportar
+                {filtroBusqueda.trim() ? ' (filtro activo)' : ''}
+              </Text>
+              <View style={styles.importButtonsRow}>
+                <TouchableOpacity style={styles.importOptionBtn} onPress={exportarExcel}>
+                  <MaterialIcons name="table-chart" size={22} color="#16a34a" />
+                  <Text style={styles.importOptionLabel}>Excel (.xlsx)</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.importOptionBtn} onPress={exportarPDF}>
+                  <MaterialIcons name="picture-as-pdf" size={22} color="#ef4444" />
+                  <Text style={styles.importOptionLabel}>PDF</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Modal ficha empresa */}
+      {fichaVisible && selectedRowIndex != null && (() => {
+        const empresa = empresasPagina[selectedRowIndex];
+        if (!empresa) return null;
+        const campos = CAMPOS_FICHA
+          .map(({ key, label }) => {
+            const val = valorEnLocal(empresa, key);
+            const str = val != null ? String(val).trim() : '';
+            return str ? { label, value: str } : null;
+          })
+          .filter(Boolean) as { label: string; value: string }[];
+        const textoCompartir = campos.map((c) => `${c.label}: ${c.value}`).join('\n');
+        const enviarWhatsApp = () => {
+          const url = `https://wa.me/?text=${encodeURIComponent(textoCompartir)}`;
+          if (Platform.OS === 'web') window.open(url, '_blank');
+          else Linking.openURL(url);
+        };
+        const enviarTelegram = () => {
+          const url = `https://t.me/share/url?url=${encodeURIComponent(' ')}&text=${encodeURIComponent(textoCompartir)}`;
+          if (Platform.OS === 'web') window.open(url, '_blank');
+          else Linking.openURL(url);
+        };
+        return (
+          <Modal visible transparent animationType="fade" onRequestClose={() => setFichaVisible(false)}>
+            <Pressable style={styles.fichaOverlay} onPress={(e) => { if (e.target === e.currentTarget) setFichaVisible(false); }}>
+              <View style={styles.fichaCard}>
+                <View style={styles.fichaHeader}>
+                  <View style={styles.fichaHeaderLeft}>
+                    <MaterialIcons name="badge" size={20} color="#0ea5e9" />
+                    <Text style={styles.fichaTitle}>Ficha de empresa</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setFichaVisible(false)} style={styles.fichaClose}>
+                    <MaterialIcons name="close" size={20} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView style={styles.fichaBody}>
+                  {campos.map(({ label, value }, i) => (
+                    <View key={label} style={[styles.fichaRow, i < campos.length - 1 && styles.fichaRowBorder]}>
+                      <Text style={styles.fichaLabel}>{label}</Text>
+                      <Text style={styles.fichaValue} selectable>{value}</Text>
+                    </View>
+                  ))}
+                  {campos.length === 0 && (
+                    <Text style={styles.fichaEmpty}>No hay datos para mostrar</Text>
+                  )}
+                </ScrollView>
+                <View style={styles.fichaFooter}>
+                  <TouchableOpacity style={styles.fichaWhatsApp} onPress={enviarWhatsApp} activeOpacity={0.8}>
+                    <MaterialIcons name="chat" size={18} color="#fff" />
+                    <Text style={styles.fichaShareText}>Enviar por WhatsApp</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.fichaTelegram} onPress={enviarTelegram} activeOpacity={0.8}>
+                    <MaterialIcons name="send" size={18} color="#fff" />
+                    <Text style={styles.fichaShareText}>Enviar por Telegram</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </Pressable>
+          </Modal>
+        );
+      })()}
     </View>
   );
 }
@@ -1213,4 +1436,69 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     minHeight: 24,
   },
+  fichaOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+  },
+  fichaCard: {
+    width: '94%',
+    maxWidth: 420,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 12,
+    overflow: 'hidden',
+  },
+  fichaHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  fichaHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  fichaTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
+  fichaClose: { padding: 4 },
+  fichaBody: { paddingHorizontal: 20, paddingVertical: 12, maxHeight: 360 },
+  fichaRow: { paddingVertical: 10 },
+  fichaRowBorder: { borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  fichaLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 },
+  fichaValue: { fontSize: 14, color: '#1e293b', fontWeight: '500' },
+  fichaEmpty: { fontSize: 13, color: '#94a3b8', textAlign: 'center', paddingVertical: 24 },
+  fichaFooter: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  fichaWhatsApp: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    backgroundColor: '#25d366',
+    borderRadius: 10,
+  },
+  fichaTelegram: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    backgroundColor: '#0088cc',
+    borderRadius: 10,
+  },
+  fichaShareText: { fontSize: 12, fontWeight: '600', color: '#fff' },
 });

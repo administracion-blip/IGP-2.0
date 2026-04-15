@@ -14,6 +14,7 @@ import { Stack, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AuthProvider, useAuth, AUTH_KEY } from '../contexts/AuthContext';
 import { ProductosCacheProvider } from '../contexts/ProductosCache';
+import { ComprasProveedorCacheProvider } from '../contexts/ComprasProveedorCache';
 
 const MENU_ITEMS: { route: string; label: string; icon: string; permiso: string | null }[] = [
   { route: '/', label: 'Inicio', icon: 'home', permiso: null },
@@ -217,7 +218,9 @@ export default function AppLayout() {
   return (
     <AuthProvider>
       <ProductosCacheProvider>
-        <AppLayoutContent />
+        <ComprasProveedorCacheProvider>
+          <AppLayoutContent />
+        </ComprasProveedorCacheProvider>
       </ProductosCacheProvider>
     </AuthProvider>
   );

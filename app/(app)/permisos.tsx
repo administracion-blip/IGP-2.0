@@ -96,6 +96,8 @@ const PERMISOS_CODIGOS = [
   'pedidos.crear',
   'pedidos.editar',
   'pedidos.borrar',
+  'pedidos.editar_enviado',
+  'pedidos.borrar_enviado',
   // --- Compras: Compras proveedor ---
   'compras_proveedor.ver',
   'compras_proveedor.sincronizar',
@@ -182,6 +184,8 @@ const PERMISOS_LABELS: Record<string, string> = {
   'pedidos.crear': 'Pedidos · Crear',
   'pedidos.editar': 'Pedidos · Editar',
   'pedidos.borrar': 'Pedidos · Borrar',
+  'pedidos.editar_enviado': 'Pedidos · Editar (enviado)',
+  'pedidos.borrar_enviado': 'Pedidos · Borrar (enviado)',
   'compras_proveedor.ver': 'Compras proveedor · Ver',
   'compras_proveedor.sincronizar': 'Compras proveedor · Sincronizar',
   'acuerdos.ver': 'Acuerdos (menú) · Ver',

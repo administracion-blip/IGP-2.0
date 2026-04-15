@@ -706,66 +706,70 @@ export default function ProductosScreen() {
             </View>
           )}
 
-          {/* Dropdown overlay para columna — fondo y panel son hermanos (evita removeChild en react-dom web) */}
-          <Modal visible={columnaDropdownId !== null} transparent animationType="none">
-            <View style={styles.filterOverlayRoot}>
-              <Pressable
-                style={styles.filterBackdrop}
-                onPress={() => setColumnaDropdownId(null)}
-                accessibilityLabel="Cerrar menú de columna"
-              />
-              <View style={styles.filterDropdownSheet} pointerEvents="box-none">
-                <View style={styles.filterModalDropdown}>
-                  <Text style={styles.filterModalTitle}>Seleccionar columna</Text>
-                  <ScrollView style={{ maxHeight: 300 }} keyboardShouldPersistTaps="handled">
-                    {columnasAgora.map((col) => {
-                      const f = filtrosAvanzados.find((x) => x.id === columnaDropdownId);
-                      const isActive = f?.columna === col;
-                      return (
-                        <TouchableOpacity
-                          key={col}
-                          style={[styles.filterDropdownItem, isActive && styles.filterDropdownItemActive]}
-                          onPress={() => { if (columnaDropdownId) updateFiltro(columnaDropdownId, { columna: col }); setColumnaDropdownId(null); }}
-                        >
-                          <Text style={[styles.filterDropdownItemText, isActive && { color: '#0ea5e9', fontWeight: '600' }]}>{col}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
+          {/* Dropdown overlay para columna — desmontamos el Modal completo cuando no es visible (evita removeChild en react-dom web) */}
+          {columnaDropdownId !== null && (
+            <Modal visible transparent animationType="none">
+              <View style={styles.filterOverlayRoot}>
+                <Pressable
+                  style={styles.filterBackdrop}
+                  onPress={() => setColumnaDropdownId(null)}
+                  accessibilityLabel="Cerrar menú de columna"
+                />
+                <View style={styles.filterDropdownSheet} pointerEvents="box-none">
+                  <View style={styles.filterModalDropdown}>
+                    <Text style={styles.filterModalTitle}>Seleccionar columna</Text>
+                    <ScrollView style={{ maxHeight: 300 }} keyboardShouldPersistTaps="handled">
+                      {columnasAgora.map((col) => {
+                        const f = filtrosAvanzados.find((x) => x.id === columnaDropdownId);
+                        const isActive = f?.columna === col;
+                        return (
+                          <TouchableOpacity
+                            key={col}
+                            style={[styles.filterDropdownItem, isActive && styles.filterDropdownItemActive]}
+                            onPress={() => { if (columnaDropdownId) updateFiltro(columnaDropdownId, { columna: col }); setColumnaDropdownId(null); }}
+                          >
+                            <Text style={[styles.filterDropdownItemText, isActive && { color: '#0ea5e9', fontWeight: '600' }]}>{col}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
                 </View>
               </View>
-            </View>
-          </Modal>
+            </Modal>
+          )}
 
           {/* Dropdown overlay para operador */}
-          <Modal visible={operadorDropdownId !== null} transparent animationType="none">
-            <View style={styles.filterOverlayRoot}>
-              <Pressable
-                style={styles.filterBackdrop}
-                onPress={() => setOperadorDropdownId(null)}
-                accessibilityLabel="Cerrar menú de operador"
-              />
-              <View style={styles.filterDropdownSheet} pointerEvents="box-none">
-                <View style={styles.filterModalDropdown}>
-                  <Text style={styles.filterModalTitle}>Seleccionar operador</Text>
-                  {(() => {
-                    const f = filtrosAvanzados.find((x) => x.id === operadorDropdownId);
-                    if (!f) return null;
-                    const ops = operadoresPorColumna(f.columna);
-                    return ops.map((op) => (
-                      <TouchableOpacity
-                        key={op.key}
-                        style={[styles.filterDropdownItem, f.operador === op.key && styles.filterDropdownItemActive]}
-                        onPress={() => { if (operadorDropdownId) updateFiltro(operadorDropdownId, { operador: op.key }); setOperadorDropdownId(null); }}
-                      >
-                        <Text style={[styles.filterDropdownItemText, f.operador === op.key && { color: '#0ea5e9', fontWeight: '600' }]}>{op.label}</Text>
-                      </TouchableOpacity>
-                    ));
-                  })()}
+          {operadorDropdownId !== null && (
+            <Modal visible transparent animationType="none">
+              <View style={styles.filterOverlayRoot}>
+                <Pressable
+                  style={styles.filterBackdrop}
+                  onPress={() => setOperadorDropdownId(null)}
+                  accessibilityLabel="Cerrar menú de operador"
+                />
+                <View style={styles.filterDropdownSheet} pointerEvents="box-none">
+                  <View style={styles.filterModalDropdown}>
+                    <Text style={styles.filterModalTitle}>Seleccionar operador</Text>
+                    {(() => {
+                      const f = filtrosAvanzados.find((x) => x.id === operadorDropdownId);
+                      if (!f) return null;
+                      const ops = operadoresPorColumna(f.columna);
+                      return ops.map((op) => (
+                        <TouchableOpacity
+                          key={op.key}
+                          style={[styles.filterDropdownItem, f.operador === op.key && styles.filterDropdownItemActive]}
+                          onPress={() => { if (operadorDropdownId) updateFiltro(operadorDropdownId, { operador: op.key }); setOperadorDropdownId(null); }}
+                        >
+                          <Text style={[styles.filterDropdownItemText, f.operador === op.key && { color: '#0ea5e9', fontWeight: '600' }]}>{op.label}</Text>
+                        </TouchableOpacity>
+                      ));
+                    })()}
+                  </View>
                 </View>
               </View>
-            </View>
-          </Modal>
+            </Modal>
+          )}
           {!lastFetch && !loadingAgora && !errorAgora ? (
             <View style={styles.center}>
               <MaterialIcons name="cloud-download" size={48} color="#94a3b8" />
@@ -868,7 +872,7 @@ export default function ProductosScreen() {
         </View>
       }
 
-      <Modal visible={modalEditarVisible} transparent animationType="fade">
+      {modalEditarVisible && <Modal visible transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={cerrarModalEditar}>
           <KeyboardAvoidingView style={styles.modalCenter} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <Pressable style={styles.modalCardTouch} onPress={(e) => e.stopPropagation()}>
@@ -978,7 +982,7 @@ export default function ProductosScreen() {
             </Pressable>
           </KeyboardAvoidingView>
         </Pressable>
-      </Modal>
+      </Modal>}
       {ToastView}
     </View>
   );
