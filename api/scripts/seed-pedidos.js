@@ -22,10 +22,11 @@ const docClient = DynamoDBDocumentClient.from(client);
 
 async function run() {
   const fecha = new Date().toISOString().slice(0, 10);
+  const año = fecha.slice(0, 4);
   const ahora = new Date().toISOString();
 
   const item = {
-    Id: 'PED-001',
+    Id: `PED-${año}-00001`,
     LocalId: '1',
     AlmacenOrigenId: '1',
     AlmacenDestinoId: '2',

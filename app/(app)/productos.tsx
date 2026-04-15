@@ -25,7 +25,7 @@ const PAGE_SIZE = 50;
 const MAX_TEXT_LENGTH = 30;
 
 /** Columnas preferidas para Productos Ágora (solo campos permitidos por API) */
-const PREFERRED_COLS_AGORA = ['Id', 'IGP', 'Name', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'CostPrice', 'CostPrices', 'BaseSaleFormatId', 'Active', 'IsSoldByWeight'];
+const PREFERRED_COLS_AGORA = ['Id', 'IGP', 'Name', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'ultimo_iva_compra', 'CostPrice', 'CostPrices', 'BaseSaleFormatId', 'Active', 'IsSoldByWeight'];
 
 const DEFAULT_COL_WIDTH = 90;
 const MAX_TEXT_LENGTH_TABLE = 30;
@@ -54,7 +54,7 @@ const OPERADORES_BOOL: { key: FiltroOperador; label: string }[] = [
   { key: 'false', label: 'es falso' },
 ];
 
-const COLUMNAS_NUMERICAS = ['CostPrice', 'Price', 'VatPercent'];
+const COLUMNAS_NUMERICAS = ['CostPrice', 'Price', 'VatPercent', 'ultimo_iva_compra'];
 const COLUMNAS_BOOLEANAS = ['IGP', 'Active', 'IsSoldByWeight'];
 
 function operadoresPorColumna(col: string) {
@@ -114,10 +114,10 @@ function columnasFromProductos(
   const ordered: string[] = [];
   for (const preferredCol of preferred) {
     const found = keys.find((k) => k.toLowerCase() === preferredCol.toLowerCase());
-    if (found) ordered.push(found);
+    ordered.push(found ?? preferredCol);
   }
   for (const k of keys.sort()) {
-    if (!ordered.includes(k)) ordered.push(k);
+    if (!ordered.some((o) => o.toLowerCase() === k.toLowerCase())) ordered.push(k);
   }
   return ordered.length ? ordered : [...fallback];
 }
@@ -141,12 +141,11 @@ type ProductRowProps = {
   columnas: string[];
   onToggleSelect: (rowId: string, shiftKey: boolean) => void;
   onToggleIGP: (producto: Producto) => void;
-  onEditar: (producto: Producto) => void;
   valorCelda: (item: Producto, col: string) => string;
 };
 
 const ProductRow = memo(function ProductRow({
-  producto, rowId, isSelected, columnas, onToggleSelect, onToggleIGP, onEditar, valorCelda,
+  producto, rowId, isSelected, columnas, onToggleSelect, onToggleIGP, valorCelda,
 }: ProductRowProps) {
   const handlePress = useCallback((e: any) => {
     if (!rowId) return;
@@ -158,11 +157,6 @@ const ProductRow = memo(function ProductRow({
     ev.stopPropagation();
     onToggleIGP(producto);
   }, [producto, onToggleIGP]);
-
-  const handleEditar = useCallback((ev: any) => {
-    ev.stopPropagation();
-    onEditar(producto);
-  }, [producto, onEditar]);
 
   return (
     <Pressable style={[styles.rowAgora, isSelected && styles.rowSelected]} onPress={handlePress}>
@@ -202,13 +196,6 @@ const ProductRow = memo(function ProductRow({
           </View>
         );
       })}
-      <TouchableOpacity
-        style={[styles.cellAgora, styles.cellEditarAgora, { width: 44 }]}
-        onPress={handleEditar}
-        accessibilityLabel="Editar"
-      >
-        <MaterialIcons name="edit" size={16} color="#0ea5e9" />
-      </TouchableOpacity>
     </Pressable>
   );
 });
@@ -238,6 +225,9 @@ export default function ProductosScreen() {
     setFiltroAgora('');
   }, []);
 
+  const [mostrarTodos, setMostrarTodos] = useState(false);
+  const [modalFamiliasVisible, setModalFamiliasVisible] = useState(false);
+  const [filtroBusquedaFamilias, setFiltroBusquedaFamilias] = useState('');
   const [filtrosAvanzados, setFiltrosAvanzados] = useState<FiltroAvanzado[]>([]);
   const [filtrosPanelOpen, setFiltrosPanelOpen] = useState(false);
   const [operadorDropdownId, setOperadorDropdownId] = useState<string | null>(null);
@@ -385,6 +375,29 @@ export default function ProductosScreen() {
     [productosAgora]
   );
 
+  const familias = useMemo(() => {
+    const map = new Map<string, { FamilyId: string; FamilyName: string; count: number }>();
+    for (const p of productosAgora) {
+      const id = String(p.FamilyId ?? '').trim();
+      const name = String(p.FamilyName ?? '').trim();
+      if (!id && !name) continue;
+      const key = id || name;
+      const existing = map.get(key);
+      if (existing) {
+        existing.count++;
+      } else {
+        map.set(key, { FamilyId: id, FamilyName: name || id, count: 1 });
+      }
+    }
+    return [...map.values()].sort((a, b) => a.FamilyName.localeCompare(b.FamilyName, 'es'));
+  }, [productosAgora]);
+
+  const familiasFiltradas = useMemo(() => {
+    const q = filtroBusquedaFamilias.trim().toLowerCase();
+    if (!q) return familias;
+    return familias.filter((f) => f.FamilyName.toLowerCase().includes(q) || f.FamilyId.toLowerCase().includes(q));
+  }, [familias, filtroBusquedaFamilias]);
+
   const valorCeldaAgora = useCallback((item: Producto, col: string) => {
     const raw = item[col] ?? valorPorColumna(item, col);
     if (raw === undefined || raw === null) return '—';
@@ -398,6 +411,10 @@ export default function ProductosScreen() {
     }
     if (Array.isArray(raw)) return raw.length ? String(raw.join(', ')) : '—';
     if (typeof raw === 'object') return JSON.stringify(raw).slice(0, MAX_TEXT_LENGTH_TABLE);
+    if (col === 'ultimo_iva_compra' || col === 'VatPercent') {
+      const n = parseFloat(String(raw));
+      if (!Number.isNaN(n)) return n + ' %';
+    }
     if (col === 'Price' || col === 'CostPrice') {
       const n = parseFloat(String(raw));
       if (!Number.isNaN(n)) return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
@@ -409,6 +426,9 @@ export default function ProductosScreen() {
 
   const productosAgoraFiltrados = useMemo(() => {
     let resultado = productosAgora;
+    if (!mostrarTodos) {
+      resultado = resultado.filter((p) => p.IGP === true || p.IGP === 'true');
+    }
     const q = filtroAgora.trim().toLowerCase();
     if (q) {
       resultado = resultado.filter((p) =>
@@ -425,7 +445,7 @@ export default function ProductosScreen() {
       );
     }
     return resultado;
-  }, [productosAgora, filtroAgora, columnasAgora, valorCeldaAgora, filtrosAvanzados]);
+  }, [productosAgora, mostrarTodos, filtroAgora, columnasAgora, valorCeldaAgora, filtrosAvanzados]);
 
   const totalFiltradosAgora = productosAgoraFiltrados.length;
   const totalPagesAgora = Math.max(1, Math.ceil(totalFiltradosAgora / PAGE_SIZE));
@@ -581,6 +601,14 @@ export default function ProductosScreen() {
               <Text style={styles.reloadBtnText}>Sincronizar</Text>
             </TouchableOpacity>
             <TouchableOpacity
+              style={styles.reloadBtn}
+              onPress={() => { setFiltroBusquedaFamilias(''); setModalFamiliasVisible(true); }}
+              accessibilityLabel="Familias"
+            >
+              <MaterialIcons name="category" size={22} color="#0ea5e9" />
+              <Text style={styles.reloadBtnText}>Familias</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
               style={[styles.reloadBtn, filtrosActivos.length > 0 && styles.filterBtnActive]}
               onPress={() => setFiltrosPanelOpen((o) => !o)}
               accessibilityLabel="Filtros"
@@ -590,6 +618,15 @@ export default function ProductosScreen() {
                 Filtros{filtrosActivos.length > 0 ? ` (${filtrosActivos.length})` : ''}
               </Text>
             </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Switch
+                value={mostrarTodos}
+                onValueChange={setMostrarTodos}
+                trackColor={{ false: '#e2e8f0', true: '#a3e635' }}
+                thumbColor={mostrarTodos ? '#65a30d' : '#fff'}
+              />
+              <Text style={{ fontSize: 12, color: '#475569', fontWeight: '500' }}>Mostrar todos</Text>
+            </View>
             {selectedIds.size > 0 && (
               <>
                 <View style={styles.selectionInfo}>
@@ -796,7 +833,7 @@ export default function ProductosScreen() {
                 {totalPagesAgora > 1 && ` · Página ${pageIndexClampedAgora + 1} de ${totalPagesAgora}`}
               </Text>
               <ScrollView horizontal style={styles.scroll} contentContainerStyle={[styles.scrollContent, { flexGrow: 1 }]}>
-                <View style={[styles.table, styles.tableAgora, { minWidth: 32 + columnasAgora.reduce((w, c) => w + (c === 'IGP' ? 56 : c === 'Name' ? 180 : DEFAULT_COL_WIDTH), 0) + 44 }]}>
+                <View style={[styles.table, styles.tableAgora, { minWidth: 32 + columnasAgora.reduce((w, c) => w + (c === 'IGP' ? 56 : c === 'Name' ? 180 : DEFAULT_COL_WIDTH), 0) }]}>
                   <View style={styles.rowHeaderAgora}>
                     <TouchableOpacity
                       style={[styles.cellHeaderAgora, styles.cellIGP, { width: 32 }]}
@@ -813,9 +850,6 @@ export default function ProductosScreen() {
                         <Text style={styles.cellHeaderTextAgora} numberOfLines={1} ellipsizeMode="tail">{col}</Text>
                       </View>
                     ))}
-                    <View style={[styles.cellHeaderAgora, { width: 44 }]}>
-                      <Text style={styles.cellHeaderTextAgora}>—</Text>
-                    </View>
                   </View>
                   <ScrollView style={styles.agoraBodyScroll} nestedScrollEnabled>
                   {productosAgoraPagina.map((p, idx) => {
@@ -829,7 +863,6 @@ export default function ProductosScreen() {
                         columnas={columnasAgora}
                         onToggleSelect={handleToggleSelect}
                         onToggleIGP={toggleAgoraProductIGP}
-                        onEditar={abrirModalEditar}
                         valorCelda={valorCeldaAgora}
                       />
                     );
@@ -871,6 +904,55 @@ export default function ProductosScreen() {
           )}
         </View>
       }
+
+      {modalFamiliasVisible && (
+        <Modal visible transparent animationType="fade">
+          <Pressable style={styles.modalOverlay} onPress={() => setModalFamiliasVisible(false)}>
+            <Pressable style={styles.familiasModalCard} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Familias</Text>
+                <TouchableOpacity onPress={() => setModalFamiliasVisible(false)} style={styles.modalClose}>
+                  <MaterialIcons name="close" size={22} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.familiasSearchWrap}>
+                <MaterialIcons name="search" size={18} color="#94a3b8" />
+                <TextInput
+                  style={styles.familiasSearchInput}
+                  value={filtroBusquedaFamilias}
+                  onChangeText={setFiltroBusquedaFamilias}
+                  placeholder="Buscar familia…"
+                  placeholderTextColor="#94a3b8"
+                />
+                {filtroBusquedaFamilias.length > 0 && (
+                  <TouchableOpacity onPress={() => setFiltroBusquedaFamilias('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <MaterialIcons name="close" size={16} color="#94a3b8" />
+                  </TouchableOpacity>
+                )}
+              </View>
+              <Text style={styles.familiasCount}>{familiasFiltradas.length} familia{familiasFiltradas.length !== 1 ? 's' : ''}</Text>
+              <View style={styles.familiasTableHeader}>
+                <View style={{ width: 60 }}><Text style={styles.familiasHeaderCell}>ID</Text></View>
+                <View style={{ flex: 1 }}><Text style={styles.familiasHeaderCell}>Nombre</Text></View>
+                <View style={{ width: 70 }}><Text style={[styles.familiasHeaderCell, { textAlign: 'right' }]}>Productos</Text></View>
+              </View>
+              <ScrollView style={styles.familiasBody}>
+                {familiasFiltradas.length === 0 ? (
+                  <Text style={styles.emptyText}>Sin resultados</Text>
+                ) : (
+                  familiasFiltradas.map((f) => (
+                    <View key={f.FamilyId || f.FamilyName} style={styles.familiasRow}>
+                      <View style={{ width: 60 }}><Text style={styles.familiasCellId}>{f.FamilyId || '—'}</Text></View>
+                      <View style={{ flex: 1 }}><Text style={styles.familiasCell} numberOfLines={1}>{f.FamilyName}</Text></View>
+                      <View style={{ width: 70 }}><Text style={[styles.familiasCell, { textAlign: 'right', fontWeight: '600' }]}>{f.count}</Text></View>
+                    </View>
+                  ))
+                )}
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
 
       {modalEditarVisible && <Modal visible transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={cerrarModalEditar}>
@@ -1085,4 +1167,14 @@ const styles = StyleSheet.create({
   filterAddBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '600' },
   filterClearBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 10 },
   filterClearBtnText: { fontSize: 12, color: '#94a3b8' },
+  familiasModalCard: { width: '90%', maxWidth: 520, maxHeight: '80%', backgroundColor: '#fff', borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
+  familiasSearchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#f8fafc' },
+  familiasSearchInput: { flex: 1, fontSize: 13, color: '#334155', paddingVertical: 4 },
+  familiasCount: { fontSize: 11, color: '#94a3b8', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
+  familiasTableHeader: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 6, borderBottomWidth: 2, borderBottomColor: '#e2e8f0', backgroundColor: '#f1f5f9' },
+  familiasHeaderCell: { fontSize: 10, fontWeight: '600', color: '#475569' },
+  familiasBody: { maxHeight: 400, paddingHorizontal: 0 },
+  familiasRow: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e2e8f0' },
+  familiasCell: { fontSize: 12, color: '#334155' },
+  familiasCellId: { fontSize: 11, color: '#64748b', fontFamily: Platform.OS === 'web' ? 'monospace' : undefined },
 });

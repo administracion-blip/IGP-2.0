@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,14 +8,20 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Image,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { saveToken } from './utils/authToken';
 import { emailValido } from './utils/validation';
+import { fetchImagenApp } from './lib/personalizacion';
 
 const AUTH_KEY = 'erp_user';
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+
+/** Anillo exterior: cyan → violeta → rosa (mismo espíritu que el icono de perfil). */
+const LOGO_RING_COLORS = ['#33CCFF', '#9988FF', '#FF66CC'] as const;
 
 export type UserSession = {
   id_usuario: string;
@@ -31,6 +37,11 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [imagenApp, setImagenApp] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchImagenApp(API_URL).then(setImagenApp);
+  }, []);
 
   async function handleLogin() {
     setError(null);
@@ -80,7 +91,25 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={styles.card}>
-        <Text style={styles.title}>ERP Hostelería</Text>
+        {imagenApp ? (
+          <LinearGradient
+            colors={[...LOGO_RING_COLORS]}
+            locations={[0, 0.5, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.logoRingGradient}
+          >
+            <View style={styles.logoLoginWrap}>
+              <Image
+                source={{ uri: imagenApp }}
+                style={styles.logoLoginImage}
+                resizeMode="contain"
+                accessibilityLabel="Logo"
+              />
+            </View>
+          </LinearGradient>
+        ) : null}
+        <Text style={styles.title}>Grupo Paripé</Text>
         <Text style={styles.subtitle}>Iniciar sesión</Text>
 
         <TextInput
@@ -120,6 +149,7 @@ export default function LoginScreen() {
             <Text style={styles.buttonText}>Entrar</Text>
           )}
         </TouchableOpacity>
+        <Text style={styles.poweredBy}>Powered by Tabolize</Text>
       </View>
     </KeyboardAvoidingView>
   );
@@ -145,6 +175,31 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 6,
+  },
+  /** Anillo con gradiente; el padding es el grosor del aro. */
+  logoRingGradient: {
+    width: 124,
+    height: 124,
+    borderRadius: 62,
+    padding: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  /** Círculo interior: el padding reduce solo el área de la imagen, no el aro exterior. */
+  logoLoginWrap: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    overflow: 'hidden',
+    backgroundColor: '#ffffff',
+    padding: 12,
+  },
+  logoLoginImage: {
+    width: '100%',
+    height: '100%',
   },
   title: {
     fontSize: 22,
@@ -187,5 +242,19 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     fontWeight: '600',
+  },
+  poweredBy: {
+    marginTop: 22,
+    alignSelf: 'center',
+    fontSize: 11,
+    color: '#64748b',
+    textAlign: 'center',
+    letterSpacing: 0.4,
+    ...Platform.select({
+      ios: { fontFamily: 'Courier' },
+      android: { fontFamily: 'monospace' },
+      web: { fontFamily: 'Courier New, Courier, Lucida Console, monospace' },
+      default: { fontFamily: 'monospace' },
+    }),
   },
 });

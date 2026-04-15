@@ -24,6 +24,8 @@ import { formatFecha, formatCreadoEn, fechaToIso } from '../../utils/formatFecha
 import { parseAlmacenesOrigen } from '../../utils/parseAlmacenesOrigen';
 import { Pedido, Local, Almacen } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
+import { fetchPorcentajeBeneficio, aplicarPorcentajeBeneficio } from '../../lib/personalizacion';
+import { siguienteIdParaNuevoPedido } from '../../lib/pedidosId';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -91,6 +93,7 @@ export default function PedidosBase({
   const [productoDropdownOpen, setProductoDropdownOpen] = useState(false);
   const [productoBusqueda, setProductoBusqueda] = useState('');
   const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
+  const [porcentajeBeneficio, setPorcentajeBeneficio] = useState(0);
 
   const refetch = useCallback(() => {
     setError(null);
@@ -114,6 +117,10 @@ export default function PedidosBase({
   useEffect(() => {
     refetch();
   }, [refetch]);
+
+  useEffect(() => {
+    fetchPorcentajeBeneficio().then(setPorcentajeBeneficio);
+  }, []);
 
   useEffect(() => {
     if (pedidoParaLineas && !productosLastFetch) {
@@ -171,10 +178,10 @@ export default function PedidosBase({
     if (pedidoIdForm !== pedidoIdLineas || lineas.length === 0) return parseFloat(form.TotalAlbaran) || 0;
     return lineas.reduce((sum, l) => {
       const cant = Number(l.Cantidad ?? 0);
-      const precio = Number(l.PrecioUnitario ?? 0);
+      const precio = aplicarPorcentajeBeneficio(Number(l.PrecioUnitario ?? 0), porcentajeBeneficio);
       return sum + cant * precio;
     }, 0);
-  }, [editingPedidoId, form.Id, form.TotalAlbaran, pedidoParaLineas, lineas]);
+  }, [editingPedidoId, form.Id, form.TotalAlbaran, pedidoParaLineas, lineas, porcentajeBeneficio]);
 
   const almacenesDestinoParaLocal = useMemo(() => {
     const localId = form.LocalId.trim();
@@ -243,27 +250,31 @@ export default function PedidosBase({
     return v != null ? String(v) : '—';
   }, [nombresPorLocalId, nombresPorAlmacenId]);
 
-  const proximoId = useMemo(() => {
-    const nums = pedidos
-      .map((p) => {
-        const id = String(valorEnLocal(p, 'Id') ?? '');
-        const m = id.match(/^PED-(\d+)$/i);
-        return m ? parseInt(m[1], 10) : 0;
-      })
-      .filter((n) => !Number.isNaN(n));
-    const max = nums.length ? Math.max(...nums) : 0;
-    return `PED-${String(max + 1).padStart(3, '0')}`;
-  }, [pedidos]);
+  const idsPedidos = useMemo(
+    () => pedidos.map((p) => String(valorEnLocal(p, 'Id') ?? '')),
+    [pedidos],
+  );
+
+  const proximoId = useMemo(
+    () => siguienteIdParaNuevoPedido(form.Fecha, idsPedidos),
+    [form.Fecha, idsPedidos],
+  );
+
+  useEffect(() => {
+    if (!modalFormVisible || editingPedidoId != null) return;
+    setForm((f) => (f.Id === proximoId ? f : { ...f, Id: proximoId }));
+  }, [proximoId, modalFormVisible, editingPedidoId]);
 
   const abrirModalCrear = () => {
     setEditingPedidoId(null);
+    const fecha = new Date().toISOString().slice(0, 10);
     setForm({
-      Id: proximoId,
+      Id: siguienteIdParaNuevoPedido(fecha, idsPedidos),
       LocalId: '',
       AlmacenOrigenId: almacenGeneralId,
       AlmacenDestinoId: '',
       TotalAlbaran: '0',
-      Fecha: new Date().toISOString().slice(0, 10),
+      Fecha: fecha,
       Estado: 'Borrador',
       Notas: '',
     });
@@ -546,6 +557,81 @@ export default function PedidosBase({
   const { width } = useWindowDimensions();
   const isWide = width > 768;
 
+  const renderLineasTable = (stretchWide: boolean) => (
+    <View style={[styles.lineasTable, stretchWide && styles.lineasTableWide]}>
+      <View style={styles.lineasTableHeader}>
+        <View style={styles.lineasColPreparada}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, { textAlign: 'center' }]}>✓</Text></View>
+        <View style={styles.lineasColCantidad}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, { textAlign: 'center' }]}>Cantidad</Text></View>
+        <View style={styles.lineasColArticulo}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, { textAlign: 'center' }]}>Artículo</Text></View>
+        <View style={styles.lineasColPrecio}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, { textAlign: 'right' }]}>Precio</Text></View>
+        <View style={styles.lineasColIva}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, { textAlign: 'right' }]}>IVA</Text></View>
+        <View style={styles.lineasColTotalRappel}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, styles.lineasHeaderTwoLines, { textAlign: 'right' }]}>Total{'\n'}Rappel</Text></View>
+        <View style={styles.lineasColTotal}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, { textAlign: 'right' }]}>Total</Text></View>
+        <View style={styles.lineasColId}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, { textAlign: 'center' }]}>ID</Text></View>
+      </View>
+      {lineas.length === 0 ? (
+        <View style={styles.lineasTableEmpty}>
+          <Text style={styles.lineasEmpty}>No hay líneas</Text>
+        </View>
+      ) : (
+        lineas.map((l, idx) => {
+          const key = String(l.LineaIndex ?? idx);
+          const cantEdit = lineasEditValues[key] ?? String(l.Cantidad ?? '');
+          const cant = editModeLineas ? (parseFloat(String(cantEdit).replace(',', '.')) || 0) : Number(l.Cantidad ?? 0);
+          const precioBase = Number(l.PrecioUnitario ?? 0);
+          const precio = aplicarPorcentajeBeneficio(precioBase, porcentajeBeneficio);
+          const total = cant * precio;
+          const totalRappel = Number(l.TotalRappel ?? 0);
+          const iva = l.VatRate != null ? `${Number(l.VatRate) * 100}%` : '—';
+          const preparada = !!l.Preparada;
+          return (
+            <View key={key} style={styles.lineasTableRow}>
+              <View style={styles.lineasColPreparada}>
+                <TouchableOpacity
+                  onPress={() => togglePreparadaLinea(key)}
+                  disabled={guardandoPreparada !== null}
+                  style={[styles.lineasCheckBtn, preparada && styles.lineasCheckBtnActive]}
+                >
+                  {guardandoPreparada === key ? (
+                    <ActivityIndicator size="small" color={preparada ? '#fff' : '#0ea5e9'} />
+                  ) : (
+                    <MaterialIcons name={preparada ? 'check-circle' : 'check-circle-outline'} size={22} color={preparada ? '#16a34a' : '#94a3b8'} />
+                  )}
+                </TouchableOpacity>
+              </View>
+              <View style={styles.lineasColCantidad}>
+                {editModeLineas ? (
+                  <TextInput
+                    style={[styles.lineasTableCell, styles.lineasCellCantidad, styles.lineasEditInput]}
+                    value={cantEdit}
+                    onChangeText={(v) => setLineasEditValues((prev) => ({ ...prev, [key]: v }))}
+                    keyboardType="numeric"
+                    placeholder="0"
+                    placeholderTextColor="#94a3b8"
+                  />
+                ) : (
+                  <Text style={[styles.lineasTableCell, styles.lineasCellCantidad]}>{String(cant)}</Text>
+                )}
+              </View>
+              <View style={[styles.lineasColArticulo, preparada && styles.lineasColArticuloPreparada]} {...(Platform.OS === 'web' ? { title: String(l.ProductoNombre || l.ProductId || '—') } : {})}>
+                <Text style={[styles.lineasTableCell, preparada && styles.lineasCellArticuloPreparada]} numberOfLines={1}>{String(l.ProductoNombre || l.ProductId || '—')}</Text>
+              </View>
+              <View style={styles.lineasColPrecio}><Text style={[styles.lineasTableCell, { textAlign: 'right' }]}>{formatMoneda(precio)}</Text></View>
+              <View style={styles.lineasColIva}><Text style={[styles.lineasTableCell, { textAlign: 'right' }]}>{iva}</Text></View>
+              <View style={styles.lineasColTotalRappel}><Text style={[styles.lineasTableCell, { textAlign: 'right' }]}>{formatMoneda(totalRappel)}</Text></View>
+              <View style={styles.lineasColTotal}><Text style={[styles.lineasTableCell, styles.lineasCellTotal]}>{formatMoneda(total)}</Text></View>
+              <View style={styles.lineasColId}>
+                <View style={styles.lineasCellIdBadge}>
+                  <Text style={styles.lineasCellIdText} numberOfLines={1}>{String(l.ProductId ?? '—')}</Text>
+                </View>
+              </View>
+            </View>
+          );
+        })
+      )}
+    </View>
+  );
+
   return (
     <View style={styles.container}>
       <View style={[styles.mainRow, !isWide && styles.mainRowColumn]}>
@@ -626,183 +712,126 @@ export default function PedidosBase({
               )}
             </View>
             <ScrollView style={styles.lineasList} showsVerticalScrollIndicator>
-              <ScrollView horizontal showsHorizontalScrollIndicator>
-              <View style={styles.lineasTable}>
-                <View style={styles.lineasTableHeader}>
-                  <View style={styles.lineasColPreparada}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, { textAlign: 'center' }]}>✓</Text></View>
-                  <View style={styles.lineasColCantidad}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, { textAlign: 'center' }]}>Cantidad</Text></View>
-                  <View style={styles.lineasColArticulo}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, { textAlign: 'center' }]}>Artículo</Text></View>
-                  <View style={styles.lineasColPrecio}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, { textAlign: 'right' }]}>Precio</Text></View>
-                  <View style={styles.lineasColIva}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, { textAlign: 'right' }]}>IVA</Text></View>
-                  <View style={styles.lineasColTotalRappel}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, styles.lineasHeaderTwoLines, { textAlign: 'right' }]}>Total{'\n'}Rappel</Text></View>
-                  <View style={styles.lineasColTotal}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, { textAlign: 'right' }]}>Total</Text></View>
-                  <View style={styles.lineasColId}><Text style={[styles.lineasTableCell, styles.lineasTableHeaderCell, { textAlign: 'center' }]}>ID</Text></View>
-                </View>
-                {lineas.length === 0 ? (
-                  <View style={styles.lineasTableEmpty}>
-                    <Text style={styles.lineasEmpty}>No hay líneas</Text>
-                  </View>
-                ) : (
-                  lineas.map((l, idx) => {
-                    const key = String(l.LineaIndex ?? idx);
-                    const cantEdit = lineasEditValues[key] ?? String(l.Cantidad ?? '');
-                    const cant = editModeLineas ? (parseFloat(String(cantEdit).replace(',', '.')) || 0) : Number(l.Cantidad ?? 0);
-                    const precio = Number(l.PrecioUnitario ?? 0);
-                    const total = cant * precio;
-                    const totalRappel = Number(l.TotalRappel ?? 0);
-                    const iva = l.VatRate != null ? `${Number(l.VatRate) * 100}%` : '—';
-                    const preparada = !!l.Preparada;
-                    return (
-                      <View key={key} style={styles.lineasTableRow}>
-                        <View style={styles.lineasColPreparada}>
-                          <TouchableOpacity
-                            onPress={() => togglePreparadaLinea(key)}
-                            disabled={guardandoPreparada !== null}
-                            style={[styles.lineasCheckBtn, preparada && styles.lineasCheckBtnActive]}
-                          >
-                            {guardandoPreparada === key ? (
-                              <ActivityIndicator size="small" color={preparada ? '#fff' : '#0ea5e9'} />
-                            ) : (
-                              <MaterialIcons name={preparada ? 'check-circle' : 'check-circle-outline'} size={22} color={preparada ? '#16a34a' : '#94a3b8'} />
-                            )}
-                          </TouchableOpacity>
-                        </View>
-                        <View style={styles.lineasColCantidad}>
-                          {editModeLineas ? (
-                            <TextInput
-                              style={[styles.lineasTableCell, styles.lineasCellCantidad, styles.lineasEditInput]}
-                              value={cantEdit}
-                              onChangeText={(v) => setLineasEditValues((prev) => ({ ...prev, [key]: v }))}
-                              keyboardType="numeric"
-                              placeholder="0"
-                              placeholderTextColor="#94a3b8"
-                            />
-                          ) : (
-                            <Text style={[styles.lineasTableCell, styles.lineasCellCantidad]}>{String(cant)}</Text>
-                          )}
-                        </View>
-                        <View style={[styles.lineasColArticulo, preparada && styles.lineasColArticuloPreparada]} {...(Platform.OS === 'web' ? { title: String(l.ProductoNombre || l.ProductId || '—') } : {})}>
-                          <Text style={[styles.lineasTableCell, preparada && styles.lineasCellArticuloPreparada]} numberOfLines={1}>{String(l.ProductoNombre || l.ProductId || '—')}</Text>
-                        </View>
-                        <View style={styles.lineasColPrecio}><Text style={[styles.lineasTableCell, { textAlign: 'right' }]}>{formatMoneda(precio)}</Text></View>
-                        <View style={styles.lineasColIva}><Text style={[styles.lineasTableCell, { textAlign: 'right' }]}>{iva}</Text></View>
-                        <View style={styles.lineasColTotalRappel}><Text style={[styles.lineasTableCell, { textAlign: 'right' }]}>{formatMoneda(totalRappel)}</Text></View>
-                        <View style={styles.lineasColTotal}><Text style={[styles.lineasTableCell, styles.lineasCellTotal]}>{formatMoneda(total)}</Text></View>
-                        <View style={styles.lineasColId}>
-                          <View style={styles.lineasCellIdBadge}>
-                            <Text style={styles.lineasCellIdText} numberOfLines={1}>{String(l.ProductId ?? '—')}</Text>
-                          </View>
-                        </View>
-                      </View>
-                    );
-                  })
-                )}
-              </View>
-              </ScrollView>
+              {isWide ? (
+                renderLineasTable(true)
+              ) : (
+                <ScrollView horizontal showsHorizontalScrollIndicator>
+                  {renderLineasTable(false)}
+                </ScrollView>
+              )}
             </ScrollView>
             </>
           )}
           {pedidoParaLineas && modalLineaFormVisible && (
             <View style={styles.lineaForm}>
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Producto</Text>
-                {loadingProductos ? (
-                  <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 8 }} />
-                ) : (
-                  <>
-                    <TouchableOpacity
-                      style={styles.selectTouchable}
-                      onPress={() => { setProductoBusqueda(''); setProductoDropdownOpen(true); }}
-                    >
-                      <Text style={[styles.selectTouchableText, !formLinea.ProductoNombre && styles.selectTouchablePlaceholder]}>
-                        {formLinea.ProductoNombre || 'Buscar producto…'}
-                      </Text>
-                      <MaterialIcons name="arrow-drop-down" size={24} color="#64748b" />
-                    </TouchableOpacity>
-                    <Modal visible={productoDropdownOpen} transparent animationType="fade">
-                      <Pressable style={styles.modalOverlay} onPress={() => setProductoDropdownOpen(false)}>
-                        <View style={styles.selectDropdownCard} onStartShouldSetResponder={() => true}>
-                          <View style={styles.dropdownSearchWrap}>
-                            <MaterialIcons name="search" size={18} color="#94a3b8" />
-                            <TextInput
-                              style={styles.dropdownSearchInput}
-                              value={productoBusqueda}
-                              onChangeText={setProductoBusqueda}
-                              placeholder="Buscar producto…"
-                              placeholderTextColor="#94a3b8"
-                              autoFocus
-                            />
-                            {productoBusqueda.length > 0 && (
-                              <TouchableOpacity onPress={() => setProductoBusqueda('')} hitSlop={8}>
-                                <MaterialIcons name="close" size={16} color="#94a3b8" />
-                              </TouchableOpacity>
-                            )}
-                          </View>
-                          <ScrollView style={styles.selectDropdownList} keyboardShouldPersistTaps="handled">
-                            {productosIgp
-                              .filter((prod) => {
+              <View style={styles.lineaFormProductoRow}>
+                <View style={[styles.formGroup, styles.formGroupProductoLinea]}>
+                  <Text style={[styles.formLabel, styles.lineaFormLabelLinea]}>Producto</Text>
+                  {loadingProductos ? (
+                    <View style={styles.lineaFormProductoLoading}>
+                      <ActivityIndicator size="small" color="#0ea5e9" />
+                    </View>
+                  ) : (
+                    <>
+                      <TouchableOpacity
+                        style={[styles.selectTouchable, styles.lineaFormSelectMatch]}
+                        onPress={() => { setProductoBusqueda(''); setProductoDropdownOpen(true); }}
+                      >
+                        <Text style={[styles.selectTouchableText, !formLinea.ProductoNombre && styles.selectTouchablePlaceholder]}>
+                          {formLinea.ProductoNombre || 'Buscar producto…'}
+                        </Text>
+                        <MaterialIcons name="arrow-drop-down" size={24} color="#64748b" />
+                      </TouchableOpacity>
+                      <Modal visible={productoDropdownOpen} transparent animationType="fade">
+                        <Pressable style={styles.modalOverlay} onPress={() => setProductoDropdownOpen(false)}>
+                          <View style={styles.selectDropdownCard} onStartShouldSetResponder={() => true}>
+                            <View style={styles.dropdownSearchWrap}>
+                              <MaterialIcons name="search" size={18} color="#94a3b8" />
+                              <TextInput
+                                style={styles.dropdownSearchInput}
+                                value={productoBusqueda}
+                                onChangeText={setProductoBusqueda}
+                                placeholder="Buscar producto…"
+                                placeholderTextColor="#94a3b8"
+                                autoFocus
+                              />
+                              {productoBusqueda.length > 0 && (
+                                <TouchableOpacity onPress={() => setProductoBusqueda('')} hitSlop={8}>
+                                  <MaterialIcons name="close" size={16} color="#94a3b8" />
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                            <ScrollView style={styles.selectDropdownList} keyboardShouldPersistTaps="handled">
+                              {productosIgp
+                                .filter((prod) => {
+                                  if (!productoBusqueda.trim()) return true;
+                                  const q = productoBusqueda.trim().toLowerCase();
+                                  const idProd = String(valorEnLocal(prod, 'Id') ?? '').toLowerCase();
+                                  const nombre = String(valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? '').toLowerCase();
+                                  return nombre.includes(q) || idProd.includes(q);
+                                })
+                                .map((prod, idx) => {
+                                  const idProd = String(valorEnLocal(prod, 'Id') ?? '').trim();
+                                  const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? idProd) || '—').trim();
+                                  return (
+                                    <TouchableOpacity
+                                      key={idProd || `p-${idx}`}
+                                      style={[styles.selectDropdownItem, formLinea.ProductId === idProd && styles.selectDropdownItemActive]}
+                                      {...(Platform.OS === 'web' ? { title: String(nombre || idProd || '') } : {})}
+                                      onPress={() => {
+                                        const costPrice = valorEnLocal(prod, 'CostPrice');
+                                        const precioStr = costPrice != null ? String(costPrice) : '';
+                                        setFormLinea((f) => ({ ...f, ProductId: idProd, ProductoNombre: nombre, PrecioUnitario: precioStr }));
+                                        setProductoDropdownOpen(false);
+                                      }}
+                                    >
+                                      <Text style={[styles.selectDropdownItemText, formLinea.ProductId === idProd && styles.selectDropdownItemTextActive]} numberOfLines={1}>
+                                        {nombre || idProd || '—'}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                              {productosIgp.filter((prod) => {
                                 if (!productoBusqueda.trim()) return true;
                                 const q = productoBusqueda.trim().toLowerCase();
                                 const idProd = String(valorEnLocal(prod, 'Id') ?? '').toLowerCase();
                                 const nombre = String(valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? '').toLowerCase();
                                 return nombre.includes(q) || idProd.includes(q);
-                              })
-                              .map((prod, idx) => {
-                                const idProd = String(valorEnLocal(prod, 'Id') ?? '').trim();
-                                const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? idProd) || '—').trim();
-                                return (
-                                  <TouchableOpacity
-                                    key={idProd || `p-${idx}`}
-                                    style={[styles.selectDropdownItem, formLinea.ProductId === idProd && styles.selectDropdownItemActive]}
-                                    {...(Platform.OS === 'web' ? { title: String(nombre || idProd || '') } : {})}
-                                    onPress={() => {
-                                      const costPrice = valorEnLocal(prod, 'CostPrice');
-                                      const precioStr = costPrice != null ? String(costPrice) : '';
-                                      setFormLinea((f) => ({ ...f, ProductId: idProd, ProductoNombre: nombre, PrecioUnitario: precioStr }));
-                                      setProductoDropdownOpen(false);
-                                    }}
-                                  >
-                                    <Text style={[styles.selectDropdownItemText, formLinea.ProductId === idProd && styles.selectDropdownItemTextActive]} numberOfLines={1}>
-                                      {nombre || idProd || '—'}
-                                    </Text>
-                                  </TouchableOpacity>
-                                );
-                              })}
-                            {productosIgp.filter((prod) => {
-                              if (!productoBusqueda.trim()) return true;
-                              const q = productoBusqueda.trim().toLowerCase();
-                              const idProd = String(valorEnLocal(prod, 'Id') ?? '').toLowerCase();
-                              const nombre = String(valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? '').toLowerCase();
-                              return nombre.includes(q) || idProd.includes(q);
-                            }).length === 0 && (
-                              <View style={styles.selectDropdownItem}>
-                                <Text style={[styles.selectDropdownItemText, { color: '#94a3b8', fontStyle: 'italic' }]}>Sin resultados</Text>
-                              </View>
-                            )}
-                          </ScrollView>
-                        </View>
-                      </Pressable>
-                    </Modal>
-                  </>
-                )}
+                              }).length === 0 && (
+                                <View style={styles.selectDropdownItem}>
+                                  <Text style={[styles.selectDropdownItemText, { color: '#94a3b8', fontStyle: 'italic' }]}>Sin resultados</Text>
+                                </View>
+                              )}
+                            </ScrollView>
+                          </View>
+                        </Pressable>
+                      </Modal>
+                    </>
+                  )}
+                </View>
+                <View style={styles.formGroupCantidadLinea}>
+                  <Text style={[styles.formLabel, styles.lineaFormLabelLinea]}>Cantidad</Text>
+                  <TextInput
+                    style={[styles.formInput, styles.lineaFormCantidadMatch]}
+                    value={formLinea.Cantidad}
+                    onChangeText={(v) => setFormLinea((f) => ({ ...f, Cantidad: v }))}
+                    placeholder="0"
+                    placeholderTextColor="#94a3b8"
+                    keyboardType="decimal-pad"
+                    {...(Platform.OS === 'android' ? { textAlignVertical: 'center' as const } : {})}
+                  />
+                </View>
               </View>
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Cantidad</Text>
-                <TextInput
-                  style={[styles.formInput, styles.formInputCompact]}
-                  value={formLinea.Cantidad}
-                  onChangeText={(v) => setFormLinea((f) => ({ ...f, Cantidad: v }))}
-                  placeholder="0"
-                  placeholderTextColor="#94a3b8"
-                  keyboardType="decimal-pad"
-                />
-              </View>
-              <View style={styles.formRow}>
+              <View style={styles.lineaFormValoresRow}>
                 <View style={[styles.formGroup, styles.formGroupFlex]}>
                   <Text style={styles.formLabel}>Precio unitario</Text>
                   <TextInput
                     style={[styles.formInput, styles.formInputPrecioReadonly, styles.formInputCompact]}
-                    value={formLinea.PrecioUnitario ? formatMoneda(formLinea.PrecioUnitario) : ''}
+                    value={
+                      formLinea.PrecioUnitario
+                        ? formatMoneda(aplicarPorcentajeBeneficio(Number(formLinea.PrecioUnitario), porcentajeBeneficio))
+                        : ''
+                    }
                     editable={false}
                     placeholder="Selecciona producto"
                     placeholderTextColor="#94a3b8"
@@ -873,7 +902,7 @@ export default function PedidosBase({
                     style={[styles.formInput, editingPedidoId != null && styles.formInputDisabled]}
                     value={form.Id}
                     onChangeText={(v) => setForm((f) => ({ ...f, Id: v }))}
-                    placeholder="PED-001"
+                    placeholder={`PED-${new Date().getFullYear()}-00001`}
                     placeholderTextColor="#94a3b8"
                     editable={editingPedidoId == null}
                   />
@@ -1338,6 +1367,7 @@ const styles = StyleSheet.create({
   lineasList: { flex: 1, maxHeight: 300, marginBottom: 12, paddingHorizontal: 16 },
   lineasEmpty: { fontSize: 14, color: '#94a3b8', textAlign: 'center', paddingVertical: 20 },
   lineasTable: { minWidth: 520 },
+  lineasTableWide: { width: '100%', minWidth: 0, alignSelf: 'stretch' },
   lineasTableHeader: { flexDirection: 'row', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 8, borderBottomWidth: 2, borderBottomColor: '#e2e8f0', backgroundColor: '#f8fafc' },
   lineasTableHeaderCell: { fontWeight: '600', color: '#475569' },
   lineasHeaderTwoLines: { lineHeight: 14 },
@@ -1372,6 +1402,57 @@ const styles = StyleSheet.create({
     borderColor: '#86efac',
   },
   lineasAddBtnText: { fontSize: 12, fontWeight: '600', color: '#16a34a' },
-  lineaForm: { marginTop: 8, paddingTop: 12, paddingHorizontal: 16, marginHorizontal: 0, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
+  lineaForm: {
+    marginTop: 8,
+    paddingTop: 12,
+    paddingBottom: 12,
+    paddingHorizontal: 16,
+    marginHorizontal: 0,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+    backgroundColor: '#f1f5f9',
+  },
+  lineaFormProductoRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  lineaFormLabelLinea: {
+    minHeight: 16,
+    lineHeight: 16,
+  },
+  lineaFormSelectMatch: {
+    minHeight: 40,
+    paddingVertical: 9,
+  },
+  lineaFormCantidadMatch: {
+    minHeight: 40,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+  },
+  lineaFormProductoLoading: {
+    minHeight: 40,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  formGroupProductoLinea: {
+    flex: 1,
+    minWidth: 160,
+    marginBottom: 0,
+  },
+  lineaFormValoresRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    alignItems: 'flex-end',
+  },
+  formGroupCantidadLinea: {
+    width: 88,
+    minWidth: 72,
+    flexShrink: 0,
+    marginBottom: 0,
+  },
   lineaFormBtns: { flexDirection: 'row', gap: 12, marginTop: 12, justifyContent: 'flex-end' },
 });

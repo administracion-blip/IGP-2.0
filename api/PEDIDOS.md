@@ -37,7 +37,7 @@ node scripts/seed-pedidos.js
 
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|
-| Id | String | Clave de partición (ej. "PED-001" o UUID) |
+| Id | String | Clave de partición, formato `PED-AAAA-NNNNN` (año según Fecha, 5 dígitos de secuencial por año; ej. `PED-2026-00003`) |
 | LocalId | String | ID del local (ref. igp_Locales.id_Locales) |
 | AlmacenOrigenId | String | ID del almacén origen (ref. igp_Almacenes.Id) |
 | AlmacenDestinoId | String | ID del almacén destino |

@@ -9,12 +9,14 @@ import {
   Pressable,
   ActivityIndicator,
   useWindowDimensions,
+  Image,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AuthProvider, useAuth, AUTH_KEY } from '../contexts/AuthContext';
 import { ProductosCacheProvider } from '../contexts/ProductosCache';
 import { ComprasProveedorCacheProvider } from '../contexts/ComprasProveedorCache';
+import { fetchImagenApp } from '../lib/personalizacion';
 
 const MENU_ITEMS: { route: string; label: string; icon: string; permiso: string | null }[] = [
   { route: '/', label: 'Inicio', icon: 'home', permiso: null },
@@ -45,6 +47,11 @@ function AppLayoutContent() {
   }, [width]);
   const [configOpen, setConfigOpen] = useState(false);
   const [configLabelVisible, setConfigLabelVisible] = useState(false);
+  const [imagenApp, setImagenApp] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchImagenApp().then(setImagenApp);
+  }, []);
 
   useEffect(() => {
     if (loading) return;
@@ -84,6 +91,14 @@ function AppLayoutContent() {
         >
           <MaterialIcons name="menu" size={22} color="#334155" />
         </TouchableOpacity>
+        {imagenApp ? (
+          <Image
+            source={{ uri: imagenApp }}
+            style={styles.headerLogo}
+            resizeMode="contain"
+            accessibilityLabel="Logo"
+          />
+        ) : null}
         <View style={styles.headerSpacer} />
         <View
           style={styles.headerConfigWrap}
@@ -243,6 +258,11 @@ const styles = StyleSheet.create({
   menuButton: {
     padding: 4,
     marginRight: 4,
+  },
+  headerLogo: {
+    height: 36,
+    maxWidth: 140,
+    marginRight: 8,
   },
   headerSpacer: {
     flex: 1,

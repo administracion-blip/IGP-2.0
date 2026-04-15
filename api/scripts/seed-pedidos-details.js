@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Inserta detalles de ejemplo en Igp_PedidosDetails para el pedido PED-001.
+ * Inserta detalles de ejemplo en Igp_PedidosDetails para el pedido PED-AAAA-00001 (año actual).
  * Uso: node api/scripts/seed-pedidos-details.js
  */
 
@@ -26,7 +26,8 @@ const lineasEjemplo = [
 ];
 
 async function run() {
-  const pedidoId = 'PED-001';
+  const año = new Date().toISOString().slice(0, 4);
+  const pedidoId = `PED-${año}-00001`;
   console.log('Tabla:', tableName);
   console.log('Insertando detalles para pedido', pedidoId, '...');
 

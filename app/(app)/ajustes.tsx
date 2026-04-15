@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,12 +12,18 @@ import {
   Switch,
   useWindowDimensions,
   Platform,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+
+/** Límite aproximado para caber en un ítem DynamoDB (~400 KB con base64). */
+const MAX_IMAGEN_BASE64_LENGTH = 380000;
 
 type SyncConfig = {
   id: string;
@@ -133,6 +139,13 @@ export default function AjustesScreen() {
 
   const [loadingAjustes, setLoadingAjustes] = useState(true);
 
+  const [imagenApp, setImagenApp] = useState('');
+  const [porcentajeBeneficio, setPorcentajeBeneficio] = useState('');
+  const [loadingPersonalizacion, setLoadingPersonalizacion] = useState(true);
+  const [guardandoPersonalizacion, setGuardandoPersonalizacion] = useState(false);
+  const [imagenLoading, setImagenLoading] = useState(false);
+  const [errorPersonalizacion, setErrorPersonalizacion] = useState<string | null>(null);
+
   // --- Modal de configuración ---
   const [configModalId, setConfigModalId] = useState<string | null>(null);
   const [cfgEnabled, setCfgEnabled] = useState(false);
@@ -173,7 +186,121 @@ export default function AjustesScreen() {
     setLoadingAjustes(false);
   }, []);
 
+  const cargarPersonalizacion = useCallback(async () => {
+    setLoadingPersonalizacion(true);
+    setErrorPersonalizacion(null);
+    try {
+      const res = await fetch(`${API_URL}/api/ajustes/personalizacion/app`);
+      const data = await res.json();
+      if (res.ok && data.ok && data.item) {
+        const it = data.item as { ImagenApp?: string; PorcentajeBeneficio?: number };
+        setImagenApp(typeof it.ImagenApp === 'string' ? it.ImagenApp : '');
+        setPorcentajeBeneficio(
+          it.PorcentajeBeneficio != null && !Number.isNaN(Number(it.PorcentajeBeneficio))
+            ? String(it.PorcentajeBeneficio)
+            : ''
+        );
+      } else {
+        setImagenApp('');
+        setPorcentajeBeneficio('');
+      }
+    } catch (_) {
+      setImagenApp('');
+      setPorcentajeBeneficio('');
+    } finally {
+      setLoadingPersonalizacion(false);
+    }
+  }, []);
+
   useEffect(() => { cargarEstados(); }, [cargarEstados]);
+  useEffect(() => { cargarPersonalizacion(); }, [cargarPersonalizacion]);
+
+  const seleccionarImagenApp = useCallback(async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        setErrorPersonalizacion('Se necesita permiso para acceder a la galería');
+        return;
+      }
+      setImagenLoading(true);
+      setErrorPersonalizacion(null);
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.8,
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) {
+        setImagenLoading(false);
+        return;
+      }
+      const uri = result.assets[0].uri;
+      let width = 800;
+      let compress = 0.6;
+      let manipulated = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width } }],
+        { compress, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+      while (manipulated.base64 && manipulated.base64.length > MAX_IMAGEN_BASE64_LENGTH && compress > 0.2) {
+        compress -= 0.1;
+        width = Math.round(width * 0.9);
+        manipulated = await ImageManipulator.manipulateAsync(
+          uri,
+          [{ resize: { width } }],
+          { compress, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+      }
+      if (manipulated.base64) {
+        setImagenApp(`data:image/jpeg;base64,${manipulated.base64}`);
+      }
+    } catch (_) {
+      setErrorPersonalizacion('No se pudo cargar la imagen');
+    } finally {
+      setImagenLoading(false);
+    }
+  }, []);
+
+  const quitarImagenApp = useCallback(() => {
+    setImagenApp('');
+  }, []);
+
+  const guardarPersonalizacion = useCallback(async () => {
+    setGuardandoPersonalizacion(true);
+    setErrorPersonalizacion(null);
+    try {
+      const pctRaw = porcentajeBeneficio.trim().replace(',', '.');
+      let porcentajeNum: number | null = null;
+      if (pctRaw !== '') {
+        const n = parseFloat(pctRaw);
+        if (Number.isNaN(n) || n < 0 || n > 100) {
+          setErrorPersonalizacion('El porcentaje debe ser un número entre 0 y 100');
+          setGuardandoPersonalizacion(false);
+          return;
+        }
+        porcentajeNum = Math.round(n * 100) / 100;
+      }
+      const res = await fetch(`${API_URL}/api/ajustes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          PK: 'personalizacion',
+          SK: 'app',
+          Nombre: 'Personalización',
+          ImagenApp: imagenApp.trim(),
+          PorcentajeBeneficio: porcentajeNum,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setErrorPersonalizacion(data.error || 'No se pudo guardar');
+        return;
+      }
+    } catch (_) {
+      setErrorPersonalizacion('Error de conexión al guardar');
+    } finally {
+      setGuardandoPersonalizacion(false);
+    }
+  }, [imagenApp, porcentajeBeneficio]);
 
   const ejecutarSync = useCallback(async (item: SyncConfig) => {
     setSyncStates((prev) => ({
@@ -446,6 +573,122 @@ export default function AjustesScreen() {
             </View>
           )}
         </View>
+
+        {hasPermiso('ajustes.ver') && (
+          <View style={styles.section}>
+            <View style={styles.persoHeaderRow}>
+              <View style={styles.persoHeaderTitleBlock}>
+                <MaterialIcons name="palette" size={18} color="#0369a1" />
+                <Text style={styles.sectionTitle}>Personalización</Text>
+              </View>
+              {!loadingPersonalizacion && (
+                <TouchableOpacity
+                  style={[styles.persoSaveHeaderBtn, guardandoPersonalizacion && styles.persoSaveHeaderBtnDisabled]}
+                  onPress={guardarPersonalizacion}
+                  disabled={guardandoPersonalizacion}
+                  activeOpacity={0.75}
+                  accessibilityLabel="Guardar personalización"
+                >
+                  {guardandoPersonalizacion ? (
+                    <ActivityIndicator size="small" color="#047857" />
+                  ) : (
+                    <>
+                      <MaterialIcons name="save" size={14} color="#047857" />
+                      <Text style={styles.persoSaveHeaderBtnText}>Guardar</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+            <Text style={styles.sectionDesc}>
+              Imagen de la aplicación y porcentaje de beneficio por defecto.
+            </Text>
+
+            {loadingPersonalizacion ? (
+              <ActivityIndicator size="small" color="#0ea5e9" style={{ marginTop: 20 }} />
+            ) : (
+              <View style={styles.cardsGrid}>
+                <View style={[styles.card, { minWidth: winWidth < 500 ? '100%' as any : 260, maxWidth: winWidth < 500 ? '100%' as any : 360 }]}>
+                  <View style={styles.cardTop}>
+                    <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
+                      <MaterialIcons name="image" size={20} color="#0369a1" />
+                    </View>
+                    <View style={styles.cardInfo}>
+                      <Text style={styles.cardTitle} numberOfLines={1}>Imagen app</Text>
+                      <Text style={styles.cardDesc} numberOfLines={2}>
+                        Logo o imagen para la aplicación (se comprime al guardar).
+                      </Text>
+                    </View>
+                    <View style={{ width: 22 }} />
+                  </View>
+                  {imagenApp ? (
+                    <Image source={{ uri: imagenApp }} style={styles.persoCardThumb} resizeMode="contain" />
+                  ) : (
+                    <View style={styles.persoCardThumbPlaceholder}>
+                      <MaterialIcons name="image" size={28} color="#cbd5e1" />
+                      <Text style={styles.persoImagePlaceholderText}>Sin imagen</Text>
+                    </View>
+                  )}
+                  <View style={styles.persoCardActions}>
+                    <TouchableOpacity
+                      style={[styles.persoMiniBtn, imagenLoading && { opacity: 0.6 }]}
+                      onPress={seleccionarImagenApp}
+                      disabled={imagenLoading}
+                    >
+                      {imagenLoading ? (
+                        <ActivityIndicator size="small" color="#0ea5e9" />
+                      ) : (
+                        <>
+                          <MaterialIcons name="photo-library" size={14} color="#0369a1" />
+                          <Text style={styles.persoMiniBtnText}>Elegir</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                    {!!imagenApp && (
+                      <TouchableOpacity style={styles.persoMiniBtnDanger} onPress={quitarImagenApp}>
+                        <MaterialIcons name="delete-outline" size={14} color="#dc2626" />
+                        <Text style={styles.persoMiniBtnTextDanger}>Quitar</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+
+                <View style={[styles.card, { minWidth: winWidth < 500 ? '100%' as any : 260, maxWidth: winWidth < 500 ? '100%' as any : 360 }]}>
+                  <View style={styles.cardTop}>
+                    <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
+                      <MaterialIcons name="percent" size={20} color="#0369a1" />
+                    </View>
+                    <View style={styles.cardInfo}>
+                      <Text style={styles.cardTitle} numberOfLines={1}>Porcentaje de beneficio</Text>
+                      <Text style={styles.cardDesc} numberOfLines={2}>
+                        Margen por defecto (0–100). Vacío si no aplica.
+                      </Text>
+                    </View>
+                    <View style={{ width: 22 }} />
+                  </View>
+                  <View style={styles.persoPctRowCard}>
+                    <TextInput
+                      style={styles.persoPctInputCard}
+                      value={porcentajeBeneficio}
+                      onChangeText={setPorcentajeBeneficio}
+                      placeholder="0"
+                      placeholderTextColor="#94a3b8"
+                      keyboardType="decimal-pad"
+                    />
+                    <Text style={styles.persoPctSuffix}>%</Text>
+                  </View>
+                </View>
+
+                {errorPersonalizacion ? (
+                  <View style={[styles.errorBox, { width: '100%' }]}>
+                    <MaterialIcons name="error-outline" size={12} color="#dc2626" />
+                    <Text style={styles.errorText}>{errorPersonalizacion}</Text>
+                  </View>
+                ) : null}
+              </View>
+            )}
+          </View>
+        )}
       </ScrollView>
 
       {/* ─── Modal de configuración ─── */}
@@ -860,4 +1103,96 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalSaveText: { fontSize: 13, fontWeight: '600', color: '#fff' },
+
+  persoHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 4,
+  },
+  persoHeaderTitleBlock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    minWidth: 0,
+  },
+  persoSaveHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: '#d1fae5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+  },
+  persoSaveHeaderBtnDisabled: { opacity: 0.65 },
+  persoSaveHeaderBtnText: { fontSize: 12, fontWeight: '600', color: '#047857' },
+
+  persoCardThumb: {
+    width: '100%',
+    height: 100,
+    borderRadius: 8,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginTop: 4,
+  },
+  persoCardThumbPlaceholder: {
+    width: '100%',
+    height: 100,
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  persoImagePlaceholderText: { fontSize: 10, color: '#94a3b8' },
+  persoCardActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  persoMiniBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#e0f2fe',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
+  persoMiniBtnText: { fontSize: 11, fontWeight: '600', color: '#0369a1' },
+  persoMiniBtnDanger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#fef2f2',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  persoMiniBtnTextDanger: { fontSize: 11, fontWeight: '600', color: '#dc2626' },
+  persoPctRowCard: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
+  persoPctInputCard: {
+    flex: 1,
+    minWidth: 0,
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0f172a',
+    backgroundColor: '#fff',
+  },
+  persoPctSuffix: { fontSize: 15, fontWeight: '600', color: '#64748b' },
 });

@@ -2678,7 +2678,12 @@ router.post('/agora/purchases/sync', async (req, res) => {
             const lineNotes = line.Notes ?? line.notes ?? '';
 
             if (productId && typeof vatRate === 'number' && vatRate > 0) {
-              purchaseVatMap.set(String(productId), vatRate);
+              const pid = String(productId);
+              const sortKey = `${noteDate}|${serie}|${number}`;
+              const existing = purchaseVatMap.get(pid);
+              if (!existing || sortKey > existing.key) {
+                purchaseVatMap.set(pid, { vatRate, key: sortKey });
+              }
             }
 
             const pk = `${serie}#${number}`;
@@ -2751,9 +2756,9 @@ router.post('/agora/purchases/sync', async (req, res) => {
     if (purchaseVatMap.size > 0) {
       try {
         purchaseVatUpdated = await updatePurchaseVatRates(docClient, tableAgoraProductsName, purchaseVatMap);
-        console.log('[agora/purchases/sync] PurchaseVatPercent actualizado en', purchaseVatUpdated, 'productos');
+        console.log('[agora/purchases/sync] ultimo_iva_compra actualizado en', purchaseVatUpdated, 'productos');
       } catch (err) {
-        console.error('[agora/purchases/sync] Error actualizando PurchaseVatPercent:', err.message || err);
+        console.error('[agora/purchases/sync] Error actualizando ultimo_iva_compra:', err.message || err);
       }
     }
 

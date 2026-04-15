@@ -12,7 +12,7 @@ const BATCH_SIZE = 25;
 const META_SK = '__meta__';
 
 /** Campos permitidos: solo estos se guardan en DynamoDB y se devuelven por API */
-const ALLOWED_FIELDS = ['Id', 'IGP', 'Name', 'CostPrice', 'CostPrices', 'BaseSaleFormatId', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'PurchaseVatPercent', 'Active', 'IsSoldByWeight'];
+const ALLOWED_FIELDS = ['Id', 'IGP', 'Name', 'CostPrice', 'CostPrices', 'BaseSaleFormatId', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'ultimo_iva_compra', 'Active', 'IsSoldByWeight'];
 
 /**
  * Extrae solo los campos permitidos de un producto (sin IGP, que se gestiona aparte).
@@ -24,7 +24,7 @@ export function pickAllowedFields(p) {
   const out = {};
   for (const key of ALLOWED_FIELDS) {
     if (key === 'IGP') continue;
-    if (key === 'PurchaseVatPercent') continue;
+    if (key === 'ultimo_iva_compra') continue;
     if (key === 'Active') continue;
     if (key === 'IsSoldByWeight') continue;
     const val = p[key] ?? p[key.toLowerCase()];
@@ -52,7 +52,8 @@ export function pickAllowedFields(p) {
 export function toApiProduct(item) {
   const picked = pickAllowedFields(item);
   picked.IGP = item.IGP === true;
-  if (item.PurchaseVatPercent != null) picked.PurchaseVatPercent = item.PurchaseVatPercent;
+  if (item.ultimo_iva_compra != null) picked.ultimo_iva_compra = item.ultimo_iva_compra;
+  if (item.PurchaseVatPercent != null && item.ultimo_iva_compra == null) picked.ultimo_iva_compra = item.PurchaseVatPercent;
   return picked;
 }
 
@@ -68,6 +69,7 @@ export function hashProduct(product) {
   delete copy.SK;
   delete copy._hash;
   delete copy.IGP;
+  delete copy.ultimo_iva_compra;
   delete copy.PurchaseVatPercent;
   const keys = Object.keys(copy).sort();
   const obj = {};
@@ -143,7 +145,8 @@ export async function syncProducts(docClient, tableName, productsFromAgora) {
       added++;
     } else if ((existing._hash ?? '') !== item._hash) {
       item.IGP = existing.IGP === true;
-      if (existing.PurchaseVatPercent != null) item.PurchaseVatPercent = existing.PurchaseVatPercent;
+      if (existing.ultimo_iva_compra != null) item.ultimo_iva_compra = existing.ultimo_iva_compra;
+      else if (existing.PurchaseVatPercent != null) item.ultimo_iva_compra = existing.PurchaseVatPercent;
       toWrite.push(item);
       updated++;
     } else {
@@ -224,12 +227,12 @@ export function shouldSkipSyncByThrottle(lastSyncTs) {
 }
 
 /**
- * Actualiza PurchaseVatPercent en la tabla de productos a partir de las líneas de albaranes de entrada.
- * Recibe un Map<ProductId (string), VatRate (number, decimal ej 0.10)>.
+ * Actualiza ultimo_iva_compra en la tabla de productos a partir de las líneas de albaranes de entrada.
+ * Recibe un Map<ProductId (string), { vatRate: number (decimal ej 0.10), key: string }>.
  * Convierte a porcentaje (10, 21…) para mantener coherencia con VatPercent.
  * @param {import('@aws-sdk/lib-dynamodb').DynamoDBDocumentClient} docClient
  * @param {string} tableName
- * @param {Map<string, number>} productVatMap
+ * @param {Map<string, { vatRate: number, key: string }>} productVatMap
  * @returns {Promise<number>} número de productos actualizados
  */
 export async function updatePurchaseVatRates(docClient, tableName, productVatMap) {
@@ -239,14 +242,15 @@ export async function updatePurchaseVatRates(docClient, tableName, productVatMap
   for (let i = 0; i < entries.length; i += 25) {
     const chunk = entries.slice(i, i + 25);
     await Promise.allSettled(
-      chunk.map(([productId, vatRateDecimal]) => {
+      chunk.map(([productId, entry]) => {
+        const vatRateDecimal = typeof entry === 'number' ? entry : entry.vatRate;
         const percent = Math.round(vatRateDecimal * 10000) / 100;
         return docClient.send(
           new UpdateCommand({
             TableName: tableName,
             Key: { PK: 'GLOBAL', SK: String(productId) },
-            UpdateExpression: 'SET #pvp = :v',
-            ExpressionAttributeNames: { '#pvp': 'PurchaseVatPercent' },
+            UpdateExpression: 'SET #uic = :v REMOVE #old',
+            ExpressionAttributeNames: { '#uic': 'ultimo_iva_compra', '#old': 'PurchaseVatPercent' },
             ExpressionAttributeValues: { ':v': percent },
             ConditionExpression: 'attribute_exists(PK)',
           })

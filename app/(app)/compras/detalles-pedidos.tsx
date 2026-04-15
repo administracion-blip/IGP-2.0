@@ -11,6 +11,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
+import { fetchPorcentajeBeneficio, aplicarPorcentajeBeneficio } from '../../lib/personalizacion';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -42,6 +43,7 @@ export default function DetallesPedidosScreen() {
   const [error, setError] = useState<string | null>(null);
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
+  const [porcentajeBeneficio, setPorcentajeBeneficio] = useState(0);
 
   const refetchPedidos = useCallback(() => {
     setError(null);
@@ -77,6 +79,10 @@ export default function DetallesPedidosScreen() {
   }, [refetchPedidos]);
 
   useEffect(() => {
+    fetchPorcentajeBeneficio().then(setPorcentajeBeneficio);
+  }, []);
+
+  useEffect(() => {
     if (pedidoSeleccionado) refetchDetails(pedidoSeleccionado);
     else setDetails([]);
   }, [pedidoSeleccionado, refetchDetails]);
@@ -90,11 +96,18 @@ export default function DetallesPedidosScreen() {
     });
   }, [details, filtroBusqueda]);
 
-  const getValorCelda = useCallback((item: Detalle, col: string): string => {
-    const v = valorEnLocal(item, col);
-    if (col === 'PrecioUnitario' || col === 'TotalLinea') return formatMoneda(v);
-    return v != null ? String(v) : '—';
-  }, []);
+  const getValorCelda = useCallback(
+    (item: Detalle, col: string): string => {
+      const v = valorEnLocal(item, col);
+      if (col === 'PrecioUnitario' || col === 'TotalLinea') {
+        const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''));
+        if (Number.isNaN(n)) return v != null ? String(v) : '—';
+        return formatMoneda(aplicarPorcentajeBeneficio(n, porcentajeBeneficio));
+      }
+      return v != null ? String(v) : '—';
+    },
+    [porcentajeBeneficio],
+  );
 
   return (
     <View style={styles.container}>
