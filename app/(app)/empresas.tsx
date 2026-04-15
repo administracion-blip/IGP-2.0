@@ -19,8 +19,6 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { ICONS, ICON_SIZE } from '../constants/icons';
 import { formatId6 } from '../utils/idFormat';
 
@@ -553,7 +551,9 @@ export default function EmpresasScreen() {
     setModalExportarVisible(false);
   }, [empresasFiltrados, valorEnLocal]);
 
-  const exportarPDF = useCallback(() => {
+  const exportarPDF = useCallback(async () => {
+    const { jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const pageW = doc.internal.pageSize.getWidth();
     doc.setFontSize(16);

@@ -23,8 +23,6 @@ import * as Sharing from 'expo-sharing';
 import { useAuth } from '../contexts/AuthContext';
 import { calcTiempoRestante } from '../lib/acuerdosFechas';
 import { ComprasProveedorModal } from '../components/ComprasProveedorModal';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
 
 type DetalleProducto = { PK: string; SK: string; ProductId: string; ProductName: string; Cantidad: number; Aportacion: number; Rappel: number; DescuentoExtra: number; Compradas: number; Restante: number; Porcentaje: number; createdAt?: string };
 
@@ -1179,6 +1177,8 @@ export default function AcuerdosScreen() {
 
   const generarPDF = useCallback(async () => {
     if (!seleccionado) return;
+    const { jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const pageW = doc.internal.pageSize.getWidth();
     let y = 15;

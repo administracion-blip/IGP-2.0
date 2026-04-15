@@ -10,6 +10,7 @@ import {
   Modal,
   Pressable,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -19,8 +20,7 @@ import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { toPng } from 'html-to-image';
 import { useAuth } from '../../contexts/AuthContext';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+type jsPDF = import('jspdf').jsPDF;
 import * as XLSX from 'xlsx';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
@@ -261,13 +261,13 @@ async function obtenerFilasObjetivos(
   return filas;
 }
 
-function generarPdfObjetivos(
+async function generarPdfObjetivos(
   filas: FilaObjetivo[],
   nombreLocal: string,
   fechaInicio: string,
   fechaFin: string,
   tituloWidgetPeriodo: string,
-): jsPDF {
+): Promise<jsPDF> {
   const ayer = ayerYYYYMMDD();
   const filasHastaAyer = filas.filter((r) => r.Fecha <= ayer);
   const sumReal = filas.reduce((a, r) => a + r.TotalFacturadoReal, 0);
@@ -294,12 +294,14 @@ function generarPdfObjetivos(
     ];
   });
 
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const pageW = doc.internal.pageSize.getWidth();
-  let y = 12;
-  doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
-  doc.text('Objetivos — comparativa diaria', 14, y);
+  const { jsPDF: JsPDF } = await import('jspdf');
+  const { default: autoTable } = await import('jspdf-autotable');
+  const doc = new JsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    let y = 12;
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Objetivos — comparativa diaria', 14, y);
   y += 6;
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
@@ -384,6 +386,8 @@ function generarPdfObjetivos(
 
 export default function ObjetivosScreen() {
   const router = useRouter();
+  const { width: winWidth } = useWindowDimensions();
+  const isNarrow = winWidth < 900;
   const { localPermitido } = useAuth();
   const [fechaInicio, setFechaInicio] = useState(() => mesEnCurso().inicio);
   const [fechaFin, setFechaFin] = useState(() => mesEnCurso().fin);
@@ -654,7 +658,8 @@ export default function ObjetivosScreen() {
         const imgW = pdfW - margin * 2;
         const imgH = (pxH / pxW) * imgW;
         const pdfH = imgH + 30;
-        const doc = new jsPDF({
+        const { jsPDF: JsPDF } = await import('jspdf');
+        const doc = new JsPDF({
           orientation: pdfH > pdfW ? 'portrait' : 'landscape',
           unit: 'mm',
           format: [pdfW, pdfH],
@@ -665,7 +670,8 @@ export default function ObjetivosScreen() {
         doc.save(`objetivos_${tituloWidgetPeriodo.replace(/\s/g, '_')}.pdf`);
       } else {
         const base64 = await FileSystemLegacy.readAsStringAsync(dataUrl, { encoding: FileSystemLegacy.EncodingType.Base64 });
-        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        const { jsPDF: JsPDF2 } = await import('jspdf');
+        const doc = new JsPDF2({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         doc.setFontSize(12);
         doc.text(`Objetivos – ${tituloWidgetPeriodo}`, 10, 10);
         doc.addImage(`data:image/jpeg;base64,${base64}`, 'JPEG', 5, 18, 200, 0);
@@ -816,12 +822,12 @@ export default function ObjetivosScreen() {
     desvioPctHoy,
   ]);
 
-  const exportarTablaObjetivosPDF = useCallback(() => {
+  const exportarTablaObjetivosPDF = useCallback(async () => {
     if (registros.length === 0) return;
     setExportMenuOpen(false);
     const slug = objetivosExportFileSlug(String(nombreLocal));
     const fname = `objetivos_${slug}_${new Date().toISOString().slice(0, 10)}.pdf`;
-    const doc = generarPdfObjetivos(registros, String(nombreLocal), fechaInicio, fechaFin, tituloWidgetPeriodo);
+    const doc = await generarPdfObjetivos(registros, String(nombreLocal), fechaInicio, fechaFin, tituloWidgetPeriodo);
 
     if (Platform.OS === 'web') {
       doc.save(fname);
@@ -876,7 +882,7 @@ export default function ObjetivosScreen() {
       try {
         const filas = await obtenerFilasObjetivos(code, fechaInicio, fechaFin);
         if (filas.length === 0) continue;
-        const doc = generarPdfObjetivos(filas, nombre, fechaInicio, fechaFin, tituloWidgetPeriodo);
+        const doc = await generarPdfObjetivos(filas, nombre, fechaInicio, fechaFin, tituloWidgetPeriodo);
         const slug = objetivosExportFileSlug(nombre);
         const fname = `objetivos_${slug}_${new Date().toISOString().slice(0, 10)}.pdf`;
         if (Platform.OS === 'web') {
@@ -911,12 +917,12 @@ export default function ObjetivosScreen() {
         contentContainerStyle={styles.mainScrollContent}
         showsVerticalScrollIndicator
       >
-      <View style={styles.mainRow}>
-        <View style={styles.leftColumn}>
-      <View style={styles.widget}>
+      <View style={[styles.mainRow, isNarrow && styles.mainRowNarrow]}>
+        <View style={[styles.leftColumn, isNarrow && styles.leftColumnNarrow]}>
+      <View style={[styles.widget, isNarrow && styles.widgetNarrow]}>
         <Text style={styles.widgetTitle}>Generar comparativa</Text>
         <View style={styles.formRow}>
-          <View style={styles.formGroup}>
+          <View style={[styles.formGroup, isNarrow && styles.formGroupNarrow]}>
             <Text style={styles.formLabel}>Fecha inicio</Text>
             <InputFecha
               value={fechaInicio}
@@ -926,7 +932,7 @@ export default function ObjetivosScreen() {
               style={styles.formInput}
             />
           </View>
-          <View style={styles.formGroup}>
+          <View style={[styles.formGroup, isNarrow && styles.formGroupNarrow]}>
             <Text style={styles.formLabel}>Fecha fin</Text>
             <InputFecha
               value={fechaFin}
@@ -939,7 +945,7 @@ export default function ObjetivosScreen() {
           </View>
         </View>
         <View style={styles.formRow}>
-          <View style={styles.formGroup}>
+          <View style={[styles.formGroup, isNarrow && styles.formGroupNarrow]}>
             <Text style={styles.formLabel}>Local</Text>
             <TouchableOpacity
               style={styles.dropdown}
@@ -1128,13 +1134,8 @@ export default function ObjetivosScreen() {
         </View>
 
       {registros.length > 0 && (
-        <View style={styles.tableWrapper}>
-          <ScrollView
-            horizontal
-            style={styles.tableScroll}
-            contentContainerStyle={styles.tableScrollContent}
-            showsHorizontalScrollIndicator
-          >
+        <View style={[styles.tableWrapper, isNarrow && styles.tableWrapperNarrow]}>
+          <View style={styles.tableOuterNoHScroll}>
             <View style={styles.tableWithProgress}>
               <View style={styles.progressSection}>
                 {localSeleccionado && (
@@ -1350,7 +1351,7 @@ export default function ObjetivosScreen() {
               <Text style={[styles.cellSummary, styles.cellMoneda, styles.cellBold, colorDesvio(sumDesvio)]}>
                 {formatMoneda(sumDesvio)}
               </Text>
-              <View style={[styles.cellPctWrapper, styles.cellPct]}>
+              <View style={styles.cellPctWrapper}>
                 <View style={[styles.tickerBadge, { backgroundColor: tickerEstilo.backgroundColor }]}>
                   {desvioPctTotal != null && (
                     <MaterialIcons
@@ -1401,7 +1402,7 @@ export default function ObjetivosScreen() {
             </ScrollView>
           </View>
           </View>
-        </ScrollView>
+        </View>
         </View>
       )}
       </View>
@@ -1419,8 +1420,24 @@ const styles = StyleSheet.create({
   title: { fontSize: 18, fontWeight: '700', color: '#334155' },
   mainScroll: { flex: 1 },
   mainScrollContent: { flexGrow: 1, paddingBottom: 20 },
-  mainRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
-  leftColumn: { flexDirection: 'column', gap: 12, flexShrink: 0, minWidth: 220 },
+  mainRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', width: '100%' },
+  mainRowNarrow: { flexDirection: 'column' },
+  /** Panel formulario + widget mes (~40% del ancho; más ancho que antes) */
+  leftColumn: {
+    flexDirection: 'column',
+    gap: 12,
+    flex: 4,
+    minWidth: 300,
+    maxWidth: 420,
+    flexShrink: 0,
+  },
+  leftColumnNarrow: {
+    flex: 0,
+    width: '100%',
+    minWidth: 0,
+    maxWidth: '100%',
+    alignSelf: 'stretch',
+  },
   widget: {
     backgroundColor: '#f8fafc',
     borderRadius: 8,
@@ -1430,10 +1447,15 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     alignSelf: 'flex-start',
   },
-  tableWrapper: { flex: 1, minWidth: 0 },
+  widgetNarrow: { alignSelf: 'stretch' },
+  /** Tabla comparativa: ~60% del ancho en fila (flex 4 + 6) */
+  tableWrapper: { flex: 6, minWidth: 0, flexShrink: 1 },
+  tableWrapperNarrow: { flex: 0, width: '100%', minWidth: 0, alignSelf: 'stretch' },
+  tableOuterNoHScroll: { width: '100%', minWidth: 0, flex: 1 },
   widgetTitle: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 12 },
   formRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'flex-end' },
   formGroup: { flex: 1, minWidth: 90, maxWidth: 180 },
+  formGroupNarrow: { maxWidth: 320 },
   formLabel: { fontSize: 11, fontWeight: '500', color: '#64748b', marginBottom: 1 },
   formInput: {
     backgroundColor: '#fff',
@@ -1608,7 +1630,7 @@ const styles = StyleSheet.create({
   },
   localesListRangoTooltipText: { fontSize: 10, color: '#334155', lineHeight: 16 },
   tickerBadgeSmall: { paddingHorizontal: 6, paddingVertical: 2 },
-  tableWithProgress: { minWidth: 862 },
+  tableWithProgress: { width: '100%', alignSelf: 'stretch', minWidth: 0 },
   progressSection: { marginBottom: 8 },
   progressLocalRow: {
     flexDirection: 'row',
@@ -1674,9 +1696,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#0ea5e9',
   },
   errorText: { fontSize: 12, color: '#dc2626', marginBottom: 8 },
-  tableScroll: { flexGrow: 1 },
-  tableScrollContent: { paddingBottom: 20 },
   table: {
+    width: '100%',
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 8,
@@ -1695,13 +1716,24 @@ const styles = StyleSheet.create({
   },
   rowHeader: {
     flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
     backgroundColor: '#e2e8f0',
     borderBottomWidth: 1,
     borderBottomColor: '#cbd5e1',
   },
-  cellHeader: { fontSize: 10, fontWeight: '600', color: '#334155', paddingVertical: 4, paddingHorizontal: 6 },
+  cellHeader: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: '#334155',
+    paddingVertical: 4,
+    paddingHorizontal: 3,
+    flexShrink: 1,
+  },
   rowSummary: {
     flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
     backgroundColor: '#f1f5f9',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
@@ -1709,6 +1741,8 @@ const styles = StyleSheet.create({
   cellSummary: { fontSize: 10, fontWeight: '600', color: '#334155', paddingVertical: 3, paddingHorizontal: 6 },
   row: {
     flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
@@ -1720,10 +1754,11 @@ const styles = StyleSheet.create({
   },
   cell: { fontSize: 10, color: '#475569', paddingVertical: 3, paddingHorizontal: 6, lineHeight: 14 },
   cellBold: { fontWeight: '700' },
-  cellDia: { width: 72 },
-  cellFecha: { width: 100 },
-  cellFestivo: { width: 60 },
-  cellNombre: { width: 120 },
+  /** Anchos flex para caber en pantalla sin scroll horizontal */
+  cellDia: { flex: 1, minWidth: 38, flexShrink: 1 },
+  cellFecha: { flex: 1.15, minWidth: 52, flexShrink: 1 },
+  cellFestivo: { flex: 0.7, minWidth: 34, flexShrink: 1 },
+  cellNombre: { flex: 1.4, minWidth: 56, flexShrink: 1 },
   cellText: { fontSize: 10, color: '#475569', lineHeight: 14 },
   nombreFestivoBadge: {
     backgroundColor: '#fce7f3',
@@ -1733,9 +1768,16 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   nombreFestivoText: { fontSize: 10, color: '#9d174d', lineHeight: 13 },
-  cellMoneda: { width: 110, textAlign: 'right' },
-  cellPct: { width: 80, textAlign: 'right' },
-  cellPctWrapper: { justifyContent: 'center', alignItems: 'flex-end', paddingVertical: 2 },
+  cellMoneda: { flex: 1.1, minWidth: 52, flexShrink: 1, textAlign: 'right' },
+  cellPct: { flex: 0.9, minWidth: 40, flexShrink: 1, textAlign: 'right' },
+  cellPctWrapper: {
+    flex: 0.9,
+    minWidth: 40,
+    flexShrink: 1,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    paddingVertical: 2,
+  },
   tickerBadge: {
     flexDirection: 'row',
     alignItems: 'center',

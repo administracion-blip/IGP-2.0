@@ -11,6 +11,7 @@ import {
   useWindowDimensions,
   Image,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AuthProvider, useAuth, AUTH_KEY } from '../contexts/AuthContext';
@@ -37,6 +38,7 @@ const MENU_ITEMS: { route: string; label: string; icon: string; permiso: string 
 function AppLayoutContent() {
   const router = useRouter();
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { user, loading, hasPermiso, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(Platform.OS === 'web');
   const didInitTabletSidebar = useRef(false);
@@ -82,9 +84,9 @@ function AppLayoutContent() {
   }
 
   return (
-    <View style={styles.wrapper}>
+    <View style={[styles.wrapper, { paddingTop: insets.top }]}>
       {/* Barra superior */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingLeft: Math.max(10, insets.left), paddingRight: Math.max(10, insets.right) }]}>
         <TouchableOpacity
           onPress={() => setSidebarOpen((o) => !o)}
           style={styles.menuButton}
@@ -222,7 +224,7 @@ function AppLayoutContent() {
       </View>
 
       {/* Footer */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(6, insets.bottom), paddingLeft: Math.max(10, insets.left), paddingRight: Math.max(10, insets.right) }]}>
         <Text style={styles.footerText}>ERP Hostelería © {new Date().getFullYear()}</Text>
       </View>
     </View>
