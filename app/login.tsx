@@ -31,6 +31,12 @@ export type UserSession = {
   Locales?: string[];
 };
 
+type LoginResponse = {
+  error?: string;
+  user?: UserSession;
+  token?: string;
+};
+
 export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
@@ -60,7 +66,7 @@ export default function LoginScreen() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password }),
       });
-      let data: { error?: string; user?: UserSession };
+      let data: LoginResponse;
       try {
         data = await res.json();
       } catch {
@@ -69,6 +75,10 @@ export default function LoginScreen() {
       }
       if (!res.ok) {
         setError(data.error || 'Credenciales incorrectas');
+        return;
+      }
+      if (!data.user) {
+        setError('La respuesta de login no incluye usuario');
         return;
       }
       await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(data.user));

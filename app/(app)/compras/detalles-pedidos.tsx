@@ -8,6 +8,7 @@ import {
   ScrollView,
   Platform,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
@@ -74,9 +75,14 @@ export default function DetallesPedidosScreen() {
       .finally(() => setLoadingDetails(false));
   }, []);
 
-  useEffect(() => {
-    refetchPedidos();
-  }, [refetchPedidos]);
+  useFocusEffect(
+    useCallback(() => {
+      refetchPedidos();
+      if (pedidoSeleccionado) {
+        refetchDetails(pedidoSeleccionado);
+      }
+    }, [refetchPedidos, refetchDetails, pedidoSeleccionado]),
+  );
 
   useEffect(() => {
     fetchPorcentajeBeneficio().then(setPorcentajeBeneficio);

@@ -13,6 +13,7 @@ import {
   Pressable,
   useWindowDimensions,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
@@ -179,9 +180,11 @@ export default function PedidosScreen() {
       .finally(() => setLoading(false));
   }, [localPermitido]);
 
-  useEffect(() => {
-    refetch();
-  }, [refetch]);
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch]),
+  );
 
   useEffect(() => {
     fetchPorcentajeBeneficio().then(setPorcentajeBeneficio);

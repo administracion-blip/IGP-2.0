@@ -22,6 +22,13 @@ import { toPng } from 'html-to-image';
 import { useAuth } from '../../contexts/AuthContext';
 type jsPDF = import('jspdf').jsPDF;
 import * as XLSX from 'xlsx';
+import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
+import {
+  type FestivoReg,
+  type FilaObjetivo,
+  fechaComparacion,
+  obtenerFilasObjetivos,
+} from '../../lib/objetivosFilasApi';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -42,24 +49,6 @@ function objetivosExportFileSlug(nombre: string): string {
 }
 
 type Local = { id_Locales?: string; nombre?: string; Nombre?: string; agoraCode?: string; AgoraCode?: string };
-type FestivoReg = { PK?: string; FechaComparativa?: string; Festivo?: boolean; NombreFestivo?: string };
-
-type FilaObjetivo = {
-  Fecha: string;
-  FechaComparacion: string;
-  Festivo: boolean;
-  NombreFestivo: string;
-  TotalFacturadoReal: number;
-  TotalFacturadoComparativa: number;
-  Desvio: number;
-  DesvioPct: number | null;
-};
-
-function fechaComparacion(fecha: string): string {
-  const d = new Date(fecha + 'T12:00:00');
-  d.setFullYear(d.getFullYear() - 1);
-  return d.toISOString().slice(0, 10);
-}
 
 function formatMoneda(n: number): string {
   return new Intl.NumberFormat('es-ES', {
@@ -155,24 +144,6 @@ function ayerYYYYMMDD(): string {
   return d.toISOString().slice(0, 10);
 }
 
-/**
- * Fecha de negocio (YYYY-MM-DD), misma regla que arqueo de caja:
- * hasta las 09:30 (inclusive) corresponde el día anterior; desde las 09:31, el día natural.
- */
-function fechaJornadaNegocioIso(): string {
-  const now = new Date();
-  const minutesOfDay = now.getHours() * 60 + now.getMinutes();
-  const cutoff = 9 * 60 + 30;
-  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (minutesOfDay <= cutoff) {
-    d.setDate(d.getDate() - 1);
-  }
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 function formatFechaCorta(iso: string): string {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso || '—';
   const [y, m, d] = iso.split('-');
@@ -189,77 +160,6 @@ type LocalObjetivo = {
   desvioPctHastaAyer: number | null;
   ultimaFechaConDatos: string;
 };
-
-async function obtenerFilasObjetivos(
-  workplaceId: string,
-  fechaInicio: string,
-  fechaFin: string,
-): Promise<FilaObjetivo[]> {
-  const [totalsRealRes, festivosRes] = await Promise.all([
-    fetch(`${API_URL}/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${fechaInicio}&dateTo=${fechaFin}`),
-    fetch(`${API_URL}/api/gestion-festivos`),
-  ]);
-  const totalsRealData = await totalsRealRes.json();
-  const festivosData = await festivosRes.json();
-  const totalsReal: Record<string, number> = totalsRealData.totals ?? {};
-  const festivosList: FestivoReg[] = Array.isArray(festivosData.registros) ? festivosData.registros : [];
-  const festivosByFecha = Object.fromEntries(
-    festivosList
-      .filter((f) => f.PK || f.FechaComparativa)
-      .map((f) => [String(f.PK ?? f.FechaComparativa ?? '').slice(0, 10), f]),
-  );
-
-  let minComp = '';
-  let maxComp = '';
-  const d = new Date(fechaInicio + 'T12:00:00');
-  const end = new Date(fechaFin + 'T12:00:00');
-  const fechaToComp: Record<string, string> = {};
-  while (d <= end) {
-    const fecha = d.toISOString().slice(0, 10);
-    const festivo = festivosByFecha[fecha];
-    const fechaComp =
-      festivo?.FechaComparativa && /^\d{4}-\d{2}-\d{2}$/.test(String(festivo.FechaComparativa).slice(0, 10))
-        ? String(festivo.FechaComparativa).slice(0, 10)
-        : fechaComparacion(fecha);
-    fechaToComp[fecha] = fechaComp;
-    if (!minComp || fechaComp < minComp) minComp = fechaComp;
-    if (!maxComp || fechaComp > maxComp) maxComp = fechaComp;
-    d.setDate(d.getDate() + 1);
-  }
-
-  const totalsCompRes = await fetch(
-    `${API_URL}/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${minComp}&dateTo=${maxComp}`,
-  );
-  const totalsCompData = await totalsCompRes.json();
-  const totalsComp: Record<string, number> = totalsCompData.totals ?? {};
-
-  const filas: FilaObjetivo[] = [];
-  const d2 = new Date(fechaInicio + 'T12:00:00');
-  const end2 = new Date(fechaFin + 'T12:00:00');
-  while (d2 <= end2) {
-    const fecha = d2.toISOString().slice(0, 10);
-    const fechaComp = fechaToComp[fecha];
-    const real = totalsReal[fecha] ?? 0;
-    const comp = totalsComp[fechaComp] ?? 0;
-    const festivo = festivosByFecha[fecha];
-    const esFestivo = String(festivo?.Festivo).toLowerCase() === 'true';
-    const nombreFestivo = String(festivo?.NombreFestivo ?? '').trim();
-    const desvio = real - comp;
-    const desvioPct = comp === 0 ? null : real / comp - 1;
-    filas.push({
-      Fecha: fecha,
-      FechaComparacion: fechaComp,
-      Festivo: esFestivo,
-      NombreFestivo: nombreFestivo,
-      TotalFacturadoReal: real,
-      TotalFacturadoComparativa: comp,
-      Desvio: desvio,
-      DesvioPct: desvioPct,
-    });
-    d2.setDate(d2.getDate() + 1);
-  }
-  return filas;
-}
 
 async function generarPdfObjetivos(
   filas: FilaObjetivo[],
@@ -717,7 +617,7 @@ export default function ObjetivosScreen() {
     setError(null);
     setGenerando(true);
     try {
-      setRegistros(await obtenerFilasObjetivos(workplaceId, fechaInicio, fechaFin));
+      setRegistros(await obtenerFilasObjetivos(API_URL, workplaceId, fechaInicio, fechaFin));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al generar');
       setRegistros([]);
@@ -880,7 +780,7 @@ export default function ObjetivosScreen() {
       const nombre = String(loc.nombre ?? loc.Nombre ?? code);
       setMassProgress({ current: i, total: selected.length, localName: nombre });
       try {
-        const filas = await obtenerFilasObjetivos(code, fechaInicio, fechaFin);
+        const filas = await obtenerFilasObjetivos(API_URL, code, fechaInicio, fechaFin);
         if (filas.length === 0) continue;
         const doc = await generarPdfObjetivos(filas, nombre, fechaInicio, fechaFin, tituloWidgetPeriodo);
         const slug = objetivosExportFileSlug(nombre);
