@@ -26,9 +26,13 @@ node scripts/create-almacenes-table.js
 | Atributo | Tipo | Descripción |
 |----------|------|-------------|
 | Id | String | Clave de partición (ej. "000001") |
-| Nombre | String | Nombre del almacén |
-| Descripcion | String | Descripción / fiscal info |
-| Direccion | String | Dirección (calle, ciudad, etc.) |
+| Nombre | String | Nombre del almacén (Ágora `Name`) |
+| NombreFiscal | String | Razón social (Ágora `FiscalInfo.FiscalName`) |
+| Cif | String | CIF / NIF fiscal (Ágora `FiscalInfo.Cif`) |
+| Descripcion | String | Descripción libre editable por el usuario |
+| Direccion | String | Dirección (calle, ciudad, región, CP) |
+
+> La sincronización desde Ágora rellena automáticamente `Nombre`, `NombreFiscal`, `Cif` y `Direccion`. `Descripcion` no se sobrescribe en cada sync: queda libre para que el usuario la edite desde la pantalla.
 
 ## Endpoints
 

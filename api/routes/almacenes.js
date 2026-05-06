@@ -11,7 +11,7 @@ function formatId6(val) {
   return String(Math.max(0, n)).padStart(6, '0');
 }
 
-const TABLE_ALMACENES_ATTRS = ['Id', 'Nombre', 'Descripcion', 'Direccion'];
+const TABLE_ALMACENES_ATTRS = ['Id', 'Nombre', 'NombreFiscal', 'Cif', 'Descripcion', 'Direccion'];
 
 router.get('/almacenes', async (req, res) => {
   try {

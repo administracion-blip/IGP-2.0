@@ -1299,7 +1299,7 @@ export default function ObjetivosScreen() {
                   <Text style={[styles.cell, styles.cellPct, styles.cellBold, colorDesvio(r.DesvioPct)]}>{formatPct(r.DesvioPct)}</Text>
               </View>
             ))}
-            </ScrollView>
+        </ScrollView>
           </View>
           </View>
         </View>

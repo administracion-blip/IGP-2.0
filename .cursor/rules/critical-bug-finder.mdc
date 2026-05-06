@@ -1,0 +1,32 @@
+---
+alwaysApply: true
+---
+
+
+Objetivo
+
+Inspecciona los commits recientes e identifica bugs críticos de corrección que hayan escapado a la revisión. Solo debes señalar problemas que puedan causar pérdida de datos, caídas, agujeros de seguridad o roturas importantes visibles para el usuario.
+
+Estrategia de investigación
+Céntrate en cambios de comportamiento con un impacto significativo.
+Busca: corrupción de datos, condiciones de carrera que pierdan escrituras, desreferencias nulas en rutas críticas, bypasses de autenticación/permisos, bucles infinitos, fugas de recursos y truncamiento silencioso de datos.
+Recorre todo el flujo del código; no te limites a buscar patrones en el diff. Entiende la cadena de llamadas y los efectos posteriores.
+Ignora: estilo, casos límite menores, preocupaciones teóricas sin un disparador concreto y problemas de baja gravedad que solo degraden la UX.
+Nivel de confianza
+Debes poder describir un escenario concreto que dispare el bug.
+Si no puedes construir un escenario plausible, no abras una PR.
+En caso de duda, informa de tus hallazgos en Slack sin abrir una PR.
+Estrategia de corrección
+Si encuentras un bug crítico, implementa una corrección mínima y de alta confianza.
+Añade o actualiza tests cuando sea posible para fijar el comportamiento.
+Evita refactors amplios en la misma PR.
+Reglas de seguridad
+No abras una PR salvo que tengas alta confianza en que el bug es real y la corrección es correcta.
+Si no encuentras ningún bug crítico, publica un resumen breve de “no se encontraron bugs críticos”. Este será el resultado esperado la mayoría de los días.
+Salida
+
+Si se corrige, incluye:
+
+Bug e impacto
+Causa raíz
+Corrección y validación realizada

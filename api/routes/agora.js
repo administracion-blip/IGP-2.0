@@ -1092,6 +1092,362 @@ router.get('/agora/closeouts-ready', (_req, res) => {
   res.json({ ok: true, closeoutsRoute: 'registered' });
 });
 
+/**
+ * Devuelve el desglose por ticket (y por factura cuando no se puede bajar a ticket)
+ * de las formas de pago para un business-day concreto, consultando Ágora en caliente
+ * (sin persistir en DynamoDB).
+ *
+ * Query params:
+ *  - businessDay (YYYY-MM-DD, requerido)
+ *  - workplaceId (opcional, filtra por local)
+ *
+ * Estructura de respuesta:
+ *  { businessDay, rows: [{ WorkplaceId, WorkplaceName, PosId, PosName, BusinessDay,
+ *    DocumentType, TicketNumber, InvoiceNumber, DateTime, GrossAmount,
+ *    Payments: [{ MethodId, MethodName, Amount, ExtraInformation }] }] }
+ */
+const PAYMENTS_REVIEW_CACHE = new Map();
+const PAYMENTS_REVIEW_TTL_MS = 2 * 60 * 1000;
+const PAYMENTS_REVIEW_CACHE_MAX = 50;
+
+function paymentsReviewCacheKey(dateFrom, dateTo, workplaceIds) {
+  const ids = Array.isArray(workplaceIds) ? [...workplaceIds].map(String).sort() : [];
+  return `${dateFrom}|${dateTo}|${ids.join(',')}`;
+}
+
+function paymentsReviewCacheGet(key) {
+  const entry = PAYMENTS_REVIEW_CACHE.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    PAYMENTS_REVIEW_CACHE.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+function paymentsReviewCacheSet(key, rows) {
+  if (PAYMENTS_REVIEW_CACHE.size >= PAYMENTS_REVIEW_CACHE_MAX) {
+    const firstKey = PAYMENTS_REVIEW_CACHE.keys().next().value;
+    if (firstKey) PAYMENTS_REVIEW_CACHE.delete(firstKey);
+  }
+  PAYMENTS_REVIEW_CACHE.set(key, {
+    rows,
+    cachedAt: Date.now(),
+    expiresAt: Date.now() + PAYMENTS_REVIEW_TTL_MS,
+  });
+}
+
+const RULE_EPS = 0.0001;
+function evalPaymentRule(amount, rule) {
+  const v = Number(rule?.value) || 0;
+  const v2 = Number(rule?.value2) || 0;
+  switch (rule?.op) {
+    case 'eq': return Math.abs(amount - v) < RULE_EPS;
+    case 'ne': return Math.abs(amount - v) >= RULE_EPS;
+    case 'gt': return amount > v + RULE_EPS;
+    case 'lt': return amount < v - RULE_EPS;
+    case 'gte': return amount >= v - RULE_EPS;
+    case 'lte': return amount <= v + RULE_EPS;
+    case 'between': {
+      const lo = Math.min(v, v2);
+      const hi = Math.max(v, v2);
+      return amount >= lo - RULE_EPS && amount <= hi + RULE_EPS;
+    }
+    case 'gt0': return amount > RULE_EPS;
+    case 'eq0': return Math.abs(amount) < RULE_EPS;
+    default: return true;
+  }
+}
+
+function rowAmountForMethod(row, methodName) {
+  const target = String(methodName || '').trim().toLowerCase();
+  if (!target) return 0;
+  let total = 0;
+  for (const p of row?.Payments || []) {
+    if (String(p?.MethodName || '').trim().toLowerCase() === target) {
+      total += Number(p?.Amount) || 0;
+    }
+  }
+  return total;
+}
+
+function rowMatchesRules(row, rules, combMode) {
+  if (!Array.isArray(rules) || rules.length === 0) return true;
+  const results = rules.map((r) => evalPaymentRule(rowAmountForMethod(row, r.method), r));
+  return combMode === 'OR' ? results.some(Boolean) : results.every(Boolean);
+}
+
+router.get('/agora/invoices/payments-review', async (req, res) => {
+  const businessDay = (req.query.businessDay && String(req.query.businessDay).trim()) || '';
+  const dateFromRaw = (req.query.dateFrom && String(req.query.dateFrom).trim()) || '';
+  const dateToRaw = (req.query.dateTo && String(req.query.dateTo).trim()) || '';
+  const workplaceIdRaw = (req.query.workplaceId && String(req.query.workplaceId).trim()) || '';
+
+  const workplaceIdsRaw = req.query.workplaceIds ?? req.query['workplaceIds[]'];
+  let workplaceIds = [];
+  if (Array.isArray(workplaceIdsRaw)) {
+    workplaceIds = workplaceIdsRaw.map((v) => String(v).trim()).filter(Boolean);
+  } else if (typeof workplaceIdsRaw === 'string' && workplaceIdsRaw.trim()) {
+    workplaceIds = workplaceIdsRaw.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  if (workplaceIds.length === 0 && workplaceIdRaw) workplaceIds = [workplaceIdRaw];
+
+  let rules = [];
+  const rulesRaw = req.query.rules;
+  if (typeof rulesRaw === 'string' && rulesRaw.trim()) {
+    try {
+      const parsed = JSON.parse(rulesRaw);
+      if (Array.isArray(parsed)) rules = parsed;
+    } catch {
+      return res.status(400).json({ error: 'rules debe ser JSON válido' });
+    }
+  }
+  const combMode = String(req.query.combMode || 'AND').toUpperCase() === 'OR' ? 'OR' : 'AND';
+  const refresh = String(req.query.refresh || '') === '1';
+
+  const isIso = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+  let dateFrom = '';
+  let dateTo = '';
+  if (dateFromRaw || dateToRaw) {
+    if (!isIso(dateFromRaw) || !isIso(dateToRaw)) {
+      return res.status(400).json({ error: 'dateFrom y dateTo deben ser YYYY-MM-DD' });
+    }
+    if (dateFromRaw > dateToRaw) {
+      return res.status(400).json({ error: 'dateFrom debe ser <= dateTo' });
+    }
+    dateFrom = dateFromRaw;
+    dateTo = dateToRaw;
+  } else if (isIso(businessDay)) {
+    dateFrom = businessDay;
+    dateTo = businessDay;
+  } else {
+    return res.status(400).json({ error: 'Se requiere businessDay (YYYY-MM-DD) o dateFrom+dateTo' });
+  }
+
+  const MAX_DAYS = workplaceIds.length === 1 ? 365 : 31;
+  const days = [];
+  {
+    let d = new Date(dateFrom + 'T12:00:00');
+    const end = new Date(dateTo + 'T12:00:00');
+    while (d <= end) {
+      days.push(d.toISOString().slice(0, 10));
+      d.setDate(d.getDate() + 1);
+      if (days.length > MAX_DAYS) break;
+    }
+  }
+  if (days.length > MAX_DAYS) {
+    const msg =
+      workplaceIds.length === 1
+        ? `Rango máximo permitido: ${MAX_DAYS} días (incluso con 1 solo local)`
+        : `Rango máximo permitido: ${MAX_DAYS} días con ${workplaceIds.length === 0 ? 'todos los locales' : `${workplaceIds.length} locales`}. Selecciona 1 solo local para ampliar hasta 365 días.`;
+    return res.status(400).json({ error: msg });
+  }
+
+  try {
+    const cacheKey = paymentsReviewCacheKey(dateFrom, dateTo, workplaceIds);
+    let cachedEntry = refresh ? null : paymentsReviewCacheGet(cacheKey);
+    let allRows;
+    let cachedAt;
+    let fromCache = false;
+
+    if (cachedEntry) {
+      allRows = cachedEntry.rows;
+      cachedAt = cachedEntry.cachedAt;
+      fromCache = true;
+    } else {
+      const workplaces = workplaceIds.length > 0 ? workplaceIds : null;
+
+      const CHUNK = 4;
+      const invoicesByDay = new Map();
+      for (let i = 0; i < days.length; i += CHUNK) {
+        const slice = days.slice(i, i + CHUNK);
+        const results = await Promise.all(
+          slice.map((day) =>
+            exportInvoices(day, workplaces ?? undefined)
+              .then((data) => ({ day, data, err: null }))
+              .catch((err) => ({ day, data: null, err }))
+          )
+        );
+        for (const r of results) {
+          if (r.err) {
+            console.warn('[agora/invoices/payments-review]', r.day, r.err.message || r.err);
+            invoicesByDay.set(r.day, []);
+          } else {
+            invoicesByDay.set(r.day, extractCloseOutsArray(r.data, ['Invoices', 'invoices']));
+          }
+        }
+      }
+      const invList = [];
+      for (const day of days) {
+        const listForDay = invoicesByDay.get(day) ?? [];
+        for (const inv of listForDay) {
+          invList.push({ __businessDay: day, ...inv });
+        }
+      }
+
+      const toNumber = (v) =>
+        typeof v === 'number'
+          ? v
+          : v == null || v === ''
+            ? 0
+            : parseFloat(String(v).replace(',', '.')) || 0;
+
+      const canonName = (rawName, methodId) => {
+        const n = String(rawName ?? '').trim();
+        if (n) {
+          const lower = n.toLowerCase();
+          if (STRING_KEY_TO_CANONICAL[lower]) return STRING_KEY_TO_CANONICAL[lower];
+          const found = CANONICAL_PAYMENT_NAMES.find((c) => c.toLowerCase() === lower);
+          if (found) return found;
+          return n;
+        }
+        if (methodId != null && AGORA_PAYMENT_METHOD_ID[methodId]) {
+          return AGORA_PAYMENT_METHOD_ID[methodId];
+        }
+        return 'Sin nombre';
+      };
+
+      const mapPayments = (payments) => {
+        if (!Array.isArray(payments)) return [];
+        return payments
+          .map((p) => {
+            const methodId = p?.MethodId ?? p?.methodId ?? p?.PaymentMethodId ?? p?.paymentMethodId ?? null;
+            const rawName = p?.MethodName ?? p?.methodName ?? p?.Name ?? p?.name ?? '';
+            return {
+              MethodId: methodId != null ? Number(methodId) : null,
+              MethodName: canonName(rawName, methodId),
+              Amount: toNumber(p?.Amount ?? p?.amount),
+              PaidAmount: toNumber(p?.PaidAmount ?? p?.paidAmount),
+              ChangeAmount: toNumber(p?.ChangeAmount ?? p?.changeAmount),
+              Tip: toNumber(p?.Tip ?? p?.tip),
+              IsPrepayment: Boolean(p?.IsPrepayment ?? p?.isPrepayment ?? false),
+              ExtraInformation: String(p?.ExtraInformation ?? p?.extraInformation ?? '').trim(),
+              Date: String(p?.Date ?? p?.date ?? '').trim(),
+            };
+          })
+          .filter((p) => p.MethodName && p.MethodName !== 'Sin nombre' && Math.abs(p.Amount) > 0.0001);
+      };
+
+      const builtRows = [];
+      for (const inv of invList) {
+        const workplaceId =
+          String(
+            inv?.Workplace?.Id ?? inv?.workplace?.id ?? inv?.WorkplaceId ?? inv?.workplaceId ?? ''
+          ).trim() || '0';
+        const workplaceName =
+          inv?.Workplace?.Name ?? inv?.workplace?.name ?? inv?.WorkplaceName ?? inv?.workplaceName ?? null;
+        const posId = inv?.Pos?.Id ?? inv?.pos?.id ?? inv?.PosId ?? inv?.posId ?? null;
+        const posName = inv?.Pos?.Name ?? inv?.pos?.name ?? inv?.PosName ?? inv?.posName ?? null;
+        const bd =
+          String(inv?.BusinessDay ?? inv?.businessDay ?? inv?.__businessDay ?? '').trim() ||
+          String(inv?.__businessDay ?? '').trim();
+        const invNumber = String(
+          inv?.SerialNumber ?? inv?.serialNumber ?? inv?.Number ?? inv?.number ?? inv?.Id ?? inv?.id ?? ''
+        ).trim();
+        const invDate = String(inv?.Date ?? inv?.date ?? inv?.DateTime ?? inv?.dateTime ?? '').trim();
+        const invPayments = mapPayments(inv?.Payments ?? inv?.payments ?? []);
+        const invGross =
+          toNumber(inv?.Totals?.GrossAmount ?? inv?.totals?.grossAmount ?? inv?.GrossAmount ?? inv?.grossAmount);
+
+        const items = inv?.InvoiceItems ?? inv?.invoiceItems ?? [];
+        const hasItems = Array.isArray(items) && items.length > 0;
+
+        if (hasItems) {
+          for (const it of items) {
+            const contentType = String(it?.ContentType ?? it?.contentType ?? '').trim();
+            const itemPayments = mapPayments(it?.Payments ?? it?.payments ?? []);
+            const payments = itemPayments.length > 0 ? itemPayments : invPayments;
+            const itemNumber = String(
+              it?.SerialNumber ?? it?.serialNumber ?? it?.Number ?? it?.number ?? it?.Id ?? it?.id ?? ''
+            ).trim();
+            const itemDate = String(it?.Date ?? it?.date ?? it?.DateTime ?? it?.dateTime ?? '').trim() || invDate;
+            const itemGross = toNumber(
+              it?.Totals?.GrossAmount ??
+                it?.totals?.grossAmount ??
+                it?.GrossAmount ??
+                it?.grossAmount ??
+                payments.reduce((s, p) => s + (p.Amount || 0), 0)
+            );
+            const docType =
+              contentType === 'T'
+                ? 'Ticket'
+                : contentType === 'D'
+                  ? 'Albarán'
+                  : contentType === 'O'
+                    ? 'Pedido'
+                    : contentType || 'Item';
+            builtRows.push({
+              WorkplaceId: workplaceId,
+              WorkplaceName: workplaceName,
+              PosId: posId,
+              PosName: posName,
+              BusinessDay: bd,
+              DocumentType: docType,
+              TicketNumber: itemNumber || invNumber,
+              InvoiceNumber: invNumber,
+              DateTime: itemDate,
+              GrossAmount: itemGross,
+              Payments: payments,
+            });
+          }
+        } else {
+          builtRows.push({
+            WorkplaceId: workplaceId,
+            WorkplaceName: workplaceName,
+            PosId: posId,
+            PosName: posName,
+            BusinessDay: bd,
+            DocumentType: 'Factura',
+            TicketNumber: invNumber,
+            InvoiceNumber: invNumber,
+            DateTime: invDate,
+            GrossAmount: invGross || invPayments.reduce((s, p) => s + (p.Amount || 0), 0),
+            Payments: invPayments,
+          });
+        }
+      }
+
+      builtRows.sort((a, b) => {
+        const wn = String(a.WorkplaceName ?? a.WorkplaceId ?? '').localeCompare(
+          String(b.WorkplaceName ?? b.WorkplaceId ?? '')
+        );
+        if (wn !== 0) return wn;
+        const bd = String(b.BusinessDay ?? '').localeCompare(String(a.BusinessDay ?? ''));
+        if (bd !== 0) return bd;
+        const dt = String(b.DateTime ?? '').localeCompare(String(a.DateTime ?? ''));
+        if (dt !== 0) return dt;
+        return String(b.TicketNumber ?? '').localeCompare(String(a.TicketNumber ?? ''));
+      });
+
+      paymentsReviewCacheSet(cacheKey, builtRows);
+      allRows = builtRows;
+      cachedAt = Date.now();
+      fromCache = false;
+    }
+
+    const filteredRows = rules.length > 0
+      ? allRows.filter((r) => rowMatchesRules(r, rules, combMode))
+      : allRows;
+
+    res.json({
+      dateFrom,
+      dateTo,
+      businessDay: dateFrom === dateTo ? dateFrom : '',
+      workplaceIds,
+      rulesApplied: rules.length,
+      combMode,
+      fromCache,
+      cachedAt: new Date(cachedAt).toISOString(),
+      totalBeforeRules: allRows.length,
+      count: filteredRows.length,
+      rows: filteredRows,
+    });
+  } catch (err) {
+    console.error('[agora/invoices/payments-review]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al consultar pagos por ticket' });
+  }
+});
+
 router.get('/agora/test-connection', async (req, res) => {
   const { AGORA_API_BASE_URL, AGORA_API_TOKEN } = env();
   const baseUrl = (AGORA_API_BASE_URL || '').trim().replace(/\/+$/, '');
@@ -1643,7 +1999,8 @@ router.post('/agora/warehouses/sync', async (req, res) => {
       const idStr = formatId6(id);
       const nombre = String(w.Name ?? w.name ?? '').trim();
       const fiscalInfo = w.FiscalInfo ?? w.fiscalInfo ?? {};
-      const descripcion = String(fiscalInfo.FiscalName ?? fiscalInfo.fiscalName ?? '').trim();
+      const nombreFiscal = String(fiscalInfo.FiscalName ?? fiscalInfo.fiscalName ?? '').trim();
+      const cif = String(fiscalInfo.Cif ?? fiscalInfo.cif ?? '').trim();
       const parts = [
         w.Street ?? w.street ?? '',
         w.City ?? w.city ?? '',
@@ -1652,19 +2009,23 @@ router.post('/agora/warehouses/sync', async (req, res) => {
       ].filter(Boolean);
       const direccion = parts.join(', ');
 
-      const item = {
-        Id: idStr,
-        Nombre: nombre || idStr,
-        Descripcion: descripcion,
-        Direccion: direccion,
-      };
-
       const getCmd = new GetCommand({
         TableName: tableAlmacenesName,
         Key: { Id: idStr },
       });
       const got = await docClient.send(getCmd);
+      const existing = got.Item || {};
       const existed = !!got.Item;
+
+      // Conservamos `Descripcion` editada manualmente; el nombre fiscal pasa a su propio campo.
+      const item = {
+        Id: idStr,
+        Nombre: nombre || idStr,
+        NombreFiscal: nombreFiscal,
+        Cif: cif,
+        Descripcion: String(existing.Descripcion ?? ''),
+        Direccion: direccion,
+      };
 
       await docClient.send(
         new PutCommand({

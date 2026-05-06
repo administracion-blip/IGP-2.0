@@ -22,9 +22,16 @@ const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
 const MAX_TEXT_LENGTH = 30;
 
-const ATRIBUTOS_TABLA_ALMACENES = ['Id', 'Nombre', 'Descripcion', 'Direccion'] as const;
+const ATRIBUTOS_TABLA_ALMACENES = ['Id', 'Nombre', 'NombreFiscal', 'Cif', 'Descripcion', 'Direccion'] as const;
 const COL_LOCALES_ASIGNADOS = 'Locales asignados';
 const ORDEN_COLUMNAS = [...ATRIBUTOS_TABLA_ALMACENES, COL_LOCALES_ASIGNADOS];
+
+const COL_LABELS: Record<string, string> = {
+  NombreFiscal: 'Nombre fiscal',
+  Cif: 'CIF',
+  Descripcion: 'Descripción',
+  Direccion: 'Dirección',
+};
 
 function parseAlmacenesOrigen(val: string | number | undefined): string[] {
   if (val == null || String(val).trim() === '') return [];
@@ -36,6 +43,8 @@ function parseAlmacenesOrigen(val: string | number | undefined): string[] {
 
 const CAMPOS_FORM: { key: (typeof ATRIBUTOS_TABLA_ALMACENES)[number]; label: string }[] = [
   { key: 'Nombre', label: 'Nombre' },
+  { key: 'NombreFiscal', label: 'Nombre fiscal' },
+  { key: 'Cif', label: 'CIF' },
   { key: 'Descripcion', label: 'Descripción' },
   { key: 'Direccion', label: 'Dirección' },
 ];
@@ -420,16 +429,24 @@ export default function AlmacenesScreen() {
         </View>
       </View>
 
+      <ScrollView style={styles.scrollVertical} contentContainerStyle={styles.scrollVerticalContent} showsVerticalScrollIndicator>
       <ScrollView horizontal style={styles.scrollTable} contentContainerStyle={styles.scrollTableContent} showsHorizontalScrollIndicator>
         <View style={styles.tableWrap}>
           <View style={styles.tableRowHeader}>
             {columnas.map((col) => (
-              <View
-                key={col}
-                style={[styles.tableCellHeader, { width: getColWidth(col) }]}
-                {...(Platform.OS === 'web' ? { onMouseDown: (e: any) => handleResizeStart(col, e) } : {})}
-              >
-                <Text style={styles.tableCellHeaderText}>{truncar(col)}</Text>
+              <View key={col} style={[styles.tableCellHeader, { width: getColWidth(col), minWidth: MIN_COL_WIDTH }]}>
+                <Text style={styles.tableCellHeaderText} numberOfLines={1} ellipsizeMode="tail">
+                  {truncar(COL_LABELS[col] ?? col)}
+                </Text>
+                {Platform.OS === 'web' && (
+                  <View
+                    style={styles.resizeHandle}
+                    {...({
+                      onMouseDown: (e: { nativeEvent?: { clientX: number }; clientX?: number }) =>
+                        handleResizeStart(col, e),
+                    } as object)}
+                  />
+                )}
               </View>
             ))}
           </View>
@@ -446,8 +463,8 @@ export default function AlmacenesScreen() {
                 activeOpacity={0.7}
               >
                 {columnas.map((col) => (
-                  <View key={col} style={[styles.tableCell, { width: getColWidth(col) }]}>
-                    <Text style={styles.tableCellText} numberOfLines={1}>
+                  <View key={col} style={[styles.tableCell, { width: getColWidth(col), minWidth: MIN_COL_WIDTH }]}>
+                    <Text style={styles.tableCellText} numberOfLines={1} ellipsizeMode="tail">
                       {truncar(valorCelda(almacen, col))}
                     </Text>
                   </View>
@@ -456,6 +473,7 @@ export default function AlmacenesScreen() {
             ))
           )}
         </View>
+      </ScrollView>
       </ScrollView>
 
       <Modal visible={modalNuevoVisible} transparent animationType="fade">
@@ -522,16 +540,39 @@ const styles = StyleSheet.create({
   searchWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f5f9', borderRadius: 8, paddingHorizontal: 10 },
   searchIcon: { marginRight: 6 },
   searchInput: { flex: 1, paddingVertical: 8, fontSize: 14, color: '#334155' },
-  scrollTable: { flex: 1 },
+  scrollVertical: { flex: 1 },
+  scrollVerticalContent: { flexGrow: 1, paddingBottom: 20 },
+  scrollTable: { flexGrow: 0 },
   scrollTableContent: { flexGrow: 1 },
   tableWrap: { backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
-  tableRowHeader: { flexDirection: 'row', backgroundColor: '#f1f5f9', borderBottomWidth: 2, borderBottomColor: '#e2e8f0' },
-  tableCellHeader: { paddingVertical: 10, paddingHorizontal: 10 },
-  tableCellHeaderText: { fontSize: 12, fontWeight: '700', color: '#475569' },
-  tableRow: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e2e8f0' },
+  tableRowHeader: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
+  tableCellHeader: {
+    minWidth: MIN_COL_WIDTH,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRightWidth: 1,
+    borderRightColor: '#cbd5e1',
+    position: 'relative',
+  },
+  tableCellHeaderText: { fontSize: 10, fontWeight: '700', color: '#334155' },
+  resizeHandle: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 6,
+    height: '100%',
+    cursor: 'col-resize' as 'pointer',
+  },
+  tableRow: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e2e8f0', backgroundColor: '#fff' },
   tableRowSelected: { backgroundColor: '#e0f2fe' },
-  tableCell: { paddingVertical: 8, paddingHorizontal: 10 },
-  tableCellText: { fontSize: 13, color: '#334155' },
+  tableCell: {
+    minWidth: MIN_COL_WIDTH,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRightWidth: 1,
+    borderRightColor: '#e2e8f0',
+  },
+  tableCellText: { fontSize: 10, color: '#475569' },
   emptyRow: { padding: 24, alignItems: 'center' },
   emptyText: { fontSize: 14, color: '#94a3b8', fontStyle: 'italic' },
   modalOverlay: {

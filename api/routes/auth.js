@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { ScanCommand, PutCommand, GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
@@ -42,7 +43,16 @@ router.post('/login', async (req, res) => {
     if (isBcryptHash(storedPassword)) {
       passwordValid = await bcrypt.compare(password, storedPassword);
     } else {
-      passwordValid = storedPassword === password;
+      let match = false;
+      try {
+        match = crypto.timingSafeEqual(
+          Buffer.from(storedPassword),
+          Buffer.from(password)
+        );
+      } catch {
+        match = false;
+      }
+      passwordValid = match;
       if (passwordValid && storedPassword) {
         try {
           const hashed = await bcrypt.hash(password, BCRYPT_ROUNDS);

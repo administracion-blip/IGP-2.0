@@ -724,8 +724,8 @@ export default function CierresTeoricosScreen() {
       const items = selectedRowIds.map((id) => findCloseoutByRowId(id, closeouts)).filter(Boolean) as CloseOut[];
       if (items.length === 0) {
         Alert.alert('Selección', 'No se encontraron los registros marcados. Actualiza la lista e inténtalo de nuevo.');
-        return;
-      }
+      return;
+    }
       setDeletingItems(items);
       setFormError(null);
       setShowDeleteModal(true);
@@ -1201,11 +1201,11 @@ export default function CierresTeoricosScreen() {
                 <TouchableOpacity style={styles.downloadMenuItem} onPress={handleExportPDF}>
                   <MaterialIcons name="picture-as-pdf" size={16} color="#dc2626" />
                   <Text style={styles.downloadMenuText}>PDF</Text>
-                </TouchableOpacity>
-              </View>
+        </TouchableOpacity>
+      </View>
             </>
           )}
-        </View>
+          </View>
         <TouchableOpacity style={styles.toolbarBtnAdd} onPress={openAddModal}>
           <MaterialIcons name="add" size={16} color="#fff" />
           <Text style={styles.toolbarBtnAddText}>Añadir</Text>
@@ -1238,7 +1238,7 @@ export default function CierresTeoricosScreen() {
           )}
           <Text style={[styles.toolbarBtnText, (selectedRowIds.length === 0 || shiftSaving) && styles.toolbarBtnTextDisabled]}>
             −1 día
-          </Text>
+      </Text>
         </TouchableOpacity>
       </View>
 
@@ -1255,7 +1255,7 @@ export default function CierresTeoricosScreen() {
             trackColor={{ false: '#e2e8f0', true: '#86efac' }}
             thumbColor={soloConFacturacion ? '#22c55e' : '#94a3b8'}
           />
-          </View>
+                </View>
         <Text style={styles.soloFacturacionLabel}>Mostrar solo registros con facturación</Text>
             </View>
 
@@ -1271,7 +1271,7 @@ export default function CierresTeoricosScreen() {
                 placeholder="dd/mm/yyyy"
                 style={styles.filterInput}
               />
-            </View>
+                </View>
             <View style={styles.filterField}>
               <Text style={styles.filterLabel}>Hasta</Text>
               <InputFecha
@@ -1281,27 +1281,27 @@ export default function CierresTeoricosScreen() {
                 placeholder="dd/mm/yyyy"
                 style={styles.filterInput}
               />
-            </View>
+              </View>
             <TouchableOpacity style={styles.filterClearBtn} onPress={() => { setFiltroFechaDesde(''); setFiltroFechaHasta(''); setFiltroLocal(''); }}>
               <MaterialIcons name="clear" size={14} color="#64748b" />
               <Text style={styles.filterClearText}>Limpiar</Text>
             </TouchableOpacity>
-          </View>
+                    </View>
           <View style={styles.filterRowLocal}>
             <Text style={styles.filterLabel}>Local</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterLocalesWrap} contentContainerStyle={styles.filterLocalesContent}>
-              <TouchableOpacity
+          <TouchableOpacity
                 style={[styles.filterChip, !filtroLocal && styles.filterChipActive]}
                 onPress={() => setFiltroLocal('')}
-              >
+          >
                 <Text style={[styles.filterChipText, !filtroLocal && styles.filterChipTextActive]}>Todos</Text>
-              </TouchableOpacity>
+          </TouchableOpacity>
               {locales.map((loc) => {
                 const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
                 const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim() || code || '—';
                 const sel = code !== '' && filtroLocal === code;
                 return (
-                  <TouchableOpacity
+          <TouchableOpacity
                     key={code || nombre}
                     style={[styles.filterChip, sel && styles.filterChipActive]}
                     onPress={() => setFiltroLocal(sel ? '' : code)}
@@ -1309,11 +1309,11 @@ export default function CierresTeoricosScreen() {
                     <Text style={[styles.filterChipText, sel && styles.filterChipTextActive]} numberOfLines={1}>
                       {nombre}
                     </Text>
-                  </TouchableOpacity>
+          </TouchableOpacity>
                 );
               })}
             </ScrollView>
-          </View>
+        </View>
         </View>
       )}
 
@@ -1347,9 +1347,9 @@ export default function CierresTeoricosScreen() {
               <TouchableOpacity style={[styles.modalBtn, styles.modalBtnCancel]} onPress={() => setShowSyncModal(false)}>
                 <Text style={styles.modalBtnCancelText}>Cerrar</Text>
               </TouchableOpacity>
-              <TouchableOpacity
+                <TouchableOpacity
                 style={[styles.modalBtn, styles.modalBtnPrimary, syncing && styles.toolbarBtnDisabled]}
-                onPress={() => {
+                  onPress={() => {
                   const desde = parseDateToYYYYMMDD(syncFechaDesde);
                   const hasta = parseDateToYYYYMMDD(syncFechaHasta);
                   if (desde && hasta && desde <= hasta) {
@@ -1367,8 +1367,8 @@ export default function CierresTeoricosScreen() {
                     <Text style={[styles.modalBtnPrimaryText, { marginLeft: 6 }]}>Sincronizar</Text>
                   </View>
                 )}
-              </TouchableOpacity>
-            </View>
+                </TouchableOpacity>
+              </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1490,8 +1490,8 @@ export default function CierresTeoricosScreen() {
                 </TouchableOpacity>
               <TouchableOpacity style={[styles.modalBtn, styles.modalBtnPrimary, saving && styles.toolbarBtnDisabled]} onPress={handleSaveForm} disabled={saving}>
                 {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.modalBtnPrimaryText}>Guardar</Text>}
-                </TouchableOpacity>
-              </View>
+                    </TouchableOpacity>
+                  </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1517,7 +1517,7 @@ export default function CierresTeoricosScreen() {
               <TouchableOpacity style={[styles.modalBtn, styles.modalBtnDanger, saving && styles.toolbarBtnDisabled]} onPress={handleDelete} disabled={saving}>
                 {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.modalBtnPrimaryText}>Eliminar</Text>}
                 </TouchableOpacity>
-              </View>
+                </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1530,25 +1530,25 @@ export default function CierresTeoricosScreen() {
         </Text>
         {totalCount > PAGE_SIZE && (
           <View style={styles.pagination}>
-                    <TouchableOpacity
+                <TouchableOpacity
               style={[styles.pageBtn, effectivePage <= 1 && styles.pageBtnDisabled]}
               onPress={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={effectivePage <= 1}
             >
               <MaterialIcons name="chevron-left" size={20} color={effectivePage <= 1 ? '#94a3b8' : '#334155'} />
               <Text style={[styles.pageBtnText, effectivePage <= 1 && styles.pageBtnTextDisabled]}>Anterior</Text>
-                    </TouchableOpacity>
+                </TouchableOpacity>
             <Text style={styles.pageInfo}>
               Página {effectivePage} de {totalPages}
             </Text>
-            <TouchableOpacity
+                <TouchableOpacity
               style={[styles.pageBtn, effectivePage >= totalPages && styles.pageBtnDisabled]}
               onPress={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
               disabled={effectivePage >= totalPages}
             >
               <Text style={[styles.pageBtnText, effectivePage >= totalPages && styles.pageBtnTextDisabled]}>Siguiente</Text>
               <MaterialIcons name="chevron-right" size={20} color={effectivePage >= totalPages ? '#94a3b8' : '#334155'} />
-            </TouchableOpacity>
+                </TouchableOpacity>
               </View>
         )}
             </View>
@@ -1574,7 +1574,7 @@ export default function CierresTeoricosScreen() {
                       size={18}
                       color="#64748b"
                     />
-                  </TouchableOpacity>
+                </TouchableOpacity>
                 ) : (
                   <Text style={styles.cellHeaderText} numberOfLines={1}>
                     {getHeaderLabel(col)}
@@ -1585,9 +1585,9 @@ export default function CierresTeoricosScreen() {
                   {...(Platform.OS === 'web' ? { onMouseDown: handleWebResizeStart(col) } : (resizeHandlers[col]?.panHandlers || {}))}
                 >
                   <View style={styles.resizeLine} />
+              </View>
                 </View>
-                </View>
-            ))}
+                ))}
               </View>
           <ScrollView style={styles.tableInner} showsVerticalScrollIndicator>
             <View style={styles.table}>
@@ -1611,8 +1611,8 @@ export default function CierresTeoricosScreen() {
                         if (col === '__sel') {
                           const rid = stableRowId(item);
                           const checked = selectedRowIds.includes(rid);
-                          return (
-                            <TouchableOpacity
+                  return (
+                    <TouchableOpacity
                               key={col}
                               style={[styles.cell, styles.selCell, { width: getColWidth(col) }]}
                               onPress={(e) => {
@@ -1627,8 +1627,8 @@ export default function CierresTeoricosScreen() {
                                 size={18}
                                 color={checked ? '#0ea5e9' : '#94a3b8'}
                               />
-                            </TouchableOpacity>
-                          );
+                    </TouchableOpacity>
+                  );
                         }
                         const valor = getValorCelda(item, col);
                         return (

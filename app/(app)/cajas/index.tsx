@@ -12,6 +12,13 @@ const OPCIONES: { id: string; label: string; icon: React.ComponentProps<typeof M
     permiso: 'cierres.ver',
   },
   {
+    id: 'revision-formas-pago',
+    label: 'Revisión formas de pago',
+    icon: 'payments',
+    descripcion: 'Desglose de pagos por ticket (consulta en vivo a Ágora)',
+    permiso: 'cierres.ver',
+  },
+  {
     id: 'arqueo-caja',
     label: 'Arqueo de Caja',
     icon: 'account-balance-wallet',
@@ -40,6 +47,7 @@ export default function CajasIndexScreen() {
 
   function handleSeleccionar(id: string) {
     if (id === 'cierres-teoricos') router.push('/cajas/cierres-teoricos');
+    if (id === 'revision-formas-pago') router.push('/cajas/revision-formas-pago');
     if (id === 'arqueo-caja') router.push('/cajas/arqueo-caja');
     if (id === 'comparativa-fechas-cajas') router.push('/cajas/comparativa-fechas-cajas');
     if (id === 'objetivos') router.push('/cajas/objetivos');

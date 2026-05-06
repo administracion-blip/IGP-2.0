@@ -6,10 +6,6 @@ import { docClient, tables } from '../lib/db.js';
 const router = express.Router();
 const BCRYPT_ROUNDS = 10;
 
-function isBcryptHash(str) {
-  return typeof str === 'string' && /^\$2[aby]\$\d{2}\$/.test(str);
-}
-
 // Formato mínimo 6 dígitos para campos id_ (000001, 000002, ...).
 function formatId6(val) {
   if (val == null || val === '') return '000000';
@@ -120,7 +116,7 @@ router.put('/usuarios', async (req, res) => {
       } else if (key === 'Password') {
         const rawPass = body.Password != null ? String(body.Password).trim() : '';
         if (rawPass) {
-          item[key] = isBcryptHash(rawPass) ? rawPass : await bcrypt.hash(rawPass, BCRYPT_ROUNDS);
+          item[key] = await bcrypt.hash(rawPass, BCRYPT_ROUNDS);
         } else {
           item[key] = existing.Password ?? '';
         }

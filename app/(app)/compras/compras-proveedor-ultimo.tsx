@@ -26,6 +26,7 @@ import {
   idNorm,
   toggleInList,
   parseDdMmYyyyToIso,
+  ultimaCompraPorProducto,
   ComprasFiltroDropdown,
   FiltroDropdownKey,
   OpcionFiltro,
@@ -33,19 +34,14 @@ import {
   TOOLBAR_ICON_SIZE,
   ComprasToolbarIconBtn,
   ComprasToolbarFiltrosBtn,
-  ComprasToolbarSyncBtn,
 } from './comprasProveedorShared';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
-
-export default function ComprasProveedorScreen() {
+export default function ComprasProveedorUltimoScreen() {
   const router = useRouter();
   const { width: winWidth } = useWindowDimensions();
 
-  const { compras: items, loading, error, lastFetch, recargar } = useComprasProveedorCache();
+  const { compras, loading, error, lastFetch, recargar } = useComprasProveedorCache();
 
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState('');
   const [busqueda, setBusqueda] = useState('');
   const [modalFiltrosVisible, setModalFiltrosVisible] = useState(false);
   const [fechaDesde, setFechaDesde] = useState('');
@@ -57,34 +53,15 @@ export default function ComprasProveedorScreen() {
   const [selAlmacenes, setSelAlmacenes] = useState<string[]>([]);
   const [filtroDropdownId, setFiltroDropdownId] = useState<FiltroDropdownKey | null>(null);
 
-  const sincronizar = useCallback(async (fullSync = false) => {
-    setSyncing(true);
-    setSyncResult('');
-    try {
-      const bodyPayload: Record<string, string> = {};
-      if (fullSync) bodyPayload.dateFrom = '2025-01-01';
-      const res = await fetch(`${API_URL}/api/agora/purchases/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bodyPayload),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error al sincronizar');
-      setSyncResult(
-        `Sincronizado: ${data.totalUpserted ?? 0} líneas (${data.dateFrom} → ${data.dateTo}, ${data.daysProcessed ?? 0} días)` +
-        (data.errors?.length ? ` · ${data.errors.length} errores` : '')
-      );
-      await recargar({ force: true });
-    } catch (err: any) {
-      setSyncResult(`Error: ${err.message}`);
-    } finally {
-      setSyncing(false);
-    }
-  }, [recargar]);
-
   useEffect(() => {
     recargar();
   }, [recargar]);
+
+  /** Una fila por ProductId: última compra (según fecha de albarán). */
+  const itemsBase = useMemo(
+    () => ultimaCompraPorProducto(compras as unknown as CompraLinea[]),
+    [compras]
+  );
 
   const opcionesFiltros = useMemo(() => {
     const albaranes = new Map<string, string>();
@@ -92,7 +69,7 @@ export default function ComprasProveedorScreen() {
     const proveedores = new Map<string, string>();
     const familias = new Map<string, string>();
     const almacenes = new Map<string, string>();
-    items.forEach((it) => {
+    itemsBase.forEach((it) => {
       const ak = albaranKey(it);
       if (!albaranes.has(ak)) albaranes.set(ak, albaranLabel(it));
       const pid = idNorm(it.ProductId as string);
@@ -116,10 +93,10 @@ export default function ComprasProveedorScreen() {
       familias: Array.from(familias.entries()).map(([id, label]) => ({ id, label })).sort(sortOpt),
       almacenes: Array.from(almacenes.entries()).map(([id, label]) => ({ id, label })).sort(sortOpt),
     };
-  }, [items]);
+  }, [itemsBase]);
 
   const filtrados = useMemo(() => {
-    let list = items;
+    let list = itemsBase;
     const isoDesde = parseDdMmYyyyToIso(fechaDesde);
     const isoHasta = parseDdMmYyyyToIso(fechaHasta);
     if (isoDesde) {
@@ -166,7 +143,7 @@ export default function ComprasProveedorScreen() {
       (item.AlbaranSerie || '').toLowerCase().includes(q)
     );
   }, [
-    items,
+    itemsBase,
     busqueda,
     fechaDesde,
     fechaHasta,
@@ -184,20 +161,6 @@ export default function ComprasProveedorScreen() {
     n += selAlbaranes.length + selProductos.length + selProveedores.length + selFamilias.length + selAlmacenes.length;
     return n;
   }, [fechaDesde, fechaHasta, selAlbaranes, selProductos, selProveedores, selFamilias, selAlmacenes]);
-
-  const hayBusquedaOFiltros = busqueda.trim().length > 0 || filtrosActivosCount > 0;
-
-  const totalesFiltrados = useMemo(() => {
-    let sumCant = 0;
-    let sumImporte = 0;
-    filtrados.forEach((it) => {
-      const q = Number(it.Quantity);
-      if (!Number.isNaN(q)) sumCant += q;
-      const t = Number(it.TotalAmount);
-      if (!Number.isNaN(t)) sumImporte += t;
-    });
-    return { sumCant, sumImporte };
-  }, [filtrados]);
 
   const limpiarFiltrosAvanzados = useCallback(() => {
     setFechaDesde('');
@@ -231,9 +194,9 @@ export default function ComprasProveedorScreen() {
     const data: string[][] = [headers, ...rows];
     const ws = XLSX.utils.aoa_to_sheet(data);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Compras');
+    XLSX.utils.book_append_sheet(wb, ws, 'Última compra');
     const stamp = new Date().toISOString().slice(0, 10);
-    const fname = `compras_proveedor_${stamp}.xlsx`;
+    const fname = `ultima_compra_por_producto_${stamp}.xlsx`;
     if (Platform.OS === 'web') {
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
       const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -260,21 +223,19 @@ export default function ComprasProveedorScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <MaterialIcons name="arrow-back" size={22} color="#0ea5e9" />
         </TouchableOpacity>
         <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle}>Compras a Proveedor</Text>
+          <Text style={styles.headerTitle}>Última compra por producto</Text>
           <Text style={styles.headerSubtitle}>
-            {items.length} líneas
+            {itemsBase.length} productos · {compras.length} líneas en caché
             {lastFetch ? ` · Última carga: ${new Date(lastFetch).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` : ''}
           </Text>
         </View>
       </View>
 
-      {/* Toolbar */}
       <View style={styles.toolbar}>
         <View style={styles.toolbarLeft}>
           <View style={styles.searchWrap}>
@@ -300,17 +261,17 @@ export default function ComprasProveedorScreen() {
             }}
           />
           <Text style={styles.resultCount}>
-            {filtrados.length !== items.length ? `${filtrados.length} de ` : ''}{items.length} registros
+            {filtrados.length !== itemsBase.length ? `${filtrados.length} de ` : ''}{itemsBase.length} productos
           </Text>
         </View>
         <View style={styles.toolbarRight}>
           <ComprasToolbarIconBtn
-            tooltip="Última compra por producto (una fila por artículo)"
-            onPress={() => router.push('/compras/compras-proveedor-ultimo')}
-            accessibilityLabel="Última compra por producto"
+            tooltip="Vista completa: todas las líneas de compra"
+            onPress={() => router.push('/compras/compras-proveedor')}
+            accessibilityLabel="Vista completa de compras"
             variant="neutral"
           >
-            <MaterialIcons name="layers" size={TOOLBAR_ICON_SIZE} color="#475569" />
+            <MaterialIcons name="list" size={TOOLBAR_ICON_SIZE} color="#475569" />
           </ComprasToolbarIconBtn>
           <ComprasToolbarIconBtn
             tooltip="Exportar resultados filtrados a Excel"
@@ -338,50 +299,8 @@ export default function ComprasProveedorScreen() {
               <MaterialIcons name="refresh" size={TOOLBAR_ICON_SIZE} color="#0ea5e9" />
             )}
           </ComprasToolbarIconBtn>
-          <ComprasToolbarSyncBtn syncing={syncing} onPress={() => sincronizar(false)} />
-          <ComprasToolbarIconBtn
-            tooltip="Sincronización completa desde 2025-01-01 (puede tardar)"
-            onPress={() => sincronizar(true)}
-            disabled={syncing}
-            accessibilityLabel="Sincronización completa"
-            variant="outline"
-          >
-            <MaterialIcons
-              name="cloud-download"
-              size={TOOLBAR_ICON_SIZE}
-              color={syncing ? '#cbd5e1' : '#0ea5e9'}
-            />
-          </ComprasToolbarIconBtn>
         </View>
       </View>
-
-      {hayBusquedaOFiltros ? (
-        <View style={styles.toolbarResumenFiltrados}>
-          <MaterialIcons name="functions" size={15} color="#b45309" />
-          <Text style={styles.toolbarResumenFiltradosText}>
-            Vista filtrada — Cantidad total:{' '}
-            <Text style={styles.toolbarResumenFiltradosStrong}>
-              {totalesFiltrados.sumCant.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
-            </Text>
-            {' · Importe total: '}
-            <Text style={styles.toolbarResumenFiltradosStrong}>
-              {totalesFiltrados.sumImporte.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
-              €
-            </Text>
-            {filtrados.length > 0 ? ` (${filtrados.length} líneas)` : ''}
-          </Text>
-        </View>
-      ) : null}
-
-      {syncResult ? (
-        <View style={[styles.syncResultBar, syncResult.startsWith('Error') && styles.syncResultBarError]}>
-          <MaterialIcons name={syncResult.startsWith('Error') ? 'error-outline' : 'check-circle'} size={16} color={syncResult.startsWith('Error') ? '#dc2626' : '#16a34a'} />
-          <Text style={[styles.syncResultText, syncResult.startsWith('Error') && styles.syncResultTextError]}>{syncResult}</Text>
-          <TouchableOpacity onPress={() => setSyncResult('')} hitSlop={8}>
-            <MaterialIcons name="close" size={14} color="#94a3b8" />
-          </TouchableOpacity>
-        </View>
-      ) : null}
 
       {error ? (
         <View style={styles.errorBar}>
@@ -473,10 +392,8 @@ export default function ComprasProveedorScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Table */}
       <ScrollView style={styles.tableWrap} horizontal>
         <View style={{ minWidth: Math.max(totalWidth, winWidth - 40) }}>
-          {/* Table Header */}
           <View style={styles.tableHeader}>
             {COLUMNAS.map((col) => (
               <View key={col.key} style={[styles.thCell, { width: col.width }]}>
@@ -487,9 +404,8 @@ export default function ComprasProveedorScreen() {
             ))}
           </View>
 
-          {/* Table Body */}
           <ScrollView style={styles.tableBody}>
-            {loading && items.length === 0 ? (
+            {loading && itemsBase.length === 0 ? (
               <View style={styles.emptyWrap}>
                 <ActivityIndicator size="large" color="#0ea5e9" />
                 <Text style={styles.emptyText}>Cargando datos…</Text>
@@ -498,8 +414,8 @@ export default function ComprasProveedorScreen() {
               <View style={styles.emptyWrap}>
                 <MaterialIcons name="inbox" size={48} color="#cbd5e1" />
                 <Text style={styles.emptyText}>
-                  {items.length === 0
-                    ? 'No hay datos. Pulsa "Sincronizar Ágora" para importar albaranes de entrada.'
+                  {itemsBase.length === 0
+                    ? 'No hay datos. Vuelve a "Compras a Proveedor" y sincroniza con Ágora para traer albaranes.'
                     : filtrosActivosCount > 0 || busqueda.trim()
                       ? 'Sin resultados con los filtros o la búsqueda actuales.'
                       : 'Sin resultados para la búsqueda.'}
@@ -523,7 +439,6 @@ export default function ComprasProveedorScreen() {
             )}
           </ScrollView>
 
-          {/* Pagination */}
           {totalPages > 1 && (
             <View style={styles.pagination}>
               <TouchableOpacity onPress={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} style={styles.pageBtn}>
@@ -542,4 +457,3 @@ export default function ComprasProveedorScreen() {
     </View>
   );
 }
-

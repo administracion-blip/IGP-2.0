@@ -5,6 +5,7 @@ export default function CajasLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="cierres-teoricos" />
+      <Stack.Screen name="revision-formas-pago" />
       <Stack.Screen name="arqueo-caja" />
       <Stack.Screen name="comparativa-fechas-cajas" />
       <Stack.Screen name="objetivos" />

@@ -8,6 +8,7 @@ export default function ComprasLayout() {
       <Stack.Screen name="pedidos-completados" />
       <Stack.Screen name="detalles-pedidos" />
       <Stack.Screen name="compras-proveedor" />
+      <Stack.Screen name="compras-proveedor-ultimo" />
     </Stack>
   );
 }

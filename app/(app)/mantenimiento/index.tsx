@@ -122,6 +122,11 @@ export default function MantenimientoScreen() {
     espera: 80,
   });
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+  const [incidenciasToDelete, setIncidenciasToDelete] = useState<{ local_id: string; id_incidencia: string; fecha_creacion: string }[]>(
+    [],
+  );
   const [pageIndex, setPageIndex] = useState(0);
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
@@ -230,11 +235,48 @@ export default function MantenimientoScreen() {
   const goPrevPage = useCallback(() => {
     setPageIndex((p) => Math.max(0, p - 1));
     setSelectedRowIndex(null);
+    setMultiSelectMode(false);
+    setSelectedIndices(new Set());
   }, []);
   const goNextPage = useCallback(() => {
     setPageIndex((p) => Math.min(totalPages - 1, p + 1));
     setSelectedRowIndex(null);
+    setMultiSelectMode(false);
+    setSelectedIndices(new Set());
   }, [totalPages]);
+
+  const seleccionarFila = useCallback((idx: number) => {
+    if (multiSelectMode) {
+      setSelectedIndices((prev) => {
+        const next = new Set(prev);
+        if (next.has(idx)) next.delete(idx);
+        else next.add(idx);
+        return next;
+      });
+    } else {
+      setSelectedRowIndex((prev) => (prev === idx ? null : idx));
+    }
+  }, [multiSelectMode]);
+
+  const activarMultiSelect = useCallback((idx: number) => {
+    setMultiSelectMode(true);
+    setSelectedIndices(new Set([idx]));
+    setSelectedRowIndex(null);
+  }, []);
+
+  const salirMultiSelect = useCallback(() => {
+    setMultiSelectMode(false);
+    setSelectedIndices(new Set());
+    setSelectedRowIndex(null);
+  }, []);
+
+  const toggleSeleccionTodas = useCallback(() => {
+    if (selectedIndices.size === incidenciasPagina.length) {
+      setSelectedIndices(new Set());
+    } else {
+      setSelectedIndices(new Set(incidenciasPagina.map((_, i) => i)));
+    }
+  }, [incidenciasPagina, selectedIndices.size]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !resizingCol) return;
@@ -264,39 +306,66 @@ export default function MantenimientoScreen() {
     setResizingCol(col);
   };
 
-  const incSeleccionada = selectedRowIndex !== null ? incidenciasPagina[selectedRowIndex] : null;
-  const haySeleccion = incSeleccionada !== null;
+  const incSeleccionada =
+    !multiSelectMode && selectedRowIndex !== null ? incidenciasPagina[selectedRowIndex] : null;
+  const incidenciasSeleccionadasCount = multiSelectMode ? selectedIndices.size : selectedRowIndex !== null ? 1 : 0;
+  const haySeleccion = incidenciasSeleccionadasCount > 0;
+
+  const cerrarModalBorrar = useCallback(() => {
+    setModalBorrarVisible(false);
+    setIncidenciasToDelete([]);
+  }, []);
 
   const abrirModalBorrar = useCallback(() => {
-    if (!incSeleccionada) return;
+    const items: { local_id: string; id_incidencia: string; fecha_creacion: string }[] = [];
+    if (multiSelectMode) {
+      selectedIndices.forEach((idx) => {
+        const inc = incidenciasPagina[idx];
+        const localId = (inc?.local_id ?? '').toString().trim();
+        const idIncidencia = (inc?.id_incidencia ?? '').toString().trim();
+        const fechaCreacion = (inc?.fecha_creacion ?? '').toString().trim();
+        if (localId && idIncidencia && fechaCreacion) items.push({ local_id: localId, id_incidencia: idIncidencia, fecha_creacion: fechaCreacion });
+      });
+    } else if (selectedRowIndex !== null) {
+      const inc = incidenciasPagina[selectedRowIndex];
+      const localId = (inc?.local_id ?? '').toString().trim();
+      const idIncidencia = (inc?.id_incidencia ?? '').toString().trim();
+      const fechaCreacion = (inc?.fecha_creacion ?? '').toString().trim();
+      if (localId && idIncidencia && fechaCreacion) items.push({ local_id: localId, id_incidencia: idIncidencia, fecha_creacion: fechaCreacion });
+    }
+    if (items.length === 0) return;
+    setIncidenciasToDelete(items);
     setModalBorrarVisible(true);
-  }, [incSeleccionada]);
+  }, [multiSelectMode, selectedIndices, selectedRowIndex, incidenciasPagina]);
 
   const ejecutarBorrado = useCallback(async () => {
-    if (!incSeleccionada) return;
-    const localId = (incSeleccionada.local_id ?? '').toString().trim();
-    const idIncidencia = (incSeleccionada.id_incidencia ?? '').toString().trim();
-    const fechaCreacion = (incSeleccionada.fecha_creacion ?? '').toString().trim();
-    if (!localId || !idIncidencia || !fechaCreacion) return;
-    setModalBorrarVisible(false);
+    if (incidenciasToDelete.length === 0) return;
+    const items = [...incidenciasToDelete];
+    cerrarModalBorrar();
     setGuardando(true);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/api/mantenimiento/incidencias`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ local_id: localId, id_incidencia: idIncidencia, fecha_creacion: fechaCreacion }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error ?? 'Error al borrar'); return; }
-      setSelectedRowIndex(null);
+      for (const payload of items) {
+        const res = await fetch(`${API_URL}/api/mantenimiento/incidencias`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error ?? 'Error al borrar');
+          return;
+        }
+      }
       refetch();
+      setSelectedRowIndex(null);
+      salirMultiSelect();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error de conexión');
     } finally {
       setGuardando(false);
     }
-  }, [incSeleccionada, refetch]);
+  }, [incidenciasToDelete, cerrarModalBorrar, refetch, salirMultiSelect]);
 
   const abrirModalEditar = useCallback(() => {
     if (!incSeleccionada) return;
@@ -335,19 +404,44 @@ export default function MantenimientoScreen() {
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Error al editar'); return; }
       setSelectedRowIndex(null);
+      salirMultiSelect();
       refetch();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error de conexión');
     } finally {
       setGuardando(false);
     }
-  }, [incSeleccionada, editTitulo, editDescripcion, editZona, editPrioridad, refetch]);
+  }, [incSeleccionada, editTitulo, editDescripcion, editZona, editPrioridad, refetch, salirMultiSelect]);
 
   const toolbarBtns = [
     { id: 'crear', label: 'Reportar incidencia', icon: ICONS.add, onPress: () => router.push('/mantenimiento/reportar') },
-    { id: 'editar', label: 'Editar', icon: ICONS.edit, disabled: !haySeleccion || guardando, onPress: abrirModalEditar },
-    { id: 'borrar', label: 'Borrar', icon: ICONS.delete, disabled: !haySeleccion || guardando, onPress: abrirModalBorrar },
+    {
+      id: 'editar',
+      label: 'Editar',
+      icon: ICONS.edit,
+      disabled: multiSelectMode || !incSeleccionada || guardando,
+      onPress: abrirModalEditar,
+    },
+    {
+      id: 'borrar',
+      label: 'Borrar',
+      icon: ICONS.delete,
+      disabled: !haySeleccion || guardando,
+      onPress: abrirModalBorrar,
+    },
   ];
+
+  const tituloBorrarModal = useMemo(() => {
+    if (incidenciasToDelete.length !== 1) return '';
+    const t = incidenciasToDelete[0];
+    const inc = incidenciasPagina.find(
+      (i) =>
+        (i.local_id ?? '').toString().trim() === t.local_id &&
+        (i.id_incidencia ?? '').toString().trim() === t.id_incidencia &&
+        (i.fecha_creacion ?? '').toString().trim() === t.fecha_creacion
+    );
+    return (inc?.titulo ?? '').toString();
+  }, [incidenciasToDelete, incidenciasPagina]);
 
   return (
     <View style={styles.container}>
@@ -398,6 +492,12 @@ export default function MantenimientoScreen() {
               <MaterialIcons name={btn.icon} size={ICON_SIZE} color={btn.disabled ? '#94a3b8' : '#0ea5e9'} />
             </TouchableOpacity>
           ))}
+          {multiSelectMode && (
+            <TouchableOpacity style={styles.cancelSelectBtn} onPress={salirMultiSelect}>
+              <MaterialIcons name="close" size={ICON_SIZE} color="#64748b" />
+              <Text style={styles.cancelSelectBtnText}>Cancelar selección</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity style={styles.toolbarBtn} onPress={refetch} disabled={loading} accessibilityLabel="Actualizar">
             {loading ? <ActivityIndicator size="small" color="#0ea5e9" /> : <MaterialIcons name="refresh" size={ICON_SIZE} color="#0ea5e9" />}
           </TouchableOpacity>
@@ -437,8 +537,21 @@ export default function MantenimientoScreen() {
         </View>
       ) : (
         <ScrollView horizontal style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-          <View style={styles.table}>
+            <View style={styles.table}>
             <View style={styles.rowHeader}>
+              {multiSelectMode && (
+                <TouchableOpacity
+                  style={[styles.cellHeader, styles.cellCheckbox]}
+                  onPress={toggleSeleccionTodas}
+                  activeOpacity={0.7}
+                >
+                  <MaterialIcons
+                    name={selectedIndices.size === incidenciasPagina.length && incidenciasPagina.length > 0 ? 'check-box' : 'check-box-outline-blank'}
+                    size={20}
+                    color={selectedIndices.size === incidenciasPagina.length && incidenciasPagina.length > 0 ? '#0ea5e9' : '#94a3b8'}
+                  />
+                </TouchableOpacity>
+              )}
               {columnas.map((col) => (
                 <View key={col} style={[styles.cellHeader, { width: getColWidth(col) }]}>
                   <Text style={styles.cellHeaderText} numberOfLines={1} ellipsizeMode="tail">
@@ -453,13 +566,26 @@ export default function MantenimientoScreen() {
                 </View>
               ))}
             </View>
-            {incidenciasPagina.map((inc, idx) => (
+            {incidenciasPagina.map((inc, idx) => {
+              const isSelected = multiSelectMode ? selectedIndices.has(idx) : selectedRowIndex === idx;
+              return (
               <TouchableOpacity
                 key={`${inc.id_incidencia ?? idx}-${inc.fecha_creacion}`}
-                style={[styles.row, selectedRowIndex === idx && styles.rowSelected]}
-                onPress={() => setSelectedRowIndex(selectedRowIndex === idx ? null : idx)}
+                style={[styles.row, isSelected && styles.rowSelected]}
+                onPress={() => seleccionarFila(idx)}
+                onLongPress={() => activarMultiSelect(idx)}
+                delayLongPress={400}
                 activeOpacity={0.8}
               >
+                {multiSelectMode && (
+                  <View style={[styles.cell, styles.cellCheckbox]}>
+                    <MaterialIcons
+                      name={selectedIndices.has(idx) ? 'check-box' : 'check-box-outline-blank'}
+                      size={20}
+                      color={selectedIndices.has(idx) ? '#0ea5e9' : '#94a3b8'}
+                    />
+                  </View>
+                )}
                 {columnas.map((col) => {
                   const raw = valorCelda(inc, col);
                   const text = col === 'titulo' || col === 'descripcion' ? (raw.length > MAX_TEXT_LENGTH ? truncar(raw) : raw) : raw;
@@ -518,27 +644,34 @@ export default function MantenimientoScreen() {
                   );
                 })}
               </TouchableOpacity>
-            ))}
+              );
+            })}
           </View>
         </ScrollView>
       )}
 
-      <Modal visible={modalBorrarVisible} transparent animationType="fade" onRequestClose={() => setModalBorrarVisible(false)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalBorrarVisible(false)}>
+      <Modal visible={modalBorrarVisible} transparent animationType="fade" onRequestClose={cerrarModalBorrar}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={cerrarModalBorrar}>
           <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalContentWrap}>
             <View style={styles.modalCard}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Borrar incidencia</Text>
-                <TouchableOpacity onPress={() => setModalBorrarVisible(false)} style={styles.modalClose}>
+                <Text style={styles.modalTitle}>
+                  {incidenciasToDelete.length === 1 ? 'Borrar incidencia' : 'Borrar incidencias'}
+                </Text>
+                <TouchableOpacity onPress={cerrarModalBorrar} style={styles.modalClose}>
                   <MaterialIcons name="close" size={22} color="#64748b" />
                 </TouchableOpacity>
               </View>
               <View style={styles.modalBody}>
                 <Text style={styles.modalMessage}>
-                  ¿Estás seguro de que deseas borrar la incidencia «{incSeleccionada ? (incSeleccionada.titulo ?? '').toString() : ''}»?
+                  {incidenciasToDelete.length === 1
+                    ? tituloBorrarModal.trim()
+                      ? `¿Estás seguro de que deseas borrar la incidencia «${tituloBorrarModal}»?`
+                      : '¿Estás seguro de que deseas borrar esta incidencia?'
+                    : `¿Estás seguro de que deseas borrar las ${incidenciasToDelete.length} incidencias seleccionadas?`}
                 </Text>
                 <View style={styles.modalFooter}>
-                  <TouchableOpacity style={styles.modalBtnNo} onPress={() => setModalBorrarVisible(false)}>
+                  <TouchableOpacity style={styles.modalBtnNo} onPress={cerrarModalBorrar}>
                     <Text style={styles.modalBtnNoText}>No</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.modalBtnSi} onPress={ejecutarBorrado} disabled={guardando}>
@@ -644,6 +777,18 @@ const styles = StyleSheet.create({
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   toolbarBtn: { padding: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
   toolbarBtnDisabled: { opacity: 0.6 },
+  cancelSelectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+  },
+  cancelSelectBtnText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
   errorWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   errorText: { fontSize: 12, color: '#f87171', flex: 1 },
   retryBtn: { paddingVertical: 6, paddingHorizontal: 12, backgroundColor: '#fef2f2', borderRadius: 8 },
@@ -673,6 +818,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#fff' },
   rowSelected: { backgroundColor: '#e0f2fe' },
   cell: { minWidth: MIN_COL_WIDTH, paddingVertical: 4, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#e2e8f0' },
+  cellCheckbox: { width: 40, minWidth: 40, alignItems: 'center', justifyContent: 'center' },
   cellText: { fontSize: 11, color: '#475569' },
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
   modalContentWrap: { width: '100%', maxWidth: 360, padding: 24, alignItems: 'center' },
