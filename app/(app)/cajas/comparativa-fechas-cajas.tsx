@@ -20,8 +20,8 @@ import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
 import { TablaBasica } from '../../components/TablaBasica';
 import { InputFecha } from '../../components/InputFecha';
+import { apiFetch } from '../../utils/api';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
 const PAGE_SIZE = 50;
 const COLUMNAS = ['PK / FechaComparativa', 'PK', 'FechaComparativa', 'Festivo', 'NombreFestivo'];
@@ -90,7 +90,7 @@ export default function ComparativaFechasCajasScreen() {
   const refetch = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetch(`${API_URL}/api/gestion-festivos`)
+    apiFetch('/api/gestion-festivos')
       .then((res) => res.json())
       .then((data: { registros?: Registro[]; error?: string }) => {
         if (data.error) {
@@ -172,9 +172,8 @@ export default function ComparativaFechasCajasScreen() {
       };
       if (editingId) body.id = editingId;
 
-      const res = await fetch(`${API_URL}/api/gestion-festivos`, {
+      const res = await apiFetch('/api/gestion-festivos', {
         method: editingId ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await res.json();
@@ -197,7 +196,7 @@ export default function ComparativaFechasCajasScreen() {
     if (!id) return;
     setGuardando(true);
     try {
-      const res = await fetch(`${API_URL}/api/gestion-festivos?id=${encodeURIComponent(String(id))}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/gestion-festivos?id=${encodeURIComponent(String(id))}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || 'Error al borrar');
@@ -289,9 +288,8 @@ export default function ComparativaFechasCajasScreen() {
         const festivo = festivoVal === 'sí' || festivoVal === 'si' || festivoVal === 'true' || festivoVal === '1' || festivoVal === 'yes';
         const nombre = nombreIdx >= 0 ? String(row[nombreIdx] ?? '').trim() : '';
         try {
-          const res = await fetch(`${API_URL}/api/gestion-festivos`, {
+          const res = await apiFetch('/api/gestion-festivos', {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               id,
               FechaComparativa: fecha || id.split('#')[0],
@@ -335,9 +333,8 @@ export default function ComparativaFechasCajasScreen() {
     setErrorGenerar(null);
     setGenerandoRango(true);
     try {
-      const res = await fetch(`${API_URL}/api/gestion-festivos/generar-rango`, {
+      const res = await apiFetch('/api/gestion-festivos/generar-rango', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dateFrom: fechaDesde, dateTo: fechaHasta }),
       });
       const data = await res.json();
@@ -381,9 +378,8 @@ export default function ComparativaFechasCajasScreen() {
     if (!vals) return;
     setSavingRows((prev) => new Set(prev).add(id));
     try {
-      const res = await fetch(`${API_URL}/api/gestion-festivos`, {
+      const res = await apiFetch('/api/gestion-festivos', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id,
           FechaComparativa: vals.FechaComparativa,

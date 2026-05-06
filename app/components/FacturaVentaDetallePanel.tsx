@@ -28,6 +28,7 @@ import { ResumenTotales } from './ResumenTotales';
 import { InputFecha } from './InputFecha';
 import { textoFechaContabilizacionGasto } from '../utils/formatFecha';
 import { BadgeEstado } from './BadgeEstado';
+import { apiFetch } from '../utils/api';
 
 /** Anchos fijos por columna (cabecera + filas en el mismo ScrollView) — sin flexGrow para que coincidan con los inputs */
 const LINEA_W_IDX = 22;
@@ -186,7 +187,7 @@ export function FacturaVentaDetallePanel({
 
   useEffect(() => {
     if (!apiUrl) return;
-    fetch(`${apiUrl}/api/empresas`)
+    apiFetch('/api/empresas')
       .then((r) => r.json())
       .then((d) => setEmpresasCatalogo(Array.isArray(d.empresas) ? d.empresas : []))
       .catch(() => setEmpresasCatalogo([]));
@@ -210,7 +211,7 @@ export function FacturaVentaDetallePanel({
     setAdjuntos([]);
     setAdjuntosLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/facturacion/facturas/${facturaId}`);
+      const res = await apiFetch(`/api/facturacion/facturas/${facturaId}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'No se pudo cargar');
       const f = (data.factura ?? data) as FacturaApi;
@@ -253,7 +254,7 @@ export function FacturaVentaDetallePanel({
       setVersion(f.version ?? 1);
       setLineas(hydrateLineasDesdeFactura(f, data.lineas));
 
-      fetch(`${apiUrl}/api/facturacion/facturas/${facturaId}/adjuntos`)
+      apiFetch(`/api/facturacion/facturas/${facturaId}/adjuntos`)
         .then((r) => r.json())
         .then((d) => setAdjuntos(Array.isArray(d.adjuntos) ? d.adjuntos : []))
         .catch(() => setAdjuntos([]))
@@ -414,9 +415,8 @@ export function FacturaVentaDetallePanel({
         body.numero_factura_proveedor = numFacturaProveedor;
         body.fecha_contabilizacion = fechaContabilizacionIso || null;
       }
-      const res = await fetch(`${apiUrl}/api/facturacion/facturas/${facturaId}`, {
+      const res = await apiFetch(`/api/facturacion/facturas/${facturaId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await res.json();

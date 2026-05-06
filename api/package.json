@@ -4,12 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
+    "start": "node --env-file-if-exists=.env.local --env-file-if-exists=.env server.js",
+    "dev": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --watch server.js",
     "sync-closeouts": "node scripts/full-sync-closeouts.js",
     "sync-closeouts:interval": "node scripts/sync-closeouts-interval.js",
     "seed-gestion-festivos": "node scripts/seed-gestion-festivos.js",
-    "cleanup-pedidos-lineas-huerfanas": "node scripts/cleanup-pedidos-lineas-huerfanas.js"
+    "cleanup-pedidos-lineas-huerfanas": "node scripts/cleanup-pedidos-lineas-huerfanas.js",
+    "reset-password": "node scripts/reset-password.js"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.700.0",

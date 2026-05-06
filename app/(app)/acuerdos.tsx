@@ -23,6 +23,7 @@ import * as Sharing from 'expo-sharing';
 import { useAuth } from '../contexts/AuthContext';
 import { calcTiempoRestante } from '../lib/acuerdosFechas';
 import { ComprasProveedorModal } from '../components/ComprasProveedorModal';
+import { apiFetch } from '../utils/api';
 
 type DetalleProducto = { PK: string; SK: string; ProductId: string; ProductName: string; Cantidad: number; Aportacion: number; Rappel: number; DescuentoExtra: number; Compradas: number; Restante: number; Porcentaje: number; createdAt?: string };
 
@@ -210,7 +211,6 @@ function TooltipBtn({ tooltip, children, ...props }: { tooltip: string; children
   );
 }
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const ACUERDOS_LAST_SELECTED_KEY = 'acuerdos-last-selected-pk';
 
 type Acuerdo = {
@@ -470,7 +470,7 @@ export default function AcuerdosScreen() {
     else setLoading(true);
     setError('');
     try {
-      const res = await fetch(`${API_URL}/api/acuerdos`);
+      const res = await apiFetch('/api/acuerdos');
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error');
       const items: Acuerdo[] = data.items || [];
@@ -480,9 +480,8 @@ export default function AcuerdosScreen() {
         if (a.Estado === 'Activo' && a.FechaFin && a.FechaFin < hoy) {
           a.Estado = 'Vencido';
           vencidos.push(
-            fetch(`${API_URL}/api/acuerdos/${a.PK}`, {
+            apiFetch(`/api/acuerdos/${a.PK}`, {
               method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ Estado: 'Vencido' }),
             }).then(() => {}).catch(() => {})
           );
@@ -521,9 +520,8 @@ export default function AcuerdosScreen() {
         ? notasEditorWebRef.current.innerText.trim()
         : notasDraft.trim();
     try {
-      const res = await fetch(`${API_URL}/api/acuerdos/${encodeURIComponent(seleccionado.PK)}`, {
+      const res = await apiFetch(`/api/acuerdos/${encodeURIComponent(seleccionado.PK)}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ Notas: textoNotas }),
       });
       const data = await res.json();
@@ -588,7 +586,7 @@ export default function AcuerdosScreen() {
     if (empresas.length > 0) return;
     setLoadingEmpresas(true);
     try {
-      const res = await fetch(`${API_URL}/api/empresas`);
+      const res = await apiFetch('/api/empresas');
       const data = await res.json();
       const list = data.empresas || [];
       list.sort((a: any, b: any) => (a.Alias || a.Nombre || '').localeCompare(b.Alias || b.Nombre || ''));
@@ -601,7 +599,7 @@ export default function AcuerdosScreen() {
 
   const cargarTotales = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/acuerdos/totales`);
+      const res = await apiFetch('/api/acuerdos/totales');
       const data = await res.json();
       if (res.ok && data.totales) setTotalesPorAcuerdo(data.totales);
     } catch (_) {}
@@ -656,9 +654,9 @@ export default function AcuerdosScreen() {
         Estado: form.Estado,
       };
       if (!editId) payload.PK = formPK;
-      const url = editId ? `${API_URL}/api/acuerdos/${editId}` : `${API_URL}/api/acuerdos`;
+      const url = editId ? `/api/acuerdos/${editId}` : `/api/acuerdos`;
       const method = editId ? 'PATCH' : 'POST';
-      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const res = await apiFetch(url, { method, body: JSON.stringify(payload) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error');
       setModalVisible(false);
@@ -682,7 +680,7 @@ export default function AcuerdosScreen() {
 
   const eliminar = async (id: string) => {
     try {
-      await fetch(`${API_URL}/api/acuerdos/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/acuerdos/${id}`, { method: 'DELETE' });
       await cargar({ background: acuerdosRef.current.length > 0 });
       cargarTotales();
     } catch (err: any) {
@@ -724,7 +722,7 @@ export default function AcuerdosScreen() {
     const showLoading = options?.showLoading !== false;
     if (showLoading) setLoadingDetalles(true);
     try {
-      const res = await fetch(`${API_URL}/api/acuerdos/${acuerdoPK}/detalles-con-compras`);
+      const res = await apiFetch(`/api/acuerdos/${acuerdoPK}/detalles-con-compras`);
       const data = await res.json();
       if (cargarDetallesRequestIdRef.current !== requestId) return;
       if (res.ok) {
@@ -805,9 +803,8 @@ export default function AcuerdosScreen() {
     const name = String(valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? id).trim();
     if (!id) return false;
     try {
-      const res = await fetch(`${API_URL}/api/acuerdos/${seleccionado.PK}/detalles`, {
+      const res = await apiFetch(`/api/acuerdos/${seleccionado.PK}/detalles`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ProductId: id, ProductName: name, Cantidad: 0 }),
       });
       if (res.ok) {
@@ -870,9 +867,8 @@ export default function AcuerdosScreen() {
   const actualizarCantidad = async (productId: string, cantidad: number) => {
     if (!seleccionado) return;
     try {
-      await fetch(`${API_URL}/api/acuerdos/${seleccionado.PK}/detalles/${productId}`, {
+      await apiFetch(`/api/acuerdos/${seleccionado.PK}/detalles/${productId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ Cantidad: cantidad }),
       });
     } catch (err: any) { setError(err.message); }
@@ -881,9 +877,8 @@ export default function AcuerdosScreen() {
   const actualizarCampoDetalle = async (productId: string, campo: string, valor: number) => {
     if (!seleccionado) return;
     try {
-      await fetch(`${API_URL}/api/acuerdos/${seleccionado.PK}/detalles/${productId}`, {
+      await apiFetch(`/api/acuerdos/${seleccionado.PK}/detalles/${productId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [campo]: valor }),
       });
     } catch (err: any) { setError(err.message); }
@@ -897,8 +892,8 @@ export default function AcuerdosScreen() {
   const removeProductoDetalle = async (productId: string) => {
     if (!seleccionado) return;
     try {
-      const res = await fetch(
-        `${API_URL}/api/acuerdos/${encodeURIComponent(seleccionado.PK)}/detalles/${encodeURIComponent(productId)}`,
+      const res = await apiFetch(
+        `/api/acuerdos/${encodeURIComponent(seleccionado.PK)}/detalles/${encodeURIComponent(productId)}`,
         { method: 'DELETE' }
       );
       const data = await res.json().catch(() => ({}));
@@ -928,7 +923,7 @@ export default function AcuerdosScreen() {
   const cargarPagosImagen = useCallback(async (acuerdoPK: string) => {
     setLoadingPagos(true);
     try {
-      const res = await fetch(`${API_URL}/api/acuerdos/${acuerdoPK}/imagen`);
+      const res = await apiFetch(`/api/acuerdos/${acuerdoPK}/imagen`);
       const data = await res.json();
       if (res.ok) setPagosImagen(data.items || []);
     } catch (_) {}
@@ -938,7 +933,7 @@ export default function AcuerdosScreen() {
   const cargarLocales = useCallback(async () => {
     if (localesLoaded) return;
     try {
-      const res = await fetch(`${API_URL}/api/locales?minimal=1`);
+      const res = await apiFetch('/api/locales?minimal=1');
       const data = await res.json();
       const list = (data.locales || []).map((l: any) => ({ id: l.id_Locales || l.Id || '', nombre: l.nombre || l.Nombre || '' }));
       list.sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
@@ -950,7 +945,7 @@ export default function AcuerdosScreen() {
   const cargarArchivos = useCallback(async (acuerdoPK: string) => {
     setLoadingArchivos(true);
     try {
-      const res = await fetch(`${API_URL}/api/acuerdos/${acuerdoPK}/files`);
+      const res = await apiFetch(`/api/acuerdos/${acuerdoPK}/files`);
       const data = await res.json();
       if (res.ok) setArchivos(data);
     } catch (_) {}
@@ -965,7 +960,7 @@ export default function AcuerdosScreen() {
           cargar({ background: acuerdosRef.current.length > 0 }),
           (async () => {
             try {
-              const res = await fetch(`${API_URL}/api/acuerdos/totales`);
+              const res = await apiFetch('/api/acuerdos/totales');
               const data = await res.json();
               return res.ok && data.totales ? data.totales : {};
             } catch (_) { return {}; }
@@ -978,7 +973,7 @@ export default function AcuerdosScreen() {
           let a = items.find((x: Acuerdo) => x.PK === lastPK);
           if (!a) {
             try {
-              const res = await fetch(`${API_URL}/api/acuerdos/${encodeURIComponent(lastPK)}`);
+              const res = await apiFetch(`/api/acuerdos/${encodeURIComponent(lastPK)}`);
               const data = await res.json();
               if (res.ok && data.item) {
                 const fetched = data.item as Acuerdo;
@@ -1016,9 +1011,8 @@ export default function AcuerdosScreen() {
       try {
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
-          const presignRes = await fetch(`${API_URL}/api/acuerdos/${seleccionado.PK}/files/presign-upload`, {
+          const presignRes = await apiFetch(`/api/acuerdos/${seleccionado.PK}/files/presign-upload`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ fileName: file.name, contentType: file.type }),
           });
           const { uploadUrl, fileKey } = await presignRes.json();
@@ -1029,9 +1023,8 @@ export default function AcuerdosScreen() {
             body: file,
           });
 
-          await fetch(`${API_URL}/api/acuerdos/${seleccionado.PK}/files`, {
+          await apiFetch(`/api/acuerdos/${seleccionado.PK}/files`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ fileKey, fileName: file.name, contentType: file.type, size: file.size }),
           });
         }
@@ -1048,7 +1041,7 @@ export default function AcuerdosScreen() {
   const eliminarArchivo = useCallback(async (fileKey: string) => {
     if (!seleccionado) return;
     try {
-      await fetch(`${API_URL}/api/acuerdos/${seleccionado.PK}/files/${encodeURIComponent(fileKey)}`, { method: 'DELETE' });
+      await apiFetch(`/api/acuerdos/${seleccionado.PK}/files/${encodeURIComponent(fileKey)}`, { method: 'DELETE' });
       setArchivos((prev) => prev.filter((f) => f.fileKey !== fileKey));
     } catch (err) {
       console.error('Error eliminando archivo', err);
@@ -1081,10 +1074,10 @@ export default function AcuerdosScreen() {
         Descripcion: imgForm.Descripcion,
       };
       const url = imgEditSK
-        ? `${API_URL}/api/acuerdos/${seleccionado.PK}/imagen/${imgEditSK}`
-        : `${API_URL}/api/acuerdos/${seleccionado.PK}/imagen`;
+        ? `/api/acuerdos/${seleccionado.PK}/imagen/${imgEditSK}`
+        : `/api/acuerdos/${seleccionado.PK}/imagen`;
       const method = imgEditSK ? 'PATCH' : 'POST';
-      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const res = await apiFetch(url, { method, body: JSON.stringify(payload) });
       if (res.ok) {
         setImgModalVisible(false);
         await cargarPagosImagen(seleccionado.PK);
@@ -1096,7 +1089,7 @@ export default function AcuerdosScreen() {
   const eliminarPagoImagen = async (sk: string) => {
     if (!seleccionado) return;
     try {
-      await fetch(`${API_URL}/api/acuerdos/${seleccionado.PK}/imagen/${sk}`, { method: 'DELETE' });
+      await apiFetch(`/api/acuerdos/${seleccionado.PK}/imagen/${sk}`, { method: 'DELETE' });
       await cargarPagosImagen(seleccionado.PK);
     } catch (err: any) { setError(err.message); }
   };
@@ -1972,8 +1965,8 @@ export default function AcuerdosScreen() {
                               const newVal = !p.Realizado;
                               setPagosImagen((prev) => prev.map((x) => x.SK === p.SK ? { ...x, Realizado: newVal } : x));
                               try {
-                                await fetch(`${API_URL}/api/acuerdos/${seleccionado!.PK}/imagen/${p.SK}`, {
-                                  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                                await apiFetch(`/api/acuerdos/${seleccionado!.PK}/imagen/${p.SK}`, {
+                                  method: 'PATCH',
                                   body: JSON.stringify({ Realizado: newVal }),
                                 });
                               } catch (_) {}

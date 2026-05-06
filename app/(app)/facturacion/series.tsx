@@ -18,8 +18,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { ICONS, ICON_SIZE } from '../../constants/icons';
 import { TablaBasica } from '../../components/TablaBasica';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../../utils/api';
 
 type Serie = {
   serie: string;
@@ -82,7 +81,7 @@ export default function SeriesScreen() {
   const fetchSeries = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetch(`${API_URL}/api/facturacion/series`)
+    apiFetch('/api/facturacion/series')
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
@@ -149,9 +148,8 @@ export default function SeriesScreen() {
     setErrorForm(null);
     try {
       const method = editingMode ? 'PUT' : 'POST';
-      const res = await fetch(`${API_URL}/api/facturacion/series`, {
+      const res = await apiFetch('/api/facturacion/series', {
         method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...form, prefijo_formato: `${form.serie}-{YYYY}-` }),
       });
       const data = await res.json();
@@ -178,9 +176,8 @@ export default function SeriesScreen() {
     if (!serieToDelete) return;
     setGuardando(true);
     try {
-      const res = await fetch(`${API_URL}/api/facturacion/series`, {
+      const res = await apiFetch('/api/facturacion/series', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ serie: serieToDelete.serie }),
       });
       const data = await res.json();

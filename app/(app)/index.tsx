@@ -3,8 +3,7 @@ import { View, Text, StyleSheet, ActivityIndicator, Platform, Animated, ScrollVi
 import { MaterialIcons } from '@expo/vector-icons';
 import WeatherWidget from '../components/WeatherWidget';
 import { useAuth } from '../contexts/AuthContext';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../utils/api';
 
 /** Ancho máximo del contenido en tablet / web ancha (márgenes laterales automáticos). */
 const HOME_CONTENT_MAX_WIDTH = 1120;
@@ -127,7 +126,7 @@ export default function AppHome() {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetch(`${API_URL}/api/agora/closeouts/dashboard-home?dateTo=${encodeURIComponent(yesterday)}`)
+    apiFetch(`/api/agora/closeouts/dashboard-home?dateTo=${encodeURIComponent(yesterday)}`)
       .then((res) => res.json())
       .then((data: { error?: string; totalsTicker?: TotalByLocal[] }) => {
         if (cancelled) return;
@@ -144,7 +143,7 @@ export default function AppHome() {
     let cancelled = false;
     setYtdLoading(true);
     setYtdError(null);
-    fetch(`${API_URL}/api/agora/closeouts/dashboard-home?dateTo=${encodeURIComponent(dateTo)}`)
+    apiFetch(`/api/agora/closeouts/dashboard-home?dateTo=${encodeURIComponent(dateTo)}`)
       .then((res) => res.json())
       .then(
         (data: {

@@ -19,8 +19,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
 import { useAuth } from '../../contexts/AuthContext';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../../utils/api';
 
 /** Bancos permitidos en boletas (valor guardado = id). Logos vía Wikimedia; si falla la carga, se usa badge de color. */
 const BANCOS_ARQUEO = [
@@ -366,14 +365,14 @@ export default function ArqueoCajaScreen() {
   }, [saleCenters, formLocal, agoraCodeToNombre]);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/locales`)
+    apiFetch('/api/locales')
       .then((r) => safeJson<{ locales?: LocalItem[] }>(r))
       .then((d) => setLocales(d.locales || []))
       .catch(() => setLocales([]));
   }, []);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/agora/sale-centers`)
+    apiFetch('/api/agora/sale-centers')
       .then((r) => safeJson<{ saleCenters?: typeof saleCenters }>(r))
       .then((d) => setSaleCenters(d.saleCenters || []))
       .catch(() => setSaleCenters([]));
@@ -453,7 +452,7 @@ export default function ArqueoCajaScreen() {
       businessDay: businessDayIso,
       posId: formPosId,
     });
-    fetch(`${API_URL}/api/cajas/arqueos-reales/compare?${q}`)
+    apiFetch(`/api/cajas/arqueos-reales/compare?${q}`)
       .then((r) => safeJson<CompareResponse & { error?: string }>(r))
       .then((data) => {
         if ((data as { error?: string }).error) {
@@ -472,8 +471,8 @@ export default function ArqueoCajaScreen() {
             normalized.map(async (l) => {
               if (!l.imagenKey || l.localUri) return l;
               try {
-                const rurl = await fetch(
-                  `${API_URL}/api/cajas/arqueos-reales/ticket-image-url?key=${encodeURIComponent(l.imagenKey)}`,
+                const rurl = await apiFetch(
+                  `/api/cajas/arqueos-reales/ticket-image-url?key=${encodeURIComponent(l.imagenKey)}`,
                 );
                 const d = await safeJson<{ url?: string }>(rurl);
                 return { ...l, previewUrl: d.url };
@@ -506,9 +505,8 @@ export default function ArqueoCajaScreen() {
     setSyncingCloseouts(true);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/api/agora/closeouts/sync`, {
+      const res = await apiFetch('/api/agora/closeouts/sync', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           businessDay: businessDayIso,
           workplaces: formLocal.trim(),
@@ -575,9 +573,8 @@ export default function ArqueoCajaScreen() {
         usuarioId: user?.id_usuario,
         usuarioNombre: user?.Nombre,
       };
-      const res = await fetch(`${API_URL}/api/cajas/arqueos-reales`, {
+      const res = await apiFetch('/api/cajas/arqueos-reales', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await safeJson<{ ok?: boolean; error?: string }>(res);
@@ -648,7 +645,7 @@ export default function ArqueoCajaScreen() {
         form.append('businessDay', businessDayIso);
         form.append('lineId', line.id);
         await appendImagenOcrTarjeta(form, uri);
-        const resp = await fetch(`${API_URL}/api/cajas/arqueos-reales/ocr-ticket`, { method: 'POST', body: form });
+        const resp = await apiFetch('/api/cajas/arqueos-reales/ocr-ticket', { method: 'POST', body: form });
         const data = await safeJson<{
           ok?: boolean;
           error?: string;

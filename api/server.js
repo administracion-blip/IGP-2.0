@@ -11,6 +11,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { tables } from './lib/db.js';
+import { requireAuth } from './middleware/auth.js';
 import { ensureComprasGSI } from './lib/dynamo/comprasProveedor.js';
 import {
   runCloseoutsSync,
@@ -28,6 +29,7 @@ import arqueosRealesRouter from './routes/arqueosReales.js';
 import mysteryGuestRouter from './routes/mysteryGuest.js';
 import personalRouter from './routes/personal.js';
 import authRouter from './routes/auth.js';
+import publicRouter from './routes/public.js';
 import usuariosRouter from './routes/usuarios.js';
 import productosRouter from './routes/productos.js';
 import almacenesRouter from './routes/almacenes.js';
@@ -96,11 +98,18 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, message: 'API ERP OK', port: process.env.PORT || 3002 });
 });
 
+// --- Rutas públicas (sin requireAuth global): authRouter expone /login público
+//     y /me con su propio requireAuth de ruta. /api/health ya está arriba. ---
+app.use('/api', authRouter);
+app.use('/api', publicRouter);
+
+// --- A partir de aquí, TODO /api requiere token Bearer válido. ---
+app.use('/api', requireAuth);
+
 app.use('/api', agoraRouter);
 ensureComprasGSI();
 app.use('/api', acuerdosRouter);
 
-app.use('/api', authRouter);
 app.use('/api', usuariosRouter);
 app.use('/api', productosRouter);
 app.use('/api', almacenesRouter);

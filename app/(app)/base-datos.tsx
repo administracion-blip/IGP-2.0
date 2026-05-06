@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'rea
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
+import { apiFetch } from '../utils/api';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -28,7 +29,7 @@ export default function BaseDatosScreen() {
     setApiConectado(null);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
-    fetch(`${API_URL}/api/health`, { method: 'GET', signal: controller.signal })
+    apiFetch('/api/health', { method: 'GET', signal: controller.signal })
       .then((res) => (res.ok ? res.json() : Promise.resolve(null)))
       .then((data) => {
         setApiConectado(data?.ok === true);

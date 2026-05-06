@@ -18,6 +18,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatMoneda, round2 } from '../../utils/facturacion';
 import { useLocalToast, detectToastType } from '../../components/Toast';
+import { apiFetch } from '../../utils/api';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -387,9 +388,8 @@ export default function RegistroMasivoScreen() {
 
     setZonaExtracting(true);
     try {
-      const res = await fetch(`${API_URL}/api/facturacion/ocr/extraer-zona`, {
+      const res = await apiFetch(`/api/facturacion/ocr/extraer-zona`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fileKey: selectedBorrador.archivo.fileKey,
           x: rx,
@@ -442,7 +442,7 @@ export default function RegistroMasivoScreen() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/empresas`);
+        const res = await apiFetch('/api/empresas');
         const data = await res.json();
         if (!cancelled && Array.isArray(data.empresas)) setEmpresasCatalogo(data.empresas);
       } catch {
@@ -499,9 +499,8 @@ export default function RegistroMasivoScreen() {
     if (!prevRow?.entidades_candidatas?.length) return;
 
     try {
-      const res = await fetch(`${API_URL}/api/facturacion/ocr/reconciliar`, {
+      const res = await apiFetch(`/api/facturacion/ocr/reconciliar`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sociedad_cif: socCif,
           sociedad_nombre: socNombre,
@@ -589,7 +588,7 @@ export default function RegistroMasivoScreen() {
         try {
           const formData = new FormData();
           formData.append('file', file);
-          const res = await fetch(`${API_URL}/api/facturacion/ocr/extraer`, {
+          const res = await apiFetch(`/api/facturacion/ocr/extraer`, {
             method: 'POST',
             body: formData,
           });
@@ -599,9 +598,8 @@ export default function RegistroMasivoScreen() {
           let d = data.datos;
           if (usarEnriquecimientoIa) {
             try {
-              const rIa = await fetch(`${API_URL}/api/facturacion/ocr/enriquecer-ia`, {
+              const rIa = await apiFetch(`/api/facturacion/ocr/enriquecer-ia`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   datos: d,
                   texto_extraido: typeof d.texto_extraido === 'string' ? d.texto_extraido : '',
@@ -698,9 +696,8 @@ export default function RegistroMasivoScreen() {
       prev.map((b) => b.idx === borrador.idx ? { ...b, checkingDup: true } : b)
     );
     try {
-      const res = await fetch(`${API_URL}/api/facturacion/check-duplicados`, {
+      const res = await apiFetch(`/api/facturacion/check-duplicados`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           proveedor_cif: borrador.proveedor_cif,
           numero_factura_proveedor: borrador.numero_factura_proveedor,
@@ -859,9 +856,8 @@ export default function RegistroMasivoScreen() {
     }
     setCreandoEmpresa(true);
     try {
-      const res = await fetch(`${API_URL}/api/empresas`, {
+      const res = await apiFetch(`/api/empresas`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           Nombre: nombre,
           Cif: borradorModalEmpresa.proveedor_cif,
@@ -912,9 +908,8 @@ export default function RegistroMasivoScreen() {
     }
     setGuardando(true);
     try {
-      const res = await fetch(`${API_URL}/api/facturacion/ocr/confirmar`, {
+      const res = await apiFetch(`/api/facturacion/ocr/confirmar`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           borradores: activos.map((b) => ({
             ...b,

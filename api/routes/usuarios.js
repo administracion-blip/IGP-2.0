@@ -2,9 +2,14 @@ import express from 'express';
 import bcrypt from 'bcrypt';
 import { ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 const BCRYPT_ROUNDS = 10;
+
+// Roles aceptados por el backend al crear usuarios. Debe coincidir con ROL_OPCIONES
+// en app/(app)/usuarios.tsx. La cadena vacía está permitida (usuario sin rol).
+const ROLES_VALIDOS = ['Administrador', 'SuperUser', 'Administracion', 'Local', 'Socio'];
 
 // Formato mínimo 6 dígitos para campos id_ (000001, 000002, ...).
 function formatId6(val) {
@@ -50,10 +55,13 @@ function normalizeLocal(val) {
 }
 
 // Crear usuario (guardar en DynamoDB). Solo se escriben atributos de TABLE_USUARIOS_ATTRS.
-router.post('/usuarios', async (req, res) => {
+router.post('/usuarios', requireAuth, requireRole('Administrador'), async (req, res) => {
   const body = req.body || {};
   if (!body.Email || !body.Password) {
     return res.status(400).json({ error: 'Email y Password son obligatorios' });
+  }
+  if (body.Rol && !ROLES_VALIDOS.includes(body.Rol)) {
+    return res.status(400).json({ error: 'Rol no válido' });
   }
 
   try {
@@ -89,7 +97,7 @@ router.post('/usuarios', async (req, res) => {
 });
 
 // Actualizar usuario (por id_usuario). Si Password viene vacío, se mantiene el actual.
-router.put('/usuarios', async (req, res) => {
+router.put('/usuarios', requireAuth, requireRole('Administrador'), async (req, res) => {
   const body = req.body || {};
   const idUsuario = body.id_usuario != null ? String(body.id_usuario) : '';
   if (!idUsuario) {
@@ -141,7 +149,7 @@ router.put('/usuarios', async (req, res) => {
 });
 
 // Borrar usuario por id_usuario (clave de la tabla).
-router.delete('/usuarios', async (req, res) => {
+router.delete('/usuarios', requireAuth, requireRole('Administrador'), async (req, res) => {
   const idUsuario = req.body?.id_usuario != null ? String(req.body.id_usuario) : req.query?.id_usuario != null ? String(req.query.id_usuario) : '';
   if (!idUsuario) {
     return res.status(400).json({ error: 'id_usuario es obligatorio para borrar' });

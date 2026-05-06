@@ -15,8 +15,7 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { formatMoneda, labelEstado, colorEstado, esEmpresaSedeGrupoParipe } from '../../utils/facturacion';
 import { useAuth } from '../../contexts/AuthContext';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../../utils/api';
 
 type EmpresaOpt = { id: string; nombre: string };
 
@@ -108,7 +107,7 @@ export default function FacturacionIndexScreen() {
     params.set('anio', String(filtroAnio));
     if (filtroMes >= 1 && filtroMes <= 12) params.set('mes', String(filtroMes));
     const q = `?${params.toString()}`;
-    fetch(`${API_URL}/api/facturacion/metricas${q}`)
+    apiFetch(`/api/facturacion/metricas${q}`)
       .then((r) => r.json())
       .then((data) => setMetricas(data.metricas || null))
       .catch(() => setMetricas(null))
@@ -116,7 +115,7 @@ export default function FacturacionIndexScreen() {
   }, [empresaSeleccionadaId, filtroAnio, filtroMes]);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/empresas`)
+    apiFetch('/api/empresas')
       .then((r) => r.json())
       .then((d) => {
         const raw: unknown[] = d.empresas ?? d ?? [];
@@ -136,7 +135,7 @@ export default function FacturacionIndexScreen() {
   }, []);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/facturacion/check-vencimientos`, { method: 'POST' })
+    apiFetch('/api/facturacion/check-vencimientos', { method: 'POST' })
       .catch(() => {})
       .finally(() => fetchMetricas());
   }, [fetchMetricas]);

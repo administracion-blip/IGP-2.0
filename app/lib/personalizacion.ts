@@ -1,4 +1,5 @@
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../utils/api';
+import { API_BASE_URL } from '../utils/apiBaseUrl';
 
 /**
  * Precio de venta mostrado = precio base × (1 + porcentaje/100). Sin efecto si el % es 0 o inválido.
@@ -13,10 +14,11 @@ export function aplicarPorcentajeBeneficio(precioBase: number, porcentajeBenefic
 
 /**
  * Porcentaje de beneficio global (ajustes → personalización).
+ * Nota: este endpoint requiere auth; si se llama sin sesión devuelve 0.
  */
-export async function fetchPorcentajeBeneficio(baseUrl = API_URL): Promise<number> {
+export async function fetchPorcentajeBeneficio(): Promise<number> {
   try {
-    const res = await fetch(`${baseUrl}/api/ajustes/personalizacion/app`);
+    const res = await apiFetch('/api/ajustes/personalizacion/app');
     const data = await res.json();
     if (!res.ok || !data?.ok || !data?.item) return 0;
     const p = (data.item as { PorcentajeBeneficio?: number }).PorcentajeBeneficio;
@@ -29,13 +31,15 @@ export async function fetchPorcentajeBeneficio(baseUrl = API_URL): Promise<numbe
 
 /**
  * Obtiene la URI de imagen de personalización (data URL o http) desde Igp_Ajustes.
+ * Endpoint PÚBLICO (no requiere token) — usado en el login antes de autenticar.
+ * El parámetro `_baseUrl` se mantiene por compatibilidad con `login.tsx` pero se ignora.
  */
-export async function fetchImagenApp(baseUrl = API_URL): Promise<string | null> {
+export async function fetchImagenApp(_baseUrl?: string): Promise<string | null> {
   try {
-    const res = await fetch(`${baseUrl}/api/ajustes/personalizacion/app`);
+    const res = await fetch(`${API_BASE_URL}/api/public/personalizacion/app-image`);
     const data = await res.json();
-    if (!res.ok || !data?.ok || !data?.item) return null;
-    const uri = data.item.ImagenApp;
+    if (!res.ok) return null;
+    const uri = data?.imagen;
     return typeof uri === 'string' && uri.trim().length > 0 ? uri.trim() : null;
   } catch {
     return null;

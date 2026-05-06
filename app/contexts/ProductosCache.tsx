@@ -1,6 +1,5 @@
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../utils/api';
 
 type Producto = Record<string, unknown>;
 
@@ -41,7 +40,7 @@ export function ProductosCacheProvider({ children }: { children: React.ReactNode
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/api/agora/products`);
+      const res = await apiFetch('/api/agora/products');
       const data: { productos?: Producto[]; error?: string } = await res.json();
       if (data.error) {
         setError(data.error);
@@ -64,9 +63,8 @@ export function ProductosCacheProvider({ children }: { children: React.ReactNode
     setSyncing(true);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/api/agora/products/sync?force=1`, {
+      const res = await apiFetch('/api/agora/products/sync?force=1', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: '{}',
       });
       const data = await res.json();

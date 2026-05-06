@@ -16,8 +16,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
 import * as XLSX from 'xlsx-js-style';
 import { exportRevisionFormasPagoPdf } from './pdfRevisionFormasPago';
+import { apiFetch } from '../../utils/api';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const PAGE_SIZE = 100;
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 50;
@@ -268,7 +268,7 @@ export default function RevisionFormasPagoScreen() {
   });
 
   useEffect(() => {
-    fetch(`${API_URL}/api/locales`)
+    apiFetch('/api/locales')
       .then((res) => safeJson<{ locales?: LocalItem[] }>(res))
       .then((data) => setLocales(data.locales || []))
       .catch(() => setLocales([]));
@@ -346,7 +346,7 @@ export default function RevisionFormasPagoScreen() {
       }
       if (opts.refresh) params.set('refresh', '1');
 
-      const res = await fetch(`${API_URL}/api/agora/invoices/payments-review?${params.toString()}`);
+      const res = await apiFetch(`/api/agora/invoices/payments-review?${params.toString()}`);
       const data = await safeJson<{
         rows?: Row[];
         error?: string;

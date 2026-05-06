@@ -9,6 +9,7 @@ import { formatFecha } from '../../utils/formatFecha';
 import { formatMoneda } from '../../utils/facturacion';
 import { API_BASE_URL } from '../../utils/apiBaseUrl';
 import { fechaComparacionParaObjetivo, type FestivoGestionRow } from '../../utils/objetivosComparativa';
+import { apiFetch } from '../../utils/api';
 
 export type ActuacionCalItem = {
   id_actuacion: string;
@@ -296,7 +297,7 @@ export function ActuacionesCalendario({ actuaciones, locales }: Props) {
       }
       let festivosByFecha: Record<string, FestivoGestionRow> = {};
       try {
-        const fr = await fetch(`${API_BASE_URL}/api/gestion-festivos`);
+        const fr = await apiFetch('/api/gestion-festivos');
         const fd = await fr.json();
         const list = Array.isArray(fd.registros) ? fd.registros : [];
         festivosByFecha = Object.fromEntries(
@@ -320,8 +321,8 @@ export function ActuacionesCalendario({ actuaciones, locales }: Props) {
           return;
         }
         try {
-          const url = `${API_BASE_URL}/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${fechaComp}&dateTo=${fechaComp}`;
-          const r = await fetch(url);
+          const url = `/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${fechaComp}&dateTo=${fechaComp}`;
+          const r = await apiFetch(url);
           const d = (await r.json()) as { totals?: Record<string, number> };
           const totals = d.totals ?? {};
           const raw = totals[fechaComp];
@@ -353,7 +354,7 @@ export function ActuacionesCalendario({ actuaciones, locales }: Props) {
       await Promise.all(
         ids.map(async (id) => {
           try {
-            const r = await fetch(`${API_BASE_URL}/api/artistas/${encodeURIComponent(id)}/imagen-url`);
+            const r = await apiFetch(`/api/artistas/${encodeURIComponent(id)}/imagen-url`);
             const d = (await r.json()) as { url?: string | null };
             updates[id] = d.url && typeof d.url === 'string' ? d.url : null;
           } catch {

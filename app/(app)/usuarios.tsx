@@ -18,8 +18,7 @@ import { ICONS, ICON_SIZE } from '../constants/icons';
 import { emailValido } from '../utils/validation';
 import { formatId6 } from '../utils/idFormat';
 import { useAuth, UserSession } from '../contexts/AuthContext';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../utils/api';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -149,9 +148,8 @@ export default function UsuariosScreen() {
     setErrorCrearLocal(null);
     setGuardandoCrearLocal(true);
     try {
-      const res = await fetch(`${API_URL}/api/locales`, {
+      const res = await apiFetch('/api/locales', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           Nombre: nombre,
           Sede: 'Grupo Paripe',
@@ -199,7 +197,7 @@ export default function UsuariosScreen() {
   }, []);
 
   const refetchUsuarios = useCallback(() => {
-    fetch(`${API_URL}/api/usuarios`)
+    apiFetch('/api/usuarios')
       .then((res) => res.json())
       .then((data) => {
         if (data.error) setError(data.error);
@@ -243,10 +241,9 @@ export default function UsuariosScreen() {
         else if (key === 'Local') body[key] = formLocales;
         else body[key] = formNuevo[key] ?? '';
       }
-      const url = `${API_URL}/api/usuarios`;
-      const res = await fetch(url, {
+      const url = '/api/usuarios';
+      const res = await apiFetch(url, {
         method: isEdit ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await res.json();
@@ -288,9 +285,8 @@ export default function UsuariosScreen() {
     }
     setGuardando(true);
     try {
-      const res = await fetch(`${API_URL}/api/usuarios`, {
+      const res = await apiFetch('/api/usuarios', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id_usuario: id }),
       });
       const data = await res.json();
@@ -349,7 +345,7 @@ export default function UsuariosScreen() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API_URL}/api/usuarios`)
+    apiFetch('/api/usuarios')
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
@@ -366,7 +362,7 @@ export default function UsuariosScreen() {
   }, [ordenarPorId]);
 
   const refetchLocales = useCallback(() => {
-    fetch(`${API_URL}/api/locales`)
+    apiFetch('/api/locales')
       .then((res) => res.json())
       .then((data: { locales?: LocalItem[] }) => {
         const list = data.locales || [];

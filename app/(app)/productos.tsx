@@ -18,8 +18,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { formatId6 } from '../utils/idFormat';
 import { useProductosCache } from '../contexts/ProductosCache';
 import { useLocalToast } from '../components/Toast';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../utils/api';
 
 const PAGE_SIZE = 50;
 const MAX_TEXT_LENGTH = 30;
@@ -260,9 +259,8 @@ export default function ProductosScreen() {
       const nuevoVal = !actual;
       updateProductoLocal(idStr, { IGP: nuevoVal });
       try {
-        await fetch(`${API_URL}/api/agora/products/${encodeURIComponent(idStr)}`, {
+        await apiFetch(`/api/agora/products/${encodeURIComponent(idStr)}`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ IGP: nuevoVal }),
         });
       } catch {
@@ -281,9 +279,8 @@ export default function ProductosScreen() {
       const ids = [...selectedIds];
       ids.forEach((id) => updateProductoLocal(id, { IGP: nuevoVal }));
       try {
-        const res = await fetch(`${API_URL}/api/agora/products/igp/batch`, {
+        const res = await apiFetch('/api/agora/products/igp/batch', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             updates: ids.map((id) => ({ id, IGP: nuevoVal })),
           }),
@@ -347,9 +344,8 @@ export default function ProductosScreen() {
         VatId: formVatId.trim() || null,
         IGP: formIGP,
       };
-      const res = await fetch(`${API_URL}/api/agora/products/${encodeURIComponent(String(id))}`, {
+      const res = await apiFetch(`/api/agora/products/${encodeURIComponent(String(id))}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await res.json();

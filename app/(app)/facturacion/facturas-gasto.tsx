@@ -35,6 +35,7 @@ import { getTipoReciboFromEmpresasList, type EmpresaConTipoRecibo } from '../../
 import { useLocalToast } from '../../components/Toast';
 import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
 import { FacturaVentaDetallePanel } from '../../components/FacturaVentaDetallePanel';
+import { apiFetch } from '../../utils/api';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const PAGE_SIZE = 50;
@@ -231,7 +232,7 @@ export default function FacturasGastoScreen() {
   const fetchFacturas = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetch(`${API_URL}/api/facturacion/facturas?tipo=IN`)
+    apiFetch(`/api/facturacion/facturas?tipo=IN`)
       .then((r) => {
         if (!r.ok) throw new Error(`Error ${r.status}`);
         return r.json();
@@ -244,7 +245,7 @@ export default function FacturasGastoScreen() {
   useEffect(() => { fetchFacturas(); }, [fetchFacturas]);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/empresas`)
+    apiFetch('/api/empresas')
       .then((r) => r.json())
       .then((d) => {
         const raw: unknown[] = d.empresas ?? d ?? [];
@@ -389,7 +390,7 @@ export default function FacturasGastoScreen() {
     setDetallePagosLoading(true);
     setDetallePagosError(null);
     setDetallePagosLista([]);
-    fetch(`${API_URL}/api/facturacion/facturas/${factura.id_factura}/pagos`)
+    apiFetch(`/api/facturacion/facturas/${factura.id_factura}/pagos`)
       .then(async (r) => {
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || 'Error al cargar pagos');
@@ -438,7 +439,7 @@ export default function FacturasGastoScreen() {
   const verDocumento = async () => {
     if (!selectedFactura) return;
     try {
-      const res = await fetch(`${API_URL}/api/facturacion/facturas/${selectedFactura.id_factura}/adjuntos`);
+      const res = await apiFetch(`/api/facturacion/facturas/${selectedFactura.id_factura}/adjuntos`);
       const data = await res.json();
       const adjuntos = data.adjuntos ?? [];
       if (adjuntos.length === 0) {
@@ -481,9 +482,8 @@ export default function FacturasGastoScreen() {
     }
     setProcesando(true);
     try {
-      const res = await fetch(`${API_URL}/api/facturacion/facturas/${selectedFactura.id_factura}/emitir`, {
+      const res = await apiFetch(`/api/facturacion/facturas/${selectedFactura.id_factura}/emitir`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
       const data = await res.json();
@@ -501,9 +501,8 @@ export default function FacturasGastoScreen() {
     if (!selectedFactura) return;
     setProcesando(true);
     try {
-      const res = await fetch(`${API_URL}/api/facturacion/facturas/${selectedFactura.id_factura}`, {
+      const res = await apiFetch(`/api/facturacion/facturas/${selectedFactura.id_factura}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           usuario_id: user?.id_usuario ?? '',
           usuario_nombre: user?.Nombre ?? '',
@@ -535,9 +534,8 @@ export default function FacturasGastoScreen() {
     }
     setProcesando(true);
     try {
-      const res = await fetch(`${API_URL}/api/facturacion/facturas/${selectedFactura.id_factura}/pagos`, {
+      const res = await apiFetch(`/api/facturacion/facturas/${selectedFactura.id_factura}/pagos`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fecha: fechaIso,
           importe,

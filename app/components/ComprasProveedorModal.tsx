@@ -9,8 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../utils/api';
 
 const MESES_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
@@ -50,7 +49,7 @@ export function ComprasProveedorModal({ visible, onClose, productName, productId
       const params = new URLSearchParams({ productId });
       if (fechaInicio) params.set('fechaInicio', fechaInicio);
       if (fechaFin) params.set('fechaFin', fechaFin);
-      const res = await fetch(`${API_URL}/api/agora/purchases/por-producto?${params.toString()}`);
+      const res = await apiFetch(`/api/agora/purchases/por-producto?${params.toString()}`);
       const json = await res.json();
       setItems(json.items || []);
     } catch {

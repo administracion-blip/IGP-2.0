@@ -1,6 +1,5 @@
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../utils/api';
 
 type CompraLinea = Record<string, unknown>;
 
@@ -44,10 +43,10 @@ export function ComprasProveedorCacheProvider({ children }: { children: React.Re
     setLoading(true);
     setError(null);
     try {
-      const url = force
-        ? `${API_URL}/api/agora/purchases?refresh=1`
-        : `${API_URL}/api/agora/purchases`;
-      const res = await fetch(url);
+      const path = force
+        ? '/api/agora/purchases?refresh=1'
+        : '/api/agora/purchases';
+      const res = await apiFetch(path);
       const data = await res.json();
       if (!res.ok || data.error) {
         setError(data.error || `HTTP ${res.status}`);

@@ -21,8 +21,7 @@ import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
 import { ICONS, ICON_SIZE } from '../constants/icons';
 import { formatId6 } from '../utils/idFormat';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../utils/api';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -189,7 +188,7 @@ export default function EmpresasScreen() {
         try {
           const params = new URLSearchParams({ cif });
           if (editingEmpresaId) params.set('excludeId', editingEmpresaId);
-          const res = await fetch(`${API_URL}/api/empresas/check-cif?${params.toString()}`);
+          const res = await apiFetch(`/api/empresas/check-cif?${params.toString()}`);
           const data = await res.json();
           if (!res.ok) {
             setCifCheckError(data.error || 'No se pudo comprobar el CIF');
@@ -217,7 +216,7 @@ export default function EmpresasScreen() {
   const fetchCpAndFill = useCallback((cp: string) => {
     const normalized = cp?.trim().replace(/\s/g, '') || '';
     if (normalized.length !== 5 || !/^\d{5}$/.test(normalized)) return;
-    fetch(`${API_URL}/api/codigo-postal?cp=${encodeURIComponent(normalized)}`)
+    apiFetch(`/api/codigo-postal?cp=${encodeURIComponent(normalized)}`)
       .then((r) => r.json())
       .then((data: { municipio?: string; provincia?: string }) => {
         const municipio = data.municipio?.trim() || '';
@@ -258,7 +257,7 @@ export default function EmpresasScreen() {
   }, [valorEnLocal]);
 
   const refetchEmpresas = useCallback(() => {
-    fetch(`${API_URL}/api/empresas`)
+    apiFetch('/api/empresas')
       .then((res) => res.json())
       .then((data) => {
         if (data.error) setError(data.error);
@@ -330,7 +329,7 @@ export default function EmpresasScreen() {
       const idColIndex = expected.indexOf('id_empresa');
       let nextIdNum = 1;
       try {
-        const resList = await fetch(`${API_URL}/api/empresas`);
+        const resList = await apiFetch('/api/empresas');
         const dataList = await resList.json();
         const currentList = (dataList.empresas || []) as Empresa[];
         if (currentList.length > 0) {
@@ -369,9 +368,8 @@ export default function EmpresasScreen() {
           if (!Number.isNaN(parsed)) nextIdNum = Math.max(nextIdNum, parsed + 1);
         }
         try {
-          const res = await fetch(`${API_URL}/api/empresas`, {
+          const res = await apiFetch('/api/empresas', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
           });
           const data = await res.json();
@@ -414,9 +412,8 @@ export default function EmpresasScreen() {
         else if (key === 'Etiqueta') body[key] = Array.isArray(formNuevo.Etiqueta) ? formNuevo.Etiqueta : [];
         else body[key] = (formNuevo[key] ?? '') as string;
       }
-      const res = await fetch(`${API_URL}/api/empresas`, {
+      const res = await apiFetch('/api/empresas', {
         method: isEdit ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await res.json();
@@ -442,9 +439,8 @@ export default function EmpresasScreen() {
     if (!idStr) return;
     setGuardando(true);
     try {
-      const res = await fetch(`${API_URL}/api/empresas`, {
+      const res = await apiFetch('/api/empresas', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id_empresa: idStr }),
       });
       const data = await res.json();
@@ -673,9 +669,8 @@ export default function EmpresasScreen() {
           }
         }
 
-        const res = await fetch(`${API_URL}/api/empresas`, {
+        const res = await apiFetch('/api/empresas', {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
         const data = await res.json();
@@ -711,7 +706,7 @@ export default function EmpresasScreen() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API_URL}/api/empresas`)
+    apiFetch('/api/empresas')
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;

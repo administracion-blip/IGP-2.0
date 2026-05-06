@@ -26,6 +26,7 @@ import { ActuacionesCalendario } from '../../components/actuaciones/ActuacionesC
 import { FirmaEnPantallaModal } from '../../components/FirmaEnPantallaModal';
 import { buildFirmaFormData } from '../../utils/uploadFirmaPng';
 import { empresaTieneEtiquetaMusicos } from '../../utils/etiquetaMusicos';
+import { apiFetch } from '../../utils/api';
 
 type Actuacion = {
   id_actuacion: string;
@@ -299,9 +300,9 @@ export default function ProgramacionScreen() {
     if (fechaHasta) qs.set('fechaHasta', fechaHasta);
     if (filtroLocalesIds.length > 0) qs.set('id_locales', filtroLocalesIds.join(','));
     Promise.all([
-      fetch(`${API_URL}/api/actuaciones?${qs}`).then((r) => r.json()),
-      fetch(`${API_URL}/api/artistas`).then((r) => r.json()),
-      fetch(`${API_URL}/api/locales?grupoParipe=1`).then((r) => r.json()),
+      apiFetch(`/api/actuaciones?${qs}`).then((r) => r.json()),
+      apiFetch('/api/artistas').then((r) => r.json()),
+      apiFetch('/api/locales?grupoParipe=1').then((r) => r.json()),
     ])
       .then(([a, ar, locP]) => {
         if (a.error) setError(a.error);
@@ -329,7 +330,7 @@ export default function ProgramacionScreen() {
       const qs = new URLSearchParams();
       if (qFac.trim()) qs.set('q', qFac.trim());
       qs.set('empresa_id', empresaAsocId.trim());
-      const r = await fetch(`${API_URL}/api/actuaciones/facturas-gasto-asociables?${qs}`);
+      const r = await apiFetch(`/api/actuaciones/facturas-gasto-asociables?${qs}`);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Error');
       setFacturas(d.facturas || []);
@@ -352,7 +353,7 @@ export default function ProgramacionScreen() {
   useEffect(() => {
     if (!modalAsoc) return;
     setLoadingEmpresasAsoc(true);
-    fetch(`${API_URL}/api/empresas`)
+    apiFetch('/api/empresas')
       .then((r) => r.json())
       .then((d) => {
         const raw = (d.empresas || []) as {
@@ -414,9 +415,8 @@ export default function ProgramacionScreen() {
       return;
     }
     try {
-      const r = await fetch(`${API_URL}/api/actuaciones/asociar-factura`, {
+      const r = await apiFetch('/api/actuaciones/asociar-factura', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ids_actuacion: [...selectedIds],
           id_factura: elegida.id_factura,
@@ -447,9 +447,8 @@ export default function ProgramacionScreen() {
     const ac = new AbortController();
     (async () => {
       try {
-        const r = await fetch(`${API_URL}/api/actuaciones/calcular-importe`, {
+        const r = await apiFetch('/api/actuaciones/calcular-importe', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             id_artista: form.id_artista,
             fecha: form.fecha,
@@ -474,9 +473,8 @@ export default function ProgramacionScreen() {
   }, [modalEdit, form.id_artista, form.fecha, form.hora_inicio]);
 
   async function ejecutarPut(id: string, body: Record<string, unknown>, forzar?: boolean) {
-    const r = await fetch(`${API_URL}/api/actuaciones/item/${id}`, {
+    const r = await apiFetch(`/api/actuaciones/item/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(forzar ? { ...body, forzar_conflicto: true } : body),
     });
     const d = await r.json();
@@ -578,9 +576,8 @@ export default function ProgramacionScreen() {
     if (!form.id_actuacion || !pendingPutBody) return;
     setSaving(true);
     try {
-      const r = await fetch(`${API_URL}/api/actuaciones/item/${form.id_actuacion}`, {
+      const r = await apiFetch(`/api/actuaciones/item/${form.id_actuacion}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...pendingPutBody, forzar_conflicto: true }),
       });
       const d = await r.json();
@@ -603,9 +600,8 @@ export default function ProgramacionScreen() {
     if (!form.id_actuacion || !conflictoOtro || !form.id_artista) return;
     setSaving(true);
     try {
-      const r = await fetch(`${API_URL}/api/actuaciones/mover-artista-aqui`, {
+      const r = await apiFetch('/api/actuaciones/mover-artista-aqui', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id_vaciar: conflictoOtro.id_actuacion,
           id_asignar: form.id_actuacion,
@@ -675,9 +671,8 @@ export default function ProgramacionScreen() {
     }
     setGenerando(true);
     try {
-      const r = await fetch(`${API_URL}/api/actuaciones/generar-base`, {
+      const r = await apiFetch('/api/actuaciones/generar-base', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fecha_inicio: fechaIniN,
           fecha_fin: fechaFinN,
@@ -721,7 +716,7 @@ export default function ProgramacionScreen() {
       name: asset.name || 'firma.png',
       type: asset.mimeType || 'image/png',
     } as unknown as Blob);
-    const r = await fetch(`${API_URL}/api/actuaciones/item/${idAct}/firma`, { method: 'POST', body: formData });
+    const r = await apiFetch(`/api/actuaciones/item/${idAct}/firma`, { method: 'POST', body: formData });
     const d = await r.json();
     if (!r.ok) showToast('Error', d.error || 'No se pudo subir', 'error');
     else {
@@ -734,7 +729,7 @@ export default function ProgramacionScreen() {
     setFirmaSubiendo(true);
     try {
       const formData = await buildFirmaFormData(base64Raw);
-      const r = await fetch(`${API_URL}/api/actuaciones/item/${idAct}/firma`, { method: 'POST', body: formData });
+      const r = await apiFetch(`/api/actuaciones/item/${idAct}/firma`, { method: 'POST', body: formData });
       const d = await r.json();
       if (!r.ok) showToast('Error', d.error || 'No se pudo subir', 'error');
       else {
@@ -751,7 +746,7 @@ export default function ProgramacionScreen() {
 
   async function borrarActuacion(item: Actuacion) {
     try {
-      const r = await fetch(`${API_URL}/api/actuaciones/item/${item.id_actuacion}`, { method: 'DELETE' });
+      const r = await apiFetch(`/api/actuaciones/item/${item.id_actuacion}`, { method: 'DELETE' });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Error');
       showToast('Eliminado', 'Actuación eliminada.', 'success');
@@ -772,7 +767,7 @@ export default function ProgramacionScreen() {
     setBorrando(true);
     try {
       for (const id of ids) {
-        const r = await fetch(`${API_URL}/api/actuaciones/item/${id}`, { method: 'DELETE' });
+        const r = await apiFetch(`/api/actuaciones/item/${id}`, { method: 'DELETE' });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || `Error al borrar actuación`);
       }

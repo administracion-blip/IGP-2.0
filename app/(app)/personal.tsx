@@ -10,8 +10,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../utils/api';
 
 type Empleado = {
   pk: string;
@@ -57,7 +56,7 @@ export default function PersonalScreen() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/api/personal/employees`);
+      const res = await apiFetch('/api/personal/employees');
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Error al obtener empleados');
       setEmpleados(data.employees ?? []);
@@ -77,7 +76,7 @@ export default function PersonalScreen() {
     setSyncMsg(null);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/api/personal/employees/sync`, { method: 'POST' });
+      const res = await apiFetch('/api/personal/employees/sync', { method: 'POST' });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Error en sincronización');
       setSyncMsg(`Sincronizados ${data.synced ?? 0} empleados de ${data.total ?? 0}`);

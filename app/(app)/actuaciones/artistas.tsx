@@ -22,6 +22,7 @@ import { TablaBasica } from '../../components/TablaBasica';
 import { ICON_SIZE } from '../../constants/icons';
 import { API_BASE_URL as API_URL } from '../../utils/apiBaseUrl';
 import { formatMoneda } from '../../utils/facturacion';
+import { apiFetch } from '../../utils/api';
 
 const ESTILOS_OPTS = [
   'pop', 'rock', 'flamenco', 'rumba', 'jazz', 'latina', 'electronica', 'comercial', 'urbana', 'versiones', 'chill', 'tributo',
@@ -236,7 +237,7 @@ export default function ArtistasScreen() {
   const fetchLista = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetch(`${API_URL}/api/artistas`)
+    apiFetch('/api/artistas')
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
@@ -267,7 +268,7 @@ export default function ArtistasScreen() {
     let cancelled = false;
     setImagenUrlServidorLoading(true);
     setImagenUrlServidor(null);
-    fetch(`${API_URL}/api/artistas/${editing.id_artista}/imagen-url`)
+    apiFetch(`/api/artistas/${editing.id_artista}/imagen-url`)
       .then((r) => r.json())
       .then((d: { url?: string | null }) => {
         if (!cancelled) {
@@ -328,7 +329,7 @@ export default function ArtistasScreen() {
     setVistaImagenError(null);
     setVistaImagenLoading(true);
     try {
-      const r = await fetch(`${API_URL}/api/artistas/${a.id_artista}/imagen-url`);
+      const r = await apiFetch(`/api/artistas/${a.id_artista}/imagen-url`);
       const d = (await r.json()) as { url?: string | null; error?: string };
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
       if (!d.url) setVistaImagenError('No hay imagen disponible');
@@ -371,11 +372,10 @@ export default function ArtistasScreen() {
     try {
       const isNew = !editing.id_artista;
       const url = isNew
-        ? `${API_URL}/api/artistas`
-        : `${API_URL}/api/artistas/${editing.id_artista}`;
-      const res = await fetch(url, {
+        ? '/api/artistas'
+        : `/api/artistas/${editing.id_artista}`;
+      const res = await apiFetch(url, {
         method: isNew ? 'POST' : 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const text = await res.text();
@@ -437,7 +437,7 @@ export default function ArtistasScreen() {
     const nombre =
       fileName || (uri.split('/').pop() ?? 'imagen.jpg').split('?')[0] || 'imagen.jpg';
     await appendImagenAlFormData(form, uri, nombre, mimeType ?? 'image/jpeg');
-    const res = await fetch(`${API_URL}/api/artistas/${idArtista}/imagen`, { method: 'POST', body: form });
+    const res = await apiFetch(`/api/artistas/${idArtista}/imagen`, { method: 'POST', body: form });
     const data = (await res.json()) as { error?: string; imagen_key?: string };
     if (!res.ok) {
       throw new Error(data.error || 'No se pudo subir la imagen');
@@ -502,7 +502,7 @@ export default function ArtistasScreen() {
     if (!artistaToDelete?.id_artista) return;
     setDeleting(true);
     try {
-      const res = await fetch(`${API_URL}/api/artistas/${artistaToDelete.id_artista}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/artistas/${artistaToDelete.id_artista}`, { method: 'DELETE' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         showToast('No se pudo borrar', (data as { error?: string }).error || `HTTP ${res.status}`, 'error');

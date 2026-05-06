@@ -20,8 +20,7 @@ import { useProductosCache } from '../contexts/ProductosCache';
 import { calcTiempoRestante } from '../lib/acuerdosFechas';
 import { InputFecha } from '../components/InputFecha';
 import { ComprasProveedorModal } from '../components/ComprasProveedorModal';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../utils/api';
 
 const W = {
   id: 58,
@@ -190,7 +189,7 @@ export default function AcuerdosProductosActivosScreen() {
     else setLoading(true);
     setError('');
     try {
-      const res = await fetch(`${API_URL}/api/acuerdos/productos-activos`);
+      const res = await apiFetch('/api/acuerdos/productos-activos');
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al cargar');
       setItems(Array.isArray(data.items) ? data.items : []);

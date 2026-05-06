@@ -27,8 +27,7 @@ import { Pedido, Local, Almacen } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import { fetchPorcentajeBeneficio, aplicarPorcentajeBeneficio } from '../../lib/personalizacion';
 import { siguienteIdParaNuevoPedido } from '../../lib/pedidosId';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../../utils/api';
 
 const COLUMNAS = ['Id', 'Fecha', 'CreadoEn', 'LocalId', 'Local', 'AlmacenOrigen', 'AlmacenDestino', 'TotalAlbaran', 'Estado'] as const;
 const ESTADOS = ['Borrador', 'Pendiente', 'Enviado', 'Exportado', 'Completado'] as const;
@@ -100,9 +99,9 @@ export default function PedidosBase({
     setError(null);
     setLoading(true);
     Promise.all([
-      fetch(`${API_URL}/api/pedidos`).then((r) => r.json()),
-      fetch(`${API_URL}/api/locales`).then((r) => r.json()),
-      fetch(`${API_URL}/api/almacenes`).then((r) => r.json()),
+      apiFetch('/api/pedidos').then((r) => r.json()),
+      apiFetch('/api/locales').then((r) => r.json()),
+      apiFetch('/api/almacenes').then((r) => r.json()),
     ])
       .then(([dataPedidos, dataLocales, dataAlmacenes]) => {
         if (dataPedidos.error) setError(dataPedidos.error);
@@ -329,9 +328,8 @@ export default function PedidosBase({
         Estado: form.Estado || 'Borrador',
         Notas: form.Notas.trim(),
       };
-      const res = await fetch(`${API_URL}/api/pedidos`, {
+      const res = await apiFetch('/api/pedidos', {
         method: editingPedidoId != null ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await res.json();
@@ -366,9 +364,8 @@ export default function PedidosBase({
     if (!idStr) return;
     setBorrando(true);
     try {
-      const res = await fetch(`${API_URL}/api/pedidos`, {
+      const res = await apiFetch('/api/pedidos', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ Id: idStr }),
       });
       const data = await res.json();
@@ -389,7 +386,7 @@ export default function PedidosBase({
   const fetchLineas = useCallback(async (pedidoId: string) => {
     setLoadingLineas(true);
     try {
-      const res = await fetch(`${API_URL}/api/pedidos/${pedidoId}/lineas`);
+      const res = await apiFetch(`/api/pedidos/${pedidoId}/lineas`);
       const data = await res.json();
       setLineas(Array.isArray(data.lineas) ? data.lineas : []);
     } catch {
@@ -449,9 +446,8 @@ export default function PedidosBase({
       for (const l of toUpdate) {
         const key = String(l.LineaIndex ?? '');
         const cant = parseFloat(String(lineasEditValues[key] ?? l.Cantidad ?? '0').replace(',', '.')) || 0;
-        const res = await fetch(`${API_URL}/api/pedidos/${pedidoId}/lineas`, {
+        const res = await apiFetch(`/api/pedidos/${pedidoId}/lineas`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ LineaIndex: key, Cantidad: cant }),
         });
         const data = await res.json();
@@ -483,9 +479,8 @@ export default function PedidosBase({
     const totalRappel = parseFloat(String(formLinea.TotalRappel).replace(',', '.')) || 0;
     setGuardandoLinea(true);
     try {
-      const res = await fetch(`${API_URL}/api/pedidos/${pedidoId}/lineas`, {
+      const res = await apiFetch(`/api/pedidos/${pedidoId}/lineas`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ProductId: formLinea.ProductId,
           ProductoNombre: formLinea.ProductoNombre,
@@ -518,9 +513,8 @@ export default function PedidosBase({
     const nuevoValor = !linea.Preparada;
     setGuardandoPreparada(lineaIndex);
     try {
-      const res = await fetch(`${API_URL}/api/pedidos/${pedidoId}/lineas`, {
+      const res = await apiFetch(`/api/pedidos/${pedidoId}/lineas`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ LineaIndex: lineaIndex, Preparada: nuevoValor }),
       });
       const data = await res.json();
@@ -530,17 +524,15 @@ export default function PedidosBase({
       const todasPreparadas = lineasTrasToggle.length > 0 && lineasTrasToggle.every((l) => !!l.Preparada);
       const estadoActual = String(valorEnLocal(pedidoParaLineas, 'Estado') ?? '');
       if (todasPreparadas) {
-        await fetch(`${API_URL}/api/pedidos`, {
+        await apiFetch('/api/pedidos', {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ Id: pedidoId, Estado: 'Completado' }),
         });
         setPedidoParaLineas((p) => (p ? { ...p, Estado: 'Completado' } : null));
         refetch();
       } else if (estadoActual === 'Completado') {
-        await fetch(`${API_URL}/api/pedidos`, {
+        await apiFetch('/api/pedidos', {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ Id: pedidoId, Estado: 'Pendiente' }),
         });
         setPedidoParaLineas((p) => (p ? { ...p, Estado: 'Pendiente' } : null));

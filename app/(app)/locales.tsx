@@ -21,10 +21,9 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../constants/icons';
 import { formatId6 } from '../utils/idFormat';
 import { useAuth } from '../contexts/AuthContext';
+import { apiFetch } from '../utils/api';
 
 const MAX_IMAGEN_BASE64_LENGTH = 380000;
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -225,7 +224,7 @@ export default function LocalesScreen() {
       return;
     }
     setDireccionLoading(true);
-    fetch(`${API_URL}/api/places/autocomplete?input=${encodeURIComponent(input.trim())}`)
+    apiFetch(`/api/places/autocomplete?input=${encodeURIComponent(input.trim())}`)
       .then((res) => res.json())
       .then((data) => {
         setDireccionSuggestions(data.predictions || []);
@@ -270,7 +269,7 @@ export default function LocalesScreen() {
       }
       setFormNuevo((prev) => ({ ...prev, Direccion: p.description }));
       if (p.place_id) {
-        fetch(`${API_URL}/api/places/details?place_id=${encodeURIComponent(p.place_id)}`)
+        apiFetch(`/api/places/details?place_id=${encodeURIComponent(p.place_id)}`)
           .then((res) => res.json())
           .then((data) => {
             if (data.lat != null && data.lng != null) {
@@ -290,7 +289,7 @@ export default function LocalesScreen() {
   const fetchCpAndFill = useCallback((cp: string) => {
     const normalized = cp?.trim().replace(/\s/g, '') || '';
     if (normalized.length !== 5 || !/^\d{5}$/.test(normalized)) return;
-    fetch(`${API_URL}/api/codigo-postal?cp=${encodeURIComponent(normalized)}`)
+    apiFetch(`/api/codigo-postal?cp=${encodeURIComponent(normalized)}`)
       .then((r) => r.json())
       .then((data: { municipio?: string; provincia?: string }) => {
         const municipio = data.municipio?.trim() || '';
@@ -379,7 +378,7 @@ export default function LocalesScreen() {
   }, [valorEnLocal]);
 
   const refetchLocales = useCallback(() => {
-    fetch(`${API_URL}/api/locales`)
+    apiFetch('/api/locales')
       .then((res) => res.json())
       .then((data) => {
         if (data.error) setError(data.error);
@@ -402,9 +401,8 @@ export default function LocalesScreen() {
         if (key === 'id_Locales') body[key] = isEdit ? editingLocalId! : próximoId;
         else body[key] = formNuevo[key] ?? '';
       }
-      const res = await fetch(`${API_URL}/api/locales`, {
+      const res = await apiFetch('/api/locales', {
         method: isEdit ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await res.json();
@@ -430,9 +428,8 @@ export default function LocalesScreen() {
     if (!id) return;
     setGuardando(true);
     try {
-      const res = await fetch(`${API_URL}/api/locales`, {
+      const res = await apiFetch('/api/locales', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id_Locales: id }),
       });
       const data = await res.json();
@@ -475,9 +472,8 @@ export default function LocalesScreen() {
     setErrorCrearEmpresa(null);
     setGuardandoCrearEmpresa(true);
     try {
-      const res = await fetch(`${API_URL}/api/empresas`, {
+      const res = await apiFetch('/api/empresas', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           Nombre: nombre,
           Cif: cif,
@@ -564,7 +560,7 @@ export default function LocalesScreen() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API_URL}/api/locales`)
+    apiFetch('/api/locales')
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
@@ -581,7 +577,7 @@ export default function LocalesScreen() {
   }, [ordenarPorId]);
 
   const refetchEmpresas = useCallback(() => {
-    fetch(`${API_URL}/api/empresas`)
+    apiFetch('/api/empresas')
       .then((res) => res.json())
       .then((data: { empresas?: EmpresaItem[] }) => {
         const list = data.empresas || [];
@@ -591,7 +587,7 @@ export default function LocalesScreen() {
   }, []);
 
   const refetchAlmacenes = useCallback(() => {
-    fetch(`${API_URL}/api/almacenes`)
+    apiFetch('/api/almacenes')
       .then((res) => res.json())
       .then((data: { almacenes?: AlmacenItem[] }) => {
         const list = data.almacenes || [];

@@ -18,8 +18,8 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Image } from 'react-native';
 import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
+import { apiFetch } from '../../utils/api';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const AUTH_KEY = 'erp_user';
 
 const ZONAS = ['barra', 'cocina', 'baños', 'almacén', 'sala', 'terraza', 'otros'] as const;
@@ -137,9 +137,8 @@ export default function ReportarIncidenciaScreen() {
     }
     setError(null);
     setEnviando(true);
-    fetch(`${API_URL}/api/mantenimiento/incidencias`, {
+    apiFetch('/api/mantenimiento/incidencias', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         local_id: locId,
         zona,

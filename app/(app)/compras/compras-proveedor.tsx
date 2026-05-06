@@ -35,8 +35,7 @@ import {
   ComprasToolbarFiltrosBtn,
   ComprasToolbarSyncBtn,
 } from './comprasProveedorShared';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../../utils/api';
 
 export default function ComprasProveedorScreen() {
   const router = useRouter();
@@ -63,9 +62,8 @@ export default function ComprasProveedorScreen() {
     try {
       const bodyPayload: Record<string, string> = {};
       if (fullSync) bodyPayload.dateFrom = '2025-01-01';
-      const res = await fetch(`${API_URL}/api/agora/purchases/sync`, {
+      const res = await apiFetch('/api/agora/purchases/sync', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bodyPayload),
       });
       const data = await res.json();

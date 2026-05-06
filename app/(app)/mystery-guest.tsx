@@ -24,8 +24,8 @@ import {
   mgMediasPorCategoria,
   mgMediaGlobalCategorias,
 } from '../lib/mysteryGuestCuestionario';
+import { apiFetch } from '../utils/api';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const MG_MAX_FOTOS_PRODUCTO = 6;
 
 /** Web: reduce tamaño de data URL para no disparar el límite de DynamoDB. */
@@ -414,7 +414,7 @@ export default function MysteryGuestScreen() {
 
   useEffect(() => {
     setLoadingLocales(true);
-    fetch(`${API_URL}/api/locales`)
+    apiFetch('/api/locales')
       .then((r) => r.json())
       .then((data: { locales?: Local[] }) => {
         setLocales(Array.isArray(data.locales) ? data.locales : []);
@@ -436,7 +436,7 @@ export default function MysteryGuestScreen() {
         fechaHasta,
       });
       if (localId.trim()) q.set('localId', localId.trim());
-      const res = await fetch(`${API_URL}/api/mystery-guest?${q.toString()}`);
+      const res = await apiFetch(`/api/mystery-guest?${q.toString()}`);
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || 'Error al cargar');
@@ -554,9 +554,8 @@ export default function MysteryGuestScreen() {
     }
     setGuardandoForm(true);
     try {
-      const res = await fetch(`${API_URL}/api/mystery-guest`, {
+      const res = await apiFetch('/api/mystery-guest', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           Fecha: fechaIso,
           FechaDia: fechaDia,

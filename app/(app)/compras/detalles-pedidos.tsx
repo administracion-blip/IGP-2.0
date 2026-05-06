@@ -13,8 +13,7 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
 import { fetchPorcentajeBeneficio, aplicarPorcentajeBeneficio } from '../../lib/personalizacion';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../../utils/api';
 
 const COLUMNAS = ['PedidoId', 'LineaIndex', 'ProductId', 'ProductoNombre', 'Cantidad', 'PrecioUnitario', 'TotalLinea'];
 
@@ -49,7 +48,7 @@ export default function DetallesPedidosScreen() {
   const refetchPedidos = useCallback(() => {
     setError(null);
     setLoadingPedidos(true);
-    fetch(`${API_URL}/api/pedidos`)
+    apiFetch('/api/pedidos')
       .then((res) => res.json())
       .then((data) => {
         if (data.error) setError(data.error);
@@ -62,7 +61,7 @@ export default function DetallesPedidosScreen() {
   const refetchDetails = useCallback((pedidoId: string) => {
     setLoadingDetails(true);
     setError(null);
-    fetch(`${API_URL}/api/pedidos/${encodeURIComponent(pedidoId)}/details`)
+    apiFetch(`/api/pedidos/${encodeURIComponent(pedidoId)}/details`)
       .then((res) => res.json())
       .then((data) => {
         if (data.error) setError(data.error);

@@ -29,6 +29,7 @@ import {
   fechaComparacion,
   obtenerFilasObjetivos,
 } from '../../lib/objetivosFilasApi';
+import { apiFetch } from '../../utils/api';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -319,7 +320,7 @@ export default function ObjetivosScreen() {
 
   const cargarLocales = useCallback(() => {
     setLoadingLocales(true);
-    fetch(`${API_URL}/api/locales`)
+    apiFetch('/api/locales')
       .then((res) => res.json())
       .then((data: { locales?: Local[] }) => {
         const list = Array.isArray(data.locales) ? data.locales : [];
@@ -377,7 +378,7 @@ export default function ObjetivosScreen() {
           ? fechaFinMes
           : fechaHastaAyerStr;
     try {
-      const festivosRes = await fetch(`${API_URL}/api/gestion-festivos`);
+      const festivosRes = await apiFetch('/api/gestion-festivos');
       const festivosData = await festivosRes.json();
       const festivosList: FestivoReg[] = Array.isArray(festivosData.registros) ? festivosData.registros : [];
       const festivosByFecha = Object.fromEntries(
@@ -426,8 +427,8 @@ export default function ObjetivosScreen() {
           if (!workplaceId) return { local: loc, sumReal: 0, sumComp: 0, desvioPct: null, sumRealHastaAyer: 0, sumCompHastaAyer: 0, desvioPctHastaAyer: null, ultimaFechaConDatos: '' };
           try {
             const [totalsRealRes, totalsCompRes] = await Promise.all([
-              fetch(`${API_URL}/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${fechaInicioMes}&dateTo=${fechaFinMes}`),
-              fetch(`${API_URL}/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${minComp}&dateTo=${maxComp}`),
+              apiFetch(`/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${fechaInicioMes}&dateTo=${fechaFinMes}`),
+              apiFetch(`/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${minComp}&dateTo=${maxComp}`),
             ]);
             const totalsRealData = await totalsRealRes.json();
             const totalsCompData = await totalsCompRes.json();

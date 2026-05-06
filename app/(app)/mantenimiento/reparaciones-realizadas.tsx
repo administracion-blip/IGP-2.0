@@ -16,8 +16,7 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../../utils/api';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -237,7 +236,7 @@ export default function ReparacionesRealizadasScreen() {
   const refetch = useCallback(() => {
     setError(null);
     setLoading(true);
-    fetch(`${API_URL}/api/mantenimiento/incidencias`)
+    apiFetch('/api/mantenimiento/incidencias')
       .then((res) => res.json())
       .then((data: { incidencias?: Incidencia[]; error?: string }) => {
         if (data.error) {

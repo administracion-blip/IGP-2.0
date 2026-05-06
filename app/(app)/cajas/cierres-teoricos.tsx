@@ -18,8 +18,8 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
 import * as XLSX from 'xlsx-js-style';
+import { apiFetch } from '../../utils/api';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const REFETCH_INTERVAL_MS = 15_000;
 const PAGE_SIZE = 100;
 const DEFAULT_COL_WIDTH = 72;
@@ -387,7 +387,7 @@ export default function CierresTeoricosScreen() {
       setLoading(true);
       setError(null);
     }
-    fetch(`${API_URL}/api/agora/closeouts`)
+    apiFetch('/api/agora/closeouts')
       .then((res) => safeJson<{ closeouts?: CloseOut[]; error?: string }>(res))
       .then((data) => {
         if (data.error) {
@@ -431,9 +431,8 @@ export default function CierresTeoricosScreen() {
     for (let i = 0; i < days.length; i++) {
       const day = days[i];
       try {
-        const res = await fetch(`${API_URL}/api/agora/closeouts/sync`, {
+        const res = await apiFetch('/api/agora/closeouts/sync', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ businessDay: day }),
         });
         await safeJson<{ ok?: boolean }>(res);
@@ -478,14 +477,14 @@ export default function CierresTeoricosScreen() {
   }, [refetchCloseouts]);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/locales`)
+    apiFetch('/api/locales')
       .then((res) => safeJson<{ locales?: LocalItem[] }>(res))
       .then((data) => setLocales(data.locales || []))
       .catch(() => setLocales([]));
   }, []);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/agora/sale-centers`)
+    apiFetch('/api/agora/sale-centers')
       .then((res) => safeJson<{ saleCenters?: { Id?: number; Nombre?: string; Local?: string; Activo?: boolean }[] }>(res))
       .then((data) => setSaleCenters(data.saleCenters || []))
       .catch(() => setSaleCenters([]));
@@ -701,9 +700,8 @@ export default function CierresTeoricosScreen() {
         const newBd = subtractOneDayISO(getBusinessDay(item));
         if (!newBd) throw new Error('Fecha inválida');
         const body = buildPutBodyFromItem(item, newBd, agoraCodeToNombre);
-        const res = await fetch(`${API_URL}/api/agora/closeouts`, {
+        const res = await apiFetch('/api/agora/closeouts', {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
         const data = await safeJson<{ ok?: boolean; error?: string }>(res);
@@ -757,9 +755,8 @@ export default function CierresTeoricosScreen() {
     setFormError(null);
     try {
       if (editingItem) {
-        const res = await fetch(`${API_URL}/api/agora/closeouts`, {
+        const res = await apiFetch('/api/agora/closeouts', {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             PK: editingItem.PK ?? editingItem.pk,
             SK: editingItem.SK ?? editingItem.sk,
@@ -775,9 +772,8 @@ export default function CierresTeoricosScreen() {
         const data = await safeJson<{ ok?: boolean; error?: string }>(res);
         if (data.error) throw new Error(data.error);
       } else {
-        const res = await fetch(`${API_URL}/api/agora/closeouts`, {
+        const res = await apiFetch('/api/agora/closeouts', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             PK: pk,
             BusinessDay: bd,
@@ -810,7 +806,7 @@ export default function CierresTeoricosScreen() {
       for (const item of deletingItems) {
         const pk = String(item.PK ?? item.pk ?? '').trim();
         const sk = String(item.SK ?? item.sk ?? '').trim();
-        const res = await fetch(`${API_URL}/api/agora/closeouts?PK=${encodeURIComponent(pk)}&SK=${encodeURIComponent(sk)}`, { method: 'DELETE' });
+        const res = await apiFetch(`/api/agora/closeouts?PK=${encodeURIComponent(pk)}&SK=${encodeURIComponent(sk)}`, { method: 'DELETE' });
         const data = await safeJson<{ ok?: boolean; error?: string }>(res);
         if (data.error) throw new Error(data.error);
       }

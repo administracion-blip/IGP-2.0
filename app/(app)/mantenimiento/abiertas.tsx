@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../../constants/icons';
 import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
+import { apiFetch } from '../../utils/api';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -171,7 +172,7 @@ export default function IncidenciasAbiertasScreen() {
 
   const refetchIncidencias = useCallback(() => {
     setError(null);
-    fetch(`${API_URL}/api/mantenimiento/incidencias`)
+    apiFetch('/api/mantenimiento/incidencias')
       .then(async (res) => {
         const text = await res.text();
         if (!res.ok) {
@@ -208,9 +209,8 @@ export default function IncidenciasAbiertasScreen() {
       setProgramandoIncidencia(true);
       setError(null);
       try {
-        const res = await fetch(`${API_URL}/api/mantenimiento/incidencias`, {
+        const res = await apiFetch('/api/mantenimiento/incidencias', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...payload, fecha_programada: fechaProgramada }),
         });
         const data = await res.json();
@@ -237,9 +237,8 @@ export default function IncidenciasAbiertasScreen() {
       setProgramandoIncidencia(true);
       setError(null);
       try {
-        const res = await fetch(`${API_URL}/api/mantenimiento/incidencias`, {
+        const res = await apiFetch('/api/mantenimiento/incidencias', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ local_id: localId, id_incidencia: idIncidencia, fecha_creacion: fechaCreacion, fecha_programada: null }),
         });
         const data = await res.json();
@@ -267,9 +266,8 @@ export default function IncidenciasAbiertasScreen() {
       setMarcandoReparadoKey(key);
       setError(null);
       try {
-        const res = await fetch(`${API_URL}/api/mantenimiento/incidencias`, {
+        const res = await apiFetch('/api/mantenimiento/incidencias', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ local_id: localId, id_incidencia: idIncidencia, fecha_creacion: fechaCreacion, marcar_reparado: true }),
         });
         const data = await res.json();
@@ -534,9 +532,8 @@ export default function IncidenciasAbiertasScreen() {
     setError(null);
     try {
       for (const payload of items) {
-        const res = await fetch(`${API_URL}/api/mantenimiento/incidencias`, {
+        const res = await apiFetch('/api/mantenimiento/incidencias', {
           method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
         const data = await res.json();

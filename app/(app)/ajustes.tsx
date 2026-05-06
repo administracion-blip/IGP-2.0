@@ -19,8 +19,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../utils/api';
 
 /** Límite aproximado para caber en un ítem DynamoDB (~400 KB con base64). */
 const MAX_IMAGEN_BASE64_LENGTH = 380000;
@@ -157,7 +156,7 @@ export default function AjustesScreen() {
 
   const cargarEstados = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/ajustes?categoria=sincronizaciones`);
+      const res = await apiFetch('/api/ajustes?categoria=sincronizaciones');
       const data = await res.json();
       if (data.ok && Array.isArray(data.items)) {
         setSyncStates((prev) => {
@@ -190,7 +189,7 @@ export default function AjustesScreen() {
     setLoadingPersonalizacion(true);
     setErrorPersonalizacion(null);
     try {
-      const res = await fetch(`${API_URL}/api/ajustes/personalizacion/app`);
+      const res = await apiFetch('/api/ajustes/personalizacion/app');
       const data = await res.json();
       if (res.ok && data.ok && data.item) {
         const it = data.item as { ImagenApp?: string; PorcentajeBeneficio?: number };
@@ -279,9 +278,8 @@ export default function AjustesScreen() {
         }
         porcentajeNum = Math.round(n * 100) / 100;
       }
-      const res = await fetch(`${API_URL}/api/ajustes`, {
+      const res = await apiFetch('/api/ajustes', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           PK: 'personalizacion',
           SK: 'app',
@@ -310,9 +308,8 @@ export default function AjustesScreen() {
 
     try {
       const body = item.bodyBuilder ? item.bodyBuilder() : {};
-      const res = await fetch(`${API_URL}${item.endpoint}`, {
+      const res = await apiFetch(item.endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await res.json();
@@ -345,9 +342,8 @@ export default function AjustesScreen() {
       }));
 
       try {
-        await fetch(`${API_URL}/api/ajustes`, {
+        await apiFetch('/api/ajustes', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             PK: 'sincronizaciones',
             SK: item.id,
@@ -416,9 +412,8 @@ export default function AjustesScreen() {
     if (!configModalId) return;
     setCfgSaving(true);
     try {
-      await fetch(`${API_URL}/api/ajustes/sincronizaciones/${configModalId}`, {
+      await apiFetch(`/api/ajustes/sincronizaciones/${configModalId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           Enabled: cfgEnabled,
           Days: cfgDays,

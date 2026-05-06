@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../../utils/api';
 
 export type LocalItem = { id_Locales?: string; nombre?: string; Nombre?: string };
 
@@ -30,7 +29,7 @@ export function MantenimientoLocalesProvider({ children }: { children: React.Rea
   const fetchLocales = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetch(`${API_URL}/api/locales?minimal=1`)
+    apiFetch('/api/locales?minimal=1')
       .then((res) => res.json())
       .then((data: { locales?: LocalItem[] }) => {
         const all = Array.isArray(data.locales) ? data.locales : [];

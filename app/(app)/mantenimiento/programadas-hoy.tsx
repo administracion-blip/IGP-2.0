@@ -16,6 +16,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
+import { apiFetch } from '../../utils/api';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -106,7 +107,7 @@ export default function ProgramadasHoyScreen() {
   }, [locales]);
 
   const refetch = useCallback(() => {
-    fetch(`${API_URL}/api/mantenimiento/incidencias`)
+    apiFetch('/api/mantenimiento/incidencias')
       .then((res) => res.json())
       .then((data: { incidencias?: Incidencia[]; error?: string }) => {
         if (data.error) {
@@ -153,9 +154,8 @@ export default function ProgramadasHoyScreen() {
       setMarcandoReparadoKey(key);
       setError(null);
       try {
-        const res = await fetch(`${API_URL}/api/mantenimiento/incidencias`, {
+        const res = await apiFetch('/api/mantenimiento/incidencias', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ local_id: localId, id_incidencia: idIncidencia, fecha_creacion: fechaCreacion, marcar_reparado: true }),
         });
         const data = (await res.json()) as { error?: string };

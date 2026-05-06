@@ -15,8 +15,7 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { formatMoneda, esEmpresaSedeGrupoParipe } from '../../utils/facturacion';
 import { useAuth } from '../../contexts/AuthContext';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../../utils/api';
 
 type MesMensual = {
   mes: string; ingresos: number; gastos: number; margen: number;
@@ -61,7 +60,7 @@ export default function CuadroMandoScreen() {
   const fetchData = useCallback(() => {
     setLoading(true);
     const q = empresaSeleccionadaId ? `?empresaId=${encodeURIComponent(empresaSeleccionadaId)}` : '';
-    fetch(`${API_URL}/api/facturacion/metricas-avanzadas${q}`)
+    apiFetch(`/api/facturacion/metricas-avanzadas${q}`)
       .then((r) => r.json())
       .then((d) => setData(d))
       .catch(() => setData(null))
@@ -73,7 +72,7 @@ export default function CuadroMandoScreen() {
   }, [fetchData]);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/empresas`)
+    apiFetch('/api/empresas')
       .then((r) => r.json())
       .then((d) => {
         const raw: unknown[] = d.empresas ?? d ?? [];

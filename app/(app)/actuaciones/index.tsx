@@ -16,6 +16,7 @@ import { obtenerFilasObjetivos } from '../../lib/objetivosFilasApi';
 import { API_BASE_URL as API_URL } from '../../utils/apiBaseUrl';
 import { formatMoneda } from '../../utils/facturacion';
 import { formatId6 } from '../../utils/idFormat';
+import { apiFetch } from '../../utils/api';
 
 type ActuacionDia = {
   id_actuacion: string;
@@ -103,7 +104,7 @@ export default function ActuacionesIndexScreen() {
   }, [localesParipe]);
 
   const cargarLocales = useCallback(() => {
-    fetch(`${API_URL}/api/locales?grupoParipe=1`)
+    apiFetch('/api/locales?grupoParipe=1')
       .then((r) => r.json())
       .then((d: { locales?: LocalParipe[] }) => setLocalesParipe(Array.isArray(d.locales) ? d.locales : []))
       .catch(() => setLocalesParipe([]));
@@ -116,7 +117,7 @@ export default function ActuacionesIndexScreen() {
     qs.set('fechaDesde', fecha);
     qs.set('fechaHasta', fecha);
     try {
-      const r = await fetch(`${API_URL}/api/actuaciones?${qs.toString()}`);
+      const r = await apiFetch(`/api/actuaciones?${qs.toString()}`);
       const d = await r.json();
       if (d.error) setError(d.error);
       setActuaciones(Array.isArray(d.actuaciones) ? d.actuaciones : []);

@@ -2,6 +2,7 @@
  * Misma lógica que la comparativa diaria en Cajas → Objetivos (Agora + festivos).
  * Centralizada para reutilizar en Actuaciones (previsión = TotalFacturadoComparativa).
  */
+import { apiFetch } from '../utils/api';
 
 export type FestivoReg = {
   PK?: string;
@@ -28,16 +29,16 @@ export function fechaComparacion(fecha: string): string {
 }
 
 export async function obtenerFilasObjetivos(
-  apiBaseUrl: string,
+  _apiBaseUrl: string,
   workplaceId: string,
   fechaInicio: string,
   fechaFin: string,
 ): Promise<FilaObjetivo[]> {
   const [totalsRealRes, festivosRes] = await Promise.all([
-    fetch(
-      `${apiBaseUrl}/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${fechaInicio}&dateTo=${fechaFin}`,
+    apiFetch(
+      `/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${fechaInicio}&dateTo=${fechaFin}`,
     ),
-    fetch(`${apiBaseUrl}/api/gestion-festivos`),
+    apiFetch('/api/gestion-festivos'),
   ]);
   const totalsRealData = await totalsRealRes.json();
   const festivosData = await festivosRes.json();
@@ -67,8 +68,8 @@ export async function obtenerFilasObjetivos(
     d.setDate(d.getDate() + 1);
   }
 
-  const totalsCompRes = await fetch(
-    `${apiBaseUrl}/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${minComp}&dateTo=${maxComp}`,
+  const totalsCompRes = await apiFetch(
+    `/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${minComp}&dateTo=${maxComp}`,
   );
   const totalsCompData = await totalsCompRes.json();
   const totalsComp: Record<string, number> = totalsCompData.totals ?? {};

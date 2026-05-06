@@ -31,6 +31,7 @@ import { InputFecha } from '../../components/InputFecha';
 import { useLocalToast } from '../../components/Toast';
 import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
 import { FacturaVentaDetallePanel } from '../../components/FacturaVentaDetallePanel';
+import { apiFetch } from '../../utils/api';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -183,7 +184,7 @@ export default function FacturasVentaScreen() {
   const resizeRef = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/facturacion/series`)
+    apiFetch('/api/facturacion/series')
       .then((r) => r.json())
       .then((d) => {
         const all = d.series ?? d ?? [];
@@ -193,7 +194,7 @@ export default function FacturasVentaScreen() {
   }, []);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/empresas`)
+    apiFetch('/api/empresas')
       .then((r) => r.json())
       .then((d) => {
         const raw: unknown[] = d.empresas ?? d ?? [];
@@ -211,7 +212,7 @@ export default function FacturasVentaScreen() {
   const refetch = useCallback(() => {
     setError(null);
     setLoading(true);
-    fetch(`${API_URL}/api/facturacion/facturas?tipo=OUT`)
+    apiFetch(`/api/facturacion/facturas?tipo=OUT`)
       .then((r) => r.json())
       .then((data) => {
         if (data.error) setError(data.error);
@@ -348,7 +349,7 @@ export default function FacturasVentaScreen() {
     if (!selectedId) return;
     setOperando(true);
     try {
-      const res = await fetch(`${API_URL}/api/facturacion/facturas/${selectedId}/duplicar`, { method: 'POST' });
+      const res = await apiFetch(`/api/facturacion/facturas/${selectedId}/duplicar`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Error al duplicar'); return; }
       refetch();
@@ -364,7 +365,7 @@ export default function FacturasVentaScreen() {
     if (!selectedId) return;
     setOperando(true);
     try {
-      const res = await fetch(`${API_URL}/api/facturacion/facturas/${selectedId}/emitir`, { method: 'POST' });
+      const res = await apiFetch(`/api/facturacion/facturas/${selectedId}/emitir`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Error al emitir'); return; }
       refetch();
@@ -382,7 +383,7 @@ export default function FacturasVentaScreen() {
     setOperando(true);
     setErrorModal(null);
     try {
-      const res = await fetch(`${API_URL}/api/facturacion/facturas/${selectedId}/anular`, { method: 'POST' });
+      const res = await apiFetch(`/api/facturacion/facturas/${selectedId}/anular`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) { setErrorModal(data.error || 'Error al anular'); setOperando(false); return; }
       setModalAnularVisible(false);
@@ -436,7 +437,7 @@ export default function FacturasVentaScreen() {
     setDetallePagosLoading(true);
     setDetallePagosError(null);
     setDetallePagosLista([]);
-    fetch(`${API_URL}/api/facturacion/facturas/${factura.id_factura}/pagos`)
+    apiFetch(`/api/facturacion/facturas/${factura.id_factura}/pagos`)
       .then(async (r) => {
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || 'Error al cargar cobros');
@@ -467,9 +468,8 @@ export default function FacturasVentaScreen() {
     setOperando(true);
     setErrorModal(null);
     try {
-      const res = await fetch(`${API_URL}/api/facturacion/facturas/${selectedId}/pagos`, {
+      const res = await apiFetch(`/api/facturacion/facturas/${selectedId}/pagos`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fecha: fechaIso,
           importe,

@@ -15,8 +15,7 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../constants/icons';
 import { formatId6 } from '../utils/idFormat';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../utils/api';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -125,7 +124,7 @@ export default function AlmacenesScreen() {
   }, [valorEnLocal]);
 
   const refetchLocales = useCallback(() => {
-    fetch(`${API_URL}/api/locales`)
+    apiFetch('/api/locales')
       .then((res) => res.json())
       .then((data) => {
         if (data.error) return;
@@ -135,7 +134,7 @@ export default function AlmacenesScreen() {
   }, []);
 
   const refetchAlmacenes = useCallback(() => {
-    fetch(`${API_URL}/api/almacenes`)
+    apiFetch('/api/almacenes')
       .then((res) => res.json())
       .then((data) => {
         if (data.error) setError(data.error);
@@ -158,9 +157,8 @@ export default function AlmacenesScreen() {
         if (key === 'Id') body[key] = editingAlmacenId != null ? editingAlmacenId : próximoId;
         else body[key] = formNuevo[key] ?? '';
       }
-      const res = await fetch(`${API_URL}/api/almacenes`, {
+      const res = await apiFetch('/api/almacenes', {
         method: editingAlmacenId != null ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await res.json();
@@ -181,7 +179,7 @@ export default function AlmacenesScreen() {
   const sincronizarAlmacenes = async () => {
     setSincronizando(true);
     try {
-      const res = await fetch(`${API_URL}/api/agora/warehouses/sync`, { method: 'POST' });
+      const res = await apiFetch('/api/agora/warehouses/sync', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || 'Error al sincronizar');
@@ -204,9 +202,8 @@ export default function AlmacenesScreen() {
     if (!idStr) return;
     setGuardando(true);
     try {
-      const res = await fetch(`${API_URL}/api/almacenes`, {
+      const res = await apiFetch('/api/almacenes', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ Id: idStr }),
       });
       const data = await res.json();
@@ -295,7 +292,7 @@ export default function AlmacenesScreen() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API_URL}/api/almacenes`)
+    apiFetch('/api/almacenes')
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;

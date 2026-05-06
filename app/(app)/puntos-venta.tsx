@@ -13,8 +13,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+import { apiFetch } from '../utils/api';
 
 const DEFAULT_COL_WIDTH = 100;
 const MIN_COL_WIDTH = 50;
@@ -62,7 +61,7 @@ export default function PuntosVentaScreen() {
 
   const refetch = useCallback((silent = false) => {
     if (!silent) { setLoading(true); setError(null); }
-    fetch(`${API_URL}/api/agora/sale-centers`)
+    apiFetch('/api/agora/sale-centers')
       .then((res) => res.json())
       .then((data: { saleCenters?: PuntoVentaItem[]; error?: string }) => {
         if (data.error) {
@@ -85,9 +84,8 @@ export default function PuntosVentaScreen() {
 
   // Sync al abrir la pantalla (en segundo plano) para mantener datos actualizados
   useEffect(() => {
-    fetch(`${API_URL}/api/agora/sale-centers/sync`, {
+    apiFetch('/api/agora/sale-centers/sync', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     })
       .then((res) => res.json())
@@ -183,9 +181,8 @@ export default function PuntosVentaScreen() {
     setSaleCenters((prev) =>
       prev.map((p) => (String(p.Id ?? p.id) === String(id) ? { ...p, Activo: newActivo } : p))
     );
-    fetch(`${API_URL}/api/agora/sale-centers`, {
+    apiFetch('/api/agora/sale-centers', {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: String(id), Activo: newActivo }),
     })
       .then((res) => res.json())
