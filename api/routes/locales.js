@@ -17,7 +17,8 @@ function formatId6(val) {
 }
 
 // Estructura exacta de la tabla igp_Locales en AWS (orden: id_Locales, nombre, agoraCode, empresa, ...).
-const TABLE_LOCALES_ATTRS = ['id_Locales', 'nombre', 'agoraCode', 'empresa', 'direccion', 'cp', 'municipio', 'provincia', 'almacen origen', 'sede', 'lat', 'lng', 'imagen'];
+// `factorial_location_id` es opcional: lo rellena el admin manualmente con el ID de la location de Factorial HR.
+const TABLE_LOCALES_ATTRS = ['id_Locales', 'nombre', 'agoraCode', 'empresa', 'direccion', 'cp', 'municipio', 'provincia', 'almacen origen', 'sede', 'lat', 'lng', 'imagen', 'factorial_location_id'];
 
 // Acepta body con claves en minúsculas (API) o PascalCase (frontend).
 function bodyLocalesVal(body, key) {

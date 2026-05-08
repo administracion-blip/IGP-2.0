@@ -33,7 +33,8 @@ const MAX_TEXT_LENGTH = 30;
 const COL_THUMBNAIL = '_thumbnail';
 
 // Atributos exactos de la tabla igp_Locales en AWS (mismo orden que api/server.js TABLE_LOCALES_ATTRS).
-const ATRIBUTOS_TABLA_LOCALES = ['id_Locales', 'Nombre', 'AgoraCode', 'Empresa', 'Direccion', 'Cp', 'Municipio', 'Provincia', 'Almacen origen', 'Sede', 'lat', 'lng', 'Imagen'] as const;
+// `factorial_location_id` es opcional: ID de la location correspondiente en Factorial HR (cuadrante).
+const ATRIBUTOS_TABLA_LOCALES = ['id_Locales', 'Nombre', 'AgoraCode', 'Empresa', 'Direccion', 'Cp', 'Municipio', 'Provincia', 'Almacen origen', 'Sede', 'lat', 'lng', 'Imagen', 'factorial_location_id'] as const;
 
 const ORDEN_COLUMNAS = [...ATRIBUTOS_TABLA_LOCALES];
 
@@ -50,6 +51,7 @@ const CAMPOS_FORM: { key: (typeof ATRIBUTOS_TABLA_LOCALES)[number]; label: strin
   { key: 'lat', label: 'Lat' },
   { key: 'lng', label: 'Lng' },
   { key: 'Imagen', label: 'Imagen' },
+  { key: 'factorial_location_id', label: 'Factorial location ID' },
 ];
 
 const INITIAL_FORM = Object.fromEntries(CAMPOS_FORM.map((c) => [c.key, ''])) as Record<(typeof ATRIBUTOS_TABLA_LOCALES)[number], string>;

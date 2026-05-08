@@ -28,6 +28,7 @@ import artistasActuacionesRouter from './routes/artistasActuaciones.js';
 import arqueosRealesRouter from './routes/arqueosReales.js';
 import mysteryGuestRouter from './routes/mysteryGuest.js';
 import personalRouter from './routes/personal.js';
+import cuadranteRouter from './routes/cuadrante.js';
 import authRouter from './routes/auth.js';
 import publicRouter from './routes/public.js';
 import usuariosRouter from './routes/usuarios.js';
@@ -125,6 +126,7 @@ app.use('/api', artistasActuacionesRouter);
 app.use('/api', arqueosRealesRouter);
 app.use('/api', mysteryGuestRouter);
 app.use('/api', personalRouter);
+app.use('/api', cuadranteRouter);
 app.use('/api', ajustesRouter);
 
 const port = process.env.PORT || 3002;
@@ -147,4 +149,9 @@ app.listen(port, host, () => {
   setTimeout(() => checkAutoSyncs(port), 10000);
   setInterval(() => checkAutoSyncs(port), SYNC_SCHEDULER_INTERVAL_MS);
   console.log(`[auto-sync] Scheduler activo — revisa cada ${SYNC_SCHEDULER_INTERVAL_MS / 1000}s`);
+  if (!process.env.INTERNAL_SYNC_SECRET) {
+    console.warn(
+      '[api] INTERNAL_SYNC_SECRET no definido: los jobs internos (auto-sync Ágora, cierres, vencimientos) devolverán 401. Añádelo en api/.env.local',
+    );
+  }
 });

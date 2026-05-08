@@ -1,8 +1,20 @@
 import { verifyToken } from '../lib/jwt.js';
 import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
+import { INTERNAL_SYNC_POST_PATHS, normalizeApiPathname } from '../lib/internalSync.js';
 
 export function requireAuth(req, res, next) {
+  const internalSecret = process.env.INTERNAL_SYNC_SECRET;
+  if (internalSecret && req.method === 'POST') {
+    const pathname = normalizeApiPathname(req);
+    if (
+      INTERNAL_SYNC_POST_PATHS.has(pathname) &&
+      req.headers['x-internal-secret'] === internalSecret
+    ) {
+      return next();
+    }
+  }
+
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Token no proporcionado' });

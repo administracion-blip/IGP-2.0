@@ -23,7 +23,9 @@ import * as Sharing from 'expo-sharing';
 import { useAuth } from '../contexts/AuthContext';
 import { calcTiempoRestante } from '../lib/acuerdosFechas';
 import { ComprasProveedorModal } from '../components/ComprasProveedorModal';
+import { FechaInputDmy } from '../components/FechaInputDmy';
 import { apiFetch } from '../utils/api';
+import { fechaEmisionFacturaAIso } from '../utils/formatFecha';
 
 type DetalleProducto = { PK: string; SK: string; ProductId: string; ProductName: string; Cantidad: number; Aportacion: number; Rappel: number; DescuentoExtra: number; Compradas: number; Restante: number; Porcentaje: number; createdAt?: string };
 
@@ -621,8 +623,8 @@ export default function AcuerdosScreen() {
     setForm({
       Nombre: a.Nombre || '',
       Marca: a.Marca || '',
-      FechaInicio: a.FechaInicio || '',
-      FechaFin: a.FechaFin || '',
+      FechaInicio: fechaEmisionFacturaAIso(a.FechaInicio) ?? '',
+      FechaFin: fechaEmisionFacturaAIso(a.FechaFin) ?? '',
       Contacto: a.Contacto || '',
       Telefono: a.Telefono || '',
       Email: a.Email || '',
@@ -635,6 +637,11 @@ export default function AcuerdosScreen() {
 
   const guardar = async () => {
     if (!formPK.trim()) return;
+    const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+    if ((form.FechaInicio && !isoRe.test(form.FechaInicio)) || (form.FechaFin && !isoRe.test(form.FechaFin))) {
+      setError('Revisa las fechas (formato dd/mm/aaaa)');
+      return;
+    }
     if (form.FechaInicio && form.FechaFin && form.FechaInicio > form.FechaFin) {
       setError('La fecha de inicio no puede ser mayor que la fecha final');
       return;
@@ -2265,11 +2272,19 @@ export default function AcuerdosScreen() {
               <View style={styles.row2}>
                 <View style={styles.row2col}>
                   <Text style={styles.label}>Fecha inicio</Text>
-                  <TextInput style={styles.input} value={form.FechaInicio} onChangeText={(v) => setForm((f) => ({ ...f, FechaInicio: v }))} placeholder="AAAA-MM-DD" placeholderTextColor="#94a3b8" />
+                  <FechaInputDmy
+                    style={styles.input}
+                    valueIso={form.FechaInicio}
+                    onChangeIso={(iso) => setForm((f) => ({ ...f, FechaInicio: iso }))}
+                  />
                 </View>
                 <View style={styles.row2col}>
                   <Text style={styles.label}>Fecha fin</Text>
-                  <TextInput style={styles.input} value={form.FechaFin} onChangeText={(v) => setForm((f) => ({ ...f, FechaFin: v }))} placeholder="AAAA-MM-DD" placeholderTextColor="#94a3b8" />
+                  <FechaInputDmy
+                    style={styles.input}
+                    valueIso={form.FechaFin}
+                    onChangeIso={(iso) => setForm((f) => ({ ...f, FechaFin: iso }))}
+                  />
                 </View>
               </View>
 

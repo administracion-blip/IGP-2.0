@@ -1,5 +1,6 @@
 import { ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
+import { internalSyncFetchHeaders } from '../internalSync.js';
 
 const tableAjustesName = tables.ajustes;
 
@@ -15,7 +16,7 @@ export async function runCloseoutsSync(port) {
   try {
     const res = await fetch(`${baseUrl}/api/agora/closeouts/full-sync`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: internalSyncFetchHeaders(),
       body: JSON.stringify({ dateFrom, dateTo: today, deleteOutOfRange: false }),
     });
     const data = await res.json();
@@ -70,7 +71,7 @@ export async function checkAutoSyncs(port) {
       try {
         const r = await fetch(`http://127.0.0.1:${port}${ep.path}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: internalSyncFetchHeaders(),
           body: JSON.stringify(ep.body),
         });
         const d = await r.json();
@@ -101,7 +102,10 @@ export const VENCIMIENTOS_INTERVAL_MS = 60 * 60 * 1000;
 
 export async function checkVencimientosFacturas(port) {
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/api/facturacion/check-vencimientos`, { method: 'POST' });
+    const res = await fetch(`http://127.0.0.1:${port}/api/facturacion/check-vencimientos`, {
+      method: 'POST',
+      headers: internalSyncFetchHeaders(),
+    });
     const data = await res.json();
     if (data.actualizadas > 0) {
       console.log(`[vencimientos] ${data.actualizadas} factura(s) marcada(s) como vencida(s)`);
@@ -112,7 +116,10 @@ export async function checkVencimientosFacturas(port) {
 
   if (process.env.SMTP_USER) {
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/api/facturacion/enviar-recordatorios`, { method: 'POST' });
+      const res = await fetch(`http://127.0.0.1:${port}/api/facturacion/enviar-recordatorios`, {
+        method: 'POST',
+        headers: internalSyncFetchHeaders(),
+      });
       const data = await res.json();
       if (data.enviados > 0) {
         console.log(`[recordatorios] ${data.enviados} recordatorio(s) de cobro enviado(s)`);

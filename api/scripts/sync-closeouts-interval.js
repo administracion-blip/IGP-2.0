@@ -10,11 +10,13 @@
  *   INTERVAL_SECONDS: segundos entre sincronizaciones (default: 120)
  *   RECENT_DAYS: días recientes a sincronizar en cada ciclo (default: 7)
  *   RUN_FULL_INIT: si es "true", ejecuta full-sync 2025-01-01 hasta hoy al iniciar
+ *   INTERNAL_SYNC_SECRET: mismo valor que en api/.env.local (cabecera X-Internal-Secret)
  */
 
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { internalSyncFetchHeaders } from '../lib/internalSync.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: join(__dirname, '..', '.env.local') });
@@ -38,7 +40,7 @@ function addDays(dateStr, days) {
 async function syncRange(dateFrom, dateTo) {
   const res = await fetch(`${API_URL}/api/agora/closeouts/full-sync`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: internalSyncFetchHeaders(),
     body: JSON.stringify({
       dateFrom,
       dateTo,
