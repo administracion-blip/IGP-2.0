@@ -16,6 +16,7 @@ const TABLAS: { id: string; label: string; icon: React.ComponentProps<typeof Mat
   { id: 'puntos-venta', label: 'Puntos de Venta', icon: 'storefront', descripcion: 'Puntos de venta y TPV', permiso: 'puntos_venta.ver' },
   { id: 'artistas', label: 'Artistas', icon: 'mic', descripcion: 'Actuaciones y programación', permiso: 'actuaciones.ver' },
   { id: 'personal', label: 'Personal', icon: 'badge', descripcion: 'Empleados (Factorial HR)', permiso: 'personal.ver' },
+  { id: 'usuarios-agora', label: 'Usuarios Ágora', icon: 'person-pin', descripcion: 'Maestro de usuarios de Ágora', permiso: 'usuarios_agora.ver' },
 ];
 
 export default function BaseDatosScreen() {
@@ -54,6 +55,7 @@ export default function BaseDatosScreen() {
     if (id === 'puntos-venta') router.push('/puntos-venta');
     if (id === 'artistas') router.push('/actuaciones/artistas');
     if (id === 'personal') router.push('/personal');
+    if (id === 'usuarios-agora') router.push('/usuarios-agora');
   }
 
   return (

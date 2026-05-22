@@ -21,6 +21,7 @@ import { calcTiempoRestante } from '../lib/acuerdosFechas';
 import { InputFecha } from '../components/InputFecha';
 import { ComprasProveedorModal } from '../components/ComprasProveedorModal';
 import { apiFetch } from '../utils/api';
+import type { LineaProductoActivo } from '../types/acuerdo';
 
 const W = {
   id: 58,
@@ -47,24 +48,7 @@ const TABLE_MIN_WIDTH =
   W.pmr +
   W.acciones;
 
-type Linea = {
-  PK: string;
-  SK?: string;
-  ProductId: string;
-  ProductName: string;
-  Cantidad: number;
-  acuerdoPK: string;
-  MarcaAcuerdo: string;
-  NombreAcuerdo: string;
-  FechaInicioAcuerdo?: string;
-  FechaFinAcuerdo?: string;
-  Compradas: number;
-  Restante: number;
-  Porcentaje: number;
-  Aportacion?: number;
-  Rappel?: number;
-  DescuentoExtra?: number;
-};
+type Linea = LineaProductoActivo;
 
 function fmtQty(n: number) {
   if (n == null || Number.isNaN(n)) return '0';

@@ -13,6 +13,32 @@ export function formatFechaNegocio(iso) {
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
+// Alias para agrupar nombres de formas de pago en sus canónicos.
+// Coincide con STRING_KEY_TO_CANONICAL del backend y PAYMENT_ALIASES del frontend.
+// Permite que renames en Ágora (p.ej. "Tarjeta" -> "Tarjeta Manual") sigan agregándose
+// en la columna canónica correspondiente sin partir las columnas.
+const EXCEL_PAYMENT_ALIASES = {
+  efectivo: 'Efectivo',
+  tarjeta: 'Tarjeta',
+  'tarjeta manual': 'Tarjeta',
+  card: 'Tarjeta',
+  'pendiente de cobro': 'Pendiente de cobro',
+  pending: 'Pendiente de cobro',
+  'prepago transferencia': 'Prepago Transferencia',
+  transferencia: 'Prepago Transferencia',
+  agorapay: 'AgoraPay',
+  'agora pay': 'AgoraPay',
+};
+const EXCEL_PAYMENT_KEYS = ['Efectivo', 'Tarjeta', 'Pendiente de cobro', 'Prepago Transferencia', 'AgoraPay'];
+
+function canonicalPaymentName(raw) {
+  const k = String(raw ?? '').trim().toLowerCase();
+  if (!k) return null;
+  if (EXCEL_PAYMENT_ALIASES[k]) return EXCEL_PAYMENT_ALIASES[k];
+  const exact = EXCEL_PAYMENT_KEYS.find((kk) => kk.toLowerCase() === k);
+  return exact ?? null;
+}
+
 export function addExcelStyleFields(item) {
   if (!item || typeof item !== 'object') return item;
   const ensureArray = (arr) => (Array.isArray(arr) ? arr : []);
@@ -21,11 +47,16 @@ export function addExcelStyleFields(item) {
   const gross = amounts.GrossAmount ?? amounts.grossAmount ?? amounts.Total ?? amounts.total;
   const sumPayments = payments.reduce((s, p) => s + (Number(p?.Amount ?? p?.amount ?? 0) || 0), 0);
   const ventas = gross != null ? (typeof gross === 'number' ? gross : parseFloat(String(gross).replace(',', '.')) || 0) : sumPayments;
-  const EXCEL_PAYMENT_KEYS = ['Efectivo', 'Tarjeta', 'Pendiente de cobro', 'Prepago Transferencia', 'AgoraPay'];
-  const byMethod = {};
-  for (const k of EXCEL_PAYMENT_KEYS) {
-    const p = payments.find((x) => (String(x?.MethodName ?? x?.methodName ?? '').trim()) === k);
-    byMethod[k] = p != null ? (typeof p.Amount === 'number' ? p.Amount : parseFloat(String(p?.Amount ?? p?.amount ?? 0).replace(',', '.')) || 0) : 0;
+  // Suma los importes por canónico aplicando alias. Así un cierre con
+  // [{ MethodName: "Tarjeta", Amount: 0 }, { MethodName: "Tarjeta Manual", Amount: 50 }]
+  // queda como Tarjeta=50 en lugar de Tarjeta=0 (bug por match estricto que ocultaba el real).
+  const byMethod = Object.fromEntries(EXCEL_PAYMENT_KEYS.map((k) => [k, 0]));
+  for (const p of payments) {
+    const canon = canonicalPaymentName(p?.MethodName ?? p?.methodName);
+    if (canon == null) continue;
+    const rawAmt = p?.Amount ?? p?.amount ?? 0;
+    const amt = typeof rawAmt === 'number' ? rawAmt : parseFloat(String(rawAmt).replace(',', '.')) || 0;
+    byMethod[canon] = (byMethod[canon] ?? 0) + amt;
   }
   const posName = item.PosName ?? item.posName ?? '';
   const posId = item.PosId ?? item.posId;

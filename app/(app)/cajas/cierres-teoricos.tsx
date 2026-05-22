@@ -78,7 +78,7 @@ function CellWithTooltip({
 }
 const KNOWN_PAYMENT_ORDER = ['Efectivo', 'Tarjeta', 'Pendiente de cobro', 'Prepago Transferencia', 'AgoraPay'];
 const PAYMENT_ALIASES: Record<string, string> = {
-  efectivo: 'Efectivo', tarjeta: 'Tarjeta', card: 'Tarjeta',
+  efectivo: 'Efectivo', tarjeta: 'Tarjeta', 'tarjeta manual': 'Tarjeta', card: 'Tarjeta',
   'pendiente de cobro': 'Pendiente de cobro', pending: 'Pendiente de cobro',
   'prepago transferencia': 'Prepago Transferencia', transferencia: 'Prepago Transferencia',
   agorapay: 'AgoraPay',

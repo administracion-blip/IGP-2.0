@@ -16,9 +16,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { saveToken } from './utils/authToken';
 import { emailValido } from './utils/validation';
 import { fetchImagenApp } from './lib/personalizacion';
+import { apiFetch } from './utils/api';
+import { API_BASE_URL } from './utils/apiBaseUrl';
 
 const AUTH_KEY = 'erp_user';
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+// `API_BASE_URL` se conserva solo para los mensajes de error que muestran
+// la URL al usuario; las llamadas reales pasan por `apiFetch`.
+const API_URL = API_BASE_URL;
 
 /** Anillo exterior: cyan → violeta → rosa (mismo espíritu que el icono de perfil). */
 const LOGO_RING_COLORS = ['#33CCFF', '#9988FF', '#FF66CC'] as const;
@@ -61,10 +65,10 @@ export default function LoginScreen() {
     }
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/login`, {
+      const res = await apiFetch('/api/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password }),
+        timeoutMs: 15000,
       });
       let data: LoginResponse;
       try {

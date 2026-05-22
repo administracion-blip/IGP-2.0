@@ -28,6 +28,8 @@ const MENU_ITEMS: { route: string; label: string; icon: string; permiso: string 
   { route: '/cashflow', label: 'Cashflow', icon: 'trending-up', permiso: 'cashflow.ver' },
   { route: '/actuaciones', label: 'Actuaciones', icon: 'mic', permiso: 'actuaciones.ver' },
   { route: '/rrpp', label: 'Rrpp', icon: 'people', permiso: 'rrpp.ver' },
+  { route: '/recursos-humanos', label: 'Recursos Humanos', icon: 'groups', permiso: 'recursos_humanos.ver' },
+  { route: '/rrss', label: 'Marketing', icon: 'campaign', permiso: 'marketing.proponer' },
   { route: '/mystery-guest', label: 'Mystery Guest', icon: 'visibility', permiso: 'mystery_guest.ver' },
   { route: '/reservas', label: 'Reservas', icon: 'event-available', permiso: 'reservas.ver' },
   { route: '/acuerdos', label: 'Acuerdos', icon: 'handshake', permiso: 'acuerdos.ver' },
@@ -205,9 +207,12 @@ function AppLayoutContent() {
             <Stack.Screen name="cashflow" />
             <Stack.Screen name="actuaciones" />
             <Stack.Screen name="rrpp" />
+            <Stack.Screen name="recursos-humanos" />
+            <Stack.Screen name="rrss" />
             <Stack.Screen name="mystery-guest" />
             <Stack.Screen name="reservas" />
             <Stack.Screen name="usuarios" />
+            <Stack.Screen name="usuarios-agora" />
             <Stack.Screen name="locales" />
             <Stack.Screen name="almacenes" />
             <Stack.Screen name="empresas" />

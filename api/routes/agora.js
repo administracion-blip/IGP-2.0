@@ -18,6 +18,8 @@ import {
   exportFamilies,
   exportVats,
   exportIncomingDeliveryNotes,
+  exportPaymentMethods,
+  exportUsers,
 } from '../lib/agora/client.js';
 import { upsertBatch } from '../lib/dynamo/salesCloseOuts.js';
 import {
@@ -29,6 +31,14 @@ import {
   pickAllowedFields,
   updatePurchaseVatRates,
 } from '../lib/dynamo/agoraProducts.js';
+import {
+  syncUsers as syncAgoraUsers,
+  getLastSync as getLastUsersSync,
+  setLastSync as setLastUsersSync,
+  shouldSkipSyncByThrottle as shouldSkipUsersByThrottle,
+  toApiUser,
+  getAllUsersMap,
+} from '../lib/dynamo/agoraUsuarios.js';
 import {
   MONTH_LABELS,
   extractNumberFromSk,
@@ -52,6 +62,7 @@ const env = () => ({
 });
 
 const tableAgoraProductsName = tables.agoraProducts;
+const tableAgoraUsuariosName = tables.agoraUsuarios;
 const tableSaleCentersName = tables.saleCenters;
 const tableSalesCloseOutsName = tables.salesCloseOuts;
 const tableAlmacenesName = tables.almacenes;
@@ -65,16 +76,133 @@ function formatId6(val) {
 }
 
 // --- Cierres de ventas: constantes y helpers ---
-const AGORA_PAYMENT_METHOD_ID = {
+// Fallback hardcodeado para los IDs históricos de Ágora (Guía 8.1.6 p.27).
+// Se usa si Ágora aún no ha respondido al primer fetch o si la primera carga falla.
+const INITIAL_PAYMENT_METHOD_ID = {
   1: 'Efectivo',
   2: 'Tarjeta',
   4: 'Pendiente de cobro',
   5: 'Prepago Transferencia',
   7: 'AgoraPay',
 };
+// Mutable: se rellena dinámicamente desde la caché de PaymentMethods de Ágora.
+// Los accesos síncronos (extractAmountsAndPayments) lo leen como un mapa Id->Name.
+const AGORA_PAYMENT_METHOD_ID = { ...INITIAL_PAYMENT_METHOD_ID };
+
+// Caché en memoria de las formas de pago de Ágora.
+// Estrategia: TTL 1h + stale-while-error + lazy bootstrap en background.
+const PAYMENT_METHODS_CACHE_TTL_MS = 60 * 60 * 1000;
+const paymentMethodsCache = {
+  data: null, // array de PaymentMethod (sin las borradas)
+  fetchedAt: 0, // timestamp último fetch con éxito
+  inFlight: null, // Promise en curso (evita stampede)
+  bgRefreshing: false, // refresh en background ya disparado
+};
+
+function isPaymentMethodsCacheFresh() {
+  return (
+    paymentMethodsCache.data != null &&
+    Date.now() - paymentMethodsCache.fetchedAt < PAYMENT_METHODS_CACHE_TTL_MS
+  );
+}
+
+async function fetchPaymentMethodsAndUpdateMap() {
+  if (paymentMethodsCache.inFlight) return paymentMethodsCache.inFlight;
+  paymentMethodsCache.inFlight = (async () => {
+    const list = await exportPaymentMethods();
+    paymentMethodsCache.data = Array.isArray(list) ? list : [];
+    paymentMethodsCache.fetchedAt = Date.now();
+    // Rellena AGORA_PAYMENT_METHOD_ID. Los IDs canónicos históricos (INITIAL) NO se
+    // sobrescriben con el nombre que llegue de Ágora — si en Ágora alguien renombra
+    // "Tarjeta" a "Tarjeta Manual", aquí seguimos viéndolo como "Tarjeta" para no
+    // partir las columnas en cierres-teóricos / revisión de formas de pago.
+    // Los IDs nuevos (no canónicos) sí se añaden con el nombre que les ponga Ágora.
+    Object.keys(AGORA_PAYMENT_METHOD_ID).forEach((k) => delete AGORA_PAYMENT_METHOD_ID[k]);
+    Object.assign(AGORA_PAYMENT_METHOD_ID, INITIAL_PAYMENT_METHOD_ID);
+    for (const pm of paymentMethodsCache.data) {
+      if (pm && pm.Id != null && pm.Name) {
+        if (INITIAL_PAYMENT_METHOD_ID[pm.Id] != null) continue;
+        AGORA_PAYMENT_METHOD_ID[pm.Id] = String(pm.Name);
+        AGORA_PAYMENT_METHOD_ID[String(pm.Id)] = String(pm.Name);
+      }
+    }
+    return paymentMethodsCache.data;
+  })();
+  try {
+    return await paymentMethodsCache.inFlight;
+  } finally {
+    paymentMethodsCache.inFlight = null;
+  }
+}
+
+// Lazy bootstrap: se dispara en background la primera vez que algún consumidor
+// síncrono (extractAmountsAndPayments) toca el mapa, o cuando expira el TTL.
+// Si falla, se vuelve a intentar en la próxima invocación.
+function ensurePaymentMethodsFreshness() {
+  if (paymentMethodsCache.bgRefreshing) return;
+  if (isPaymentMethodsCacheFresh()) return;
+  paymentMethodsCache.bgRefreshing = true;
+  fetchPaymentMethodsAndUpdateMap()
+    .catch((err) => {
+      console.warn(
+        '[agora] Refresh PaymentMethods (background) falló:',
+        err?.message || err,
+      );
+    })
+    .finally(() => {
+      paymentMethodsCache.bgRefreshing = false;
+    });
+}
+
+// Versión async para la ruta GET: garantiza una respuesta con datos cacheados o
+// fallback. Aplica stale-while-error: si la recarga falla pero hay valor previo,
+// devuelve el previo marcado como stale.
+async function getPaymentMethodsCached() {
+  if (isPaymentMethodsCacheFresh()) {
+    return {
+      items: paymentMethodsCache.data,
+      fetchedAt: paymentMethodsCache.fetchedAt,
+      stale: false,
+      source: 'cache',
+    };
+  }
+  try {
+    const items = await fetchPaymentMethodsAndUpdateMap();
+    return {
+      items,
+      fetchedAt: paymentMethodsCache.fetchedAt,
+      stale: false,
+      source: 'agora',
+    };
+  } catch (err) {
+    if (paymentMethodsCache.data != null) {
+      console.warn(
+        '[agora] Recarga PaymentMethods falló, sirvo caché obsoleta:',
+        err?.message || err,
+      );
+      return {
+        items: paymentMethodsCache.data,
+        fetchedAt: paymentMethodsCache.fetchedAt,
+        stale: true,
+        source: 'cache-stale',
+      };
+    }
+    console.warn(
+      '[agora] Bootstrap PaymentMethods falló, sirvo fallback inicial:',
+      err?.message || err,
+    );
+    const fallback = Object.entries(INITIAL_PAYMENT_METHOD_ID).map(([id, name]) => ({
+      Id: Number(id),
+      Name: name,
+    }));
+    return { items: fallback, fetchedAt: 0, stale: true, source: 'fallback', error: err?.message || String(err) };
+  }
+}
+
 const STRING_KEY_TO_CANONICAL = {
   efectivo: 'Efectivo',
   tarjeta: 'Tarjeta',
+  'tarjeta manual': 'Tarjeta',
   card: 'Tarjeta',
   'pendiente de cobro': 'Pendiente de cobro',
   pending: 'Pendiente de cobro',
@@ -127,6 +255,10 @@ function getMappableRaw(raw) {
 }
 
 function extractAmountsAndPayments(raw) {
+  // Lazy bootstrap: dispara refresh en background si la caché está vacía o expirada.
+  // No bloquea esta llamada; usa el valor actual de AGORA_PAYMENT_METHOD_ID
+  // (que arranca con INITIAL_PAYMENT_METHOD_ID y se rellena cuando Ágora responde).
+  ensurePaymentMethodsFreshness();
   const r = getMappableRaw(raw);
   const amounts = r?.Amounts ?? r?.amounts ?? r?.Totals ?? r?.totals ?? {};
   const totalsByMethod =
@@ -176,9 +308,18 @@ function extractAmountsAndPayments(raw) {
 
   const toPayment = (b) => {
     const id = b?.PaymentMethodId ?? b?.paymentMethodId ?? b?.Id ?? b?.id;
+    // Prioridad: si hay Id válido y está en el mapa (incluye canónicos blindados),
+    // usamos su nombre canónico. Esto evita partir columnas cuando Ágora renombra
+    // un método (p.ej. "Tarjeta" -> "Tarjeta Manual"). Solo se usa el MethodName
+    // del JSON si no hay Id o el Id es desconocido.
+    const fromId =
+      id != null
+        ? (AGORA_PAYMENT_METHOD_ID[id] ?? AGORA_PAYMENT_METHOD_ID[String(id)] ?? null)
+        : null;
     const name =
+      fromId ??
       findValue(b, ['MethodName', 'methodName', 'Name', 'name']) ??
-      (id != null ? AGORA_PAYMENT_METHOD_ID[id] ?? AGORA_PAYMENT_METHOD_ID[String(id)] ?? `Método ${id}` : null);
+      (id != null ? `Método ${id}` : null);
     const amt =
       b?.ActualEndAmount ??
       b?.actualEndAmount ??
@@ -605,80 +746,75 @@ function validateAgoraCloseOut(raw) {
 router.get('/agora/closeouts', async (req, res) => {
   const businessDay = (req.query.businessDay && String(req.query.businessDay).trim()) || '';
   const workplaceId = (req.query.workplaceId && String(req.query.workplaceId).trim()) || '';
-  try {
-    const items = [];
-    let lastKey = null;
+  const items = [];
+  let lastKey = null;
+  do {
+    const result = await docClient.send(new ScanCommand({
+      TableName: tableSalesCloseOutsName,
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    }));
+    items.push(...(result.Items || []));
+    lastKey = result.LastEvaluatedKey || null;
+  } while (lastKey);
+  let list = items;
+  if (workplaceId) list = list.filter((i) => (i.PK ?? i.pk) === workplaceId);
+  if (businessDay && /^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
+    const sk = (i) => i.SK ?? i.sk ?? '';
+    list = list.filter((i) => sk(i) && sk(i).startsWith(businessDay));
+  }
+  list.sort((a, b) => ((a.SK ?? a.sk) || '').localeCompare((b.SK ?? b.sk) || ''));
+  for (const item of list) {
+    if ((item.PosId ?? item.posId) != null) continue;
+    const sk = String(item.SK ?? item.sk ?? '').trim();
+    const parts = sk.split('#');
+    if (parts.length === 3 && parts[1] && parts[1] !== '0') item.PosId = parts[1];
+  }
+  const posIdsNeedingName = [...new Set(list.filter((i) => (i.PosId ?? i.posId) != null && !(i.PosName ?? i.posName)).map((i) => String(i.PosId ?? i.posId)))];
+  if (posIdsNeedingName.length > 0) {
+    const scItems = [];
+    let scLastKey = null;
     do {
-      const result = await docClient.send(new ScanCommand({
-        TableName: tableSalesCloseOutsName,
-        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      const scResult = await docClient.send(new QueryCommand({
+        TableName: tableSaleCentersName,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': 'GLOBAL' },
+        ...(scLastKey && { ExclusiveStartKey: scLastKey }),
       }));
-      items.push(...(result.Items || []));
-      lastKey = result.LastEvaluatedKey || null;
-    } while (lastKey);
-    let list = items;
-    if (workplaceId) list = list.filter((i) => (i.PK ?? i.pk) === workplaceId);
-    if (businessDay && /^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
-      const sk = (i) => i.SK ?? i.sk ?? '';
-      list = list.filter((i) => sk(i) && sk(i).startsWith(businessDay));
-    }
-    list.sort((a, b) => ((a.SK ?? a.sk) || '').localeCompare((b.SK ?? b.sk) || ''));
+      scItems.push(...(scResult.Items || []));
+      scLastKey = scResult.LastEvaluatedKey || null;
+    } while (scLastKey);
+    const posIdToNombre = Object.fromEntries(scItems.filter((s) => s.Id != null).map((s) => [String(s.Id), String(s.Nombre ?? s.nombre ?? '').trim()]));
     for (const item of list) {
-      if ((item.PosId ?? item.posId) != null) continue;
-      const sk = String(item.SK ?? item.sk ?? '').trim();
-      const parts = sk.split('#');
-      if (parts.length === 3 && parts[1] && parts[1] !== '0') item.PosId = parts[1];
-    }
-    const posIdsNeedingName = [...new Set(list.filter((i) => (i.PosId ?? i.posId) != null && !(i.PosName ?? i.posName)).map((i) => String(i.PosId ?? i.posId)))];
-    if (posIdsNeedingName.length > 0) {
-      const scItems = [];
-      let scLastKey = null;
-      do {
-        const scResult = await docClient.send(new QueryCommand({
-          TableName: tableSaleCentersName,
-          KeyConditionExpression: 'PK = :pk',
-          ExpressionAttributeValues: { ':pk': 'GLOBAL' },
-          ...(scLastKey && { ExclusiveStartKey: scLastKey }),
-        }));
-        scItems.push(...(scResult.Items || []));
-        scLastKey = scResult.LastEvaluatedKey || null;
-      } while (scLastKey);
-      const posIdToNombre = Object.fromEntries(scItems.filter((s) => s.Id != null).map((s) => [String(s.Id), String(s.Nombre ?? s.nombre ?? '').trim()]));
-      for (const item of list) {
-        const pid = item.PosId ?? item.posId;
-        if (pid != null && !(item.PosName ?? item.posName) && posIdToNombre[String(pid)]) {
-          item.PosName = posIdToNombre[String(pid)];
-        }
+      const pid = item.PosId ?? item.posId;
+      if (pid != null && !(item.PosName ?? item.posName) && posIdToNombre[String(pid)]) {
+        item.PosName = posIdToNombre[String(pid)];
       }
     }
-    const normalized = list.map((item) => {
-      if (!item || typeof item !== 'object') return item;
-      const a = item.Amounts ?? item.amounts ?? {};
-      const amounts = typeof a === 'object' && a !== null ? a : {};
-      const ensureArray = (arr) => (Array.isArray(arr) ? arr : []);
-      const toPayment = (p) => ({ MethodName: p?.MethodName ?? p?.methodName ?? p?.Name ?? p?.name ?? null, Amount: p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? null });
-      const skVal = item.SK ?? item.sk ?? '';
-      const extractNum = (s) => (!s || typeof s !== 'string' ? '' : s.trim().split('#').length >= 2 ? s.trim().split('#').pop() : '');
-      const numberVal = item.Number ?? item.number ?? extractNum(skVal);
-      const base = {
-        ...item,
-        PK: item.PK ?? item.pk ?? '',
-        SK: skVal,
-        BusinessDay: item.BusinessDay ?? item.businessDay ?? (skVal && String(skVal).split('#')[0]) ?? '',
-        Number: numberVal,
-        Amounts: amounts,
-        InvoicePayments: ensureArray(item.InvoicePayments ?? item.invoicePayments).map(toPayment),
-        TicketPayments: ensureArray(item.TicketPayments ?? item.ticketPayments).map(toPayment),
-        DeliveryNotePayments: ensureArray(item.DeliveryNotePayments ?? item.deliveryNotePayments).map(toPayment),
-        SalesOrderPayments: ensureArray(item.SalesOrderPayments ?? item.salesOrderPayments).map(toPayment),
-      };
-      return addExcelStyleFields(base);
-    });
-    res.json({ closeouts: normalized });
-  } catch (err) {
-    console.error('[agora/closeouts]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al listar cierres' });
   }
+  const normalized = list.map((item) => {
+    if (!item || typeof item !== 'object') return item;
+    const a = item.Amounts ?? item.amounts ?? {};
+    const amounts = typeof a === 'object' && a !== null ? a : {};
+    const ensureArray = (arr) => (Array.isArray(arr) ? arr : []);
+    const toPayment = (p) => ({ MethodName: p?.MethodName ?? p?.methodName ?? p?.Name ?? p?.name ?? null, Amount: p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? null });
+    const skVal = item.SK ?? item.sk ?? '';
+    const extractNum = (s) => (!s || typeof s !== 'string' ? '' : s.trim().split('#').length >= 2 ? s.trim().split('#').pop() : '');
+    const numberVal = item.Number ?? item.number ?? extractNum(skVal);
+    const base = {
+      ...item,
+      PK: item.PK ?? item.pk ?? '',
+      SK: skVal,
+      BusinessDay: item.BusinessDay ?? item.businessDay ?? (skVal && String(skVal).split('#')[0]) ?? '',
+      Number: numberVal,
+      Amounts: amounts,
+      InvoicePayments: ensureArray(item.InvoicePayments ?? item.invoicePayments).map(toPayment),
+      TicketPayments: ensureArray(item.TicketPayments ?? item.ticketPayments).map(toPayment),
+      DeliveryNotePayments: ensureArray(item.DeliveryNotePayments ?? item.deliveryNotePayments).map(toPayment),
+      SalesOrderPayments: ensureArray(item.SalesOrderPayments ?? item.salesOrderPayments).map(toPayment),
+    };
+    return addExcelStyleFields(base);
+  });
+  res.json({ closeouts: normalized });
 });
 
 router.get('/agora/closeouts/totals-by-local-range', async (req, res) => {
@@ -694,50 +830,45 @@ router.get('/agora/closeouts/totals-by-local-range', async (req, res) => {
   if (dateFrom > dateTo) {
     return res.status(400).json({ error: 'dateFrom debe ser <= dateTo' });
   }
-  try {
-    const items = [];
-    let lastKey = null;
-    do {
-      const result = await docClient.send(new QueryCommand({
-        TableName: tableSalesCloseOutsName,
-        KeyConditionExpression: 'PK = :pk AND SK BETWEEN :skFrom AND :skTo',
-        ExpressionAttributeValues: {
-          ':pk': workplaceId,
-          ':skFrom': dateFrom,
-          ':skTo': `${dateTo}\uffff`,
-        },
-        ...(lastKey && { ExclusiveStartKey: lastKey }),
-      }));
-      items.push(...(result.Items || []));
-      lastKey = result.LastEvaluatedKey || null;
-    } while (lastKey);
-    const totalsByDay = {};
-    for (const item of items) {
-      const sk = String(item.SK ?? item.sk ?? '').trim();
-      const businessDay = (sk && /^\d{4}-\d{2}-\d{2}/.test(sk) ? sk.slice(0, 10) : (sk && sk.split('#')[0])) || '';
-      if (!businessDay || !/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) continue;
-      const arr = item.InvoicePayments ?? item.invoicePayments;
-      let total = 0;
-      if (Array.isArray(arr)) {
-        for (const p of arr) {
-          total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
-        }
+  const items = [];
+  let lastKey = null;
+  do {
+    const result = await docClient.send(new QueryCommand({
+      TableName: tableSalesCloseOutsName,
+      KeyConditionExpression: 'PK = :pk AND SK BETWEEN :skFrom AND :skTo',
+      ExpressionAttributeValues: {
+        ':pk': workplaceId,
+        ':skFrom': dateFrom,
+        ':skTo': `${dateTo}\uffff`,
+      },
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    }));
+    items.push(...(result.Items || []));
+    lastKey = result.LastEvaluatedKey || null;
+  } while (lastKey);
+  const totalsByDay = {};
+  for (const item of items) {
+    const sk = String(item.SK ?? item.sk ?? '').trim();
+    const businessDay = (sk && /^\d{4}-\d{2}-\d{2}/.test(sk) ? sk.slice(0, 10) : (sk && sk.split('#')[0])) || '';
+    if (!businessDay || !/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) continue;
+    const arr = item.InvoicePayments ?? item.invoicePayments;
+    let total = 0;
+    if (Array.isArray(arr)) {
+      for (const p of arr) {
+        total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
       }
-      if (total === 0) {
-        const amounts = item.Amounts ?? item.amounts ?? {};
-        const gross = amounts.GrossAmount ?? amounts.grossAmount ?? amounts.Total ?? amounts.total;
-        total = Number(gross) || 0;
-      }
-      totalsByDay[businessDay] = (totalsByDay[businessDay] || 0) + total;
     }
-    for (const d in totalsByDay) {
-      totalsByDay[d] = Math.round(totalsByDay[d] * 100) / 100;
+    if (total === 0) {
+      const amounts = item.Amounts ?? item.amounts ?? {};
+      const gross = amounts.GrossAmount ?? amounts.grossAmount ?? amounts.Total ?? amounts.total;
+      total = Number(gross) || 0;
     }
-    res.json({ totals: totalsByDay });
-  } catch (err) {
-    console.error('[agora/closeouts/totals-by-local-range]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al obtener totales' });
+    totalsByDay[businessDay] = (totalsByDay[businessDay] || 0) + total;
   }
+  for (const d in totalsByDay) {
+    totalsByDay[d] = Math.round(totalsByDay[d] * 100) / 100;
+  }
+  res.json({ totals: totalsByDay });
 });
 
 router.get('/agora/closeouts/totals-by-local', async (req, res) => {
@@ -745,64 +876,59 @@ router.get('/agora/closeouts/totals-by-local', async (req, res) => {
   if (!businessDay || !/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
     return res.status(400).json({ error: 'businessDay obligatorio (YYYY-MM-DD)' });
   }
-  try {
-    const items = [];
-    let lastKey = null;
-    do {
-      const result = await docClient.send(new ScanCommand({
-        TableName: tableSalesCloseOutsName,
-        ...(lastKey && { ExclusiveStartKey: lastKey }),
-      }));
-      items.push(...(result.Items || []));
-      lastKey = result.LastEvaluatedKey || null;
-    } while (lastKey);
-    const list = items.filter((i) => {
-      const sk = String(i.SK ?? i.sk ?? '').trim();
-      return sk && sk.startsWith(businessDay);
-    });
-    const totalsByPk = {};
-    for (const item of list) {
-      const pk = String(item.PK ?? item.pk ?? '').trim();
-      const arr = item.InvoicePayments ?? item.invoicePayments;
-      let total = 0;
-      if (Array.isArray(arr)) {
-        for (const p of arr) {
-          total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
-        }
-      }
-      if (pk) {
-        totalsByPk[pk] = (totalsByPk[pk] || 0) + total;
+  const items = [];
+  let lastKey = null;
+  do {
+    const result = await docClient.send(new ScanCommand({
+      TableName: tableSalesCloseOutsName,
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    }));
+    items.push(...(result.Items || []));
+    lastKey = result.LastEvaluatedKey || null;
+  } while (lastKey);
+  const list = items.filter((i) => {
+    const sk = String(i.SK ?? i.sk ?? '').trim();
+    return sk && sk.startsWith(businessDay);
+  });
+  const totalsByPk = {};
+  for (const item of list) {
+    const pk = String(item.PK ?? item.pk ?? '').trim();
+    const arr = item.InvoicePayments ?? item.invoicePayments;
+    let total = 0;
+    if (Array.isArray(arr)) {
+      for (const p of arr) {
+        total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
       }
     }
-    const localeItems = [];
-    let locLastKey = null;
-    do {
-      const locResult = await docClient.send(new ScanCommand({
-        TableName: tableLocalesName,
-        ...(locLastKey && { ExclusiveStartKey: locLastKey }),
-      }));
-      localeItems.push(...(locResult.Items || []));
-      locLastKey = locResult.LastEvaluatedKey || null;
-    } while (locLastKey);
-    const pkToNombre = {};
-    for (const loc of localeItems) {
-      const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
-      const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
-      if (code) pkToNombre[code] = nombre || code;
+    if (pk) {
+      totalsByPk[pk] = (totalsByPk[pk] || 0) + total;
     }
-    const result = Object.entries(totalsByPk)
-      .filter(([, total]) => total > 0)
-      .map(([workplaceId, total]) => ({
-        local: pkToNombre[workplaceId] ?? workplaceId,
-        total: Math.round(total * 100) / 100,
-        workplaceId,
-      }))
-      .sort((a, b) => b.total - a.total);
-    res.json({ businessDay, totals: result });
-  } catch (err) {
-    console.error('[agora/closeouts/totals-by-local]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al obtener totales' });
   }
+  const localeItems = [];
+  let locLastKey = null;
+  do {
+    const locResult = await docClient.send(new ScanCommand({
+      TableName: tableLocalesName,
+      ...(locLastKey && { ExclusiveStartKey: locLastKey }),
+    }));
+    localeItems.push(...(locResult.Items || []));
+    locLastKey = locResult.LastEvaluatedKey || null;
+  } while (locLastKey);
+  const pkToNombre = {};
+  for (const loc of localeItems) {
+    const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+    const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
+    if (code) pkToNombre[code] = nombre || code;
+  }
+  const result = Object.entries(totalsByPk)
+    .filter(([, total]) => total > 0)
+    .map(([workplaceId, total]) => ({
+      local: pkToNombre[workplaceId] ?? workplaceId,
+      total: Math.round(total * 100) / 100,
+      workplaceId,
+    }))
+    .sort((a, b) => b.total - a.total);
+  res.json({ businessDay, totals: result });
 });
 
 router.get('/agora/closeouts/totals-by-local-ytd', async (req, res) => {
@@ -813,69 +939,64 @@ router.get('/agora/closeouts/totals-by-local-ytd', async (req, res) => {
   }
   const prefix = year + '-';
   const useDateTo = dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateTo) && dateTo.startsWith(year + '-');
-  try {
-    const items = [];
-    let lastKey = null;
-    do {
-      const result = await docClient.send(new ScanCommand({
-        TableName: tableSalesCloseOutsName,
-        ...(lastKey && { ExclusiveStartKey: lastKey }),
-      }));
-      items.push(...(result.Items || []));
-      lastKey = result.LastEvaluatedKey || null;
-    } while (lastKey);
-    const list = items.filter((i) => {
-      const sk = String(i.SK ?? i.sk ?? '').trim();
-      if (!sk || !sk.startsWith(prefix)) return false;
-      if (useDateTo) {
-        const datePart = sk.split('#')[0] || '';
-        if (datePart > dateTo) return false;
-      }
-      return true;
-    });
-    const totalsByPk = {};
-    for (const item of list) {
-      const pk = String(item.PK ?? item.pk ?? '').trim();
-      const arr = item.InvoicePayments ?? item.invoicePayments;
-      let total = 0;
-      if (Array.isArray(arr)) {
-        for (const p of arr) {
-          total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
-        }
-      }
-      if (pk) {
-        totalsByPk[pk] = (totalsByPk[pk] || 0) + total;
+  const items = [];
+  let lastKey = null;
+  do {
+    const result = await docClient.send(new ScanCommand({
+      TableName: tableSalesCloseOutsName,
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    }));
+    items.push(...(result.Items || []));
+    lastKey = result.LastEvaluatedKey || null;
+  } while (lastKey);
+  const list = items.filter((i) => {
+    const sk = String(i.SK ?? i.sk ?? '').trim();
+    if (!sk || !sk.startsWith(prefix)) return false;
+    if (useDateTo) {
+      const datePart = sk.split('#')[0] || '';
+      if (datePart > dateTo) return false;
+    }
+    return true;
+  });
+  const totalsByPk = {};
+  for (const item of list) {
+    const pk = String(item.PK ?? item.pk ?? '').trim();
+    const arr = item.InvoicePayments ?? item.invoicePayments;
+    let total = 0;
+    if (Array.isArray(arr)) {
+      for (const p of arr) {
+        total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
       }
     }
-    const localeItems = [];
-    let locLastKey = null;
-    do {
-      const locResult = await docClient.send(new ScanCommand({
-        TableName: tableLocalesName,
-        ...(locLastKey && { ExclusiveStartKey: locLastKey }),
-      }));
-      localeItems.push(...(locResult.Items || []));
-      locLastKey = locResult.LastEvaluatedKey || null;
-    } while (locLastKey);
-    const pkToNombre = {};
-    for (const loc of localeItems) {
-      const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
-      const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
-      if (code) pkToNombre[code] = nombre || code;
+    if (pk) {
+      totalsByPk[pk] = (totalsByPk[pk] || 0) + total;
     }
-    const result = Object.entries(totalsByPk)
-      .filter(([, total]) => total > 0)
-      .map(([workplaceId, total]) => ({
-        local: pkToNombre[workplaceId] ?? workplaceId,
-        total: Math.round(total * 100) / 100,
-        workplaceId,
-      }))
-      .sort((a, b) => b.total - a.total);
-    res.json({ year, dateTo: useDateTo ? dateTo : null, totals: result });
-  } catch (err) {
-    console.error('[agora/closeouts/totals-by-local-ytd]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al obtener totales YTD' });
   }
+  const localeItems = [];
+  let locLastKey = null;
+  do {
+    const locResult = await docClient.send(new ScanCommand({
+      TableName: tableLocalesName,
+      ...(locLastKey && { ExclusiveStartKey: locLastKey }),
+    }));
+    localeItems.push(...(locResult.Items || []));
+    locLastKey = locResult.LastEvaluatedKey || null;
+  } while (locLastKey);
+  const pkToNombre = {};
+  for (const loc of localeItems) {
+    const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+    const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
+    if (code) pkToNombre[code] = nombre || code;
+  }
+  const result = Object.entries(totalsByPk)
+    .filter(([, total]) => total > 0)
+    .map(([workplaceId, total]) => ({
+      local: pkToNombre[workplaceId] ?? workplaceId,
+      total: Math.round(total * 100) / 100,
+      workplaceId,
+    }))
+    .sort((a, b) => b.total - a.total);
+  res.json({ year, dateTo: useDateTo ? dateTo : null, totals: result });
 });
 
 router.get('/agora/closeouts/totals-by-month', async (req, res) => {
@@ -886,51 +1007,46 @@ router.get('/agora/closeouts/totals-by-month', async (req, res) => {
   }
   const prefix = year + '-';
   const useDateTo = dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateTo) && dateTo.startsWith(year + '-');
-  try {
-    const items = [];
-    let lastKey = null;
-    do {
-      const result = await docClient.send(new ScanCommand({
-        TableName: tableSalesCloseOutsName,
-        ...(lastKey && { ExclusiveStartKey: lastKey }),
-      }));
-      items.push(...(result.Items || []));
-      lastKey = result.LastEvaluatedKey || null;
-    } while (lastKey);
-    const list = items.filter((i) => {
-      const sk = String(i.SK ?? i.sk ?? '').trim();
-      if (!sk || !sk.startsWith(prefix)) return false;
-      if (useDateTo) {
-        const datePart = sk.split('#')[0] || '';
-        if (datePart > dateTo) return false;
-      }
-      return true;
-    });
-    const totalsByMonth = {};
-    for (const item of list) {
-      const sk = String(item.SK ?? item.sk ?? '').trim();
+  const items = [];
+  let lastKey = null;
+  do {
+    const result = await docClient.send(new ScanCommand({
+      TableName: tableSalesCloseOutsName,
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    }));
+    items.push(...(result.Items || []));
+    lastKey = result.LastEvaluatedKey || null;
+  } while (lastKey);
+  const list = items.filter((i) => {
+    const sk = String(i.SK ?? i.sk ?? '').trim();
+    if (!sk || !sk.startsWith(prefix)) return false;
+    if (useDateTo) {
       const datePart = sk.split('#')[0] || '';
-      const month = parseInt(datePart.slice(5, 7), 10) || 0;
-      if (month < 1 || month > 12) continue;
-      const arr = item.InvoicePayments ?? item.invoicePayments;
-      let total = 0;
-      if (Array.isArray(arr)) {
-        for (const p of arr) {
-          total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
-        }
+      if (datePart > dateTo) return false;
+    }
+    return true;
+  });
+  const totalsByMonth = {};
+  for (const item of list) {
+    const sk = String(item.SK ?? item.sk ?? '').trim();
+    const datePart = sk.split('#')[0] || '';
+    const month = parseInt(datePart.slice(5, 7), 10) || 0;
+    if (month < 1 || month > 12) continue;
+    const arr = item.InvoicePayments ?? item.invoicePayments;
+    let total = 0;
+    if (Array.isArray(arr)) {
+      for (const p of arr) {
+        total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
       }
-      totalsByMonth[month] = (totalsByMonth[month] || 0) + total;
     }
-    const months = [];
-    for (let m = 1; m <= 12; m++) {
-      const total = Math.round((totalsByMonth[m] || 0) * 100) / 100;
-      months.push({ month: m, monthLabel: MONTH_LABELS[m - 1], total });
-    }
-    res.json({ year, dateTo: useDateTo ? dateTo : null, months });
-  } catch (err) {
-    console.error('[agora/closeouts/totals-by-month]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al obtener totales por mes' });
+    totalsByMonth[month] = (totalsByMonth[month] || 0) + total;
   }
+  const months = [];
+  for (let m = 1; m <= 12; m++) {
+    const total = Math.round((totalsByMonth[m] || 0) * 100) / 100;
+    months.push({ month: m, monthLabel: MONTH_LABELS[m - 1], total });
+  }
+  res.json({ year, dateTo: useDateTo ? dateTo : null, months });
 });
 
 router.get('/agora/closeouts/dashboard-home', async (req, res) => {
@@ -957,8 +1073,7 @@ router.get('/agora/closeouts/dashboard-home', async (req, res) => {
     return total;
   };
 
-  try {
-    const [items, localeItems] = await Promise.all([
+  const [items, localeItems] = await Promise.all([
       (async () => {
         const acc = [];
         let lastKey = null;
@@ -1082,10 +1197,6 @@ router.get('/agora/closeouts/dashboard-home', async (req, res) => {
         months: monthsLastArr,
       },
     });
-  } catch (err) {
-    console.error('[agora/closeouts/dashboard-home]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al cargar dashboard' });
-  }
 });
 
 router.get('/agora/closeouts-ready', (_req, res) => {
@@ -1243,7 +1354,7 @@ router.get('/agora/invoices/payments-review', async (req, res) => {
     return res.status(400).json({ error: msg });
   }
 
-  try {
+  {
     const cacheKey = paymentsReviewCacheKey(dateFrom, dateTo, workplaceIds);
     let cachedEntry = refresh ? null : paymentsReviewCacheGet(cacheKey);
     let allRows;
@@ -1442,10 +1553,756 @@ router.get('/agora/invoices/payments-review', async (req, res) => {
       count: filteredRows.length,
       rows: filteredRows,
     });
-  } catch (err) {
-    console.error('[agora/invoices/payments-review]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al consultar pagos por ticket' });
   }
+});
+
+// =========================================================================
+// USUARIOS ÁGORA — maestro cacheado en DynamoDB (Igp_AgoraUsuarios)
+// =========================================================================
+
+router.get('/agora/users', async (req, res) => {
+  const forceAgora =
+    String(req.query.source || '').toLowerCase() === 'agora' ||
+    String(req.query.force || '') === '1';
+
+  if (forceAgora) {
+    try {
+      const list = await exportUsers();
+      const usuarios = list.map((u) => toApiUser(u));
+      return res.json({ usuarios });
+    } catch (err) {
+      return res.status(500).json({ error: err.message || 'Error al conectar con Agora.' });
+    }
+  }
+
+  try {
+    const items = [];
+    let lastKey = null;
+    do {
+      const cmd = new QueryCommand({
+        TableName: tableAgoraUsuariosName,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': 'GLOBAL' },
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      });
+      const result = await docClient.send(cmd);
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+
+    const onlyActive = String(req.query.activos || '').toLowerCase() === '1' ||
+      String(req.query.activos || '').toLowerCase() === 'true';
+
+    let usuarios = items
+      .filter((i) => i.PK !== undefined && i.SK !== undefined && i.SK !== '__meta__')
+      .map((item) => toApiUser(item));
+    if (onlyActive) usuarios = usuarios.filter((u) => u.Active !== false);
+    usuarios.sort((a, b) => {
+      const na = String(a.FullName ?? a.Name ?? '').toLowerCase();
+      const nb = String(b.FullName ?? b.Name ?? '').toLowerCase();
+      return na.localeCompare(nb);
+    });
+
+    const lastSyncTs = await getLastUsersSync(docClient, tableAgoraUsuariosName);
+
+    return res.json({
+      usuarios,
+      lastSync: lastSyncTs ? new Date(lastSyncTs).toISOString() : null,
+    });
+  } catch (err) {
+    if (err.name === 'ResourceNotFoundException') {
+      req.log?.warn?.({ err }, 'Tabla AgoraUsuarios no encontrada');
+      return res.json({
+        usuarios: [],
+        error: 'Tabla Igp_AgoraUsuarios no existe. Ejecuta: node api/scripts/create-agora-users-table.js',
+      });
+    }
+    throw err;
+  }
+});
+
+router.post('/agora/users/sync', async (req, res) => {
+  const { AGORA_API_BASE_URL, AGORA_API_TOKEN } = env();
+  const force =
+    req.body?.force === true ||
+    String(req.query.force || req.body?.force || '') === '1' ||
+    String(req.query.force || '').toLowerCase() === 'true';
+  const baseUrl = (AGORA_API_BASE_URL || '').trim().replace(/\/+$/, '');
+  const token = (AGORA_API_TOKEN || '').trim();
+
+  if (!baseUrl) return res.status(400).json({ error: 'Falta AGORA_API_BASE_URL en .env.local' });
+  if (!token) return res.status(400).json({ error: 'Falta AGORA_API_TOKEN en .env.local' });
+
+  try {
+    if (!force) {
+      const lastSync = await getLastUsersSync(docClient, tableAgoraUsuariosName);
+      if (shouldSkipUsersByThrottle(lastSync)) {
+        return res.json({
+          ok: true,
+          skipped: true,
+          reason: 'recent',
+          message: 'Sincronización reciente. Usa ?force=1 para forzar.',
+        });
+      }
+    }
+
+    const rawList = await exportUsers();
+    const { added, updated, unchanged } = await syncAgoraUsers(
+      docClient,
+      tableAgoraUsuariosName,
+      rawList,
+    );
+    await setLastUsersSync(docClient, tableAgoraUsuariosName);
+
+    return res.json({
+      ok: true,
+      fetched: rawList.length,
+      added,
+      updated,
+      unchanged,
+    });
+  } catch (err) {
+    if (err.name === 'ResourceNotFoundException') {
+      const e = new Error(
+        'Tabla Igp_AgoraUsuarios no existe. Ejecuta: node api/scripts/create-agora-users-table.js',
+      );
+      e.status = 404;
+      throw e;
+    }
+    throw err;
+  }
+});
+
+// =========================================================================
+// CONTROL DE EXCEPCIONES — invitaciones, descuentos manuales y anulaciones
+// =========================================================================
+//
+// Recorre las facturas de Ágora (export filter=Invoices) y extrae las
+// "excepciones" relevantes:
+//   - Invitaciones      → líneas regaladas
+//   - Descuentos        → líneas con descuento manual aplicado por el cajero
+//   - Anulaciones       → tickets/líneas anulados o reembolsados
+//
+// Devuelve filas planas (una por excepción) listas para tabular.
+
+const EXCEPTIONS_CACHE = new Map();
+const EXCEPTIONS_TTL_MS = 2 * 60 * 1000;
+const EXCEPTIONS_CACHE_MAX = 50;
+
+function exceptionsCacheKey(dateFrom, dateTo, workplaceIds) {
+  const wp = [...workplaceIds].map(String).sort().join(',');
+  return `${dateFrom}|${dateTo}|${wp}`;
+}
+
+function exceptionsCacheGet(key) {
+  const entry = EXCEPTIONS_CACHE.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > EXCEPTIONS_TTL_MS) {
+    EXCEPTIONS_CACHE.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+function exceptionsCacheSet(key, rows) {
+  if (EXCEPTIONS_CACHE.size >= EXCEPTIONS_CACHE_MAX) {
+    const firstKey = EXCEPTIONS_CACHE.keys().next().value;
+    if (firstKey != null) EXCEPTIONS_CACHE.delete(firstKey);
+  }
+  EXCEPTIONS_CACHE.set(key, { rows, cachedAt: Date.now() });
+}
+
+function toNumberSafe(v) {
+  if (typeof v === 'number') return v;
+  if (v == null || v === '') return 0;
+  return parseFloat(String(v).replace(',', '.')) || 0;
+}
+
+function pickUserId(it) {
+  return (
+    it?.Cashier?.Id ?? it?.cashier?.id ??
+    it?.CashierId ?? it?.cashierId ??
+    it?.User?.Id ?? it?.user?.id ??
+    it?.UserId ?? it?.userId ??
+    it?.Waiter?.Id ?? it?.waiter?.id ??
+    it?.WaiterId ?? it?.waiterId ??
+    null
+  );
+}
+
+function pickUserName(it) {
+  return (
+    it?.Cashier?.Name ?? it?.cashier?.name ??
+    it?.CashierName ?? it?.cashierName ??
+    it?.User?.Name ?? it?.user?.name ??
+    it?.UserName ?? it?.userName ??
+    it?.Waiter?.Name ?? it?.waiter?.name ??
+    it?.WaiterName ?? it?.waiterName ??
+    null
+  );
+}
+
+function pickCustomerId(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  return (
+    obj?.Customer?.Id ?? obj?.customer?.id ??
+    obj?.CustomerId ?? obj?.customerId ??
+    null
+  );
+}
+
+function pickCustomerName(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  return (
+    obj?.Customer?.Name ?? obj?.customer?.name ??
+    obj?.CustomerName ?? obj?.customerName ??
+    obj?.Customer?.FiscalName ?? obj?.customer?.fiscalName ??
+    null
+  );
+}
+
+/** Cliente Ágora asociado a una excepción (línea → item → factura). */
+function exceptionCustomerFields(line, it, ctx) {
+  return {
+    CustomerId:
+      pickCustomerId(line) ?? pickCustomerId(it) ?? ctx.invCustomerId ?? null,
+    CustomerName:
+      pickCustomerName(line) ?? pickCustomerName(it) ?? ctx.invCustomerName ?? null,
+  };
+}
+
+function docTypeLabel(contentType) {
+  const c = String(contentType ?? '').trim().toUpperCase();
+  if (c === 'T') return 'Ticket';
+  if (c === 'D') return 'Albarán';
+  if (c === 'O') return 'Pedido';
+  if (c === 'F' || c === 'I') return 'Factura';
+  return c || 'Documento';
+}
+
+/** Precio de carta / tarifa del producto (no el precio cobrado en la línea). */
+function pickLineProductPrice(line) {
+  return toNumberSafe(
+    line?.ProductPrice ?? line?.productPrice ??
+    line?.Product?.Price ?? line?.product?.price ??
+    line?.MenuPrice ?? line?.menuPrice ??
+    line?.StandardPrice ?? line?.standardPrice ??
+    line?.BasePrice ?? line?.basePrice,
+  );
+}
+
+/** Línea secundaria de un combo (mezclador, complemento, modificador incluido). */
+function isSaleLineSubComponent(line) {
+  const parentId =
+    line?.ParentLineId ?? line?.parentLineId ??
+    line?.ParentSaleLineId ?? line?.parentSaleLineId ??
+    line?.ParentId ?? line?.parentId ??
+    line?.MainLineId ?? line?.mainLineId ?? null;
+  if (parentId != null && String(parentId).trim() !== '' && String(parentId) !== '0') {
+    return true;
+  }
+  if (line?.IsModifier === true || line?.isModifier === true) return true;
+  if (line?.IsComplement === true || line?.isComplement === true) return true;
+  const lineType = String(
+    line?.LineType ?? line?.lineType ??
+    line?.SaleLineType ?? line?.saleLineType ?? '',
+  ).trim().toUpperCase();
+  if (['MODIFIER', 'COMPLEMENT', 'ADDIN', 'ADDON', 'SUBPRODUCT', 'COMPONENT', 'M'].includes(lineType)) {
+    return true;
+  }
+  const level = toNumberSafe(line?.Level ?? line?.level ?? line?.IndentLevel ?? line?.indentLevel);
+  return level > 0;
+}
+
+/** ¿La línea tiene descuento manual con importe o tasa > 0? */
+function lineHasManualDiscount(line) {
+  const discountList =
+    line?.Discounts ?? line?.discounts ??
+    line?.SaleLineDiscounts ?? line?.saleLineDiscounts ??
+    line?.LineDiscounts ?? line?.lineDiscounts ?? [];
+  if (Array.isArray(discountList) && discountList.length > 0) {
+    for (const d of discountList) {
+      const amount = toNumberSafe(
+        d?.DiscountAmount ?? d?.discountAmount ?? d?.Amount ?? d?.amount,
+      );
+      const rate = toNumberSafe(d?.DiscountRate ?? d?.discountRate ?? d?.Rate ?? d?.rate);
+      if (amount > 0.001 || rate > 0.001) return true;
+    }
+  }
+  const lineDiscountAmt = toNumberSafe(
+    line?.DiscountAmount ?? line?.discountAmount ??
+    line?.CashDiscount ?? line?.cashDiscount,
+  );
+  const lineDiscountRate = toNumberSafe(line?.DiscountRate ?? line?.discountRate);
+  return lineDiscountAmt > 0.001 || lineDiscountRate > 0.001;
+}
+
+/**
+ * Emite registros de descuento manual para una línea (array Discounts[] o campos directos).
+ * @returns {boolean} true si se emitió al menos un descuento
+ */
+function pushLineManualDiscounts(out, line, it, ctx, meta) {
+  const {
+    itemDate, docType, itemNumber, userId, userName,
+    qty, productName, lineGross,
+  } = meta;
+  let pushed = false;
+  const discountList =
+    line?.Discounts ?? line?.discounts ??
+    line?.SaleLineDiscounts ?? line?.saleLineDiscounts ??
+    line?.LineDiscounts ?? line?.lineDiscounts ?? [];
+  if (Array.isArray(discountList) && discountList.length > 0) {
+    for (const d of discountList) {
+      const amount = toNumberSafe(
+        d?.DiscountAmount ?? d?.discountAmount ?? d?.Amount ?? d?.amount,
+      );
+      const rate = toNumberSafe(d?.DiscountRate ?? d?.discountRate ?? d?.Rate ?? d?.rate);
+      if (amount <= 0.001 && rate <= 0.001) continue;
+      out.push({
+        Type: 'descuento',
+        WorkplaceId: ctx.workplaceId, WorkplaceName: ctx.workplaceName,
+        PosId: ctx.posId, PosName: ctx.posName,
+        BusinessDay: ctx.businessDay,
+        DateTime: itemDate,
+        DocumentType: docType,
+        TicketNumber: itemNumber, InvoiceNumber: ctx.invNumber,
+        UserId: userId, UserName: userName,
+        Amount: amount > 0 ? amount : (rate > 0 ? (lineGross * rate) / 100 : 0),
+        Quantity: qty,
+        ProductName: productName,
+        Reason: String(d?.DiscountName ?? d?.discountName ?? d?.Name ?? d?.name ?? 'Descuento manual').trim(),
+        DiscountRate: rate || null,
+        OriginalInvoiceId: null,
+        ...exceptionCustomerFields(line, it, ctx),
+      });
+      pushed = true;
+    }
+    return pushed;
+  }
+  const lineDiscountAmt = toNumberSafe(
+    line?.DiscountAmount ?? line?.discountAmount ??
+    line?.CashDiscount ?? line?.cashDiscount,
+  );
+  const lineDiscountRate = toNumberSafe(line?.DiscountRate ?? line?.discountRate);
+  if (lineDiscountAmt > 0.001 || lineDiscountRate > 0.001) {
+    out.push({
+      Type: 'descuento',
+      WorkplaceId: ctx.workplaceId, WorkplaceName: ctx.workplaceName,
+      PosId: ctx.posId, PosName: ctx.posName,
+      BusinessDay: ctx.businessDay,
+      DateTime: itemDate,
+      DocumentType: docType,
+      TicketNumber: itemNumber, InvoiceNumber: ctx.invNumber,
+      UserId: userId, UserName: userName,
+      Amount: lineDiscountAmt > 0
+        ? lineDiscountAmt
+        : (lineDiscountRate > 0 && lineGross > 0 ? (lineGross * lineDiscountRate) / 100 : 0),
+      Quantity: qty,
+      ProductName: productName,
+      Reason: 'Descuento manual',
+      DiscountRate: lineDiscountRate || null,
+      OriginalInvoiceId: null,
+      ...exceptionCustomerFields(line, it, ctx),
+    });
+    pushed = true;
+  }
+  return pushed;
+}
+
+/**
+ * Resuelve conflictos entre excepciones del mismo ticket:
+ *  - Producto cortesía prevalece sobre descuento manual e invitación pura.
+ *  - Descuento manual prevalece sobre invitación pura (sin cortesía).
+ */
+function dedupeInvitacionesSuperseded(rows) {
+  const hasCortesia = rows.some(
+    (r) => r.Type === 'invitacion' && r.Reason === 'Producto cortesía',
+  );
+  const hasDescuento = rows.some((r) => r.Type === 'descuento');
+  if (!hasCortesia && !hasDescuento) return rows;
+  return rows.filter((r) => {
+    if (hasCortesia && r.Type === 'descuento') return false;
+    if (r.Type === 'invitacion' && r.Reason === 'Invitación') {
+      return !hasCortesia && !hasDescuento;
+    }
+    return true;
+  });
+}
+
+/**
+ * Extrae las "excepciones" de un InvoiceItem (ticket, albarán, pedido o factura).
+ * Heurísticas pragmáticas (la guía no expone un campo único), todas defensivas:
+ *
+ *  - Anulación de documento entero: campo `IsCancellation === true` o existencia
+ *    de `OriginalInvoiceId`/`OriginalNumber`.
+ *  - Invitación de línea: flags IsInvitation / SaleType=I / invitación clásica
+ *    (precio carta > 0, cobrado ≈ 0). Prioridad inferior a producto cortesía y
+ *    descuento manual en la misma línea o ticket.
+ *  - Producto cortesía: IsCourtesy o precio carta > 0 cobrado a 0 (no complementos
+ *    de combo incluidos a 0 € en carta).
+ *  - Descuento manual: Discounts[] o DiscountAmount/DiscountRate en línea.
+ *    Prioridad: cortesía > descuento > invitación (misma línea y mismo ticket).
+ *  - Anulación de línea: IsCancellation / IsCancelled / Cancellations[].
+ */
+function extractExceptionsFromInvoiceItem(it, ctx) {
+  const out = [];
+  const itemNumber = String(
+    it?.SerialNumber ?? it?.serialNumber ?? it?.Number ?? it?.number ?? it?.Id ?? it?.id ?? '',
+  ).trim();
+  const itemDate = String(
+    it?.Date ?? it?.date ?? it?.DateTime ?? it?.dateTime ?? '',
+  ).trim() || ctx.invDate;
+  const contentType = it?.ContentType ?? it?.contentType ?? '';
+  const docType = docTypeLabel(contentType);
+  const userId = pickUserId(it) ?? ctx.invUserId;
+  const userName = pickUserName(it) ?? ctx.invUserName;
+
+  const hasOriginalRef = (v) => {
+    if (v == null) return false;
+    const s = String(v).trim();
+    return s !== '' && s !== '0';
+  };
+  const itemIsCancellation =
+    it?.IsCancellation === true ||
+    it?.isCancellation === true ||
+    it?.IsCancelled === true ||
+    it?.isCancelled === true ||
+    hasOriginalRef(it?.OriginalInvoiceId ?? it?.originalInvoiceId) ||
+    hasOriginalRef(it?.OriginalNumber ?? it?.originalNumber);
+
+  const itemAmount = toNumberSafe(
+    it?.Totals?.GrossAmount ?? it?.totals?.grossAmount ??
+    it?.GrossAmount ?? it?.grossAmount,
+  );
+
+  if (itemIsCancellation) {
+    out.push({
+      Type: 'anulacion',
+      WorkplaceId: ctx.workplaceId,
+      WorkplaceName: ctx.workplaceName,
+      PosId: ctx.posId,
+      PosName: ctx.posName,
+      BusinessDay: ctx.businessDay,
+      DateTime: itemDate,
+      DocumentType: docType,
+      TicketNumber: itemNumber,
+      InvoiceNumber: ctx.invNumber,
+      UserId: userId,
+      UserName: userName,
+      Amount: itemAmount,
+      Quantity: null,
+      ProductName: null,
+      Reason: 'Documento anulado',
+      DiscountRate: null,
+      OriginalInvoiceId:
+        it?.OriginalInvoiceId ?? it?.originalInvoiceId ??
+        it?.OriginalNumber ?? it?.originalNumber ?? null,
+      ...exceptionCustomerFields(null, it, ctx),
+    });
+  }
+
+  const saleLines =
+    it?.SaleLines ?? it?.saleLines ??
+    it?.Lines ?? it?.lines ??
+    it?.DocumentLines ?? it?.documentLines ?? [];
+
+  if (!Array.isArray(saleLines)) return dedupeInvitacionesSuperseded(out);
+
+  const lineMetaBase = {
+    itemDate, docType, itemNumber, userId, userName,
+  };
+
+  for (const line of saleLines) {
+    const qty = toNumberSafe(line?.Quantity ?? line?.quantity);
+    const productName = String(
+      line?.ProductName ?? line?.productName ??
+      line?.Product?.Name ?? line?.product?.name ??
+      line?.Name ?? line?.name ?? '',
+    ).trim() || null;
+    const lineGross = toNumberSafe(
+      line?.TotalAmount ?? line?.totalAmount ??
+      line?.LineGrossAmount ?? line?.lineGrossAmount ??
+      line?.GrossAmount ?? line?.grossAmount ??
+      line?.Total ?? line?.total ??
+      line?.NetAmount ?? line?.netAmount ??
+      line?.Amount ?? line?.amount,
+    );
+    const unitPrice = toNumberSafe(
+      line?.UnitPrice ?? line?.unitPrice ?? line?.Price ?? line?.price,
+    );
+    const productPrice = pickLineProductPrice(line);
+
+    // Anulación de línea
+    const lineCancelled =
+      line?.IsCancellation === true || line?.isCancellation === true ||
+      line?.IsCancelled === true || line?.isCancelled === true ||
+      (Array.isArray(line?.Cancellations) && line.Cancellations.length > 0) ||
+      (Array.isArray(line?.cancellations) && line.cancellations.length > 0);
+
+    if (lineCancelled) {
+      out.push({
+        Type: 'anulacion',
+        WorkplaceId: ctx.workplaceId, WorkplaceName: ctx.workplaceName,
+        PosId: ctx.posId, PosName: ctx.posName,
+        BusinessDay: ctx.businessDay,
+        DateTime: itemDate,
+        DocumentType: docType,
+        TicketNumber: itemNumber, InvoiceNumber: ctx.invNumber,
+        UserId: userId, UserName: userName,
+        Amount: Math.abs(lineGross),
+        Quantity: qty,
+        ProductName: productName,
+        Reason: 'Línea anulada',
+        DiscountRate: null,
+        OriginalInvoiceId: null,
+        ...exceptionCustomerFields(line, it, ctx),
+      });
+      continue;
+    }
+
+    // Mezcladores / complementos incluidos en combo (p. ej. "c. GINGER ALE" a 0 €)
+    if (
+      isSaleLineSubComponent(line) &&
+      unitPrice <= 0.001 &&
+      Math.abs(lineGross) < 0.001
+    ) {
+      continue;
+    }
+
+    // Invitación / producto cortesía / descuento manual (prioridad: cortesía > descuento > invitación)
+    const saleType = String(line?.SaleType ?? line?.saleType ?? '').trim().toUpperCase();
+    const hasExplicitInvitation =
+      line?.IsInvitation === true || line?.isInvitation === true ||
+      saleType === 'INVITATION' || saleType === 'INVITACION';
+
+    const isCourtesyFlag = line?.IsCourtesy === true || line?.isCourtesy === true;
+    const cobradoCero =
+      qty > 0 && unitPrice <= 0.001 && Math.abs(lineGross) < 0.001;
+    // Cortesía: línea sin importe que no es subcomponente de combo (mezclador / modificador)
+    const productoCortesiaLine =
+      cobradoCero && !isSaleLineSubComponent(line);
+    const isProductoCortesia = isCourtesyFlag || productoCortesiaLine;
+    // Invitación clásica: precio carta > 0 con cobro a 0 (requiere conocer ProductPrice)
+    const invitacionClasica =
+      qty > 0 && productPrice > 0.001 &&
+      unitPrice <= 0.001 && Math.abs(lineGross) < 0.001;
+    const isInvitacionPura =
+      !isProductoCortesia &&
+      cobradoCero &&
+      (hasExplicitInvitation || invitacionClasica);
+    const hasManualDiscount = lineHasManualDiscount(line);
+    const lineMeta = { ...lineMetaBase, qty, productName, lineGross };
+
+    if (isProductoCortesia) {
+      out.push({
+        Type: 'invitacion',
+        WorkplaceId: ctx.workplaceId, WorkplaceName: ctx.workplaceName,
+        PosId: ctx.posId, PosName: ctx.posName,
+        BusinessDay: ctx.businessDay,
+        DateTime: itemDate,
+        DocumentType: docType,
+        TicketNumber: itemNumber, InvoiceNumber: ctx.invNumber,
+        UserId: userId, UserName: userName,
+        Amount: Math.abs(lineGross || (productPrice > 0 ? productPrice * qty : unitPrice)),
+        Quantity: qty,
+        ProductName: productName,
+        Reason: 'Producto cortesía',
+        DiscountRate: null,
+        OriginalInvoiceId: null,
+        ...exceptionCustomerFields(line, it, ctx),
+      });
+      continue;
+    }
+
+    if (hasManualDiscount) {
+      pushLineManualDiscounts(out, line, it, ctx, lineMeta);
+      continue;
+    }
+
+    if (isInvitacionPura) {
+      out.push({
+        Type: 'invitacion',
+        WorkplaceId: ctx.workplaceId, WorkplaceName: ctx.workplaceName,
+        PosId: ctx.posId, PosName: ctx.posName,
+        BusinessDay: ctx.businessDay,
+        DateTime: itemDate,
+        DocumentType: docType,
+        TicketNumber: itemNumber, InvoiceNumber: ctx.invNumber,
+        UserId: userId, UserName: userName,
+        Amount: qty > 0 && unitPrice > 0 ? qty * unitPrice : Math.abs(lineGross || unitPrice),
+        Quantity: qty,
+        ProductName: productName,
+        Reason: 'Invitación',
+        DiscountRate: null,
+        OriginalInvoiceId: null,
+        ...exceptionCustomerFields(line, it, ctx),
+      });
+      continue;
+    }
+
+    pushLineManualDiscounts(out, line, it, ctx, lineMeta);
+  }
+
+  return dedupeInvitacionesSuperseded(out);
+}
+
+router.get('/agora/invoices/exceptions', async (req, res) => {
+  const dateFromRaw = String(req.query.dateFrom || '').trim();
+  const dateToRaw = String(req.query.dateTo || '').trim();
+  const workplaceIdsRaw = req.query.workplaceIds ?? req.query['workplaceIds[]'];
+  let workplaceIds = [];
+  if (Array.isArray(workplaceIdsRaw)) {
+    workplaceIds = workplaceIdsRaw.map((v) => String(v).trim()).filter(Boolean);
+  } else if (typeof workplaceIdsRaw === 'string' && workplaceIdsRaw.trim()) {
+    workplaceIds = workplaceIdsRaw.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  const refresh = String(req.query.refresh || '') === '1';
+
+  const isIso = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+  if (!isIso(dateFromRaw) || !isIso(dateToRaw)) {
+    return res.status(400).json({ error: 'dateFrom y dateTo deben ser YYYY-MM-DD' });
+  }
+  if (dateFromRaw > dateToRaw) {
+    return res.status(400).json({ error: 'dateFrom debe ser <= dateTo' });
+  }
+
+  const MAX_DAYS = workplaceIds.length === 1 ? 365 : 31;
+  const days = [];
+  {
+    let d = new Date(dateFromRaw + 'T12:00:00');
+    const end = new Date(dateToRaw + 'T12:00:00');
+    while (d <= end) {
+      days.push(d.toISOString().slice(0, 10));
+      d.setDate(d.getDate() + 1);
+      if (days.length > MAX_DAYS) break;
+    }
+  }
+  if (days.length > MAX_DAYS) {
+    const msg = workplaceIds.length === 1
+      ? `Rango máximo permitido: ${MAX_DAYS} días`
+      : `Rango máximo permitido: ${MAX_DAYS} días con ${workplaceIds.length === 0 ? 'todos los locales' : `${workplaceIds.length} locales`}. Selecciona 1 solo local para ampliar hasta 365 días.`;
+    return res.status(400).json({ error: msg });
+  }
+
+  const cacheKey = exceptionsCacheKey(dateFromRaw, dateToRaw, workplaceIds);
+  let cached = refresh ? null : exceptionsCacheGet(cacheKey);
+  let allRows;
+  let cachedAt;
+  let fromCache = false;
+
+  if (cached) {
+    allRows = cached.rows;
+    cachedAt = cached.cachedAt;
+    fromCache = true;
+  } else {
+    const workplaces = workplaceIds.length > 0 ? workplaceIds : null;
+    const CHUNK = 4;
+    const invoicesByDay = new Map();
+    for (let i = 0; i < days.length; i += CHUNK) {
+      const slice = days.slice(i, i + CHUNK);
+      const results = await Promise.all(
+        slice.map((day) =>
+          exportInvoices(day, workplaces ?? undefined)
+            .then((data) => ({ day, data, err: null }))
+            .catch((err) => ({ day, data: null, err })),
+        ),
+      );
+      for (const r of results) {
+        if (r.err) {
+          console.warn('[agora/invoices/exceptions]', r.day, r.err.message || r.err);
+          invoicesByDay.set(r.day, []);
+        } else {
+          invoicesByDay.set(r.day, extractCloseOutsArray(r.data, ['Invoices', 'invoices']));
+        }
+      }
+    }
+
+    // Resolución de nombres de usuario por Id (a partir del maestro cacheado).
+    let userMap = new Map();
+    try {
+      userMap = await getAllUsersMap(docClient, tableAgoraUsuariosName);
+    } catch (e) {
+      console.warn('[agora/invoices/exceptions] usersMap', e.message || e);
+    }
+
+    const built = [];
+    for (const day of days) {
+      const listForDay = invoicesByDay.get(day) ?? [];
+      for (const inv of listForDay) {
+        const workplaceId = String(
+          inv?.Workplace?.Id ?? inv?.workplace?.id ?? inv?.WorkplaceId ?? inv?.workplaceId ?? '',
+        ).trim() || '0';
+        const workplaceName =
+          inv?.Workplace?.Name ?? inv?.workplace?.name ??
+          inv?.WorkplaceName ?? inv?.workplaceName ?? null;
+        const posId = inv?.Pos?.Id ?? inv?.pos?.id ?? inv?.PosId ?? inv?.posId ?? null;
+        const posName = inv?.Pos?.Name ?? inv?.pos?.name ?? inv?.PosName ?? inv?.posName ?? null;
+        const bd = String(
+          inv?.BusinessDay ?? inv?.businessDay ?? day,
+        ).trim() || day;
+        const invNumber = String(
+          inv?.SerialNumber ?? inv?.serialNumber ??
+          inv?.Number ?? inv?.number ??
+          inv?.Id ?? inv?.id ?? '',
+        ).trim();
+        const invDate = String(inv?.Date ?? inv?.date ?? inv?.DateTime ?? inv?.dateTime ?? '').trim();
+        const invUserId = pickUserId(inv);
+        const invUserName = pickUserName(inv);
+        const invCustomerId = pickCustomerId(inv);
+        const invCustomerName = pickCustomerName(inv);
+        const ctx = {
+          workplaceId, workplaceName, posId, posName,
+          businessDay: bd, invNumber, invDate, invUserId, invUserName,
+          invCustomerId, invCustomerName,
+        };
+
+        const items = inv?.InvoiceItems ?? inv?.invoiceItems ?? [];
+        if (Array.isArray(items) && items.length > 0) {
+          for (const it of items) {
+            built.push(...extractExceptionsFromInvoiceItem(it, ctx));
+          }
+        } else {
+          // Factura plana (sin InvoiceItems): la tratamos como un "item" virtual.
+          built.push(...extractExceptionsFromInvoiceItem(inv, ctx));
+        }
+      }
+    }
+
+    // Resolver UserName por Id si no venía o si tenemos uno mejor en el maestro.
+    for (const r of built) {
+      if (r.UserId != null) {
+        const named = userMap.get(String(r.UserId));
+        if (named) r.UserName = named;
+      }
+    }
+
+    built.sort((a, b) => {
+      const wn = String(a.WorkplaceName ?? a.WorkplaceId ?? '').localeCompare(
+        String(b.WorkplaceName ?? b.WorkplaceId ?? ''),
+      );
+      if (wn !== 0) return wn;
+      const bd = String(b.BusinessDay ?? '').localeCompare(String(a.BusinessDay ?? ''));
+      if (bd !== 0) return bd;
+      const dt = String(b.DateTime ?? '').localeCompare(String(a.DateTime ?? ''));
+      if (dt !== 0) return dt;
+      return String(b.TicketNumber ?? '').localeCompare(String(a.TicketNumber ?? ''));
+    });
+
+    exceptionsCacheSet(cacheKey, built);
+    allRows = built;
+    cachedAt = Date.now();
+    fromCache = false;
+  }
+
+  res.json({
+    dateFrom: dateFromRaw,
+    dateTo: dateToRaw,
+    workplaceIds,
+    fromCache,
+    cachedAt: new Date(cachedAt).toISOString(),
+    count: allRows.length,
+    rows: allRows,
+  });
 });
 
 router.get('/agora/test-connection', async (req, res) => {
@@ -1496,6 +2353,24 @@ router.get('/agora/test-connection', async (req, res) => {
       ok: false,
       error: `No se pudo conectar con Agora: ${msg}. Comprueba URL y que el servidor esté accesible.`,
     });
+  }
+});
+
+// Formas de pago de Ágora (Guía 8.1.6 p.27-29, 206).
+// Devuelve el catálogo de PaymentMethods cacheado en memoria (TTL 1h, stale-while-error).
+// Si la caché está fresca, no se llama a Ágora. Si está expirada o vacía, se recarga.
+// Si Ágora falla y hay caché previa se devuelve marcada como stale; si no hay caché,
+// se sirve el fallback inicial hardcodeado.
+router.get('/agora/payment-methods', async (req, res) => {
+  const force = String(req.query.force || '').toLowerCase() === 'true';
+  if (force) {
+    paymentMethodsCache.fetchedAt = 0;
+  }
+  try {
+    const result = await getPaymentMethodsCached();
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err?.message || 'Error obteniendo formas de pago' });
   }
 });
 
@@ -1586,13 +2461,15 @@ router.get('/agora/products', async (req, res) => {
     return res.json({ productos });
   } catch (err) {
     if (err.name === 'ResourceNotFoundException') {
+      // Contrato preservado: devolver 200 con productos:[] para no romper el frontend
+      // que renderiza la lista aunque esté vacía y muestra el mensaje como banner.
+      req.log.warn({ err }, 'Tabla AgoraProducts no encontrada');
       return res.json({
         productos: [],
         error: 'Tabla Igp_AgoraProducts no existe. Ejecuta sync o crea la tabla.',
       });
     }
-    console.error('[agora/products list]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al listar productos Ágora' });
+    throw err;
   }
 });
 
@@ -1694,13 +2571,13 @@ router.post('/agora/products/sync', async (req, res) => {
     });
   } catch (err) {
     if (err.name === 'ResourceNotFoundException') {
-      return res.status(404).json({
-        error:
-          'Tabla Igp_AgoraProducts no existe. Ejecuta: node api/scripts/create-agora-products-table.js',
-      });
+      const e = new Error(
+        'Tabla Igp_AgoraProducts no existe. Ejecuta: node api/scripts/create-agora-products-table.js'
+      );
+      e.status = 404;
+      throw e;
     }
-    console.error('[agora/products/sync]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al sincronizar productos Ágora' });
+    throw err;
   }
 });
 
@@ -1818,42 +2695,38 @@ router.patch('/agora/products/:id', async (req, res) => {
     return res.json({ ok: true, id: sk, ...updates });
   } catch (err) {
     if (err.name === 'ResourceNotFoundException') {
-      return res.status(404).json({ error: 'Producto no encontrado' });
+      const e = new Error('Producto no encontrado');
+      e.status = 404;
+      throw e;
     }
-    console.error('[agora/products PATCH]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al actualizar producto' });
+    throw err;
   }
 });
 
 router.get('/agora/sale-centers', async (req, res) => {
-  try {
-    const items = [];
-    let lastKey = null;
-    do {
-      const cmd = new QueryCommand({
-        TableName: tableSaleCentersName,
-        KeyConditionExpression: 'PK = :pk',
-        ExpressionAttributeValues: { ':pk': 'GLOBAL' },
-        ...(lastKey && { ExclusiveStartKey: lastKey }),
-      });
-      const result = await docClient.send(cmd);
-      items.push(...(result.Items || []));
-      lastKey = result.LastEvaluatedKey || null;
-    } while (lastKey);
-    items.sort((a, b) => String(a.SK ?? '').localeCompare(String(b.SK ?? '')));
-    const saleCenters = items.map((i) => ({
-      Id: i.Id,
-      Nombre: i.Nombre,
-      Tipo: i.Tipo,
-      Local: i.Local,
-      Grupo: i.Grupo,
-      Activo: i.Activo !== false,
-    }));
-    res.json({ saleCenters });
-  } catch (err) {
-    console.error('[agora/sale-centers list]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al listar puntos de venta' });
-  }
+  const items = [];
+  let lastKey = null;
+  do {
+    const cmd = new QueryCommand({
+      TableName: tableSaleCentersName,
+      KeyConditionExpression: 'PK = :pk',
+      ExpressionAttributeValues: { ':pk': 'GLOBAL' },
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    });
+    const result = await docClient.send(cmd);
+    items.push(...(result.Items || []));
+    lastKey = result.LastEvaluatedKey || null;
+  } while (lastKey);
+  items.sort((a, b) => String(a.SK ?? '').localeCompare(String(b.SK ?? '')));
+  const saleCenters = items.map((i) => ({
+    Id: i.Id,
+    Nombre: i.Nombre,
+    Tipo: i.Tipo,
+    Local: i.Local,
+    Grupo: i.Grupo,
+    Activo: i.Activo !== false,
+  }));
+  res.json({ saleCenters });
 });
 
 router.patch('/agora/sale-centers', async (req, res) => {
@@ -1878,10 +2751,13 @@ router.patch('/agora/sale-centers', async (req, res) => {
     return res.json({ ok: true, id, Activo });
   } catch (err) {
     if (err.name === 'ConditionalCheckFailedException') {
-      return res.status(404).json({ error: `Punto de venta con id ${id} no encontrado` });
+      // Override explícito: el middleware mapea ConditionalCheckFailedException a 409
+      // pero aquí la semántica real es "el ítem no existe" (404), no conflicto de versión.
+      const e = new Error(`Punto de venta con id ${id} no encontrado`);
+      e.status = 404;
+      throw e;
     }
-    console.error('[agora/sale-centers PATCH]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al actualizar punto de venta' });
+    throw err;
   }
 });
 
@@ -1898,7 +2774,7 @@ router.post('/agora/sale-centers/sync', async (req, res) => {
   }
 
   const url = `${baseUrl}/api/export-master/?filter=WorkplacesSummary`;
-  try {
+  {
     const r = await fetch(url, {
       method: 'GET',
       headers: { 'Api-Token': token, 'Content-Type': 'application/json' },
@@ -1978,14 +2854,11 @@ router.post('/agora/sale-centers/sync', async (req, res) => {
       upserted++;
     }
     return res.json({ ok: true, fetched: items.length, upserted });
-  } catch (err) {
-    console.error('[agora/sale-centers/sync]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al sincronizar puntos de venta' });
   }
 });
 
 router.post('/agora/warehouses/sync', async (req, res) => {
-  try {
+  {
     const rawList = await exportWarehouses();
     const list = Array.isArray(rawList) ? rawList : [];
 
@@ -2045,11 +2918,6 @@ router.post('/agora/warehouses/sync', async (req, res) => {
       updated,
       totalUpserted: added + updated,
     });
-  } catch (err) {
-    console.error('[agora/warehouses/sync]', err.message || err);
-    res.status(500).json({
-      error: err.message || 'Error al sincronizar almacenes desde Ágora',
-    });
   }
 });
 
@@ -2064,7 +2932,7 @@ router.post('/agora/closeouts/sync', async (req, res) => {
     return res.status(400).json({ error: 'businessDay obligatorio (YYYY-MM-DD)' });
   }
 
-  try {
+  {
     let rawList = [];
     let source = 'none';
     const [invData, posData, sysData] = await Promise.all([
@@ -2174,9 +3042,6 @@ router.post('/agora/closeouts/sync', async (req, res) => {
       source,
       openCloseEnrichment,
     });
-  } catch (err) {
-    console.error('[agora/closeouts/sync]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al sincronizar cierres' });
   }
 });
 
@@ -2194,7 +3059,7 @@ router.post('/agora/closeouts/full-sync', async (req, res) => {
     return res.status(400).json({ error: 'dateFrom no puede ser mayor que dateTo' });
   }
 
-  try {
+  {
     let deletedOutOfRange = 0;
     if (deleteOutOfRange) {
       const allItems = [];
@@ -2402,9 +3267,6 @@ router.post('/agora/closeouts/full-sync', async (req, res) => {
       openCloseEnrichmentTotals,
       errors: errors.length > 0 ? errors : undefined,
     });
-  } catch (err) {
-    console.error('[agora/closeouts/full-sync]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error en sincronización completa' });
   }
 });
 
@@ -2415,7 +3277,7 @@ router.post('/agora/closeouts/complete-fields', async (req, res) => {
   const dateTo = (body.dateTo || '').toString().trim();
   const filterWorkplaceId = (body.workplaceId || '').toString().trim();
 
-  try {
+  {
     const items = [];
     let lastKey = null;
 
@@ -2666,9 +3528,6 @@ router.post('/agora/closeouts/complete-fields', async (req, res) => {
       totalUpdated: posNameUpdated + agoraUpdated,
       errors: errors.length > 0 ? errors : undefined,
     });
-  } catch (err) {
-    console.error('[agora/closeouts/complete-fields]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al completar campos' });
   }
 });
 
@@ -2708,13 +3567,8 @@ router.post('/agora/closeouts', async (req, res) => {
     updatedAt: now,
     source: 'manual',
   };
-  try {
-    await docClient.send(new PutCommand({ TableName: tableSalesCloseOutsName, Item: item }));
-    res.json({ ok: true, item: { PK: item.PK, SK: item.SK } });
-  } catch (err) {
-    console.error('[agora/closeouts POST]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al crear cierre' });
-  }
+  await docClient.send(new PutCommand({ TableName: tableSalesCloseOutsName, Item: item }));
+  res.json({ ok: true, item: { PK: item.PK, SK: item.SK } });
 });
 
 router.put('/agora/closeouts', async (req, res) => {
@@ -2736,7 +3590,7 @@ router.put('/agora/closeouts', async (req, res) => {
   const skChanged = newSk && newSk !== sk;
 
   if (skChanged) {
-    try {
+    {
       const getRes = await docClient.send(new GetCommand({
         TableName: tableSalesCloseOutsName,
         Key: { PK: pk, SK: sk },
@@ -2774,9 +3628,6 @@ router.put('/agora/closeouts', async (req, res) => {
         Key: { PK: pk, SK: sk },
       }));
       return res.json({ ok: true });
-    } catch (err) {
-      console.error('[agora/closeouts PUT]', err.message || err);
-      return res.status(500).json({ error: err.message || 'Error al actualizar cierre' });
     }
   }
 
@@ -2800,35 +3651,25 @@ router.put('/agora/closeouts', async (req, res) => {
   if (body.CloseDate !== undefined) addSet('CloseDate', body.CloseDate);
   addSet('updatedAt', new Date().toISOString());
   if (updates.length <= 1) return res.status(400).json({ error: 'Ningún campo para actualizar' });
-  try {
-    await docClient.send(new UpdateCommand({
-      TableName: tableSalesCloseOutsName,
-      Key: { PK: pk, SK: sk },
-      UpdateExpression: `SET ${updates.join(', ')}`,
-      ExpressionAttributeNames: exprNames,
-      ExpressionAttributeValues: exprValues,
-    }));
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('[agora/closeouts PUT]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al actualizar cierre' });
-  }
+  await docClient.send(new UpdateCommand({
+    TableName: tableSalesCloseOutsName,
+    Key: { PK: pk, SK: sk },
+    UpdateExpression: `SET ${updates.join(', ')}`,
+    ExpressionAttributeNames: exprNames,
+    ExpressionAttributeValues: exprValues,
+  }));
+  res.json({ ok: true });
 });
 
 router.delete('/agora/closeouts', async (req, res) => {
   const pk = (req.query.PK ?? req.query.pk ?? req.body?.PK ?? req.body?.pk ?? '').toString().trim();
   const sk = (req.query.SK ?? req.query.sk ?? req.body?.SK ?? req.body?.sk ?? '').toString().trim();
   if (!pk || !sk) return res.status(400).json({ error: 'PK y SK obligatorios' });
-  try {
-    await docClient.send(new DeleteCommand({
-      TableName: tableSalesCloseOutsName,
-      Key: { PK: pk, SK: sk },
-    }));
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('[agora/closeouts DELETE]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al eliminar cierre' });
-  }
+  await docClient.send(new DeleteCommand({
+    TableName: tableSalesCloseOutsName,
+    Key: { PK: pk, SK: sk },
+  }));
+  res.json({ ok: true });
 });
 
 // ──────────────────────────────────────────
@@ -2839,7 +3680,7 @@ router.get('/agora/purchases/por-producto', async (req, res) => {
   const { productId, fechaInicio, fechaFin } = req.query;
   if (!productId) return res.status(400).json({ error: 'productId es obligatorio' });
 
-  try {
+  {
     let items = [];
 
     if (isGsiReady()) {
@@ -2903,9 +3744,6 @@ router.get('/agora/purchases/por-producto', async (req, res) => {
 
     items.sort((a, b) => (b.AlbaranFecha || '').localeCompare(a.AlbaranFecha || ''));
     return res.json({ ok: true, items, total: items.length });
-  } catch (err) {
-    console.error('[agora/purchases/por-producto]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al buscar compras por producto' });
   }
 });
 
@@ -2919,7 +3757,7 @@ function invalidatePurchasesCache() {
 }
 
 router.get('/agora/purchases', async (req, res) => {
-  try {
+  {
     const forceRefresh = req.query.refresh === '1';
     const now = Date.now();
 
@@ -2953,9 +3791,6 @@ router.get('/agora/purchases', async (req, res) => {
     _purchasesCache.ts = now;
 
     return res.json({ ...payload, cached: false });
-  } catch (err) {
-    console.error('[agora/purchases GET]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al listar compras a proveedor' });
   }
 });
 
@@ -2973,7 +3808,7 @@ router.post('/agora/purchases/sync', async (req, res) => {
     return res.status(400).json({ error: 'dateFrom no puede ser mayor que dateTo' });
   }
 
-  try {
+  {
     const days = [];
     let d = new Date(dateFrom + 'T12:00:00');
     const end = new Date(dateTo + 'T12:00:00');
@@ -3117,14 +3952,14 @@ router.post('/agora/purchases/sync', async (req, res) => {
     if (purchaseVatMap.size > 0) {
       try {
         purchaseVatUpdated = await updatePurchaseVatRates(docClient, tableAgoraProductsName, purchaseVatMap);
-        console.log('[agora/purchases/sync] ultimo_iva_compra actualizado en', purchaseVatUpdated, 'productos');
+        req.log.info({ count: purchaseVatUpdated }, '[agora/purchases/sync] ultimo_iva_compra actualizado');
       } catch (err) {
-        console.error('[agora/purchases/sync] Error actualizando ultimo_iva_compra:', err.message || err);
+        req.log.warn({ err }, '[agora/purchases/sync] Error actualizando ultimo_iva_compra');
       }
     }
 
     invalidatePurchasesCache();
-    console.log('[agora/purchases/sync] Completado:', { dateFrom, dateTo, totalFetched, totalUpserted, purchaseVatUpdated, errors: errors.length });
+    req.log.info({ dateFrom, dateTo, totalFetched, totalUpserted, purchaseVatUpdated, errors: errors.length }, '[agora/purchases/sync] Completado');
     return res.json({
       ok: true,
       dateFrom,
@@ -3135,9 +3970,6 @@ router.post('/agora/purchases/sync', async (req, res) => {
       daysProcessed: days.length,
       errors: errors.length > 0 ? errors : undefined,
     });
-  } catch (err) {
-    console.error('[agora/purchases/sync]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al sincronizar compras a proveedor' });
   }
 });
 

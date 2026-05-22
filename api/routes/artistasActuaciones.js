@@ -137,103 +137,98 @@ function actuacionResumenConflicto(x) {
   };
 }
 
-function mensajeErrorDynamo(err) {
+/**
+ * Lanza un Error con status 404 y mensaje custom cuando la tabla de artistas
+ * no existe en DynamoDB. Para el resto de errores, los re-lanza tal cual y los
+ * gestiona el middleware central.
+ */
+function throwSiTablaArtistasFalta(err) {
   if (err?.name === 'ResourceNotFoundException') {
-    return 'La tabla de artistas no existe en DynamoDB. En el servidor ejecuta: node api/scripts/create-artistas-actuaciones-tables.js';
+    const e = new Error(
+      'La tabla de artistas no existe en DynamoDB. En el servidor ejecuta: node api/scripts/create-artistas-actuaciones-tables.js',
+    );
+    e.status = 404;
+    e.code = 'TABLE_NOT_FOUND';
+    throw e;
   }
-  return err?.message || 'Error al guardar';
+  throw err;
 }
 
 // ─── ARTISTAS ───
 
 router.get('/artistas', async (_req, res) => {
-  try {
-    const items = await scanAll(tables.artistas);
-    items.sort((a, b) => String(a.nombre_artistico || '').localeCompare(String(b.nombre_artistico || ''), 'es'));
-    res.json({ artistas: items });
-  } catch (err) {
-    console.error('[artistas GET]', err);
-    res.status(500).json({ error: err.message || 'Error al listar artistas' });
-  }
+  const items = await scanAll(tables.artistas);
+  items.sort((a, b) => String(a.nombre_artistico || '').localeCompare(String(b.nombre_artistico || ''), 'es'));
+  res.json({ artistas: items });
 });
 
 router.get('/artistas/:id', async (req, res) => {
-  try {
-    const r = await docClient.send(
-      new GetCommand({ TableName: tables.artistas, Key: { id_artista: req.params.id } })
-    );
-    if (!r.Item) return res.status(404).json({ error: 'Artista no encontrado' });
-    res.json({ artista: r.Item });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const r = await docClient.send(
+    new GetCommand({ TableName: tables.artistas, Key: { id_artista: req.params.id } })
+  );
+  if (!r.Item) return res.status(404).json({ error: 'Artista no encontrado' });
+  res.json({ artista: r.Item });
 });
 
 router.post('/artistas', async (req, res) => {
   const body = req.body || {};
   const id_artista = body.id_artista && String(body.id_artista).trim() !== '' ? String(body.id_artista).trim() : uuid();
   const ts = now();
+  const item = {
+    id_artista,
+    nombre_artistico: String(body.nombre_artistico ?? '').trim() || 'Sin nombre',
+    componentes: Number(body.componentes) || 1,
+    estilos_musicales: Array.isArray(body.estilos_musicales) ? body.estilos_musicales : [],
+    tipo_artista: Array.isArray(body.tipo_artista) ? body.tipo_artista : body.tipo_artista ? [body.tipo_artista] : [],
+    imagen_key: body.imagen_key != null ? String(body.imagen_key) : '',
+    activo: body.activo !== false,
+    telefono_contacto: body.telefono_contacto != null ? String(body.telefono_contacto) : '',
+    email_contacto: body.email_contacto != null ? String(body.email_contacto) : '',
+    observaciones: body.observaciones != null ? String(body.observaciones) : '',
+    tarifas: sanitizeTarifas(body.tarifas),
+    created_at: ts,
+    updated_at: ts,
+  };
   try {
-    const item = {
-      id_artista,
-      nombre_artistico: String(body.nombre_artistico ?? '').trim() || 'Sin nombre',
-      componentes: Number(body.componentes) || 1,
-      estilos_musicales: Array.isArray(body.estilos_musicales) ? body.estilos_musicales : [],
-      tipo_artista: Array.isArray(body.tipo_artista) ? body.tipo_artista : body.tipo_artista ? [body.tipo_artista] : [],
-      imagen_key: body.imagen_key != null ? String(body.imagen_key) : '',
-      activo: body.activo !== false,
-      telefono_contacto: body.telefono_contacto != null ? String(body.telefono_contacto) : '',
-      email_contacto: body.email_contacto != null ? String(body.email_contacto) : '',
-      observaciones: body.observaciones != null ? String(body.observaciones) : '',
-      tarifas: sanitizeTarifas(body.tarifas),
-      created_at: ts,
-      updated_at: ts,
-    };
     await docClient.send(new PutCommand({ TableName: tables.artistas, Item: item }));
-    res.json({ ok: true, artista: item });
   } catch (err) {
-    console.error('[artistas POST]', err);
-    res.status(500).json({ error: mensajeErrorDynamo(err) });
+    throwSiTablaArtistasFalta(err);
   }
+  res.json({ ok: true, artista: item });
 });
 
 router.put('/artistas/:id', async (req, res) => {
+  const r = await docClient.send(
+    new GetCommand({ TableName: tables.artistas, Key: { id_artista: req.params.id } })
+  );
+  if (!r.Item) return res.status(404).json({ error: 'Artista no encontrado' });
+  const prev = r.Item;
+  const body = req.body || {};
+  const item = {
+    ...prev,
+    nombre_artistico: body.nombre_artistico != null ? String(body.nombre_artistico).trim() : prev.nombre_artistico,
+    componentes: body.componentes != null ? Number(body.componentes) : prev.componentes,
+    estilos_musicales: body.estilos_musicales != null ? (Array.isArray(body.estilos_musicales) ? body.estilos_musicales : []) : prev.estilos_musicales,
+    tipo_artista: body.tipo_artista != null ? (Array.isArray(body.tipo_artista) ? body.tipo_artista : [body.tipo_artista]) : prev.tipo_artista,
+    imagen_key: body.imagen_key != null ? String(body.imagen_key) : prev.imagen_key,
+    activo: body.activo !== undefined ? body.activo !== false : prev.activo,
+    telefono_contacto: body.telefono_contacto != null ? String(body.telefono_contacto) : prev.telefono_contacto,
+    email_contacto: body.email_contacto != null ? String(body.email_contacto) : prev.email_contacto,
+    observaciones: body.observaciones != null ? String(body.observaciones) : prev.observaciones,
+    tarifas: body.tarifas != null ? sanitizeTarifas(body.tarifas) : prev.tarifas,
+    updated_at: now(),
+  };
   try {
-    const r = await docClient.send(
-      new GetCommand({ TableName: tables.artistas, Key: { id_artista: req.params.id } })
-    );
-    if (!r.Item) return res.status(404).json({ error: 'Artista no encontrado' });
-    const prev = r.Item;
-    const body = req.body || {};
-    const item = {
-      ...prev,
-      nombre_artistico: body.nombre_artistico != null ? String(body.nombre_artistico).trim() : prev.nombre_artistico,
-      componentes: body.componentes != null ? Number(body.componentes) : prev.componentes,
-      estilos_musicales: body.estilos_musicales != null ? (Array.isArray(body.estilos_musicales) ? body.estilos_musicales : []) : prev.estilos_musicales,
-      tipo_artista: body.tipo_artista != null ? (Array.isArray(body.tipo_artista) ? body.tipo_artista : [body.tipo_artista]) : prev.tipo_artista,
-      imagen_key: body.imagen_key != null ? String(body.imagen_key) : prev.imagen_key,
-      activo: body.activo !== undefined ? body.activo !== false : prev.activo,
-      telefono_contacto: body.telefono_contacto != null ? String(body.telefono_contacto) : prev.telefono_contacto,
-      email_contacto: body.email_contacto != null ? String(body.email_contacto) : prev.email_contacto,
-      observaciones: body.observaciones != null ? String(body.observaciones) : prev.observaciones,
-      tarifas: body.tarifas != null ? sanitizeTarifas(body.tarifas) : prev.tarifas,
-      updated_at: now(),
-    };
     await docClient.send(new PutCommand({ TableName: tables.artistas, Item: item }));
-    res.json({ ok: true, artista: item });
   } catch (err) {
-    console.error('[artistas PUT]', err);
-    res.status(500).json({ error: mensajeErrorDynamo(err) });
+    throwSiTablaArtistasFalta(err);
   }
+  res.json({ ok: true, artista: item });
 });
 
 router.delete('/artistas/:id', async (req, res) => {
-  try {
-    await docClient.send(new DeleteCommand({ TableName: tables.artistas, Key: { id_artista: req.params.id } }));
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  await docClient.send(new DeleteCommand({ TableName: tables.artistas, Key: { id_artista: req.params.id } }));
+  res.json({ ok: true });
 });
 
 router.post('/artistas/:id/imagen', upload.single('file'), async (req, res) => {
@@ -241,45 +236,35 @@ router.post('/artistas/:id/imagen', upload.single('file'), async (req, res) => {
   const id = req.params.id;
   const ext = (req.file.originalname || 'img').match(/\.([a-zA-Z0-9]{1,8})$/)?.[1] || 'jpg';
   const key = `artistas/${id}/${Date.now()}_${uuid().slice(0, 8)}.${ext}`;
-  try {
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: S3_BUCKET,
-        Key: key,
-        Body: req.file.buffer,
-        ContentType: req.file.mimetype || 'image/jpeg',
-      })
-    );
-    const r = await docClient.send(new GetCommand({ TableName: tables.artistas, Key: { id_artista: id } }));
-    if (r.Item) {
-      const item = { ...r.Item, imagen_key: key, updated_at: now() };
-      await docClient.send(new PutCommand({ TableName: tables.artistas, Item: item }));
-    }
-    res.json({ ok: true, imagen_key: key });
-  } catch (err) {
-    console.error('[artistas imagen]', err);
-    res.status(500).json({ error: err.message || 'Error al subir imagen' });
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+      Body: req.file.buffer,
+      ContentType: req.file.mimetype || 'image/jpeg',
+    })
+  );
+  const r = await docClient.send(new GetCommand({ TableName: tables.artistas, Key: { id_artista: id } }));
+  if (r.Item) {
+    const item = { ...r.Item, imagen_key: key, updated_at: now() };
+    await docClient.send(new PutCommand({ TableName: tables.artistas, Item: item }));
   }
+  res.json({ ok: true, imagen_key: key });
 });
 
 /** URL prefirmada GET temporal para mostrar la imagen del artista (S3 privado). */
 router.get('/artistas/:id/imagen-url', async (req, res) => {
-  try {
-    const r = await docClient.send(
-      new GetCommand({ TableName: tables.artistas, Key: { id_artista: req.params.id } })
-    );
-    if (!r.Item) return res.status(404).json({ error: 'Artista no encontrado' });
-    const key = r.Item.imagen_key;
-    if (key == null || String(key).trim() === '') {
-      return res.json({ url: null });
-    }
-    const cmd = new GetObjectCommand({ Bucket: S3_BUCKET, Key: String(key) });
-    const url = await getSignedUrl(s3, cmd, { expiresIn: 3600 });
-    res.json({ url, expiresIn: 3600 });
-  } catch (err) {
-    console.error('[artistas imagen-url]', err);
-    res.status(500).json({ error: err.message || 'Error al generar URL de imagen' });
+  const r = await docClient.send(
+    new GetCommand({ TableName: tables.artistas, Key: { id_artista: req.params.id } })
+  );
+  if (!r.Item) return res.status(404).json({ error: 'Artista no encontrado' });
+  const key = r.Item.imagen_key;
+  if (key == null || String(key).trim() === '') {
+    return res.json({ url: null });
   }
+  const cmd = new GetObjectCommand({ Bucket: S3_BUCKET, Key: String(key) });
+  const url = await getSignedUrl(s3, cmd, { expiresIn: 3600 });
+  res.json({ url, expiresIn: 3600 });
 });
 
 // ─── Rutas específicas ANTES de /actuaciones/:id ───
@@ -289,89 +274,80 @@ router.get('/actuaciones/facturas-gasto-asociables', async (req, res) => {
   const { numero, proveedor, cif, fecha, importeMin, importeMax } = req.query;
   const empresaIdFiltro = (req.query.empresa_id || '').trim();
 
-  try {
-    const facturas = await scanAll(tables.facturas, '#t = :t', { ':t': 'IN' }, { '#t': 'tipo' });
-    const empresas = await scanAll(tables.empresas);
-    const empById = new Map();
-    for (const e of empresas) {
-      const id = getIdEmpresaFromItem(e);
-      if (id) empById.set(String(id), e);
-    }
-
-    let list = facturas.filter((f) => ESTADOS_FACTURA_ASOCIABLE.has(f.estado));
-    list = list.filter((f) => {
-      const emp = empById.get(String(f.empresa_id || ''));
-      if (!emp) return false;
-      return empresaTieneEtiquetaMusicos(emp.Etiqueta);
-    });
-
-    if (empresaIdFiltro) {
-      list = list.filter((f) => String(f.empresa_id || '') === empresaIdFiltro);
-    }
-
-    const matchStr = (s, needle) => !needle || String(s ?? '').toLowerCase().includes(needle);
-
-    if (numero) list = list.filter((f) => matchStr(f.numero_factura_proveedor || f.numero_factura, String(numero).toLowerCase()));
-    if (proveedor) list = list.filter((f) => matchStr(f.empresa_nombre, String(proveedor).toLowerCase()));
-    if (cif) list = list.filter((f) => matchStr(f.empresa_cif, String(cif).toLowerCase()));
-    if (fecha) {
-      const iso = fechaAIso(String(fecha));
-      list = list.filter((f) => String(f.fecha_emision || '').slice(0, 10) === iso);
-    }
-    if (importeMin !== undefined && importeMin !== '') {
-      const n = Number(importeMin);
-      list = list.filter((f) => Number(f.total_factura) >= n);
-    }
-    if (importeMax !== undefined && importeMax !== '') {
-      const n = Number(importeMax);
-      list = list.filter((f) => Number(f.total_factura) <= n);
-    }
-    if (q) {
-      list = list.filter(
-        (f) =>
-          matchStr(f.numero_factura_proveedor, q) ||
-          matchStr(f.numero_factura, q) ||
-          matchStr(f.empresa_nombre, q) ||
-          matchStr(f.empresa_cif, q)
-      );
-    }
-
-    list.sort((a, b) => (b.fecha_emision || '').localeCompare(a.fecha_emision || ''));
-
-    const out = list.map((f) => ({
-      id_factura: f.id_factura || f.id_entrada,
-      numero_factura: f.numero_factura_proveedor || f.numero_factura || '',
-      proveedor: f.empresa_nombre || '',
-      empresa_id: String(f.empresa_id || ''),
-      empresa_cif: f.empresa_cif || '',
-      fecha_emision: f.fecha_emision || '',
-      total_factura: f.total_factura,
-      base_imponible: f.base_imponible != null && f.base_imponible !== '' ? Number(f.base_imponible) : null,
-      estado: f.estado,
-    }));
-
-    res.json({ facturas: out });
-  } catch (err) {
-    console.error('[facturas asociables]', err);
-    res.status(500).json({ error: err.message || 'Error al buscar facturas' });
+  const facturas = await scanAll(tables.facturas, '#t = :t', { ':t': 'IN' }, { '#t': 'tipo' });
+  const empresas = await scanAll(tables.empresas);
+  const empById = new Map();
+  for (const e of empresas) {
+    const id = getIdEmpresaFromItem(e);
+    if (id) empById.set(String(id), e);
   }
+
+  let list = facturas.filter((f) => ESTADOS_FACTURA_ASOCIABLE.has(f.estado));
+  list = list.filter((f) => {
+    const emp = empById.get(String(f.empresa_id || ''));
+    if (!emp) return false;
+    return empresaTieneEtiquetaMusicos(emp.Etiqueta);
+  });
+
+  if (empresaIdFiltro) {
+    list = list.filter((f) => String(f.empresa_id || '') === empresaIdFiltro);
+  }
+
+  const matchStr = (s, needle) => !needle || String(s ?? '').toLowerCase().includes(needle);
+
+  if (numero) list = list.filter((f) => matchStr(f.numero_factura_proveedor || f.numero_factura, String(numero).toLowerCase()));
+  if (proveedor) list = list.filter((f) => matchStr(f.empresa_nombre, String(proveedor).toLowerCase()));
+  if (cif) list = list.filter((f) => matchStr(f.empresa_cif, String(cif).toLowerCase()));
+  if (fecha) {
+    const iso = fechaAIso(String(fecha));
+    list = list.filter((f) => String(f.fecha_emision || '').slice(0, 10) === iso);
+  }
+  if (importeMin !== undefined && importeMin !== '') {
+    const n = Number(importeMin);
+    list = list.filter((f) => Number(f.total_factura) >= n);
+  }
+  if (importeMax !== undefined && importeMax !== '') {
+    const n = Number(importeMax);
+    list = list.filter((f) => Number(f.total_factura) <= n);
+  }
+  if (q) {
+    list = list.filter(
+      (f) =>
+        matchStr(f.numero_factura_proveedor, q) ||
+        matchStr(f.numero_factura, q) ||
+        matchStr(f.empresa_nombre, q) ||
+        matchStr(f.empresa_cif, q)
+    );
+  }
+
+  list.sort((a, b) => (b.fecha_emision || '').localeCompare(a.fecha_emision || ''));
+
+  const out = list.map((f) => ({
+    id_factura: f.id_factura || f.id_entrada,
+    numero_factura: f.numero_factura_proveedor || f.numero_factura || '',
+    proveedor: f.empresa_nombre || '',
+    empresa_id: String(f.empresa_id || ''),
+    empresa_cif: f.empresa_cif || '',
+    fecha_emision: f.fecha_emision || '',
+    total_factura: f.total_factura,
+    base_imponible: f.base_imponible != null && f.base_imponible !== '' ? Number(f.base_imponible) : null,
+    estado: f.estado,
+  }));
+
+  res.json({ facturas: out });
 });
 
 router.post('/actuaciones/calcular-importe', async (req, res) => {
   const { id_artista, fecha, hora_inicio } = req.body || {};
   if (!id_artista || !fecha) return res.status(400).json({ error: 'id_artista y fecha son obligatorios' });
-  try {
-    const r = await docClient.send(new GetCommand({ TableName: tables.artistas, Key: { id_artista } }));
-    if (!r.Item) return res.status(404).json({ error: 'Artista no encontrado' });
-    const fechaIso = fechaAIso(String(fecha));
-    const hora = hora_inicio != null ? String(hora_inicio) : '22:00';
-    const esFestivo = await esFechaFestiva(fechaIso);
-    const tarifas = r.Item.tarifas != null ? r.Item.tarifas : tarifasMatrizVacia();
-    const out = calcularPropuestaImporte(fechaIso, hora, tarifas, esFestivo);
-    res.json(out);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const r = await docClient.send(new GetCommand({ TableName: tables.artistas, Key: { id_artista } }));
+  if (!r.Item) return res.status(404).json({ error: 'Artista no encontrado' });
+  const fechaIso = fechaAIso(String(fecha));
+  const hora = hora_inicio != null ? String(hora_inicio) : '22:00';
+  const esFestivo = await esFechaFestiva(fechaIso);
+  const tarifas = r.Item.tarifas != null ? r.Item.tarifas : tarifasMatrizVacia();
+  const out = calcularPropuestaImporte(fechaIso, hora, tarifas, esFestivo);
+  res.json(out);
 });
 
 router.post('/actuaciones/asociar-factura', async (req, res) => {
@@ -381,68 +357,63 @@ router.post('/actuaciones/asociar-factura', async (req, res) => {
   }
   if (!id_factura) return res.status(400).json({ error: 'id_factura es obligatorio' });
 
-  try {
-    const key = await keyForFacturaPrincipalId(id_factura);
-    const fr = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: key }));
-    let factura = fr.Item;
-    if (!factura) {
-      const all = await scanAll(tables.facturas);
-      factura = all.find((x) => (x.id_factura || x.id_entrada) === id_factura);
-    }
-    if (!factura) return res.status(404).json({ error: 'Factura no encontrada' });
-
-    if (factura.tipo !== 'IN') return res.status(400).json({ error: 'Solo facturas recibidas (IN)' });
-    if (!ESTADOS_FACTURA_ASOCIABLE.has(factura.estado)) {
-      return res.status(400).json({ error: 'La factura no está en un estado asociable' });
-    }
-
-    const empresas = await scanAll(tables.empresas);
-    const emp = empresas.find((e) => String(getIdEmpresaFromItem(e)) === String(factura.empresa_id));
-    if (!emp || !empresaTieneEtiquetaMusicos(emp.Etiqueta)) {
-      return res.status(400).json({ error: 'El proveedor de la factura no está etiquetado como músicos' });
-    }
-
-    const fechaAsoc = now();
-    const usuarioStr = [usuario_nombre, usuario_id].filter(Boolean).join(' · ');
-
-    const updates = [];
-    for (const id of ids_actuacion) {
-      const r = await docClient.send(
-        new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: String(id) } })
-      );
-      if (!r.Item) continue;
-      const item = {
-        ...r.Item,
-        id_factura_gasto: String(factura.id_factura || factura.id_entrada || id_factura),
-        pago_asociado_numero_factura: String(factura.numero_factura_proveedor || factura.numero_factura || ''),
-        pago_asociado_proveedor: String(factura.empresa_nombre || ''),
-        pago_asociado_fecha: String(factura.fecha_emision || '').slice(0, 10),
-        pago_asociado_importe: Number(factura.total_factura) || 0,
-        pago_asociado_estado: String(factura.estado || ''),
-        fecha_asociacion_pago: fechaAsoc,
-        usuario_asociacion_pago: usuarioStr,
-        estado: 'asociada',
-        updated_at: fechaAsoc,
-      };
-      updates.push(item);
-    }
-
-    for (let i = 0; i < updates.length; i += 25) {
-      const chunk = updates.slice(i, i + 25);
-      await docClient.send(
-        new BatchWriteCommand({
-          RequestItems: {
-            [tables.actuaciones]: chunk.map((Item) => ({ PutRequest: { Item } })),
-          },
-        })
-      );
-    }
-
-    res.json({ ok: true, actualizadas: updates.length });
-  } catch (err) {
-    console.error('[asociar factura]', err);
-    res.status(500).json({ error: err.message || 'Error al asociar' });
+  const key = await keyForFacturaPrincipalId(id_factura);
+  const fr = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: key }));
+  let factura = fr.Item;
+  if (!factura) {
+    const all = await scanAll(tables.facturas);
+    factura = all.find((x) => (x.id_factura || x.id_entrada) === id_factura);
   }
+  if (!factura) return res.status(404).json({ error: 'Factura no encontrada' });
+
+  if (factura.tipo !== 'IN') return res.status(400).json({ error: 'Solo facturas recibidas (IN)' });
+  if (!ESTADOS_FACTURA_ASOCIABLE.has(factura.estado)) {
+    return res.status(400).json({ error: 'La factura no está en un estado asociable' });
+  }
+
+  const empresas = await scanAll(tables.empresas);
+  const emp = empresas.find((e) => String(getIdEmpresaFromItem(e)) === String(factura.empresa_id));
+  if (!emp || !empresaTieneEtiquetaMusicos(emp.Etiqueta)) {
+    return res.status(400).json({ error: 'El proveedor de la factura no está etiquetado como músicos' });
+  }
+
+  const fechaAsoc = now();
+  const usuarioStr = [usuario_nombre, usuario_id].filter(Boolean).join(' · ');
+
+  const updates = [];
+  for (const id of ids_actuacion) {
+    const r = await docClient.send(
+      new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: String(id) } })
+    );
+    if (!r.Item) continue;
+    const item = {
+      ...r.Item,
+      id_factura_gasto: String(factura.id_factura || factura.id_entrada || id_factura),
+      pago_asociado_numero_factura: String(factura.numero_factura_proveedor || factura.numero_factura || ''),
+      pago_asociado_proveedor: String(factura.empresa_nombre || ''),
+      pago_asociado_fecha: String(factura.fecha_emision || '').slice(0, 10),
+      pago_asociado_importe: Number(factura.total_factura) || 0,
+      pago_asociado_estado: String(factura.estado || ''),
+      fecha_asociacion_pago: fechaAsoc,
+      usuario_asociacion_pago: usuarioStr,
+      estado: 'asociada',
+      updated_at: fechaAsoc,
+    };
+    updates.push(item);
+  }
+
+  for (let i = 0; i < updates.length; i += 25) {
+    const chunk = updates.slice(i, i + 25);
+    await docClient.send(
+      new BatchWriteCommand({
+        RequestItems: {
+          [tables.actuaciones]: chunk.map((Item) => ({ PutRequest: { Item } })),
+        },
+      })
+    );
+  }
+
+  res.json({ ok: true, actualizadas: updates.length });
 });
 
 async function crearItemHuecoActuacion({ fechaIso, horaIni, idLocFormatted, localNombre }) {
@@ -498,59 +469,50 @@ router.post('/actuaciones/generar-base', async (req, res) => {
   }
   const fechas = enumerarFechasIso(fecha_inicio, fecha_fin);
   if (fechas.length === 0) return res.status(400).json({ error: 'Rango de fechas inválido' });
-  try {
-    const creadas = [];
-    for (const idLoc of idsLocales) {
-      const loc = await docClient.send(
-        new GetCommand({ TableName: tables.locales, Key: { id_Locales: idLoc } })
-      );
-      const localNombre = loc.Item?.nombre || loc.Item?.Nombre || '';
-      for (const fechaIso of fechas) {
-        for (const hRaw of horas) {
-          const horaIni = normalizarHoraActuacion(hRaw);
-          const item = await crearItemHuecoActuacion({
-            fechaIso,
-            horaIni,
-            idLocFormatted: idLoc,
-            localNombre,
-          });
-          creadas.push(item);
-        }
+  const creadas = [];
+  for (const idLoc of idsLocales) {
+    const loc = await docClient.send(
+      new GetCommand({ TableName: tables.locales, Key: { id_Locales: idLoc } })
+    );
+    const localNombre = loc.Item?.nombre || loc.Item?.Nombre || '';
+    for (const fechaIso of fechas) {
+      for (const hRaw of horas) {
+        const horaIni = normalizarHoraActuacion(hRaw);
+        const item = await crearItemHuecoActuacion({
+          fechaIso,
+          horaIni,
+          idLocFormatted: idLoc,
+          localNombre,
+        });
+        creadas.push(item);
       }
     }
-    for (let i = 0; i < creadas.length; i += 25) {
-      const chunk = creadas.slice(i, i + 25);
-      await docClient.send(
-        new BatchWriteCommand({
-          RequestItems: {
-            [tables.actuaciones]: chunk.map((Item) => ({ PutRequest: { Item } })),
-          },
-        })
-      );
-    }
-    res.json({ ok: true, creadas: creadas.length, actuaciones: creadas });
-  } catch (err) {
-    console.error('[actuaciones generar-base]', err);
-    res.status(500).json({ error: err.message || 'Error al generar actuaciones' });
   }
+  for (let i = 0; i < creadas.length; i += 25) {
+    const chunk = creadas.slice(i, i + 25);
+    await docClient.send(
+      new BatchWriteCommand({
+        RequestItems: {
+          [tables.actuaciones]: chunk.map((Item) => ({ PutRequest: { Item } })),
+        },
+      })
+    );
+  }
+  res.json({ ok: true, creadas: creadas.length, actuaciones: creadas });
 });
 
 /** Comprueba si el artista ya tiene otra actuación misma fecha y hora_inicio. */
 router.post('/actuaciones/conflicto-artista', async (req, res) => {
   const { id_actuacion, id_artista, fecha, hora_inicio } = req.body || {};
   if (!id_artista) return res.json({ conflicto: false });
-  try {
-    const otro = await findConflictoArtistaExcluyendo({
-      id_excluir: id_actuacion || null,
-      id_artista,
-      fecha,
-      hora_inicio: hora_inicio != null ? hora_inicio : '22:00',
-    });
-    if (!otro) return res.json({ conflicto: false });
-    return res.json({ conflicto: true, otro: actuacionResumenConflicto(otro) });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const otro = await findConflictoArtistaExcluyendo({
+    id_excluir: id_actuacion || null,
+    id_artista,
+    fecha,
+    hora_inicio: hora_inicio != null ? hora_inicio : '22:00',
+  });
+  if (!otro) return res.json({ conflicto: false });
+  return res.json({ conflicto: true, otro: actuacionResumenConflicto(otro) });
 });
 
 /** Quita artista del registro conflicto y lo asigna al registro destino. */
@@ -562,270 +524,243 @@ router.post('/actuaciones/mover-artista-aqui', async (req, res) => {
   if (!id_vaciar || !id_asignar || !id_artista) {
     return res.status(400).json({ error: 'id_vaciar, id_asignar e id_artista son obligatorios' });
   }
-  try {
-    const [rV, rA] = await Promise.all([
-      docClient.send(new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: String(id_vaciar) } })),
-      docClient.send(new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: String(id_asignar) } })),
-    ]);
-    if (!rV.Item || !rA.Item) return res.status(404).json({ error: 'Actuación no encontrada' });
-    const ar = await docClient.send(
-      new GetCommand({ TableName: tables.artistas, Key: { id_artista: String(id_artista) } })
-    );
-    const artistaNombre = ar.Item?.nombre_artistico || '';
-    const fechaIso = fechaAIso(String(rA.Item.fecha));
-    const horaIni = normalizarHoraActuacion(rA.Item.hora_inicio);
-    const esFestivo = await esFechaFestiva(fechaIso);
-    const tarifas = ar.Item?.tarifas != null ? ar.Item.tarifas : tarifasMatrizVacia();
-    const prop = calcularPropuestaImporte(fechaIso, horaIni, tarifas, esFestivo);
-    const importePrev =
-      body.importe_previsto != null && body.importe_previsto !== ''
-        ? Number(body.importe_previsto)
-        : prop.importe_previsto != null
-          ? prop.importe_previsto
-          : null;
-    const importeFinal =
-      body.importe_final != null && body.importe_final !== '' ? Number(body.importe_final) : importePrev;
+  const [rV, rA] = await Promise.all([
+    docClient.send(new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: String(id_vaciar) } })),
+    docClient.send(new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: String(id_asignar) } })),
+  ]);
+  if (!rV.Item || !rA.Item) return res.status(404).json({ error: 'Actuación no encontrada' });
+  const ar = await docClient.send(
+    new GetCommand({ TableName: tables.artistas, Key: { id_artista: String(id_artista) } })
+  );
+  const artistaNombre = ar.Item?.nombre_artistico || '';
+  const fechaIso = fechaAIso(String(rA.Item.fecha));
+  const horaIni = normalizarHoraActuacion(rA.Item.hora_inicio);
+  const esFestivo = await esFechaFestiva(fechaIso);
+  const tarifas = ar.Item?.tarifas != null ? ar.Item.tarifas : tarifasMatrizVacia();
+  const prop = calcularPropuestaImporte(fechaIso, horaIni, tarifas, esFestivo);
+  const importePrev =
+    body.importe_previsto != null && body.importe_previsto !== ''
+      ? Number(body.importe_previsto)
+      : prop.importe_previsto != null
+        ? prop.importe_previsto
+        : null;
+  const importeFinal =
+    body.importe_final != null && body.importe_final !== '' ? Number(body.importe_final) : importePrev;
 
-    const ts = now();
-    const vaciar = {
-      ...rV.Item,
-      id_artista: '',
-      artista_nombre_snapshot: '',
-      importe_previsto: null,
-      importe_final: null,
-      estado: 'pendiente',
-      observaciones: '',
-      updated_at: ts,
-    };
-    const asignar = {
-      ...rA.Item,
-      id_artista: String(id_artista),
-      artista_nombre_snapshot: artistaNombre,
-      fecha: fechaIso,
-      hora_inicio: horaIni,
-      franja: prop.franja,
-      tipo_dia: prop.tipo_dia,
-      importe_previsto: importePrev,
-      importe_final: importeFinal,
-      observaciones: body.observaciones != null ? String(body.observaciones) : String(rA.Item.observaciones || ''),
-      estado: body.estado != null ? String(body.estado) : 'pendiente',
-      updated_at: ts,
-    };
-    await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: vaciar }));
-    await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: asignar }));
-    res.json({ ok: true, vaciado: vaciar, asignado: asignar });
-  } catch (err) {
-    console.error('[mover-artista-aqui]', err);
-    res.status(500).json({ error: err.message || 'Error al mover artista' });
-  }
+  const ts = now();
+  const vaciar = {
+    ...rV.Item,
+    id_artista: '',
+    artista_nombre_snapshot: '',
+    importe_previsto: null,
+    importe_final: null,
+    estado: 'pendiente',
+    observaciones: '',
+    updated_at: ts,
+  };
+  const asignar = {
+    ...rA.Item,
+    id_artista: String(id_artista),
+    artista_nombre_snapshot: artistaNombre,
+    fecha: fechaIso,
+    hora_inicio: horaIni,
+    franja: prop.franja,
+    tipo_dia: prop.tipo_dia,
+    importe_previsto: importePrev,
+    importe_final: importeFinal,
+    observaciones: body.observaciones != null ? String(body.observaciones) : String(rA.Item.observaciones || ''),
+    estado: body.estado != null ? String(body.estado) : 'pendiente',
+    updated_at: ts,
+  };
+  await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: vaciar }));
+  await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: asignar }));
+  res.json({ ok: true, vaciado: vaciar, asignado: asignar });
 });
 
 // ─── ACTUACIONES CRUD (rutas con /item/:id) ───
 
 router.get('/actuaciones', async (req, res) => {
-  try {
-    let items = await scanAll(tables.actuaciones);
-    const { fechaDesde, fechaHasta, id_artista, id_local, id_locales, estado } = req.query;
-    if (id_artista) items = items.filter((x) => x.id_artista === id_artista);
-    if (id_locales != null && String(id_locales).trim() !== '') {
-      const ids = String(id_locales)
-        .split(',')
-        .map((s) => formatId6(s.trim()))
-        .filter(Boolean);
-      if (ids.length > 0) {
-        items = items.filter((x) => ids.includes(formatId6(x.id_local)));
-      }
-    } else if (id_local) {
-      items = items.filter((x) => formatId6(x.id_local) === formatId6(id_local));
+  let items = await scanAll(tables.actuaciones);
+  const { fechaDesde, fechaHasta, id_artista, id_local, id_locales, estado } = req.query;
+  if (id_artista) items = items.filter((x) => x.id_artista === id_artista);
+  if (id_locales != null && String(id_locales).trim() !== '') {
+    const ids = String(id_locales)
+      .split(',')
+      .map((s) => formatId6(s.trim()))
+      .filter(Boolean);
+    if (ids.length > 0) {
+      items = items.filter((x) => ids.includes(formatId6(x.id_local)));
     }
-    if (estado) items = items.filter((x) => String(x.estado || '') === String(estado));
-    if (fechaDesde) items = items.filter((x) => String(x.fecha || '') >= String(fechaDesde));
-    if (fechaHasta) items = items.filter((x) => String(x.fecha || '') <= String(fechaHasta));
-    items.sort((a, b) => {
-      const cf = String(a.fecha || '').localeCompare(String(b.fecha || ''));
-      if (cf !== 0) return cf;
-      return String(a.hora_inicio || '').localeCompare(String(b.hora_inicio || ''));
-    });
-    res.json({ actuaciones: items });
-  } catch (err) {
-    console.error('[actuaciones GET]', err);
-    res.status(500).json({ error: err.message || 'Error al listar actuaciones' });
+  } else if (id_local) {
+    items = items.filter((x) => formatId6(x.id_local) === formatId6(id_local));
   }
+  if (estado) items = items.filter((x) => String(x.estado || '') === String(estado));
+  if (fechaDesde) items = items.filter((x) => String(x.fecha || '') >= String(fechaDesde));
+  if (fechaHasta) items = items.filter((x) => String(x.fecha || '') <= String(fechaHasta));
+  items.sort((a, b) => {
+    const cf = String(a.fecha || '').localeCompare(String(b.fecha || ''));
+    if (cf !== 0) return cf;
+    return String(a.hora_inicio || '').localeCompare(String(b.hora_inicio || ''));
+  });
+  res.json({ actuaciones: items });
 });
 
 router.get('/actuaciones/item/:id', async (req, res) => {
-  try {
-    const r = await docClient.send(
-      new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: req.params.id } })
-    );
-    if (!r.Item) return res.status(404).json({ error: 'Actuación no encontrada' });
-    res.json({ actuacion: r.Item });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const r = await docClient.send(
+    new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: req.params.id } })
+  );
+  if (!r.Item) return res.status(404).json({ error: 'Actuación no encontrada' });
+  res.json({ actuacion: r.Item });
 });
 
 router.post('/actuaciones', async (req, res) => {
   const body = req.body || {};
   const id_actuacion = body.id_actuacion || uuid();
   const ts = now();
-  try {
-    let artistaNombre = String(body.artista_nombre_snapshot ?? '');
-    if (!artistaNombre && body.id_artista) {
-      const ar = await docClient.send(
-        new GetCommand({ TableName: tables.artistas, Key: { id_artista: body.id_artista } })
-      );
-      artistaNombre = ar.Item?.nombre_artistico || '';
-    }
-    let localNombre = String(body.local_nombre_snapshot ?? '');
-    if (!localNombre && body.id_local) {
-      const idLoc = formatId6(body.id_local);
-      const loc = await docClient.send(
-        new GetCommand({ TableName: tables.locales, Key: { id_Locales: idLoc } })
-      );
-      localNombre = loc.Item?.nombre || loc.Item?.Nombre || '';
-    }
-    const fechaIso = fechaAIso(String(body.fecha || ''));
-    const horaIni = body.hora_inicio != null ? String(body.hora_inicio) : '22:00';
-    const esFestivo = await esFechaFestiva(fechaIso);
-    let tarifas = tarifasMatrizVacia();
-    if (body.id_artista) {
-      const ar = await docClient.send(
-        new GetCommand({ TableName: tables.artistas, Key: { id_artista: body.id_artista } })
-      );
-      if (ar.Item?.tarifas != null) tarifas = ar.Item.tarifas;
-    }
-    const prop = calcularPropuestaImporte(fechaIso, horaIni, tarifas, esFestivo);
-    const importePrev =
-      body.importe_previsto != null && body.importe_previsto !== ''
-        ? Number(body.importe_previsto)
-        : prop.importe_previsto != null
-          ? prop.importe_previsto
-          : null;
-    const importeFinal =
-      body.importe_final != null && body.importe_final !== '' ? Number(body.importe_final) : importePrev;
-
-    const item = {
-      id_actuacion,
-      id_artista: String(body.id_artista ?? ''),
-      artista_nombre_snapshot: artistaNombre,
-      fecha: fechaIso,
-      hora_inicio: horaIni,
-      hora_fin: body.hora_fin != null ? String(body.hora_fin) : '',
-      franja: body.franja != null ? String(body.franja) : prop.franja,
-      tipo_dia: body.tipo_dia != null ? String(body.tipo_dia) : prop.tipo_dia,
-      id_local: body.id_local != null ? formatId6(body.id_local) : '',
-      local_nombre_snapshot: localNombre,
-      importe_previsto: importePrev,
-      importe_final: importeFinal,
-      estado: body.estado != null ? String(body.estado) : 'pendiente',
-      firma_artista_key: body.firma_artista_key != null ? String(body.firma_artista_key) : '',
-      fecha_firma: body.fecha_firma != null ? String(body.fecha_firma) : '',
-      observaciones: body.observaciones != null ? String(body.observaciones) : '',
-      id_factura_gasto: body.id_factura_gasto != null ? String(body.id_factura_gasto) : '',
-      pago_asociado_numero_factura: body.pago_asociado_numero_factura != null ? String(body.pago_asociado_numero_factura) : '',
-      pago_asociado_proveedor: body.pago_asociado_proveedor != null ? String(body.pago_asociado_proveedor) : '',
-      pago_asociado_fecha: body.pago_asociado_fecha != null ? String(body.pago_asociado_fecha) : '',
-      pago_asociado_importe: body.pago_asociado_importe != null ? Number(body.pago_asociado_importe) : null,
-      pago_asociado_estado: body.pago_asociado_estado != null ? String(body.pago_asociado_estado) : '',
-      fecha_asociacion_pago: body.fecha_asociacion_pago != null ? String(body.fecha_asociacion_pago) : '',
-      usuario_asociacion_pago: body.usuario_asociacion_pago != null ? String(body.usuario_asociacion_pago) : '',
-      created_at: ts,
-      updated_at: ts,
-    };
-    if (String(item.id_artista || '') && !body.forzar_conflicto) {
-      const otro = await findConflictoArtistaExcluyendo({
-        id_excluir: null,
-        id_artista: item.id_artista,
-        fecha: item.fecha,
-        hora_inicio: item.hora_inicio,
-      });
-      if (otro) {
-        return res.status(409).json({ conflicto: true, otro: actuacionResumenConflicto(otro) });
-      }
-    }
-    await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: item }));
-    res.json({ ok: true, actuacion: item });
-  } catch (err) {
-    console.error('[actuaciones POST]', err);
-    res.status(500).json({ error: err.message });
+  let artistaNombre = String(body.artista_nombre_snapshot ?? '');
+  if (!artistaNombre && body.id_artista) {
+    const ar = await docClient.send(
+      new GetCommand({ TableName: tables.artistas, Key: { id_artista: body.id_artista } })
+    );
+    artistaNombre = ar.Item?.nombre_artistico || '';
   }
+  let localNombre = String(body.local_nombre_snapshot ?? '');
+  if (!localNombre && body.id_local) {
+    const idLoc = formatId6(body.id_local);
+    const loc = await docClient.send(
+      new GetCommand({ TableName: tables.locales, Key: { id_Locales: idLoc } })
+    );
+    localNombre = loc.Item?.nombre || loc.Item?.Nombre || '';
+  }
+  const fechaIso = fechaAIso(String(body.fecha || ''));
+  const horaIni = body.hora_inicio != null ? String(body.hora_inicio) : '22:00';
+  const esFestivo = await esFechaFestiva(fechaIso);
+  let tarifas = tarifasMatrizVacia();
+  if (body.id_artista) {
+    const ar = await docClient.send(
+      new GetCommand({ TableName: tables.artistas, Key: { id_artista: body.id_artista } })
+    );
+    if (ar.Item?.tarifas != null) tarifas = ar.Item.tarifas;
+  }
+  const prop = calcularPropuestaImporte(fechaIso, horaIni, tarifas, esFestivo);
+  const importePrev =
+    body.importe_previsto != null && body.importe_previsto !== ''
+      ? Number(body.importe_previsto)
+      : prop.importe_previsto != null
+        ? prop.importe_previsto
+        : null;
+  const importeFinal =
+    body.importe_final != null && body.importe_final !== '' ? Number(body.importe_final) : importePrev;
+
+  const item = {
+    id_actuacion,
+    id_artista: String(body.id_artista ?? ''),
+    artista_nombre_snapshot: artistaNombre,
+    fecha: fechaIso,
+    hora_inicio: horaIni,
+    hora_fin: body.hora_fin != null ? String(body.hora_fin) : '',
+    franja: body.franja != null ? String(body.franja) : prop.franja,
+    tipo_dia: body.tipo_dia != null ? String(body.tipo_dia) : prop.tipo_dia,
+    id_local: body.id_local != null ? formatId6(body.id_local) : '',
+    local_nombre_snapshot: localNombre,
+    importe_previsto: importePrev,
+    importe_final: importeFinal,
+    estado: body.estado != null ? String(body.estado) : 'pendiente',
+    firma_artista_key: body.firma_artista_key != null ? String(body.firma_artista_key) : '',
+    fecha_firma: body.fecha_firma != null ? String(body.fecha_firma) : '',
+    observaciones: body.observaciones != null ? String(body.observaciones) : '',
+    id_factura_gasto: body.id_factura_gasto != null ? String(body.id_factura_gasto) : '',
+    pago_asociado_numero_factura: body.pago_asociado_numero_factura != null ? String(body.pago_asociado_numero_factura) : '',
+    pago_asociado_proveedor: body.pago_asociado_proveedor != null ? String(body.pago_asociado_proveedor) : '',
+    pago_asociado_fecha: body.pago_asociado_fecha != null ? String(body.pago_asociado_fecha) : '',
+    pago_asociado_importe: body.pago_asociado_importe != null ? Number(body.pago_asociado_importe) : null,
+    pago_asociado_estado: body.pago_asociado_estado != null ? String(body.pago_asociado_estado) : '',
+    fecha_asociacion_pago: body.fecha_asociacion_pago != null ? String(body.fecha_asociacion_pago) : '',
+    usuario_asociacion_pago: body.usuario_asociacion_pago != null ? String(body.usuario_asociacion_pago) : '',
+    created_at: ts,
+    updated_at: ts,
+  };
+  if (String(item.id_artista || '') && !body.forzar_conflicto) {
+    const otro = await findConflictoArtistaExcluyendo({
+      id_excluir: null,
+      id_artista: item.id_artista,
+      fecha: item.fecha,
+      hora_inicio: item.hora_inicio,
+    });
+    if (otro) {
+      return res.status(409).json({ conflicto: true, otro: actuacionResumenConflicto(otro) });
+    }
+  }
+  await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: item }));
+  res.json({ ok: true, actuacion: item });
 });
 
 router.put('/actuaciones/item/:id', async (req, res) => {
-  try {
-    const r = await docClient.send(
-      new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: req.params.id } })
-    );
-    if (!r.Item) return res.status(404).json({ error: 'Actuación no encontrada' });
-    const prev = r.Item;
-    const body = req.body || {};
-    const keys = [
-      'id_artista',
-      'artista_nombre_snapshot',
-      'fecha',
-      'hora_inicio',
-      'hora_fin',
-      'franja',
-      'tipo_dia',
-      'id_local',
-      'local_nombre_snapshot',
-      'importe_previsto',
-      'importe_final',
-      'estado',
-      'firma_artista_key',
-      'fecha_firma',
-      'observaciones',
-      'id_factura_gasto',
-      'pago_asociado_numero_factura',
-      'pago_asociado_proveedor',
-      'pago_asociado_fecha',
-      'pago_asociado_importe',
-      'pago_asociado_estado',
-      'fecha_asociacion_pago',
-      'usuario_asociacion_pago',
-    ];
-    const item = { ...prev, updated_at: now() };
-    for (const k of keys) {
-      if (body[k] !== undefined) {
-        if (k === 'importe_previsto' || k === 'importe_final' || k === 'pago_asociado_importe') {
-          item[k] = body[k] === null || body[k] === '' ? null : Number(body[k]);
-        } else if (k === 'id_local') {
-          item[k] = body[k] == null || body[k] === '' ? '' : formatId6(body[k]);
-        } else {
-          item[k] = body[k] == null ? '' : typeof body[k] === 'string' ? body[k] : String(body[k]);
-        }
+  const r = await docClient.send(
+    new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: req.params.id } })
+  );
+  if (!r.Item) return res.status(404).json({ error: 'Actuación no encontrada' });
+  const prev = r.Item;
+  const body = req.body || {};
+  const keys = [
+    'id_artista',
+    'artista_nombre_snapshot',
+    'fecha',
+    'hora_inicio',
+    'hora_fin',
+    'franja',
+    'tipo_dia',
+    'id_local',
+    'local_nombre_snapshot',
+    'importe_previsto',
+    'importe_final',
+    'estado',
+    'firma_artista_key',
+    'fecha_firma',
+    'observaciones',
+    'id_factura_gasto',
+    'pago_asociado_numero_factura',
+    'pago_asociado_proveedor',
+    'pago_asociado_fecha',
+    'pago_asociado_importe',
+    'pago_asociado_estado',
+    'fecha_asociacion_pago',
+    'usuario_asociacion_pago',
+  ];
+  const item = { ...prev, updated_at: now() };
+  for (const k of keys) {
+    if (body[k] !== undefined) {
+      if (k === 'importe_previsto' || k === 'importe_final' || k === 'pago_asociado_importe') {
+        item[k] = body[k] === null || body[k] === '' ? null : Number(body[k]);
+      } else if (k === 'id_local') {
+        item[k] = body[k] == null || body[k] === '' ? '' : formatId6(body[k]);
+      } else {
+        item[k] = body[k] == null ? '' : typeof body[k] === 'string' ? body[k] : String(body[k]);
       }
     }
-    if (body.fecha != null) item.fecha = fechaAIso(String(body.fecha));
-    const idArtFinal = String(item.id_artista || '');
-    const fechaFinal = String(item.fecha || '');
-    const horaFinal = normalizarHoraActuacion(item.hora_inicio);
-    if (idArtFinal && !body.forzar_conflicto) {
-      const otro = await findConflictoArtistaExcluyendo({
-        id_excluir: prev.id_actuacion,
-        id_artista: idArtFinal,
-        fecha: fechaFinal,
-        hora_inicio: horaFinal,
-      });
-      if (otro) {
-        return res.status(409).json({ conflicto: true, otro: actuacionResumenConflicto(otro) });
-      }
-    }
-    await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: item }));
-    res.json({ ok: true, actuacion: item });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
+  if (body.fecha != null) item.fecha = fechaAIso(String(body.fecha));
+  const idArtFinal = String(item.id_artista || '');
+  const fechaFinal = String(item.fecha || '');
+  const horaFinal = normalizarHoraActuacion(item.hora_inicio);
+  if (idArtFinal && !body.forzar_conflicto) {
+    const otro = await findConflictoArtistaExcluyendo({
+      id_excluir: prev.id_actuacion,
+      id_artista: idArtFinal,
+      fecha: fechaFinal,
+      hora_inicio: horaFinal,
+    });
+    if (otro) {
+      return res.status(409).json({ conflicto: true, otro: actuacionResumenConflicto(otro) });
+    }
+  }
+  await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: item }));
+  res.json({ ok: true, actuacion: item });
 });
 
 router.delete('/actuaciones/item/:id', async (req, res) => {
-  try {
-    await docClient.send(new DeleteCommand({ TableName: tables.actuaciones, Key: { id_actuacion: req.params.id } }));
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  await docClient.send(new DeleteCommand({ TableName: tables.actuaciones, Key: { id_actuacion: req.params.id } }));
+  res.json({ ok: true });
 });
 
 router.post('/actuaciones/item/:id/firma', upload.single('file'), async (req, res) => {
@@ -833,31 +768,26 @@ router.post('/actuaciones/item/:id/firma', upload.single('file'), async (req, re
   const id = req.params.id;
   const ext = (req.file.originalname || 'firma.png').match(/\.([a-zA-Z0-9]{1,8})$/)?.[1] || 'png';
   const key = `actuaciones/${id}/firma_${Date.now()}.${ext}`;
-  try {
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: S3_BUCKET,
-        Key: key,
-        Body: req.file.buffer,
-        ContentType: req.file.mimetype || 'image/png',
-      })
-    );
-    const r = await docClient.send(new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: id } }));
-    if (!r.Item) return res.status(404).json({ error: 'Actuación no encontrada' });
-    const ts = now();
-    const item = {
-      ...r.Item,
-      firma_artista_key: key,
-      fecha_firma: ts,
-      estado: 'firmada',
-      updated_at: ts,
-    };
-    await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: item }));
-    res.json({ ok: true, firma_artista_key: key, actuacion: item });
-  } catch (err) {
-    console.error('[firma]', err);
-    res.status(500).json({ error: err.message || 'Error al guardar firma' });
-  }
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+      Body: req.file.buffer,
+      ContentType: req.file.mimetype || 'image/png',
+    })
+  );
+  const r = await docClient.send(new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: id } }));
+  if (!r.Item) return res.status(404).json({ error: 'Actuación no encontrada' });
+  const ts = now();
+  const item = {
+    ...r.Item,
+    firma_artista_key: key,
+    fecha_firma: ts,
+    estado: 'firmada',
+    updated_at: ts,
+  };
+  await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: item }));
+  res.json({ ok: true, firma_artista_key: key, actuacion: item });
 });
 
 export default router;

@@ -53,6 +53,7 @@ const KNOWN_PAYMENT_ORDER = ['Efectivo', 'Tarjeta', 'Pendiente de cobro', 'Prepa
 const PAYMENT_ALIASES: Record<string, string> = {
   efectivo: 'Efectivo',
   tarjeta: 'Tarjeta',
+  'tarjeta manual': 'Tarjeta',
   card: 'Tarjeta',
   'pendiente de cobro': 'Pendiente de cobro',
   pending: 'Pendiente de cobro',
@@ -1494,7 +1495,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff', borderRadius: 6, borderWidth: 1, borderColor: '#cbd5e1',
     paddingHorizontal: 8, minHeight: 32,
   },
-  builderValueInput: { paddingVertical: 6, fontSize: 12, color: '#334155', minWidth: 80, outlineStyle: 'none' as 'none' },
+  builderValueInput: { paddingVertical: 6, fontSize: 12, color: '#334155', minWidth: 80, outlineStyle: 'none' as any },
   builderValueSuffix: { fontSize: 11, color: '#64748b', marginLeft: 4, fontWeight: '600' },
   builderRangeSep: { fontSize: 11, color: '#64748b' },
   builderAddBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 7, paddingHorizontal: 12, backgroundColor: '#0ea5e9', borderRadius: 6 },

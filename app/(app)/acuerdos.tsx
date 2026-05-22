@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   Platform,
   Alert,
 } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -24,25 +25,22 @@ import { useAuth } from '../contexts/AuthContext';
 import { calcTiempoRestante } from '../lib/acuerdosFechas';
 import { ComprasProveedorModal } from '../components/ComprasProveedorModal';
 import { FechaInputDmy } from '../components/FechaInputDmy';
-import { apiFetch } from '../utils/api';
-import { fechaEmisionFacturaAIso } from '../utils/formatFecha';
-
-type DetalleProducto = { PK: string; SK: string; ProductId: string; ProductName: string; Cantidad: number; Aportacion: number; Rappel: number; DescuentoExtra: number; Compradas: number; Restante: number; Porcentaje: number; createdAt?: string };
-
-type PagoImagen = {
-  PK: string;
-  SK: string;
-  Locales: string[];
-  Acciones: string[];
-  Importe: number;
-  Justificantes: { name: string; data: string }[];
-  Descripcion: string;
-  Realizado: boolean;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-const ACCIONES_IMAGEN = ['Inversión', 'Prescripción', 'Visibilidad', 'Cocktail/Carta', 'RRSS', 'Activaciones'];
+import { apiFetch, errorMessage } from '../utils/api';
+import type {
+  Acuerdo,
+  DetalleProducto,
+  ArchivoAcuerdo,
+} from '../types/acuerdo';
+import { useAcuerdoNotas } from '../hooks/useAcuerdoNotas';
+import { AcuerdoNotasModal } from '../components/AcuerdoNotasModal';
+import { useAcuerdoPago } from '../hooks/useAcuerdoPago';
+import { AcuerdoPagoModal } from '../components/AcuerdoPagoModal';
+import { useAcuerdosForm } from '../hooks/useAcuerdosForm';
+import { AcuerdoFormModal } from '../components/AcuerdoFormModal';
+import {
+  NOTAS_CONTENIDO_FONT_SIZE,
+  NOTAS_LINEA_FECHA,
+} from '../lib/acuerdoNotas';
 
 /** Polyfill: Alert.alert no funciona en web; usa modal de confirmación */
 function useConfirmDelete() {
@@ -198,7 +196,7 @@ function DonutChart({ porcentaje, compradas, acordado, size = 120 }: { porcentaj
   );
 }
 
-function TooltipBtn({ tooltip, children, ...props }: { tooltip: string; children: React.ReactNode; style?: any; onPress?: () => void; disabled?: boolean }) {
+function TooltipBtn({ tooltip, children, ...props }: { tooltip: string; children: React.ReactNode; style?: StyleProp<ViewStyle>; onPress?: () => void; disabled?: boolean }) {
   const [hover, setHover] = useState(false);
   const webProps = Platform.OS === 'web' ? { onMouseEnter: () => setHover(true), onMouseLeave: () => setHover(false) } : {};
   return (
@@ -215,77 +213,11 @@ function TooltipBtn({ tooltip, children, ...props }: { tooltip: string; children
 
 const ACUERDOS_LAST_SELECTED_KEY = 'acuerdos-last-selected-pk';
 
-type Acuerdo = {
-  PK: string;
-  Nombre: string;
-  Marca: string;
-  FechaInicio: string;
-  FechaFin: string;
-  Contacto: string;
-  Telefono: string;
-  Email: string;
-  Notas: string;
-  Estado: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-const ESTADOS = ['Activo', 'Completado', 'Cancelado', 'Vencido'];
-
-const EMPTY_FORM = {
-  Nombre: '',
-  Marca: '',
-  FechaInicio: '',
-  FechaFin: '',
-  Contacto: '',
-  Telefono: '',
-  Email: '',
-  Notas: '',
-  Estado: 'Activo',
-};
-
 function formatFecha(iso: string): string {
   if (!iso) return '';
   const parts = iso.split('-');
   if (parts.length !== 3) return iso;
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
-}
-
-/** Fecha local dd/mm/aaaa para insertar en notas (Ctrl+espacio en web). */
-function fechaHoyDmy(): string {
-  const d = new Date();
-  const day = String(d.getDate()).padStart(2, '0');
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const y = d.getFullYear();
-  return `${day}/${m}/${y}`;
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-const NOTAS_CONTENIDO_FONT_SIZE = 11;
-
-/** Línea `dd/mm/aaaa` + `:` o `-` (notas antiguas o nuevas) + resto del texto. */
-const NOTAS_LINEA_FECHA = /^(\d{1,2}\/\d{1,2}\/\d{4})\s*[-:]\s*(.*)$/;
-
-/** Convierte texto plano a HTML para el editor web (fechas en azul, negrita y cursiva; separador « - »). */
-function plainNotasToHtmlForEditor(plain: string): string {
-  if (!plain) return '';
-  return plain
-    .split('\n')
-    .map((line) => {
-      const m = line.match(NOTAS_LINEA_FECHA);
-      if (m) {
-        return `<span style="font-size:${NOTAS_CONTENIDO_FONT_SIZE}px;color:#2563eb;font-weight:700;font-style:italic">${m[1]}</span> - ${escapeHtml(m[2])}`;
-      }
-      return escapeHtml(line);
-    })
-    .join('<br>');
 }
 
 const NOTAS_FECHA_STYLE = {
@@ -353,11 +285,6 @@ export default function AcuerdosScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [guardando, setGuardando] = useState(false);
-
   const [seleccionado, setSeleccionado] = useState<Acuerdo | null>(null);
   const [detallesPorAcuerdo, setDetallesPorAcuerdo] = useState<Record<string, DetalleProducto[]>>({});
   const detalles = seleccionado ? (detallesPorAcuerdo[seleccionado.PK] ?? []) : [];
@@ -369,51 +296,15 @@ export default function AcuerdosScreen() {
   const [addingBatchProductos, setAddingBatchProductos] = useState(false);
   const prodListScrollRef = useRef<ScrollView>(null);
 
-  const [empresas, setEmpresas] = useState<Record<string, unknown>[]>([]);
-  const [loadingEmpresas, setLoadingEmpresas] = useState(false);
-  const [marcaDropdownOpen, setMarcaDropdownOpen] = useState(false);
-  const [marcaSearch, setMarcaSearch] = useState('');
   const [filtroMarca, setFiltroMarca] = useState('');
 
-  const [pagosImagen, setPagosImagen] = useState<PagoImagen[]>([]);
-  const [loadingPagos, setLoadingPagos] = useState(false);
-  const [imgModalVisible, setImgModalVisible] = useState(false);
-  const [imgEditSK, setImgEditSK] = useState<string | null>(null);
-  const [imgForm, setImgForm] = useState({ Locales: [] as string[], Acciones: [] as string[], Importe: '', Descripcion: '' });
-  const [imgFiles, setImgFiles] = useState<{ name: string; data: string }[]>([]);
-  const [guardandoImg, setGuardandoImg] = useState(false);
-
-  const [locales, setLocales] = useState<{ id: string; nombre: string }[]>([]);
-  const [localesLoaded, setLocalesLoaded] = useState(false);
-  const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
-  const [localSearch, setLocalSearch] = useState('');
-  const [accionDropdownOpen, setAccionDropdownOpen] = useState(false);
   const [comprasModalVisible, setComprasModalVisible] = useState(false);
   const [comprasModalProduct, setComprasModalProduct] = useState<{ id: string; name: string } | null>(null);
 
-  const [notasModalVisible, setNotasModalVisible] = useState(false);
-  const [notasDraft, setNotasDraft] = useState('');
-  const [guardandoNotas, setGuardandoNotas] = useState(false);
-  const [notasModalError, setNotasModalError] = useState('');
-  const notasEditorWebRef = useRef<HTMLDivElement | null>(null);
-
-  const [productoTooltip, setProductoTooltip] = useState<{ id: string; name: string } | null>(null);
-  const productoTooltipOpenedAt = useRef<number>(0);
   const cargarDetallesAcuerdoRef = useRef<string | null>(null);
   const cargarDetallesRequestIdRef = useRef<number>(0);
   const seleccionadoRef = useRef<string | null>(null);
   useEffect(() => { seleccionadoRef.current = seleccionado?.PK ?? null; }, [seleccionado]);
-
-  useEffect(() => {
-    if (!seleccionado) setNotasModalVisible(false);
-  }, [seleccionado]);
-
-  useLayoutEffect(() => {
-    if (!notasModalVisible || Platform.OS !== 'web') return;
-    const el = notasEditorWebRef.current;
-    if (!el) return;
-    el.innerHTML = plainNotasToHtmlForEditor(seleccionado?.Notas || '');
-  }, [notasModalVisible, seleccionado?.PK]);
 
   // Sincronizar totales y edits cuando cambia el acuerdo seleccionado o su caché
   useEffect(() => {
@@ -461,8 +352,7 @@ export default function AcuerdosScreen() {
     setComprasModalVisible(true);
   }, [seleccionado]);
 
-  type ArchivoMeta = { fileKey: string; fileName: string; contentType: string; size: number; uploadedAt: string; url?: string };
-  const [archivos, setArchivos] = useState<ArchivoMeta[]>([]);
+  const [archivos, setArchivos] = useState<ArchivoAcuerdo[]>([]);
   const [loadingArchivos, setLoadingArchivos] = useState(false);
   const [subiendoArchivo, setSubiendoArchivo] = useState(false);
 
@@ -497,8 +387,8 @@ export default function AcuerdosScreen() {
         return fresh || null;
       });
       return items;
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(errorMessage(err));
       return [];
     } finally {
       if (background) setRefreshing(false);
@@ -506,96 +396,34 @@ export default function AcuerdosScreen() {
     }
   }, []);
 
-  const abrirModalNotas = useCallback(() => {
-    if (!seleccionado) return;
-    setNotasDraft(seleccionado.Notas || '');
-    setNotasModalError('');
-    setNotasModalVisible(true);
-  }, [seleccionado]);
-
-  const guardarNotasModal = useCallback(async () => {
-    if (!seleccionado) return;
-    setGuardandoNotas(true);
-    setNotasModalError('');
-    const textoNotas =
-      Platform.OS === 'web' && notasEditorWebRef.current
-        ? notasEditorWebRef.current.innerText.trim()
-        : notasDraft.trim();
-    try {
-      const res = await apiFetch(`/api/acuerdos/${encodeURIComponent(seleccionado.PK)}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ Notas: textoNotas }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error al guardar');
-      setNotasModalVisible(false);
+  const notas = useAcuerdoNotas({
+    seleccionado,
+    onSaved: async () => {
       await cargar({ background: true });
-    } catch (e: any) {
-      setNotasModalError(e.message || 'Error');
-    } finally {
-      setGuardandoNotas(false);
-    }
-  }, [seleccionado, notasDraft, cargar]);
+    },
+  });
 
-  /** Nativo: Ctrl+espacio inserta `dd/mm/aaaa - ` (onKeyPress; ver comentario en web). */
-  const handleNotasKeyPress = useCallback(
-    (e: any) => {
-      if (Platform.OS === 'web') return;
-      if (guardandoNotas) return;
-      const dom = e?.nativeEvent ?? e;
-      const ctrl = !!(dom?.ctrlKey ?? e?.ctrlKey);
-      const isSpace =
-        dom?.code === 'Space' || dom?.key === ' ' || e?.code === 'Space' || e?.key === ' ';
-      if (!ctrl || !isSpace) return;
-      e?.preventDefault?.();
-      if (typeof dom?.preventDefault === 'function') dom.preventDefault();
-      const insert = `${fechaHoyDmy()} - `;
-      const target = (e?.target ?? dom?.target) as HTMLTextAreaElement;
-      if (target && typeof target.selectionStart === 'number') {
-        const start = target.selectionStart;
-        const end = target.selectionEnd;
-        const v = String(target.value ?? '');
-        const next = v.slice(0, start) + insert + v.slice(end);
-        setNotasDraft(next);
-        requestAnimationFrame(() => {
-          try {
-            const pos = start + insert.length;
-            target.setSelectionRange(pos, pos);
-          } catch {
-            /* noop */
-          }
-        });
-      } else {
-        setNotasDraft((prev) => (prev ? `${prev}${insert}` : insert));
+  const pago = useAcuerdoPago({
+    seleccionado,
+    localPermitido,
+    onError: setError,
+  });
+
+  const formAcuerdo = useAcuerdosForm({
+    onError: setError,
+    onSaved: async (acuerdo, isNew) => {
+      const items = await cargar({ background: acuerdosRef.current.length > 0 });
+      cargarTotales();
+      if (isNew) {
+        const a = items.find((x) => x.PK === acuerdo.PK) || acuerdo;
+        setSeleccionado(a);
+        cargarDetalles(a.PK, { showLoading: true });
+        pago.cargar(a.PK);
+        cargarArchivos(a.PK);
+        pago.cargarLocales();
       }
     },
-    [guardandoNotas]
-  );
-
-  const handleNotasWebKeyDown = useCallback(
-    (e: any) => {
-      if (guardandoNotas) return;
-      if (e.ctrlKey && (e.code === 'Space' || e.key === ' ')) {
-        e.preventDefault();
-        const html = `<span style="font-size:${NOTAS_CONTENIDO_FONT_SIZE}px;color:#2563eb;font-weight:700;font-style:italic">${fechaHoyDmy()}</span> - `;
-        document.execCommand('insertHTML', false, html);
-      }
-    },
-    [guardandoNotas]
-  );
-
-  const cargarEmpresas = useCallback(async () => {
-    if (empresas.length > 0) return;
-    setLoadingEmpresas(true);
-    try {
-      const res = await apiFetch('/api/empresas');
-      const data = await res.json();
-      const list = data.empresas || [];
-      list.sort((a: any, b: any) => (a.Alias || a.Nombre || '').localeCompare(b.Alias || b.Nombre || ''));
-      setEmpresas(list);
-    } catch (_) { /* silencioso */ }
-    finally { setLoadingEmpresas(false); }
-  }, [empresas.length]);
+  });
 
   const [totalesPorAcuerdo, setTotalesPorAcuerdo] = useState<Record<string, { totalAcordado: number; totalCompradas: number; porcentaje: number }>>({});
 
@@ -607,91 +435,13 @@ export default function AcuerdosScreen() {
     } catch (_) {}
   }, []);
 
-  const [formPK, setFormPK] = useState('');
-
-  const abrirCrear = () => {
-    setEditId(null);
-    setFormPK(crypto.randomUUID());
-    setForm(EMPTY_FORM);
-    setModalVisible(true);
-    cargarEmpresas();
-  };
-
-  const abrirEditar = (a: Acuerdo) => {
-    setEditId(a.PK);
-    setFormPK(a.PK);
-    setForm({
-      Nombre: a.Nombre || '',
-      Marca: a.Marca || '',
-      FechaInicio: fechaEmisionFacturaAIso(a.FechaInicio) ?? '',
-      FechaFin: fechaEmisionFacturaAIso(a.FechaFin) ?? '',
-      Contacto: a.Contacto || '',
-      Telefono: a.Telefono || '',
-      Email: a.Email || '',
-      Notas: a.Notas || '',
-      Estado: a.Estado || 'Activo',
-    });
-    setModalVisible(true);
-    cargarEmpresas();
-  };
-
-  const guardar = async () => {
-    if (!formPK.trim()) return;
-    const isoRe = /^\d{4}-\d{2}-\d{2}$/;
-    if ((form.FechaInicio && !isoRe.test(form.FechaInicio)) || (form.FechaFin && !isoRe.test(form.FechaFin))) {
-      setError('Revisa las fechas (formato dd/mm/aaaa)');
-      return;
-    }
-    if (form.FechaInicio && form.FechaFin && form.FechaInicio > form.FechaFin) {
-      setError('La fecha de inicio no puede ser mayor que la fecha final');
-      return;
-    }
-    setGuardando(true);
-    setError('');
-    try {
-      const payload: Record<string, string> = {
-        Nombre: form.Nombre,
-        Marca: form.Marca,
-        FechaInicio: form.FechaInicio,
-        FechaFin: form.FechaFin,
-        Contacto: form.Contacto,
-        Telefono: form.Telefono,
-        Email: form.Email,
-        Notas: form.Notas,
-        Estado: form.Estado,
-      };
-      if (!editId) payload.PK = formPK;
-      const url = editId ? `/api/acuerdos/${editId}` : `/api/acuerdos`;
-      const method = editId ? 'PATCH' : 'POST';
-      const res = await apiFetch(url, { method, body: JSON.stringify(payload) });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error');
-      setModalVisible(false);
-      const creado = !editId ? (data.item as Acuerdo) : null;
-      const items = await cargar({ background: acuerdosRef.current.length > 0 });
-      cargarTotales();
-      if (creado) {
-        const a = items.find((x) => x.PK === creado.PK) || creado;
-        setSeleccionado(a);
-        cargarDetalles(a.PK, { showLoading: true });
-        cargarPagosImagen(a.PK);
-        cargarArchivos(a.PK);
-        cargarLocales();
-      }
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setGuardando(false);
-    }
-  };
-
   const eliminar = async (id: string) => {
     try {
       await apiFetch(`/api/acuerdos/${id}`, { method: 'DELETE' });
       await cargar({ background: acuerdosRef.current.length > 0 });
       cargarTotales();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(errorMessage(err));
     }
   };
 
@@ -708,16 +458,6 @@ export default function AcuerdosScreen() {
       return (a.FechaFin || '').localeCompare(b.FechaFin || '');
     });
   }, [acuerdos, filtroMarca]);
-
-  const empresasFiltradas = useMemo(() => {
-    const q = marcaSearch.trim().toLowerCase();
-    if (!q) return empresas.slice(0, 60);
-    return empresas.filter((e) => {
-      const alias = String(e.Alias || '').toLowerCase();
-      const nombre = String(e.Nombre || '').toLowerCase();
-      return alias.includes(q) || nombre.includes(q);
-    }).slice(0, 60);
-  }, [empresas, marcaSearch]);
 
   const [totalAcordado, setTotalAcordado] = useState(0);
   const [totalCompradas, setTotalCompradas] = useState(0);
@@ -798,9 +538,9 @@ export default function AcuerdosScreen() {
       setDescuentoEdits(deEdits);
     }
     cargarDetalles(a.PK, { showLoading: !tieneCache });
-    cargarPagosImagen(a.PK);
+    pago.cargar(a.PK);
     cargarArchivos(a.PK);
-    cargarLocales();
+    pago.cargarLocales();
     if (!productosLastFetch) recargarProductos();
   };
 
@@ -838,8 +578,8 @@ export default function AcuerdosScreen() {
         return true;
       }
       return false;
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(errorMessage(err));
       if (!opts?.skipClose) {
         setProdDropdownOpen(false);
         setProdSearch('');
@@ -878,7 +618,7 @@ export default function AcuerdosScreen() {
         method: 'PATCH',
         body: JSON.stringify({ Cantidad: cantidad }),
       });
-    } catch (err: any) { setError(err.message); }
+    } catch (err: unknown) { setError(errorMessage(err)); }
   };
 
   const actualizarCampoDetalle = async (productId: string, campo: string, valor: number) => {
@@ -888,7 +628,7 @@ export default function AcuerdosScreen() {
         method: 'PATCH',
         body: JSON.stringify({ [campo]: valor }),
       });
-    } catch (err: any) { setError(err.message); }
+    } catch (err: unknown) { setError(errorMessage(err)); }
   };
 
   const [cantidadEdits, setCantidadEdits] = useState<Record<string, string>>({});
@@ -924,30 +664,8 @@ export default function AcuerdosScreen() {
       setAportacionEdits((prev) => { const n = { ...prev }; delete n[productId]; return n; });
       setRappelEdits((prev) => { const n = { ...prev }; delete n[productId]; return n; });
       setDescuentoEdits((prev) => { const n = { ...prev }; delete n[productId]; return n; });
-    } catch (err: any) { setError(err.message || 'Error de conexión'); }
+    } catch (err: unknown) { setError(errorMessage(err, 'Error de conexión')); }
   };
-
-  const cargarPagosImagen = useCallback(async (acuerdoPK: string) => {
-    setLoadingPagos(true);
-    try {
-      const res = await apiFetch(`/api/acuerdos/${acuerdoPK}/imagen`);
-      const data = await res.json();
-      if (res.ok) setPagosImagen(data.items || []);
-    } catch (_) {}
-    finally { setLoadingPagos(false); }
-  }, []);
-
-  const cargarLocales = useCallback(async () => {
-    if (localesLoaded) return;
-    try {
-      const res = await apiFetch('/api/locales?minimal=1');
-      const data = await res.json();
-      const list = (data.locales || []).map((l: any) => ({ id: l.id_Locales || l.Id || '', nombre: l.nombre || l.Nombre || '' }));
-      list.sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
-      setLocales(list.filter((l: { nombre: string }) => localPermitido(l.nombre)));
-      setLocalesLoaded(true);
-    } catch (_) {}
-  }, [localesLoaded, localPermitido]);
 
   const cargarArchivos = useCallback(async (acuerdoPK: string) => {
     setLoadingArchivos(true);
@@ -996,14 +714,14 @@ export default function AcuerdosScreen() {
           if (a) {
             setSeleccionado(a);
             cargarDetalles(a.PK, { showLoading: true });
-            cargarPagosImagen(a.PK);
+            pago.cargar(a.PK);
             cargarArchivos(a.PK);
-            cargarLocales();
+            pago.cargarLocales();
           }
         }
       })();
       return () => { cancelled = true; };
-    }, [cargar, cargarTotales, cargarDetalles, cargarPagosImagen, cargarArchivos, cargarLocales])
+    }, [cargar, cargarTotales, cargarDetalles, pago.cargar, pago.cargarLocales, cargarArchivos])
   );
 
   const subirArchivo = useCallback(async () => {
@@ -1055,84 +773,8 @@ export default function AcuerdosScreen() {
     }
   }, [seleccionado]);
 
-  const abrirImgModal = (pago?: PagoImagen) => {
-    cargarLocales();
-    if (pago) {
-      setImgEditSK(pago.SK);
-      setImgForm({ Locales: pago.Locales || [], Acciones: pago.Acciones || [], Importe: String(pago.Importe || ''), Descripcion: pago.Descripcion || '' });
-      setImgFiles(pago.Justificantes || []);
-    } else {
-      setImgEditSK(null);
-      setImgForm({ Locales: [], Acciones: [], Importe: '', Descripcion: '' });
-      setImgFiles([]);
-    }
-    setImgModalVisible(true);
-  };
-
-  const guardarPagoImagen = async () => {
-    if (!seleccionado) return;
-    setGuardandoImg(true);
-    try {
-      const payload = {
-        Locales: imgForm.Locales,
-        Acciones: imgForm.Acciones,
-        Importe: parseFloat(imgForm.Importe) || 0,
-        Justificantes: imgFiles,
-        Descripcion: imgForm.Descripcion,
-      };
-      const url = imgEditSK
-        ? `/api/acuerdos/${seleccionado.PK}/imagen/${imgEditSK}`
-        : `/api/acuerdos/${seleccionado.PK}/imagen`;
-      const method = imgEditSK ? 'PATCH' : 'POST';
-      const res = await apiFetch(url, { method, body: JSON.stringify(payload) });
-      if (res.ok) {
-        setImgModalVisible(false);
-        await cargarPagosImagen(seleccionado.PK);
-      }
-    } catch (err: any) { setError(err.message); }
-    finally { setGuardandoImg(false); }
-  };
-
-  const eliminarPagoImagen = async (sk: string) => {
-    if (!seleccionado) return;
-    try {
-      await apiFetch(`/api/acuerdos/${seleccionado.PK}/imagen/${sk}`, { method: 'DELETE' });
-      await cargarPagosImagen(seleccionado.PK);
-    } catch (err: any) { setError(err.message); }
-  };
-
-  const handleFileSelect = () => {
-    if (Platform.OS !== 'web') return;
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.onchange = () => {
-      const files = input.files;
-      if (!files) return;
-      Array.from(files).forEach((file) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          setImgFiles((prev) => [...prev, { name: file.name, data: reader.result as string }]);
-        };
-        reader.readAsDataURL(file);
-      });
-    };
-    input.click();
-  };
-
-  const localNombre = useCallback((id: string) => {
-    const l = locales.find((loc) => loc.id === id);
-    return l ? l.nombre : id;
-  }, [locales]);
-
-  const localesFiltrados = useMemo(() => {
-    const q = localSearch.trim().toLowerCase();
-    if (!q) return locales.slice(0, 60);
-    return locales.filter((l) => l.nombre.toLowerCase().includes(q) || l.id.includes(q)).slice(0, 60);
-  }, [locales, localSearch]);
-
-  const totalImporteImagen = useMemo(() => pagosImagen.reduce((s, p) => s + (p.Importe || 0), 0), [pagosImagen]);
-  const totalImporteImagenRealizado = useMemo(() => pagosImagen.filter((p) => p.Realizado).reduce((s, p) => s + (p.Importe || 0), 0), [pagosImagen]);
+  const totalImporteImagen = useMemo(() => pago.pagosImagen.reduce((s, p) => s + (p.Importe || 0), 0), [pago.pagosImagen]);
+  const totalImporteImagenRealizado = useMemo(() => pago.pagosImagen.filter((p) => p.Realizado).reduce((s, p) => s + (p.Importe || 0), 0), [pago.pagosImagen]);
 
   const aportacionVolumen = useMemo(() => detalles.reduce((s, d) => {
     const ta = (d.Aportacion || 0) + (d.Rappel || 0) + (d.DescuentoExtra || 0);
@@ -1332,7 +974,7 @@ export default function AcuerdosScreen() {
       y = (doc as any).lastAutoTable.finalY + 8;
     }
 
-    if (pagosImagen.length > 0) {
+    if (pago.pagosImagen.length > 0) {
       if (y > doc.internal.pageSize.getHeight() - 30) { doc.addPage(); y = 15; }
       doc.setFontSize(11);
       doc.setFont('helvetica', 'bold');
@@ -1341,9 +983,9 @@ export default function AcuerdosScreen() {
       y += 2;
 
       const imgHead = [['Acciones', 'Locales', 'Importe', 'Realizado', 'Descripción']];
-      const imgBody = pagosImagen.map((p) => [
+      const imgBody = pago.pagosImagen.map((p) => [
         p.Acciones.join(', '),
-        p.Locales.map((id) => { const l = locales.find((loc) => loc.id === id); return l ? l.nombre : id; }).join(', '),
+        p.Locales.map((id) => pago.localNombre(id)).join(', '),
         fmtNum(p.Importe || 0),
         p.Realizado ? 'Sí' : 'No',
         p.Descripcion || '',
@@ -1397,7 +1039,7 @@ export default function AcuerdosScreen() {
         /* noop */
       }
     }
-  }, [seleccionado, detalles, pagosImagen, locales, totalAcuerdo, totalAcuerdoGenerado, aportacionVolumen, aportacionVolumenGenerado, totalImporteImagen, totalImporteImagenRealizado, totalAcordado, totalCompradas]);
+  }, [seleccionado, detalles, pago.pagosImagen, pago.localNombre, totalAcuerdo, totalAcuerdoGenerado, aportacionVolumen, aportacionVolumenGenerado, totalImporteImagen, totalImporteImagenRealizado, totalAcordado, totalCompradas]);
 
   return (
     <View style={styles.container}>
@@ -1424,7 +1066,7 @@ export default function AcuerdosScreen() {
             <MaterialIcons name="inventory-2" size={18} color="#0369a1" />
             <Text style={styles.productosAgoraBtnText}>Ágora</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.createBtn} onPress={abrirCrear}>
+          <TouchableOpacity style={styles.createBtn} onPress={formAcuerdo.abrirCrear}>
             <MaterialIcons name="add" size={20} color="#fff" />
             <Text style={styles.createBtnText}>Nuevo Acuerdo</Text>
           </TouchableOpacity>
@@ -1485,7 +1127,7 @@ export default function AcuerdosScreen() {
                       </View>
                     </View>
                     <View style={styles.cardActions}>
-                      <TooltipBtn tooltip="Editar" onPress={() => abrirEditar(a)} style={styles.cardActionBtn}>
+                      <TooltipBtn tooltip="Editar" onPress={() => formAcuerdo.abrirEditar(a)} style={styles.cardActionBtn}>
                         <MaterialIcons name="edit" size={18} color="#64748b" />
                       </TooltipBtn>
                       <TooltipBtn
@@ -1541,7 +1183,7 @@ export default function AcuerdosScreen() {
                   })()}
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <TooltipBtn tooltip="Ver y editar notas" onPress={abrirModalNotas} style={{ padding: 4 }}>
+                  <TooltipBtn tooltip="Ver y editar notas" onPress={notas.abrir} style={{ padding: 4 }}>
                     <MaterialIcons name="note" size={20} color="#6366f1" />
                   </TooltipBtn>
                   {Platform.OS === 'web' && (
@@ -1942,19 +1584,19 @@ export default function AcuerdosScreen() {
               <View style={styles.detailProductsSection}>
                 <View style={styles.detailProductsHeader}>
                   <Text style={styles.detailProductsSectionTitle}>Pagos por imagen</Text>
-                  <TouchableOpacity style={styles.detailAddBtn} onPress={() => abrirImgModal()}>
+                  <TouchableOpacity style={styles.detailAddBtn} onPress={() => pago.abrirNuevo()}>
                     <MaterialIcons name="add" size={14} color="#0ea5e9" />
                     <Text style={styles.detailAddBtnText}>Añadir</Text>
                   </TouchableOpacity>
                 </View>
 
-                {loadingPagos ? (
+                {pago.loadingPagos ? (
                   <ActivityIndicator size="small" color="#0ea5e9" style={{ marginTop: 12 }} />
-                ) : pagosImagen.length === 0 ? (
+                ) : pago.pagosImagen.length === 0 ? (
                   <Text style={styles.detailEmpty}>Sin pagos por imagen registrados</Text>
                 ) : (
                   <View style={{ gap: 8, marginTop: 8 }}>
-                    {pagosImagen.map((p) => (
+                    {pago.pagosImagen.map((p) => (
                       <View key={p.SK} style={styles.imgCard}>
                         {/* Línea 1: Acciones | Importe | Realizado | Botones */}
                         <View style={styles.imgCardLine1}>
@@ -1968,32 +1610,23 @@ export default function AcuerdosScreen() {
                           <Text style={styles.imgCardImporte}>{(p.Importe || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €</Text>
                           <TouchableOpacity
                             style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 8 }}
-                            onPress={async () => {
-                              const newVal = !p.Realizado;
-                              setPagosImagen((prev) => prev.map((x) => x.SK === p.SK ? { ...x, Realizado: newVal } : x));
-                              try {
-                                await apiFetch(`/api/acuerdos/${seleccionado!.PK}/imagen/${p.SK}`, {
-                                  method: 'PATCH',
-                                  body: JSON.stringify({ Realizado: newVal }),
-                                });
-                              } catch (_) {}
-                            }}
+                            onPress={() => pago.marcarRealizado(p.SK, !p.Realizado)}
                           >
                             <MaterialIcons name={p.Realizado ? 'check-box' : 'check-box-outline-blank'} size={18} color={p.Realizado ? '#16a34a' : '#94a3b8'} />
                             <Text style={{ fontSize: 11, color: p.Realizado ? '#16a34a' : '#94a3b8', fontWeight: '600' }}>Realizado</Text>
                           </TouchableOpacity>
                           <View style={{ flexDirection: 'row', gap: 4, marginLeft: 8 }}>
-                            <TouchableOpacity onPress={() => abrirImgModal(p)} style={{ padding: 4 }}>
+                            <TouchableOpacity onPress={() => pago.abrirEditar(p)} style={{ padding: 4 }}>
                               <MaterialIcons name="edit" size={14} color="#64748b" />
                             </TouchableOpacity>
-                            <TouchableOpacity onPress={() => eliminarPagoImagen(p.SK)} style={{ padding: 4 }}>
+                            <TouchableOpacity onPress={() => pago.eliminar(p.SK)} style={{ padding: 4 }}>
                               <MaterialIcons name="delete-outline" size={14} color="#ef4444" />
                             </TouchableOpacity>
                           </View>
                         </View>
                         {/* Línea 2: Locales */}
                         {p.Locales.length > 0 && (
-                          <Text style={styles.imgCardLocales} numberOfLines={2}>{p.Locales.map((id) => localNombre(id)).join(', ')}</Text>
+                          <Text style={styles.imgCardLocales} numberOfLines={2}>{p.Locales.map((id) => pago.localNombre(id)).join(', ')}</Text>
                         )}
                         {/* Línea 3: Descripción */}
                         {p.Descripcion ? (
@@ -2074,259 +1707,9 @@ export default function AcuerdosScreen() {
         )}
       </View>
 
-      {/* Modal Tooltip Producto (web): nombre completo en la parte superior, sin recorte */}
-      {Platform.OS === 'web' && (
-        <Modal visible={!!productoTooltip} transparent animationType="fade">
-          <Pressable style={{ flex: 1, justifyContent: 'flex-start', alignItems: 'center', paddingTop: 16 }} onPress={() => setProductoTooltip(null)}>
-            {productoTooltip ? (
-              <View style={[tooltipStyles.bubble, { left: undefined, transform: undefined, maxWidth: 340, marginHorizontal: 20 }]}>
-                <Text
-                  style={[
-                    tooltipStyles.text,
-                    { textAlign: 'center' },
-                    Platform.OS === 'web' ? ({ whiteSpace: 'normal' } as object) : null,
-                  ]}
-                >
-                  {productoTooltip.name}
-                </Text>
-              </View>
-            ) : null}
-          </Pressable>
-        </Modal>
-      )}
+      <AcuerdoPagoModal pago={pago} isCompact={isCompact} />
 
-      {/* Modal Pago por Imagen */}
-      <Modal visible={imgModalVisible} transparent animationType="fade">
-        <Pressable style={styles.overlay} onPress={(e) => { if (e.target === e.currentTarget) setImgModalVisible(false); }}>
-          <View style={[styles.modal, isCompact && { width: '95%' }]}>
-            <ScrollView keyboardShouldPersistTaps="handled">
-              <Text style={styles.modalTitle}>{imgEditSK ? 'Editar Pago por Imagen' : 'Nuevo Pago por Imagen'}</Text>
-
-              {/* Local (multiselección) */}
-              <Text style={styles.label}>Local</Text>
-              <TouchableOpacity style={styles.input} onPress={() => { setLocalSearch(''); setLocalDropdownOpen((o) => !o); }}>
-                <Text style={imgForm.Locales.length > 0 ? styles.inputValueText : styles.inputPlaceholderText} numberOfLines={2}>
-                  {imgForm.Locales.length > 0 ? imgForm.Locales.map((id) => localNombre(id)).join(', ') : 'Seleccionar locales…'}
-                </Text>
-              </TouchableOpacity>
-              {localDropdownOpen && (
-                <View style={styles.productoDropdown}>
-                  <TextInput
-                    style={[styles.input, { marginBottom: 0, borderWidth: 0, borderBottomWidth: 1, borderColor: '#e2e8f0' }]}
-                    placeholder="Buscar local…"
-                    placeholderTextColor="#94a3b8"
-                    value={localSearch}
-                    onChangeText={setLocalSearch}
-                    autoFocus
-                  />
-                  <ScrollView style={{ maxHeight: 160 }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                    {localesFiltrados.map((l) => {
-                      const selected = imgForm.Locales.includes(l.id);
-                      return (
-                        <TouchableOpacity
-                          key={l.id}
-                          style={[styles.productoDropdownItem, selected && { backgroundColor: '#e0f2fe' }]}
-                          onPress={() => {
-                            setImgForm((f) => ({
-                              ...f,
-                              Locales: selected ? f.Locales.filter((x) => x !== l.id) : [...f.Locales, l.id],
-                            }));
-                          }}
-                        >
-                          <Text style={styles.productoDropdownItemText} numberOfLines={1}>
-                            {selected ? '✓ ' : ''}{l.nombre || l.id}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
-              )}
-
-              {/* Acción (multiselección) */}
-              <Text style={styles.label}>Acción</Text>
-              <TouchableOpacity style={styles.input} onPress={() => setAccionDropdownOpen((o) => !o)}>
-                <Text style={imgForm.Acciones.length > 0 ? styles.inputValueText : styles.inputPlaceholderText} numberOfLines={2}>
-                  {imgForm.Acciones.length > 0 ? imgForm.Acciones.join(', ') : 'Seleccionar acciones…'}
-                </Text>
-              </TouchableOpacity>
-              {accionDropdownOpen && (
-                <View style={styles.productoDropdown}>
-                  <ScrollView style={{ maxHeight: 200 }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                    {ACCIONES_IMAGEN.map((ac) => {
-                      const selected = imgForm.Acciones.includes(ac);
-                      return (
-                        <TouchableOpacity
-                          key={ac}
-                          style={[styles.productoDropdownItem, selected && { backgroundColor: '#e0f2fe' }]}
-                          onPress={() => {
-                            setImgForm((f) => ({
-                              ...f,
-                              Acciones: selected ? f.Acciones.filter((x) => x !== ac) : [...f.Acciones, ac],
-                            }));
-                          }}
-                        >
-                          <Text style={styles.productoDropdownItemText}>{selected ? '✓ ' : ''}{ac}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
-              )}
-
-              {/* Importe */}
-              <Text style={styles.label}>Importe (€)</Text>
-              <TextInput
-                style={styles.input}
-                value={imgForm.Importe}
-                onChangeText={(v) => setImgForm((f) => ({ ...f, Importe: v }))}
-                keyboardType="numeric"
-                placeholder="0,00"
-                placeholderTextColor="#94a3b8"
-              />
-
-              {/* Justificante (archivos) */}
-              <Text style={styles.label}>Justificante</Text>
-              <TouchableOpacity style={[styles.input, { flexDirection: 'row', alignItems: 'center', gap: 6 }]} onPress={handleFileSelect}>
-                <MaterialIcons name="attach-file" size={16} color="#64748b" />
-                <Text style={styles.inputPlaceholderText}>Adjuntar archivos…</Text>
-              </TouchableOpacity>
-              {imgFiles.length > 0 && (
-                <View style={{ gap: 4, marginBottom: 12 }}>
-                  {imgFiles.map((f, i) => (
-                    <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 2 }}>
-                      <MaterialIcons name="insert-drive-file" size={14} color="#64748b" />
-                      <Text style={{ fontSize: 12, color: '#334155', flex: 1 }} numberOfLines={1}>{f.name}</Text>
-                      <TouchableOpacity onPress={() => setImgFiles((prev) => prev.filter((_, idx) => idx !== i))}>
-                        <MaterialIcons name="close" size={14} color="#ef4444" />
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              {/* Descripción */}
-              <Text style={styles.label}>Descripción</Text>
-              <TextInput
-                style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
-                value={imgForm.Descripcion}
-                onChangeText={(v) => setImgForm((f) => ({ ...f, Descripcion: v }))}
-                multiline
-                placeholder="Descripción del pago…"
-                placeholderTextColor="#94a3b8"
-              />
-
-              <View style={styles.modalBtns}>
-                <TouchableOpacity style={styles.cancelBtn} onPress={() => setImgModalVisible(false)}>
-                  <Text style={styles.cancelBtnText}>Cancelar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.saveBtn, guardandoImg && { opacity: 0.6 }]} onPress={guardarPagoImagen} disabled={guardandoImg}>
-                  <Text style={styles.saveBtnText}>{guardandoImg ? 'Guardando…' : 'Guardar'}</Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </Pressable>
-      </Modal>
-
-      {/* Modal Crear/Editar */}
-      <Modal visible={modalVisible} transparent animationType="fade">
-        <Pressable style={styles.overlay} onPress={(e) => { if (e.target === e.currentTarget) setModalVisible(false); }}>
-          <View style={[styles.modal, isCompact && { width: '95%' }]}>
-            <ScrollView keyboardShouldPersistTaps="handled">
-              <Text style={styles.modalTitle}>{editId ? 'Editar Acuerdo' : 'Nuevo Acuerdo'}</Text>
-
-              <Text style={styles.label}>Identificador (PK) *</Text>
-              <TextInput style={[styles.input, styles.inputReadonly]} value={formPK} editable={false} selectTextOnFocus={false} />
-
-              <Text style={styles.label}>Nombre del acuerdo</Text>
-              <TextInput style={styles.input} value={form.Nombre} onChangeText={(v) => setForm((f) => ({ ...f, Nombre: v }))} placeholder="Ej: Acuerdo Coca-Cola 2025" placeholderTextColor="#94a3b8" />
-
-              <Text style={styles.label}>Marca</Text>
-              <TouchableOpacity style={styles.input} onPress={() => { setMarcaSearch(''); setMarcaDropdownOpen((o) => !o); }}>
-                <Text style={form.Marca ? styles.inputValueText : styles.inputPlaceholderText}>{form.Marca || 'Seleccionar marca…'}</Text>
-              </TouchableOpacity>
-              {marcaDropdownOpen && (
-                <View style={styles.productoDropdown}>
-                  <View style={styles.productoDropdownSearch}>
-                    <MaterialIcons name="search" size={16} color="#94a3b8" />
-                    <TextInput style={styles.productoDropdownInput} value={marcaSearch} onChangeText={setMarcaSearch} placeholder="Buscar empresa…" placeholderTextColor="#94a3b8" autoFocus />
-                    <TouchableOpacity onPress={() => setMarcaDropdownOpen(false)}><MaterialIcons name="close" size={16} color="#94a3b8" /></TouchableOpacity>
-                  </View>
-                  <ScrollView style={styles.productoDropdownList} keyboardShouldPersistTaps="handled">
-                    {loadingEmpresas ? <ActivityIndicator size="small" color="#0ea5e9" style={{ padding: 12 }} /> : (
-                      empresasFiltradas.length === 0 ? <Text style={styles.productoDropdownEmpty}>Sin resultados</Text> :
-                      empresasFiltradas.map((e, i) => {
-                        const alias = String(e.Alias || e.Nombre || '');
-                        return (
-                          <TouchableOpacity key={String(e.CIF || e.Id || i)} style={styles.productoDropdownItem} onPress={() => { setForm((f) => ({ ...f, Marca: alias })); setMarcaDropdownOpen(false); }}>
-                            <Text style={styles.productoDropdownItemText} numberOfLines={1}>{alias}</Text>
-                          </TouchableOpacity>
-                        );
-                      })
-                    )}
-                  </ScrollView>
-                </View>
-              )}
-
-              <View style={styles.row2}>
-                <View style={styles.row2col}>
-                  <Text style={styles.label}>Fecha inicio</Text>
-                  <FechaInputDmy
-                    style={styles.input}
-                    valueIso={form.FechaInicio}
-                    onChangeIso={(iso) => setForm((f) => ({ ...f, FechaInicio: iso }))}
-                  />
-                </View>
-                <View style={styles.row2col}>
-                  <Text style={styles.label}>Fecha fin</Text>
-                  <FechaInputDmy
-                    style={styles.input}
-                    valueIso={form.FechaFin}
-                    onChangeIso={(iso) => setForm((f) => ({ ...f, FechaFin: iso }))}
-                  />
-                </View>
-              </View>
-
-              <Text style={styles.label}>Contacto</Text>
-              <TextInput style={styles.input} value={form.Contacto} onChangeText={(v) => setForm((f) => ({ ...f, Contacto: v }))} placeholder="Nombre del contacto" placeholderTextColor="#94a3b8" />
-
-              <View style={{ flexDirection: 'row', gap: 12 }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.label}>Teléfono</Text>
-                  <TextInput style={styles.input} value={form.Telefono} onChangeText={(v) => setForm((f) => ({ ...f, Telefono: v }))} placeholder="Ej: 612345678" placeholderTextColor="#94a3b8" keyboardType="phone-pad" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.label}>Email</Text>
-                  <TextInput style={styles.input} value={form.Email} onChangeText={(v) => setForm((f) => ({ ...f, Email: v }))} placeholder="email@ejemplo.com" placeholderTextColor="#94a3b8" keyboardType="email-address" autoCapitalize="none" />
-                </View>
-              </View>
-
-              <Text style={styles.label}>Estado</Text>
-              <View style={styles.estadoRow}>
-                {ESTADOS.map((e) => (
-                  <TouchableOpacity key={e} style={[styles.estadoChip, form.Estado === e && styles.estadoChipActive]} onPress={() => setForm((f) => ({ ...f, Estado: e }))}>
-                    <Text style={[styles.estadoChipText, form.Estado === e && styles.estadoChipTextActive]}>{e}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <Text style={styles.label}>Notas</Text>
-              <TextInput style={[styles.input, styles.inputMultiline]} value={form.Notas} onChangeText={(v) => setForm((f) => ({ ...f, Notas: v }))} multiline numberOfLines={3} placeholder="Observaciones…" placeholderTextColor="#94a3b8" />
-
-              <View style={styles.modalBtns}>
-                <TouchableOpacity style={styles.cancelBtn} onPress={() => setModalVisible(false)}>
-                  <Text style={styles.cancelBtnText}>Cancelar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.saveBtn} onPress={guardar} disabled={guardando || !formPK.trim()}>
-                  {guardando ? <ActivityIndicator size="small" color="#fff" /> : <MaterialIcons name="check" size={18} color="#fff" />}
-                  <Text style={styles.saveBtnText}>{guardando ? 'Guardando…' : 'Guardar'}</Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </Pressable>
-      </Modal>
+      <AcuerdoFormModal formAcuerdo={formAcuerdo} isCompact={isCompact} />
 
       {comprasModalProduct && (
         <ComprasProveedorModal
@@ -2339,85 +1722,7 @@ export default function AcuerdosScreen() {
         />
       )}
 
-      <Modal visible={notasModalVisible} transparent animationType="fade" onRequestClose={() => !guardandoNotas && setNotasModalVisible(false)}>
-        <Pressable style={styles.overlay} onPress={(e) => { if (e.target === e.currentTarget && !guardandoNotas) setNotasModalVisible(false); }}>
-          <View style={[styles.modal, styles.notasModalCard]}>
-            <Text style={[styles.modalTitle, styles.notasModalTitle]}>Notas del acuerdo</Text>
-            {seleccionado ? (
-              <Text style={styles.notasModalSubtitle}>{seleccionado.Marca || seleccionado.Nombre || seleccionado.PK}</Text>
-            ) : null}
-            {Platform.OS === 'web' ? (
-              <>
-                {/* eslint-disable-next-line react/no-unknown-property -- DOM web */}
-                <div
-                  ref={notasEditorWebRef}
-                  contentEditable={!guardandoNotas}
-                  suppressContentEditableWarning
-                  onInput={(e) => setNotasDraft((e.target as HTMLDivElement).innerText)}
-                  onKeyDown={handleNotasWebKeyDown}
-                  className="acuerdos-notas-editor"
-                  style={{
-                    minHeight: 160,
-                    maxHeight: 320,
-                    overflow: 'auto',
-                    borderWidth: 1,
-                    borderStyle: 'solid',
-                    borderColor: '#e2e8f0',
-                    borderRadius: 8,
-                    padding: 12,
-                    fontSize: NOTAS_CONTENIDO_FONT_SIZE,
-                    color: '#334155',
-                    outline: 'none',
-                    whiteSpace: 'pre-wrap',
-                    backgroundColor: '#f8fafc',
-                  }}
-                />
-                <Text style={styles.notasModalHint}>
-                  Ctrl+espacio: inserta la fecha (azul, pequeña, negrita y cursiva), « - » y el cursor a la derecha para escribir.
-                </Text>
-              </>
-            ) : (
-              <>
-                <TextInput
-                  style={[styles.input, styles.inputMultiline, styles.notasModalInput]}
-                  multiline
-                  value={notasDraft}
-                  onChangeText={setNotasDraft}
-                  placeholder="Observaciones… (Ctrl+espacio: fecha dd/mm/aaaa - y escribe después del guion)"
-                  placeholderTextColor="#94a3b8"
-                  editable={!guardandoNotas}
-                  textAlignVertical="top"
-                  onKeyPress={handleNotasKeyPress}
-                />
-                <Text style={styles.notasModalHint}>
-                  Ctrl+espacio inserta la fecha, guion y espacio; escribe a continuación.
-                </Text>
-              </>
-            )}
-            {notasModalError ? <Text style={styles.notasModalError}>{notasModalError}</Text> : null}
-            <View style={styles.notasModalActions}>
-              <TouchableOpacity
-                style={styles.notasModalBtnGhost}
-                onPress={() => !guardandoNotas && setNotasModalVisible(false)}
-                disabled={guardandoNotas}
-              >
-                <Text style={styles.notasModalBtnGhostText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.notasModalBtnPrimary}
-                onPress={guardarNotasModal}
-                disabled={guardandoNotas}
-              >
-                {guardandoNotas ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.notasModalBtnPrimaryText}>Guardar</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Pressable>
-      </Modal>
+      <AcuerdoNotasModal notas={notas} seleccionado={seleccionado} />
 
     </View>
   );
@@ -2493,17 +1798,6 @@ const styles = StyleSheet.create({
 
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
   modal: { backgroundColor: '#fff', borderRadius: 14, width: '90%', maxWidth: 560, maxHeight: '90%', padding: 20 },
-  notasModalCard: { maxWidth: 480 },
-  notasModalTitle: { marginBottom: 4 },
-  notasModalSubtitle: { fontSize: 12, color: '#64748b', marginBottom: 14 },
-  notasModalInput: { minHeight: 160, maxHeight: 320, fontSize: 11 },
-  notasModalHint: { fontSize: 11, color: '#94a3b8', marginTop: 6, lineHeight: 16 },
-  notasModalError: { fontSize: 12, color: '#dc2626', marginTop: 8 },
-  notasModalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 14 },
-  notasModalBtnGhost: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: '#f1f5f9' },
-  notasModalBtnGhostText: { fontSize: 14, fontWeight: '600', color: '#475569' },
-  notasModalBtnPrimary: { paddingVertical: 10, paddingHorizontal: 18, borderRadius: 8, backgroundColor: '#6366f1', minWidth: 100, alignItems: 'center' },
-  notasModalBtnPrimaryText: { fontSize: 14, fontWeight: '600', color: '#fff' },
   modalTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a', marginBottom: 16 },
   label: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 4, marginTop: 10 },
   input: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14, color: '#334155' },

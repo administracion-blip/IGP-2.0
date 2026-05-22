@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,8 +9,6 @@ import {
   ActivityIndicator,
   Platform,
   useWindowDimensions,
-  Modal,
-  KeyboardAvoidingView,
   Switch,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -18,262 +16,32 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatMoneda, round2 } from '../../utils/facturacion';
 import { useLocalToast, detectToastType } from '../../components/Toast';
-import { apiFetch } from '../../utils/api';
+import { apiFetch, errorMessage } from '../../utils/api';
+import type {
+  Borrador,
+  CamposManuales,
+  EmpresaCatalogo,
+} from '../../types/registroMasivo';
+import {
+  derivarPctDesdeImportes,
+  esDesgloseMulti,
+  isoToDmy,
+  metodoExtraccionLabel,
+  recalcImportesDesdePct,
+} from '../../lib/registroMasivo';
+import { FieldRow } from '../../components/registroMasivo/FieldRow';
+import { FieldRowZona } from '../../components/registroMasivo/FieldRowZona';
+import { ProveedorDropdownField } from '../../components/registroMasivo/ProveedorDropdownField';
+import { CrearEmpresaModal } from '../../components/registroMasivo/CrearEmpresaModal';
+import { useCrearEmpresaModal } from '../../hooks/useCrearEmpresaModal';
+import { EmpresaGrupoSelector } from '../../components/registroMasivo/EmpresaGrupoSelector';
+import { useEmpresasGrupo } from '../../hooks/useEmpresasGrupo';
+import { mergeReconciliacion } from '../../lib/registroMasivo';
+import { useZonaOCR } from '../../hooks/useZonaOCR';
+import { ZonaOCRPreview } from '../../components/registroMasivo/ZonaOCRPreview';
+import { DesgloseFiscalEditor } from '../../components/registroMasivo/DesgloseFiscalEditor';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
-
-type Confianza = Record<string, string>;
-
-type EntidadCandidata = {
-  id: string;
-  cif: string;
-  nombre_candidato?: string;
-  direccion_candidata?: string;
-  contexto?: string;
-  score_emisor?: number;
-  score_receptor?: number;
-  rol_provisional?: string;
-};
-
-type EmpresaCatalogo = {
-  id_empresa?: string;
-  Nombre?: string;
-  Cif?: string;
-  Sede?: string;
-};
-
-type CamposManuales = Partial<Record<
-  | 'proveedor_cif'
-  | 'proveedor_nombre'
-  | 'numero_factura_proveedor'
-  | 'fecha_emision'
-  | 'base_imponible'
-  | 'tipo_iva_pct'
-  | 'retencion_pct'
-  | 'total_iva'
-  | 'retencion'
-  | 'total_factura'
-  | 'observaciones',
-  boolean
->>;
-
-type LineaDesglose = {
-  tipo: 'iva' | 'retencion' | 'recargo_equivalencia';
-  base: number;
-  porcentaje: number | null;
-  cuota: number;
-  origen?: string;
-  texto_origen?: string;
-};
-
-type Borrador = {
-  idx: number;
-  archivo: { fileKey: string; nombre: string; tipo: string; size: number; previewUrl: string };
-  /** Sociedad del grupo (GRUPO PARIPE) que recibe el gasto → emisor_* en DynamoDB */
-  sociedad_grupo_id: string;
-  sociedad_grupo_nombre: string;
-  sociedad_grupo_cif: string;
-  proveedor_cif: string;
-  /** CIF proveedor tras la primera extracción (para reconciliación API) */
-  proveedor_provisional_cif: string;
-  proveedor_nombre: string;
-  /** id en `igp_Empresas` si el CIF existe en maestro */
-  empresa_id?: string;
-  /** true si el nombre proviene de la tabla empresas (por CIF) */
-  proveedor_en_maestros?: boolean;
-  /** Sugerencia OCR del nombre si el CIF no está en maestro (para alta rápida) */
-  nombre_sugerido_ocr?: string;
-  numero_factura_proveedor: string;
-  fecha_emision: string;
-  base_imponible: number;
-  /** Suma bases IVA+R.E. si hay desglose (p. ej. multitranco) */
-  base_imponible_total?: number;
-  /** % tipo IVA — null si hay varios tramos (no forzar un único %) */
-  tipo_iva_pct: number | null;
-  /** % retención — null si no aplica un único % */
-  retencion_pct: number | null;
-  total_iva: number;
-  retencion: number;
-  /** Cuota total recargo equivalencia (no es retención IRPF) */
-  recargo_equivalencia_total?: number;
-  /** Líneas fiscales detectadas (IVA, R.E., retención) */
-  desglose_impuestos?: LineaDesglose[];
-  total_factura: number;
-  observaciones: string;
-  confianza: Confianza;
-  /** Solo true si el usuario editó el campo a mano (no OCR ni reconciliación ni lookup) */
-  campos_manuales: CamposManuales;
-  entidades_candidatas: EntidadCandidata[];
-  texto_extraido: string;
-  extraction_snapshot: {
-    proveedor_cif: string;
-    numero_factura_proveedor: string;
-    fecha_emision: string;
-    base_imponible: number;
-    total_iva: number;
-    retencion: number;
-    total_factura: number;
-    confianza: Confianza;
-  };
-  reconciliacion_warning: string;
-  /** Origen del texto: texto embebido del PDF, OCR de imagen u OCR tras rasterizar PDF escaneado */
-  metodo_extraccion?: string;
-  ocr_confianza_global?: number;
-  /** Metadatos si se aplicó la capa IA en el API (OPENAI_API_KEY). */
-  ia_meta?: {
-    aplicada?: boolean;
-    modelo?: string;
-    tipo_documento?: string;
-    revision_sugerida?: boolean;
-    revision_obligatoria?: boolean;
-    motivos?: string[];
-    coherencia_importes?: boolean;
-    diferencia_importes?: number;
-    enriquecido_en?: string;
-    campos_corregidos_ia?: string[];
-  };
-  /** Validación post-OCR (importes, nº factura, retención). */
-  ocr_pipeline_meta?: {
-    importes_coherentes?: boolean;
-    diferencia_importes?: number;
-    revision_obligatoria?: boolean;
-    revision_sugerida?: boolean;
-    motivos_revision?: string[];
-    numero_factura_fue_normalizado?: boolean;
-    retencion_sospechosa?: boolean;
-    formula_usada?: string;
-    tiene_desglose_multiple?: boolean;
-    total_calculado_desde_desglose?: number;
-  };
-  descartado: boolean;
-  duplicados: { id_factura: string; numero_factura: string; empresa_nombre: string; total_factura: number }[];
-  checkingDup: boolean;
-};
-
-
-function confColor(level: string) {
-  if (level === 'alta') return '#059669';
-  if (level === 'media') return '#b45309';
-  return '#dc2626';
-}
-
-function isoToDmy(iso: string): string {
-  if (!iso || iso.length < 10) return iso || '';
-  const [y, m, d] = iso.substring(0, 10).split('-');
-  return `${d}/${m}/${y}`;
-}
-
-function metodoExtraccionLabel(m: string | undefined): string {
-  if (!m) return '';
-  if (m === 'pdf_text') return 'Texto embebido (PDF)';
-  if (m === 'image_ocr') return 'OCR (imagen)';
-  if (m === 'pdf_ocr_fallback') return 'OCR (PDF escaneado, pág. 1)';
-  return m;
-}
-
-function esDesgloseMulti(b: {
-  desglose_impuestos?: LineaDesglose[];
-  recargo_equivalencia_total?: number;
-}) {
-  const arr = Array.isArray(b.desglose_impuestos) ? b.desglose_impuestos : [];
-  if (arr.length > 1) return true;
-  if (arr.some((x) => x.tipo === 'retencion' || x.tipo === 'recargo_equivalencia')) return true;
-  if ((Number(b.recargo_equivalencia_total) || 0) > 0) return true;
-  return false;
-}
-
-function derivarPctDesdeImportes(
-  base: number,
-  total_iva: number,
-  retencion: number,
-  meta?: { desglose_impuestos?: LineaDesglose[]; recargo_equivalencia_total?: number },
-) {
-  if (meta && esDesgloseMulti(meta)) {
-    return { tipo_iva_pct: null as number | null, retencion_pct: null as number | null };
-  }
-  if (base <= 0) return { tipo_iva_pct: 21, retencion_pct: 0 };
-  return {
-    tipo_iva_pct: round2((100 * total_iva) / base),
-    retencion_pct: round2((100 * retencion) / base),
-  };
-}
-
-function labelTipoLinea(t: string) {
-  if (t === 'iva') return 'IVA';
-  if (t === 'recargo_equivalencia') return 'Rec. equiv.';
-  if (t === 'retencion') return 'Retención';
-  return t;
-}
-
-function recalcImportesDesdePct(b: Borrador): Borrador {
-  if (esDesgloseMulti(b) && b.tipo_iva_pct == null && b.retencion_pct == null) return b;
-  const base = round2(Number(b.base_imponible) || 0);
-  const pctIva = Number(b.tipo_iva_pct) || 0;
-  const pctRet = Number(b.retencion_pct) || 0;
-  const total_iva = round2((base * pctIva) / 100);
-  const retencion = round2((base * pctRet) / 100);
-  const total_factura = round2(base + total_iva - retencion);
-  return { ...b, base_imponible: base, total_iva, retencion, total_factura };
-}
-
-function recalcTotalesDesdeDesglose(b: Borrador): Borrador {
-  const lineas = Array.isArray(b.desglose_impuestos) ? b.desglose_impuestos : [];
-  let base = 0;
-  let iva = 0;
-  let ret = 0;
-  for (const L of lineas) {
-    const bv = round2(Number(L.base) || 0);
-    const cv = round2(Number(L.cuota) || 0);
-    if (L.tipo === 'iva') { base = round2(base + bv); iva = round2(iva + cv); }
-    else if (L.tipo === 'retencion') { ret = round2(ret + cv); }
-  }
-  const total_factura = round2(base + iva - ret);
-  return {
-    ...b,
-    base_imponible: base,
-    base_imponible_total: base,
-    total_iva: iva,
-    retencion: ret,
-    recargo_equivalencia_total: 0,
-    tipo_iva_pct: null,
-    retencion_pct: ret > 0 && base > 0 ? round2((100 * ret) / base) : 0,
-    total_factura,
-  };
-}
-
-const LINEA_VACIA: LineaDesglose = { tipo: 'iva', base: 0, porcentaje: 0, cuota: 0, origen: 'manual' };
-
-function DesgloseNumInput({ initial, placeholder, onCommit }: { initial: number; placeholder: string; onCommit: (n: number) => void }) {
-  const [text, setText] = useState(initial ? String(initial) : '');
-  const prevInitial = useRef(initial);
-  useEffect(() => {
-    if (prevInitial.current !== initial) {
-      prevInitial.current = initial;
-      const parsed = parseFloat(text.replace(',', '.'));
-      if (initial !== parsed) {
-        setText(initial ? String(initial) : '');
-      }
-    }
-  }, [initial]);
-  return (
-    <TextInput
-      style={dsNumStyles.input}
-      value={text}
-      onChangeText={setText}
-      onBlur={() => {
-        const n = parseFloat(text.replace(',', '.')) || 0;
-        onCommit(round2(n));
-        setText(n ? String(n) : '');
-      }}
-      keyboardType="decimal-pad"
-      placeholder={placeholder}
-      placeholderTextColor="#94a3b8"
-    />
-  );
-}
-const dsNumStyles = StyleSheet.create({
-  input: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 4, fontSize: 13, color: '#1e293b', backgroundColor: '#fff', textAlign: 'right', minWidth: 60 },
-});
 
 export default function RegistroMasivoScreen() {
   const router = useRouter();
@@ -290,153 +58,58 @@ export default function RegistroMasivoScreen() {
   const [guardando, setGuardando] = useState(false);
   const [step, setStep] = useState<'upload' | 'review'>('upload');
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
-  const [modalEmpresaIdx, setModalEmpresaIdx] = useState<number | null>(null);
-  const [nombreNuevaEmpresa, setNombreNuevaEmpresa] = useState('');
-  const [creandoEmpresa, setCreandoEmpresa] = useState(false);
 
   const [empresasCatalogo, setEmpresasCatalogo] = useState<EmpresaCatalogo[]>([]);
-  const [sociedadSearch, setSociedadSearch] = useState('');
-  const [showSociedadDropdown, setShowSociedadDropdown] = useState(false);
   /** Si está activo y el API tiene OPENAI_API_KEY, se llama a /ocr/enriquecer-ia tras cada extracción. */
   const [usarEnriquecimientoIa, setUsarEnriquecimientoIa] = useState(true);
 
   const selectedBorrador = selectedIdx !== null ? borradores.find((b) => b.idx === selectedIdx) : null;
-  const borradorModalEmpresa = modalEmpresaIdx !== null ? borradores.find((b) => b.idx === modalEmpresaIdx) : null;
 
-  // ── Selección de zona (tipo a3) ──
-  type ZonaTarget = { field: string; numeric?: boolean } | null;
-  const [zonaActiva, setZonaActiva] = useState<ZonaTarget>(null);
-  const [zonaRect, setZonaRect] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
-  const [zonaExtracting, setZonaExtracting] = useState(false);
-  const [zonaPreviewLoaded, setZonaPreviewLoaded] = useState(false);
-  const zonaRectRef = useRef<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
-  const zonaDraggingRef = useRef(false);
+  const empGrupo = useEmpresasGrupo({
+    empresasCatalogo,
+    selectedIdx,
+    onSociedadAsignada: (idx, sociedad) => {
+      setBorradores((prev) =>
+        prev.map((b) =>
+          b.idx === idx
+            ? {
+                ...b,
+                sociedad_grupo_id: sociedad.id,
+                sociedad_grupo_nombre: sociedad.nombre,
+                sociedad_grupo_cif: sociedad.cif,
+              }
+            : b,
+        ),
+      );
+    },
+    onReconciliacion: (idx, datos) => {
+      setBorradores((prev) =>
+        prev.map((row) => (row.idx === idx ? mergeReconciliacion(row, datos) : row)),
+      );
+    },
+    onError: (msg) => alertMsg('Reconciliación', msg),
+  });
 
-  /** En modo zona: PDF → PNG rasterizado por API (no se puede usar <img> con URL de PDF). Imagen → URL firmada. */
-  const zonaImgSrc = useMemo(() => {
-    if (!zonaActiva || !selectedBorrador?.archivo?.previewUrl) return null;
-    if (selectedBorrador.archivo.tipo.includes('pdf')) {
-      return `${API_URL}/api/facturacion/ocr/preview-png?fileKey=${encodeURIComponent(selectedBorrador.archivo.fileKey)}`;
-    }
-    return selectedBorrador.archivo.previewUrl;
-  }, [zonaActiva, selectedBorrador?.archivo?.fileKey, selectedBorrador?.archivo?.previewUrl, selectedBorrador?.archivo?.tipo]);
-
-  useEffect(() => {
-    if (!zonaActiva) {
-      setZonaPreviewLoaded(false);
-      return;
-    }
-    setZonaPreviewLoaded(false);
-  }, [zonaActiva, zonaImgSrc]);
-
-  const activarZona = (field: string, numeric?: boolean) => {
-    setZonaActiva({ field, numeric });
-    setZonaRect(null);
-    zonaRectRef.current = null;
-    zonaDraggingRef.current = false;
-  };
-  const cancelarZona = () => {
-    setZonaActiva(null);
-    setZonaRect(null);
-    zonaRectRef.current = null;
-    zonaDraggingRef.current = false;
-  };
-
-  const handleZonaMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!zonaActiva || zonaExtracting) return;
-    e.preventDefault();
-    const x = e.nativeEvent.offsetX;
-    const y = e.nativeEvent.offsetY;
-    const r = { startX: x, startY: y, endX: x, endY: y };
-    zonaRectRef.current = r;
-    setZonaRect(r);
-    zonaDraggingRef.current = true;
-  };
-
-  const handleZonaMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!zonaDraggingRef.current || !zonaRectRef.current) return;
-    const x = e.nativeEvent.offsetX;
-    const y = e.nativeEvent.offsetY;
-    const r = { ...zonaRectRef.current, endX: x, endY: y };
-    zonaRectRef.current = r;
-    setZonaRect(r);
-  };
-
-  const handleZonaMouseUp = async (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!zonaActiva || !selectedBorrador) return;
-    if (!zonaDraggingRef.current) return;
-    zonaDraggingRef.current = false;
-    const x = e.nativeEvent.offsetX;
-    const y = e.nativeEvent.offsetY;
-    if (!zonaRectRef.current) return;
-    const prev = { ...zonaRectRef.current, endX: x, endY: y };
-    zonaRectRef.current = prev;
-    setZonaRect(prev);
-
-    const overlay = e.currentTarget;
-    const pageWidth = overlay.offsetWidth;
-    const pageHeight = overlay.offsetHeight;
-    const rx = Math.min(prev.startX, prev.endX);
-    const ry = Math.min(prev.startY, prev.endY);
-    const w = Math.abs(prev.endX - prev.startX);
-    const h = Math.abs(prev.endY - prev.startY);
-    if (w < 10 || h < 10) {
-      setZonaRect(null);
-      zonaRectRef.current = null;
-      return;
-    }
-
-    setZonaExtracting(true);
-    try {
-      const res = await apiFetch(`/api/facturacion/ocr/extraer-zona`, {
-        method: 'POST',
-        body: JSON.stringify({
-          fileKey: selectedBorrador.archivo.fileKey,
-          x: rx,
-          y: ry,
-          width: w,
-          height: h,
-          pageWidth,
-          pageHeight,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error extrayendo zona');
-      const texto = data.texto || '';
-      if (texto) {
-        const field = zonaActiva.field;
-        if (zonaActiva.numeric) {
-          const numVal = parseFloat(texto.replace(/[^\d.,\-]/g, '').replace(',', '.')) || 0;
-          const importesKeys: (keyof CamposManuales)[] = [
-            'tipo_iva_pct',
-            'retencion_pct',
-            'base_imponible',
-            'total_iva',
-            'retencion',
-            'total_factura',
-          ];
-          if (importesKeys.includes(field as keyof CamposManuales)) {
-            usuarioEditaCampo(selectedBorrador.idx, field as keyof CamposManuales, numVal);
-          } else {
-            patchBorrador(selectedBorrador.idx, { [field]: numVal } as Partial<Borrador>);
-          }
-        } else {
-          patchBorrador(selectedBorrador.idx, { [field]: texto } as Partial<Borrador>);
-        }
-        if (field === 'proveedor_cif') {
-          setTimeout(() => lookupCifEnMaestro(selectedBorrador.idx, texto), 100);
-        }
-        alertMsg('Zona OCR', `Campo actualizado: "${texto}"`);
-      } else {
-        alertMsg('Sin texto', 'No se pudo extraer texto de la zona seleccionada');
-      }
-    } catch (err: any) {
-      alertMsg('Error OCR zona', err.message);
-    } finally {
-      setZonaExtracting(false);
-      cancelarZona();
-    }
-  };
+  const crearEmpresaModal = useCrearEmpresaModal({
+    onCreated: (idx, emp, nombre) => {
+      setBorradores((prev) =>
+        prev.map((b) =>
+          b.idx === idx
+            ? {
+                ...b,
+                proveedor_nombre: emp?.Nombre != null ? String(emp.Nombre) : nombre,
+                empresa_id: emp?.id_empresa != null ? String(emp.id_empresa) : '',
+                proveedor_en_maestros: true,
+                nombre_sugerido_ocr: '',
+                confianza: { ...b.confianza, proveedor_nombre: 'alta' },
+              }
+            : b,
+        ),
+      );
+    },
+    onSuccess: (msg) => showToast('Empresa creada', msg, 'success'),
+    onError: (msg) => alertMsg('Error', msg),
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -453,118 +126,6 @@ export default function RegistroMasivoScreen() {
       cancelled = true;
     };
   }, []);
-
-  const empresasGrupoParipe = useMemo(
-    () =>
-      empresasCatalogo.filter((e) => (e?.Sede || '').toUpperCase().includes('GRUPO PARIPE')),
-    [empresasCatalogo],
-  );
-
-  const empresasGrupoFiltradas = useMemo(() => {
-    if (!sociedadSearch.trim()) return empresasGrupoParipe;
-    const q = sociedadSearch.toLowerCase();
-    return empresasGrupoParipe.filter(
-      (e) =>
-        (e.Nombre || '').toLowerCase().includes(q) || (e.Cif || '').toLowerCase().includes(q),
-    );
-  }, [empresasGrupoParipe, sociedadSearch]);
-
-  useEffect(() => {
-    setSociedadSearch('');
-    setShowSociedadDropdown(false);
-  }, [selectedIdx]);
-
-  const setSociedadGrupo = async (idx: number, e: EmpresaCatalogo) => {
-    const id = e.id_empresa != null ? String(e.id_empresa) : '';
-    const socCif = e.Cif != null ? String(e.Cif) : '';
-    const socNombre = e.Nombre != null ? String(e.Nombre) : '';
-
-    const prevRow = borradores.find((x) => x.idx === idx);
-
-    setBorradores((prev) =>
-      prev.map((b) =>
-        b.idx === idx
-          ? {
-              ...b,
-              sociedad_grupo_id: id,
-              sociedad_grupo_nombre: socNombre,
-              sociedad_grupo_cif: socCif,
-            }
-          : b,
-      ),
-    );
-    setSociedadSearch('');
-    setShowSociedadDropdown(false);
-
-    if (!prevRow?.entidades_candidatas?.length) return;
-
-    try {
-      const res = await apiFetch(`/api/facturacion/ocr/reconciliar`, {
-        method: 'POST',
-        body: JSON.stringify({
-          sociedad_cif: socCif,
-          sociedad_nombre: socNombre,
-          entidades_candidatas: prevRow.entidades_candidatas,
-          texto_extraido: prevRow.texto_extraido || '',
-          extraction_snapshot: prevRow.extraction_snapshot,
-          campos_manuales: prevRow.campos_manuales || {},
-          proveedor_provisional_cif:
-            prevRow.proveedor_provisional_cif || prevRow.extraction_snapshot?.proveedor_cif || '',
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Reconciliación fallida');
-      const d = data.datos;
-      if (!d) return;
-
-      setBorradores((prev) =>
-        prev.map((row) => {
-          if (row.idx !== idx) return row;
-          const m = row.campos_manuales || {};
-          let next: Borrador = {
-            ...row,
-            reconciliacion_warning: typeof d.warning === 'string' ? d.warning : '',
-          };
-          if (!m.proveedor_cif && d.proveedor_cif != null) next.proveedor_cif = String(d.proveedor_cif);
-          if (!m.proveedor_nombre && d.proveedor_nombre != null) next.proveedor_nombre = String(d.proveedor_nombre);
-          if (!m.proveedor_cif && !m.proveedor_nombre && d.empresa_id != null) next.empresa_id = String(d.empresa_id);
-          if (!m.proveedor_cif && !m.proveedor_nombre && typeof d.proveedor_en_maestros === 'boolean') {
-            next.proveedor_en_maestros = d.proveedor_en_maestros;
-          }
-          if (!m.proveedor_nombre && d.nombre_sugerido_ocr != null) next.nombre_sugerido_ocr = String(d.nombre_sugerido_ocr);
-          if (!m.numero_factura_proveedor && d.numero_factura_proveedor != null) {
-            next.numero_factura_proveedor = String(d.numero_factura_proveedor);
-          }
-          if (!m.fecha_emision && d.fecha_emision != null) {
-            const raw = String(d.fecha_emision);
-            next.fecha_emision = /^\d{4}-\d{2}-\d{2}/.test(raw) ? isoToDmy(raw.substring(0, 10)) : raw;
-          }
-          if (!m.base_imponible && d.base_imponible != null) next.base_imponible = Number(d.base_imponible);
-          if (!m.total_iva && d.total_iva != null) next.total_iva = Number(d.total_iva);
-          if (!m.retencion && d.retencion != null) next.retencion = Number(d.retencion);
-          if (!m.total_factura && d.total_factura != null) next.total_factura = Number(d.total_factura);
-          if (d.base_imponible_total != null) next.base_imponible_total = Number(d.base_imponible_total);
-          if (d.recargo_equivalencia_total != null) next.recargo_equivalencia_total = Number(d.recargo_equivalencia_total);
-          /* Desglose fiscal solo manual: no fusionar líneas desde reconciliación */
-          if (d.confianza && typeof d.confianza === 'object') next.confianza = { ...next.confianza, ...d.confianza };
-          const pctR = derivarPctDesdeImportes(
-            Number(next.base_imponible) || 0,
-            Number(next.total_iva) || 0,
-            Number(next.retencion) || 0,
-            next,
-          );
-          if (!m.tipo_iva_pct) next.tipo_iva_pct = pctR.tipo_iva_pct;
-          if (!m.retencion_pct) next.retencion_pct = pctR.retencion_pct;
-          if ((m.tipo_iva_pct || m.retencion_pct) && !esDesgloseMulti(next)) {
-            next = recalcImportesDesdePct(next);
-          }
-          return next;
-        }),
-      );
-    } catch (err: any) {
-      alertMsg('Reconciliación', err.message || 'No se pudo reconciliar con el documento');
-    }
-  };
 
   const subirArchivos = useCallback(() => {
     if (Platform.OS !== 'web') {
@@ -591,6 +152,7 @@ export default function RegistroMasivoScreen() {
           const res = await apiFetch(`/api/facturacion/ocr/extraer`, {
             method: 'POST',
             body: formData,
+            timeoutMs: 120_000,
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.error ?? 'Error OCR');
@@ -604,6 +166,7 @@ export default function RegistroMasivoScreen() {
                   datos: d,
                   texto_extraido: typeof d.texto_extraido === 'string' ? d.texto_extraido : '',
                 }),
+                timeoutMs: 60_000,
               });
               const j = await rIa.json();
               if (rIa.ok && j.ok && j.datos && !j.skipped) {
@@ -672,8 +235,8 @@ export default function RegistroMasivoScreen() {
             duplicados: [],
             checkingDup: false,
           });
-        } catch (e: any) {
-          alertMsg('Error', `${file.name}: ${e.message}`);
+        } catch (e: unknown) {
+          alertMsg('Error', `${file.name}: ${errorMessage(e)}`);
         }
       }
 
@@ -714,55 +277,6 @@ export default function RegistroMasivoScreen() {
         prev.map((b) => b.idx === borrador.idx ? { ...b, checkingDup: false } : b)
       );
     }
-  };
-
-  const desgloseLineas = (b: Borrador): LineaDesglose[] => {
-    const arr = Array.isArray(b.desglose_impuestos) ? b.desglose_impuestos : [];
-    return arr.length > 0 ? arr : [{ ...LINEA_VACIA }];
-  };
-
-  const desgloseAddLinea = (borradorIdx: number) => {
-    setBorradores((prev) =>
-      prev.map((b) => {
-        if (b.idx !== borradorIdx) return b;
-        const lineas = desgloseLineas(b);
-        return recalcTotalesDesdeDesglose({ ...b, desglose_impuestos: [...lineas, { ...LINEA_VACIA }] });
-      }),
-    );
-  };
-
-  const desgloseRemoveLinea = (borradorIdx: number, lineaIdx: number) => {
-    setBorradores((prev) =>
-      prev.map((b) => {
-        if (b.idx !== borradorIdx) return b;
-        const lineas = [...desgloseLineas(b)];
-        if (lineas.length <= 1) return b;
-        lineas.splice(lineaIdx, 1);
-        return recalcTotalesDesdeDesglose({ ...b, desglose_impuestos: lineas });
-      }),
-    );
-  };
-
-  const desgloseUpdateLinea = (
-    borradorIdx: number,
-    lineaIdx: number,
-    field: 'tipo' | 'base' | 'porcentaje',
-    value: unknown,
-  ) => {
-    setBorradores((prev) =>
-      prev.map((b) => {
-        if (b.idx !== borradorIdx) return b;
-        const lineas = desgloseLineas(b).map((L, i) => {
-          if (i !== lineaIdx) return L;
-          const updated = { ...L, [field]: value, origen: 'manual' };
-          const bVal = round2(Number(field === 'base' ? value : updated.base) || 0);
-          const pct = Number(field === 'porcentaje' ? value : updated.porcentaje) || 0;
-          updated.cuota = round2((bVal * pct) / 100);
-          return updated;
-        });
-        return recalcTotalesDesdeDesglose({ ...b, desglose_impuestos: lineas });
-      }),
-    );
   };
 
   /** Actualización desde API/OCR/reconciliación (no marca campos manuales). */
@@ -836,61 +350,33 @@ export default function RegistroMasivoScreen() {
     [borradores, empresasCatalogo],
   );
 
-  const abrirModalCrearEmpresa = (b: Borrador) => {
-    setNombreNuevaEmpresa((b.nombre_sugerido_ocr || '').trim());
-    setModalEmpresaIdx(b.idx);
-  };
+  /** Campos numéricos cuyo recálculo IVA/retención lo dispara `usuarioEditaCampo`. */
+  const IMPORTES_KEYS: (keyof CamposManuales)[] = [
+    'tipo_iva_pct',
+    'retencion_pct',
+    'base_imponible',
+    'total_iva',
+    'retencion',
+    'total_factura',
+  ];
 
-  const cerrarModalCrearEmpresa = () => {
-    setModalEmpresaIdx(null);
-    setNombreNuevaEmpresa('');
-    setCreandoEmpresa(false);
-  };
-
-  const crearEmpresaDesdeOcr = async () => {
-    if (!borradorModalEmpresa?.proveedor_cif) return;
-    const nombre = nombreNuevaEmpresa.trim();
-    if (!nombre) {
-      alertMsg('Falta nombre', 'Indica el nombre de la empresa para darla de alta.');
-      return;
-    }
-    setCreandoEmpresa(true);
-    try {
-      const res = await apiFetch(`/api/empresas`, {
-        method: 'POST',
-        body: JSON.stringify({
-          Nombre: nombre,
-          Cif: borradorModalEmpresa.proveedor_cif,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'No se pudo crear la empresa');
-      const emp = data.empresa;
-      const id = modalEmpresaIdx;
-      if (id != null) {
-        setBorradores((prev) =>
-          prev.map((b) =>
-            b.idx === id
-              ? {
-                  ...b,
-                  proveedor_nombre: emp?.Nombre != null ? String(emp.Nombre) : nombre,
-                  empresa_id: emp?.id_empresa != null ? String(emp.id_empresa) : '',
-                  proveedor_en_maestros: true,
-                  nombre_sugerido_ocr: '',
-                  confianza: { ...b.confianza, proveedor_nombre: 'alta' },
-                }
-              : b,
-          ),
-        );
+  const zona = useZonaOCR({
+    selectedBorrador: selectedBorrador ?? null,
+    apiUrl: API_URL,
+    onCampoExtraido: (field, value, isNumeric) => {
+      if (!selectedBorrador) return;
+      if (isNumeric && IMPORTES_KEYS.includes(field as keyof CamposManuales)) {
+        usuarioEditaCampo(selectedBorrador.idx, field as keyof CamposManuales, value);
+      } else {
+        patchBorrador(selectedBorrador.idx, { [field]: value } as Partial<Borrador>);
       }
-      showToast('Empresa creada', `${nombre} vinculada al CIF ${borradorModalEmpresa.proveedor_cif}`, 'success');
-      cerrarModalCrearEmpresa();
-    } catch (e: any) {
-      alertMsg('Error', e.message || 'Error al crear empresa');
-    } finally {
-      setCreandoEmpresa(false);
-    }
-  };
+      if (field === 'proveedor_cif' && typeof value === 'string') {
+        setTimeout(() => lookupCifEnMaestro(selectedBorrador.idx, value), 100);
+      }
+    },
+    onMessage: (titulo, msg) => alertMsg(titulo, msg),
+    onError: (msg) => alertMsg('Error OCR zona', msg),
+  });
 
   const confirmar = async () => {
     const activos = borradores.filter((b) => !b.descartado);
@@ -929,13 +415,14 @@ export default function RegistroMasivoScreen() {
           usuario_id: user?.id_usuario,
           usuario_nombre: user?.Nombre,
         }),
+        timeoutMs: 120_000,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Error');
       alertMsg('Creados', `${data.creados} factura(s) creada(s) como borradores pendientes de revisión`);
       router.push('/facturacion/facturas-gasto' as any);
-    } catch (e: any) {
-      alertMsg('Error', e.message);
+    } catch (e: unknown) {
+      alertMsg('Error', errorMessage(e));
     } finally {
       setGuardando(false);
     }
@@ -1128,62 +615,20 @@ export default function RegistroMasivoScreen() {
                 </View>
               ) : null}
 
-              <View style={styles.sociedadBlock}>
-                <Text style={styles.sociedadTitle}>Empresa (GRUPO PARIPE) *</Text>
-                <Text style={styles.sociedadHint}>Sociedad del grupo que recibe el gasto (se guarda como emisor)</Text>
-                {empresasCatalogo.length > 0 && empresasGrupoParipe.length === 0 ? (
-                  <Text style={styles.sociedadMaestroWarn}>
-                    No hay empresas con sede «GRUPO PARIPE» en el maestro. Revisa el campo Sede en Empresas.
-                  </Text>
-                ) : null}
-                <View style={styles.sociedadSelector}>
-                  <TextInput
-                    style={styles.sociedadInput}
-                    placeholder="Buscar empresa por nombre o CIF…"
-                    placeholderTextColor="#94a3b8"
-                    value={sociedadSearch || selectedBorrador.sociedad_grupo_nombre || ''}
-                    onChangeText={(t) => {
-                      setSociedadSearch(t);
-                      setShowSociedadDropdown(true);
-                      setBorradores((prev) =>
-                        prev.map((b) =>
-                          b.idx === selectedBorrador.idx && b.sociedad_grupo_id
-                            ? { ...b, sociedad_grupo_id: '', sociedad_grupo_nombre: '', sociedad_grupo_cif: '' }
-                            : b,
-                        ),
-                      );
-                    }}
-                    onFocus={() => setShowSociedadDropdown(true)}
-                  />
-                  {showSociedadDropdown && empresasGrupoFiltradas.length > 0 && (
-                    <ScrollView style={styles.sociedadDropdown} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                      {empresasGrupoFiltradas.slice(0, 25).map((e) => {
-                        const id = e.id_empresa != null ? String(e.id_empresa) : '';
-                        return (
-                          <TouchableOpacity
-                            key={id || e.Cif || e.Nombre}
-                            style={styles.sociedadDropdownItem}
-                            onPress={() => setSociedadGrupo(selectedBorrador.idx, e)}
-                          >
-                            <Text style={styles.sociedadDropdownName} numberOfLines={2}>
-                              {e.Nombre || '—'}
-                            </Text>
-                            <Text style={styles.sociedadDropdownCif}>{e.Cif || ''}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  )}
-                </View>
-                {selectedBorrador.sociedad_grupo_id ? (
-                  <Text style={styles.sociedadOk}>
-                    {selectedBorrador.sociedad_grupo_cif ? `${selectedBorrador.sociedad_grupo_cif} · ` : ''}
-                    {selectedBorrador.sociedad_grupo_nombre}
-                  </Text>
-                ) : (
-                  <Text style={styles.sociedadWarn}>Obligatorio antes de confirmar</Text>
-                )}
-              </View>
+              <EmpresaGrupoSelector
+                empGrupo={empGrupo}
+                borrador={selectedBorrador}
+                onSeleccionar={(e) => empGrupo.seleccionar(selectedBorrador.idx, e, selectedBorrador)}
+                onLimpiarAsignada={() =>
+                  setBorradores((prev) =>
+                    prev.map((b) =>
+                      b.idx === selectedBorrador.idx
+                        ? { ...b, sociedad_grupo_id: '', sociedad_grupo_nombre: '', sociedad_grupo_cif: '' }
+                        : b,
+                    ),
+                  )
+                }
+              />
 
               {selectedBorrador.duplicados.length > 0 && (
                 <View style={styles.dupWarn}>
@@ -1212,7 +657,7 @@ export default function RegistroMasivoScreen() {
                     {hasPermiso('empresas.crear') ? (
                       <TouchableOpacity
                         style={styles.maestroBtn}
-                        onPress={() => abrirModalCrearEmpresa(selectedBorrador)}
+                        onPress={() => crearEmpresaModal.abrir(selectedBorrador)}
                         activeOpacity={0.85}
                       >
                         <MaterialIcons name="add-business" size={16} color="#fff" />
@@ -1242,20 +687,20 @@ export default function RegistroMasivoScreen() {
                 </Text>
               </View>
 
-              {zonaActiva && (
+              {zona.activa && (
                 <View style={styles.zonaActivaBanner}>
                   <MaterialIcons name="crop-free" size={14} color="#0369a1" />
                   <Text style={styles.zonaActivaText}>
-                    Dibuja un rectángulo sobre el documento para capturar «{zonaActiva.field}»
+                    Dibuja un rectángulo sobre el documento para capturar «{zona.activa.field}»
                   </Text>
-                  <TouchableOpacity onPress={cancelarZona} style={styles.zonaActivaCancelBtn}>
+                  <TouchableOpacity onPress={zona.cancelar} style={styles.zonaActivaCancelBtn}>
                     <Text style={styles.zonaActivaCancelText}>Cancelar</Text>
                   </TouchableOpacity>
                 </View>
               )}
 
               <View style={styles.formGrid}>
-                <FieldRowZona label="CIF Proveedor" value={selectedBorrador.proveedor_cif} conf={selectedBorrador.confianza.proveedor_cif} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'proveedor_cif', v)} onBlur={() => lookupCifEnMaestro(selectedBorrador.idx)} onZona={() => activarZona('proveedor_cif')} zonaActiva={zonaActiva?.field === 'proveedor_cif'} />
+                <FieldRowZona label="CIF Proveedor" value={selectedBorrador.proveedor_cif} conf={selectedBorrador.confianza.proveedor_cif} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'proveedor_cif', v)} onBlur={() => lookupCifEnMaestro(selectedBorrador.idx)} onZona={() => zona.activar('proveedor_cif')} zonaActiva={zona.activa?.field === 'proveedor_cif'} />
                 <ProveedorDropdownField
                   borrador={selectedBorrador}
                   empresas={empresasCatalogo}
@@ -1278,88 +723,25 @@ export default function RegistroMasivoScreen() {
                     );
                   }}
                   onManualChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'proveedor_nombre', v)}
-                  onZona={() => activarZona('proveedor_nombre')}
-                  zonaActiva={zonaActiva?.field === 'proveedor_nombre'}
+                  onZona={() => zona.activar('proveedor_nombre')}
+                  zonaActiva={zona.activa?.field === 'proveedor_nombre'}
                 />
-                <FieldRowZona label="Nº Factura" value={selectedBorrador.numero_factura_proveedor} conf={selectedBorrador.confianza.numero_factura} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'numero_factura_proveedor', v)} onZona={() => activarZona('numero_factura_proveedor')} zonaActiva={zonaActiva?.field === 'numero_factura_proveedor'} />
-                <FieldRowZona label="Fecha emisión" value={selectedBorrador.fecha_emision} conf={selectedBorrador.confianza.fecha} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'fecha_emision', v)} placeholder="dd/mm/aaaa" onZona={() => activarZona('fecha_emision')} zonaActiva={zonaActiva?.field === 'fecha_emision'} />
+                <FieldRowZona label="Nº Factura" value={selectedBorrador.numero_factura_proveedor} conf={selectedBorrador.confianza.numero_factura} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'numero_factura_proveedor', v)} onZona={() => zona.activar('numero_factura_proveedor')} zonaActiva={zona.activa?.field === 'numero_factura_proveedor'} />
+                <FieldRowZona label="Fecha emisión" value={selectedBorrador.fecha_emision} conf={selectedBorrador.confianza.fecha} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'fecha_emision', v)} placeholder="dd/mm/aaaa" onZona={() => zona.activar('fecha_emision')} zonaActiva={zona.activa?.field === 'fecha_emision'} />
               </View>
 
-              {/* ── Desglose fiscal editable ── */}
-              <View style={styles.desgloseBlock}>
-                <View style={styles.desgloseHeader}>
-                  <Text style={styles.desgloseTitle}>Desglose fiscal</Text>
-                  <TouchableOpacity onPress={() => desgloseAddLinea(selectedBorrador.idx)} style={styles.desgloseAddBtn}>
-                    <MaterialIcons name="add-circle-outline" size={15} color="#0369a1" />
-                    <Text style={styles.desgloseAddText}>Añadir línea</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {desgloseLineas(selectedBorrador).map((L, i) => {
-                  const numLineas = desgloseLineas(selectedBorrador).length;
-                  const esRet = L.tipo === 'retencion';
-                  return (
-                    <View key={`dsg-${i}`} style={[styles.desgloseCard, esRet && { borderColor: '#fca5a5' }]}>
-                      <View style={styles.desgloseCardRow}>
-                        <TouchableOpacity
-                          onPress={() => {
-                            const next = esRet ? 'iva' : 'retencion';
-                            desgloseUpdateLinea(selectedBorrador.idx, i, 'tipo', next);
-                          }}
-                          style={[styles.desgloseTipoBadge, esRet && { backgroundColor: '#fef2f2', borderColor: '#fca5a5' }]}
-                        >
-                          <Text style={[styles.desgloseTipoText, esRet && { color: '#dc2626' }]}>
-                            {esRet ? 'Retención' : 'IVA'}
-                          </Text>
-                          <MaterialIcons name="swap-horiz" size={12} color={esRet ? '#dc2626' : '#0369a1'} />
-                        </TouchableOpacity>
-                        <View style={styles.desgloseCardFields}>
-                          <View style={styles.desgloseFieldGroup}>
-                            <Text style={styles.desgloseFieldLabel}>{esRet ? 'Base retención' : 'Base imponible'}</Text>
-                            <DesgloseNumInput
-                              initial={L.base}
-                              placeholder="0,00"
-                              onCommit={(n) => desgloseUpdateLinea(selectedBorrador.idx, i, 'base', n)}
-                            />
-                          </View>
-                          <View style={[styles.desgloseFieldGroup, { flex: 0.5 }]}>
-                            <Text style={styles.desgloseFieldLabel}>% {esRet ? 'Ret.' : 'IVA'}</Text>
-                            <DesgloseNumInput
-                              initial={L.porcentaje ?? 0}
-                              placeholder="0"
-                              onCommit={(n) => desgloseUpdateLinea(selectedBorrador.idx, i, 'porcentaje', n)}
-                            />
-                          </View>
-                          <View style={styles.desgloseFieldGroup}>
-                            <Text style={styles.desgloseFieldLabel}>Cuota</Text>
-                            <Text style={styles.desgloseCuotaReadonly}>
-                              {L.cuota ? formatMoneda(L.cuota) : '0,00 €'}
-                            </Text>
-                          </View>
-                        </View>
-                        {numLineas > 1 && (
-                          <TouchableOpacity onPress={() => desgloseRemoveLinea(selectedBorrador.idx, i)} style={styles.desgloseRemoveBtn}>
-                            <MaterialIcons name="delete-outline" size={16} color="#ef4444" />
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    </View>
+              <DesgloseFiscalEditor
+                lineas={selectedBorrador.desglose_impuestos ?? []}
+                onChange={(lineas, totales) => {
+                  setBorradores((prev) =>
+                    prev.map((b) =>
+                      b.idx === selectedBorrador.idx
+                        ? { ...b, desglose_impuestos: lineas, ...totales }
+                        : b,
+                    ),
                   );
-                })}
-
-                {desgloseLineas(selectedBorrador).some((l) => l.base > 0 || l.cuota > 0) && (
-                  <View style={styles.desgloseTotales}>
-                    <Text style={styles.desgloseTotalLine}>
-                      Base: {formatMoneda(selectedBorrador.base_imponible)}
-                      {'  ·  '}IVA: {formatMoneda(selectedBorrador.total_iva)}
-                      {selectedBorrador.retencion > 0
-                        ? `  ·  Ret.: −${formatMoneda(selectedBorrador.retencion)}`
-                        : ''}
-                      {'  ·  '}Total: {formatMoneda(selectedBorrador.total_factura)}
-                    </Text>
-                  </View>
-                )}
-              </View>
+                }}
+              />
 
               <View style={styles.formGrid}>
                 <View style={styles.fieldRow}>
@@ -1375,122 +757,11 @@ export default function RegistroMasivoScreen() {
 
           {/* RIGHT: Preview con selección de zona (PDF → PNG vía API; coordenadas sobre capa = misma referencia que extraer-zona) */}
           <View style={styles.previewPane}>
-            {selectedBorrador.archivo.previewUrl ? (
-              zonaActiva && Platform.OS === 'web' && zonaImgSrc ? (
-                <div
-                  style={{
-                    position: 'relative',
-                    width: '100%',
-                    height: '100%',
-                    overflow: 'hidden',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: '#e2e8f0',
-                    userSelect: 'none',
-                  } as any}
-                >
-                  {!zonaPreviewLoaded ? (
-                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 } as any}>
-                      <ActivityIndicator size="large" color="#0ea5e9" />
-                      <span style={{ position: 'absolute', bottom: 24, fontSize: 11, color: '#64748b' } as any}>Generando vista para selección…</span>
-                    </div>
-                  ) : null}
-                  <div
-                    style={{
-                      position: 'relative',
-                      maxWidth: '100%',
-                      maxHeight: '100%',
-                      display: 'inline-block',
-                    } as any}
-                  >
-                    <img
-                      src={zonaImgSrc}
-                      alt="Seleccionar zona"
-                      onLoad={() => setZonaPreviewLoaded(true)}
-                      onError={() => alertMsg('Vista previa', 'No se pudo cargar la imagen de selección')}
-                      style={{
-                        maxWidth: '100%',
-                        maxHeight: '100%',
-                        objectFit: 'contain',
-                        display: 'block',
-                      } as any}
-                    />
-                    {zonaPreviewLoaded ? (
-                      <div
-                        onMouseDown={handleZonaMouseDown as any}
-                        onMouseMove={handleZonaMouseMove as any}
-                        onMouseUp={handleZonaMouseUp as any}
-                        style={{
-                          position: 'absolute',
-                          left: 0,
-                          top: 0,
-                          width: '100%',
-                          height: '100%',
-                          cursor: zonaExtracting
-                            ? 'wait'
-                            : 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'24\'%3E%3Cline x1=\'12\' y1=\'0\' x2=\'12\' y2=\'24\' stroke=\'%23ff00ff\' stroke-width=\'2\'/%3E%3Cline x1=\'0\' y1=\'12\' x2=\'24\' y2=\'12\' stroke=\'%23ff00ff\' stroke-width=\'2\'/%3E%3C/svg%3E") 12 12, crosshair',
-                          boxSizing: 'border-box',
-                        } as any}
-                      >
-                        {zonaRect && (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              left: Math.min(zonaRect.startX, zonaRect.endX),
-                              top: Math.min(zonaRect.startY, zonaRect.endY),
-                              width: Math.abs(zonaRect.endX - zonaRect.startX),
-                              height: Math.abs(zonaRect.endY - zonaRect.startY),
-                              border: '2px solid #ff00ff',
-                              backgroundColor: 'rgba(255, 0, 255, 0.18)',
-                              borderRadius: 3,
-                              pointerEvents: 'none',
-                            } as any}
-                          />
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                  {zonaExtracting ? (
-                    <div style={{
-                      position: 'absolute',
-                      inset: 0,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      backgroundColor: 'rgba(255,255,255,0.65)',
-                      zIndex: 4,
-                    } as any}>
-                      <ActivityIndicator size="large" color="#0ea5e9" />
-                    </div>
-                  ) : null}
-                </div>
-              ) : selectedBorrador.archivo.tipo.includes('pdf') ? (
-                Platform.OS === 'web' ? (
-                  <iframe
-                    src={selectedBorrador.archivo.previewUrl}
-                    style={{ width: '100%', height: '100%', border: 'none' } as any}
-                    title="Vista previa"
-                  />
-                ) : (
-                  <View style={styles.previewFallbackWrap}>
-                    <Text style={styles.previewFallback}>Vista previa no disponible en esta plataforma</Text>
-                  </View>
-                )
-              ) : (
-                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                  <img
-                    src={selectedBorrador.archivo.previewUrl}
-                    style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' } as any}
-                    alt="Vista previa"
-                  />
-                </View>
-              )
-            ) : (
-              <View style={styles.previewFallbackWrap}>
-                <Text style={styles.previewFallback}>Sin vista previa disponible</Text>
-              </View>
-            )}
+            <ZonaOCRPreview
+              borrador={selectedBorrador}
+              zona={zona}
+              onPreviewLoadError={(msg) => alertMsg('Vista previa', msg)}
+            />
           </View>
         </View>
       )}
@@ -1502,248 +773,9 @@ export default function RegistroMasivoScreen() {
         </View>
       )}
 
-      <Modal
-        visible={modalEmpresaIdx !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={cerrarModalCrearEmpresa}
-      >
-        <KeyboardAvoidingView
-          style={styles.modalKb}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.modalOverlay}>
-            <TouchableOpacity
-              style={StyleSheet.absoluteFillObject}
-              activeOpacity={1}
-              onPress={cerrarModalCrearEmpresa}
-            />
-            <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Nueva empresa</Text>
-            <Text style={styles.modalSubtitle}>
-              Se creará un registro en el maestro de empresas con el CIF detectado por OCR.
-            </Text>
-            <Text style={styles.modalCifLabel}>
-              CIF: <Text style={styles.modalCifValue}>{borradorModalEmpresa?.proveedor_cif || '—'}</Text>
-            </Text>
-            <Text style={styles.modalFieldLabel}>Nombre fiscal *</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={nombreNuevaEmpresa}
-              onChangeText={setNombreNuevaEmpresa}
-              placeholder="Razón social"
-              placeholderTextColor="#94a3b8"
-              autoFocus={Platform.OS === 'web'}
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalBtnSecondary} onPress={cerrarModalCrearEmpresa}>
-                <Text style={styles.modalBtnSecondaryText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalBtnPrimary, creandoEmpresa && { opacity: 0.7 }]}
-                onPress={crearEmpresaDesdeOcr}
-                disabled={creandoEmpresa}
-              >
-                {creandoEmpresa ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.modalBtnPrimaryText}>Guardar empresa</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      <CrearEmpresaModal modal={crearEmpresaModal} />
 
       {ToastView}
-    </View>
-  );
-}
-
-function ProveedorDropdownField({ borrador, empresas, onSelect, onManualChange, onZona, zonaActiva }: {
-  borrador: Borrador;
-  empresas: EmpresaCatalogo[];
-  onSelect: (e: EmpresaCatalogo) => void;
-  onManualChange: (v: string) => void;
-  onZona: () => void;
-  zonaActiva?: boolean;
-}) {
-  const [search, setSearch] = useState('');
-  const [open, setOpen] = useState(false);
-  const value = borrador.proveedor_nombre || '';
-  const conf = borrador.confianza?.proveedor_nombre;
-
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    if (!q) return empresas.slice(0, 50);
-    return empresas.filter((e) => {
-      const nom = (e.Nombre || '').toLowerCase();
-      const cif = (e.Cif || '').toLowerCase();
-      return nom.includes(q) || cif.includes(q);
-    }).slice(0, 50);
-  }, [search, empresas]);
-
-  return (
-    <View style={[styles.fieldRow, { zIndex: 100 }]}>
-      <View style={styles.fieldLabelWrap}>
-        <Text style={styles.fieldLabel}>Nombre proveedor</Text>
-        {conf && <View style={[styles.confDot, { backgroundColor: confColor(conf) }]} />}
-      </View>
-      <View style={{ flex: 1, position: 'relative' as const, zIndex: 100 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <TextInput
-            style={[styles.fieldInput, { flex: 1 }]}
-            value={open ? search : value}
-            onChangeText={(v) => {
-              if (open) {
-                setSearch(v);
-              } else {
-                onManualChange(v);
-              }
-            }}
-            onFocus={() => {
-              setSearch(value);
-              setOpen(true);
-            }}
-            placeholder="Buscar empresa…"
-            placeholderTextColor="#94a3b8"
-          />
-          <TouchableOpacity
-            onPress={() => { setSearch(value); setOpen(!open); }}
-            style={{ padding: 4 }}
-          >
-            <MaterialIcons name={open ? 'arrow-drop-up' : 'arrow-drop-down'} size={22} color="#64748b" />
-          </TouchableOpacity>
-        </View>
-        {open && (
-          <View style={provStyles.dropdown}>
-            <ScrollView style={{ maxHeight: 200 }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-              {filtered.length === 0 ? (
-                <Text style={provStyles.empty}>Sin resultados</Text>
-              ) : (
-                filtered.map((e) => (
-                  <TouchableOpacity
-                    key={e.id_empresa ?? e.Cif ?? e.Nombre}
-                    style={provStyles.item}
-                    onPress={() => {
-                      onSelect(e);
-                      setOpen(false);
-                      setSearch('');
-                    }}
-                  >
-                    <Text style={provStyles.itemName} numberOfLines={1}>{e.Nombre || '—'}</Text>
-                    <Text style={provStyles.itemCif}>{e.Cif || ''}</Text>
-                  </TouchableOpacity>
-                ))
-              )}
-            </ScrollView>
-          </View>
-        )}
-      </View>
-      <TouchableOpacity
-        onPress={onZona}
-        style={[styles.zonaBtn, zonaActiva && styles.zonaBtnActive]}
-        activeOpacity={0.7}
-      >
-        <MaterialIcons name="crop-free" size={16} color={zonaActiva ? '#fff' : '#0369a1'} />
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-const provStyles = StyleSheet.create({
-  dropdown: {
-    position: 'absolute' as const,
-    top: '100%',
-    left: 0,
-    right: 0,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 8,
-    marginTop: 2,
-    zIndex: 999,
-    elevation: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-  },
-  item: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e2e8f0',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 8,
-  },
-  itemName: { fontSize: 13, color: '#1e293b', flex: 1 },
-  itemCif: { fontSize: 11, color: '#64748b', fontFamily: 'monospace' },
-  empty: { padding: 12, fontSize: 12, color: '#94a3b8', textAlign: 'center' },
-});
-
-function FieldRow({ label, value, conf, onChange, numeric, placeholder }: {
-  label: string;
-  value: string;
-  conf?: string;
-  onChange: (v: string) => void;
-  numeric?: boolean;
-  placeholder?: string;
-}) {
-  return (
-    <View style={styles.fieldRow}>
-      <View style={styles.fieldLabelWrap}>
-        <Text style={styles.fieldLabel}>{label}</Text>
-        {conf && <View style={[styles.confDot, { backgroundColor: confColor(conf) }]} />}
-      </View>
-      <TextInput
-        style={[styles.fieldInput, numeric && { textAlign: 'right' as const }]}
-        value={value}
-        onChangeText={onChange}
-        keyboardType={numeric ? 'decimal-pad' : 'default'}
-        placeholder={placeholder}
-        placeholderTextColor="#94a3b8"
-      />
-    </View>
-  );
-}
-
-function FieldRowZona({ label, value, conf, onChange, numeric, placeholder, onZona, zonaActiva, onBlur }: {
-  label: string;
-  value: string;
-  conf?: string;
-  onChange: (v: string) => void;
-  numeric?: boolean;
-  placeholder?: string;
-  onZona: () => void;
-  zonaActiva?: boolean;
-  onBlur?: () => void;
-}) {
-  return (
-    <View style={styles.fieldRow}>
-      <View style={styles.fieldLabelWrap}>
-        <Text style={styles.fieldLabel}>{label}</Text>
-        {conf && <View style={[styles.confDot, { backgroundColor: confColor(conf) }]} />}
-      </View>
-      <TextInput
-        style={[styles.fieldInput, numeric && { textAlign: 'right' as const }]}
-        value={value}
-        onChangeText={onChange}
-        onBlur={onBlur}
-        keyboardType={numeric ? 'decimal-pad' : 'default'}
-        placeholder={placeholder}
-        placeholderTextColor="#94a3b8"
-      />
-      <TouchableOpacity
-        onPress={onZona}
-        style={[styles.zonaBtn, zonaActiva && styles.zonaBtnActive]}
-        activeOpacity={0.7}
-      >
-        <MaterialIcons name="crop-free" size={14} color={zonaActiva ? '#fff' : '#0ea5e9'} />
-      </TouchableOpacity>
     </View>
   );
 }
@@ -1820,100 +852,6 @@ const styles = StyleSheet.create({
   pipelineTitle: { fontSize: 12, fontWeight: '700', color: '#14532d', flex: 1 },
   pipelineDetail: { fontSize: 10, color: '#64748b', lineHeight: 14 },
   pipelineMotivos: { fontSize: 10, color: '#92400e', lineHeight: 14 },
-  desgloseBlock: {
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 12,
-    gap: 8,
-  },
-  desgloseHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 2,
-  },
-  desgloseTitle: { fontSize: 13, fontWeight: '700', color: '#1e293b' },
-  desgloseAddBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-    backgroundColor: '#e0f2fe',
-    borderWidth: 1,
-    borderColor: '#7dd3fc',
-  },
-  desgloseAddText: { fontSize: 11, color: '#0369a1', fontWeight: '600' },
-  desgloseCard: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    padding: 10,
-  },
-  /** Una sola fila: badge IVA/Ret. + campos + borrar */
-  desgloseCardRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
-    flexWrap: 'nowrap' as const,
-  },
-  desgloseTipoBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-    backgroundColor: '#e0f2fe',
-    borderWidth: 1,
-    borderColor: '#7dd3fc',
-    flexShrink: 0,
-    alignSelf: 'flex-end',
-  },
-  desgloseTipoText: { fontSize: 11, fontWeight: '700', color: '#0369a1' },
-  desgloseRemoveBtn: { padding: 4, flexShrink: 0, alignSelf: 'flex-end' },
-  desgloseCardFields: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: 'row',
-    flexWrap: 'nowrap' as const,
-    gap: 8,
-    alignItems: 'flex-end',
-  },
-  desgloseFieldGroup: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  desgloseFieldLabel: { fontSize: 10, color: '#64748b', fontWeight: '600' },
-  desgloseInput: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    fontSize: 12,
-    color: '#1e293b',
-    backgroundColor: '#fff',
-    textAlign: 'right' as const,
-  },
-  desgloseCuotaReadonly: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    fontSize: 12,
-    color: '#475569',
-    backgroundColor: '#f1f5f9',
-    textAlign: 'right' as const,
-    fontWeight: '600',
-  },
   totalFacturaReadonly: {
     flex: 1,
     borderWidth: 1,
@@ -1927,8 +865,6 @@ const styles = StyleSheet.create({
     textAlign: 'right' as const,
     fontWeight: '700',
   },
-  desgloseTotales: { paddingTop: 6, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
-  desgloseTotalLine: { fontSize: 11, color: '#0f172a', fontWeight: '600', lineHeight: 16 },
   headerActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
 
   navBtns: { flexDirection: 'row', alignItems: 'center', gap: 2, marginRight: 4 },
@@ -1993,72 +929,10 @@ const styles = StyleSheet.create({
     minWidth: 260,
     backgroundColor: '#e2e8f0',
   },
-  previewFallbackWrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  previewFallback: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
   formScroll: {
     padding: 12,
     gap: 8,
   },
-
-  sociedadBlock: {
-    marginBottom: 8,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-    zIndex: 40,
-  },
-  sociedadTitle: { fontSize: 12, fontWeight: '700' as const, color: '#334155', marginBottom: 4 },
-  sociedadHint: { fontSize: 10, color: '#64748b', marginBottom: 6, lineHeight: 14 },
-  sociedadMaestroWarn: {
-    fontSize: 10,
-    color: '#b45309',
-    marginBottom: 8,
-    lineHeight: 14,
-    backgroundColor: '#fffbeb',
-    padding: 8,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#fde68a',
-  },
-  sociedadSelector: { position: 'relative' as const, zIndex: 50 },
-  sociedadInput: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 13,
-    color: '#334155',
-    backgroundColor: '#f8fafc',
-  },
-  sociedadDropdown: {
-    position: 'absolute' as const,
-    top: '100%',
-    left: 0,
-    right: 0,
-    maxHeight: 200,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    marginTop: 4,
-    zIndex: 100,
-    elevation: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-  },
-  sociedadDropdownItem: {
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  sociedadDropdownName: { fontSize: 12, fontWeight: '600' as const, color: '#334155' },
-  sociedadDropdownCif: { fontSize: 10, color: '#64748b', marginTop: 2 },
-  sociedadOk: { fontSize: 10, color: '#059669', marginTop: 6, fontWeight: '500' as const },
-  sociedadWarn: { fontSize: 10, color: '#b45309', marginTop: 6 },
 
   fileInfoBar: {
     flexDirection: 'row',
@@ -2125,53 +999,6 @@ const styles = StyleSheet.create({
   },
   maestroBtnText: { fontSize: 11, color: '#fff', fontWeight: '600' as const },
   maestroNoPerm: { fontSize: 10, color: '#9a3412', fontStyle: 'italic' as const, marginTop: 2 },
-
-  modalKb: { flex: 1 },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 400,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    zIndex: 2,
-  },
-  modalTitle: { fontSize: 16, fontWeight: '700' as const, color: '#334155', marginBottom: 6 },
-  modalSubtitle: { fontSize: 11, color: '#64748b', marginBottom: 10, lineHeight: 16 },
-  modalCifLabel: { fontSize: 12, color: '#64748b', marginBottom: 10 },
-  modalCifValue: { fontWeight: '700' as const, color: '#0f172a' },
-  modalFieldLabel: { fontSize: 11, color: '#64748b', marginBottom: 4, fontWeight: '500' as const },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 14,
-    color: '#334155',
-    marginBottom: 16,
-    backgroundColor: '#f8fafc',
-  },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
-  modalBtnSecondary: { paddingVertical: 8, paddingHorizontal: 12 },
-  modalBtnSecondaryText: { fontSize: 13, color: '#64748b', fontWeight: '500' as const },
-  modalBtnPrimary: {
-    backgroundColor: '#059669',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    minWidth: 120,
-    alignItems: 'center',
-  },
-  modalBtnPrimaryText: { fontSize: 13, color: '#fff', fontWeight: '600' as const },
 
   legendRow: { paddingVertical: 2 },
   legendText: { fontSize: 10, color: '#64748b', flexWrap: 'wrap' as const },

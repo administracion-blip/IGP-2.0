@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
-import { apiFetch } from '../utils/api';
+import { apiFetch, errorMessage } from '../utils/api';
 
 type Empleado = {
   pk: string;
@@ -60,8 +60,8 @@ export default function PersonalScreen() {
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Error al obtener empleados');
       setEmpleados(data.employees ?? []);
-    } catch (err: any) {
-      setError(err.message ?? 'Error de conexión');
+    } catch (err: unknown) {
+      setError(errorMessage(err, 'Error de conexión'));
     } finally {
       setLoading(false);
     }
@@ -81,8 +81,8 @@ export default function PersonalScreen() {
       if (!data.ok) throw new Error(data.error || 'Error en sincronización');
       setSyncMsg(`Sincronizados ${data.synced ?? 0} empleados de ${data.total ?? 0}`);
       await cargar();
-    } catch (err: any) {
-      setError(err.message ?? 'Error de sincronización');
+    } catch (err: unknown) {
+      setError(errorMessage(err, 'Error de sincronización'));
     } finally {
       setSyncing(false);
     }
@@ -199,7 +199,7 @@ export default function PersonalScreen() {
                     {COLUMNAS.map((col) => (
                       <View key={col.key} style={[styles.dataCell, { width: col.width }]}>
                         <Text style={styles.dataCellText} numberOfLines={1}>
-                          {formatCellValue(col.key, emp[col.key])}
+                          {formatCellValue(String(col.key), emp[col.key as keyof Empleado])}
                         </Text>
                       </View>
                     ))}

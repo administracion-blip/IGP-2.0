@@ -1,5 +1,4 @@
 import { apiFetch } from '../utils/api';
-import { API_BASE_URL } from '../utils/apiBaseUrl';
 
 /**
  * Precio de venta mostrado = precio base × (1 + porcentaje/100). Sin efecto si el % es 0 o inválido.
@@ -36,7 +35,7 @@ export async function fetchPorcentajeBeneficio(): Promise<number> {
  */
 export async function fetchImagenApp(_baseUrl?: string): Promise<string | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/public/personalizacion/app-image`);
+    const res = await apiFetch('/api/public/personalizacion/app-image', { timeoutMs: 8000 });
     const data = await res.json();
     if (!res.ok) return null;
     const uri = data?.imagen;

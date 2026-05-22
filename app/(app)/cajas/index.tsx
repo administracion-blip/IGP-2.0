@@ -39,6 +39,13 @@ const OPCIONES: { id: string; label: string; icon: React.ComponentProps<typeof M
     descripcion: 'Comparativa de facturación real vs año anterior por local',
     permiso: 'objetivos.ver',
   },
+  {
+    id: 'control-excepciones',
+    label: 'Control de Excepciones',
+    icon: 'rule',
+    descripcion: 'Invitaciones, descuentos manuales y anulaciones por fecha y local',
+    permiso: 'excepciones.ver',
+  },
 ];
 
 export default function CajasIndexScreen() {
@@ -51,6 +58,7 @@ export default function CajasIndexScreen() {
     if (id === 'arqueo-caja') router.push('/cajas/arqueo-caja');
     if (id === 'comparativa-fechas-cajas') router.push('/cajas/comparativa-fechas-cajas');
     if (id === 'objetivos') router.push('/cajas/objetivos');
+    if (id === 'control-excepciones') router.push('/cajas/control-excepciones');
   }
 
   return (

@@ -81,97 +81,92 @@ router.get('/personal/cuadrante', async (req, res) => {
     return res.status(400).json({ error: 'from debe ser menor o igual que to' });
   }
 
-  try {
-    const resolved = [];
-    for (const localId of localIds) {
-      const got = await docClient.send(new GetCommand({
-        TableName: tables.locales,
-        Key: { id_Locales: localId },
-      }));
-      const local = got.Item;
-      if (!local) {
-        return res.status(404).json({ error: `Local no encontrado: ${localId}` });
-      }
-      const factorialLocationId = local.factorial_location_id;
-      if (!factorialLocationId) {
-        return res.status(400).json({
-          error: `El local "${local.nombre || localId}" no tiene factorial_location_id configurado.`,
-        });
-      }
-      resolved.push({
-        local_id: localId,
-        nombre: local.nombre || localId,
-        factorial_location_id: String(factorialLocationId),
+  const resolved = [];
+  for (const localId of localIds) {
+    const got = await docClient.send(new GetCommand({
+      TableName: tables.locales,
+      Key: { id_Locales: localId },
+    }));
+    const local = got.Item;
+    if (!local) {
+      return res.status(404).json({ error: `Local no encontrado: ${localId}` });
+    }
+    const factorialLocationId = local.factorial_location_id;
+    if (!factorialLocationId) {
+      return res.status(400).json({
+        error: `El local "${local.nombre || localId}" no tiene factorial_location_id configurado.`,
       });
     }
-
-    const empleadosLocales = await getAllEmployees(docClient, tables.empleados).catch(() => []);
-
-    let planned = [];
-    for (const r of resolved) {
-      const chunk = await fetchPlannedShifts({
-        locationId: r.factorial_location_id,
-        from,
-        to,
-      });
-      for (const s of chunk) {
-        planned.push({
-          ...s,
-          __igp_local_id: r.local_id,
-          __igp_local_nombre: r.nombre,
-        });
-      }
-    }
-
-    const idsPlan = planned.map((s) => s.employee_id).filter((v) => v != null);
-    const idsDb = (empleadosLocales || [])
-      .map((e) => e.employee_id)
-      .filter((v) => v != null && String(v).trim() !== '');
-    const employeeIds = [...new Set([...idsPlan, ...idsDb])];
-
-    const empleadoLocationPorEmp = mapEmpleadoLocationPorEmp(empleadosLocales);
-
-    const [attendance, contracts] = await Promise.all([
-      fetchAttendanceShifts({ employeeIds, from, to }),
-      fetchContractVersions({ employeeIds }),
-    ]);
-
-    const contratoPorEmp = ultimoContratoPorEmpleado(contracts);
-
-    const empleadoNombre = new Map();
-    for (const e of empleadosLocales || []) {
-      const id = e.employee_id != null ? String(e.employee_id) : null;
-      if (!id) continue;
-      const nombre = e.full_name || [e.first_name, e.last_name].filter(Boolean).join(' ') || `Empleado ${id}`;
-      empleadoNombre.set(id, nombre);
-    }
-
-    const { totales, por_local } = construirCuadrantePorLocales({
-      plannedTagged: planned,
-      attendance,
-      contratoPorEmp,
-      empleadoNombre,
-      empleadoLocationPorEmp,
-      from,
-      to,
-      localesOrden: resolved,
+    resolved.push({
+      local_id: localId,
+      nombre: local.nombre || localId,
+      factorial_location_id: String(factorialLocationId),
     });
-
-    res.json({
-      ok: true,
-      local_ids: resolved.map((r) => r.local_id),
-      locales: resolved,
-      local_id: resolved.length === 1 ? resolved[0].local_id : undefined,
-      factorial_location_id: resolved.length === 1 ? resolved[0].factorial_location_id : undefined,
-      from,
-      to,
-      totales,
-      por_local,
-    });
-  } catch (err) {
-    console.error('[cuadrante] error:', err);
-    res.status(500).json({ ok: false, error: err.message || 'Error al construir cuadrante' });
   }
+
+  const empleadosLocales = await getAllEmployees(docClient, tables.empleados).catch(() => []);
+
+  let planned = [];
+  for (const r of resolved) {
+    const chunk = await fetchPlannedShifts({
+      locationId: r.factorial_location_id,
+      from,
+      to,
+    });
+    for (const s of chunk) {
+      planned.push({
+        ...s,
+        __igp_local_id: r.local_id,
+        __igp_local_nombre: r.nombre,
+      });
+    }
+  }
+
+  const idsPlan = planned.map((s) => s.employee_id).filter((v) => v != null);
+  const idsDb = (empleadosLocales || [])
+    .map((e) => e.employee_id)
+    .filter((v) => v != null && String(v).trim() !== '');
+  const employeeIds = [...new Set([...idsPlan, ...idsDb])];
+
+  const empleadoLocationPorEmp = mapEmpleadoLocationPorEmp(empleadosLocales);
+
+  const [attendance, contracts] = await Promise.all([
+    fetchAttendanceShifts({ employeeIds, from, to }),
+    fetchContractVersions({ employeeIds }),
+  ]);
+
+  const contratoPorEmp = ultimoContratoPorEmpleado(contracts);
+
+  const empleadoNombre = new Map();
+  for (const e of empleadosLocales || []) {
+    const id = e.employee_id != null ? String(e.employee_id) : null;
+    if (!id) continue;
+    const nombre = e.full_name || [e.first_name, e.last_name].filter(Boolean).join(' ') || `Empleado ${id}`;
+    empleadoNombre.set(id, nombre);
+  }
+
+  const { totales, por_local } = construirCuadrantePorLocales({
+    plannedTagged: planned,
+    attendance,
+    contratoPorEmp,
+    empleadoNombre,
+    empleadoLocationPorEmp,
+    from,
+    to,
+    localesOrden: resolved,
+  });
+
+  res.json({
+    ok: true,
+    local_ids: resolved.map((r) => r.local_id),
+    locales: resolved,
+    local_id: resolved.length === 1 ? resolved[0].local_id : undefined,
+    factorial_location_id: resolved.length === 1 ? resolved[0].factorial_location_id : undefined,
+    from,
+    to,
+    totales,
+    por_local,
+  });
 });
 
 export default router;

@@ -15,40 +15,25 @@ const router = Router();
 const TABLE = tables.empleados;
 
 /** POST /api/personal/employees/sync */
-router.post('/personal/employees/sync', async (_req, res) => {
-  try {
-    console.log('[personal] Iniciando sincronización de empleados…');
-    const result = await syncEmployees(docClient, TABLE);
-    res.json({ ok: true, ...result });
-  } catch (err) {
-    console.error('[personal] Error en sincronización:', err);
-    res.status(500).json({ ok: false, error: err.message });
-  }
+router.post('/personal/employees/sync', async (req, res) => {
+  req.log.info('[personal] Iniciando sincronización de empleados…');
+  const result = await syncEmployees(docClient, TABLE);
+  res.json({ ok: true, ...result });
 });
 
 /** GET /api/personal/employees */
 router.get('/personal/employees', async (_req, res) => {
-  try {
-    const items = await getAllEmployees(docClient, TABLE);
-    const employees = items.map(sanitizeForApi);
-    employees.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
-    res.json({ ok: true, employees });
-  } catch (err) {
-    console.error('[personal] Error al listar empleados:', err);
-    res.status(500).json({ ok: false, error: err.message });
-  }
+  const items = await getAllEmployees(docClient, TABLE);
+  const employees = items.map(sanitizeForApi);
+  employees.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
+  res.json({ ok: true, employees });
 });
 
 /** GET /api/personal/employees/:id */
 router.get('/personal/employees/:id', async (req, res) => {
-  try {
-    const item = await getEmployeeById(docClient, TABLE, req.params.id);
-    if (!item) return res.status(404).json({ ok: false, error: 'Empleado no encontrado' });
-    res.json({ ok: true, employee: sanitizeForApi(item) });
-  } catch (err) {
-    console.error('[personal] Error al obtener empleado:', err);
-    res.status(500).json({ ok: false, error: err.message });
-  }
+  const item = await getEmployeeById(docClient, TABLE, req.params.id);
+  if (!item) return res.status(404).json({ error: 'Empleado no encontrado' });
+  res.json({ ok: true, employee: sanitizeForApi(item) });
 });
 
 /** Excluye raw_factorial_json de la respuesta API (peso innecesario). */

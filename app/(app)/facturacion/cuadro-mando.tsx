@@ -56,6 +56,7 @@ export default function CuadroMandoScreen() {
   const [loading, setLoading] = useState(true);
   const [empresaSeleccionadaId, setEmpresaSeleccionadaId] = useState('');
   const [empresaModalOpen, setEmpresaModalOpen] = useState(false);
+  const [empresasGrupoParipe, setEmpresasGrupoParipe] = useState<EmpresaOpt[]>([]);
 
   const fetchData = useCallback(() => {
     setLoading(true);
@@ -308,7 +309,7 @@ function AgingBar({ label, value, color, total }: { label: string; value: number
   return (
     <View style={styles.agingItem}>
       <View style={[styles.agingBarBg, { height: 60 }]}>
-        <View style={[styles.agingBarFill, { height: `${Math.max(pct, 2)}%` as any, backgroundColor: color }]} />
+        <View style={[styles.agingBarFill, { height: `${Math.max(pct, 2)}%`, backgroundColor: color }]} />
       </View>
       <Text style={styles.agingValue}>{formatMoneda(value)}</Text>
       <Text style={styles.agingLabel}>{label}</Text>

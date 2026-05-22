@@ -137,46 +137,41 @@ router.get('/mystery-guest', async (req, res) => {
     return res.status(400).json({ error: 'fechaDesde debe ser <= fechaHasta' });
   }
 
-  try {
-    const items = [];
-    let lastKey = null;
-    do {
-      const r = await docClient.send(
-        new ScanCommand({
-          TableName: TABLE,
-          ...(lastKey && { ExclusiveStartKey: lastKey }),
-        })
-      );
-      items.push(...(r.Items || []));
-      lastKey = r.LastEvaluatedKey || null;
-    } while (lastKey);
+  const items = [];
+  let lastKey = null;
+  do {
+    const r = await docClient.send(
+      new ScanCommand({
+        TableName: TABLE,
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      })
+    );
+    items.push(...(r.Items || []));
+    lastKey = r.LastEvaluatedKey || null;
+  } while (lastKey);
 
-    const filtrados = items.filter((it) => {
-      const f = fechaDiaParaFiltro(it);
-      if (isoDateOk(f)) {
-        if (f < fechaDesde || f > fechaHasta) return false;
-      }
-      /** Sin fecha parseable: se muestra igual (p. ej. datos incompletos en Dynamo). */
-      if (localId && localIdItem(it) !== localId.trim()) return false;
-      return true;
-    });
+  const filtrados = items.filter((it) => {
+    const f = fechaDiaParaFiltro(it);
+    if (isoDateOk(f)) {
+      if (f < fechaDesde || f > fechaHasta) return false;
+    }
+    /** Sin fecha parseable: se muestra igual (p. ej. datos incompletos en Dynamo). */
+    if (localId && localIdItem(it) !== localId.trim()) return false;
+    return true;
+  });
 
-    // Orden de llegada: primero el que envió antes (CreadoEn ascendente)
-    filtrados.sort((a, b) => {
-      const ca = String(a.CreadoEn ?? '');
-      const cb = String(b.CreadoEn ?? '');
-      const cmp = ca.localeCompare(cb);
-      if (cmp !== 0) return cmp;
-      const ida = String(a[DYNAMO_PK] ?? a.id_MisteryGuest ?? '');
-      const idb = String(b[DYNAMO_PK] ?? b.id_MisteryGuest ?? '');
-      return ida.localeCompare(idb);
-    });
+  // Orden de llegada: primero el que envió antes (CreadoEn ascendente)
+  filtrados.sort((a, b) => {
+    const ca = String(a.CreadoEn ?? '');
+    const cb = String(b.CreadoEn ?? '');
+    const cmp = ca.localeCompare(cb);
+    if (cmp !== 0) return cmp;
+    const ida = String(a[DYNAMO_PK] ?? a.id_MisteryGuest ?? '');
+    const idb = String(b[DYNAMO_PK] ?? b.id_MisteryGuest ?? '');
+    return ida.localeCompare(idb);
+  });
 
-    res.json({ valoraciones: filtrados.map(normalizeItemForApi) });
-  } catch (err) {
-    console.error('[mystery-guest GET]', err);
-    res.status(500).json({ error: err.message || 'Error al listar Mystery Guest' });
-  }
+  res.json({ valoraciones: filtrados.map(normalizeItemForApi) });
 });
 
 /** POST /mystery-guest — alta: Respuestas (cuestionario) + ExperienciaGeneral, o legado tres puntuaciones. */
@@ -282,14 +277,9 @@ router.post('/mystery-guest', async (req, res) => {
     };
   }
 
-  try {
-    const ddbItem = toDynamoItem(item);
-    await docClient.send(new PutCommand({ TableName: TABLE, Item: ddbItem }));
-    res.json({ ok: true, valoracion: normalizeItemForApi(ddbItem) });
-  } catch (err) {
-    console.error('[mystery-guest POST]', err);
-    res.status(500).json({ error: err.message || 'Error al guardar Mystery Guest' });
-  }
+  const ddbItem = toDynamoItem(item);
+  await docClient.send(new PutCommand({ TableName: TABLE, Item: ddbItem }));
+  res.json({ ok: true, valoracion: normalizeItemForApi(ddbItem) });
 });
 
 export default router;

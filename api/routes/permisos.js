@@ -5,6 +5,26 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
+/**
+ * Si el error indica que la tabla rolesPermisos no existe en DynamoDB, lanza
+ * un Error con status 404 y mensaje custom para que el operador sepa cómo
+ * crearla. Para el resto de errores, los re-lanza (gestiona el middleware).
+ */
+function throwSiTablaPermisosFalta(err, hint = 'Créala en DynamoDB con PK (String) y SK (String). Ver api/ROLES-PERMISOS.md') {
+  const msg = err?.message || String(err);
+  if (
+    err?.name === 'ResourceNotFoundException' ||
+    msg.includes('Requested resource not found') ||
+    msg.includes('ResourceNotFoundException')
+  ) {
+    const e = new Error(`La tabla ${tables.rolesPermisos} no existe. ${hint}`);
+    e.status = 404;
+    e.code = 'TABLE_NOT_FOUND';
+    throw e;
+  }
+  throw err;
+}
+
 // GET /permisos?rol= — protegido (AuthContext usa /api/me ahora)
 router.get('/permisos', requireAuth, async (req, res) => {
   const rol = (req.query.rol ?? '').toString().trim();
@@ -12,9 +32,9 @@ router.get('/permisos', requireAuth, async (req, res) => {
     return res.json({ permisos: [] });
   }
   const pk = `ROL#${rol}`;
+  let items = [];
+  let lastKey = null;
   try {
-    let items = [];
-    let lastKey = null;
     do {
       const cmd = new QueryCommand({
         TableName: tables.rolesPermisos,
@@ -26,24 +46,17 @@ router.get('/permisos', requireAuth, async (req, res) => {
       items.push(...(result.Items || []));
       lastKey = result.LastEvaluatedKey || null;
     } while (lastKey);
-    const permisos = items.map((i) => (i.SK || '').replace(/^PERMISO#/, '')).filter(Boolean);
-    return res.json({ permisos });
   } catch (err) {
-    const msg = err?.message || String(err);
-    console.error('[permisos GET]', msg);
-    if (msg.includes('Requested resource not found') || msg.includes('ResourceNotFoundException')) {
-      return res.status(404).json({
-        error: `La tabla ${tables.rolesPermisos} no existe. Créala en DynamoDB con PK (String) y SK (String). Ver api/ROLES-PERMISOS.md`,
-      });
-    }
-    return res.status(500).json({ error: msg || 'Error al obtener permisos' });
+    throwSiTablaPermisosFalta(err);
   }
+  const permisos = items.map((i) => (i.SK || '').replace(/^PERMISO#/, '')).filter(Boolean);
+  return res.json({ permisos });
 });
 
 router.get('/permisos/todos', requireAuth, requireRole('Administrador'), async (req, res) => {
+  let items = [];
+  let lastKey = null;
   try {
-    let items = [];
-    let lastKey = null;
     do {
       const cmd = new ScanCommand({
         TableName: tables.rolesPermisos,
@@ -55,22 +68,15 @@ router.get('/permisos/todos', requireAuth, requireRole('Administrador'), async (
       items.push(...(result.Items || []));
       lastKey = result.LastEvaluatedKey || null;
     } while (lastKey);
-    const list = items.map((i) => ({
-      rol: (i.PK || '').replace(/^ROL#/, ''),
-      permiso: (i.SK || '').replace(/^PERMISO#/, ''),
-    })).filter((x) => x.rol && x.permiso);
-    list.sort((a, b) => (a.rol + a.permiso).localeCompare(b.rol + b.permiso));
-    return res.json({ items: list });
   } catch (err) {
-    const msg = err?.message || String(err);
-    console.error('[permisos/todos GET]', msg);
-    if (msg.includes('Requested resource not found') || msg.includes('ResourceNotFoundException')) {
-      return res.status(404).json({
-        error: `La tabla ${tables.rolesPermisos} no existe. Ver api/ROLES-PERMISOS.md`,
-      });
-    }
-    return res.status(500).json({ error: msg || 'Error al listar permisos' });
+    throwSiTablaPermisosFalta(err, 'Ver api/ROLES-PERMISOS.md');
   }
+  const list = items.map((i) => ({
+    rol: (i.PK || '').replace(/^ROL#/, ''),
+    permiso: (i.SK || '').replace(/^PERMISO#/, ''),
+  })).filter((x) => x.rol && x.permiso);
+  list.sort((a, b) => (a.rol + a.permiso).localeCompare(b.rol + b.permiso));
+  return res.json({ items: list });
 });
 
 router.post('/permisos', requireAuth, requireRole('Administrador'), async (req, res) => {
@@ -81,19 +87,13 @@ router.post('/permisos', requireAuth, requireRole('Administrador'), async (req, 
   }
   const pk = `ROL#${rol}`;
   const sk = `PERMISO#${permiso}`;
-  try {
-    await docClient.send(
-      new PutCommand({
-        TableName: tables.rolesPermisos,
-        Item: { PK: pk, SK: sk },
-      })
-    );
-    return res.json({ ok: true });
-  } catch (err) {
-    const msg = err?.message || String(err);
-    console.error('[permisos POST]', msg);
-    return res.status(500).json({ error: msg || 'Error al añadir permiso' });
-  }
+  await docClient.send(
+    new PutCommand({
+      TableName: tables.rolesPermisos,
+      Item: { PK: pk, SK: sk },
+    })
+  );
+  return res.json({ ok: true });
 });
 
 router.delete('/permisos', requireAuth, requireRole('Administrador'), async (req, res) => {
@@ -104,19 +104,13 @@ router.delete('/permisos', requireAuth, requireRole('Administrador'), async (req
   }
   const pk = `ROL#${rol}`;
   const sk = `PERMISO#${permiso}`;
-  try {
-    await docClient.send(
-      new DeleteCommand({
-        TableName: tables.rolesPermisos,
-        Key: { PK: pk, SK: sk },
-      })
-    );
-    return res.json({ ok: true });
-  } catch (err) {
-    const msg = err?.message || String(err);
-    console.error('[permisos DELETE]', msg);
-    return res.status(500).json({ error: msg || 'Error al borrar permiso' });
-  }
+  await docClient.send(
+    new DeleteCommand({
+      TableName: tables.rolesPermisos,
+      Key: { PK: pk, SK: sk },
+    })
+  );
+  return res.json({ ok: true });
 });
 
 export default router;

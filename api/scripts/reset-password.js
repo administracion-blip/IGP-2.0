@@ -20,11 +20,18 @@ import { dirname, join } from 'path';
 import readline from 'readline';
 import bcrypt from 'bcrypt';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+// Cargar variables de entorno antes de importar dinámicamente módulos del API
+// que crean clientes AWS al evaluarse (db.js lee process.env.AWS_REGION).
 dotenv.config({ path: join(__dirname, '..', '.env.local') });
 dotenv.config({ path: join(__dirname, '..', '.env') });
+
+// Import dinámico para que `findUsuarioByEmail` reutilice el GSI Email-index
+// del server. Si el GSI todavía no está activo (primer arranque), el helper
+// hace fallback a Scan automáticamente.
+const { findUsuarioByEmail, ensureUsuariosEmailGSI } = await import('../lib/dynamo/usuarios.js');
 
 const TABLE = process.env.DDB_USUARIOS || process.env.DYNAMODB_TABLE || 'igp_usuarios';
 const REGION = process.env.AWS_REGION || 'eu-west-3';
@@ -116,14 +123,7 @@ function promptPassword(question) {
 }
 
 async function findUserByEmail(email) {
-  const cmd = new ScanCommand({
-    TableName: TABLE,
-    FilterExpression: '#Email = :email',
-    ExpressionAttributeNames: { '#Email': 'Email' },
-    ExpressionAttributeValues: { ':email': email },
-  });
-  const r = await docClient.send(cmd);
-  return r.Items || [];
+  return await findUsuarioByEmail(email);
 }
 
 async function run() {
@@ -131,6 +131,10 @@ async function run() {
   if (args.help) { showHelp(); return; }
 
   console.log(`Tabla: ${TABLE} | Región: ${REGION}\n`);
+
+  // Marca `gsiReady=true` si el índice ya está activo (caso normal tras el
+  // primer arranque del server). En frío hace fallback a Scan, sin error.
+  await ensureUsuariosEmailGSI();
 
   const rawEmail = args.email != null ? args.email : await prompt('Email del usuario: ');
   const email = String(rawEmail).trim().toLowerCase();

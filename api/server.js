@@ -7,12 +7,21 @@ dotenv.config({ path: join(__dirname, '.env.local') });
 dotenv.config({ path: join(__dirname, '.env') });
 
 import express from 'express';
+// Atrapa promesas rechazadas en handlers async sin try/catch y las envía
+// al middleware de error central. Debe importarse antes de definir cualquier ruta.
+import 'express-async-errors';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import pinoHttp from 'pino-http';
+import { logger } from './lib/logger.js';
+import { validateEnv } from './lib/validateEnv.js';
+import { errorHandler } from './middleware/errorHandler.js';
 import { tables } from './lib/db.js';
 import { requireAuth } from './middleware/auth.js';
 import { ensureComprasGSI } from './lib/dynamo/comprasProveedor.js';
+import { ensureUsuariosEmailGSI } from './lib/dynamo/usuarios.js';
+import { ensureMarketingGSIs } from './lib/dynamo/marketing.js';
 import {
   runCloseoutsSync,
   checkAutoSyncs,
@@ -44,8 +53,15 @@ import mantenimientoRouter from './routes/mantenimiento.js';
 import agoraRouter from './routes/agora.js';
 import acuerdosRouter from './routes/acuerdos.js';
 import ajustesRouter from './routes/ajustes.js';
+import marketingRouter from './routes/marketing.js';
+
+// Valida variables críticas al arranque. Si falta alguna REQUIRED, aborta el proceso.
+validateEnv();
 
 const app = express();
+
+// --- Logging HTTP estructurado (req.log disponible en cada handler). ---
+app.use(pinoHttp({ logger }));
 
 // --- Helmet: headers de seguridad HTTP ---
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
@@ -62,6 +78,12 @@ const envOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
   .map((o) => o.trim())
   .filter(Boolean);
 const allowedOrigins = new Set([...DEFAULT_DEV_ORIGINS, ...envOrigins]);
+
+if (process.env.NODE_ENV === 'production' && envOrigins.length === 0) {
+  logger.warn(
+    '[CORS] NODE_ENV=production pero CORS_ALLOWED_ORIGINS está vacío. Solo se aceptarán los orígenes de desarrollo (localhost). Define la variable en .env si la app está accesible desde un dominio público.',
+  );
+}
 
 app.use(cors({
   origin(origin, cb) {
@@ -109,6 +131,8 @@ app.use('/api', requireAuth);
 
 app.use('/api', agoraRouter);
 ensureComprasGSI();
+ensureUsuariosEmailGSI();
+ensureMarketingGSIs();
 app.use('/api', acuerdosRouter);
 
 app.use('/api', usuariosRouter);
@@ -128,29 +152,56 @@ app.use('/api', mysteryGuestRouter);
 app.use('/api', personalRouter);
 app.use('/api', cuadranteRouter);
 app.use('/api', ajustesRouter);
+app.use('/api', marketingRouter);
+
+// --- Middleware central de errores: DEBE ir tras todos los routers ---
+app.use(errorHandler);
 
 const port = process.env.PORT || 3002;
 const host = '0.0.0.0';
 
 app.listen(port, host, () => {
-  console.log(`API ERP escuchando en http://localhost:${port} (también http://127.0.0.1:${port})`);
-  console.log(
-    `Tabla usuarios: ${tables.usuarios} | Tabla locales: ${tables.locales} | Tabla empresas: ${tables.empresas} | Tabla productos: ${tables.productos} | Centros venta: ${tables.saleCenters} | Cierres ventas: ${tables.salesCloseOuts} | Mantenimiento: ${tables.mantenimiento} | Roles/permisos: ${tables.rolesPermisos}`,
+  logger.info(
+    { port },
+    `API ERP escuchando en http://localhost:${port} (también http://127.0.0.1:${port})`,
+  );
+  logger.info(
+    {
+      usuarios: tables.usuarios,
+      locales: tables.locales,
+      empresas: tables.empresas,
+      productos: tables.productos,
+      saleCenters: tables.saleCenters,
+      salesCloseOuts: tables.salesCloseOuts,
+      mantenimiento: tables.mantenimiento,
+      rolesPermisos: tables.rolesPermisos,
+      marketing: tables.marketing,
+    },
+    'Tablas DynamoDB en uso',
   );
   if (SYNC_CLOSEOUTS_ENABLED) {
-    console.log(`Sincronización cierres Ágora: cada ${SYNC_CLOSEOUTS_INTERVAL_MS / 1000}s (últimos ${SYNC_CLOSEOUTS_RECENT_DAYS} días)`);
+    logger.info(
+      { intervalMs: SYNC_CLOSEOUTS_INTERVAL_MS, recentDays: SYNC_CLOSEOUTS_RECENT_DAYS },
+      `Sincronización cierres Ágora: cada ${SYNC_CLOSEOUTS_INTERVAL_MS / 1000}s (últimos ${SYNC_CLOSEOUTS_RECENT_DAYS} días)`,
+    );
     setTimeout(() => runCloseoutsSync(port), 2000);
     setInterval(() => runCloseoutsSync(port), SYNC_CLOSEOUTS_INTERVAL_MS);
   }
   setTimeout(() => checkVencimientosFacturas(port), 5000);
   setInterval(() => checkVencimientosFacturas(port), VENCIMIENTOS_INTERVAL_MS);
-  console.log(`[vencimientos] Check automático cada ${VENCIMIENTOS_INTERVAL_MS / 60000} min`);
+  logger.info(
+    { intervalMin: VENCIMIENTOS_INTERVAL_MS / 60000 },
+    `[vencimientos] Check automático cada ${VENCIMIENTOS_INTERVAL_MS / 60000} min`,
+  );
 
   setTimeout(() => checkAutoSyncs(port), 10000);
   setInterval(() => checkAutoSyncs(port), SYNC_SCHEDULER_INTERVAL_MS);
-  console.log(`[auto-sync] Scheduler activo — revisa cada ${SYNC_SCHEDULER_INTERVAL_MS / 1000}s`);
+  logger.info(
+    { intervalSec: SYNC_SCHEDULER_INTERVAL_MS / 1000 },
+    `[auto-sync] Scheduler activo — revisa cada ${SYNC_SCHEDULER_INTERVAL_MS / 1000}s`,
+  );
   if (!process.env.INTERNAL_SYNC_SECRET) {
-    console.warn(
+    logger.warn(
       '[api] INTERNAL_SYNC_SECRET no definido: los jobs internos (auto-sync Ágora, cierres, vencimientos) devolverán 401. Añádelo en api/.env.local',
     );
   }

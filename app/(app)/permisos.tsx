@@ -33,6 +33,8 @@ const PERMISOS_CODIGOS = [
   'cashflow.ver',
   'actuaciones.ver',
   'rrpp.ver',
+  'recursos_humanos.ver',
+  'rrss.ver',
   'mystery_guest.ver',
   'reservas.ver',
   // --- Usuarios ---
@@ -60,6 +62,9 @@ const PERMISOS_CODIGOS = [
   'almacenes.editar',
   'almacenes.borrar',
   'almacenes.sincronizar',
+  // --- Usuarios Ágora (maestro) ---
+  'usuarios_agora.ver',
+  'usuarios_agora.sincronizar',
   // --- Puntos de venta ---
   'puntos_venta.ver',
   'puntos_venta.editar',
@@ -85,6 +90,9 @@ const PERMISOS_CODIGOS = [
   // --- Cajas: Objetivos ---
   'objetivos.ver',
   'objetivos.compartir',
+  // --- Cajas: Control de excepciones ---
+  'excepciones.ver',
+  'excepciones.exportar',
   // --- Mantenimiento ---
   'mantenimiento.crear',
   'mantenimiento.editar',
@@ -117,12 +125,18 @@ const PERMISOS_CODIGOS = [
   // --- Ajustes ---
   'ajustes.ver',
   'ajustes.sincronizaciones.agora_productos',
+  'ajustes.sincronizaciones.agora_usuarios',
   'ajustes.sincronizaciones.compras_proveedor',
   'ajustes.sincronizaciones.closeouts',
   'ajustes.sincronizaciones.almacenes',
   'ajustes.sincronizaciones.empleados',
   // --- Planning del Día ---
   'planning_dia.ver',
+  // --- Recursos Humanos ---
+  'personal.ver',
+  // --- Marketing ---
+  'marketing.proponer',
+  'marketing.gestionar',
 ] as const;
 
 const PERMISOS_LABELS: Record<string, string> = {
@@ -133,6 +147,8 @@ const PERMISOS_LABELS: Record<string, string> = {
   'cashflow.ver': 'Cashflow (menú)',
   'actuaciones.ver': 'Actuaciones (menú)',
   'rrpp.ver': 'Rrpp (menú)',
+  'recursos_humanos.ver': 'Recursos Humanos (menú)',
+  'rrss.ver': 'Marketing (menú)',
   'mystery_guest.ver': 'Mystery Guest (menú)',
   'reservas.ver': 'Reservas (menú)',
   'usuarios.ver': 'Usuarios · Ver',
@@ -155,6 +171,8 @@ const PERMISOS_LABELS: Record<string, string> = {
   'almacenes.editar': 'Almacenes · Editar',
   'almacenes.borrar': 'Almacenes · Borrar',
   'almacenes.sincronizar': 'Almacenes · Sincronizar',
+  'usuarios_agora.ver': 'Usuarios Ágora · Ver',
+  'usuarios_agora.sincronizar': 'Usuarios Ágora · Sincronizar',
   'puntos_venta.ver': 'Puntos de venta · Ver',
   'puntos_venta.editar': 'Puntos de venta · Editar',
   'permisos.ver': 'Permisos · Ver',
@@ -175,6 +193,8 @@ const PERMISOS_LABELS: Record<string, string> = {
   'comparativa.exportar': 'Comparativa fechas · Exportar',
   'objetivos.ver': 'Objetivos · Ver',
   'objetivos.compartir': 'Objetivos · Compartir',
+  'excepciones.ver': 'Control excepciones · Ver',
+  'excepciones.exportar': 'Control excepciones · Exportar',
   'mantenimiento.crear': 'Mantenimiento · Crear',
   'mantenimiento.editar': 'Mantenimiento · Editar',
   'mantenimiento.borrar': 'Mantenimiento · Borrar',
@@ -202,9 +222,13 @@ const PERMISOS_LABELS: Record<string, string> = {
   // --- Ajustes ---
   'ajustes.ver': 'Ajustes (menú)',
   'ajustes.sincronizaciones.agora_productos': 'Ajustes · Sync Productos Agora',
+  'ajustes.sincronizaciones.agora_usuarios': 'Ajustes · Sync Usuarios Agora',
   'ajustes.sincronizaciones.compras_proveedor': 'Ajustes · Sync Compras Proveedor',
   'ajustes.sincronizaciones.closeouts': 'Ajustes · Sync Cierres de caja',
   'ajustes.sincronizaciones.almacenes': 'Ajustes · Sync Almacenes',
+  'marketing.proponer': 'Marketing · Proponer',
+  'marketing.gestionar': 'Marketing · Gestionar',
+  'personal.ver': 'Personal · Ver empleados',
 };
 
 type ItemPermiso = { rol: string; permiso: string };

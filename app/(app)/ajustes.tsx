@@ -45,6 +45,15 @@ const SYNC_ITEMS: SyncConfig[] = [
     bodyBuilder: () => ({ force: true }),
   },
   {
+    id: 'agora_usuarios',
+    label: 'Usuarios Agora',
+    icon: 'person-pin',
+    endpoint: '/api/agora/users/sync',
+    permiso: 'ajustes.sincronizaciones.agora_usuarios',
+    descripcion: 'Sincroniza usuarios (cajeros/operadores) desde Agora',
+    bodyBuilder: () => ({ force: true }),
+  },
+  {
     id: 'compras_proveedor',
     label: 'Compras a Proveedor',
     icon: 'local-shipping',

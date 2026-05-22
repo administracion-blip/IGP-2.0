@@ -101,3 +101,74 @@ export async function obtenerFilasObjetivos(
   }
   return filas;
 }
+
+const DIAS_SEMANA_LUN_PRIMERO = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'] as const;
+
+/** 0 = lunes … 6 = domingo (orden semanal ES) */
+function diaSemanaIndexLunesPrimero(fechaIso: string): number {
+  const d = new Date(fechaIso + 'T12:00:00');
+  const js = d.getDay();
+  return js === 0 ? 6 : js - 1;
+}
+
+export type MediasDiaSemanaFila = {
+  label: (typeof DIAS_SEMANA_LUN_PRIMERO)[number];
+  nReal: number;
+  mediaReal: number;
+  nComp: number;
+  mediaComp: number;
+};
+
+/**
+ * Fecha tope para medias “operativas”: el anterior entre fin de periodo y ayer (YYYY-MM-DD).
+ * Excluye días futuros del mes aún sin cerrar.
+ */
+export function fechaCorteMediaRealObjetivos(fechaFinPeriodo: string, ayerIso: string): string {
+  const finOk = fechaFinPeriodo && /^\d{4}-\d{2}-\d{2}$/.test(fechaFinPeriodo);
+  const ayerOk = ayerIso && /^\d{4}-\d{2}-\d{2}$/.test(ayerIso);
+  if (!finOk && !ayerOk) return fechaFinPeriodo || ayerIso || '';
+  if (!finOk) return ayerIso;
+  if (!ayerOk) return fechaFinPeriodo;
+  return fechaFinPeriodo <= ayerIso ? fechaFinPeriodo : ayerIso;
+}
+
+/**
+ * Media real por día de semana de Fecha; comparativa por día de semana de FechaComparacion.
+ * Si `opts.fechaMaxRealInclusive` es una fecha ISO válida, la media real solo usa filas con Fecha <= ese tope (p. ej. min(fin periodo, ayer)).
+ * La media comparativa usa siempre todas las filas del periodo.
+ */
+export function mediasPorDiaSemanaDesdeFilas(
+  filas: FilaObjetivo[],
+  opts?: { fechaMaxRealInclusive?: string },
+): MediasDiaSemanaFila[] {
+  const max = opts?.fechaMaxRealInclusive?.trim();
+  const rowsReal =
+    max && /^\d{4}-\d{2}-\d{2}$/.test(max) ? filas.filter((r) => r.Fecha <= max) : filas;
+
+  const bucketsReal = Array.from({ length: 7 }, () => ({ sum: 0, n: 0 }));
+  const bucketsComp = Array.from({ length: 7 }, () => ({ sum: 0, n: 0 }));
+
+  for (const r of rowsReal) {
+    const iReal = diaSemanaIndexLunesPrimero(r.Fecha);
+    bucketsReal[iReal].sum += r.TotalFacturadoReal;
+    bucketsReal[iReal].n += 1;
+  }
+
+  for (const r of filas) {
+    const iComp = diaSemanaIndexLunesPrimero(r.FechaComparacion);
+    bucketsComp[iComp].sum += r.TotalFacturadoComparativa;
+    bucketsComp[iComp].n += 1;
+  }
+
+  return DIAS_SEMANA_LUN_PRIMERO.map((label, i) => {
+    const br = bucketsReal[i];
+    const bc = bucketsComp[i];
+    return {
+      label,
+      nReal: br.n,
+      mediaReal: br.n > 0 ? br.sum / br.n : 0,
+      nComp: bc.n,
+      mediaComp: bc.n > 0 ? bc.sum / bc.n : 0,
+    };
+  });
+}

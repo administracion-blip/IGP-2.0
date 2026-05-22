@@ -1,6 +1,7 @@
 import { ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
 import { internalSyncFetchHeaders } from '../internalSync.js';
+import { logger } from '../logger.js';
 
 const tableAjustesName = tables.ajustes;
 
@@ -21,12 +22,18 @@ export async function runCloseoutsSync(port) {
     });
     const data = await res.json();
     if (res.ok) {
-      console.log(`[closeouts/sync] OK: ${dateFrom} → ${today} | upserted: ${data.totalUpserted ?? 0}`);
+      logger.info(
+        { dateFrom, dateTo: today, upserted: data.totalUpserted ?? 0 },
+        `[closeouts/sync] OK: ${dateFrom} → ${today} | upserted: ${data.totalUpserted ?? 0}`,
+      );
     } else {
-      console.error('[closeouts/sync] Error:', data.error || res.statusText);
+      logger.error(
+        { status: res.status, error: data.error || res.statusText },
+        '[closeouts/sync] Error',
+      );
     }
   } catch (err) {
-    console.error('[closeouts/sync]', err.message || err);
+    logger.error({ err }, '[closeouts/sync]');
   }
 }
 
@@ -34,6 +41,7 @@ export const SYNC_SCHEDULER_INTERVAL_MS = 60 * 1000;
 
 const SYNC_ENDPOINTS = {
   agora_productos: { path: '/api/agora/products/sync', body: { force: true } },
+  agora_usuarios: { path: '/api/agora/users/sync', body: { force: true } },
   compras_proveedor: { path: '/api/agora/purchases/sync', body: {} },
   closeouts: { path: '/api/agora/closeouts/sync', body: {} },
   almacenes: { path: '/api/agora/warehouses/sync', body: {} },
@@ -66,7 +74,7 @@ export async function checkAutoSyncs(port) {
       if (syncLastRun[runKey] === today) continue;
 
       syncLastRun[runKey] = today;
-      console.log(`[auto-sync] Ejecutando ${sk} (${hhmm})`);
+      logger.info({ sk, hhmm }, `[auto-sync] Ejecutando ${sk} (${hhmm})`);
 
       try {
         const r = await fetch(`http://127.0.0.1:${port}${ep.path}`, {
@@ -88,13 +96,13 @@ export async function checkAutoSyncs(port) {
             ':t': new Date().toISOString(),
           },
         }));
-        console.log(`[auto-sync] ${sk} → ${resultado}`);
+        logger.info({ sk, resultado }, `[auto-sync] ${sk} → ${resultado}`);
       } catch (err) {
-        console.error(`[auto-sync] ${sk} error:`, err.message || err);
+        logger.error({ err, sk }, `[auto-sync] ${sk} error`);
       }
     }
   } catch (err) {
-    console.error('[auto-sync] scheduler error:', err.message || err);
+    logger.error({ err }, '[auto-sync] scheduler error');
   }
 }
 
@@ -108,10 +116,13 @@ export async function checkVencimientosFacturas(port) {
     });
     const data = await res.json();
     if (data.actualizadas > 0) {
-      console.log(`[vencimientos] ${data.actualizadas} factura(s) marcada(s) como vencida(s)`);
+      logger.info(
+        { actualizadas: data.actualizadas },
+        `[vencimientos] ${data.actualizadas} factura(s) marcada(s) como vencida(s)`,
+      );
     }
   } catch (err) {
-    console.error('[vencimientos]', err.message || err);
+    logger.error({ err }, '[vencimientos]');
   }
 
   if (process.env.SMTP_USER) {
@@ -122,10 +133,13 @@ export async function checkVencimientosFacturas(port) {
       });
       const data = await res.json();
       if (data.enviados > 0) {
-        console.log(`[recordatorios] ${data.enviados} recordatorio(s) de cobro enviado(s)`);
+        logger.info(
+          { enviados: data.enviados },
+          `[recordatorios] ${data.enviados} recordatorio(s) de cobro enviado(s)`,
+        );
       }
     } catch (err) {
-      console.error('[recordatorios]', err.message || err);
+      logger.error({ err }, '[recordatorios]');
     }
   }
 }

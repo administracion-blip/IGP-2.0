@@ -349,3 +349,83 @@ export function esEmpresaSedeGrupoParipe(e: { Sede?: string; sede?: string }): b
   const s = (e.Sede ?? e.sede ?? '').toString().trim().toUpperCase();
   return s.includes('GRUPO PARIPE');
 }
+
+// ─────────────────────────────────────────────────────────────────
+// Tipos de dominio auxiliares — usados por las pantallas de factura.
+// (Antes vivían como `type Empresa/Serie/Local/...` locales en
+// factura-detalle.tsx, duplicados con variaciones en otras pantallas.)
+// ─────────────────────────────────────────────────────────────────
+
+/** Contraparte de una factura (cliente/receptor en OUT, proveedor/emisor en IN). */
+export type EmpresaFactura = {
+  id_empresa: string;
+  nombre: string;
+  cif: string;
+  direccion: string;
+  cp: string;
+  municipio: string;
+  provincia: string;
+  email: string;
+  iban: string;
+  ibanAlternativo: string;
+  sede: string;
+  /** Desde Igp_empresas «Tipo de recibo» */
+  tipoRecibo?: string;
+};
+
+/**
+ * Serie de facturación tal y como la consume el selector en `factura-detalle`.
+ * Los pocos campos esenciales para el correlativo se mantienen requeridos;
+ * el resto se deja opcional para tolerar respuestas parciales del API.
+ */
+export type SerieFactura = {
+  serie: string;
+  descripcion: string;
+  tipo: string;
+  num_digitos?: number;
+  ultimo_numero?: number;
+  activa?: boolean;
+};
+
+/** Local mínimo usado en selector de factura (no es el `Local` genérico de `app/types`). */
+export type LocalFactura = {
+  id_local: string;
+  nombre: string;
+};
+
+/** Producto resumido para el modal "añadir línea" de factura. */
+export type ProductoFactura = {
+  id_producto: string;
+  referencia: string;
+  nombre: string;
+  precio_venta: number;
+  tipo_iva: number;
+};
+
+/** Pago/cobro asociado a una factura (tabla Igp_FacturasPagos). */
+export type PagoFactura = {
+  id_pago: string;
+  fecha: string;
+  importe: number;
+  metodo_pago: string;
+  referencia: string;
+  observaciones: string;
+  creado_por_nombre: string;
+  creado_en: string;
+};
+
+/**
+ * Entrada de auditoría asociada a una factura (tabla Igp_FacturasAuditoria).
+ * El backend guarda y devuelve `timestamp_accion` (ISO con hora).
+ * Antes existía un tipo local `AuditEntry` que esperaba un campo `fecha`
+ * inexistente — ese tipo ya no se usa (ver bug-fix en `factura-detalle.tsx`).
+ */
+export type AuditoriaFactura = {
+  accion: string;
+  usuario_nombre: string;
+  usuario_id?: string;
+  timestamp_accion: string;
+  detalle?: string;
+  id_entrada?: string;
+  id_factura?: string;
+};

@@ -1,9 +1,10 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getToken, removeToken } from '../utils/authToken';
+import { authEvents } from '../utils/authEvents';
+import { apiFetch } from '../utils/api';
 
 const AUTH_KEY = 'erp_user';
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
 export type UserSession = { id_usuario: string; email: string; Nombre: string; Rol?: string; Locales?: string[] };
 export type PermisosStatus = 'idle' | 'loading' | 'loaded' | 'error';
@@ -33,13 +34,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!token) return null;
     setPermisosStatus('loading');
     try {
-      const controller = new AbortController();
-      const tid = setTimeout(() => controller.abort(), 10000);
-      const res = await fetch(`${API_URL}/api/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: controller.signal,
-      });
-      clearTimeout(tid);
+      // El 401 en /api/me se trata explícitamente aquí (limpieza inmediata del estado);
+      // el listener global de `unauthorized` no ejecutará logout durante el bootstrap
+      // porque `userRef.current` aún es null en ese momento.
+      const res = await apiFetch('/api/me', { timeoutMs: 10000 });
       if (!res.ok) {
         setPermisosStatus('error');
         if (res.status === 401) {
@@ -126,6 +124,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setPermisos([]);
     setPermisosStatus('idle');
   }, []);
+
+  // Coordina el logout cuando apiFetch detecta un 401 del backend.
+  // Ignora 401 si todavía no hay sesión cargada (evita bucles durante el bootstrap).
+  const userRef = useRef(user);
+  userRef.current = user;
+  useEffect(() => {
+    return authEvents.onUnauthorized(() => {
+      if (userRef.current) {
+        logout();
+      }
+    });
+  }, [logout]);
 
   const value: AuthContextValue = {
     user,

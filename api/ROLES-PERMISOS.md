@@ -43,6 +43,8 @@ El `<nombreRol>` debe coincidir exactamente con el campo `Rol` de la tabla de us
 | `cashflow.ver` | Ver menú Cashflow |
 | `actuaciones.ver` | Ver menú Actuaciones |
 | `rrpp.ver` | Ver menú Rrpp |
+| `recursos_humanos.ver` | Ver menú Recursos Humanos (hub de empleados y cuadrante) |
+| `rrss.ver` | Ver menú Marketing (gestión de marketing y redes sociales) |
 | `mystery_guest.ver` | Ver menú Mystery Guest |
 | `reservas.ver` | Ver menú Reservas |
 
@@ -70,6 +72,8 @@ El `<nombreRol>` debe coincidir exactamente con el campo `Rol` de la tabla de us
 | `almacenes.editar` | Almacenes · Editar |
 | `almacenes.borrar` | Almacenes · Borrar |
 | `almacenes.sincronizar` | Almacenes · Sincronizar |
+| `usuarios_agora.ver` | Usuarios Ágora (maestro) · Ver |
+| `usuarios_agora.sincronizar` | Usuarios Ágora (maestro) · Sincronizar |
 | `puntos_venta.ver` | Puntos de venta · Ver |
 | `puntos_venta.editar` | Puntos de venta · Editar |
 | `permisos.ver` | Permisos · Ver |
@@ -90,6 +94,8 @@ El `<nombreRol>` debe coincidir exactamente con el campo `Rol` de la tabla de us
 | `comparativa.exportar` | Comparativa fechas · Exportar |
 | `objetivos.ver` | Objetivos · Ver |
 | `objetivos.compartir` | Objetivos · Compartir |
+| `excepciones.ver` | Control de excepciones · Ver |
+| `excepciones.exportar` | Control de excepciones · Exportar |
 | `mantenimiento.crear` | Mantenimiento · Crear incidencias |
 | `mantenimiento.editar` | Mantenimiento · Editar / marcar reparado |
 | `mantenimiento.borrar` | Mantenimiento · Borrar incidencias |
@@ -104,6 +110,9 @@ El `<nombreRol>` debe coincidir exactamente con el campo `Rol` de la tabla de us
 | `acuerdos.editar` | Acuerdos · Editar |
 | `acuerdos.borrar` | Acuerdos · Borrar |
 | `acuerdos.exportar` | Acuerdos · Exportar PDF |
+| `marketing.proponer` | Marketing · Crear y editar propuestas propias |
+| `marketing.gestionar` | Marketing · Visión global, aprobar/rechazar, prompts IA, carteles, estilos |
+| `personal.ver` | Personal · Ver empleados (Factorial HR) |
 
 ## Comportamiento
 

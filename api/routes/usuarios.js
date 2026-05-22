@@ -9,7 +9,7 @@ const BCRYPT_ROUNDS = 10;
 
 // Roles aceptados por el backend al crear usuarios. Debe coincidir con ROL_OPCIONES
 // en app/(app)/usuarios.tsx. La cadena vacía está permitida (usuario sin rol).
-const ROLES_VALIDOS = ['Administrador', 'SuperUser', 'Administracion', 'Local', 'Socio'];
+const ROLES_VALIDOS = ['Administrador', 'SuperUser', 'Administracion', 'Local', 'Socio', 'Marketing'];
 
 // Formato mínimo 6 dígitos para campos id_ (000001, 000002, ...).
 function formatId6(val) {
@@ -23,29 +23,24 @@ const TABLE_USUARIOS_ATTRS = ['id_usuario', 'Nombre', 'Apellidos', 'Email', 'Pas
 
 // Listar usuarios (campos de la tabla, sin Password)
 router.get('/usuarios', async (req, res) => {
-  try {
-    const cmd = new ScanCommand({
-      TableName: tables.usuarios,
-    });
-    const result = await docClient.send(cmd);
-    const items = result.Items || [];
-    const usuarios = items.map((item) => {
-      const out = {};
-      for (const key of TABLE_USUARIOS_ATTRS) {
-        if (key === 'Password') continue;
-        if (key === 'Local') {
-          out[key] = normalizeLocal(item[key]);
-          continue;
-        }
-        if (item[key] !== undefined) out[key] = item[key];
+  const cmd = new ScanCommand({
+    TableName: tables.usuarios,
+  });
+  const result = await docClient.send(cmd);
+  const items = result.Items || [];
+  const usuarios = items.map((item) => {
+    const out = {};
+    for (const key of TABLE_USUARIOS_ATTRS) {
+      if (key === 'Password') continue;
+      if (key === 'Local') {
+        out[key] = normalizeLocal(item[key]);
+        continue;
       }
-      return out;
-    });
-    res.json({ usuarios });
-  } catch (err) {
-    console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al listar usuarios' });
-  }
+      if (item[key] !== undefined) out[key] = item[key];
+    }
+    return out;
+  });
+  res.json({ usuarios });
 });
 
 function normalizeLocal(val) {
@@ -64,36 +59,31 @@ router.post('/usuarios', requireAuth, requireRole('Administrador'), async (req, 
     return res.status(400).json({ error: 'Rol no válido' });
   }
 
-  try {
-    const item = {};
-    for (const key of TABLE_USUARIOS_ATTRS) {
-      if (key === 'id_usuario') {
-        const v = body.id_usuario;
-        item[key] = v != null ? formatId6(v) : '000000';
-      } else if (key === 'Email') {
-        item[key] = String(body.Email ?? '').trim().toLowerCase();
-      } else if (key === 'Password') {
-        item[key] = await bcrypt.hash(String(body.Password ?? ''), BCRYPT_ROUNDS);
-      } else if (key === 'Local') {
-        item[key] = normalizeLocal(body.Local);
-      } else {
-        const v = body[key];
-        item[key] = v != null && v !== '' ? String(v) : '';
-      }
+  const item = {};
+  for (const key of TABLE_USUARIOS_ATTRS) {
+    if (key === 'id_usuario') {
+      const v = body.id_usuario;
+      item[key] = v != null ? formatId6(v) : '000000';
+    } else if (key === 'Email') {
+      item[key] = String(body.Email ?? '').trim().toLowerCase();
+    } else if (key === 'Password') {
+      item[key] = await bcrypt.hash(String(body.Password ?? ''), BCRYPT_ROUNDS);
+    } else if (key === 'Local') {
+      item[key] = normalizeLocal(body.Local);
+    } else {
+      const v = body[key];
+      item[key] = v != null && v !== '' ? String(v) : '';
     }
-
-    const cmd = new PutCommand({
-      TableName: tables.usuarios,
-      Item: item,
-    });
-
-    await docClient.send(cmd);
-    const { Password: _, ...safeItem } = item;
-    res.json({ ok: true, usuario: safeItem });
-  } catch (err) {
-    console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al guardar el usuario' });
   }
+
+  const cmd = new PutCommand({
+    TableName: tables.usuarios,
+    Item: item,
+  });
+
+  await docClient.send(cmd);
+  const { Password: _, ...safeItem } = item;
+  res.json({ ok: true, usuario: safeItem });
 });
 
 // Actualizar usuario (por id_usuario). Si Password viene vacío, se mantiene el actual.
@@ -107,45 +97,40 @@ router.put('/usuarios', requireAuth, requireRole('Administrador'), async (req, r
     return res.status(400).json({ error: 'Email es obligatorio' });
   }
 
-  try {
-    const getCmd = new GetCommand({
-      TableName: tables.usuarios,
-      Key: { id_usuario: idUsuario },
-    });
-    const got = await docClient.send(getCmd);
-    const existing = got.Item || {};
+  const getCmd = new GetCommand({
+    TableName: tables.usuarios,
+    Key: { id_usuario: idUsuario },
+  });
+  const got = await docClient.send(getCmd);
+  const existing = got.Item || {};
 
-    const item = {};
-    for (const key of TABLE_USUARIOS_ATTRS) {
-      if (key === 'id_usuario') {
-        item[key] = idUsuario;
-      } else if (key === 'Email') {
-        item[key] = String(body.Email ?? '').trim().toLowerCase();
-      } else if (key === 'Password') {
-        const rawPass = body.Password != null ? String(body.Password).trim() : '';
-        if (rawPass) {
-          item[key] = await bcrypt.hash(rawPass, BCRYPT_ROUNDS);
-        } else {
-          item[key] = existing.Password ?? '';
-        }
-      } else if (key === 'Local') {
-        item[key] = body.Local !== undefined ? normalizeLocal(body.Local) : normalizeLocal(existing.Local);
+  const item = {};
+  for (const key of TABLE_USUARIOS_ATTRS) {
+    if (key === 'id_usuario') {
+      item[key] = idUsuario;
+    } else if (key === 'Email') {
+      item[key] = String(body.Email ?? '').trim().toLowerCase();
+    } else if (key === 'Password') {
+      const rawPass = body.Password != null ? String(body.Password).trim() : '';
+      if (rawPass) {
+        item[key] = await bcrypt.hash(rawPass, BCRYPT_ROUNDS);
       } else {
-        const v = body[key];
-        item[key] = v != null && v !== '' ? String(v) : String(existing[key] ?? '');
+        item[key] = existing.Password ?? '';
       }
+    } else if (key === 'Local') {
+      item[key] = body.Local !== undefined ? normalizeLocal(body.Local) : normalizeLocal(existing.Local);
+    } else {
+      const v = body[key];
+      item[key] = v != null && v !== '' ? String(v) : String(existing[key] ?? '');
     }
-
-    await docClient.send(new PutCommand({
-      TableName: tables.usuarios,
-      Item: item,
-    }));
-    const { Password: _, ...safeItem } = item;
-    res.json({ ok: true, usuario: safeItem });
-  } catch (err) {
-    console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al actualizar el usuario' });
   }
+
+  await docClient.send(new PutCommand({
+    TableName: tables.usuarios,
+    Item: item,
+  }));
+  const { Password: _, ...safeItem } = item;
+  res.json({ ok: true, usuario: safeItem });
 });
 
 // Borrar usuario por id_usuario (clave de la tabla).
@@ -155,16 +140,11 @@ router.delete('/usuarios', requireAuth, requireRole('Administrador'), async (req
     return res.status(400).json({ error: 'id_usuario es obligatorio para borrar' });
   }
 
-  try {
-    await docClient.send(new DeleteCommand({
-      TableName: tables.usuarios,
-      Key: { id_usuario: idUsuario },
-    }));
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al borrar el usuario' });
-  }
+  await docClient.send(new DeleteCommand({
+    TableName: tables.usuarios,
+    Key: { id_usuario: idUsuario },
+  }));
+  res.json({ ok: true });
 });
 
 export default router;

@@ -241,3 +241,53 @@ export async function exportWarehouses() {
   const data = await res.json();
   return data.Warehouses || data.warehouses || [];
 }
+
+/**
+ * Exporta maestros de usuarios desde Ágora (export-master filter=Users). Guía 8.1.6 p.18-20, 206.
+ * Filtra las cuentas borradas (DeletionDate != null) y, por seguridad, las contraseñas.
+ */
+export async function exportUsers() {
+  const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');
+  const token = process.env.AGORA_API_TOKEN || '';
+  if (!baseUrl || !token) throw new Error('AGORA_BASE_URL y AGORA_API_TOKEN son obligatorios');
+
+  const url = `${baseUrl}/api/export-master/?filter=Users`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { 'Api-Token': token, Accept: 'application/json' },
+  });
+  if (!res.ok) throw new Error(`Ágora ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const list = data.Users || data.users || [];
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((u) => u && u.DeletionDate == null && u.deletionDate == null)
+    .map((u) => {
+      // No persistimos contraseñas, aunque Ágora las exporte
+      const { Password, password, SmartphonePassword, smartphonePassword, WebAdminPassword, webAdminPassword, ...rest } = u;
+      return rest;
+    });
+}
+
+/**
+ * Exporta maestros de formas de pago desde Ágora (export-master filter=PaymentMethods).
+ * Guía 8.1.6 p.27-29, 206.
+ * Filtra las formas borradas (DeletionDate != null).
+ */
+export async function exportPaymentMethods() {
+  const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');
+  const token = process.env.AGORA_API_TOKEN || '';
+  if (!baseUrl || !token) throw new Error('AGORA_BASE_URL y AGORA_API_TOKEN son obligatorios');
+
+  const url = `${baseUrl}/api/export-master/?filter=PaymentMethods`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { 'Api-Token': token, Accept: 'application/json' },
+  });
+  if (!res.ok) throw new Error(`Ágora ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const list = data.PaymentMethods || data.paymentMethods || [];
+  return Array.isArray(list)
+    ? list.filter((pm) => pm && pm.DeletionDate == null && pm.deletionDate == null)
+    : [];
+}

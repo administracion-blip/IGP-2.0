@@ -30,6 +30,12 @@ import {
   resolveMetodoPagoParaEnvio,
   type LineaFactura,
   type Factura,
+  type EmpresaFactura,
+  type SerieFactura,
+  type LocalFactura,
+  type ProductoFactura,
+  type PagoFactura,
+  type AuditoriaFactura,
 } from '../../utils/facturacion';
 import {
   dmyToIso,
@@ -40,10 +46,10 @@ import {
   lineasPayloadForApi,
 } from '../../utils/facturaFormLogic';
 import { useFacturaFormLogic } from '../../hooks/useFacturaFormLogic';
-import { fechaEmisionFacturaADmy, textoFechaContabilizacionGasto } from '../../utils/formatFecha';
+import { fechaEmisionFacturaADmy, formatCreadoEn, textoFechaContabilizacionGasto } from '../../utils/formatFecha';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalToast, detectToastType } from '../../components/Toast';
-import { apiFetch } from '../../utils/api';
+import { apiFetch, errorMessage } from '../../utils/api';
 
 const DATOS_EMISOR = {
   nombre: 'IPG Hostelería S.L.',
@@ -55,37 +61,6 @@ const DATOS_EMISOR = {
   email: 'admin@ipg.es',
   telefono: '958 000 000',
 };
-
-type Empresa = {
-  id_empresa: string;
-  nombre: string;
-  cif: string;
-  direccion: string;
-  cp: string;
-  municipio: string;
-  provincia: string;
-  email: string;
-  iban: string;
-  ibanAlternativo: string;
-  sede: string;
-  /** Desde Igp_empresas «Tipo de recibo» */
-  tipoRecibo?: string;
-};
-
-type Serie = { serie: string; descripcion: string; tipo: string; num_digitos?: number; ultimo_numero?: number; activa?: boolean };
-type Local = { id_local: string; nombre: string };
-type Producto = { id_producto: string; referencia: string; nombre: string; precio_venta: number; tipo_iva: number };
-type Pago = {
-  id_pago: string;
-  fecha: string;
-  importe: number;
-  metodo_pago: string;
-  referencia: string;
-  observaciones: string;
-  creado_por_nombre: string;
-  creado_en: string;
-};
-type AuditEntry = { accion: string; usuario_nombre: string; fecha: string; detalle?: string };
 
 function confirmMsg(titulo: string, msg: string): Promise<boolean> {
   if (Platform.OS === 'web') return Promise.resolve(window.confirm(`${titulo}\n${msg}`));
@@ -174,14 +149,14 @@ export default function FacturaDetalleScreen() {
   const [empresaIban, setEmpresaIban] = useState('');
   const [empresaIbanAlt, setEmpresaIbanAlt] = useState('');
 
-  const [pagos, setPagos] = useState<Pago[]>([]);
-  const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
+  const [pagos, setPagos] = useState<PagoFactura[]>([]);
+  const [auditLog, setAuditLog] = useState<AuditoriaFactura[]>([]);
   const [version, setVersion] = useState(1);
 
   // ── Catalogs ──
-  const [empresas, setEmpresas] = useState<Empresa[]>([]);
-  const [series, setSeries] = useState<Serie[]>([]);
-  const [locales, setLocales] = useState<Local[]>([]);
+  const [empresas, setEmpresas] = useState<EmpresaFactura[]>([]);
+  const [series, setSeries] = useState<SerieFactura[]>([]);
+  const [locales, setLocales] = useState<LocalFactura[]>([]);
   const [emisorSearch, setEmisorSearch] = useState('');
   const [showEmisorDropdown, setShowEmisorDropdown] = useState(false);
   const [empresaSearch, setEmpresaSearch] = useState('');
@@ -189,7 +164,7 @@ export default function FacturaDetalleScreen() {
 
   // ── Product modal ──
   const [showProductModal, setShowProductModal] = useState(false);
-  const [productos, setProductos] = useState<Producto[]>([]);
+  const [productos, setProductos] = useState<ProductoFactura[]>([]);
   const [productoSearch, setProductoSearch] = useState('');
   const [loadingProductos, setLoadingProductos] = useState(false);
 
@@ -288,21 +263,25 @@ export default function FacturaDetalleScreen() {
   // ── Fetch catalogs ──
   useEffect(() => {
     apiFetch('/api/empresas').then((r) => r.json()).then((d) => {
-      const raw: any[] = d.empresas ?? d ?? [];
-      setEmpresas(raw.map((e: any) => ({
-        id_empresa: e.id_empresa ?? '',
-        nombre: e.Nombre ?? e.nombre ?? '',
-        cif: e.Cif ?? e.cif ?? '',
-        direccion: e.Direccion ?? e.direccion ?? '',
-        cp: e.Cp ?? e.cp ?? '',
-        municipio: e.Municipio ?? e.municipio ?? '',
-        provincia: e.Provincia ?? e.provincia ?? '',
-        email: e.Email ?? e.email ?? '',
-        iban: e.Iban ?? e.iban ?? '',
-        ibanAlternativo: e.IbanAlternativo ?? e.ibanAlternativo ?? '',
-        sede: e.Sede ?? e.sede ?? '',
-        tipoRecibo: e['Tipo de recibo'] != null ? String(e['Tipo de recibo']).trim() : undefined,
-      })));
+      const raw: unknown[] = d.empresas ?? d ?? [];
+      setEmpresas(raw.map((item): EmpresaFactura => {
+        const e = (item ?? {}) as Record<string, unknown>;
+        const str = (v: unknown) => (v == null ? '' : String(v));
+        return {
+          id_empresa: str(e.id_empresa),
+          nombre: str(e.Nombre ?? e.nombre),
+          cif: str(e.Cif ?? e.cif),
+          direccion: str(e.Direccion ?? e.direccion),
+          cp: str(e.Cp ?? e.cp),
+          municipio: str(e.Municipio ?? e.municipio),
+          provincia: str(e.Provincia ?? e.provincia),
+          email: str(e.Email ?? e.email),
+          iban: str(e.Iban ?? e.iban),
+          ibanAlternativo: str(e.IbanAlternativo ?? e.ibanAlternativo),
+          sede: str(e.Sede ?? e.sede),
+          tipoRecibo: e['Tipo de recibo'] != null ? String(e['Tipo de recibo']).trim() : undefined,
+        };
+      }));
     }).catch(() => {});
     apiFetch('/api/facturacion/series').then((r) => r.json()).then((d) => setSeries(d.series ?? d ?? [])).catch(() => {});
     apiFetch('/api/locales').then((r) => r.json()).then((d) => setLocales(d.locales ?? d ?? [])).catch(() => {});
@@ -357,14 +336,14 @@ export default function FacturaDetalleScreen() {
 
       setLineas(hydrateLineasDesdeFactura(f, data.lineas));
       setPagos(data.pagos ?? []);
-      setAuditLog(data.audit_log ?? []);
+      setAuditLog(data.auditoria ?? []);
 
       apiFetch(`/api/facturacion/facturas/${facturaId}/adjuntos`)
         .then((r) => r.json())
         .then((d) => setAdjuntos(d.adjuntos ?? []))
         .catch(() => {});
-    } catch (e: any) {
-      setError(e.message ?? 'Error al cargar');
+    } catch (e: unknown) {
+      setError(errorMessage(e, 'Error al cargar'));
     } finally {
       setLoading(false);
     }
@@ -373,7 +352,7 @@ export default function FacturaDetalleScreen() {
   useEffect(() => { fetchFactura(); }, [fetchFactura]);
 
   // ── Emisor select ──
-  const selectEmisor = (e: Empresa) => {
+  const selectEmisor = (e: EmpresaFactura) => {
     setEmisorId(e.id_empresa);
     setEmisorNombre(e.nombre);
     setEmisorCif(e.cif);
@@ -389,7 +368,7 @@ export default function FacturaDetalleScreen() {
   };
 
   // ── Receptor select ──
-  const selectEmpresa = (e: Empresa) => {
+  const selectEmpresa = (e: EmpresaFactura) => {
     setEmpresaId(e.id_empresa);
     setEmpresaNombre(e.nombre);
     setEmpresaCif(e.cif);
@@ -419,7 +398,7 @@ export default function FacturaDetalleScreen() {
     }
   };
 
-  const selectProducto = (p: Producto) => {
+  const selectProducto = (p: ProductoFactura) => {
     const newLinea: LineaFactura = {
       producto_id: p.id_producto,
       producto_ref: p.referencia,
@@ -520,9 +499,9 @@ export default function FacturaDetalleScreen() {
       } else {
         fetchFactura();
       }
-    } catch (e: any) {
-      setError(e.message);
-      alertMsg('Error', e.message);
+    } catch (e: unknown) {
+      setError(errorMessage(e));
+      alertMsg('Error', errorMessage(e));
     } finally {
       setSaving(false);
     }
@@ -575,9 +554,9 @@ export default function FacturaDetalleScreen() {
         alertMsg('Emitida', 'Factura emitida correctamente');
         fetchFactura();
       }
-    } catch (e: any) {
-      setError(e.message);
-      alertMsg('Error', e.message);
+    } catch (e: unknown) {
+      setError(errorMessage(e));
+      alertMsg('Error', errorMessage(e));
     } finally {
       setSaving(false);
     }
@@ -600,8 +579,8 @@ export default function FacturaDetalleScreen() {
         pathname: '/facturacion/factura-detalle',
         params: { tipo, modo: 'editar', id: data.id_factura },
       } as any);
-    } catch (e: any) {
-      alertMsg('Error', e.message);
+    } catch (e: unknown) {
+      alertMsg('Error', errorMessage(e));
     } finally {
       setSaving(false);
     }
@@ -624,8 +603,8 @@ export default function FacturaDetalleScreen() {
         pathname: '/facturacion/factura-detalle',
         params: { tipo, modo: 'editar', id: data.id_factura },
       } as any);
-    } catch (e: any) {
-      alertMsg('Error', e.message);
+    } catch (e: unknown) {
+      alertMsg('Error', errorMessage(e));
     } finally {
       setSaving(false);
     }
@@ -698,8 +677,8 @@ export default function FacturaDetalleScreen() {
       setPagoReferencia('');
       setPagoObservaciones('');
       fetchFactura();
-    } catch (e: any) {
-      alertMsg('Error', e.message);
+    } catch (e: unknown) {
+      alertMsg('Error', errorMessage(e));
     } finally {
       setSavingPago(false);
     }
@@ -745,8 +724,8 @@ export default function FacturaDetalleScreen() {
       const { descargarPDFFactura } = await import('../../components/FacturaPDF');
       const { emisorData, clienteData, facturaData } = buildPdfParams();
       await descargarPDFFactura(emisorData, clienteData, facturaData, lineas);
-    } catch (e: any) {
-      alertMsg('Error PDF', e.message ?? 'No se pudo generar el PDF');
+    } catch (e: unknown) {
+      alertMsg('Error PDF', errorMessage(e, 'No se pudo generar el PDF'));
     }
   };
 
@@ -761,8 +740,8 @@ export default function FacturaDetalleScreen() {
       const doc = await generarPDFFactura(emisorData, clienteData, facturaData, lineas);
       const blobUrl = doc.output('bloburl');
       window.open(String(blobUrl), '_blank');
-    } catch (e: any) {
-      alertMsg('Error PDF', e.message ?? 'No se pudo generar la previsualización');
+    } catch (e: unknown) {
+      alertMsg('Error PDF', errorMessage(e, 'No se pudo generar la previsualización'));
     }
   };
 
@@ -794,8 +773,8 @@ export default function FacturaDetalleScreen() {
         const adjData = await adjRes.json();
         setAdjuntos(adjData.adjuntos ?? []);
         fetchFactura();
-      } catch (e: any) {
-        alertMsg('Error', e.message);
+      } catch (e: unknown) {
+        alertMsg('Error', errorMessage(e));
       } finally {
         setSubiendoAdjunto(false);
       }
@@ -812,8 +791,8 @@ export default function FacturaDetalleScreen() {
         body: JSON.stringify({ usuario_id: user?.id_usuario, usuario_nombre: user?.Nombre }),
       });
       setAdjuntos((prev) => prev.filter((a) => a.id !== adjId));
-    } catch (e: any) {
-      alertMsg('Error', e.message);
+    } catch (e: unknown) {
+      alertMsg('Error', errorMessage(e));
     }
   };
 
@@ -865,8 +844,8 @@ export default function FacturaDetalleScreen() {
       alertMsg('Enviado', `Email enviado a ${emailDestinatario}`);
       setShowEmailModal(false);
       fetchFactura();
-    } catch (e: any) {
-      alertMsg('Error', e.message);
+    } catch (e: unknown) {
+      alertMsg('Error', errorMessage(e));
     } finally {
       setSendingEmail(false);
     }
@@ -1470,7 +1449,7 @@ export default function FacturaDetalleScreen() {
               <MaterialIcons name="history" size={14} color="#94a3b8" />
               <View style={{ flex: 1, marginLeft: 6 }}>
                 <Text style={styles.auditAction}>{entry.accion}</Text>
-                <Text style={styles.auditMeta}>{entry.usuario_nombre} · {entry.fecha}</Text>
+                <Text style={styles.auditMeta}>{entry.usuario_nombre} · {formatCreadoEn(entry.timestamp_accion)}</Text>
                 {entry.detalle ? <Text style={styles.auditDetail}>{entry.detalle}</Text> : null}
               </View>
             </View>

@@ -24,6 +24,7 @@ import {
   mapTipoReciboToFormaPago,
   resolveMetodoPagoParaEnvio,
 } from '../../utils/facturacion';
+import type { FacturaListado, SerieFactura } from '../../types/factura';
 import { fechaEmisionFacturaADmy, fechaEmisionFacturaAIso } from '../../utils/formatFecha';
 import { getTipoReciboFromEmpresasList, type EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
 import { BadgeEstado } from '../../components/BadgeEstado';
@@ -75,25 +76,6 @@ function getEmisorKey(f: { emisor_id?: string; emisor_nombre?: string }): string
   return n ? `nom:${n}` : '';
 }
 
-type Factura = {
-  id_factura: string;
-  numero_factura: string;
-  fecha_emision: string;
-  emisor_id?: string;
-  emisor_nombre: string;
-  empresa_nombre: string;
-  empresa_cif: string;
-  empresa_id?: string;
-  base_imponible: number;
-  total_iva: number;
-  total_retencion?: number;
-  total_factura: number;
-  estado: string;
-  total_cobrado?: number;
-  saldo_pendiente: number;
-  impuestos_resumen?: string;
-};
-
 const COLUMNAS = [
   { key: 'fecha_emision', label: 'Fecha' },
   { key: 'numero_factura', label: 'Nº Factura' },
@@ -142,7 +124,7 @@ export default function FacturasVentaScreen() {
   const { width: winW } = useWindowDimensions();
   const layoutSplit = Platform.OS === 'web' && winW >= 1024;
 
-  const [facturas, setFacturas] = useState<Factura[]>([]);
+  const [facturas, setFacturas] = useState<FacturaListado[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -177,7 +159,7 @@ export default function FacturasVentaScreen() {
   const [detallePagosLoading, setDetallePagosLoading] = useState(false);
   const [detallePagosError, setDetallePagosError] = useState<string | null>(null);
   const [detallePagosLista, setDetallePagosLista] = useState<Record<string, unknown>[]>([]);
-  const [detallePagosFactura, setDetallePagosFactura] = useState<Factura | null>(null);
+  const [detallePagosFactura, setDetallePagosFactura] = useState<FacturaListado | null>(null);
 
   const { show: showToast, ToastView } = useLocalToast();
 
@@ -188,7 +170,7 @@ export default function FacturasVentaScreen() {
       .then((r) => r.json())
       .then((d) => {
         const all = d.series ?? d ?? [];
-        setHaySeries(all.some((s: any) => s.tipo === 'OUT'));
+        setHaySeries(all.some((s: SerieFactura) => s.tipo === 'OUT'));
       })
       .catch(() => {});
   }, []);
@@ -199,11 +181,15 @@ export default function FacturasVentaScreen() {
       .then((d) => {
         const raw: unknown[] = d.empresas ?? d ?? [];
         setEmpresasCatalogo(
-          raw.map((e: any) => ({
-            id_empresa: e.id_empresa ?? '',
-            tipoRecibo: e['Tipo de recibo'] != null ? String(e['Tipo de recibo']).trim() : undefined,
-            'Tipo de recibo': e['Tipo de recibo'],
-          })),
+          raw.map((item): EmpresaConTipoRecibo => {
+            const e = (item ?? {}) as Record<string, unknown>;
+            const tipoReciboRaw = e['Tipo de recibo'];
+            return {
+              id_empresa: e.id_empresa != null ? String(e.id_empresa) : '',
+              tipoRecibo: tipoReciboRaw != null ? String(tipoReciboRaw).trim() : undefined,
+              'Tipo de recibo': typeof tipoReciboRaw === 'string' ? tipoReciboRaw : undefined,
+            };
+          }),
         );
       })
       .catch(() => {});
@@ -260,21 +246,21 @@ export default function FacturasVentaScreen() {
     }
     const isoDesde = dmyToIso(fechaDesde);
     const isoHasta = dmyToIso(fechaHasta);
-    if (isoDesde) resultado = resultado.filter((f) => f.fecha_emision >= isoDesde);
-    if (isoHasta) resultado = resultado.filter((f) => f.fecha_emision <= isoHasta);
+    if (isoDesde) resultado = resultado.filter((f) => (f.fecha_emision ?? '') >= isoDesde);
+    if (isoHasta) resultado = resultado.filter((f) => (f.fecha_emision ?? '') <= isoHasta);
 
     if (sortCol) {
       resultado = [...resultado].sort((a, b) => {
         if (sortCol === 'pagado') {
-          const na = Number((a as Factura).total_cobrado ?? 0);
-          const nb = Number((b as Factura).total_cobrado ?? 0);
+          const na = Number(a.total_cobrado ?? 0);
+          const nb = Number(b.total_cobrado ?? 0);
           const cmp = na - nb;
           return sortDir === 'desc' ? -cmp : cmp;
         }
-        const va = (a as any)[sortCol] ?? '';
-        const vb = (b as any)[sortCol] ?? '';
-        const numA = typeof va === 'number' ? va : parseFloat(va);
-        const numB = typeof vb === 'number' ? vb : parseFloat(vb);
+        const va = (a as Record<string, unknown>)[sortCol] ?? '';
+        const vb = (b as Record<string, unknown>)[sortCol] ?? '';
+        const numA = typeof va === 'number' ? va : parseFloat(String(va));
+        const numB = typeof vb === 'number' ? vb : parseFloat(String(vb));
         let cmp: number;
         if (!isNaN(numA) && !isNaN(numB)) cmp = numA - numB;
         else cmp = String(va).localeCompare(String(vb), 'es', { sensitivity: 'base' });
@@ -401,7 +387,7 @@ export default function FacturasVentaScreen() {
     setErrorModal(null);
     setCobroMetodoDropdownOpen(false);
     setCobroFechaEditadaManual(false);
-    setCobroImporte(selectedFactura.saldo_pendiente > 0 ? String(selectedFactura.saldo_pendiente) : '');
+    setCobroImporte((selectedFactura.saldo_pendiente ?? 0) > 0 ? String(selectedFactura.saldo_pendiente) : '');
     setCobroReferencia('');
 
     const tipoRecibo = getTipoReciboFromEmpresasList(empresasCatalogo, selectedFactura.empresa_id);
@@ -431,7 +417,7 @@ export default function FacturasVentaScreen() {
     setCobroFecha(aplicarFechaSegunMetodo(m, fechaFactura, hoy));
   };
 
-  const abrirModalDetallePagos = useCallback((factura: Factura) => {
+  const abrirModalDetallePagos = useCallback((factura: FacturaListado) => {
     setDetallePagosFactura(factura);
     setModalDetallePagosVisible(true);
     setDetallePagosLoading(true);
@@ -507,7 +493,7 @@ export default function FacturasVentaScreen() {
     else if (id === 'cobrar') abrirModalCobrar();
   };
 
-  const valorCelda = useCallback((item: Factura, col: string): string => {
+  const valorCelda = useCallback((item: FacturaListado, col: string): string => {
     switch (col) {
       case 'id_factura': return (item.id_factura || '').substring(0, 8) + '…';
       case 'numero_factura': return item.numero_factura || '—';
@@ -521,7 +507,7 @@ export default function FacturasVentaScreen() {
       case 'total_factura': return formatMoneda(item.total_factura ?? 0);
       case 'pagado': return formatMoneda(Number(item.total_cobrado ?? 0));
       case 'saldo_pendiente': return formatMoneda(item.saldo_pendiente ?? 0);
-      case 'estado': return labelEstado(item.estado);
+      case 'estado': return labelEstado(item.estado ?? '');
       default: return '—';
     }
   }, []);
@@ -818,7 +804,7 @@ export default function FacturasVentaScreen() {
                   {COLUMNAS.map((col) => (
                     <View key={col.key} style={[styles.cell, { width: getColWidth(col.key) }]}>
                       {col.key === 'estado' ? (
-                        <BadgeEstado estado={item.estado} compact />
+                        <BadgeEstado estado={item.estado ?? ''} compact />
                       ) : col.key === 'pagado' ? (
                         <View style={styles.cellPagadoRow}>
                           <Text style={[styles.cellText, styles.cellTextFlex]} numberOfLines={1} ellipsizeMode="tail">

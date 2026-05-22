@@ -12,6 +12,7 @@ import {
   Platform,
   useWindowDimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
@@ -27,6 +28,8 @@ import {
   type FestivoReg,
   type FilaObjetivo,
   fechaComparacion,
+  fechaCorteMediaRealObjetivos,
+  mediasPorDiaSemanaDesdeFilas,
   obtenerFilasObjetivos,
 } from '../../lib/objetivosFilasApi';
 import { apiFetch } from '../../utils/api';
@@ -63,6 +66,16 @@ function formatMoneda(n: number): string {
 function formatPct(n: number | null): string {
   if (n == null) return '—';
   return (n * 100).toFixed(1) + '%';
+}
+
+/** Variación % media real vs comparativa (misma fila). null si igualdad o mediaComp≤0. */
+function variacionPctMediasVsComp(
+  mediaReal: number,
+  mediaComp: number,
+): { pct: number; up: boolean } | null {
+  if (!(mediaComp > 0) || mediaReal === mediaComp) return null;
+  const pct = (mediaReal / mediaComp - 1) * 100;
+  return { pct, up: mediaReal > mediaComp };
 }
 
 function colorDesvio(valor: number | null): { color: string } {
@@ -282,12 +295,71 @@ async function generarPdfObjetivos(
     },
   });
 
+  const corteMediasPdf = fechaCorteMediaRealObjetivos(fechaFin, ayer);
+  const mediasFilas = mediasPorDiaSemanaDesdeFilas(filas, {
+    fechaMaxRealInclusive: corteMediasPdf,
+  });
+  const mediasBody = mediasFilas.map((row) => {
+    const realStr =
+      row.nReal === 0 ? '—' : `${formatMoneda(row.mediaReal)} (${row.nReal})`;
+    const variacion =
+      row.nReal > 0 && row.nComp > 0 ? variacionPctMediasVsComp(row.mediaReal, row.mediaComp) : null;
+    const realCol =
+      variacion != null
+        ? `${realStr}  ${variacion.up ? '+' : ''}${variacion.pct.toFixed(1)}%`
+        : realStr;
+    return [
+      row.label,
+      realCol,
+      row.nComp === 0 ? '—' : `${formatMoneda(row.mediaComp)} (${row.nComp})`,
+    ];
+  });
+
+  const pageH = doc.internal.pageSize.getHeight();
+  let yMedias = ((doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 10;
+  if (yMedias > pageH - 55) {
+    doc.addPage();
+    yMedias = 14;
+  }
+
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Media por día de la semana', 14, yMedias);
+  yMedias += 6;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(80);
+  const hintMedias =
+    `Media real: solo fechas hasta ${formatFechaCorta(corteMediasPdf)} (mín. entre fin de periodo y ayer). ` +
+    'Comparativa: todo el periodo (día de semana según fecha comparación). Entre paréntesis: nº de días. ±X% junto a media real: variación vs comparativa (verde al alza, rojo a la baja).';
+  const hintLines = doc.splitTextToSize(hintMedias, pageW - 28);
+  doc.text(hintLines, 14, yMedias);
+  yMedias += hintLines.length * 3.5 + 3;
+  doc.setTextColor(0);
+
+  autoTable(doc, {
+    startY: yMedias,
+    head: [['Día', 'Media real', 'Media comparativa']],
+    body: mediasBody,
+    theme: 'striped',
+    styles: { fontSize: 8, cellPadding: 1.5 },
+    headStyles: { fillColor: [14, 165, 233], textColor: 255, fontStyle: 'bold' },
+    margin: { left: 10, right: 10 },
+    tableWidth: pageW - 20,
+    didParseCell: (data) => {
+      if (data.section === 'body' && data.column.index === 0) {
+        data.cell.styles.fontStyle = 'bold';
+      }
+    },
+  });
+
   return doc;
 }
 
 export default function ObjetivosScreen() {
   const router = useRouter();
   const { width: winWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const isNarrow = winWidth < 900;
   const { localPermitido } = useAuth();
   const [fechaInicio, setFechaInicio] = useState(() => mesEnCurso().inicio);
@@ -643,6 +715,15 @@ export default function ObjetivosScreen() {
   const desvioPctHoy = sumCompHoy === 0 ? null : sumRealHoy / sumCompHoy - 1;
   const tickerEstiloHoy = estiloTicker(desvioPctHoy);
 
+  const corteMediasReal = useMemo(
+    () => fechaCorteMediaRealObjetivos(fechaFin, ayerStr),
+    [fechaFin, ayerStr],
+  );
+  const mediasPorDiaSemana = useMemo(
+    () => mediasPorDiaSemanaDesdeFilas(registros, { fechaMaxRealInclusive: corteMediasReal }),
+    [registros, corteMediasReal],
+  );
+
   const fechaJornadaNegocio = fechaJornadaNegocioIso();
 
   const exportarTablaObjetivosExcel = useCallback(() => {
@@ -805,7 +886,15 @@ export default function ObjetivosScreen() {
   }, [massSelectedLocals, localesDropdownOrdenados, fechaInicio, fechaFin, tituloWidgetPeriodo]);
 
   return (
-    <View style={styles.container}>
+    <View
+      style={[
+        styles.container,
+        {
+          paddingLeft: Math.max(10, insets.left),
+          paddingRight: Math.max(10, insets.right),
+        },
+      ]}
+    >
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <MaterialIcons name="arrow-back" size={22} color="#334155" />
@@ -814,13 +903,16 @@ export default function ObjetivosScreen() {
       </View>
 
       <ScrollView
-        style={styles.mainScroll}
+        style={[
+          styles.mainScroll,
+          Platform.OS === 'web' && ({ scrollbarGutter: 'stable' } as Record<string, unknown>),
+        ]}
         contentContainerStyle={styles.mainScrollContent}
         showsVerticalScrollIndicator
       >
       <View style={[styles.mainRow, isNarrow && styles.mainRowNarrow]}>
         <View style={[styles.leftColumn, isNarrow && styles.leftColumnNarrow]}>
-      <View style={[styles.widget, isNarrow && styles.widgetNarrow]}>
+      <View style={[styles.widget, styles.widgetGenerarComparativa, isNarrow && styles.widgetNarrow]}>
         <Text style={styles.widgetTitle}>Generar comparativa</Text>
         <View style={styles.formRow}>
           <View style={[styles.formGroup, isNarrow && styles.formGroupNarrow]}>
@@ -904,6 +996,57 @@ export default function ObjetivosScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {registros.length > 0 ? (
+        <View style={[styles.widget, styles.mediasPorDiaWidget, isNarrow && styles.widgetNarrow]}>
+          <Text style={styles.widgetTitle}>Media por día de la semana</Text>
+          <Text style={styles.mediasPorDiaHint}>
+            Media real: solo días con fecha ≤ {formatFechaCorta(corteMediasReal)} (mínimo entre fin de periodo y ayer). Comparativa:
+            todo el periodo ({fechaInicio} → {fechaFin}). La real agrupa por día de la semana de la fecha; la comparativa por el
+            día de la semana de la fecha de comparación. Entre paréntesis: días que entran en cada media. Badges junto a la media real: verde si supera la comparativa de la fila; rojo si es inferior (variación negativa).
+          </Text>
+          <View style={styles.mediasPorDiaHeader}>
+            <Text style={[styles.mediasPorDiaHeaderCell, styles.mediasPorDiaColDia]}>Día</Text>
+            <Text style={[styles.mediasPorDiaHeaderCell, styles.mediasPorDiaColNum]}>Media real</Text>
+            <Text style={[styles.mediasPorDiaHeaderCell, styles.mediasPorDiaColNum]}>Media comparativa</Text>
+          </View>
+          {mediasPorDiaSemana.map((row) => {
+            const variacion =
+              row.nReal > 0 && row.nComp > 0 ? variacionPctMediasVsComp(row.mediaReal, row.mediaComp) : null;
+            return (
+            <View key={row.label} style={styles.mediasPorDiaRow}>
+              <Text style={[styles.mediasPorDiaCell, styles.mediasPorDiaColDia, styles.mediasPorDiaDiaNegrita]}>{row.label}</Text>
+              <View style={styles.mediasPorDiaRealWrap}>
+                <Text style={[styles.mediasPorDiaCell, styles.mediasPorDiaRealAmount]} numberOfLines={2}>
+                  {row.nReal === 0 ? '—' : `${formatMoneda(row.mediaReal)} (${row.nReal})`}
+                </Text>
+                {variacion != null ? (
+                  <View
+                    style={[
+                      styles.mediasPorDiaVarBadge,
+                      variacion.up ? styles.mediasPorDiaVarBadgeUp : styles.mediasPorDiaVarBadgeDown,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.mediasPorDiaVarText,
+                        variacion.up ? styles.mediasPorDiaVarTextUp : styles.mediasPorDiaVarTextDown,
+                      ]}
+                    >
+                      {variacion.up ? '+' : ''}
+                      {variacion.pct.toFixed(1)}%
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={[styles.mediasPorDiaCell, styles.mediasPorDiaColNum]}>
+                {row.nComp === 0 ? '—' : `${formatMoneda(row.mediaComp)} (${row.nComp})`}
+              </Text>
+            </View>
+            );
+          })}
+        </View>
+      ) : null}
 
           <View ref={widgetRef} style={[styles.widget, styles.widgetLocales]} collapsable={false}>
           <View style={styles.widgetLocalesHeader}>
@@ -1315,7 +1458,8 @@ export default function ObjetivosScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10 },
+  /** Márgenes horizontales: inline con insets (misma idea que cabecera app). Vertical fijo. */
+  container: { flex: 1, paddingVertical: 10 },
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
   backBtn: { padding: 4 },
   title: { fontSize: 18, fontWeight: '700', color: '#334155' },
@@ -1348,6 +1492,8 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     alignSelf: 'flex-start',
   },
+  /** Misma anchura que el resto de widgets de la columna izquierda */
+  widgetGenerarComparativa: { alignSelf: 'stretch' },
   widgetNarrow: { alignSelf: 'stretch' },
   /** Tabla comparativa: ~60% del ancho en fila (flex 4 + 6) */
   tableWrapper: { flex: 6, minWidth: 0, flexShrink: 1 },
@@ -1778,4 +1924,73 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
+  mediasPorDiaWidget: {
+    alignSelf: 'stretch',
+    marginTop: 0,
+  },
+  mediasPorDiaHint: {
+    fontSize: 10,
+    color: '#94a3b8',
+    marginBottom: 10,
+    lineHeight: 14,
+  },
+  mediasPorDiaHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: 6,
+    marginBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    gap: 6,
+  },
+  mediasPorDiaHeaderCell: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  mediasPorDiaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 5,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    gap: 6,
+  },
+  mediasPorDiaCell: {
+    fontSize: 11,
+    color: '#334155',
+  },
+  mediasPorDiaColDia: { width: 36, flexShrink: 0 },
+  mediasPorDiaDiaNegrita: { fontWeight: '700', color: '#1e293b' },
+  mediasPorDiaRealWrap: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
+    gap: 5,
+  },
+  mediasPorDiaRealAmount: { textAlign: 'right' as const, flexShrink: 1 },
+  mediasPorDiaVarBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    flexShrink: 0,
+  },
+  mediasPorDiaVarBadgeUp: {
+    backgroundColor: 'rgba(5, 150, 105, 0.14)',
+    borderColor: 'rgba(5, 150, 105, 0.35)',
+  },
+  mediasPorDiaVarBadgeDown: {
+    backgroundColor: 'rgba(220, 38, 38, 0.12)',
+    borderColor: 'rgba(220, 38, 38, 0.35)',
+  },
+  mediasPorDiaVarText: { fontSize: 9, fontWeight: '700' },
+  mediasPorDiaVarTextUp: { color: '#047857' },
+  mediasPorDiaVarTextDown: { color: '#b91c1c' },
+  mediasPorDiaColNum: { flex: 1, minWidth: 0, textAlign: 'right' as const },
 });

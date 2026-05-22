@@ -23,8 +23,8 @@ import {
   labelFormaPago,
   mapTipoReciboToFormaPago,
   resolveMetodoPagoParaEnvio,
-  type Factura,
 } from '../../utils/facturacion';
+import type { FacturaListado } from '../../types/factura';
 import {
   formatFecha,
   fechaEmisionFacturaADmy,
@@ -76,14 +76,14 @@ function absorberClickFila(e: import('react-native').GestureResponderEvent) {
 const MIN_COL_WIDTH = 40;
 
 /** % IVA efectivo desde base y cuota (cabecera). */
-function tipoIvaImplicitoPct(f: Factura): number | null {
+function tipoIvaImplicitoPct(f: FacturaListado): number | null {
   const base = Number(f.base_imponible) || 0;
   const iva = Number(f.total_iva) || 0;
   if (base <= 0) return null;
   return Math.round((10000 * iva) / base) / 100;
 }
 
-function formatoTipoIvaPct(f: Factura): string {
+function formatoTipoIvaPct(f: FacturaListado): string {
   const p = tipoIvaImplicitoPct(f);
   if (p == null) return '—';
   const s = Number.isInteger(p) ? String(p) : p.toFixed(2).replace('.', ',');
@@ -190,7 +190,7 @@ export default function FacturasGastoScreen() {
   const layoutSplit = Platform.OS === 'web' && winW >= 1024;
   const { show: showToast, ToastView } = useLocalToast();
 
-  const [facturas, setFacturas] = useState<Factura[]>([]);
+  const [facturas, setFacturas] = useState<FacturaListado[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -227,7 +227,7 @@ export default function FacturasGastoScreen() {
   const [detallePagosLoading, setDetallePagosLoading] = useState(false);
   const [detallePagosError, setDetallePagosError] = useState<string | null>(null);
   const [detallePagosLista, setDetallePagosLista] = useState<Record<string, unknown>[]>([]);
-  const [detallePagosFactura, setDetallePagosFactura] = useState<Factura | null>(null);
+  const [detallePagosFactura, setDetallePagosFactura] = useState<FacturaListado | null>(null);
 
   const fetchFacturas = useCallback(() => {
     setLoading(true);
@@ -250,11 +250,15 @@ export default function FacturasGastoScreen() {
       .then((d) => {
         const raw: unknown[] = d.empresas ?? d ?? [];
         setEmpresasCatalogo(
-          raw.map((e: any) => ({
-            id_empresa: e.id_empresa ?? '',
-            tipoRecibo: e['Tipo de recibo'] != null ? String(e['Tipo de recibo']).trim() : undefined,
-            'Tipo de recibo': e['Tipo de recibo'],
-          })),
+          raw.map((item): EmpresaConTipoRecibo => {
+            const e = (item ?? {}) as Record<string, unknown>;
+            const tipoReciboRaw = e['Tipo de recibo'];
+            return {
+              id_empresa: e.id_empresa != null ? String(e.id_empresa) : '',
+              tipoRecibo: tipoReciboRaw != null ? String(tipoReciboRaw).trim() : undefined,
+              'Tipo de recibo': typeof tipoReciboRaw === 'string' ? tipoReciboRaw : undefined,
+            };
+          }),
         );
       })
       .catch(() => {});
@@ -290,35 +294,35 @@ export default function FacturasGastoScreen() {
     if (sortCol) {
       list = [...list].sort((a, b) => {
         if (sortCol === 'fecha_emision') {
-          const fa = fechaEmisionComparable((a as Factura).fecha_emision);
-          const fb = fechaEmisionComparable((b as Factura).fecha_emision);
+          const fa = fechaEmisionComparable(a.fecha_emision);
+          const fb = fechaEmisionComparable(b.fecha_emision);
           const cmp = fa.localeCompare(fb);
           return sortDir === 'desc' ? -cmp : cmp;
         }
         if (sortCol === 'fecha_contabilizacion') {
-          const fa = String((a as Factura).fecha_contabilizacion || (a as Factura).creado_en || '');
-          const fb = String((b as Factura).fecha_contabilizacion || (b as Factura).creado_en || '');
+          const fa = String(a.fecha_contabilizacion || a.creado_en || '');
+          const fb = String(b.fecha_contabilizacion || b.creado_en || '');
           const cmp = fa.localeCompare(fb);
           return sortDir === 'desc' ? -cmp : cmp;
         }
         if (sortCol === 'iva_tipo') {
-          const pa = tipoIvaImplicitoPct(a as Factura);
-          const pb = tipoIvaImplicitoPct(b as Factura);
+          const pa = tipoIvaImplicitoPct(a);
+          const pb = tipoIvaImplicitoPct(b);
           const na = pa ?? -1;
           const nb = pb ?? -1;
           const cmp = na - nb;
           return sortDir === 'desc' ? -cmp : cmp;
         }
         if (sortCol === 'pagado') {
-          const na = Number((a as Factura).total_cobrado ?? 0);
-          const nb = Number((b as Factura).total_cobrado ?? 0);
+          const na = Number(a.total_cobrado ?? 0);
+          const nb = Number(b.total_cobrado ?? 0);
           const cmp = na - nb;
           return sortDir === 'desc' ? -cmp : cmp;
         }
-        const va = (a as any)[sortCol] ?? '';
-        const vb = (b as any)[sortCol] ?? '';
-        const numA = typeof va === 'number' ? va : parseFloat(va);
-        const numB = typeof vb === 'number' ? vb : parseFloat(vb);
+        const va = (a as Record<string, unknown>)[sortCol] ?? '';
+        const vb = (b as Record<string, unknown>)[sortCol] ?? '';
+        const numA = typeof va === 'number' ? va : parseFloat(String(va));
+        const numB = typeof vb === 'number' ? vb : parseFloat(String(vb));
         let cmp: number;
         if (!isNaN(numA) && !isNaN(numB)) cmp = numA - numB;
         else cmp = String(va).localeCompare(String(vb), 'es', { sensitivity: 'base' });
@@ -334,7 +338,7 @@ export default function FacturasGastoScreen() {
 
   useEffect(() => { setPageIndex(0); setSelectedId(null); }, [tabActivo, busqueda, fechaDesde, fechaHasta]);
 
-  const selectedFactura: Factura | null = useMemo(
+  const selectedFactura: FacturaListado | null = useMemo(
     () => (selectedId ? filtradas.find((f) => f.id_factura === selectedId) ?? null : null),
     [selectedId, filtradas],
   );
@@ -362,7 +366,7 @@ export default function FacturasGastoScreen() {
     setResizingCol(col);
   };
 
-  const getCellValue = (f: Factura, col: string): string => {
+  const getCellValue = (f: FacturaListado, col: string): string => {
     if (col === 'fecha_contabilizacion') {
       return textoFechaContabilizacionGasto({
         fechaContabilizacion: f.fecha_contabilizacion,
@@ -384,7 +388,7 @@ export default function FacturasGastoScreen() {
     return String(val);
   };
 
-  const abrirModalDetallePagos = useCallback((factura: Factura) => {
+  const abrirModalDetallePagos = useCallback((factura: FacturaListado) => {
     setDetallePagosFactura(factura);
     setModalDetallePagosVisible(true);
     setDetallePagosLoading(true);
@@ -696,13 +700,13 @@ export default function FacturasGastoScreen() {
           <View style={styles.resumenItem}>
             <Text style={styles.resumenLabel}>Total gastos</Text>
             <Text style={[styles.resumenVal, { color: '#dc2626' }]}>
-              {formatMoneda(filtradas.reduce((s: number, f: any) => s + (f.total_factura ?? 0), 0))}
+              {formatMoneda(filtradas.reduce((s: number, f: FacturaListado) => s + (Number(f.total_factura) || 0), 0))}
             </Text>
           </View>
           <View style={styles.resumenItem}>
             <Text style={styles.resumenLabel}>Pendiente pago</Text>
             <Text style={[styles.resumenVal, { color: '#b45309' }]}>
-              {formatMoneda(filtradas.reduce((s: number, f: any) => s + (f.saldo_pendiente ?? 0), 0))}
+              {formatMoneda(filtradas.reduce((s: number, f: FacturaListado) => s + (Number(f.saldo_pendiente) || 0), 0))}
             </Text>
           </View>
           <View style={styles.resumenItem}>
@@ -795,7 +799,7 @@ export default function FacturasGastoScreen() {
                       if (col === 'estado') {
                         return (
                           <View key={col} style={[styles.cell, { width: getColWidth(col) }]}>
-                            <BadgeEstado estado={f.estado} compact />
+                            <BadgeEstado estado={f.estado ?? ''} compact />
                           </View>
                         );
                       }
@@ -904,7 +908,7 @@ export default function FacturasGastoScreen() {
         <Pressable style={styles.modalOverlay} onPress={() => !procesando && setModalPagar(false)}>
           <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.modalTitle}>Registrar pago</Text>
-            <Text style={styles.modalLabel}>Factura: {selectedFactura?.id_factura} — Saldo: {selectedFactura ? formatMoneda(selectedFactura.saldo_pendiente) : ''}</Text>
+            <Text style={styles.modalLabel}>Factura: {selectedFactura?.id_factura} — Saldo: {selectedFactura ? formatMoneda(Number(selectedFactura.saldo_pendiente) || 0) : ''}</Text>
 
             <Text style={styles.modalFieldLabel}>Fecha del pago *</Text>
             <InputFecha

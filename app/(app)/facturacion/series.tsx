@@ -20,6 +20,18 @@ import { ICONS, ICON_SIZE } from '../../constants/icons';
 import { TablaBasica } from '../../components/TablaBasica';
 import { apiFetch } from '../../utils/api';
 
+/**
+ * Representación completa de una serie de facturación tal como vive en la
+ * tabla `Igp_FacturasSeries` (admin/edición). Es local porque hoy solo se
+ * consume desde esta pantalla; si en el futuro otro módulo necesita el
+ * shape completo, este tipo es candidato natural a moverse a
+ * `app/types/factura.ts`.
+ *
+ * Relación con `SerieFactura` (en `app/types/factura.ts`): aquel es la vista
+ * minimal usada por los selectores en `factura-detalle.tsx` (campos
+ * opcionales, `tipo: string` tolerante). Este tipo es la fuente: campos
+ * requeridos y `tipo: 'OUT' | 'IN'` estricto.
+ */
 type Serie = {
   serie: string;
   descripcion: string;

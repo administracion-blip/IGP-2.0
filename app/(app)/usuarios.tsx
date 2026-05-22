@@ -43,7 +43,7 @@ const CAMPOS_FORM: { key: (typeof ATRIBUTOS_TABLA_USUARIOS)[number]; label: stri
 
 const INITIAL_FORM = Object.fromEntries(CAMPOS_FORM.map((c) => [c.key, ''])) as Record<(typeof ATRIBUTOS_TABLA_USUARIOS)[number], string>;
 
-const ROL_OPCIONES = ['Administrador', 'SuperUser', 'Administracion', 'Local', 'Socio'] as const;
+const ROL_OPCIONES = ['Administrador', 'SuperUser', 'Administracion', 'Local', 'Socio', 'Marketing'] as const;
 
 type Usuario = Record<string, string | number | undefined>;
 

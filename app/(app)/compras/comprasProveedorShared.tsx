@@ -10,43 +10,14 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import type { CompraLinea, FiltroDropdownKey, OpcionFiltro } from '../../types/compras';
+
+export type { CompraLinea, FiltroDropdownKey, OpcionFiltro };
 
 /** Tamaño unificado de iconos en la toolbar compacta de compras. */
 export const TOOLBAR_ICON_SIZE = 17;
 
 const IS_WEB = Platform.OS === 'web';
-
-export type CompraLinea = {
-  PK: string;
-  SK: string;
-  AlbaranSerie: string;
-  AlbaranNumero: string;
-  AlbaranFecha: string;
-  SupplierDocumentNumber: string;
-  Confirmed: boolean;
-  Invoiced: boolean;
-  SupplierId: string;
-  SupplierName: string;
-  SupplierCif: string;
-  WarehouseId: string;
-  WarehouseName: string;
-  LineIndex: number;
-  ProductId: string;
-  ProductName: string;
-  Quantity: number;
-  Price: number;
-  DiscountRate: number;
-  CashDiscount: number;
-  TotalAmount: number;
-  VatRate: number;
-  SurchargeRate: number;
-  PurchaseUnitName: string;
-  FamilyId: string;
-  FamilyName: string;
-  LotNumber: string;
-  LineNotes: string;
-  syncedAt: string;
-};
 
 export const COLUMNAS: { key: keyof CompraLinea | 'AlbaranRef'; label: string; width: number; align?: 'right' | 'center' }[] = [
   { key: 'AlbaranFecha', label: 'Fecha', width: 100 },
@@ -172,10 +143,6 @@ export function ultimaCompraPorProducto(items: CompraLinea[]): CompraLinea[] {
   }
   return Array.from(map.values());
 }
-
-export type OpcionFiltro = { id: string; label: string };
-
-export type FiltroDropdownKey = 'alb' | 'prod' | 'prov' | 'fam' | 'alm';
 
 export const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },

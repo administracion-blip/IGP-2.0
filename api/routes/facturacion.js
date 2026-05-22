@@ -18,6 +18,11 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { docClient, tables, deleteItemBySchema, keyForFacturaPrincipalId, keyForFacturaItem } from '../lib/db.js';
 import {
+  queryLineasByFactura,
+  queryPagosByFactura,
+  queryAuditoriaByFactura,
+} from '../lib/dynamo/facturasRelacionadas.js';
+import {
   normalizeCif,
   cifDigitsOnly,
   getCifFromEmpresaItem,
@@ -348,11 +353,11 @@ router.get('/facturacion/facturas/:id', async (req, res) => {
       new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(req.params.id) })
     );
     if (!result.Item) return res.status(404).json({ error: 'Factura no encontrada' });
-    const lineas = await scanAll(tables.facturasLineas, 'id_factura = :fid', { ':fid': req.params.id });
+    const lineas = await queryLineasByFactura(req.params.id);
     lineas.sort((a, b) => (a.id_linea || '').localeCompare(b.id_linea || ''));
-    const pagos = await scanAll(tables.facturasPagos, 'id_factura = :fid', { ':fid': req.params.id });
+    const pagos = await queryPagosByFactura(req.params.id);
     pagos.sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
-    const auditoria = await scanAll(tables.facturasAuditoria, 'id_factura = :fid', { ':fid': req.params.id });
+    const auditoria = await queryAuditoriaByFactura(req.params.id);
     auditoria.sort((a, b) => (b.timestamp_accion || '').localeCompare(a.timestamp_accion || ''));
     res.json({ factura: result.Item, lineas, pagos, auditoria });
   } catch (err) {
@@ -558,7 +563,7 @@ router.put('/facturacion/facturas/:id', async (req, res) => {
     }
 
     if (Array.isArray(body.lineas)) {
-      const oldLineas = await scanAll(tables.facturasLineas, 'id_factura = :fid', { ':fid': id });
+      const oldLineas = await queryLineasByFactura(id);
       for (const ol of oldLineas) {
         await docClient.send(new DeleteCommand({ TableName: tables.facturasLineas, Key: { id_factura: id, id_linea: ol.id_linea } }));
       }
@@ -652,7 +657,7 @@ router.post('/facturacion/facturas/:id/emitir', async (req, res) => {
     if (!factura.serie) errores.push('La serie es obligatoria');
     if ((factura.total_factura || 0) === 0) errores.push('La factura no puede tener importe 0');
 
-    const lineas = await scanAll(tables.facturasLineas, 'id_factura = :id', { ':id': id }, null);
+    const lineas = await queryLineasByFactura(id);
     if (factura.tipo === 'OUT' && lineas.length === 0) errores.push('La factura debe tener al menos una línea');
 
     for (const l of lineas) {
@@ -712,7 +717,7 @@ router.post('/facturacion/facturas/:id/anular', async (req, res) => {
     if (factura.estado === 'anulada') return res.status(400).json({ error: 'La factura ya está anulada' });
     if (factura.estado === 'borrador') {
       await docClient.send(new DeleteCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
-      const lineas = await scanAll(tables.facturasLineas, 'id_factura = :fid', { ':fid': id });
+      const lineas = await queryLineasByFactura(id);
       for (const l of lineas) {
         await docClient.send(new DeleteCommand({ TableName: tables.facturasLineas, Key: { id_factura: id, id_linea: l.id_linea } }));
       }
@@ -755,17 +760,17 @@ router.delete('/facturacion/facturas/:id', async (req, res) => {
       });
     }
 
-    const pagos = await scanAll(tables.facturasPagos, 'id_factura = :fid', { ':fid': id });
+    const pagos = await queryPagosByFactura(id);
     for (const p of pagos) {
       await deleteItemBySchema(tables.facturasPagos, p);
     }
 
-    const lineas = await scanAll(tables.facturasLineas, 'id_factura = :fid', { ':fid': id });
+    const lineas = await queryLineasByFactura(id);
     for (const l of lineas) {
       await deleteItemBySchema(tables.facturasLineas, l);
     }
 
-    const audits = await scanAll(tables.facturasAuditoria, 'id_factura = :fid', { ':fid': id });
+    const audits = await queryAuditoriaByFactura(id);
     for (const a of audits) {
       await deleteItemBySchema(tables.facturasAuditoria, a);
     }
@@ -841,7 +846,7 @@ router.post('/facturacion/facturas/:id/duplicar', async (req, res) => {
 
     await docClient.send(new PutCommand({ TableName: tables.facturas, Item: nueva }));
 
-    const lineas = await scanAll(tables.facturasLineas, 'id_factura = :fid', { ':fid': id });
+    const lineas = await queryLineasByFactura(id);
     for (const l of lineas) {
       await docClient.send(
         new PutCommand({
@@ -909,7 +914,7 @@ router.post('/facturacion/facturas/:id/rectificar', async (req, res) => {
 
     await docClient.send(new PutCommand({ TableName: tables.facturas, Item: rectificativa }));
 
-    const lineas = await scanAll(tables.facturasLineas, 'id_factura = :fid', { ':fid': id });
+    const lineas = await queryLineasByFactura(id);
     for (const l of lineas) {
       await docClient.send(
         new PutCommand({
@@ -941,7 +946,7 @@ router.get('/facturacion/pagos', async (_req, res) => {
 
 router.get('/facturacion/facturas/:id/pagos', async (req, res) => {
   try {
-    const pagos = await scanAll(tables.facturasPagos, 'id_factura = :fid', { ':fid': req.params.id });
+    const pagos = await queryPagosByFactura(req.params.id);
     pagos.sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
     res.json({ pagos });
   } catch (err) {
@@ -985,7 +990,7 @@ router.post('/facturacion/facturas/:id/pagos', maybeUploadReciboPago, async (req
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const factura = existing.Item;
 
-    const pagos = await scanAll(tables.facturasPagos, 'id_factura = :fid', { ':fid': id_factura });
+    const pagos = await queryPagosByFactura(id_factura);
     const nextIdx = pagos.length + 1;
     const id_pago = `P${String(nextIdx).padStart(3, '0')}`;
 
@@ -1807,6 +1812,7 @@ router.get('/facturacion/ocr/preview-png', async (req, res) => {
 
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Cache-Control', 'private, max-age=120');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     return res.send(pngBuffer);
   } catch (err) {
     console.error('[OCR preview-png] Error:', err.message);

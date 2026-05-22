@@ -73,3 +73,5 @@ Las pantallas de listado CRUD (Empresas, Productos, Usuarios, etc.) reutilizan e
 - Tabla con columnas redimensionables, selección de fila y paginación opcional
 
 Los modales de Crear/Editar e Importar se mantienen en cada pantalla para personalizar formularios y lógica. Ver `app/(app)/productos.tsx` como ejemplo y `.cursor/rules/tabla-basica.mdc` para uso detallado.
+
+Por defecto el formato de fecha en el front siempre será "dd/mm/yyy" aunque de forma interna en el backend puedes utilizar la que mejor se adapte.

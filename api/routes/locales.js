@@ -18,7 +18,9 @@ function formatId6(val) {
 
 // Estructura exacta de la tabla igp_Locales en AWS (orden: id_Locales, nombre, agoraCode, empresa, ...).
 // `factorial_location_id` es opcional: lo rellena el admin manualmente con el ID de la location de Factorial HR.
-const TABLE_LOCALES_ATTRS = ['id_Locales', 'nombre', 'agoraCode', 'empresa', 'direccion', 'cp', 'municipio', 'provincia', 'almacen origen', 'sede', 'lat', 'lng', 'imagen', 'factorial_location_id'];
+// `estilo_visual_brief` / `estilo_visual_imagen_keys` / `web` (sitio del local) los edita Marketing (PATCH /marketing/locales/:id/estilo);
+// aquí solo se listan para que el PUT /locales no los machaque al reconstruir el item.
+const TABLE_LOCALES_ATTRS = ['id_Locales', 'nombre', 'agoraCode', 'empresa', 'direccion', 'cp', 'municipio', 'provincia', 'almacen origen', 'sede', 'lat', 'lng', 'imagen', 'factorial_location_id', 'estilo_visual_brief', 'estilo_visual_imagen_keys', 'web'];
 
 // Acepta body con claves en minúsculas (API) o PascalCase (frontend).
 function bodyLocalesVal(body, key) {
@@ -37,37 +39,32 @@ function localGrupoParipe(loc) {
 }
 
 router.get('/locales', async (req, res) => {
-  try {
-    const minimal = req.query.minimal === '1' || req.query.minimal === 'true';
-    const grupoParipe = req.query.grupoParipe === '1' || req.query.grupoParipe === 'true';
-    if (minimal && !grupoParipe && cachedLocalesMinimal != null && (Date.now() - cachedLocalesMinimalTime) < CACHE_LOCALES_TTL_MS) {
-      return res.json({ locales: cachedLocalesMinimal });
-    }
-    const items = [];
-    let lastKey = null;
-    do {
-      const cmd = new ScanCommand({
-        TableName: tables.locales,
-        ...(minimal && !grupoParipe && { ProjectionExpression: 'id_Locales, nombre' }),
-        ...(lastKey && { ExclusiveStartKey: lastKey }),
-      });
-      const result = await docClient.send(cmd);
-      items.push(...(result.Items || []));
-      lastKey = result.LastEvaluatedKey || null;
-    } while (lastKey);
-    let locales = items.map((item) => (item ? { ...item } : {}));
-    if (grupoParipe) {
-      locales = locales.filter(localGrupoParipe);
-    }
-    if (minimal && !grupoParipe) {
-      cachedLocalesMinimal = locales;
-      cachedLocalesMinimalTime = Date.now();
-    }
-    res.json({ locales });
-  } catch (err) {
-    console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al listar locales' });
+  const minimal = req.query.minimal === '1' || req.query.minimal === 'true';
+  const grupoParipe = req.query.grupoParipe === '1' || req.query.grupoParipe === 'true';
+  if (minimal && !grupoParipe && cachedLocalesMinimal != null && (Date.now() - cachedLocalesMinimalTime) < CACHE_LOCALES_TTL_MS) {
+    return res.json({ locales: cachedLocalesMinimal });
   }
+  const items = [];
+  let lastKey = null;
+  do {
+    const cmd = new ScanCommand({
+      TableName: tables.locales,
+      ...(minimal && !grupoParipe && { ProjectionExpression: 'id_Locales, nombre, estilo_visual_brief' }),
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    });
+    const result = await docClient.send(cmd);
+    items.push(...(result.Items || []));
+    lastKey = result.LastEvaluatedKey || null;
+  } while (lastKey);
+  let locales = items.map((item) => (item ? { ...item } : {}));
+  if (grupoParipe) {
+    locales = locales.filter(localGrupoParipe);
+  }
+  if (minimal && !grupoParipe) {
+    cachedLocalesMinimal = locales;
+    cachedLocalesMinimalTime = Date.now();
+  }
+  res.json({ locales });
 });
 
 router.post('/locales', async (req, res) => {
@@ -75,27 +72,27 @@ router.post('/locales', async (req, res) => {
   if (!bodyLocalesVal(body, 'nombre') || !String(bodyLocalesVal(body, 'nombre')).trim()) {
     return res.status(400).json({ error: 'nombre es obligatorio' });
   }
-  try {
-    const item = {};
-    for (const key of TABLE_LOCALES_ATTRS) {
-      if (key === 'id_Locales') {
-        const v = body.id_Locales ?? body.Id_Locales;
-        item[key] = v != null ? formatId6(v) : '000000';
-      } else {
-        const v = bodyLocalesVal(body, key);
-        item[key] = v != null && v !== '' ? String(v) : '';
-      }
+  const item = {};
+  for (const key of TABLE_LOCALES_ATTRS) {
+    if (key === 'id_Locales') {
+      const v = body.id_Locales ?? body.Id_Locales;
+      item[key] = v != null ? formatId6(v) : '000000';
+    } else if (key === 'estilo_visual_imagen_keys') {
+      const raw = body.estilo_visual_imagen_keys;
+      item[key] = Array.isArray(raw)
+        ? raw.map((x) => String(x).trim()).filter(Boolean).slice(0, 3)
+        : [];
+    } else {
+      const v = bodyLocalesVal(body, key);
+      item[key] = v != null && v !== '' ? String(v) : '';
     }
-    await docClient.send(new PutCommand({
-      TableName: tables.locales,
-      Item: item,
-    }));
-    cachedLocalesMinimal = null;
-    res.json({ ok: true, local: item });
-  } catch (err) {
-    console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al guardar el local' });
   }
+  await docClient.send(new PutCommand({
+    TableName: tables.locales,
+    Item: item,
+  }));
+  cachedLocalesMinimal = null;
+  res.json({ ok: true, local: item });
 });
 
 router.put('/locales', async (req, res) => {
@@ -103,47 +100,46 @@ router.put('/locales', async (req, res) => {
   const idLocales = (body.id_Locales ?? body.Id_Locales) != null ? String(body.id_Locales ?? body.Id_Locales) : '';
   if (!idLocales) return res.status(400).json({ error: 'id_Locales es obligatorio para editar' });
   if (!bodyLocalesVal(body, 'nombre') || !String(bodyLocalesVal(body, 'nombre')).trim()) return res.status(400).json({ error: 'nombre es obligatorio' });
-  try {
-    const getCmd = new GetCommand({
-      TableName: tables.locales,
-      Key: { id_Locales: idLocales },
-    });
-    const got = await docClient.send(getCmd);
-    const existing = got.Item || {};
-    const item = {};
-    for (const key of TABLE_LOCALES_ATTRS) {
-      if (key === 'id_Locales') item[key] = idLocales;
-      else {
-        const v = bodyLocalesVal(body, key);
-        item[key] = v != null && v !== '' ? String(v) : String(existing[key] ?? '');
+  const getCmd = new GetCommand({
+    TableName: tables.locales,
+    Key: { id_Locales: idLocales },
+  });
+  const got = await docClient.send(getCmd);
+  const existing = got.Item || {};
+  const item = {};
+  for (const key of TABLE_LOCALES_ATTRS) {
+    if (key === 'id_Locales') item[key] = idLocales;
+    else if (key === 'estilo_visual_imagen_keys') {
+      const raw = body.estilo_visual_imagen_keys;
+      if (Array.isArray(raw)) {
+        item[key] = raw.map((x) => String(x).trim()).filter(Boolean).slice(0, 3);
+      } else {
+        item[key] = Array.isArray(existing.estilo_visual_imagen_keys)
+          ? existing.estilo_visual_imagen_keys
+          : [];
       }
+    } else {
+      const v = bodyLocalesVal(body, key);
+      item[key] = v != null && v !== '' ? String(v) : String(existing[key] ?? '');
     }
-    await docClient.send(new PutCommand({
-      TableName: tables.locales,
-      Item: item,
-    }));
-    cachedLocalesMinimal = null;
-    res.json({ ok: true, local: item });
-  } catch (err) {
-    console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al actualizar el local' });
   }
+  await docClient.send(new PutCommand({
+    TableName: tables.locales,
+    Item: item,
+  }));
+  cachedLocalesMinimal = null;
+  res.json({ ok: true, local: item });
 });
 
 router.delete('/locales', async (req, res) => {
   const idLocales = req.body?.id_Locales != null ? String(req.body.id_Locales) : req.query?.id_Locales != null ? String(req.query.id_Locales) : '';
   if (!idLocales) return res.status(400).json({ error: 'id_Locales es obligatorio para borrar' });
-  try {
-    await docClient.send(new DeleteCommand({
-      TableName: tables.locales,
-      Key: { id_Locales: idLocales },
-    }));
-    cachedLocalesMinimal = null;
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al borrar el local' });
-  }
+  await docClient.send(new DeleteCommand({
+    TableName: tables.locales,
+    Key: { id_Locales: idLocales },
+  }));
+  cachedLocalesMinimal = null;
+  res.json({ ok: true });
 });
 
 export default router;

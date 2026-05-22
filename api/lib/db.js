@@ -15,6 +15,7 @@ export const tables = {
   almacenes: process.env.DDB_ALMACENES || 'igp_Almacenes',
   saleCenters: process.env.DDB_SALE_CENTERS_TABLE || 'Igp_SaleCenters',
   agoraProducts: process.env.DDB_AGORA_PRODUCTS_TABLE || 'Igp_AgoraProducts',
+  agoraUsuarios: process.env.DDB_AGORA_USUARIOS_TABLE || 'Igp_AgoraUsuarios',
   salesCloseOuts: process.env.DDB_SALES_CLOSEOUTS_TABLE || 'Igp_SalesCloseouts',
   mantenimiento: process.env.DDB_MANTENIMIENTO_TABLE || 'Igp_Mantenimiento',
   rolesPermisos: process.env.DDB_ROLES_PERMISOS_TABLE || 'Igp_RolesPermisos',
@@ -38,6 +39,8 @@ export const tables = {
   mysteryGuest: process.env.DDB_MISTERY_GUEST || 'Igp_MysteryGuest',
   /** Empleados sincronizados desde Factorial HR. PK = EMPLOYEE#<id>, SK = METADATA. */
   empleados: process.env.DDB_EMPLEADOS || 'Igp_Empleados',
+  /** Propuestas del módulo Marketing. PK = id_propuesta. GSIs: Local-Estado-index, Local-Fecha-index, Empresa-Estado-index. */
+  marketing: process.env.DDB_MARKETING || 'Igp_Marketing',
 };
 
 /**
