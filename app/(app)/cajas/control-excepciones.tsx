@@ -30,7 +30,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '../../utils/api';
 import { generarPdfExcepciones, generarPdfExcepcionesAgrupado, pdfExcepcionesFileSlug } from './pdfControlExcepciones';
 import { formatMotivoLabel, getMotivoBadgeStyle } from './motivoBadges';
-import { filterExcepcionesConsumo } from './excepcionesConsumo';
+import { filterExcepcionesConsumo, isConsumoCustomer } from './excepcionesConsumo';
 
 const PAGE_SIZE = 100;
 const PAGE_SIZE_GRUPOS = 50;
@@ -38,16 +38,18 @@ const DEFAULT_COL_WIDTH = 90;
 const STORAGE_KEY_AGRUPAR = 'excepciones.agrupar.v1';
 const STORAGE_KEY_EXPANDIDOS = 'excepciones.expandidos.v1';
 
-const GROUP_COLS = ['Usuario', 'Invitaciones', 'Descuentos', 'Anulaciones', 'Total'] as const;
+const GROUP_COLS = ['Usuario', 'Invitaciones', 'Promociones', 'Descuentos', 'Anulaciones', 'Consumo', 'Total'] as const;
 const GROUP_COL_WIDTH: Record<(typeof GROUP_COLS)[number], number> = {
   Usuario: 220,
   Invitaciones: 220,
+  Promociones: 200,
   Descuentos: 180,
   Anulaciones: 180,
+  Consumo: 180,
   Total: 110,
 };
 
-type ExceptionType = 'invitacion' | 'descuento' | 'anulacion';
+type ExceptionType = 'invitacion' | 'promocion' | 'descuento' | 'anulacion' | 'consumo';
 
 type ExceptionRow = {
   Type: ExceptionType;
@@ -76,14 +78,18 @@ type LocalItem = { AgoraCode?: string; agoraCode?: string; Nombre?: string; nomb
 
 const TYPE_LABEL: Record<ExceptionType, string> = {
   invitacion: 'Invitación',
+  promocion: 'Promoción',
   descuento: 'Descuento manual',
   anulacion: 'Anulación',
+  consumo: 'Consumo',
 };
 
 const TYPE_COLOR: Record<ExceptionType, { bg: string; text: string; border: string }> = {
   invitacion: { bg: '#ecfdf5', text: '#065f46', border: '#a7f3d0' },
+  promocion: { bg: '#ede9fe', text: '#5b21b6', border: '#c4b5fd' },
   descuento: { bg: '#fef3c7', text: '#92400e', border: '#fde68a' },
   anulacion: { bg: '#fee2e2', text: '#991b1b', border: '#fecaca' },
+  consumo: { bg: '#ecfeff', text: '#0e7490', border: '#a5f3fc' },
 };
 
 function formatMoneda(value: number): string {
@@ -148,7 +154,7 @@ async function safeJson<T = unknown>(res: Response): Promise<T> {
 
 const COLUMNAS = [
   'Type', 'BusinessDay', 'Hora', 'Local', 'PosName', 'DocumentType',
-  'TicketNumber', 'UserName', 'ProductName', 'Quantity', 'Amount', 'Reason',
+  'TicketNumber', 'UserName', 'ProductName', 'Quantity', 'Amount', 'Customer', 'Reason',
 ] as const;
 
 const COL_LABELS: Record<string, string> = {
@@ -163,6 +169,7 @@ const COL_LABELS: Record<string, string> = {
   ProductName: 'Producto',
   Quantity: 'Cant.',
   Amount: 'Importe',
+  Customer: 'Cliente',
   Reason: 'Motivo',
 };
 
@@ -178,6 +185,7 @@ const COL_DEFAULT_WIDTH: Record<string, number> = {
   ProductName: 180,
   Quantity: 60,
   Amount: 92,
+  Customer: 120,
   Reason: 160,
 };
 
@@ -221,7 +229,7 @@ export default function ControlExcepcionesScreen() {
   const [massProgress, setMassProgress] = useState({ current: 0, total: 0, localName: '' });
 
   // --- Filtro cliente CONSUMO (Id 1) — excluido por defecto ---
-  const [incluirConsumo, setIncluirConsumo] = useState(false);
+  const [incluirConsumo, setIncluirConsumo] = useState(true);
 
   // --- Agrupación por usuario (toggle + expand/collapse + persistencia) ---
   const [agrupar, setAgrupar] = useState(true);
@@ -276,6 +284,14 @@ export default function ControlExcepcionesScreen() {
     return map;
   }, [locales]);
 
+  const localesOrdenados = useMemo(() => {
+    return [...locales].sort((a, b) => {
+      const na = String(a.nombre ?? a.Nombre ?? a.agoraCode ?? a.AgoraCode ?? '').trim();
+      const nb = String(b.nombre ?? b.Nombre ?? b.agoraCode ?? b.AgoraCode ?? '').trim();
+      return na.localeCompare(nb, 'es', { sensitivity: 'base' });
+    });
+  }, [locales]);
+
   useEffect(() => {
     const t = setTimeout(() => setFiltroBusqueda(filtroBusquedaInput), 250);
     return () => clearTimeout(t);
@@ -320,7 +336,10 @@ export default function ControlExcepcionesScreen() {
       }
       if (opts.refresh) params.set('refresh', '1');
 
-      const res = await apiFetch(`/api/agora/invoices/exceptions?${params.toString()}`);
+      const res = await apiFetch(
+        `/api/agora/invoices/exceptions?${params.toString()}`,
+        { timeoutMs: 120_000 },
+      );
       const data = await safeJson<{
         rows?: ExceptionRow[];
         error?: string;
@@ -336,7 +355,11 @@ export default function ControlExcepcionesScreen() {
       setFromCache(Boolean(data.fromCache));
       setCurrentPage(1);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error de conexión');
+      const msg =
+        e instanceof Error && /abort/i.test(e.message)
+          ? 'La consulta tardó demasiado. Reduce el rango de fechas o el número de locales seleccionados.'
+          : e instanceof Error ? e.message : 'Error de conexión';
+      setError(msg);
       setRows([]);
     } finally {
       setLoading(false);
@@ -370,8 +393,14 @@ export default function ControlExcepcionesScreen() {
         if (n === 0 && r.Type === 'invitacion') return '0,00 €';
         return formatMoneda(n);
       }
-      case 'Reason':
-        return formatMotivoLabel(r.Reason, r.DiscountRate);
+      case 'Customer': {
+        if (isConsumoCustomer(r.CustomerId, r.CustomerName)) return 'CONSUMO';
+        return r.CustomerName ?? (r.CustomerId != null ? `#${r.CustomerId}` : '—');
+      }
+      case 'Reason': {
+        const base = formatMotivoLabel(r.Reason, r.DiscountRate);
+        return isConsumoCustomer(r.CustomerId, r.CustomerName) ? `${base} · CONSUMO` : base;
+      }
       default: return '';
     }
   }, [agoraCodeToNombre]);
@@ -454,8 +483,10 @@ export default function ControlExcepcionesScreen() {
     userKey: string;
     userName: string;
     invitacion: { count: number; quantity: number; amount: number };
+    promocion: { count: number; quantity: number; amount: number };
     descuento: { count: number; quantity: number; amount: number };
     anulacion: { count: number; quantity: number; amount: number };
+    consumo: { count: number; quantity: number; amount: number };
     totalCount: number;
     totalAmount: number;
     rows: ExceptionRow[];
@@ -472,8 +503,10 @@ export default function ControlExcepcionesScreen() {
           userKey: key,
           userName: r.UserName ?? (r.UserId != null ? `#${r.UserId}` : 'Sin usuario'),
           invitacion: { count: 0, quantity: 0, amount: 0 },
+          promocion: { count: 0, quantity: 0, amount: 0 },
           descuento: { count: 0, quantity: 0, amount: 0 },
           anulacion: { count: 0, quantity: 0, amount: 0 },
+          consumo: { count: 0, quantity: 0, amount: 0 },
           totalCount: 0,
           totalAmount: 0,
           rows: [],
@@ -505,8 +538,10 @@ export default function ControlExcepcionesScreen() {
   const kpis = useMemo(() => {
     const out = {
       invitacion: { count: 0, total: 0 },
+      promocion: { count: 0, total: 0 },
       descuento: { count: 0, total: 0 },
       anulacion: { count: 0, total: 0 },
+      consumo: { count: 0, total: 0 },
     };
     for (const r of filteredRows) {
       const t = r.Type;
@@ -517,6 +552,16 @@ export default function ControlExcepcionesScreen() {
     return out;
   }, [filteredRows]);
 
+  const totalesTabla = useMemo(() => {
+    let quantity = 0;
+    let amount = 0;
+    for (const r of sortedRows) {
+      quantity += Number(r.Quantity) || 0;
+      amount += Number(r.Amount) || 0;
+    }
+    return { quantity, amount };
+  }, [sortedRows]);
+
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE));
   const effectivePage = Math.min(Math.max(1, currentPage), totalPages);
   const paginatedList = useMemo(() => {
@@ -526,9 +571,52 @@ export default function ControlExcepcionesScreen() {
 
   const isMonedaCol = (col: string) => col === 'Amount' || col === 'Quantity';
 
+  const renderSumRowTable = (
+    totales: { quantity: number; amount: number },
+    variant: 'main' | 'child' = 'main',
+  ) => (
+    <View style={[styles.sumRowTable, variant === 'child' && styles.sumRowTableChild]}>
+      {COLUMNAS.map((col) => {
+        const w = COL_DEFAULT_WIDTH[col] ?? DEFAULT_COL_WIDTH;
+        if (col === 'ProductName') {
+          return (
+            <View key={col} style={[styles.cell, styles.sumCell, { width: w }]}>
+              <Text style={styles.sumLabelText} numberOfLines={1}>Total</Text>
+            </View>
+          );
+        }
+        if (col === 'Quantity') {
+          return (
+            <View key={col} style={[styles.cell, styles.cellRight, styles.sumCell, { width: w }]}>
+              <Text style={styles.sumCellText} numberOfLines={1}>
+                {totales.quantity !== 0 ? String(totales.quantity) : '—'}
+              </Text>
+            </View>
+          );
+        }
+        if (col === 'Amount') {
+          const amt = totales.amount;
+          const amtLabel = !Number.isFinite(amt) || amt === 0
+            ? '0,00 €'
+            : formatMoneda(amt);
+          return (
+            <View key={col} style={[styles.cell, styles.cellRight, styles.sumCell, { width: w }]}>
+              <Text style={styles.sumCellText} numberOfLines={1}>
+                {amtLabel}
+              </Text>
+            </View>
+          );
+        }
+        return <View key={col} style={{ width: w }} />;
+      })}
+    </View>
+  );
+
   const renderReasonCell = (r: ExceptionRow, w: number) => {
     const colors = getMotivoBadgeStyle(r.Reason);
-    const label = formatMotivoLabel(r.Reason, r.DiscountRate);
+    const base = formatMotivoLabel(r.Reason, r.DiscountRate);
+    const esConsumo = isConsumoCustomer(r.CustomerId, r.CustomerName);
+    const label = esConsumo ? `${base} · CONSUMO` : base;
     return (
       <View style={[styles.cell, { width: w }]}>
         <View style={[styles.motivoBadge, { backgroundColor: colors.bg, borderColor: colors.border }]}>
@@ -536,6 +624,27 @@ export default function ControlExcepcionesScreen() {
             {label}
           </Text>
         </View>
+      </View>
+    );
+  };
+
+  const renderCustomerCell = (r: ExceptionRow, w: number) => {
+    const esConsumo = isConsumoCustomer(r.CustomerId, r.CustomerName);
+    if (esConsumo) {
+      return (
+        <View style={[styles.cell, { width: w }]}>
+          <View style={styles.consumoBadge}>
+            <Text style={styles.consumoBadgeText} numberOfLines={1}>CONSUMO</Text>
+          </View>
+        </View>
+      );
+    }
+    const nombre = r.CustomerName ?? (r.CustomerId != null ? `#${r.CustomerId}` : null);
+    return (
+      <View style={[styles.cell, { width: w }]}>
+        <Text style={styles.cellText} numberOfLines={1}>
+          {nombre ?? '—'}
+        </Text>
       </View>
     );
   };
@@ -684,7 +793,10 @@ export default function ControlExcepcionesScreen() {
           params.set('dateFrom', consultedFrom);
           params.set('dateTo', consultedTo);
           params.append('workplaceIds', code);
-          const res = await apiFetch(`/api/agora/invoices/exceptions?${params.toString()}`);
+          const res = await apiFetch(
+            `/api/agora/invoices/exceptions?${params.toString()}`,
+            { timeoutMs: 120_000 },
+          );
           const data = await safeJson<{ rows?: ExceptionRow[] }>(res);
           filas = filterExcepcionesConsumo(
             Array.isArray(data.rows) ? data.rows : [],
@@ -709,27 +821,36 @@ export default function ControlExcepcionesScreen() {
 
     const HEADERS = [
       'Tipo', 'Fecha', 'Hora', 'Local', 'POS', 'Documento', 'Nº',
-      'Usuario', 'Producto', 'Cantidad', 'Importe (€)', 'Motivo', '% Descuento',
+      'Usuario', 'Producto', 'Cantidad', 'Importe (€)', 'Cliente', 'Motivo', '% Descuento',
     ];
 
-    const filaParaR = (r: typeof sortedRows[number]) => ({
-      Tipo: TYPE_LABEL[r.Type] ?? r.Type,
-      Fecha: formatBusinessDayLabel(r.BusinessDay),
-      Hora: formatHora(r.DateTime),
-      Local: (() => {
-        const cod = String(r.WorkplaceId ?? '').trim();
-        return agoraCodeToNombre[cod] ?? r.WorkplaceName ?? cod ?? '';
-      })(),
-      POS: r.PosName ?? (r.PosId != null ? String(r.PosId) : ''),
-      Documento: r.DocumentType ?? '',
-      'Nº': r.TicketNumber || r.InvoiceNumber || '',
-      Usuario: r.UserName ?? (r.UserId != null ? `#${r.UserId}` : ''),
-      Producto: r.ProductName ?? '',
-      Cantidad: r.Quantity ?? '',
-      'Importe (€)': Number(r.Amount) || 0,
-      Motivo: r.Reason ?? '',
-      '% Descuento': r.DiscountRate ?? '',
-    });
+    const filaParaR = (r: typeof sortedRows[number]) => {
+      const esConsumo = isConsumoCustomer(r.CustomerId, r.CustomerName);
+      const cliente = esConsumo
+        ? 'CONSUMO'
+        : (r.CustomerName ?? (r.CustomerId != null ? `#${r.CustomerId}` : ''));
+      const motivoBase = r.Reason ?? '';
+      const motivo = esConsumo && motivoBase ? `${motivoBase} · CONSUMO` : motivoBase;
+      return {
+        Tipo: TYPE_LABEL[r.Type] ?? r.Type,
+        Fecha: formatBusinessDayLabel(r.BusinessDay),
+        Hora: formatHora(r.DateTime),
+        Local: (() => {
+          const cod = String(r.WorkplaceId ?? '').trim();
+          return agoraCodeToNombre[cod] ?? r.WorkplaceName ?? cod ?? '';
+        })(),
+        POS: r.PosName ?? (r.PosId != null ? String(r.PosId) : ''),
+        Documento: r.DocumentType ?? '',
+        'Nº': r.TicketNumber || r.InvoiceNumber || '',
+        Usuario: r.UserName ?? (r.UserId != null ? `#${r.UserId}` : ''),
+        Producto: r.ProductName ?? '',
+        Cantidad: r.Quantity ?? '',
+        'Importe (€)': Number(r.Amount) || 0,
+        Cliente: cliente,
+        Motivo: motivo,
+        '% Descuento': r.DiscountRate ?? '',
+      };
+    };
 
     type Fila = ReturnType<typeof filaParaR>;
     const headerStyle = {
@@ -750,7 +871,7 @@ export default function ControlExcepcionesScreen() {
 
     const empty: Fila = {
       Tipo: '', Fecha: '', Hora: '', Local: '', POS: '', Documento: '', 'Nº': '',
-      Usuario: '', Producto: '', Cantidad: '', 'Importe (€)': 0, Motivo: '', '% Descuento': '',
+      Usuario: '', Producto: '', Cantidad: '', 'Importe (€)': 0, Cliente: '', Motivo: '', '% Descuento': '',
     } as Fila;
 
     let dataRows: Fila[];
@@ -766,9 +887,11 @@ export default function ControlExcepcionesScreen() {
           Tipo: `USUARIO: ${g.userName}`,
           Fecha: `${g.totalCount} reg`,
           Local: `Inv: ${g.invitacion.count} (${g.invitacion.quantity} ud · ${formatMoneda(g.invitacion.amount)})`,
-          POS: `Desc: ${g.descuento.count} · ${formatMoneda(g.descuento.amount)}`,
-          Documento: `Anul: ${g.anulacion.count} · ${formatMoneda(g.anulacion.amount)}`,
+          POS: `Promo: ${g.promocion.count} · ${formatMoneda(g.promocion.amount)}`,
+          Documento: `Desc: ${g.descuento.count} · ${formatMoneda(g.descuento.amount)}`,
+          'Nº': `Anul: ${g.anulacion.count} · ${formatMoneda(g.anulacion.amount)}`,
           Usuario: g.userName,
+          Producto: `Cons: ${g.consumo.count} · ${formatMoneda(g.consumo.amount)}`,
           'Importe (€)': g.totalAmount,
           Motivo: `Total: ${formatMoneda(g.totalAmount)}`,
         };
@@ -814,7 +937,7 @@ export default function ControlExcepcionesScreen() {
     ws['!cols'] = [
       { wch: 14 }, { wch: 12 }, { wch: 8 }, { wch: 22 }, { wch: 14 },
       { wch: 10 }, { wch: 12 }, { wch: 22 }, { wch: 28 }, { wch: 10 },
-      { wch: 14 }, { wch: 28 }, { wch: 10 },
+      { wch: 14 }, { wch: 18 }, { wch: 28 }, { wch: 10 },
     ];
 
     const wb = XLSX.utils.book_new();
@@ -835,7 +958,7 @@ export default function ControlExcepcionesScreen() {
 
       <View style={[styles.queryBlock, (localesOpen || usuariosOpen) && styles.queryBlockElevated]}>
         <Text style={styles.queryBlockTitle}>Consulta</Text>
-        <View style={styles.queryRow}>
+        <View style={[styles.queryRow, styles.queryRowFilters]}>
           <View style={styles.dateWrap}>
             <Text style={styles.dateLabel}>Desde</Text>
             <InputFecha
@@ -894,7 +1017,7 @@ export default function ControlExcepcionesScreen() {
                     </TouchableOpacity>
                     <View style={styles.ddDivider} />
                     <ScrollView style={styles.builderDropdownScrollCompact} nestedScrollEnabled>
-                      {locales.map((loc) => {
+                      {localesOrdenados.map((loc) => {
                         const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
                         if (!code) return null;
                         const nombre = String(loc.nombre ?? loc.Nombre ?? code).trim();
@@ -1016,7 +1139,7 @@ export default function ControlExcepcionesScreen() {
         </View>
 
         {/* Segunda fila del bloque de consulta: botones */}
-        <View style={[styles.queryRow, { marginTop: 8 }]}>
+        <View style={[styles.queryRow, styles.queryRowActions, { marginTop: 8 }]}>
           <TouchableOpacity
             style={[styles.toolbarBtnPrimary, loading && styles.toolbarBtnDisabled]}
             onPress={onConsultar}
@@ -1086,7 +1209,7 @@ export default function ControlExcepcionesScreen() {
       {/* KPIs */}
       <View style={styles.contentBelow}>
       <View style={styles.kpisRow}>
-        {(['invitacion', 'descuento', 'anulacion'] as ExceptionType[]).map((t) => {
+        {(['invitacion', 'promocion', 'descuento', 'anulacion', 'consumo'] as ExceptionType[]).map((t) => {
           const k = kpis[t];
           const color = TYPE_COLOR[t];
           const active = filtroTipo.has(t);
@@ -1240,7 +1363,9 @@ export default function ControlExcepcionesScreen() {
                 ))}
               </View>
             ) : (
-              <View style={styles.headerRowTable}>
+              <>
+                {sortedRows.length > 0 && renderSumRowTable(totalesTabla)}
+                <View style={styles.headerRowTable}>
                 {COLUMNAS.map((col) => {
                   const active = sortBy?.col === col;
                   return (
@@ -1272,6 +1397,7 @@ export default function ControlExcepcionesScreen() {
                   );
                 })}
               </View>
+              </>
             )}
             <ScrollView style={styles.tableInner} showsVerticalScrollIndicator>
               <View style={styles.table}>
@@ -1312,6 +1438,13 @@ export default function ControlExcepcionesScreen() {
                                   : '—'}
                               </Text>
                             </View>
+                            <View style={[styles.cell, { width: GROUP_COL_WIDTH.Promociones }]}>
+                              <Text style={[styles.groupBadgeText, { color: TYPE_COLOR.promocion.text }]} numberOfLines={1}>
+                                {g.promocion.count > 0
+                                  ? `${g.promocion.count} reg · ${formatMoneda(g.promocion.amount)}`
+                                  : '—'}
+                              </Text>
+                            </View>
                             <View style={[styles.cell, { width: GROUP_COL_WIDTH.Descuentos }]}>
                               <Text style={[styles.groupBadgeText, { color: TYPE_COLOR.descuento.text }]} numberOfLines={1}>
                                 {g.descuento.count > 0
@@ -1323,6 +1456,13 @@ export default function ControlExcepcionesScreen() {
                               <Text style={[styles.groupBadgeText, { color: TYPE_COLOR.anulacion.text }]} numberOfLines={1}>
                                 {g.anulacion.count > 0
                                   ? `${g.anulacion.count} reg · ${formatMoneda(g.anulacion.amount)}`
+                                  : '—'}
+                              </Text>
+                            </View>
+                            <View style={[styles.cell, { width: GROUP_COL_WIDTH.Consumo }]}>
+                              <Text style={[styles.groupBadgeText, { color: TYPE_COLOR.consumo.text }]} numberOfLines={1}>
+                                {g.consumo.count > 0
+                                  ? `${g.consumo.count} reg · ${formatMoneda(g.consumo.amount)}`
                                   : '—'}
                               </Text>
                             </View>
@@ -1341,6 +1481,16 @@ export default function ControlExcepcionesScreen() {
 
                           {isOpen && (
                             <>
+                              {renderSumRowTable(
+                                g.rows.reduce(
+                                  (acc, r) => ({
+                                    quantity: acc.quantity + (Number(r.Quantity) || 0),
+                                    amount: acc.amount + (Number(r.Amount) || 0),
+                                  }),
+                                  { quantity: 0, amount: 0 },
+                                ),
+                                'child',
+                              )}
                               <View style={styles.childHeaderRow}>
                                 {COLUMNAS.map((col) => (
                                   <View
@@ -1378,6 +1528,9 @@ export default function ControlExcepcionesScreen() {
                                     }
                                     if (col === 'Reason') {
                                       return <View key={col}>{renderReasonCell(r, w)}</View>;
+                                    }
+                                    if (col === 'Customer') {
+                                      return <View key={col}>{renderCustomerCell(r, w)}</View>;
                                     }
                                     const valor = getValorCelda(r, col);
                                     return (
@@ -1434,6 +1587,9 @@ export default function ControlExcepcionesScreen() {
                           }
                           if (col === 'Reason') {
                             return <View key={col}>{renderReasonCell(r, w)}</View>;
+                          }
+                          if (col === 'Customer') {
+                            return <View key={col}>{renderCustomerCell(r, w)}</View>;
                           }
                           const valor = getValorCelda(r, col);
                           return (
@@ -1513,7 +1669,7 @@ export default function ControlExcepcionesScreen() {
               </Text>
             </View>
             <ScrollView style={styles.massListScroll} nestedScrollEnabled>
-              {locales.map((loc) => {
+              {localesOrdenados.map((loc) => {
                 const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
                 if (!code) return null;
                 const nombre = String(loc.nombre ?? loc.Nombre ?? code);
@@ -1611,6 +1767,10 @@ const styles = StyleSheet.create({
   },
   queryBlockTitle: { fontSize: 10, fontWeight: '700', color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
   queryRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap', position: 'relative' },
+  /** Fila con los dropdowns (Locales / Usuario): debe pintar por ENCIMA de la fila de botones. */
+  queryRowFilters: { zIndex: 20 },
+  /** Fila de botones de acción: por DEBAJO de los desplegables. */
+  queryRowActions: { zIndex: 10 },
 
   contentBelow: {
     flex: 1,
@@ -1693,6 +1853,21 @@ const styles = StyleSheet.create({
   },
   consumoCheckText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
   consumoCheckTextActive: { color: '#0369a1', fontWeight: '600' },
+  consumoBadge: {
+    alignSelf: 'flex-start',
+    paddingVertical: 1,
+    paddingHorizontal: 6,
+    backgroundColor: '#f0f9ff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
+  consumoBadgeText: {
+    fontSize: 9.5,
+    color: '#0369a1',
+    fontWeight: '400',
+    letterSpacing: 0.3,
+  },
 
   kpisRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 8 },
   kpiCard: { paddingVertical: 5, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, minWidth: 140 },
@@ -1721,6 +1896,20 @@ const styles = StyleSheet.create({
   tableInner: { flex: 1, backgroundColor: '#fff' },
   table: { paddingBottom: 24, backgroundColor: '#fff' },
   headerRowTable: { flexDirection: 'row', backgroundColor: '#f8fafc', borderBottomWidth: 1, borderColor: '#e2e8f0' },
+  sumRowTable: {
+    flexDirection: 'row',
+    backgroundColor: '#eff6ff',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: '#dbeafe',
+  },
+  sumRowTableChild: {
+    backgroundColor: '#f0f9ff',
+    borderLeftWidth: 3,
+    borderLeftColor: '#bae6fd',
+  },
+  sumCell: { paddingVertical: 3 },
+  sumLabelText: { fontSize: 9, fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.3 },
+  sumCellText: { fontSize: 10, fontWeight: '700', color: '#0369a1' },
   dataRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: '#f1f5f9' },
   cellHeader: {
     paddingHorizontal: 6, paddingVertical: 6,

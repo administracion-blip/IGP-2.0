@@ -21,6 +21,20 @@ const KNOWN_MOTIVO_COLORS: Record<string, MotivoBadgeStyle> = {
   'linea anulada': { bg: '#fce7f3', text: '#be185d', border: '#f9a8d4' },
 };
 
+/** Estilo lila para cualquier motivo que empiece por "Promoción" */
+const PROMOCION_STYLE: MotivoBadgeStyle = {
+  bg: '#ede9fe',
+  text: '#5b21b6',
+  border: '#c4b5fd',
+};
+
+/** Estilo cian pastel para el motivo "Cliente CONSUMO" */
+const CONSUMO_STYLE: MotivoBadgeStyle = {
+  bg: '#ecfeff',
+  text: '#0e7490',
+  border: '#a5f3fc',
+};
+
 /** Paleta pastel para nombres de descuento u otros motivos dinámicos de Ágora */
 const MOTIVO_PALETTE: MotivoBadgeStyle[] = [
   { bg: '#ede9fe', text: '#5b21b6', border: '#c4b5fd' },
@@ -67,6 +81,8 @@ export function formatMotivoLabel(
 export function getMotivoBadgeStyle(reason: string | null | undefined): MotivoBadgeStyle {
   const key = normalizeMotivoKey(reason);
   if (!key) return DEFAULT_MOTIVO;
+  if (key.startsWith('promocion')) return PROMOCION_STYLE;
+  if (key.startsWith('cliente consumo')) return CONSUMO_STYLE;
   const known = KNOWN_MOTIVO_COLORS[key];
   if (known) return known;
   return MOTIVO_PALETTE[hashMotivoKey(key) % MOTIVO_PALETTE.length];

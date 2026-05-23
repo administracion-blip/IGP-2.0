@@ -1771,6 +1771,15 @@ function exceptionCustomerFields(line, it, ctx) {
   };
 }
 
+/** Cliente Ágora "CONSUMO" (Id 1): operativa permitida pero auditable. */
+const CONSUMO_CUSTOMER_ID = '1';
+const CONSUMO_CUSTOMER_NAME = 'CONSUMO';
+function isConsumoCustomerEntry(customerId, customerName) {
+  if (customerId != null && String(customerId).trim() === CONSUMO_CUSTOMER_ID) return true;
+  if (String(customerName ?? '').trim().toUpperCase() === CONSUMO_CUSTOMER_NAME) return true;
+  return false;
+}
+
 function docTypeLabel(contentType) {
   const c = String(contentType ?? '').trim().toUpperCase();
   if (c === 'T') return 'Ticket';
@@ -1789,6 +1798,20 @@ function pickLineProductPrice(line) {
     line?.StandardPrice ?? line?.standardPrice ??
     line?.BasePrice ?? line?.basePrice,
   );
+}
+
+/**
+ * ¿La línea pertenece a una promoción / oferta automática de Ágora?
+ * Detectado por `OfferId` o `OfferCode` en la línea.
+ */
+function pickLineOffer(line) {
+  const code = String(line?.OfferCode ?? line?.offerCode ?? '').trim();
+  if (!code) return null;
+  const offerId = line?.OfferId ?? line?.offerId ?? null;
+  const id = offerId != null && String(offerId).trim() !== '' && String(offerId) !== '0'
+    ? String(offerId).trim()
+    : null;
+  return { id, code };
 }
 
 /** Línea secundaria de un combo (mezclador, complemento, modificador incluido). */
@@ -1826,7 +1849,7 @@ function lineHasManualDiscount(line) {
         d?.DiscountAmount ?? d?.discountAmount ?? d?.Amount ?? d?.amount,
       );
       const rate = toNumberSafe(d?.DiscountRate ?? d?.discountRate ?? d?.Rate ?? d?.rate);
-      if (amount > 0.001 || rate > 0.001) return true;
+      if (amount > 0.001 || rate > 0.0001) return true;
     }
   }
   const lineDiscountAmt = toNumberSafe(
@@ -1834,32 +1857,56 @@ function lineHasManualDiscount(line) {
     line?.CashDiscount ?? line?.cashDiscount,
   );
   const lineDiscountRate = toNumberSafe(line?.DiscountRate ?? line?.discountRate);
-  return lineDiscountAmt > 0.001 || lineDiscountRate > 0.001;
+  return lineDiscountAmt > 0.001 || lineDiscountRate > 0.0001;
 }
 
 /**
- * Emite registros de descuento manual para una línea (array Discounts[] o campos directos).
- * @returns {boolean} true si se emitió al menos un descuento
+ * Normaliza un `DiscountRate` de Ágora a porcentaje (0–100).
+ * Ágora exporta a veces como fracción (0–1) y a veces como porcentaje (0–100).
+ */
+function normalizeDiscountRate(rate) {
+  const r = toNumberSafe(rate);
+  if (r <= 0) return 0;
+  if (r <= 1.0001) return r * 100;
+  return r;
+}
+
+/**
+ * Emite registros de descuento manual o invitación según el % aplicado.
+ * Descuentos del 100% (línea regalada) se clasifican como invitación.
+ * @returns {boolean} true si se emitió al menos un registro
  */
 function pushLineManualDiscounts(out, line, it, ctx, meta) {
   const {
     itemDate, docType, itemNumber, userId, userName,
     qty, productName, lineGross,
   } = meta;
+  const unitPrice = toNumberSafe(
+    line?.UnitPrice ?? line?.unitPrice ?? line?.Price ?? line?.price,
+  );
+  const productPrice = pickLineProductPrice(line);
+  /** Precio base sobre el que se aplica el descuento (precio carta × qty si está disponible). */
+  const baseAmount =
+    productPrice > 0.001 && qty > 0 ? productPrice * qty
+    : unitPrice > 0.001 && qty > 0 ? unitPrice * qty
+    : 0;
   let pushed = false;
-  const discountList =
-    line?.Discounts ?? line?.discounts ??
-    line?.SaleLineDiscounts ?? line?.saleLineDiscounts ??
-    line?.LineDiscounts ?? line?.lineDiscounts ?? [];
-  if (Array.isArray(discountList) && discountList.length > 0) {
-    for (const d of discountList) {
-      const amount = toNumberSafe(
-        d?.DiscountAmount ?? d?.discountAmount ?? d?.Amount ?? d?.amount,
-      );
-      const rate = toNumberSafe(d?.DiscountRate ?? d?.discountRate ?? d?.Rate ?? d?.rate);
-      if (amount <= 0.001 && rate <= 0.001) continue;
+
+  const emitDiscountEntry = (rawName, rawAmount, rawRate) => {
+    const ratePct = normalizeDiscountRate(rawRate);
+    let amount = toNumberSafe(rawAmount);
+    if (amount <= 0.001 && ratePct > 0 && baseAmount > 0) {
+      amount = (baseAmount * ratePct) / 100;
+    }
+    if (amount <= 0.001 && ratePct <= 0.001) return false;
+    const name = String(rawName ?? '').trim();
+    // Descuento al 100% (o línea regalada con base > 0 y cobro 0) → invitación
+    const isFullDiscount =
+      ratePct >= 99.5 ||
+      (baseAmount > 0.001 && Math.abs(lineGross) < 0.001 && amount >= baseAmount - 0.01);
+    if (isFullDiscount) {
       out.push({
-        Type: 'descuento',
+        Type: 'invitacion',
         WorkplaceId: ctx.workplaceId, WorkplaceName: ctx.workplaceName,
         PosId: ctx.posId, PosName: ctx.posName,
         BusinessDay: ctx.businessDay,
@@ -1867,24 +1914,16 @@ function pushLineManualDiscounts(out, line, it, ctx, meta) {
         DocumentType: docType,
         TicketNumber: itemNumber, InvoiceNumber: ctx.invNumber,
         UserId: userId, UserName: userName,
-        Amount: amount > 0 ? amount : (rate > 0 ? (lineGross * rate) / 100 : 0),
+        Amount: baseAmount > 0 ? baseAmount : amount,
         Quantity: qty,
         ProductName: productName,
-        Reason: String(d?.DiscountName ?? d?.discountName ?? d?.Name ?? d?.name ?? 'Descuento manual').trim(),
-        DiscountRate: rate || null,
+        Reason: name && !/descuento\s*manual/i.test(name) ? name : 'Invitación',
+        DiscountRate: ratePct >= 99.5 ? 100 : null,
         OriginalInvoiceId: null,
         ...exceptionCustomerFields(line, it, ctx),
       });
-      pushed = true;
+      return true;
     }
-    return pushed;
-  }
-  const lineDiscountAmt = toNumberSafe(
-    line?.DiscountAmount ?? line?.discountAmount ??
-    line?.CashDiscount ?? line?.cashDiscount,
-  );
-  const lineDiscountRate = toNumberSafe(line?.DiscountRate ?? line?.discountRate);
-  if (lineDiscountAmt > 0.001 || lineDiscountRate > 0.001) {
     out.push({
       Type: 'descuento',
       WorkplaceId: ctx.workplaceId, WorkplaceName: ctx.workplaceName,
@@ -1894,18 +1933,35 @@ function pushLineManualDiscounts(out, line, it, ctx, meta) {
       DocumentType: docType,
       TicketNumber: itemNumber, InvoiceNumber: ctx.invNumber,
       UserId: userId, UserName: userName,
-      Amount: lineDiscountAmt > 0
-        ? lineDiscountAmt
-        : (lineDiscountRate > 0 && lineGross > 0 ? (lineGross * lineDiscountRate) / 100 : 0),
+      Amount: amount,
       Quantity: qty,
       ProductName: productName,
-      Reason: 'Descuento manual',
-      DiscountRate: lineDiscountRate || null,
+      Reason: name || 'Descuento manual',
+      DiscountRate: ratePct > 0 ? Math.round(ratePct * 100) / 100 : null,
       OriginalInvoiceId: null,
       ...exceptionCustomerFields(line, it, ctx),
     });
-    pushed = true;
+    return true;
+  };
+
+  const discountList =
+    line?.Discounts ?? line?.discounts ??
+    line?.SaleLineDiscounts ?? line?.saleLineDiscounts ??
+    line?.LineDiscounts ?? line?.lineDiscounts ?? [];
+  if (Array.isArray(discountList) && discountList.length > 0) {
+    for (const d of discountList) {
+      const name = d?.DiscountName ?? d?.discountName ?? d?.Name ?? d?.name;
+      const amount = d?.DiscountAmount ?? d?.discountAmount ?? d?.Amount ?? d?.amount;
+      const rate = d?.DiscountRate ?? d?.discountRate ?? d?.Rate ?? d?.rate;
+      if (emitDiscountEntry(name, amount, rate)) pushed = true;
+    }
+    return pushed;
   }
+  const lineDiscountAmt =
+    line?.DiscountAmount ?? line?.discountAmount ??
+    line?.CashDiscount ?? line?.cashDiscount;
+  const lineDiscountRate = line?.DiscountRate ?? line?.discountRate;
+  if (emitDiscountEntry(null, lineDiscountAmt, lineDiscountRate)) pushed = true;
   return pushed;
 }
 
@@ -1922,7 +1978,13 @@ function dedupeInvitacionesSuperseded(rows) {
   if (!hasCortesia && !hasDescuento) return rows;
   return rows.filter((r) => {
     if (hasCortesia && r.Type === 'descuento') return false;
-    if (r.Type === 'invitacion' && r.Reason === 'Invitación') {
+    // Invitación heurística (sin DiscountRate explícito) queda absorbida si hay cortesía/descuento.
+    // Las invitaciones detectadas como descuento 100% conservan DiscountRate=100 y se mantienen.
+    if (
+      r.Type === 'invitacion' &&
+      r.Reason === 'Invitación' &&
+      (r.DiscountRate == null)
+    ) {
       return !hasCortesia && !hasDescuento;
     }
     return true;
@@ -2012,6 +2074,12 @@ function extractExceptionsFromInvoiceItem(it, ctx) {
     itemDate, docType, itemNumber, userId, userName,
   };
 
+  // Cliente CONSUMO a nivel item (Id 1 / nombre "CONSUMO"): cualquier línea
+  // que no genere otra excepción se registrará como Type: 'consumo'.
+  const itemCustomerId = pickCustomerId(it) ?? ctx.invCustomerId ?? null;
+  const itemCustomerName = pickCustomerName(it) ?? ctx.invCustomerName ?? null;
+  const isItemConsumo = isConsumoCustomerEntry(itemCustomerId, itemCustomerName);
+
   for (const line of saleLines) {
     const qty = toNumberSafe(line?.Quantity ?? line?.quantity);
     const productName = String(
@@ -2039,6 +2107,9 @@ function extractExceptionsFromInvoiceItem(it, ctx) {
       (Array.isArray(line?.Cancellations) && line.Cancellations.length > 0) ||
       (Array.isArray(line?.cancellations) && line.cancellations.length > 0);
 
+    /** true = línea ya procesada (emitida como excepción o saltada como subcomponente). */
+    let lineHandled = false;
+
     if (lineCancelled) {
       out.push({
         Type: 'anulacion',
@@ -2057,45 +2128,148 @@ function extractExceptionsFromInvoiceItem(it, ctx) {
         OriginalInvoiceId: null,
         ...exceptionCustomerFields(line, it, ctx),
       });
-      continue;
+      lineHandled = true;
     }
 
     // Mezcladores / complementos incluidos en combo (p. ej. "c. GINGER ALE" a 0 €)
     if (
+      !lineHandled &&
       isSaleLineSubComponent(line) &&
       unitPrice <= 0.001 &&
       Math.abs(lineGross) < 0.001
     ) {
-      continue;
+      lineHandled = true; // saltado, no genera excepción ni consumo
     }
 
-    // Invitación / producto cortesía / descuento manual (prioridad: cortesía > descuento > invitación)
-    const saleType = String(line?.SaleType ?? line?.saleType ?? '').trim().toUpperCase();
-    const hasExplicitInvitation =
-      line?.IsInvitation === true || line?.isInvitation === true ||
-      saleType === 'INVITATION' || saleType === 'INVITACION';
+    // Promoción / oferta automática de Ágora (OfferCode).
+    // Solo se emite como promoción si hay un descuento monetario detectable
+    // (CashDiscount, DiscountRate, o lineGross < baseAmt). Si la línea va a 0
+    // sin descuento explícito, se trata como cortesía / regalo en el flujo siguiente.
+    if (!lineHandled) {
+      const offer = pickLineOffer(line);
+      if (offer && !isSaleLineSubComponent(line)) {
+        const baseAmt =
+          productPrice > 0.001 && qty > 0 ? productPrice * qty
+          : unitPrice > 0.001 && qty > 0 ? unitPrice * qty
+          : 0;
+        const lineDiscountAmt = toNumberSafe(
+          line?.CashDiscount ?? line?.cashDiscount ??
+          line?.DiscountAmount ?? line?.discountAmount,
+        );
+        const lineDiscountRate = normalizeDiscountRate(
+          line?.DiscountRate ?? line?.discountRate,
+        );
+        let amountPromo = lineDiscountAmt;
+        if (amountPromo <= 0.001 && baseAmt > 0 && lineGross > 0.001) {
+          amountPromo = Math.max(0, baseAmt - lineGross);
+        }
+        if (amountPromo <= 0.001 && lineDiscountRate > 0 && baseAmt > 0) {
+          amountPromo = (baseAmt * lineDiscountRate) / 100;
+        }
+        if (amountPromo > 0.001 || lineDiscountRate > 0.001) {
+          const ratePct = lineDiscountRate > 0
+            ? lineDiscountRate
+            : (amountPromo > 0 && baseAmt > 0 ? (amountPromo / baseAmt) * 100 : 0);
+          out.push({
+            Type: 'promocion',
+            WorkplaceId: ctx.workplaceId, WorkplaceName: ctx.workplaceName,
+            PosId: ctx.posId, PosName: ctx.posName,
+            BusinessDay: ctx.businessDay,
+            DateTime: itemDate,
+            DocumentType: docType,
+            TicketNumber: itemNumber, InvoiceNumber: ctx.invNumber,
+            UserId: userId, UserName: userName,
+            Amount: amountPromo,
+            Quantity: qty,
+            ProductName: productName,
+            Reason: `Promoción ${offer.code}`,
+            DiscountRate: ratePct > 0 ? Math.round(ratePct * 100) / 100 : null,
+            OriginalInvoiceId: null,
+            ...exceptionCustomerFields(line, it, ctx),
+          });
+          lineHandled = true;
+        }
+        // OfferCode presente pero sin descuento monetario calculable → cae al flujo cortesía
+      }
+    }
 
-    const isCourtesyFlag = line?.IsCourtesy === true || line?.isCourtesy === true;
-    const cobradoCero =
-      qty > 0 && unitPrice <= 0.001 && Math.abs(lineGross) < 0.001;
-    // Cortesía: línea sin importe que no es subcomponente de combo (mezclador / modificador)
-    const productoCortesiaLine =
-      cobradoCero && !isSaleLineSubComponent(line);
-    const isProductoCortesia = isCourtesyFlag || productoCortesiaLine;
-    // Invitación clásica: precio carta > 0 con cobro a 0 (requiere conocer ProductPrice)
-    const invitacionClasica =
-      qty > 0 && productPrice > 0.001 &&
-      unitPrice <= 0.001 && Math.abs(lineGross) < 0.001;
-    const isInvitacionPura =
-      !isProductoCortesia &&
-      cobradoCero &&
-      (hasExplicitInvitation || invitacionClasica);
-    const hasManualDiscount = lineHasManualDiscount(line);
-    const lineMeta = { ...lineMetaBase, qty, productName, lineGross };
+    if (!lineHandled) {
+      // Invitación / producto cortesía / descuento manual (prioridad: cortesía > descuento > invitación)
+      const saleType = String(line?.SaleType ?? line?.saleType ?? '').trim().toUpperCase();
+      const hasExplicitInvitation =
+        line?.IsInvitation === true || line?.isInvitation === true ||
+        saleType === 'INVITATION' || saleType === 'INVITACION';
 
-    if (isProductoCortesia) {
+      const isCourtesyFlag = line?.IsCourtesy === true || line?.isCourtesy === true;
+      const cobradoCero =
+        qty > 0 && unitPrice <= 0.001 && Math.abs(lineGross) < 0.001;
+      // Cortesía: línea sin importe que no es subcomponente de combo (mezclador / modificador)
+      const productoCortesiaLine =
+        cobradoCero && !isSaleLineSubComponent(line);
+      const isProductoCortesia = isCourtesyFlag || productoCortesiaLine;
+      // Invitación clásica: precio carta > 0 con cobro a 0 (requiere conocer ProductPrice)
+      const invitacionClasica =
+        qty > 0 && productPrice > 0.001 &&
+        unitPrice <= 0.001 && Math.abs(lineGross) < 0.001;
+      const isInvitacionPura =
+        !isProductoCortesia &&
+        cobradoCero &&
+        (hasExplicitInvitation || invitacionClasica);
+      const hasManualDiscount = lineHasManualDiscount(line);
+      const lineMeta = { ...lineMetaBase, qty, productName, lineGross };
+
+      if (isProductoCortesia) {
+        out.push({
+          Type: 'invitacion',
+          WorkplaceId: ctx.workplaceId, WorkplaceName: ctx.workplaceName,
+          PosId: ctx.posId, PosName: ctx.posName,
+          BusinessDay: ctx.businessDay,
+          DateTime: itemDate,
+          DocumentType: docType,
+          TicketNumber: itemNumber, InvoiceNumber: ctx.invNumber,
+          UserId: userId, UserName: userName,
+          Amount: Math.abs(lineGross || (productPrice > 0 ? productPrice * qty : unitPrice)),
+          Quantity: qty,
+          ProductName: productName,
+          Reason: 'Producto cortesía',
+          DiscountRate: null,
+          OriginalInvoiceId: null,
+          ...exceptionCustomerFields(line, it, ctx),
+        });
+        lineHandled = true;
+      } else if (hasManualDiscount) {
+        const pushed = pushLineManualDiscounts(out, line, it, ctx, lineMeta);
+        if (pushed) lineHandled = true;
+      } else if (isInvitacionPura) {
+        out.push({
+          Type: 'invitacion',
+          WorkplaceId: ctx.workplaceId, WorkplaceName: ctx.workplaceName,
+          PosId: ctx.posId, PosName: ctx.posName,
+          BusinessDay: ctx.businessDay,
+          DateTime: itemDate,
+          DocumentType: docType,
+          TicketNumber: itemNumber, InvoiceNumber: ctx.invNumber,
+          UserId: userId, UserName: userName,
+          Amount: qty > 0 && unitPrice > 0 ? qty * unitPrice : Math.abs(lineGross || unitPrice),
+          Quantity: qty,
+          ProductName: productName,
+          Reason: 'Invitación',
+          DiscountRate: null,
+          OriginalInvoiceId: null,
+          ...exceptionCustomerFields(line, it, ctx),
+        });
+        lineHandled = true;
+      } else {
+        const pushed = pushLineManualDiscounts(out, line, it, ctx, lineMeta);
+        if (pushed) lineHandled = true;
+      }
+    }
+
+    // Cliente CONSUMO: si la línea no generó ninguna excepción y es una venta
+    // real (qty > 0 con importe), registrarla como Type: 'consumo'.
+    if (!lineHandled && isItemConsumo && qty > 0 && Math.abs(lineGross) > 0.001) {
       out.push({
-        Type: 'invitacion',
+        Type: 'consumo',
         WorkplaceId: ctx.workplaceId, WorkplaceName: ctx.workplaceName,
         PosId: ctx.posId, PosName: ctx.posName,
         BusinessDay: ctx.businessDay,
@@ -2103,44 +2277,15 @@ function extractExceptionsFromInvoiceItem(it, ctx) {
         DocumentType: docType,
         TicketNumber: itemNumber, InvoiceNumber: ctx.invNumber,
         UserId: userId, UserName: userName,
-        Amount: Math.abs(lineGross || (productPrice > 0 ? productPrice * qty : unitPrice)),
+        Amount: Math.abs(lineGross),
         Quantity: qty,
         ProductName: productName,
-        Reason: 'Producto cortesía',
+        Reason: 'Cliente CONSUMO',
         DiscountRate: null,
         OriginalInvoiceId: null,
         ...exceptionCustomerFields(line, it, ctx),
       });
-      continue;
     }
-
-    if (hasManualDiscount) {
-      pushLineManualDiscounts(out, line, it, ctx, lineMeta);
-      continue;
-    }
-
-    if (isInvitacionPura) {
-      out.push({
-        Type: 'invitacion',
-        WorkplaceId: ctx.workplaceId, WorkplaceName: ctx.workplaceName,
-        PosId: ctx.posId, PosName: ctx.posName,
-        BusinessDay: ctx.businessDay,
-        DateTime: itemDate,
-        DocumentType: docType,
-        TicketNumber: itemNumber, InvoiceNumber: ctx.invNumber,
-        UserId: userId, UserName: userName,
-        Amount: qty > 0 && unitPrice > 0 ? qty * unitPrice : Math.abs(lineGross || unitPrice),
-        Quantity: qty,
-        ProductName: productName,
-        Reason: 'Invitación',
-        DiscountRate: null,
-        OriginalInvoiceId: null,
-        ...exceptionCustomerFields(line, it, ctx),
-      });
-      continue;
-    }
-
-    pushLineManualDiscounts(out, line, it, ctx, lineMeta);
   }
 
   return dedupeInvitacionesSuperseded(out);

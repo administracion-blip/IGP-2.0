@@ -4,7 +4,7 @@
  */
 
 import { applyMotivoPdfCellStyle, formatMotivoLabel } from './motivoBadges';
-import { consumoPdfLabel } from './excepcionesConsumo';
+import { consumoPdfLabel, isConsumoCustomer } from './excepcionesConsumo';
 
 export type PdfExcepcionesOpts = {
   incluirConsumo?: boolean;
@@ -12,7 +12,7 @@ export type PdfExcepcionesOpts = {
 
 type jsPDF = import('jspdf').jsPDF;
 
-export type ExceptionType = 'invitacion' | 'descuento' | 'anulacion';
+export type ExceptionType = 'invitacion' | 'promocion' | 'descuento' | 'anulacion' | 'consumo';
 
 export type ExceptionRowPdf = {
   Type: ExceptionType;
@@ -32,12 +32,26 @@ export type ExceptionRowPdf = {
   ProductName: string | null;
   Reason: string | null;
   DiscountRate: number | null;
+  CustomerId?: number | string | null;
+  CustomerName?: string | null;
 };
+
+function clienteLabel(r: ExceptionRowPdf): string {
+  if (isConsumoCustomer(r.CustomerId, r.CustomerName)) return 'CONSUMO';
+  return r.CustomerName ?? (r.CustomerId != null ? `#${r.CustomerId}` : '—');
+}
+
+function motivoConConsumo(r: ExceptionRowPdf): string {
+  const base = formatMotivoLabel(r.Reason, r.DiscountRate);
+  return isConsumoCustomer(r.CustomerId, r.CustomerName) ? `${base} · CONSUMO` : base;
+}
 
 const TYPE_LABEL: Record<ExceptionType, string> = {
   invitacion: 'Invitación',
+  promocion: 'Promoción',
   descuento: 'Descuento manual',
   anulacion: 'Anulación',
+  consumo: 'Consumo',
 };
 
 function formatMoneda(value: number): string {
@@ -86,8 +100,10 @@ export async function generarPdfExcepciones(
 ): Promise<jsPDF> {
   const kpis = {
     invitacion: { count: 0, total: 0 },
+    promocion: { count: 0, total: 0 },
     descuento: { count: 0, total: 0 },
     anulacion: { count: 0, total: 0 },
+    consumo: { count: 0, total: 0 },
   };
   for (const r of filas) {
     if (kpis[r.Type]) {
@@ -107,7 +123,8 @@ export async function generarPdfExcepciones(
     String(r.ProductName ?? '').slice(0, 36),
     r.Quantity != null ? String(r.Quantity) : '',
     formatMoneda(Number(r.Amount) || 0),
-    formatMotivoLabel(r.Reason, r.DiscountRate).slice(0, 36),
+    clienteLabel(r).slice(0, 18),
+    motivoConConsumo(r).slice(0, 40),
   ]);
 
   const { jsPDF: JsPDF } = await import('jspdf');
@@ -142,8 +159,10 @@ export async function generarPdfExcepciones(
   doc.setFontSize(9);
   const kpiLine =
     `Invitaciones: ${formatMoneda(kpis.invitacion.total)} (${kpis.invitacion.count})    ·    ` +
+    `Promociones: ${formatMoneda(kpis.promocion.total)} (${kpis.promocion.count})    ·    ` +
     `Descuentos: ${formatMoneda(kpis.descuento.total)} (${kpis.descuento.count})    ·    ` +
     `Anulaciones: ${formatMoneda(kpis.anulacion.total)} (${kpis.anulacion.count})    ·    ` +
+    `Consumo: ${formatMoneda(kpis.consumo.total)} (${kpis.consumo.count})    ·    ` +
     `Total filas: ${filas.length}`;
   doc.text(kpiLine, 14, y);
   y += 5;
@@ -152,14 +171,16 @@ export async function generarPdfExcepciones(
 
   // Colores para la columna Tipo
   const colorInvitacion: [number, number, number] = [5, 150, 105];
+  const colorPromocion: [number, number, number] = [91, 33, 182];
   const colorDescuento: [number, number, number] = [180, 83, 9];
   const colorAnulacion: [number, number, number] = [185, 28, 28];
+  const colorConsumo: [number, number, number] = [14, 116, 144];
 
   autoTable(doc, {
     startY: y,
     head: [[
       'Tipo', 'Fecha', 'Hora', 'POS', 'Doc', 'Nº', 'Usuario',
-      'Producto', 'Cant.', 'Importe', 'Motivo',
+      'Producto', 'Cant.', 'Importe', 'Cliente', 'Motivo',
     ]],
     body,
     theme: 'striped',
@@ -168,30 +189,41 @@ export async function generarPdfExcepciones(
     margin: { left: 10, right: 10 },
     tableWidth: pageW - 20,
     columnStyles: {
-      0: { cellWidth: 24, fontStyle: 'bold' },
-      1: { cellWidth: 18 },
-      2: { cellWidth: 12 },
-      3: { cellWidth: 18 },
-      4: { cellWidth: 14 },
-      5: { cellWidth: 18 },
-      6: { cellWidth: 30 },
-      7: { cellWidth: 50 },
-      8: { cellWidth: 12, halign: 'right' },
-      9: { cellWidth: 22, halign: 'right' },
-      10: { cellWidth: 40 },
+      0: { cellWidth: 22, fontStyle: 'bold' },
+      1: { cellWidth: 16 },
+      2: { cellWidth: 11 },
+      3: { cellWidth: 16 },
+      4: { cellWidth: 12 },
+      5: { cellWidth: 16 },
+      6: { cellWidth: 26 },
+      7: { cellWidth: 44 },
+      8: { cellWidth: 11, halign: 'right' },
+      9: { cellWidth: 20, halign: 'right' },
+      10: { cellWidth: 24 },
+      11: { cellWidth: 38 },
     },
     didParseCell: (data) => {
       if (data.section === 'body' && data.column.index === 0) {
         const tipo = filas[data.row.index]?.Type;
         if (tipo === 'invitacion') data.cell.styles.textColor = colorInvitacion;
+        else if (tipo === 'promocion') data.cell.styles.textColor = colorPromocion;
         else if (tipo === 'descuento') data.cell.styles.textColor = colorDescuento;
         else if (tipo === 'anulacion') data.cell.styles.textColor = colorAnulacion;
+        else if (tipo === 'consumo') data.cell.styles.textColor = colorConsumo;
       }
       if (data.section === 'body' && data.column.index === 9) {
         const tipo = filas[data.row.index]?.Type;
         if (tipo === 'anulacion') data.cell.styles.textColor = colorAnulacion;
       }
       if (data.section === 'body' && data.column.index === 10) {
+        const row = filas[data.row.index];
+        if (row && isConsumoCustomer(row.CustomerId, row.CustomerName)) {
+          data.cell.styles.fillColor = [224, 242, 254];
+          data.cell.styles.textColor = [3, 105, 161];
+          data.cell.styles.fontStyle = 'bold';
+        }
+      }
+      if (data.section === 'body' && data.column.index === 11) {
         applyMotivoPdfCellStyle(
           data.cell.styles as Record<string, unknown>,
           filas[data.row.index]?.Reason,
@@ -207,8 +239,10 @@ type GrupoUsuarioPdf = {
   userKey: string;
   userName: string;
   invitacion: { count: number; quantity: number; amount: number };
+  promocion: { count: number; quantity: number; amount: number };
   descuento: { count: number; quantity: number; amount: number };
   anulacion: { count: number; quantity: number; amount: number };
+  consumo: { count: number; quantity: number; amount: number };
   totalAmount: number;
   rows: ExceptionRowPdf[];
 };
@@ -224,8 +258,10 @@ function agruparPorUsuario(filas: ExceptionRowPdf[]): GrupoUsuarioPdf[] {
         userKey: key,
         userName: r.UserName ?? (r.UserId != null ? `#${r.UserId}` : 'Sin usuario'),
         invitacion: { count: 0, quantity: 0, amount: 0 },
+        promocion: { count: 0, quantity: 0, amount: 0 },
         descuento: { count: 0, quantity: 0, amount: 0 },
         anulacion: { count: 0, quantity: 0, amount: 0 },
+        consumo: { count: 0, quantity: 0, amount: 0 },
         totalAmount: 0,
         rows: [],
       };
@@ -259,8 +295,10 @@ export async function generarPdfExcepcionesAgrupado(
   // KPIs globales
   const kpis = {
     invitacion: { count: 0, total: 0 },
+    promocion: { count: 0, total: 0 },
     descuento: { count: 0, total: 0 },
     anulacion: { count: 0, total: 0 },
+    consumo: { count: 0, total: 0 },
   };
   for (const r of filas) {
     if (kpis[r.Type]) {
@@ -301,8 +339,10 @@ export async function generarPdfExcepcionesAgrupado(
   doc.setFontSize(9);
   const kpiLine =
     `Invitaciones: ${formatMoneda(kpis.invitacion.total)} (${kpis.invitacion.count})    ·    ` +
+    `Promociones: ${formatMoneda(kpis.promocion.total)} (${kpis.promocion.count})    ·    ` +
     `Descuentos: ${formatMoneda(kpis.descuento.total)} (${kpis.descuento.count})    ·    ` +
     `Anulaciones: ${formatMoneda(kpis.anulacion.total)} (${kpis.anulacion.count})    ·    ` +
+    `Consumo: ${formatMoneda(kpis.consumo.total)} (${kpis.consumo.count})    ·    ` +
     `Usuarios: ${grupos.length}    ·    Filas: ${filas.length}`;
   doc.text(kpiLine, 14, y);
   y += 6;
@@ -310,8 +350,10 @@ export async function generarPdfExcepcionesAgrupado(
   doc.setTextColor(0);
 
   const colorInvitacion: [number, number, number] = [5, 150, 105];
+  const colorPromocion: [number, number, number] = [91, 33, 182];
   const colorDescuento: [number, number, number] = [180, 83, 9];
   const colorAnulacion: [number, number, number] = [185, 28, 28];
+  const colorConsumo: [number, number, number] = [14, 116, 144];
 
   // --- Cuadro resumen por usuario (azul pastel) antes del detalle ---
   const pastelBlueHead: [number, number, number] = [186, 230, 253];
@@ -328,32 +370,42 @@ export async function generarPdfExcepcionesAgrupado(
     y += 5;
     doc.setTextColor(0);
 
-    const resumenInv = {
-      count: 0, quantity: 0, amount: 0,
-    };
+    const resumenInv = { count: 0, quantity: 0, amount: 0 };
+    const resumenPromo = { count: 0, amount: 0 };
     const resumenDesc = { count: 0, amount: 0 };
     const resumenAnul = { count: 0, amount: 0 };
+    const resumenCons = { count: 0, amount: 0 };
     let resumenTotalNeto = 0;
 
     const resumenBody = grupos.map((g) => {
       resumenInv.count += g.invitacion.count;
       resumenInv.quantity += g.invitacion.quantity;
       resumenInv.amount += g.invitacion.amount;
+      resumenPromo.count += g.promocion.count;
+      resumenPromo.amount += g.promocion.amount;
       resumenDesc.count += g.descuento.count;
       resumenDesc.amount += g.descuento.amount;
       resumenAnul.count += g.anulacion.count;
       resumenAnul.amount += g.anulacion.amount;
+      resumenCons.count += g.consumo.count;
+      resumenCons.amount += g.consumo.amount;
       resumenTotalNeto += g.totalAmount;
       return [
         g.userName,
         g.invitacion.count > 0
           ? `${g.invitacion.count} reg · ${g.invitacion.quantity} ud · ${formatMoneda(g.invitacion.amount)}`
           : '—',
+        g.promocion.count > 0
+          ? `${g.promocion.count} reg · ${formatMoneda(g.promocion.amount)}`
+          : '—',
         g.descuento.count > 0
           ? `${g.descuento.count} reg · ${formatMoneda(g.descuento.amount)}`
           : '—',
         g.anulacion.count > 0
           ? `${g.anulacion.count} reg · ${formatMoneda(g.anulacion.amount)}`
+          : '—',
+        g.consumo.count > 0
+          ? `${g.consumo.count} reg · ${formatMoneda(g.consumo.amount)}`
           : '—',
         formatMoneda(g.totalAmount),
       ];
@@ -364,21 +416,28 @@ export async function generarPdfExcepcionesAgrupado(
       resumenInv.count > 0
         ? `${resumenInv.count} reg · ${resumenInv.quantity} ud · ${formatMoneda(resumenInv.amount)}`
         : '—',
+      resumenPromo.count > 0
+        ? `${resumenPromo.count} reg · ${formatMoneda(resumenPromo.amount)}`
+        : '—',
       resumenDesc.count > 0
         ? `${resumenDesc.count} reg · ${formatMoneda(resumenDesc.amount)}`
         : '—',
       resumenAnul.count > 0
         ? `${resumenAnul.count} reg · ${formatMoneda(resumenAnul.amount)}`
         : '—',
+      resumenCons.count > 0
+        ? `${resumenCons.count} reg · ${formatMoneda(resumenCons.amount)}`
+        : '—',
       formatMoneda(resumenTotalNeto),
     ]);
 
     const totalRowIdx = resumenBody.length - 1;
+    const totalColIdx = 6;
 
     autoTable(doc, {
       startY: y,
       head: [[
-        'Usuario', 'Invitaciones', 'Descuentos', 'Anulaciones', 'Total neto',
+        'Usuario', 'Invitaciones', 'Promociones', 'Descuentos', 'Anulaciones', 'Consumo', 'Total neto',
       ]],
       body: resumenBody,
       theme: 'plain',
@@ -401,11 +460,13 @@ export async function generarPdfExcepcionesAgrupado(
       margin: { left: 10, right: 10 },
       tableWidth: pageW - 20,
       columnStyles: {
-        0: { cellWidth: 52, fontStyle: 'bold' },
-        1: { cellWidth: 58, halign: 'right' },
-        2: { cellWidth: 48, halign: 'right' },
-        3: { cellWidth: 48, halign: 'right' },
-        4: { cellWidth: 32, halign: 'right', fontStyle: 'bold' },
+        0: { cellWidth: 44, fontStyle: 'bold' },
+        1: { cellWidth: 46, halign: 'right' },
+        2: { cellWidth: 38, halign: 'right' },
+        3: { cellWidth: 38, halign: 'right' },
+        4: { cellWidth: 38, halign: 'right' },
+        5: { cellWidth: 38, halign: 'right' },
+        6: { cellWidth: 28, halign: 'right', fontStyle: 'bold' },
       },
       didParseCell: (data) => {
         if (data.section === 'body' && data.row.index === totalRowIdx) {
@@ -413,11 +474,11 @@ export async function generarPdfExcepcionesAgrupado(
           data.cell.styles.fontStyle = 'bold';
           data.cell.styles.textColor = [3, 105, 161];
         }
-        if (data.section === 'body' && data.column.index === 4 && data.row.index !== totalRowIdx) {
+        if (data.section === 'body' && data.column.index === totalColIdx && data.row.index !== totalRowIdx) {
           const amt = grupos[data.row.index]?.totalAmount ?? 0;
           if (amt < 0) data.cell.styles.textColor = colorAnulacion;
         }
-        if (data.section === 'body' && data.column.index === 4 && data.row.index === totalRowIdx) {
+        if (data.section === 'body' && data.column.index === totalColIdx && data.row.index === totalRowIdx) {
           if (resumenTotalNeto < 0) data.cell.styles.textColor = colorAnulacion;
         }
       },
@@ -454,8 +515,10 @@ export async function generarPdfExcepcionesAgrupado(
     doc.setFontSize(7.5);
     const resumen =
       `Inv: ${g.invitacion.count} (${g.invitacion.quantity} ud · ${formatMoneda(g.invitacion.amount)})    ·    ` +
+      `Promo: ${g.promocion.count} · ${formatMoneda(g.promocion.amount)}    ·    ` +
       `Desc: ${g.descuento.count} · ${formatMoneda(g.descuento.amount)}    ·    ` +
       `Anul: ${g.anulacion.count} · ${formatMoneda(g.anulacion.amount)}    ·    ` +
+      `Cons: ${g.consumo.count} · ${formatMoneda(g.consumo.amount)}    ·    ` +
       `Total: ${formatMoneda(g.totalAmount)}`;
     doc.text(resumen, pageW - 12, y + 5.4, { align: 'right' });
     y += 9;
@@ -471,14 +534,15 @@ export async function generarPdfExcepcionesAgrupado(
       String(r.ProductName ?? '').slice(0, 40),
       r.Quantity != null ? String(r.Quantity) : '',
       formatMoneda(Number(r.Amount) || 0),
-      formatMotivoLabel(r.Reason, r.DiscountRate).slice(0, 36),
+      clienteLabel(r).slice(0, 16),
+      motivoConConsumo(r).slice(0, 34),
     ]);
 
     autoTable(doc, {
       startY: y,
       head: [[
         'Tipo', 'Fecha', 'Hora', 'Local', 'POS', 'Doc', 'Nº',
-        'Producto', 'Cant.', 'Importe', 'Motivo',
+        'Producto', 'Cant.', 'Importe', 'Cliente', 'Motivo',
       ]],
       body,
       theme: 'striped',
@@ -488,29 +552,40 @@ export async function generarPdfExcepcionesAgrupado(
       tableWidth: pageW - 20,
       columnStyles: {
         0: { cellWidth: 22, fontStyle: 'bold' },
-        1: { cellWidth: 18 },
-        2: { cellWidth: 12 },
-        3: { cellWidth: 24 },
-        4: { cellWidth: 18 },
-        5: { cellWidth: 14 },
-        6: { cellWidth: 18 },
-        7: { cellWidth: 48 },
-        8: { cellWidth: 12, halign: 'right' },
-        9: { cellWidth: 20, halign: 'right' },
-        10: { cellWidth: 38 },
+        1: { cellWidth: 16 },
+        2: { cellWidth: 11 },
+        3: { cellWidth: 22 },
+        4: { cellWidth: 16 },
+        5: { cellWidth: 12 },
+        6: { cellWidth: 16 },
+        7: { cellWidth: 42 },
+        8: { cellWidth: 11, halign: 'right' },
+        9: { cellWidth: 18, halign: 'right' },
+        10: { cellWidth: 22 },
+        11: { cellWidth: 34 },
       },
       didParseCell: (data) => {
         if (data.section === 'body' && data.column.index === 0) {
           const tipo = g.rows[data.row.index]?.Type;
           if (tipo === 'invitacion') data.cell.styles.textColor = colorInvitacion;
+          else if (tipo === 'promocion') data.cell.styles.textColor = colorPromocion;
           else if (tipo === 'descuento') data.cell.styles.textColor = colorDescuento;
           else if (tipo === 'anulacion') data.cell.styles.textColor = colorAnulacion;
+          else if (tipo === 'consumo') data.cell.styles.textColor = colorConsumo;
         }
         if (data.section === 'body' && data.column.index === 9) {
           const tipo = g.rows[data.row.index]?.Type;
           if (tipo === 'anulacion') data.cell.styles.textColor = colorAnulacion;
         }
         if (data.section === 'body' && data.column.index === 10) {
+          const row = g.rows[data.row.index];
+          if (row && isConsumoCustomer(row.CustomerId, row.CustomerName)) {
+            data.cell.styles.fillColor = [224, 242, 254];
+            data.cell.styles.textColor = [3, 105, 161];
+            data.cell.styles.fontStyle = 'bold';
+          }
+        }
+        if (data.section === 'body' && data.column.index === 11) {
           applyMotivoPdfCellStyle(
             data.cell.styles as Record<string, unknown>,
             g.rows[data.row.index]?.Reason,
