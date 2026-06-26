@@ -1,9 +1,11 @@
 /**
- * Campo de fecha visible en dd/mm/aaaa; el valor en código es yyyy-mm-dd (ISO).
+ * Núcleo del campo de fecha: visible dd/mm/aaaa, valor yyyy-mm-dd (ISO).
+ * Solo confirma al padre en onBlur para no resetear el cursor al escribir rápido.
+ * En pantallas usar InputFecha (incluye calendario opcional).
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TextInput, type TextInputProps } from 'react-native';
-import { formatFecha, fechaToIso } from '../utils/formatFecha';
+import { isoValidoDesdeDmy, isoADisplay } from '../utils/fechaInput';
 
 export type FechaInputDmyProps = Omit<TextInputProps, 'value' | 'onChangeText'> & {
   valueIso: string;
@@ -15,12 +17,18 @@ export function FechaInputDmy({
   onChangeIso,
   placeholder = 'dd/mm/aaaa',
   onBlur,
+  onFocus,
   ...rest
 }: FechaInputDmyProps) {
   const [text, setText] = useState('');
+  const focusedRef = useRef(false);
+  const textRef = useRef('');
 
   useEffect(() => {
-    setText(valueIso && /^\d{4}-\d{2}-\d{2}$/.test(valueIso) ? formatFecha(valueIso) : '');
+    if (focusedRef.current) return;
+    const display = isoADisplay(valueIso);
+    setText(display);
+    textRef.current = display;
   }, [valueIso]);
 
   return (
@@ -30,22 +38,31 @@ export function FechaInputDmy({
       placeholder={placeholder}
       placeholderTextColor={rest.placeholderTextColor ?? '#94a3b8'}
       onChangeText={(t) => {
+        textRef.current = t;
         setText(t);
-        const iso = fechaToIso(t);
-        if (t.trim() === '') onChangeIso('');
-        else if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) onChangeIso(iso);
+      }}
+      onFocus={(e) => {
+        focusedRef.current = true;
+        onFocus?.(e);
       }}
       onBlur={(e) => {
-        const s = text.trim();
+        focusedRef.current = false;
+        const s = textRef.current.trim();
         if (s === '') {
           onChangeIso('');
+          setText('');
+          textRef.current = '';
         } else {
-          const iso = fechaToIso(s);
-          if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+          const iso = isoValidoDesdeDmy(s);
+          if (iso) {
             onChangeIso(iso);
-            setText(formatFecha(iso));
+            const display = isoADisplay(iso);
+            setText(display);
+            textRef.current = display;
           } else {
-            setText(valueIso && /^\d{4}-\d{2}-\d{2}$/.test(valueIso) ? formatFecha(valueIso) : '');
+            const display = isoADisplay(valueIso);
+            setText(display);
+            textRef.current = display;
           }
         }
         onBlur?.(e);

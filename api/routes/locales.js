@@ -20,7 +20,9 @@ function formatId6(val) {
 // `factorial_location_id` es opcional: lo rellena el admin manualmente con el ID de la location de Factorial HR.
 // `estilo_visual_brief` / `estilo_visual_imagen_keys` / `web` (sitio del local) los edita Marketing (PATCH /marketing/locales/:id/estilo);
 // aquí solo se listan para que el PUT /locales no los machaque al reconstruir el item.
-const TABLE_LOCALES_ATTRS = ['id_Locales', 'nombre', 'agoraCode', 'empresa', 'direccion', 'cp', 'municipio', 'provincia', 'almacen origen', 'sede', 'lat', 'lng', 'imagen', 'factorial_location_id', 'estilo_visual_brief', 'estilo_visual_imagen_keys', 'web'];
+// `ratio_personal` / `ratio_musicos` / `ratio_mercaderia`: porcentaje (0–100) del facturado que se
+// destina a cada partida. `ratio_personal` se usa en RRHH → Horas por facturación para estimar horas.
+const TABLE_LOCALES_ATTRS = ['id_Locales', 'nombre', 'agoraCode', 'empresa', 'direccion', 'cp', 'municipio', 'provincia', 'almacen origen', 'sede', 'lat', 'lng', 'imagen', 'factorial_location_id', 'ratio_personal', 'ratio_musicos', 'ratio_mercaderia', 'estilo_visual_brief', 'estilo_visual_imagen_keys', 'web'];
 
 // Acepta body con claves en minúsculas (API) o PascalCase (frontend).
 function bodyLocalesVal(body, key) {

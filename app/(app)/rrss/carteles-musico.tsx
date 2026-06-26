@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '../../utils/api';
 import { useLocalToast } from '../../components/Toast';
 import { InputFecha } from '../../components/InputFecha';
+import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useMarketingLocales, valorEnLocal } from './LocalesContext';
 import { formatId6 } from './lib/formatId6';
 import { dmyToIso, finMesSiguienteDmy, inicioMesActualDmy, isoToDmy } from './lib/fechasUi';
@@ -39,7 +40,6 @@ export default function CartelesMusicoScreen() {
   const esGestor = hasPermiso('marketing.gestionar');
 
   const [idLocal, setIdLocal] = useState('');
-  const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
   const [fechaInicio, setFechaInicio] = useState(inicioMesActualDmy());
   const [fechaFin, setFechaFin] = useState(finMesSiguienteDmy());
   /** Preferencia antes de generar: si está activo, el backend devuelve `prompt_agrupado`. */
@@ -56,16 +56,6 @@ export default function CartelesMusicoScreen() {
   const [creandoAgrupado, setCreandoAgrupado] = useState(false);
   const [creadosIds, setCreadosIds] = useState<Set<string>>(new Set());
   const [propuestaAgrupadaCreada, setPropuestaAgrupadaCreada] = useState(false);
-
-  const localesMap = useMemo(() => {
-    const m: Record<string, string> = {};
-    locales.forEach((l) => {
-      const id = formatId6(valorEnLocal(l, 'id_Locales'));
-      const nombre = valorEnLocal(l, 'nombre') ?? valorEnLocal(l, 'Nombre') ?? id;
-      if (id) m[id] = nombre;
-    });
-    return m;
-  }, [locales]);
 
   useEffect(() => {
     if (!idLocal && locales.length === 1) {
@@ -245,43 +235,20 @@ export default function CartelesMusicoScreen() {
 
       <View style={styles.filtersWrap}>
         <View style={styles.field}>
-          <Text style={styles.label}>Local</Text>
-          <TouchableOpacity
-            style={styles.dropdownTrigger}
-            onPress={() => setLocalDropdownOpen((v) => !v)}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.dropdownText, !idLocal && styles.dropdownPlaceholder]} numberOfLines={1}>
-              {idLocal ? localesMap[idLocal] ?? idLocal : 'Selecciona un local'}
-            </Text>
-            <MaterialIcons name={localDropdownOpen ? 'expand-less' : 'expand-more'} size={20} color="#64748b" />
-          </TouchableOpacity>
-          {localDropdownOpen && (
-            <View style={styles.dropdownList}>
-              <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                {locales.map((l) => {
-                  const id = formatId6(valorEnLocal(l, 'id_Locales'));
-                  const nombre = valorEnLocal(l, 'nombre') ?? valorEnLocal(l, 'Nombre') ?? id;
-                  const sel = id === idLocal;
-                  return (
-                    <TouchableOpacity
-                      key={id || nombre}
-                      style={[styles.dropdownOption, sel && styles.dropdownOptionSelected]}
-                      onPress={() => {
-                        setIdLocal(id);
-                        setLocalDropdownOpen(false);
-                      }}
-                    >
-                      <Text style={[styles.dropdownOptionText, sel && styles.dropdownOptionTextSelected]} numberOfLines={1}>
-                        {nombre || id}
-                      </Text>
-                      {sel && <MaterialIcons name="check" size={18} color="#0ea5e9" />}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          )}
+          <SelectorDesplegable
+            label="Local"
+            icono="store"
+            placeholder="Selecciona un local"
+            tituloLista="Selecciona un local"
+            iconoLista="store"
+            valorId={idLocal}
+            opciones={locales.map((l) => {
+              const id = formatId6(valorEnLocal(l, 'id_Locales'));
+              const nombre = valorEnLocal(l, 'nombre') ?? valorEnLocal(l, 'Nombre') ?? id;
+              return { id, titulo: nombre || id || '—', icono: 'store' as const };
+            })}
+            onSeleccionar={setIdLocal}
+          />
         </View>
 
         <View style={styles.row}>
@@ -492,33 +459,6 @@ const styles = StyleSheet.create({
   toggleTextCol: { flex: 1, gap: 4 },
   toggleTitle: { fontSize: 13, fontWeight: '600', color: '#334155' },
   toggleHint: { fontSize: 11, color: '#64748b', lineHeight: 16 },
-  dropdownTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-  },
-  dropdownText: { fontSize: 13, color: '#334155', flex: 1 },
-  dropdownPlaceholder: { color: '#94a3b8' },
-  dropdownList: { marginTop: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff', maxHeight: 240 },
-  dropdownScroll: { maxHeight: 240 },
-  dropdownOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e2e8f0',
-  },
-  dropdownOptionSelected: { backgroundColor: '#f0f9ff' },
-  dropdownOptionText: { fontSize: 13, color: '#334155', flex: 1 },
-  dropdownOptionTextSelected: { color: '#0ea5e9', fontWeight: '500' },
   primaryBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, backgroundColor: '#0ea5e9', borderRadius: 10 },
   primaryBtnText: { fontSize: 14, fontWeight: '600', color: '#fff' },
   errorBox: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8 },

@@ -7,12 +7,10 @@ import {
   ActivityIndicator,
   ScrollView,
   useWindowDimensions,
-  Modal,
-  Pressable,
-  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { formatMoneda, labelEstado, colorEstado, esEmpresaSedeGrupoParipe } from '../../utils/facturacion';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '../../utils/api';
@@ -85,13 +83,10 @@ export default function FacturacionIndexScreen() {
   const [metricas, setMetricas] = useState<Metricas | null>(null);
   const [loading, setLoading] = useState(true);
   const [empresaSeleccionadaId, setEmpresaSeleccionadaId] = useState('');
-  const [empresaModalOpen, setEmpresaModalOpen] = useState(false);
   const [empresasGrupoParipe, setEmpresasGrupoParipe] = useState<EmpresaOpt[]>([]);
 
   const [filtroAnio, setFiltroAnio] = useState(() => new Date().getFullYear());
   const [filtroMes, setFiltroMes] = useState(0);
-  const [anioModalOpen, setAnioModalOpen] = useState(false);
-  const [mesModalOpen, setMesModalOpen] = useState(false);
 
   const añosOpciones = useMemo(() => {
     const y = new Date().getFullYear();
@@ -140,11 +135,6 @@ export default function FacturacionIndexScreen() {
       .finally(() => fetchMetricas());
   }, [fetchMetricas]);
 
-  const labelEmpresaFiltro = useMemo(() => {
-    if (!empresaSeleccionadaId) return 'Todas las empresas (Grupo Paripe)';
-    return empresasGrupoParipe.find((e) => e.id === empresaSeleccionadaId)?.nombre ?? 'Empresa';
-  }, [empresaSeleccionadaId, empresasGrupoParipe]);
-
   const labelPeriodoCorto = useMemo(
     () => filtroMes === 0 ? `${filtroAnio}` : `${mesNombre(filtroMes)} ${filtroAnio}`,
     [filtroAnio, filtroMes],
@@ -176,144 +166,42 @@ export default function FacturacionIndexScreen() {
 
       <View style={styles.filtrosRow}>
         {empresasGrupoParipe.length > 0 ? (
-          <TouchableOpacity
-            style={styles.empresaFilterBtn}
-            onPress={() => setEmpresaModalOpen(true)}
-            activeOpacity={0.7}
-          >
-            <MaterialIcons name="business" size={18} color="#0369a1" />
-            <Text style={styles.empresaFilterBtnText} numberOfLines={1}>
-              {labelEmpresaFiltro}
-            </Text>
-            <MaterialIcons name="arrow-drop-down" size={20} color="#64748b" />
-          </TouchableOpacity>
+          <SelectorDesplegable
+            style={styles.empresaSelector}
+            icono="business"
+            tituloLista="Sociedad del grupo"
+            iconoLista="business"
+            placeholder="Todas las empresas (Grupo Paripe)"
+            valorId={empresaSeleccionadaId}
+            opciones={[
+              { id: '', titulo: 'Todas las empresas', icono: 'layers' },
+              ...empresasGrupoParipe.map((e) => ({ id: e.id, titulo: e.nombre, icono: 'domain' as const })),
+            ]}
+            onSeleccionar={(id) => setEmpresaSeleccionadaId(id)}
+          />
         ) : null}
-        <TouchableOpacity
-          style={styles.periodoFilterBtn}
-          onPress={() => setAnioModalOpen(true)}
-          activeOpacity={0.7}
-        >
-          <MaterialIcons name="calendar-today" size={16} color="#0369a1" />
-          <Text style={styles.periodoFilterBtnText} numberOfLines={1}>
-            {filtroAnio}
-          </Text>
-          <MaterialIcons name="arrow-drop-down" size={18} color="#64748b" />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.periodoFilterBtn}
-          onPress={() => setMesModalOpen(true)}
-          activeOpacity={0.7}
-        >
-          <MaterialIcons name="date-range" size={16} color="#0369a1" />
-          <Text style={styles.periodoFilterBtnText} numberOfLines={1}>
-            {filtroMes === 0 ? 'Todo el año' : mesNombre(filtroMes)}
-          </Text>
-          <MaterialIcons name="arrow-drop-down" size={18} color="#64748b" />
-        </TouchableOpacity>
+        <SelectorDesplegable
+          style={styles.periodoSelector}
+          icono="calendar-today"
+          tituloLista="Año"
+          iconoLista="event"
+          valorId={String(filtroAnio)}
+          opciones={añosOpciones.map((a) => ({ id: String(a), titulo: String(a), icono: 'event' as const }))}
+          onSeleccionar={(id) => setFiltroAnio(Number(id))}
+        />
+        <SelectorDesplegable
+          style={styles.periodoSelector}
+          icono="date-range"
+          tituloLista="Mes"
+          iconoLista="calendar-month"
+          valorId={String(filtroMes)}
+          opciones={[
+            { id: '0', titulo: 'Todo el año', icono: 'layers' },
+            ...mesesOrdenDesc.map((m) => ({ id: String(m), titulo: mesNombre(m), icono: 'calendar-month' as const })),
+          ]}
+          onSeleccionar={(id) => setFiltroMes(Number(id))}
+        />
       </View>
-
-      <Modal visible={empresaModalOpen} transparent animationType="fade" onRequestClose={() => setEmpresaModalOpen(false)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setEmpresaModalOpen(false)}>
-          <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Sociedad del grupo</Text>
-            <Text style={styles.modalHint}>
-              Métricas filtradas por emisor (emitidas) y sociedad receptora (recibidas).
-            </Text>
-            <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity
-                style={[styles.modalRow, !empresaSeleccionadaId && styles.modalRowActive]}
-                onPress={() => {
-                  setEmpresaSeleccionadaId('');
-                  setEmpresaModalOpen(false);
-                }}
-              >
-                <MaterialIcons name="layers" size={18} color="#64748b" />
-                <Text style={styles.modalRowText}>Todas las empresas</Text>
-                {!empresaSeleccionadaId ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-              </TouchableOpacity>
-              {empresasGrupoParipe.map((e) => (
-                <TouchableOpacity
-                  key={e.id}
-                  style={[styles.modalRow, empresaSeleccionadaId === e.id && styles.modalRowActive]}
-                  onPress={() => {
-                    setEmpresaSeleccionadaId(e.id);
-                    setEmpresaModalOpen(false);
-                  }}
-                >
-                  <MaterialIcons name="domain" size={18} color="#64748b" />
-                  <Text style={styles.modalRowText} numberOfLines={2}>{e.nombre}</Text>
-                  {empresaSeleccionadaId === e.id ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity style={styles.modalClose} onPress={() => setEmpresaModalOpen(false)}>
-              <Text style={styles.modalCloseText}>Cerrar</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal visible={anioModalOpen} transparent animationType="fade" onRequestClose={() => setAnioModalOpen(false)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setAnioModalOpen(false)}>
-          <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Año</Text>
-            <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
-              {añosOpciones.map((a) => (
-                <TouchableOpacity
-                  key={a}
-                  style={[styles.modalRow, filtroAnio === a && styles.modalRowActive]}
-                  onPress={() => {
-                    setFiltroAnio(a);
-                    setAnioModalOpen(false);
-                  }}
-                >
-                  <MaterialIcons name="event" size={18} color="#64748b" />
-                  <Text style={styles.modalRowText}>{a}</Text>
-                  {filtroAnio === a ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity style={styles.modalClose} onPress={() => setAnioModalOpen(false)}>
-              <Text style={styles.modalCloseText}>Cerrar</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal visible={mesModalOpen} transparent animationType="fade" onRequestClose={() => setMesModalOpen(false)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setMesModalOpen(false)}>
-          <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Mes</Text>
-            <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity
-                style={[styles.modalRow, filtroMes === 0 && styles.modalRowActive]}
-                onPress={() => { setFiltroMes(0); setMesModalOpen(false); }}
-              >
-                <MaterialIcons name="layers" size={18} color="#64748b" />
-                <Text style={styles.modalRowText}>Todo el año</Text>
-                {filtroMes === 0 ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-              </TouchableOpacity>
-              {mesesOrdenDesc.map((m) => (
-                <TouchableOpacity
-                  key={m}
-                  style={[styles.modalRow, filtroMes === m && styles.modalRowActive]}
-                  onPress={() => {
-                    setFiltroMes(m);
-                    setMesModalOpen(false);
-                  }}
-                >
-                  <MaterialIcons name="calendar-month" size={18} color="#64748b" />
-                  <Text style={styles.modalRowText}>{mesNombre(m)}</Text>
-                  {filtroMes === m ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity style={styles.modalClose} onPress={() => setMesModalOpen(false)}>
-              <Text style={styles.modalCloseText}>Cerrar</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
 
       {loading ? (
         <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 20 }} />
@@ -496,20 +384,8 @@ const styles = StyleSheet.create({
   },
   navBtnText: { fontSize: 11, fontWeight: '500', color: '#0369a1' },
 
-  empresaFilterBtn: {
-    flex: 1,
-    minWidth: 140,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: '#f0f9ff',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#bae6fd',
-  },
-  empresaFilterBtnText: { flex: 1, fontSize: 14, fontWeight: '600', color: '#0c4a6e' },
+  empresaSelector: { flex: 1, minWidth: 160 },
+  periodoSelector: { minWidth: 120 },
 
   filtrosRow: {
     flexDirection: 'row',
@@ -518,50 +394,6 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 12,
   },
-  periodoFilterBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    backgroundColor: '#f8fafc',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    minWidth: 88,
-  },
-  periodoFilterBtnText: { fontSize: 13, fontWeight: '600', color: '#334155', maxWidth: 120 },
-
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.45)',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  modalSheet: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    maxHeight: '70%',
-    padding: 16,
-    ...(Platform.OS === 'web' ? { boxShadow: '0 8px 32px rgba(0,0,0,0.12)' } as object : {}),
-  },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 4 },
-  modalHint: { fontSize: 11, color: '#64748b', marginBottom: 12 },
-  modalList: { maxHeight: 360 },
-  modalRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  modalRowActive: { backgroundColor: '#f0f9ff', borderColor: '#bae6fd' },
-  modalRowText: { flex: 1, fontSize: 14, color: '#334155' },
-  modalClose: { marginTop: 8, paddingVertical: 10, alignItems: 'center' },
-  modalCloseText: { fontSize: 14, fontWeight: '600', color: '#0ea5e9' },
 
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 },
   kpiCard: {

@@ -15,6 +15,7 @@ import { useMarketingLocales, valorEnLocal } from './LocalesContext';
 import { formatId6 } from './lib/formatId6';
 import { dmyToIso, finMesActualDmy, inicioMesActualDmy, isoToDmy } from './lib/fechasUi';
 import { InputFecha } from '../../components/InputFecha';
+import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 
 type Propuesta = {
   id_propuesta: string;
@@ -58,7 +59,6 @@ export default function CalendarioScreen() {
   const [fechaHasta, setFechaHasta] = useState(finMesActualDmy());
   const [estado, setEstado] = useState<string>('aprobada');
   const [idLocal, setIdLocal] = useState('');
-  const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
 
   const [propuestas, setPropuestas] = useState<Propuesta[]>([]);
   const [loading, setLoading] = useState(false);
@@ -150,53 +150,23 @@ export default function CalendarioScreen() {
         </View>
 
         <View style={styles.field}>
-          <Text style={styles.label}>Local</Text>
-          <TouchableOpacity
-            style={styles.dropdownTrigger}
-            onPress={() => setLocalDropdownOpen((v) => !v)}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.dropdownText, !idLocal && styles.dropdownPlaceholder]} numberOfLines={1}>
-              {idLocal ? localesMap[idLocal] ?? idLocal : 'Todos los locales'}
-            </Text>
-            <MaterialIcons name={localDropdownOpen ? 'expand-less' : 'expand-more'} size={20} color="#64748b" />
-          </TouchableOpacity>
-          {localDropdownOpen && (
-            <View style={styles.dropdownList}>
-              <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                <TouchableOpacity
-                  style={[styles.dropdownOption, !idLocal && styles.dropdownOptionSelected]}
-                  onPress={() => {
-                    setIdLocal('');
-                    setLocalDropdownOpen(false);
-                  }}
-                >
-                  <Text style={styles.dropdownOptionText}>Todos los locales</Text>
-                  {!idLocal && <MaterialIcons name="check" size={18} color="#0ea5e9" />}
-                </TouchableOpacity>
-                {locales.map((l) => {
-                  const id = formatId6(valorEnLocal(l, 'id_Locales'));
-                  const nombre = valorEnLocal(l, 'nombre') ?? valorEnLocal(l, 'Nombre') ?? id;
-                  const sel = id === idLocal;
-                  return (
-                    <TouchableOpacity
-                      key={id || nombre}
-                      style={[styles.dropdownOption, sel && styles.dropdownOptionSelected]}
-                      onPress={() => {
-                        setIdLocal(id);
-                        setLocalDropdownOpen(false);
-                      }}
-                    >
-                      <Text style={[styles.dropdownOptionText, sel && styles.dropdownOptionTextSelected]} numberOfLines={1}>
-                        {nombre || id}
-                      </Text>
-                      {sel && <MaterialIcons name="check" size={18} color="#0ea5e9" />}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          )}
+          <SelectorDesplegable
+            label="Local"
+            icono="store"
+            placeholder="Todos los locales"
+            tituloLista="Filtrar por local"
+            iconoLista="store"
+            valorId={idLocal}
+            opciones={[
+              { id: '', titulo: 'Todos los locales', icono: 'public' },
+              ...locales.map((l) => {
+                const id = formatId6(valorEnLocal(l, 'id_Locales'));
+                const nombre = valorEnLocal(l, 'nombre') ?? valorEnLocal(l, 'Nombre') ?? id;
+                return { id, titulo: nombre || id || '—', icono: 'store' as const };
+              }),
+            ]}
+            onSeleccionar={setIdLocal}
+          />
         </View>
 
         <View style={styles.field}>
@@ -303,33 +273,6 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     borderRadius: 8,
   },
-  dropdownTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-  },
-  dropdownText: { fontSize: 13, color: '#334155', flex: 1 },
-  dropdownPlaceholder: { color: '#94a3b8' },
-  dropdownList: { marginTop: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff', maxHeight: 240 },
-  dropdownScroll: { maxHeight: 240 },
-  dropdownOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e2e8f0',
-  },
-  dropdownOptionSelected: { backgroundColor: '#f0f9ff' },
-  dropdownOptionText: { fontSize: 13, color: '#334155', flex: 1 },
-  dropdownOptionTextSelected: { color: '#0ea5e9', fontWeight: '500' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: { paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 6 },
   chipSelected: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },

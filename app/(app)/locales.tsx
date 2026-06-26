@@ -21,9 +21,13 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../constants/icons';
 import { formatId6 } from '../utils/idFormat';
 import { useAuth } from '../contexts/AuthContext';
+import { SelectorDesplegable } from '../components/SelectorDesplegable';
 import { apiFetch } from '../utils/api';
 
 const MAX_IMAGEN_BASE64_LENGTH = 380000;
+
+/** Id centinela de la opción «Crear nueva empresa» dentro del desplegable de Empresa. */
+const CREAR_EMPRESA_OPCION_ID = '__crear_empresa__';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -34,7 +38,7 @@ const COL_THUMBNAIL = '_thumbnail';
 
 // Atributos exactos de la tabla igp_Locales en AWS (mismo orden que api/server.js TABLE_LOCALES_ATTRS).
 // `factorial_location_id` es opcional: ID de la location correspondiente en Factorial HR (cuadrante).
-const ATRIBUTOS_TABLA_LOCALES = ['id_Locales', 'Nombre', 'AgoraCode', 'Empresa', 'Direccion', 'Cp', 'Municipio', 'Provincia', 'Almacen origen', 'Sede', 'lat', 'lng', 'Imagen', 'factorial_location_id'] as const;
+const ATRIBUTOS_TABLA_LOCALES = ['id_Locales', 'Nombre', 'AgoraCode', 'Empresa', 'Direccion', 'Cp', 'Municipio', 'Provincia', 'Almacen origen', 'Sede', 'lat', 'lng', 'Imagen', 'factorial_location_id', 'ratio_personal', 'ratio_musicos', 'ratio_mercaderia'] as const;
 
 const ORDEN_COLUMNAS = [...ATRIBUTOS_TABLA_LOCALES];
 
@@ -52,6 +56,9 @@ const CAMPOS_FORM: { key: (typeof ATRIBUTOS_TABLA_LOCALES)[number]; label: strin
   { key: 'lng', label: 'Lng' },
   { key: 'Imagen', label: 'Imagen' },
   { key: 'factorial_location_id', label: 'Factorial location ID' },
+  { key: 'ratio_personal', label: 'Ratio personal (%)' },
+  { key: 'ratio_musicos', label: 'Ratio músicos (%)' },
+  { key: 'ratio_mercaderia', label: 'Ratio mercadería (%)' },
 ];
 
 const INITIAL_FORM = Object.fromEntries(CAMPOS_FORM.map((c) => [c.key, ''])) as Record<(typeof ATRIBUTOS_TABLA_LOCALES)[number], string>;
@@ -107,10 +114,6 @@ export default function LocalesScreen() {
   const [direccionConfigOk, setDireccionConfigOk] = useState<boolean | null>(null);
   const [direccionLoading, setDireccionLoading] = useState(false);
   const [direccionDropdownOpen, setDireccionDropdownOpen] = useState(false);
-  const [sedeDropdownOpen, setSedeDropdownOpen] = useState(false);
-  const [sedeSearchFilter, setSedeSearchFilter] = useState('');
-  const [empresaDropdownOpen, setEmpresaDropdownOpen] = useState(false);
-  const [empresaSearchFilter, setEmpresaSearchFilter] = useState('');
   const [empresasGrupoParipe, setEmpresasGrupoParipe] = useState<EmpresaItem[]>([]);
   const [almacenDropdownOpen, setAlmacenDropdownOpen] = useState(false);
   const [almacenSearchFilter, setAlmacenSearchFilter] = useState('');
@@ -129,10 +132,6 @@ export default function LocalesScreen() {
     setDireccionSuggestions([]);
     setDireccionConfigOk(null);
     setDireccionDropdownOpen(false);
-    setSedeDropdownOpen(false);
-    setSedeSearchFilter('');
-    setEmpresaDropdownOpen(false);
-    setEmpresaSearchFilter('');
     setAlmacenDropdownOpen(false);
     setAlmacenSearchFilter('');
     setModalNuevoVisible(true);
@@ -156,20 +155,15 @@ export default function LocalesScreen() {
     setDireccionSuggestions([]);
     setDireccionConfigOk(null);
     setDireccionDropdownOpen(false);
-    setSedeDropdownOpen(false);
-    setSedeSearchFilter('');
-    setEmpresaDropdownOpen(false);
-    setEmpresaSearchFilter('');
     setAlmacenDropdownOpen(false);
     setAlmacenSearchFilter('');
     setModalNuevoVisible(true);
     setErrorForm(null);
   };
-  const sedesFiltradasParaDropdown = useMemo(() => {
-    const q = sedeSearchFilter.trim().toLowerCase();
-    const list = !q ? [...SEDE_OPCIONES] : SEDE_OPCIONES.filter((s) => s.toLowerCase().includes(q));
-    return [...list].sort((a, b) => a.localeCompare(b));
-  }, [sedeSearchFilter]);
+  const sedeOpciones = useMemo(
+    () => [...SEDE_OPCIONES].sort((a, b) => a.localeCompare(b)).map((s) => ({ id: s, titulo: s })),
+    [],
+  );
   const cerrarModalNuevo = () => {
     setModalNuevoVisible(false);
     setFormNuevo(INITIAL_FORM);
@@ -177,10 +171,6 @@ export default function LocalesScreen() {
     setDireccionSuggestions([]);
     setDireccionConfigOk(null);
     setDireccionDropdownOpen(false);
-    setSedeDropdownOpen(false);
-    setSedeSearchFilter('');
-    setEmpresaDropdownOpen(false);
-    setEmpresaSearchFilter('');
     setAlmacenDropdownOpen(false);
     setAlmacenSearchFilter('');
     setErrorForm(null);
@@ -203,22 +193,22 @@ export default function LocalesScreen() {
     });
   }, [almacenes, almacenSearchFilter]);
 
-  const empresasFiltradasParaDropdown = useMemo(() => {
-    const q = empresaSearchFilter.trim().toLowerCase().replace(/\s+/g, ' ');
-    const list = !q ? empresasGrupoParipe : empresasGrupoParipe.filter((e) => {
-      const n = (e.Nombre ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
-      const id = (e.id_empresa ?? '').toLowerCase().trim();
-      const qParts = q.split(/\s+/).filter(Boolean);
-      const matchNombre = qParts.length === 0 ? true : qParts.every((part) => n.includes(part));
-      const matchId = id.includes(q);
-      return matchNombre || matchId;
-    });
-    return [...list].sort((a, b) => {
-      const na = (a.Nombre ?? a.id_empresa ?? '').toLowerCase();
-      const nb = (b.Nombre ?? b.id_empresa ?? '').toLowerCase();
-      return na.localeCompare(nb);
-    });
-  }, [empresasGrupoParipe, empresaSearchFilter]);
+  const empresaOpciones = useMemo(
+    () => [
+      ...[...empresasGrupoParipe]
+        .sort((a, b) => {
+          const na = (a.Nombre ?? a.id_empresa ?? '').toLowerCase();
+          const nb = (b.Nombre ?? b.id_empresa ?? '').toLowerCase();
+          return na.localeCompare(nb);
+        })
+        .map((emp) => {
+          const nombre = emp.Nombre ?? emp.id_empresa ?? '';
+          return { id: nombre, titulo: nombre || '—', icono: 'business' as const };
+        }),
+      { id: CREAR_EMPRESA_OPCION_ID, titulo: 'Crear nueva empresa', icono: 'add-business' as const },
+    ],
+    [empresasGrupoParipe],
+  );
 
   const fetchDireccionSuggestions = useCallback((input: string) => {
     if (input.trim().length < 2) {
@@ -489,8 +479,6 @@ export default function LocalesScreen() {
       }
       refetchEmpresas();
       setFormNuevo((prev) => ({ ...prev, Empresa: nombre }));
-      setEmpresaDropdownOpen(false);
-      setEmpresaSearchFilter('');
       cerrarModalCrearEmpresa();
     } catch (e) {
       setErrorCrearEmpresa('No se pudo conectar con el servidor');
@@ -876,105 +864,25 @@ export default function LocalesScreen() {
                         </View>
                       ) : campo.key === 'Empresa' ? (
                         <View key={campo.key} style={styles.formGroup}>
-                          <Text style={styles.formLabel}>{campo.label}</Text>
-                          <TouchableOpacity
-                            style={[styles.formInput, styles.formInputRow]}
-                            onPress={() => setEmpresaDropdownOpen((o) => !o)}
-                            activeOpacity={0.7}
-                          >
-                            <Text style={[styles.formInputText, !formNuevo.Empresa && styles.formInputPlaceholder]} numberOfLines={1}>
-                              {formNuevo.Empresa || `${campo.label}…`}
-                            </Text>
-                            <MaterialIcons name={empresaDropdownOpen ? 'expand-less' : 'expand-more'} size={18} color="#64748b" style={styles.sedeChevron} />
-                          </TouchableOpacity>
-                          {empresaDropdownOpen && (
-                            <View style={styles.empresaDropdownWrap}>
-                              <TextInput
-                                style={styles.empresaDropdownSearch}
-                                value={empresaSearchFilter}
-                                onChangeText={setEmpresaSearchFilter}
-                                placeholder="Buscar empresa…"
-                                placeholderTextColor="#94a3b8"
-                              />
-                              <ScrollView style={styles.empresaDropdownScroll} keyboardShouldPersistTaps="handled">
-                                {formNuevo.Empresa ? (
-                                  <TouchableOpacity
-                                    style={[styles.empresaDropdownOption, styles.dropdownVaciarOption]}
-                                    onPress={() => {
-                                      setFormNuevo((prev) => ({ ...prev, Empresa: '' }));
-                                      setEmpresaDropdownOpen(false);
-                                      setEmpresaSearchFilter('');
-                                    }}
-                                    activeOpacity={0.7}
-                                  >
-                                    <MaterialIcons name="clear" size={16} color="#94a3b8" style={{ marginRight: 6 }} />
-                                    <Text style={styles.dropdownVaciarText}>Vaciar</Text>
-                                  </TouchableOpacity>
-                                ) : null}
-                                {empresasGrupoParipe.length === 0 ? (
-                                  <>
-                                    <View style={styles.empresaDropdownOption}>
-                                      <Text style={styles.empresaDropdownOptionText}>Sin empresas</Text>
-                                    </View>
-                                    <TouchableOpacity
-                                      style={[styles.empresaDropdownOption, styles.dropdownCrearNuevoOption]}
-                                      onPress={() => {
-                                        setEmpresaDropdownOpen(false);
-                                        abrirModalCrearEmpresa();
-                                      }}
-                                      activeOpacity={0.7}
-                                    >
-                                      <MaterialIcons name="add-circle-outline" size={16} color="#0ea5e9" style={{ marginRight: 6 }} />
-                                      <Text style={styles.dropdownCrearNuevoText}>Crear nueva empresa</Text>
-                                    </TouchableOpacity>
-                                  </>
-                                ) : empresasFiltradasParaDropdown.length === 0 ? (
-                                  <TouchableOpacity
-                                    style={[styles.empresaDropdownOption, styles.dropdownCrearNuevoOption]}
-                                    onPress={() => {
-                                      setEmpresaDropdownOpen(false);
-                                      abrirModalCrearEmpresa();
-                                    }}
-                                    activeOpacity={0.7}
-                                  >
-                                    <MaterialIcons name="add-circle-outline" size={16} color="#0ea5e9" style={{ marginRight: 6 }} />
-                                    <Text style={styles.dropdownCrearNuevoText}>Crear nueva empresa</Text>
-                                  </TouchableOpacity>
-                                ) : (
-                                  <>
-                                    {empresasFiltradasParaDropdown.map((emp) => {
-                                      const nombre = emp.Nombre ?? emp.id_empresa ?? '';
-                                      return (
-                                        <TouchableOpacity
-                                          key={emp.id_empresa ?? nombre}
-                                          style={styles.empresaDropdownOption}
-                                          onPress={() => {
-                                            setFormNuevo((prev) => ({ ...prev, Empresa: nombre }));
-                                            setEmpresaDropdownOpen(false);
-                                            setEmpresaSearchFilter('');
-                                          }}
-                                          activeOpacity={0.7}
-                                        >
-                                          <Text style={styles.empresaDropdownOptionText}>{nombre || '—'}</Text>
-                                        </TouchableOpacity>
-                                      );
-                                    })}
-                                    <TouchableOpacity
-                                      style={[styles.empresaDropdownOption, styles.dropdownCrearNuevoOption]}
-                                      onPress={() => {
-                                        setEmpresaDropdownOpen(false);
-                                        abrirModalCrearEmpresa();
-                                      }}
-                                      activeOpacity={0.7}
-                                    >
-                                      <MaterialIcons name="add-circle-outline" size={16} color="#0ea5e9" style={{ marginRight: 6 }} />
-                                      <Text style={styles.dropdownCrearNuevoText}>Crear nueva empresa</Text>
-                                    </TouchableOpacity>
-                                  </>
-                                )}
-                              </ScrollView>
-                            </View>
-                          )}
+                          <SelectorDesplegable
+                            label={campo.label}
+                            icono="business"
+                            placeholder={`${campo.label}…`}
+                            tituloLista="Selecciona una empresa"
+                            iconoLista="business"
+                            buscador
+                            buscadorPlaceholder="Buscar empresa…"
+                            valorId={formNuevo.Empresa || ''}
+                            opciones={empresaOpciones}
+                            vacioTexto="Sin empresas"
+                            onSeleccionar={(id) => {
+                              if (id === CREAR_EMPRESA_OPCION_ID) {
+                                abrirModalCrearEmpresa();
+                                return;
+                              }
+                              setFormNuevo((prev) => ({ ...prev, Empresa: id }));
+                            }}
+                          />
                         </View>
                       ) : campo.key === 'Almacen origen' ? (
                         <View key={campo.key} style={styles.formGroup}>
@@ -1065,64 +973,18 @@ export default function LocalesScreen() {
                         </View>
                       ) : campo.key === 'Sede' ? (
                         <View key={campo.key} style={styles.formGroup}>
-                          <Text style={styles.formLabel}>{campo.label}</Text>
-                          <TouchableOpacity
-                            style={[styles.formInput, styles.formInputRow]}
-                            onPress={() => setSedeDropdownOpen((o) => !o)}
-                            activeOpacity={0.7}
-                          >
-                            <Text style={[styles.formInputText, !formNuevo.Sede && styles.formInputPlaceholder]} numberOfLines={1}>
-                              {formNuevo.Sede || `${campo.label}…`}
-                            </Text>
-                            <MaterialIcons name={sedeDropdownOpen ? 'expand-less' : 'expand-more'} size={18} color="#64748b" style={styles.sedeChevron} />
-                          </TouchableOpacity>
-                          {sedeDropdownOpen && (
-                            <View style={styles.empresaDropdownWrap}>
-                              <TextInput
-                                style={styles.empresaDropdownSearch}
-                                value={sedeSearchFilter}
-                                onChangeText={setSedeSearchFilter}
-                                placeholder="Buscar sede…"
-                                placeholderTextColor="#94a3b8"
-                              />
-                              <ScrollView style={styles.empresaDropdownScroll} keyboardShouldPersistTaps="handled">
-                                {formNuevo.Sede ? (
-                                  <TouchableOpacity
-                                    style={[styles.empresaDropdownOption, styles.dropdownVaciarOption]}
-                                    onPress={() => {
-                                      setFormNuevo((prev) => ({ ...prev, Sede: '' }));
-                                      setSedeDropdownOpen(false);
-                                      setSedeSearchFilter('');
-                                    }}
-                                    activeOpacity={0.7}
-                                  >
-                                    <MaterialIcons name="clear" size={16} color="#94a3b8" style={{ marginRight: 6 }} />
-                                    <Text style={styles.dropdownVaciarText}>Vaciar</Text>
-                                  </TouchableOpacity>
-                                ) : null}
-                                {sedesFiltradasParaDropdown.length === 0 ? (
-                                  <View style={styles.empresaDropdownOption}>
-                                    <Text style={styles.empresaDropdownOptionText}>Sin resultados</Text>
-                                  </View>
-                                ) : (
-                                  sedesFiltradasParaDropdown.map((opcion) => (
-                                    <TouchableOpacity
-                                      key={opcion}
-                                      style={styles.empresaDropdownOption}
-                                      onPress={() => {
-                                        setFormNuevo((prev) => ({ ...prev, Sede: opcion }));
-                                        setSedeDropdownOpen(false);
-                                        setSedeSearchFilter('');
-                                      }}
-                                      activeOpacity={0.7}
-                                    >
-                                      <Text style={styles.empresaDropdownOptionText}>{opcion}</Text>
-                                    </TouchableOpacity>
-                                  ))
-                                )}
-                              </ScrollView>
-                            </View>
-                          )}
+                          <SelectorDesplegable
+                            label={campo.label}
+                            icono="location-city"
+                            placeholder={`${campo.label}…`}
+                            tituloLista="Selecciona una sede"
+                            iconoLista="location-city"
+                            buscador
+                            buscadorPlaceholder="Buscar sede…"
+                            valorId={formNuevo.Sede || ''}
+                            opciones={sedeOpciones}
+                            onSeleccionar={(id) => setFormNuevo((prev) => ({ ...prev, Sede: id }))}
+                          />
                         </View>
                       ) : campo.key === 'Imagen' ? (
                         <View key={campo.key} style={styles.formGroup}>
@@ -1327,8 +1189,6 @@ const styles = StyleSheet.create({
   empresaDropdownOptionText: { fontSize: 11, color: '#334155' },
   dropdownVaciarOption: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderBottomColor: '#e2e8f0' },
   dropdownVaciarText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
-  dropdownCrearNuevoOption: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0f9ff', borderBottomColor: '#e2e8f0' },
-  dropdownCrearNuevoText: { fontSize: 11, color: '#0ea5e9', fontWeight: '600' },
   direccionInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   direccionVaciarBtn: { padding: 6, backgroundColor: '#f1f5f9', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
   direccionLoadingWrap: { marginTop: 4, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 8 },

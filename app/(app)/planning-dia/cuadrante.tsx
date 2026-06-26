@@ -18,7 +18,9 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
-import { FechaInputDmy } from '../../components/FechaInputDmy';
+import { InputFecha } from '../../components/InputFecha';
+import { SelectorRangoSemana } from '../../components/SelectorRangoSemana';
+import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
 
 type LocalItem = {
@@ -68,14 +70,6 @@ type CuadranteResponse = {
   totales: { coste_bruto_cents: number; coste_empresa_cents: number; minutos_planificados: number; minutos_reales: number };
   por_local: LocalCuadrante[];
 };
-
-function hoyIso(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
 
 function formatHora(iso: string | null): string {
   if (!iso) return '—';
@@ -154,6 +148,9 @@ const COL_WIDTHS = {
   flags: 200,
 };
 
+const PLAN_GROUP_W = COL_WIDTHS.planInicio + COL_WIDTHS.planFin + COL_WIDTHS.planMin;
+const REAL_GROUP_W = COL_WIDTHS.realInicio + COL_WIDTHS.realFin + COL_WIDTHS.realMin;
+
 const DROPDOWN_Z = 10050;
 
 export default function CuadrantePersonalScreen() {
@@ -163,10 +160,9 @@ export default function CuadrantePersonalScreen() {
   const [localesLoading, setLocalesLoading] = useState(true);
   const [localesError, setLocalesError] = useState<string | null>(null);
 
-  const hoy = hoyIso();
   const [selectedLocalIds, setSelectedLocalIds] = useState<string[]>([]);
-  const [from, setFrom] = useState<string>(hoy);
-  const [to, setTo] = useState<string>(hoy);
+  const [from, setFrom] = useState<string>(() => fechaJornadaNegocioIso());
+  const [to, setTo] = useState<string>(() => fechaJornadaNegocioIso());
   const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
   const [localSearch, setLocalSearch] = useState('');
 
@@ -342,8 +338,8 @@ export default function CuadrantePersonalScreen() {
           )}
 
           <View style={[styles.filtersBlock, localDropdownOpen && styles.filtersBlockOnTop]}>
-            <View style={styles.filtersRow}>
-              <View style={[styles.filterField, styles.filterFieldLocals, { zIndex: localDropdownOpen ? DROPDOWN_Z : 1 }]}>
+            <View style={[styles.filtersRow, localDropdownOpen && styles.filtersRowOnTop]}>
+              <View style={[styles.filterField, styles.filterFieldLocals]}>
                 <Text style={styles.filterLabel}>Locales</Text>
                 <View style={styles.localPickerAnchor}>
                   <TouchableOpacity
@@ -416,12 +412,12 @@ export default function CuadrantePersonalScreen() {
 
               <View style={[styles.filterField, { minWidth: 132 }]}>
                 <Text style={styles.filterLabel}>Desde</Text>
-                <FechaInputDmy style={styles.inputDmy} valueIso={from} onChangeIso={setFrom} />
+                <InputFecha showCalendar={false} style={styles.inputDmy} valueIso={from} onChangeIso={setFrom} />
               </View>
 
               <View style={[styles.filterField, { minWidth: 132 }]}>
                 <Text style={styles.filterLabel}>Hasta</Text>
-                <FechaInputDmy style={styles.inputDmy} valueIso={to} onChangeIso={setTo} />
+                <InputFecha showCalendar={false} style={styles.inputDmy} valueIso={to} onChangeIso={setTo} />
               </View>
 
               <TouchableOpacity
@@ -437,6 +433,9 @@ export default function CuadrantePersonalScreen() {
                 )}
                 <Text style={styles.consultarBtnText}>{loading ? 'Consultando…' : 'Consultar'}</Text>
               </TouchableOpacity>
+            </View>
+            <View style={styles.presetRow}>
+              <SelectorRangoSemana from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />
             </View>
           </View>
 
@@ -497,6 +496,19 @@ export default function CuadrantePersonalScreen() {
 
                           <ScrollView horizontal showsHorizontalScrollIndicator>
                             <View>
+                              <View style={styles.tableGroupHeader}>
+                                <View style={[styles.cellGroupHeader, { width: COL_WIDTHS.empleado }]} />
+                                <View style={[styles.cellGroupHeader, styles.cellGroupHeaderPlan, { width: PLAN_GROUP_W }]}>
+                                  <Text style={styles.cellGroupHeaderText}>Planificado (cuadrante)</Text>
+                                </View>
+                                <View style={[styles.cellGroupHeader, styles.cellGroupHeaderReal, { width: REAL_GROUP_W }]}>
+                                  <Text style={styles.cellGroupHeaderText}>Fichado (real)</Text>
+                                </View>
+                                <View style={[styles.cellGroupHeader, { width: COL_WIDTHS.desv }]} />
+                                <View style={[styles.cellGroupHeader, { width: COL_WIDTHS.bruto }]} />
+                                <View style={[styles.cellGroupHeader, { width: COL_WIDTHS.empresa }]} />
+                                <View style={[styles.cellGroupHeader, { width: COL_WIDTHS.flags }]} />
+                              </View>
                               <View style={styles.tableHeader}>
                                 <View style={[styles.cellHeader, { width: COL_WIDTHS.empleado }]}><Text style={styles.cellHeaderText}>Empleado</Text></View>
                                 <View style={[styles.cellHeader, { width: COL_WIDTHS.planInicio }]}><Text style={styles.cellHeaderText}>Plan in.</Text></View>
@@ -564,7 +576,7 @@ export default function CuadrantePersonalScreen() {
                                   </View>
                                   <View style={[styles.cell, { width: COL_WIDTHS.bruto }]}><Text style={styles.cellText}>{formatEur(f.coste_bruto_cents)}</Text></View>
                                   <View style={[styles.cell, { width: COL_WIDTHS.empresa }]}><Text style={styles.cellText}>{formatEur(f.coste_empresa_cents)}</Text></View>
-                                  <View style={[styles.cell, { width: COL_WIDTHS.flags, flexWrap: 'wrap', flexDirection: 'row', gap: 3, justifyContent: 'flex-start' }]}>
+                                  <View style={[styles.cell, styles.cellEstado, { width: COL_WIDTHS.flags }]}>
                                     {f.flags.length === 0 ? (
                                       <View style={styles.flagChipOk}>
                                         <MaterialIcons name="check" size={10} color="#16a34a" />
@@ -637,16 +649,21 @@ const styles = StyleSheet.create({
 
   filtersBlock: {
     marginBottom: 8,
-    ...(Platform.OS === 'web' ? { position: 'relative' as const, zIndex: 1 } : {}),
+    position: 'relative' as const,
+    zIndex: 1,
+    overflow: 'visible' as const,
   },
-  filtersBlockOnTop: Platform.OS === 'web' ? { zIndex: DROPDOWN_Z } : {},
+  filtersBlockOnTop: { zIndex: DROPDOWN_Z, ...(Platform.OS !== 'web' ? { elevation: 24 } : {}) },
 
   filtersRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     flexWrap: 'wrap',
     gap: 12,
+    overflow: 'visible' as const,
   },
+  filtersRowOnTop: { position: 'relative' as const, zIndex: DROPDOWN_Z + 2 },
+  presetRow: { marginTop: 10 },
   filterField: { flexShrink: 0 },
   filterFieldLocals: {
     minWidth: 260,
@@ -681,19 +698,14 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
     maxHeight: 300,
+    position: 'absolute' as const,
+    top: '100%',
+    left: 0,
+    right: 0,
+    zIndex: DROPDOWN_Z + 1,
     ...(Platform.OS === 'web'
-      ? {
-        position: 'absolute' as const,
-        top: '100%',
-        left: 0,
-        right: 0,
-        zIndex: DROPDOWN_Z + 1,
-        boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-      }
-      : {
-        elevation: 12,
-        zIndex: DROPDOWN_Z,
-      }),
+      ? { boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }
+      : { elevation: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.18, shadowRadius: 16 }),
   },
 
   dropdownSearch: {
@@ -755,7 +767,7 @@ const styles = StyleSheet.create({
   totalsText: { fontSize: 12, color: '#0c4a6e', flex: 1 },
   totalsStrong: { fontWeight: '700' },
 
-  scroll: { flex: 1, zIndex: 0 },
+  scroll: { flex: 1, position: 'relative' as const, zIndex: 0 },
   emptyWrap: { alignItems: 'center', paddingVertical: 40, gap: 8 },
   emptyText: { fontSize: 12, color: '#64748b' },
 
@@ -790,6 +802,17 @@ const styles = StyleSheet.create({
   diaTotalsWrap: { flex: 1, alignItems: 'flex-end' },
   diaTotalsText: { fontSize: 11, color: '#64748b' },
 
+  tableGroupHeader: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
+  cellGroupHeader: {
+    paddingVertical: 4, paddingHorizontal: 6,
+    borderRightWidth: 1, borderRightColor: '#cbd5e1',
+    justifyContent: 'center', alignItems: 'center',
+    backgroundColor: '#eef2f6',
+  },
+  cellGroupHeaderPlan: { backgroundColor: '#dbeafe' },
+  cellGroupHeaderReal: { backgroundColor: '#dcfce7' },
+  cellGroupHeaderText: { fontSize: 10, fontWeight: '700', color: '#334155', textAlign: 'center' },
+
   tableHeader: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
   cellHeader: {
     paddingVertical: 4, paddingHorizontal: 6,
@@ -819,6 +842,10 @@ const styles = StyleSheet.create({
   desvPositiva: { color: '#dc2626', fontWeight: '600' },
   desvNegativa: { color: '#b45309', fontWeight: '600' },
 
+  cellEstado: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 3,
+    justifyContent: 'flex-start', alignItems: 'center',
+  },
   flagChip: {
     flexDirection: 'row', alignItems: 'center', gap: 2,
     paddingHorizontal: 5, paddingVertical: 1, borderRadius: 5,

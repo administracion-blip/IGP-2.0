@@ -18,6 +18,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Image } from 'react-native';
 import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
+import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { apiFetch } from '../../utils/api';
 
 const AUTH_KEY = 'erp_user';
@@ -34,7 +35,6 @@ export default function ReportarIncidenciaScreen() {
   const [userName, setUserName] = useState<string>('');
   const [registroTimestamp, setRegistroTimestamp] = useState<string>('');
   const [localId, setLocalId] = useState('');
-  const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
   const [zona, setZona] = useState<(typeof ZONAS)[number]>('otros');
   const [prioridad, setPrioridad] = useState<(typeof PRIORIDADES)[number]>('media');
   const [titulo, setTitulo] = useState('');
@@ -199,53 +199,21 @@ export default function ReportarIncidenciaScreen() {
               {registroTimestamp}{userName ? ` · ${userName}` : ''}
             </Text>
             <View style={styles.field}>
-              <Text style={styles.label}>Local *</Text>
-              <TouchableOpacity
-                style={styles.dropdownTrigger}
-                onPress={() => setLocalDropdownOpen((v) => !v)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.dropdownTriggerText, !localId && styles.dropdownPlaceholder]} numberOfLines={1}>
-                  {localId
-                    ? (() => {
-                        const loc = locales.find((l) => (valorEnLocal(l, 'id_Locales') ?? valorEnLocal(l, 'id_locales')) === localId);
-                        return loc ? valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? localId : localId;
-                      })()
-                    : 'Selecciona un local'}
-                </Text>
-                <MaterialIcons name={localDropdownOpen ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
-              </TouchableOpacity>
-              {localDropdownOpen && (
-                <View style={styles.dropdownList}>
-                  <ScrollView style={styles.dropdownScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                    {locales.length === 0 ? (
-                      <Text style={styles.emptyHint}>No hay locales. Carga datos en Base de Datos.</Text>
-                    ) : (
-                      locales.map((loc) => {
-                        const id = valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'id_locales') ?? '';
-                        const nombre = valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? id;
-                        const selected = id === localId;
-                        return (
-                          <TouchableOpacity
-                            key={id || nombre}
-                            style={[styles.dropdownOption, selected && styles.dropdownOptionSelected]}
-                            onPress={() => {
-                              setLocalId(id);
-                              setLocalDropdownOpen(false);
-                            }}
-                            activeOpacity={0.7}
-                          >
-                            <Text style={[styles.dropdownOptionText, selected && styles.dropdownOptionTextSelected]} numberOfLines={1}>
-                              {nombre || id || '—'}
-                            </Text>
-                            {selected ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-                          </TouchableOpacity>
-                        );
-                      })
-                    )}
-                  </ScrollView>
-                </View>
-              )}
+              <SelectorDesplegable
+                label="Local *"
+                icono="store"
+                iconoLista="store"
+                tituloLista="Selecciona un local"
+                placeholder="Selecciona un local"
+                vacioTexto="No hay locales. Carga datos en Base de Datos."
+                valorId={localId}
+                opciones={locales.map((loc) => {
+                  const id = valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'id_locales') ?? '';
+                  const nombre = valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? id;
+                  return { id, titulo: nombre || id || '—', icono: 'store' as const };
+                })}
+                onSeleccionar={setLocalId}
+              />
             </View>
 
             <View style={styles.field}>
@@ -408,33 +376,6 @@ const styles = StyleSheet.create({
   registroLine: { fontSize: 10, color: '#94a3b8', marginBottom: 12 },
   field: { marginBottom: 16 },
   label: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 6 },
-  dropdownTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-  },
-  dropdownTriggerText: { fontSize: 12, color: '#334155', flex: 1 },
-  dropdownPlaceholder: { color: '#94a3b8', fontSize: 12 },
-  dropdownList: { marginTop: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff', maxHeight: 200 },
-  dropdownScroll: { maxHeight: 200 },
-  dropdownOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e2e8f0',
-  },
-  dropdownOptionSelected: { backgroundColor: '#f0f9ff' },
-  dropdownOptionText: { fontSize: 12, color: '#334155', flex: 1 },
-  dropdownOptionTextSelected: { color: '#0ea5e9', fontWeight: '500' },
   selectWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   optionBtn: {
     flexDirection: 'row',
@@ -450,7 +391,6 @@ const styles = StyleSheet.create({
   optionBtnSelected: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
   optionText: { fontSize: 12, color: '#475569' },
   optionTextSelected: { color: '#0ea5e9', fontWeight: '500' },
-  emptyHint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
   input: {
     borderWidth: 1,
     borderColor: '#e2e8f0',

@@ -24,7 +24,6 @@ import * as Sharing from 'expo-sharing';
 import { useAuth } from '../contexts/AuthContext';
 import { calcTiempoRestante } from '../lib/acuerdosFechas';
 import { ComprasProveedorModal } from '../components/ComprasProveedorModal';
-import { FechaInputDmy } from '../components/FechaInputDmy';
 import { apiFetch, errorMessage } from '../utils/api';
 import type {
   Acuerdo,

@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
+import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '../../utils/api';
 
@@ -68,41 +69,6 @@ function normalizarBancoIdDesdeOcr(texto: string): BancoArqueoId | '' {
 
 function etiquetaBanco(id: string): string {
   return BANCOS_ARQUEO.find((b) => b.id === id)?.label ?? '—';
-}
-
-function BankLogoBadge({ bancoId, width = 88, height = 28 }: { bancoId: string; width?: number; height?: number }) {
-  const b = BANCOS_ARQUEO.find((x) => x.id === bancoId);
-  const [failed, setFailed] = useState(false);
-  if (!b) {
-    return <View style={{ width, height }} />;
-  }
-  if (failed || !b.logoUrl) {
-    return (
-      <View
-        style={{
-          width,
-          height,
-          backgroundColor: b.color,
-          borderRadius: 6,
-          alignItems: 'center',
-          justifyContent: 'center',
-          paddingHorizontal: 6,
-        }}
-      >
-        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }} numberOfLines={1}>
-          {b.label}
-        </Text>
-      </View>
-    );
-  }
-  return (
-    <Image
-      source={{ uri: b.logoUrl }}
-      style={{ width, height: height * 0.9 }}
-      resizeMode="contain"
-      onError={() => setFailed(true)}
-    />
-  );
 }
 
 const LABELS = [
@@ -323,8 +289,6 @@ export default function ArqueoCajaScreen() {
   const [error, setError] = useState<string | null>(null);
   const [saveOk, setSaveOk] = useState(false);
 
-  const [localModalOpen, setLocalModalOpen] = useState(false);
-  const [posModalOpen, setPosModalOpen] = useState(false);
   const [conteoEfectivoOpen, setConteoEfectivoOpen] = useState(false);
   const [conteoCantidades, setConteoCantidades] = useState<string[]>(() => EFECTIVO_DENOMINACIONES.map(() => ''));
   const [syncingCloseouts, setSyncingCloseouts] = useState(false);
@@ -333,7 +297,6 @@ export default function ArqueoCajaScreen() {
   const [tarjetaLineaExpandidaId, setTarjetaLineaExpandidaId] = useState<string | null>(null);
   /** Vista previa a pantalla completa al pulsar la miniatura. */
   const [tarjetaLightboxUri, setTarjetaLightboxUri] = useState<string | null>(null);
-  const [tarjetaBancoPickerLineId, setTarjetaBancoPickerLineId] = useState<string | null>(null);
 
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const tarjetaCamposDosColumnas = windowWidth >= 480;
@@ -388,7 +351,7 @@ export default function ArqueoCajaScreen() {
   const totalTarjetaImporte = useMemo(() => {
     if (tarjetaLineas.length > 0) {
       let s = 0;
-      for (const l of tarjetaLineas) s += parseEuroInput(l.importe);
+      for (const l of tarjetaLineas) s += parseEuroInput(l.importe ?? '');
       return Math.round(s * 100) / 100;
     }
     return parseEuroInput(tarjetaReal);
@@ -396,7 +359,7 @@ export default function ArqueoCajaScreen() {
 
   useEffect(() => {
     if (tarjetaLineas.length === 0) return;
-    const s = tarjetaLineas.reduce((acc, l) => acc + parseEuroInput(l.importe), 0);
+    const s = tarjetaLineas.reduce((acc, l) => acc + parseEuroInput(l.importe ?? ''), 0);
     const rounded = Math.round(s * 100) / 100;
     setTarjetaReal(rounded.toFixed(2).replace('.', ','));
   }, [tarjetaLineas]);
@@ -737,41 +700,51 @@ export default function ArqueoCajaScreen() {
           </View>
           <View style={styles.filtrosColSelect}>
             <Text style={styles.labelFiltros}>Local</Text>
-            <TouchableOpacity
-              style={styles.selectBtn}
-              onPress={() => {
-                setPosModalOpen(false);
-                setLocalModalOpen(true);
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.selectText} numberOfLines={2}>
-                {formLocal
-                  ? `${agoraCodeToNombre[formLocal] || '—'} · id ${formLocal}`
-                  : 'Seleccionar…'}
-              </Text>
-              <MaterialIcons name="arrow-drop-down" size={22} color="#64748b" />
-            </TouchableOpacity>
+            <SelectorDesplegable
+              icono="store"
+              iconoLista="store"
+              tituloLista="Local"
+              placeholder="Seleccionar…"
+              buscador
+              buscadorPlaceholder="Buscar local…"
+              valorId={formLocal}
+              opciones={locales
+                .map((loc) => {
+                  const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+                  const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
+                  return { code, nombre };
+                })
+                .filter((l) => l.code)
+                .map((l) => ({
+                  id: l.code,
+                  titulo: l.nombre || '—',
+                  subtitulo: `id ${l.code}`,
+                  icono: 'store' as const,
+                }))}
+              onSeleccionar={(code) => setFormLocal(code)}
+            />
           </View>
           <View style={styles.filtrosColSelect}>
             <Text style={styles.labelFiltros}>TPV</Text>
-            <TouchableOpacity
-              style={[styles.selectBtn, !formLocal && styles.selectDisabled]}
-              onPress={() => {
-                if (!formLocal) return;
-                setLocalModalOpen(false);
-                setPosModalOpen(true);
-              }}
+            <SelectorDesplegable
+              icono="point-of-sale"
+              iconoLista="point-of-sale"
+              tituloLista="TPV"
+              placeholder="Seleccionar…"
               disabled={!formLocal}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.selectText} numberOfLines={2}>
-                {formPosId
-                  ? `${formPosName || 'TPV'} · id ${formPosId}`
-                  : 'Seleccionar…'}
-              </Text>
-              <MaterialIcons name="arrow-drop-down" size={22} color="#64748b" />
-            </TouchableOpacity>
+              vacioTexto="No hay TPVs activos para este local."
+              valorId={formPosId}
+              opciones={saleCentersPorLocal.map((sc) => {
+                const id = sc.Id != null ? String(sc.Id) : '';
+                const nom = String(sc.Nombre ?? '').trim() || `TPV ${id}`;
+                return { id, titulo: nom, subtitulo: `id ${id}`, icono: 'point-of-sale' as const };
+              })}
+              onSeleccionar={(id) => {
+                const sc = saleCentersPorLocal.find((s) => String(s.Id) === id);
+                setFormPosId(id);
+                setFormPosName(String(sc?.Nombre ?? '').trim() || `TPV ${id}`);
+              }}
+            />
           </View>
         </View>
 
@@ -803,75 +776,6 @@ export default function ArqueoCajaScreen() {
             Descarga de Ágora el cierre del día para este local, guarda en la tabla de cierres teóricos y actualiza la comparativa (elige también el TPV para ver el teórico por TPV).
           </Text>
         </View>
-
-        <Modal visible={localModalOpen} transparent animationType="fade" onRequestClose={() => setLocalModalOpen(false)}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setLocalModalOpen(false)}>
-            <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.modalTitle}>Local</Text>
-              <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                {locales.map((loc) => {
-                  const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
-                  if (!code) return null;
-                  const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
-                  return (
-                    <TouchableOpacity
-                      key={code}
-                      style={[styles.modalRow, formLocal === code && styles.modalRowActive]}
-                      onPress={() => {
-                        setFormLocal(code);
-                        setLocalModalOpen(false);
-                      }}
-                    >
-                      <Text style={styles.modalRowLine} numberOfLines={2}>
-                        <Text style={styles.modalRowName}>{nombre || '—'}</Text>
-                        <Text style={styles.modalRowId}> · id {code}</Text>
-                      </Text>
-                      {formLocal === code ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-              <TouchableOpacity style={styles.modalClose} onPress={() => setLocalModalOpen(false)}>
-                <Text style={styles.modalCloseText}>Cerrar</Text>
-              </TouchableOpacity>
-            </Pressable>
-          </Pressable>
-        </Modal>
-
-        <Modal visible={posModalOpen} transparent animationType="fade" onRequestClose={() => setPosModalOpen(false)}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setPosModalOpen(false)}>
-            <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.modalTitle}>TPV</Text>
-              <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                {saleCentersPorLocal.map((sc) => {
-                  const id = sc.Id != null ? String(sc.Id) : '';
-                  if (!id) return null;
-                  const nom = String(sc.Nombre ?? '').trim() || `TPV ${id}`;
-                  return (
-                    <TouchableOpacity
-                      key={id}
-                      style={[styles.modalRow, formPosId === id && styles.modalRowActive]}
-                      onPress={() => {
-                        setFormPosId(id);
-                        setFormPosName(nom);
-                        setPosModalOpen(false);
-                      }}
-                    >
-                      <Text style={styles.modalRowLine} numberOfLines={2}>
-                        <Text style={styles.modalRowName}>{nom}</Text>
-                        <Text style={styles.modalRowId}> · id {id}</Text>
-                      </Text>
-                      {formPosId === id ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-              <TouchableOpacity style={styles.modalClose} onPress={() => setPosModalOpen(false)}>
-                <Text style={styles.modalCloseText}>Cerrar</Text>
-              </TouchableOpacity>
-            </Pressable>
-          </Pressable>
-        </Modal>
 
         <Modal visible={conteoEfectivoOpen} transparent animationType="fade" onRequestClose={() => setConteoEfectivoOpen(false)}>
           <Pressable style={styles.modalBackdropConteo} onPress={() => setConteoEfectivoOpen(false)}>
@@ -1129,20 +1033,16 @@ export default function ArqueoCajaScreen() {
                           {tarjetaCamposDosColumnas ? (
                             <>
                               <View style={styles.tarjetaDetailRow2}>
-                                <TouchableOpacity
-                                  style={[styles.tarjetaLineaInputCompact, styles.tarjetaBancoSelect, styles.tarjetaLineaFieldGrow]}
-                                  onPress={() => setTarjetaBancoPickerLineId(line.id)}
-                                  activeOpacity={0.75}
-                                >
-                                  {line.banco ? (
-                                    <View style={styles.tarjetaBancoSelectInner}>
-                                      <BankLogoBadge bancoId={line.banco} width={84} height={26} />
-                                      <MaterialIcons name="arrow-drop-down" size={20} color="#64748b" />
-                                    </View>
-                                  ) : (
-                                    <Text style={styles.tarjetaBancoSelectPlaceholder}>Seleccionar banco</Text>
-                                  )}
-                                </TouchableOpacity>
+                                <SelectorDesplegable
+                                  style={styles.tarjetaLineaFieldGrow}
+                                  icono="account-balance"
+                                  iconoLista="account-balance"
+                                  tituloLista="Seleccionar banco"
+                                  placeholder="Seleccionar banco"
+                                  valorId={line.banco}
+                                  opciones={BANCOS_ARQUEO.map((b) => ({ id: b.id, titulo: b.label, icono: 'account-balance' as const }))}
+                                  onSeleccionar={(id) => updateTarjetaLinea(line.id, { banco: id })}
+                                />
                                 <TextInput
                                   style={[styles.tarjetaLineaInputCompact, styles.tarjetaLineaFieldGrow]}
                                   value={line.numeroComercio}
@@ -1161,20 +1061,15 @@ export default function ArqueoCajaScreen() {
                             </>
                           ) : (
                             <>
-                              <TouchableOpacity
-                                style={[styles.tarjetaLineaInputCompact, styles.tarjetaBancoSelect]}
-                                onPress={() => setTarjetaBancoPickerLineId(line.id)}
-                                activeOpacity={0.75}
-                              >
-                                {line.banco ? (
-                                  <View style={styles.tarjetaBancoSelectInner}>
-                                    <BankLogoBadge bancoId={line.banco} width={88} height={26} />
-                                    <MaterialIcons name="arrow-drop-down" size={20} color="#64748b" />
-                                  </View>
-                                ) : (
-                                  <Text style={styles.tarjetaBancoSelectPlaceholder}>Seleccionar banco</Text>
-                                )}
-                              </TouchableOpacity>
+                              <SelectorDesplegable
+                                icono="account-balance"
+                                iconoLista="account-balance"
+                                tituloLista="Seleccionar banco"
+                                placeholder="Seleccionar banco"
+                                valorId={line.banco}
+                                opciones={BANCOS_ARQUEO.map((b) => ({ id: b.id, titulo: b.label, icono: 'account-balance' as const }))}
+                                onSeleccionar={(id) => updateTarjetaLinea(line.id, { banco: id })}
+                              />
                               <TextInput
                                 style={styles.tarjetaLineaInputCompact}
                                 value={line.numeroComercio}
@@ -1239,43 +1134,6 @@ export default function ArqueoCajaScreen() {
               ) : null}
             </Pressable>
           </View>
-        </Modal>
-
-        <Modal
-          visible={tarjetaBancoPickerLineId != null}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setTarjetaBancoPickerLineId(null)}
-        >
-          <Pressable style={styles.modalBackdrop} onPress={() => setTarjetaBancoPickerLineId(null)}>
-            <Pressable style={[styles.modalSheet, styles.bankPickerSheet]} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.bankPickerTitle}>Seleccionar banco</Text>
-              <ScrollView style={styles.bankPickerList} keyboardShouldPersistTaps="handled">
-                {BANCOS_ARQUEO.map((b) => {
-                  const sel = tarjetaLineas.find((l) => l.id === tarjetaBancoPickerLineId)?.banco === b.id;
-                  return (
-                    <TouchableOpacity
-                      key={b.id}
-                      style={[styles.bankPickerRow, sel && styles.bankPickerRowActive]}
-                      onPress={() => {
-                        const id = tarjetaBancoPickerLineId;
-                        if (id) updateTarjetaLinea(id, { banco: b.id });
-                        setTarjetaBancoPickerLineId(null);
-                      }}
-                      activeOpacity={0.75}
-                    >
-                      <BankLogoBadge bancoId={b.id} width={104} height={30} />
-                      <Text style={styles.bankPickerLabel}>{b.label}</Text>
-                      {sel ? <MaterialIcons name="check" size={22} color="#0ea5e9" /> : null}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-              <TouchableOpacity style={styles.bankPickerCerrar} onPress={() => setTarjetaBancoPickerLineId(null)}>
-                <Text style={styles.bankPickerCerrarText}>Cancelar</Text>
-              </TouchableOpacity>
-            </Pressable>
-          </Pressable>
         </Modal>
 
         {loadingCompare && formLocal && formPosId && businessDayIso ? (
@@ -1542,22 +1400,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     minHeight: 40,
   },
-  selectBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    alignSelf: 'stretch',
-    maxWidth: '100%',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-    backgroundColor: '#fff',
-    minHeight: 40,
-  },
-  selectDisabled: { opacity: 0.5 },
-  selectText: { flexShrink: 1, fontSize: 13, color: '#334155', marginRight: 4, minWidth: 0 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(15,23,42,0.5)',
@@ -1578,24 +1420,6 @@ const styles = StyleSheet.create({
       : { elevation: 12 }),
   },
   modalTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 12 },
-  modalList: { maxHeight: 360 },
-  modalRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'transparent',
-    marginBottom: 4,
-  },
-  modalRowActive: { backgroundColor: '#f0f9ff', borderColor: '#bae6fd' },
-  modalRowLine: { flex: 1, flexWrap: 'wrap' as const },
-  modalRowName: { fontSize: 14, color: '#334155', fontWeight: '500' },
-  modalRowId: { fontSize: 14, color: '#64748b' },
-  modalClose: { marginTop: 8, paddingVertical: 10, alignItems: 'center' },
-  modalCloseText: { fontSize: 14, fontWeight: '600', color: '#0ea5e9' },
   errBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1804,58 +1628,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#dcfce7',
     borderColor: '#86efac',
   },
-  tarjetaBancoSelect: {
-    justifyContent: 'center',
-    minHeight: 40,
-  },
-  tarjetaBancoSelectInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    width: '100%',
-  },
-  tarjetaBancoSelectPlaceholder: {
-    fontSize: 13,
-    color: '#94a3b8',
-  },
-  bankPickerSheet: {
-    maxWidth: 400,
-    maxHeight: '85%',
-    paddingBottom: 12,
-    ...(Platform.OS === 'web' ? { zIndex: 10001 } as object : {}),
-  },
-  bankPickerTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0f172a',
-    marginBottom: 12,
-  },
-  bankPickerList: { maxHeight: 320 },
-  bankPickerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    marginBottom: 8,
-    backgroundColor: '#fff',
-  },
-  bankPickerRowActive: {
-    borderColor: '#bae6fd',
-    backgroundColor: '#f0f9ff',
-  },
-  bankPickerLabel: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#334155',
-  },
-  bankPickerCerrar: { alignSelf: 'center', paddingVertical: 8, marginTop: 4 },
-  bankPickerCerrarText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
   tarjetaModalDetail: { gap: 6, marginTop: 2, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
   tarjetaSinFotoRow: {
     flexDirection: 'row',

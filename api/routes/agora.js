@@ -64,6 +64,7 @@ const env = () => ({
 const tableAgoraProductsName = tables.agoraProducts;
 const tableAgoraUsuariosName = tables.agoraUsuarios;
 const tableSaleCentersName = tables.saleCenters;
+const tableFranjasHorariasName = tables.franjasHorarias;
 const tableSalesCloseOutsName = tables.salesCloseOuts;
 const tableAlmacenesName = tables.almacenes;
 const tableLocalesName = tables.locales;
@@ -2450,6 +2451,458 @@ router.get('/agora/invoices/exceptions', async (req, res) => {
   });
 });
 
+// =========================================================================
+// /cajas/top
+// Rankings agregados para el submódulo "Top" de Cajas.
+//   - Locales: importe total cobrado por local en el rango (todos con registros).
+//   - Objetivos: real / comparativa * 100 por local (todos con registros).
+//   - Camareros: Top 10 por importe (Waiter en facturas Ágora).
+//   - Clientes: Top 10 por importe (excluye CONSUMO por defecto).
+// =========================================================================
+
+const TOP_CACHE = new Map();
+const TOP_CACHE_TTL_MS = 2 * 60 * 1000;
+const TOP_CACHE_MAX = 50;
+
+function topCacheKey(dateFrom, dateTo, workplaceIds, incluirConsumo) {
+  const wp = [...workplaceIds].map(String).sort().join(',');
+  return `${dateFrom}|${dateTo}|${wp}|c=${incluirConsumo ? 1 : 0}`;
+}
+
+function topCacheGet(key) {
+  const entry = TOP_CACHE.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > TOP_CACHE_TTL_MS) {
+    TOP_CACHE.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+function topCacheSet(key, payload) {
+  if (TOP_CACHE.size >= TOP_CACHE_MAX) {
+    const firstKey = TOP_CACHE.keys().next().value;
+    if (firstKey != null) TOP_CACHE.delete(firstKey);
+  }
+  TOP_CACHE.set(key, { payload, cachedAt: Date.now() });
+}
+
+/** Devuelve la fecha del mismo día del año anterior (YYYY-MM-DD). */
+function fechaUnAnoAtras(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  d.setFullYear(d.getFullYear() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Suma importe de un item de cierre (InvoicePayments o GrossAmount fallback). */
+function sumCloseoutItemAmount(item) {
+  const arr = item?.InvoicePayments ?? item?.invoicePayments;
+  let total = 0;
+  if (Array.isArray(arr)) {
+    for (const p of arr) {
+      total += Number(p?.Amount ?? p?.amount ?? p?.Value ?? p?.value ?? 0) || 0;
+    }
+  }
+  if (total === 0) {
+    const amounts = item?.Amounts ?? item?.amounts ?? {};
+    const gross = amounts.GrossAmount ?? amounts.grossAmount ?? amounts.Total ?? amounts.total;
+    total = Number(gross) || 0;
+  }
+  return total;
+}
+
+/** Importe total de una factura: prioriza Totals.GrossAmount → suma pagos → suma items. */
+function sumInvoiceAmount(inv) {
+  const direct = toNumberSafe(
+    inv?.Totals?.GrossAmount ?? inv?.totals?.grossAmount ??
+    inv?.GrossAmount ?? inv?.grossAmount ??
+    inv?.Total ?? inv?.total,
+  );
+  if (direct > 0.001) return direct;
+  const pagos = inv?.InvoicePayments ?? inv?.invoicePayments;
+  if (Array.isArray(pagos) && pagos.length > 0) {
+    let s = 0;
+    for (const p of pagos) s += toNumberSafe(p?.Amount ?? p?.amount);
+    if (s > 0.001) return s;
+  }
+  const items = inv?.InvoiceItems ?? inv?.invoiceItems;
+  if (Array.isArray(items) && items.length > 0) {
+    let s = 0;
+    for (const it of items) {
+      s += toNumberSafe(
+        it?.Totals?.GrossAmount ?? it?.totals?.grossAmount ??
+        it?.GrossAmount ?? it?.grossAmount,
+      );
+    }
+    if (s > 0.001) return s;
+  }
+  return 0;
+}
+
+router.get('/cajas/top', async (req, res) => {
+  const dateFromRaw = String(req.query.dateFrom || '').trim();
+  const dateToRaw = String(req.query.dateTo || '').trim();
+  const workplaceIdsRaw = req.query.workplaceIds ?? req.query['workplaceIds[]'];
+  let workplaceIds = [];
+  if (Array.isArray(workplaceIdsRaw)) {
+    workplaceIds = workplaceIdsRaw.map((v) => String(v).trim()).filter(Boolean);
+  } else if (typeof workplaceIdsRaw === 'string' && workplaceIdsRaw.trim()) {
+    workplaceIds = workplaceIdsRaw.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit || '10'), 10) || 10));
+  const incluirConsumo = String(req.query.incluirConsumo || '') === '1';
+  const refresh = String(req.query.refresh || '') === '1';
+
+  const isIso = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+  if (!isIso(dateFromRaw) || !isIso(dateToRaw)) {
+    return res.status(400).json({ error: 'dateFrom y dateTo deben ser YYYY-MM-DD' });
+  }
+  if (dateFromRaw > dateToRaw) {
+    return res.status(400).json({ error: 'dateFrom debe ser <= dateTo' });
+  }
+
+  const MAX_DAYS = workplaceIds.length === 1 ? 365 : 31;
+  const days = [];
+  {
+    let d = new Date(dateFromRaw + 'T12:00:00');
+    const end = new Date(dateToRaw + 'T12:00:00');
+    while (d <= end) {
+      days.push(d.toISOString().slice(0, 10));
+      d.setDate(d.getDate() + 1);
+      if (days.length > MAX_DAYS) break;
+    }
+  }
+  if (days.length > MAX_DAYS) {
+    const msg = workplaceIds.length === 1
+      ? `Rango máximo permitido: ${MAX_DAYS} días`
+      : `Rango máximo permitido: ${MAX_DAYS} días con ${workplaceIds.length === 0 ? 'todos los locales' : `${workplaceIds.length} locales`}. Selecciona 1 solo local para ampliar hasta 365 días.`;
+    return res.status(400).json({ error: msg });
+  }
+
+  const cacheKey = topCacheKey(dateFromRaw, dateToRaw, workplaceIds, incluirConsumo);
+  const cached = refresh ? null : topCacheGet(cacheKey);
+  if (cached) {
+    return res.json({
+      ...cached.payload,
+      fromCache: true,
+      cachedAt: new Date(cached.cachedAt).toISOString(),
+    });
+  }
+
+  // ---- 1) Maestro de locales (nombre por agoraCode) ----
+  const localeItems = [];
+  let locLastKey = null;
+  do {
+    const locResult = await docClient.send(new ScanCommand({
+      TableName: tableLocalesName,
+      ...(locLastKey && { ExclusiveStartKey: locLastKey }),
+    }));
+    localeItems.push(...(locResult.Items || []));
+    locLastKey = locResult.LastEvaluatedKey || null;
+  } while (locLastKey);
+  const pkToNombre = {};
+  for (const loc of localeItems) {
+    const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+    const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
+    if (code) pkToNombre[code] = nombre || code;
+  }
+  const workplaceFilterSet = new Set(workplaceIds);
+
+  // Cuando el usuario elige "Todos" (workplaceIds vacío) usamos la lista del maestro
+  // de locales para hacer Query por PK en paralelo en lugar de un Scan completo de
+  // Igp_SalesCloseouts. Si por alguna razón el maestro está vacío, mantenemos el
+  // fallback a Scan para no romper el comportamiento previo.
+  const allLocaleCodes = Object.keys(pkToNombre);
+  const effectiveWorkplaceIds = workplaceIds.length > 0 ? workplaceIds : allLocaleCodes;
+
+  // ---- 2) Cierres del rango actual (real) y del rango comparativo ----
+  const dateFromComp = fechaUnAnoAtras(dateFromRaw);
+  const dateToComp = fechaUnAnoAtras(dateToRaw);
+
+  const QUERY_CHUNK = 6;
+  const fetchCloseoutsRange = async (dFrom, dTo) => {
+    const items = [];
+    if (effectiveWorkplaceIds.length > 0) {
+      for (let i = 0; i < effectiveWorkplaceIds.length; i += QUERY_CHUNK) {
+        const slice = effectiveWorkplaceIds.slice(i, i + QUERY_CHUNK);
+        const lists = await Promise.all(
+          slice.map(async (wp) => {
+            const out = [];
+            let lk = null;
+            do {
+              const r = await docClient.send(new QueryCommand({
+                TableName: tableSalesCloseOutsName,
+                KeyConditionExpression: 'PK = :pk AND SK BETWEEN :skFrom AND :skTo',
+                ExpressionAttributeValues: {
+                  ':pk': wp,
+                  ':skFrom': dFrom,
+                  ':skTo': `${dTo}\uffff`,
+                },
+                ...(lk && { ExclusiveStartKey: lk }),
+              }));
+              out.push(...(r.Items || []));
+              lk = r.LastEvaluatedKey || null;
+            } while (lk);
+            return out;
+          }),
+        );
+        for (const list of lists) items.push(...list);
+      }
+    } else {
+      let lk = null;
+      do {
+        const r = await docClient.send(new ScanCommand({
+          TableName: tableSalesCloseOutsName,
+          ...(lk && { ExclusiveStartKey: lk }),
+        }));
+        items.push(...(r.Items || []));
+        lk = r.LastEvaluatedKey || null;
+      } while (lk);
+    }
+    return items;
+  };
+
+  const [closeoutsReal, closeoutsComp, festivosResp] = await Promise.all([
+    fetchCloseoutsRange(dateFromRaw, dateToRaw),
+    fetchCloseoutsRange(dateFromComp, dateToComp),
+    docClient.send(new ScanCommand({ TableName: tables.gestionFestivos })).catch(() => ({ Items: [] })),
+  ]);
+
+  // Mapa fecha → fecha comparativa (festivos pueden cambiarla)
+  const festivosByFecha = new Map();
+  for (const f of festivosResp.Items || []) {
+    const pk = String(f.PK ?? f.FechaComparativa ?? '').slice(0, 10);
+    if (pk) festivosByFecha.set(pk, f);
+  }
+  const fechaToComp = {};
+  for (const fecha of days) {
+    const fest = festivosByFecha.get(fecha);
+    const compFestivo = fest?.FechaComparativa && /^\d{4}-\d{2}-\d{2}$/.test(String(fest.FechaComparativa).slice(0, 10))
+      ? String(fest.FechaComparativa).slice(0, 10)
+      : null;
+    fechaToComp[fecha] = compFestivo || fechaUnAnoAtras(fecha);
+  }
+
+  // Agregamos importes reales por (workplace, fecha) y comparativos por (workplace, fechaComp)
+  const realByWpDay = new Map(); // wp → Map<fecha, importe>
+  const compByWpDay = new Map(); // wp → Map<fechaComp, importe>
+
+  for (const item of closeoutsReal) {
+    const pk = String(item.PK ?? item.pk ?? '').trim();
+    if (!pk) continue;
+    if (workplaceFilterSet.size > 0 && !workplaceFilterSet.has(pk)) continue;
+    const sk = String(item.SK ?? item.sk ?? '').trim();
+    const businessDay = sk && /^\d{4}-\d{2}-\d{2}/.test(sk) ? sk.slice(0, 10) : (sk?.split('#')[0] ?? '');
+    if (!businessDay || businessDay < dateFromRaw || businessDay > dateToRaw) continue;
+    const total = sumCloseoutItemAmount(item);
+    if (!realByWpDay.has(pk)) realByWpDay.set(pk, new Map());
+    const wpMap = realByWpDay.get(pk);
+    wpMap.set(businessDay, (wpMap.get(businessDay) || 0) + total);
+  }
+  for (const item of closeoutsComp) {
+    const pk = String(item.PK ?? item.pk ?? '').trim();
+    if (!pk) continue;
+    if (workplaceFilterSet.size > 0 && !workplaceFilterSet.has(pk)) continue;
+    const sk = String(item.SK ?? item.sk ?? '').trim();
+    const businessDay = sk && /^\d{4}-\d{2}-\d{2}/.test(sk) ? sk.slice(0, 10) : (sk?.split('#')[0] ?? '');
+    if (!businessDay || businessDay < dateFromComp || businessDay > dateToComp) continue;
+    const total = sumCloseoutItemAmount(item);
+    if (!compByWpDay.has(pk)) compByWpDay.set(pk, new Map());
+    const wpMap = compByWpDay.get(pk);
+    wpMap.set(businessDay, (wpMap.get(businessDay) || 0) + total);
+  }
+
+  // Ranking Locales (todos con registros) y Objetivos (todos con registros reales)
+  const localesPkSet = new Set([...realByWpDay.keys(), ...compByWpDay.keys()]);
+  const topLocales = [];
+  const topObjetivos = [];
+  for (const pk of localesPkSet) {
+    const realMap = realByWpDay.get(pk) ?? new Map();
+    const compMap = compByWpDay.get(pk) ?? new Map();
+    let totalReal = 0;
+    for (const v of realMap.values()) totalReal += v;
+    if (totalReal > 0.001) {
+      topLocales.push({
+        workplaceId: pk,
+        nombre: pkToNombre[pk] ?? pk,
+        total: Math.round(totalReal * 100) / 100,
+      });
+    }
+    let totalComp = 0;
+    for (const fecha of days) {
+      const fComp = fechaToComp[fecha];
+      totalComp += compMap.get(fComp) || 0;
+    }
+    if (totalReal > 0.001) {
+      // Variación interanual = (real / comparativa − 1) × 100
+      const variacionPct = totalComp > 0.001 ? ((totalReal / totalComp) - 1) * 100 : null;
+      topObjetivos.push({
+        workplaceId: pk,
+        nombre: pkToNombre[pk] ?? pk,
+        real: Math.round(totalReal * 100) / 100,
+        comparativa: Math.round(totalComp * 100) / 100,
+        variacionPct: variacionPct != null ? Math.round(variacionPct * 10) / 10 : null,
+      });
+    }
+  }
+  topLocales.sort((a, b) => b.total - a.total);
+  topObjetivos.sort((a, b) => {
+    const pa = a.variacionPct ?? -Infinity;
+    const pb = b.variacionPct ?? -Infinity;
+    if (pb !== pa) return pb - pa;
+    return b.real - a.real;
+  });
+  topLocales.forEach((r, i) => { r.rank = i + 1; });
+  topObjetivos.forEach((r, i) => { r.rank = i + 1; });
+
+  // ---- 3) Facturas Ágora para top camareros y top clientes ----
+  // Aunque el usuario eligiera "Todos", filtramos en Ágora por la lista del maestro
+  // de locales: evita descargar facturas de workplaces que no están en el ERP.
+  const workplacesAgora = effectiveWorkplaceIds.length > 0 ? effectiveWorkplaceIds : null;
+  const CHUNK = 4;
+  const invoicesByDay = new Map();
+  for (let i = 0; i < days.length; i += CHUNK) {
+    const slice = days.slice(i, i + CHUNK);
+    const results = await Promise.all(
+      slice.map((day) =>
+        exportInvoices(day, workplacesAgora ?? undefined)
+          .then((data) => ({ day, data, err: null }))
+          .catch((err) => ({ day, data: null, err })),
+      ),
+    );
+    for (const r of results) {
+      if (r.err) {
+        console.warn('[cajas/top]', r.day, r.err.message || r.err);
+        invoicesByDay.set(r.day, []);
+      } else {
+        invoicesByDay.set(r.day, extractCloseOutsArray(r.data, ['Invoices', 'invoices']));
+      }
+    }
+  }
+
+  let userMap = new Map();
+  try {
+    userMap = await getAllUsersMap(docClient, tableAgoraUsuariosName);
+  } catch (e) {
+    console.warn('[cajas/top] usersMap', e.message || e);
+  }
+
+  const camarerosMap = new Map(); // userId → { id, nombre, amount, tickets }
+  const clientesMap = new Map(); // customerId → { id, nombre, amount, tickets }
+
+  // Operador (Cashier/User/Waiter) de una factura: cabecera o primer item con dato.
+  const pickInvoiceOperator = (inv) => {
+    let id = pickUserId(inv);
+    let name = pickUserName(inv);
+    if (id == null) {
+      const items = inv?.InvoiceItems ?? inv?.invoiceItems ?? [];
+      if (Array.isArray(items)) {
+        for (const it of items) {
+          const itId = pickUserId(it);
+          if (itId != null) {
+            id = itId;
+            if (name == null) name = pickUserName(it);
+            break;
+          }
+        }
+      }
+    }
+    return { id, name };
+  };
+
+  for (const day of days) {
+    const invs = invoicesByDay.get(day) ?? [];
+    for (const inv of invs) {
+      if (inv?.IsCancellation === true || inv?.isCancellation === true ||
+          inv?.IsCancelled === true || inv?.isCancelled === true) continue;
+      const amount = sumInvoiceAmount(inv);
+      if (!(amount > 0.001)) continue;
+
+      const op = pickInvoiceOperator(inv);
+      if (op.id != null) {
+        const id = String(op.id).trim();
+        if (!camarerosMap.has(id)) {
+          camarerosMap.set(id, {
+            userId: id,
+            userName: op.name ?? userMap.get(id) ?? `#${id}`,
+            amount: 0,
+            tickets: 0,
+          });
+        }
+        const u = camarerosMap.get(id);
+        u.amount += amount;
+        u.tickets += 1;
+        if (!op.name && userMap.get(id) && (u.userName === `#${id}` || u.userName == null)) {
+          u.userName = userMap.get(id);
+        }
+      }
+
+      const customerId = pickCustomerId(inv);
+      const customerName = pickCustomerName(inv);
+      const esConsumo = isConsumoCustomerEntry(customerId, customerName);
+      if (!incluirConsumo && esConsumo) continue;
+      if (customerId != null) {
+        const id = String(customerId).trim();
+        if (!clientesMap.has(id)) {
+          clientesMap.set(id, {
+            customerId: id,
+            customerName: customerName ?? `#${id}`,
+            amount: 0,
+            tickets: 0,
+            consumo: esConsumo,
+          });
+        }
+        const c = clientesMap.get(id);
+        c.amount += amount;
+        c.tickets += 1;
+      }
+    }
+  }
+
+  const topCamareros = Array.from(camarerosMap.values())
+    .sort((a, b) => b.amount - a.amount || b.tickets - a.tickets)
+    .slice(0, limit)
+    .map((u, i) => ({
+      ...u,
+      amount: Math.round(u.amount * 100) / 100,
+      rank: i + 1,
+    }));
+
+  const topClientes = Array.from(clientesMap.values())
+    .sort((a, b) => b.amount - a.amount || b.tickets - a.tickets)
+    .slice(0, limit)
+    .map((c, i) => ({
+      ...c,
+      amount: Math.round(c.amount * 100) / 100,
+      rank: i + 1,
+    }));
+
+  const cachedAt = Date.now();
+  const payload = {
+    dateFrom: dateFromRaw,
+    dateTo: dateToRaw,
+    workplaceIds,
+    incluirConsumo,
+    limit,
+    locales: topLocales,
+    objetivos: topObjetivos,
+    camareros: topCamareros,
+    clientes: topClientes,
+    counts: {
+      locales: topLocales.length,
+      objetivos: topObjetivos.length,
+      camareros: topCamareros.length,
+      clientes: topClientes.length,
+    },
+  };
+  topCacheSet(cacheKey, payload);
+  res.json({
+    ...payload,
+    fromCache: false,
+    cachedAt: new Date(cachedAt).toISOString(),
+  });
+});
+
 router.get('/agora/test-connection', async (req, res) => {
   const { AGORA_API_BASE_URL, AGORA_API_TOKEN } = env();
   const baseUrl = (AGORA_API_BASE_URL || '').trim().replace(/\/+$/, '');
@@ -3000,6 +3453,192 @@ router.post('/agora/sale-centers/sync', async (req, res) => {
     }
     return res.json({ ok: true, fetched: items.length, upserted });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Franjas horarias (plantillas) + ventas por hora
+//
+// Tabla Igp_FranjasHorarias: PK = "GLOBAL", SK = plantillaId.
+// Cada plantilla: { nombre, franjas: [{ desde:"HH:MM", hasta:"HH:MM", etiqueta? }] }.
+// Se usan en Objetivos para desglosar las ventas de un día (real y comparativa)
+// por franjas horarias, sobre datos calculados desde las facturas de Ágora.
+// ---------------------------------------------------------------------------
+
+const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function normalizarFranjas(raw) {
+  if (!Array.isArray(raw)) return null;
+  const franjas = [];
+  for (const f of raw) {
+    const desde = String(f?.desde ?? '').trim();
+    const hasta = String(f?.hasta ?? '').trim();
+    if (!HHMM_RE.test(desde) || !HHMM_RE.test(hasta)) return null;
+    const etiqueta = String(f?.etiqueta ?? '').trim();
+    franjas.push(etiqueta ? { desde, hasta, etiqueta } : { desde, hasta });
+  }
+  return franjas;
+}
+
+router.get('/agora/franjas-plantillas', async (_req, res) => {
+  const items = [];
+  let lastKey = null;
+  do {
+    const result = await docClient.send(
+      new QueryCommand({
+        TableName: tableFranjasHorariasName,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': 'GLOBAL' },
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      })
+    );
+    items.push(...(result.Items || []));
+    lastKey = result.LastEvaluatedKey || null;
+  } while (lastKey);
+  const plantillas = items
+    .map((i) => ({
+      plantillaId: i.SK,
+      nombre: i.nombre ?? '',
+      franjas: Array.isArray(i.franjas) ? i.franjas : [],
+    }))
+    .sort((a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es', { sensitivity: 'base' }));
+  res.json({ plantillas });
+});
+
+router.post('/agora/franjas-plantillas', async (req, res) => {
+  const nombre = String(req.body?.nombre ?? '').trim();
+  if (!nombre) return res.status(400).json({ error: 'nombre es obligatorio' });
+  const franjas = normalizarFranjas(req.body?.franjas);
+  if (franjas == null) {
+    return res.status(400).json({ error: 'franjas inválidas (formato esperado: [{ desde:"HH:MM", hasta:"HH:MM" }])' });
+  }
+  const plantillaId = `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await docClient.send(
+    new PutCommand({
+      TableName: tableFranjasHorariasName,
+      Item: { PK: 'GLOBAL', SK: plantillaId, nombre, franjas },
+    })
+  );
+  res.json({ ok: true, plantilla: { plantillaId, nombre, franjas } });
+});
+
+router.put('/agora/franjas-plantillas', async (req, res) => {
+  const plantillaId = String(req.body?.plantillaId ?? '').trim();
+  if (!plantillaId) return res.status(400).json({ error: 'plantillaId es obligatorio' });
+  const nombre = String(req.body?.nombre ?? '').trim();
+  if (!nombre) return res.status(400).json({ error: 'nombre es obligatorio' });
+  const franjas = normalizarFranjas(req.body?.franjas);
+  if (franjas == null) {
+    return res.status(400).json({ error: 'franjas inválidas (formato esperado: [{ desde:"HH:MM", hasta:"HH:MM" }])' });
+  }
+  try {
+    await docClient.send(
+      new UpdateCommand({
+        TableName: tableFranjasHorariasName,
+        Key: { PK: 'GLOBAL', SK: plantillaId },
+        UpdateExpression: 'SET nombre = :nombre, franjas = :franjas',
+        ExpressionAttributeValues: { ':nombre': nombre, ':franjas': franjas },
+        ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
+      })
+    );
+    return res.json({ ok: true, plantilla: { plantillaId, nombre, franjas } });
+  } catch (err) {
+    if (err.name === 'ConditionalCheckFailedException') {
+      const e = new Error(`Plantilla ${plantillaId} no encontrada`);
+      e.status = 404;
+      throw e;
+    }
+    throw err;
+  }
+});
+
+router.delete('/agora/franjas-plantillas', async (req, res) => {
+  const plantillaId = String(req.query.plantillaId ?? req.body?.plantillaId ?? '').trim();
+  if (!plantillaId) return res.status(400).json({ error: 'plantillaId es obligatorio' });
+  await docClient.send(
+    new DeleteCommand({
+      TableName: tableFranjasHorariasName,
+      Key: { PK: 'GLOBAL', SK: plantillaId },
+    })
+  );
+  res.json({ ok: true, plantillaId });
+});
+
+// Ventas por hora de un local en un business-day, calculadas desde las facturas de Ágora.
+// Devuelve un mapa hora(0-23) -> importe bruto. El bucketing por franjas se hace en el front.
+const SALES_BY_HOUR_CACHE = new Map();
+const SALES_BY_HOUR_TTL_MS = 5 * 60 * 1000;
+const SALES_BY_HOUR_CACHE_MAX = 60;
+
+function salesByHourCacheGet(key) {
+  const entry = SALES_BY_HOUR_CACHE.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > SALES_BY_HOUR_TTL_MS) {
+    SALES_BY_HOUR_CACHE.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+function salesByHourCacheSet(key, value) {
+  if (SALES_BY_HOUR_CACHE.size >= SALES_BY_HOUR_CACHE_MAX) {
+    const firstKey = SALES_BY_HOUR_CACHE.keys().next().value;
+    if (firstKey != null) SALES_BY_HOUR_CACHE.delete(firstKey);
+  }
+  SALES_BY_HOUR_CACHE.set(key, { ...value, cachedAt: Date.now() });
+}
+
+/** Extrae la hora (0-23) de un string de fecha/hora de Ágora (ISO o "YYYY-MM-DD HH:MM:SS"). */
+function horaDesdeFecha(fechaStr) {
+  if (!fechaStr) return null;
+  const m = String(fechaStr).match(/[T\s](\d{2}):\d{2}/);
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  return Number.isInteger(h) && h >= 0 && h <= 23 ? h : null;
+}
+
+router.get('/agora/invoices/sales-by-hour', async (req, res) => {
+  const workplaceId = String(req.query.workplaceId ?? '').trim();
+  const businessDay = String(req.query.businessDay ?? '').trim();
+  const refresh = String(req.query.refresh || '') === '1';
+
+  if (!workplaceId) return res.status(400).json({ error: 'workplaceId es obligatorio' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
+    return res.status(400).json({ error: 'businessDay debe ser YYYY-MM-DD' });
+  }
+
+  const cacheKey = `${workplaceId}|${businessDay}`;
+  const cached = refresh ? null : salesByHourCacheGet(cacheKey);
+  if (cached) {
+    return res.json({ ...cached.payload, fromCache: true });
+  }
+
+  let data;
+  try {
+    data = await exportInvoices(businessDay, [workplaceId]);
+  } catch (err) {
+    console.warn('[agora/invoices/sales-by-hour]', businessDay, err.message || err);
+    return res.status(502).json({ error: `No se pudieron obtener facturas de Ágora: ${err.message || err}` });
+  }
+  const invoices = extractCloseOutsArray(data, ['Invoices', 'invoices']);
+
+  const porHora = {};
+  let totalDia = 0;
+  let nFacturas = 0;
+  for (const inv of invoices) {
+    const fecha = inv?.Date ?? inv?.date ?? inv?.DateTime ?? inv?.dateTime;
+    const hora = horaDesdeFecha(fecha);
+    const gross = toNumberSafe(
+      inv?.Totals?.GrossAmount ?? inv?.totals?.grossAmount ?? inv?.GrossAmount ?? inv?.grossAmount
+    );
+    if (hora == null || !(gross > 0)) continue;
+    porHora[hora] = (porHora[hora] ?? 0) + gross;
+    totalDia += gross;
+    nFacturas++;
+  }
+
+  const payload = { businessDay, workplaceId, porHora, totalDia, nFacturas };
+  salesByHourCacheSet(cacheKey, { payload });
+  res.json(payload);
 });
 
 router.post('/agora/warehouses/sync', async (req, res) => {

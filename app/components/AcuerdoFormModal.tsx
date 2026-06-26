@@ -10,7 +10,8 @@ import {
   View,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { FechaInputDmy } from './FechaInputDmy';
+import { InputFecha } from './InputFecha';
+import { SelectorDesplegable } from './SelectorDesplegable';
 import type { UseAcuerdosFormReturn } from '../hooks/useAcuerdosForm';
 import { ESTADOS_ACUERDO } from '../hooks/useAcuerdosForm';
 
@@ -34,11 +35,7 @@ export function AcuerdoFormModal({ formAcuerdo, isCompact }: Props) {
     setForm,
     formPK,
     guardando,
-    marcaDropdownOpen,
-    setMarcaDropdownOpen,
-    marcaSearch,
-    setMarcaSearch,
-    empresasFiltradas,
+    empresas,
     loadingEmpresas,
     cerrar,
     guardar,
@@ -73,66 +70,32 @@ export function AcuerdoFormModal({ formAcuerdo, isCompact }: Props) {
               placeholderTextColor="#94a3b8"
             />
 
-            <Text style={styles.label}>Marca</Text>
-            <TouchableOpacity
-              style={styles.input}
-              onPress={() => {
-                setMarcaSearch('');
-                setMarcaDropdownOpen((o) => !o);
-              }}
-            >
-              <Text style={form.Marca ? styles.inputValueText : styles.inputPlaceholderText}>
-                {form.Marca || 'Seleccionar marca…'}
-              </Text>
-            </TouchableOpacity>
-            {marcaDropdownOpen && (
-              <View style={styles.productoDropdown}>
-                <View style={styles.productoDropdownSearch}>
-                  <MaterialIcons name="search" size={16} color="#94a3b8" />
-                  <TextInput
-                    style={styles.productoDropdownInput}
-                    value={marcaSearch}
-                    onChangeText={setMarcaSearch}
-                    placeholder="Buscar empresa…"
-                    placeholderTextColor="#94a3b8"
-                    autoFocus
-                  />
-                  <TouchableOpacity onPress={() => setMarcaDropdownOpen(false)}>
-                    <MaterialIcons name="close" size={16} color="#94a3b8" />
-                  </TouchableOpacity>
-                </View>
-                <ScrollView style={styles.productoDropdownList} keyboardShouldPersistTaps="handled">
-                  {loadingEmpresas ? (
-                    <ActivityIndicator size="small" color="#0ea5e9" style={{ padding: 12 }} />
-                  ) : empresasFiltradas.length === 0 ? (
-                    <Text style={styles.productoDropdownEmpty}>Sin resultados</Text>
-                  ) : (
-                    empresasFiltradas.map((e, i) => {
-                      const alias = String(e.Alias || e.Nombre || '');
-                      return (
-                        <TouchableOpacity
-                          key={String(e.Cif || e.id_empresa || i)}
-                          style={styles.productoDropdownItem}
-                          onPress={() => {
-                            setForm((f) => ({ ...f, Marca: alias }));
-                            setMarcaDropdownOpen(false);
-                          }}
-                        >
-                          <Text style={styles.productoDropdownItemText} numberOfLines={1}>
-                            {alias}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })
-                  )}
-                </ScrollView>
-              </View>
-            )}
+            <SelectorDesplegable
+              label="Marca"
+              icono="business"
+              placeholder="Seleccionar marca…"
+              tituloLista="Selecciona una empresa"
+              iconoLista="business"
+              loading={loadingEmpresas}
+              vacioTexto="No hay empresas disponibles."
+              buscador
+              buscadorPlaceholder="Buscar empresa…"
+              style={styles.selectorMarca}
+              valorId={form.Marca || ''}
+              opciones={empresas.map((e, i) => {
+                const alias = String(e.Alias || e.Nombre || '');
+                return {
+                  id: alias || String(e.Cif || e.id_empresa || i),
+                  titulo: alias || '—',
+                };
+              })}
+              onSeleccionar={(id) => setForm((f) => ({ ...f, Marca: id }))}
+            />
 
             <View style={styles.row2}>
               <View style={styles.row2col}>
                 <Text style={styles.label}>Fecha inicio</Text>
-                <FechaInputDmy
+                <InputFecha
                   style={styles.input}
                   valueIso={form.FechaInicio}
                   onChangeIso={(iso) => setForm((f) => ({ ...f, FechaInicio: iso }))}
@@ -140,7 +103,7 @@ export function AcuerdoFormModal({ formAcuerdo, isCompact }: Props) {
               </View>
               <View style={styles.row2col}>
                 <Text style={styles.label}>Fecha fin</Text>
-                <FechaInputDmy
+                <InputFecha
                   style={styles.input}
                   valueIso={form.FechaFin}
                   onChangeIso={(iso) => setForm((f) => ({ ...f, FechaFin: iso }))}
@@ -250,8 +213,7 @@ const styles = StyleSheet.create({
   },
   inputReadonly: { backgroundColor: '#e2e8f0', color: '#64748b' },
   inputMultiline: { minHeight: 60, textAlignVertical: 'top' },
-  inputValueText: { fontSize: 14, color: '#334155' },
-  inputPlaceholderText: { fontSize: 14, color: '#94a3b8' },
+  selectorMarca: { marginTop: 10 },
   row2: { flexDirection: 'row', gap: 10 },
   row2col: { flex: 1 },
   estadoRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
@@ -266,50 +228,6 @@ const styles = StyleSheet.create({
   estadoChipActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
   estadoChipText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
   estadoChipTextActive: { color: '#fff' },
-  productoDropdown: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    marginTop: 4,
-    maxHeight: 220,
-    overflow: 'hidden',
-  },
-  productoDropdownSearch: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
-  },
-  productoDropdownInput: {
-    flex: 1,
-    fontSize: 13,
-    color: '#334155',
-    // Web-only: oculta el outline azul nativo del input al enfocar.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- estilo CSS web no en RN ViewStyle
-    outlineStyle: 'none' as any,
-  },
-  productoDropdownList: { maxHeight: 170 },
-  productoDropdownEmpty: {
-    fontSize: 12,
-    color: '#94a3b8',
-    fontStyle: 'italic',
-    padding: 12,
-    textAlign: 'center',
-  },
-  productoDropdownItem: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  productoDropdownItemText: { fontSize: 13, color: '#334155', flex: 1 },
   modalBtns: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 20 },
   cancelBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, backgroundColor: '#f1f5f9' },
   cancelBtnText: { fontSize: 13, fontWeight: '600', color: '#64748b' },

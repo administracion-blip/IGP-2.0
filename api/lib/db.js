@@ -14,6 +14,8 @@ export const tables = {
   productos: process.env.DDB_PRODUCTOS || 'igp_Productos',
   almacenes: process.env.DDB_ALMACENES || 'igp_Almacenes',
   saleCenters: process.env.DDB_SALE_CENTERS_TABLE || 'Igp_SaleCenters',
+  /** Plantillas de franjas horarias para "ventas por horas" en Objetivos. PK = "GLOBAL", SK = plantillaId. */
+  franjasHorarias: process.env.DDB_FRANJAS_HORARIAS_TABLE || 'Igp_FranjasHorarias',
   agoraProducts: process.env.DDB_AGORA_PRODUCTS_TABLE || 'Igp_AgoraProducts',
   agoraUsuarios: process.env.DDB_AGORA_USUARIOS_TABLE || 'Igp_AgoraUsuarios',
   salesCloseOuts: process.env.DDB_SALES_CLOSEOUTS_TABLE || 'Igp_SalesCloseouts',

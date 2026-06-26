@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,23 +7,14 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   TextInput,
-  Modal,
   Platform,
-  KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
-import { ICONS, ICON_SIZE } from '../constants/icons';
 import { apiFetch } from '../utils/api';
 
-const DEFAULT_COL_WIDTH = 120;
-const MIN_COL_WIDTH = 60;
-const MAX_TEXT_LENGTH = 30;
-const PAGE_SIZE = 50;
-
-const COLUMNAS_PERMISOS = ['rol', 'permiso'] as const;
-
 const ROLES_OPCIONES = ['Administrador', 'SuperUser', 'Administracion', 'Local', 'Socio'] as const;
+
 const PERMISOS_CODIGOS = [
   // --- Módulos (menú lateral) ---
   'base_datos.ver',
@@ -93,6 +84,9 @@ const PERMISOS_CODIGOS = [
   // --- Cajas: Control de excepciones ---
   'excepciones.ver',
   'excepciones.exportar',
+  // --- Cajas: Top ---
+  'top.ver',
+  'top.exportar',
   // --- Mantenimiento ---
   'mantenimiento.crear',
   'mantenimiento.editar',
@@ -134,6 +128,7 @@ const PERMISOS_CODIGOS = [
   'planning_dia.ver',
   // --- Recursos Humanos ---
   'personal.ver',
+  'rrhh.horas',
   // --- Marketing ---
   'marketing.proponer',
   'marketing.gestionar',
@@ -195,6 +190,8 @@ const PERMISOS_LABELS: Record<string, string> = {
   'objetivos.compartir': 'Objetivos · Compartir',
   'excepciones.ver': 'Control excepciones · Ver',
   'excepciones.exportar': 'Control excepciones · Exportar',
+  'top.ver': 'Top · Ver',
+  'top.exportar': 'Top · Exportar',
   'mantenimiento.crear': 'Mantenimiento · Crear',
   'mantenimiento.editar': 'Mantenimiento · Editar',
   'mantenimiento.borrar': 'Mantenimiento · Borrar',
@@ -219,23 +216,67 @@ const PERMISOS_LABELS: Record<string, string> = {
   'facturacion.cobrar_pagar': 'Facturación · Cobrar/Pagar',
   'facturacion.series': 'Facturación · Series',
   'facturacion.exportar': 'Facturación · Exportar',
-  // --- Ajustes ---
   'ajustes.ver': 'Ajustes (menú)',
   'ajustes.sincronizaciones.agora_productos': 'Ajustes · Sync Productos Agora',
   'ajustes.sincronizaciones.agora_usuarios': 'Ajustes · Sync Usuarios Agora',
   'ajustes.sincronizaciones.compras_proveedor': 'Ajustes · Sync Compras Proveedor',
   'ajustes.sincronizaciones.closeouts': 'Ajustes · Sync Cierres de caja',
   'ajustes.sincronizaciones.almacenes': 'Ajustes · Sync Almacenes',
+  'ajustes.sincronizaciones.empleados': 'Ajustes · Sync Empleados',
   'marketing.proponer': 'Marketing · Proponer',
   'marketing.gestionar': 'Marketing · Gestionar',
   'personal.ver': 'Personal · Ver empleados',
+  'rrhh.horas': 'RRHH · Horas por facturación',
+  'planning_dia.ver': 'Planning del Día (menú)',
 };
+
+/**
+ * Familias de permisos (orden y agrupación visual de la matriz). Cada familia
+ * reúne los códigos que comparten contexto funcional; se definen explícitamente
+ * (en vez de partir por el primer segmento del código) para títulos legibles y
+ * para no mezclar familias distintas como `usuarios` y `usuarios_agora`.
+ */
+const GRUPOS_PERMISOS: { titulo: string; codigos: string[] }[] = [
+  { titulo: 'Menú lateral', codigos: ['base_datos.ver', 'mantenimiento.ver', 'compras.ver', 'cajas.ver', 'cashflow.ver', 'actuaciones.ver', 'rrpp.ver', 'recursos_humanos.ver', 'rrss.ver', 'mystery_guest.ver', 'reservas.ver'] },
+  { titulo: 'Usuarios', codigos: ['usuarios.ver', 'usuarios.crear', 'usuarios.editar', 'usuarios.borrar'] },
+  { titulo: 'Locales', codigos: ['locales.ver', 'locales.crear', 'locales.editar', 'locales.borrar'] },
+  { titulo: 'Empresas', codigos: ['empresas.ver', 'empresas.crear', 'empresas.editar', 'empresas.importar'] },
+  { titulo: 'Productos', codigos: ['productos.ver', 'productos.editar', 'productos.sincronizar'] },
+  { titulo: 'Almacenes', codigos: ['almacenes.ver', 'almacenes.crear', 'almacenes.editar', 'almacenes.borrar', 'almacenes.sincronizar'] },
+  { titulo: 'Usuarios Ágora', codigos: ['usuarios_agora.ver', 'usuarios_agora.sincronizar'] },
+  { titulo: 'Puntos de venta', codigos: ['puntos_venta.ver', 'puntos_venta.editar'] },
+  { titulo: 'Permisos', codigos: ['permisos.ver', 'permisos.crear', 'permisos.editar', 'permisos.borrar'] },
+  { titulo: 'Cierres teóricos', codigos: ['cierres.ver', 'cierres.crear', 'cierres.editar', 'cierres.borrar', 'cierres.sincronizar', 'cierres.exportar'] },
+  { titulo: 'Comparativa fechas', codigos: ['comparativa.ver', 'comparativa.crear', 'comparativa.editar', 'comparativa.borrar', 'comparativa.importar', 'comparativa.exportar'] },
+  { titulo: 'Objetivos', codigos: ['objetivos.ver', 'objetivos.compartir'] },
+  { titulo: 'Control de excepciones', codigos: ['excepciones.ver', 'excepciones.exportar'] },
+  { titulo: 'Top', codigos: ['top.ver', 'top.exportar'] },
+  { titulo: 'Mantenimiento', codigos: ['mantenimiento.crear', 'mantenimiento.editar', 'mantenimiento.borrar'] },
+  { titulo: 'Pedidos', codigos: ['pedidos.ver', 'pedidos.crear', 'pedidos.editar', 'pedidos.borrar', 'pedidos.editar_enviado', 'pedidos.borrar_enviado'] },
+  { titulo: 'Compras proveedor', codigos: ['compras_proveedor.ver', 'compras_proveedor.sincronizar'] },
+  { titulo: 'Acuerdos', codigos: ['acuerdos.ver', 'acuerdos.crear', 'acuerdos.editar', 'acuerdos.borrar', 'acuerdos.exportar'] },
+  { titulo: 'Facturación', codigos: ['facturacion.ver', 'facturacion.crear', 'facturacion.editar', 'facturacion.emitir', 'facturacion.anular', 'facturacion.cobrar_pagar', 'facturacion.series', 'facturacion.exportar'] },
+  { titulo: 'Ajustes', codigos: ['ajustes.ver', 'ajustes.sincronizaciones.agora_productos', 'ajustes.sincronizaciones.agora_usuarios', 'ajustes.sincronizaciones.compras_proveedor', 'ajustes.sincronizaciones.closeouts', 'ajustes.sincronizaciones.almacenes', 'ajustes.sincronizaciones.empleados'] },
+  { titulo: 'Planning del Día', codigos: ['planning_dia.ver'] },
+  { titulo: 'Recursos Humanos', codigos: ['personal.ver', 'rrhh.horas'] },
+  { titulo: 'Marketing', codigos: ['marketing.proponer', 'marketing.gestionar'] },
+];
+
+const TOTAL_PERMISOS = PERMISOS_CODIGOS.length;
+const LABEL_COL_WIDTH = 240;
+const ROLE_COL_WIDTH = 104;
 
 type ItemPermiso = { rol: string; permiso: string };
 
-function truncar(val: string): string {
-  if (val.length <= MAX_TEXT_LENGTH) return val;
-  return val.slice(0, MAX_TEXT_LENGTH - 3) + '…';
+function celKey(rol: string, permiso: string): string {
+  return `${rol}\u0001${permiso}`;
+}
+
+/** Etiqueta corta para la fila: quita el prefijo de familia (lo da el grupo). */
+function etiquetaFila(codigo: string): string {
+  const label = PERMISOS_LABELS[codigo] ?? codigo;
+  const partes = label.split('·');
+  return partes.length > 1 ? partes.slice(1).join('·').trim() : label;
 }
 
 export default function PermisosScreen() {
@@ -243,20 +284,9 @@ export default function PermisosScreen() {
   const [items, setItems] = useState<ItemPermiso[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ rol: 140, permiso: 160 });
-  const [resizingCol, setResizingCol] = useState<string | null>(null);
-  const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
-  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editingItem, setEditingItem] = useState<ItemPermiso | null>(null);
-  const [formRol, setFormRol] = useState('');
-  const [formPermiso, setFormPermiso] = useState('');
-  const [formPermisos, setFormPermisos] = useState<string[]>([]);
-  const [guardando, setGuardando] = useState(false);
-  const [errorForm, setErrorForm] = useState<string | null>(null);
-  const [filtroBusqueda, setFiltroBusqueda] = useState('');
-  const [pageIndex, setPageIndex] = useState(0);
-  const resizeRef = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
+  const [busqueda, setBusqueda] = useState('');
+  const [colapsados, setColapsados] = useState<Set<string>>(new Set());
+  const [savingCells, setSavingCells] = useState<Set<string>>(new Set());
 
   const refetch = useCallback(() => {
     setError(null);
@@ -275,219 +305,139 @@ export default function PermisosScreen() {
     refetch();
   }, [refetch]);
 
-  const abrirModalNuevo = () => {
-    setEditingItem(null);
-    setFormRol(ROLES_OPCIONES[0]);
-    setFormPermiso('');
-    setFormPermisos([]);
-    setModalVisible(true);
-    setErrorForm(null);
-  };
+  const asignados = useMemo(
+    () => new Set(items.map((i) => celKey(i.rol, i.permiso))),
+    [items]
+  );
 
-  const abrirModalEditar = (item: ItemPermiso) => {
-    setEditingItem(item);
-    setFormRol(item.rol);
-    setFormPermiso(item.permiso);
-    setFormPermisos([]);
-    setModalVisible(true);
-    setErrorForm(null);
-  };
-
-  const cerrarModal = () => {
-    setModalVisible(false);
-    setEditingItem(null);
-    setErrorForm(null);
-  };
-
-  const togglePermiso = (codigo: string) => {
-    setFormPermisos((prev) =>
-      prev.includes(codigo) ? prev.filter((p) => p !== codigo) : [...prev, codigo]
-    );
-  };
-
-  const seleccionarTodosPermisos = () => {
-    setFormPermisos([...PERMISOS_CODIGOS]);
-  };
-
-  const quitarTodosPermisos = () => {
-    setFormPermisos([]);
-  };
-
-  const guardar = async () => {
-    const rol = formRol.trim();
-    if (!rol) {
-      setErrorForm('El rol es obligatorio');
-      return;
+  const conteoPorRol = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const rol of ROLES_OPCIONES) {
+      map[rol] = PERMISOS_CODIGOS.reduce(
+        (acc, codigo) => acc + (asignados.has(celKey(rol, codigo)) ? 1 : 0),
+        0
+      );
     }
-    setErrorForm(null);
-    setGuardando(true);
-    try {
-      if (editingItem) {
-        const permiso = formPermiso.trim();
-        if (!permiso) {
-          setErrorForm('El permiso es obligatorio');
-          setGuardando(false);
-          return;
-        }
-        if (editingItem.rol !== rol || editingItem.permiso !== permiso) {
-          const delRes = await apiFetch('/api/permisos', {
-            method: 'DELETE',
-            body: JSON.stringify({ rol: editingItem.rol, permiso: editingItem.permiso }),
-          });
-          if (!delRes.ok) {
-            const data = await delRes.json();
-            setErrorForm(data.error || 'Error al actualizar');
-            setGuardando(false);
-            return;
-          }
-        }
-        if (editingItem.rol === rol && editingItem.permiso === permiso) {
-          cerrarModal();
-          setGuardando(false);
-          return;
-        }
-        const res = await apiFetch('/api/permisos', {
-          method: 'POST',
-          body: JSON.stringify({ rol, permiso }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setErrorForm(data.error || 'Error al guardar');
-          setGuardando(false);
-          return;
-        }
-      } else {
-        if (formPermisos.length === 0) {
-          setErrorForm('Selecciona al menos un permiso');
-          setGuardando(false);
-          return;
-        }
-        let failed = false;
-        for (const permiso of formPermisos) {
-          const res = await apiFetch('/api/permisos', {
-            method: 'POST',
-            body: JSON.stringify({ rol, permiso }),
-          });
-          const data = await res.json();
-          if (!res.ok) {
-            setErrorForm(data.error || `Error al guardar ${permiso}`);
-            failed = true;
-            break;
-          }
-        }
-        if (failed) {
-          setGuardando(false);
-          return;
-        }
-      }
-      refetch();
-      setSelectedRowIndex(null);
-      cerrarModal();
-    } catch (e) {
-      setErrorForm('No se pudo conectar con el servidor');
-    } finally {
-      setGuardando(false);
-    }
-  };
+    return map;
+  }, [asignados]);
 
-  const borrarSeleccionado = async () => {
-    if (selectedRowIndex == null) return;
-    const item = itemsFiltrados[selectedRowIndex];
-    if (!item) return;
-    setGuardando(true);
-    try {
-      const res = await apiFetch('/api/permisos', {
-        method: 'DELETE',
-        body: JSON.stringify({ rol: item.rol, permiso: item.permiso }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || 'Error al borrar');
-        return;
-      }
-      refetch();
-      setSelectedRowIndex(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error de conexión');
-    } finally {
-      setGuardando(false);
-    }
-  };
+  const q = busqueda.trim().toLowerCase();
+  const grupos = useMemo(() => {
+    return GRUPOS_PERMISOS.map((g) => {
+      const codigos = q
+        ? g.codigos.filter(
+            (c) =>
+              c.toLowerCase().includes(q) ||
+              (PERMISOS_LABELS[c] ?? '').toLowerCase().includes(q) ||
+              g.titulo.toLowerCase().includes(q)
+          )
+        : g.codigos;
+      return { ...g, codigos };
+    }).filter((g) => g.codigos.length > 0);
+  }, [q]);
 
-  const toolbarBtns = [
-    { id: 'crear', label: 'Crear registro', icon: ICONS.add },
-    { id: 'editar', label: 'Editar', icon: ICONS.edit },
-    { id: 'borrar', label: 'Borrar', icon: ICONS.delete },
-  ];
-
-  const getColWidth = useCallback((col: string) => columnWidths[col] ?? DEFAULT_COL_WIDTH, [columnWidths]);
-  const columnas = useMemo(() => [...COLUMNAS_PERMISOS], []);
-
-  const valorCelda = useCallback((item: ItemPermiso, col: string) => {
-    const v = col === 'rol' ? item.rol : item.permiso;
-    return (v ?? '').toString().trim() || '—';
+  const toggleGrupoColapsado = useCallback((titulo: string) => {
+    setColapsados((prev) => {
+      const next = new Set(prev);
+      if (next.has(titulo)) next.delete(titulo);
+      else next.add(titulo);
+      return next;
+    });
   }, []);
 
-  const itemsFiltrados = useMemo(() => {
-    const q = filtroBusqueda.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter(
-      (x) =>
-        (x.rol || '').toLowerCase().includes(q) || (x.permiso || '').toLowerCase().includes(q)
-    );
-  }, [items, filtroBusqueda]);
+  const setCeldasGuardando = useCallback((keys: string[], on: boolean) => {
+    setSavingCells((prev) => {
+      const next = new Set(prev);
+      for (const k of keys) {
+        if (on) next.add(k);
+        else next.delete(k);
+      }
+      return next;
+    });
+  }, []);
 
-  const totalRegistros = itemsFiltrados.length;
-  const totalPages = Math.max(1, Math.ceil(totalRegistros / PAGE_SIZE));
-  const pageIndexClamped = Math.min(Math.max(0, pageIndex), totalPages - 1);
-  const itemsPagina = useMemo(() => {
-    const start = pageIndexClamped * PAGE_SIZE;
-    return itemsFiltrados.slice(start, start + PAGE_SIZE);
-  }, [itemsFiltrados, pageIndexClamped]);
+  /** Alterna un único permiso para un rol (optimista, revierte si falla). */
+  const toggleCelda = useCallback(
+    async (rol: string, permiso: string) => {
+      const k = celKey(rol, permiso);
+      if (savingCells.has(k)) return;
+      const tiene = asignados.has(k);
+      setItems((prev) =>
+        tiene
+          ? prev.filter((i) => !(i.rol === rol && i.permiso === permiso))
+          : [...prev, { rol, permiso }]
+      );
+      setCeldasGuardando([k], true);
+      try {
+        const res = await apiFetch('/api/permisos', {
+          method: tiene ? 'DELETE' : 'POST',
+          body: JSON.stringify({ rol, permiso }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Error al guardar el permiso');
+        }
+        setError(null);
+      } catch (e) {
+        setItems((prev) =>
+          tiene
+            ? [...prev, { rol, permiso }]
+            : prev.filter((i) => !(i.rol === rol && i.permiso === permiso))
+        );
+        setError(e instanceof Error ? e.message : 'Error de conexión');
+      } finally {
+        setCeldasGuardando([k], false);
+      }
+    },
+    [asignados, savingCells, setCeldasGuardando]
+  );
 
-  useEffect(() => {
-    setPageIndex((p) => (p >= totalPages ? Math.max(0, totalPages - 1) : p));
-  }, [totalPages]);
-  useEffect(() => {
-    setPageIndex(0);
-  }, [filtroBusqueda]);
-
-  const goPrevPage = () => {
-    setPageIndex((p) => Math.max(0, p - 1));
-    setSelectedRowIndex(null);
-  };
-  const goNextPage = () => {
-    setPageIndex((p) => Math.min(totalPages - 1, p + 1));
-    setSelectedRowIndex(null);
-  };
-
-  useEffect(() => {
-    if (Platform.OS !== 'web' || !resizingCol) return;
-    const handleMove = (e: MouseEvent) => {
-      const r = resizeRef.current;
-      if (!r) return;
-      const delta = e.clientX - r.startX;
-      const next = Math.max(MIN_COL_WIDTH, r.startWidth + delta);
-      setColumnWidths((prev) => ({ ...prev, [r.col]: next }));
-    };
-    const handleUp = () => {
-      resizeRef.current = null;
-      setResizingCol(null);
-    };
-    document.addEventListener('mousemove', handleMove);
-    document.addEventListener('mouseup', handleUp);
-    return () => {
-      document.removeEventListener('mousemove', handleMove);
-      document.removeEventListener('mouseup', handleUp);
-    };
-  }, [resizingCol]);
-
-  const handleResizeStart = (col: string, e: { nativeEvent?: { clientX: number }; clientX?: number }) => {
-    if (Platform.OS !== 'web') return;
-    const clientX = e.nativeEvent?.clientX ?? (e as { clientX: number }).clientX ?? 0;
-    resizeRef.current = { col, startX: clientX, startWidth: getColWidth(col) };
-    setResizingCol(col);
-  };
+  /** Marca o quita TODA una familia para un rol (si está completa, la vacía). */
+  const toggleGrupoRol = useCallback(
+    async (codigos: string[], rol: string) => {
+      const todos = codigos.every((c) => asignados.has(celKey(rol, c)));
+      const objetivoActivo = !todos;
+      const cambios = codigos.filter(
+        (c) => asignados.has(celKey(rol, c)) !== objetivoActivo
+      );
+      if (cambios.length === 0) return;
+      const keys = cambios.map((c) => celKey(rol, c));
+      setItems((prev) => {
+        if (objetivoActivo) {
+          const faltan = cambios.map((permiso) => ({ rol, permiso }));
+          return [...prev, ...faltan];
+        }
+        const aQuitar = new Set(cambios);
+        return prev.filter((i) => !(i.rol === rol && aQuitar.has(i.permiso)));
+      });
+      setCeldasGuardando(keys, true);
+      try {
+        const resultados = await Promise.allSettled(
+          cambios.map((permiso) =>
+            apiFetch('/api/permisos', {
+              method: objetivoActivo ? 'POST' : 'DELETE',
+              body: JSON.stringify({ rol, permiso }),
+            }).then((res) => {
+              if (!res.ok) throw new Error('fallo');
+            })
+          )
+        );
+        const algunFallo = resultados.some((r) => r.status === 'rejected');
+        if (algunFallo) {
+          setError('Algunos permisos no se pudieron guardar. Se han recargado los datos.');
+          refetch();
+        } else {
+          setError(null);
+        }
+      } catch {
+        setError('Error al guardar la familia. Se han recargado los datos.');
+        refetch();
+      } finally {
+        setCeldasGuardando(keys, false);
+      }
+    },
+    [asignados, refetch, setCeldasGuardando]
+  );
 
   if (loading && items.length === 0) {
     return (
@@ -518,6 +468,8 @@ export default function PermisosScreen() {
     );
   }
 
+  const todoColapsado = grupos.every((g) => colapsados.has(g.titulo));
+
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
@@ -525,290 +477,170 @@ export default function PermisosScreen() {
           <MaterialIcons name="arrow-back" size={22} color="#334155" />
         </TouchableOpacity>
         <Text style={styles.title}>Permisos</Text>
-      </View>
-
-      <View style={styles.toolbarRow}>
-        <View style={styles.toolbar}>
-          {toolbarBtns.map((btn) => (
-            <View
-              key={btn.id}
-              style={styles.toolbarBtnWrap}
-              {...(Platform.OS === 'web'
-                ? ({ onMouseEnter: () => setHoveredBtn(btn.id), onMouseLeave: () => setHoveredBtn(null) } as object)
-                : {})}
-            >
-              {hoveredBtn === btn.id && (
-                <View style={styles.tooltip}>
-                  <Text style={styles.tooltipText}>{btn.label}</Text>
-                </View>
-              )}
-              <TouchableOpacity
-                style={[
-                  styles.toolbarBtn,
-                  (btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null && styles.toolbarBtnDisabled,
-                ]}
-                onPress={() => {
-                  if (btn.id === 'crear') abrirModalNuevo();
-                  if (btn.id === 'editar' && selectedRowIndex != null) abrirModalEditar(itemsPagina[selectedRowIndex]);
-                  if (btn.id === 'borrar' && selectedRowIndex != null) borrarSeleccionado();
-                }}
-                disabled={guardando || ((btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null)}
-                accessibilityLabel={btn.label}
-              >
-                <MaterialIcons
-                  name={btn.icon}
-                  size={ICON_SIZE}
-                  color={
-                    guardando || ((btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null)
-                      ? '#94a3b8'
-                      : '#0ea5e9'
-                  }
-                />
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
-        <View
-          style={styles.toolbarBtnWrap}
-          {...(Platform.OS === 'web'
-            ? ({ onMouseEnter: () => setHoveredBtn('actualizar'), onMouseLeave: () => setHoveredBtn(null) } as object)
-            : {})}
+        <View style={styles.headerSpacer} />
+        <TouchableOpacity
+          style={styles.headerActionBtn}
+          onPress={() => {
+            if (todoColapsado) setColapsados(new Set());
+            else setColapsados(new Set(GRUPOS_PERMISOS.map((g) => g.titulo)));
+          }}
+          accessibilityLabel={todoColapsado ? 'Expandir todo' : 'Colapsar todo'}
         >
-          {hoveredBtn === 'actualizar' && (
-            <View style={styles.tooltip}>
-              <Text style={styles.tooltipText}>Actualizar</Text>
-            </View>
-          )}
-          <TouchableOpacity
-            style={styles.toolbarBtn}
-            onPress={refetch}
-            disabled={loading}
-            accessibilityLabel="Actualizar"
-          >
-            <MaterialIcons name="refresh" size={ICON_SIZE} color={loading ? '#94a3b8' : '#0ea5e9'} />
-          </TouchableOpacity>
-        </View>
-        <View style={styles.searchWrap}>
-          <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            value={filtroBusqueda}
-            onChangeText={setFiltroBusqueda}
-            placeholder="Buscar en la tabla…"
-            placeholderTextColor="#94a3b8"
+          <MaterialIcons
+            name={todoColapsado ? 'unfold-more' : 'unfold-less'}
+            size={20}
+            color="#0ea5e9"
           />
-        </View>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.headerActionBtn}
+          onPress={refetch}
+          disabled={loading}
+          accessibilityLabel="Actualizar"
+        >
+          <MaterialIcons name="refresh" size={20} color={loading ? '#94a3b8' : '#0ea5e9'} />
+        </TouchableOpacity>
       </View>
 
-      <View style={styles.subtitleRow}>
-        <Text style={styles.subtitle}>
-          {totalRegistros === 0
-            ? '0 registros'
-            : totalPages > 1
-              ? `${pageIndexClamped * PAGE_SIZE + 1}–${Math.min((pageIndexClamped + 1) * PAGE_SIZE, totalRegistros)} de ${totalRegistros} registro${totalRegistros !== 1 ? 's' : ''}`
-              : `${totalRegistros} registro${totalRegistros !== 1 ? 's' : ''}`}
-        </Text>
-        {totalPages > 1 && (
-          <View style={styles.pagination}>
-            <TouchableOpacity
-              style={[styles.pageBtn, pageIndexClamped <= 0 && styles.pageBtnDisabled]}
-              onPress={goPrevPage}
-              disabled={pageIndexClamped <= 0}
-            >
-              <MaterialIcons name="chevron-left" size={20} color={pageIndexClamped <= 0 ? '#94a3b8' : '#0ea5e9'} />
-            </TouchableOpacity>
-            <Text style={styles.pageText}>Página {pageIndexClamped + 1} de {totalPages}</Text>
-            <TouchableOpacity
-              style={[styles.pageBtn, pageIndexClamped >= totalPages - 1 && styles.pageBtnDisabled]}
-              onPress={goNextPage}
-              disabled={pageIndexClamped >= totalPages - 1}
-            >
-              <MaterialIcons name="chevron-right" size={20} color={pageIndexClamped >= totalPages - 1 ? '#94a3b8' : '#0ea5e9'} />
-            </TouchableOpacity>
-          </View>
+      <View style={styles.searchWrap}>
+        <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          value={busqueda}
+          onChangeText={setBusqueda}
+          placeholder="Buscar permiso o familia…"
+          placeholderTextColor="#94a3b8"
+        />
+        {busqueda.length > 0 && (
+          <TouchableOpacity onPress={() => setBusqueda('')} hitSlop={8}>
+            <MaterialIcons name="close" size={16} color="#94a3b8" />
+          </TouchableOpacity>
         )}
       </View>
 
+      {error ? (
+        <View style={styles.errorBar}>
+          <MaterialIcons name="error-outline" size={16} color="#dc2626" />
+          <Text style={styles.errorBarText}>{error}</Text>
+        </View>
+      ) : null}
+
       <ScrollView horizontal style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.table}>
-          <View style={styles.rowHeader}>
-            {columnas.map((col) => (
-              <View key={col} style={[styles.cellHeader, { width: getColWidth(col) }]}>
-                <Text style={styles.cellHeaderText} numberOfLines={1} ellipsizeMode="tail">
-                  {col}
-                </Text>
-                {Platform.OS === 'web' && (
-                  <View
-                    style={styles.resizeHandle}
-                    onMouseDown={(e: { nativeEvent?: { clientX: number }; clientX?: number }) =>
-                      handleResizeStart(col, e)
-                    }
-                  />
-                )}
+        <View style={{ minWidth: LABEL_COL_WIDTH + ROLE_COL_WIDTH * ROLES_OPCIONES.length }}>
+          {/* Cabecera: roles + contador por rol */}
+          <View style={styles.matrixHeader}>
+            <View style={[styles.labelCell, styles.labelHeaderCell]}>
+              <Text style={styles.labelHeaderText}>Permiso</Text>
+            </View>
+            {ROLES_OPCIONES.map((rol) => (
+              <View key={rol} style={styles.roleHeadCell}>
+                <Text style={styles.roleHeadText} numberOfLines={2}>{rol}</Text>
+                <Text style={styles.roleHeadCount}>{conteoPorRol[rol]}/{TOTAL_PERMISOS}</Text>
               </View>
             ))}
           </View>
-          {itemsPagina.map((item, idx) => (
-            <TouchableOpacity
-              key={`${item.rol}-${item.permiso}-${idx}`}
-              style={[styles.row, selectedRowIndex === idx && styles.rowSelected]}
-              onPress={() => setSelectedRowIndex(selectedRowIndex === idx ? null : idx)}
-              activeOpacity={0.8}
-            >
-              {columnas.map((col) => {
-                const raw = valorCelda(item, col);
-                const text = raw.length > MAX_TEXT_LENGTH ? truncar(raw) : raw;
+
+          <ScrollView style={styles.matrixBody} nestedScrollEnabled>
+            {grupos.length === 0 ? (
+              <View style={styles.emptyWrap}>
+                <MaterialIcons name="search-off" size={40} color="#cbd5e1" />
+                <Text style={styles.emptyText}>Sin permisos que coincidan con «{busqueda}».</Text>
+              </View>
+            ) : (
+              grupos.map((g) => {
+                const colapsado = !q && colapsados.has(g.titulo);
                 return (
-                  <View key={col} style={[styles.cell, { width: getColWidth(col) }]}>
-                    <Text style={styles.cellText} numberOfLines={1} ellipsizeMode="tail">
-                      {text}
-                    </Text>
+                  <View key={g.titulo}>
+                    <TouchableOpacity
+                      style={styles.groupHeaderRow}
+                      onPress={() => toggleGrupoColapsado(g.titulo)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.groupHeaderLabel}>
+                        <MaterialIcons
+                          name={colapsado ? 'chevron-right' : 'expand-more'}
+                          size={20}
+                          color="#475569"
+                        />
+                        <Text style={styles.groupHeaderText}>{g.titulo}</Text>
+                        <Text style={styles.groupHeaderCount}>{g.codigos.length}</Text>
+                      </View>
+                      {ROLES_OPCIONES.map((rol) => {
+                        const total = g.codigos.length;
+                        const activos = g.codigos.reduce(
+                          (acc, c) => acc + (asignados.has(celKey(rol, c)) ? 1 : 0),
+                          0
+                        );
+                        const estado = activos === 0 ? 'none' : activos === total ? 'all' : 'some';
+                        return (
+                          <TouchableOpacity
+                            key={rol}
+                            style={styles.groupRoleCell}
+                            onPress={() => toggleGrupoRol(g.codigos, rol)}
+                            accessibilityLabel={`${estado === 'all' ? 'Quitar' : 'Marcar'} todo ${g.titulo} para ${rol}`}
+                          >
+                            <MaterialIcons
+                              name={
+                                estado === 'all'
+                                  ? 'check-box'
+                                  : estado === 'some'
+                                    ? 'indeterminate-check-box'
+                                    : 'check-box-outline-blank'
+                              }
+                              size={18}
+                              color={estado === 'none' ? '#cbd5e1' : '#0ea5e9'}
+                            />
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </TouchableOpacity>
+
+                    {!colapsado &&
+                      g.codigos.map((codigo, idx) => (
+                        <View
+                          key={codigo}
+                          style={[styles.matrixRow, idx % 2 === 1 && styles.matrixRowAlt]}
+                        >
+                          <View style={styles.labelCell}>
+                            <Text style={styles.labelText} numberOfLines={1}>
+                              {etiquetaFila(codigo)}
+                            </Text>
+                            <Text style={styles.labelCode} numberOfLines={1}>
+                              {codigo}
+                            </Text>
+                          </View>
+                          {ROLES_OPCIONES.map((rol) => {
+                            const k = celKey(rol, codigo);
+                            const activo = asignados.has(k);
+                            const saving = savingCells.has(k);
+                            return (
+                              <TouchableOpacity
+                                key={rol}
+                                style={[styles.matrixCell, activo && styles.matrixCellOn]}
+                                onPress={() => toggleCelda(rol, codigo)}
+                                disabled={saving}
+                                activeOpacity={0.6}
+                                accessibilityLabel={`${activo ? 'Quitar' : 'Dar'} ${codigo} a ${rol}`}
+                              >
+                                {saving ? (
+                                  <ActivityIndicator size="small" color="#0ea5e9" />
+                                ) : activo ? (
+                                  <MaterialIcons name="check" size={18} color="#16a34a" />
+                                ) : (
+                                  <Text style={styles.matrixDash}>—</Text>
+                                )}
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      ))}
                   </View>
                 );
-              })}
-            </TouchableOpacity>
-          ))}
+              })
+            )}
+          </ScrollView>
         </View>
       </ScrollView>
-
-      <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={cerrarModal}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => {}}>
-          <KeyboardAvoidingView
-            style={styles.modalContentWrap}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          >
-            <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalCardTouch}>
-              <View style={styles.modalCard}>
-                <View style={styles.modalHeader}>
-                  <View>
-                    <Text style={styles.modalTitle}>
-                      {editingItem ? 'Editar permiso' : 'Nuevo permiso'}
-                    </Text>
-                    <Text style={styles.modalSubtitle}>
-                      Asigna un permiso de acceso a un rol.
-                    </Text>
-                  </View>
-                  <TouchableOpacity onPress={cerrarModal} style={styles.modalClose}>
-                    <MaterialIcons name="close" size={22} color="#64748b" />
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.modalBody}>
-                  <View style={styles.modalBodyRow}>
-                    <View style={styles.modalBodyColLeft}>
-                      <Text style={styles.formLabel}>Rol</Text>
-                      <View style={[styles.selectBox, styles.selectBoxRol]}>
-                        <View style={styles.rolesGrid}>
-                          {ROLES_OPCIONES.map((r) => (
-                            <TouchableOpacity
-                              key={r}
-                              style={[styles.selectOption, formRol === r && styles.selectOptionSelected]}
-                              onPress={() => setFormRol(r)}
-                              activeOpacity={0.7}
-                            >
-                              <Text style={[styles.selectOptionText, formRol === r && styles.selectOptionTextSelected]}>
-                                {r}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                      </View>
-                    </View>
-                    <View style={styles.modalBodyColRight}>
-                      <View style={styles.formLabelRow}>
-                        <Text style={styles.formLabel}>
-                          {editingItem ? 'Permiso' : 'Permisos (selección múltiple)'}
-                        </Text>
-                        {!editingItem && (
-                          <View style={styles.formLabelActions}>
-                            <TouchableOpacity onPress={seleccionarTodosPermisos} style={styles.linkBtn}>
-                              <Text style={styles.linkBtnText}>Seleccionar todos</Text>
-                            </TouchableOpacity>
-                            <Text style={styles.formLabelDot}>·</Text>
-                            <TouchableOpacity onPress={quitarTodosPermisos} style={styles.linkBtn}>
-                              <Text style={styles.linkBtnText}>Quitar todos</Text>
-                            </TouchableOpacity>
-                          </View>
-                        )}
-                      </View>
-                      <View style={styles.selectBox}>
-                        <ScrollView style={styles.permisosListScroll} nestedScrollEnabled showsVerticalScrollIndicator>
-                          <View style={styles.permisosListInner}>
-                            {PERMISOS_CODIGOS.map((p, i) => {
-                              const selected = editingItem ? formPermiso === p : formPermisos.includes(p);
-                              const grupo = p.split('.')[0];
-                              const grupoAnterior = i > 0 ? PERMISOS_CODIGOS[i - 1].split('.')[0] : null;
-                              const mostrarSeparador = grupo !== grupoAnterior;
-                              return (
-                                <View key={p}>
-                                  {mostrarSeparador && (
-                                    <View style={styles.permisoGrupoSep}>
-                                      <Text style={styles.permisoGrupoText}>{(PERMISOS_LABELS[p] ?? p).split('·')[0].replace('(menú)', '').trim()}</Text>
-                                    </View>
-                                  )}
-                                  <TouchableOpacity
-                                    style={[styles.selectOptionRow, selected && styles.selectOptionSelected]}
-                                    onPress={() =>
-                                      editingItem ? setFormPermiso(p) : togglePermiso(p)
-                                    }
-                                    activeOpacity={0.7}
-                                  >
-                                    {!editingItem && (
-                                      <View style={[styles.checkbox, selected && styles.checkboxChecked]}>
-                                        {selected ? (
-                                          <MaterialIcons name="check" size={14} color="#fff" />
-                                        ) : null}
-                                      </View>
-                                    )}
-                                    <Text style={[styles.selectOptionText, selected && styles.selectOptionTextSelected]} numberOfLines={1}>
-                                      {PERMISOS_LABELS[p] ?? p}
-                                    </Text>
-                                    <Text style={styles.selectOptionCode} numberOfLines={1}>{p}</Text>
-                                  </TouchableOpacity>
-                                </View>
-                              );
-                            })}
-                          </View>
-                        </ScrollView>
-                      </View>
-                      {!editingItem && formPermisos.length > 0 && (
-                        <Text style={styles.formHint}>
-                          {formPermisos.length} permiso{formPermisos.length !== 1 ? 's' : ''} seleccionado{formPermisos.length !== 1 ? 's' : ''}. Se crearán {formPermisos.length} registro{formPermisos.length !== 1 ? 's' : ''} para el rol «{formRol}».
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-                </View>
-                {errorForm ? <View style={styles.modalErrorWrap}><MaterialIcons name="error-outline" size={16} color="#dc2626" /><Text style={styles.modalError}>{errorForm}</Text></View> : null}
-                <View style={styles.modalFooter}>
-                  <TouchableOpacity
-                    style={styles.modalFooterBtnSecondary}
-                    onPress={cerrarModal}
-                    disabled={guardando}
-                    accessibilityLabel="Cancelar"
-                  >
-                    <Text style={styles.modalFooterBtnSecondaryText}>Cancelar</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.modalFooterBtnPrimary, guardando && styles.modalFooterBtnDisabled]}
-                    onPress={guardar}
-                    disabled={guardando}
-                    accessibilityLabel={editingItem ? 'Guardar' : 'Añadir'}
-                  >
-                    {guardando ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <>
-                        <MaterialIcons name={editingItem ? 'save' : ICONS.add} size={ICON_SIZE} color="#fff" />
-                        <Text style={styles.modalFooterBtnPrimaryText}>{editingItem ? 'Guardar' : 'Añadir'}</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </TouchableOpacity>
-          </KeyboardAvoidingView>
-        </TouchableOpacity>
-      </Modal>
     </View>
   );
 }
@@ -820,222 +652,128 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
   retryBtn: { paddingVertical: 8, paddingHorizontal: 16, backgroundColor: '#fef2f2', borderRadius: 8 },
   retryBtnText: { fontSize: 12, color: '#dc2626', fontWeight: '600' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 },
   backBtn: { padding: 4 },
   title: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12 },
-  toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  headerSpacer: { flex: 1 },
+  headerActionBtn: {
+    padding: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+  },
   searchWrap: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    minWidth: 140,
-    maxWidth: 280,
-    height: 32,
+    height: 36,
     backgroundColor: '#f8fafc',
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 8,
-    paddingHorizontal: 8,
-  },
-  searchIcon: { marginRight: 6 },
-  searchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
-  toolbarBtnWrap: { position: 'relative' },
-  tooltip: {
-    position: 'absolute',
-    bottom: '100%',
-    alignSelf: 'center',
-    marginBottom: 4,
-    backgroundColor: '#334155',
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 4,
-    zIndex: 10,
-  },
-  tooltipText: { fontSize: 9, color: '#f8fafc', fontWeight: '400' },
-  toolbarBtn: { padding: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
-  toolbarBtnDisabled: { opacity: 0.6 },
-  subtitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    paddingHorizontal: 10,
     marginBottom: 8,
-    gap: 12,
-    flexWrap: 'wrap',
+    gap: 6,
   },
-  subtitle: { fontSize: 12, color: '#64748b' },
-  pagination: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  pageBtn: { padding: 4 },
-  pageBtnDisabled: { opacity: 0.5 },
-  pageText: { fontSize: 11, color: '#64748b', marginHorizontal: 4 },
-  scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 20 },
-  table: {
-    minWidth: '100%',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: '#fff',
-  },
-  rowHeader: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
-  cellHeader: {
-    minWidth: MIN_COL_WIDTH,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRightWidth: 1,
-    borderRightColor: '#cbd5e1',
-    position: 'relative',
-  },
-  cellHeaderText: { fontSize: 11, fontWeight: '600', color: '#334155' },
-  resizeHandle: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    width: 6,
-    height: '100%',
-    cursor: 'col-resize' as 'pointer',
-  },
-  row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#fff' },
-  rowSelected: { backgroundColor: '#e0f2fe' },
-  cell: { minWidth: MIN_COL_WIDTH, paddingVertical: 4, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#e2e8f0' },
-  cellText: { fontSize: 11, color: '#475569' },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
-  },
-  modalContentWrap: { width: '100%', maxWidth: 720, padding: 24, alignItems: 'center' },
-  modalCardTouch: { width: '100%' },
-  modalCard: {
-    width: '100%',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 24,
-    elevation: 12,
-    overflow: 'hidden',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-  },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#334155', marginBottom: 4 },
-  modalSubtitle: { fontSize: 13, color: '#64748b', lineHeight: 18 },
-  modalClose: { padding: 4, marginTop: -4 },
-  modalBody: { paddingHorizontal: 24, paddingVertical: 20 },
-  modalBodyRow: { flexDirection: 'row', gap: 24, alignItems: 'stretch', minHeight: 320 },
-  modalBodyColLeft: { width: '38%', minWidth: 0, flexDirection: 'column' },
-  modalBodyColRight: { flex: 1, minWidth: 0, flexDirection: 'column' },
-  formGroup: { marginBottom: 20 },
-  formLabel: { fontSize: 12, fontWeight: '600', color: '#334155', marginBottom: 8 },
-  formLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 6 },
-  formLabelActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  linkBtn: { paddingVertical: 2, paddingHorizontal: 4 },
-  linkBtnText: { fontSize: 11, color: '#0ea5e9', fontWeight: '500' },
-  formLabelDot: { fontSize: 11, color: '#94a3b8' },
-  formHint: { fontSize: 11, color: '#64748b', marginTop: 8, lineHeight: 16 },
-  selectBox: {
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    padding: 12,
-  },
-  selectBoxRol: { flex: 1, minHeight: 280 },
-  rolesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  selectOption: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    minWidth: '30%',
-  },
-  permisosListInner: { gap: 6 },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
-    backgroundColor: '#fff',
-    marginRight: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxChecked: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  selectOptionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  selectOptionSelected: {
-    backgroundColor: '#e0f2fe',
-    borderColor: '#0ea5e9',
-    borderWidth: 1,
-  },
-  selectOptionText: { fontSize: 13, color: '#334155', fontWeight: '500', flex: 1 },
-  selectOptionTextSelected: { color: '#0369a1', fontWeight: '600' },
-  selectOptionCode: { fontSize: 11, color: '#94a3b8', marginLeft: 8 },
-  permisoGrupoSep: { paddingHorizontal: 8, paddingVertical: 4, backgroundColor: '#f1f5f9', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  permisoGrupoText: { fontSize: 10, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 },
-  permisosListScroll: { flex: 1, minHeight: 260, maxHeight: 320 },
-  modalErrorWrap: {
+  searchIcon: { marginRight: 2 },
+  searchInput: { flex: 1, fontSize: 13, color: '#334155', paddingVertical: 0, outlineStyle: 'none' as any },
+  errorBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 24,
-    paddingVertical: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
     backgroundColor: '#fef2f2',
-    marginHorizontal: 24,
-    marginBottom: 8,
-    borderRadius: 8,
-  },
-  modalError: { fontSize: 12, color: '#dc2626', flex: 1 },
-  modalFooter: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
-  },
-  modalFooterBtnSecondary: {
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#fff',
+    borderColor: '#fecaca',
+    marginBottom: 8,
   },
-  modalFooterBtnSecondaryText: { fontSize: 14, color: '#64748b', fontWeight: '500' },
-  modalFooterBtnPrimary: {
+  errorBarText: { flex: 1, fontSize: 12, color: '#dc2626' },
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 20 },
+  matrixHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#1e293b',
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    overflow: 'hidden',
+  },
+  labelCell: {
+    width: LABEL_COL_WIDTH,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#e2e8f0',
+  },
+  labelHeaderCell: { borderRightColor: '#334155' },
+  labelHeaderText: { fontSize: 12, fontWeight: '700', color: '#f8fafc' },
+  roleHeadCell: {
+    width: ROLE_COL_WIDTH,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#334155',
+  },
+  roleHeadText: { fontSize: 11, fontWeight: '700', color: '#f8fafc', textAlign: 'center' },
+  roleHeadCount: { fontSize: 10, color: '#94a3b8', marginTop: 2 },
+  matrixBody: { flex: 1 },
+  groupHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 10,
-    backgroundColor: '#0ea5e9',
+    backgroundColor: '#e2e8f0',
+    borderBottomWidth: 1,
+    borderBottomColor: '#cbd5e1',
   },
-  modalFooterBtnPrimaryText: { fontSize: 14, color: '#fff', fontWeight: '600' },
-  modalFooterBtnDisabled: { opacity: 0.7 },
+  groupHeaderLabel: {
+    width: LABEL_COL_WIDTH,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 7,
+    paddingHorizontal: 6,
+  },
+  groupHeaderText: { fontSize: 12, fontWeight: '700', color: '#334155', flex: 1 },
+  groupHeaderCount: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748b',
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    overflow: 'hidden',
+  },
+  groupRoleCell: {
+    width: ROLE_COL_WIDTH,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 7,
+    borderLeftWidth: 1,
+    borderLeftColor: '#cbd5e1',
+  },
+  matrixRow: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  matrixRowAlt: { backgroundColor: '#fafbfc' },
+  labelText: { fontSize: 12, color: '#334155', fontWeight: '500' },
+  labelCode: { fontSize: 10, color: '#94a3b8', marginTop: 1 },
+  matrixCell: {
+    width: ROLE_COL_WIDTH,
+    minHeight: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderLeftWidth: 1,
+    borderLeftColor: '#f1f5f9',
+  },
+  matrixCellOn: { backgroundColor: '#f0fdf4' },
+  matrixDash: { fontSize: 13, color: '#cbd5e1' },
+  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 50, gap: 10 },
+  emptyText: { fontSize: 13, color: '#94a3b8', textAlign: 'center' },
 });

@@ -29,6 +29,24 @@ export async function fetchPorcentajeBeneficio(): Promise<number> {
 }
 
 /**
+ * Importe por hora por defecto (ajustes → personalización), en €/hora.
+ * Usado como ratio inicial en RRHH → Horas por facturación cuando un local no
+ * tiene ratio propio. Si se llama sin sesión o no está configurado, devuelve 0.
+ */
+export async function fetchImporteHoraDefecto(): Promise<number> {
+  try {
+    const res = await apiFetch('/api/ajustes/personalizacion/app');
+    const data = await res.json();
+    if (!res.ok || !data?.ok || !data?.item) return 0;
+    const p = (data.item as { ImporteHoraDefecto?: number }).ImporteHoraDefecto;
+    const n = typeof p === 'number' ? p : parseFloat(String(p ?? ''));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Obtiene la URI de imagen de personalización (data URL o http) desde Igp_Ajustes.
  * Endpoint PÚBLICO (no requiere token) — usado en el login antes de autenticar.
  * El parámetro `_baseUrl` se mantiene por compatibilidad con `login.tsx` pero se ignora.

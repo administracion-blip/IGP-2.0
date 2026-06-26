@@ -17,6 +17,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
+import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import * as XLSX from 'xlsx-js-style';
 import { apiFetch } from '../../utils/api';
 
@@ -361,8 +362,6 @@ export default function CierresTeoricosScreen() {
   const [formNumber, setFormNumber] = useState('1');
   const [formPayments, setFormPayments] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [formLocalDropdownOpen, setFormLocalDropdownOpen] = useState(false);
-  const [formPosDropdownOpen, setFormPosDropdownOpen] = useState(false);
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
 
   const lastRowTapRef = useRef<{ rowKey: string; time: number } | null>(null);
@@ -616,8 +615,6 @@ export default function CierresTeoricosScreen() {
     setFormPayments(init);
     setFormError(null);
     setEditingItem(null);
-    setFormLocalDropdownOpen(false);
-    setFormPosDropdownOpen(false);
     setShowFormModal(true);
   }, []);
 
@@ -645,8 +642,6 @@ export default function CierresTeoricosScreen() {
     setFormPayments(payments);
     setFormError(null);
     setEditingItem(item);
-    setFormLocalDropdownOpen(false);
-    setFormPosDropdownOpen(false);
     setShowFormModal(true);
   }, []);
 
@@ -1385,79 +1380,56 @@ export default function CierresTeoricosScreen() {
               editable={!saving}
             />
             <Text style={styles.filterLabel}>Local</Text>
-            <View style={styles.formDropdownWrap}>
-                <TouchableOpacity
-                style={styles.formDropdownTrigger}
-                onPress={() => !editingItem && setFormLocalDropdownOpen((v) => !v)}
-                disabled={!!editingItem}
-              >
-                <Text style={[styles.formDropdownText, !formLocal && styles.formDropdownPlaceholder]} numberOfLines={1}>
-                  {formLocal ? (agoraCodeToNombre[formLocal] ?? formLocal) : 'Selecciona un local'}
-                  </Text>
-                <MaterialIcons name={formLocalDropdownOpen ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
-                </TouchableOpacity>
-              {formLocalDropdownOpen && (
-                <View style={styles.formDropdownList}>
-                  <ScrollView style={styles.formDropdownScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                    {locales.filter((loc) => String(loc.agoraCode ?? loc.AgoraCode ?? '').trim()).map((loc) => {
-                      const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
-                      const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim() || code || '—';
-                      const sel = code && formLocal === code;
-                        return (
-                          <TouchableOpacity
-                          key={code || nombre}
-                          style={[styles.formDropdownOption, sel && styles.formDropdownOptionSelected]}
-                          onPress={() => { setFormLocal(code); setFormLocalDropdownOpen(false); }}
-                        >
-                          <Text style={[styles.formDropdownOptionText, sel && styles.formDropdownOptionTextSelected]} numberOfLines={1}>{nombre}</Text>
-                          {sel ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-              )}
-                  </View>
+            <SelectorDesplegable
+              style={styles.formSelectWrap}
+              icono="store"
+              iconoLista="store"
+              tituloLista="Selecciona un local"
+              placeholder="Selecciona un local"
+              disabled={!!editingItem}
+              buscador
+              buscadorPlaceholder="Buscar local…"
+              valorId={formLocal}
+              opciones={locales
+                .filter((loc) => String(loc.agoraCode ?? loc.AgoraCode ?? '').trim())
+                .map((loc) => {
+                  const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+                  const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim() || code || '—';
+                  return { id: code, titulo: nombre, icono: 'store' as const };
+                })}
+              onSeleccionar={(code) => setFormLocal(code)}
+            />
             <Text style={styles.filterLabel}>TPV</Text>
-            <View style={styles.formDropdownWrap}>
-              <TouchableOpacity
-                style={styles.formDropdownTrigger}
-                onPress={() => !editingItem && formLocal && setFormPosDropdownOpen((v) => !v)}
-                disabled={!!editingItem || !formLocal}
-              >
-                <Text style={[styles.formDropdownText, !formPosId && !formPosName && styles.formDropdownPlaceholder]} numberOfLines={1}>
-                  {!formLocal ? 'Selecciona un local primero' : formPosId ? `${formPosName || saleCentersPorLocal.find((s) => String(s.Id) === formPosId)?.Nombre || saleCenters.find((s) => String(s.Id) === formPosId)?.Nombre || formPosId} (${formPosId})` : saleCentersPorLocal.length === 0 ? 'No hay TPVs activos para este local' : 'Selecciona un TPV'}
-                  </Text>
-                <MaterialIcons name={formPosDropdownOpen ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
-                </TouchableOpacity>
-              {formPosDropdownOpen && (
-                <View style={styles.formDropdownList}>
-                  <ScrollView style={styles.formDropdownScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                    <TouchableOpacity
-                      style={[styles.formDropdownOption, !formPosId && !formPosName && styles.formDropdownOptionSelected]}
-                      onPress={() => { setFormPosId(''); setFormPosName(''); setFormPosDropdownOpen(false); }}
-                    >
-                      <Text style={styles.formDropdownOptionText}>Ninguno</Text>
-                      {!formPosId && !formPosName ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-                      </TouchableOpacity>
-                    {saleCentersPorLocal.map((sc) => {
-                      const id = sc.Id != null ? String(sc.Id) : '';
-                      const nombre = String(sc.Nombre ?? '').trim() || id || '—';
-                        return (
-                        <TouchableOpacity
-                          key={id || nombre}
-                          style={[styles.formDropdownOption, (formPosId === id) && styles.formDropdownOptionSelected]}
-                          onPress={() => { setFormPosId(id); setFormPosName(nombre); setFormPosDropdownOpen(false); }}
-                        >
-                          <Text style={[styles.formDropdownOptionText, (formPosId === id) && styles.formDropdownOptionTextSelected]} numberOfLines={1}>{nombre} ({id})</Text>
-                          {formPosId === id ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-              )}
-                  </View>
+            <SelectorDesplegable
+              style={styles.formSelectWrap}
+              icono="point-of-sale"
+              iconoLista="point-of-sale"
+              tituloLista="Selecciona un TPV"
+              placeholder={
+                !formLocal
+                  ? 'Selecciona un local primero'
+                  : saleCentersPorLocal.length === 0
+                    ? 'No hay TPVs activos para este local'
+                    : 'Selecciona un TPV'
+              }
+              disabled={!!editingItem || !formLocal}
+              vacioTexto="No hay TPVs activos para este local."
+              valorId={formPosId}
+              opciones={[
+                { id: '', titulo: 'Ninguno' },
+                ...saleCentersPorLocal.map((sc) => {
+                  const id = sc.Id != null ? String(sc.Id) : '';
+                  const nombre = String(sc.Nombre ?? '').trim() || id || '—';
+                  return { id, titulo: `${nombre} (${id})`, icono: 'point-of-sale' as const };
+                }),
+              ]}
+              onSeleccionar={(id) => {
+                if (!id) { setFormPosId(''); setFormPosName(''); return; }
+                const sc = saleCentersPorLocal.find((s) => String(s.Id) === id);
+                setFormPosId(id);
+                setFormPosName(String(sc?.Nombre ?? '').trim() || id);
+              }}
+            />
             <Text style={styles.filterLabel}>Número</Text>
             <TextInput style={styles.filterInput} value={formNumber} onChangeText={setFormNumber} placeholder="1" placeholderTextColor="#94a3b8" editable={!saving && !editingItem} />
             <Text style={styles.filterLabel}>Formas de pago (€)</Text>
@@ -1692,34 +1664,7 @@ const styles = StyleSheet.create({
   formError: { fontSize: 12, color: '#dc2626', marginBottom: 8 },
   formLocalesWrap: { maxHeight: 36, marginBottom: 8 },
   formLocalesContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  formDropdownWrap: { marginBottom: 8 },
-  formDropdownTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-  },
-  formDropdownText: { fontSize: 10, color: '#334155', flex: 1 },
-  formDropdownPlaceholder: { color: '#94a3b8', fontSize: 10 },
-  formDropdownList: { marginTop: 4, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff', maxHeight: 180 },
-  formDropdownScroll: { maxHeight: 180 },
-  formDropdownOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e2e8f0',
-  },
-  formDropdownOptionSelected: { backgroundColor: '#f0f9ff' },
-  formDropdownOptionText: { fontSize: 10, color: '#334155', flex: 1 },
-  formDropdownOptionTextSelected: { color: '#0ea5e9', fontWeight: '500' },
+  formSelectWrap: { marginBottom: 8 },
   formPaymentRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   formPaymentLabel: { fontSize: 12, color: '#475569', minWidth: 140 },
   formPaymentInput: { flex: 1, backgroundColor: '#fff', borderRadius: 4, paddingVertical: 4, paddingHorizontal: 8, fontSize: 12, color: '#334155', borderWidth: StyleSheet.hairlineWidth, borderColor: '#e2e8f0' },

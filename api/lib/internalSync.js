@@ -12,6 +12,7 @@ export const INTERNAL_SYNC_POST_PATHS = new Set([
   '/api/agora/warehouses/sync',
   '/api/facturacion/check-vencimientos',
   '/api/facturacion/enviar-recordatorios',
+  '/api/informes/diario/enviar',
 ]);
 
 export function normalizeApiPathname(req) {

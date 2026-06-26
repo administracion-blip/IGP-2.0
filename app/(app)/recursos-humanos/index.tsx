@@ -41,6 +41,14 @@ const TARJETAS: Tarjeta[] = [
     ruta: '/planning-dia/cuadrante',
     permiso: 'planning_dia.ver',
   },
+  {
+    id: 'horas-facturacion',
+    label: 'Horas por facturación',
+    descripcion: 'Horas de cuadrante posibles según el facturado comparativa, por local y agrupación',
+    icon: 'schedule',
+    ruta: '/recursos-humanos/horas-facturacion',
+    permiso: 'rrhh.horas',
+  },
 ];
 
 export default function RecursosHumanosIndexScreen() {

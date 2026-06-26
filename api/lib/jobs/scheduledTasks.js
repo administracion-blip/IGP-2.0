@@ -1,7 +1,8 @@
-import { ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { ScanCommand, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
 import { internalSyncFetchHeaders } from '../internalSync.js';
 import { logger } from '../logger.js';
+import { INFORME_AJUSTE_PK, INFORME_AJUSTE_SK } from '../informes/informeDiario.js';
 
 const tableAjustesName = tables.ajustes;
 
@@ -103,6 +104,50 @@ export async function checkAutoSyncs(port) {
     }
   } catch (err) {
     logger.error({ err }, '[auto-sync] scheduler error');
+  }
+}
+
+const informeLastRun = {};
+
+/**
+ * Job del informe diario: revisa la config en Igp_Ajustes (PK='informes',
+ * SK='informe_diario'); si está habilitada y coincide día/hora, dispara el envío
+ * llamando al endpoint interno (mismo que usa el botón "Forzar envío").
+ */
+export async function checkInformeDiario(port) {
+  try {
+    const r = await docClient.send(new GetCommand({
+      TableName: tableAjustesName,
+      Key: { PK: INFORME_AJUSTE_PK, SK: INFORME_AJUSTE_SK },
+    }));
+    const item = r?.Item;
+    if (!item || item.Enabled !== true) return;
+    if (!Array.isArray(item.Days) || !Array.isArray(item.Times)) return;
+
+    const now = new Date();
+    const dayKey = DAY_MAP[now.getDay()];
+    const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    if (!item.Days.includes(dayKey) || !item.Times.includes(hhmm)) return;
+
+    const today = now.toISOString().slice(0, 10);
+    const runKey = `informe_${hhmm}`;
+    if (informeLastRun[runKey] === today) return;
+    informeLastRun[runKey] = today;
+
+    logger.info({ hhmm }, `[informe-diario] Ejecutando envío (${hhmm})`);
+    const res = await fetch(`http://127.0.0.1:${port}/api/informes/diario/enviar`, {
+      method: 'POST',
+      headers: internalSyncFetchHeaders(),
+      body: JSON.stringify({}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      logger.info({ enviados: data.enviados ?? 0, total: data.total ?? 0 }, `[informe-diario] OK: ${data.enviados ?? 0}/${data.total ?? 0}`);
+    } else {
+      logger.error({ status: res.status, error: data.error }, '[informe-diario] Error en envío');
+    }
+  } catch (err) {
+    logger.error({ err }, '[informe-diario] scheduler error');
   }
 }
 

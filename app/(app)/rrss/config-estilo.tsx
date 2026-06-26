@@ -13,6 +13,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '../../utils/api';
 import { useLocalToast } from '../../components/Toast';
+import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useMarketingLocales, valorEnLocal } from './LocalesContext';
 import { formatId6 } from './lib/formatId6';
 import { EstiloVisualImagenesEditor } from './components/EstiloVisualImagenesEditor';
@@ -58,7 +59,6 @@ export default function ConfigEstiloScreen() {
   }, [esGestor, locales, userLocalesNorm]);
 
   const [idLocal, setIdLocal] = useState('');
-  const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
   const [brief, setBrief] = useState('');
   const [imagenKeys, setImagenKeys] = useState<string[]>([]);
   const [savedBrief, setSavedBrief] = useState('');
@@ -195,44 +195,21 @@ export default function ConfigEstiloScreen() {
         </Text>
 
         <View style={styles.field}>
-          <Text style={styles.label}>Local</Text>
-          <TouchableOpacity
-            style={styles.dropdownTrigger}
-            onPress={() => setLocalDropdownOpen((v) => !v)}
-            activeOpacity={0.7}
+          <SelectorDesplegable
+            label="Local"
+            icono="store"
+            placeholder="Selecciona un local"
+            tituloLista="Selecciona un local"
+            iconoLista="store"
             disabled={!esGestor && userLocalesNorm.length <= 1}
-          >
-            <Text style={[styles.dropdownText, !idLocal && styles.dropdownPlaceholder]} numberOfLines={1}>
-              {idLocal ? localesMap[idLocal] ?? idLocal : 'Selecciona un local'}
-            </Text>
-            <MaterialIcons name={localDropdownOpen ? 'expand-less' : 'expand-more'} size={20} color="#64748b" />
-          </TouchableOpacity>
-          {localDropdownOpen && (
-            <View style={styles.dropdownList}>
-              <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                {localesElegibles.map((l) => {
-                  const id = formatId6(valorEnLocal(l, 'id_Locales'));
-                  const nombre = valorEnLocal(l, 'nombre') ?? valorEnLocal(l, 'Nombre') ?? id;
-                  const sel = id === idLocal;
-                  return (
-                    <TouchableOpacity
-                      key={id || nombre}
-                      style={[styles.dropdownOption, sel && styles.dropdownOptionSelected]}
-                      onPress={() => {
-                        setIdLocal(id);
-                        setLocalDropdownOpen(false);
-                      }}
-                    >
-                      <Text style={[styles.dropdownOptionText, sel && styles.dropdownOptionTextSelected]} numberOfLines={1}>
-                        {nombre || id}
-                      </Text>
-                      {sel && <MaterialIcons name="check" size={18} color="#0ea5e9" />}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          )}
+            valorId={idLocal}
+            opciones={localesElegibles.map((l) => {
+              const id = formatId6(valorEnLocal(l, 'id_Locales'));
+              const nombre = valorEnLocal(l, 'nombre') ?? valorEnLocal(l, 'Nombre') ?? id;
+              return { id, titulo: nombre || id || '—', icono: 'store' as const };
+            })}
+            onSeleccionar={setIdLocal}
+          />
         </View>
 
         {idLocal && (
@@ -348,33 +325,6 @@ const styles = StyleSheet.create({
   },
   textarea: { minHeight: 200, textAlignVertical: 'top' },
   loadingBox: { paddingVertical: 24, alignItems: 'center' },
-  dropdownTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-  },
-  dropdownText: { fontSize: 14, color: '#334155', flex: 1 },
-  dropdownPlaceholder: { color: '#94a3b8' },
-  dropdownList: { marginTop: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff', maxHeight: 240 },
-  dropdownScroll: { maxHeight: 240 },
-  dropdownOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e2e8f0',
-  },
-  dropdownOptionSelected: { backgroundColor: '#f0f9ff' },
-  dropdownOptionText: { fontSize: 14, color: '#334155', flex: 1 },
-  dropdownOptionTextSelected: { color: '#0ea5e9', fontWeight: '500' },
   errorBox: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8 },
   errorText: { fontSize: 12, color: '#dc2626', flex: 1 },
   actions: { flexDirection: 'row', gap: 10 },

@@ -47,6 +47,59 @@ function diffMin(startIso, endIso) {
   return Math.round((b - a) / 60000);
 }
 
+const _madridPartsFmt = new Intl.DateTimeFormat('en-US', {
+  timeZone: TZ_MADRID,
+  hour12: false,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+});
+
+/** Offset (ms) de Europe/Madrid para un instante dado (maneja DST). */
+function madridOffsetMs(date) {
+  const map = {};
+  for (const p of _madridPartsFmt.formatToParts(date)) {
+    if (p.type !== 'literal') map[p.type] = Number(p.value);
+  }
+  const hour = map.hour === 24 ? 0 : map.hour;
+  const asUTC = Date.UTC(map.year, map.month - 1, map.day, hour, map.minute, map.second);
+  return asUTC - date.getTime();
+}
+
+/** ¿El valor es solo una hora "HH:mm" (sin fecha)? */
+function esHoraSola(v) {
+  return typeof v === 'string' && /^\d{1,2}:\d{2}/.test(v) && !/\d{4}-\d{2}-\d{2}/.test(v);
+}
+
+/** Minutos del día de una hora "HH:mm". null si no parsea. */
+function horaAMin(t) {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(t || ''));
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+/** Suma un día a una fecha YYYY-MM-DD. */
+function sumarUnDia(dateStr) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ''));
+  if (!m) return dateStr;
+  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  dt.setUTCDate(dt.getUTCDate() + 1);
+  return dt.toISOString().slice(0, 10);
+}
+
+/** Convierte fecha YYYY-MM-DD + hora HH:mm (hora local Madrid) a ISO UTC. null si inválido. */
+function madridWallClockToIso(dateStr, timeStr) {
+  const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ''));
+  const tm = /^(\d{1,2}):(\d{2})/.exec(String(timeStr || ''));
+  if (!dm || !tm) return null;
+  const guess = Date.UTC(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]), Number(tm[1]), Number(tm[2]));
+  const offset = madridOffsetMs(new Date(guess));
+  return new Date(guess - offset).toISOString();
+}
+
 /**
  * Lista de fechas YYYY-MM-DD entre `from` y `to` inclusive (ambos en YYYY-MM-DD).
  * Trabaja en UTC sobre la parte de fecha; no se ve afectado por la zona horaria local.
@@ -148,8 +201,37 @@ export function attendanceShiftLocationId(shift) {
 /** Lectores de campos: tolerantes a varios nombres por compatibilidad entre versiones de Factorial. */
 function planStartOf(s) { return s?.start_at || s?.starts_at || s?.start_on || null; }
 function planEndOf(s) { return s?.end_at || s?.ends_at || s?.end_on || null; }
-function attStartOf(s) { return s?.clock_in || s?.start_at || s?.starts_at || null; }
-function attEndOf(s) { return s?.clock_out || s?.end_at || s?.ends_at || null; }
+
+/**
+ * Inicio del fichaje como ISO. Factorial (attendance/shifts) devuelve `date` (YYYY-MM-DD)
+ * + `clock_in` como hora local "HH:mm". Si vienen así, se compone el instante en Madrid;
+ * si no, se usan campos datetime de versiones anteriores.
+ */
+function attStartOf(s) {
+  if (s?.date && esHoraSola(s?.clock_in)) return madridWallClockToIso(s.date, s.clock_in);
+  return s?.clock_in || s?.start_at || s?.starts_at || null;
+}
+
+/**
+ * Fin del fichaje como ISO. Maneja turnos que cruzan medianoche: si la hora de salida es
+ * anterior a la de entrada, la salida pertenece al día siguiente.
+ */
+function attEndOf(s) {
+  if (s?.date && esHoraSola(s?.clock_out)) {
+    let endDate = s.date;
+    const inMin = horaAMin(s?.clock_in);
+    const outMin = horaAMin(s?.clock_out);
+    if (inMin != null && outMin != null && outMin < inMin) endDate = sumarUnDia(s.date);
+    return madridWallClockToIso(endDate, s.clock_out);
+  }
+  return s?.clock_out || s?.end_at || s?.ends_at || null;
+}
+
+/** Minutos reales del fichaje: usa `minutes` de Factorial si está; si no, calcula por diferencia. */
+function attMinutesOf(s, startIso, endIso) {
+  if (typeof s?.minutes === 'number' && Number.isFinite(s.minutes) && s.minutes >= 0) return s.minutes;
+  return diffMin(startIso, endIso);
+}
 
 /** Construye un Map<employee_id_string + '__' + dia, Array<shift>> agrupado por día local Madrid. */
 function indexarPorEmpleadoYDia(items, getStart) {
@@ -235,7 +317,7 @@ export function construirCuadrante({ planned, attendance, contratoPorEmp, emplea
         const realEnd = att ? attEndOf(att) : null;
 
         const minPlan = plan ? diffMin(planStart, planEnd) : 0;
-        const minReal = att ? diffMin(realStart, realEnd) : 0;
+        const minReal = att ? attMinutesOf(att, realStart, realEnd) : 0;
 
         // Coste sobre el MAYOR de los dos (cubre horas extra). Si no hay contrato, queda 0.
         const minCoste = Math.max(minPlan, minReal);

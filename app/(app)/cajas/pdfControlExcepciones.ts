@@ -601,3 +601,378 @@ export async function generarPdfExcepcionesAgrupado(
 
   return doc;
 }
+
+// ===== PDF resumen por local + Top 10 de usuarios por tipo =====
+
+type ResumenLocalAcc = {
+  workplaceId: string;
+  nombre: string;
+  invitacion: { count: number; amount: number };
+  promocion: { count: number; amount: number };
+  descuento: { count: number; amount: number };
+  anulacion: { count: number; amount: number };
+  consumo: { count: number; amount: number };
+  totalAmount: number;
+};
+
+type TopUsuarioAcc = {
+  userKey: string;
+  userName: string;
+  count: number;
+  amount: number;
+};
+
+type CategoriaTipo = Exclude<ExceptionType, never>;
+
+const CATEGORIAS_RESUMEN: ReadonlyArray<{
+  tipo: CategoriaTipo;
+  label: string;
+  color: [number, number, number];
+}> = [
+  { tipo: 'invitacion', label: 'Invitaciones', color: [5, 150, 105] },
+  { tipo: 'promocion', label: 'Promociones', color: [91, 33, 182] },
+  { tipo: 'descuento', label: 'Descuentos manuales', color: [180, 83, 9] },
+  { tipo: 'anulacion', label: 'Anulaciones', color: [185, 28, 28] },
+  { tipo: 'consumo', label: 'Consumo', color: [14, 116, 144] },
+];
+
+export type PdfResumenLocalesOpts = PdfExcepcionesOpts & {
+  /** Mapa código Ágora → nombre legible. Si no se pasa, se usa WorkplaceName/WorkplaceId. */
+  nombrePorLocal?: Record<string, string>;
+};
+
+/**
+ * Genera un PDF vertical (A4) con:
+ *  - Resumen por local (alfabético, solo locales con registros).
+ *  - Top 10 de usuarios por importe para cada tipo de excepción.
+ */
+export async function generarPdfResumenLocales(
+  filas: ExceptionRowPdf[],
+  titulo: string,
+  fechaDesde: string,
+  fechaHasta: string,
+  opts: PdfResumenLocalesOpts = {},
+): Promise<jsPDF> {
+  const nombrePorLocal = opts.nombrePorLocal ?? {};
+
+  // ----- Agregación por local -----
+  const localesMap = new Map<string, ResumenLocalAcc>();
+  for (const r of filas) {
+    const id = String(r.WorkplaceId ?? '').trim();
+    const key = id || '__sin_local__';
+    let g = localesMap.get(key);
+    if (!g) {
+      const nombre =
+        nombrePorLocal[id] ?? r.WorkplaceName ?? (id || 'Sin local');
+      g = {
+        workplaceId: key,
+        nombre,
+        invitacion: { count: 0, amount: 0 },
+        promocion: { count: 0, amount: 0 },
+        descuento: { count: 0, amount: 0 },
+        anulacion: { count: 0, amount: 0 },
+        consumo: { count: 0, amount: 0 },
+        totalAmount: 0,
+      };
+      localesMap.set(key, g);
+    }
+    const bucket = g[r.Type];
+    if (bucket) {
+      bucket.count += 1;
+      bucket.amount += Number(r.Amount) || 0;
+    }
+    g.totalAmount += Number(r.Amount) || 0;
+  }
+  const locales = Array.from(localesMap.values())
+    .filter((g) =>
+      g.invitacion.count + g.promocion.count + g.descuento.count +
+      g.anulacion.count + g.consumo.count > 0,
+    )
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
+
+  // ----- Agregación Top 10 usuarios por tipo -----
+  const topPorTipo: Record<CategoriaTipo, TopUsuarioAcc[]> = {
+    invitacion: [],
+    promocion: [],
+    descuento: [],
+    anulacion: [],
+    consumo: [],
+  };
+  for (const { tipo } of CATEGORIAS_RESUMEN) {
+    const usuariosMap = new Map<string, TopUsuarioAcc>();
+    for (const r of filas) {
+      if (r.Type !== tipo) continue;
+      const id = r.UserId != null ? String(r.UserId) : (r.UserName ?? '').trim();
+      const key = id || '__sin_usuario__';
+      let u = usuariosMap.get(key);
+      if (!u) {
+        u = {
+          userKey: key,
+          userName: r.UserName ?? (r.UserId != null ? `#${r.UserId}` : 'Sin usuario'),
+          count: 0,
+          amount: 0,
+        };
+        usuariosMap.set(key, u);
+      }
+      u.count += 1;
+      u.amount += Number(r.Amount) || 0;
+    }
+    topPorTipo[tipo] = Array.from(usuariosMap.values())
+      .sort((a, b) => b.amount - a.amount || b.count - a.count)
+      .slice(0, 10);
+  }
+
+  // ----- KPIs globales -----
+  const kpis = {
+    invitacion: { count: 0, total: 0 },
+    promocion: { count: 0, total: 0 },
+    descuento: { count: 0, total: 0 },
+    anulacion: { count: 0, total: 0 },
+    consumo: { count: 0, total: 0 },
+  };
+  for (const r of filas) {
+    if (kpis[r.Type]) {
+      kpis[r.Type].count += 1;
+      kpis[r.Type].total += Number(r.Amount) || 0;
+    }
+  }
+
+  const { jsPDF: JsPDF } = await import('jspdf');
+  const { default: autoTable } = await import('jspdf-autotable');
+  const doc = new JsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const marginX = 12;
+  const contentW = pageW - marginX * 2;
+  let y = 14;
+
+  // ----- Cabecera -----
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Control de Excepciones — Resumen', marginX, y);
+  y += 6;
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(60);
+  doc.text(String(titulo), marginX, y);
+  y += 5;
+  doc.text(`Periodo: ${formatBusinessDayLabel(fechaDesde)} → ${formatBusinessDayLabel(fechaHasta)}`, marginX, y);
+  y += 4;
+  doc.text(`Generado: ${new Date().toLocaleString('es-ES')}`, marginX, y);
+  y += 4;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(3, 105, 161);
+  doc.text(consumoPdfLabel(Boolean(opts.incluirConsumo)), marginX, y);
+  y += 6;
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(0);
+
+  // KPI line global
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  const kpiLine =
+    `Invitaciones: ${formatMoneda(kpis.invitacion.total)} (${kpis.invitacion.count})    ·    ` +
+    `Promociones: ${formatMoneda(kpis.promocion.total)} (${kpis.promocion.count})    ·    ` +
+    `Descuentos: ${formatMoneda(kpis.descuento.total)} (${kpis.descuento.count})    ·    ` +
+    `Anulaciones: ${formatMoneda(kpis.anulacion.total)} (${kpis.anulacion.count})    ·    ` +
+    `Consumo: ${formatMoneda(kpis.consumo.total)} (${kpis.consumo.count})    ·    ` +
+    `Locales: ${locales.length}    ·    Filas: ${filas.length}`;
+  const kpiLines = doc.splitTextToSize(kpiLine, contentW);
+  doc.text(kpiLines, marginX, y);
+  y += kpiLines.length * 4 + 4;
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(0);
+
+  // ----- Tabla resumen por local -----
+  const pastelBlueHead: [number, number, number] = [186, 230, 253];
+  const pastelBlueBody: [number, number, number] = [224, 242, 254];
+  const pastelBlueAlt: [number, number, number] = [240, 249, 255];
+  const pastelBlueTotal: [number, number, number] = [147, 197, 253];
+  const pastelBlueBorder: [number, number, number] = [125, 211, 252];
+
+  if (locales.length === 0) {
+    doc.setFont('helvetica', 'italic');
+    doc.setTextColor(120);
+    doc.text('Sin registros en el rango consultado.', marginX, y);
+    return doc;
+  }
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(3, 105, 161);
+  doc.text('Resumen por local (alfabético)', marginX, y);
+  y += 5;
+  doc.setTextColor(0);
+
+  const totales = {
+    invitacion: { count: 0, amount: 0 },
+    promocion: { count: 0, amount: 0 },
+    descuento: { count: 0, amount: 0 },
+    anulacion: { count: 0, amount: 0 },
+    consumo: { count: 0, amount: 0 },
+    totalAmount: 0,
+  };
+  const localesBody = locales.map((g) => {
+    totales.invitacion.count += g.invitacion.count;
+    totales.invitacion.amount += g.invitacion.amount;
+    totales.promocion.count += g.promocion.count;
+    totales.promocion.amount += g.promocion.amount;
+    totales.descuento.count += g.descuento.count;
+    totales.descuento.amount += g.descuento.amount;
+    totales.anulacion.count += g.anulacion.count;
+    totales.anulacion.amount += g.anulacion.amount;
+    totales.consumo.count += g.consumo.count;
+    totales.consumo.amount += g.consumo.amount;
+    totales.totalAmount += g.totalAmount;
+    return [
+      g.nombre,
+      g.invitacion.count > 0 ? `${g.invitacion.count} · ${formatMoneda(g.invitacion.amount)}` : '—',
+      g.promocion.count > 0 ? `${g.promocion.count} · ${formatMoneda(g.promocion.amount)}` : '—',
+      g.descuento.count > 0 ? `${g.descuento.count} · ${formatMoneda(g.descuento.amount)}` : '—',
+      g.anulacion.count > 0 ? `${g.anulacion.count} · ${formatMoneda(g.anulacion.amount)}` : '—',
+      g.consumo.count > 0 ? `${g.consumo.count} · ${formatMoneda(g.consumo.amount)}` : '—',
+      formatMoneda(g.totalAmount),
+    ];
+  });
+  localesBody.push([
+    'TOTAL',
+    totales.invitacion.count > 0 ? `${totales.invitacion.count} · ${formatMoneda(totales.invitacion.amount)}` : '—',
+    totales.promocion.count > 0 ? `${totales.promocion.count} · ${formatMoneda(totales.promocion.amount)}` : '—',
+    totales.descuento.count > 0 ? `${totales.descuento.count} · ${formatMoneda(totales.descuento.amount)}` : '—',
+    totales.anulacion.count > 0 ? `${totales.anulacion.count} · ${formatMoneda(totales.anulacion.amount)}` : '—',
+    totales.consumo.count > 0 ? `${totales.consumo.count} · ${formatMoneda(totales.consumo.amount)}` : '—',
+    formatMoneda(totales.totalAmount),
+  ]);
+  const totalRowIdx = localesBody.length - 1;
+  const colorAnulacionRgb: [number, number, number] = [185, 28, 28];
+
+  autoTable(doc, {
+    startY: y,
+    head: [[
+      'Local', 'Invitaciones', 'Promociones', 'Descuentos', 'Anulaciones', 'Consumo', 'Total neto',
+    ]],
+    body: localesBody,
+    theme: 'plain',
+    styles: {
+      fontSize: 8,
+      cellPadding: 1.6,
+      fillColor: pastelBlueBody,
+      textColor: [15, 23, 42],
+      lineColor: pastelBlueBorder,
+      lineWidth: 0.25,
+      overflow: 'linebreak',
+    },
+    headStyles: {
+      fillColor: pastelBlueHead,
+      textColor: [3, 105, 161],
+      fontStyle: 'bold',
+      halign: 'center',
+    },
+    alternateRowStyles: { fillColor: pastelBlueAlt },
+    margin: { left: marginX, right: marginX },
+    tableWidth: contentW,
+    columnStyles: {
+      0: { cellWidth: 44, fontStyle: 'bold' },
+      1: { cellWidth: 24, halign: 'right' },
+      2: { cellWidth: 24, halign: 'right' },
+      3: { cellWidth: 24, halign: 'right' },
+      4: { cellWidth: 24, halign: 'right' },
+      5: { cellWidth: 24, halign: 'right' },
+      6: { cellWidth: contentW - 44 - 24 * 5, halign: 'right', fontStyle: 'bold' },
+    },
+    didParseCell: (data) => {
+      if (data.section === 'body' && data.row.index === totalRowIdx) {
+        data.cell.styles.fillColor = pastelBlueTotal;
+        data.cell.styles.fontStyle = 'bold';
+        data.cell.styles.textColor = [3, 105, 161];
+      }
+      if (data.section === 'body' && data.column.index === 6) {
+        const amt = data.row.index === totalRowIdx
+          ? totales.totalAmount
+          : locales[data.row.index]?.totalAmount ?? 0;
+        if (amt < 0) data.cell.styles.textColor = colorAnulacionRgb;
+      }
+    },
+  });
+
+  const resumenLastY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
+  y = resumenLastY + 10;
+
+  // ----- Top 10 usuarios por tipo -----
+  for (const { tipo, label, color } of CATEGORIAS_RESUMEN) {
+    const top = topPorTipo[tipo];
+    if (!top || top.length === 0) continue;
+
+    // Estimación: cabecera (~6mm) + título (~5mm) + filas (~5mm cada una) + margen.
+    const neededH = 6 + 5 + (top.length + 1) * 5 + 6;
+    if (y + neededH > pageH - 12) {
+      doc.addPage();
+      y = 14;
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(color[0], color[1], color[2]);
+    doc.text(`Top 10 usuarios — ${label}`, marginX, y);
+    y += 5;
+    doc.setTextColor(0);
+
+    const totalImporteTop = top.reduce((s, u) => s + u.amount, 0);
+    const totalRegTop = top.reduce((s, u) => s + u.count, 0);
+    const topBody = top.map((u, i) => [
+      String(i + 1),
+      u.userName,
+      String(u.count),
+      formatMoneda(u.amount),
+    ]);
+    topBody.push(['', 'TOTAL Top 10', String(totalRegTop), formatMoneda(totalImporteTop)]);
+    const topTotalIdx = topBody.length - 1;
+
+    autoTable(doc, {
+      startY: y,
+      head: [['#', 'Usuario', 'Nº reg.', 'Importe']],
+      body: topBody,
+      theme: 'plain',
+      styles: {
+        fontSize: 8,
+        cellPadding: 1.4,
+        fillColor: [255, 255, 255],
+        textColor: [15, 23, 42],
+        lineColor: [226, 232, 240],
+        lineWidth: 0.2,
+        overflow: 'linebreak',
+      },
+      headStyles: {
+        fillColor: color,
+        textColor: 255,
+        fontStyle: 'bold',
+        halign: 'center',
+      },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      margin: { left: marginX, right: marginX },
+      tableWidth: contentW,
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center', fontStyle: 'bold' },
+        1: { cellWidth: contentW - 10 - 24 - 36 },
+        2: { cellWidth: 24, halign: 'right' },
+        3: { cellWidth: 36, halign: 'right', fontStyle: 'bold' },
+      },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.row.index === topTotalIdx) {
+          data.cell.styles.fillColor = [241, 245, 249];
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.textColor = [color[0], color[1], color[2]];
+        }
+        if (data.section === 'body' && data.column.index === 3 && data.row.index !== topTotalIdx) {
+          data.cell.styles.textColor = [color[0], color[1], color[2]];
+        }
+      },
+    });
+
+    const lastY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
+    y = lastY + 8;
+  }
+
+  return doc;
+}

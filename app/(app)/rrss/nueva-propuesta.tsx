@@ -16,6 +16,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '../../utils/api';
 import { useLocalToast } from '../../components/Toast';
 import { InputFecha } from '../../components/InputFecha';
+import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useMarketingLocales, valorEnLocal } from './LocalesContext';
 import { IdentidadLocalPanel } from './components/IdentidadLocalPanel';
 import { formatId6 } from './lib/formatId6';
@@ -57,8 +58,6 @@ export default function NuevaPropuestaScreen() {
   const [imagenUri, setImagenUri] = useState<string | null>(null);
   const [imagenMime, setImagenMime] = useState<string | undefined>(undefined);
   const [imagenName, setImagenName] = useState<string | undefined>(undefined);
-  const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
-  const [tipoDropdownOpen, setTipoDropdownOpen] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -201,47 +200,22 @@ export default function NuevaPropuestaScreen() {
       <ScrollView contentContainerStyle={styles.form}>
         {/* Local */}
         <View style={styles.field}>
-          <Text style={styles.label}>Local *</Text>
-          <TouchableOpacity
-            style={styles.dropdownTrigger}
-            onPress={() => {
-              setLocalDropdownOpen((v) => !v);
-              setTipoDropdownOpen(false);
-            }}
-            disabled={loadingLocales || (!esGestor && userLocalesNorm.length <= 1)}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.dropdownText, !idLocal && styles.dropdownPlaceholder]} numberOfLines={1}>
-              {idLocal ? localesMap[idLocal] ?? idLocal : 'Selecciona un local'}
-            </Text>
-            <MaterialIcons name={localDropdownOpen ? 'expand-less' : 'expand-more'} size={20} color="#64748b" />
-          </TouchableOpacity>
-          {localDropdownOpen && (
-            <View style={styles.dropdownList}>
-              <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                {localesElegibles.map((l) => {
-                  const id = formatId6(valorEnLocal(l, 'id_Locales'));
-                  const nombre = valorEnLocal(l, 'nombre') ?? valorEnLocal(l, 'Nombre') ?? id;
-                  const sel = id === idLocal;
-                  return (
-                    <TouchableOpacity
-                      key={id || nombre}
-                      style={[styles.dropdownOption, sel && styles.dropdownOptionSelected]}
-                      onPress={() => {
-                        setIdLocal(id);
-                        setLocalDropdownOpen(false);
-                      }}
-                    >
-                      <Text style={[styles.dropdownOptionText, sel && styles.dropdownOptionTextSelected]} numberOfLines={1}>
-                        {nombre || id}
-                      </Text>
-                      {sel && <MaterialIcons name="check" size={18} color="#0ea5e9" />}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          )}
+          <SelectorDesplegable
+            label="Local *"
+            icono="store"
+            placeholder="Selecciona un local"
+            tituloLista="Selecciona un local"
+            iconoLista="store"
+            loading={loadingLocales}
+            disabled={!esGestor && userLocalesNorm.length <= 1}
+            valorId={idLocal}
+            opciones={localesElegibles.map((l) => {
+              const id = formatId6(valorEnLocal(l, 'id_Locales'));
+              const nombre = valorEnLocal(l, 'nombre') ?? valorEnLocal(l, 'Nombre') ?? id;
+              return { id, titulo: nombre || id || '—', icono: 'store' as const };
+            })}
+            onSeleccionar={setIdLocal}
+          />
         </View>
 
         {!!idLocal && (
@@ -256,38 +230,15 @@ export default function NuevaPropuestaScreen() {
 
         {/* Tipo */}
         <View style={styles.field}>
-          <Text style={styles.label}>Tipo de publicación *</Text>
-          <TouchableOpacity
-            style={styles.dropdownTrigger}
-            onPress={() => {
-              setTipoDropdownOpen((v) => !v);
-              setLocalDropdownOpen(false);
-            }}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.dropdownText}>{tipo}</Text>
-            <MaterialIcons name={tipoDropdownOpen ? 'expand-less' : 'expand-more'} size={20} color="#64748b" />
-          </TouchableOpacity>
-          {tipoDropdownOpen && (
-            <View style={styles.dropdownList}>
-              {TIPOS.map((t) => {
-                const sel = t === tipo;
-                return (
-                  <TouchableOpacity
-                    key={t}
-                    style={[styles.dropdownOption, sel && styles.dropdownOptionSelected]}
-                    onPress={() => {
-                      setTipo(t);
-                      setTipoDropdownOpen(false);
-                    }}
-                  >
-                    <Text style={[styles.dropdownOptionText, sel && styles.dropdownOptionTextSelected]}>{t}</Text>
-                    {sel && <MaterialIcons name="check" size={18} color="#0ea5e9" />}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
+          <SelectorDesplegable
+            label="Tipo de publicación *"
+            icono="category"
+            tituloLista="Tipo de publicación"
+            iconoLista="category"
+            valorId={tipo}
+            opciones={TIPOS.map((t) => ({ id: t, titulo: t }))}
+            onSeleccionar={setTipo}
+          />
         </View>
 
         {/* Redes */}
@@ -467,33 +418,6 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     borderRadius: 8,
   },
-  dropdownTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-  },
-  dropdownText: { fontSize: 14, color: '#334155', flex: 1 },
-  dropdownPlaceholder: { color: '#94a3b8' },
-  dropdownList: { marginTop: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff', maxHeight: 240 },
-  dropdownScroll: { maxHeight: 240 },
-  dropdownOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e2e8f0',
-  },
-  dropdownOptionSelected: { backgroundColor: '#f0f9ff' },
-  dropdownOptionText: { fontSize: 14, color: '#334155', flex: 1 },
-  dropdownOptionTextSelected: { color: '#0ea5e9', fontWeight: '500' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingVertical: 8, paddingHorizontal: 14, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8 },
   chipSelected: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },

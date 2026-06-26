@@ -16,6 +16,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { formatId6 } from '../utils/idFormat';
+import { SelectorDesplegable } from '../components/SelectorDesplegable';
 import { useProductosCache } from '../contexts/ProductosCache';
 import { useLocalToast } from '../components/Toast';
 import { apiFetch } from '../utils/api';
@@ -229,8 +230,6 @@ export default function ProductosScreen() {
   const [filtroBusquedaFamilias, setFiltroBusquedaFamilias] = useState('');
   const [filtrosAvanzados, setFiltrosAvanzados] = useState<FiltroAvanzado[]>([]);
   const [filtrosPanelOpen, setFiltrosPanelOpen] = useState(false);
-  const [operadorDropdownId, setOperadorDropdownId] = useState<string | null>(null);
-  const [columnaDropdownId, setColumnaDropdownId] = useState<string | null>(null);
   const [modalEditarVisible, setModalEditarVisible] = useState(false);
   const [productoEditando, setProductoEditando] = useState<Producto | null>(null);
   const [formName, setFormName] = useState('');
@@ -693,26 +692,27 @@ export default function ProductosScreen() {
                 const isBool = COLUMNAS_BOOLEANAS.includes(f.columna);
                 return (
                   <View key={f.id} style={styles.filterRow}>
-                    <TouchableOpacity
-                      style={styles.filterDropdownBtn}
-                      onPress={() => { setColumnaDropdownId((prev) => (prev === f.id ? null : f.id)); setOperadorDropdownId(null); }}
-                    >
-                      <Text style={styles.filterDropdownBtnText} numberOfLines={1}>{f.columna}</Text>
-                      <MaterialIcons name="arrow-drop-down" size={16} color="#64748b" />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.filterDropdownBtn}
-                      onPress={() => { setOperadorDropdownId((prev) => (prev === f.id ? null : f.id)); setColumnaDropdownId(null); }}
-                    >
-                      <Text style={styles.filterDropdownBtnText} numberOfLines={1}>{ops.find((o) => o.key === f.operador)?.label || f.operador}</Text>
-                      <MaterialIcons name="arrow-drop-down" size={16} color="#64748b" />
-                    </TouchableOpacity>
+                    <SelectorDesplegable
+                      style={styles.filterSelect}
+                      placeholder="Columna"
+                      tituloLista="Seleccionar columna"
+                      valorId={f.columna}
+                      opciones={columnasAgora.map((col) => ({ id: col, titulo: col }))}
+                      onSeleccionar={(col) => updateFiltro(f.id, { columna: col })}
+                    />
+                    <SelectorDesplegable
+                      style={styles.filterSelect}
+                      placeholder="Operador"
+                      tituloLista="Seleccionar operador"
+                      valorId={f.operador}
+                      opciones={ops.map((op) => ({ id: op.key, titulo: op.label }))}
+                      onSeleccionar={(opKey) => updateFiltro(f.id, { operador: opKey as FiltroOperador })}
+                    />
                     {!isBool && (
                       <TextInput
                         style={styles.filterValueInput}
                         value={f.valor}
                         onChangeText={(v) => updateFiltro(f.id, { valor: v })}
-                        onFocus={() => { setColumnaDropdownId(null); setOperadorDropdownId(null); }}
                         placeholder="Valor…"
                         placeholderTextColor="#94a3b8"
                         keyboardType={COLUMNAS_NUMERICAS.includes(f.columna) ? 'numeric' : 'default'}
@@ -739,70 +739,6 @@ export default function ProductosScreen() {
             </View>
           )}
 
-          {/* Dropdown overlay para columna — desmontamos el Modal completo cuando no es visible (evita removeChild en react-dom web) */}
-          {columnaDropdownId !== null && (
-            <Modal visible transparent animationType="none">
-              <View style={styles.filterOverlayRoot}>
-                <Pressable
-                  style={styles.filterBackdrop}
-                  onPress={() => setColumnaDropdownId(null)}
-                  accessibilityLabel="Cerrar menú de columna"
-                />
-                <View style={styles.filterDropdownSheet} pointerEvents="box-none">
-                  <View style={styles.filterModalDropdown}>
-                    <Text style={styles.filterModalTitle}>Seleccionar columna</Text>
-                    <ScrollView style={{ maxHeight: 300 }} keyboardShouldPersistTaps="handled">
-                      {columnasAgora.map((col) => {
-                        const f = filtrosAvanzados.find((x) => x.id === columnaDropdownId);
-                        const isActive = f?.columna === col;
-                        return (
-                          <TouchableOpacity
-                            key={col}
-                            style={[styles.filterDropdownItem, isActive && styles.filterDropdownItemActive]}
-                            onPress={() => { if (columnaDropdownId) updateFiltro(columnaDropdownId, { columna: col }); setColumnaDropdownId(null); }}
-                          >
-                            <Text style={[styles.filterDropdownItemText, isActive && { color: '#0ea5e9', fontWeight: '600' }]}>{col}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                </View>
-              </View>
-            </Modal>
-          )}
-
-          {/* Dropdown overlay para operador */}
-          {operadorDropdownId !== null && (
-            <Modal visible transparent animationType="none">
-              <View style={styles.filterOverlayRoot}>
-                <Pressable
-                  style={styles.filterBackdrop}
-                  onPress={() => setOperadorDropdownId(null)}
-                  accessibilityLabel="Cerrar menú de operador"
-                />
-                <View style={styles.filterDropdownSheet} pointerEvents="box-none">
-                  <View style={styles.filterModalDropdown}>
-                    <Text style={styles.filterModalTitle}>Seleccionar operador</Text>
-                    {(() => {
-                      const f = filtrosAvanzados.find((x) => x.id === operadorDropdownId);
-                      if (!f) return null;
-                      const ops = operadoresPorColumna(f.columna);
-                      return ops.map((op) => (
-                        <TouchableOpacity
-                          key={op.key}
-                          style={[styles.filterDropdownItem, f.operador === op.key && styles.filterDropdownItemActive]}
-                          onPress={() => { if (operadorDropdownId) updateFiltro(operadorDropdownId, { operador: op.key }); setOperadorDropdownId(null); }}
-                        >
-                          <Text style={[styles.filterDropdownItemText, f.operador === op.key && { color: '#0ea5e9', fontWeight: '600' }]}>{op.label}</Text>
-                        </TouchableOpacity>
-                      ));
-                    })()}
-                  </View>
-                </View>
-              </View>
-            </Modal>
-          )}
           {!lastFetch && !loadingAgora && !errorAgora ? (
             <View style={styles.center}>
               <MaterialIcons name="cloud-download" size={48} color="#94a3b8" />
@@ -1146,16 +1082,7 @@ const styles = StyleSheet.create({
   filterBtnActive: { backgroundColor: '#0ea5e9' },
   filterPanel: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, padding: 12, marginBottom: 10, gap: 8 },
   filterRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  filterDropdownBtn: { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6, minWidth: 120 },
-  filterDropdownBtnText: { fontSize: 12, color: '#334155', flex: 1 },
-  filterOverlayRoot: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  filterBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.15)' },
-  filterDropdownSheet: { zIndex: 1, maxWidth: 320, width: '90%', alignItems: 'center' },
-  filterModalDropdown: { backgroundColor: '#fff', borderRadius: 10, padding: 8, minWidth: 220, maxWidth: 320, width: '100%', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 16, borderWidth: 1, borderColor: '#e2e8f0' },
-  filterModalTitle: { fontSize: 11, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', paddingHorizontal: 8, paddingVertical: 6 },
-  filterDropdownItem: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6 },
-  filterDropdownItemActive: { backgroundColor: '#f0f9ff' },
-  filterDropdownItemText: { fontSize: 13, color: '#334155' },
+  filterSelect: { width: 150, flexShrink: 1 },
   filterValueInput: { flex: 1, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, color: '#334155', minWidth: 80 },
   filterRemoveBtn: { padding: 4 },
   filterActions: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 },

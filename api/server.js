@@ -25,6 +25,7 @@ import { ensureMarketingGSIs } from './lib/dynamo/marketing.js';
 import {
   runCloseoutsSync,
   checkAutoSyncs,
+  checkInformeDiario,
   checkVencimientosFacturas,
   SYNC_CLOSEOUTS_ENABLED,
   SYNC_CLOSEOUTS_INTERVAL_MS,
@@ -54,6 +55,7 @@ import agoraRouter from './routes/agora.js';
 import acuerdosRouter from './routes/acuerdos.js';
 import ajustesRouter from './routes/ajustes.js';
 import marketingRouter from './routes/marketing.js';
+import informesRouter from './routes/informes.js';
 
 // Valida variables críticas al arranque. Si falta alguna REQUIRED, aborta el proceso.
 validateEnv();
@@ -153,6 +155,7 @@ app.use('/api', personalRouter);
 app.use('/api', cuadranteRouter);
 app.use('/api', ajustesRouter);
 app.use('/api', marketingRouter);
+app.use('/api', informesRouter);
 
 // --- Middleware central de errores: DEBE ir tras todos los routers ---
 app.use(errorHandler);
@@ -199,6 +202,13 @@ app.listen(port, host, () => {
   logger.info(
     { intervalSec: SYNC_SCHEDULER_INTERVAL_MS / 1000 },
     `[auto-sync] Scheduler activo — revisa cada ${SYNC_SCHEDULER_INTERVAL_MS / 1000}s`,
+  );
+
+  setTimeout(() => checkInformeDiario(port), 12000);
+  setInterval(() => checkInformeDiario(port), SYNC_SCHEDULER_INTERVAL_MS);
+  logger.info(
+    { intervalSec: SYNC_SCHEDULER_INTERVAL_MS / 1000 },
+    `[informe-diario] Scheduler activo — revisa cada ${SYNC_SCHEDULER_INTERVAL_MS / 1000}s`,
   );
   if (!process.env.INTERNAL_SYNC_SECRET) {
     logger.warn(

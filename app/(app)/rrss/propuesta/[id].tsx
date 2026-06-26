@@ -19,6 +19,7 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { apiFetch } from '../../../utils/api';
 import { useLocalToast } from '../../../components/Toast';
 import { InputFecha } from '../../../components/InputFecha';
+import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
 import { useMarketingLocales, valorEnLocal } from '../LocalesContext';
 import { IdentidadLocalPanel } from '../components/IdentidadLocalPanel';
 import { formatId6 } from '../lib/formatId6';
@@ -126,7 +127,6 @@ export default function PropuestaDetailScreen() {
   const [promptGenerado, setPromptGenerado] = useState('');
 
   // UI state
-  const [tipoDropdownOpen, setTipoDropdownOpen] = useState(false);
   const [imagenRefUrl, setImagenRefUrl] = useState<string | null>(null);
   const [refSegment, setRefSegment] = useState<RefSegmentPropuesta>('subir');
   const [refUrl, setRefUrl] = useState('');
@@ -534,36 +534,14 @@ export default function PropuestaDetailScreen() {
         <View style={styles.field}>
           <Text style={styles.label}>Tipo</Text>
           {puedeEditarBasicos ? (
-            <>
-              <TouchableOpacity
-                style={styles.dropdownTrigger}
-                onPress={() => setTipoDropdownOpen((v) => !v)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.dropdownText}>{tipo}</Text>
-                <MaterialIcons name={tipoDropdownOpen ? 'expand-less' : 'expand-more'} size={20} color="#64748b" />
-              </TouchableOpacity>
-              {tipoDropdownOpen && (
-                <View style={styles.dropdownList}>
-                  {TIPOS.map((t) => {
-                    const sel = t === tipo;
-                    return (
-                      <TouchableOpacity
-                        key={t}
-                        style={[styles.dropdownOption, sel && styles.dropdownOptionSelected]}
-                        onPress={() => {
-                          setTipo(t);
-                          setTipoDropdownOpen(false);
-                        }}
-                      >
-                        <Text style={[styles.dropdownOptionText, sel && styles.dropdownOptionTextSelected]}>{t}</Text>
-                        {sel && <MaterialIcons name="check" size={18} color="#0ea5e9" />}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
-            </>
+            <SelectorDesplegable
+              icono="category"
+              tituloLista="Tipo de publicación"
+              iconoLista="category"
+              valorId={tipo}
+              opciones={TIPOS.map((t) => ({ id: t, titulo: t }))}
+              onSeleccionar={setTipo}
+            />
           ) : (
             <View style={styles.readonlyBox}>
               <Text style={styles.readonlyText}>{tipo}</Text>
@@ -946,31 +924,6 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     borderRadius: 8,
   },
-  dropdownTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-  },
-  dropdownText: { fontSize: 14, color: '#334155', flex: 1 },
-  dropdownList: { marginTop: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff' },
-  dropdownOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e2e8f0',
-  },
-  dropdownOptionSelected: { backgroundColor: '#f0f9ff' },
-  dropdownOptionText: { fontSize: 14, color: '#334155', flex: 1 },
-  dropdownOptionTextSelected: { color: '#0ea5e9', fontWeight: '500' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingVertical: 8, paddingHorizontal: 14, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8 },
   chipSelected: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },

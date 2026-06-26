@@ -37,23 +37,13 @@ import {
 } from '../lib/ocrEnriquecerIa.js';
 import { aplicarPostProcesadoPipeline } from '../lib/ocrFacturaValidacion.js';
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
+import { enviarEmail } from '../lib/email.js';
 import multer from 'multer';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const Tesseract = require('tesseract.js');
 
 const router = Router();
-
-const smtpTransport = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT || '587', 10),
-  secure: process.env.SMTP_SECURE === 'true',
-  auth: {
-    user: process.env.SMTP_USER || '',
-    pass: process.env.SMTP_PASS || '',
-  },
-});
 
 const S3_BUCKET = process.env.S3_BUCKET || 'igp-2.0-files';
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'eu-west-3' });
@@ -1269,7 +1259,7 @@ router.post('/facturacion/facturas/:id/enviar-email', async (req, res) => {
         : [],
     };
 
-    await smtpTransport.sendMail(mailOptions);
+    await enviarEmail(mailOptions);
 
     await registrarAuditoria(id, 'envio_email', usuario_id, usuario_nombre, {
       destinatario,
@@ -2479,8 +2469,7 @@ router.post('/facturacion/enviar-recordatorios', async (req, res) => {
       if (ultimoRecordatorio === hoy) continue;
 
       try {
-        await smtpTransport.sendMail({
-          from: process.env.SMTP_FROM || process.env.SMTP_USER,
+        await enviarEmail({
           to: f.empresa_email,
           subject: `Recordatorio: Factura ${f.numero_factura || f.id_factura} pendiente de pago`,
           html: `

@@ -18,6 +18,7 @@ import { ICONS, ICON_SIZE } from '../constants/icons';
 import { emailValido } from '../utils/validation';
 import { formatId6 } from '../utils/idFormat';
 import { useAuth, UserSession } from '../contexts/AuthContext';
+import { SelectorDesplegable } from '../components/SelectorDesplegable';
 import { apiFetch } from '../utils/api';
 
 const DEFAULT_COL_WIDTH = 90;
@@ -70,8 +71,6 @@ export default function UsuariosScreen() {
   const [formNuevo, setFormNuevo] = useState<Record<string, string>>(INITIAL_FORM);
   const [guardando, setGuardando] = useState(false);
   const [errorForm, setErrorForm] = useState<string | null>(null);
-  const [rolDropdownOpen, setRolDropdownOpen] = useState(false);
-  const [rolSearchFilter, setRolSearchFilter] = useState('');
   const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
   const [localSearchFilter, setLocalSearchFilter] = useState('');
   const [localesGrupoParipe, setLocalesGrupoParipe] = useState<LocalItem[]>([]);
@@ -89,8 +88,6 @@ export default function UsuariosScreen() {
     setFormLocales([]);
     setModalNuevoVisible(true);
     setErrorForm(null);
-    setRolDropdownOpen(false);
-    setRolSearchFilter('');
     setLocalDropdownOpen(false);
     setLocalSearchFilter('');
   };
@@ -111,8 +108,6 @@ export default function UsuariosScreen() {
     setEditingUsuarioId(usuario.id_usuario != null ? String(usuario.id_usuario) : null);
     setModalNuevoVisible(true);
     setErrorForm(null);
-    setRolDropdownOpen(false);
-    setRolSearchFilter('');
     setLocalDropdownOpen(false);
     setLocalSearchFilter('');
   };
@@ -122,8 +117,6 @@ export default function UsuariosScreen() {
     setFormLocales([]);
     setEditingUsuarioId(null);
     setErrorForm(null);
-    setRolDropdownOpen(false);
-    setRolSearchFilter('');
     setLocalDropdownOpen(false);
     setLocalSearchFilter('');
   };
@@ -171,11 +164,10 @@ export default function UsuariosScreen() {
     }
   };
 
-  const rolesFiltrados = useMemo(() => {
-    const q = rolSearchFilter.trim().toLowerCase();
-    const list = !q ? [...ROL_OPCIONES] : ROL_OPCIONES.filter((r) => r.toLowerCase().includes(q));
-    return [...list].sort((a, b) => a.localeCompare(b));
-  }, [rolSearchFilter]);
+  const rolOpciones = useMemo(
+    () => [...ROL_OPCIONES].sort((a, b) => a.localeCompare(b)).map((r) => ({ id: r, titulo: r, icono: 'badge' as const })),
+    [],
+  );
   const localesFiltrados = useMemo(() => {
     const q = localSearchFilter.trim().toLowerCase();
     const list = !q ? localesGrupoParipe : localesGrupoParipe.filter((l) => {
@@ -553,64 +545,18 @@ export default function UsuariosScreen() {
                   {CAMPOS_FORM.map((campo) =>
                     campo.key === 'Rol' ? (
                       <View key={campo.key} style={styles.formGroup}>
-                        <Text style={styles.formLabel}>{campo.label}</Text>
-                        <TouchableOpacity
-                          style={[styles.formInput, styles.formInputRow]}
-                          onPress={() => setRolDropdownOpen((o) => !o)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={[styles.formInputText, !formNuevo.Rol && styles.formInputPlaceholder]} numberOfLines={1}>
-                            {formNuevo.Rol || `${campo.label}…`}
-                          </Text>
-                          <MaterialIcons name={rolDropdownOpen ? 'expand-less' : 'expand-more'} size={18} color="#64748b" style={styles.rolChevron} />
-                        </TouchableOpacity>
-                        {rolDropdownOpen && (
-                          <View style={styles.dropdownWrap}>
-                            <TextInput
-                              style={styles.dropdownSearch}
-                              value={rolSearchFilter}
-                              onChangeText={setRolSearchFilter}
-                              placeholder="Buscar rol…"
-                              placeholderTextColor="#94a3b8"
-                            />
-                            <ScrollView style={styles.dropdownScroll} keyboardShouldPersistTaps="handled">
-                              {formNuevo.Rol ? (
-                                <TouchableOpacity
-                                  style={[styles.dropdownOption, styles.dropdownVaciarOption]}
-                                  onPress={() => {
-                                    setFormNuevo((prev) => ({ ...prev, Rol: '' }));
-                                    setRolDropdownOpen(false);
-                                    setRolSearchFilter('');
-                                  }}
-                                  activeOpacity={0.7}
-                                >
-                                  <MaterialIcons name="clear" size={16} color="#94a3b8" style={{ marginRight: 6 }} />
-                                  <Text style={styles.dropdownVaciarText}>Vaciar</Text>
-                                </TouchableOpacity>
-                              ) : null}
-                              {rolesFiltrados.length === 0 ? (
-                                <View style={styles.dropdownOption}>
-                                  <Text style={styles.dropdownOptionText}>Sin resultados</Text>
-                                </View>
-                              ) : (
-                                rolesFiltrados.map((opcion) => (
-                                  <TouchableOpacity
-                                    key={opcion}
-                                    style={styles.dropdownOption}
-                                    onPress={() => {
-                                      setFormNuevo((prev) => ({ ...prev, Rol: opcion }));
-                                      setRolDropdownOpen(false);
-                                      setRolSearchFilter('');
-                                    }}
-                                    activeOpacity={0.7}
-                                  >
-                                    <Text style={styles.dropdownOptionText}>{opcion}</Text>
-                                  </TouchableOpacity>
-                                ))
-                              )}
-                            </ScrollView>
-                          </View>
-                        )}
+                        <SelectorDesplegable
+                          label={campo.label}
+                          icono="badge"
+                          placeholder={`${campo.label}…`}
+                          tituloLista="Selecciona un rol"
+                          iconoLista="badge"
+                          buscador
+                          buscadorPlaceholder="Buscar rol…"
+                          valorId={formNuevo.Rol || ''}
+                          opciones={[{ id: '', titulo: '(sin rol)' }, ...rolOpciones]}
+                          onSeleccionar={(id) => setFormNuevo((prev) => ({ ...prev, Rol: id }))}
+                        />
                       </View>
                     ) : campo.key === 'Local' ? (
                       <View key={campo.key} style={styles.formGroup}>

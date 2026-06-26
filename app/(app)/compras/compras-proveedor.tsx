@@ -26,7 +26,9 @@ import {
   idNorm,
   toggleInList,
   parseDdMmYyyyToIso,
+  toggleGrupoFamilias,
   ComprasFiltroDropdown,
+  GruposFamiliasChips,
   FiltroDropdownKey,
   OpcionFiltro,
   styles,
@@ -36,6 +38,17 @@ import {
   ComprasToolbarSyncBtn,
 } from './comprasProveedorShared';
 import { apiFetch } from '../../utils/api';
+import { useGruposFamilias } from '../../hooks/useGruposFamilias';
+
+type SyncOpcion = number | 'completo';
+
+const OPCIONES_SYNC: { id: SyncOpcion; titulo: string; subtitulo: string; icono: React.ComponentProps<typeof MaterialIcons>['name'] }[] = [
+  { id: 20, titulo: 'Últimos 20 días', subtitulo: 'Rápida — uso habitual', icono: 'bolt' },
+  { id: 60, titulo: 'Últimos 60 días', subtitulo: 'Recomendada', icono: 'sync' },
+  { id: 90, titulo: 'Últimos 90 días', subtitulo: 'Trimestre', icono: 'history' },
+  { id: 120, titulo: 'Últimos 120 días', subtitulo: 'Rango amplio (más lenta)', icono: 'date-range' },
+  { id: 'completo', titulo: 'Sincronización completa', subtitulo: 'Desde 2025-01-01 (puede tardar varios minutos)', icono: 'cloud-download' },
+];
 
 export default function ComprasProveedorScreen() {
   const router = useRouter();
@@ -45,6 +58,7 @@ export default function ComprasProveedorScreen() {
 
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState('');
+  const [menuSyncVisible, setMenuSyncVisible] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [modalFiltrosVisible, setModalFiltrosVisible] = useState(false);
   const [fechaDesde, setFechaDesde] = useState('');
@@ -55,16 +69,25 @@ export default function ComprasProveedorScreen() {
   const [selFamilias, setSelFamilias] = useState<string[]>([]);
   const [selAlmacenes, setSelAlmacenes] = useState<string[]>([]);
   const [filtroDropdownId, setFiltroDropdownId] = useState<FiltroDropdownKey | null>(null);
+  const { grupos, crearGrupo, borrarGrupo } = useGruposFamilias();
 
-  const sincronizar = useCallback(async (fullSync = false) => {
+  const sincronizar = useCallback(async (opcion: SyncOpcion) => {
+    setMenuSyncVisible(false);
     setSyncing(true);
     setSyncResult('');
     try {
       const bodyPayload: Record<string, string> = {};
-      if (fullSync) bodyPayload.dateFrom = '2025-01-01';
+      if (opcion === 'completo') {
+        bodyPayload.dateFrom = '2025-01-01';
+      } else {
+        bodyPayload.dateFrom = new Date(Date.now() - opcion * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10);
+      }
       const res = await apiFetch('/api/agora/purchases/sync', {
         method: 'POST',
         body: JSON.stringify(bodyPayload),
+        timeoutMs: 0,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al sincronizar');
@@ -123,13 +146,13 @@ export default function ComprasProveedorScreen() {
     if (isoDesde) {
       list = list.filter((it) => {
         const f = fechaLineaISO(it);
-        return !f || f >= isoDesde;
+        return f !== '' && f >= isoDesde;
       });
     }
     if (isoHasta) {
       list = list.filter((it) => {
         const f = fechaLineaISO(it);
-        return !f || f <= isoHasta;
+        return f !== '' && f <= isoHasta;
       });
     }
     if (selAlbaranes.length > 0) {
@@ -219,6 +242,10 @@ export default function ComprasProveedorScreen() {
   useEffect(() => {
     setPage(0);
   }, [busqueda, fechaDesde, fechaHasta, selAlbaranes, selProductos, selProveedores, selFamilias, selAlmacenes]);
+
+  useEffect(() => {
+    if (page > totalPages - 1) setPage(totalPages - 1);
+  }, [totalPages, page]);
 
   const totalWidth = COLUMNAS.reduce((s, c) => s + c.width, 0);
 
@@ -336,20 +363,7 @@ export default function ComprasProveedorScreen() {
               <MaterialIcons name="refresh" size={TOOLBAR_ICON_SIZE} color="#0ea5e9" />
             )}
           </ComprasToolbarIconBtn>
-          <ComprasToolbarSyncBtn syncing={syncing} onPress={() => sincronizar(false)} />
-          <ComprasToolbarIconBtn
-            tooltip="Sincronización completa desde 2025-01-01 (puede tardar)"
-            onPress={() => sincronizar(true)}
-            disabled={syncing}
-            accessibilityLabel="Sincronización completa"
-            variant="outline"
-          >
-            <MaterialIcons
-              name="cloud-download"
-              size={TOOLBAR_ICON_SIZE}
-              color={syncing ? '#cbd5e1' : '#0ea5e9'}
-            />
-          </ComprasToolbarIconBtn>
+          <ComprasToolbarSyncBtn syncing={syncing} onPress={() => setMenuSyncVisible(true)} />
         </View>
       </View>
 
@@ -406,7 +420,7 @@ export default function ComprasProveedorScreen() {
               >
                 <Text style={styles.modalFiltrosSectionTitle}>Rango de fechas (albarán)</Text>
                 <Text style={styles.modalFiltrosHint}>
-                  Formato dd/mm/aaaa. Deja vacío un extremo para no acotar por ese lado. Solo se filtra si la fecha es válida.
+                  Formato dd/mm/aaaa. Deja vacío un extremo para no acotar por ese lado. Solo se filtra si la fecha introducida es válida; las líneas sin fecha de albarán quedan excluidas del rango.
                 </Text>
                 <View style={styles.modalFiltrosFechasRow}>
                   <View style={styles.modalFiltrosFechaField}>
@@ -446,16 +460,26 @@ export default function ComprasProveedorScreen() {
                     { key: 'alm' as const, title: 'Almacén', opts: opcionesFiltros.almacenes, sel: selAlmacenes, setSel: setSelAlmacenes },
                   ] as const
                 ).map((sec) => (
-                  <ComprasFiltroDropdown
-                    key={sec.key}
-                    title={sec.title}
-                    options={sec.opts}
-                    value={sec.sel}
-                    onToggleId={(id) => sec.setSel((p) => toggleInList(p, id))}
-                    fieldKey={sec.key}
-                    openKey={filtroDropdownId}
-                    setOpenKey={setFiltroDropdownId}
-                  />
+                  <React.Fragment key={sec.key}>
+                    {sec.key === 'fam' ? (
+                      <GruposFamiliasChips
+                        grupos={grupos}
+                        familiasSeleccionadas={selFamilias}
+                        onToggleGrupo={(ids) => setSelFamilias((p) => toggleGrupoFamilias(p, ids))}
+                        onCrearGrupo={(nombre) => crearGrupo(nombre, selFamilias)}
+                        onBorrarGrupo={borrarGrupo}
+                      />
+                    ) : null}
+                    <ComprasFiltroDropdown
+                      title={sec.title}
+                      options={sec.opts}
+                      value={sec.sel}
+                      onToggleId={(id) => sec.setSel((p) => toggleInList(p, id))}
+                      fieldKey={sec.key}
+                      openKey={filtroDropdownId}
+                      setOpenKey={setFiltroDropdownId}
+                    />
+                  </React.Fragment>
                 ))}
               </ScrollView>
               <View style={styles.modalFiltrosFooter}>
@@ -465,6 +489,45 @@ export default function ComprasProveedorScreen() {
                 <TouchableOpacity style={styles.modalFiltrosCerrar} onPress={() => setModalFiltrosVisible(false)}>
                   <Text style={styles.modalFiltrosCerrarText}>Listo</Text>
                 </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal visible={menuSyncVisible} transparent animationType="fade" onRequestClose={() => setMenuSyncVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setMenuSyncVisible(false)}>
+          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.syncMenuWrap}>
+            <View style={styles.syncMenuCard}>
+              <View style={styles.syncMenuHeader}>
+                <MaterialIcons name="sync" size={18} color="#0ea5e9" />
+                <Text style={styles.syncMenuTitle}>Sincronizar compras</Text>
+                <TouchableOpacity onPress={() => setMenuSyncVisible(false)} hitSlop={8}>
+                  <MaterialIcons name="close" size={22} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              {OPCIONES_SYNC.map((op) => (
+                <TouchableOpacity
+                  key={String(op.id)}
+                  style={[styles.syncMenuRow, op.id === 'completo' && styles.syncMenuRowFull]}
+                  onPress={() => sincronizar(op.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.syncMenuIconBox}>
+                    <MaterialIcons name={op.icono} size={18} color="#0ea5e9" />
+                  </View>
+                  <View style={styles.syncMenuRowTextWrap}>
+                    <Text style={styles.syncMenuRowTitle}>{op.titulo}</Text>
+                    <Text style={styles.syncMenuRowSub}>{op.subtitulo}</Text>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
+                </TouchableOpacity>
+              ))}
+              <View style={styles.syncMenuHint}>
+                <MaterialIcons name="info-outline" size={14} color="#b45309" />
+                <Text style={styles.syncMenuHintText}>
+                  Cuanto mayor sea el rango, más tarda la sincronización con Ágora. Para el uso diario suele bastar con 20 o 60 días.
+                </Text>
               </View>
             </View>
           </TouchableOpacity>

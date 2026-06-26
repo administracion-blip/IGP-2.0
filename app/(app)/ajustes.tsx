@@ -17,6 +17,8 @@ import {
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystemLegacy from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { apiFetch } from '../utils/api';
@@ -92,6 +94,9 @@ const DAY_LABELS: Record<string, string> = {
   mon: 'L', tue: 'M', wed: 'X', thu: 'J', fri: 'V', sat: 'S', sun: 'D',
 };
 
+/** Roles que pueden recibir el informe diario (coincide con ROLES_VALIDOS del backend). */
+const ROLES_INFORME = ['Administrador', 'SuperUser', 'Administracion', 'Local', 'Socio', 'Marketing'];
+
 type SyncState = {
   syncing: boolean;
   result: string | null;
@@ -149,6 +154,7 @@ export default function AjustesScreen() {
 
   const [imagenApp, setImagenApp] = useState('');
   const [porcentajeBeneficio, setPorcentajeBeneficio] = useState('');
+  const [importeHoraDefecto, setImporteHoraDefecto] = useState('');
   const [loadingPersonalizacion, setLoadingPersonalizacion] = useState(true);
   const [guardandoPersonalizacion, setGuardandoPersonalizacion] = useState(false);
   const [imagenLoading, setImagenLoading] = useState(false);
@@ -162,6 +168,23 @@ export default function AjustesScreen() {
   const [cfgNewTime, setCfgNewTime] = useState('');
   const [cfgSaving, setCfgSaving] = useState(false);
   const [cfgTimeError, setCfgTimeError] = useState<string | null>(null);
+
+  // --- Informe diario por email ---
+  const [infLoading, setInfLoading] = useState(true);
+  const [infEnabled, setInfEnabled] = useState(false);
+  const [infDays, setInfDays] = useState<string[]>([]);
+  const [infTimes, setInfTimes] = useState<string[]>([]);
+  const [infNewTime, setInfNewTime] = useState('');
+  const [infTimeError, setInfTimeError] = useState<string | null>(null);
+  const [infRoles, setInfRoles] = useState<string[]>([]);
+  const [infTopLimit, setInfTopLimit] = useState('10');
+  const [infSaving, setInfSaving] = useState(false);
+  const [infForcing, setInfForcing] = useState(false);
+  const [infDownloading, setInfDownloading] = useState(false);
+  const [infResult, setInfResult] = useState<string | null>(null);
+  const [infError, setInfError] = useState<string | null>(null);
+  const [infLastRun, setInfLastRun] = useState<string | null>(null);
+  const [infDestCount, setInfDestCount] = useState<number | null>(null);
 
   const cargarEstados = useCallback(async () => {
     try {
@@ -201,20 +224,27 @@ export default function AjustesScreen() {
       const res = await apiFetch('/api/ajustes/personalizacion/app');
       const data = await res.json();
       if (res.ok && data.ok && data.item) {
-        const it = data.item as { ImagenApp?: string; PorcentajeBeneficio?: number };
+        const it = data.item as { ImagenApp?: string; PorcentajeBeneficio?: number; ImporteHoraDefecto?: number };
         setImagenApp(typeof it.ImagenApp === 'string' ? it.ImagenApp : '');
         setPorcentajeBeneficio(
           it.PorcentajeBeneficio != null && !Number.isNaN(Number(it.PorcentajeBeneficio))
             ? String(it.PorcentajeBeneficio)
             : ''
         );
+        setImporteHoraDefecto(
+          it.ImporteHoraDefecto != null && !Number.isNaN(Number(it.ImporteHoraDefecto))
+            ? String(it.ImporteHoraDefecto)
+            : ''
+        );
       } else {
         setImagenApp('');
         setPorcentajeBeneficio('');
+        setImporteHoraDefecto('');
       }
     } catch (_) {
       setImagenApp('');
       setPorcentajeBeneficio('');
+      setImporteHoraDefecto('');
     } finally {
       setLoadingPersonalizacion(false);
     }
@@ -287,6 +317,17 @@ export default function AjustesScreen() {
         }
         porcentajeNum = Math.round(n * 100) / 100;
       }
+      const impRaw = importeHoraDefecto.trim().replace(',', '.');
+      let importeHoraNum: number | null = null;
+      if (impRaw !== '') {
+        const n = parseFloat(impRaw);
+        if (Number.isNaN(n) || n < 0) {
+          setErrorPersonalizacion('El importe por hora debe ser un número mayor o igual que 0');
+          setGuardandoPersonalizacion(false);
+          return;
+        }
+        importeHoraNum = Math.round(n * 100) / 100;
+      }
       const res = await apiFetch('/api/ajustes', {
         method: 'POST',
         body: JSON.stringify({
@@ -295,6 +336,7 @@ export default function AjustesScreen() {
           Nombre: 'Personalización',
           ImagenApp: imagenApp.trim(),
           PorcentajeBeneficio: porcentajeNum,
+          ImporteHoraDefecto: importeHoraNum,
         }),
       });
       const data = await res.json();
@@ -307,7 +349,7 @@ export default function AjustesScreen() {
     } finally {
       setGuardandoPersonalizacion(false);
     }
-  }, [imagenApp, porcentajeBeneficio]);
+  }, [imagenApp, porcentajeBeneficio, importeHoraDefecto]);
 
   const ejecutarSync = useCallback(async (item: SyncConfig) => {
     setSyncStates((prev) => ({
@@ -442,6 +484,151 @@ export default function AjustesScreen() {
     } catch (_) {}
     setCfgSaving(false);
   }, [configModalId, cfgEnabled, cfgDays, cfgTimes]);
+
+  // --- Informe diario: cargar / guardar / forzar envío ---
+  const cargarInforme = useCallback(async () => {
+    setInfLoading(true);
+    try {
+      const res = await apiFetch('/api/ajustes/informes/informe_diario');
+      const data = await res.json();
+      if (res.ok && data.ok && data.item) {
+        const it = data.item as AjusteItem & { Roles?: string[]; TopLimit?: number };
+        setInfEnabled(it.Enabled ?? false);
+        setInfDays(Array.isArray(it.Days) ? it.Days : []);
+        setInfTimes(Array.isArray(it.Times) ? [...it.Times].sort() : []);
+        setInfRoles(Array.isArray(it.Roles) ? it.Roles : []);
+        setInfTopLimit(it.TopLimit != null ? String(it.TopLimit) : '10');
+        setInfLastRun((it as { UltimaEjecucion?: string }).UltimaEjecucion || null);
+        setInfResult(it.Resultado || null);
+      }
+    } catch (_) {}
+    try {
+      const res = await apiFetch('/api/informes/diario/destinatarios');
+      const data = await res.json();
+      if (res.ok && data.ok) setInfDestCount(data.count ?? 0);
+    } catch (_) {}
+    setInfLoading(false);
+  }, []);
+
+  useEffect(() => { cargarInforme(); }, [cargarInforme]);
+
+  const toggleInfDay = useCallback((day: string) => {
+    setInfDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
+  }, []);
+
+  const toggleInfRol = useCallback((rol: string) => {
+    setInfRoles((prev) => (prev.includes(rol) ? prev.filter((r) => r !== rol) : [...prev, rol]));
+  }, []);
+
+  const addInfTime = useCallback(() => {
+    const t = infNewTime.trim();
+    if (!/^\d{2}:\d{2}$/.test(t)) { setInfTimeError('Formato: HH:MM'); return; }
+    const [hh, mm] = t.split(':').map(Number);
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) { setInfTimeError('Hora inválida'); return; }
+    if (infTimes.includes(t)) { setInfTimeError('Ya existe'); return; }
+    setInfTimes((prev) => [...prev, t].sort());
+    setInfNewTime('');
+    setInfTimeError(null);
+  }, [infNewTime, infTimes]);
+
+  const removeInfTime = useCallback((t: string) => {
+    setInfTimes((prev) => prev.filter((x) => x !== t));
+  }, []);
+
+  const guardarInforme = useCallback(async () => {
+    setInfSaving(true);
+    setInfError(null);
+    try {
+      const limit = Math.max(1, Math.min(50, parseInt(infTopLimit, 10) || 10));
+      const res = await apiFetch('/api/ajustes', {
+        method: 'POST',
+        body: JSON.stringify({
+          PK: 'informes',
+          SK: 'informe_diario',
+          Nombre: 'Informe diario',
+          Enabled: infEnabled,
+          Days: infDays,
+          Times: infTimes,
+          Roles: infRoles,
+          TopLimit: limit,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) { setInfError(data.error || 'No se pudo guardar'); return; }
+      setInfTopLimit(String(limit));
+      cargarInforme();
+    } catch (_) {
+      setInfError('Error de conexión al guardar');
+    } finally {
+      setInfSaving(false);
+    }
+  }, [infEnabled, infDays, infTimes, infRoles, infTopLimit, cargarInforme]);
+
+  const forzarEnvioInforme = useCallback(async () => {
+    setInfForcing(true);
+    setInfError(null);
+    setInfResult(null);
+    try {
+      const res = await apiFetch('/api/informes/diario/enviar', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setInfError(data.error || 'No se pudo enviar el informe');
+        return;
+      }
+      const errCount = Array.isArray(data.errores) ? data.errores.length : 0;
+      setInfResult(`Enviados ${data.enviados ?? 0}/${data.total ?? 0}${errCount > 0 ? ` · ${errCount} error(es)` : ''} (${data.businessDay})`);
+      setInfLastRun(new Date().toISOString());
+    } catch (err: any) {
+      setInfError(err?.message || 'Error de conexión');
+    } finally {
+      setInfForcing(false);
+    }
+  }, []);
+
+  const descargarInforme = useCallback(async () => {
+    setInfDownloading(true);
+    setInfError(null);
+    setInfResult(null);
+    try {
+      const res = await apiFetch('/api/informes/diario/descargar', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error || !data.pdfBase64) {
+        setInfError(data.error || 'No se pudo generar el informe');
+        return;
+      }
+      const filename = data.filename || 'informe-diario.pdf';
+      if (Platform.OS === 'web') {
+        const bin = atob(data.pdfBase64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } else {
+        const cacheDir = FileSystemLegacy.cacheDirectory ?? '';
+        const fileUri = `${cacheDir}${filename}`;
+        await FileSystemLegacy.writeAsStringAsync(fileUri, data.pdfBase64, { encoding: FileSystemLegacy.EncodingType.Base64 });
+        await Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: filename });
+      }
+      setInfResult(`Informe descargado (${data.businessDay}).`);
+    } catch (err: any) {
+      setInfError(err?.message || 'Error de conexión');
+    } finally {
+      setInfDownloading(false);
+    }
+  }, []);
 
   function formatFechaHora(iso: string | null): string {
     if (!iso) return 'Nunca';
@@ -683,12 +870,261 @@ export default function AjustesScreen() {
                   </View>
                 </View>
 
+                <View style={[styles.card, { minWidth: winWidth < 500 ? '100%' as any : 260, maxWidth: winWidth < 500 ? '100%' as any : 360 }]}>
+                  <View style={styles.cardTop}>
+                    <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
+                      <MaterialIcons name="schedule" size={20} color="#0369a1" />
+                    </View>
+                    <View style={styles.cardInfo}>
+                      <Text style={styles.cardTitle} numberOfLines={1}>Importe por hora (defecto)</Text>
+                      <Text style={styles.cardDesc} numberOfLines={2}>
+                        € por hora por defecto en Horas por facturación. Se puede editar por local.
+                      </Text>
+                    </View>
+                    <View style={{ width: 22 }} />
+                  </View>
+                  <View style={styles.persoPctRowCard}>
+                    <TextInput
+                      style={styles.persoPctInputCard}
+                      value={importeHoraDefecto}
+                      onChangeText={setImporteHoraDefecto}
+                      placeholder="0"
+                      placeholderTextColor="#94a3b8"
+                      keyboardType="decimal-pad"
+                    />
+                    <Text style={styles.persoPctSuffix}>€/h</Text>
+                  </View>
+                </View>
+
                 {errorPersonalizacion ? (
                   <View style={[styles.errorBox, { width: '100%' }]}>
                     <MaterialIcons name="error-outline" size={12} color="#dc2626" />
                     <Text style={styles.errorText}>{errorPersonalizacion}</Text>
                   </View>
                 ) : null}
+              </View>
+            )}
+          </View>
+        )}
+
+        {hasPermiso('ajustes.ver') && (
+          <View style={styles.section}>
+            <View style={styles.persoHeaderRow}>
+              <View style={styles.persoHeaderTitleBlock}>
+                <MaterialIcons name="mark-email-read" size={18} color="#0369a1" />
+                <Text style={styles.sectionTitle}>Informe diario por email</Text>
+              </View>
+              {!infLoading && (
+                <TouchableOpacity
+                  style={[styles.persoSaveHeaderBtn, infSaving && styles.persoSaveHeaderBtnDisabled]}
+                  onPress={guardarInforme}
+                  disabled={infSaving}
+                  activeOpacity={0.75}
+                  accessibilityLabel="Guardar configuración del informe"
+                >
+                  {infSaving ? (
+                    <ActivityIndicator size="small" color="#047857" />
+                  ) : (
+                    <>
+                      <MaterialIcons name="save" size={14} color="#047857" />
+                      <Text style={styles.persoSaveHeaderBtnText}>Guardar</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+            <Text style={styles.sectionDesc}>
+              Envío automático del informe de jornadas del día anterior (facturación, comparativa,
+              cumplimiento, invitaciones/descuentos y top por usuario) a los roles seleccionados,
+              con un PDF por destinatario según sus locales asignados.
+            </Text>
+
+            {infLoading ? (
+              <ActivityIndicator size="small" color="#0ea5e9" style={{ marginTop: 20 }} />
+            ) : (
+              <View style={[styles.card, { width: '100%', maxWidth: '100%' as any }]}>
+                {/* Activación */}
+                <View style={styles.cfgRowBetween}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cfgLabel}>Envío automático</Text>
+                    <Text style={styles.cfgHint}>Ejecutar en los días y horas configurados</Text>
+                  </View>
+                  <Switch
+                    value={infEnabled}
+                    onValueChange={setInfEnabled}
+                    trackColor={{ false: '#cbd5e1', true: '#7dd3fc' }}
+                    thumbColor={infEnabled ? '#0ea5e9' : '#94a3b8'}
+                    style={Platform.OS === 'web' ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
+                  />
+                </View>
+
+                {/* Días */}
+                <View style={styles.cfgSection}>
+                  <Text style={styles.cfgLabel}>Días de envío</Text>
+                  <View style={styles.daysRow}>
+                    {DAY_KEYS.map((dk) => {
+                      const active = infDays.includes(dk);
+                      return (
+                        <TouchableOpacity
+                          key={dk}
+                          style={[styles.dayChip, active && styles.dayChipActive]}
+                          onPress={() => toggleInfDay(dk)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.dayChipText, active && styles.dayChipTextActive]}>
+                            {DAY_LABELS[dk]}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* Horas */}
+                <View style={styles.cfgSection}>
+                  <Text style={styles.cfgLabel}>Horas de envío</Text>
+                  {infTimes.length > 0 && (
+                    <View style={styles.timesList}>
+                      {infTimes.map((t) => (
+                        <View key={t} style={styles.timeChip}>
+                          <MaterialIcons name="access-time" size={13} color="#0369a1" />
+                          <Text style={styles.timeChipText}>{t}</Text>
+                          <TouchableOpacity
+                            onPress={() => removeInfTime(t)}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                            style={styles.timeChipRemove}
+                          >
+                            <MaterialIcons name="close" size={13} color="#94a3b8" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  <View style={styles.addTimeRow}>
+                    <TextInput
+                      style={styles.addTimeInput}
+                      value={infNewTime}
+                      onChangeText={(v) => { setInfNewTime(v); setInfTimeError(null); }}
+                      placeholder="HH:MM"
+                      placeholderTextColor="#94a3b8"
+                      maxLength={5}
+                      keyboardType="numbers-and-punctuation"
+                      onSubmitEditing={addInfTime}
+                      {...(Platform.OS === 'web' ? {
+                        onKeyPress: (e: any) => { if (e.nativeEvent?.key === 'Enter') addInfTime(); },
+                      } : {})}
+                    />
+                    <TouchableOpacity style={styles.addTimeBtn} onPress={addInfTime} activeOpacity={0.7}>
+                      <MaterialIcons name="add" size={16} color="#fff" />
+                      <Text style={styles.addTimeBtnText}>Añadir</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {infTimeError && <Text style={styles.cfgError}>{infTimeError}</Text>}
+                </View>
+
+                {/* Roles destinatarios */}
+                <View style={styles.cfgSection}>
+                  <Text style={styles.cfgLabel}>Roles que reciben el informe</Text>
+                  <Text style={styles.cfgHint}>Solo usuarios con locales asignados recibirán el correo</Text>
+                  <View style={styles.daysRow}>
+                    {ROLES_INFORME.map((rol) => {
+                      const active = infRoles.includes(rol);
+                      return (
+                        <TouchableOpacity
+                          key={rol}
+                          style={[styles.rolChip, active && styles.rolChipActive]}
+                          onPress={() => toggleInfRol(rol)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.rolChipText, active && styles.rolChipTextActive]}>{rol}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* Top límite */}
+                <View style={styles.cfgSection}>
+                  <Text style={styles.cfgLabel}>Top de usuarios a incluir</Text>
+                  <View style={styles.persoPctRowCard}>
+                    <TextInput
+                      style={styles.persoPctInputCard}
+                      value={infTopLimit}
+                      onChangeText={setInfTopLimit}
+                      placeholder="10"
+                      placeholderTextColor="#94a3b8"
+                      keyboardType="number-pad"
+                      maxLength={2}
+                    />
+                  </View>
+                </View>
+
+                {/* Estado */}
+                <View style={styles.infStatusRow}>
+                  <View style={styles.cardMetaRow}>
+                    <MaterialIcons name="group" size={13} color="#64748b" />
+                    <Text style={styles.cardMetaText}>
+                      {infDestCount != null ? `${infDestCount} destinatario(s)` : '—'}
+                    </Text>
+                  </View>
+                  <View style={styles.cardMetaRow}>
+                    <MaterialIcons name="schedule" size={13} color="#94a3b8" />
+                    <Text style={styles.cardMetaText}>Último: {formatFechaHora(infLastRun)}</Text>
+                  </View>
+                </View>
+
+                {infResult && !infError && (
+                  <View style={styles.resultBox}>
+                    <MaterialIcons name="check-circle" size={12} color="#059669" />
+                    <Text style={styles.resultText} numberOfLines={2}>{infResult}</Text>
+                  </View>
+                )}
+                {infError && (
+                  <View style={styles.errorBox}>
+                    <MaterialIcons name="error-outline" size={12} color="#dc2626" />
+                    <Text style={styles.errorText} numberOfLines={2}>{infError}</Text>
+                  </View>
+                )}
+
+                {/* Acciones: forzar envío + descargar */}
+                <View style={styles.infActionsRow}>
+                  <TouchableOpacity
+                    style={[styles.syncBtn, styles.infActionBtn, infForcing && styles.syncBtnDisabled]}
+                    onPress={forzarEnvioInforme}
+                    disabled={infForcing || infDownloading}
+                    activeOpacity={0.7}
+                  >
+                    {infForcing ? (
+                      <>
+                        <ActivityIndicator size="small" color="#fff" />
+                        <Text style={styles.syncBtnText}>Enviando…</Text>
+                      </>
+                    ) : (
+                      <>
+                        <MaterialIcons name="send" size={15} color="#fff" />
+                        <Text style={styles.syncBtnText}>Forzar envío ahora</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.infDownloadBtn, infDownloading && styles.syncBtnDisabled]}
+                    onPress={descargarInforme}
+                    disabled={infForcing || infDownloading}
+                    activeOpacity={0.7}
+                  >
+                    {infDownloading ? (
+                      <>
+                        <ActivityIndicator size="small" color="#0369a1" />
+                        <Text style={styles.infDownloadBtnText}>Generando…</Text>
+                      </>
+                    ) : (
+                      <>
+                        <MaterialIcons name="download" size={15} color="#0369a1" />
+                        <Text style={styles.infDownloadBtnText}>Descargar informe</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
           </View>
@@ -1041,6 +1477,45 @@ const styles = StyleSheet.create({
   },
   dayChipText: { fontSize: 13, fontWeight: '700', color: '#94a3b8' },
   dayChipTextActive: { color: '#1d4ed8' },
+
+  /* Roles del informe diario */
+  rolChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+  },
+  rolChipActive: { backgroundColor: '#dbeafe', borderColor: '#3b82f6' },
+  rolChipText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
+  rolChipTextActive: { color: '#1d4ed8' },
+  infStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  infActionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  infActionBtn: { flex: 1, minWidth: 150, marginTop: 0 },
+  infDownloadBtn: {
+    flex: 1,
+    minWidth: 150,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1.5,
+    borderColor: '#7dd3fc',
+  },
+  infDownloadBtnText: { fontSize: 13, fontWeight: '700', color: '#0369a1' },
 
   /* Times list */
   timesList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },

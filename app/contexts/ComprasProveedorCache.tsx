@@ -1,7 +1,6 @@
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
 import { apiFetch } from '../utils/api';
-
-type CompraLinea = Record<string, unknown>;
+import type { CompraLinea } from '../types/compras';
 
 type ComprasProveedorCacheValue = {
   compras: CompraLinea[];

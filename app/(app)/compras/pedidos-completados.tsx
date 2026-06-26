@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
 import { InputFecha } from '../../components/InputFecha';
+import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useProductosCache } from '../../contexts/ProductosCache';
 import { useAuth } from '../../contexts/AuthContext';
 import { fetchPorcentajeBeneficio, aplicarPorcentajeBeneficio } from '../../lib/personalizacion';
@@ -134,9 +135,6 @@ export default function PedidosCompletadosScreen() {
   const { productosIgp: productosIgpCache, loading: loadingProductosCache, lastFetch: productosLastFetch, recargar: recargarProductos } = useProductosCache();
   const productosIgp = productosIgpCache as Record<string, string | number | boolean>[];
   const loadingProductos = loadingProductosCache;
-  const [productoDropdownOpen, setProductoDropdownOpen] = useState(false);
-  const [productoBusqueda, setProductoBusqueda] = useState('');
-  const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
   const [porcentajeBeneficio, setPorcentajeBeneficio] = useState(0);
 
   const refetch = useCallback(() => {
@@ -768,87 +766,34 @@ export default function PedidosCompletadosScreen() {
               <View style={styles.lineaFormProductoRow}>
                 <View style={[styles.formGroup, styles.formGroupProductoLinea]}>
                   <Text style={[styles.formLabel, styles.lineaFormLabelLinea]}>Producto</Text>
-                  {loadingProductos ? (
-                    <View style={styles.lineaFormProductoLoading}>
-                      <ActivityIndicator size="small" color="#0ea5e9" />
-                    </View>
-                  ) : (
-                    <>
-                      <TouchableOpacity
-                        style={[styles.selectTouchable, styles.lineaFormSelectMatch]}
-                        onPress={() => { setProductoBusqueda(''); setProductoDropdownOpen(true); }}
-                      >
-                        <Text style={[styles.selectTouchableText, !formLinea.ProductoNombre && styles.selectTouchablePlaceholder]}>
-                          {formLinea.ProductoNombre || 'Buscar producto…'}
-                        </Text>
-                        <MaterialIcons name="arrow-drop-down" size={24} color="#64748b" />
-                      </TouchableOpacity>
-                      <Modal visible={productoDropdownOpen} transparent animationType="fade">
-                        <Pressable style={styles.modalOverlay} onPress={() => setProductoDropdownOpen(false)}>
-                          <View style={styles.selectDropdownCard} onStartShouldSetResponder={() => true}>
-                            <View style={styles.dropdownSearchWrap}>
-                              <MaterialIcons name="search" size={18} color="#94a3b8" />
-                              <TextInput
-                                style={styles.dropdownSearchInput}
-                                value={productoBusqueda}
-                                onChangeText={setProductoBusqueda}
-                                placeholder="Buscar producto…"
-                                placeholderTextColor="#94a3b8"
-                                autoFocus
-                              />
-                              {productoBusqueda.length > 0 && (
-                                <TouchableOpacity onPress={() => setProductoBusqueda('')} hitSlop={8}>
-                                  <MaterialIcons name="close" size={16} color="#94a3b8" />
-                                </TouchableOpacity>
-                              )}
-                            </View>
-                            <ScrollView style={styles.selectDropdownList} keyboardShouldPersistTaps="handled">
-                              {productosIgp
-                                .filter((prod) => {
-                                  if (!productoBusqueda.trim()) return true;
-                                  const q = productoBusqueda.trim().toLowerCase();
-                                  const idProd = String(valorEnLocal(prod, 'Id') ?? '').toLowerCase();
-                                  const nombre = String(valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? '').toLowerCase();
-                                  return nombre.includes(q) || idProd.includes(q);
-                                })
-                                .map((prod, idx) => {
-                                  const idProd = String(valorEnLocal(prod, 'Id') ?? '').trim();
-                                  const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? idProd) || '—').trim();
-                                  return (
-                                    <TouchableOpacity
-                                      key={idProd || `p-${idx}`}
-                                      style={[styles.selectDropdownItem, formLinea.ProductId === idProd && styles.selectDropdownItemActive]}
-                                      {...(Platform.OS === 'web' ? { title: nombre || idProd || '' } : {})}
-                                      onPress={() => {
-                                        const costPrice = valorEnLocal(prod, 'CostPrice');
-                                        const precioStr = costPrice != null ? String(costPrice) : '';
-                                        setFormLinea((f) => ({ ...f, ProductId: idProd, ProductoNombre: nombre, PrecioUnitario: precioStr }));
-                                        setProductoDropdownOpen(false);
-                                      }}
-                                    >
-                                      <Text style={[styles.selectDropdownItemText, formLinea.ProductId === idProd && styles.selectDropdownItemTextActive]} numberOfLines={1}>
-                                        {nombre || idProd || '—'}
-                                      </Text>
-                                    </TouchableOpacity>
-                                  );
-                                })}
-                              {productosIgp.filter((prod) => {
-                                if (!productoBusqueda.trim()) return true;
-                                const q = productoBusqueda.trim().toLowerCase();
-                                const idProd = String(valorEnLocal(prod, 'Id') ?? '').toLowerCase();
-                                const nombre = String(valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? '').toLowerCase();
-                                return nombre.includes(q) || idProd.includes(q);
-                              }).length === 0 && (
-                                <View style={styles.selectDropdownItem}>
-                                  <Text style={[styles.selectDropdownItemText, { color: '#94a3b8', fontStyle: 'italic' }]}>Sin resultados</Text>
-                                </View>
-                              )}
-                            </ScrollView>
-                          </View>
-                        </Pressable>
-                      </Modal>
-                    </>
-                  )}
+                  <SelectorDesplegable
+                    placeholder="Buscar producto…"
+                    icono="inventory-2"
+                    tituloLista="Selecciona un producto"
+                    iconoLista="inventory-2"
+                    loading={loadingProductos}
+                    buscador
+                    buscadorPlaceholder="Buscar producto…"
+                    valorId={formLinea.ProductId || null}
+                    opciones={productosIgp.map((prod, idx) => {
+                      const idProd = String(valorEnLocal(prod, 'Id') ?? '').trim();
+                      const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? idProd) || '—').trim();
+                      return {
+                        id: idProd || `p-${idx}`,
+                        titulo: nombre || idProd || '—',
+                        subtitulo: idProd ? `ID ${idProd}` : undefined,
+                        icono: 'inventory-2' as const,
+                      };
+                    })}
+                    onSeleccionar={(id) => {
+                      const prod = productosIgp.find((p) => String(valorEnLocal(p, 'Id') ?? '').trim() === id);
+                      if (!prod) return;
+                      const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? id) || '—').trim();
+                      const costPrice = valorEnLocal(prod, 'CostPrice');
+                      const precioStr = costPrice != null ? String(costPrice) : '';
+                      setFormLinea((f) => ({ ...f, ProductId: id, ProductoNombre: nombre, PrecioUnitario: precioStr }));
+                    }}
+                  />
                 </View>
                 <View style={styles.formGroupCantidadLinea}>
                   <Text style={[styles.formLabel, styles.lineaFormLabelLinea]}>Cantidad</Text>
@@ -949,67 +894,23 @@ export default function PedidosCompletadosScreen() {
                 </View>
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Local</Text>
-                  {Platform.OS === 'web' ? (
-                    <select
-                      value={form.LocalId}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setForm((f) => ({ ...f, LocalId: v, AlmacenDestinoId: '' }));
-                      }}
-                      style={styles.selectNative as object}
-                    >
-                      <option value="">— Seleccionar local —</option>
-                      {locales.map((loc, idx) => {
-                        const idLoc = String(valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'Id_Locales') ?? '').trim();
-                        const nombre = String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? idLoc) || '—').trim();
-                        return <option key={idLoc || `loc-${idx}`} value={idLoc}>{nombre || idLoc || '—'}</option>;
-                      })}
-                    </select>
-                  ) : (
-                    <>
-                      <TouchableOpacity
-                        style={styles.selectTouchable}
-                        onPress={() => setLocalDropdownOpen(true)}
-                      >
-                        <Text style={[styles.selectTouchableText, !form.LocalId && styles.selectTouchablePlaceholder]}>
-                          {form.LocalId ? (nombresPorLocalId[form.LocalId] ?? form.LocalId) : '— Seleccionar local —'}
-                        </Text>
-                        <MaterialIcons name="arrow-drop-down" size={24} color="#64748b" />
-                      </TouchableOpacity>
-                      <Modal visible={localDropdownOpen} transparent animationType="fade">
-                        <Pressable style={styles.modalOverlay} onPress={() => setLocalDropdownOpen(false)}>
-                          <View style={styles.selectDropdownCard} onStartShouldSetResponder={() => true}>
-                            <ScrollView style={styles.selectDropdownList} keyboardShouldPersistTaps="handled">
-                              <TouchableOpacity
-                                style={styles.selectDropdownItem}
-                                onPress={() => { setForm((f) => ({ ...f, LocalId: '', AlmacenDestinoId: '' })); setLocalDropdownOpen(false); }}
-                              >
-                                <Text style={styles.selectDropdownItemText}>— Ninguno —</Text>
-                              </TouchableOpacity>
-                              {locales.map((loc, idx) => {
-                                const idLoc = String(valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'Id_Locales') ?? '').trim();
-                                const nombre = String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? idLoc) || '—').trim();
-                                return (
-                                  <TouchableOpacity
-                                    key={idLoc || `loc-${idx}`}
-                                    style={[styles.selectDropdownItem, form.LocalId === idLoc && styles.selectDropdownItemActive]}
-                                    onPress={() => {
-                                      setForm((f) => ({ ...f, LocalId: idLoc, AlmacenDestinoId: '' }));
-                                      setLocalDropdownOpen(false);
-                                    }}
-                                  >
-                                    <Text style={[styles.selectDropdownItemText, form.LocalId === idLoc && styles.selectDropdownItemTextActive]} numberOfLines={1}>
-                                      {nombre || idLoc || '—'}
-                                    </Text>
-                                  </TouchableOpacity>
-                                );
-                              })}
-                            </ScrollView>
-                          </View>
-                        </Pressable>
-                      </Modal>
-                    </>
-                  )}
+                  <SelectorDesplegable
+                    placeholder="— Seleccionar local —"
+                    icono="store"
+                    tituloLista="Selecciona un local"
+                    iconoLista="store"
+                    valorId={form.LocalId || null}
+                    opciones={locales.map((loc, idx) => {
+                      const idLoc = String(valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'Id_Locales') ?? '').trim();
+                      const nombre = String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? idLoc) || '—').trim();
+                      return {
+                        id: idLoc || `loc-${idx}`,
+                        titulo: nombre || idLoc || '—',
+                        icono: 'store' as const,
+                      };
+                    })}
+                    onSeleccionar={(id) => setForm((f) => ({ ...f, LocalId: id, AlmacenDestinoId: '' }))}
+                  />
                 </View>
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Almacén origen</Text>
@@ -1333,65 +1234,6 @@ const styles = StyleSheet.create({
   pickerChipActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
   pickerChipText: { fontSize: 13, color: '#64748b' },
   pickerChipTextActive: { color: '#fff', fontWeight: '600' },
-  selectNative: {
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    fontSize: 13,
-    color: '#334155',
-    minWidth: 200,
-    minHeight: 36,
-    width: '100%',
-    cursor: 'pointer',
-  },
-  selectTouchable: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  selectTouchableText: { fontSize: 14, color: '#334155', flex: 1 },
-  selectTouchablePlaceholder: { color: '#94a3b8' },
-  selectDropdownCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    maxHeight: 400,
-    minWidth: 340,
-    alignSelf: 'center',
-    marginTop: 80,
-    overflow: 'hidden',
-  },
-  dropdownSearchWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    gap: 8,
-    backgroundColor: '#f8fafc',
-  },
-  dropdownSearchInput: {
-    flex: 1,
-    fontSize: 14,
-    color: '#334155',
-    paddingVertical: 4,
-    paddingHorizontal: 0,
-    outlineStyle: 'none' as any,
-  },
-  selectDropdownList: { maxHeight: 340 },
-  selectDropdownItem: { paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  selectDropdownItemActive: { backgroundColor: '#f0f9ff' },
-  selectDropdownItemText: { fontSize: 14, color: '#334155' },
-  selectDropdownItemTextActive: { color: '#0ea5e9', fontWeight: '600' },
   lineasEditBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 6, gap: 6 },
   lineasEditarBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: '#f0f9ff', borderRadius: 6, borderWidth: 1, borderColor: '#0ea5e9' },
   lineasEditarBtnText: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
@@ -1460,19 +1302,10 @@ const styles = StyleSheet.create({
     minHeight: 16,
     lineHeight: 16,
   },
-  lineaFormSelectMatch: {
-    minHeight: 40,
-    paddingVertical: 9,
-  },
   lineaFormCantidadMatch: {
     minHeight: 40,
     paddingVertical: 9,
     paddingHorizontal: 12,
-  },
-  lineaFormProductoLoading: {
-    minHeight: 40,
-    justifyContent: 'center',
-    alignItems: 'flex-start',
   },
   formGroupProductoLinea: {
     flex: 1,

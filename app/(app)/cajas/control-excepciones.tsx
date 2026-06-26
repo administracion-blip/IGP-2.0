@@ -28,7 +28,7 @@ import * as Sharing from 'expo-sharing';
 import { InputFecha } from '../../components/InputFecha';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '../../utils/api';
-import { generarPdfExcepciones, generarPdfExcepcionesAgrupado, pdfExcepcionesFileSlug } from './pdfControlExcepciones';
+import { generarPdfExcepciones, generarPdfExcepcionesAgrupado, generarPdfResumenLocales, pdfExcepcionesFileSlug } from './pdfControlExcepciones';
 import { formatMotivoLabel, getMotivoBadgeStyle } from './motivoBadges';
 import { filterExcepcionesConsumo, isConsumoCustomer } from './excepcionesConsumo';
 
@@ -770,6 +770,35 @@ export default function ControlExcepcionesScreen() {
     await descargarPdf(sortedRows, titulo, pdfExcepcionesFileSlug(titulo));
   };
 
+  const exportarPdfResumen = async () => {
+    setDownloadMenuOpen(false);
+    if (!puedeExportar || rowsVisibles.length === 0) return;
+    const titulo = appliedLocales.length === 0
+      ? 'Todos los locales'
+      : appliedLocales.length === 1
+        ? (agoraCodeToNombre[appliedLocales[0]] ?? appliedLocales[0])
+        : `${appliedLocales.length} locales`;
+    const slug = pdfExcepcionesFileSlug(titulo);
+    const doc = await generarPdfResumenLocales(
+      rowsVisibles,
+      titulo,
+      consultedFrom,
+      consultedTo,
+      { incluirConsumo, nombrePorLocal: agoraCodeToNombre },
+    );
+    const fname = `excepciones_resumen_${slug}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    if (Platform.OS === 'web') {
+      doc.save(fname);
+    } else {
+      const dataUri = doc.output('datauristring');
+      const base64 = dataUri.split(',')[1] || '';
+      const cacheDir = FileSystemLegacy.cacheDirectory ?? '';
+      const fileUri = `${cacheDir}${fname}`;
+      await FileSystemLegacy.writeAsStringAsync(fileUri, base64, { encoding: FileSystemLegacy.EncodingType.Base64 });
+      await Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: fname });
+    }
+  };
+
   const handleMassDownload = async () => {
     if (massSelectedLocals.size === 0) return;
     setMassDownloading(true);
@@ -1194,9 +1223,9 @@ export default function ControlExcepcionesScreen() {
 
           {puedeExportar && (
             <TouchableOpacity
-              style={[styles.toolbarBtn, (sortedRows.length === 0 || loading) && styles.toolbarBtnDisabled]}
+              style={[styles.toolbarBtn, (rowsVisibles.length === 0 || loading) && styles.toolbarBtnDisabled]}
               onPress={() => setDownloadMenuOpen(true)}
-              disabled={sortedRows.length === 0 || loading}
+              disabled={rowsVisibles.length === 0 || loading}
             >
               <MaterialIcons name="file-download" size={16} color="#64748b" />
               <Text style={styles.toolbarBtnText}>Descarga</Text>
@@ -1621,23 +1650,30 @@ export default function ControlExcepcionesScreen() {
       {/* Menú Descarga */}
       <Modal visible={downloadMenuOpen} transparent animationType="fade" onRequestClose={() => setDownloadMenuOpen(false)}>
         <Pressable style={styles.shareOverlay} onPress={() => setDownloadMenuOpen(false)}>
-          <Pressable onPress={() => { /* swallow */ }}>
+          <Pressable onPress={() => { /* swallow */ }} style={styles.shareMenuOuter}>
             <View style={styles.shareMenu}>
               <Text style={styles.shareMenuTitle}>Formato de descarga</Text>
-              <TouchableOpacity style={styles.shareMenuItem} onPress={exportarExcel}>
-                <MaterialIcons name="table-chart" size={18} color="#16a34a" />
-                <Text style={styles.shareMenuText}>Excel (.xlsx)</Text>
-              </TouchableOpacity>
-              <View style={styles.shareMenuDivider} />
-              <TouchableOpacity style={styles.shareMenuItem} onPress={exportarPdfConsolidado}>
-                <MaterialIcons name="picture-as-pdf" size={18} color="#dc2626" />
-                <Text style={styles.shareMenuText}>PDF (consolidado)</Text>
-              </TouchableOpacity>
-              <View style={styles.shareMenuDivider} />
-              <TouchableOpacity style={styles.shareMenuItem} onPress={handleOpenMassDownload}>
-                <MaterialIcons name="download-for-offline" size={18} color="#7c3aed" />
-                <Text style={styles.shareMenuText}>Descarga masiva (PDF por local)</Text>
-              </TouchableOpacity>
+              <ScrollView style={styles.shareMenuScroll} bounces={false} keyboardShouldPersistTaps="handled">
+                <TouchableOpacity style={styles.shareMenuItem} onPress={exportarExcel}>
+                  <MaterialIcons name="table-chart" size={18} color="#16a34a" />
+                  <Text style={styles.shareMenuText}>Excel (.xlsx)</Text>
+                </TouchableOpacity>
+                <View style={styles.shareMenuDivider} />
+                <TouchableOpacity style={styles.shareMenuItem} onPress={exportarPdfResumen}>
+                  <MaterialIcons name="assessment" size={18} color="#0369a1" />
+                  <Text style={styles.shareMenuText}>PDF resumen por local + Top 10</Text>
+                </TouchableOpacity>
+                <View style={styles.shareMenuDivider} />
+                <TouchableOpacity style={styles.shareMenuItem} onPress={exportarPdfConsolidado}>
+                  <MaterialIcons name="picture-as-pdf" size={18} color="#dc2626" />
+                  <Text style={styles.shareMenuText}>PDF (consolidado)</Text>
+                </TouchableOpacity>
+                <View style={styles.shareMenuDivider} />
+                <TouchableOpacity style={styles.shareMenuItem} onPress={handleOpenMassDownload}>
+                  <MaterialIcons name="download-for-offline" size={18} color="#7c3aed" />
+                  <Text style={styles.shareMenuText}>Descarga masiva (PDF por local)</Text>
+                </TouchableOpacity>
+              </ScrollView>
             </View>
           </Pressable>
         </Pressable>
@@ -1994,12 +2030,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  shareMenuOuter: {
+    maxWidth: '92%',
+    maxHeight: '85%',
+  },
   shareMenu: {
     backgroundColor: '#fff',
     borderRadius: 12,
     paddingVertical: 8,
-    minWidth: 280,
+    minWidth: 300,
+    maxHeight: '100%',
     ...(Platform.OS === 'web' && { boxShadow: '0 10px 30px rgba(0,0,0,0.2)' } as object),
+  },
+  shareMenuScroll: {
+    maxHeight: 320,
   },
   shareMenuTitle: {
     fontSize: 11,

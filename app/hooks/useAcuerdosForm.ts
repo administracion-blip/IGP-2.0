@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { Acuerdo, EmpresaAcuerdo } from '../types/acuerdo';
 import { apiFetch, errorMessage } from '../utils/api';
 import { fechaEmisionFacturaAIso } from '../utils/formatFecha';
@@ -66,8 +66,6 @@ export function useAcuerdosForm({ onSaved, onError }: Args) {
 
   const [empresas, setEmpresas] = useState<EmpresaAcuerdo[]>([]);
   const [loadingEmpresas, setLoadingEmpresas] = useState(false);
-  const [marcaDropdownOpen, setMarcaDropdownOpen] = useState(false);
-  const [marcaSearch, setMarcaSearch] = useState('');
 
   const cargarEmpresas = useCallback(async () => {
     if (empresas.length > 0) return;
@@ -82,22 +80,10 @@ export function useAcuerdosForm({ onSaved, onError }: Args) {
     finally { setLoadingEmpresas(false); }
   }, [empresas.length]);
 
-  const empresasFiltradas = useMemo(() => {
-    const q = marcaSearch.trim().toLowerCase();
-    if (!q) return empresas.slice(0, 60);
-    return empresas.filter((e) => {
-      const alias = String(e.Alias || '').toLowerCase();
-      const nombre = String(e.Nombre || '').toLowerCase();
-      return alias.includes(q) || nombre.includes(q);
-    }).slice(0, 60);
-  }, [empresas, marcaSearch]);
-
   const abrirCrear = useCallback(() => {
     setEditId(null);
     setFormPK(crypto.randomUUID());
     setForm(EMPTY_FORM);
-    setMarcaDropdownOpen(false);
-    setMarcaSearch('');
     setModalVisible(true);
     cargarEmpresas();
   }, [cargarEmpresas]);
@@ -116,8 +102,6 @@ export function useAcuerdosForm({ onSaved, onError }: Args) {
       Notas: a.Notas || '',
       Estado: a.Estado || 'Activo',
     });
-    setMarcaDropdownOpen(false);
-    setMarcaSearch('');
     setModalVisible(true);
     cargarEmpresas();
   }, [cargarEmpresas]);
@@ -175,11 +159,7 @@ export function useAcuerdosForm({ onSaved, onError }: Args) {
     setForm,
     formPK,
     guardando,
-    marcaDropdownOpen,
-    setMarcaDropdownOpen,
-    marcaSearch,
-    setMarcaSearch,
-    empresasFiltradas,
+    empresas,
     loadingEmpresas,
     abrirCrear,
     abrirEditar,

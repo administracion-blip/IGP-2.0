@@ -17,6 +17,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { InputFecha } from '../components/InputFecha';
+import { SelectorDesplegable } from '../components/SelectorDesplegable';
 import { useAuth } from '../contexts/AuthContext';
 import {
   MG_CUESTIONARIO,
@@ -339,7 +340,6 @@ export default function MysteryGuestScreen() {
   const [locales, setLocales] = useState<Local[]>([]);
   const [loadingLocales, setLoadingLocales] = useState(true);
   const [localId, setLocalId] = useState('');
-  const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
 
   const [valoraciones, setValoraciones] = useState<ValoracionMg[]>([]);
   const [loadingLista, setLoadingLista] = useState(false);
@@ -361,7 +361,6 @@ export default function MysteryGuestScreen() {
   const [notasForm, setNotasForm] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [guardandoForm, setGuardandoForm] = useState(false);
-  const [formLocalDropdownOpen, setFormLocalDropdownOpen] = useState(false);
 
   const localesFiltrados = useMemo(() => {
     return locales.filter((l) =>
@@ -391,16 +390,6 @@ export default function MysteryGuestScreen() {
     }
     return m;
   }, [localesFiltrados]);
-
-  const etiquetaLocalSeleccionado = useMemo(() => {
-    if (!localId) return 'Todos los locales';
-    return nombrePorLocalId[localId] ?? localId;
-  }, [localId, nombrePorLocalId]);
-
-  const etiquetaLocalFormulario = useMemo(() => {
-    if (!localFormId.trim()) return '— Seleccionar local —';
-    return nombrePorLocalId[localFormId] ?? localFormId;
-  }, [localFormId, nombrePorLocalId]);
 
   /** Nombre visible del usuario logueado (mismo criterio que se guarda en UsuarioNombre). */
   const textoUsuarioVisitante = useMemo(() => {
@@ -626,69 +615,26 @@ export default function MysteryGuestScreen() {
         </View>
 
         <View style={styles.formGroup}>
-          <Text style={styles.formLabel}>Local</Text>
-          {Platform.OS === 'web' ? (
-            <select
-              value={localId}
-              onChange={(e) => setLocalId(e.target.value)}
-              style={styles.selectNative as object}
-            >
-              <option value="">Todos los locales</option>
-              {localesOrdenados.map((loc) => {
+          <SelectorDesplegable
+            label="Local"
+            icono="store"
+            iconoLista="store"
+            tituloLista="Filtrar por local"
+            placeholder="Todos los locales"
+            loading={loadingLocales}
+            buscador
+            buscadorPlaceholder="Buscar local…"
+            valorId={localId}
+            opciones={[
+              { id: '', titulo: 'Todos los locales' },
+              ...localesOrdenados.map((loc) => {
                 const idLoc = String(valorEnLocal(loc, 'id_Locales') ?? '').trim();
                 const nombre = String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? idLoc) || '—').trim();
-                return (
-                  <option key={idLoc || nombre} value={idLoc}>
-                    {nombre || idLoc || '—'}
-                  </option>
-                );
-              })}
-            </select>
-          ) : (
-            <>
-              <TouchableOpacity style={styles.selectTouchable} onPress={() => setLocalDropdownOpen(true)}>
-                <Text style={[styles.selectTouchableText, !localId && styles.selectPlaceholder]} numberOfLines={1}>
-                  {loadingLocales ? 'Cargando…' : etiquetaLocalSeleccionado}
-                </Text>
-                <MaterialIcons name="arrow-drop-down" size={24} color="#64748b" />
-              </TouchableOpacity>
-              <Modal visible={localDropdownOpen} transparent animationType="fade">
-                <Pressable style={styles.modalOverlay} onPress={() => setLocalDropdownOpen(false)}>
-                  <View style={styles.dropdownCard}>
-                    <ScrollView keyboardShouldPersistTaps="handled">
-                      <TouchableOpacity
-                        style={styles.dropdownItem}
-                        onPress={() => {
-                          setLocalId('');
-                          setLocalDropdownOpen(false);
-                        }}
-                      >
-                        <Text style={styles.dropdownItemText}>Todos los locales</Text>
-                      </TouchableOpacity>
-                      {localesOrdenados.map((loc) => {
-                        const idLoc = String(valorEnLocal(loc, 'id_Locales') ?? '').trim();
-                        const nombre = String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? idLoc) || '—').trim();
-                        return (
-                          <TouchableOpacity
-                            key={idLoc || nombre}
-                            style={[styles.dropdownItem, localId === idLoc && styles.dropdownItemActive]}
-                            onPress={() => {
-                              setLocalId(idLoc);
-                              setLocalDropdownOpen(false);
-                            }}
-                          >
-                            <Text style={[styles.dropdownItemText, localId === idLoc && styles.dropdownItemTextActive]}>
-                              {nombre || idLoc || '—'}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                </Pressable>
-              </Modal>
-            </>
-          )}
+                return { id: idLoc, titulo: nombre || idLoc || '—', icono: 'store' as const };
+              }),
+            ]}
+            onSeleccionar={setLocalId}
+          />
         </View>
 
         <View style={styles.botonesRow}>
@@ -1020,60 +966,22 @@ export default function MysteryGuestScreen() {
                   </View>
                 </View>
                 <View style={styles.formModalFechaLocalCol}>
-                  <Text style={styles.formLabel}>Local</Text>
-                  {Platform.OS === 'web' ? (
-                    <select
-                      value={localFormId}
-                      onChange={(e) => setLocalFormId(e.target.value)}
-                      style={styles.formModalSelectNative as object}
-                    >
-                      <option value="">— Seleccionar —</option>
-                      {localesOrdenados.map((loc) => {
-                        const idLoc = String(valorEnLocal(loc, 'id_Locales') ?? '').trim();
-                        const nombre = String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? idLoc) || '—').trim();
-                        return (
-                          <option key={idLoc || nombre} value={idLoc}>
-                            {nombre || idLoc || '—'}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  ) : (
-                    <>
-                      <TouchableOpacity style={styles.formModalSelectTouchable} onPress={() => setFormLocalDropdownOpen(true)}>
-                        <Text style={[styles.selectTouchableText, !localFormId && styles.selectPlaceholder]} numberOfLines={1}>
-                          {etiquetaLocalFormulario}
-                        </Text>
-                        <MaterialIcons name="arrow-drop-down" size={24} color="#64748b" />
-                      </TouchableOpacity>
-                      <Modal visible={formLocalDropdownOpen} transparent animationType="fade">
-                        <Pressable style={styles.modalOverlay} onPress={() => setFormLocalDropdownOpen(false)}>
-                          <View style={styles.dropdownCard}>
-                            <ScrollView keyboardShouldPersistTaps="handled">
-                              {localesOrdenados.map((loc) => {
-                                const idLoc = String(valorEnLocal(loc, 'id_Locales') ?? '').trim();
-                                const nombre = String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? idLoc) || '—').trim();
-                                return (
-                                  <TouchableOpacity
-                                    key={idLoc || nombre}
-                                    style={[styles.dropdownItem, localFormId === idLoc && styles.dropdownItemActive]}
-                                    onPress={() => {
-                                      setLocalFormId(idLoc);
-                                      setFormLocalDropdownOpen(false);
-                                    }}
-                                  >
-                                    <Text style={[styles.dropdownItemText, localFormId === idLoc && styles.dropdownItemTextActive]}>
-                                      {nombre || idLoc || '—'}
-                                    </Text>
-                                  </TouchableOpacity>
-                                );
-                              })}
-                            </ScrollView>
-                          </View>
-                        </Pressable>
-                      </Modal>
-                    </>
-                  )}
+                  <SelectorDesplegable
+                    label="Local"
+                    icono="store"
+                    iconoLista="store"
+                    tituloLista="Selecciona un local"
+                    placeholder="— Seleccionar local —"
+                    buscador
+                    buscadorPlaceholder="Buscar local…"
+                    valorId={localFormId}
+                    opciones={localesOrdenados.map((loc) => {
+                      const idLoc = String(valorEnLocal(loc, 'id_Locales') ?? '').trim();
+                      const nombre = String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? idLoc) || '—').trim();
+                      return { id: idLoc, titulo: nombre || idLoc || '—', icono: 'store' as const };
+                    })}
+                    onSeleccionar={setLocalFormId}
+                  />
                 </View>
               </View>
               {MG_CUESTIONARIO.map((cat) => (
@@ -1217,49 +1125,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     color: '#334155',
   },
-  selectNative: {
-    width: '100%',
-    maxWidth: '100%',
-    fontSize: 12,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
-    backgroundColor: '#fff',
-    color: '#334155',
-  },
-  selectTouchable: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    backgroundColor: '#fff',
-  },
-  selectTouchableText: { fontSize: 12, color: '#334155', flex: 1 },
-  selectPlaceholder: { color: '#94a3b8' },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.35)',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  dropdownCard: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    maxHeight: 280,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  dropdownItem: { paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  dropdownItemActive: { backgroundColor: '#e0f2fe' },
-  dropdownItemText: { fontSize: 13, color: '#334155' },
-  dropdownItemTextActive: { fontWeight: '600', color: '#0369a1' },
   botonesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
   btnPrimary: {
     flexDirection: 'row',
@@ -1360,32 +1225,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   formModalDiaSemanaText: { fontSize: 12, fontWeight: '700', color: '#0369a1', textTransform: 'lowercase' },
-  formModalSelectNative: {
-    width: '100%',
-    maxWidth: '100%',
-    fontSize: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
-    backgroundColor: '#fff',
-    color: '#334155',
-    minHeight: 44,
-    boxSizing: 'border-box' as never,
-  },
-  formModalSelectTouchable: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 10,
-    backgroundColor: '#fff',
-    minHeight: 44,
-  },
   formTextarea: {
     borderWidth: 1,
     borderColor: '#e2e8f0',

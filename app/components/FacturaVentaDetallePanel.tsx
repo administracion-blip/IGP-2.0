@@ -26,6 +26,7 @@ import { dmyToIso, hydrateLineasDesdeFactura, isoToDmy, lineasPayloadForApi } fr
 import { useFacturaFormLogic } from '../hooks/useFacturaFormLogic';
 import { ResumenTotales } from './ResumenTotales';
 import { InputFecha } from './InputFecha';
+import { SelectorDesplegable } from './SelectorDesplegable';
 import { textoFechaContabilizacionGasto } from '../utils/formatFecha';
 import { BadgeEstado } from './BadgeEstado';
 import { apiFetch } from '../utils/api';
@@ -156,8 +157,6 @@ export function FacturaVentaDetallePanel({
   const [adjuntos, setAdjuntos] = useState<AdjuntoItem[]>([]);
   const [adjuntosLoading, setAdjuntosLoading] = useState(false);
   const [modalAdjuntos, setModalAdjuntos] = useState(false);
-  const [modalCondicionesOpen, setModalCondicionesOpen] = useState(false);
-  const [modalFormaPagoOpen, setModalFormaPagoOpen] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
 
   const [emisorDireccion, setEmisorDireccion] = useState('');
@@ -617,12 +616,14 @@ export function FacturaVentaDetallePanel({
         <View style={[styles.condFormaCol, compactPanel && styles.condFormaColCompact]}>
           <Text style={[styles.label, compactPanel && styles.labelCompact]}>Condiciones</Text>
           {esEditable ? (
-            <TouchableOpacity style={[styles.selectBtn, compactPanel && styles.selectBtnCompact]} onPress={() => setModalCondicionesOpen(true)} activeOpacity={0.7}>
-              <Text style={[styles.selectBtnText, compactPanel && styles.selectBtnTextCompact]} numberOfLines={1}>
-                {condicionesPago}
-              </Text>
-              <MaterialIcons name="expand-more" size={compactPanel ? 18 : 22} color="#64748b" />
-            </TouchableOpacity>
+            <SelectorDesplegable
+              icono="event"
+              tituloLista="Condiciones de pago"
+              iconoLista="event"
+              valorId={condicionesPago}
+              opciones={CONDICIONES_PAGO.map((c) => ({ id: c, titulo: c }))}
+              onSeleccionar={(id) => setCondicionesPago(id)}
+            />
           ) : (
             <Text style={[styles.ro, compactPanel && styles.roCompact]}>{condicionesPago}</Text>
           )}
@@ -630,63 +631,19 @@ export function FacturaVentaDetallePanel({
         <View style={[styles.condFormaCol, compactPanel && styles.condFormaColCompact]}>
           <Text style={[styles.label, compactPanel && styles.labelCompact]}>Forma de pago</Text>
           {esEditable ? (
-            <TouchableOpacity style={[styles.selectBtn, compactPanel && styles.selectBtnCompact]} onPress={() => setModalFormaPagoOpen(true)} activeOpacity={0.7}>
-              <Text style={[styles.selectBtnText, compactPanel && styles.selectBtnTextCompact]} numberOfLines={1}>
-                {labelFormaPago(formaPago)}
-              </Text>
-              <MaterialIcons name="expand-more" size={compactPanel ? 18 : 22} color="#64748b" />
-            </TouchableOpacity>
+            <SelectorDesplegable
+              icono="payments"
+              tituloLista="Forma de pago"
+              iconoLista="payments"
+              valorId={formaPago}
+              opciones={FORMAS_PAGO.map((c) => ({ id: c, titulo: labelFormaPago(c), icono: 'payments' as const }))}
+              onSeleccionar={(id) => setFormaPago(id)}
+            />
           ) : (
             <Text style={[styles.ro, compactPanel && styles.roCompact]}>{labelFormaPago(formaPago)}</Text>
           )}
         </View>
       </View>
-
-      <Modal visible={modalCondicionesOpen} transparent animationType="fade" onRequestClose={() => setModalCondicionesOpen(false)}>
-        <Pressable style={styles.modalAdjOverlay} onPress={() => setModalCondicionesOpen(false)}>
-          <Pressable style={styles.modalPickerCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalPickerTitle}>Condiciones de pago</Text>
-            <ScrollView style={styles.modalPickerList} keyboardShouldPersistTaps="handled">
-              {CONDICIONES_PAGO.map((c) => (
-                <TouchableOpacity
-                  key={c}
-                  style={[styles.modalPickerRow, condicionesPago === c && styles.modalPickerRowActive]}
-                  onPress={() => {
-                    setCondicionesPago(c);
-                    setModalCondicionesOpen(false);
-                  }}
-                >
-                  <Text style={[styles.modalPickerRowText, condicionesPago === c && styles.modalPickerRowTextActive]}>{c}</Text>
-                  {condicionesPago === c ? <MaterialIcons name="check" size={20} color="#0369a1" /> : null}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal visible={modalFormaPagoOpen} transparent animationType="fade" onRequestClose={() => setModalFormaPagoOpen(false)}>
-        <Pressable style={styles.modalAdjOverlay} onPress={() => setModalFormaPagoOpen(false)}>
-          <Pressable style={styles.modalPickerCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalPickerTitle}>Forma de pago</Text>
-            <ScrollView style={styles.modalPickerList} keyboardShouldPersistTaps="handled">
-              {FORMAS_PAGO.map((c) => (
-                <TouchableOpacity
-                  key={c}
-                  style={[styles.modalPickerRow, formaPago === c && styles.modalPickerRowActive]}
-                  onPress={() => {
-                    setFormaPago(c);
-                    setModalFormaPagoOpen(false);
-                  }}
-                >
-                  <Text style={[styles.modalPickerRowText, formaPago === c && styles.modalPickerRowTextActive]}>{labelFormaPago(c)}</Text>
-                  {formaPago === c ? <MaterialIcons name="check" size={20} color="#0369a1" /> : null}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
 
       <Text style={[styles.label, compactPanel && styles.labelCompact]}>Observaciones</Text>
       <TextInput
@@ -1057,47 +1014,6 @@ const styles = StyleSheet.create({
   condFormaRowCompact: { gap: 8, marginBottom: 6 },
   condFormaCol: { flex: 1, minWidth: 120 },
   condFormaColCompact: { minWidth: 96 },
-  selectBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: Platform.OS === 'web' ? 8 : 6,
-    backgroundColor: '#fff',
-  },
-  selectBtnCompact: { paddingHorizontal: 8, paddingVertical: Platform.OS === 'web' ? 6 : 5, borderRadius: 6 },
-  selectBtnText: { flex: 1, fontSize: 13, color: '#334155', marginRight: 4 },
-  selectBtnTextCompact: { fontSize: 11 },
-  modalPickerCard: {
-    width: '100%',
-    maxWidth: 400,
-    maxHeight: '75%',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  modalPickerTitle: { fontSize: 16, fontWeight: '700', color: '#334155', marginBottom: 12 },
-  modalPickerList: { maxHeight: 280 },
-  modalPickerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e2e8f0',
-  },
-  modalPickerRowActive: { backgroundColor: '#f0f9ff', borderRadius: 8, paddingHorizontal: 8, borderBottomWidth: 0 },
-  modalPickerRowText: { fontSize: 14, color: '#334155', flex: 1 },
-  modalPickerRowTextActive: { color: '#0369a1', fontWeight: '600' },
   chips: { marginBottom: 8, maxHeight: 36 },
   chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', marginRight: 6, backgroundColor: '#fff' },
   chipOn: { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' },

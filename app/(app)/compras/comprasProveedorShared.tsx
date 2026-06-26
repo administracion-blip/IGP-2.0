@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import type { CompraLinea, FiltroDropdownKey, OpcionFiltro } from '../../types/compras';
+import type { GrupoFamilias } from '../../hooks/useGruposFamilias';
 
 export type { CompraLinea, FiltroDropdownKey, OpcionFiltro };
 
@@ -96,6 +97,20 @@ export function toggleInList(list: string[], id: string): string[] {
   return [...list, id];
 }
 
+/**
+ * Alterna un grupo completo de ids en una lista: si todos los ids del grupo ya
+ * están presentes, los quita; si no, añade los que falten. Permite combinar
+ * varios grupos de familias sin perder lo ya seleccionado.
+ */
+export function toggleGrupoFamilias(current: string[], groupIds: string[]): string[] {
+  if (groupIds.length === 0) return current;
+  const set = new Set(current);
+  const allPresent = groupIds.every((id) => set.has(id));
+  if (allPresent) groupIds.forEach((id) => set.delete(id));
+  else groupIds.forEach((id) => set.add(id));
+  return Array.from(set);
+}
+
 /** Devuelve yyyy-mm-dd o null si el texto no es una fecha válida dd/mm/yyyy */
 export function parseDdMmYyyyToIso(s: string): string | null {
   const t = s.trim().replace(/\s/g, '');
@@ -142,6 +157,101 @@ export function ultimaCompraPorProducto(items: CompraLinea[]): CompraLinea[] {
     if (isCompraLineaNewer(it, cur)) map.set(pid, it);
   }
   return Array.from(map.values());
+}
+
+/** Normaliza la unidad de compra para agrupar (minúsculas y sin espacios sobrantes). */
+export function normUnidad(u: string | null | undefined): string {
+  return (u ?? '').toString().trim().toLowerCase();
+}
+
+/** Precio neto unitario realmente pagado: precio bruto menos el descuento de línea. */
+export function precioNetoUnitario(it: CompraLinea): number {
+  const p = Number(it.Price);
+  const d = Number(it.DiscountRate);
+  const precio = Number.isNaN(p) ? 0 : p;
+  const dto = Number.isNaN(d) ? 0 : d;
+  return precio * (1 - dto);
+}
+
+/**
+ * Línea de última compra enriquecida con la variación de precio neto respecto a
+ * la compra inmediatamente anterior del MISMO producto y MISMA unidad de compra.
+ */
+export type CompraConVariacion = CompraLinea & {
+  _precioActual: number;
+  _precioAnterior: number | null;
+  _fechaAnterior: string | null;
+  _deltaAbs: number | null;
+  _deltaPct: number | null;
+};
+
+/**
+ * Una fila por (ProductId + unidad de compra): la última compra de ese formato,
+ * con la variación de precio neto frente a la compra anterior del mismo formato.
+ * Agrupar por unidad evita comparar formatos distintos (p. ej. caja vs kg) y
+ * que una subida quede oculta al cambiar de formato en la última compra.
+ */
+export function ultimaCompraConVariacionPorUnidad(items: CompraLinea[]): CompraConVariacion[] {
+  const grupos = new Map<string, CompraLinea[]>();
+  for (const it of items) {
+    const key = `${idNorm(it.ProductId as string)}\u0001${normUnidad(it.PurchaseUnitName)}`;
+    const arr = grupos.get(key);
+    if (arr) arr.push(it);
+    else grupos.set(key, [it]);
+  }
+  const out: CompraConVariacion[] = [];
+  for (const lineas of grupos.values()) {
+    let ultima: CompraLinea | null = null;
+    let anterior: CompraLinea | null = null;
+    for (const it of lineas) {
+      if (!ultima || isCompraLineaNewer(it, ultima)) {
+        anterior = ultima;
+        ultima = it;
+      } else if (!anterior || isCompraLineaNewer(it, anterior)) {
+        anterior = it;
+      }
+    }
+    if (!ultima) continue;
+    const pNew = precioNetoUnitario(ultima);
+    const pOld = anterior ? precioNetoUnitario(anterior) : null;
+    const deltaAbs = pOld != null ? pNew - pOld : null;
+    const deltaPct = pOld != null && pOld !== 0 ? (pNew - pOld) / pOld : null;
+    out.push({
+      ...(ultima as CompraLinea),
+      _precioActual: pNew,
+      _precioAnterior: pOld,
+      _fechaAnterior: anterior ? fechaLineaISO(anterior) : null,
+      _deltaAbs: deltaAbs,
+      _deltaPct: deltaPct,
+    });
+  }
+  return out;
+}
+
+const MESES_ABREV = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+/** "2026-02-12" → "feb 2026". Cadena vacía si no hay fecha válida. */
+export function formatMesAnio(iso: string | null | undefined): string {
+  const m = (iso || '').match(/^(\d{4})-(\d{2})/);
+  if (!m) return '';
+  const mes = parseInt(m[2], 10);
+  if (mes < 1 || mes > 12) return '';
+  return `${MESES_ABREV[mes - 1]} ${m[1]}`;
+}
+
+/** Clasificación + texto de la variación de precio para pintar el badge/Excel. */
+export function variacionInfo(item: CompraConVariacion): {
+  kind: 'up' | 'down' | 'flat' | 'none';
+  pctText: string;
+  fechaCambio: string;
+} {
+  const d = item._deltaPct;
+  if (d == null) return { kind: 'none', pctText: '—', fechaCambio: '' };
+  const pct = d * 100;
+  const kind = pct > 0.05 ? 'up' : pct < -0.05 ? 'down' : 'flat';
+  const sign = kind === 'up' ? '+' : kind === 'down' ? '−' : '';
+  const pctText = `${sign}${Math.abs(pct).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
+  return { kind, pctText, fechaCambio: formatMesAnio(fechaLineaISO(item)) };
 }
 
 export const styles = StyleSheet.create({
@@ -404,6 +514,140 @@ export const styles = StyleSheet.create({
     backgroundColor: '#0ea5e9',
   },
   modalFiltrosCerrarText: { fontSize: 14, fontWeight: '700', color: '#fff' },
+  // --- Menú de sincronización (elegir rango de días) ---
+  syncMenuWrap: { width: '100%', maxWidth: 360 },
+  syncMenuCard: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  syncMenuHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+  },
+  syncMenuTitle: { fontSize: 15, fontWeight: '700', color: '#0f172a', flex: 1 },
+  syncMenuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  syncMenuRowFull: { backgroundColor: '#f8fafc' },
+  syncMenuIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: '#f0f9ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  syncMenuRowTextWrap: { flex: 1, minWidth: 0 },
+  syncMenuRowTitle: { fontSize: 14, fontWeight: '600', color: '#1e293b' },
+  syncMenuRowSub: { fontSize: 11, color: '#94a3b8', marginTop: 1 },
+  syncMenuHint: {
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'flex-start',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#fffbeb',
+  },
+  syncMenuHintText: { flex: 1, fontSize: 11, color: '#78350f', lineHeight: 15 },
+  // --- Badge de variación de precio (vista última compra) ---
+  variacionWrap: { alignItems: 'flex-end', justifyContent: 'center', gap: 1 },
+  variacionCell: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 2 },
+  variacionText: { fontSize: 12, fontWeight: '700' },
+  variacionFecha: { fontSize: 10, color: '#94a3b8', fontWeight: '500' },
+  variacionUp: { color: '#dc2626' },
+  variacionDown: { color: '#16a34a' },
+  variacionFlat: { color: '#64748b' },
+  variacionNone: { color: '#cbd5e1' },
+  // --- Botón "historial" en la fila + modal de historial de compras del producto ---
+  histIconBtn: { padding: 4, borderRadius: 6 },
+  histModalWrap: { width: '100%', maxWidth: 640, maxHeight: '88%' as const },
+  histModalSubtitle: { fontSize: 12, color: '#94a3b8', marginTop: 2 },
+  histChipsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#f8fafc' },
+  histChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, borderColor: '#cbd5e1', backgroundColor: '#fff' },
+  histChipActive: { backgroundColor: '#0ea5e9', borderColor: '#0284c7' },
+  histChipText: { fontSize: 12, fontWeight: '600', color: '#475569' },
+  histChipTextActive: { color: '#fff' },
+  histHeaderRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 2, borderBottomColor: '#e2e8f0', backgroundColor: '#f8fafc' },
+  histHeaderText: { fontSize: 11, fontWeight: '700', color: '#475569' },
+  histScroll: { maxHeight: 380 },
+  histRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  histRowAlt: { backgroundColor: '#fafbfc' },
+  histColFecha: { width: 84, fontSize: 12, color: '#334155', fontWeight: '600' },
+  histColProv: { flex: 1, fontSize: 12, color: '#475569', paddingRight: 8 },
+  histColCant: { width: 92, fontSize: 12, color: '#475569' },
+  histColPrecio: { width: 78, fontSize: 12, color: '#0f172a', fontWeight: '600', textAlign: 'right' },
+  histColDelta: { width: 70, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 1 },
+  histDeltaText: { fontSize: 11, fontWeight: '700' },
+  histEmpty: { padding: 24, fontSize: 13, color: '#94a3b8', textAlign: 'center', fontStyle: 'italic' },
+  // --- Grupos de familias personalizados (chips en el modal de filtros) ---
+  grupoFamWrap: { marginBottom: 18, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  grupoFamHint: { fontSize: 11, color: '#94a3b8', marginBottom: 8, lineHeight: 15 },
+  grupoFamChipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
+  grupoFamChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingLeft: 12,
+    paddingRight: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#fff',
+  },
+  grupoFamChipActive: { backgroundColor: '#0ea5e9', borderColor: '#0284c7' },
+  grupoFamChipText: { fontSize: 12, fontWeight: '600', color: '#475569' },
+  grupoFamChipTextActive: { color: '#fff' },
+  grupoFamChipDelete: { padding: 2, borderRadius: 8 },
+  grupoFamAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#0ea5e9',
+    backgroundColor: '#f0f9ff',
+  },
+  grupoFamAddBtnDisabled: { borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
+  grupoFamAddText: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+  grupoFamAddTextDisabled: { color: '#cbd5e1' },
+  grupoFamCrearRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  grupoFamInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: '#334155',
+    backgroundColor: '#fff',
+  },
+  grupoFamCrearBtn: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, backgroundColor: '#0ea5e9' },
+  grupoFamCrearBtnDisabled: { backgroundColor: '#cbd5e1' },
+  grupoFamCrearBtnText: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  grupoFamCancelarBtn: { paddingVertical: 8, paddingHorizontal: 10 },
+  grupoFamCancelarText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+  grupoFamVacio: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
 });
 
 type ToolbarIconVariant = 'outline' | 'primary' | 'neutral';
@@ -528,13 +772,13 @@ export function ComprasToolbarSyncBtn({
   onPress: () => void;
   disabled?: boolean;
 }) {
-  const tooltip = syncing ? 'Sincronizando con Ágora…' : 'Sincronizar últimos 60 días desde Ágora';
+  const tooltip = syncing ? 'Sincronizando con Ágora…' : 'Sincronizar con Ágora — elegir rango';
   return (
     <ComprasToolbarIconBtn
       tooltip={tooltip}
       onPress={onPress}
       disabled={Boolean(disabled) || syncing}
-      accessibilityLabel={syncing ? 'Sincronizando' : 'Sincronizar 60 días'}
+      accessibilityLabel={syncing ? 'Sincronizando' : 'Sincronizar con Ágora'}
       variant="primary"
     >
       {syncing ? (
@@ -647,6 +891,115 @@ export function ComprasFiltroDropdown({
             ) : null}
           </ScrollView>
         </>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * Chips de grupos de familias personalizados. Cada chip aplica/alterna sus
+ * familias sobre la selección actual. El botón "Guardar grupo" crea un grupo
+ * con las familias que el usuario tenga marcadas en ese momento.
+ */
+export function GruposFamiliasChips({
+  grupos,
+  familiasSeleccionadas,
+  onToggleGrupo,
+  onCrearGrupo,
+  onBorrarGrupo,
+}: {
+  grupos: GrupoFamilias[];
+  familiasSeleccionadas: string[];
+  onToggleGrupo: (familiaIds: string[]) => void;
+  onCrearGrupo: (nombre: string) => void;
+  onBorrarGrupo: (id: string) => void;
+}) {
+  const [creando, setCreando] = useState(false);
+  const [nombre, setNombre] = useState('');
+  const puedeGuardar = familiasSeleccionadas.length > 0;
+
+  const confirmar = () => {
+    if (!nombre.trim()) return;
+    onCrearGrupo(nombre);
+    setNombre('');
+    setCreando(false);
+  };
+
+  return (
+    <View style={styles.grupoFamWrap}>
+      <Text style={styles.modalFiltrosSectionTitle}>Grupos de familias</Text>
+      <Text style={styles.grupoFamHint}>
+        Toca un grupo para aplicar sus familias de una vez. Para crear uno nuevo, marca familias abajo y pulsa «Guardar grupo».
+      </Text>
+      <View style={styles.grupoFamChipsRow}>
+        {grupos.length === 0 ? (
+          <Text style={styles.grupoFamVacio}>Sin grupos guardados todavía.</Text>
+        ) : (
+          grupos.map((g) => {
+            const activo =
+              g.familiaIds.length > 0 && g.familiaIds.every((id) => familiasSeleccionadas.includes(id));
+            return (
+              <View key={g.id} style={[styles.grupoFamChip, activo && styles.grupoFamChipActive]}>
+                <TouchableOpacity onPress={() => onToggleGrupo(g.familiaIds)} activeOpacity={0.7}>
+                  <Text style={[styles.grupoFamChipText, activo && styles.grupoFamChipTextActive]}>
+                    {g.nombre} ({g.familiaIds.length})
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.grupoFamChipDelete}
+                  onPress={() => onBorrarGrupo(g.id)}
+                  hitSlop={6}
+                  accessibilityLabel={`Borrar grupo ${g.nombre}`}
+                >
+                  <MaterialIcons name="close" size={14} color={activo ? '#e0f2fe' : '#94a3b8'} />
+                </TouchableOpacity>
+              </View>
+            );
+          })
+        )}
+        {!creando ? (
+          <TouchableOpacity
+            style={[styles.grupoFamAddBtn, !puedeGuardar && styles.grupoFamAddBtnDisabled]}
+            onPress={() => puedeGuardar && setCreando(true)}
+            disabled={!puedeGuardar}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name="add" size={16} color={puedeGuardar ? '#0ea5e9' : '#cbd5e1'} />
+            <Text style={[styles.grupoFamAddText, !puedeGuardar && styles.grupoFamAddTextDisabled]}>
+              Guardar grupo
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+      {creando ? (
+        <View style={styles.grupoFamCrearRow}>
+          <TextInput
+            style={styles.grupoFamInput}
+            value={nombre}
+            onChangeText={setNombre}
+            placeholder={`Nombre del grupo (${familiasSeleccionadas.length} familias)`}
+            placeholderTextColor="#94a3b8"
+            autoFocus
+            onSubmitEditing={confirmar}
+            autoCapitalize="sentences"
+          />
+          <TouchableOpacity
+            style={[styles.grupoFamCrearBtn, !nombre.trim() && styles.grupoFamCrearBtnDisabled]}
+            onPress={confirmar}
+            disabled={!nombre.trim()}
+          >
+            <Text style={styles.grupoFamCrearBtnText}>Guardar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.grupoFamCancelarBtn}
+            onPress={() => {
+              setCreando(false);
+              setNombre('');
+            }}
+          >
+            <Text style={styles.grupoFamCancelarText}>Cancelar</Text>
+          </TouchableOpacity>
+        </View>
       ) : null}
     </View>
   );

@@ -1,82 +1,124 @@
 /**
- * InputFecha: campo de fecha con selector de calendario.
- * - Web: TextInput para escribir (evita bug del año en input type="date") + icono abre calendario.
- * - iOS/Android: TextInput para escribir + icono abre DateTimePicker.
+ * Campo de fecha estándar del proyecto.
+ * - Visible: dd/mm/aaaa. En código/API preferir yyyy-mm-dd (ISO).
+ * - Escritura: confirma al padre en onBlur (vía FechaInputDmy).
+ * - Calendario opcional (web: input type=date; móvil: DateTimePicker).
  */
-
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useMemo } from 'react';
 import {
   View,
-  TextInput,
   TouchableOpacity,
   Modal,
   Platform,
   Pressable,
   StyleSheet,
+  type TextInputProps,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { MaterialIcons } from '@expo/vector-icons';
+import { FechaInputDmy } from './FechaInputDmy';
+import {
+  type FechaInputFormat,
+  isoDesdeValor,
+  valorDesdeIso,
+} from '../utils/fechaInput';
 
-export type InputFechaFormat = 'iso' | 'dmy';
+export type { FechaInputFormat as InputFechaFormat };
 
-function toIso(value: string, format: InputFechaFormat): string | null {
-  const s = value.trim();
-  if (!s) return null;
-  if (format === 'iso' && /^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  if (format === 'dmy') {
-    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})$/);
-    if (m) {
-      const d = parseInt(m[1], 10);
-      const mo = parseInt(m[2], 10);
-      let y = parseInt(m[3], 10);
-      if (y < 100) y += 2000;
-      if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) {
-        return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      }
-    }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  }
-  return null;
-}
-
-function fromIso(iso: string, format: InputFechaFormat): string {
-  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
-  if (format === 'dmy') {
-    const [y, m, d] = iso.split('-');
-    return `${d}/${m}/${y}`;
-  }
-  return iso;
-}
-
-export type InputFechaProps = {
-  value: string;
-  onChange: (value: string) => void;
-  format?: InputFechaFormat;
+type InputFechaStyleProps = {
   placeholder?: string;
   style?: object;
   editable?: boolean;
   placeholderTextColor?: string;
+  showCalendar?: boolean;
 };
 
-export function InputFecha({
-  value,
-  onChange,
-  format = 'iso',
-  placeholder,
-  style,
-  editable = true,
-  placeholderTextColor = '#94a3b8',
-}: InputFechaProps) {
+/** API preferida: estado del padre en ISO yyyy-mm-dd. */
+export type InputFechaIsoProps = InputFechaStyleProps &
+  Omit<TextInputProps, 'value' | 'onChangeText' | 'style'> & {
+    valueIso: string;
+    onChangeIso: (iso: string) => void;
+    value?: never;
+    onChange?: never;
+    format?: never;
+  };
+
+/** Compatibilidad: estado del padre en ISO o DMY según format. */
+export type InputFechaLegacyProps = InputFechaStyleProps & {
+  value: string;
+  onChange: (value: string) => void;
+  format?: FechaInputFormat;
+  valueIso?: never;
+  onChangeIso?: never;
+};
+
+export type InputFechaProps = InputFechaIsoProps | InputFechaLegacyProps;
+
+function isoADate(iso: string): Date {
+  if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  return new Date();
+}
+
+export function InputFecha(props: InputFechaProps) {
+  const {
+    placeholder = 'dd/mm/aaaa',
+    style,
+    editable = true,
+    placeholderTextColor = '#94a3b8',
+    showCalendar = true,
+  } = props;
+
+  const format: FechaInputFormat =
+    'format' in props && props.format ? props.format : 'iso';
+
+  const parentValue =
+    'valueIso' in props && props.valueIso !== undefined ? props.valueIso : props.value;
+
+  const valueIso = useMemo(
+    () =>
+      'valueIso' in props && props.valueIso !== undefined
+        ? props.valueIso
+        : isoDesdeValor(parentValue, format),
+    [parentValue, format],
+  );
+
+  const onChangeIsoProp = 'onChangeIso' in props ? props.onChangeIso : undefined;
+  const onChangeLegacy = 'onChange' in props ? props.onChange : undefined;
+
+  const handleChangeIso = useCallback(
+    (iso: string) => {
+      if (onChangeIsoProp) {
+        onChangeIsoProp(iso);
+      } else if (onChangeLegacy) {
+        onChangeLegacy(valorDesdeIso(iso, format));
+      }
+    },
+    [onChangeIsoProp, onChangeLegacy, format],
+  );
+
   const [showPicker, setShowPicker] = useState(false);
   const webDateInputRef = useRef<HTMLInputElement>(null);
+  const dateValue = isoADate(valueIso);
 
-  const isoValue = toIso(value, format) ?? '';
-  const dateValue = isoValue
-    ? (() => {
-        const [y, m, d] = isoValue.split('-').map(Number);
-        return new Date(y, m - 1, d);
-      })()
-    : new Date();
+  const fechaInput = (
+    <FechaInputDmy
+      valueIso={valueIso}
+      onChangeIso={handleChangeIso}
+      placeholder={placeholder}
+      placeholderTextColor={placeholderTextColor}
+      editable={editable}
+      style={
+        showCalendar
+          ? Platform.OS === 'web'
+            ? [styles.inputBase, style, styles.webInputField, { borderWidth: 0 }]
+            : [styles.inputBase, style ?? styles.inputDefault]
+          : (style ?? styles.inputDefault)
+      }
+    />
+  );
 
   const handleSelect = useCallback(
     (_ev: unknown, selectedDate?: Date) => {
@@ -85,32 +127,27 @@ export function InputFecha({
         const y = selectedDate.getFullYear();
         const m = String(selectedDate.getMonth() + 1).padStart(2, '0');
         const d = String(selectedDate.getDate()).padStart(2, '0');
-        const iso = `${y}-${m}-${d}`;
-        onChange(fromIso(iso, format));
+        handleChangeIso(`${y}-${m}-${d}`);
       }
     },
-    [format, onChange]
+    [handleChangeIso],
   );
 
-  const handleWebChange = useCallback(
+  const handleWebCalendarChange = useCallback(
     (e: { target: { value: string } }) => {
-      const v = e.target.value;
-      onChange(v ? (format === 'dmy' ? fromIso(v, format) : v) : '');
+      handleChangeIso(e.target.value || '');
     },
-    [format, onChange]
+    [handleChangeIso],
   );
+
+  if (!showCalendar) {
+    return fechaInput;
+  }
 
   if (Platform.OS === 'web') {
     return (
       <View style={[styles.wrap, styles.webInputRow]}>
-        <TextInput
-          style={[styles.inputBase, style ?? styles.inputDefault, styles.webInputField]}
-          value={value}
-          onChangeText={onChange}
-          placeholder={placeholder}
-          placeholderTextColor={placeholderTextColor}
-          editable={editable}
-        />
+        {fechaInput}
         <TouchableOpacity
           style={styles.webIconBtn}
           onPress={() => {
@@ -132,8 +169,8 @@ export function InputFecha({
         <input
           ref={webDateInputRef}
           type="date"
-          value={isoValue}
-          onChange={handleWebChange}
+          value={valueIso}
+          onChange={handleWebCalendarChange}
           disabled={!editable}
           tabIndex={-1}
           style={styles.webDateInputHidden}
@@ -144,17 +181,9 @@ export function InputFecha({
     );
   }
 
-  const inputStyle = [styles.inputBase, style ?? styles.inputDefault];
   return (
     <View style={styles.wrap}>
-      <TextInput
-        style={inputStyle}
-        value={value}
-        onChangeText={onChange}
-        placeholder={placeholder}
-        placeholderTextColor={placeholderTextColor}
-        editable={editable}
-      />
+      {fechaInput}
       <TouchableOpacity
         style={styles.iconBtn}
         onPress={() => editable && setShowPicker(true)}
@@ -180,10 +209,7 @@ export function InputFecha({
                 display="spinner"
                 onChange={handleSelect}
               />
-              <TouchableOpacity
-                style={styles.closeBtn}
-                onPress={() => setShowPicker(false)}
-              >
+              <TouchableOpacity style={styles.closeBtn} onPress={() => setShowPicker(false)}>
                 <MaterialIcons name="check" size={24} color="#0ea5e9" />
               </TouchableOpacity>
             </Pressable>
@@ -232,16 +258,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 4,
     padding: 2,
-  },
-  webIconWrap: {
-    position: 'absolute',
-    right: 4,
-    top: 0,
-    bottom: 0,
-    width: 36,
-    minWidth: 36,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   webIconBtn: {
     width: 32,

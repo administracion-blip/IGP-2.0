@@ -1,0 +1,40 @@
+---
+description: Desplegables/menús flotantes por encima de tablas y hermanos (z-index / stacking)
+globs: app/**/*.tsx
+alwaysApply: false
+---
+
+# Desplegables y menús flotantes (apilamiento)
+
+Cuando un desplegable, menú o panel flotante (`position: absolute`, `top: '100%'`) sale de su contenedor, debe quedar **por encima** del contenido siguiente (tablas, banners, otras filas). El bug típico: el panel queda **detrás** de un hermano que aparece **después** en el JSX.
+
+## Causa
+
+En React Native Web el `zIndex` solo ordena entre **hermanos posicionados**, y el orden del JSX manda. Subir el `zIndex` de un **hijo** (el panel) no eleva su **fila contenedora** por encima de un hermano posterior.
+
+## Regla
+
+1. La **fila/contenedor** que ancla el desplegable debe tener `position: 'relative'` y un `zIndex` mayor que los hermanos siguientes — **no solo el panel**.
+2. Aplica `position`/`zIndex` en **todas las plataformas** (no envolver en `Platform.OS === 'web'`); en nativo añade además `elevation`.
+3. El panel: `position: 'absolute'`, `top: '100%'`, `zIndex` aún mayor.
+4. Da al contenido de abajo (tabla/scroll) `position: 'relative'` y `zIndex: 0` para fijar el orden.
+5. Cuando hay varias filas de filtros, sube la fila activa al abrir (`...OnTop`) y baja las demás.
+
+```tsx
+// ❌ MAL: solo el hijo lleva zIndex; el banner siguiente lo tapa
+<View style={styles.header}>
+  <View style={{ zIndex: 999 }}>{/* botón + menú absolute */}</View>
+</View>
+<View style={styles.banner}>…</View>
+
+// ✅ BIEN: la fila contenedora se eleva por encima de los hermanos
+header: { position: 'relative', zIndex: 30 },
+menu:   { position: 'absolute', top: '100%', zIndex: 31,
+          ...(Platform.OS === 'web' ? { boxShadow: '0 8px 24px rgba(0,0,0,0.12)' } : { elevation: 12 }) },
+scroll: { position: 'relative', zIndex: 0 },
+```
+
+## Referencias en el proyecto
+
+- `app/(app)/recursos-humanos/horas-facturacion.tsx` (menú "Descargas", dropdown de locales)
+- `app/(app)/planning-dia/cuadrante.tsx` (dropdown de locales sobre la tabla)

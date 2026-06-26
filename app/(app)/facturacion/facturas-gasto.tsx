@@ -17,6 +17,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { InputFecha } from '../../components/InputFecha';
+import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import {
   formatMoneda,
   FORMAS_PAGO,
@@ -220,7 +221,6 @@ export default function FacturasGastoScreen() {
   const [pagoMetodoOtro, setPagoMetodoOtro] = useState('');
   const [pagoFechaEditadaManual, setPagoFechaEditadaManual] = useState(false);
   const [pagoReferencia, setPagoReferencia] = useState('');
-  const [metodoDropdownOpen, setMetodoDropdownOpen] = useState(false);
   const [empresasCatalogo, setEmpresasCatalogo] = useState<EmpresaConTipoRecibo[]>([]);
 
   const [modalDetallePagosVisible, setModalDetallePagosVisible] = useState(false);
@@ -413,7 +413,6 @@ export default function FacturasGastoScreen() {
 
   const abrirModalPagar = () => {
     if (!selectedFactura) return;
-    setMetodoDropdownOpen(false);
     setPagoFechaEditadaManual(false);
     setPagoImporte(String(selectedFactura.saldo_pendiente ?? 0));
     setPagoReferencia('');
@@ -432,7 +431,6 @@ export default function FacturasGastoScreen() {
 
   const onCambiarMetodoPago = (m: string) => {
     setPagoMetodo(m);
-    setMetodoDropdownOpen(false);
     if (m !== 'otro') setPagoMetodoOtro('');
     if (!selectedFactura || pagoFechaEditadaManual) return;
     const hoy = hoyDmy();
@@ -931,23 +929,14 @@ export default function FacturasGastoScreen() {
             />
 
             <Text style={styles.modalFieldLabel}>Método de pago</Text>
-            <TouchableOpacity style={styles.modalSelect} onPress={() => setMetodoDropdownOpen(!metodoDropdownOpen)}>
-              <Text style={styles.modalSelectText}>{labelFormaPago(pagoMetodo)}</Text>
-              <MaterialIcons name={metodoDropdownOpen ? 'expand-less' : 'expand-more'} size={18} color="#64748b" />
-            </TouchableOpacity>
-            {metodoDropdownOpen && (
-              <View style={styles.dropdown}>
-                {FORMAS_PAGO.map((m) => (
-                  <TouchableOpacity
-                    key={m}
-                    style={[styles.dropdownItem, pagoMetodo === m && styles.dropdownItemActive]}
-                    onPress={() => onCambiarMetodoPago(m)}
-                  >
-                    <Text style={[styles.dropdownItemText, pagoMetodo === m && styles.dropdownItemTextActive]}>{labelFormaPago(m)}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
+            <SelectorDesplegable
+              icono="payments"
+              tituloLista="Método de pago"
+              iconoLista="payments"
+              valorId={pagoMetodo}
+              opciones={FORMAS_PAGO.map((m) => ({ id: m, titulo: labelFormaPago(m), icono: 'payments' as const }))}
+              onSeleccionar={(id) => onCambiarMetodoPago(id)}
+            />
             {pagoMetodo === 'otro' && (
               <>
                 <Text style={styles.modalFieldLabel}>Describe el método *</Text>
@@ -1268,30 +1257,6 @@ const styles = StyleSheet.create({
     color: '#334155',
     backgroundColor: '#f8fafc',
   },
-  modalSelect: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: '#f8fafc',
-  },
-  modalSelectText: { fontSize: 13, color: '#334155' },
-  dropdown: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    backgroundColor: '#fff',
-    marginTop: 4,
-    maxHeight: 180,
-  },
-  dropdownItem: { paddingHorizontal: 12, paddingVertical: 8 },
-  dropdownItemActive: { backgroundColor: '#e0f2fe' },
-  dropdownItemText: { fontSize: 12, color: '#334155' },
-  dropdownItemTextActive: { color: '#0ea5e9', fontWeight: '600' },
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',

@@ -16,6 +16,7 @@ export type FilaObjetivo = {
   FechaComparacion: string;
   Festivo: boolean;
   NombreFestivo: string;
+  NombreFestivoComparacion: string;
   TotalFacturadoReal: number;
   TotalFacturadoComparativa: number;
   Desvio: number;
@@ -85,6 +86,8 @@ export async function obtenerFilasObjetivos(
     const festivo = festivosByFecha[fecha];
     const esFestivo = String(festivo?.Festivo).toLowerCase() === 'true';
     const nombreFestivo = String(festivo?.NombreFestivo ?? '').trim();
+    const festivoComp = festivosByFecha[fechaComp];
+    const nombreFestivoComparacion = String(festivoComp?.NombreFestivo ?? '').trim();
     const desvio = real - comp;
     const desvioPct = comp === 0 ? null : real / comp - 1;
     filas.push({
@@ -92,6 +95,7 @@ export async function obtenerFilasObjetivos(
       FechaComparacion: fechaComp,
       Festivo: esFestivo,
       NombreFestivo: nombreFestivo,
+      NombreFestivoComparacion: nombreFestivoComparacion,
       TotalFacturadoReal: real,
       TotalFacturadoComparativa: comp,
       Desvio: desvio,

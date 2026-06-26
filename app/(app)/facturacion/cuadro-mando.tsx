@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,12 +7,10 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   useWindowDimensions,
-  Modal,
-  Pressable,
-  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { formatMoneda, esEmpresaSedeGrupoParipe } from '../../utils/facturacion';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '../../utils/api';
@@ -55,7 +53,6 @@ export default function CuadroMandoScreen() {
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
   const [empresaSeleccionadaId, setEmpresaSeleccionadaId] = useState('');
-  const [empresaModalOpen, setEmpresaModalOpen] = useState(false);
   const [empresasGrupoParipe, setEmpresasGrupoParipe] = useState<EmpresaOpt[]>([]);
 
   const fetchData = useCallback(() => {
@@ -92,11 +89,6 @@ export default function CuadroMandoScreen() {
       .catch(() => setEmpresasGrupoParipe([]));
   }, []);
 
-  const labelEmpresaFiltro = useMemo(() => {
-    if (!empresaSeleccionadaId) return 'Todas las empresas (Grupo Paripe)';
-    return empresasGrupoParipe.find((e) => e.id === empresaSeleccionadaId)?.nombre ?? 'Empresa';
-  }, [empresaSeleccionadaId, empresasGrupoParipe]);
-
   if (!hasPermiso('facturacion.ver')) {
     return <View style={styles.center}><Text style={styles.errorText}>Sin permisos</Text></View>;
   }
@@ -117,59 +109,20 @@ export default function CuadroMandoScreen() {
       </View>
 
       {empresasGrupoParipe.length > 0 ? (
-        <TouchableOpacity
-          style={styles.empresaFilterBtn}
-          onPress={() => setEmpresaModalOpen(true)}
-          activeOpacity={0.7}
-        >
-          <MaterialIcons name="business" size={18} color="#0369a1" />
-          <Text style={styles.empresaFilterBtnText} numberOfLines={1}>
-            {labelEmpresaFiltro}
-          </Text>
-          <MaterialIcons name="arrow-drop-down" size={22} color="#64748b" />
-        </TouchableOpacity>
+        <SelectorDesplegable
+          style={styles.empresaSelector}
+          icono="business"
+          tituloLista="Sociedad del grupo"
+          iconoLista="business"
+          placeholder="Todas las empresas (Grupo Paripe)"
+          valorId={empresaSeleccionadaId}
+          opciones={[
+            { id: '', titulo: 'Todas las empresas', icono: 'layers' },
+            ...empresasGrupoParipe.map((e) => ({ id: e.id, titulo: e.nombre, icono: 'domain' as const })),
+          ]}
+          onSeleccionar={(id) => setEmpresaSeleccionadaId(id)}
+        />
       ) : null}
-
-      <Modal visible={empresaModalOpen} transparent animationType="fade" onRequestClose={() => setEmpresaModalOpen(false)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setEmpresaModalOpen(false)}>
-          <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Sociedad del grupo</Text>
-            <Text style={styles.modalHint}>
-              Emitidas y recibidas: misma sociedad (emisor). Maestro: sede «Grupo Paripe».
-            </Text>
-            <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity
-                style={[styles.modalRow, !empresaSeleccionadaId && styles.modalRowActive]}
-                onPress={() => {
-                  setEmpresaSeleccionadaId('');
-                  setEmpresaModalOpen(false);
-                }}
-              >
-                <MaterialIcons name="layers" size={18} color="#64748b" />
-                <Text style={styles.modalRowText}>Todas las empresas</Text>
-                {!empresaSeleccionadaId ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-              </TouchableOpacity>
-              {empresasGrupoParipe.map((e) => (
-                <TouchableOpacity
-                  key={e.id}
-                  style={[styles.modalRow, empresaSeleccionadaId === e.id && styles.modalRowActive]}
-                  onPress={() => {
-                    setEmpresaSeleccionadaId(e.id);
-                    setEmpresaModalOpen(false);
-                  }}
-                >
-                  <MaterialIcons name="domain" size={18} color="#64748b" />
-                  <Text style={styles.modalRowText} numberOfLines={2}>{e.nombre}</Text>
-                  {empresaSeleccionadaId === e.id ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity style={styles.modalClose} onPress={() => setEmpresaModalOpen(false)}>
-              <Text style={styles.modalCloseText}>Cerrar</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
 
       {loading ? (
         <ActivityIndicator size="large" color="#0ea5e9" style={{ marginVertical: 40 }} />
@@ -368,50 +321,7 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 12, color: '#64748b', marginTop: 1 },
   refreshBtn: { padding: 6, borderRadius: 6, backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#e2e8f0' },
 
-  empresaFilterBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 12,
-    backgroundColor: '#f0f9ff',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#bae6fd',
-  },
-  empresaFilterBtnText: { flex: 1, fontSize: 14, fontWeight: '600', color: '#0c4a6e' },
-
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.45)',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  modalSheet: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    maxHeight: '70%',
-    padding: 16,
-    ...(Platform.OS === 'web' ? { boxShadow: '0 8px 32px rgba(0,0,0,0.12)' } as object : {}),
-  },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 4 },
-  modalHint: { fontSize: 11, color: '#64748b', marginBottom: 12 },
-  modalList: { maxHeight: 360 },
-  modalRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  modalRowActive: { backgroundColor: '#f0f9ff', borderColor: '#bae6fd' },
-  modalRowText: { flex: 1, fontSize: 14, color: '#334155' },
-  modalClose: { marginTop: 8, paddingVertical: 10, alignItems: 'center' },
-  modalCloseText: { fontSize: 14, fontWeight: '600', color: '#0ea5e9' },
+  empresaSelector: { marginBottom: 12 },
 
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 16, marginBottom: 8 },
   sectionTitle: { fontSize: 14, fontWeight: '600', color: '#334155' },

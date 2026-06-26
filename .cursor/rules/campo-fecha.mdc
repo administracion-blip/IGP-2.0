@@ -1,0 +1,52 @@
+---
+description: Campo de fecha editable en pantallas (InputFecha, formato dd/mm/aaaa vs ISO)
+globs: app/**/*.tsx
+alwaysApply: false
+---
+
+# Campo de fecha
+
+Usar siempre **`InputFecha`** (`app/components/InputFecha.tsx`). No crear `TextInput` sueltos ni duplicar lógica de parseo DMY/ISO.
+
+## Comportamiento
+
+- **Visible:** `dd/mm/aaaa`
+- **En código y API:** `yyyy-mm-dd` (ISO)
+- **Escritura:** el valor se confirma al padre en `onBlur` (no en cada tecla), para no mezclar dígitos al escribir rápido
+- **Calendario:** icono integrado por defecto; `showCalendar={false}` solo en toolbars muy compactas
+
+## API preferida (ISO en el estado del padre)
+
+```tsx
+import { InputFecha } from '../components/InputFecha';
+
+const [fecha, setFecha] = useState('2026-06-15'); // yyyy-mm-dd
+
+<InputFecha valueIso={fecha} onChangeIso={setFecha} />
+```
+
+## Compatibilidad legacy (DMY en el padre)
+
+Solo si la pantalla ya guarda `dd/mm/aaaa` en estado:
+
+```tsx
+<InputFecha value={fechaDmy} onChange={setFechaDmy} format="dmy" />
+```
+
+En código nuevo, preferir `valueIso` / `onChangeIso`.
+
+## Utilidades
+
+- `app/utils/fechaInput.ts` — parseo/validación compartidos
+- `app/utils/formatFecha.ts` — `formatFecha`, `fechaToIso` para mostrar en tablas (solo lectura)
+
+No importar `FechaInputDmy` en pantallas; es el núcleo interno de `InputFecha`.
+
+## Fecha de negocio (jornada)
+
+Para **valor por defecto** (filtros “hoy”, arqueo, cuadrante), usar `fechaJornadaNegocioIso()` de `app/lib/jornadaNegocio.ts` (corte 09:30), no `new Date()` directo.
+
+## Excepciones
+
+- **Solo lectura** en tablas/listados: `formatFecha(iso)` — no hace falta `InputFecha`
+- **Fecha + hora** (`dd/mm/aaaa hh:mm`): otro campo; no forzar `InputFecha` si el requisito es datetime

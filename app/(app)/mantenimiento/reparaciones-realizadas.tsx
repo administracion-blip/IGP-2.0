@@ -17,6 +17,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
 import { apiFetch } from '../../utils/api';
+import { InputFecha } from '../../components/InputFecha';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -125,27 +126,6 @@ function headerLabel(col: string): string {
   return col.replace(/_/g, ' ');
 }
 
-/** Convierte dd/mm/yyyy (o vacío) a yyyy-mm-dd para comparaciones y filtros. */
-function parseDdMmYyyyToIso(s: string): { ok: true; iso: string } | { ok: false; error: string } {
-  const t = s.trim();
-  if (!t) return { ok: true, iso: '' };
-  const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (!m) return { ok: false, error: 'Usa dd/mm/aaaa (ej. 14/04/2026)' };
-  const dd = parseInt(m[1], 10);
-  const mm = parseInt(m[2], 10);
-  const yy = parseInt(m[3], 10);
-  if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return { ok: false, error: 'Fecha no válida' };
-  const d = new Date(yy, mm - 1, dd);
-  if (d.getFullYear() !== yy || d.getMonth() !== mm - 1 || d.getDate() !== dd) return { ok: false, error: 'Fecha no válida' };
-  return { ok: true, iso: `${yy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}` };
-}
-
-function isoYyyyMmDdToDdMmYyyy(iso: string): string {
-  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
-  const [y, mo, da] = iso.split('-');
-  return `${da}/${mo}/${y}`;
-}
-
 function cumpleRangoFechaCompletada(inc: Incidencia, desdeIso: string, hastaIso: string): boolean {
   if (!desdeIso.trim() && !hastaIso.trim()) return true;
   const fc = inc.fecha_completada;
@@ -201,8 +181,8 @@ export default function ReparacionesRealizadasScreen() {
   const [viewMode, setViewMode] = useState<'tabla' | 'deck'>('tabla');
   const [modalFiltrosVisible, setModalFiltrosVisible] = useState(false);
   const [draftLocalIds, setDraftLocalIds] = useState<string[]>([]);
-  const [draftFechaDesde, setDraftFechaDesde] = useState('');
-  const [draftFechaHasta, setDraftFechaHasta] = useState('');
+  const [draftFechaDesdeIso, setDraftFechaDesdeIso] = useState('');
+  const [draftFechaHastaIso, setDraftFechaHastaIso] = useState('');
   const [modalFiltroError, setModalFiltroError] = useState('');
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
     titulo: 140,
@@ -346,8 +326,8 @@ export default function ReparacionesRealizadasScreen() {
 
   const abrirModalFiltros = () => {
     setDraftLocalIds([...localFiltroIds]);
-    setDraftFechaDesde(isoYyyyMmDdToDdMmYyyy(fechaDesdeIso));
-    setDraftFechaHasta(isoYyyyMmDdToDdMmYyyy(fechaHastaIso));
+    setDraftFechaDesdeIso(fechaDesdeIso);
+    setDraftFechaHastaIso(fechaHastaIso);
     setModalFiltroError('');
     setModalFiltrosVisible(true);
   };
@@ -361,17 +341,9 @@ export default function ReparacionesRealizadasScreen() {
   };
 
   const aplicarFiltrosModal = () => {
-    const fd = parseDdMmYyyyToIso(draftFechaDesde);
-    if (!fd.ok) {
-      setModalFiltroError(fd.error);
-      return;
-    }
-    const fh = parseDdMmYyyyToIso(draftFechaHasta);
-    if (!fh.ok) {
-      setModalFiltroError(fh.error);
-      return;
-    }
-    if (fd.iso && fh.iso && fd.iso > fh.iso) {
+    const fdIso = draftFechaDesdeIso.trim();
+    const fhIso = draftFechaHastaIso.trim();
+    if (fdIso && fhIso && fdIso > fhIso) {
       setModalFiltroError('La fecha Desde no puede ser posterior a Hasta');
       return;
     }
@@ -379,16 +351,16 @@ export default function ReparacionesRealizadasScreen() {
     const idsNormalized =
       todosLosIdsLocales.length > 0 && draftLocalIds.length === todosLosIdsLocales.length ? [] : [...draftLocalIds];
     setLocalFiltroIds(idsNormalized);
-    setFechaDesdeIso(fd.iso);
-    setFechaHastaIso(fh.iso);
+    setFechaDesdeIso(fdIso);
+    setFechaHastaIso(fhIso);
     setPageIndex(0);
     setModalFiltrosVisible(false);
   };
 
   const limpiarFiltrosModal = () => {
     setDraftLocalIds([]);
-    setDraftFechaDesde('');
-    setDraftFechaHasta('');
+    setDraftFechaDesdeIso('');
+    setDraftFechaHastaIso('');
     setLocalFiltroIds([]);
     setFechaDesdeIso('');
     setFechaHastaIso('');
@@ -733,28 +705,26 @@ export default function ReparacionesRealizadasScreen() {
                   ) : null}
                   <View style={styles.modalField}>
                     <Text style={styles.modalLabel}>Desde (fecha completada)</Text>
-                    <TextInput
+                    <InputFecha
                       style={styles.modalInput}
-                      value={draftFechaDesde}
-                      onChangeText={(t) => {
+                      valueIso={draftFechaDesdeIso}
+                      onChangeIso={(iso) => {
                         setModalFiltroError('');
-                        setDraftFechaDesde(t);
+                        setDraftFechaDesdeIso(iso);
                       }}
                       placeholder="dd/mm/aaaa"
-                      placeholderTextColor="#94a3b8"
                     />
                   </View>
                   <View style={styles.modalField}>
                     <Text style={styles.modalLabel}>Hasta (fecha completada)</Text>
-                    <TextInput
+                    <InputFecha
                       style={styles.modalInput}
-                      value={draftFechaHasta}
-                      onChangeText={(t) => {
+                      valueIso={draftFechaHastaIso}
+                      onChangeIso={(iso) => {
                         setModalFiltroError('');
-                        setDraftFechaHasta(t);
+                        setDraftFechaHastaIso(iso);
                       }}
                       placeholder="dd/mm/aaaa"
-                      placeholderTextColor="#94a3b8"
                     />
                   </View>
                   <View style={styles.modalField}>

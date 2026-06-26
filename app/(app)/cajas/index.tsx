@@ -40,11 +40,25 @@ const OPCIONES: { id: string; label: string; icon: React.ComponentProps<typeof M
     permiso: 'objetivos.ver',
   },
   {
+    id: 'franjas-horarias',
+    label: 'Plantillas de franjas',
+    icon: 'schedule',
+    descripcion: 'Franjas horarias reutilizables para el desglose de ventas por horas en Objetivos',
+    permiso: 'objetivos.ver',
+  },
+  {
     id: 'control-excepciones',
     label: 'Control de Excepciones',
     icon: 'rule',
     descripcion: 'Invitaciones, descuentos manuales y anulaciones por fecha y local',
     permiso: 'excepciones.ver',
+  },
+  {
+    id: 'top',
+    label: 'Top',
+    icon: 'emoji-events',
+    descripcion: 'Top ventas locales, objetivos, camareros y clientes por rango de fechas',
+    permiso: 'top.ver',
   },
 ];
 
@@ -58,7 +72,9 @@ export default function CajasIndexScreen() {
     if (id === 'arqueo-caja') router.push('/cajas/arqueo-caja');
     if (id === 'comparativa-fechas-cajas') router.push('/cajas/comparativa-fechas-cajas');
     if (id === 'objetivos') router.push('/cajas/objetivos');
+    if (id === 'franjas-horarias') router.push('/cajas/franjas-horarias');
     if (id === 'control-excepciones') router.push('/cajas/control-excepciones');
+    if (id === 'top') router.push('/cajas/top');
   }
 
   return (

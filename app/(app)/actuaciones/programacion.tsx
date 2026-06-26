@@ -17,7 +17,8 @@ import * as DocumentPicker from 'expo-document-picker';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLocalToast } from '../../components/Toast';
 import { TablaBasica } from '../../components/TablaBasica';
-import { FechaInputDmy } from '../../components/FechaInputDmy';
+import { InputFecha } from '../../components/InputFecha';
+import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { formatFecha } from '../../utils/formatFecha';
 import { formatMoneda, labelEstado } from '../../utils/facturacion';
 import { API_BASE_URL as API_URL } from '../../utils/apiBaseUrl';
@@ -168,8 +169,6 @@ export default function ProgramacionScreen() {
   const [elegida, setElegida] = useState<FacturaOpt | null>(null);
   /** Filtro opcional por empresa (proveedor con etiqueta MUSICOS) */
   const [empresaAsocId, setEmpresaAsocId] = useState('');
-  const [asocEmpresaDropdownOpen, setAsocEmpresaDropdownOpen] = useState(false);
-  const [qProveedorAsoc, setQProveedorAsoc] = useState('');
   const [empresasMusicos, setEmpresasMusicos] = useState<{ id_empresa: string; nombre: string; cif: string }[]>([]);
   const [loadingEmpresasAsoc, setLoadingEmpresasAsoc] = useState(false);
 
@@ -181,8 +180,6 @@ export default function ProgramacionScreen() {
   /** Borrar varias actuaciones marcadas en Sel (toolbar Borrar). */
   const [modalBorrarMultipleOpen, setModalBorrarMultipleOpen] = useState(false);
   const [borrando, setBorrando] = useState(false);
-  /** Desplegable de artista en modal editar. */
-  const [artistaEditDropdownOpen, setArtistaEditDropdownOpen] = useState(false);
   const [modalFirma, setModalFirma] = useState(false);
   const [firmaSubiendo, setFirmaSubiendo] = useState(false);
 
@@ -260,17 +257,6 @@ export default function ProgramacionScreen() {
     const ok = Math.abs(diff) < 0.02;
     return { diff, ok };
   }, [sumaImportesSeleccionadas, elegida]);
-
-  const empresasMusicosFiltradas = useMemo(() => {
-    const q = qProveedorAsoc.trim().toLowerCase();
-    if (!q) return empresasMusicos;
-    return empresasMusicos.filter(
-      (e) =>
-        e.nombre.toLowerCase().includes(q) ||
-        (e.cif && e.cif.toLowerCase().includes(q)) ||
-        e.id_empresa.toLowerCase().includes(q),
-    );
-  }, [empresasMusicos, qProveedorAsoc]);
 
   function toggleFiltroLocal(id: string) {
     setFiltroLocalesIds((prev) => {
@@ -395,9 +381,7 @@ export default function ProgramacionScreen() {
     setModalAsoc(false);
     setElegida(null);
     setQFac('');
-    setQProveedorAsoc('');
     setEmpresaAsocId('');
-    setAsocEmpresaDropdownOpen(false);
   }
 
   function toggleSel(id: string) {
@@ -694,13 +678,11 @@ export default function ProgramacionScreen() {
 
   function abrirEditar(item: Actuacion) {
     setForm({ ...item });
-    setArtistaEditDropdownOpen(false);
     skipImporteCalcOnceRef.current = !!(item.id_artista && item.fecha);
     setModalEdit(true);
   }
 
   function cerrarModalEdit() {
-    setArtistaEditDropdownOpen(false);
     setModalFirma(false);
     setModalDesasocConfirmOpen(false);
     setModalEdit(false);
@@ -977,14 +959,16 @@ export default function ProgramacionScreen() {
                 ) : null}
               </View>
               <Text style={styles.filterLabelInline}>Desde</Text>
-              <FechaInputDmy
+              <InputFecha
+                showCalendar={false}
                 style={[styles.fInput, styles.fInputFecha]}
                 placeholder="dd/mm/yyyy"
                 valueIso={fechaDesde}
                 onChangeIso={setFechaDesde}
               />
               <Text style={styles.filterLabelInline}>Hasta</Text>
-              <FechaInputDmy
+              <InputFecha
+                showCalendar={false}
                 style={[styles.fInput, styles.fInputFecha]}
                 placeholder="dd/mm/yyyy"
                 valueIso={fechaHasta}
@@ -1010,9 +994,9 @@ export default function ProgramacionScreen() {
             </View>
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
               <Text style={styles.label}>Fecha inicio</Text>
-              <FechaInputDmy style={styles.input} valueIso={fechaIniN} onChangeIso={setFechaIniN} />
+              <InputFecha style={styles.input} valueIso={fechaIniN} onChangeIso={setFechaIniN} />
               <Text style={styles.label}>Fecha final</Text>
-              <FechaInputDmy style={styles.input} valueIso={fechaFinN} onChangeIso={setFechaFinN} />
+              <InputFecha style={styles.input} valueIso={fechaFinN} onChangeIso={setFechaFinN} />
               <Text style={styles.label}>Locales (GRUPO PARIPE)</Text>
               {localesParipe.length === 0 ? (
                 <Text style={styles.hint}>No hay locales con sede grupo Paripe. Revisa Locales / Sede.</Text>
@@ -1141,73 +1125,25 @@ export default function ProgramacionScreen() {
               </TouchableOpacity>
             </View>
             <View style={styles.modalBodyPadded}>
-              <Text style={styles.label}>Proveedor (etiqueta MUSICOS)</Text>
-              <View style={styles.asocEmpresaDropdownWrap}>
-                <TouchableOpacity
-                  style={styles.asocDropdownTrigger}
-                  onPress={() => setAsocEmpresaDropdownOpen((v) => !v)}
-                  activeOpacity={0.75}
-                >
-                  <View style={styles.asocTriggerTextCol}>
-                    <Text style={styles.asocDropdownTriggerText} numberOfLines={1}>
-                      {empresaAsocId
-                        ? empresasMusicos.find((e) => e.id_empresa === empresaAsocId)?.nombre || empresaAsocId
-                        : 'Selecciona proveedor…'}
-                    </Text>
-                    {empresaAsocId ? (
-                      <Text style={styles.asocTriggerCif} numberOfLines={1}>
-                        {empresasMusicos.find((e) => e.id_empresa === empresaAsocId)?.cif || ''}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <MaterialIcons name={asocEmpresaDropdownOpen ? 'expand-less' : 'expand-more'} size={20} color="#64748b" />
-                </TouchableOpacity>
-                {asocEmpresaDropdownOpen ? (
-                  <View style={styles.asocDropdownList}>
-                    <TextInput
-                      style={styles.asocProveedorSearch}
-                      placeholder="Buscar por nombre o CIF…"
-                      placeholderTextColor="#94a3b8"
-                      value={qProveedorAsoc}
-                      onChangeText={setQProveedorAsoc}
-                    />
-                    <ScrollView style={styles.asocDropdownScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                      {loadingEmpresasAsoc ? (
-                        <View style={styles.asocDropdownOpt}>
-                          <ActivityIndicator color="#0ea5e9" />
-                        </View>
-                      ) : empresasMusicosFiltradas.length === 0 ? (
-                        <View style={styles.asocDropdownOpt}>
-                          <Text style={styles.asocDropdownOptHint}>Ningún proveedor coincide</Text>
-                        </View>
-                      ) : (
-                        empresasMusicosFiltradas.map((e) => {
-                          const sel = empresaAsocId === e.id_empresa;
-                          return (
-                            <TouchableOpacity
-                              key={e.id_empresa}
-                              style={[styles.asocDropdownOpt, sel && styles.asocDropdownOptOn]}
-                              onPress={() => {
-                                setEmpresaAsocId(e.id_empresa);
-                                setAsocEmpresaDropdownOpen(false);
-                                setQProveedorAsoc('');
-                              }}
-                            >
-                              <View style={styles.asocDropdownOptCol}>
-                                <Text style={styles.asocDropdownOptText} numberOfLines={2}>
-                                  {e.nombre}
-                                </Text>
-                                {e.cif ? <Text style={styles.asocDropdownCif}>{e.cif}</Text> : null}
-                              </View>
-                              {sel ? <MaterialIcons name="check" size={16} color="#0ea5e9" /> : null}
-                            </TouchableOpacity>
-                          );
-                        })
-                      )}
-                    </ScrollView>
-                  </View>
-                ) : null}
-              </View>
+              <SelectorDesplegable
+                label="Proveedor (etiqueta MUSICOS)"
+                icono="local-shipping"
+                placeholder="Selecciona proveedor…"
+                tituloLista="Selecciona proveedor"
+                iconoLista="local-shipping"
+                loading={loadingEmpresasAsoc}
+                buscador
+                buscadorPlaceholder="Buscar por nombre o CIF…"
+                vacioTexto="Ningún proveedor coincide"
+                valorId={empresaAsocId || ''}
+                opciones={empresasMusicos.map((e) => ({
+                  id: e.id_empresa,
+                  titulo: e.nombre,
+                  subtitulo: e.cif || undefined,
+                  icono: 'local-shipping' as const,
+                }))}
+                onSeleccionar={(id) => setEmpresaAsocId(id)}
+              />
 
               <Text style={[styles.label, { marginTop: 12 }]}>Facturas recibidas pendientes (según proveedor)</Text>
               <View style={styles.asocFacListBox}>
@@ -1317,75 +1253,46 @@ export default function ProgramacionScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
-              <Text style={styles.label}>Artista</Text>
-              <View style={styles.editArtistaDropdownWrap}>
-                <TouchableOpacity
-                  style={styles.editDropdownTrigger}
-                  onPress={() => setArtistaEditDropdownOpen((v) => !v)}
-                  activeOpacity={0.75}
-                >
-                  <Text style={styles.editDropdownTriggerText} numberOfLines={2}>
-                    {!form.id_artista
-                      ? '(sin asignar)'
-                      : artistas.find((a) => a.id_artista === form.id_artista)?.nombre_artistico ||
-                        form.artista_nombre_snapshot?.trim() ||
-                        form.id_artista}
-                  </Text>
-                  <MaterialIcons name={artistaEditDropdownOpen ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
-                </TouchableOpacity>
-                {artistaEditDropdownOpen ? (
-                  <View style={styles.editDropdownList}>
-                    <ScrollView
-                      style={styles.editDropdownScroll}
-                      nestedScrollEnabled
-                      keyboardShouldPersistTaps="handled"
-                    >
-                      <TouchableOpacity
-                        style={[styles.editDropdownOpt, !form.id_artista && styles.editDropdownOptOn]}
-                        onPress={() => {
-                          setForm((f) => ({
-                            ...f,
-                            id_artista: '',
-                            artista_nombre_snapshot: '',
-                            importe_previsto: null,
-                            importe_final: null,
-                            franja: undefined,
-                            tipo_dia: undefined,
-                          }));
-                          setArtistaEditDropdownOpen(false);
-                        }}
-                      >
-                        <Text style={styles.editDropdownOptText}>(sin asignar)</Text>
-                        {!form.id_artista ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-                      </TouchableOpacity>
-                      {artistas.map((ar) => {
-                        const sel = form.id_artista === ar.id_artista;
-                        return (
-                          <TouchableOpacity
-                            key={ar.id_artista}
-                            style={[styles.editDropdownOpt, sel && styles.editDropdownOptOn]}
-                            onPress={() => {
-                              setForm((f) => ({
-                                ...f,
-                                id_artista: ar.id_artista,
-                                artista_nombre_snapshot: ar.nombre_artistico,
-                              }));
-                              setArtistaEditDropdownOpen(false);
-                            }}
-                          >
-                            <Text style={styles.editDropdownOptText} numberOfLines={2}>
-                              {ar.nombre_artistico}
-                            </Text>
-                            {sel ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                ) : null}
-              </View>
+              <SelectorDesplegable
+                label="Artista"
+                icono="person"
+                placeholder="(sin asignar)"
+                tituloLista="Selecciona artista"
+                iconoLista="person"
+                buscador
+                buscadorPlaceholder="Buscar artista…"
+                valorId={form.id_artista || ''}
+                opciones={[
+                  { id: '', titulo: '(sin asignar)' },
+                  ...artistas.map((ar) => ({
+                    id: ar.id_artista,
+                    titulo: ar.nombre_artistico,
+                    icono: 'person' as const,
+                  })),
+                ]}
+                onSeleccionar={(id) => {
+                  if (!id) {
+                    setForm((f) => ({
+                      ...f,
+                      id_artista: '',
+                      artista_nombre_snapshot: '',
+                      importe_previsto: null,
+                      importe_final: null,
+                      franja: undefined,
+                      tipo_dia: undefined,
+                    }));
+                    return;
+                  }
+                  const ar = artistas.find((a) => a.id_artista === id);
+                  setForm((f) => ({
+                    ...f,
+                    id_artista: id,
+                    artista_nombre_snapshot: ar?.nombre_artistico ?? f.artista_nombre_snapshot,
+                  }));
+                }}
+              />
               <Text style={styles.label}>Fecha</Text>
-              <FechaInputDmy
+              <InputFecha
                 style={styles.input}
                 valueIso={form.fecha || ''}
                 onChangeIso={(iso) => setForm((f) => ({ ...f, fecha: iso }))}
@@ -1806,45 +1713,6 @@ const styles = StyleSheet.create({
     color: '#166534',
     letterSpacing: 0.14,
   },
-  editArtistaDropdownWrap: { marginBottom: 4, zIndex: 30, position: 'relative' },
-  editDropdownTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-  },
-  editDropdownTriggerText: { fontSize: 14, color: '#334155', flex: 1, paddingRight: 8 },
-  editDropdownList: {
-    marginTop: 6,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: '#fff',
-    maxHeight: 220,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-  },
-  editDropdownScroll: { maxHeight: 220 },
-  editDropdownOpt: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#f1f5f9',
-  },
-  editDropdownOptOn: { backgroundColor: '#f0f9ff' },
-  editDropdownOptText: { fontSize: 14, color: '#334155', flex: 1, paddingRight: 8 },
   firmaRow: {
     flexDirection: 'row',
     gap: 10,
@@ -2033,59 +1901,6 @@ const styles = StyleSheet.create({
   facRowOn: { backgroundColor: '#e0f2fe' },
   facTitle: { fontSize: 13, fontWeight: '600', color: '#334155' },
   facSub: { fontSize: 11, color: '#64748b', marginTop: 2 },
-  asocEmpresaDropdownWrap: { marginBottom: 4, zIndex: 5 },
-  asocTriggerTextCol: { flex: 1, paddingRight: 8, minWidth: 0 },
-  asocTriggerCif: { fontSize: 11, color: '#0ea5e9', fontWeight: '600', marginTop: 2 },
-  asocDropdownTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-  },
-  asocDropdownTriggerText: { fontSize: 13, color: '#334155', flex: 1, paddingRight: 8 },
-  asocProveedorSearch: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e2e8f0',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    fontSize: 13,
-    backgroundColor: '#fff',
-    color: '#334155',
-  },
-  asocDropdownList: {
-    marginTop: 6,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: '#fff',
-    maxHeight: 200,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-  },
-  asocDropdownScroll: { maxHeight: 132 },
-  asocDropdownOpt: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#f1f5f9',
-  },
-  asocDropdownOptCol: { flex: 1, minWidth: 0, paddingRight: 6 },
-  asocDropdownCif: { fontSize: 10, color: '#0ea5e9', fontWeight: '600', marginTop: 2 },
-  asocDropdownOptOn: { backgroundColor: '#f0f9ff' },
-  asocDropdownOptText: { fontSize: 12, color: '#334155' },
-  asocDropdownOptHint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
   asocFacListBox: {
     marginTop: 6,
     borderWidth: 1,

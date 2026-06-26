@@ -96,6 +96,8 @@ El `<nombreRol>` debe coincidir exactamente con el campo `Rol` de la tabla de us
 | `objetivos.compartir` | Objetivos · Compartir |
 | `excepciones.ver` | Control de excepciones · Ver |
 | `excepciones.exportar` | Control de excepciones · Exportar |
+| `top.ver` | Top · Ver |
+| `top.exportar` | Top · Exportar |
 | `mantenimiento.crear` | Mantenimiento · Crear incidencias |
 | `mantenimiento.editar` | Mantenimiento · Editar / marcar reparado |
 | `mantenimiento.borrar` | Mantenimiento · Borrar incidencias |

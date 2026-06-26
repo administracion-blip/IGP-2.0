@@ -168,7 +168,7 @@ export default function ComparativaFechasCajasScreen() {
       const body: Record<string, unknown> = {
         FechaComparativa: fechaComparativa,
         Festivo: formFestivo,
-        NombreFestivo: formFestivo ? formNombreFestivo.trim() : '',
+        NombreFestivo: formNombreFestivo.trim(),
       };
       if (editingId) body.id = editingId;
 
@@ -294,7 +294,7 @@ export default function ComparativaFechasCajasScreen() {
               id,
               FechaComparativa: fecha || id.split('#')[0],
               Festivo: festivo,
-              NombreFestivo: festivo ? nombre : '',
+              NombreFestivo: nombre,
             }),
           });
           if (res.ok) ok++;
@@ -384,7 +384,7 @@ export default function ComparativaFechasCajasScreen() {
           id,
           FechaComparativa: vals.FechaComparativa,
           Festivo: vals.Festivo,
-          NombreFestivo: vals.Festivo ? vals.NombreFestivo.trim() : '',
+          NombreFestivo: vals.NombreFestivo.trim(),
         }),
       });
       if (!res.ok) {
@@ -453,10 +453,8 @@ export default function ComparativaFechasCajasScreen() {
           style={[styles.editFestivoBadge, vals.Festivo ? styles.editFestivoSi : styles.editFestivoNo]}
           onPress={() => {
             const newFestivo = !vals.Festivo;
-            const newNombre = newFestivo ? vals.NombreFestivo : '';
-            const newVals = { ...vals, Festivo: newFestivo, NombreFestivo: newNombre };
+            const newVals = { ...vals, Festivo: newFestivo };
             handleEditChange(id, 'Festivo', newFestivo);
-            if (!newFestivo) handleEditChange(id, 'NombreFestivo', '');
             guardarFilaInline(id, newVals);
           }}
           disabled={saving}
@@ -470,12 +468,12 @@ export default function ComparativaFechasCajasScreen() {
     if (col === 'NombreFestivo') {
       return (
         <TextInput
-          style={[styles.editInput, !vals.Festivo && styles.editInputDisabled]}
+          style={styles.editInput}
           value={vals.NombreFestivo}
           onChangeText={(t) => handleEditChange(id, 'NombreFestivo', t)}
           onBlur={() => guardarFilaInline(id)}
-          editable={vals.Festivo && !saving}
-          placeholder={vals.Festivo ? 'Nombre' : ''}
+          editable={!saving}
+          placeholder="Anotación"
           placeholderTextColor="#94a3b8"
           selectTextOnFocus
         />
@@ -666,14 +664,13 @@ export default function ComparativaFechasCajasScreen() {
                   </View>
                 </View>
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Nombre festivo</Text>
+                  <Text style={styles.formLabel}>Nombre / anotación</Text>
                   <TextInput
-                    style={[styles.formInput, !formFestivo && styles.formInputDisabled]}
+                    style={styles.formInput}
                     value={formNombreFestivo}
                     onChangeText={setFormNombreFestivo}
-                    placeholder={formFestivo ? 'Nombre del festivo' : 'Activa Festivo para editar'}
+                    placeholder="Nombre del festivo o anotación del día"
                     placeholderTextColor="#94a3b8"
-                    editable={formFestivo}
                   />
                 </View>
               </ScrollView>

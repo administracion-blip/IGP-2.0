@@ -29,6 +29,7 @@ import { fechaEmisionFacturaADmy, fechaEmisionFacturaAIso } from '../../utils/fo
 import { getTipoReciboFromEmpresasList, type EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { InputFecha } from '../../components/InputFecha';
+import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useLocalToast } from '../../components/Toast';
 import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
 import { FacturaVentaDetallePanel } from '../../components/FacturaVentaDetallePanel';
@@ -140,7 +141,6 @@ export default function FacturasVentaScreen() {
   const [sortCol, setSortCol] = useState<string>('fecha_emision');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [filtroEmisorId, setFiltroEmisorId] = useState('');
-  const [emisorModalOpen, setEmisorModalOpen] = useState(false);
 
   const [modalAnularVisible, setModalAnularVisible] = useState(false);
   const [modalCobrarVisible, setModalCobrarVisible] = useState(false);
@@ -149,7 +149,6 @@ export default function FacturasVentaScreen() {
   const [cobroMetodo, setCobroMetodo] = useState<string>('transferencia');
   const [cobroMetodoOtro, setCobroMetodoOtro] = useState('');
   const [cobroFechaEditadaManual, setCobroFechaEditadaManual] = useState(false);
-  const [cobroMetodoDropdownOpen, setCobroMetodoDropdownOpen] = useState(false);
   const [cobroReferencia, setCobroReferencia] = useState('');
   const [errorModal, setErrorModal] = useState<string | null>(null);
   const [haySeries, setHaySeries] = useState(true);
@@ -385,7 +384,6 @@ export default function FacturasVentaScreen() {
   const abrirModalCobrar = () => {
     if (!selectedFactura) return;
     setErrorModal(null);
-    setCobroMetodoDropdownOpen(false);
     setCobroFechaEditadaManual(false);
     setCobroImporte((selectedFactura.saldo_pendiente ?? 0) > 0 ? String(selectedFactura.saldo_pendiente) : '');
     setCobroReferencia('');
@@ -409,7 +407,6 @@ export default function FacturasVentaScreen() {
 
   const onCambiarMetodoCobro = (m: string) => {
     setCobroMetodo(m);
-    setCobroMetodoDropdownOpen(false);
     if (m !== 'otro') setCobroMetodoOtro('');
     if (!selectedFactura || cobroFechaEditadaManual) return;
     const hoy = hoyDmy();
@@ -565,58 +562,20 @@ export default function FacturasVentaScreen() {
       </ScrollView>
 
       {emisoresOpciones.length > 0 ? (
-        <TouchableOpacity
-          style={styles.emisorFilterBtn}
-          onPress={() => setEmisorModalOpen(true)}
-          activeOpacity={0.7}
-        >
-          <MaterialIcons name="storefront" size={18} color="#0369a1" />
-          <Text style={styles.emisorFilterBtnText} numberOfLines={1}>
-            {filtroEmisorId
-              ? emisoresOpciones.find((e) => e.id === filtroEmisorId)?.nombre ?? 'Emisor'
-              : 'Todos los emisores'}
-          </Text>
-          <MaterialIcons name="arrow-drop-down" size={22} color="#64748b" />
-        </TouchableOpacity>
+        <SelectorDesplegable
+          style={styles.emisorSelector}
+          icono="storefront"
+          tituloLista="Filtrar por emisor"
+          iconoLista="storefront"
+          placeholder="Todos los emisores"
+          valorId={filtroEmisorId}
+          opciones={[
+            { id: '', titulo: 'Todos los emisores', icono: 'layers' },
+            ...emisoresOpciones.map((e) => ({ id: e.id, titulo: e.nombre, icono: 'business' as const })),
+          ]}
+          onSeleccionar={(id) => setFiltroEmisorId(id)}
+        />
       ) : null}
-
-      <Modal visible={emisorModalOpen} transparent animationType="fade" onRequestClose={() => setEmisorModalOpen(false)}>
-        <Pressable style={styles.emisorModalBackdrop} onPress={() => setEmisorModalOpen(false)}>
-          <Pressable style={styles.emisorModalSheet}>
-            <Text style={styles.emisorModalTitle}>Filtrar por emisor</Text>
-            <ScrollView style={styles.emisorModalList} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity
-                style={[styles.emisorModalRow, !filtroEmisorId && styles.emisorModalRowActive]}
-                onPress={() => {
-                  setFiltroEmisorId('');
-                  setEmisorModalOpen(false);
-                }}
-              >
-                <MaterialIcons name="layers" size={18} color="#64748b" />
-                <Text style={styles.emisorModalRowText}>Todos los emisores</Text>
-                {!filtroEmisorId ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-              </TouchableOpacity>
-              {emisoresOpciones.map((e) => (
-                <TouchableOpacity
-                  key={e.id}
-                  style={[styles.emisorModalRow, filtroEmisorId === e.id && styles.emisorModalRowActive]}
-                  onPress={() => {
-                    setFiltroEmisorId(e.id);
-                    setEmisorModalOpen(false);
-                  }}
-                >
-                  <MaterialIcons name="business" size={18} color="#64748b" />
-                  <Text style={styles.emisorModalRowText} numberOfLines={2}>{e.nombre}</Text>
-                  {filtroEmisorId === e.id ? <MaterialIcons name="check" size={18} color="#0ea5e9" /> : null}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity style={styles.emisorModalClose} onPress={() => setEmisorModalOpen(false)}>
-              <Text style={styles.emisorModalCloseText}>Cerrar</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
 
       {/* Toolbar */}
       <View style={styles.toolbarRow}>
@@ -939,28 +898,14 @@ export default function FacturasVentaScreen() {
                     placeholderTextColor="#94a3b8"
                   />
                   <Text style={styles.formLabel}>Método de pago</Text>
-                  <TouchableOpacity
-                    style={styles.modalSelect}
-                    onPress={() => setCobroMetodoDropdownOpen(!cobroMetodoDropdownOpen)}
-                  >
-                    <Text style={styles.modalSelectText}>{labelFormaPago(cobroMetodo)}</Text>
-                    <MaterialIcons name={cobroMetodoDropdownOpen ? 'expand-less' : 'expand-more'} size={18} color="#64748b" />
-                  </TouchableOpacity>
-                  {cobroMetodoDropdownOpen && (
-                    <View style={styles.dropdown}>
-                      {FORMAS_PAGO.map((m) => (
-                        <TouchableOpacity
-                          key={m}
-                          style={[styles.dropdownItem, cobroMetodo === m && styles.dropdownItemActive]}
-                          onPress={() => onCambiarMetodoCobro(m)}
-                        >
-                          <Text style={[styles.dropdownItemText, cobroMetodo === m && styles.dropdownItemTextActive]}>
-                            {labelFormaPago(m)}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
+                  <SelectorDesplegable
+                    icono="payments"
+                    tituloLista="Método de pago"
+                    iconoLista="payments"
+                    valorId={cobroMetodo}
+                    opciones={FORMAS_PAGO.map((m) => ({ id: m, titulo: labelFormaPago(m), icono: 'payments' as const }))}
+                    onSeleccionar={(id) => onCambiarMetodoCobro(id)}
+                  />
                   {cobroMetodo === 'otro' && (
                     <>
                       <Text style={styles.formLabel}>Describe el método *</Text>
@@ -1080,49 +1025,7 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
   tabTextActive: { color: '#fff', fontWeight: '600' },
 
-  emisorFilterBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginBottom: 8,
-    backgroundColor: '#f0f9ff',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#bae6fd',
-    alignSelf: 'stretch',
-  },
-  emisorFilterBtnText: { flex: 1, fontSize: 14, fontWeight: '600', color: '#0c4a6e' },
-  emisorModalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.45)',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  emisorModalSheet: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    maxHeight: '70%',
-    padding: 16,
-    ...(Platform.OS === 'web' ? { boxShadow: '0 8px 32px rgba(0,0,0,0.12)' } as object : {}),
-  },
-  emisorModalTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 12 },
-  emisorModalList: { maxHeight: 360 },
-  emisorModalRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  emisorModalRowActive: { backgroundColor: '#f0f9ff', borderColor: '#bae6fd' },
-  emisorModalRowText: { flex: 1, fontSize: 14, color: '#334155' },
-  emisorModalClose: { marginTop: 8, paddingVertical: 10, alignItems: 'center' },
-  emisorModalCloseText: { fontSize: 14, fontWeight: '600', color: '#0ea5e9' },
+  emisorSelector: { marginBottom: 8, alignSelf: 'stretch' },
 
   toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12, flexWrap: 'wrap' },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -1330,30 +1233,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: '#f8fafc',
   },
-  modalSelect: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#f8fafc',
-  },
-  modalSelectText: { fontSize: 13, color: '#334155' },
-  dropdown: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    backgroundColor: '#fff',
-    marginBottom: 4,
-    maxHeight: 200,
-  },
-  dropdownItem: { paddingHorizontal: 12, paddingVertical: 8 },
-  dropdownItemActive: { backgroundColor: '#e0f2fe' },
-  dropdownItemText: { fontSize: 12, color: '#334155' },
-  dropdownItemTextActive: { color: '#0369a1', fontWeight: '600' },
   modalErrorWrap: {
     flexDirection: 'row',
     alignItems: 'center',
