@@ -9,6 +9,7 @@
  */
 
 import { round2 } from '../utils/facturacion';
+import { fechaEmisionFacturaAIso } from '../utils/formatFecha';
 import type { Borrador, LineaDesglose } from '../types/registroMasivo';
 
 /**
@@ -148,8 +149,8 @@ export function mergeReconciliacion(row: Borrador, d: ReconciliacionDatos): Borr
     next.numero_factura_proveedor = String(d.numero_factura_proveedor);
   }
   if (!m.fecha_emision && d.fecha_emision != null) {
-    const raw = String(d.fecha_emision);
-    next.fecha_emision = /^\d{4}-\d{2}-\d{2}/.test(raw) ? isoToDmy(raw.substring(0, 10)) : raw;
+    const raw = String(d.fecha_emision).trim();
+    next.fecha_emision = fechaEmisionFacturaAIso(raw) ?? raw;
   }
   if (!m.base_imponible && d.base_imponible != null) next.base_imponible = Number(d.base_imponible);
   if (!m.total_iva && d.total_iva != null) next.total_iva = Number(d.total_iva);

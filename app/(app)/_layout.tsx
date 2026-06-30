@@ -18,24 +18,7 @@ import { AuthProvider, useAuth, AUTH_KEY } from '../contexts/AuthContext';
 import { ProductosCacheProvider } from '../contexts/ProductosCache';
 import { ComprasProveedorCacheProvider } from '../contexts/ComprasProveedorCache';
 import { fetchImagenApp } from '../lib/personalizacion';
-
-const MENU_ITEMS: { route: string; label: string; icon: string; permiso: string | null }[] = [
-  { route: '/', label: 'Inicio', icon: 'home', permiso: null },
-  { route: '/base-datos', label: 'Base de Datos', icon: 'storage', permiso: 'base_datos.ver' },
-  { route: '/mantenimiento', label: 'Mantenimiento', icon: 'build', permiso: 'mantenimiento.ver' },
-  { route: '/compras', label: 'Compras', icon: 'shopping-cart', permiso: 'compras.ver' },
-  { route: '/cajas', label: 'Cajas', icon: 'point-of-sale', permiso: 'cajas.ver' },
-  { route: '/cashflow', label: 'Cashflow', icon: 'trending-up', permiso: 'cashflow.ver' },
-  { route: '/actuaciones', label: 'Actuaciones', icon: 'mic', permiso: 'actuaciones.ver' },
-  { route: '/rrpp', label: 'Rrpp', icon: 'people', permiso: 'rrpp.ver' },
-  { route: '/recursos-humanos', label: 'Recursos Humanos', icon: 'groups', permiso: 'recursos_humanos.ver' },
-  { route: '/rrss', label: 'Marketing', icon: 'campaign', permiso: 'marketing.proponer' },
-  { route: '/mystery-guest', label: 'Mystery Guest', icon: 'visibility', permiso: 'mystery_guest.ver' },
-  { route: '/reservas', label: 'Reservas', icon: 'event-available', permiso: 'reservas.ver' },
-  { route: '/acuerdos', label: 'Acuerdos', icon: 'handshake', permiso: 'acuerdos.ver' },
-  { route: '/facturacion', label: 'Facturación', icon: 'receipt', permiso: 'facturacion.ver' },
-  { route: '/planning-dia', label: 'Planning del Día', icon: 'today', permiso: 'planning_dia.ver' },
-];
+import { MODULOS as MENU_ITEMS } from '../constants/modulos';
 
 function AppLayoutContent() {
   const router = useRouter();
@@ -179,6 +162,16 @@ function AppLayoutContent() {
         {/* Sidebar: contraído solo icono, expandido icono + texto */}
         <View style={[styles.sidebar, sidebarOpen ? styles.sidebarExpanded : styles.sidebarCollapsed]}>
           <View style={styles.sidebarInner}>
+            <TouchableOpacity
+              style={[styles.menuItem, styles.menuItemFavoritos, !sidebarOpen && styles.menuItemCollapsed]}
+              onPress={() => router.push('/favoritos')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.menuIconWrap}>
+                <MaterialIcons name="star" size={20} color="#db2777" />
+              </View>
+              {sidebarOpen ? <Text style={[styles.menuItemText, styles.menuItemTextFavoritos]}>Favoritos</Text> : null}
+            </TouchableOpacity>
             {MENU_ITEMS.filter((item) => !item.permiso || hasPermiso(item.permiso)).map((item) => (
               <TouchableOpacity
                 key={item.route}
@@ -224,6 +217,7 @@ function AppLayoutContent() {
             <Stack.Screen name="facturacion" />
             <Stack.Screen name="ajustes" />
             <Stack.Screen name="planning-dia" />
+            <Stack.Screen name="favoritos" />
           </Stack>
         </View>
       </View>
@@ -386,12 +380,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     justifyContent: 'center',
   },
+  menuItemFavoritos: {
+    backgroundColor: '#fce7f3',
+    borderRadius: 8,
+    marginHorizontal: 4,
+    marginBottom: 4,
+  },
   menuItemText: {
     fontSize: 12,
     color: '#334155',
     fontWeight: '400',
     marginLeft: 8,
     flexShrink: 1,
+  },
+  menuItemTextFavoritos: {
+    color: '#be185d',
+    fontWeight: '600',
   },
   content: {
     flex: 1,

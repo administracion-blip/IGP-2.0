@@ -36,6 +36,7 @@ import {
 import facturacionRouter from './routes/facturacion.js';
 import artistasActuacionesRouter from './routes/artistasActuaciones.js';
 import arqueosRealesRouter from './routes/arqueosReales.js';
+import movimientosCajaRouter from './routes/movimientosCaja.js';
 import mysteryGuestRouter from './routes/mysteryGuest.js';
 import personalRouter from './routes/personal.js';
 import cuadranteRouter from './routes/cuadrante.js';
@@ -150,6 +151,7 @@ app.use('/api', mantenimientoRouter);
 app.use('/api', facturacionRouter);
 app.use('/api', artistasActuacionesRouter);
 app.use('/api', arqueosRealesRouter);
+app.use('/api', movimientosCajaRouter);
 app.use('/api', mysteryGuestRouter);
 app.use('/api', personalRouter);
 app.use('/api', cuadranteRouter);

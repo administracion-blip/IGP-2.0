@@ -39,16 +39,28 @@ export function requireRole(...roles) {
   };
 }
 
+/**
+ * Comprueba si un usuario (req.user) tiene un permiso concreto.
+ * Administrador siempre lo tiene. Devuelve boolean; útil cuando el permiso
+ * depende de datos que solo se conocen dentro del handler (p. ej. el estado
+ * de un pedido), donde no se puede usar `requirePermission` como middleware.
+ */
+export async function hasPermission(user, permiso) {
+  if (!user) return false;
+  if (user.rol === 'Administrador') return true;
+  const result = await docClient.send(new GetCommand({
+    TableName: tables.rolesPermisos,
+    Key: { PK: `ROL#${user.rol}`, SK: `PERMISO#${permiso}` },
+  }));
+  return !!result.Item;
+}
+
 export function requirePermission(permiso) {
   return async (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'No autenticado' });
     if (req.user.rol === 'Administrador') return next();
     try {
-      const result = await docClient.send(new GetCommand({
-        TableName: tables.rolesPermisos,
-        Key: { PK: `ROL#${req.user.rol}`, SK: `PERMISO#${permiso}` },
-      }));
-      if (result.Item) return next();
+      if (await hasPermission(req.user, permiso)) return next();
       return res.status(403).json({ error: 'Permiso insuficiente' });
     } catch (err) {
       console.error('[requirePermission]', err.message);

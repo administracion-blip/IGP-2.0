@@ -11,10 +11,12 @@ import {
   KeyboardAvoidingView,
   ActivityIndicator,
   Pressable,
-  useWindowDimensions,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
+import { MIN_TOUCH } from '../../constants/layout';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
 import { InputFecha } from '../../components/InputFecha';
@@ -24,6 +26,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { fetchPorcentajeBeneficio, aplicarPorcentajeBeneficio } from '../../lib/personalizacion';
 import { siguienteIdParaNuevoPedido } from '../../lib/pedidosId';
 import { apiFetch } from '../../utils/api';
+import { formatCreadoEn } from '../../utils/formatFecha';
+import NuevoPedidoModal from './NuevoPedidoModal';
 
 const COLUMNAS = ['Id', 'Fecha', 'CreadoEn', 'LocalId', 'Local', 'AlmacenOrigen', 'AlmacenDestino', 'TotalAlbaran', 'Estado'] as const;
 const ESTADOS = ['Borrador', 'Pendiente', 'Enviado', 'Exportado', 'Completado'] as const;
@@ -57,19 +61,6 @@ function formatFecha(fecha: string | number | undefined): string {
   return s;
 }
 
-function formatCreadoEn(val: string | number | undefined): string {
-  if (val == null || String(val).trim() === '') return '—';
-  const s = String(val).trim();
-  const dateMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (dateMatch) {
-    const [, y, m, d] = dateMatch;
-    const timeMatch = s.match(/T(\d{2}):(\d{2})/);
-    const time = timeMatch ? ` ${timeMatch[1]}:${timeMatch[2]}` : '';
-    return `${d}/${m}/${y}${time}`;
-  }
-  return s;
-}
-
 function formatMoneda(val: string | number | undefined): string {
   if (val == null || String(val).trim() === '') return '—';
   const n = typeof val === 'number' ? val : parseFloat(String(val));
@@ -91,24 +82,31 @@ function fechaToIso(val: string): string {
   return s;
 }
 
-/** Fecha de hoy solo para mostrar/editar en el formulario (dd/mm/yyyy). */
-function fechaHoyDmy(): string {
-  const hoy = new Date();
-  const d = String(hoy.getDate()).padStart(2, '0');
-  const m = String(hoy.getMonth() + 1).padStart(2, '0');
-  const y = hoy.getFullYear();
-  return `${d}/${m}/${y}`;
+/** Fecha de hoy en ISO yyyy-mm-dd. */
+function fechaHoyIso(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
-/** Convierte valor de API (ISO u otro) al formato visual del formulario. */
-function itemFechaToFormDmy(fecha: string | number | undefined): string {
+/** Normaliza valor de API al ISO del formulario. */
+function itemFechaToFormIso(fecha: string | number | undefined): string {
   if (fecha == null || String(fecha).trim() === '') return '';
-  const s = String(fecha).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    const [y, mo, d] = s.split('-');
-    return `${d}/${mo}/${y}`;
-  }
-  return s;
+  const iso = fechaToIso(String(fecha).trim());
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : '';
+}
+
+/**
+ * Precio de venta de una línea. Si la línea trae `PrecioVenta` (precio CONGELADO
+ * en el momento de crearse, con el % de beneficio de entonces), se usa tal cual
+ * para que el importe del albarán no cambie al variar el % global. Para líneas
+ * antiguas sin ese campo, se aplica el % vigente como antes.
+ */
+function precioVentaCongelado(
+  l: Record<string, string | number | undefined>,
+  porcentajeBeneficio: number,
+): number {
+  const pv = l.PrecioVenta;
+  if (pv != null && String(pv).trim() !== '' && Number.isFinite(Number(pv))) return Number(pv);
+  return aplicarPorcentajeBeneficio(Number(l.PrecioUnitario ?? 0), porcentajeBeneficio);
 }
 
 export default function PedidosScreen() {
@@ -122,8 +120,10 @@ export default function PedidosScreen() {
   const [error, setError] = useState<string | null>(null);
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
+  const [filtroEstado, setFiltroEstado] = useState<string | null>(null);
 
   const [modalFormVisible, setModalFormVisible] = useState(false);
+  const [nuevoPedidoVisible, setNuevoPedidoVisible] = useState(false);
   const [editingPedidoId, setEditingPedidoId] = useState<string | null>(null);
   const [form, setForm] = useState({
     Id: '',
@@ -157,6 +157,8 @@ export default function PedidosScreen() {
   const productosIgp = productosIgpCache as Record<string, string | number | boolean>[];
   const loadingProductos = loadingProductosCache;
   const [porcentajeBeneficio, setPorcentajeBeneficio] = useState(0);
+  const [loadingRappelPreview, setLoadingRappelPreview] = useState(false);
+  const [rappelPreviewInfo, setRappelPreviewInfo] = useState<{ unitaria: number; sinAcuerdo: boolean } | null>(null);
 
   const refetch = useCallback(() => {
     setError(null);
@@ -186,6 +188,47 @@ export default function PedidosScreen() {
   useEffect(() => {
     fetchPorcentajeBeneficio().then(setPorcentajeBeneficio);
   }, []);
+
+  useEffect(() => {
+    if (!modalLineaFormVisible) {
+      setRappelPreviewInfo(null);
+      return;
+    }
+    const pedidoId = pedidoParaLineas ? String(valorEnLocal(pedidoParaLineas, 'Id') ?? '').trim() : '';
+    const productId = formLinea.ProductId.trim();
+    if (!pedidoId || !productId) {
+      setRappelPreviewInfo(null);
+      setFormLinea((f) => (f.TotalRappel ? { ...f, TotalRappel: '' } : f));
+      return;
+    }
+    const cantidad = formLinea.Cantidad || '0';
+    let cancelled = false;
+    setLoadingRappelPreview(true);
+    apiFetch(
+      `/api/pedidos/${encodeURIComponent(pedidoId)}/rappel-preview?productId=${encodeURIComponent(productId)}&cantidad=${encodeURIComponent(cantidad)}`,
+    )
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (!data?.ok) {
+          setRappelPreviewInfo(null);
+          return;
+        }
+        const unitaria = Number(data.totalAportacionUnitaria ?? 0);
+        const total = Number(data.totalRappel ?? 0);
+        setRappelPreviewInfo({ unitaria, sinAcuerdo: unitaria <= 0 });
+        setFormLinea((f) => ({ ...f, TotalRappel: String(total) }));
+      })
+      .catch(() => {
+        if (!cancelled) setRappelPreviewInfo(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingRappelPreview(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [modalLineaFormVisible, pedidoParaLineas, formLinea.ProductId, formLinea.Cantidad]);
 
   useEffect(() => {
     if (pedidoParaLineas && !productosLastFetch) {
@@ -252,7 +295,7 @@ export default function PedidosScreen() {
     if (pedidoIdForm !== pedidoIdLineas || lineas.length === 0) return parseFloat(form.TotalAlbaran) || 0;
     return lineas.reduce((sum, l) => {
       const cant = Number(l.Cantidad ?? 0);
-      const precio = aplicarPorcentajeBeneficio(Number(l.PrecioUnitario ?? 0), porcentajeBeneficio);
+      const precio = precioVentaCongelado(l, porcentajeBeneficio);
       return sum + cant * precio;
     }, 0);
   }, [editingPedidoId, form.Id, form.TotalAlbaran, pedidoParaLineas, lineas, porcentajeBeneficio]);
@@ -268,10 +311,34 @@ export default function PedidosScreen() {
     });
   }, [form.LocalId, almacenesPorLocalId, almacenes]);
 
+  // Si el usuario no puede ver completados, se excluyen de TODA la pantalla
+  // (también del chip "Todos" y de los conteos), no solo del filtro.
+  const puedeVerCompletados = hasPermiso('pedidos.ver_completados');
+  const pedidosVisibles = useMemo(
+    () =>
+      puedeVerCompletados
+        ? pedidos
+        : pedidos.filter((p) => String(valorEnLocal(p, 'Estado') ?? '') !== 'Completado'),
+    [pedidos, puedeVerCompletados],
+  );
+
+  // Conteo por estado para los chips (sobre los pedidos visibles según permiso).
+  const conteosEstado = useMemo(() => {
+    const c: Record<string, number> = { __todos: pedidosVisibles.length };
+    for (const p of pedidosVisibles) {
+      const e = String(valorEnLocal(p, 'Estado') ?? '').trim();
+      if (e) c[e] = (c[e] ?? 0) + 1;
+    }
+    return c;
+  }, [pedidosVisibles]);
+
   const pedidosFiltrados = useMemo(() => {
+    const base = filtroEstado
+      ? pedidosVisibles.filter((p) => String(valorEnLocal(p, 'Estado') ?? '') === filtroEstado)
+      : pedidosVisibles;
     const q = filtroBusqueda.trim().toLowerCase();
     const filtered = q
-      ? pedidos.filter((p) => {
+      ? base.filter((p) => {
           const partes = COLUMNAS.map((c) => {
             if (c === 'Local') {
               const localId = String(valorEnLocal(p, 'LocalId') ?? '').trim();
@@ -289,13 +356,13 @@ export default function PedidosScreen() {
           });
           return partes.join(' ').toLowerCase().includes(q);
         })
-      : pedidos;
+      : base;
     return [...filtered].sort((a, b) => {
       const ca = String(valorEnLocal(a, 'CreadoEn') ?? '').trim();
       const cb = String(valorEnLocal(b, 'CreadoEn') ?? '').trim();
       return ca.localeCompare(cb);
     });
-  }, [pedidos, filtroBusqueda, nombresPorLocalId, nombresPorAlmacenId]);
+  }, [pedidosVisibles, filtroEstado, filtroBusqueda, nombresPorLocalId, nombresPorAlmacenId]);
 
   const getValorCelda = useCallback((item: Pedido, col: string): string => {
     const v = valorEnLocal(item, col);
@@ -318,6 +385,11 @@ export default function PedidosScreen() {
       const nombre = nombresPorAlmacenId[id] ?? nombresPorAlmacenId[id.replace(/^0+/, '') || '0'];
       return nombre || '—';
     }
+    if (col === 'Estado') {
+      const est = v != null ? String(v) : '—';
+      const esDevolucion = String(valorEnLocal(item, 'Tipo') ?? '').trim() === 'Devolucion';
+      return esDevolucion ? `Devolución · ${est}` : est;
+    }
     return v != null ? String(v) : '—';
   }, [nombresPorLocalId, nombresPorAlmacenId]);
 
@@ -336,21 +408,10 @@ export default function PedidosScreen() {
     setForm((f) => (f.Id === proximoId ? f : { ...f, Id: proximoId }));
   }, [proximoId, modalFormVisible, editingPedidoId]);
 
+  // La creación de pedidos se hace con el componente compartido NuevoPedidoModal
+  // (mismo flujo que en la vista de almacén): formulario + alta de líneas.
   const abrirModalCrear = () => {
-    setEditingPedidoId(null);
-    const fecha = fechaHoyDmy();
-    setForm({
-      Id: siguienteIdParaNuevoPedido(fecha, idsPedidos),
-      LocalId: '',
-      AlmacenOrigenId: almacenGeneralId,
-      AlmacenDestinoId: '',
-      TotalAlbaran: '0',
-      Fecha: fecha,
-      Estado: 'Borrador',
-      Notas: '',
-    });
-    setErrorForm(null);
-    setModalFormVisible(true);
+    setNuevoPedidoVisible(true);
   };
 
   const autoCrearDone = useRef(false);
@@ -359,7 +420,7 @@ export default function PedidosScreen() {
   useEffect(() => {
     if (params.crear === '1' && !loading && !autoCrearDone.current) {
       autoCrearDone.current = true;
-      abrirModalCrear();
+      setNuevoPedidoVisible(true);
     }
   }, [params.crear, loading]);
 
@@ -374,14 +435,14 @@ export default function PedidosScreen() {
     const id = valorEnLocal(item, 'Id');
     setEditingPedidoId(id != null ? String(id) : null);
     const fecha = valorEnLocal(item, 'Fecha');
-    const fechaStr = itemFechaToFormDmy(fecha != null ? String(fecha) : undefined);
+    const fechaIso = itemFechaToFormIso(fecha != null ? String(fecha) : undefined);
     setForm({
       Id: id != null ? String(id) : '',
       LocalId: valorEnLocal(item, 'LocalId') != null ? String(valorEnLocal(item, 'LocalId')) : '',
       AlmacenOrigenId: valorEnLocal(item, 'AlmacenOrigenId') != null ? String(valorEnLocal(item, 'AlmacenOrigenId')) : '',
       AlmacenDestinoId: valorEnLocal(item, 'AlmacenDestinoId') != null ? String(valorEnLocal(item, 'AlmacenDestinoId')) : '',
       TotalAlbaran: valorEnLocal(item, 'TotalAlbaran') != null ? String(valorEnLocal(item, 'TotalAlbaran')) : '0',
-      Fecha: fechaStr || fechaHoyDmy(),
+      Fecha: fechaIso || fechaHoyIso(),
       Estado: valorEnLocal(item, 'Estado') != null ? String(valorEnLocal(item, 'Estado')) : 'Borrador',
       Notas: valorEnLocal(item, 'Notas') != null ? String(valorEnLocal(item, 'Notas')) : '',
     });
@@ -417,7 +478,7 @@ export default function PedidosScreen() {
       }
       return;
     }
-    const fechaIso = fechaToIso(form.Fecha).trim();
+    const fechaIso = form.Fecha.trim();
     if (!fechaIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
       setErrorForm('Indica una fecha válida (dd/mm/aaaa).');
       return;
@@ -449,7 +510,9 @@ export default function PedidosScreen() {
 
       if (esCreacion) {
         abrirLineasTrasPedido.current = true;
-        const nuevoPedido = { ...body } as Pedido;
+        // El Id definitivo lo asigna el servidor (correlativo atómico); usamos el
+        // pedido devuelto para que las líneas se asocien al Id correcto.
+        const nuevoPedido = (data.pedido ?? { ...body }) as Pedido;
         setPedidoParaLineas(nuevoPedido);
         setLineas([]);
         setFormLinea({ ProductId: '', ProductoNombre: '', Cantidad: '', PrecioUnitario: '', Iva: '', TotalRappel: '' });
@@ -544,6 +607,16 @@ export default function PedidosScreen() {
       }
     },
     [pedidosFiltrados, fetchLineas]
+  );
+
+  // Al cambiar de chip de estado, limpiamos la selección porque el índice de
+  // fila apunta al listado filtrado y dejaría de ser válido.
+  const cambiarFiltroEstado = useCallback(
+    (estado: string | null) => {
+      setFiltroEstado((actual) => (actual === estado ? actual : estado));
+      handleSelectRow(null);
+    },
+    [handleSelectRow]
   );
 
   const entrarModoEditarLineas = useCallback(() => {
@@ -719,6 +792,62 @@ export default function PedidosScreen() {
   const bloqueadoEditar = pedidoEnviado && !puedeEditarEnviado;
   const bloqueadoBorrar = pedidoEnviado && !puedeBorrarEnviado;
 
+  // Hay un pedido recién creado (Borrador) con líneas que aún no se ha enviado a
+  // almacén. Al salir avisamos para ofrecer marcarlo como Enviado.
+  const hayBorradorSinEnviar = !!pedidoParaLineas && estadoPedidoActual === 'Borrador' && lineas.length > 0;
+
+  const navigation = useNavigation();
+  const permitirSalida = useRef(false);
+  // confirmSalida: 'cerrar' (cerrar el detalle a pantalla completa) o 'nav' (back/pop pendiente).
+  const [confirmSalida, setConfirmSalida] = useState<{ tipo: 'cerrar' } | { tipo: 'nav'; action: unknown } | null>(null);
+  const [enviandoSalida, setEnviandoSalida] = useState(false);
+
+  const cerrarDetalle = useCallback(() => {
+    handleSelectRow(null);
+  }, [handleSelectRow]);
+
+  const solicitarCerrarDetalle = useCallback(() => {
+    if (hayBorradorSinEnviar) {
+      setConfirmSalida({ tipo: 'cerrar' });
+      return;
+    }
+    cerrarDetalle();
+  }, [hayBorradorSinEnviar, cerrarDetalle]);
+
+  // Intercepta el back/pop del stack mientras haya un borrador sin enviar.
+  useEffect(() => {
+    const sub = navigation.addListener('beforeRemove', (e: { preventDefault: () => void; data: { action: unknown } }) => {
+      if (permitirSalida.current || !hayBorradorSinEnviar) return;
+      e.preventDefault();
+      setConfirmSalida({ tipo: 'nav', action: e.data.action });
+    });
+    return sub;
+  }, [navigation, hayBorradorSinEnviar]);
+
+  const resolverSalida = useCallback(async (enviar: boolean) => {
+    const accion = confirmSalida;
+    if (enviar) {
+      setEnviandoSalida(true);
+      try {
+        await enviarPedido();
+      } finally {
+        setEnviandoSalida(false);
+      }
+    }
+    setConfirmSalida(null);
+    if (!accion) return;
+    if (accion.tipo === 'cerrar') {
+      cerrarDetalle();
+    } else if (accion.tipo === 'nav') {
+      permitirSalida.current = true;
+      (navigation as unknown as { dispatch: (a: unknown) => void }).dispatch(accion.action);
+    }
+  }, [confirmSalida, enviarPedido, cerrarDetalle, navigation]);
+
+  const cancelarSalida = useCallback(() => {
+    setConfirmSalida(null);
+  }, []);
+
   const handleCrear = () => abrirModalCrear();
   const handleEditar = (item: Pedido) => {
     const est = String(valorEnLocal(item, 'Estado') ?? '');
@@ -731,8 +860,12 @@ export default function PedidosScreen() {
     abrirModalBorrar(item);
   };
 
-  const { width } = useWindowDimensions();
-  const isWide = width > 768;
+  const { shouldStackPanels } = useBreakpoint();
+  const insets = useSafeAreaInsets();
+  // Tabla de líneas estirada cuando hay espacio horizontal (tablet/escritorio horizontal).
+  const isWide = !shouldStackPanels;
+  // Apilar detalle en móvil vertical y tablet vertical; lado a lado en horizontal.
+  const detalleComoModal = shouldStackPanels;
 
   const renderLineasTable = (stretchWide: boolean) => (
     <View style={[styles.lineasTable, stretchWide && styles.lineasTableWide]}>
@@ -756,8 +889,7 @@ export default function PedidosScreen() {
           const key = String(l.LineaIndex ?? idx);
           const cantEdit = lineasEditValues[key] ?? String(l.Cantidad ?? '');
           const cant = editModeLineas ? (parseFloat(String(cantEdit).replace(',', '.')) || 0) : Number(l.Cantidad ?? 0);
-          const precioBase = Number(l.PrecioUnitario ?? 0);
-          const precio = aplicarPorcentajeBeneficio(precioBase, porcentajeBeneficio);
+          const precio = precioVentaCongelado(l, porcentajeBeneficio);
           const total = cant * precio;
           const totalRappel = Number(l.TotalRappel ?? 0);
           const iva = l.VatRate != null ? `${Number(l.VatRate) * 100}%` : '—';
@@ -796,7 +928,7 @@ export default function PedidosScreen() {
               </View>
               <View style={styles.lineasColPrecio}><Text style={[styles.lineasTableCell, { textAlign: 'right' }]}>{formatMoneda(precio)}</Text></View>
               <View style={styles.lineasColIva}><Text style={[styles.lineasTableCell, { textAlign: 'right' }]}>{iva}</Text></View>
-              <View style={styles.lineasColTotalRappel}><Text style={[styles.lineasTableCell, { textAlign: 'right' }]}>{formatMoneda(totalRappel)}</Text></View>
+              <View style={styles.lineasColTotalRappel}><Text style={[styles.lineasTableCell, { textAlign: 'right' }, totalRappel > 0 && styles.lineasCellRappelAbono]}>{totalRappel > 0 ? `-${formatMoneda(totalRappel)}` : formatMoneda(0)}</Text></View>
               <View style={styles.lineasColTotal}><Text style={[styles.lineasTableCell, styles.lineasCellTotal]}>{formatMoneda(total)}</Text></View>
               <View style={styles.lineasColId}>
                 <View style={styles.lineasCellIdBadge}>
@@ -823,11 +955,66 @@ export default function PedidosScreen() {
     </View>
   );
 
+  // Chips de estado con conteo. "Completado" solo se muestra con permiso y se
+  // resalta en verde (coherente con el resaltado de fila de la tabla).
+  const chipsEstadoDef: { key: string | null; label: string; count: number; completado?: boolean }[] = [
+    { key: null, label: 'Todos', count: conteosEstado.__todos ?? 0 },
+    ...ESTADOS.filter((e) => e !== 'Completado').map((e) => ({
+      key: e,
+      label: e,
+      count: conteosEstado[e] ?? 0,
+    })),
+    ...(puedeVerCompletados
+      ? [{ key: 'Completado', label: 'Completado', count: conteosEstado.Completado ?? 0, completado: true }]
+      : []),
+  ];
+
+  const chipsEstado = (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.chipsEstadoRow}
+    >
+      {chipsEstadoDef.map((c) => {
+        const activo = filtroEstado === c.key;
+        return (
+          <TouchableOpacity
+            key={c.key ?? '__todos'}
+            style={[
+              styles.chipEstado,
+              c.completado && styles.chipEstadoCompletado,
+              activo && (c.completado ? styles.chipEstadoCompletadoActivo : styles.chipEstadoActivo),
+            ]}
+            onPress={() => cambiarFiltroEstado(c.key)}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[
+                styles.chipEstadoText,
+                c.completado && styles.chipEstadoTextCompletado,
+                activo && styles.chipEstadoTextActivo,
+              ]}
+              numberOfLines={1}
+            >
+              {c.label}
+            </Text>
+            <View style={[styles.chipEstadoBadge, activo && styles.chipEstadoBadgeActivo]}>
+              <Text style={[styles.chipEstadoBadgeText, activo && styles.chipEstadoBadgeTextActivo]}>
+                {c.count}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
+  );
+
   return (
     <View style={styles.container}>
       <View style={[styles.mainRow, !isWide && styles.mainRowColumn]}>
         <View style={styles.pedidosSection}>
           <TablaBasica<Pedido>
+            extraToolbarLeft={chipsEstado}
             title="Pedidos"
             onBack={() => router.back()}
             columnas={[...COLUMNAS]}
@@ -851,7 +1038,9 @@ export default function PedidosScreen() {
             emptyFilterMessage="Ningún pedido coincide con el filtro"
           />
         </View>
-        <View style={[styles.lineasSection, !isWide && styles.lineasSectionColumn]}>
+        {(() => {
+          const contenidoDetalle = (
+          <View style={[styles.lineasSection, !isWide && styles.lineasSectionColumn]}>
           <View style={styles.lineasPanelHeader}>
             <Text style={styles.lineasPanelTitle} numberOfLines={1} ellipsizeMode="tail">
               Detalle del pedido
@@ -905,7 +1094,7 @@ export default function PedidosScreen() {
                 </View>
               )}
             </View>
-            <ScrollView style={styles.lineasList} showsVerticalScrollIndicator>
+            <ScrollView style={[styles.lineasList, detalleComoModal && styles.lineasListFull]} showsVerticalScrollIndicator>
               {isWide ? (
                 renderLineasTable(true)
               ) : (
@@ -949,7 +1138,13 @@ export default function PedidosScreen() {
                       const purchaseVat = valorEnLocal(prod as Pedido, 'ultimo_iva_compra');
                       const fallbackVat = valorEnLocal(prod as Pedido, 'VatPercent');
                       const ivaStr = purchaseVat != null ? String(purchaseVat) : (fallbackVat != null ? String(fallbackVat) : '');
-                      setFormLinea((f) => ({ ...f, ProductId: id, ProductoNombre: nombre, PrecioUnitario: precioStr, Iva: ivaStr }));
+                      setFormLinea((f) => ({
+                        ...f,
+                        ProductId: id,
+                        ProductoNombre: nombre,
+                        PrecioUnitario: precioStr,
+                        Iva: ivaStr,
+                      }));
                     }}
                   />
                 </View>
@@ -994,15 +1189,32 @@ export default function PedidosScreen() {
                 <View style={[styles.formGroup, styles.formGroupFlex]}>
                   <Text style={styles.formLabel}>Total Rappel</Text>
                   <TextInput
-                    style={[styles.formInput, styles.formInputCompact]}
-                    value={formLinea.TotalRappel}
-                    onChangeText={(v) => setFormLinea((f) => ({ ...f, TotalRappel: v }))}
-                    placeholder="0"
+                    style={[styles.formInput, styles.formInputPrecioReadonly, styles.formInputCompact]}
+                    value={
+                      loadingRappelPreview
+                        ? '…'
+                        : Number(formLinea.TotalRappel) > 0
+                          ? `-${formatMoneda(Number(formLinea.TotalRappel))}`
+                          : formLinea.ProductId
+                            ? formatMoneda(0)
+                            : ''
+                    }
+                    editable={false}
+                    placeholder="Según acuerdo activo"
                     placeholderTextColor="#94a3b8"
-                    keyboardType="decimal-pad"
                   />
                 </View>
               </View>
+              {formLinea.ProductId && !loadingRappelPreview && rappelPreviewInfo?.sinAcuerdo ? (
+                <Text style={styles.rappelHintWarn}>
+                  Sin acuerdo activo para este producto en la fecha del pedido
+                </Text>
+              ) : null}
+              {formLinea.ProductId && !loadingRappelPreview && rappelPreviewInfo && rappelPreviewInfo.unitaria > 0 ? (
+                <Text style={styles.rappelHintOk}>
+                  Abono -{formatMoneda(rappelPreviewInfo.unitaria)}/ud (aportación + rappel + dto.)
+                </Text>
+              ) : null}
               <View style={styles.lineaFormBtns}>
                 <TouchableOpacity style={styles.modalBtn} onPress={handleAddLinea} disabled={guardandoLinea || !formLinea.ProductId?.trim()}>
                   {guardandoLinea ? (
@@ -1015,11 +1227,29 @@ export default function PedidosScreen() {
               </View>
             </View>
           )}
-        </View>
+          </View>
+          );
+          return detalleComoModal ? (
+            <Modal visible={!!pedidoParaLineas} animationType="slide" onRequestClose={solicitarCerrarDetalle}>
+              <View style={[styles.detalleFullscreen, { paddingTop: insets.top }]}>
+                <View style={styles.detalleFullscreenBar}>
+                  <TouchableOpacity onPress={solicitarCerrarDetalle} style={styles.detalleVolverBtn} activeOpacity={0.7}>
+                    <MaterialIcons name="arrow-back" size={20} color="#0ea5e9" />
+                    <Text style={styles.detalleVolverText}>Volver a pedidos</Text>
+                  </TouchableOpacity>
+                </View>
+                {contenidoDetalle}
+              </View>
+            </Modal>
+          ) : (
+            contenidoDetalle
+          );
+          })()}
       </View>
 
       <Modal visible={modalFormVisible} transparent animationType="fade" onRequestClose={cerrarModalForm}>
-        <Pressable style={styles.modalOverlay} onPress={cerrarModalForm}>
+        {/* El fondo no cierra el formulario (evita perder datos); usar la X o Cancelar. */}
+        <Pressable style={styles.modalOverlay}>
           <KeyboardAvoidingView style={styles.modalWrap} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
               <View style={styles.modalHeader}>
@@ -1030,7 +1260,7 @@ export default function PedidosScreen() {
               </View>
               <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
                 <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Id *</Text>
+                  <Text style={styles.formLabel}>{editingPedidoId ? 'Id' : 'Id (se asignará al guardar)'}</Text>
                   <TextInput
                     style={[styles.formInput, styles.formInputDisabled]}
                     value={form.Id}
@@ -1138,9 +1368,8 @@ export default function PedidosScreen() {
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Fecha *</Text>
                   <InputFecha
-                    value={form.Fecha}
-                    onChange={(v) => setForm((f) => ({ ...f, Fecha: v }))}
-                    format="dmy"
+                    valueIso={form.Fecha}
+                    onChangeIso={(v) => setForm((f) => ({ ...f, Fecha: v }))}
                     placeholder="dd/mm/aaaa"
                     style={styles.formInput}
                   />
@@ -1190,6 +1419,12 @@ export default function PedidosScreen() {
         </Pressable>
       </Modal>
 
+      <NuevoPedidoModal
+        visible={nuevoPedidoVisible}
+        onClose={() => setNuevoPedidoVisible(false)}
+        onCreado={refetch}
+      />
+
       <Modal visible={modalBorrarVisible} transparent animationType="fade" onRequestClose={cerrarModalBorrar}>
         <Pressable style={styles.modalOverlay} onPress={cerrarModalBorrar}>
           <Pressable style={styles.modalCardBorrar} onPress={(e) => e.stopPropagation()}>
@@ -1222,6 +1457,43 @@ export default function PedidosScreen() {
                   <MaterialIcons name="delete" size={20} color="#fff" />
                 )}
                 <Text style={styles.modalBtnDangerText}>Borrar</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={!!confirmSalida} transparent animationType="fade" onRequestClose={cancelarSalida}>
+        <Pressable style={styles.modalOverlay} onPress={cancelarSalida}>
+          <Pressable style={styles.modalCardBorrar} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Pedido sin enviar</Text>
+              <TouchableOpacity onPress={cancelarSalida} style={styles.modalClose}>
+                <MaterialIcons name="close" size={22} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalBody}>
+              <Text style={styles.modalBorrarText}>
+                Este pedido sigue en <Text style={styles.modalBorrarId}>Borrador</Text> y los compañeros de
+                almacén no lo verán hasta que lo marques como <Text style={styles.modalBorrarId}>Enviado</Text>.
+                {'\n\n'}¿Quieres enviarlo ahora?
+              </Text>
+            </View>
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnCancel]}
+                onPress={() => resolverSalida(false)}
+                disabled={enviandoSalida}
+              >
+                <Text style={styles.modalBtnCancelText}>Dejar en borrador</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalBtn} onPress={() => resolverSalida(true)} disabled={enviandoSalida}>
+                {enviandoSalida ? (
+                  <ActivityIndicator size="small" color="#0ea5e9" />
+                ) : (
+                  <MaterialIcons name="send" size={18} color="#0ea5e9" />
+                )}
+                <Text style={styles.modalBtnText}>Enviar a almacén</Text>
               </TouchableOpacity>
             </View>
           </Pressable>
@@ -1268,6 +1540,18 @@ const styles = StyleSheet.create({
   lineasPanelTitle: { fontSize: 15, fontWeight: '600', color: '#334155', flex: 1 },
   lineasPanelTotal: { fontSize: 15, fontWeight: '700', color: '#334155' },
   lineasEmptyHint: { fontSize: 14, color: '#94a3b8', textAlign: 'center', paddingVertical: 24, paddingHorizontal: 16 },
+  detalleFullscreen: { flex: 1, backgroundColor: '#fff' },
+  detalleFullscreenBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+  },
+  detalleVolverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4, paddingHorizontal: 4 },
+  detalleVolverText: { fontSize: 15, fontWeight: '600', color: '#0ea5e9' },
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
@@ -1328,6 +1612,8 @@ const styles = StyleSheet.create({
   formInputDisabled: { backgroundColor: '#f1f5f9', color: '#94a3b8' },
   formInputPrecioReadonly: { backgroundColor: '#fafbfc', color: '#64748b' },
   formInputMultiline: { minHeight: 60, textAlignVertical: 'top' },
+  rappelHintOk: { fontSize: 11, color: '#16a34a', marginTop: 6 },
+  rappelHintWarn: { fontSize: 11, color: '#d97706', marginTop: 6 },
   formError: { fontSize: 12, color: '#dc2626', paddingHorizontal: 20, paddingVertical: 8 },
   modalFooter: {
     flexDirection: 'row',
@@ -1369,6 +1655,36 @@ const styles = StyleSheet.create({
   pickerChipActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
   pickerChipText: { fontSize: 13, color: '#64748b' },
   pickerChipTextActive: { color: '#fff', fontWeight: '600' },
+  chipsEstadoRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingRight: 6 },
+  chipEstado: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: MIN_TOUCH,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  chipEstadoActivo: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
+  chipEstadoCompletado: { backgroundColor: '#f0fdf4', borderColor: '#86efac' },
+  chipEstadoCompletadoActivo: { backgroundColor: '#16a34a', borderColor: '#16a34a' },
+  chipEstadoText: { fontSize: 13, color: '#64748b', fontWeight: '500' },
+  chipEstadoTextCompletado: { color: '#15803d' },
+  chipEstadoTextActivo: { color: '#fff', fontWeight: '700' },
+  chipEstadoBadge: {
+    minWidth: 22,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 999,
+    backgroundColor: '#e2e8f0',
+    alignItems: 'center',
+  },
+  chipEstadoBadgeActivo: { backgroundColor: 'rgba(255,255,255,0.3)' },
+  chipEstadoBadgeText: { fontSize: 11, fontWeight: '700', color: '#475569' },
+  chipEstadoBadgeTextActivo: { color: '#fff' },
   lineasEditBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 6, gap: 6 },
   lineasEditarBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: '#f0f9ff', borderRadius: 6, borderWidth: 1, borderColor: '#0ea5e9' },
   lineasEditarBtnText: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
@@ -1379,6 +1695,7 @@ const styles = StyleSheet.create({
   lineasCancelarBtnText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
   lineasEditInput: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 6, paddingVertical: 4, paddingHorizontal: 6, backgroundColor: '#fff' },
   lineasList: { flex: 1, maxHeight: 300, marginBottom: 12, paddingHorizontal: 16 },
+  lineasListFull: { maxHeight: undefined },
   lineasEmpty: { fontSize: 14, color: '#94a3b8', textAlign: 'center', paddingVertical: 20 },
   lineasTable: { minWidth: 520 },
   lineasTableWide: { width: '100%', minWidth: 0, alignSelf: 'stretch' },
@@ -1389,6 +1706,7 @@ const styles = StyleSheet.create({
   lineasTableCell: { fontSize: 13, color: '#334155' },
   lineasCellCantidad: { textAlign: 'center', fontWeight: '700', color: '#E91E63' },
   lineasCellTotal: { textAlign: 'right', fontWeight: '700' },
+  lineasCellRappelAbono: { color: '#dc2626', fontWeight: '600' },
   lineasColPreparada: { width: 44, alignItems: 'center', justifyContent: 'center' },
   lineasCheckBtn: { padding: 4 },
   lineasCheckBtnActive: {},

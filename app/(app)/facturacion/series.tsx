@@ -288,7 +288,8 @@ export default function SeriesScreen() {
 
       {/* Modal crear / editar */}
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={cerrarModal}>
-        <Pressable style={styles.modalOverlay} onPress={cerrarModal}>
+        {/* El fondo no cierra el formulario (evita perder datos); usar la X o Cancelar. */}
+        <Pressable style={styles.modalOverlay}>
           <KeyboardAvoidingView
             style={styles.modalCenter}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}

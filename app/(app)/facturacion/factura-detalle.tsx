@@ -39,15 +39,13 @@ import {
   type AuditoriaFactura,
 } from '../../utils/facturacion';
 import {
-  dmyToIso,
   emptyLinea,
-  hoyDmy,
+  hoyISO,
   hydrateLineasDesdeFactura,
-  isoToDmy,
   lineasPayloadForApi,
 } from '../../utils/facturaFormLogic';
 import { useFacturaFormLogic } from '../../hooks/useFacturaFormLogic';
-import { fechaEmisionFacturaADmy, formatCreadoEn, textoFechaContabilizacionGasto } from '../../utils/formatFecha';
+import { fechaEmisionFacturaAIso, formatCreadoEn, formatFechaPagoRow, textoFechaContabilizacionGasto } from '../../utils/formatFecha';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalToast, detectToastType } from '../../components/Toast';
 import { apiFetch, errorMessage } from '../../utils/api';
@@ -94,7 +92,7 @@ export default function FacturaDetalleScreen() {
   const facturaForm = useFacturaFormLogic({
     modo,
     loading,
-    initialFechaEmision: modo === 'crear' ? undefined : hoyDmy(),
+    initialFechaEmision: modo === 'crear' ? undefined : hoyISO(),
   });
   const {
     fechaEmision,
@@ -171,7 +169,7 @@ export default function FacturaDetalleScreen() {
 
   // ── Pago modal ──
   const [showPagoModal, setShowPagoModal] = useState(false);
-  const [pagoFecha, setPagoFecha] = useState(hoyDmy());
+  const [pagoFecha, setPagoFecha] = useState(hoyISO());
   const [pagoImporte, setPagoImporte] = useState('');
   const [pagoMetodo, setPagoMetodo] = useState('transferencia');
   const [pagoMetodoOtro, setPagoMetodoOtro] = useState('');
@@ -205,8 +203,8 @@ export default function FacturaDetalleScreen() {
     if (!serie || !emisorId || modo === 'editar') { setPreviewNumFactura(''); return; }
     const s = series.find((x) => x.serie === serie);
     if (!s) { setPreviewNumFactura(''); return; }
-    const iso = dmyToIso(fechaEmision);
-    const year = iso && /^\d{4}/.test(iso) ? iso.substring(0, 4) : String(new Date().getFullYear());
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(fechaEmision) ? fechaEmision : '';
+    const year = iso ? iso.substring(0, 4) : String(new Date().getFullYear());
     apiFetch(`/api/facturacion/series/next-number?serie=${encodeURIComponent(serie)}&emisor_id=${encodeURIComponent(emisorId)}`)
       .then((r) => r.json())
       .then((d) => {
@@ -299,9 +297,9 @@ export default function FacturaDetalleScreen() {
       setEstado(f.estado);
       setNumeroFactura(f.numero_factura ?? '');
       setSerie(f.serie);
-      setFechaEmision(isoToDmy(f.fecha_emision ?? ''));
-      setFechaOperacion(isoToDmy(f.fecha_operacion ?? ''));
-      setFechaVencimiento(isoToDmy(f.fecha_vencimiento ?? ''));
+      setFechaEmision(fechaEmisionFacturaAIso(f.fecha_emision ?? '') ?? '');
+      setFechaOperacion(fechaEmisionFacturaAIso(f.fecha_operacion ?? '') ?? '');
+      setFechaVencimiento(fechaEmisionFacturaAIso(f.fecha_vencimiento ?? '') ?? '');
       setCondicionesPago(f.condiciones_pago ?? 'contado');
       setFormaPago(f.forma_pago ?? 'transferencia');
       setObservaciones(f.observaciones ?? '');
@@ -441,9 +439,9 @@ export default function FacturaDetalleScreen() {
     empresa_email: empresaEmail,
     empresa_iban: empresaIban,
     empresa_iban_alternativo: empresaIbanAlt,
-    fecha_emision: dmyToIso(fechaEmision),
-    fecha_operacion: fechaOperacion ? dmyToIso(fechaOperacion) : null,
-    fecha_vencimiento: dmyToIso(fechaVencimiento),
+    fecha_emision: fechaEmision,
+    fecha_operacion: fechaOperacion || null,
+    fecha_vencimiento: fechaVencimiento,
     condiciones_pago: condicionesPago,
     forma_pago: formaPago,
     observaciones,
@@ -619,8 +617,10 @@ export default function FacturaDetalleScreen() {
     setPagoMetodo(clave);
     setPagoMetodoOtro(clave === 'otro' ? otroTexto : '');
 
-    const hoy = hoyDmy();
-    const fechaFactura = fechaEmisionFacturaADmy(fechaEmision, hoy);
+    const hoy = hoyISO();
+    const fechaFactura = /^\d{4}-\d{2}-\d{2}$/.test(fechaEmision)
+      ? fechaEmision
+      : (fechaEmisionFacturaAIso(fechaEmision) ?? hoy);
     setPagoFecha(clave === 'tarjeta' ? fechaFactura : hoy);
 
     setShowPagoModal(true);
@@ -630,8 +630,10 @@ export default function FacturaDetalleScreen() {
     setPagoMetodo(fp);
     if (fp !== 'otro') setPagoMetodoOtro('');
     if (pagoFechaEditadaManual) return;
-    const hoy = hoyDmy();
-    const fechaFactura = fechaEmisionFacturaADmy(fechaEmision, hoy);
+    const hoy = hoyISO();
+    const fechaFactura = /^\d{4}-\d{2}-\d{2}$/.test(fechaEmision)
+      ? fechaEmision
+      : (fechaEmisionFacturaAIso(fechaEmision) ?? hoy);
     setPagoFecha(fp === 'tarjeta' ? fechaFactura : hoy);
   };
 
@@ -642,8 +644,8 @@ export default function FacturaDetalleScreen() {
       alertMsg('Error', 'Indica fecha e importe válidos');
       return;
     }
-    const fechaIso = dmyToIso(pagoFecha);
-    if (!fechaIso) {
+    const fechaIso = pagoFecha.trim();
+    if (!fechaIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
       alertMsg('Error', 'Indica una fecha válida');
       return;
     }
@@ -698,9 +700,9 @@ export default function FacturaDetalleScreen() {
     const facturaData = {
       id_factura: numFactura || facturaId,
       tipo, serie, numero: 0, estado,
-      fecha_emision: dmyToIso(fechaEmision) || fechaEmision,
-      fecha_operacion: fechaOperacion ? dmyToIso(fechaOperacion) || fechaOperacion : undefined,
-      fecha_vencimiento: fechaVencimiento ? dmyToIso(fechaVencimiento) || fechaVencimiento : undefined,
+      fecha_emision: fechaEmision,
+      fecha_operacion: fechaOperacion || undefined,
+      fecha_vencimiento: fechaVencimiento || undefined,
       condiciones_pago: condicionesPago,
       forma_pago: formaPago,
       observaciones: observaciones || undefined,
@@ -1082,19 +1084,19 @@ export default function FacturaDetalleScreen() {
           {/* Fecha emisión */}
           <View style={styles.field}>
             <Text style={styles.label}>Fecha emisión *</Text>
-            <InputFecha value={fechaEmision} onChange={setFechaEmision} format="dmy" editable={esEditable} />
+            <InputFecha valueIso={fechaEmision} onChangeIso={setFechaEmision} placeholder="dd/mm/aaaa" editable={esEditable} />
           </View>
 
           {/* Fecha operación */}
           <View style={styles.field}>
             <Text style={styles.label}>Fecha operación</Text>
-            <InputFecha value={fechaOperacion} onChange={setFechaOperacion} format="dmy" placeholder="Opcional" editable={esEditable} />
+            <InputFecha valueIso={fechaOperacion} onChangeIso={setFechaOperacion} placeholder="dd/mm/aaaa" editable={esEditable} />
           </View>
 
           {/* Fecha vencimiento */}
           <View style={styles.field}>
             <Text style={styles.label}>Fecha vencimiento</Text>
-            <InputFecha value={fechaVencimiento} onChange={setFechaVencimiento} format="dmy" editable={esEditable} />
+            <InputFecha valueIso={fechaVencimiento} onChangeIso={setFechaVencimiento} placeholder="dd/mm/aaaa" editable={esEditable} />
           </View>
 
           {/* Condiciones + forma de pago: una fila, ambos desplegables */}
@@ -1376,7 +1378,7 @@ export default function FacturaDetalleScreen() {
             pagos.map((p) => (
               <View key={p.id_pago} style={styles.pagoRow}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.pagoFecha}>{isoToDmy(p.fecha) || p.fecha}</Text>
+                  <Text style={styles.pagoFecha}>{formatFechaPagoRow(p.fecha)}</Text>
                   <Text style={styles.pagoMeta}>
                     {labelFormaPago(p.metodo_pago)}
                     {p.referencia ? ` · ${p.referencia}` : ''}
@@ -1516,12 +1518,12 @@ export default function FacturaDetalleScreen() {
             <View style={styles.field}>
               <Text style={styles.label}>Fecha</Text>
               <InputFecha
-                value={pagoFecha}
-                onChange={(v) => {
+                valueIso={pagoFecha}
+                onChangeIso={(v) => {
                   setPagoFecha(v);
                   setPagoFechaEditadaManual(true);
                 }}
-                format="dmy"
+                placeholder="dd/mm/aaaa"
               />
             </View>
 

@@ -781,7 +781,7 @@ export default function ObjetivosOpcionAScreen() {
     const target = loc ?? localSeleccionado;
     const workplaceId = (target?.agoraCode ?? target?.AgoraCode ?? '').toString().trim();
     if (!workplaceId) { setError('Selecciona un local'); return; }
-    if (!fechaInicio || !fechaFin || !/^\d{4}-\d{2}-\d{2}$/.test(fechaInicio) || !/^\d{4}-\d{2}-\d{2}$/.test(fechaFin)) { setError('Indica rango de fechas (YYYY-MM-DD)'); return; }
+    if (!fechaInicio || !fechaFin || !/^\d{4}-\d{2}-\d{2}$/.test(fechaInicio) || !/^\d{4}-\d{2}-\d{2}$/.test(fechaFin)) { setError('Indica una fecha válida (dd/mm/aaaa)'); return; }
     if (fechaInicio > fechaFin) { setError('Fecha inicio debe ser <= fecha fin'); return; }
     setError(null);
     setGenerando(true);
@@ -1098,11 +1098,11 @@ export default function ObjetivosOpcionAScreen() {
         <View style={styles.formRow}>
           <View style={[styles.formGroup, isNarrow && styles.formGroupNarrow]}>
             <Text style={styles.formLabel}>Desde</Text>
-            <InputFecha value={fechaInicio} onChange={setFechaInicio} format="iso" placeholder="YYYY-MM-DD" style={styles.formInput} />
+            <InputFecha valueIso={fechaInicio} onChangeIso={setFechaInicio} placeholder="dd/mm/aaaa" style={styles.formInput} />
           </View>
           <View style={[styles.formGroup, isNarrow && styles.formGroupNarrow]}>
             <Text style={styles.formLabel}>Hasta</Text>
-            <InputFecha value={fechaFin} onChange={setFechaFin} format="iso" placeholder="YYYY-MM-DD" style={styles.formInput} />
+            <InputFecha valueIso={fechaFin} onChangeIso={setFechaFin} placeholder="dd/mm/aaaa" style={styles.formInput} />
           </View>
         </View>
         <View style={[styles.formRow, styles.controlActionsRow]}>

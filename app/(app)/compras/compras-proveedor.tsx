@@ -15,6 +15,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as XLSX from 'xlsx';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import { InputFecha } from '../../components/InputFecha';
 import { useComprasProveedorCache } from '../../contexts/ComprasProveedorCache';
 import {
   CompraLinea,
@@ -25,7 +26,6 @@ import {
   albaranLabel,
   idNorm,
   toggleInList,
-  parseDdMmYyyyToIso,
   toggleGrupoFamilias,
   ComprasFiltroDropdown,
   GruposFamiliasChips,
@@ -141,8 +141,8 @@ export default function ComprasProveedorScreen() {
 
   const filtrados = useMemo(() => {
     let list = items;
-    const isoDesde = parseDdMmYyyyToIso(fechaDesde);
-    const isoHasta = parseDdMmYyyyToIso(fechaHasta);
+    const isoDesde = /^\d{4}-\d{2}-\d{2}$/.test(fechaDesde.trim()) ? fechaDesde.trim() : null;
+    const isoHasta = /^\d{4}-\d{2}-\d{2}$/.test(fechaHasta.trim()) ? fechaHasta.trim() : null;
     if (isoDesde) {
       list = list.filter((it) => {
         const f = fechaLineaISO(it);
@@ -200,8 +200,8 @@ export default function ComprasProveedorScreen() {
 
   const filtrosActivosCount = useMemo(() => {
     let n = 0;
-    if (parseDdMmYyyyToIso(fechaDesde)) n += 1;
-    if (parseDdMmYyyyToIso(fechaHasta)) n += 1;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fechaDesde.trim())) n += 1;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fechaHasta.trim())) n += 1;
     n += selAlbaranes.length + selProductos.length + selProveedores.length + selFamilias.length + selAlmacenes.length;
     return n;
   }, [fechaDesde, fechaHasta, selAlbaranes, selProductos, selProveedores, selFamilias, selAlmacenes]);
@@ -425,28 +425,20 @@ export default function ComprasProveedorScreen() {
                 <View style={styles.modalFiltrosFechasRow}>
                   <View style={styles.modalFiltrosFechaField}>
                     <Text style={styles.modalFiltrosLabel}>Desde</Text>
-                    <TextInput
+                    <InputFecha
+                      valueIso={fechaDesde}
+                      onChangeIso={setFechaDesde}
+                      placeholder="dd/mm/aaaa"
                       style={styles.modalFiltrosInput}
-                      value={fechaDesde}
-                      onChangeText={setFechaDesde}
-                      placeholder="01/01/2026"
-                      placeholderTextColor="#94a3b8"
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      keyboardType={Platform.OS === 'web' ? 'default' : 'numbers-and-punctuation'}
                     />
                   </View>
                   <View style={styles.modalFiltrosFechaField}>
                     <Text style={styles.modalFiltrosLabel}>Hasta</Text>
-                    <TextInput
+                    <InputFecha
+                      valueIso={fechaHasta}
+                      onChangeIso={setFechaHasta}
+                      placeholder="dd/mm/aaaa"
                       style={styles.modalFiltrosInput}
-                      value={fechaHasta}
-                      onChangeText={setFechaHasta}
-                      placeholder="31/12/2026"
-                      placeholderTextColor="#94a3b8"
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      keyboardType={Platform.OS === 'web' ? 'default' : 'numbers-and-punctuation'}
                     />
                   </View>
                 </View>

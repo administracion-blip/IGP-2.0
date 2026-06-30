@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
+import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import * as XLSX from 'xlsx-js-style';
 import { apiFetch } from '../../utils/api';
 
@@ -113,27 +114,6 @@ function formatSyncSeconds(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
   return s > 0 ? `${m} min ${s} s` : `${m} min`;
-}
-
-function parseDateToYYYYMMDD(input: string): string | null {
-  const s = input.trim();
-  if (!s) return null;
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})$/);
-  if (m) {
-    const d = parseInt(m[1], 10);
-    const mo = parseInt(m[2], 10);
-    let y = parseInt(m[3], 10);
-    if (y < 100) y += 2000;
-    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) {
-      const date = new Date(y, mo - 1, d);
-      if (date.getDate() === d && date.getMonth() === mo - 1 && date.getFullYear() === y) {
-        return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      }
-    }
-    return null;
-  }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  return null;
 }
 
 function getBusinessDay(item: CloseOut): string {
@@ -278,7 +258,7 @@ function getAmountForMethod(item: CloseOut, methodName: string): number {
   return total;
 }
 
-function getUniquePaymentMethods(items: CloseOut[]): string[] {
+function getUniquePaymentMethods(items: CloseOut[], ordenMap: Record<string, number> = {}): string[] {
   const set = new Set<string>();
   for (const item of items) {
     for (const key of PAYMENT_KEYS) {
@@ -291,10 +271,22 @@ function getUniquePaymentMethods(items: CloseOut[]): string[] {
       }
     }
   }
-  const knownFirst = KNOWN_PAYMENT_ORDER.filter((m) => set.has(m));
-  const others = Array.from(set).filter((m) => !KNOWN_PAYMENT_ORDER.includes(m)).sort();
-  return [...knownFirst, ...others];
+  // Orden: el del maestro (Igp_FormasPago) si existe; si no, el conocido; el resto, alfabético.
+  const ordenDe = (m: string): number => {
+    if (ordenMap[m] != null) return ordenMap[m];
+    const i = KNOWN_PAYMENT_ORDER.indexOf(m);
+    return i >= 0 ? i : 500;
+  };
+  return Array.from(set).sort((a, b) => {
+    const oa = ordenDe(a);
+    const ob = ordenDe(b);
+    if (oa !== ob) return oa - ob;
+    return a.localeCompare(b);
+  });
 }
+
+/** Forma de pago del maestro persistente Igp_FormasPago. */
+type FormaPago = { agoraId?: number; nombre?: string; canonico?: string | null; arquear?: boolean; orden?: number; activo?: boolean };
 
 function formatMoneda(value: string | number): string {
   if (value === '' || value === '—' || value == null) return '—';
@@ -310,6 +302,7 @@ type LocalItem = { AgoraCode?: string; agoraCode?: string; Nombre?: string; nomb
 export default function CierresTeoricosScreen() {
   const router = useRouter();
   const [closeouts, setCloseouts] = useState<CloseOut[]>([]);
+  const [formasPago, setFormasPago] = useState<FormaPago[]>([]);
   const [locales, setLocales] = useState<LocalItem[]>([]);
   const [saleCenters, setSaleCenters] = useState<{ Id?: number; Nombre?: string; Local?: string; Activo?: boolean }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -326,14 +319,8 @@ export default function CierresTeoricosScreen() {
   const [syncEstimatedRemainingSeconds, setSyncEstimatedRemainingSeconds] = useState<number | null>(null);
   const syncStartTimeRef = useRef<number | null>(null);
   const syncElapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [syncFechaDesde, setSyncFechaDesde] = useState(() => {
-    const d = new Date();
-    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-  });
-  const [syncFechaHasta, setSyncFechaHasta] = useState(() => {
-    const d = new Date();
-    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-  });
+  const [syncFechaDesde, setSyncFechaDesde] = useState(() => fechaJornadaNegocioIso());
+  const [syncFechaHasta, setSyncFechaHasta] = useState(() => fechaJornadaNegocioIso());
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
   const [filtroLocal, setFiltroLocal] = useState('');
@@ -483,6 +470,13 @@ export default function CierresTeoricosScreen() {
   }, []);
 
   useEffect(() => {
+    apiFetch('/api/agora/formas-pago')
+      .then((res) => safeJson<{ formas?: FormaPago[] }>(res))
+      .then((data) => setFormasPago(Array.isArray(data.formas) ? data.formas : []))
+      .catch(() => setFormasPago([]));
+  }, []);
+
+  useEffect(() => {
     apiFetch('/api/agora/sale-centers')
       .then((res) => safeJson<{ saleCenters?: { Id?: number; Nombre?: string; Local?: string; Activo?: boolean }[] }>(res))
       .then((data) => setSaleCenters(data.saleCenters || []))
@@ -530,14 +524,28 @@ export default function CierresTeoricosScreen() {
     }
   }, [formLocal, saleCentersPorLocal, formPosId]);
 
-  const paymentCols = useMemo(() => getUniquePaymentMethods(closeouts), [closeouts]);
+  /** Orden por grupo (canónico o nombre) según el maestro Igp_FormasPago. */
+  const ordenFormasPago = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const f of formasPago) {
+      if (f.activo === false) continue;
+      const grupo = (f.canonico && String(f.canonico).trim()) || String(f.nombre ?? '').trim();
+      if (!grupo) continue;
+      const o = Number(f.orden ?? 99);
+      if (map[grupo] == null || o < map[grupo]) map[grupo] = o;
+    }
+    return map;
+  }, [formasPago]);
+
+  const paymentCols = useMemo(
+    () => getUniquePaymentMethods(closeouts, ordenFormasPago),
+    [closeouts, ordenFormasPago],
+  );
   const columnas = useMemo(() => {
     const base = ['__sel', 'BusinessDay', 'DiaSemana', 'Local', 'PosName', 'InvoicePayments'];
-    const orderedPayments = ['Efectivo', 'Tarjeta', 'Pendiente de cobro', 'Prepago Transferencia', 'AgoraPay'].filter((m) => paymentCols.includes(m));
-    const otherPayments = paymentCols.filter((m) => !orderedPayments.includes(m));
     const dates = ['OpenDate', 'CloseDate', 'updatedAt'];
     const rest = ['GrossAmount', 'NetAmount', 'VatAmount', 'SurchargeAmount', 'PK', 'SK', 'Number', 'WorkplaceId', 'PosId', 'Documents', 'TicketPayments', 'DeliveryNotePayments', 'SalesOrderPayments', 'createdAt', 'source'];
-    return [...base, ...orderedPayments, ...otherPayments, ...dates, ...rest];
+    return [...base, ...paymentCols, ...dates, ...rest];
   }, [paymentCols]);
 
   const closeoutsFiltrados = useMemo(() => {
@@ -545,15 +553,15 @@ export default function CierresTeoricosScreen() {
     if (filtroLocal) {
       list = list.filter((i) => (i.PK ?? i.pk) === filtroLocal);
     }
-    const desde = parseDateToYYYYMMDD(filtroFechaDesde);
-    const hasta = parseDateToYYYYMMDD(filtroFechaHasta);
-    if (desde) {
+    const desde = filtroFechaDesde.trim();
+    const hasta = filtroFechaHasta.trim();
+    if (desde && /^\d{4}-\d{2}-\d{2}$/.test(desde)) {
       list = list.filter((i) => {
         const bd = getBusinessDay(i);
         return bd >= desde;
       });
     }
-    if (hasta) {
+    if (hasta && /^\d{4}-\d{2}-\d{2}$/.test(hasta)) {
       list = list.filter((i) => {
         const bd = getBusinessDay(i);
         return bd <= hasta;
@@ -604,8 +612,7 @@ export default function CierresTeoricosScreen() {
   const canDeleteSelection = selectedRowIds.length > 0 || !!selectedItem;
 
   const openAddModal = useCallback(() => {
-    const d = new Date();
-    setFormBusinessDay(`${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`);
+    setFormBusinessDay(fechaJornadaNegocioIso());
     setFormLocal('');
     setFormPosId('');
     setFormPosName('');
@@ -620,8 +627,7 @@ export default function CierresTeoricosScreen() {
 
   const openEditModalForItem = useCallback((item: CloseOut) => {
     const bd = getBusinessDay(item);
-    const [y, m, d] = bd ? bd.split('-') : ['', '', ''];
-    setFormBusinessDay(bd ? `${d}/${m}/${y}` : '');
+    setFormBusinessDay(bd && /^\d{4}-\d{2}-\d{2}$/.test(bd) ? bd : '');
     setFormLocal(String(item.PK ?? item.pk ?? ''));
     setFormPosId(String(item.PosId ?? item.posId ?? ''));
     setFormPosName(String(item.PosName ?? item.posName ?? ''));
@@ -732,10 +738,10 @@ export default function CierresTeoricosScreen() {
   }, [selectedRowIds, closeouts, selectedItem]);
 
   const handleSaveForm = useCallback(async () => {
-    const bd = parseDateToYYYYMMDD(formBusinessDay);
+    const bd = formBusinessDay.trim();
     const pk = formLocal.trim();
-    if (!bd || !pk) {
-      setFormError('Fecha y local obligatorios');
+    if (!bd || !/^\d{4}-\d{2}-\d{2}$/.test(bd) || !pk) {
+      setFormError('Indica una fecha válida (dd/mm/aaaa) y local');
       return;
     }
     const invoicePayments = formPaymentMethods
@@ -902,8 +908,8 @@ export default function CierresTeoricosScreen() {
     ['InvoicePayments', 'TicketPayments', 'DeliveryNotePayments', 'SalesOrderPayments'].includes(col);
 
   const exportColumnas = useMemo(() => {
-    return ['BusinessDay', 'DiaSemana', 'Local', 'PosName', 'InvoicePayments', 'Efectivo', 'Tarjeta', 'Pendiente de cobro', 'Prepago Transferencia', 'AgoraPay'];
-  }, []);
+    return ['BusinessDay', 'DiaSemana', 'Local', 'PosName', 'InvoicePayments', ...paymentCols];
+  }, [paymentCols]);
 
   const buildExportRows = useCallback(() => {
     return closeoutsFiltrados.map((item) => {
@@ -923,10 +929,12 @@ export default function CierresTeoricosScreen() {
     const MONEY_W = 16;
     const colWidthMap: Record<string, number> = {
       BusinessDay: 12, DiaSemana: 5, Local: 18, PosName: 12,
-      InvoicePayments: MONEY_W, Efectivo: MONEY_W, Tarjeta: MONEY_W,
-      'Pendiente de cobro': MONEY_W, 'Prepago Transferencia': MONEY_W, AgoraPay: MONEY_W,
+      InvoicePayments: MONEY_W,
     };
-    ws['!cols'] = exportColumnas.map((col) => ({ wch: colWidthMap[col] ?? 14 }));
+    // Las columnas de método de pago (dinámicas) usan ancho de moneda.
+    ws['!cols'] = exportColumnas.map((col) => ({
+      wch: colWidthMap[col] ?? (paymentCols.includes(col) ? MONEY_W : 14),
+    }));
 
     const boldCols = new Set([2, 4]);
     const headerBold = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '0EA5E9' } } };
@@ -948,7 +956,7 @@ export default function CierresTeoricosScreen() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Cierres Teóricos');
     XLSX.writeFile(wb, `cierres_teoricos_${new Date().toISOString().slice(0, 10)}.xlsx`);
-  }, [buildExportRows, exportColumnas]);
+  }, [buildExportRows, exportColumnas, paymentCols]);
 
   const handleExportPDF = useCallback(async () => {
     setShowDownloadMenu(false);
@@ -1256,20 +1264,18 @@ export default function CierresTeoricosScreen() {
             <View style={styles.filterField}>
               <Text style={styles.filterLabel}>Desde</Text>
               <InputFecha
-                value={filtroFechaDesde}
-                onChange={setFiltroFechaDesde}
-                format="dmy"
-                placeholder="dd/mm/yyyy"
+                valueIso={filtroFechaDesde}
+                onChangeIso={setFiltroFechaDesde}
+                placeholder="dd/mm/aaaa"
                 style={styles.filterInput}
               />
                 </View>
             <View style={styles.filterField}>
               <Text style={styles.filterLabel}>Hasta</Text>
               <InputFecha
-                value={filtroFechaHasta}
-                onChange={setFiltroFechaHasta}
-                format="dmy"
-                placeholder="dd/mm/yyyy"
+                valueIso={filtroFechaHasta}
+                onChangeIso={setFiltroFechaHasta}
+                placeholder="dd/mm/aaaa"
                 style={styles.filterInput}
               />
               </View>
@@ -1315,19 +1321,17 @@ export default function CierresTeoricosScreen() {
             <Text style={styles.modalSubtitle}>Actualiza los datos desde Ágora entre las fechas seleccionadas</Text>
             <Text style={styles.filterLabel}>Fecha desde</Text>
             <InputFecha
-              value={syncFechaDesde}
-              onChange={setSyncFechaDesde}
-              format="dmy"
-              placeholder="dd/mm/yyyy"
+              valueIso={syncFechaDesde}
+              onChangeIso={setSyncFechaDesde}
+              placeholder="dd/mm/aaaa"
               style={styles.filterInput}
               editable={!syncing}
             />
             <Text style={styles.filterLabel}>Fecha hasta</Text>
             <InputFecha
-              value={syncFechaHasta}
-              onChange={setSyncFechaHasta}
-              format="dmy"
-              placeholder="dd/mm/yyyy"
+              valueIso={syncFechaHasta}
+              onChangeIso={setSyncFechaHasta}
+              placeholder="dd/mm/aaaa"
               style={styles.filterInput}
               editable={!syncing}
             />
@@ -1341,9 +1345,15 @@ export default function CierresTeoricosScreen() {
                 <TouchableOpacity
                 style={[styles.modalBtn, styles.modalBtnPrimary, syncing && styles.toolbarBtnDisabled]}
                   onPress={() => {
-                  const desde = parseDateToYYYYMMDD(syncFechaDesde);
-                  const hasta = parseDateToYYYYMMDD(syncFechaHasta);
-                  if (desde && hasta && desde <= hasta) {
+                  const desde = syncFechaDesde.trim();
+                  const hasta = syncFechaHasta.trim();
+                  if (
+                    desde &&
+                    hasta &&
+                    /^\d{4}-\d{2}-\d{2}$/.test(desde) &&
+                    /^\d{4}-\d{2}-\d{2}$/.test(hasta) &&
+                    desde <= hasta
+                  ) {
                     setShowSyncModal(false);
                     syncRangoFechas(desde, hasta);
                   }
@@ -1370,12 +1380,11 @@ export default function CierresTeoricosScreen() {
             <ScrollView style={styles.formModalScroll} showsVerticalScrollIndicator>
             <Text style={styles.modalTitle}>{editingItem ? 'Editar cierre' : 'Añadir cierre'}</Text>
             {formError ? <Text style={styles.formError}>{formError}</Text> : null}
-            <Text style={styles.filterLabel}>Fecha (dd/mm/yyyy)</Text>
+            <Text style={styles.filterLabel}>Fecha negocio</Text>
             <InputFecha
-              value={formBusinessDay}
-              onChange={setFormBusinessDay}
-              format="dmy"
-              placeholder="dd/mm/yyyy"
+              valueIso={formBusinessDay}
+              onChangeIso={setFormBusinessDay}
+              placeholder="dd/mm/aaaa"
               style={styles.filterInput}
               editable={!saving}
             />

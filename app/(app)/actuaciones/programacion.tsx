@@ -960,17 +960,15 @@ export default function ProgramacionScreen() {
               </View>
               <Text style={styles.filterLabelInline}>Desde</Text>
               <InputFecha
-                showCalendar={false}
                 style={[styles.fInput, styles.fInputFecha]}
-                placeholder="dd/mm/yyyy"
+                placeholder="dd/mm/aaaa"
                 valueIso={fechaDesde}
                 onChangeIso={setFechaDesde}
               />
               <Text style={styles.filterLabelInline}>Hasta</Text>
               <InputFecha
-                showCalendar={false}
                 style={[styles.fInput, styles.fInputFecha]}
-                placeholder="dd/mm/yyyy"
+                placeholder="dd/mm/aaaa"
                 valueIso={fechaHasta}
                 onChangeIso={setFechaHasta}
               />

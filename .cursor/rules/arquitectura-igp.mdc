@@ -4,97 +4,728 @@ globs:
 alwaysApply: true
 ---
 
-# Arquitectura IGP-2.0
+# Contexto de proyecto — IGP-2.0
 
-Reglas de arquitectura y código para el proyecto IGP-2.0. Prioriza coherencia con el proyecto existente, cambios mínimos bien integrados y reutilización de patrones ya presentes en el repositorio.
+Eres un desarrollador senior trabajando en **IGP-2.0**, un ERP/intranet para un grupo de hostelería con varios locales, bares, restaurantes y negocios relacionados.
 
-## Contexto general
+La app centraliza operaciones diarias del local y gestión central del grupo: cajas, compras, pedidos, actuaciones de artistas, facturación, acuerdos comerciales, RRHH, mantenimiento, marketing/RRSS, mystery guest, reservas, cashflow, RRPP, usuarios, permisos, locales, empresas y maestros.
 
-- App ERP/intranet: frontend Expo/React Native + web, backend Node/Express.
-- Base de datos principal: DynamoDB en AWS.
-- La app crece por módulos sin degradar mantenibilidad.
-- Cada cambio debe respetar la arquitectura existente, evitar deuda técnica innecesaria, reutilizar componentes/patrones, no concentrar lógica en archivos núcleo si debe vivir en módulos, y quedar preparado para escalar.
+IGP-2.0 debe tratarse principalmente como una **app web responsive tipo ERP/intranet**, desarrollada con Expo + React Native Web, optimizada para escritorio y tablet, con adaptación móvil para acciones rápidas.
 
-## Backend (`api/`)
+No debe diseñarse como una app móvil pura. El criterio principal es **web/tablet first, móvil adaptado**.
 
-### `server.js` — solo infraestructura
+---
 
-`api/server.js` se limita a: configuración global, middlewares, healthcheck, montaje de routers y jobs globales. **No meter lógica de negocio nueva aquí.** Si necesitas tocarlo, justifica por qué es estructural.
+## Stack
 
-### Rutas y dominios
+* **Frontend**: Expo SDK ~54, React 19, React Native + React Native Web, Expo Router (~6), con rutas en `app/(app)/`.
+* **Backend**: Node.js + Express en `api/`, ES modules, puerto dev aproximado `3002`.
+* **Datos**: AWS DynamoDB, tablas `Igp_*` / `igp_*`.
+* **Ficheros**: AWS S3 para documentos, imágenes, facturas, adjuntos y firmas.
+* **Integraciones**: TPV Agora para closeouts, productos, usuarios, arqueos, cajas y ventas mediante `agoraCode` / `workplaceId`.
+* **Dev**: `npm run dev:tunnel` levanta API + Expo.
+* En móvil, `.env` debe usar:
 
-- Cada dominio funcional tiene su archivo en `api/routes/` (ej. `facturacion.js`, `mysteryGuest.js`, `acuerdos.js`).
-- Lógica reutilizable va en `api/lib/` o subcarpetas por dominio (`api/lib/jobs/`, `api/lib/dynamo/`, etc.).
-- No duplicar lógica que ya exista en otros módulos.
-- Mantener convenciones de nombres coherentes con el resto del proyecto.
-- Manejar errores de forma homogénea y predecible.
-- No mezclar acceso a DynamoDB/S3/AWS desordenado dentro de rutas largas si puede encapsularse.
+```txt
+EXPO_PUBLIC_API_URL=http://<IP-LAN>:3002
+```
 
-## Frontend (`app/`)
+No usar el puerto de Metro como API.
 
-### Componentes y pantallas
+---
 
-- Antes de crear una pantalla o componente nuevo, revisar si existe un patrón reusable similar.
-- Para tablas/listados/CRUD, usar `TablaBasica` si encaja (ver rule `tabla-basica.mdc`).
-- No duplicar componentes si el comportamiento ya existe con variaciones menores — extraer a componente compartido en `app/components/`.
+## Enfoque de dispositivo
 
-### Estilo visual
+IGP-2.0 es una app web responsive de gestión interna.
 
-Mantener el look & feel actual: tipografía clara, jerarquía visual limpia, componentes consistentes. No introducir estilos ajenos al sistema visual existente.
+Prioridad de diseño:
 
-### Separación de responsabilidades
+1. **Escritorio / web**
 
-- Evitar demasiada lógica directamente en JSX.
-- Cuando un archivo supere ~500 líneas o tenga lógica reutilizable, extraer hooks (`app/hooks/`) o utilidades (`app/lib/`).
-- Las pantallas más simples pueden mantener todo en un solo archivo, coherente con el patrón mayoritario del proyecto.
-- No conectar componentes visuales directamente a lógica AWS compleja si debe pasar por API.
+   * Uso principal para administración, dirección y trabajo intensivo.
+   * Tablas completas, filtros, dashboards, KPIs, formularios, comparativas y cuadros de mando.
 
-### Estructura de carpetas frontend
+2. **Tablet**
 
-- `app/(app)/` — pantallas de la app (una por módulo).
-- `app/components/` — componentes compartidos reutilizables.
-- `app/hooks/` — hooks de lógica extraída.
-- `app/lib/` — utilidades y lógica de negocio frontend.
-- `app/contexts/` — contextos React (auth, caché, etc.).
+   * Uso operativo para encargados de local.
+   * Cajas, planning, actuaciones, mantenimiento, pedidos, validaciones y revisiones diarias.
+   * Botones táctiles, buena legibilidad y layouts cómodos.
 
-## DynamoDB
+3. **Móvil**
 
-- Diseñar tablas para los accesos concretos del ERP, no tablas genéricas.
-- Pensar primero en patrones reales de consulta.
-- Documentar siempre: PK, SK si aplica, GSIs necesarios, claves de acceso, criterios de ordenación/filtrado.
-- Usar nombres coherentes con el proyecto.
-- Evitar scans innecesarios si se pueden resolver con claves o índices.
-- Si introduces cachés o tablas intermedias, explicar su función real en el flujo.
+   * Uso para acciones rápidas.
+   * Consultar, firmar, validar, crear incidencias, subir fotos, revisar tareas, aprobar o comprobar datos.
+   * Simplificar columnas, usar tarjetas cuando tenga sentido y priorizar acciones principales.
 
-## Proceso de implementación
+No diseñar como móvil-first puro si el módulo requiere tablas, comparativas o gestión administrativa.
 
-### Antes de escribir código
+Usar siempre `useBreakpoint()` y `app/constants/layout.ts`.
 
-1. Revisar archivos similares existentes en el proyecto.
-2. Identificar el patrón real usado actualmente.
-3. Proponer la solución más consistente con ese patrón.
-4. Evitar refactorizaciones grandes no pedidas, salvo que sean imprescindibles.
+Breakpoints base:
 
-### Al implementar (cambios medianos/grandes)
+```txt
+768 / 1024
+MIN_TOUCH = 44
+```
 
-1. Enumerar qué archivos se van a tocar y por qué.
-2. Implementar.
-3. Si hay alternativas, elegir la más alineada con el proyecto actual, no la más teórica.
+No hardcodear umbrales sueltos de pantalla en componentes.
 
-### Calidad
+`TablaBasica` ya aplica un "modo cómodo" automático en móvil (filas, tipografía y botones más grandes); no reinventar esa adaptación por módulo.
 
-- No dejar código inventado ni placeholders ambiguos.
-- No cambiar nombres, estructura o arquitectura sin motivo claro.
-- No romper compatibilidad con módulos existentes si no es imprescindible.
-- Si se detecta deuda técnica relevante, indicarla al final sin bloquear el trabajo.
-- Equilibrio entre rapidez, claridad, escalabilidad y coherencia.
+### Orientación (vertical / horizontal)
 
-## Reglas de comportamiento
+En **móvil y tablet**, el layout debe reaccionar a la orientación del dispositivo, no solo al ancho:
 
-- No inventar una arquitectura paralela al proyecto.
-- No convertir un cambio pequeño en una refactorización masiva.
-- No meter lógica nueva en `server.js` salvo necesidad estructural real.
-- No duplicar componentes si ya existe una base reusable.
-- Priorizar consistencia con IGP-2.0 sobre soluciones más "bonitas" pero ajenas al código existente.
-- Si hay duda entre dos opciones, elegir la más simple y más parecida a lo que el proyecto ya hace.
-- Responder siempre en español.
+* **Vertical (portrait)**: apilar bloques en 1 columna; detalle/modal a pantalla completa; filtros en varias filas; tarjetas a ancho completo con título y descripción apilados.
+* **Horizontal (landscape)**: aprovechar el ancho — 2 columnas en hubs, lista + detalle lado a lado cuando hay espacio, toolbars en fila.
+
+Usar las banderas del hook (no recalcular orientación a mano):
+
+```tsx
+const {
+  isPortrait,
+  isLandscape,
+  shouldStackPanels,
+  shouldStackToolbar,
+  hubGridColumns,
+} = useBreakpoint();
+```
+
+Helpers en `app/constants/layout.ts`: `shouldStackPanels`, `shouldStackToolbar`, `hubGridColumns`, `shouldUseComfortableTable`.
+
+> El detalle de responsividad, zonas táctiles y densidad vive en
+> `.cursor/rules/ui-responsive.mdc`. Para campos de fecha usar
+> `.cursor/rules/campo-fecha.mdc`; para tablas CRUD `.cursor/rules/tabla-basica.mdc`;
+> para menús flotantes `.cursor/rules/desplegables-zindex.mdc`. Ver el índice en
+> `.cursor/rules/README.md`. No duplicar aquí ese detalle: ampliar la regla específica.
+
+---
+
+## Arquitectura — reglas obligatorias
+
+* `api/server.js` debe contener solo infraestructura:
+
+  * middlewares;
+  * CORS;
+  * seguridad;
+  * montaje de routers;
+  * healthchecks;
+  * jobs.
+* **No añadir lógica de negocio directamente en `api/server.js`.**
+* Cada dominio funcional debe tener su propio router en:
+
+```txt
+api/routes/<dominio>.js
+```
+
+* La lógica reutilizable debe vivir en `api/lib/`, por ejemplo:
+
+  * `api/lib/dynamo/`
+  * `api/lib/s3/`
+  * `api/lib/agora/`
+  * `api/lib/jobs/`
+  * `api/lib/permisos/`
+  * utilidades compartidas.
+
+### Frontend
+
+* Pantallas principales en:
+
+```txt
+app/(app)/
+```
+
+* Componentes compartidos en:
+
+```txt
+app/components/
+```
+
+* Hooks reutilizables en:
+
+```txt
+app/hooks/
+```
+
+* Utilidades/lógica de frontend en:
+
+```txt
+app/lib/
+app/utils/
+```
+
+* Contextos globales en:
+
+```txt
+app/contexts/
+```
+
+* Constantes visuales y responsive en:
+
+```txt
+app/constants/
+```
+
+### Reglas generales
+
+* Aplicar cambios mínimos, coherentes con el código existente.
+* Antes de crear una abstracción nueva, buscar patrones similares existentes y reutilizarlos.
+* No refactorizar módulos no relacionados con la tarea.
+* No renombrar variables, rutas o estructuras sin necesidad.
+* Para tablas/listados CRUD estándar, usar `TablaBasica` cuando encaje.
+* Si un módulo requiere una visualización especial —dashboard, calendario, planning, comparativas o tarjetas móviles— se permite UI específica, manteniendo coherencia visual.
+* Responder, explicar e implementar la interfaz visible en español.
+
+---
+
+## Auth, usuarios, permisos y locales
+
+La app usa login con **JWT Bearer**.
+
+En frontend, las llamadas autenticadas al backend deben hacerse con:
+
+```txt
+apiFetch
+```
+
+desde:
+
+```txt
+app/utils/api.ts
+```
+
+`apiFetch` adjunta token, aplica timeout y gestiona logout automático ante `401`.
+
+No usar `fetch` directo para llamadas internas salvo caso técnico justificado.
+
+El estado de sesión se obtiene desde:
+
+```txt
+useAuth()
+```
+
+en:
+
+```txt
+app/contexts/AuthContext.tsx
+```
+
+La sesión actual se carga con:
+
+```txt
+GET /api/me
+```
+
+y devuelve:
+
+```ts
+{ user, permisos }
+```
+
+### Usuario
+
+Estructura esperada:
+
+```ts
+{
+  id_usuario,
+  email,
+  Nombre,
+  Rol?,
+  Locales?: string[]
+}
+```
+
+Reglas importantes:
+
+* **No existe `user.id_local`.**
+* `user.Locales` es un array de **nombres de locales permitidos**, no IDs.
+* No asumir que un usuario pertenece a un único local.
+
+### Permisos
+
+Usar:
+
+```ts
+hasPermiso('modulo.accion')
+```
+
+Reglas:
+
+* Administrador tiene todos los permisos.
+* Si los permisos todavía no han cargado, `hasPermiso` debe devolver `false`.
+* El menú lateral debe filtrarse por permisos.
+* Las acciones sensibles deben validarse también en backend cuando corresponda.
+* No añadir nuevas rutas visibles sin asociarlas a un permiso claro.
+
+Ejemplos:
+
+```txt
+cajas.ver
+cierres.ver
+pedidos.ver
+actuaciones.ver
+planning_dia.ver
+compras.ver
+facturacion.ver
+acuerdos.ver
+mantenimiento.ver
+marketing.proponer
+```
+
+### Locales
+
+Usar:
+
+```ts
+localPermitido(nombre)
+```
+
+Reglas:
+
+* Administrador o usuario con `Locales` vacío puede acceder a todos los locales.
+* Si `Locales` tiene valores, filtrar por nombre de local de forma case-insensitive.
+* Para obtener IDs reales o códigos Agora, cargar:
+
+```txt
+GET /api/locales
+```
+
+Campos relevantes de local:
+
+```ts
+{
+  id_Locales,
+  nombre,
+  agoraCode
+}
+```
+
+Cuando un módulo necesite IDs reales, cruzar `user.Locales` / `localPermitido(nombre)` con la respuesta de `/api/locales`.
+
+Para cajas e integraciones Agora, usar:
+
+```txt
+agoraCode como workplaceId
+```
+
+---
+
+## Navegación y UI
+
+* Usar `useRouter()` de `expo-router` para navegación.
+* Las pantallas autenticadas principales viven en `app/(app)/`.
+* Mantener el layout global en:
+
+```txt
+app/(app)/_layout.tsx
+```
+
+con sidebar, header y área de contenido.
+
+* El sidebar global (menú lateral, filtrado por permisos) vive en `app/(app)/_layout.tsx`. No crear layouts paralelos innecesarios si el módulo puede integrarse en el layout global.
+* El sidebar debe filtrar módulos según permisos usando `hasPermiso`.
+* Toda nueva entrada visible del menú debe tener un permiso asociado.
+* Iconos: usar `MaterialIcons` de `@expo/vector-icons`.
+
+Colores base actuales:
+
+```txt
+Primario: #0ea5e9
+Éxito: #16a34a
+Advertencia: #d97706
+Fondo: #e2e8f0
+Tarjetas/paneles: #ffffff
+```
+
+IGP-2.0 debe sentirse como un ERP web moderno, limpio y funcional.
+
+Para IDs visibles de negocio, usar:
+
+```txt
+formatId6()
+```
+
+desde:
+
+```txt
+app/utils/idFormat.ts
+```
+
+Mantener coherencia visual entre módulos. No inventar paletas, iconos o componentes nuevos si ya existe un patrón equivalente.
+
+---
+
+## Reglas de negocio transversales
+
+### Jornada de negocio
+
+En hostelería, la jornada operativa no siempre coincide con el día natural.
+
+Regla:
+
+* Hasta las **09:30 inclusive**, cuenta como jornada del día anterior.
+* Desde las **09:31**, cuenta como jornada del día natural actual.
+
+Usar siempre:
+
+```txt
+fechaJornadaNegocioIso()
+```
+
+desde:
+
+```txt
+app/lib/jornadaNegocio.ts
+```
+
+No recalcular manualmente esta lógica en pantallas, rutas o componentes.
+
+Aplicar especialmente en:
+
+* cajas;
+* cierres;
+* arqueos;
+* planning del día;
+* actuaciones;
+* pedidos operativos;
+* comparativas;
+* informes diarios.
+
+### Permisos
+
+* Los permisos siguen el formato `modulo.accion`.
+* Usar `hasPermiso('modulo.accion')`.
+* El frontend debe ocultar menús, pantallas y botones sin permiso.
+* El backend debe validar acciones sensibles cuando corresponda.
+* No añadir módulos o acciones nuevas sin asociarlas a un permiso claro.
+
+### Locales
+
+* Todo módulo con datos asociados a local debe respetar los locales permitidos del usuario.
+* Usar `localPermitido(nombre)`.
+* Cuando se necesiten IDs reales o códigos Agora, cargar `GET /api/locales`.
+* No asumir `user.id_local`.
+* No asumir que el usuario pertenece a un único local.
+
+### Estados, fechas y campos
+
+* Antes de inventar estados nuevos, revisar los estados existentes del módulo.
+* Mantener estados coherentes con los patrones actuales.
+* Usar formato ISO para persistencia interna cuando sea posible.
+* Mostrar fechas al usuario en formato español.
+* Diferenciar claramente:
+
+  * fecha natural;
+  * jornada de negocio;
+  * fecha de creación;
+  * fecha de modificación;
+  * fecha fiscal/documental;
+  * fecha de pago.
+* Antes de filtrar por un campo, confirmar el nombre real en backend o pantallas similares.
+
+---
+
+## Módulos principales y rutas
+
+IGP-2.0 es un ERP/intranet modular. Cada módulo debe respetar permisos, locales, jornada de negocio y patrones existentes.
+
+### `/`
+
+Home / dashboard inicial.
+
+Debe mostrar KPIs, ventas recientes, alertas, accesos rápidos y resumen operativo.
+
+Adaptar la información a permisos y locales del usuario.
+
+### `/base-datos`
+
+Maestros del sistema.
+
+Incluye locales, empresas, productos, almacenes, usuarios, permisos, roles y puntos de venta.
+
+Usar estructura CRUD clara, preferiblemente con `TablaBasica` cuando encaje.
+
+### `/compras`
+
+Pedidos a almacén, compras a proveedor e informes.
+
+Incluye rappel, abonos, ventas por empresa, proveedores y seguimiento de productos.
+
+Separar vistas operativas de pedido de vistas administrativas/informes.
+
+### `/cajas`
+
+Objetivos, arqueo real, cierres teóricos desde Agora, comparativas, excepciones y franjas horarias.
+
+Usar jornada de negocio.
+
+Para Agora, usar `agoraCode` como `workplaceId`.
+
+No inventar endpoints de caja. Confirmar rutas reales antes de implementar.
+
+### `/actuaciones`
+
+Artistas, programación, importes, estados, locales y firma en pantalla.
+
+Firma con:
+
+```txt
+FirmaEnPantallaModal
+```
+
+El modal expone `onConfirm(base64Png)`; tras confirmar, subir la firma construyendo el cuerpo con `buildFirmaFormData()` (`app/utils/uploadFirmaPng.ts`) y enviándolo al endpoint de firma.
+
+Endpoint de firma:
+
+```txt
+POST /api/actuaciones/item/:id/firma
+```
+
+Consulta:
+
+```txt
+GET /api/actuaciones?fechaDesde&fechaHasta&id_local
+```
+
+### `/planning-dia`
+
+Hub operativo diario.
+
+Agrupa actuaciones, pedidos, arqueos, incidencias, tareas, cuadrante RRHH, reservas y notas operativas.
+
+Debe responder:
+
+```txt
+¿Qué pasa hoy en cada local?
+```
+
+Usar jornada de negocio y filtro de local.
+
+### `/facturacion`
+
+Facturas de venta/gasto, series, pagos, cobros, adjuntos y cuadro de mando.
+
+Estados coherentes, por ejemplo:
+
+```txt
+pendiente_revision
+pendiente_pago
+parcialmente_pagada
+pagada
+```
+
+Permisos estrictos para crear, editar, pagar, borrar o validar.
+
+### `/acuerdos`
+
+Acuerdos comerciales con proveedores.
+
+Puede incluir proveedor, marca, local/empresa, importe, rappel, condiciones, fechas, documentos, estado y seguimiento.
+
+Relacionar con compras, facturación o cumplimiento cuando el modelo existente lo permita.
+
+### `/recursos-humanos`
+
+Cuadrantes, horas, empleados, turnos, horas por facturación e informes.
+
+Separar planificación operativa de informes administrativos.
+
+### `/mantenimiento`
+
+Incidencias, reparaciones, responsables, fotos, prioridades, estados, recurrentes y valoración.
+
+Debe estar optimizado para crear incidencias rápidas en móvil/tablet, pero con vista web para seguimiento.
+
+### `/rrss`
+
+Marketing y redes sociales.
+
+Propuestas, calendario, carteles, campañas, publicaciones, assets y aprobaciones.
+
+Diferenciar propuestas, calendario, piezas creativas y aprobación/publicación.
+
+### Otras rutas
+
+* `/mystery-guest`: auditorías, formularios, puntuaciones e informes de calidad.
+* `/reservas`: reservas, clientes, estados, prepago, chat, observaciones y no-show.
+* `/cashflow`: entradas, salidas, previsiones, vencimientos, pagos, cobros y saldos.
+* `/rrpp`: RRPP, listas, invitaciones, zonas, QR, canjes y rendimiento.
+
+---
+
+## APIs — patrones reales
+
+No asumir endpoints genéricos.
+
+Antes de usar, modificar o crear un endpoint, revisar:
+
+* `api/routes/`;
+* pantallas hermanas del frontend;
+* usos existentes de `apiFetch`.
+
+Usar `apiFetch` desde `app/utils/api.ts` para llamadas internas desde frontend.
+
+No usar `fetch` directo ni URLs absolutas salvo caso técnico justificado.
+
+No inventar nombres de campos. Confirmar campos reales en backend o pantallas similares.
+
+### Endpoints conocidos
+
+#### Sesión
+
+```txt
+GET /api/me
+```
+
+Devuelve:
+
+```ts
+{ user, permisos }
+```
+
+#### Locales
+
+```txt
+GET /api/locales
+```
+
+Campos relevantes:
+
+```txt
+id_Locales
+nombre
+agoraCode
+```
+
+#### Actuaciones
+
+```txt
+GET /api/actuaciones?fechaDesde&fechaHasta&id_local
+```
+
+Los filtros se aplican en backend.
+
+Firma:
+
+```txt
+POST /api/actuaciones/item/:id/firma
+```
+
+#### Pedidos
+
+```txt
+GET /api/pedidos
+```
+
+Devuelve el listado de pedidos.
+
+Filtrar en frontend por:
+
+```txt
+Fecha
+LocalId
+Estado
+```
+
+salvo que exista un filtro backend real confirmado.
+
+Existen variantes para informes (p. ej. `GET /api/pedidos/abonos?modo=abonos|ventas`); no asumir que `/api/pedidos` es la única ruta del dominio: revisar `api/routes/pedidos.js` antes de implementar.
+
+#### Cajas / arqueos reales
+
+```txt
+GET /api/cajas/arqueos-reales?workplaceId={agoraCode}&businessDay={YYYY-MM-DD}
+```
+
+Reglas:
+
+* No usar `/arqueo-dia`.
+* Para Agora, `workplaceId` sale de `agoraCode`.
+* `businessDay` debe calcularse con `fechaJornadaNegocioIso()`.
+
+### Creación de nuevos endpoints
+
+* Crear endpoints nuevos solo cuando no exista una ruta adecuada.
+* Mantenerlos dentro del router del dominio correspondiente en `api/routes/<dominio>.js`.
+* Usar nombres coherentes con el módulo.
+* Evitar duplicar rutas que ya existen con otro nombre.
+* Mantener compatibilidad con el frontend existente salvo que se pida una migración explícita.
+
+---
+
+## Convenciones de código
+
+* Frontend en TypeScript (`.ts` / `.tsx`).
+* Backend en JavaScript ES modules dentro de `api/`.
+* Mantener patrón `import` / `export` en backend.
+* Usar tipos simples y claros en frontend cuando los datos estén definidos.
+* Evitar `any` innecesario.
+* Usar `apiFetch` para llamadas internas al backend.
+* No usar URLs absolutas ni `fetch` directo salvo caso técnico justificado.
+* Mensajes visibles al usuario en español.
+* Mantener nombres técnicos coherentes con el código existente.
+
+### Subidas de archivos
+
+* Para subidas multipart usar `FormData`.
+* Cuando se use `FormData` con `apiFetch`, **no forzar manualmente `Content-Type`**.
+* Para firmas PNG usar `buildFirmaFormData()` desde:
+
+```txt
+app/utils/uploadFirmaPng.ts
+```
+
+* Para actuaciones, respetar el endpoint:
+
+```txt
+POST /api/actuaciones/item/:id/firma
+```
+
+* Reutilizar patrones existentes de subida antes de crear uno nuevo.
+
+### Estados de carga y errores
+
+* Usar `ActivityIndicator` para cargas.
+* Preferir estados de carga por sección, tabla, panel o tarjeta.
+* No bloquear pantalla completa salvo bootstrap inicial de autenticación o procesos realmente globales.
+* Mostrar errores comprensibles en español.
+* Dejar detalles técnicos para logs/consola cuando corresponda.
+
+### Seguridad de desarrollo
+
+* No tocar `.env`, `.env.local`, `.env.production` o `api/.env` con secretos salvo petición explícita.
+* No incluir claves, tokens ni credenciales en código.
+* No crear commits, ramas, tags ni PRs salvo que se pidan explícitamente.
+* No refactorizar módulos no relacionados con la tarea.
+* Aplicar cambios mínimos, integrados y coherentes.
+* Antes de escribir código nuevo, revisar archivos similares existentes y reutilizar patrones.
+
+---
+
+## Cómo abordar una tarea nueva
+
+Cuando recibas una tarea nueva en IGP-2.0:
+
+1. Leer archivos similares existentes antes de escribir código.
+2. Confirmar APIs, endpoints, parámetros y campos reales revisando `api/routes/`, pantallas hermanas y usos existentes de `apiFetch`.
+3. Respetar autenticación con `apiFetch`, `useAuth()` y JWT Bearer.
+4. Respetar permisos con `hasPermiso('modulo.accion')`.
+5. Respetar filtros de local con `localPermitido(nombre)` y resolver IDs reales desde `GET /api/locales`.
+6. Usar `fechaJornadaNegocioIso()` cuando el módulo dependa de la jornada operativa.
+7. Aplicar cambios mínimos, integrados y coherentes con el código existente.
+8. No refactorizar módulos no relacionados.
+9. Reutilizar componentes, hooks y utilidades existentes antes de crear nuevos.
+10. Usar `TablaBasica` para CRUD/listados estándar cuando encaje.
+11. Mantener UX web/tablet first con adaptación móvil usando `useBreakpoint()` y `app/constants/layout.ts`.
+12. Mantener textos visibles en español.
+13. No tocar `.env` ni secretos.
+14. No crear commits, ramas, tags ni PRs salvo petición explícita.
+15. Al finalizar, revisar imports, permisos, locales, estados de carga, errores y coherencia visual.
+
+Prioridad de trabajo:
+
+1. Entender el patrón existente.
+2. Hacer el cambio mínimo.
+3. Comprobar integración.
+4. Explicar brevemente qué se ha tocado y por qué.

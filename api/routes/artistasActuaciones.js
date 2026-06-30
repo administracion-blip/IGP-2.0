@@ -154,6 +154,37 @@ function throwSiTablaArtistasFalta(err) {
   throw err;
 }
 
+/**
+ * Recalcula la valoración media de un artista a partir de las valoraciones
+ * (1–5) de sus actuaciones y la persiste en su ficha (`valoracion_media` y
+ * `valoracion_total`). Así la media queda disponible en la base de datos del
+ * artista sin tener que recalcularla en cada lectura.
+ */
+async function recomputarValoracionMediaArtista(idArtista) {
+  const id = String(idArtista || '').trim();
+  if (!id) return;
+  const actsArtista = await scanAll(
+    tables.actuaciones,
+    'id_artista = :a',
+    { ':a': id },
+  );
+  const valoraciones = actsArtista
+    .map((a) => Number(a.valoracion))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const total = valoraciones.length;
+  const media = total > 0
+    ? Math.round((valoraciones.reduce((s, n) => s + n, 0) / total) * 100) / 100
+    : null;
+  const r = await docClient.send(
+    new GetCommand({ TableName: tables.artistas, Key: { id_artista: id } }),
+  );
+  if (!r.Item) return;
+  await docClient.send(new PutCommand({
+    TableName: tables.artistas,
+    Item: { ...r.Item, valoracion_media: media, valoracion_total: total, updated_at: now() },
+  }));
+}
+
 // ─── ARTISTAS ───
 
 router.get('/artistas', async (_req, res) => {
@@ -669,6 +700,9 @@ router.post('/actuaciones', async (req, res) => {
     firma_artista_key: body.firma_artista_key != null ? String(body.firma_artista_key) : '',
     fecha_firma: body.fecha_firma != null ? String(body.fecha_firma) : '',
     observaciones: body.observaciones != null ? String(body.observaciones) : '',
+    valoracion: body.valoracion != null && body.valoracion !== '' ? Number(body.valoracion) : null,
+    valoracion_por: body.valoracion_por != null ? String(body.valoracion_por) : '',
+    valoracion_fecha: body.valoracion_fecha != null ? String(body.valoracion_fecha) : '',
     id_factura_gasto: body.id_factura_gasto != null ? String(body.id_factura_gasto) : '',
     pago_asociado_numero_factura: body.pago_asociado_numero_factura != null ? String(body.pago_asociado_numero_factura) : '',
     pago_asociado_proveedor: body.pago_asociado_proveedor != null ? String(body.pago_asociado_proveedor) : '',
@@ -718,6 +752,7 @@ router.put('/actuaciones/item/:id', async (req, res) => {
     'firma_artista_key',
     'fecha_firma',
     'observaciones',
+    'valoracion',
     'id_factura_gasto',
     'pago_asociado_numero_factura',
     'pago_asociado_proveedor',
@@ -730,7 +765,7 @@ router.put('/actuaciones/item/:id', async (req, res) => {
   const item = { ...prev, updated_at: now() };
   for (const k of keys) {
     if (body[k] !== undefined) {
-      if (k === 'importe_previsto' || k === 'importe_final' || k === 'pago_asociado_importe') {
+      if (k === 'importe_previsto' || k === 'importe_final' || k === 'pago_asociado_importe' || k === 'valoracion') {
         item[k] = body[k] === null || body[k] === '' ? null : Number(body[k]);
       } else if (k === 'id_local') {
         item[k] = body[k] == null || body[k] === '' ? '' : formatId6(body[k]);
@@ -740,6 +775,11 @@ router.put('/actuaciones/item/:id', async (req, res) => {
     }
   }
   if (body.fecha != null) item.fecha = fechaAIso(String(body.fecha));
+  // Sello de auditoría de la valoración (servidor): quién y cuándo valoró.
+  if (body.valoracion !== undefined) {
+    item.valoracion_por = req.user?.email || req.user?.sub || '';
+    item.valoracion_fecha = now();
+  }
   const idArtFinal = String(item.id_artista || '');
   const fechaFinal = String(item.fecha || '');
   const horaFinal = normalizarHoraActuacion(item.hora_inicio);
@@ -755,6 +795,14 @@ router.put('/actuaciones/item/:id', async (req, res) => {
     }
   }
   await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: item }));
+  // Si se ha valorado, recalcular la media del artista para su ficha.
+  if (body.valoracion !== undefined && String(item.id_artista || '').trim()) {
+    try {
+      await recomputarValoracionMediaArtista(item.id_artista);
+    } catch (err) {
+      console.error('[actuaciones/valoracion] recompute media', err.message || err);
+    }
+  }
   res.json({ ok: true, actuacion: item });
 });
 

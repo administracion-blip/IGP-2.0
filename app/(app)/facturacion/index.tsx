@@ -11,6 +11,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
+import { EstrellaFavorito } from '../../components/EstrellaFavorito';
 import { formatMoneda, labelEstado, colorEstado, esEmpresaSedeGrupoParipe } from '../../utils/facturacion';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '../../utils/api';
@@ -155,6 +156,10 @@ export default function FacturacionIndexScreen() {
               >
                 <MaterialIcons name={opcion.icon} size={14} color="#0ea5e9" />
                 <Text style={styles.navBtnText}>{opcion.label}</Text>
+                <EstrellaFavorito
+                  favorito={{ route: `/facturacion/${opcion.id}`, label: opcion.label, icon: opcion.icon, permiso: opcion.permiso }}
+                  size={14}
+                />
               </TouchableOpacity>
             ))}
           </View>

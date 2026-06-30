@@ -22,7 +22,8 @@ import {
   labelFormaPago,
   type Factura,
 } from '../utils/facturacion';
-import { dmyToIso, hydrateLineasDesdeFactura, isoToDmy, lineasPayloadForApi } from '../utils/facturaFormLogic';
+import { hydrateLineasDesdeFactura, lineasPayloadForApi } from '../utils/facturaFormLogic';
+import { fechaEmisionFacturaAIso } from '../utils/formatFecha';
 import { useFacturaFormLogic } from '../hooks/useFacturaFormLogic';
 import { ResumenTotales } from './ResumenTotales';
 import { InputFecha } from './InputFecha';
@@ -218,8 +219,8 @@ export function FacturaVentaDetallePanel({
       setEstado(f.estado ?? '');
       setNumeroFactura(f.numero_factura ?? '');
       setSerie(f.serie ?? '');
-      setFechaEmision(isoToDmy(f.fecha_emision ?? ''));
-      setFechaVencimiento(isoToDmy(f.fecha_vencimiento ?? ''));
+      setFechaEmision(fechaEmisionFacturaAIso(f.fecha_emision ?? '') ?? '');
+      setFechaVencimiento(fechaEmisionFacturaAIso(f.fecha_vencimiento ?? '') ?? '');
       setCondicionesPago(f.condiciones_pago ?? 'contado');
       setFormaPago(f.forma_pago ?? 'transferencia');
       setObservaciones(f.observaciones ?? '');
@@ -309,8 +310,8 @@ export function FacturaVentaDetallePanel({
         serie,
         numero: numeroCorrelativo,
         estado,
-        fecha_emision: dmyToIso(fechaEmision) || fechaEmision,
-        fecha_vencimiento: fechaVencimiento ? dmyToIso(fechaVencimiento) || fechaVencimiento : undefined,
+        fecha_emision: fechaEmision,
+        fecha_vencimiento: fechaVencimiento || undefined,
         condiciones_pago: condicionesPago,
         forma_pago: formaPago,
         observaciones: observaciones || undefined,
@@ -394,8 +395,8 @@ export function FacturaVentaDetallePanel({
         empresa_id: empresaId,
         empresa_nombre: empresaNombre,
         empresa_cif: empresaCif,
-        fecha_emision: dmyToIso(fechaEmision),
-        fecha_vencimiento: dmyToIso(fechaVencimiento),
+        fecha_emision: fechaEmision,
+        fecha_vencimiento: fechaVencimiento,
         condiciones_pago: condicionesPago,
         forma_pago: formaPago,
         observaciones,
@@ -521,9 +522,9 @@ export function FacturaVentaDetallePanel({
         <View style={[styles.fechaCol, compactPanel && styles.fechaColCompact]}>
           <Text style={[styles.label, compactPanel && styles.labelCompact]}>Fecha emisión</Text>
           <InputFecha
-            value={fechaEmision}
-            onChange={setFechaEmision}
-            format="dmy"
+            valueIso={fechaEmision}
+            onChangeIso={setFechaEmision}
+            placeholder="dd/mm/aaaa"
             editable={esEditable}
             style={[styles.input, styles.inputFechaEnFila, compactPanel && styles.inputCompact]}
           />
@@ -531,9 +532,9 @@ export function FacturaVentaDetallePanel({
         <View style={[styles.fechaCol, compactPanel && styles.fechaColCompact]}>
           <Text style={[styles.label, compactPanel && styles.labelCompact]}>Vencimiento</Text>
           <InputFecha
-            value={fechaVencimiento}
-            onChange={setFechaVencimiento}
-            format="dmy"
+            valueIso={fechaVencimiento}
+            onChangeIso={setFechaVencimiento}
+            placeholder="dd/mm/aaaa"
             editable={esEditable}
             style={[styles.input, styles.inputFechaEnFila, compactPanel && styles.inputCompact]}
           />

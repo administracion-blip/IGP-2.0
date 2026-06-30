@@ -74,4 +74,8 @@ Las pantallas de listado CRUD (Empresas, Productos, Usuarios, etc.) reutilizan e
 
 Los modales de Crear/Editar e Importar se mantienen en cada pantalla para personalizar formularios y lógica. Ver `app/(app)/productos.tsx` como ejemplo y `.cursor/rules/tabla-basica.mdc` para uso detallado.
 
-Por defecto el formato de fecha en el front siempre será "dd/mm/yyy" aunque de forma interna en el backend puedes utilizar la que mejor se adapte.
+Por defecto el formato de fecha visible en el front siempre será `dd/mm/aaaa`, mientras que en el estado de React y en la API se usa ISO `yyyy-mm-dd`. Usar el componente `InputFecha` (`app/components/InputFecha.tsx`); ver `.cursor/rules/campo-fecha.mdc` para el detalle.
+
+## Reglas y convenciones
+
+Las convenciones del proyecto (arquitectura, permisos, UI responsive, fechas, etc.) están en `.cursor/rules/`. Ver el índice en `.cursor/rules/README.md`. El roadmap de mejoras de UX móvil/tablet está en `docs/BACKLOG-UX.md`.

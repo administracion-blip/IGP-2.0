@@ -887,7 +887,8 @@ export default function ProductosScreen() {
       )}
 
       {modalEditarVisible && <Modal visible transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={cerrarModalEditar}>
+        {/* El fondo no cierra el formulario (evita perder datos); usar la X o Cancelar. */}
+        <Pressable style={styles.modalOverlay}>
           <KeyboardAvoidingView style={styles.modalCenter} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <Pressable style={styles.modalCardTouch} onPress={(e) => e.stopPropagation()}>
               <View style={styles.modalCard}>

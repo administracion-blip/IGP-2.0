@@ -26,6 +26,7 @@ import * as XLSX from 'xlsx-js-style';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { InputFecha } from '../../components/InputFecha';
+import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '../../utils/api';
 import { generarPdfExcepciones, generarPdfExcepcionesAgrupado, generarPdfResumenLocales, pdfExcepcionesFileSlug } from './pdfControlExcepciones';
@@ -97,30 +98,6 @@ function formatMoneda(value: number): string {
   const parts = value.toFixed(2).split('.');
   const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   return `${intPart},${parts[1]} €`;
-}
-
-function parseDateToYYYYMMDD(input: string): string | null {
-  const s = String(input ?? '').trim();
-  if (!s) return null;
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})$/);
-  if (m) {
-    const d = parseInt(m[1], 10);
-    const mo = parseInt(m[2], 10);
-    let y = parseInt(m[3], 10);
-    if (y < 100) y += 2000;
-    const date = new Date(y, mo - 1, d);
-    if (date.getDate() === d && date.getMonth() === mo - 1 && date.getFullYear() === y) {
-      return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    }
-    return null;
-  }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  return null;
-}
-
-function todayDmy(): string {
-  const d = new Date();
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
 }
 
 function formatBusinessDayLabel(iso: string): string {
@@ -197,8 +174,8 @@ export default function ControlExcepcionesScreen() {
   const [rows, setRows] = useState<ExceptionRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fechaDesdeInput, setFechaDesdeInput] = useState<string>(todayDmy());
-  const [fechaHastaInput, setFechaHastaInput] = useState<string>(todayDmy());
+  const [fechaDesdeInput, setFechaDesdeInput] = useState<string>(() => fechaJornadaNegocioIso());
+  const [fechaHastaInput, setFechaHastaInput] = useState<string>(() => fechaJornadaNegocioIso());
   const [consultedFrom, setConsultedFrom] = useState<string>('');
   const [consultedTo, setConsultedTo] = useState<string>('');
   const [filtroBusquedaInput, setFiltroBusquedaInput] = useState('');
@@ -303,10 +280,10 @@ export default function ControlExcepcionesScreen() {
     locales: string[];
     refresh?: boolean;
   }) => {
-    const isoFrom = parseDateToYYYYMMDD(opts.desde);
-    const isoTo = parseDateToYYYYMMDD(opts.hasta);
-    if (!isoFrom || !isoTo) {
-      setError('Fechas no válidas (dd/mm/yyyy)');
+    const isoFrom = opts.desde.trim();
+    const isoTo = opts.hasta.trim();
+    if (!isoFrom || !isoTo || !/^\d{4}-\d{2}-\d{2}$/.test(isoFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(isoTo)) {
+      setError('Indica una fecha válida (dd/mm/aaaa)');
       return;
     }
     if (isoFrom > isoTo) {
@@ -991,10 +968,9 @@ export default function ControlExcepcionesScreen() {
           <View style={styles.dateWrap}>
             <Text style={styles.dateLabel}>Desde</Text>
             <InputFecha
-              value={fechaDesdeInput}
-              onChange={setFechaDesdeInput}
-              format="dmy"
-              placeholder="dd/mm/yyyy"
+              valueIso={fechaDesdeInput}
+              onChangeIso={setFechaDesdeInput}
+              placeholder="dd/mm/aaaa"
               style={styles.dateInput}
               editable={!loading}
             />
@@ -1002,10 +978,9 @@ export default function ControlExcepcionesScreen() {
           <View style={styles.dateWrap}>
             <Text style={styles.dateLabel}>Hasta</Text>
             <InputFecha
-              value={fechaHastaInput}
-              onChange={setFechaHastaInput}
-              format="dmy"
-              placeholder="dd/mm/yyyy"
+              valueIso={fechaHastaInput}
+              onChangeIso={setFechaHastaInput}
+              placeholder="dd/mm/aaaa"
               style={styles.dateInput}
               editable={!loading}
             />

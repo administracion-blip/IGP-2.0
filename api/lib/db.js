@@ -37,6 +37,18 @@ export const tables = {
   artistas: process.env.DDB_ARTISTAS || 'Igp_Artistas',
   actuaciones: process.env.DDB_ACTUACIONES || 'Igp_Actuaciones',
   arqueosReales: process.env.DDB_ARQUEOS_REALES || 'Igp_ArqueosReales',
+  /** Maestro de formas de pago sincronizado desde Ágora. PK = "PM", SK = agoraId. */
+  formasPago: process.env.DDB_FORMAS_PAGO || 'Igp_FormasPago',
+  /**
+   * Movimientos de caja (retiradas de efectivo y transferencias de prepago).
+   * PK = workplaceId (agoraCode), SK = `${businessDay}#${posId}#${tipo}#${id}`.
+   */
+  movimientosCaja: process.env.DDB_MOVIMIENTOS_CAJA || 'Igp_MovimientosCaja',
+  /**
+   * Cierre de jornada del local: consolida los arqueos de los TPVs de un día.
+   * PK = workplaceId (agoraCode), SK = businessDay (YYYY-MM-DD).
+   */
+  jornadasLocal: process.env.DDB_JORNADAS_LOCAL || 'Igp_JornadasLocal',
   /** Nombre en AWS: Igp_MysteryGuest (DDB_MISTERY_GUEST si difiere). */
   mysteryGuest: process.env.DDB_MISTERY_GUEST || 'Igp_MysteryGuest',
   /** Empleados sincronizados desde Factorial HR. PK = EMPLOYEE#<id>, SK = METADATA. */

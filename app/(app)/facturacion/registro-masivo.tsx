@@ -25,12 +25,13 @@ import type {
 import {
   derivarPctDesdeImportes,
   esDesgloseMulti,
-  isoToDmy,
   metodoExtraccionLabel,
   recalcImportesDesdePct,
 } from '../../lib/registroMasivo';
+import { fechaEmisionFacturaAIso } from '../../utils/formatFecha';
 import { FieldRow } from '../../components/registroMasivo/FieldRow';
 import { FieldRowZona } from '../../components/registroMasivo/FieldRowZona';
+import { FieldRowZonaFecha } from '../../components/registroMasivo/FieldRowZonaFecha';
 import { ProveedorDropdownField } from '../../components/registroMasivo/ProveedorDropdownField';
 import { CrearEmpresaModal } from '../../components/registroMasivo/CrearEmpresaModal';
 import { useCrearEmpresaModal } from '../../hooks/useCrearEmpresaModal';
@@ -209,7 +210,7 @@ export default function RegistroMasivoScreen() {
             proveedor_en_maestros: Boolean(d.proveedor_en_maestros),
             nombre_sugerido_ocr: d.nombre_sugerido_ocr || '',
             numero_factura_proveedor: d.numero_factura_proveedor || '',
-            fecha_emision: d.fecha_emision ? isoToDmy(d.fecha_emision) : '',
+            fecha_emision: d.fecha_emision ? (fechaEmisionFacturaAIso(String(d.fecha_emision)) ?? '') : '',
             base_imponible: base0,
             base_imponible_total: typeof d.base_imponible_total === 'number' ? d.base_imponible_total : base0,
             tipo_iva_pct: pct0.tipo_iva_pct,
@@ -727,7 +728,14 @@ export default function RegistroMasivoScreen() {
                   zonaActiva={zona.activa?.field === 'proveedor_nombre'}
                 />
                 <FieldRowZona label="Nº Factura" value={selectedBorrador.numero_factura_proveedor} conf={selectedBorrador.confianza.numero_factura} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'numero_factura_proveedor', v)} onZona={() => zona.activar('numero_factura_proveedor')} zonaActiva={zona.activa?.field === 'numero_factura_proveedor'} />
-                <FieldRowZona label="Fecha emisión" value={selectedBorrador.fecha_emision} conf={selectedBorrador.confianza.fecha} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'fecha_emision', v)} placeholder="dd/mm/aaaa" onZona={() => zona.activar('fecha_emision')} zonaActiva={zona.activa?.field === 'fecha_emision'} />
+                <FieldRowZonaFecha
+                  label="Fecha emisión"
+                  valueIso={selectedBorrador.fecha_emision}
+                  conf={selectedBorrador.confianza.fecha}
+                  onChangeIso={(v) => usuarioEditaCampo(selectedBorrador.idx, 'fecha_emision', v)}
+                  onZona={() => zona.activar('fecha_emision')}
+                  zonaActiva={zona.activa?.field === 'fecha_emision'}
+                />
               </View>
 
               <DesgloseFiscalEditor

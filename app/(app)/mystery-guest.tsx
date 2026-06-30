@@ -595,20 +595,18 @@ export default function MysteryGuestScreen() {
           <View style={styles.formGroup}>
             <Text style={styles.formLabel}>Desde</Text>
             <InputFecha
-              value={fechaDesde}
-              onChange={setFechaDesde}
-              format="iso"
-              placeholder="YYYY-MM-DD"
+              valueIso={fechaDesde}
+              onChangeIso={setFechaDesde}
+              placeholder="dd/mm/aaaa"
               style={styles.formInput}
             />
           </View>
           <View style={styles.formGroup}>
             <Text style={styles.formLabel}>Hasta</Text>
             <InputFecha
-              value={fechaHasta}
-              onChange={setFechaHasta}
-              format="iso"
-              placeholder="YYYY-MM-DD"
+              valueIso={fechaHasta}
+              onChangeIso={setFechaHasta}
+              placeholder="dd/mm/aaaa"
               style={styles.formInput}
             />
           </View>

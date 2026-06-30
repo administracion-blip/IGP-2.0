@@ -8,14 +8,15 @@ alwaysApply: false
 
 Usar siempre **`InputFecha`** (`app/components/InputFecha.tsx`). No crear `TextInput` sueltos ni duplicar lógica de parseo DMY/ISO.
 
-## Comportamiento
+## Formato
 
-- **Visible:** `dd/mm/aaaa`
-- **En código y API:** `yyyy-mm-dd` (ISO)
-- **Escritura:** el valor se confirma al padre en `onBlur` (no en cada tecla), para no mezclar dígitos al escribir rápido
-- **Calendario:** icono integrado por defecto; `showCalendar={false}` solo en toolbars muy compactas
+| Capa | Regla |
+|------|--------|
+| **Usuario** | Siempre ve `dd/mm/aaaa` |
+| **Estado React / API** | Siempre `yyyy-mm-dd` (ISO fecha) |
+| **Placeholder** | `dd/mm/aaaa` (unificado) |
 
-## API preferida (ISO en el estado del padre)
+## API del componente
 
 ```tsx
 import { InputFecha } from '../components/InputFecha';
@@ -25,28 +26,54 @@ const [fecha, setFecha] = useState('2026-06-15'); // yyyy-mm-dd
 <InputFecha valueIso={fecha} onChangeIso={setFecha} />
 ```
 
-## Compatibilidad legacy (DMY en el padre)
+No usar en código nuevo `value` + `onChange` + `format="dmy"`. Migrar pantallas legacy a `valueIso` / `onChangeIso`.
 
-Solo si la pantalla ya guarda `dd/mm/aaaa` en estado:
+## Interacción (con calendario, default)
 
-```tsx
-<InputFecha value={fechaDmy} onChange={setFechaDmy} format="dmy" />
-```
+| Acción | Comportamiento |
+|--------|----------------|
+| **Un toque** en fecha o icono 📅 | Abre calendario |
+| **Doble toque** o **pulsación larga** (~300 ms) | Edición manual (teclado) |
+| **Edición manual** | Confirma al padre en `onBlur`; fecha inválida → revierte al último valor válido |
+| **Calendario** | Cambio inmediato en el padre |
 
-En código nuevo, preferir `valueIso` / `onChangeIso`.
+Con `showCalendar={false}`: edición manual directa (solo toolbars muy compactas si el calendario estorba).
+
+En web el calendario usa un `input type="date"` superpuesto al campo (no oculto fuera de pantalla).
 
 ## Utilidades
 
-- `app/utils/fechaInput.ts` — parseo/validación compartidos
+- `app/utils/fechaInput.ts` — parseo/validación del input editable
 - `app/utils/formatFecha.ts` — `formatFecha`, `fechaToIso` para mostrar en tablas (solo lectura)
+- `app/lib/jornadaNegocio.ts` — `fechaJornadaNegocioIso()` para “hoy” operativo (corte 09:30)
+- `app/lib/semana.ts` + `SelectorRangoSemana` — rangos semanales en ISO
 
 No importar `FechaInputDmy` en pantallas; es el núcleo interno de `InputFecha`.
 
-## Fecha de negocio (jornada)
+## Valor por defecto
 
-Para **valor por defecto** (filtros “hoy”, arqueo, cuadrante), usar `fechaJornadaNegocioIso()` de `app/lib/jornadaNegocio.ts` (corte 09:30), no `new Date()` directo.
+| Contexto | Default |
+|----------|---------|
+| Filtro “hoy”, arqueo, caja, planning operativo | `fechaJornadaNegocioIso()` |
+| Rango semanal | `SelectorRangoSemana` + `from`/`to` en ISO |
+| Fecha fiscal / documento / vencimiento | Sin default de jornada; elige el usuario |
+
+No duplicar la lógica 09:30 en pantallas.
+
+## Validación al guardar/filtrar
+
+Comprobar ISO válido o cadena vacía. Mensaje unificado: **«Indica una fecha válida (dd/mm/aaaa)»**.
 
 ## Excepciones
 
 - **Solo lectura** en tablas/listados: `formatFecha(iso)` — no hace falta `InputFecha`
-- **Fecha + hora** (`dd/mm/aaaa hh:mm`): otro campo; no forzar `InputFecha` si el requisito es datetime
+- **Fecha + hora** (`dd/mm/aaaa hh:mm`): campo propio; no forzar `InputFecha`
+- **Navegación por día** (‹ Hoy ›): no es `InputFecha`; puede convivir con uno
+
+## Árbol de decisión
+
+```txt
+¿Solo lectura? → formatFecha()
+¿Lleva hora? → campo datetime propio
+¿Resto? → InputFecha (valueIso/onChangeIso, showCalendar=true salvo toolbar compacta)
+```

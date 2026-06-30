@@ -1,7 +1,6 @@
 import {
   ActivityIndicator,
   Modal,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -42,13 +41,10 @@ export function AcuerdoFormModal({ formAcuerdo, isCompact }: Props) {
   } = formAcuerdo;
 
   return (
-    <Modal visible={modalVisible} transparent animationType="fade">
-      <Pressable
-        style={styles.overlay}
-        onPress={(e) => {
-          if (e.target === e.currentTarget) cerrar();
-        }}
-      >
+    <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={cerrar}>
+      {/* El fondo no cierra el formulario para evitar perder datos por un toque
+          accidental; se cierra con la X o el botón Cancelar. */}
+      <View style={styles.overlay}>
         <View style={[styles.modal, isCompact && { width: '95%' }]}>
           <ScrollView keyboardShouldPersistTaps="handled">
             <Text style={styles.modalTitle}>{editId ? 'Editar Acuerdo' : 'Nuevo Acuerdo'}</Text>
@@ -191,7 +187,7 @@ export function AcuerdoFormModal({ formAcuerdo, isCompact }: Props) {
             </View>
           </ScrollView>
         </View>
-      </Pressable>
+      </View>
     </Modal>
   );
 }

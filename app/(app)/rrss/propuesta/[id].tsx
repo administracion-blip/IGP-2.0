@@ -24,7 +24,7 @@ import { useMarketingLocales, valorEnLocal } from '../LocalesContext';
 import { IdentidadLocalPanel } from '../components/IdentidadLocalPanel';
 import { formatId6 } from '../lib/formatId6';
 import { appendImagenAlFormData } from '../lib/appendImagenFormData';
-import { dmyToIso, isoDateTimeToDmyFecha, isoToDmy } from '../lib/fechasUi';
+import { esIsoFechaValida, isoDateTimeToDmyFecha, isoToDmy } from '../lib/fechasUi';
 
 type Propuesta = {
   id_propuesta: string;
@@ -148,7 +148,7 @@ export default function PropuestaDetailScreen() {
       setPropuesta(p);
       setTipo(p.tipo);
       setRedesSel((p.redes ?? []).filter((r): r is Red => REDES.includes(r as Red)));
-      setFechaSugerida(isoToDmy(p.fecha_sugerida ?? '') || '');
+      setFechaSugerida(p.fecha_sugerida?.slice(0, 10) ?? '');
       setDescripcion(p.descripcion ?? '');
       setImagenFinalUrl(p.imagen_final_url ?? '');
       setUrlPublicacion(p.url_publicacion ?? '');
@@ -287,9 +287,8 @@ export default function PropuestaDetailScreen() {
 
   async function guardarBasicos() {
     if (!propuesta) return;
-    const fechaIso = dmyToIso(fechaSugerida.trim());
-    if (!fechaIso) {
-      showToast('Fecha inválida', 'Usa DD/MM/AAAA para la fecha sugerida.', 'warning');
+    if (!esIsoFechaValida(fechaSugerida.trim())) {
+      showToast('Fecha inválida', 'Indica una fecha válida (dd/mm/aaaa).', 'warning');
       return;
     }
     setSaving(true);
@@ -297,7 +296,7 @@ export default function PropuestaDetailScreen() {
       const updates: Record<string, unknown> = {
         tipo,
         redes: redesSel,
-        fecha_sugerida: fechaIso,
+        fecha_sugerida: fechaSugerida.trim(),
         descripcion: descripcion.trim(),
       };
 
@@ -328,7 +327,7 @@ export default function PropuestaDetailScreen() {
       if (!res.ok) throw new Error(data.error || 'No se pudo guardar');
       if (data.propuesta) {
         setPropuesta(data.propuesta);
-        setFechaSugerida(isoToDmy(data.propuesta.fecha_sugerida ?? '') || '');
+        setFechaSugerida(data.propuesta.fecha_sugerida?.slice(0, 10) ?? '');
         quitarImagenRef();
       }
       showToast('Guardado', 'Cambios aplicados.', 'success');
@@ -576,16 +575,15 @@ export default function PropuestaDetailScreen() {
           <Text style={styles.label}>Fecha sugerida</Text>
           {puedeEditarBasicos ? (
             <InputFecha
-              value={fechaSugerida}
-              onChange={setFechaSugerida}
-              format="dmy"
-              placeholder="DD/MM/AAAA"
+              valueIso={fechaSugerida}
+              onChangeIso={setFechaSugerida}
+              placeholder="dd/mm/aaaa"
               style={styles.dateInput}
             />
           ) : (
             <View style={styles.readonlyBox}>
               <MaterialIcons name="event" size={16} color="#64748b" />
-              <Text style={styles.readonlyText}>{fechaSugerida || '—'}</Text>
+              <Text style={styles.readonlyText}>{isoToDmy(fechaSugerida) || '—'}</Text>
             </View>
           )}
         </View>

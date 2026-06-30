@@ -286,14 +286,14 @@ export default function PedidosBase({
     const id = valorEnLocal(item, 'Id');
     setEditingPedidoId(id != null ? String(id) : null);
     const fecha = valorEnLocal(item, 'Fecha');
-    const fechaStr = fecha != null ? String(fecha) : '';
+    const fechaIso = fecha != null ? (fechaToIso(String(fecha)) || String(fecha)) : '';
     setForm({
       Id: id != null ? String(id) : '',
       LocalId: valorEnLocal(item, 'LocalId') != null ? String(valorEnLocal(item, 'LocalId')) : '',
       AlmacenOrigenId: valorEnLocal(item, 'AlmacenOrigenId') != null ? String(valorEnLocal(item, 'AlmacenOrigenId')) : '',
       AlmacenDestinoId: valorEnLocal(item, 'AlmacenDestinoId') != null ? String(valorEnLocal(item, 'AlmacenDestinoId')) : '',
       TotalAlbaran: valorEnLocal(item, 'TotalAlbaran') != null ? String(valorEnLocal(item, 'TotalAlbaran')) : '0',
-      Fecha: fechaStr,
+      Fecha: /^\d{4}-\d{2}-\d{2}$/.test(fechaIso) ? fechaIso : new Date().toISOString().slice(0, 10),
       Estado: valorEnLocal(item, 'Estado') != null ? String(valorEnLocal(item, 'Estado')) : 'Borrador',
       Notas: valorEnLocal(item, 'Notas') != null ? String(valorEnLocal(item, 'Notas')) : '',
     });
@@ -322,7 +322,7 @@ export default function PedidosBase({
         AlmacenOrigenId: form.AlmacenOrigenId.trim(),
         AlmacenDestinoId: form.AlmacenDestinoId.trim(),
         TotalAlbaran: totalAlbaranCalculado,
-        Fecha: fechaToIso(form.Fecha) || form.Fecha.trim(),
+        Fecha: form.Fecha.trim(),
         Estado: form.Estado || 'Borrador',
         Notas: form.Notas.trim(),
       };
@@ -826,7 +826,8 @@ export default function PedidosBase({
 
       {!readOnly && (
       <Modal visible={modalFormVisible} transparent animationType="fade" onRequestClose={cerrarModalForm}>
-        <Pressable style={styles.modalOverlay} onPress={cerrarModalForm}>
+        {/* El fondo no cierra el formulario (evita perder datos); usar la X o Cancelar. */}
+        <Pressable style={styles.modalOverlay}>
           <KeyboardAvoidingView style={styles.modalWrap} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
               <View style={styles.modalHeader}>
@@ -958,10 +959,9 @@ export default function PedidosBase({
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Fecha</Text>
                   <InputFecha
-                    value={form.Fecha}
-                    onChange={(v) => setForm((f) => ({ ...f, Fecha: v }))}
-                    format="iso"
-                    placeholder="YYYY-MM-DD"
+                    valueIso={form.Fecha}
+                    onChangeIso={(v) => setForm((f) => ({ ...f, Fecha: v }))}
+                    placeholder="dd/mm/aaaa"
                     style={styles.formInput}
                   />
                 </View>

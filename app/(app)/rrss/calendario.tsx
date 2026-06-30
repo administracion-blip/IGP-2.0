@@ -13,7 +13,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { apiFetch } from '../../utils/api';
 import { useMarketingLocales, valorEnLocal } from './LocalesContext';
 import { formatId6 } from './lib/formatId6';
-import { dmyToIso, finMesActualDmy, inicioMesActualDmy, isoToDmy } from './lib/fechasUi';
+import { esIsoFechaValida, finMesActualIso, inicioMesActualIso, isoToDmy } from './lib/fechasUi';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 
@@ -55,8 +55,8 @@ export default function CalendarioScreen() {
   const router = useRouter();
   const { locales } = useMarketingLocales();
 
-  const [fechaDesde, setFechaDesde] = useState(inicioMesActualDmy());
-  const [fechaHasta, setFechaHasta] = useState(finMesActualDmy());
+  const [fechaDesde, setFechaDesde] = useState(inicioMesActualIso());
+  const [fechaHasta, setFechaHasta] = useState(finMesActualIso());
   const [estado, setEstado] = useState<string>('aprobada');
   const [idLocal, setIdLocal] = useState('');
 
@@ -78,18 +78,18 @@ export default function CalendarioScreen() {
     let isoDesde = '';
     let isoHasta = '';
     if (fechaDesde.trim()) {
-      isoDesde = dmyToIso(fechaDesde) || '';
-      if (!isoDesde) {
-        setError('La fecha «Desde» no es válida (usa DD/MM/AAAA).');
+      if (!esIsoFechaValida(fechaDesde)) {
+        setError('Indica una fecha válida (dd/mm/aaaa) en «Desde».');
         return;
       }
+      isoDesde = fechaDesde.trim();
     }
     if (fechaHasta.trim()) {
-      isoHasta = dmyToIso(fechaHasta) || '';
-      if (!isoHasta) {
-        setError('La fecha «Hasta» no es válida (usa DD/MM/AAAA).');
+      if (!esIsoFechaValida(fechaHasta)) {
+        setError('Indica una fecha válida (dd/mm/aaaa) en «Hasta».');
         return;
       }
+      isoHasta = fechaHasta.trim();
     }
     const params = new URLSearchParams();
     if (idLocal) params.set('id_local', idLocal);
@@ -141,11 +141,11 @@ export default function CalendarioScreen() {
         <View style={styles.row}>
           <View style={styles.field}>
             <Text style={styles.label}>Desde</Text>
-            <InputFecha value={fechaDesde} onChange={setFechaDesde} format="dmy" placeholder="DD/MM/AAAA" style={styles.dateInput} />
+            <InputFecha valueIso={fechaDesde} onChangeIso={setFechaDesde} placeholder="dd/mm/aaaa" style={styles.dateInput} />
           </View>
           <View style={styles.field}>
             <Text style={styles.label}>Hasta</Text>
-            <InputFecha value={fechaHasta} onChange={setFechaHasta} format="dmy" placeholder="DD/MM/AAAA" style={styles.dateInput} />
+            <InputFecha valueIso={fechaHasta} onChangeIso={setFechaHasta} placeholder="dd/mm/aaaa" style={styles.dateInput} />
           </View>
         </View>
 

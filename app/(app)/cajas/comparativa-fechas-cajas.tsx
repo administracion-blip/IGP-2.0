@@ -323,7 +323,7 @@ export default function ComparativaFechasCajasScreen() {
 
   const generarRango = async () => {
     if (!fechaDesde || !fechaHasta || !/^\d{4}-\d{2}-\d{2}$/.test(fechaDesde) || !/^\d{4}-\d{2}-\d{2}$/.test(fechaHasta)) {
-      setErrorGenerar('Indica fecha desde y hasta (YYYY-MM-DD)');
+      setErrorGenerar('Indica una fecha válida (dd/mm/aaaa)');
       return;
     }
     if (fechaDesde > fechaHasta) {
@@ -644,10 +644,9 @@ export default function ComparativaFechasCajasScreen() {
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Fecha comparativa *</Text>
                   <InputFecha
-                    value={formFechaComparativa}
-                    onChange={setFormFechaComparativa}
-                    format="iso"
-                    placeholder="YYYY-MM-DD"
+                    valueIso={formFechaComparativa}
+                    onChangeIso={setFormFechaComparativa}
+                    placeholder="dd/mm/aaaa"
                     style={styles.formInput}
                   />
                 </View>
@@ -774,20 +773,18 @@ export default function ComparativaFechasCajasScreen() {
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Fecha desde *</Text>
                   <InputFecha
-                    value={fechaDesde}
-                    onChange={setFechaDesde}
-                    format="iso"
-                    placeholder="YYYY-MM-DD"
+                    valueIso={fechaDesde}
+                    onChangeIso={setFechaDesde}
+                    placeholder="dd/mm/aaaa"
                     style={styles.formInput}
                   />
                 </View>
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Fecha hasta *</Text>
                   <InputFecha
-                    value={fechaHasta}
-                    onChange={setFechaHasta}
-                    format="iso"
-                    placeholder="YYYY-MM-DD"
+                    valueIso={fechaHasta}
+                    onChangeIso={setFechaHasta}
+                    placeholder="dd/mm/aaaa"
                     style={styles.formInput}
                   />
                 </View>

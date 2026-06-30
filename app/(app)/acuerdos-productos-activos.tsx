@@ -512,11 +512,11 @@ export default function AcuerdosProductosActivosScreen() {
               <View style={styles.modalFechaRow}>
                 <View style={styles.modalFechaCol}>
                   <Text style={styles.modalMini}>Desde</Text>
-                  <InputFecha value={vigenciaFinDesde} onChange={setVigenciaFinDesde} placeholder="Desde" />
+                  <InputFecha valueIso={vigenciaFinDesde} onChangeIso={setVigenciaFinDesde} placeholder="dd/mm/aaaa" />
                 </View>
                 <View style={styles.modalFechaCol}>
                   <Text style={styles.modalMini}>Hasta</Text>
-                  <InputFecha value={vigenciaFinHasta} onChange={setVigenciaFinHasta} placeholder="Hasta" />
+                  <InputFecha valueIso={vigenciaFinHasta} onChangeIso={setVigenciaFinHasta} placeholder="dd/mm/aaaa" />
                 </View>
               </View>
 

@@ -23,6 +23,8 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../constants/icons';
+import { MIN_TOUCH } from '../constants/layout';
+import { useBreakpoint } from '../hooks/useBreakpoint';
 
 const DEFAULT_COL_WIDTH = 90;
 const DENSE_COL_WIDTH = 72;
@@ -162,6 +164,12 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     rightPanel,
   } = props;
 
+  // Modo "cómodo": en teléfono o tablet vertical ampliamos filas, tipografía y
+  // zonas táctiles. No aplica si la pantalla pide modo `dense`.
+  const { shouldUseComfortableTable, shouldStackPanels } = useBreakpoint();
+  const comodo = shouldUseComfortableTable && !dense;
+  const stackRightPanel = rightPanel != null && shouldStackPanels;
+
   const baseColWidth = defaultColWidth ?? (dense ? DENSE_COL_WIDTH : DEFAULT_COL_WIDTH);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [resizingCol, setResizingCol] = useState<string | null>(null);
@@ -289,6 +297,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
               <TouchableOpacity
                 style={[
                   styles.toolbarBtn,
+                  comodo && styles.toolbarBtnComodo,
                   btn.id === 'editar' && selectedRowIndex == null && styles.toolbarBtnDisabled,
                   btn.id === 'borrar' && deleteDisabled && styles.toolbarBtnDisabled,
                 ]}
@@ -325,10 +334,10 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
         </View>
         {extraToolbarLeft ? <View style={styles.extraToolbarLeft}>{extraToolbarLeft}</View> : null}
         {!hideSearch ? (
-          <View style={styles.searchWrap}>
+          <View style={[styles.searchWrap, comodo && styles.searchWrapComodo]}>
             <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
             <TextInput
-              style={styles.searchInput}
+              style={[styles.searchInput, comodo && styles.searchInputComodo]}
               value={filtroBusqueda}
               onChangeText={onFiltroChange}
               placeholder="Buscar en la tabla…"
@@ -353,7 +362,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                 </View>
               )}
               <TouchableOpacity
-                style={styles.toolbarBtn}
+                style={[styles.toolbarBtn, comodo && styles.toolbarBtnComodo]}
                 onPress={() => setImportExportOpen((v) => !v)}
                 disabled={guardando || importing}
                 accessibilityLabel="Importar / Exportar Excel"
@@ -450,8 +459,8 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
         )}
       </View>
 
-      <View style={styles.tableAndRightRow}>
-        <View style={[styles.tableWrapper, rightPanel != null && styles.tableWrapperSplit]}>
+      <View style={[styles.tableAndRightRow, stackRightPanel && styles.tableAndRightColumn]}>
+        <View style={[styles.tableWrapper, rightPanel != null && !stackRightPanel && styles.tableWrapperSplit]}>
           <ScrollView
             horizontal
             style={styles.scroll}
@@ -464,8 +473,8 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                 const isMoneda = columnasMoneda.some((c) => c.toLowerCase() === col.toLowerCase());
                 const colStyle = getColumnCellStyle?.(col);
                 return (
-                <View key={col} style={[styles.cellHeader, dense && styles.cellHeaderDense, { width: getColWidth(col) }, isMoneda && styles.cellHeaderRight, colStyle?.cell]}>
-                  <Text style={[styles.cellHeaderText, dense && styles.cellHeaderTextDense, isMoneda && styles.cellHeaderTextRight, colStyle?.text]} numberOfLines={1} ellipsizeMode="tail">
+                <View key={col} style={[styles.cellHeader, dense && styles.cellHeaderDense, comodo && styles.cellHeaderComodo, { width: getColWidth(col) }, isMoneda && styles.cellHeaderRight, colStyle?.cell]}>
+                  <Text style={[styles.cellHeaderText, dense && styles.cellHeaderTextDense, comodo && styles.cellHeaderTextComodo, isMoneda && styles.cellHeaderTextRight, colStyle?.text]} numberOfLines={1} ellipsizeMode="tail">
                     {col}
                   </Text>
                   {Platform.OS === 'web' && (
@@ -503,6 +512,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                     style={[
                       styles.row,
                       dense && styles.rowDense,
+                      comodo && styles.rowComodo,
                       selectedRowIndex === idx && styles.rowSelected,
                       getRowStyle?.(item, idx),
                     ]}
@@ -516,9 +526,9 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                       const colStyle = getColumnCellStyle?.(col);
                       const custom = renderCell?.(item, col, text) ?? null;
                       return (
-                        <View key={col} style={[styles.cell, dense && styles.cellDense, { width: getColWidth(col) }, isMoneda && styles.cellRight, colStyle?.cell]}>
+                        <View key={col} style={[styles.cell, dense && styles.cellDense, comodo && styles.cellComodo, { width: getColWidth(col) }, isMoneda && styles.cellRight, colStyle?.cell]}>
                           {custom !== null ? custom : (
-                            <Text style={[styles.cellText, dense && styles.cellTextDense, isMoneda && styles.cellTextRight, colStyle?.text]} numberOfLines={1} ellipsizeMode="tail">
+                            <Text style={[styles.cellText, dense && styles.cellTextDense, comodo && styles.cellTextComodo, isMoneda && styles.cellTextRight, colStyle?.text]} numberOfLines={1} ellipsizeMode="tail">
                               {text}
                             </Text>
                           )}
@@ -532,7 +542,9 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
           </View>
         </ScrollView>
         </View>
-        {rightPanel != null ? <View style={styles.rightPanelWrap}>{rightPanel}</View> : null}
+        {rightPanel != null ? (
+          <View style={[styles.rightPanelWrap, stackRightPanel && styles.rightPanelWrapStacked]}>{rightPanel}</View>
+        ) : null}
       </View>
     </View>
   );
@@ -580,8 +592,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 8,
   },
+  searchWrapComodo: { height: MIN_TOUCH },
   searchIcon: { marginRight: 6 },
   searchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
+  searchInputComodo: { fontSize: 15 },
   toolbarBtnWrap: { position: 'relative' },
   extraToolbarLeft: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, flex: 1, minWidth: 0, overflow: 'visible', zIndex: 3 },
   extraToolbarRight: { marginLeft: 4 },
@@ -603,6 +617,12 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     borderRadius: 10,
     backgroundColor: '#f8fafc',
+  },
+  toolbarBtnComodo: {
+    minWidth: MIN_TOUCH,
+    minHeight: MIN_TOUCH,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   toolbarBtnDisabled: { opacity: 0.6 },
   importExportDropdownWrap: { position: 'relative' },
@@ -660,6 +680,9 @@ const styles = StyleSheet.create({
     zIndex: 0,
     gap: 12,
   },
+  tableAndRightColumn: {
+    flexDirection: 'column',
+  },
   tableWrapper: { flex: 1, minHeight: 0 },
   /** Tabla ocupa ~mitad restante; el panel derecho lleva ~48% del ancho */
   tableWrapperSplit: { flex: 1, minWidth: 0 },
@@ -669,6 +692,12 @@ const styles = StyleSheet.create({
     minWidth: 260,
     minHeight: 200,
     flexShrink: 0,
+  },
+  rightPanelWrapStacked: {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
+    flexShrink: 1,
   },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 20 },
@@ -702,7 +731,9 @@ const styles = StyleSheet.create({
   },
   cellHeaderText: { fontSize: 11, fontWeight: '600', color: '#334155' },
   cellHeaderTextDense: { fontSize: 9 },
+  cellHeaderTextComodo: { fontSize: 13 },
   cellHeaderDense: { paddingVertical: 2, paddingHorizontal: 6 },
+  cellHeaderComodo: { paddingVertical: 10 },
   cellHeaderTextRight: { textAlign: 'right' },
   cellHeaderRight: { alignItems: 'flex-end', justifyContent: 'center' },
   resizeHandle: {
@@ -721,6 +752,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   rowDense: { minHeight: 18 },
+  rowComodo: { minHeight: MIN_TOUCH },
   rowSelected: { backgroundColor: '#e0f2fe' },
   cell: {
     minWidth: MIN_COL_WIDTH,
@@ -732,9 +764,11 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
   },
   cellDense: { paddingVertical: 1, paddingHorizontal: 6 },
+  cellComodo: { paddingVertical: 10 },
   cellRight: { alignItems: 'flex-end', justifyContent: 'center' },
   cellText: { fontSize: 11, color: '#475569' },
   cellTextDense: { fontSize: 9 },
+  cellTextComodo: { fontSize: 14 },
   cellTextRight: { textAlign: 'right', alignSelf: 'stretch' },
   cellEmpty: {
     flex: 1,

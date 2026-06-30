@@ -28,10 +28,10 @@ import {
 import type { FacturaListado } from '../../types/factura';
 import {
   formatFecha,
-  fechaEmisionFacturaADmy,
   fechaEmisionFacturaAIso,
   textoFechaContabilizacionGasto,
 } from '../../utils/formatFecha';
+import { hoyISO } from '../../utils/facturaFormLogic';
 import { getTipoReciboFromEmpresasList, type EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
 import { useLocalToast } from '../../components/Toast';
 import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
@@ -51,19 +51,6 @@ function formatFechaEmisionCelda(raw: string): string {
 function fechaEmisionComparable(s: string | undefined | null): string {
   if (s == null || String(s).trim() === '') return '';
   return fechaEmisionFacturaAIso(String(s).trim()) ?? '';
-}
-
-function dmyToIso(dmy: string): string {
-  if (!dmy) return '';
-  const m = dmy.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(dmy)) return dmy;
-  return '';
-}
-
-function hoyDmy(): string {
-  const d = new Date();
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
 }
 
 /** Evita que el click del icono dispare la selección de fila (p. ej. en web). */
@@ -272,13 +259,11 @@ export default function FacturasGastoScreen() {
   const filtradas = useMemo(() => {
     let list = facturas;
     if (tabActivo !== 'todas') list = list.filter((f) => f.estado === tabActivo);
-    const isoDesde = dmyToIso(fechaDesde);
-    const isoHasta = dmyToIso(fechaHasta);
-    if (isoDesde) {
-      list = list.filter((f) => (fechaEmisionComparable(f.fecha_emision) || '') >= isoDesde);
+    if (fechaDesde) {
+      list = list.filter((f) => (fechaEmisionComparable(f.fecha_emision) || '') >= fechaDesde);
     }
-    if (isoHasta) {
-      list = list.filter((f) => (fechaEmisionComparable(f.fecha_emision) || '') <= isoHasta);
+    if (fechaHasta) {
+      list = list.filter((f) => (fechaEmisionComparable(f.fecha_emision) || '') <= fechaHasta);
     }
     if (busqueda.trim()) {
       const q = busqueda.toLowerCase();
@@ -422,8 +407,8 @@ export default function FacturasGastoScreen() {
     setPagoMetodo(clave);
     setPagoMetodoOtro(clave === 'otro' ? otroTexto : '');
 
-    const hoy = hoyDmy();
-    const fechaFactura = fechaEmisionFacturaADmy(selectedFactura.fecha_emision, hoy);
+    const hoy = hoyISO();
+    const fechaFactura = fechaEmisionFacturaAIso(selectedFactura.fecha_emision ?? '') ?? hoy;
     setPagoFecha(clave === 'tarjeta' ? fechaFactura : hoy);
 
     setModalPagar(true);
@@ -433,8 +418,8 @@ export default function FacturasGastoScreen() {
     setPagoMetodo(m);
     if (m !== 'otro') setPagoMetodoOtro('');
     if (!selectedFactura || pagoFechaEditadaManual) return;
-    const hoy = hoyDmy();
-    const fechaFactura = fechaEmisionFacturaADmy(selectedFactura.fecha_emision, hoy);
+    const hoy = hoyISO();
+    const fechaFactura = fechaEmisionFacturaAIso(selectedFactura.fecha_emision ?? '') ?? hoy;
     setPagoFecha(m === 'tarjeta' ? fechaFactura : hoy);
   };
 
@@ -527,8 +512,8 @@ export default function FacturasGastoScreen() {
     if (!selectedFactura) return;
     const importe = parseFloat(pagoImporte.replace(',', '.'));
     if (!importe || importe <= 0) { showToast('Aviso', 'El importe debe ser mayor que 0', 'warning'); return; }
-    const fechaIso = dmyToIso(pagoFecha);
-    if (!fechaIso) { showToast('Aviso', 'Indica una fecha válida', 'warning'); return; }
+    const fechaIso = pagoFecha.trim();
+    if (!fechaIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) { showToast('Aviso', 'Indica una fecha válida', 'warning'); return; }
     const metodoEnvio = resolveMetodoPagoParaEnvio(pagoMetodo, pagoMetodoOtro);
     if (metodoEnvio == null) {
       showToast('Aviso', 'Describe el método de pago si eliges «Otro»', 'warning');
@@ -687,8 +672,8 @@ export default function FacturasGastoScreen() {
         </View>
 
         <View style={styles.dateFilters}>
-          <InputFecha value={fechaDesde} onChange={setFechaDesde} format="dmy" placeholder="dd/mm/aaaa" />
-          <InputFecha value={fechaHasta} onChange={setFechaHasta} format="dmy" placeholder="dd/mm/aaaa" />
+          <InputFecha valueIso={fechaDesde} onChangeIso={setFechaDesde} placeholder="dd/mm/aaaa" />
+          <InputFecha valueIso={fechaHasta} onChangeIso={setFechaHasta} placeholder="dd/mm/aaaa" />
         </View>
       </View>
 
@@ -910,12 +895,12 @@ export default function FacturasGastoScreen() {
 
             <Text style={styles.modalFieldLabel}>Fecha del pago *</Text>
             <InputFecha
-              value={pagoFecha}
-              onChange={(v) => {
+              valueIso={pagoFecha}
+              onChangeIso={(v) => {
                 setPagoFecha(v);
                 setPagoFechaEditadaManual(true);
               }}
-              format="dmy"
+              placeholder="dd/mm/aaaa"
             />
 
             <Text style={styles.modalFieldLabel}>Importe</Text>

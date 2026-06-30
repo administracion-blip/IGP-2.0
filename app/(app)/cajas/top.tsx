@@ -24,6 +24,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
+import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiFetch } from '../../utils/api';
 import { generarPdfTop, pdfTopFileSlug } from './pdfTop';
@@ -77,30 +78,6 @@ type TopResponse = {
   error?: string;
 };
 
-function todayDmy() {
-  const d = new Date();
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-}
-
-function parseDateToYYYYMMDD(input: string): string | null {
-  const s = String(input ?? '').trim();
-  if (!s) return null;
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})$/);
-  if (m) {
-    const d = parseInt(m[1], 10);
-    const mo = parseInt(m[2], 10);
-    let y = parseInt(m[3], 10);
-    if (y < 100) y += 2000;
-    const date = new Date(y, mo - 1, d);
-    if (date.getDate() === d && date.getMonth() === mo - 1 && date.getFullYear() === y) {
-      return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    }
-    return null;
-  }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  return null;
-}
-
 function formatMoneda(value: number): string {
   if (!Number.isFinite(value) || value === 0) return '0,00 €';
   const parts = value.toFixed(2).split('.');
@@ -135,8 +112,8 @@ export default function TopScreen() {
   const { hasPermiso } = useAuth();
   const puedeExportar = hasPermiso('top.exportar');
 
-  const [fechaDesdeInput, setFechaDesdeInput] = useState<string>(todayDmy());
-  const [fechaHastaInput, setFechaHastaInput] = useState<string>(todayDmy());
+  const [fechaDesdeInput, setFechaDesdeInput] = useState<string>(() => fechaJornadaNegocioIso());
+  const [fechaHastaInput, setFechaHastaInput] = useState<string>(() => fechaJornadaNegocioIso());
   const [locales, setLocales] = useState<LocalItem[]>([]);
   const [filtroLocales, setFiltroLocales] = useState<string[]>([]);
   const [localesOpen, setLocalesOpen] = useState(false);
@@ -179,10 +156,10 @@ export default function TopScreen() {
   };
 
   const consultar = useCallback(async (opts?: { refresh?: boolean }) => {
-    const isoFrom = parseDateToYYYYMMDD(fechaDesdeInput);
-    const isoTo = parseDateToYYYYMMDD(fechaHastaInput);
-    if (!isoFrom || !isoTo) {
-      setError('Fechas no válidas (dd/mm/yyyy)');
+    const isoFrom = fechaDesdeInput.trim();
+    const isoTo = fechaHastaInput.trim();
+    if (!isoFrom || !isoTo || !/^\d{4}-\d{2}-\d{2}$/.test(isoFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(isoTo)) {
+      setError('Indica una fecha válida (dd/mm/aaaa)');
       return;
     }
     if (isoFrom > isoTo) {
@@ -283,10 +260,9 @@ export default function TopScreen() {
           <View style={styles.dateWrap}>
             <Text style={styles.dateLabel}>Desde</Text>
             <InputFecha
-              value={fechaDesdeInput}
-              onChange={setFechaDesdeInput}
-              format="dmy"
-              placeholder="dd/mm/yyyy"
+              valueIso={fechaDesdeInput}
+              onChangeIso={setFechaDesdeInput}
+              placeholder="dd/mm/aaaa"
               style={styles.dateInput}
               editable={!loading}
             />
@@ -294,10 +270,9 @@ export default function TopScreen() {
           <View style={styles.dateWrap}>
             <Text style={styles.dateLabel}>Hasta</Text>
             <InputFecha
-              value={fechaHastaInput}
-              onChange={setFechaHastaInput}
-              format="dmy"
-              placeholder="dd/mm/yyyy"
+              valueIso={fechaHastaInput}
+              onChangeIso={setFechaHastaInput}
+              placeholder="dd/mm/aaaa"
               style={styles.dateInput}
               editable={!loading}
             />

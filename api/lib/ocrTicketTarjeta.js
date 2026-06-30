@@ -18,17 +18,20 @@ export function parseTextoTicketTarjeta(text) {
   const flat = raw.replace(/\s+/g, ' ');
 
   let importe = '';
+  // Importante: NO admitir el espacio como separador de miles. En tickets con columnas
+  // "Cantidad" e "Importe" (p. ej. "54  472,00 €") el espacio uniría ambos valores
+  // dando "54472,00". Solo el punto agrupa miles; el € o la palabra TOTAL fijan el valor.
   const amountPatterns = [
-    /(?:TOTAL|TOTAL\s+EUR|IMPORTE|TOTAL\s+A\s+PAGAR)[\s:]*([\d]{1,3}(?:[.\s]\d{3})*,\d{2}|[\d]+,\d{2})\s*€?/i,
     /([\d]{1,3}(?:\.\d{3})*,\d{2})\s*€/,
-    /EUR\s*([\d]+[,.]\d{2})/i,
-    /\b([\d]{1,3}(?:[.\s]\d{3})*,\d{2})\b/,
+    /(?:TOTAL\s+A\s+PAGAR|TOTAL\s+EUR|IMPORTE|TOTAL)[^\d€]{0,10}([\d]{1,3}(?:\.\d{3})*,\d{2})/i,
+    /EUR\s*([\d]{1,3}(?:\.\d{3})*,\d{2})/i,
+    /\b([\d]{1,3}(?:\.\d{3})*,\d{2})\b/,
   ];
   for (const re of amountPatterns) {
     const m = flat.match(re);
-    if (m) {
-      importe = m[1].replace(/\s/g, '').replace(/\./g, '').replace(',', ',');
-      if (importe.includes(',')) break;
+    if (m && m[1].includes(',')) {
+      importe = m[1];
+      break;
     }
   }
   if (importe) {
@@ -45,11 +48,17 @@ export function parseTextoTicketTarjeta(text) {
   else if (tm) fechaHora = tm;
 
   let numeroComercio = '';
-  const af = pickFirst(/(?:AFILI|COMERCIO|TERMINAL|AID|N[º°]?\s*COM)[^\d]{0,12}(\d{6,12})/i, raw);
+  // El nº de comercio/afiliación va junto a su etiqueta. Permitimos ":" y espacios
+  // (incluido salto de línea) entre la etiqueta y los dígitos.
+  const af = pickFirst(/(?:AFILIACI[OÓ]N|AFILI|N[º°]?\s*COMERCIO|COMERCIO|TERMINAL|AID|N[º°]?\s*COM)\s*[:.\-]?\s*(\d{6,12})/i, raw);
   if (af) numeroComercio = af;
   else {
-    const longNum = pickFirst(/\b(\d{8,12})\b/, flat);
-    if (longNum && !importe.includes(longNum)) numeroComercio = longNum;
+    // Fallback: número largo aislado que no forme parte del importe. Se prioriza el que
+    // no empieza por "0" (el TPV suele llevar ceros a la izquierda, p. ej. 00723023).
+    const importeDigits = importe.replace(/\D/g, '');
+    const candidatos = (flat.match(/\b\d{8,12}\b/g) || []).filter((n) => n !== importeDigits);
+    const noCero = candidatos.find((n) => !n.startsWith('0'));
+    numeroComercio = noCero || candidatos[0] || '';
   }
 
   let banco = '';
@@ -62,6 +71,11 @@ export function parseTextoTicketTarjeta(text) {
       banco = b;
       break;
     }
+  }
+  // "Comercia Global Payments" es la marca adquirente de CaixaBank: si no se ha
+  // identificado banco por nombre directo, este encabezado lo resuelve.
+  if (!banco && /COMERCIA(?:\s+GLOBAL\s+PAYMENTS)?|GLOBAL\s+PAYMENTS/i.test(flat)) {
+    banco = 'CaixaBank';
   }
   if (!banco) {
     const m = flat.match(/(BANCO\s+[A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s]{2,22})/i);

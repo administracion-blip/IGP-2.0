@@ -604,7 +604,8 @@ export default function ArtistasScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
         >
-          <Pressable style={styles.modalBackdrop} onPress={cerrarModal} accessibilityLabel="Cerrar formulario" />
+          {/* Fondo no pulsable: el formulario se cierra con la X (evita perder datos). */}
+          <View style={styles.modalBackdrop} />
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editing?.id_artista ? 'Editar artista' : 'Nuevo artista'}</Text>

@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
+import { InputFecha } from '../../components/InputFecha';
 import { apiFetch } from '../../utils/api';
 
 const AUTH_KEY = 'erp_user';
@@ -396,22 +397,20 @@ export default function RecurrentesScreen() {
             <View style={styles.twoColRow}>
               <View style={[styles.field, { flex: 1 }]}>
                 <Text style={styles.label}>Desde</Text>
-                <TextInput
+                <InputFecha
+                  valueIso={fechaDesde}
+                  onChangeIso={setFechaDesde}
+                  placeholder="dd/mm/aaaa"
                   style={styles.input}
-                  value={fechaDesde}
-                  onChangeText={setFechaDesde}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#94a3b8"
                 />
               </View>
               <View style={[styles.field, { flex: 1 }]}>
                 <Text style={styles.label}>Hasta</Text>
-                <TextInput
+                <InputFecha
+                  valueIso={fechaHasta}
+                  onChangeIso={setFechaHasta}
+                  placeholder="dd/mm/aaaa"
                   style={styles.input}
-                  value={fechaHasta}
-                  onChangeText={setFechaHasta}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#94a3b8"
                 />
               </View>
             </View>

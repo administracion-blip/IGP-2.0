@@ -1,8 +1,9 @@
 /**
  * Campo de fecha estándar del proyecto.
  * - Visible: dd/mm/aaaa. En código/API preferir yyyy-mm-dd (ISO).
- * - Escritura: confirma al padre en onBlur (vía FechaInputDmy).
- * - Calendario opcional (web: input type=date; móvil: DateTimePicker).
+ * - Un toque abre el calendario (web: input type=date; móvil: DateTimePicker).
+ * - Pulsación larga o doble toque → edición manual escribiendo (confirma en onBlur).
+ * - Calendario opcional vía showCalendar=false (vuelve a edición manual directa).
  */
 import React, { useState, useCallback, useRef, useMemo } from 'react';
 import {
@@ -22,6 +23,7 @@ import {
   isoDesdeValor,
   valorDesdeIso,
 } from '../utils/fechaInput';
+import { MIN_TOUCH } from '../constants/layout';
 
 export type { FechaInputFormat as InputFechaFormat };
 
@@ -62,6 +64,16 @@ function isoADate(iso: string): Date {
   return new Date();
 }
 
+function abrirPickerNativo(input: HTMLInputElement) {
+  const el = input as HTMLInputElement & { showPicker?: () => void };
+  try {
+    if (typeof el.showPicker === 'function') el.showPicker();
+    else el.click();
+  } catch {
+    el.click();
+  }
+}
+
 export function InputFecha(props: InputFechaProps) {
   const {
     placeholder = 'dd/mm/aaaa',
@@ -100,25 +112,56 @@ export function InputFecha(props: InputFechaProps) {
   );
 
   const [showPicker, setShowPicker] = useState(false);
+  const [modoEdicion, setModoEdicion] = useState(false);
   const webDateInputRef = useRef<HTMLInputElement>(null);
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dateValue = isoADate(valueIso);
 
-  const fechaInput = (
-    <FechaInputDmy
-      valueIso={valueIso}
-      onChangeIso={handleChangeIso}
-      placeholder={placeholder}
-      placeholderTextColor={placeholderTextColor}
-      editable={editable}
-      style={
-        showCalendar
-          ? Platform.OS === 'web'
-            ? [styles.inputBase, style, styles.webInputField, { borderWidth: 0 }]
-            : [styles.inputBase, style ?? styles.inputDefault]
-          : (style ?? styles.inputDefault)
-      }
-    />
-  );
+  const fieldStyle = showCalendar
+    ? Platform.OS === 'web'
+      ? [styles.inputBase, style, styles.webInputField, { borderWidth: 0 }]
+      : [styles.inputBase, style ?? styles.inputDefault]
+    : (style ?? styles.inputDefault);
+
+  const abrirCalendario = useCallback(() => {
+    if (!editable) return;
+    if (Platform.OS === 'web') {
+      const input = webDateInputRef.current;
+      if (!input) return;
+      abrirPickerNativo(input);
+    } else {
+      setShowPicker(true);
+    }
+  }, [editable]);
+
+  /** Doble toque o pulsación larga: pasar a edición manual escribiendo. */
+  const entrarEdicion = useCallback(() => {
+    if (!editable) return;
+    if (tapTimerRef.current) {
+      clearTimeout(tapTimerRef.current);
+      tapTimerRef.current = null;
+    }
+    setModoEdicion(true);
+  }, [editable]);
+
+  /** Un toque abre calendario; un segundo toque rápido entra en edición manual (nativo). */
+  const manejarTap = useCallback(() => {
+    if (!editable) return;
+    if (tapTimerRef.current) {
+      clearTimeout(tapTimerRef.current);
+      tapTimerRef.current = null;
+      setModoEdicion(true);
+      return;
+    }
+    tapTimerRef.current = setTimeout(() => {
+      tapTimerRef.current = null;
+      abrirCalendario();
+    }, 230);
+  }, [editable, abrirCalendario]);
+
+  const salirEdicion = useCallback(() => {
+    setModoEdicion(false);
+  }, []);
 
   const handleSelect = useCallback(
     (_ev: unknown, selectedDate?: Date) => {
@@ -140,56 +183,124 @@ export function InputFecha(props: InputFechaProps) {
     [handleChangeIso],
   );
 
+  const handleWebInputDoubleClick = useCallback(
+    (e: React.MouseEvent<HTMLInputElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      entrarEdicion();
+    },
+    [entrarEdicion],
+  );
+
+  // Campo en edición manual: TextInput editable enfocado; al perder foco vuelve a display.
+  const campoEditable = (
+    <FechaInputDmy
+      autoFocus
+      valueIso={valueIso}
+      onChangeIso={handleChangeIso}
+      placeholder={placeholder}
+      placeholderTextColor={placeholderTextColor}
+      editable={editable}
+      onBlur={salirEdicion}
+      style={fieldStyle}
+    />
+  );
+
+  // Campo en modo display: muestra la fecha y delega el toque al Pressable (nativo).
+  const campoDisplay = (
+    <Pressable
+      style={styles.displayPress}
+      onPress={manejarTap}
+      onLongPress={entrarEdicion}
+      delayLongPress={300}
+      disabled={!editable}
+    >
+      <FechaInputDmy
+        valueIso={valueIso}
+        onChangeIso={handleChangeIso}
+        placeholder={placeholder}
+        placeholderTextColor={placeholderTextColor}
+        editable={false}
+        style={[...(Array.isArray(fieldStyle) ? fieldStyle : [fieldStyle]), styles.noPointer]}
+      />
+    </Pressable>
+  );
+
+  const campo = modoEdicion ? campoEditable : campoDisplay;
+
+  // Sin calendario: comportamiento clásico (edición manual directa).
+  const fechaInput = (
+    <FechaInputDmy
+      valueIso={valueIso}
+      onChangeIso={handleChangeIso}
+      placeholder={placeholder}
+      placeholderTextColor={placeholderTextColor}
+      editable={editable}
+      style={fieldStyle}
+    />
+  );
+
   if (!showCalendar) {
     return fechaInput;
   }
 
   if (Platform.OS === 'web') {
+    const webInputStyle = (
+      modoEdicion ? styles.webDateInputPickerOnly : styles.webDateInputOverlay
+    ) as React.CSSProperties;
+
     return (
       <View style={[styles.wrap, styles.webInputRow]}>
-        {fechaInput}
+        <View style={styles.webFieldWrap}>
+          {modoEdicion ? (
+            campoEditable
+          ) : (
+            <FechaInputDmy
+              valueIso={valueIso}
+              onChangeIso={handleChangeIso}
+              placeholder={placeholder}
+              placeholderTextColor={placeholderTextColor}
+              editable={false}
+              style={[...(Array.isArray(fieldStyle) ? fieldStyle : [fieldStyle]), styles.noPointer]}
+            />
+          )}
+          <input
+            ref={webDateInputRef}
+            type="date"
+            value={valueIso}
+            onChange={handleWebCalendarChange}
+            disabled={!editable}
+            style={webInputStyle}
+            title={modoEdicion ? undefined : 'Seleccionar fecha (doble clic para escribir)'}
+            onDoubleClick={modoEdicion ? undefined : handleWebInputDoubleClick}
+            tabIndex={modoEdicion ? -1 : 0}
+            aria-hidden={modoEdicion}
+            {...(modoEdicion ? { pointerEvents: 'none' as const } : {})}
+          />
+        </View>
         <TouchableOpacity
           style={styles.webIconBtn}
-          onPress={() => {
-            if (!editable) return;
-            const input = webDateInputRef.current;
-            if (!input) return;
-            const el = input as HTMLInputElement & { showPicker?: () => void };
-            try {
-              if (typeof el.showPicker === 'function') el.showPicker();
-              else el.click();
-            } catch {
-              el.click();
-            }
-          }}
+          onPress={abrirCalendario}
           disabled={!editable}
+          accessibilityLabel="Abrir calendario"
         >
           <MaterialIcons name="calendar-today" size={18} color="#64748b" />
         </TouchableOpacity>
-        <input
-          ref={webDateInputRef}
-          type="date"
-          value={valueIso}
-          onChange={handleWebCalendarChange}
-          disabled={!editable}
-          tabIndex={-1}
-          style={styles.webDateInputHidden}
-          title="Seleccionar fecha"
-          aria-hidden
-        />
       </View>
     );
   }
 
   return (
     <View style={styles.wrap}>
-      {fechaInput}
+      {campo}
       <TouchableOpacity
         style={styles.iconBtn}
-        onPress={() => editable && setShowPicker(true)}
+        onPress={abrirCalendario}
         disabled={!editable}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        accessibilityLabel="Abrir calendario"
       >
-        <MaterialIcons name="calendar-today" size={14} color="#64748b" />
+        <MaterialIcons name="calendar-today" size={16} color="#64748b" />
       </TouchableOpacity>
       {showPicker && Platform.OS === 'android' && (
         <DateTimePicker
@@ -230,6 +341,12 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingRight: 28,
   },
+  displayPress: {
+    flex: 1,
+  },
+  noPointer: {
+    pointerEvents: 'none',
+  },
   webInputRow: {
     minWidth: 130,
     borderWidth: StyleSheet.hairlineWidth,
@@ -237,6 +354,11 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: '#fff',
     overflow: 'hidden',
+  },
+  webFieldWrap: {
+    flex: 1,
+    position: 'relative' as const,
+    minWidth: 90,
   },
   webInputField: {
     flex: 1,
@@ -258,17 +380,37 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 4,
     padding: 2,
+    minWidth: MIN_TOUCH,
+    minHeight: MIN_TOUCH,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   webIconBtn: {
-    width: 32,
-    minWidth: 32,
+    width: MIN_TOUCH,
+    minWidth: MIN_TOUCH,
     justifyContent: 'center',
     alignItems: 'center',
     alignSelf: 'stretch',
     borderLeftWidth: StyleSheet.hairlineWidth,
     borderLeftColor: '#e5e7eb',
   },
-  webDateInputHidden: {
+  webDateInputOverlay: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    opacity: 0,
+    cursor: 'pointer',
+    zIndex: 2,
+    border: 'none',
+    background: 'transparent',
+    margin: 0,
+    padding: 0,
+  },
+  webDateInputPickerOnly: {
     position: 'absolute',
     left: -9999,
     width: 1,

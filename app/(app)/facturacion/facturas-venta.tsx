@@ -25,7 +25,8 @@ import {
   resolveMetodoPagoParaEnvio,
 } from '../../utils/facturacion';
 import type { FacturaListado, SerieFactura } from '../../types/factura';
-import { fechaEmisionFacturaADmy, fechaEmisionFacturaAIso } from '../../utils/formatFecha';
+import { fechaEmisionFacturaAIso } from '../../utils/formatFecha';
+import { hoyISO } from '../../utils/facturaFormLogic';
 import { getTipoReciboFromEmpresasList, type EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { InputFecha } from '../../components/InputFecha';
@@ -44,19 +45,6 @@ function fechaEmisionCelda(raw: string | undefined): string {
   if (!iso) return '—';
   const [y, m, d] = iso.split('-');
   return `${d}/${m}/${y}`;
-}
-
-function dmyToIso(dmy: string): string {
-  if (!dmy) return '';
-  const m = dmy.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(dmy)) return dmy;
-  return '';
-}
-
-function hoyDmy(): string {
-  const d = new Date();
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
 }
 
 /** Evita que el click del icono dispare la selección de fila (p. ej. en web). */
@@ -243,10 +231,8 @@ export default function FacturasVentaScreen() {
           (f.empresa_cif || '').toLowerCase().includes(q)
       );
     }
-    const isoDesde = dmyToIso(fechaDesde);
-    const isoHasta = dmyToIso(fechaHasta);
-    if (isoDesde) resultado = resultado.filter((f) => (f.fecha_emision ?? '') >= isoDesde);
-    if (isoHasta) resultado = resultado.filter((f) => (f.fecha_emision ?? '') <= isoHasta);
+    if (fechaDesde) resultado = resultado.filter((f) => (f.fecha_emision ?? '') >= fechaDesde);
+    if (fechaHasta) resultado = resultado.filter((f) => (f.fecha_emision ?? '') <= fechaHasta);
 
     if (sortCol) {
       resultado = [...resultado].sort((a, b) => {
@@ -393,15 +379,15 @@ export default function FacturasVentaScreen() {
     setCobroMetodo(clave);
     setCobroMetodoOtro(clave === 'otro' ? otroTexto : '');
 
-    const hoy = hoyDmy();
-    const fechaFactura = fechaEmisionFacturaADmy(selectedFactura.fecha_emision, hoy);
+    const hoy = hoyISO();
+    const fechaFactura = fechaEmisionFacturaAIso(selectedFactura.fecha_emision ?? '') ?? hoy;
     setCobroFecha(clave === 'tarjeta' ? fechaFactura : hoy);
 
     setModalCobrarVisible(true);
   };
 
-  const aplicarFechaSegunMetodo = (metodo: string, fechaFacturaDmy: string, hoy: string) => {
-    if (metodo === 'tarjeta') return fechaFacturaDmy;
+  const aplicarFechaSegunMetodo = (metodo: string, fechaFacturaIso: string, hoy: string) => {
+    if (metodo === 'tarjeta') return fechaFacturaIso;
     return hoy;
   };
 
@@ -409,8 +395,8 @@ export default function FacturasVentaScreen() {
     setCobroMetodo(m);
     if (m !== 'otro') setCobroMetodoOtro('');
     if (!selectedFactura || cobroFechaEditadaManual) return;
-    const hoy = hoyDmy();
-    const fechaFactura = fechaEmisionFacturaADmy(selectedFactura.fecha_emision, hoy);
+    const hoy = hoyISO();
+    const fechaFactura = fechaEmisionFacturaAIso(selectedFactura.fecha_emision ?? '') ?? hoy;
     setCobroFecha(aplicarFechaSegunMetodo(m, fechaFactura, hoy));
   };
 
@@ -441,8 +427,8 @@ export default function FacturasVentaScreen() {
     if (!selectedId) return;
     const importe = parseFloat(cobroImporte);
     if (isNaN(importe) || importe <= 0) { setErrorModal('El importe debe ser mayor que 0'); return; }
-    const fechaIso = dmyToIso(cobroFecha);
-    if (!fechaIso) { setErrorModal('Indica una fecha válida'); return; }
+    const fechaIso = cobroFecha.trim();
+    if (!fechaIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) { setErrorModal('Indica una fecha válida'); return; }
     const metodoEnvio = resolveMetodoPagoParaEnvio(cobroMetodo, cobroMetodoOtro);
     if (metodoEnvio == null) {
       setErrorModal('Describe el método de pago (campo obligatorio si eliges «Otro»)');
@@ -656,9 +642,9 @@ export default function FacturasVentaScreen() {
 
         <View style={styles.fechaFilterWrap}>
           <Text style={styles.fechaLabel}>Desde</Text>
-          <InputFecha value={fechaDesde} onChange={setFechaDesde} format="dmy" placeholder="dd/mm/aaaa" style={styles.fechaInput} />
+          <InputFecha valueIso={fechaDesde} onChangeIso={setFechaDesde} placeholder="dd/mm/aaaa" style={styles.fechaInput} />
           <Text style={styles.fechaLabel}>Hasta</Text>
-          <InputFecha value={fechaHasta} onChange={setFechaHasta} format="dmy" placeholder="dd/mm/aaaa" style={styles.fechaInput} />
+          <InputFecha valueIso={fechaHasta} onChangeIso={setFechaHasta} placeholder="dd/mm/aaaa" style={styles.fechaInput} />
         </View>
       </View>
 
@@ -881,12 +867,12 @@ export default function FacturasVentaScreen() {
                 <View style={styles.modalBody}>
                   <Text style={styles.formLabel}>Fecha del cobro *</Text>
                   <InputFecha
-                    value={cobroFecha}
-                    onChange={(v) => {
+                    valueIso={cobroFecha}
+                    onChangeIso={(v) => {
                       setCobroFecha(v);
                       setCobroFechaEditadaManual(true);
                     }}
-                    format="dmy"
+                    placeholder="dd/mm/aaaa"
                   />
                   <Text style={styles.formLabel}>Importe (€)</Text>
                   <TextInput

@@ -9,10 +9,31 @@ export function formatFecha(fecha: string | number | undefined | null): string {
   return s;
 }
 
-/** Convierte un timestamp ISO (yyyy-mm-ddTHH:mm…) a dd/mm/yyyy HH:mm. */
+/**
+ * Convierte un timestamp ISO (yyyy-mm-ddTHH:mm…) a dd/mm/yyyy HH:mm.
+ * Si el valor lleva zona horaria (sufijo `Z` u offset), se convierte a la hora
+ * de España (`Europe/Madrid`), ajustando automáticamente verano/invierno. Para
+ * valores sin zona se mantiene la lectura literal (ya están en hora local).
+ */
 export function formatCreadoEn(val: string | number | undefined | null): string {
   if (val == null || String(val).trim() === '') return '—';
   const s = String(val).trim();
+  const tieneZona = /T\d{2}:\d{2}.*(Z|[+-]\d{2}:?\d{2})$/.test(s);
+  if (tieneZona) {
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) {
+      return d
+        .toLocaleString('es-ES', {
+          timeZone: 'Europe/Madrid',
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+        .replace(',', '');
+    }
+  }
   const dateMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (dateMatch) {
     const [, y, m, d] = dateMatch;

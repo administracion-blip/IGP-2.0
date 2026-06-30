@@ -18,7 +18,7 @@ import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useMarketingLocales, valorEnLocal } from './LocalesContext';
 import { formatId6 } from './lib/formatId6';
-import { dmyToIso, finMesSiguienteDmy, inicioMesActualDmy, isoToDmy } from './lib/fechasUi';
+import { esIsoFechaValida, finMesSiguienteIso, inicioMesActualIso, isoToDmy } from './lib/fechasUi';
 
 type Cartel = {
   id_actuacion: string;
@@ -40,8 +40,8 @@ export default function CartelesMusicoScreen() {
   const esGestor = hasPermiso('marketing.gestionar');
 
   const [idLocal, setIdLocal] = useState('');
-  const [fechaInicio, setFechaInicio] = useState(inicioMesActualDmy());
-  const [fechaFin, setFechaFin] = useState(finMesSiguienteDmy());
+  const [fechaInicio, setFechaInicio] = useState(inicioMesActualIso());
+  const [fechaFin, setFechaFin] = useState(finMesSiguienteIso());
   /** Preferencia antes de generar: si está activo, el backend devuelve `prompt_agrupado`. */
   const [agruparConciertos, setAgruparConciertos] = useState(false);
 
@@ -69,10 +69,10 @@ export default function CartelesMusicoScreen() {
       setError('Selecciona un local.');
       return;
     }
-    const isoIni = dmyToIso(fechaInicio.trim());
-    const isoFin = dmyToIso(fechaFin.trim());
-    if (!isoIni || !isoFin) {
-      setError('Indica fechas válidas en formato DD/MM/AAAA.');
+    const isoIni = fechaInicio.trim();
+    const isoFin = fechaFin.trim();
+    if (!esIsoFechaValida(isoIni) || !esIsoFechaValida(isoFin)) {
+      setError('Indica fechas válidas (dd/mm/aaaa).');
       return;
     }
     if (isoIni > isoFin) {
@@ -254,11 +254,11 @@ export default function CartelesMusicoScreen() {
         <View style={styles.row}>
           <View style={styles.field}>
             <Text style={styles.label}>Desde</Text>
-            <InputFecha value={fechaInicio} onChange={setFechaInicio} format="dmy" placeholder="DD/MM/AAAA" style={styles.dateInput} />
+            <InputFecha valueIso={fechaInicio} onChangeIso={setFechaInicio} placeholder="dd/mm/aaaa" style={styles.dateInput} />
           </View>
           <View style={styles.field}>
             <Text style={styles.label}>Hasta</Text>
-            <InputFecha value={fechaFin} onChange={setFechaFin} format="dmy" placeholder="DD/MM/AAAA" style={styles.dateInput} />
+            <InputFecha valueIso={fechaFin} onChangeIso={setFechaFin} placeholder="dd/mm/aaaa" style={styles.dateInput} />
           </View>
         </View>
 
@@ -302,7 +302,7 @@ export default function CartelesMusicoScreen() {
           <View style={styles.empty}>
             <MaterialIcons name="library-music" size={32} color="#94a3b8" />
             <Text style={styles.emptyText}>
-              Selecciona un local, opcionalmente agrupa conciertos, elige el rango en DD/MM/AAAA y pulsa Generar carteles.
+              Selecciona un local, opcionalmente agrupa conciertos, elige el rango en dd/mm/aaaa y pulsa Generar carteles.
             </Text>
           </View>
         ) : null}

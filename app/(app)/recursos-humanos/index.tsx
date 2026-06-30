@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-nati
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { EstrellaFavorito } from '../../components/EstrellaFavorito';
 
 /**
  * Hub del módulo "Recursos Humanos": accesos a empleados (Factorial HR)
@@ -92,6 +93,7 @@ export default function RecursosHumanosIndexScreen() {
                 <Text style={styles.cardTitle}>{t.label}</Text>
                 <Text style={styles.cardDesc}>{t.descripcion}</Text>
               </View>
+              <EstrellaFavorito favorito={{ route: t.ruta, label: t.label, icon: t.icon, permiso: t.permiso }} />
               <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
             </TouchableOpacity>
           ))

@@ -27,3 +27,9 @@ xxxxxxxxxxxxxxxxxxxxxx
 git fetch origin
 git reset --hard origin/main
 git clean -fd
+
+xxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxx
+// DOCUMENTACIÓN DEL PROYECTO (no en estas notas)
+- Reglas para el agente / convenciones: .cursor/rules/ (ver índice en .cursor/rules/README.md)
+- Backlog UX móvil / tablet: docs/BACKLOG-UX.md

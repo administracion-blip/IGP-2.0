@@ -17,6 +17,7 @@ const TABLAS: { id: string; label: string; icon: React.ComponentProps<typeof Mat
   { id: 'artistas', label: 'Artistas', icon: 'mic', descripcion: 'Actuaciones y programación', permiso: 'actuaciones.ver' },
   { id: 'personal', label: 'Personal', icon: 'badge', descripcion: 'Empleados (Factorial HR)', permiso: 'personal.ver' },
   { id: 'usuarios-agora', label: 'Usuarios Ágora', icon: 'person-pin', descripcion: 'Maestro de usuarios de Ágora', permiso: 'usuarios_agora.ver' },
+  { id: 'formas-pago', label: 'Formas de Pago', icon: 'account-balance-wallet', descripcion: 'Formas de pago de Ágora y arqueo', permiso: 'cierres.ver' },
 ];
 
 export default function BaseDatosScreen() {
@@ -56,6 +57,7 @@ export default function BaseDatosScreen() {
     if (id === 'artistas') router.push('/actuaciones/artistas');
     if (id === 'personal') router.push('/personal');
     if (id === 'usuarios-agora') router.push('/usuarios-agora');
+    if (id === 'formas-pago') router.push('/formas-pago');
   }
 
   return (

@@ -412,12 +412,12 @@ export default function CuadrantePersonalScreen() {
 
               <View style={[styles.filterField, { minWidth: 132 }]}>
                 <Text style={styles.filterLabel}>Desde</Text>
-                <InputFecha showCalendar={false} style={styles.inputDmy} valueIso={from} onChangeIso={setFrom} />
+                <InputFecha style={styles.inputDmy} valueIso={from} onChangeIso={setFrom} />
               </View>
 
               <View style={[styles.filterField, { minWidth: 132 }]}>
                 <Text style={styles.filterLabel}>Hasta</Text>
-                <InputFecha showCalendar={false} style={styles.inputDmy} valueIso={to} onChangeIso={setTo} />
+                <InputFecha style={styles.inputDmy} valueIso={to} onChangeIso={setTo} />
               </View>
 
               <TouchableOpacity

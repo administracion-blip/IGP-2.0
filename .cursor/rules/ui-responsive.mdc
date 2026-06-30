@@ -1,0 +1,189 @@
+---
+
+description: Usabilidad y responsividad de la UI en móvil/tablet (Expo/React Native)
+
+globs: app/**/*.tsx
+
+alwaysApply: false
+
+---
+
+
+
+# UI responsive y táctil (móvil / tablet)
+
+
+
+La app se usa en teléfono, tablet y web. Evita interfaces demasiado compactas:
+
+texto diminuto, filas apretadas y botones difíciles de pulsar en pantallas pequeñas.
+
+
+
+## Breakpoints únicos
+
+
+
+NO compares `width` con números sueltos (768/900/1024…). Usa el hook compartido:
+
+
+
+```tsx
+
+import { useBreakpoint } from '../hooks/useBreakpoint';
+
+
+
+const {
+
+  isPhone,
+
+  isTablet,
+
+  isDesktop,
+
+  isCompact,
+
+  isPortrait,
+
+  isLandscape,
+
+  shouldStackPanels,
+
+  shouldStackToolbar,
+
+  hubGridColumns,
+
+} = useBreakpoint();
+
+```
+
+
+
+Umbrales en `app/constants/layout.ts` (`BREAKPOINTS`). Si necesitas otro umbral,
+
+añádelo allí; no lo inventes en la pantalla.
+
+
+
+## Orientación (obligatorio en móvil/tablet)
+
+
+
+Además del ancho, **adaptar el layout según vertical u horizontal**:
+
+
+
+| Situación | Comportamiento |
+
+|-----------|----------------|
+
+| Móvil/tablet **vertical** | 1 columna; apilar lista+detalle; modal full screen; tarjetas a ancho completo; toolbars en columna |
+
+| Móvil/tablet **horizontal** | 2 columnas en hubs si cabe; lista+detalle lado a lado; toolbars en fila |
+
+| Escritorio (≥1024px) | Layout denso habitual; tablas completas |
+
+
+
+Usar banderas del hook — **no** comparar `width > height` suelto en cada pantalla:
+
+
+
+```tsx
+
+const { shouldStackPanels, hubGridColumns } = useBreakpoint();
+
+
+
+// Detalle a pantalla completa vs panel lateral
+
+const detalleComoModal = shouldStackPanels;
+
+
+
+// Grid de tarjetas
+
+const cardWidth = hubGridColumns === 1 ? '100%' : '48%';
+
+```
+
+
+
+Helpers centralizados en `app/constants/layout.ts`:
+
+`shouldStackPanels`, `shouldStackToolbar`, `hubGridColumns`, `shouldUseComfortableTable`.
+
+
+
+## Zonas táctiles
+
+
+
+- En móvil, los elementos pulsables (botones, filas, chips) deben medir al menos
+
+  `MIN_TOUCH` (44px) de alto/ancho. Importa `MIN_TOUCH` de `app/constants/layout.ts`.
+
+- No uses `padding: 4` como única área táctil en botones de icono en móvil.
+
+
+
+## Densidad y tipografía
+
+
+
+- Reutiliza `TablaBasica` para listados: ya aplica modo "cómodo" automático en
+
+  teléfono y tablet vertical (filas más altas, fuente legible). No la fuerces a `dense` en móvil.
+
+- Evita `fontSize` < 12 para texto de contenido en móvil. Usa la escala `FONT`
+
+  (`comodo` / `compacto`) de `app/constants/layout.ts`.
+
+
+
+## Layout
+
+
+
+- En `isCompact` (teléfono/tablet) prefiere apilar en columna en **vertical**.
+
+- En **horizontal**, aprovecha el ancho extra antes de apilar.
+
+- Para detalle/edición con muchos campos en móvil vertical, usa modal a pantalla completa
+
+  (patrón de `app/(app)/compras/pedidos.tsx`) en lugar de un panel lateral diminuto.
+
+- Hubs/menús de módulo (`compras/index`, `planning-dia/index`): usar `hubGridColumns`
+
+  y apilar título+descripción en tarjetas cuando `hubGridColumns === 1`.
+
+
+
+## Ejemplo
+
+
+
+```tsx
+
+// ❌ MAL: umbral suelto + orientación ignorada
+
+const isWide = width > 900;
+
+<TouchableOpacity style={{ padding: 4 }}>…</TouchableOpacity>
+
+
+
+// ✅ BIEN
+
+const { isPhone, shouldStackPanels, hubGridColumns } = useBreakpoint();
+
+const detalleComoModal = shouldStackPanels;
+
+<TouchableOpacity style={[styles.btn, isPhone && { minHeight: MIN_TOUCH }]}>…</TouchableOpacity>
+
+<View style={{ width: hubGridColumns === 1 ? '100%' : '48%' }}>…</View>
+
+```
+
+

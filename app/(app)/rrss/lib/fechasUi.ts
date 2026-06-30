@@ -34,28 +34,37 @@ export function isoDateTimeToDmyFecha(iso: string | undefined | null): string {
   return dmy || String(iso).slice(0, 10);
 }
 
-export function inicioMesActualDmy(): string {
+export function esIsoFechaValida(iso: string | undefined | null): boolean {
+  return iso != null && /^\d{4}-\d{2}-\d{2}$/.test(String(iso).trim());
+}
+
+export function inicioMesActualIso(): string {
   const d = new Date();
-  return isoToDmy(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`) || '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+export function finMesActualIso(): string {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Fin del mes siguiente (útil como rango amplio por defecto en carteles). */
+export function finMesSiguienteIso(): string {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function inicioMesActualDmy(): string {
+  return isoToDmy(inicioMesActualIso()) || '';
 }
 
 export function finMesActualDmy(): string {
-  const now = new Date();
-  const d = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  return (
-    isoToDmy(
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
-    ) || ''
-  );
+  return isoToDmy(finMesActualIso()) || '';
 }
 
 /** Fin del mes siguiente (útil como rango amplio por defecto en carteles). */
 export function finMesSiguienteDmy(): string {
-  const now = new Date();
-  const d = new Date(now.getFullYear(), now.getMonth() + 2, 0);
-  return (
-    isoToDmy(
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
-    ) || ''
-  );
+  return isoToDmy(finMesSiguienteIso()) || '';
 }

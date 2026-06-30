@@ -46,6 +46,7 @@ const SYNC_ENDPOINTS = {
   compras_proveedor: { path: '/api/agora/purchases/sync', body: {} },
   closeouts: { path: '/api/agora/closeouts/sync', body: {} },
   almacenes: { path: '/api/agora/warehouses/sync', body: {} },
+  formas_pago: { path: '/api/agora/payment-methods/sync', body: {} },
 };
 
 const DAY_MAP = { 0: 'sun', 1: 'mon', 2: 'tue', 3: 'wed', 4: 'thu', 5: 'fri', 6: 'sat' };

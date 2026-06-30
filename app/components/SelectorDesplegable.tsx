@@ -231,9 +231,19 @@ const styles = StyleSheet.create({
   },
   triggerActive: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
   triggerDisabled: { opacity: 0.6 },
-  triggerTextWrap: { flex: 1, minWidth: 0 },
-  value: { fontSize: 13, fontWeight: '600', color: '#1e293b' },
-  sub: { fontSize: 10, color: '#64748b', marginTop: 1 },
+  triggerTextWrap: { flex: 1, minWidth: 0, overflow: 'hidden' },
+  value: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1e293b',
+    ...(Platform.OS === 'web' ? ({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as object) : {}),
+  },
+  sub: {
+    fontSize: 10,
+    color: '#64748b',
+    marginTop: 1,
+    ...(Platform.OS === 'web' ? ({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as object) : {}),
+  },
   placeholder: { fontSize: 13, color: '#94a3b8' },
   overlay: {
     flex: 1,

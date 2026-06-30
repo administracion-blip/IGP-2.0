@@ -87,6 +87,14 @@ const SYNC_ITEMS: SyncConfig[] = [
     permiso: 'ajustes.sincronizaciones.empleados',
     descripcion: 'Sincroniza empleados desde Factorial HR',
   },
+  {
+    id: 'formas_pago',
+    label: 'Formas de Pago',
+    icon: 'account-balance-wallet',
+    endpoint: '/api/agora/payment-methods/sync',
+    permiso: 'ajustes.sincronizaciones.closeouts',
+    descripcion: 'Detecta y registra nuevas formas de pago desde Agora',
+  },
 ];
 
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;

@@ -19,7 +19,7 @@ import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useMarketingLocales, valorEnLocal } from './LocalesContext';
 import { formatId6 } from './lib/formatId6';
 import { IdentidadLocalPanel } from './components/IdentidadLocalPanel';
-import { dmyToIso, isoToDmy } from './lib/fechasUi';
+import { esIsoFechaValida, isoToDmy } from './lib/fechasUi';
 
 type Propuesta = {
   id_propuesta: string;
@@ -182,20 +182,18 @@ export default function RrssIndexScreen() {
     if (idLocalSel) paramsTodos.set('id_local', idLocalSel);
     if (esGestor) {
       if (fechaDesde.trim()) {
-        const iso = dmyToIso(fechaDesde);
-        if (!iso) {
-          setError('La fecha «Desde» no es válida (usa DD/MM/AAAA).');
+        if (!esIsoFechaValida(fechaDesde)) {
+          setError('Indica una fecha válida (dd/mm/aaaa) en «Desde».');
           return;
         }
-        paramsTodos.set('fecha_desde', iso);
+        paramsTodos.set('fecha_desde', fechaDesde.trim());
       }
       if (fechaHasta.trim()) {
-        const iso = dmyToIso(fechaHasta);
-        if (!iso) {
-          setError('La fecha «Hasta» no es válida (usa DD/MM/AAAA).');
+        if (!esIsoFechaValida(fechaHasta)) {
+          setError('Indica una fecha válida (dd/mm/aaaa) en «Hasta».');
           return;
         }
-        paramsTodos.set('fecha_hasta', iso);
+        paramsTodos.set('fecha_hasta', fechaHasta.trim());
       }
     }
 
@@ -360,20 +358,18 @@ export default function RrssIndexScreen() {
             <View style={styles.dateCol}>
               <Text style={styles.filterLabel}>Desde</Text>
               <InputFecha
-                value={fechaDesde}
-                onChange={setFechaDesde}
-                format="dmy"
-                placeholder="DD/MM/AAAA"
+                valueIso={fechaDesde}
+                onChangeIso={setFechaDesde}
+                placeholder="dd/mm/aaaa"
                 style={styles.dateInputCompact}
               />
             </View>
             <View style={styles.dateCol}>
               <Text style={styles.filterLabel}>Hasta</Text>
               <InputFecha
-                value={fechaHasta}
-                onChange={setFechaHasta}
-                format="dmy"
-                placeholder="DD/MM/AAAA"
+                valueIso={fechaHasta}
+                onChangeIso={setFechaHasta}
+                placeholder="dd/mm/aaaa"
                 style={styles.dateInputCompact}
               />
             </View>

@@ -14,6 +14,7 @@
  *  - `/api/personal/cuadrante` (minutos planificados por local).
  *  - `useAgrupacionesObjetivos` (grupos de locales).
  *  - `useRatiosHoras` (ratio € / hora por local, persistido en ajustes).
+ *  - `obtenerVentasPorHora` + plantillas de franjas (desglose horario por día).
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -31,9 +32,17 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
+import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
-import { obtenerFilasObjetivos } from '../../lib/objetivosFilasApi';
+import { fechaComparacion, obtenerFilasObjetivos } from '../../lib/objetivosFilasApi';
+import {
+  type Franja,
+  type PlantillaFranjas,
+  agruparEnFranjas,
+  obtenerPlantillasFranjas,
+  obtenerVentasPorHora,
+} from '../../lib/ventasPorHoraApi';
 import { useAgrupacionesObjetivos } from '../../hooks/useAgrupacionesObjetivos';
 import { useRatiosHoras } from '../../hooks/useRatiosHoras';
 import { fetchImporteHoraDefecto } from '../../lib/personalizacion';
@@ -61,6 +70,31 @@ type ResultadoLocal = {
   ratioPersonal: number | null;
   tieneAgora: boolean;
   tieneFactorial: boolean;
+};
+
+/** Celda (día × franja): horas posibles y comparativa de esa franja en ese día. */
+type CeldaFranja = {
+  comparativa: number;
+  real: number;
+  horasPosibles: number | null;
+};
+
+/** Una fila de la matriz = un día concreto del rango, con sus franjas. */
+type FilaDiaFranjas = {
+  fecha: string;
+  fechaComparacion: string;
+  celdas: CeldaFranja[];
+  totalComparativa: number;
+  totalHorasPosibles: number | null;
+};
+
+type ResultadoFranjasLocal = {
+  localId: string;
+  nombre: string;
+  ratioPersonal: number | null;
+  dias: FilaDiaFranjas[];
+  tieneAgora: boolean;
+  aviso?: string;
 };
 
 const DROPDOWN_Z = 10050;
@@ -107,6 +141,23 @@ function DeltaBadge({ delta }: { delta: number | null }) {
 function formatFecha(iso: string): string {
   const [y, m, d] = iso.split('-');
   return `${d}/${m}/${y}`;
+}
+
+const DIAS_SEMANA_CORTO = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'] as const;
+
+/** "2026-06-30" → "lun 30/06". */
+function etiquetaDiaSemanaFecha(iso: string): string {
+  const d = new Date(iso + 'T12:00:00');
+  const dia = DIAS_SEMANA_CORTO[d.getDay()] ?? '';
+  const [, m, dd] = iso.split('-');
+  return `${dia} ${dd}/${m}`;
+}
+
+/** Cabecera de franja en dos líneas: nombre arriba y "(desde–hasta)" debajo. */
+function cabeceraFranjaDosLineas(f: Franja): string {
+  const rango = `${f.desde}–${f.hasta}`;
+  const etq = (f.etiqueta ?? '').trim();
+  return etq ? `${etq}\n(${rango})` : rango;
 }
 
 /**
@@ -162,11 +213,37 @@ export default function HorasFacturacionScreen() {
   const { ratios, guardarRatio } = useRatiosHoras();
   const [importeDefecto, setImporteDefecto] = useState(0);
 
+  // Desglose por franjas día a día (matriz día × franja por local) sobre el rango Desde/Hasta.
+  const [plantillas, setPlantillas] = useState<PlantillaFranjas[]>([]);
+  const [plantillaFranjasId, setPlantillaFranjasId] = useState('');
+  const [resultadosFranjas, setResultadosFranjas] = useState<ResultadoFranjasLocal[] | null>(null);
+  const [etiquetasFranjas, setEtiquetasFranjas] = useState<string[]>([]);
+  // Franjas crudas de la plantilla usada al calcular (para cabeceras en dos líneas).
+  const [franjasUsadas, setFranjasUsadas] = useState<Franja[]>([]);
+  const [progresoFranjas, setProgresoFranjas] = useState<{ hechas: number; total: number } | null>(null);
+  const [loadingFranjas, setLoadingFranjas] = useState(false);
+  const [errorFranjas, setErrorFranjas] = useState<string | null>(null);
+  const [franjasExportMenuOpen, setFranjasExportMenuOpen] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
     fetchImporteHoraDefecto().then((v) => {
       if (!cancelled) setImporteDefecto(v);
     });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    obtenerPlantillasFranjas()
+      .then((p) => {
+        if (cancelled) return;
+        setPlantillas(p);
+        if (p.length === 1) setPlantillaFranjasId(p[0].plantillaId);
+      })
+      .catch(() => {
+        if (!cancelled) setPlantillas([]);
+      });
     return () => { cancelled = true; };
   }, []);
 
@@ -357,6 +434,366 @@ export default function HorasFacturacionScreen() {
     },
     [importeAPersonal, ratioEfectivo],
   );
+
+  const plantillaFranjasSel = useMemo(
+    () => plantillas.find((p) => p.plantillaId === plantillaFranjasId) ?? null,
+    [plantillas, plantillaFranjasId],
+  );
+
+  const consultarFranjas = useCallback(async () => {
+    if (selectedLocalIds.length === 0) {
+      setErrorFranjas('Selecciona al menos un local');
+      return;
+    }
+    const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+    if (!isoRe.test(from) || !isoRe.test(to)) {
+      setErrorFranjas('Revisa las fechas (dd/mm/aaaa)');
+      return;
+    }
+    if (from > to) {
+      setErrorFranjas('La fecha "Desde" debe ser anterior o igual a "Hasta"');
+      return;
+    }
+    if (!plantillaFranjasSel || plantillaFranjasSel.franjas.length === 0) {
+      setErrorFranjas('Selecciona una plantilla de franjas');
+      return;
+    }
+
+    // Lista de días del rango (límite de seguridad para no saturar Ágora).
+    const dias: string[] = [];
+    const cursor = new Date(from + 'T12:00:00');
+    const fin = new Date(to + 'T12:00:00');
+    while (cursor <= fin) {
+      dias.push(cursor.toISOString().slice(0, 10));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    const MAX_DIAS = 31;
+    if (dias.length > MAX_DIAS) {
+      setErrorFranjas(`El rango es demasiado amplio (máx. ${MAX_DIAS} días). Acórtalo.`);
+      return;
+    }
+
+    setErrorFranjas(null);
+    setLoadingFranjas(true);
+    const franjasPlantilla = plantillaFranjasSel.franjas;
+    setEtiquetasFranjas(agruparEnFranjas({}, {}, franjasPlantilla).map((f) => f.label));
+    setFranjasUsadas(franjasPlantilla);
+
+    try {
+      const seleccionados = selectedLocalIds
+        .map((id) => localById.get(id))
+        .filter((l): l is LocalItem => !!l && !!l.id_Locales);
+
+      // Una "tarea" por cada (local, día) con Ágora. Resolvemos con concurrencia limitada.
+      type Tarea = { localId: string; code: string; fecha: string };
+      const tareas: Tarea[] = [];
+      const conAgora = seleccionados.filter((l) => agoraCodeDe(l) !== '');
+      for (const l of conAgora) {
+        for (const d of dias) tareas.push({ localId: l.id_Locales as string, code: agoraCodeDe(l), fecha: d });
+      }
+
+      setProgresoFranjas({ hechas: 0, total: tareas.length });
+      let hechas = 0;
+      const celdaPorClave = new Map<string, { fechaComp: string; celdas: CeldaFranja[]; totalComp: number }>();
+
+      const CONCURRENCIA = 4;
+      let cursorTarea = 0;
+      const worker = async () => {
+        while (cursorTarea < tareas.length) {
+          const t = tareas[cursorTarea++];
+          try {
+            const filasObj = await obtenerFilasObjetivos('', t.code, t.fecha, t.fecha);
+            const fechaComp = filasObj[0]?.FechaComparacion ?? fechaComparacion(t.fecha);
+            const [real, comp] = await Promise.all([
+              obtenerVentasPorHora(t.code, t.fecha),
+              obtenerVentasPorHora(t.code, fechaComp),
+            ]);
+            const filasFranja = agruparEnFranjas(real.porHora, comp.porHora, franjasPlantilla);
+            const ratioPers = ratioPersonalDe(localById.get(t.localId) as LocalItem);
+            const coste = ratioEfectivo(t.localId);
+            let totalComp = 0;
+            const celdas: CeldaFranja[] = filasFranja.map((f) => {
+              totalComp += f.comparativa;
+              const importePers = ratioPers != null && ratioPers > 0 ? f.comparativa * (ratioPers / 100) : null;
+              const hp = importePers != null && coste > 0 ? importePers / coste : null;
+              return { comparativa: f.comparativa, real: f.real, horasPosibles: hp };
+            });
+            celdaPorClave.set(`${t.localId}|${t.fecha}`, { fechaComp, celdas, totalComp });
+          } catch {
+            // Día sin datos: se deja sin celda (se mostrará como —).
+          } finally {
+            hechas++;
+            setProgresoFranjas({ hechas, total: tareas.length });
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCIA, tareas.length) }, worker));
+
+      const out: ResultadoFranjasLocal[] = seleccionados.map((l) => {
+        const id = l.id_Locales as string;
+        const nombre = l.nombre || id;
+        const code = agoraCodeDe(l);
+        const ratioPers = ratioPersonalDe(l);
+        const coste = ratioEfectivo(id);
+        const hpValido = ratioPers != null && ratioPers > 0 && coste > 0;
+
+        if (!code) {
+          return { localId: id, nombre, ratioPersonal: ratioPers, dias: [], tieneAgora: false, aviso: 'Sin código Ágora' };
+        }
+
+        const filasDia: FilaDiaFranjas[] = dias.map((d) => {
+          const got = celdaPorClave.get(`${id}|${d}`);
+          const celdas = got?.celdas ?? franjasPlantilla.map(() => ({ comparativa: 0, real: 0, horasPosibles: hpValido ? 0 : null }));
+          let totalHp = 0;
+          for (const c of celdas) if (c.horasPosibles != null) totalHp += c.horasPosibles;
+          return {
+            fecha: d,
+            fechaComparacion: got?.fechaComp ?? fechaComparacion(d),
+            celdas,
+            totalComparativa: got?.totalComp ?? 0,
+            totalHorasPosibles: hpValido ? totalHp : null,
+          };
+        });
+
+        return {
+          localId: id,
+          nombre,
+          ratioPersonal: ratioPers,
+          dias: filasDia,
+          tieneAgora: true,
+          aviso: ratioPers == null ? 'Sin ratio personal (%)' : undefined,
+        };
+      });
+
+      out.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
+      setResultadosFranjas(out);
+    } catch (e) {
+      setErrorFranjas(e instanceof Error ? e.message : 'Error al calcular franjas');
+      setResultadosFranjas(null);
+    } finally {
+      setLoadingFranjas(false);
+      setProgresoFranjas(null);
+    }
+  }, [selectedLocalIds, from, to, plantillaFranjasSel, localById, ratioEfectivo]);
+
+  // Resumen del rango por local × franja: suma de horas posibles y comparativa de cada franja.
+  const resumenFranjas = useMemo(() => {
+    if (!resultadosFranjas || etiquetasFranjas.length === 0) return null;
+    return resultadosFranjas.map((loc) => {
+      const horasPorFranja = etiquetasFranjas.map(() => 0);
+      const compPorFranja = etiquetasFranjas.map(() => 0);
+      let hpValido = false;
+      let totalHoras = 0;
+      let totalComp = 0;
+      for (const dia of loc.dias) {
+        dia.celdas.forEach((c, i) => {
+          compPorFranja[i] += c.comparativa;
+          totalComp += c.comparativa;
+          if (c.horasPosibles != null) {
+            horasPorFranja[i] += c.horasPosibles;
+            totalHoras += c.horasPosibles;
+            hpValido = true;
+          }
+        });
+      }
+      return {
+        localId: loc.localId,
+        nombre: loc.nombre,
+        tieneAgora: loc.tieneAgora,
+        horasPorFranja,
+        compPorFranja,
+        totalHoras: hpValido ? totalHoras : null,
+        totalComp,
+      };
+    });
+  }, [resultadosFranjas, etiquetasFranjas]);
+
+  // Saneado de nombre de hoja Excel (máx. 31 chars, sin : \ / ? * [ ]).
+  const sanearHoja = useCallback((nombre: string, idx: number): string => {
+    const limpio = nombre.replace(/[:\\/?*[\]]/g, ' ').trim().slice(0, 28);
+    return limpio ? `${idx + 1}. ${limpio}`.slice(0, 31) : `Local ${idx + 1}`;
+  }, []);
+
+  const exportarFranjasExcel = useCallback(() => {
+    if (!resultadosFranjas || resultadosFranjas.length === 0) return;
+    setFranjasExportMenuOpen(false);
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const stamp = new Date().toISOString().slice(0, 10);
+    const fname = `horas_franjas_${stamp}.xlsx`;
+    const wb = XLSX.utils.book_new();
+
+    // Hoja resumen: locales × franjas (horas posibles del rango).
+    const resumenAoa: (string | number)[][] = [
+      ['Horas por franjas — Resumen'],
+      ['Periodo', `${formatFecha(from)} → ${formatFecha(to)}`],
+      ['Generado', new Date().toLocaleString('es-ES')],
+      [],
+      ['Local', ...etiquetasFranjas, 'Total horas'],
+    ];
+    for (const r of resumenFranjas ?? []) {
+      resumenAoa.push([
+        r.nombre,
+        ...r.horasPorFranja.map((h) => (r.tieneAgora && r.totalHoras != null ? round2(h) : (r.tieneAgora ? '' : 'sin Ágora'))),
+        r.totalHoras != null ? round2(r.totalHoras) : '',
+      ]);
+    }
+    const wsResumen = XLSX.utils.aoa_to_sheet(resumenAoa);
+    XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen');
+
+    // Una hoja por local: matriz días × franjas (horas posibles; comparativa en filas alternas).
+    resultadosFranjas.forEach((loc, idx) => {
+      const aoa: (string | number)[][] = [
+        [loc.nombre],
+        ['Periodo', `${formatFecha(from)} → ${formatFecha(to)}`],
+        [],
+        ['Día', ...etiquetasFranjas, 'Total horas'],
+      ];
+      if (loc.tieneAgora) {
+        for (const d of loc.dias) {
+          aoa.push([
+            etiquetaDiaSemanaFecha(d.fecha),
+            ...d.celdas.map((c) => (c.horasPosibles != null ? round2(c.horasPosibles) : '')),
+            d.totalHorasPosibles != null ? round2(d.totalHorasPosibles) : '',
+          ]);
+          aoa.push([
+            '  € comparativa',
+            ...d.celdas.map((c) => round2(c.comparativa)),
+            round2(d.totalComparativa),
+          ]);
+        }
+        // Sumatorio del rango por franja (horas e importes).
+        const res = resumenFranjas?.find((r) => r.localId === loc.localId);
+        if (res) {
+          aoa.push([]);
+          aoa.push([
+            'TOTAL horas',
+            ...res.horasPorFranja.map((h) => (res.totalHoras != null ? round2(h) : '')),
+            res.totalHoras != null ? round2(res.totalHoras) : '',
+          ]);
+          aoa.push([
+            'TOTAL € comparativa',
+            ...res.compPorFranja.map((c) => round2(c)),
+            round2(res.totalComp),
+          ]);
+        }
+      } else {
+        aoa.push([loc.aviso ?? 'Sin datos']);
+      }
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      XLSX.utils.book_append_sheet(wb, ws, sanearHoja(loc.nombre, idx));
+    });
+
+    if (Platform.OS === 'web') {
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fname;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      const base64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+      const cacheDir = FileSystemLegacy.cacheDirectory ?? '';
+      const fileUri = `${cacheDir}${fname}`;
+      FileSystemLegacy.writeAsStringAsync(fileUri, base64, { encoding: FileSystemLegacy.EncodingType.Base64 })
+        .then(() => Sharing.shareAsync(fileUri, {
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          dialogTitle: fname,
+        }))
+        .catch(() => {});
+    }
+  }, [resultadosFranjas, resumenFranjas, etiquetasFranjas, from, to, sanearHoja]);
+
+  const exportarFranjasPDF = useCallback(async () => {
+    if (!resultadosFranjas || resultadosFranjas.length === 0) return;
+    setFranjasExportMenuOpen(false);
+    const stamp = new Date().toISOString().slice(0, 10);
+    const fname = `horas_franjas_${stamp}.pdf`;
+    const hrs = (n: number | null) => (n != null ? formatHoras(n) : '—');
+    // Celda en dos líneas: horas posibles arriba, venta comparativa debajo.
+    // Los valores a 0 (o sin dato) se ocultan; si ambos son 0 la celda queda vacía.
+    const celdaTexto = (horas: number | null, comp: number) => {
+      const hPart = horas != null && horas > 0 ? formatHoras(horas) : '';
+      const cPart = comp > 0 ? formatEur(comp) : '';
+      return [hPart, cPart].filter(Boolean).join('\n');
+    };
+    const cabFranjas = franjasUsadas.map(cabeceraFranjaDosLineas);
+
+    const { jsPDF: JsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
+    const doc: jsPDF = new JsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+    const resumenById = new Map((resumenFranjas ?? []).map((r) => [r.localId, r]));
+
+    // Una página por local: matriz días × franjas (sin página de resumen aparte).
+    resultadosFranjas.forEach((loc, idx) => {
+      if (idx > 0) doc.addPage();
+      let yl = 12;
+      doc.setFontSize(13);
+      doc.setFont('helvetica', 'bold');
+      doc.text(loc.nombre, 14, yl);
+      yl += 5;
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(60);
+      doc.text(`Periodo: ${formatFecha(from)} → ${formatFecha(to)}`, 14, yl);
+      yl += 4;
+      doc.setTextColor(0);
+
+      if (!loc.tieneAgora) {
+        doc.setFontSize(10);
+        doc.setTextColor(180, 83, 9);
+        doc.text(loc.aviso ?? 'Sin datos', 14, yl + 2);
+        doc.setTextColor(0);
+        return;
+      }
+
+      const res = resumenById.get(loc.localId);
+      const body = loc.dias.map((d) => [
+        etiquetaDiaSemanaFecha(d.fecha),
+        ...d.celdas.map((c) => celdaTexto(c.horasPosibles, c.comparativa)),
+        celdaTexto(d.totalHorasPosibles, d.totalComparativa),
+      ]);
+      // Fila de totales del rango por franja + total general del local.
+      if (res) {
+        body.push([
+          'TOTAL',
+          ...res.horasPorFranja.map((h, i) => celdaTexto(res.totalHoras != null ? h : null, res.compPorFranja[i] ?? 0)),
+          celdaTexto(res.totalHoras, res.totalComp),
+        ]);
+      }
+      const totalRowIndex = body.length - 1;
+
+      autoTable(doc, {
+        startY: yl,
+        head: [['Día', ...cabFranjas, 'Total']],
+        body,
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [14, 165, 233] },
+        margin: { left: 14, right: 14 },
+        didParseCell: (data) => {
+          if (data.section === 'body' && res && data.row.index === totalRowIndex) {
+            data.cell.styles.fillColor = [224, 242, 254];
+            data.cell.styles.textColor = [12, 74, 110];
+            data.cell.styles.fontStyle = 'bold';
+          }
+        },
+      });
+    });
+
+    if (Platform.OS === 'web') {
+      doc.save(fname);
+    } else {
+      const dataUri = doc.output('datauristring');
+      const base64 = dataUri.split(',')[1] || '';
+      const cacheDir = FileSystemLegacy.cacheDirectory ?? '';
+      const fileUri = `${cacheDir}${fname}`;
+      FileSystemLegacy.writeAsStringAsync(fileUri, base64, { encoding: FileSystemLegacy.EncodingType.Base64 })
+        .then(() => Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: fname }))
+        .catch(() => {});
+    }
+  }, [resultadosFranjas, resumenFranjas, franjasUsadas, from, to]);
 
   const resultadoMap = useMemo(() => {
     const m = new Map<string, ResultadoLocal>();
@@ -695,7 +1132,7 @@ export default function HorasFacturacionScreen() {
         </TouchableOpacity>
         <View>
           <Text style={styles.title}>Horas por facturación</Text>
-          <Text style={styles.subtitle}>Horas de cuadrante posibles según el facturado comparativa</Text>
+          <Text style={styles.subtitle}>Horas posibles por periodo y desglose por franjas de un día</Text>
         </View>
       </View>
 
@@ -774,12 +1211,12 @@ export default function HorasFacturacionScreen() {
 
           <View style={[styles.filterField, { minWidth: 132 }]}>
             <Text style={styles.filterLabel}>Desde</Text>
-            <InputFecha showCalendar={false} style={styles.inputDmy} valueIso={from} onChangeIso={setFrom} />
+            <InputFecha style={styles.inputDmy} valueIso={from} onChangeIso={setFrom} />
           </View>
 
           <View style={[styles.filterField, { minWidth: 132 }]}>
             <Text style={styles.filterLabel}>Hasta</Text>
-            <InputFecha showCalendar={false} style={styles.inputDmy} valueIso={to} onChangeIso={setTo} />
+            <InputFecha style={styles.inputDmy} valueIso={to} onChangeIso={setTo} />
           </View>
 
           <TouchableOpacity
@@ -826,8 +1263,9 @@ export default function HorasFacturacionScreen() {
         </View>
       ) : null}
 
-      {resultados && (
-        <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 24 }}>
+      <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 24 }}>
+        {resultados ? (
+          <>
           <View style={styles.resultadosHeader}>
             <Text style={styles.rangoText}>
               {formatFecha(from)} → {formatFecha(to)} · {resultados.length} local{resultados.length !== 1 ? 'es' : ''}
@@ -964,8 +1402,158 @@ export default function HorasFacturacionScreen() {
               € a personal = facturado comparativa × (Ratio personal % del local). Horas posibles = € a personal ÷ (€ por hora). El € por hora se guarda por local. Δ = horas posibles − horas ya cuadradas.
             </Text>
           </View>
-        </ScrollView>
-      )}
+          </>
+        ) : null}
+
+        <View style={styles.seccionFranjas}>
+          <View style={styles.franjasTituloRow}>
+            <View style={{ flex: 1, minWidth: 200 }}>
+              <Text style={styles.seccionTitulo}>Desglose por franjas, día a día</Text>
+              <Text style={styles.seccionSubtitulo}>
+                Horas posibles por tramo horario para cada día del rango (Desde/Hasta), por local. Usa la venta comparativa con la misma lógica que Cajas → Objetivos.
+              </Text>
+            </View>
+            {resultadosFranjas && resultadosFranjas.length > 0 ? (
+              <View style={styles.exportAnchor}>
+                <TouchableOpacity style={styles.exportMainBtn} onPress={() => setFranjasExportMenuOpen((o) => !o)} activeOpacity={0.7}>
+                  <MaterialIcons name="download" size={16} color="#0ea5e9" />
+                  <Text style={styles.exportMainBtnText}>Descargas</Text>
+                  <MaterialIcons name={franjasExportMenuOpen ? 'expand-less' : 'expand-more'} size={16} color="#0ea5e9" />
+                </TouchableOpacity>
+                {franjasExportMenuOpen && (
+                  <View style={styles.exportMenu}>
+                    <TouchableOpacity style={styles.exportMenuItem} onPress={exportarFranjasExcel} activeOpacity={0.7}>
+                      <MaterialIcons name="grid-on" size={16} color="#16a34a" />
+                      <Text style={styles.exportMenuItemText}>Excel (.xlsx)</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.exportMenuItem, styles.exportMenuItemLast]} onPress={exportarFranjasPDF} activeOpacity={0.7}>
+                      <MaterialIcons name="picture-as-pdf" size={16} color="#dc2626" />
+                      <Text style={styles.exportMenuItemText}>PDF (.pdf)</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.franjasToolbar}>
+            <View style={[styles.filterField, { flex: 1, minWidth: 220, maxWidth: 360 }]}>
+              <Text style={styles.filterLabel}>Plantilla de franjas</Text>
+              <SelectorDesplegable
+                placeholder="Selecciona plantilla…"
+                icono="view-timeline"
+                tituloLista="Plantilla de franjas"
+                iconoLista="view-timeline"
+                valorId={plantillaFranjasId || null}
+                vacioTexto="Aún no hay plantillas de franjas."
+                vacioAccion={{
+                  texto: 'Crear plantilla',
+                  onPress: () => router.push('/cajas/franjas-horarias' as never),
+                }}
+                opciones={plantillas.map((p) => {
+                  const preview = p.franjas.slice(0, 3).map((f) => `${f.desde}–${f.hasta}`).join(' · ');
+                  return {
+                    id: p.plantillaId,
+                    titulo: p.nombre,
+                    subtitulo: `${p.franjas.length} ${p.franjas.length === 1 ? 'franja' : 'franjas'}${preview ? ` · ${preview}${p.franjas.length > 3 ? '…' : ''}` : ''}`,
+                    icono: 'schedule' as const,
+                  };
+                })}
+                onSeleccionar={setPlantillaFranjasId}
+              />
+            </View>
+            <TouchableOpacity
+              style={[styles.consultarBtn, (loadingFranjas || selectedLocalIds.length === 0) && styles.consultarBtnDisabled]}
+              onPress={consultarFranjas}
+              disabled={loadingFranjas || selectedLocalIds.length === 0}
+              activeOpacity={0.7}
+            >
+              {loadingFranjas ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <MaterialIcons name="schedule" size={16} color="#fff" />
+              )}
+              <Text style={styles.consultarBtnText}>
+                {loadingFranjas
+                  ? progresoFranjas
+                    ? `Calculando… ${progresoFranjas.hechas}/${progresoFranjas.total}`
+                    : 'Calculando…'
+                  : 'Calcular franjas'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {errorFranjas ? (
+            <View style={styles.errorBar}>
+              <MaterialIcons name="error-outline" size={16} color="#dc2626" />
+              <Text style={styles.errorBarText}>{errorFranjas}</Text>
+            </View>
+          ) : null}
+
+          {resultadosFranjas && resultadosFranjas.length > 0 ? (
+            resultadosFranjas.map((loc) => (
+              <View key={loc.localId} style={styles.franjasLocalCard}>
+                <View style={styles.franjasLocalHeader}>
+                  <Text style={styles.franjasLocalNombre}>{loc.nombre}</Text>
+                  {loc.tieneAgora ? (
+                    <Text style={styles.franjasLocalMeta}>
+                      {formatFecha(from)} → {formatFecha(to)}
+                      {loc.ratioPersonal != null ? ` · ${loc.ratioPersonal}% personal` : ''}
+                    </Text>
+                  ) : (
+                    <Text style={styles.franjasLocalAviso}>{loc.aviso ?? 'Sin datos'}</Text>
+                  )}
+                </View>
+                {loc.tieneAgora && loc.dias.length > 0 ? (
+                  <>
+                    <ScrollView horizontal showsHorizontalScrollIndicator>
+                      <View>
+                        <View style={styles.tableHeader}>
+                          <View style={[styles.cellHeader, { width: 130 }]}><Text style={styles.cellHeaderText}>Día</Text></View>
+                          {etiquetasFranjas.map((et) => (
+                            <View key={et} style={[styles.cellHeader, { width: 110 }]}>
+                              <Text style={styles.cellHeaderText} numberOfLines={2}>{et}</Text>
+                            </View>
+                          ))}
+                          <View style={[styles.cellHeader, { width: 90 }]}><Text style={styles.cellHeaderText}>Total día</Text></View>
+                        </View>
+                        {loc.dias.map((d, idx) => (
+                          <View key={d.fecha} style={[styles.row, { backgroundColor: idx % 2 === 0 ? '#fff' : '#f8fafc' }]}>
+                            <View style={[styles.cell, { width: 130, alignItems: 'flex-start' }]}>
+                              <Text style={styles.cellTextNombre}>{etiquetaDiaSemanaFecha(d.fecha)}</Text>
+                            </View>
+                            {d.celdas.map((c, ci) => (
+                              <View key={ci} style={[styles.cell, { width: 110 }]}>
+                                <Text style={[styles.cellText, styles.cellStrong]}>{formatHoras(c.horasPosibles)}</Text>
+                                <Text style={styles.cellSubComp}>{formatEur(c.comparativa)}</Text>
+                              </View>
+                            ))}
+                            <View style={[styles.cell, { width: 90 }]}>
+                              <Text style={[styles.cellText, styles.cellStrong]}>{formatHoras(d.totalHorasPosibles)}</Text>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    </ScrollView>
+                    {loc.aviso ? <Text style={styles.franjasLocalAviso}>{loc.aviso}</Text> : null}
+                    <Text style={styles.franjasCeldaLeyenda}>En cada celda: horas posibles (arriba) y venta comparativa de esa franja (abajo).</Text>
+                  </>
+                ) : loc.tieneAgora ? (
+                  <Text style={styles.franjasHint}>Sin datos para este local en el rango.</Text>
+                ) : null}
+              </View>
+            ))
+          ) : !loadingFranjas && !errorFranjas ? (
+            <Text style={styles.franjasHint}>
+              Elige locales y rango arriba, una plantilla de franjas y pulsa «Calcular franjas».
+            </Text>
+          ) : null}
+
+          <Text style={styles.ayudaText}>
+            Horas posibles por franja = (comparativa de la franja × ratio personal %) ÷ (€/hora del local). Usa los mismos ratios que el resumen por periodo. Máx. 31 días por consulta.
+          </Text>
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -1101,6 +1689,30 @@ const styles = StyleSheet.create({
 
   seccion: { marginBottom: 16 },
   seccionTitulo: { fontSize: 13, fontWeight: '700', color: '#334155', marginBottom: 8 },
+  seccionSubtitulo: { fontSize: 12, color: '#64748b', marginBottom: 10, marginTop: -4 },
+  seccionFranjas: {
+    marginTop: 8,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  franjasTituloRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, zIndex: 20 },
+  franjasToolbar: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12, marginBottom: 12 },
+  franjasLocalCard: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 10,
+  },
+  franjasLocalHeader: { marginBottom: 8 },
+  franjasLocalNombre: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
+  franjasLocalMeta: { fontSize: 11, color: '#64748b', marginTop: 2 },
+  franjasLocalAviso: { fontSize: 11, color: '#b45309', marginTop: 4 },
+  franjasHint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', marginVertical: 8 },
+  franjasCeldaLeyenda: { fontSize: 10, color: '#94a3b8', fontStyle: 'italic', marginTop: 6 },
+  cellSubComp: { fontSize: 9, color: '#94a3b8', marginTop: 1 },
 
   grupoCard: {
     backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderLeftWidth: 4,

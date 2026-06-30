@@ -14,6 +14,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
+import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import * as XLSX from 'xlsx-js-style';
 import { exportRevisionFormasPagoPdf } from './pdfRevisionFormasPago';
 import { apiFetch } from '../../utils/api';
@@ -75,30 +76,6 @@ function formatMoneda(value: string | number): string {
   const parts = n.toFixed(2).split('.');
   const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   return `${intPart},${parts[1]} €`;
-}
-
-function parseDateToYYYYMMDD(input: string): string | null {
-  const s = String(input ?? '').trim();
-  if (!s) return null;
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})$/);
-  if (m) {
-    const d = parseInt(m[1], 10);
-    const mo = parseInt(m[2], 10);
-    let y = parseInt(m[3], 10);
-    if (y < 100) y += 2000;
-    const date = new Date(y, mo - 1, d);
-    if (date.getDate() === d && date.getMonth() === mo - 1 && date.getFullYear() === y) {
-      return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    }
-    return null;
-  }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  return null;
-}
-
-function todayDmy(): string {
-  const d = new Date();
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
 }
 
 function formatHora(iso: string): string {
@@ -227,8 +204,8 @@ export default function RevisionFormasPagoScreen() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fechaDesdeInput, setFechaDesdeInput] = useState<string>(todayDmy());
-  const [fechaHastaInput, setFechaHastaInput] = useState<string>(todayDmy());
+  const [fechaDesdeInput, setFechaDesdeInput] = useState<string>(() => fechaJornadaNegocioIso());
+  const [fechaHastaInput, setFechaHastaInput] = useState<string>(() => fechaJornadaNegocioIso());
   const [consultedFrom, setConsultedFrom] = useState<string>('');
   const [consultedTo, setConsultedTo] = useState<string>('');
   const [filtroBusquedaInput, setFiltroBusquedaInput] = useState('');
@@ -299,10 +276,10 @@ export default function RevisionFormasPagoScreen() {
     locales: string[];
     refresh?: boolean;
   }) => {
-    const isoFrom = parseDateToYYYYMMDD(opts.desde);
-    const isoTo = parseDateToYYYYMMDD(opts.hasta);
-    if (!isoFrom || !isoTo) {
-      setError('Fechas no válidas (dd/mm/yyyy)');
+    const isoFrom = opts.desde.trim();
+    const isoTo = opts.hasta.trim();
+    if (!isoFrom || !isoTo || !/^\d{4}-\d{2}-\d{2}$/.test(isoFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(isoTo)) {
+      setError('Indica una fecha válida (dd/mm/aaaa)');
       return;
     }
     if (isoFrom > isoTo) {
@@ -458,8 +435,8 @@ export default function RevisionFormasPagoScreen() {
   const hasPendingChanges = useMemo(() => {
     if (hasPendingRule) return true;
     if (!appliedDesde || !appliedHasta) return false;
-    const isoFrom = parseDateToYYYYMMDD(fechaDesdeInput) || '';
-    const isoTo = parseDateToYYYYMMDD(fechaHastaInput) || '';
+    const isoFrom = fechaDesdeInput.trim();
+    const isoTo = fechaHastaInput.trim();
     if (isoFrom !== appliedDesde || isoTo !== appliedHasta) return true;
     const currLoc = [...filtroLocales].sort().join(',');
     const apliLoc = [...appliedLocales].sort().join(',');
@@ -477,16 +454,16 @@ export default function RevisionFormasPagoScreen() {
   ]);
 
   const validacionRango = useMemo(() => {
-    const isoFrom = parseDateToYYYYMMDD(fechaDesdeInput);
-    const isoTo = parseDateToYYYYMMDD(fechaHastaInput);
+    const isoFrom = fechaDesdeInput.trim();
+    const isoTo = fechaHastaInput.trim();
     const nLocales = filtroLocales.length;
     const maxDias = nLocales === 1 ? 365 : 31;
 
-    if (!isoFrom || !isoTo) {
+    if (!isoFrom || !isoTo || !/^\d{4}-\d{2}-\d{2}$/.test(isoFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(isoTo)) {
       return {
         ok: false,
         estado: 'error' as const,
-        mensaje: 'Introduce fechas válidas (dd/mm/aaaa)',
+        mensaje: 'Indica una fecha válida (dd/mm/aaaa)',
         maxDias,
         dias: 0,
       };
@@ -918,10 +895,9 @@ export default function RevisionFormasPagoScreen() {
           <View style={styles.dateWrap}>
             <Text style={styles.dateLabel}>Desde</Text>
             <InputFecha
-              value={fechaDesdeInput}
-              onChange={setFechaDesdeInput}
-              format="dmy"
-              placeholder="dd/mm/yyyy"
+              valueIso={fechaDesdeInput}
+              onChangeIso={setFechaDesdeInput}
+              placeholder="dd/mm/aaaa"
               style={styles.dateInput}
               editable={!loading}
             />
@@ -929,10 +905,9 @@ export default function RevisionFormasPagoScreen() {
           <View style={styles.dateWrap}>
             <Text style={styles.dateLabel}>Hasta</Text>
             <InputFecha
-              value={fechaHastaInput}
-              onChange={setFechaHastaInput}
-              format="dmy"
-              placeholder="dd/mm/yyyy"
+              valueIso={fechaHastaInput}
+              onChangeIso={setFechaHastaInput}
+              placeholder="dd/mm/aaaa"
               style={styles.dateInput}
               editable={!loading}
             />

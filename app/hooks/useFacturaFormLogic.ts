@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LineaFactura } from '../utils/facturacion';
 import {
-  calcularFechaVencimientoDmy,
+  calcularFechaVencimientoIso,
   emptyLinea,
-  hoyDmy,
+  hoyISO,
   addLineaToArray,
   removeLineaFromArray,
   totalesFromLineas,
@@ -15,7 +15,7 @@ export type UseFacturaFormLogicOptions = {
   /** Mientras true no se recalcula vencimiento (p. ej. fetch en curso). */
   loading: boolean;
   /**
-   * Fecha emisión inicial en dmy. Si se omite, se usa hoy (comportamiento típico «crear»).
+   * Fecha emisión inicial en ISO yyyy-mm-dd. Si se omite, se usa hoy (comportamiento típico «crear»).
    * El panel puede pasar '' hasta hidratar desde API.
    */
   initialFechaEmision?: string;
@@ -25,7 +25,7 @@ export function useFacturaFormLogic(options: UseFacturaFormLogicOptions) {
   const { loading, initialFechaEmision } = options;
 
   const [fechaEmision, setFechaEmision] = useState(() =>
-    initialFechaEmision !== undefined ? initialFechaEmision : hoyDmy(),
+    initialFechaEmision !== undefined ? initialFechaEmision : hoyISO(),
   );
   const [fechaVencimiento, setFechaVencimiento] = useState('');
   const [condicionesPago, setCondicionesPago] = useState('contado');
@@ -60,7 +60,7 @@ export function useFacturaFormLogic(options: UseFacturaFormLogicOptions) {
       return;
     }
 
-    const nueva = calcularFechaVencimientoDmy(fechaEmision, condicionesPago);
+    const nueva = calcularFechaVencimientoIso(fechaEmision, condicionesPago);
     if (nueva) setFechaVencimiento(nueva);
   }, [condicionesPago, fechaEmision, loading]);
 

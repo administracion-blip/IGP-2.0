@@ -54,6 +54,10 @@ import {
   GSI_COMPRAS_NAME,
   isGsiReady,
 } from '../lib/dynamo/comprasProveedor.js';
+import {
+  listFormasPago,
+  upsertFormasFromAgora,
+} from '../lib/agora/formasPago.js';
 
 const router = Router();
 const env = () => ({
@@ -2969,6 +2973,75 @@ router.get('/agora/payment-methods', async (req, res) => {
     return res.json(result);
   } catch (err) {
     return res.status(500).json({ error: err?.message || 'Error obteniendo formas de pago' });
+  }
+});
+
+// --- Maestro persistente de formas de pago (tabla Igp_FormasPago) ---
+
+// GET /api/agora/formas-pago — catálogo persistente (para arqueo, cierres y maestro)
+router.get('/agora/formas-pago', async (_req, res) => {
+  try {
+    const formas = await listFormasPago();
+    res.json({ ok: true, formas });
+  } catch (err) {
+    res.status(500).json({ error: err?.message || 'Error al leer formas de pago' });
+  }
+});
+
+// POST /api/agora/payment-methods/sync — sincroniza el maestro desde Ágora
+router.post('/agora/payment-methods/sync', async (_req, res) => {
+  try {
+    const list = await exportPaymentMethods();
+    const result = await upsertFormasFromAgora(list);
+    res.json({
+      ok: true,
+      totalFetched: Array.isArray(list) ? list.length : 0,
+      added: result.added,
+      updated: result.updated,
+      nuevas: result.nuevas,
+    });
+  } catch (err) {
+    console.error('[agora/payment-methods/sync]', err?.message || err);
+    res.status(500).json({ error: err?.message || 'Error al sincronizar formas de pago' });
+  }
+});
+
+// PUT /api/agora/formas-pago/:agoraId — edita config del maestro (canonico, arquear, orden)
+router.put('/agora/formas-pago/:agoraId', async (req, res) => {
+  const sk = String(req.params.agoraId || '').trim();
+  if (!sk) return res.status(400).json({ error: 'agoraId obligatorio' });
+  const body = req.body || {};
+  const sets = [];
+  const names = {};
+  const values = {};
+  if (body.canonico !== undefined) {
+    sets.push('#c = :c');
+    names['#c'] = 'canonico';
+    const c = String(body.canonico ?? '').trim();
+    values[':c'] = c || null;
+  }
+  if (body.arquear !== undefined) {
+    sets.push('arquear = :a');
+    values[':a'] = !!body.arquear;
+  }
+  if (body.orden !== undefined) {
+    sets.push('orden = :o');
+    values[':o'] = Number(body.orden) || 99;
+  }
+  if (sets.length === 0) return res.status(400).json({ error: 'Nada que actualizar' });
+  try {
+    const out = await docClient.send(new UpdateCommand({
+      TableName: tables.formasPago,
+      Key: { PK: 'PM', SK: sk },
+      UpdateExpression: `SET ${sets.join(', ')}`,
+      ...(Object.keys(names).length ? { ExpressionAttributeNames: names } : {}),
+      ExpressionAttributeValues: values,
+      ReturnValues: 'ALL_NEW',
+    }));
+    res.json({ ok: true, forma: out.Attributes });
+  } catch (err) {
+    console.error('[agora/formas-pago PUT]', err?.message || err);
+    res.status(500).json({ error: err?.message || 'Error al actualizar forma de pago' });
   }
 });
 

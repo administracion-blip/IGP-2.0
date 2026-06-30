@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -14,12 +14,14 @@ import {
   Image,
   useWindowDimensions,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useAuth } from '../../contexts/AuthContext';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
+import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
 
 /** Bancos permitidos en boletas (valor guardado = id). Logos vía Wikimedia; si falla la carga, se usa badge de color. */
@@ -71,13 +73,10 @@ function etiquetaBanco(id: string): string {
   return BANCOS_ARQUEO.find((b) => b.id === id)?.label ?? '—';
 }
 
-const LABELS = [
-  { key: 'efectivo', teoricoKey: 'Efectivo', label: 'Efectivo', realField: 'efectivoReal' as const },
-  { key: 'tarjeta', teoricoKey: 'Tarjeta', label: 'Tarjeta', realField: 'tarjetaReal' as const },
-  { key: 'pendiente', teoricoKey: 'Pendiente de cobro', label: 'Pendiente de cobro', realField: 'pendienteCobroReal' as const },
-  { key: 'prepago', teoricoKey: 'Prepago Transferencia', label: 'Prepago transferencia', realField: 'prepagoTransferenciaReal' as const },
-  { key: 'agora', teoricoKey: 'AgoraPay', label: 'AgoraPay', realField: 'agoraPayReal' as const },
-] as const;
+/** Grupos con UI propia; el resto se renderiza con input numérico genérico. */
+const GRUPO_EFECTIVO = 'Efectivo';
+const GRUPO_TARJETA = 'Tarjeta';
+const GRUPO_PREPAGO = 'Prepago Transferencia';
 
 /** Billetes y monedas en euros (cantidad entera × valor). */
 const EFECTIVO_DENOMINACIONES: { value: number; label: string }[] = [
@@ -118,48 +117,6 @@ async function safeJson<T = unknown>(res: Response): Promise<T> {
   }
 }
 
-function parseDateToYYYYMMDD(input: string): string | null {
-  const s = input.trim();
-  if (!s) return null;
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})$/);
-  if (m) {
-    const d = parseInt(m[1], 10);
-    const mo = parseInt(m[2], 10);
-    let y = parseInt(m[3], 10);
-    if (y < 100) y += 2000;
-    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) {
-      const date = new Date(y, mo - 1, d);
-      if (date.getDate() === d && date.getMonth() === mo - 1 && date.getFullYear() === y) {
-        return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      }
-    }
-    return null;
-  }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  return null;
-}
-
-/** dd/mm/yyyy a partir de un Date (hora local). */
-function dateToDmy(d: Date): string {
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-}
-
-/**
- * Fecha de negocio por defecto: hasta las 09:30 se asume que aún se arquea el día anterior
- * (cierres de madrugada); desde las 09:31, el día natural es hoy.
- */
-function defaultBusinessDayDmy(): string {
-  const now = new Date();
-  const minutesOfDay = now.getHours() * 60 + now.getMinutes();
-  const cutoff = 9 * 60 + 30; // 09:30
-  if (minutesOfDay <= cutoff) {
-    const y = new Date(now);
-    y.setDate(y.getDate() - 1);
-    return dateToDmy(y);
-  }
-  return dateToDmy(now);
-}
-
 function formatMoneda(n: number): string {
   if (Number.isNaN(n)) return '—';
   const parts = n.toFixed(2).split('.');
@@ -172,24 +129,68 @@ function parseEuroInput(s: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Método de pago a mostrar/arquear (viene del maestro Igp_FormasPago vía backend). */
+type MetodoArqueo = {
+  grupo: string;
+  label: string;
+  arquear: boolean;
+  orden: number;
+  /** Real automático calculado por el backend (no editable). P. ej. prepago = Σ transferencias. */
+  auto?: boolean;
+  autoImporte?: number;
+  /** Importe de retiradas de caja que se suma al efectivo para el descuadre. */
+  ajusteRetiradas?: number;
+};
+
 type CompareResponse = {
+  /** Métodos dinámicos a mostrar. Si falta, se usa fallback de los 5 históricos. */
+  metodos?: MetodoArqueo[];
   teorico: Record<string, number>;
-  real: {
-    efectivoReal: number;
-    tarjetaReal: number;
-    pendienteCobroReal: number;
-    prepagoTransferenciaReal: number;
-    agoraPayReal: number;
-  };
+  /** Real guardado por grupo de forma de pago. */
+  real: Record<string, number>;
   diff: Record<string, number>;
   /** Suma de diferencias (coincide con descuadreTotal guardado en Dynamo al guardar). */
   descuadreTotal?: number;
+  /** Estado del arqueo guardado del TPV: null si no hay arqueo guardado. */
+  estado?: 'borrador' | 'cerrado' | null;
+  /** Totales de movimientos de caja del TPV: retiradas (efectivo) y transferencias (prepago). */
+  movimientos?: { retiradas: number; transferencias: number };
   closeoutsCount: number;
   error?: string;
   realGuardado?: {
     tarjetaLineas?: TarjetaLineaPersisted[];
+    /** Desglose de efectivo por denominación: { "50": 2, "0.5": 10 }. */
+    efectivoConteo?: Record<string, number>;
   };
 };
+
+type JornadaTpv = {
+  posId: string;
+  posName: string;
+  estado: 'borrador' | 'cerrado';
+  descuadreTotal?: number;
+  cerradoEn?: string | null;
+};
+
+type JornadaResponse = {
+  workplaceId: string;
+  businessDay: string;
+  arqueos: JornadaTpv[];
+  jornada?: { estado?: string; descuadreTotal?: number; cerradoPor?: string | null; cerradoEn?: string | null } | null;
+  estado: 'abierta' | 'cerrada';
+  puedeCerrar: boolean;
+  pendientes: string[];
+  error?: string;
+};
+
+/** Fallback si el backend no devuelve `metodos` (tabla aún sin sincronizar). */
+const METODOS_FALLBACK: MetodoArqueo[] = [
+  { grupo: 'Efectivo', label: 'Efectivo', arquear: true, orden: 1 },
+  { grupo: 'Tarjeta', label: 'Tarjeta', arquear: true, orden: 2 },
+  { grupo: 'Pendiente de cobro', label: 'Pendiente de cobro', arquear: true, orden: 3 },
+  { grupo: 'Prepago Transferencia', label: 'Prepago Transferencia', arquear: true, orden: 4 },
+  { grupo: 'AgoraPay', label: 'AgoraPay', arquear: true, orden: 5 },
+];
 
 /** Línea de boleta tarjeta guardada en Dynamo (sin URIs locales). */
 type TarjetaLineaPersisted = {
@@ -266,28 +267,47 @@ async function obtenerUriImagen(source: 'library' | 'camera'): Promise<string | 
 
 export default function ArqueoCajaScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ workplaceId?: string; posId?: string; posName?: string; businessDay?: string }>();
   const { hasPermiso, user } = useAuth();
+  const { shouldStackToolbar } = useBreakpoint();
 
   const [locales, setLocales] = useState<LocalItem[]>([]);
   const [saleCenters, setSaleCenters] = useState<{ Id?: number; Nombre?: string; Local?: string; Activo?: boolean }[]>([]);
 
-  const [businessDayDmy, setBusinessDayDmy] = useState(() => defaultBusinessDayDmy());
-  const [formLocal, setFormLocal] = useState('');
-  const [formPosId, setFormPosId] = useState('');
-  const [formPosName, setFormPosName] = useState('');
+  const [businessDayIso, setBusinessDayIso] = useState(
+    () => (typeof params.businessDay === 'string' && params.businessDay) || fechaJornadaNegocioIso(),
+  );
+  const [formLocal, setFormLocal] = useState(typeof params.workplaceId === 'string' ? params.workplaceId : '');
+  const [formPosId, setFormPosId] = useState(typeof params.posId === 'string' ? params.posId : '');
+  const [formPosName, setFormPosName] = useState(typeof params.posName === 'string' ? params.posName : '');
 
   const [efectivoReal, setEfectivoReal] = useState('');
   const [tarjetaReal, setTarjetaReal] = useState('');
   const [tarjetaLineas, setTarjetaLineas] = useState<TarjetaLinea[]>([]);
   const [ocrLineId, setOcrLineId] = useState<string | null>(null);
-  const [pendienteReal, setPendienteReal] = useState('');
-  const [prepagoReal, setPrepagoReal] = useState('');
+  /** Real introducido para grupos distintos de Efectivo/Tarjeta (clave = grupo). */
+  const [otrosReal, setOtrosReal] = useState<Record<string, string>>({});
+
+  const setOtroReal = useCallback((grupo: string, val: string) => {
+    setOtrosReal((prev) => ({ ...prev, [grupo]: val }));
+  }, []);
 
   const [compare, setCompare] = useState<CompareResponse | null>(null);
+
+  const metodos = useMemo<MetodoArqueo[]>(() => {
+    const list = compare?.metodos && compare.metodos.length > 0 ? compare.metodos : METODOS_FALLBACK;
+    return [...list].sort((a, b) => (a.orden - b.orden) || a.grupo.localeCompare(b.grupo));
+  }, [compare]);
+
   const [loadingCompare, setLoadingCompare] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveOk, setSaveOk] = useState(false);
+
+  // Jornada del local: estado de los arqueos por TPV y cierre consolidado.
+  const [jornada, setJornada] = useState<JornadaResponse | null>(null);
+  const [jornadaBusy, setJornadaBusy] = useState(false);
+  const primerFoco = useRef(true);
 
   const [conteoEfectivoOpen, setConteoEfectivoOpen] = useState(false);
   const [conteoCantidades, setConteoCantidades] = useState<string[]>(() => EFECTIVO_DENOMINACIONES.map(() => ''));
@@ -306,7 +326,6 @@ export default function ArqueoCajaScreen() {
     [windowHeight],
   );
 
-  const businessDayIso = useMemo(() => parseDateToYYYYMMDD(businessDayDmy), [businessDayDmy]);
 
   const agoraCodeToNombre = useMemo(() => {
     const map: Record<string, string> = {};
@@ -342,7 +361,7 @@ export default function ArqueoCajaScreen() {
   }, []);
 
   useEffect(() => {
-    if (formLocal && formPosId && !saleCentersPorLocal.some((sc) => String(sc.Id) === formPosId)) {
+    if (formLocal && formPosId && saleCentersPorLocal.length > 0 && !saleCentersPorLocal.some((sc) => String(sc.Id) === formPosId)) {
       setFormPosId('');
       setFormPosName('');
     }
@@ -364,22 +383,41 @@ export default function ArqueoCajaScreen() {
     setTarjetaReal(rounded.toFixed(2).replace('.', ','));
   }, [tarjetaLineas]);
 
+  /** Retiradas de efectivo y transferencias de prepago (movimientos de caja). */
+  const movRetiradas = compare?.movimientos?.retiradas ?? 0;
+  const movTransferencias = compare?.movimientos?.transferencias ?? 0;
+
+  /**
+   * Importe real introducido para un grupo (según su UI).
+   * `metodo.auto` (prepago) usa el importe automático del backend; el efectivo
+   * suma las retiradas (dinero que salió del cajón pero es recaudación real).
+   */
+  const realDeGrupo = useCallback(
+    (grupo: string, metodo?: MetodoArqueo): number => {
+      if (metodo?.auto) return compare?.real?.[grupo] ?? metodo.autoImporte ?? 0;
+      if (grupo === GRUPO_EFECTIVO) return parseEuroInput(efectivoReal) + movRetiradas;
+      if (grupo === GRUPO_TARJETA) return totalTarjetaImporte;
+      return parseEuroInput(otrosReal[grupo] ?? '');
+    },
+    [efectivoReal, totalTarjetaImporte, otrosReal, compare, movRetiradas],
+  );
+
   const diffsEnVivo = useMemo(() => {
     if (!compare) return null;
     const t = compare.teorico;
-    return {
-      Efectivo: parseEuroInput(efectivoReal) - (t.Efectivo ?? 0),
-      Tarjeta: totalTarjetaImporte - (t.Tarjeta ?? 0),
-      'Pendiente de cobro': parseEuroInput(pendienteReal) - (t['Pendiente de cobro'] ?? 0),
-      'Prepago Transferencia': parseEuroInput(prepagoReal) - (t['Prepago Transferencia'] ?? 0),
-      AgoraPay: 0,
-    };
-  }, [compare, efectivoReal, totalTarjetaImporte, pendienteReal, prepagoReal]);
+    const out: Record<string, number> = {};
+    for (const m of metodos) {
+      const teo = t[m.grupo] ?? 0;
+      // Si el método no se arquea, su real = teórico (diferencia 0).
+      out[m.grupo] = m.arquear ? realDeGrupo(m.grupo, m) - teo : 0;
+    }
+    return out;
+  }, [compare, metodos, realDeGrupo]);
 
   const descuadreEnVivo = useMemo(() => {
     if (!diffsEnVivo) return null;
     let s = 0;
-    for (const row of LABELS) s += diffsEnVivo[row.teoricoKey] ?? 0;
+    for (const v of Object.values(diffsEnVivo)) s += v;
     return Math.round(s * 100) / 100;
   }, [diffsEnVivo]);
 
@@ -447,10 +485,24 @@ export default function ArqueoCajaScreen() {
         } else {
           setTarjetaLineas([]);
         }
-        setEfectivoReal(String(r.efectivoReal ?? ''));
-        setTarjetaReal(String(r.tarjetaReal ?? ''));
-        setPendienteReal(String(r.pendienteCobroReal ?? ''));
-        setPrepagoReal(String(r.prepagoTransferenciaReal ?? ''));
+        // Recupera el desglose de efectivo guardado (si lo hay) para precargar el conteo.
+        const conteo = (rg?.efectivoConteo && typeof rg.efectivoConteo === 'object' ? rg.efectivoConteo : {}) as Record<string, number>;
+        setConteoCantidades(
+          EFECTIVO_DENOMINACIONES.map((d) => {
+            const q = Number(conteo[String(d.value)]);
+            return Number.isFinite(q) && q > 0 ? String(q) : '';
+          }),
+        );
+        const realMap = (r && typeof r === 'object' ? r : {}) as Record<string, number>;
+        const hayReal = Object.keys(realMap).length > 0;
+        setEfectivoReal(hayReal && realMap[GRUPO_EFECTIVO] != null ? String(realMap[GRUPO_EFECTIVO]) : '');
+        setTarjetaReal(hayReal && realMap[GRUPO_TARJETA] != null ? String(realMap[GRUPO_TARJETA]) : '');
+        const otros: Record<string, string> = {};
+        for (const [grupo, val] of Object.entries(realMap)) {
+          if (grupo === GRUPO_EFECTIVO || grupo === GRUPO_TARJETA) continue;
+          otros[grupo] = val != null ? String(val) : '';
+        }
+        setOtrosReal(otros);
       })
       .catch((e) => {
         setError(e.message || 'Error al cargar comparativa');
@@ -492,7 +544,7 @@ export default function ArqueoCajaScreen() {
     return () => clearTimeout(t);
   }, [fetchCompare]);
 
-  const guardar = async () => {
+  const guardar = async (opts?: { cerrar?: boolean }) => {
     if (!businessDayIso || !formLocal.trim() || !formPosId) {
       setError('Indica fecha, local y TPV');
       return;
@@ -513,14 +565,29 @@ export default function ArqueoCajaScreen() {
     setError(null);
     setSaveOk(false);
     try {
+      // Mapa dinámico real por grupo: solo los métodos que se arquean.
+      const realPorMetodo: Record<string, string> = {};
+      for (const m of metodos) {
+        if (!m.arquear || m.auto) continue; // prepago es automático: lo calcula el backend
+        let val = '';
+        if (m.grupo === GRUPO_EFECTIVO) val = efectivoReal;
+        else if (m.grupo === GRUPO_TARJETA) val = tarjetaReal;
+        else val = otrosReal[m.grupo] ?? '';
+        realPorMetodo[m.grupo] = String(val).replace(',', '.');
+      }
       const body = {
         PK: formLocal.trim(),
         BusinessDay: businessDayIso,
         PosId: formPosId,
         PosName: formPosName,
         WorkplaceName: agoraCodeToNombre[formLocal.trim()] ?? formLocal,
-        efectivoReal: efectivoReal.replace(',', '.'),
-        tarjetaReal: tarjetaReal.replace(',', '.'),
+        realPorMetodo,
+        // Desglose de billetes/monedas para que quien reabra el arqueo lo vea y pueda editarlo.
+        efectivoConteo: Object.fromEntries(
+          conteoCantidades
+            .map((raw, i) => [String(EFECTIVO_DENOMINACIONES[i].value), parseInt(String(raw).replace(/\D/g, ''), 10) || 0] as const)
+            .filter(([, q]) => q > 0),
+        ),
         tarjetaLineas: tarjetaLineas.map((l) => ({
           id: l.id,
           banco: l.banco,
@@ -530,9 +597,6 @@ export default function ArqueoCajaScreen() {
           imagenKey: l.imagenKey,
           ocrCompletado: Boolean(l.ocrCompletado),
         })),
-        pendienteCobroReal: pendienteReal.replace(',', '.'),
-        prepagoTransferenciaReal: prepagoReal.replace(',', '.'),
-        agoraPayReal: compare ? String(compare.teorico.AgoraPay ?? 0) : '0',
         usuarioId: user?.id_usuario,
         usuarioNombre: user?.Nombre,
       };
@@ -542,8 +606,25 @@ export default function ArqueoCajaScreen() {
       });
       const data = await safeJson<{ ok?: boolean; error?: string }>(res);
       if (!res.ok || data.error) throw new Error(data.error || 'Error al guardar');
+      // Cierre encadenado: tras guardar los importes, marca el arqueo como cerrado.
+      if (opts?.cerrar) {
+        const resEstado = await apiFetch('/api/cajas/arqueos-reales/estado', {
+          method: 'POST',
+          body: JSON.stringify({
+            workplaceId: formLocal.trim(),
+            businessDay: businessDayIso,
+            posId: formPosId,
+            estado: 'cerrado',
+            usuarioId: user?.id_usuario,
+            usuarioNombre: user?.Nombre,
+          }),
+        });
+        const dataEstado = await safeJson<{ ok?: boolean; error?: string }>(resEstado);
+        if (!resEstado.ok || dataEstado.error) throw new Error(dataEstado.error || 'Guardado, pero no se pudo cerrar el arqueo');
+      }
       setSaveOk(true);
       fetchCompare();
+      fetchJornada();
       setTimeout(() => setSaveOk(false), 2500);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al guardar');
@@ -552,17 +633,100 @@ export default function ArqueoCajaScreen() {
     }
   };
 
+  const fetchJornada = useCallback(() => {
+    if (!businessDayIso || !formLocal.trim()) {
+      setJornada(null);
+      return;
+    }
+    const q = new URLSearchParams({ workplaceId: formLocal.trim(), businessDay: businessDayIso });
+    apiFetch(`/api/cajas/jornada?${q}`)
+      .then((r) => safeJson<JornadaResponse>(r))
+      .then((d) => {
+        if ((d as { error?: string }).error) { setJornada(null); return; }
+        setJornada(d);
+      })
+      .catch(() => setJornada(null));
+  }, [businessDayIso, formLocal]);
+
+  useEffect(() => {
+    const t = setTimeout(fetchJornada, 350);
+    return () => clearTimeout(t);
+  }, [fetchJornada]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (primerFoco.current) {
+        primerFoco.current = false;
+        return;
+      }
+      fetchCompare();
+      fetchJornada();
+    }, [fetchCompare, fetchJornada]),
+  );
+
+  /** Cierra o reabre el arqueo del TPV seleccionado. */
+  const cambiarEstadoArqueo = useCallback(
+    async (estado: 'cerrado' | 'borrador') => {
+      if (!businessDayIso || !formLocal.trim() || !formPosId) return;
+      setJornadaBusy(true);
+      setError(null);
+      try {
+        const res = await apiFetch('/api/cajas/arqueos-reales/estado', {
+          method: 'POST',
+          body: JSON.stringify({
+            workplaceId: formLocal.trim(),
+            businessDay: businessDayIso,
+            posId: formPosId,
+            estado,
+            usuarioId: user?.id_usuario,
+            usuarioNombre: user?.Nombre,
+          }),
+        });
+        const data = await safeJson<{ ok?: boolean; error?: string }>(res);
+        if (!res.ok || data.error) throw new Error(data.error || 'Error al cambiar el estado');
+        fetchCompare();
+        fetchJornada();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Error al cambiar el estado del arqueo');
+      } finally {
+        setJornadaBusy(false);
+      }
+    },
+    [businessDayIso, formLocal, formPosId, user, fetchCompare, fetchJornada],
+  );
+
+  /** Cierra o reabre la jornada del local (consolidado). */
+  const cambiarEstadoJornada = useCallback(
+    async (accion: 'cerrar' | 'reabrir') => {
+      if (!businessDayIso || !formLocal.trim()) return;
+      setJornadaBusy(true);
+      setError(null);
+      try {
+        const res = await apiFetch(`/api/cajas/jornada/${accion}`, {
+          method: 'POST',
+          body: JSON.stringify({
+            workplaceId: formLocal.trim(),
+            businessDay: businessDayIso,
+            workplaceName: agoraCodeToNombre[formLocal.trim()] ?? formLocal,
+            usuarioId: user?.id_usuario,
+            usuarioNombre: user?.Nombre,
+          }),
+        });
+        const data = await safeJson<{ ok?: boolean; error?: string }>(res);
+        if (!res.ok || data.error) throw new Error(data.error || 'Error al actualizar la jornada');
+        fetchCompare();
+        fetchJornada();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Error al actualizar la jornada del local');
+      } finally {
+        setJornadaBusy(false);
+      }
+    },
+    [businessDayIso, formLocal, agoraCodeToNombre, user, fetchCompare, fetchJornada],
+  );
+
   const openTarjetaBoletasModal = useCallback(() => {
     setTarjetaBoletasModalOpen(true);
-  }, []);
-
-  const addTarjetaLinea = useCallback(() => {
-    const nl = newTarjetaLinea();
-    setTarjetaLineas((prev) => {
-      if (prev.length >= 20) return prev;
-      return [...prev, nl];
-    });
-    setTarjetaLineaExpandidaId(null);
   }, []);
 
   const removeTarjetaLinea = useCallback((id: string) => {
@@ -577,36 +741,20 @@ export default function ArqueoCajaScreen() {
     setTarjetaLineas((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   }, []);
 
-  const pickImageTarjetaLinea = useCallback(async (lineId: string, source: 'library' | 'camera') => {
-    const uri = await obtenerUriImagen(source);
-    if (!uri) return;
-    setTarjetaLineas((prev) =>
-      prev.map((l) =>
-        l.id === lineId
-          ? { ...l, localUri: uri, previewUrl: undefined, ocrCompletado: false, imagenKey: '' }
-          : l,
-      ),
-    );
-  }, []);
-
-  const escanearTarjetaLinea = useCallback(
-    async (line: TarjetaLinea) => {
+  /** Lanza el OCR sobre una imagen ya disponible. Devuelve true si el OCR rellenó los campos clave. */
+  const ejecutarOcrBoleta = useCallback(
+    async (lineId: string, uri: string): Promise<boolean> => {
       if (!businessDayIso || !formLocal.trim()) {
         setError('Indica fecha y local antes de escanear.');
-        return;
+        return false;
       }
-      const uri = line.localUri || line.previewUrl;
-      if (!uri) {
-        setError('Añade una imagen antes de escanear.');
-        return;
-      }
-      setOcrLineId(line.id);
+      setOcrLineId(lineId);
       setError(null);
       try {
         const form = new FormData();
         form.append('workplaceId', formLocal.trim());
         form.append('businessDay', businessDayIso);
-        form.append('lineId', line.id);
+        form.append('lineId', lineId);
         await appendImagenOcrTarjeta(form, uri);
         const resp = await apiFetch('/api/cajas/arqueos-reales/ocr-ticket', { method: 'POST', body: form });
         const data = await safeJson<{
@@ -623,7 +771,7 @@ export default function ArqueoCajaScreen() {
         const bancoOcr = normalizarBancoIdDesdeOcr(data.banco ?? '');
         setTarjetaLineas((prev) =>
           prev.map((l) =>
-            l.id === line.id
+            l.id === lineId
               ? {
                   ...l,
                   banco: bancoOcr || l.banco,
@@ -637,8 +785,11 @@ export default function ArqueoCajaScreen() {
               : l,
           ),
         );
+        // El OCR es orientativo: si falta banco, importe o nº de comercio, hay que revisar a mano.
+        return Boolean(bancoOcr && data.importe && data.numeroComercio);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Error al escanear');
+        return false;
       } finally {
         setOcrLineId(null);
       }
@@ -646,19 +797,65 @@ export default function ArqueoCajaScreen() {
     [businessDayIso, formLocal],
   );
 
-  const setters: Record<string, React.Dispatch<React.SetStateAction<string>>> = {
-    efectivoReal: setEfectivoReal,
-    tarjetaReal: setTarjetaReal,
-    pendienteCobroReal: setPendienteReal,
-    prepagoTransferenciaReal: setPrepagoReal,
-  };
+  /**
+   * Flujo principal de captura de boleta: abre cámara (móvil/tablet) o galería (web),
+   * y al obtener la foto lanza el OCR automáticamente. Si se cancela, el OCR falla o
+   * deja campos sin rellenar, despliega la fila para edición manual.
+   */
+  const capturarEscanearBoleta = useCallback(
+    async (lineId: string, source: 'library' | 'camera') => {
+      const uri = await obtenerUriImagen(source);
+      if (!uri) {
+        // Cancelado: dejar la fila lista para introducir los datos a mano.
+        setTarjetaLineaExpandidaId(lineId);
+        return;
+      }
+      setTarjetaLineas((prev) =>
+        prev.map((l) =>
+          l.id === lineId
+            ? { ...l, localUri: uri, previewUrl: undefined, ocrCompletado: false, imagenKey: '' }
+            : l,
+        ),
+      );
+      const ok = await ejecutarOcrBoleta(lineId, uri);
+      // Si el OCR no completó todos los campos clave, abrir el detalle para revisar/corregir.
+      if (!ok) setTarjetaLineaExpandidaId(lineId);
+    },
+    [ejecutarOcrBoleta],
+  );
 
-  const values: Record<string, string> = {
-    efectivoReal,
-    tarjetaReal,
-    pendienteCobroReal: pendienteReal,
-    prepagoTransferenciaReal: prepagoReal,
-  };
+  /** Reintento manual del OCR sobre una imagen ya añadida. */
+  const escanearTarjetaLinea = useCallback(
+    async (line: TarjetaLinea) => {
+      const uri = line.localUri || line.previewUrl;
+      if (!uri) {
+        setError('Añade una imagen antes de escanear.');
+        return;
+      }
+      await ejecutarOcrBoleta(line.id, uri);
+    },
+    [ejecutarOcrBoleta],
+  );
+
+  const addTarjetaLinea = useCallback(() => {
+    const nl = newTarjetaLinea();
+    let added = false;
+    setTarjetaLineas((prev) => {
+      if (prev.length >= 20) return prev;
+      added = true;
+      return [...prev, nl];
+    });
+    if (!added) return;
+    // Sin fecha/local no se puede escanear: añadimos la boleta lista para introducir datos a mano.
+    if (!businessDayIso || !formLocal.trim()) {
+      setTarjetaLineaExpandidaId(nl.id);
+      return;
+    }
+    setTarjetaLineaExpandidaId(null);
+    // Primero la cámara (móvil/tablet) o galería (web); el OCR se lanza automáticamente.
+    const source: 'library' | 'camera' = Platform.OS === 'web' ? 'library' : 'camera';
+    capturarEscanearBoleta(nl.id, source);
+  }, [businessDayIso, formLocal, capturarEscanearBoleta]);
 
   if (!hasPermiso('cierres.ver')) {
     return (
@@ -687,20 +884,20 @@ export default function ArqueoCajaScreen() {
           Introduce los importes reales para contrastarlos con el cierre teórico (Ágora) del mismo día, local y TPV.
         </Text>
 
-        <View style={styles.filtrosRow}>
-          <View style={styles.filtrosColFecha}>
+        <View style={[styles.filtrosRow, shouldStackToolbar && styles.filtrosRowStack]}>
+          <View style={[styles.filtrosColFecha, !shouldStackToolbar && styles.filtrosColInline]}>
             <Text style={styles.labelFiltros}>Fecha negocio</Text>
             <InputFecha
-              value={businessDayDmy}
-              onChange={setBusinessDayDmy}
-              format="dmy"
+              valueIso={businessDayIso}
+              onChangeIso={setBusinessDayIso}
               placeholder="dd/mm/aaaa"
               style={styles.inputFechaCompact}
             />
           </View>
-          <View style={styles.filtrosColSelect}>
+          <View style={[styles.filtrosColSelect, !shouldStackToolbar && styles.filtrosColInlineFlex]}>
             <Text style={styles.labelFiltros}>Local</Text>
             <SelectorDesplegable
+              style={!shouldStackToolbar ? styles.selectorInline : undefined}
               icono="store"
               iconoLista="store"
               tituloLista="Local"
@@ -724,9 +921,10 @@ export default function ArqueoCajaScreen() {
               onSeleccionar={(code) => setFormLocal(code)}
             />
           </View>
-          <View style={styles.filtrosColSelect}>
+          <View style={[styles.filtrosColSelect, !shouldStackToolbar && styles.filtrosColInlineFlex]}>
             <Text style={styles.labelFiltros}>TPV</Text>
             <SelectorDesplegable
+              style={!shouldStackToolbar ? styles.selectorInline : undefined}
               icono="point-of-sale"
               iconoLista="point-of-sale"
               tituloLista="TPV"
@@ -916,7 +1114,7 @@ export default function ArqueoCajaScreen() {
                 </TouchableOpacity>
               </View>
               <Text style={styles.tarjetaModalLead}>
-                Total = suma de importes. Con imagen: OCR obligatorio una vez (botón verde al completar). Pulsa la miniatura para ampliar foto.
+                Al añadir una boleta se abre la cámara y se escanea automáticamente (OCR). Revisa los datos y corrígelos a mano si hace falta. Pulsa la miniatura para ampliar la foto.
               </Text>
               <ScrollView
                 style={[styles.tarjetaModalScroll, { maxHeight: tarjetaModalScrollMaxH }]}
@@ -926,7 +1124,7 @@ export default function ArqueoCajaScreen() {
                 showsVerticalScrollIndicator
               >
                 {tarjetaLineas.length === 0 ? (
-                  <Text style={styles.tarjetaModalEmpty}>No hay líneas. Pulsa «Añadir boleta» abajo.</Text>
+                  <Text style={styles.tarjetaModalEmpty}>No hay boletas. Pulsa «Añadir boleta» abajo para abrir la cámara y escanear.</Text>
                 ) : null}
                 {tarjetaLineas.map((line, idx) => {
                   const imgUri = line.localUri || line.previewUrl;
@@ -983,7 +1181,7 @@ export default function ArqueoCajaScreen() {
                         {Platform.OS !== 'web' ? (
                           <TouchableOpacity
                             style={styles.tarjetaIconOnly}
-                            onPress={() => pickImageTarjetaLinea(line.id, 'camera')}
+                            onPress={() => capturarEscanearBoleta(line.id, 'camera')}
                             accessibilityLabel="Cámara"
                           >
                             <MaterialIcons name="photo-camera" size={20} color="#0369a1" />
@@ -991,7 +1189,7 @@ export default function ArqueoCajaScreen() {
                         ) : null}
                         <TouchableOpacity
                           style={styles.tarjetaIconOnly}
-                          onPress={() => pickImageTarjetaLinea(line.id, 'library')}
+                          onPress={() => capturarEscanearBoleta(line.id, 'library')}
                           accessibilityLabel="Galería"
                         >
                           <MaterialIcons name="photo-library" size={20} color="#0369a1" />
@@ -1024,7 +1222,7 @@ export default function ArqueoCajaScreen() {
                           {!imgUri ? (
                             <TouchableOpacity
                               style={styles.tarjetaSinFotoRow}
-                              onPress={() => pickImageTarjetaLinea(line.id, 'library')}
+                              onPress={() => capturarEscanearBoleta(line.id, 'library')}
                             >
                               <MaterialIcons name="add-a-photo" size={18} color="#0369a1" />
                               <Text style={styles.tarjetaSinFotoText}>Añadir imagen (galería)</Text>
@@ -1168,14 +1366,20 @@ export default function ArqueoCajaScreen() {
             <Text style={styles.cardMeta}>
               Cierres teóricos encontrados: {compare.closeoutsCount}
             </Text>
-            {LABELS.map((row) => {
-              const t = compare.teorico[row.teoricoKey] ?? 0;
-              const diff = diffsEnVivo ? diffsEnVivo[row.teoricoKey] ?? 0 : 0;
-              const v = values[row.realField];
+            {metodos.map((row) => {
+              const t = compare.teorico[row.grupo] ?? 0;
+              const diff = diffsEnVivo ? diffsEnVivo[row.grupo] ?? 0 : 0;
+              const esEfectivo = row.grupo === GRUPO_EFECTIVO;
+              const esTarjeta = row.grupo === GRUPO_TARJETA;
+              const v = esEfectivo
+                ? efectivoReal
+                : esTarjeta
+                  ? tarjetaReal
+                  : (otrosReal[row.grupo] ?? '');
 
-              if (row.key === 'tarjeta') {
+              if (esTarjeta) {
                 return (
-                  <View key={row.key} style={styles.rowCompare}>
+                  <View key={row.grupo} style={styles.rowCompare}>
                     <Text style={styles.rowLabel}>{row.label}</Text>
                     <View style={styles.rowCols}>
                       <View style={styles.colTeo}>
@@ -1214,7 +1418,7 @@ export default function ArqueoCajaScreen() {
                             <TextInput
                               style={[styles.inputNum, styles.inputNumEfectivo]}
                               value={v}
-                              onChangeText={setters[row.realField]}
+                              onChangeText={setTarjetaReal}
                               keyboardType="decimal-pad"
                               placeholder="0,00"
                               placeholderTextColor="#94a3b8"
@@ -1240,7 +1444,7 @@ export default function ArqueoCajaScreen() {
               }
 
               return (
-                <View key={row.key} style={styles.rowCompare}>
+                <View key={row.grupo} style={styles.rowCompare}>
                   <Text style={styles.rowLabel}>{row.label}</Text>
                   <View style={styles.rowCols}>
                     <View style={styles.colTeo}>
@@ -1249,7 +1453,17 @@ export default function ArqueoCajaScreen() {
                     </View>
                     <View style={styles.colReal}>
                       <Text style={styles.colHdr}>Real</Text>
-                      {row.key === 'efectivo' ? (
+                      {!row.arquear ? (
+                        <View style={styles.agoraRealSync}>
+                          <Text style={styles.agoraRealSyncText}>{formatMoneda(t)}</Text>
+                          <MaterialIcons name="sync" size={16} color="#64748b" />
+                        </View>
+                      ) : row.auto ? (
+                        <View style={styles.agoraRealSync}>
+                          <Text style={styles.agoraRealSyncText}>{formatMoneda(realDeGrupo(row.grupo, row))}</Text>
+                          <MaterialIcons name="swap-horiz" size={16} color="#0369a1" />
+                        </View>
+                      ) : esEfectivo ? (
                         <View style={styles.efectivoRealRow}>
                           <TouchableOpacity
                             style={styles.conteoEfectivoBtn}
@@ -1261,22 +1475,17 @@ export default function ArqueoCajaScreen() {
                           <TextInput
                             style={[styles.inputNum, styles.inputNumEfectivo]}
                             value={v}
-                            onChangeText={setters[row.realField]}
+                            onChangeText={setEfectivoReal}
                             keyboardType="decimal-pad"
                             placeholder="0,00"
                             placeholderTextColor="#94a3b8"
                           />
                         </View>
-                      ) : row.key === 'agora' ? (
-                        <View style={styles.agoraRealSync}>
-                          <Text style={styles.agoraRealSyncText}>{formatMoneda(t)}</Text>
-                          <MaterialIcons name="sync" size={16} color="#64748b" />
-                        </View>
                       ) : (
                         <TextInput
                           style={styles.inputNum}
                           value={v}
-                          onChangeText={setters[row.realField]}
+                          onChangeText={(text) => setOtroReal(row.grupo, text)}
                           keyboardType="decimal-pad"
                           placeholder="0,00"
                           placeholderTextColor="#94a3b8"
@@ -1290,9 +1499,58 @@ export default function ArqueoCajaScreen() {
                       </Text>
                     </View>
                   </View>
+                  {esEfectivo && movRetiradas > 0 ? (
+                    <Text style={styles.movNota}>
+                      Incluye {formatMoneda(movRetiradas)} de retiradas de caja.
+                    </Text>
+                  ) : null}
+                  {row.auto ? (
+                    <Text style={styles.movNota}>
+                      Automático: suma de transferencias registradas en movimientos de caja.
+                    </Text>
+                  ) : null}
                 </View>
               );
             })}
+            <TouchableOpacity
+              style={styles.movLinkBtn}
+              onPress={() =>
+                router.push({
+                  pathname: '/cajas/movimientos-caja',
+                  params: {
+                    workplaceId: formLocal.trim(),
+                    posId: formPosId,
+                    posName: formPosName,
+                    businessDay: businessDayIso,
+                  },
+                })
+              }
+              activeOpacity={0.8}
+            >
+              <MaterialIcons name="swap-horiz" size={18} color="#0369a1" />
+              <Text style={styles.movLinkBtnText}>Movimientos de caja (retiradas y transferencias)</Text>
+              <MaterialIcons name="chevron-right" size={18} color="#0369a1" />
+            </TouchableOpacity>
+
+            <View style={styles.tpvEstadoRow}>
+              <View style={styles.tpvEstadoLeft}>
+                <Text style={styles.tpvEstadoLabel}>Estado del TPV</Text>
+                {compare.estado ? (
+                  <View style={[styles.estadoChip, compare.estado === 'cerrado' ? styles.estadoChipCerrado : styles.estadoChipBorrador]}>
+                    <MaterialIcons
+                      name={compare.estado === 'cerrado' ? 'lock' : 'edit'}
+                      size={13}
+                      color={compare.estado === 'cerrado' ? '#15803d' : '#b45309'}
+                    />
+                    <Text style={[styles.estadoChipText, compare.estado === 'cerrado' ? styles.estadoChipTextCerrado : styles.estadoChipTextBorrador]}>
+                      {compare.estado === 'cerrado' ? 'Cerrado' : 'Borrador'}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.tpvEstadoHint}>Sin guardar</Text>
+                )}
+              </View>
+            </View>
           </View>
         ) : (
           !loadingCompare &&
@@ -1303,21 +1561,131 @@ export default function ArqueoCajaScreen() {
           )
         )}
 
-        <TouchableOpacity
-          style={[styles.saveBtn, saving && styles.saveBtnDis]}
-          onPress={guardar}
-          disabled={saving || !businessDayIso || !formLocal || !formPosId}
-        >
-          {saving ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <>
-              <MaterialIcons name="save" size={20} color="#fff" />
-              <Text style={styles.saveBtnText}>Guardar arqueo real</Text>
-            </>
-          )}
-        </TouchableOpacity>
+        {compare?.estado === 'cerrado' ? (
+          <TouchableOpacity
+            style={[styles.saveBtn, styles.reabrirBtn, (jornadaBusy || jornada?.estado === 'cerrada') && styles.saveBtnDis]}
+            onPress={() => cambiarEstadoArqueo('borrador')}
+            disabled={jornadaBusy || jornada?.estado === 'cerrada'}
+          >
+            {jornadaBusy ? (
+              <ActivityIndicator color="#b45309" />
+            ) : (
+              <>
+                <MaterialIcons name="lock-open" size={20} color="#b45309" />
+                <Text style={styles.reabrirBtnText}>Reabrir arqueo para editar</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.saveBtn, saving && styles.saveBtnDis]}
+            onPress={() => guardar({ cerrar: true })}
+            disabled={saving || !businessDayIso || !formLocal || !formPosId}
+          >
+            {saving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <MaterialIcons name="lock" size={20} color="#fff" />
+                <Text style={styles.saveBtnText}>Guardar y cerrar arqueo</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        )}
+        {compare?.estado === 'cerrado' && jornada?.estado === 'cerrada' ? (
+          <Text style={styles.hintCentro}>Reabre primero la jornada del local para poder editar este arqueo.</Text>
+        ) : null}
         {saveOk ? <Text style={styles.okText}>Guardado correctamente.</Text> : null}
+
+        {formLocal && businessDayIso && jornada ? (
+          <View style={styles.jornadaCard}>
+            <View style={styles.jornadaHeader}>
+              <View style={styles.jornadaHeaderLeft}>
+                <MaterialIcons name="storefront" size={18} color="#334155" />
+                <Text style={styles.jornadaTitle}>Jornada del local</Text>
+              </View>
+              <View style={[styles.estadoChip, jornada.estado === 'cerrada' ? styles.estadoChipCerrado : styles.estadoChipBorrador]}>
+                <MaterialIcons
+                  name={jornada.estado === 'cerrada' ? 'lock' : 'lock-open'}
+                  size={13}
+                  color={jornada.estado === 'cerrada' ? '#15803d' : '#b45309'}
+                />
+                <Text style={[styles.estadoChipText, jornada.estado === 'cerrada' ? styles.estadoChipTextCerrado : styles.estadoChipTextBorrador]}>
+                  {jornada.estado === 'cerrada' ? 'Cerrada' : 'Abierta'}
+                </Text>
+              </View>
+            </View>
+
+            {jornada.arqueos.length === 0 ? (
+              <Text style={styles.jornadaEmpty}>Aún no hay arqueos guardados en esta jornada.</Text>
+            ) : (
+              jornada.arqueos.map((a) => (
+                <View key={a.posId} style={styles.jornadaTpvRow}>
+                  <MaterialIcons
+                    name={a.estado === 'cerrado' ? 'check-circle' : 'radio-button-unchecked'}
+                    size={16}
+                    color={a.estado === 'cerrado' ? '#16a34a' : '#cbd5e1'}
+                  />
+                  <Text style={styles.jornadaTpvName} numberOfLines={1}>{a.posName || `TPV ${a.posId}`}</Text>
+                  <Text
+                    style={[
+                      styles.jornadaTpvDesc,
+                      Math.abs(Number(a.descuadreTotal) || 0) < 0.01 ? styles.diffOk : styles.diffBad,
+                    ]}
+                  >
+                    {formatMoneda(Number(a.descuadreTotal) || 0)}
+                  </Text>
+                  <Text style={[styles.jornadaTpvEstado, a.estado === 'cerrado' ? styles.estadoChipTextCerrado : styles.estadoChipTextBorrador]}>
+                    {a.estado === 'cerrado' ? 'Cerrado' : 'Borrador'}
+                  </Text>
+                </View>
+              ))
+            )}
+
+            {jornada.estado === 'cerrada' ? (
+              <>
+                <View style={styles.jornadaTotalRow}>
+                  <Text style={styles.jornadaTotalLabel}>Descuadre consolidado</Text>
+                  <Text
+                    style={[
+                      styles.jornadaTotalVal,
+                      Math.abs(Number(jornada.jornada?.descuadreTotal) || 0) < 0.01 ? styles.diffOk : styles.diffBad,
+                    ]}
+                  >
+                    {formatMoneda(Number(jornada.jornada?.descuadreTotal) || 0)}
+                  </Text>
+                </View>
+                {jornada.jornada?.cerradoPor ? (
+                  <Text style={styles.jornadaMeta}>Cerrada por {jornada.jornada.cerradoPor}</Text>
+                ) : null}
+                <TouchableOpacity
+                  style={[styles.estadoBtn, styles.estadoBtnReabrir, styles.jornadaActionBtn]}
+                  onPress={() => cambiarEstadoJornada('reabrir')}
+                  disabled={jornadaBusy}
+                >
+                  {jornadaBusy ? <ActivityIndicator size="small" color="#b45309" /> : <MaterialIcons name="lock-open" size={16} color="#b45309" />}
+                  <Text style={styles.estadoBtnReabrirText}>Reabrir jornada</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                {!jornada.puedeCerrar && jornada.pendientes.length > 0 ? (
+                  <Text style={styles.jornadaWarn}>
+                    Hay {jornada.pendientes.length} arqueo(s) en borrador. Ciérralos todos para poder cerrar la jornada.
+                  </Text>
+                ) : null}
+                <TouchableOpacity
+                  style={[styles.estadoBtn, styles.estadoBtnCerrar, styles.jornadaActionBtn, (!jornada.puedeCerrar || jornadaBusy) && styles.saveBtnDis]}
+                  onPress={() => cambiarEstadoJornada('cerrar')}
+                  disabled={!jornada.puedeCerrar || jornadaBusy}
+                >
+                  {jornadaBusy ? <ActivityIndicator size="small" color="#fff" /> : <MaterialIcons name="lock" size={16} color="#fff" />}
+                  <Text style={styles.estadoBtnCerrarText}>Cerrar jornada del local</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        ) : null}
 
         <View style={{ height: 32 }} />
         </View>
@@ -1345,26 +1713,45 @@ const styles = StyleSheet.create({
   lead: { fontSize: 13, color: '#64748b', marginBottom: 16, lineHeight: 20 },
   filtrosRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'flex-start',
+    flexWrap: 'nowrap',
+    alignItems: 'flex-end',
     gap: 8,
     marginBottom: 18,
+    width: '100%',
   },
-  /** Fecha: crece un poco en pantallas anchas, sin ocupar todo el ancho. */
+  /** En móvil/tablet apilado: permitir salto de línea entre campos. */
+  filtrosRowStack: {
+    flexWrap: 'wrap',
+    alignItems: 'flex-start',
+  },
+  /** Fecha: ancho fijo en toolbar en línea. */
   filtrosColFecha: {
-    flexGrow: 1,
-    flexShrink: 1,
+    flexGrow: 0,
+    flexShrink: 0,
     minWidth: 132,
     maxWidth: 200,
   },
-  /** Local / TPV: solo el ancho necesario (hasta un máximo). */
+  /** Local / TPV en toolbar apilada (móvil). */
   filtrosColSelect: {
-    flexGrow: 0,
+    flexGrow: 1,
     flexShrink: 1,
     minWidth: 140,
     maxWidth: 288,
     alignSelf: 'flex-start',
   },
+  /** Columna en fila única: puede encogerse; el texto largo se trunca con ellipsis. */
+  filtrosColInline: {
+    flexShrink: 0,
+    width: 168,
+    maxWidth: 168,
+  },
+  filtrosColInlineFlex: {
+    flex: 1,
+    minWidth: 0,
+    maxWidth: undefined,
+    alignSelf: 'stretch',
+  },
+  selectorInline: { flex: 1, minWidth: 0, width: '100%' },
   syncRow: {
     width: '100%',
     marginBottom: 14,
@@ -1820,6 +2207,66 @@ const styles = StyleSheet.create({
     backgroundColor: '#0ea5e9',
   },
   conteoBtnPrimaryText: { fontSize: 14, fontWeight: '700', color: '#fff' },
+  movNota: { fontSize: 11, color: '#64748b', fontStyle: 'italic', marginTop: 6 },
+  tpvEstadoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  tpvEstadoLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
+  tpvEstadoLabel: { fontSize: 12, fontWeight: '600', color: '#64748b' },
+  tpvEstadoHint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
+  estadoChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 3, paddingHorizontal: 8, borderRadius: 999, borderWidth: 1 },
+  estadoChipBorrador: { backgroundColor: '#fffbeb', borderColor: '#fcd34d' },
+  estadoChipCerrado: { backgroundColor: '#dcfce7', borderColor: '#86efac' },
+  estadoChipText: { fontSize: 11, fontWeight: '700' },
+  estadoChipTextBorrador: { color: '#b45309' },
+  estadoChipTextCerrado: { color: '#15803d' },
+  estadoBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 },
+  estadoBtnCerrar: { backgroundColor: '#16a34a' },
+  estadoBtnCerrarText: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  estadoBtnReabrir: { backgroundColor: '#fffbeb', borderWidth: 1, borderColor: '#fcd34d' },
+  estadoBtnReabrirText: { fontSize: 13, fontWeight: '700', color: '#b45309' },
+  jornadaCard: {
+    marginTop: 16,
+    padding: 14,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  jornadaHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  jornadaHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  jornadaTitle: { fontSize: 15, fontWeight: '700', color: '#334155' },
+  jornadaEmpty: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', paddingVertical: 6 },
+  jornadaTpvRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  jornadaTpvName: { flex: 1, minWidth: 0, fontSize: 13, color: '#334155', fontWeight: '500' },
+  jornadaTpvDesc: { fontSize: 13, fontWeight: '700', width: 90, textAlign: 'right' },
+  jornadaTpvEstado: { fontSize: 11, fontWeight: '700', width: 64, textAlign: 'right' },
+  jornadaTotalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
+  jornadaTotalLabel: { fontSize: 13, fontWeight: '700', color: '#334155' },
+  jornadaTotalVal: { fontSize: 16, fontWeight: '700' },
+  jornadaMeta: { fontSize: 11, color: '#94a3b8', marginTop: 4 },
+  jornadaWarn: { fontSize: 11, color: '#b45309', fontStyle: 'italic', marginTop: 10 },
+  jornadaActionBtn: { justifyContent: 'center', marginTop: 12 },
+  movLinkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    backgroundColor: '#f0f9ff',
+  },
+  movLinkBtnText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#0369a1' },
   diffOk: { color: '#059669' },
   diffBad: { color: '#dc2626' },
   hint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', marginTop: 8 },
@@ -1835,6 +2282,9 @@ const styles = StyleSheet.create({
   },
   saveBtnDis: { opacity: 0.6 },
   saveBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  reabrirBtn: { backgroundColor: '#fffbeb', borderWidth: 1, borderColor: '#fcd34d' },
+  reabrirBtnText: { fontSize: 15, fontWeight: '700', color: '#b45309' },
+  hintCentro: { fontSize: 12, color: '#b45309', marginTop: 8, textAlign: 'center' },
   okText: { fontSize: 13, color: '#059669', marginTop: 10, textAlign: 'center' },
   errorText: { padding: 16, color: '#b91c1c' },
 });

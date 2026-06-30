@@ -23,6 +23,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { fetchPorcentajeBeneficio, aplicarPorcentajeBeneficio } from '../../lib/personalizacion';
 import { siguienteIdParaNuevoPedido } from '../../lib/pedidosId';
 import { apiFetch } from '../../utils/api';
+import { formatCreadoEn } from '../../utils/formatFecha';
+import { MIN_TOUCH } from '../../constants/layout';
 
 const COLUMNAS = ['Id', 'Fecha', 'CreadoEn', 'LocalId', 'Local', 'AlmacenOrigen', 'AlmacenDestino', 'TotalAlbaran', 'Estado'] as const;
 const ESTADOS = ['Borrador', 'Pendiente', 'Enviado', 'Exportado', 'Completado'] as const;
@@ -56,19 +58,6 @@ function formatFecha(fecha: string | number | undefined): string {
   return s;
 }
 
-function formatCreadoEn(val: string | number | undefined): string {
-  if (val == null || String(val).trim() === '') return '—';
-  const s = String(val).trim();
-  const dateMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (dateMatch) {
-    const [, y, m, d] = dateMatch;
-    const timeMatch = s.match(/T(\d{2}):(\d{2})/);
-    const time = timeMatch ? ` ${timeMatch[1]}:${timeMatch[2]}` : '';
-    return `${d}/${m}/${y}${time}`;
-  }
-  return s;
-}
-
 function formatMoneda(val: string | number | undefined): string {
   if (val == null || String(val).trim() === '') return '—';
   const n = typeof val === 'number' ? val : parseFloat(String(val));
@@ -90,11 +79,30 @@ function fechaToIso(val: string): string {
   return s;
 }
 
+/** Fecha ISO del pedido (campo Fecha), normalizada para comparar rangos. */
+function fechaPedidoIso(p: Pedido): string {
+  const raw = String(valorEnLocal(p, 'Fecha') ?? '').trim();
+  if (!raw) return '';
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : fechaToIso(raw);
+}
+
+/** Compara IDs de almacén tolerando ceros a la izquierda (p. ej. "07" vs "7"). */
+function idAlmacenCoincide(idPedido: string, seleccionado: string): boolean {
+  if (!seleccionado) return true;
+  const id = idPedido.trim();
+  if (!id) return false;
+  const norm = (s: string) => (s.replace(/^0+/, '') || '0');
+  return seleccionado === id || norm(seleccionado) === norm(id);
+}
+
+/** Valor especial para la opción «Todos» de los desplegables de filtro. */
+const FILTRO_TODOS = '';
+
 const READ_ONLY = true;
 
 export default function PedidosCompletadosScreen() {
   const router = useRouter();
-  const { localPermitido } = useAuth();
+  const { localPermitido, hasPermiso } = useAuth();
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [locales, setLocales] = useState<Local[]>([]);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
@@ -102,6 +110,12 @@ export default function PedidosCompletadosScreen() {
   const [error, setError] = useState<string | null>(null);
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
+
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
+  const [selLocal, setSelLocal] = useState('');
+  const [selAlmacenOrigen, setSelAlmacenOrigen] = useState('');
+  const [selAlmacenDestino, setSelAlmacenDestino] = useState('');
 
   const [modalFormVisible, setModalFormVisible] = useState(false);
   const [editingPedidoId, setEditingPedidoId] = useState<string | null>(null);
@@ -236,11 +250,80 @@ export default function PedidosCompletadosScreen() {
     });
   }, [form.LocalId, almacenesPorLocalId, almacenes]);
 
+  const totalCompletados = useMemo(
+    () => pedidos.filter((p) => String(valorEnLocal(p, 'Estado') ?? '') === 'Completado').length,
+    [pedidos],
+  );
+
+  const isoDesde = useMemo(
+    () => (/^\d{4}-\d{2}-\d{2}$/.test(fechaDesde.trim()) ? fechaDesde.trim() : null),
+    [fechaDesde],
+  );
+  const isoHasta = useMemo(
+    () => (/^\d{4}-\d{2}-\d{2}$/.test(fechaHasta.trim()) ? fechaHasta.trim() : null),
+    [fechaHasta],
+  );
+
+  const filtrosActivosCount = useMemo(() => {
+    let n = 0;
+    if (isoDesde) n += 1;
+    if (isoHasta) n += 1;
+    if (selLocal) n += 1;
+    if (selAlmacenOrigen) n += 1;
+    if (selAlmacenDestino) n += 1;
+    return n;
+  }, [isoDesde, isoHasta, selLocal, selAlmacenOrigen, selAlmacenDestino]);
+
+  const opcionesLocales = useMemo(
+    () => [
+      { id: FILTRO_TODOS, titulo: 'Todos los locales', icono: 'store' as const },
+      ...locales
+        .map((loc) => ({
+          id: String(valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'Id_Locales') ?? valorEnLocal(loc, 'Id') ?? '').trim(),
+          titulo: String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? '') || '').trim(),
+          icono: 'store' as const,
+        }))
+        .filter((o) => o.id)
+        .sort((a, b) => a.titulo.localeCompare(b.titulo, 'es')),
+    ],
+    [locales],
+  );
+
+  const opcionesAlmacenes = useMemo(
+    () => [
+      { id: FILTRO_TODOS, titulo: 'Todos los almacenes', icono: 'warehouse' as const },
+      ...almacenes
+        .map((alm) => ({
+          id: String(valorEnLocal(alm, 'Id') ?? '').trim(),
+          titulo: String((valorEnLocal(alm, 'Nombre') ?? '') || '').trim(),
+          icono: 'warehouse' as const,
+        }))
+        .filter((o) => o.id)
+        .sort((a, b) => a.titulo.localeCompare(b.titulo, 'es')),
+    ],
+    [almacenes],
+  );
+
   const pedidosFiltrados = useMemo(() => {
     const soloCompletados = pedidos.filter((p) => String(valorEnLocal(p, 'Estado') ?? '') === 'Completado');
+    const avanzados = soloCompletados.filter((p) => {
+      if (isoDesde || isoHasta) {
+        const f = fechaPedidoIso(p);
+        if (!f) return false;
+        if (isoDesde && f < isoDesde) return false;
+        if (isoHasta && f > isoHasta) return false;
+      }
+      if (selLocal) {
+        const localId = String(valorEnLocal(p, 'LocalId') ?? '').trim();
+        if (localId !== selLocal) return false;
+      }
+      if (!idAlmacenCoincide(String(valorEnLocal(p, 'AlmacenOrigenId') ?? ''), selAlmacenOrigen)) return false;
+      if (!idAlmacenCoincide(String(valorEnLocal(p, 'AlmacenDestinoId') ?? ''), selAlmacenDestino)) return false;
+      return true;
+    });
     const q = filtroBusqueda.trim().toLowerCase();
     const filtered = q
-      ? soloCompletados.filter((p) => {
+      ? avanzados.filter((p) => {
           const partes = COLUMNAS.map((c) => {
             if (c === 'Local') {
               const localId = String(valorEnLocal(p, 'LocalId') ?? '').trim();
@@ -258,13 +341,37 @@ export default function PedidosCompletadosScreen() {
           });
           return partes.join(' ').toLowerCase().includes(q);
         })
-      : soloCompletados;
+      : avanzados;
     return [...filtered].sort((a, b) => {
       const ca = String(valorEnLocal(a, 'CreadoEn') ?? '').trim();
       const cb = String(valorEnLocal(b, 'CreadoEn') ?? '').trim();
       return ca.localeCompare(cb);
     });
-  }, [pedidos, filtroBusqueda, nombresPorLocalId, nombresPorAlmacenId]);
+  }, [
+    pedidos,
+    filtroBusqueda,
+    nombresPorLocalId,
+    nombresPorAlmacenId,
+    isoDesde,
+    isoHasta,
+    selLocal,
+    selAlmacenOrigen,
+    selAlmacenDestino,
+  ]);
+
+  const limpiarFiltros = useCallback(() => {
+    setFechaDesde('');
+    setFechaHasta('');
+    setSelLocal('');
+    setSelAlmacenOrigen('');
+    setSelAlmacenDestino('');
+  }, []);
+
+  useEffect(() => {
+    setSelectedRowIndex(null);
+    setPedidoParaLineas(null);
+    setLineas([]);
+  }, [isoDesde, isoHasta, selLocal, selAlmacenOrigen, selAlmacenDestino]);
 
   const handleCrear = () => {};
   const handleEditar = (_item: Pedido) => {};
@@ -330,14 +437,14 @@ export default function PedidosCompletadosScreen() {
     const id = valorEnLocal(item, 'Id');
     setEditingPedidoId(id != null ? String(id) : null);
     const fecha = valorEnLocal(item, 'Fecha');
-    const fechaStr = fecha != null ? String(fecha) : '';
+    const fechaIso = fecha != null ? (fechaToIso(String(fecha)) || String(fecha)) : '';
     setForm({
       Id: id != null ? String(id) : '',
       LocalId: valorEnLocal(item, 'LocalId') != null ? String(valorEnLocal(item, 'LocalId')) : '',
       AlmacenOrigenId: valorEnLocal(item, 'AlmacenOrigenId') != null ? String(valorEnLocal(item, 'AlmacenOrigenId')) : '',
       AlmacenDestinoId: valorEnLocal(item, 'AlmacenDestinoId') != null ? String(valorEnLocal(item, 'AlmacenDestinoId')) : '',
       TotalAlbaran: valorEnLocal(item, 'TotalAlbaran') != null ? String(valorEnLocal(item, 'TotalAlbaran')) : '0',
-      Fecha: fechaStr,
+      Fecha: /^\d{4}-\d{2}-\d{2}$/.test(fechaIso) ? fechaIso : new Date().toISOString().slice(0, 10),
       Estado: valorEnLocal(item, 'Estado') != null ? String(valorEnLocal(item, 'Estado')) : 'Borrador',
       Notas: valorEnLocal(item, 'Notas') != null ? String(valorEnLocal(item, 'Notas')) : '',
     });
@@ -366,7 +473,7 @@ export default function PedidosCompletadosScreen() {
         AlmacenOrigenId: form.AlmacenOrigenId.trim(),
         AlmacenDestinoId: form.AlmacenDestinoId.trim(),
         TotalAlbaran: totalAlbaranCalculado,
-        Fecha: fechaToIso(form.Fecha) || form.Fecha.trim(),
+        Fecha: form.Fecha.trim(),
         Estado: form.Estado || 'Borrador',
         Notas: form.Notas.trim(),
       };
@@ -669,6 +776,23 @@ export default function PedidosCompletadosScreen() {
     </View>
   );
 
+  if (!hasPermiso('pedidos.ver_completados')) {
+    return (
+      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', gap: 10 }]}>
+        <MaterialIcons name="lock-outline" size={32} color="#94a3b8" />
+        <Text style={{ fontSize: 14, color: '#64748b', textAlign: 'center' }}>
+          No tienes permiso para ver los pedidos completados.
+        </Text>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={{ minHeight: MIN_TOUCH, paddingHorizontal: 16, justifyContent: 'center', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#fff' }}
+        >
+          <Text style={{ fontSize: 14, fontWeight: '600', color: '#0ea5e9' }}>Volver</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={[styles.mainRow, !isWide && styles.mainRowColumn]}>
@@ -685,6 +809,87 @@ export default function PedidosCompletadosScreen() {
             onRetry={refetch}
             filtroBusqueda={filtroBusqueda}
             onFiltroChange={setFiltroBusqueda}
+            hideSearch
+            extraToolbarLeft={
+              <View style={styles.filtrosInlineWrap}>
+                <View style={styles.filtrosInlineRow}>
+                  <View style={styles.filtroField}>
+                    <Text style={styles.filtroFieldLabel}>Desde</Text>
+                    <InputFecha valueIso={fechaDesde} onChangeIso={setFechaDesde} placeholder="dd/mm/aaaa" style={styles.filtroFechaInput} />
+                  </View>
+                  <View style={styles.filtroField}>
+                    <Text style={styles.filtroFieldLabel}>Hasta</Text>
+                    <InputFecha valueIso={fechaHasta} onChangeIso={setFechaHasta} placeholder="dd/mm/aaaa" style={styles.filtroFechaInput} />
+                  </View>
+                  <SelectorDesplegable
+                    style={styles.filtroSelect}
+                    label="Local"
+                    icono="store"
+                    iconoLista="store"
+                    tituloLista="Filtrar por local"
+                    placeholder="Todos"
+                    buscador
+                    buscadorPlaceholder="Buscar local…"
+                    valorId={selLocal || null}
+                    opciones={opcionesLocales}
+                    onSeleccionar={setSelLocal}
+                  />
+                  <SelectorDesplegable
+                    style={styles.filtroSelect}
+                    label="Almacén origen"
+                    icono="warehouse"
+                    iconoLista="warehouse"
+                    tituloLista="Filtrar por almacén origen"
+                    placeholder="Todos"
+                    buscador
+                    buscadorPlaceholder="Buscar almacén…"
+                    valorId={selAlmacenOrigen || null}
+                    opciones={opcionesAlmacenes}
+                    onSeleccionar={setSelAlmacenOrigen}
+                  />
+                  <SelectorDesplegable
+                    style={styles.filtroSelect}
+                    label="Almacén destino"
+                    icono="warehouse"
+                    iconoLista="warehouse"
+                    tituloLista="Filtrar por almacén destino"
+                    placeholder="Todos"
+                    buscador
+                    buscadorPlaceholder="Buscar almacén…"
+                    valorId={selAlmacenDestino || null}
+                    opciones={opcionesAlmacenes}
+                    onSeleccionar={setSelAlmacenDestino}
+                  />
+                  {filtrosActivosCount > 0 ? (
+                    <TouchableOpacity style={styles.filtroLimpiarBtn} onPress={limpiarFiltros}>
+                      <MaterialIcons name="filter-list-off" size={16} color="#dc2626" />
+                      <Text style={styles.filtroLimpiarText}>Limpiar</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+                <View style={styles.filtrosInlineRow}>
+                  <View style={styles.filtroBuscar}>
+                    <MaterialIcons name="search" size={18} color="#64748b" />
+                    <TextInput
+                      style={styles.filtroBuscarInput}
+                      value={filtroBusqueda}
+                      onChangeText={setFiltroBusqueda}
+                      placeholder="Buscar en la tabla…"
+                      placeholderTextColor="#94a3b8"
+                    />
+                    {filtroBusqueda.length > 0 ? (
+                      <TouchableOpacity onPress={() => setFiltroBusqueda('')} hitSlop={8}>
+                        <MaterialIcons name="close" size={16} color="#94a3b8" />
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                  <Text style={styles.toolbarResultCount}>
+                    {pedidosFiltrados.length !== totalCompletados ? `${pedidosFiltrados.length} de ` : ''}
+                    {totalCompletados} {totalCompletados === 1 ? 'pedido' : 'pedidos'}
+                  </Text>
+                </View>
+              </View>
+            }
             selectedRowIndex={selectedRowIndex}
             onSelectRow={handleSelectRow}
             onCrear={handleCrear}
@@ -871,7 +1076,8 @@ export default function PedidosCompletadosScreen() {
       </View>
 
       <Modal visible={modalFormVisible} transparent animationType="fade" onRequestClose={cerrarModalForm}>
-        <Pressable style={styles.modalOverlay} onPress={cerrarModalForm}>
+        {/* El fondo no cierra el formulario (evita perder datos); usar la X o Cancelar. */}
+        <Pressable style={styles.modalOverlay}>
           <KeyboardAvoidingView style={styles.modalWrap} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
               <View style={styles.modalHeader}>
@@ -1003,10 +1209,9 @@ export default function PedidosCompletadosScreen() {
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Fecha</Text>
                   <InputFecha
-                    value={form.Fecha}
-                    onChange={(v) => setForm((f) => ({ ...f, Fecha: v }))}
-                    format="iso"
-                    placeholder="YYYY-MM-DD"
+                    valueIso={form.Fecha}
+                    onChangeIso={(v) => setForm((f) => ({ ...f, Fecha: v }))}
+                    placeholder="dd/mm/aaaa"
                     style={styles.formInput}
                   />
                 </View>
@@ -1325,4 +1530,67 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   lineaFormBtns: { flexDirection: 'row', gap: 12, marginTop: 12, justifyContent: 'flex-end' },
+  toolbarResultCount: { fontSize: 12, color: '#64748b', fontWeight: '600' },
+  filtrosInlineWrap: { flex: 1, minWidth: 0, gap: 8 },
+  filtrosInlineRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filtroField: { minWidth: 120 },
+  filtroFieldLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 4,
+  },
+  filtroFechaInput: {
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: '#1e293b',
+    backgroundColor: '#f8fafc',
+    minHeight: 46,
+  },
+  filtroSelect: { minWidth: 170, flexGrow: 1, maxWidth: 240 },
+  filtroLimpiarBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    backgroundColor: '#fef2f2',
+    minHeight: 46,
+  },
+  filtroLimpiarText: { fontSize: 13, fontWeight: '600', color: '#dc2626' },
+  filtroBuscar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexGrow: 1,
+    minWidth: 200,
+    maxWidth: 420,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    minHeight: 44,
+  },
+  filtroBuscarInput: {
+    flex: 1,
+    fontSize: 13,
+    color: '#1e293b',
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}),
+  },
 });

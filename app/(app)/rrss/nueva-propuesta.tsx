@@ -20,7 +20,7 @@ import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useMarketingLocales, valorEnLocal } from './LocalesContext';
 import { IdentidadLocalPanel } from './components/IdentidadLocalPanel';
 import { formatId6 } from './lib/formatId6';
-import { dmyToIso } from './lib/fechasUi';
+import { esIsoFechaValida } from './lib/fechasUi';
 import { appendImagenAlFormData } from './lib/appendImagenFormData';
 
 const TIPOS = ['Oferta', 'Evento', 'Novedad', 'Menu del dia', 'Agradecimiento', 'Cartel Musico', 'Otro'];
@@ -131,9 +131,8 @@ export default function NuevaPropuestaScreen() {
       setError('Selecciona al menos una red.');
       return;
     }
-    const fechaIso = dmyToIso(fechaSugerida.trim());
-    if (!fechaIso) {
-      setError('Introduce una fecha válida en formato DD/MM/AAAA.');
+    if (!esIsoFechaValida(fechaSugerida.trim())) {
+      setError('Indica una fecha válida (dd/mm/aaaa).');
       return;
     }
     if (!descripcion.trim()) {
@@ -152,7 +151,7 @@ export default function NuevaPropuestaScreen() {
         id_local: idLocal,
         tipo,
         redes: redesSel,
-        fecha_sugerida: fechaIso,
+        fecha_sugerida: fechaSugerida.trim(),
         descripcion: descripcion.trim(),
         imagen_referencia_url,
       };
@@ -266,10 +265,9 @@ export default function NuevaPropuestaScreen() {
         <View style={styles.field}>
           <Text style={styles.label}>Fecha sugerida *</Text>
           <InputFecha
-            value={fechaSugerida}
-            onChange={setFechaSugerida}
-            format="dmy"
-            placeholder="DD/MM/AAAA"
+            valueIso={fechaSugerida}
+            onChangeIso={setFechaSugerida}
+            placeholder="dd/mm/aaaa"
             style={styles.dateInput}
           />
         </View>

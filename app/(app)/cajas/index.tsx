@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { EstrellaFavorito } from '../../components/EstrellaFavorito';
 
 const OPCIONES: { id: string; label: string; icon: React.ComponentProps<typeof MaterialIcons>['name']; descripcion: string; permiso: string }[] = [
   {
@@ -23,6 +24,20 @@ const OPCIONES: { id: string; label: string; icon: React.ComponentProps<typeof M
     label: 'Arqueo de Caja',
     icon: 'account-balance-wallet',
     descripcion: 'Arqueo y conteo de caja',
+    permiso: 'cierres.ver',
+  },
+  {
+    id: 'movimientos-caja',
+    label: 'Movimientos de caja',
+    icon: 'swap-horiz',
+    descripcion: 'Retiradas de efectivo y transferencias de prepago por TPV',
+    permiso: 'cierres.ver',
+  },
+  {
+    id: 'revision-cajas',
+    label: 'Revisión de cajas',
+    icon: 'fact-check',
+    descripcion: 'Centro de mando: teórico vs real por local, TPV y día con alertas',
     permiso: 'cierres.ver',
   },
   {
@@ -70,6 +85,8 @@ export default function CajasIndexScreen() {
     if (id === 'cierres-teoricos') router.push('/cajas/cierres-teoricos');
     if (id === 'revision-formas-pago') router.push('/cajas/revision-formas-pago');
     if (id === 'arqueo-caja') router.push('/cajas/arqueo-caja');
+    if (id === 'movimientos-caja') router.push('/cajas/movimientos-caja');
+    if (id === 'revision-cajas') router.push('/cajas/revision-cajas');
     if (id === 'comparativa-fechas-cajas') router.push('/cajas/comparativa-fechas-cajas');
     if (id === 'objetivos') router.push('/cajas/objetivos');
     if (id === 'franjas-horarias') router.push('/cajas/franjas-horarias');
@@ -91,6 +108,9 @@ export default function CajasIndexScreen() {
             activeOpacity={0.7}
           >
             <View style={styles.cardLeft}>
+              <EstrellaFavorito
+                favorito={{ route: `/cajas/${opcion.id}`, label: opcion.label, icon: opcion.icon, permiso: opcion.permiso }}
+              />
               <MaterialIcons name={opcion.icon} size={24} color="#0ea5e9" />
               <Text style={styles.cardLabel}>{opcion.label}</Text>
             </View>
