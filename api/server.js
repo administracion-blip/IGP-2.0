@@ -109,6 +109,17 @@ const loginLimiter = rateLimit({
 });
 app.post('/api/login', loginLimiter);
 
+// Límite específico para recuperación de contraseña: evita usarlo para spam de
+// correos o enumeración de usuarios. Más restrictivo que el login.
+const forgotPasswordLimiter = rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_FORGOT_WINDOW_MS || '900000', 10),
+  max: parseInt(process.env.RATE_LIMIT_FORGOT_MAX || '5', 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas solicitudes de recuperación. Inténtalo de nuevo más tarde.' },
+});
+app.post('/api/forgot-password', forgotPasswordLimiter);
+
 const apiLimiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),
   max: parseInt(process.env.RATE_LIMIT_MAX || '200', 10),

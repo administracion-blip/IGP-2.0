@@ -163,6 +163,15 @@ export default function LoginScreen() {
             <Text style={styles.buttonText}>Entrar</Text>
           )}
         </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => router.push('/recuperar-password')}
+          disabled={loading}
+          style={styles.forgotLink}
+        >
+          <Text style={styles.forgotText}>¿Has olvidado tu contraseña?</Text>
+        </TouchableOpacity>
+
         <Text style={styles.poweredBy}>Powered by Tabolize</Text>
       </View>
     </KeyboardAvoidingView>
@@ -256,6 +265,16 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     fontWeight: '600',
+  },
+  forgotLink: {
+    marginTop: 14,
+    alignSelf: 'center',
+    paddingVertical: 6,
+  },
+  forgotText: {
+    color: '#38bdf8',
+    fontSize: 13,
+    textAlign: 'center',
   },
   poweredBy: {
     marginTop: 22,

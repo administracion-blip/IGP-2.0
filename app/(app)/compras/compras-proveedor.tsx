@@ -330,6 +330,14 @@ export default function ComprasProveedorScreen() {
         </View>
         <View style={styles.toolbarRight}>
           <ComprasToolbarIconBtn
+            tooltip="Resumen por empresa y proveedor (importes por periodo)"
+            onPress={() => router.push('/compras/compras-proveedor-resumen')}
+            accessibilityLabel="Resumen por empresa y proveedor"
+            variant="neutral"
+          >
+            <MaterialIcons name="account-tree" size={TOOLBAR_ICON_SIZE} color="#475569" />
+          </ComprasToolbarIconBtn>
+          <ComprasToolbarIconBtn
             tooltip="Última compra por producto (una fila por artículo)"
             onPress={() => router.push('/compras/compras-proveedor-ultimo')}
             accessibilityLabel="Última compra por producto"

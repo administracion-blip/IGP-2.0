@@ -81,7 +81,7 @@ function formatId6(val) {
 }
 
 // --- Cierres de ventas: constantes y helpers ---
-// Fallback hardcodeado para los IDs históricos de Ágora (Guía 8.1.6 p.27).
+// Fallback hardcodeado para los IDs históricos de Ágora (Guía 8.9.3, sección Formas de Pago).
 // Se usa si Ágora aún no ha respondido al primer fetch o si la primera carga falla.
 const INITIAL_PAYMENT_METHOD_ID = {
   1: 'Efectivo',
@@ -2958,7 +2958,7 @@ router.get('/agora/test-connection', async (req, res) => {
   }
 });
 
-// Formas de pago de Ágora (Guía 8.1.6 p.27-29, 206).
+// Formas de pago de Ágora (Guía 8.9.3, sección Formas de Pago).
 // Devuelve el catálogo de PaymentMethods cacheado en memoria (TTL 1h, stale-while-error).
 // Si la caché está fresca, no se llama a Ágora. Si está expirada o vacía, se recarga.
 // Si Ágora falla y hay caché previa se devuelve marcada como stale; si no hay caché,

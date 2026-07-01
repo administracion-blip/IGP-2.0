@@ -1,6 +1,7 @@
 /**
  * Cliente HTTP para el API de exportación de Ágora.
- * Guía del Integrador 8.1.6: /api/export/?business-day=YYYY-MM-DD&filter=PosCloseOuts,SystemCloseOuts
+ * Guía del Integrador Ágora 8.9.3 (docs/Guía del Integrador Agora - 8.9.3.pdf),
+ * sección API HTTP: /api/export/?business-day=YYYY-MM-DD&filter=PosCloseOuts,SystemCloseOuts
  */
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -156,7 +157,7 @@ export async function exportPosCloseOuts(businessDay, workplaces = null) {
   throw lastError;
 }
 
-/** Exporta albaranes de entrada (IncomingDeliveryNotes) para un día. Guía 8.1.6 p.172-179, 197. */
+/** Exporta albaranes de entrada (IncomingDeliveryNotes) para un día. Guía 8.9.3, sección Albaranes de Entrada / API export. */
 export async function exportIncomingDeliveryNotes(businessDay, workplaces = null) {
   const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');
   const token = process.env.AGORA_API_TOKEN || '';
@@ -194,7 +195,7 @@ export async function exportIncomingDeliveryNotes(businessDay, workplaces = null
   throw lastError;
 }
 
-/** Exporta maestros de familias desde Ágora (export-master filter=Families). Guía 8.1.6 p.40. */
+/** Exporta maestros de familias desde Ágora (export-master filter=Families). Guía 8.9.3, sección Familias. */
 export async function exportFamilies() {
   const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');
   const token = process.env.AGORA_API_TOKEN || '';
@@ -210,7 +211,7 @@ export async function exportFamilies() {
   return data.Families || data.families || [];
 }
 
-/** Exporta maestros de impuestos desde Ágora (export-master filter=Vats). Guía 8.1.6 p.30-31. */
+/** Exporta maestros de impuestos desde Ágora (export-master filter=Vats). Guía 8.9.3, sección Tipos de Impuesto. */
 export async function exportVats() {
   const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');
   const token = process.env.AGORA_API_TOKEN || '';
@@ -226,7 +227,7 @@ export async function exportVats() {
   return data.Vats || data.vats || [];
 }
 
-/** Exporta maestros de almacenes desde Ágora (export-master filter=Warehouses). Guía 8.1.6 p.205-206. */
+/** Exporta maestros de almacenes desde Ágora (export-master filter=Warehouses). Guía 8.9.3, sección Almacenes. */
 export async function exportWarehouses() {
   const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');
   const token = process.env.AGORA_API_TOKEN || '';
@@ -243,7 +244,7 @@ export async function exportWarehouses() {
 }
 
 /**
- * Exporta maestros de usuarios desde Ágora (export-master filter=Users). Guía 8.1.6 p.18-20, 206.
+ * Exporta maestros de usuarios desde Ágora (export-master filter=Users). Guía 8.9.3, sección Usuarios.
  * Filtra las cuentas borradas (DeletionDate != null) y, por seguridad, las contraseñas.
  */
 export async function exportUsers() {
@@ -271,7 +272,7 @@ export async function exportUsers() {
 
 /**
  * Exporta maestros de formas de pago desde Ágora (export-master filter=PaymentMethods).
- * Guía 8.1.6 p.27-29, 206.
+ * Guía 8.9.3, sección Formas de Pago.
  * Filtra las formas borradas (DeletionDate != null).
  */
 export async function exportPaymentMethods() {

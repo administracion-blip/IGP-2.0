@@ -15,7 +15,7 @@ import { docClient, tables } from '../db.js';
 
 const tableFormasPago = tables.formasPago;
 
-/** Formas de pago históricas de Ágora (Guía 8.1.6 p.27) con su canónico estable. */
+/** Formas de pago históricas de Ágora (Guía 8.9.3, sección Formas de Pago) con su canónico estable. */
 export const FORMAS_PAGO_CONOCIDAS = [
   { agoraId: 1, nombre: 'Efectivo', canonico: 'Efectivo', orden: 1 },
   { agoraId: 2, nombre: 'Tarjeta', canonico: 'Tarjeta', orden: 2 },
