@@ -13,6 +13,7 @@ import { InputFecha } from './InputFecha';
 import { SelectorDesplegable } from './SelectorDesplegable';
 import type { UseAcuerdosFormReturn } from '../hooks/useAcuerdosForm';
 import { ESTADOS_ACUERDO } from '../hooks/useAcuerdosForm';
+import { ESTADOS_FACTURACION_ACUERDO, etiquetaEstadoFacturacion } from '../lib/acuerdosFacturacion';
 
 type Props = {
   /** Bag completo devuelto por `useAcuerdosForm`. */
@@ -157,6 +158,33 @@ export function AcuerdoFormModal({ formAcuerdo, isCompact }: Props) {
               ))}
             </View>
 
+            <Text style={styles.label}>Facturación / pago</Text>
+            <View style={styles.estadoRow}>
+              {ESTADOS_FACTURACION_ACUERDO.map((e) => (
+                <TouchableOpacity
+                  key={e}
+                  style={[styles.estadoChip, form.EstadoFacturacion === e && styles.estadoChipFactActive]}
+                  onPress={() => setForm((f) => ({ ...f, EstadoFacturacion: e }))}
+                >
+                  <Text style={[styles.estadoChipText, form.EstadoFacturacion === e && styles.estadoChipTextActive]}>
+                    {etiquetaEstadoFacturacion(e)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.label}>Nº factura (referencia A3 / manual)</Text>
+            <TextInput
+              style={styles.input}
+              value={form.A3FacturaNumero}
+              onChangeText={(v) => setForm((f) => ({ ...f, A3FacturaNumero: v }))}
+              placeholder="Opcional — p. ej. F-2026-0042"
+              placeholderTextColor="#94a3b8"
+            />
+            <Text style={styles.hintIntegracion}>
+              En el futuro este dato podrá sincronizarse automáticamente desde A3.
+            </Text>
+
             <Text style={styles.label}>Notas</Text>
             <TextInput
               style={[styles.input, styles.inputMultiline]}
@@ -222,8 +250,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   estadoChipActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
+  estadoChipFactActive: { backgroundColor: '#1e40af', borderColor: '#1e40af' },
   estadoChipText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
   estadoChipTextActive: { color: '#fff' },
+  hintIntegracion: { fontSize: 11, color: '#94a3b8', marginTop: 4, fontStyle: 'italic' },
   modalBtns: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 20 },
   cancelBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, backgroundColor: '#f1f5f9' },
   cancelBtnText: { fontSize: 13, fontWeight: '600', color: '#64748b' },

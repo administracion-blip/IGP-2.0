@@ -16,6 +16,10 @@
  *  está pensada para validaciones / componentes que conocen el catálogo. */
 export type EstadoAcuerdo = 'Activo' | 'Completado' | 'Cancelado' | 'Vencido';
 
+export type EstadoFacturacionAcuerdo = 'sin_factura' | 'pendiente_pago' | 'pagado_parcial' | 'pagado';
+
+export type FacturacionOrigenAcuerdo = 'manual' | 'a3';
+
 /** Acuerdo con marca/proveedor — registro `META` en `IGP_Acuerdos`. */
 export type Acuerdo = {
   PK: string;
@@ -29,6 +33,19 @@ export type Acuerdo = {
   Notas: string;
   /** Cualquier `EstadoAcuerdo` o string libre (backend tolerante). */
   Estado: string;
+  /** Facturación / pago del acuerdo (independiente de `Estado` operativo). */
+  EstadoFacturacion?: EstadoFacturacionAcuerdo | string;
+  /** Quién fijó el estado: manual en IGP o sync A3 (futuro). */
+  FacturacionOrigen?: FacturacionOrigenAcuerdo | string;
+  /** Nº factura visible (manual o copiado de A3). */
+  A3FacturaNumero?: string;
+  /** ID documento en A3 cuando exista integración. */
+  A3FacturaId?: string;
+  A3FacturaFecha?: string;
+  A3UltimaSync?: string;
+  A3EstadoRaw?: string;
+  /** Si true, el sync A3 no debe sobrescribir `EstadoFacturacion`. */
+  EstadoFacturacionManual?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -107,6 +124,38 @@ export type EmpresaAcuerdo = {
 export type LocalAcuerdo = {
   id: string;
   nombre: string;
+};
+
+/** Fila resumen del informe `GET /api/acuerdos/informe-compras`. */
+export type InformeComprasResumenAcuerdo = {
+  acuerdoPK: string;
+  Marca: string;
+  Nombre: string;
+  Estado: string;
+  FechaInicio: string;
+  FechaFin: string;
+  numProductos: number;
+  totalCompradas: number;
+  totalAportacionGenerada: number;
+};
+
+/** Línea de producto del informe de compras por acuerdo. */
+export type InformeComprasLinea = {
+  acuerdoPK: string;
+  Marca: string;
+  Nombre: string;
+  Estado: string;
+  FechaInicio: string;
+  FechaFin: string;
+  ProductId: string;
+  ProductName: string;
+  Cantidad: number;
+  Compradas: number;
+  Aportacion: number;
+  Rappel: number;
+  DescuentoExtra: number;
+  AportacionUnitaria: number;
+  AportacionGenerada: number;
 };
 
 /** Metadatos de un archivo adjunto a un acuerdo (almacenado en S3). */

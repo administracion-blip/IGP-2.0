@@ -12,6 +12,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand as S3GetObjectCommand, Del
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { docClient, tables } from '../lib/db.js';
 import { queryComprasPorProductos } from '../lib/dynamo/comprasProveedor.js';
+import { buildInformeCompras } from '../lib/acuerdos/informeCompras.js';
 
 const router = Router();
 const region = process.env.AWS_REGION || 'eu-west-3';
@@ -20,6 +21,46 @@ const tableAcuerdosDetalles = tables.acuerdosDetalles;
 const tableAcuerdosImagen = tables.acuerdosImagen;
 const S3_BUCKET = process.env.S3_BUCKET || 'igp-2.0-files';
 const s3 = new S3Client({ region });
+
+const ESTADO_FACTURACION_DEFAULT = 'sin_factura';
+const FACTURACION_ORIGEN_DEFAULT = 'manual';
+
+function normalizarEstadoFacturacion(val) {
+  const s = String(val ?? '').trim();
+  if (['sin_factura', 'pendiente_pago', 'pagado_parcial', 'pagado'].includes(s)) return s;
+  return ESTADO_FACTURACION_DEFAULT;
+}
+
+function metaFacturacionDesdeBody(body, { esCreacion = false } = {}) {
+  const out = {};
+  if (body.EstadoFacturacion !== undefined) {
+    out.EstadoFacturacion = normalizarEstadoFacturacion(body.EstadoFacturacion);
+    out.FacturacionOrigen = String(body.FacturacionOrigen ?? 'manual').trim() === 'a3' ? 'a3' : 'manual';
+    out.EstadoFacturacionManual = body.EstadoFacturacionManual === true
+      || body.EstadoFacturacionManual === 'true'
+      || out.FacturacionOrigen === 'manual';
+  } else if (esCreacion) {
+    out.EstadoFacturacion = ESTADO_FACTURACION_DEFAULT;
+    out.FacturacionOrigen = FACTURACION_ORIGEN_DEFAULT;
+    out.EstadoFacturacionManual = true;
+  }
+  if (body.A3FacturaNumero !== undefined) {
+    out.A3FacturaNumero = String(body.A3FacturaNumero ?? '').trim();
+  }
+  if (body.A3FacturaId !== undefined) {
+    out.A3FacturaId = String(body.A3FacturaId ?? '').trim();
+  }
+  if (body.A3FacturaFecha !== undefined) {
+    out.A3FacturaFecha = String(body.A3FacturaFecha ?? '').trim();
+  }
+  if (body.A3UltimaSync !== undefined) {
+    out.A3UltimaSync = String(body.A3UltimaSync ?? '').trim();
+  }
+  if (body.A3EstadoRaw !== undefined) {
+    out.A3EstadoRaw = String(body.A3EstadoRaw ?? '').trim();
+  }
+  return out;
+}
 
 // Acuerdos con Marcas (Rappel)
 // ──────────────────────────────────────────
@@ -145,6 +186,27 @@ router.get('/acuerdos/productos-activos', async (req, res) => {
   }
 });
 
+/** Informe: compras y aportación volumen generada por acuerdo en un rango de fechas (solo lectura). */
+router.get('/acuerdos/informe-compras', async (req, res) => {
+  try {
+    const data = await buildInformeCompras({
+      fechaDesde: req.query.fechaDesde,
+      fechaHasta: req.query.fechaHasta,
+      estado: req.query.estado,
+      marca: req.query.marca,
+      soloConCompras: req.query.soloConCompras,
+    });
+    return res.json({ ok: true, ...data });
+  } catch (err) {
+    const msg = err.message || 'Error al generar informe';
+    if (msg.includes('obligatorias') || msg.includes('no puede')) {
+      return res.status(400).json({ error: msg });
+    }
+    console.error('[acuerdos informe-compras]', msg);
+    return res.status(500).json({ error: msg });
+  }
+});
+
 router.get('/acuerdos/totales', async (req, res) => {
   try {
     const acuerdosItems = [];
@@ -242,6 +304,7 @@ router.post('/acuerdos', async (req, res) => {
     Email: (body.Email || '').trim(),
     Notas: (body.Notas || '').trim(),
     Estado: body.Estado || 'Activo',
+    ...metaFacturacionDesdeBody(body, { esCreacion: true }),
     createdAt: now,
     updatedAt: now,
   };
@@ -261,14 +324,21 @@ router.post('/acuerdos', async (req, res) => {
 router.patch('/acuerdos/:id', async (req, res) => {
   const pk = req.params.id;
   const body = req.body || {};
-  const FIELDS = ['Nombre', 'Marca', 'FechaInicio', 'FechaFin', 'Contacto', 'Telefono', 'Email', 'Notas', 'Estado'];
+  const FIELDS = [
+    'Nombre', 'Marca', 'FechaInicio', 'FechaFin', 'Contacto', 'Telefono', 'Email', 'Notas', 'Estado',
+    'EstadoFacturacion', 'FacturacionOrigen', 'A3FacturaNumero', 'A3FacturaId', 'A3FacturaFecha',
+    'A3UltimaSync', 'A3EstadoRaw', 'EstadoFacturacionManual',
+  ];
   const setParts = ['#updAt = :updAt'];
   const exprNames = { '#updAt': 'updatedAt' };
   const exprValues = { ':updAt': new Date().toISOString() };
   let vi = 0;
   for (const key of FIELDS) {
     if (body[key] === undefined) continue;
-    const val = typeof body[key] === 'string' ? body[key].trim() : body[key];
+    let val = typeof body[key] === 'string' ? body[key].trim() : body[key];
+    if (key === 'EstadoFacturacion') val = normalizarEstadoFacturacion(val);
+    if (key === 'FacturacionOrigen') val = String(val).trim() === 'a3' ? 'a3' : 'manual';
+    if (key === 'EstadoFacturacionManual') val = val === true || val === 'true';
     exprNames[`#f${vi}`] = key;
     exprValues[`:v${vi}`] = val;
     setParts.push(`#f${vi} = :v${vi}`);

@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
-import type { Acuerdo, EmpresaAcuerdo } from '../types/acuerdo';
+import type { Acuerdo, EmpresaAcuerdo, EstadoFacturacionAcuerdo } from '../types/acuerdo';
+import { ESTADOS_FACTURACION_ACUERDO, ESTADO_FACTURACION_DEFAULT, normalizarEstadoFacturacion } from '../lib/acuerdosFacturacion';
 import { apiFetch, errorMessage } from '../utils/api';
 import { fechaEmisionFacturaAIso } from '../utils/formatFecha';
 
@@ -17,6 +18,8 @@ export type AcuerdoForm = {
   Email: string;
   Notas: string;
   Estado: string;
+  EstadoFacturacion: EstadoFacturacionAcuerdo;
+  A3FacturaNumero: string;
 };
 
 const EMPTY_FORM: AcuerdoForm = {
@@ -29,6 +32,8 @@ const EMPTY_FORM: AcuerdoForm = {
   Email: '',
   Notas: '',
   Estado: 'Activo',
+  EstadoFacturacion: ESTADO_FACTURACION_DEFAULT,
+  A3FacturaNumero: '',
 };
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -101,6 +106,8 @@ export function useAcuerdosForm({ onSaved, onError }: Args) {
       Email: a.Email || '',
       Notas: a.Notas || '',
       Estado: a.Estado || 'Activo',
+      EstadoFacturacion: normalizarEstadoFacturacion(a.EstadoFacturacion),
+      A3FacturaNumero: a.A3FacturaNumero || '',
     });
     setModalVisible(true);
     cargarEmpresas();
@@ -124,7 +131,7 @@ export function useAcuerdosForm({ onSaved, onError }: Args) {
     setGuardando(true);
     onError?.('');
     try {
-      const payload: Record<string, string> = {
+      const payload: Record<string, string | boolean> = {
         Nombre: form.Nombre,
         Marca: form.Marca,
         FechaInicio: form.FechaInicio,
@@ -134,6 +141,10 @@ export function useAcuerdosForm({ onSaved, onError }: Args) {
         Email: form.Email,
         Notas: form.Notas,
         Estado: form.Estado,
+        EstadoFacturacion: form.EstadoFacturacion,
+        FacturacionOrigen: 'manual',
+        EstadoFacturacionManual: true,
+        A3FacturaNumero: form.A3FacturaNumero.trim(),
       };
       const isNew = !editId;
       if (isNew) payload.PK = formPK;
@@ -143,7 +154,15 @@ export function useAcuerdosForm({ onSaved, onError }: Args) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error');
       setModalVisible(false);
-      const acuerdo = isNew ? (data.item as Acuerdo) : ({ ...form, PK: editId } as unknown as Acuerdo);
+      const acuerdo = isNew
+        ? (data.item as Acuerdo)
+        : ({
+            PK: editId!,
+            EstadoFacturacion: form.EstadoFacturacion,
+            A3FacturaNumero: form.A3FacturaNumero.trim(),
+            FacturacionOrigen: 'manual',
+            EstadoFacturacionManual: true,
+          } as Acuerdo);
       await onSaved(acuerdo, isNew);
     } catch (err: unknown) {
       onError?.(errorMessage(err));

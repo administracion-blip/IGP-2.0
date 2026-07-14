@@ -23,6 +23,15 @@ import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useAuth } from '../contexts/AuthContext';
 import { calcTiempoRestante } from '../lib/acuerdosFechas';
+import {
+  ESTADOS_FACTURACION_ACUERDO,
+  FILTROS_FACTURACION,
+  etiquetaEstadoFacturacion,
+  estiloEstadoFacturacion,
+  normalizarEstadoFacturacion,
+  type EstadoFacturacionAcuerdo,
+} from '../lib/acuerdosFacturacion';
+import { FILTROS_ESTADO_ACUERDO } from '../lib/acuerdosEstado';
 import { ComprasProveedorModal } from '../components/ComprasProveedorModal';
 import { apiFetch, errorMessage } from '../utils/api';
 import type {
@@ -36,10 +45,6 @@ import { useAcuerdoPago } from '../hooks/useAcuerdoPago';
 import { AcuerdoPagoModal } from '../components/AcuerdoPagoModal';
 import { useAcuerdosForm } from '../hooks/useAcuerdosForm';
 import { AcuerdoFormModal } from '../components/AcuerdoFormModal';
-import {
-  NOTAS_CONTENIDO_FONT_SIZE,
-  NOTAS_LINEA_FECHA,
-} from '../lib/acuerdoNotas';
 
 /** Polyfill: Alert.alert no funciona en web; usa modal de confirmación */
 function useConfirmDelete() {
@@ -219,46 +224,6 @@ function formatFecha(iso: string): string {
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
-const NOTAS_FECHA_STYLE = {
-  fontSize: NOTAS_CONTENIDO_FONT_SIZE,
-  color: '#2563eb',
-  fontWeight: '700' as const,
-  fontStyle: 'italic' as const,
-};
-
-/** Muestra notas con la parte `dd/mm/aaaa` destacada (misma lógica que el editor web). */
-function NotasTextoConFechas({ text, baseStyle }: { text: string; baseStyle: object }) {
-  if (!text?.trim()) {
-    return (
-      <Text style={[baseStyle, { color: '#94a3b8', fontSize: NOTAS_CONTENIDO_FONT_SIZE }]}>Sin notas</Text>
-    );
-  }
-  const lines = text.split('\n');
-  return (
-    <Text style={[baseStyle, { fontStyle: 'normal', fontSize: NOTAS_CONTENIDO_FONT_SIZE }]}>
-      {lines.map((line, i) => {
-        const m = line.match(NOTAS_LINEA_FECHA);
-        const nl = i > 0 ? '\n' : '';
-        if (m) {
-          return (
-            <Text key={i}>
-              {nl}
-              <Text style={NOTAS_FECHA_STYLE}>{m[1]}</Text>
-              <Text> - {m[2]}</Text>
-            </Text>
-          );
-        }
-        return (
-          <Text key={i}>
-            {nl}
-            {line}
-          </Text>
-        );
-      })}
-    </Text>
-  );
-}
-
 function formatMoneda(n: number | null | undefined): string {
   if (n == null) return '0,00 €';
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
@@ -270,7 +235,7 @@ function valorEnLocal(obj: Record<string, unknown>, key: string): unknown {
 
 export default function AcuerdosScreen() {
   const router = useRouter();
-  const { localPermitido } = useAuth();
+  const { localPermitido, hasPermiso } = useAuth();
   const { width: winWidth } = useWindowDimensions();
   const { productosIgp, loading: loadingProductos, recargar: recargarProductos, lastFetch: productosLastFetch } = useProductosCache();
   const { confirmDelete, ModalConfirm } = useConfirmDelete();
@@ -296,6 +261,8 @@ export default function AcuerdosScreen() {
   const prodListScrollRef = useRef<ScrollView>(null);
 
   const [filtroMarca, setFiltroMarca] = useState('');
+  const [filtroEstado, setFiltroEstado] = useState('Activo');
+  const [filtroFacturacion, setFiltroFacturacion] = useState('');
 
   const [comprasModalVisible, setComprasModalVisible] = useState(false);
   const [comprasModalProduct, setComprasModalProduct] = useState<{ id: string; name: string } | null>(null);
@@ -364,7 +331,10 @@ export default function AcuerdosScreen() {
       const res = await apiFetch('/api/acuerdos');
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error');
-      const items: Acuerdo[] = data.items || [];
+      const items: Acuerdo[] = (data.items || []).map((a: Acuerdo) => ({
+        ...a,
+        EstadoFacturacion: normalizarEstadoFacturacion(a.EstadoFacturacion),
+      }));
       const hoy = new Date().toISOString().slice(0, 10);
       const vencidos: Promise<void>[] = [];
       for (const a of items) {
@@ -445,18 +415,89 @@ export default function AcuerdosScreen() {
   };
 
 
+  const resumenEstados = useMemo(() => {
+    const porEstado: Record<string, number> = {
+      Activo: 0,
+      Vencido: 0,
+      Completado: 0,
+      Cancelado: 0,
+    };
+    const vencidosPorFacturacion: Record<EstadoFacturacionAcuerdo, number> = {
+      sin_factura: 0,
+      pendiente_pago: 0,
+      pagado_parcial: 0,
+      pagado: 0,
+    };
+
+    for (const a of acuerdos) {
+      const est = a.Estado || 'Activo';
+      if (est in porEstado) porEstado[est] += 1;
+      if (est === 'Vencido') {
+        const ef = normalizarEstadoFacturacion(a.EstadoFacturacion);
+        vencidosPorFacturacion[ef] += 1;
+      }
+    }
+
+    const partesVencidos = (['sin_factura', 'pendiente_pago', 'pagado_parcial', 'pagado'] as EstadoFacturacionAcuerdo[])
+      .filter((k) => vencidosPorFacturacion[k] > 0)
+      .map((k) => `${vencidosPorFacturacion[k]} ${etiquetaEstadoFacturacion(k).toLowerCase()}`);
+
+    return {
+      porEstado,
+      total: acuerdos.length,
+      vencidos: porEstado.Vencido,
+      textoVencidosFacturacion: partesVencidos.join(' · '),
+    };
+  }, [acuerdos]);
+
+  const conteosFacturacion = useMemo(() => {
+    const base = filtroEstado
+      ? acuerdos.filter((a) => a.Estado === filtroEstado)
+      : acuerdos;
+    const c: Record<string, number> = { '': base.length };
+    for (const a of base) {
+      const ef = normalizarEstadoFacturacion(a.EstadoFacturacion);
+      c[ef] = (c[ef] ?? 0) + 1;
+    }
+    return c;
+  }, [acuerdos, filtroEstado]);
+
   const acuerdosOrdenados = useMemo(() => {
     const q = filtroMarca.trim().toLowerCase();
-    const filtered = q
-      ? acuerdos.filter((a) => (a.Marca || '').toLowerCase().includes(q))
-      : acuerdos;
+    const filtered = acuerdos.filter((a) => {
+      if (filtroEstado && a.Estado !== filtroEstado) return false;
+      if (q && !(a.Marca || '').toLowerCase().includes(q)) return false;
+      if (filtroFacturacion) {
+        const ef = normalizarEstadoFacturacion(a.EstadoFacturacion);
+        if (ef !== filtroFacturacion) return false;
+      }
+      return true;
+    });
     return [...filtered].sort((a, b) => {
       const aActivo = a.Estado === 'Activo' ? 0 : 1;
       const bActivo = b.Estado === 'Activo' ? 0 : 1;
       if (aActivo !== bActivo) return aActivo - bActivo;
       return (a.FechaFin || '').localeCompare(b.FechaFin || '');
     });
-  }, [acuerdos, filtroMarca]);
+  }, [acuerdos, filtroMarca, filtroEstado, filtroFacturacion]);
+
+  const cambiarEstadoFacturacion = useCallback(async (pk: string, estado: EstadoFacturacionAcuerdo) => {
+    try {
+      const res = await apiFetch(`/api/acuerdos/${pk}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          EstadoFacturacion: estado,
+          FacturacionOrigen: 'manual',
+          EstadoFacturacionManual: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error');
+      await cargar({ background: acuerdosRef.current.length > 0 });
+    } catch (err: unknown) {
+      setError(errorMessage(err));
+    }
+  }, [cargar]);
 
   const [totalAcordado, setTotalAcordado] = useState(0);
   const [totalCompradas, setTotalCompradas] = useState(0);
@@ -847,7 +888,12 @@ export default function AcuerdosScreen() {
       ['Nombre', seleccionado.Nombre || '—'],
       ['Marca', seleccionado.Marca || '—'],
       ['Estado', seleccionado.Estado],
+      ['Facturación', etiquetaEstadoFacturacion(normalizarEstadoFacturacion(seleccionado.EstadoFacturacion))],
     ];
+    if (seleccionado.A3FacturaNumero) infoLines.push(['Nº factura', seleccionado.A3FacturaNumero]);
+    if (seleccionado.FacturacionOrigen) {
+      infoLines.push(['Origen fact.', seleccionado.FacturacionOrigen === 'a3' ? 'A3' : 'Manual']);
+    }
     if (seleccionado.Contacto) infoLines.push(['Contacto', seleccionado.Contacto]);
     if (seleccionado.Telefono) infoLines.push(['Teléfono', seleccionado.Telefono]);
     if (seleccionado.Email) infoLines.push(['Email', seleccionado.Email]);
@@ -1050,6 +1096,14 @@ export default function AcuerdosScreen() {
         <Text style={styles.headerTitle}>Acuerdos con Marcas</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity
+            style={styles.informeBtn}
+            onPress={() => router.push('/acuerdos-informe-compras' as any)}
+            accessibilityLabel="Informe compras por acuerdo"
+          >
+            <MaterialIcons name="assessment" size={18} color="#7c3aed" />
+            <Text style={styles.informeBtnText}>Informe</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={styles.productosActivosBtn}
             onPress={() => router.push('/acuerdos-productos-activos' as any)}
             accessibilityLabel="Productos en acuerdos activos"
@@ -1098,6 +1152,77 @@ export default function AcuerdosScreen() {
             <TouchableOpacity onPress={() => setFiltroMarca('')}><MaterialIcons name="close" size={16} color="#94a3b8" /></TouchableOpacity>
           ) : null}
         </View>
+        {acuerdos.length > 0 ? (
+          <View style={styles.resumenBar}>
+            <Text style={styles.resumenBarText}>
+              Activos {resumenEstados.porEstado.Activo}
+              {' · '}Vencidos {resumenEstados.vencidos}
+              {' · '}Completados {resumenEstados.porEstado.Completado}
+              {' · '}Total {resumenEstados.total}
+            </Text>
+            {resumenEstados.vencidos > 0 ? (
+              <TouchableOpacity
+                style={styles.resumenAlerta}
+                onPress={() => setFiltroEstado('Vencido')}
+              >
+                <MaterialIcons name="warning-amber" size={14} color="#b45309" />
+                <Text style={styles.resumenAlertaText}>
+                  {resumenEstados.vencidos} vencido{resumenEstados.vencidos !== 1 ? 's' : ''}
+                  {resumenEstados.textoVencidosFacturacion ? `: ${resumenEstados.textoVencidosFacturacion}` : ''}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filtroFactScroll}
+          contentContainerStyle={styles.filtroFactRow}
+        >
+          {FILTROS_ESTADO_ACUERDO.map((f) => {
+            const active = filtroEstado === f.id;
+            const count = f.id ? (resumenEstados.porEstado[f.id] ?? 0) : resumenEstados.total;
+            const alertaVencido = f.id === 'Vencido' && resumenEstados.vencidos > 0 && !active;
+            return (
+              <TouchableOpacity
+                key={f.id || 'todos-estado'}
+                style={[
+                  styles.filtroFactChip,
+                  active && styles.filtroEstadoChipActive,
+                  alertaVencido && styles.filtroEstadoChipAlerta,
+                ]}
+                onPress={() => setFiltroEstado(f.id)}
+              >
+                <Text style={[styles.filtroFactChipText, active && styles.filtroFactChipTextActive]}>
+                  {f.label} ({count})
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filtroFactScroll}
+          contentContainerStyle={styles.filtroFactRow}
+        >
+          {FILTROS_FACTURACION.map((f) => {
+            const active = filtroFacturacion === f.id;
+            const count = conteosFacturacion[f.id] ?? 0;
+            return (
+              <TouchableOpacity
+                key={f.id || 'todas'}
+                style={[styles.filtroFactChip, active && styles.filtroFactChipActive]}
+                onPress={() => setFiltroFacturacion(f.id)}
+              >
+                <Text style={[styles.filtroFactChipText, active && styles.filtroFactChipTextActive]}>
+                  {f.label}{f.id ? ` (${count})` : ''}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
         <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.listContent}>
           {loading && acuerdos.length === 0 ? (
             <View style={styles.emptyWrap}><ActivityIndicator size="large" color="#0ea5e9" /><Text style={styles.emptyText}>Cargando…</Text></View>
@@ -1106,9 +1231,16 @@ export default function AcuerdosScreen() {
               <MaterialIcons name="handshake" size={48} color="#cbd5e1" />
               <Text style={styles.emptyText}>No hay acuerdos. Crea uno pulsando "Nuevo Acuerdo".</Text>
             </View>
+          ) : acuerdosOrdenados.length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <MaterialIcons name="filter-list" size={40} color="#cbd5e1" />
+              <Text style={styles.emptyText}>Ningún acuerdo coincide con los filtros.</Text>
+            </View>
           ) : (
             acuerdosOrdenados.map((a) => {
               const estadoColor = a.Estado === 'Activo' ? '#16a34a' : a.Estado === 'Completado' ? '#0ea5e9' : a.Estado === 'Vencido' ? '#ef4444' : '#94a3b8';
+              const ef = normalizarEstadoFacturacion(a.EstadoFacturacion);
+              const efStyle = estiloEstadoFacturacion(ef);
               const isSelected = seleccionado?.PK === a.PK;
               const tr = calcTiempoRestante(a.FechaFin);
               return (
@@ -1123,6 +1255,9 @@ export default function AcuerdosScreen() {
                       </View>
                       <View style={[styles.badge, { backgroundColor: estadoColor + '18', borderColor: estadoColor }]}>
                         <Text style={[styles.badgeText, { color: estadoColor }]}>{a.Estado}</Text>
+                      </View>
+                      <View style={[styles.badge, { backgroundColor: efStyle.bg, borderColor: efStyle.border }]}>
+                        <Text style={[styles.badgeText, { color: efStyle.text }]}>{etiquetaEstadoFacturacion(ef)}</Text>
                       </View>
                     </View>
                     <View style={styles.cardActions}>
@@ -1182,7 +1317,7 @@ export default function AcuerdosScreen() {
                   })()}
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <TooltipBtn tooltip="Ver y editar notas" onPress={notas.abrir} style={{ padding: 4 }}>
+                  <TooltipBtn tooltip="Ver historial de notas" onPress={notas.abrir} style={{ padding: 4 }}>
                     <MaterialIcons name="note" size={20} color="#6366f1" />
                   </TooltipBtn>
                   {Platform.OS === 'web' && (
@@ -1223,6 +1358,48 @@ export default function AcuerdosScreen() {
                       <Text style={styles.detailInfoLabel}>Estado</Text>
                       <Text style={[styles.detailInfoValue, { color: seleccionado.Estado === 'Activo' ? '#16a34a' : seleccionado.Estado === 'Completado' ? '#0ea5e9' : seleccionado.Estado === 'Vencido' ? '#ef4444' : '#94a3b8', fontWeight: '600' }]}>{seleccionado.Estado}</Text>
                     </View>
+                    <View style={styles.detailInfoRow}>
+                      <Text style={styles.detailInfoLabel}>Facturación</Text>
+                      <View style={{ flex: 1, gap: 6 }}>
+                        {(() => {
+                          const ef = normalizarEstadoFacturacion(seleccionado.EstadoFacturacion);
+                          const efStyle = estiloEstadoFacturacion(ef);
+                          return (
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                              <View style={[styles.badge, { backgroundColor: efStyle.bg, borderColor: efStyle.border }]}>
+                                <Text style={[styles.badgeText, { color: efStyle.text }]}>{etiquetaEstadoFacturacion(ef)}</Text>
+                              </View>
+                              {seleccionado.A3FacturaNumero ? (
+                                <Text style={styles.detailInfoValue}>Nº {seleccionado.A3FacturaNumero}</Text>
+                              ) : null}
+                              {seleccionado.FacturacionOrigen ? (
+                                <Text style={styles.detailFactOrigen}>
+                                  ({seleccionado.FacturacionOrigen === 'a3' ? 'A3' : 'Manual'})
+                                </Text>
+                              ) : null}
+                            </View>
+                          );
+                        })()}
+                        {hasPermiso('acuerdos.editar') ? (
+                          <View style={styles.factQuickRow}>
+                            {ESTADOS_FACTURACION_ACUERDO.map((e) => {
+                              const active = normalizarEstadoFacturacion(seleccionado.EstadoFacturacion) === e;
+                              return (
+                                <TouchableOpacity
+                                  key={e}
+                                  style={[styles.factQuickChip, active && styles.factQuickChipActive]}
+                                  onPress={() => !active && cambiarEstadoFacturacion(seleccionado.PK, e)}
+                                >
+                                  <Text style={[styles.factQuickChipText, active && styles.factQuickChipTextActive]}>
+                                    {etiquetaEstadoFacturacion(e)}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        ) : null}
+                      </View>
+                    </View>
                     {seleccionado.Contacto ? (
                       <View style={styles.detailInfoRow}>
                         <Text style={styles.detailInfoLabel}>Contacto</Text>
@@ -1245,12 +1422,27 @@ export default function AcuerdosScreen() {
                       {seleccionado.Marca || '—'} ({formatFecha(seleccionado.FechaInicio)} - {formatFecha(seleccionado.FechaFin)})
                     </Text>
                     <View style={styles.detailNotasBlock}>
-                      <View style={[styles.detailInfoRow, styles.detailNotasRowInner]}>
+                      <View style={styles.detailNotasHeader}>
                         <Text style={styles.detailInfoLabel}>Notas</Text>
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <NotasTextoConFechas text={seleccionado.Notas || ''} baseStyle={styles.detailInfoValue} />
-                        </View>
+                        <TouchableOpacity style={styles.detailNotasBtn} onPress={notas.abrir}>
+                          <MaterialIcons name="history" size={16} color="#6366f1" />
+                          <Text style={styles.detailNotasBtnText}>
+                            {notas.resumen.total > 0
+                              ? `Ver historial (${notas.resumen.total})`
+                              : 'Ver historial'}
+                          </Text>
+                        </TouchableOpacity>
                       </View>
+                      {notas.resumen.total > 0 ? (
+                        <Text style={styles.detailNotasPreview} numberOfLines={2}>
+                          {notas.resumen.ultimaFecha ? (
+                            <Text style={styles.detailNotasPreviewFecha}>{notas.resumen.ultimaFecha} — </Text>
+                          ) : null}
+                          {notas.resumen.ultimaTexto}
+                        </Text>
+                      ) : (
+                        <Text style={styles.detailNotasEmpty}>Sin notas. Pulsa «Ver historial» para añadir la primera.</Text>
+                      )}
                     </View>
                   </View>
                   {/* Columna derecha: donut + totales económicos */}
@@ -1721,7 +1913,11 @@ export default function AcuerdosScreen() {
         />
       )}
 
-      <AcuerdoNotasModal notas={notas} seleccionado={seleccionado} />
+      <AcuerdoNotasModal
+        notas={notas}
+        seleccionado={seleccionado}
+        puedeEditar={hasPermiso('acuerdos.editar')}
+      />
 
     </View>
   );
@@ -1746,6 +1942,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0fdfa',
   },
   productosActivosBtnText: { fontSize: 12, fontWeight: '600', color: '#0f766e' },
+  informeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd6fe',
+    backgroundColor: '#f5f3ff',
+  },
+  informeBtnText: { fontSize: 12, fontWeight: '600', color: '#7c3aed' },
   productosAgoraBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1763,6 +1971,36 @@ const styles = StyleSheet.create({
   errorBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginHorizontal: 16, marginTop: 8, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca' },
   errorText: { fontSize: 12, color: '#dc2626', flex: 1 },
   list: { flex: 1 },
+  resumenBar: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+  },
+  resumenBarText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
+  resumenAlerta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    alignSelf: 'flex-start',
+  },
+  resumenAlertaText: { fontSize: 12, color: '#b45309', fontWeight: '600' },
+  filtroFactScroll: { flexGrow: 0, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  filtroFactRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8 },
+  filtroFactChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#fff' },
+  filtroFactChipActive: { backgroundColor: '#1e40af', borderColor: '#1e40af' },
+  filtroEstadoChipActive: { backgroundColor: '#16a34a', borderColor: '#16a34a' },
+  filtroEstadoChipAlerta: { borderColor: '#fca5a5', backgroundColor: '#fef2f2' },
+  filtroFactChipText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
+  filtroFactChipTextActive: { color: '#fff' },
   listContent: { padding: 16, gap: 12 },
   emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12 },
   emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
@@ -1868,9 +2106,34 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    gap: 8,
   },
-  detailNotasRowInner: { marginBottom: 0, alignItems: 'flex-start' },
+  detailNotasHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  detailNotasBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: '#eef2ff',
+  },
+  detailNotasBtnText: { fontSize: 12, fontWeight: '600', color: '#6366f1' },
+  detailNotasPreview: { fontSize: 12, color: '#475569', lineHeight: 18 },
+  detailNotasPreviewFecha: { color: '#2563eb', fontWeight: '700', fontStyle: 'italic' },
+  detailNotasEmpty: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
   detailInfoValue: { flex: 1, fontSize: 13, color: '#334155' },
+  detailFactOrigen: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
+  factQuickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 2 },
+  factQuickChip: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
+  factQuickChipActive: { backgroundColor: '#1e40af', borderColor: '#1e40af' },
+  factQuickChipText: { fontSize: 11, fontWeight: '600', color: '#64748b' },
+  factQuickChipTextActive: { color: '#fff' },
   detailInfoConcat: { fontSize: 12, fontStyle: 'italic', color: '#64748b', marginTop: 6, marginBottom: 10 },
   totalCard: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, padding: 8 },
   totalCardTitle: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: 1 },

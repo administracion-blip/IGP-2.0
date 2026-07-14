@@ -214,6 +214,7 @@ function AppLayoutContent() {
             <Stack.Screen name="permisos" />
             <Stack.Screen name="acuerdos" />
             <Stack.Screen name="acuerdos-productos-activos" />
+            <Stack.Screen name="acuerdos-informe-compras" />
             <Stack.Screen name="facturacion" />
             <Stack.Screen name="ajustes" />
             <Stack.Screen name="planning-dia" />
