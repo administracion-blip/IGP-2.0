@@ -115,6 +115,8 @@ El `<nombreRol>` debe coincidir exactamente con el campo `Rol` de la tabla de us
 | `marketing.proponer` | Marketing · Crear y editar propuestas propias |
 | `marketing.gestionar` | Marketing · Visión global, aprobar/rechazar, prompts IA, carteles, estilos |
 | `personal.ver` | Personal · Ver empleados (Factorial HR) |
+| `activaciones.ver` | Activaciones de marca · Ver las del día en Planning Diario y lista en solo lectura; marcar realizada/cancelada y añadir incidencias (personal de barra) |
+| `activaciones.gestionar` | Activaciones de marca · Crear, editar y archivar campañas; programar, cancelar y eliminar sesiones (administración) |
 
 ## Comportamiento
 

@@ -19,6 +19,7 @@ import { InputFecha } from '../../components/InputFecha';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { ResumenTotales } from '../../components/ResumenTotales';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
+import { ImporteMonedaInput } from '../../components/ImporteMonedaInput';
 import {
   TIPOS_IVA,
   TIPOS_RETENCION,
@@ -466,7 +467,20 @@ export default function FacturaDetalleScreen() {
       alertMsg('Error', esVenta ? 'Selecciona un receptor' : 'Selecciona el proveedor');
       return;
     }
-    if (!serie) {
+    // Texto escrito en un buscador sin elegir opción: el payload usaría los
+    // datos anteriores aunque el input muestre lo tecleado. Avisar antes.
+    if (emisorSearch.trim() && emisorSearch.trim() !== emisorNombre) {
+      alertMsg('Atención', `Has escrito "${emisorSearch.trim()}" en ${esVenta ? 'Emisor' : 'Empresa'} pero no lo has seleccionado de la lista. Selecciónalo o borra el texto.`);
+      return;
+    }
+    if (empresaSearch.trim() && empresaSearch.trim() !== empresaNombre) {
+      alertMsg('Atención', `Has escrito "${empresaSearch.trim()}" en ${esVenta ? 'Receptor' : 'Proveedor'} pero no lo has seleccionado de la lista. Selecciónalo o borra el texto.`);
+      return;
+    }
+    // La serie solo es imprescindible al CREAR (genera el número). Al editar,
+    // el backend no la modifica y las facturas de gasto creadas por OCR llegan
+    // sin serie: exigirla aquí bloqueaba guardar cualquier cambio en ellas.
+    if (!serie && modo === 'crear') {
       if (seriesFiltradas.length === 0) alertMsg('Sin series', 'No hay series configuradas para este tipo de factura. Ve a Facturación > Series para crearlas.');
       else alertMsg('Error', 'Selecciona una serie');
       return;
@@ -485,15 +499,18 @@ export default function FacturaDetalleScreen() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Error al guardar');
-      alertMsg('Guardado', 'Factura guardada correctamente');
       const newId = data.factura?.id_entrada || data.id_factura;
       if (modo === 'crear' && newId) {
+        alertMsg('Guardado', 'Factura guardada correctamente');
         router.replace({
           pathname: '/facturacion/factura-detalle',
           params: { tipo, modo: 'editar', id: newId },
         } as any);
       } else {
-        fetchFactura();
+        // await: si no, la recarga termina después de reactivar el formulario
+        // y pisa lo que el usuario esté editando con los datos anteriores.
+        await fetchFactura();
+        alertMsg('Guardado', 'Factura guardada correctamente');
       }
     } catch (e: unknown) {
       setError(errorMessage(e));
@@ -534,10 +551,16 @@ export default function FacturaDetalleScreen() {
           params: { tipo, modo: 'editar', id: newId },
         } as any);
       } else {
-        await apiFetch(`/api/facturacion/facturas/${facturaId}`, {
+        // Persistir los cambios del formulario ANTES de emitir; si el PUT falla
+        // hay que abortar, o se emitiría la versión antigua de la factura.
+        const putRes = await apiFetch(`/api/facturacion/facturas/${facturaId}`, {
           method: 'PUT',
           body: JSON.stringify(buildPayload()),
         });
+        if (!putRes.ok) {
+          const d = await putRes.json().catch(() => ({} as { error?: string }));
+          throw new Error(d.error ?? 'No se pudieron guardar los cambios antes de emitir');
+        }
         const res = await apiFetch(`/api/facturacion/facturas/${facturaId}/emitir`, {
           method: 'POST',
           body: JSON.stringify({ usuario_id: user?.id_usuario, usuario_nombre: user?.Nombre }),
@@ -548,7 +571,7 @@ export default function FacturaDetalleScreen() {
           throw new Error(msg);
         }
         alertMsg('Emitida', 'Factura emitida correctamente');
-        fetchFactura();
+        await fetchFactura();
       }
     } catch (e: unknown) {
       setError(errorMessage(e));
@@ -1252,18 +1275,17 @@ export default function FacturaDetalleScreen() {
                 placeholderTextColor="#94a3b8"
                 editable={esEditable}
               />
-              <TextInput
+              <ImporteMonedaInput
                 style={[styles.lineaInput, { flex: 1 }]}
-                value={String(linea.cantidad)}
-                onChangeText={(v) => updateLinea(idx, 'cantidad', v)}
-                keyboardType="decimal-pad"
+                valor={linea.cantidad}
+                onChangeValor={(n) => updateLinea(idx, 'cantidad', String(n))}
+                maxDecimales={3}
                 editable={esEditable}
               />
-              <TextInput
-                style={[styles.lineaInput, { flex: 1 }]}
-                value={String(linea.precio_unitario)}
-                onChangeText={(v) => updateLinea(idx, 'precio_unitario', v)}
-                keyboardType="decimal-pad"
+              <ImporteMonedaInput
+                style={[styles.lineaInput, { flex: 1.2 }]}
+                valor={linea.precio_unitario}
+                onChangeValor={(n) => updateLinea(idx, 'precio_unitario', String(n))}
                 editable={esEditable}
               />
               <TextInput
@@ -1316,11 +1338,11 @@ export default function FacturaDetalleScreen() {
               <View style={styles.lineaCardRow}>
                 <View style={styles.lineaCardField}>
                   <Text style={styles.labelSmall}>Cant.</Text>
-                  <TextInput style={styles.inputSmall} value={String(linea.cantidad)} onChangeText={(v) => updateLinea(idx, 'cantidad', v)} keyboardType="decimal-pad" editable={esEditable} />
+                  <ImporteMonedaInput style={styles.inputSmall} valor={linea.cantidad} onChangeValor={(n) => updateLinea(idx, 'cantidad', String(n))} maxDecimales={3} editable={esEditable} />
                 </View>
                 <View style={styles.lineaCardField}>
                   <Text style={styles.labelSmall}>Precio</Text>
-                  <TextInput style={styles.inputSmall} value={String(linea.precio_unitario)} onChangeText={(v) => updateLinea(idx, 'precio_unitario', v)} keyboardType="decimal-pad" editable={esEditable} />
+                  <ImporteMonedaInput style={styles.inputSmall} valor={linea.precio_unitario} onChangeValor={(n) => updateLinea(idx, 'precio_unitario', String(n))} editable={esEditable} />
                 </View>
                 <View style={styles.lineaCardField}>
                   <Text style={styles.labelSmall}>Dto%</Text>

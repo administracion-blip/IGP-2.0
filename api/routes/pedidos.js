@@ -40,6 +40,16 @@ function fechaPedidoToIso(fecha) {
   return '';
 }
 
+/** Fecha de referencia para el informe de ventas: CompletadoEn (OK almacén) o Fecha pedido (legacy). */
+function fechaReferenciaVentas(pedido) {
+  const completadoEn = String(pedido?.CompletadoEn ?? '').trim();
+  if (completadoEn) {
+    const iso = fechaPedidoToIso(completadoEn.slice(0, 10));
+    if (iso) return iso;
+  }
+  return fechaPedidoToIso(pedido?.Fecha) || String(pedido?.Fecha ?? '').trim().slice(0, 10);
+}
+
 /** Mayor secuencial usado para PED-AAAA-NNNNN en un año (0 si no hay ninguno). */
 async function maxSecuencialPedidoAño(año) {
   const re = new RegExp(`^PED-${año}-(\\d+)$`, 'i');
@@ -97,7 +107,7 @@ async function getEstadoPedido(id) {
  * No toca pedidos en 'Borrador' (el bar aún lo está montando) ni los exportados.
  * Es tolerante a fallos: cualquier error se registra y no rompe la operación de línea.
  */
-async function recomputarEstadoPorPreparacion(pedidoId) {
+async function recomputarEstadoPorPreparacion(pedidoId, usuarioEmail = '') {
   try {
     const estadoActual = await getEstadoPedido(pedidoId);
     if (!estadoActual) return;
@@ -120,12 +130,26 @@ async function recomputarEstadoPorPreparacion(pedidoId) {
     else nuevoEstado = 'Pendiente';
 
     if (nuevoEstado === estadoActual) return;
-    await docClient.send(new UpdateCommand({
-      TableName: tables.pedidos,
-      Key: { Id: pedidoId },
-      UpdateExpression: 'SET Estado = :e',
-      ExpressionAttributeValues: { ':e': nuevoEstado },
-    }));
+
+    if (nuevoEstado === 'Completado') {
+      await docClient.send(new UpdateCommand({
+        TableName: tables.pedidos,
+        Key: { Id: pedidoId },
+        UpdateExpression: 'SET Estado = :e, CompletadoEn = :c, CompletadoPor = :p',
+        ExpressionAttributeValues: {
+          ':e': nuevoEstado,
+          ':c': new Date().toISOString(),
+          ':p': String(usuarioEmail ?? '').trim(),
+        },
+      }));
+    } else {
+      await docClient.send(new UpdateCommand({
+        TableName: tables.pedidos,
+        Key: { Id: pedidoId },
+        UpdateExpression: 'SET Estado = :e REMOVE CompletadoEn, CompletadoPor',
+        ExpressionAttributeValues: { ':e': nuevoEstado },
+      }));
+    }
   } catch (err) {
     console.error('[recomputarEstadoPorPreparacion]', err.message || err);
   }
@@ -197,6 +221,7 @@ function normalizarEmpresa(val) {
 //    Incluye solo líneas con TotalRappel > 0, sin filtrar por estado del pedido.
 //  - modo=ventas: suma de TotalLinea con margen (lo que se cobra a la sociedad).
 //    Incluye solo pedidos 'Completado' y líneas con TotalLinea > 0.
+//    El periodo se filtra por CompletadoEn (fecha OK almacén); sin ese campo, usa Fecha del pedido.
 // En ambos modos cada línea devuelve un campo genérico `Importe` con la métrica del modo.
 router.get('/pedidos/abonos', async (req, res) => {
   const empresa = String(req.query.empresa ?? '').trim();
@@ -253,7 +278,8 @@ router.get('/pedidos/abonos', async (req, res) => {
       if (!localIdsEmpresa.has(lid)) return false;
       // En ventas solo cuentan los pedidos ya completados (facturables).
       if (modo === 'ventas' && String(p.Estado ?? '').trim() !== 'Completado') return false;
-      return String(p.Fecha ?? '').trim().startsWith(prefijo);
+      const fechaRef = modo === 'ventas' ? fechaReferenciaVentas(p) : fechaPedidoToIso(p.Fecha) || String(p.Fecha ?? '').trim();
+      return fechaRef ? fechaRef.startsWith(prefijo) : false;
     });
 
     const items = [];
@@ -267,6 +293,7 @@ router.get('/pedidos/abonos', async (req, res) => {
       const localNombre = nombrePorLocalId[localId] || localId;
       const fechaPedido = String(p.Fecha ?? '').trim();
       const creadoEn = String(p.CreadoEn ?? '').trim();
+      const completadoEn = String(p.CompletadoEn ?? '').trim();
       const esDevolucion = String(p.Tipo ?? 'Pedido').trim() === 'Devolucion';
       // Una devolución resta en ambos informes: en ventas anula el importe a cobrar
       // y en abonos anula el rappel que generó la compra original (neto = 0).
@@ -288,6 +315,7 @@ router.get('/pedidos/abonos', async (req, res) => {
           LocalNombre: localNombre,
           Fecha: fechaPedido,
           CreadoEn: creadoEn,
+          ...(completadoEn ? { CompletadoEn: completadoEn } : {}),
           Tipo: esDevolucion ? 'Devolucion' : 'Pedido',
           ProductId: String(l.ProductId ?? ''),
           ProductoNombre: String(l.ProductoNombre ?? ''),
@@ -298,13 +326,22 @@ router.get('/pedidos/abonos', async (req, res) => {
         totalPedido += importe;
       }
       if (totalPedido !== 0) {
-        resumenPedidos.push({ Id: pid, LocalId: localId, LocalNombre: localNombre, Fecha: fechaPedido, Tipo: esDevolucion ? 'Devolucion' : 'Pedido', Importe: totalPedido });
+        resumenPedidos.push({
+          Id: pid,
+          LocalId: localId,
+          LocalNombre: localNombre,
+          Fecha: fechaPedido,
+          ...(completadoEn ? { CompletadoEn: completadoEn } : {}),
+          Tipo: esDevolucion ? 'Devolucion' : 'Pedido',
+          Importe: totalPedido,
+        });
         total += totalPedido;
       }
     }
 
+    const fechaOrden = (row) => (modo === 'ventas' ? String(row.CompletadoEn || row.Fecha) : String(row.Fecha));
     items.sort((a, b) => {
-      const fc = String(a.Fecha).localeCompare(String(b.Fecha));
+      const fc = fechaOrden(a).localeCompare(fechaOrden(b));
       if (fc !== 0) return fc;
       const lc = String(a.LocalNombre).localeCompare(String(b.LocalNombre), 'es', { sensitivity: 'base' });
       if (lc !== 0) return lc;
@@ -312,7 +349,7 @@ router.get('/pedidos/abonos', async (req, res) => {
       if (pc !== 0) return pc;
       return Number(a.LineaIndex ?? 0) - Number(b.LineaIndex ?? 0);
     });
-    resumenPedidos.sort((a, b) => String(a.Fecha).localeCompare(String(b.Fecha)));
+    resumenPedidos.sort((a, b) => fechaOrden(a).localeCompare(fechaOrden(b)));
 
     res.json({ ok: true, empresa, local: local || null, anio, mes: mes || null, modo, total, items, pedidos: resumenPedidos });
   } catch (err) {
@@ -559,6 +596,16 @@ router.put('/pedidos', async (req, res) => {
     } else if (existing.DevolucionCertificadaEn) {
       item.DevolucionCertificadaEn = existing.DevolucionCertificadaEn;
       item.DevolucionCertificadaPor = existing.DevolucionCertificadaPor ?? '';
+    }
+    const nuevoEstado = String(item.Estado ?? '').trim();
+    if (nuevoEstado === 'Completado') {
+      if (existing.CompletadoEn) {
+        item.CompletadoEn = existing.CompletadoEn;
+        item.CompletadoPor = existing.CompletadoPor ?? '';
+      } else {
+        item.CompletadoEn = new Date().toISOString();
+        item.CompletadoPor = String(req.user?.email ?? '').trim();
+      }
     }
     await docClient.send(new PutCommand({ TableName: tables.pedidos, Item: item }));
     res.json({ ok: true, pedido: item });
@@ -844,7 +891,7 @@ router.put('/pedidos/:pedidoId/lineas', async (req, res) => {
     // (Enviado → Pendiente → Completado) para reflejar el avance del almacén.
     let estadoPedido;
     if (body.Preparada != null) {
-      await recomputarEstadoPorPreparacion(pedidoId);
+      await recomputarEstadoPorPreparacion(pedidoId, req.user?.email);
       estadoPedido = (await getEstadoPedido(pedidoId)) ?? undefined;
     }
 

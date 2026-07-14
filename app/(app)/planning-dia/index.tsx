@@ -1,9 +1,13 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { hubTileSideSize } from '../../constants/layout';
+import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
+import { apiFetch } from '../../utils/api';
 import HubTile from '../../components/HubTile';
 
 /**
@@ -56,6 +60,14 @@ const TARJETAS: Tarjeta[] = [
     ruta: '/cajas/arqueo-caja',
     permiso: 'cierres.ver',
   },
+  {
+    id: 'activaciones',
+    label: 'Activaciones del día',
+    descripcion: 'Campañas de marca programadas para hoy en tu local',
+    icon: 'celebration',
+    ruta: '/planning-dia/activaciones-dia',
+    permiso: 'activaciones.ver',
+  },
 ];
 
 export default function PlanningDiaIndexScreen() {
@@ -63,6 +75,42 @@ export default function PlanningDiaIndexScreen() {
   const { hasPermiso } = useAuth();
   const { width, height } = useBreakpoint();
   const tileSize = hubTileSideSize(width, height);
+  const [activacionesHoy, setActivacionesHoy] = useState(0);
+  const [actuacionesHoy, setActuacionesHoy] = useState(0);
+
+  const cargarContadoresDia = useCallback(async () => {
+    const fecha = encodeURIComponent(fechaJornadaNegocioIso());
+
+    if (!hasPermiso('activaciones.ver')) {
+      setActivacionesHoy(0);
+    } else {
+      try {
+        const r = await apiFetch(`/api/activaciones/sesiones/pendientes-dia?fecha=${fecha}`);
+        const d = await r.json();
+        setActivacionesHoy(r.ok ? Number(d.total) || 0 : 0);
+      } catch {
+        setActivacionesHoy(0);
+      }
+    }
+
+    if (!hasPermiso('actuaciones.ver')) {
+      setActuacionesHoy(0);
+    } else {
+      try {
+        const r = await apiFetch(`/api/actuaciones/dia/total?fecha=${fecha}`);
+        const d = await r.json();
+        setActuacionesHoy(r.ok ? Number(d.total) || 0 : 0);
+      } catch {
+        setActuacionesHoy(0);
+      }
+    }
+  }, [hasPermiso]);
+
+  useFocusEffect(
+    useCallback(() => {
+      cargarContadoresDia();
+    }, [cargarContadoresDia]),
+  );
 
   const visibles = TARJETAS.filter((t) => hasPermiso(t.permiso));
 
@@ -96,6 +144,13 @@ export default function PlanningDiaIndexScreen() {
                 icon={t.icon}
                 size={tileSize}
                 variant={t.variant}
+                badgeCount={
+                  t.id === 'activaciones'
+                    ? activacionesHoy
+                    : t.id === 'actuaciones'
+                      ? actuacionesHoy
+                      : undefined
+                }
                 onPress={() => router.push(t.ruta as never)}
                 favorito={{ route: t.ruta, label: t.label, icon: t.icon, permiso: t.permiso }}
               />

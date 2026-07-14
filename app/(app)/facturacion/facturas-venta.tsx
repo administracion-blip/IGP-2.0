@@ -13,7 +13,7 @@ import {
   Pressable,
   useWindowDimensions,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -33,7 +33,7 @@ import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useLocalToast } from '../../components/Toast';
 import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
-import { FacturaVentaDetallePanel } from '../../components/FacturaVentaDetallePanel';
+import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
 import { apiFetch } from '../../utils/api';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
@@ -117,6 +117,7 @@ export default function FacturasVentaScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [modalFacturaId, setModalFacturaId] = useState<string | null>(null);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('');
   const [fechaDesde, setFechaDesde] = useState('');
@@ -196,6 +197,19 @@ export default function FacturasVentaScreen() {
   }, []);
 
   useEffect(() => { refetch(); }, [refetch]);
+
+  // Refrescar al volver de la ficha completa: sin esto el listado mostraba
+  // datos antiguos tras guardar y parecía que el cambio no se había guardado.
+  const primerFocoListado = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (primerFocoListado.current) {
+        primerFocoListado.current = false;
+        return;
+      }
+      refetch();
+    }, [refetch]),
+  );
 
   const emisoresOpciones = useMemo(() => {
     const m = new Map<string, string>();
@@ -709,6 +723,7 @@ export default function FacturasVentaScreen() {
         >
           <View style={styles.table}>
             <View style={styles.rowHeader}>
+              <View style={styles.actionHeaderCell} />
               {COLUMNAS.map((col) => (
                 <TouchableOpacity
                   key={col.key}
@@ -746,6 +761,20 @@ export default function FacturasVentaScreen() {
                   style={[styles.row, selectedId === item.id_factura && styles.rowSelected]}
                   onPress={() => setSelectedId(selectedId === item.id_factura ? null : item.id_factura)}
                 >
+                  <View style={styles.actionCell}>
+                    <Pressable
+                      hitSlop={8}
+                      accessibilityLabel="Ver detalle y documento"
+                      onPress={(e) => {
+                        absorberClickFila(e as { stopPropagation?: () => void; nativeEvent?: { stopPropagation?: () => void } });
+                        setSelectedId(item.id_factura);
+                        setModalFacturaId(item.id_factura);
+                      }}
+                      style={styles.actionBtn}
+                    >
+                      <MaterialIcons name="vertical-split" size={16} color="#0369a1" />
+                    </Pressable>
+                  </View>
                   {COLUMNAS.map((col) => (
                     <View key={col.key} style={[styles.cell, { width: getColWidth(col.key) }]}>
                       {col.key === 'estado' ? (
@@ -779,27 +808,20 @@ export default function FacturasVentaScreen() {
             )}
           </View>
         </ScrollView>
-
-        <View
-          style={[
-            styles.detailPanel,
-            layoutSplit && styles.detailPanelFlex,
-            layoutSplit ? styles.detailPanelSide : styles.detailPanelStack,
-          ]}
-        >
-          <Text style={styles.detailPanelTitle}>Detalle</Text>
-          <FacturaVentaDetallePanel
-            apiUrl={API_URL}
-            facturaId={selectedId}
-            compactPanel
-            puedeEditar={hasPermiso('facturacion.editar')}
-            usuarioId={user?.id_usuario}
-            usuarioNombre={user?.Nombre}
-            onGuardado={refetch}
-            onAbrirCompleto={(id) => router.push(`/facturacion/factura-detalle?id=${id}&modo=editar&tipo=OUT` as any)}
-          />
-        </View>
       </View>
+
+      {/* Modal detalle + previsualización del documento */}
+      <FacturaDetalleModal
+        apiUrl={API_URL}
+        facturaId={modalFacturaId}
+        tipoFactura="OUT"
+        puedeEditar={hasPermiso('facturacion.editar')}
+        usuarioId={user?.id_usuario}
+        usuarioNombre={user?.Nombre}
+        onClose={() => setModalFacturaId(null)}
+        onGuardado={refetch}
+        onAbrirCompleto={(id) => router.push(`/facturacion/factura-detalle?id=${id}&modo=editar&tipo=OUT` as any)}
+      />
 
       {/* Modal confirmar anulación */}
       <Modal visible={modalAnularVisible} transparent animationType="fade" onRequestClose={() => setModalAnularVisible(false)}>
@@ -1142,6 +1164,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   rowSelected: { backgroundColor: '#e0f2fe' },
+  actionHeaderCell: { width: 40, flexShrink: 0 },
+  actionCell: { width: 40, flexShrink: 0, alignItems: 'center', justifyContent: 'center', paddingVertical: 2 },
+  actionBtn: {
+    padding: 5,
+    borderRadius: 6,
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
   cell: {
     minWidth: MIN_COL_WIDTH,
     paddingVertical: 2,

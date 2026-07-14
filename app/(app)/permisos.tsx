@@ -135,6 +135,9 @@ const PERMISOS_CODIGOS = [
   // --- Marketing ---
   'marketing.proponer',
   'marketing.gestionar',
+  // --- Activaciones de marca ---
+  'activaciones.ver',
+  'activaciones.gestionar',
 ] as const;
 
 const PERMISOS_LABELS: Record<string, string> = {
@@ -231,6 +234,8 @@ const PERMISOS_LABELS: Record<string, string> = {
   'ajustes.sincronizaciones.empleados': 'Ajustes · Sync Empleados',
   'marketing.proponer': 'Marketing · Proponer',
   'marketing.gestionar': 'Marketing · Gestionar',
+  'activaciones.ver': 'Activaciones · Ver / marcar realizada',
+  'activaciones.gestionar': 'Activaciones · Gestionar campañas y sesiones',
   'personal.ver': 'Personal · Ver empleados',
   'rrhh.horas': 'RRHH · Horas por facturación',
   'planning_dia.ver': 'Planning del Día (menú)',
@@ -266,6 +271,7 @@ const GRUPOS_PERMISOS: { titulo: string; codigos: string[] }[] = [
   { titulo: 'Planning del Día', codigos: ['planning_dia.ver'] },
   { titulo: 'Recursos Humanos', codigos: ['personal.ver', 'rrhh.horas'] },
   { titulo: 'Marketing', codigos: ['marketing.proponer', 'marketing.gestionar'] },
+  { titulo: 'Activaciones de marca', codigos: ['activaciones.ver', 'activaciones.gestionar'] },
 ];
 
 const TOTAL_PERMISOS = PERMISOS_CODIGOS.length;

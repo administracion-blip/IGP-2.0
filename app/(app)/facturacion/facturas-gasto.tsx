@@ -12,7 +12,7 @@ import {
   Pressable,
   useWindowDimensions,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { BadgeEstado } from '../../components/BadgeEstado';
@@ -35,7 +35,7 @@ import { hoyISO } from '../../utils/facturaFormLogic';
 import { getTipoReciboFromEmpresasList, type EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
 import { useLocalToast } from '../../components/Toast';
 import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
-import { FacturaVentaDetallePanel } from '../../components/FacturaVentaDetallePanel';
+import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
 import { apiFetch } from '../../utils/api';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
@@ -188,6 +188,7 @@ export default function FacturasGastoScreen() {
   const [fechaHasta, setFechaHasta] = useState('');
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [modalFacturaId, setModalFacturaId] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
 
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
@@ -230,6 +231,19 @@ export default function FacturasGastoScreen() {
   }, []);
 
   useEffect(() => { fetchFacturas(); }, [fetchFacturas]);
+
+  // Refrescar al volver de la ficha completa: sin esto el listado mostraba
+  // datos antiguos tras guardar y parecía que el cambio no se había guardado.
+  const primerFocoListado = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (primerFocoListado.current) {
+        primerFocoListado.current = false;
+        return;
+      }
+      fetchFacturas();
+    }, [fetchFacturas]),
+  );
 
   useEffect(() => {
     apiFetch('/api/empresas')
@@ -736,6 +750,7 @@ export default function FacturasGastoScreen() {
           <View style={styles.table}>
             {/* Header row */}
             <View style={styles.rowHeader}>
+              <View style={styles.actionHeaderCell} />
               {COLUMNAS.map((col) => (
                 <TouchableOpacity
                   key={col}
@@ -778,6 +793,20 @@ export default function FacturasGastoScreen() {
                     style={[styles.row, selectedId === f.id_factura && styles.rowSelected]}
                     onPress={() => setSelectedId(selectedId === f.id_factura ? null : f.id_factura)}
                   >
+                    <View style={styles.actionCell}>
+                      <Pressable
+                        hitSlop={8}
+                        accessibilityLabel="Ver detalle y documento"
+                        onPress={(e) => {
+                          absorberClickFila(e);
+                          setSelectedId(f.id_factura);
+                          setModalFacturaId(f.id_factura);
+                        }}
+                        style={styles.actionBtn}
+                      >
+                        <MaterialIcons name="vertical-split" size={16} color="#0369a1" />
+                      </Pressable>
+                    </View>
                     {COLUMNAS.map((col) => {
                       if (col === 'estado') {
                         return (
@@ -825,30 +854,22 @@ export default function FacturasGastoScreen() {
         </ScrollView>
           </View>
         </View>
-
-        <View
-          style={[
-            styles.detailPanel,
-            layoutSplit && styles.detailPanelFlex,
-            layoutSplit ? styles.detailPanelSide : styles.detailPanelStack,
-          ]}
-        >
-          <Text style={styles.detailPanelTitle}>Detalle</Text>
-          <FacturaVentaDetallePanel
-            apiUrl={API_URL}
-            facturaId={selectedId}
-            tipoFactura="IN"
-            compactPanel
-            puedeEditar={hasPermiso('facturacion.editar')}
-            usuarioId={user?.id_usuario}
-            usuarioNombre={user?.Nombre}
-            onGuardado={fetchFacturas}
-            onAbrirCompleto={(id) =>
-              router.push(`/facturacion/factura-detalle?id=${id}&modo=editar&tipo=IN` as never)
-            }
-          />
-        </View>
       </View>
+
+      {/* Modal detalle + previsualización del documento */}
+      <FacturaDetalleModal
+        apiUrl={API_URL}
+        facturaId={modalFacturaId}
+        tipoFactura="IN"
+        puedeEditar={hasPermiso('facturacion.editar')}
+        usuarioId={user?.id_usuario}
+        usuarioNombre={user?.Nombre}
+        onClose={() => setModalFacturaId(null)}
+        onGuardado={fetchFacturas}
+        onAbrirCompleto={(id) =>
+          router.push(`/facturacion/factura-detalle?id=${id}&modo=editar&tipo=IN` as never)
+        }
+      />
 
       {/* Modal Borrar (solo facturas IN; eliminación definitiva) */}
       <Modal visible={modalBorrar} transparent animationType="fade" onRequestClose={() => !procesando && setModalBorrar(false)}>
@@ -1188,6 +1209,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   rowSelected: { backgroundColor: '#e0f2fe' },
+  actionHeaderCell: { width: 40, flexShrink: 0 },
+  actionCell: { width: 40, flexShrink: 0, alignItems: 'center', justifyContent: 'center', paddingVertical: 2 },
+  actionBtn: {
+    padding: 5,
+    borderRadius: 6,
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
   cell: {
     minWidth: MIN_COL_WIDTH,
     paddingVertical: 2,

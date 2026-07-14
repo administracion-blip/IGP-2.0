@@ -50,6 +50,13 @@ const OPCIONES: { id: string; label: string; icon: React.ComponentProps<typeof M
     permiso: 'compras_proveedor.ver',
   },
   {
+    id: 'conciliacion-facturas',
+    label: 'Conciliación Facturas',
+    icon: 'fact-check',
+    descripcion: 'Contraste de albaranes de Ágora con facturas de gasto por proveedor',
+    permiso: 'compras_proveedor.ver',
+  },
+  {
     id: 'abonos-rappel',
     label: 'Abonos por Rappel',
     icon: 'savings',
@@ -79,6 +86,7 @@ export default function ComprasIndexScreen() {
     if (id === 'traspasos-agora') router.push('/compras/traspasos-agora');
     if (id === 'detalles-pedidos') router.push('/compras/detalles-pedidos');
     if (id === 'compras-proveedor') router.push('/compras/compras-proveedor');
+    if (id === 'conciliacion-facturas') router.push('/compras/conciliacion-facturas');
     if (id === 'abonos-rappel') router.push('/compras/abonos-rappel');
     if (id === 'ventas-empresa') router.push('/compras/ventas-empresa');
   }

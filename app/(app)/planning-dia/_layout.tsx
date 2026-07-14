@@ -9,6 +9,7 @@ export default function PlanningDiaLayout() {
       <Stack.Screen name="index" />
       <Stack.Screen name="cuadrante" />
       <Stack.Screen name="actuaciones" />
+      <Stack.Screen name="activaciones-dia" />
     </Stack>
   );
 }

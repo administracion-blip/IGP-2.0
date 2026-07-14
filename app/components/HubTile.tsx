@@ -10,6 +10,8 @@ type HubTileProps = {
   onPress: () => void;
   size: number;
   variant?: 'default' | 'accent';
+  /** Globo rojo con contador (esquina del icono). */
+  badgeCount?: number;
   /** Si se indica, muestra la estrella de favorito en la esquina del tile. */
   favorito?: Favorito;
 };
@@ -26,6 +28,7 @@ export default function HubTile({
   size,
   variant = 'default',
   favorito,
+  badgeCount,
 }: HubTileProps) {
   const accent = variant === 'accent';
 
@@ -42,6 +45,11 @@ export default function HubTile({
       {favorito ? <EstrellaFavorito favorito={favorito} style={styles.favBtn} /> : null}
       <View style={[styles.iconWrap, accent && styles.iconWrapAccent]}>
         <MaterialIcons name={icon} size={32} color={accent ? '#0f172a' : '#0ea5e9'} />
+        {badgeCount != null && badgeCount > 0 ? (
+          <View style={styles.alertBadge}>
+            <Text style={styles.alertBadgeText}>{badgeCount > 9 ? '9+' : badgeCount}</Text>
+          </View>
+        ) : null}
       </View>
       <Text style={[styles.label, accent && styles.labelAccent]} numberOfLines={2}>
         {label}
@@ -84,7 +92,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#e0f2fe',
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
   },
+  alertBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#dc2626',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  alertBadgeText: { fontSize: 10, fontWeight: '800', color: '#fff' },
   iconWrapAccent: {
     backgroundColor: '#fed7aa',
   },

@@ -46,6 +46,12 @@ export type CompraLinea = {
   FamilyName: string;
   LotNumber: string;
   LineNotes: string;
+  /** Total del ALBARÁN completo con impuestos (Totals.GrossAmount de Ágora); null en filas antiguas. */
+  AlbaranGrossAmount?: number | null;
+  /** Total del ALBARÁN completo sin impuestos (Totals.NetAmount de Ágora); null en filas antiguas. */
+  AlbaranNetAmount?: number | null;
+  /** Descuento a pie de documento (tanto por uno). */
+  AlbaranDiscountRate?: number;
   syncedAt: string;
 };
 

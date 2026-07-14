@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, TextInput } from 'react-native';
 import { round2 } from '../../utils/facturacion';
+import { parseImporteTexto } from '../../lib/registroMasivo';
 
 /**
  * Input numérico para celdas del desglose fiscal: maneja un buffer de texto
@@ -25,7 +26,7 @@ export function DesgloseNumInput({
   useEffect(() => {
     if (prevInitial.current !== initial) {
       prevInitial.current = initial;
-      const parsed = parseFloat(text.replace(',', '.'));
+      const parsed = parseImporteTexto(text);
       if (initial !== parsed) {
         setText(initial ? String(initial) : '');
       }
@@ -37,7 +38,7 @@ export function DesgloseNumInput({
       value={text}
       onChangeText={setText}
       onBlur={() => {
-        const n = parseFloat(text.replace(',', '.')) || 0;
+        const n = parseImporteTexto(text);
         onCommit(round2(n));
         setText(n ? String(n) : '');
       }}

@@ -68,7 +68,7 @@ const MODO_CONFIG: Record<ModoInforme, ModoConfig> = {
   ventas: {
     modo: 'ventas',
     titulo: 'Ventas por empresa',
-    subtitle: 'Lo que el almacén central debe cobrar a la sociedad (pedidos completados).',
+    subtitle: 'Lo que el almacén central debe cobrar a la sociedad. El periodo se calcula por la fecha en que el almacén completó cada pedido.',
     metricaCol: 'Total',
     negativo: false,
     colorImporte: '#0369a1',
@@ -91,11 +91,17 @@ const MODO_CONFIG: Record<ModoInforme, ModoConfig> = {
 
 const TODOS_LOCALES_ID = '__todos__';
 
-function columnasModo(metricaCol: string): string[] {
+function columnasModo(modo: ModoInforme, metricaCol: string): string[] {
+  if (modo === 'ventas') {
+    return ['Pedido', 'Local', 'CompletadoEn', 'Fecha', 'Producto', 'ID', 'IVA', 'Cantidad', metricaCol];
+  }
   return ['Pedido', 'Local', 'Fecha', 'CreadoEn', 'Producto', 'ID', 'IVA', 'Cantidad', metricaCol];
 }
 
-function columnasExportModo(metricaCol: string): string[] {
+function columnasExportModo(modo: ModoInforme, metricaCol: string): string[] {
+  if (modo === 'ventas') {
+    return ['Pedido', 'Local', 'Completado el', 'Fecha pedido', 'Producto', 'ID', 'IVA %', 'Cantidad', metricaCol, 'Cuota IVA', 'Total con IVA'];
+  }
   return ['Pedido', 'Local', 'Fecha', 'Creado en', 'Producto', 'ID', 'IVA %', 'Cantidad', metricaCol, 'Cuota IVA', 'Total con IVA'];
 }
 
@@ -199,13 +205,24 @@ function importesLinea(item: FilaAbono): { base: number; vatRate: number | null;
   return { base, vatRate, cuotaIva, totalConIva: round2(base + cuotaIva) };
 }
 
-function filaExportCeldas(item: FilaAbono, negativo: boolean): (string | number)[] {
+function filaExportCeldas(item: FilaAbono, modo: ModoInforme, negativo: boolean): (string | number)[] {
   const { base, vatRate, cuotaIva, totalConIva } = importesLinea(item);
-  return [
+  const filaBase = [
     String(valorEnLocal(item, 'PedidoId') ?? ''),
     String(valorEnLocal(item, 'LocalNombre') ?? valorEnLocal(item, 'LocalId') ?? ''),
-    formatFecha(valorEnLocal(item, 'Fecha') as string | undefined),
-    formatCreadoEn(valorEnLocal(item, 'CreadoEn') as string | undefined),
+  ];
+  const filaFechas = modo === 'ventas'
+    ? [
+        formatCreadoEn(valorEnLocal(item, 'CompletadoEn') as string | undefined),
+        formatFecha(valorEnLocal(item, 'Fecha') as string | undefined),
+      ]
+    : [
+        formatFecha(valorEnLocal(item, 'Fecha') as string | undefined),
+        formatCreadoEn(valorEnLocal(item, 'CreadoEn') as string | undefined),
+      ];
+  return [
+    ...filaBase,
+    ...filaFechas,
     String(valorEnLocal(item, 'ProductoNombre') ?? valorEnLocal(item, 'ProductId') ?? ''),
     String(valorEnLocal(item, 'ProductId') ?? ''),
     vatRate != null ? round2(vatRate * 100) : '',
@@ -216,13 +233,24 @@ function filaExportCeldas(item: FilaAbono, negativo: boolean): (string | number)
   ];
 }
 
-function filaExportTexto(item: FilaAbono, negativo: boolean): string[] {
+function filaExportTexto(item: FilaAbono, modo: ModoInforme, negativo: boolean): string[] {
   const { base, vatRate, cuotaIva, totalConIva } = importesLinea(item);
-  return [
+  const filaBase = [
     String(valorEnLocal(item, 'PedidoId') ?? '—'),
     String(valorEnLocal(item, 'LocalNombre') ?? valorEnLocal(item, 'LocalId') ?? '—'),
-    formatFecha(valorEnLocal(item, 'Fecha') as string | undefined),
-    formatCreadoEn(valorEnLocal(item, 'CreadoEn') as string | undefined),
+  ];
+  const filaFechas = modo === 'ventas'
+    ? [
+        formatCreadoEn(valorEnLocal(item, 'CompletadoEn') as string | undefined),
+        formatFecha(valorEnLocal(item, 'Fecha') as string | undefined),
+      ]
+    : [
+        formatFecha(valorEnLocal(item, 'Fecha') as string | undefined),
+        formatCreadoEn(valorEnLocal(item, 'CreadoEn') as string | undefined),
+      ];
+  return [
+    ...filaBase,
+    ...filaFechas,
     String(valorEnLocal(item, 'ProductoNombre') ?? valorEnLocal(item, 'ProductId') ?? '—'),
     String(valorEnLocal(item, 'ProductId') ?? '—'),
     ivaPctLabel(vatRate),
@@ -235,8 +263,8 @@ function filaExportTexto(item: FilaAbono, negativo: boolean): string[] {
 
 export function InformeImporteEmpresa({ modo }: { modo: ModoInforme }) {
   const cfg = MODO_CONFIG[modo];
-  const COLUMNAS = useMemo(() => columnasModo(cfg.metricaCol), [cfg.metricaCol]);
-  const COLUMNAS_EXPORT = useMemo(() => columnasExportModo(cfg.metricaCol), [cfg.metricaCol]);
+  const COLUMNAS = useMemo(() => columnasModo(cfg.modo, cfg.metricaCol), [cfg.modo, cfg.metricaCol]);
+  const COLUMNAS_EXPORT = useMemo(() => columnasExportModo(cfg.modo, cfg.metricaCol), [cfg.modo, cfg.metricaCol]);
   const router = useRouter();
   const { localPermitido } = useAuth();
   const { shouldStackToolbar, shouldStackPanels } = useBreakpoint();
@@ -345,6 +373,7 @@ export function InformeImporteEmpresa({ modo }: { modo: ModoInforme }) {
     if (col === 'Pedido') return String(valorEnLocal(item, 'PedidoId') ?? '—');
     if (col === 'Local') return String(valorEnLocal(item, 'LocalNombre') ?? valorEnLocal(item, 'LocalId') ?? '—');
     if (col === 'Fecha') return formatFecha(valorEnLocal(item, 'Fecha') as string | undefined);
+    if (col === 'CompletadoEn') return formatCreadoEn(valorEnLocal(item, 'CompletadoEn') as string | undefined);
     if (col === 'CreadoEn') return formatCreadoEn(valorEnLocal(item, 'CreadoEn') as string | undefined);
     if (col === 'Producto') return String(valorEnLocal(item, 'ProductoNombre') ?? valorEnLocal(item, 'ProductId') ?? '—');
     if (col === 'ID') return String(valorEnLocal(item, 'ProductId') ?? '—');
@@ -413,7 +442,7 @@ export function InformeImporteEmpresa({ modo }: { modo: ModoInforme }) {
       [],
       ['Detalle'],
       [...COLUMNAS_EXPORT],
-      ...itemsFiltrados.map((it) => filaExportCeldas(it, cfg.negativo)),
+      ...itemsFiltrados.map((it) => filaExportCeldas(it, cfg.modo, cfg.negativo)),
       [],
       ['Desglose por IVA'],
       ['Tipo IVA', 'Base', 'Cuota IVA', 'Total con IVA'],
@@ -511,7 +540,7 @@ export function InformeImporteEmpresa({ modo }: { modo: ModoInforme }) {
     autoTable(doc, {
       startY: y,
       head: [[...COLUMNAS_EXPORT]],
-      body: itemsFiltrados.map((it) => filaExportTexto(it, cfg.negativo)),
+      body: itemsFiltrados.map((it) => filaExportTexto(it, cfg.modo, cfg.negativo)),
       styles: { fontSize: 7 },
       headStyles: { fillColor: [14, 165, 233] },
       margin: { left: 14, right: 14 },

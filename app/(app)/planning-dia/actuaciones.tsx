@@ -520,6 +520,9 @@ export default function PlanningActuacionesScreen() {
                 <Text style={styles.localNombre} numberOfLines={1}>
                   {grupo.nombreLocal.toUpperCase()}
                 </Text>
+                <View style={styles.localCountBadge}>
+                  <Text style={styles.localCountText}>{grupo.acts.length}</Text>
+                </View>
               </View>
               {grupo.acts.map((a) => {
                 const art = a.artista_nombre_snapshot?.trim() || '—';
@@ -705,8 +708,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0',
     padding: 10, marginBottom: 10,
   },
-  localHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  localHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   localNombre: { fontSize: 13, fontWeight: '800', color: '#0369a1', flex: 1 },
+  localCountBadge: {
+    backgroundColor: '#e0f2fe',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    minWidth: 22,
+    alignItems: 'center',
+  },
+  localCountText: { fontSize: 11, fontWeight: '800', color: '#0369a1' },
   fila: {
     flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 6,
     borderTopWidth: 1, borderTopColor: '#f1f5f9', borderRadius: 8, minHeight: MIN_TOUCH + 14,

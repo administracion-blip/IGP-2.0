@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch, errorMessage } from '../utils/api';
+import { parseImporteTexto } from '../lib/registroMasivo';
 import type { Borrador, ZonaRect, ZonaTarget } from '../types/registroMasivo';
 
 /**
@@ -14,7 +15,9 @@ import type { Borrador, ZonaRect, ZonaTarget } from '../types/registroMasivo';
  *   re-renders entre `mousedown` y `mouseup`.
  * - `imgSrc` resuelve a un PNG rasterizado por el API si el documento es
  *   un PDF (no se puede usar `<img>` con un PDF directamente), o a la URL
- *   firmada si es una imagen.
+ *   firmada si es una imagen. El PNG del PDF se descarga con `apiFetch`
+ *   (adjunta el Bearer) y se expone como blob URL: un `<img src>` directo
+ *   contra el API devolvía 401 porque no envía el token.
  *
  * El hook NO toca `borradores`: cuando se extrae texto, llama a
  * `onCampoExtraido(field, value, isNumeric)` y el padre decide si aplicar
@@ -54,13 +57,44 @@ export function useZonaOCR(opts: {
 
   const sb = opts.selectedBorrador;
 
-  const imgSrc = useMemo(() => {
-    if (!activa || !sb?.archivo?.previewUrl) return null;
-    if (sb.archivo.tipo.includes('pdf')) {
-      return `${opts.apiUrl}/api/facturacion/ocr/preview-png?fileKey=${encodeURIComponent(sb.archivo.fileKey)}`;
+  const [imgSrc, setImgSrc] = useState<string | null>(null);
+  const archivoFileKey = sb?.archivo?.fileKey;
+  const archivoPreviewUrl = sb?.archivo?.previewUrl;
+  const archivoEsPdf = Boolean(sb?.archivo?.tipo?.includes('pdf'));
+  const onErrorRef = useRef(opts.onError);
+  onErrorRef.current = opts.onError;
+
+  useEffect(() => {
+    if (!activa || !archivoPreviewUrl) {
+      setImgSrc(null);
+      return;
     }
-    return sb.archivo.previewUrl;
-  }, [activa, sb?.archivo?.fileKey, sb?.archivo?.previewUrl, sb?.archivo?.tipo, opts.apiUrl]);
+    if (!archivoEsPdf) {
+      setImgSrc(archivoPreviewUrl);
+      return;
+    }
+    let cancelado = false;
+    let blobUrl: string | null = null;
+    setImgSrc(null);
+    apiFetch(`/api/facturacion/ocr/preview-png?fileKey=${encodeURIComponent(archivoFileKey || '')}`)
+      .then(async (res) => {
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({} as { error?: string }));
+          throw new Error(d.error || 'No se pudo generar la vista previa del PDF');
+        }
+        const blob = await res.blob();
+        if (cancelado) return;
+        blobUrl = URL.createObjectURL(blob);
+        setImgSrc(blobUrl);
+      })
+      .catch((err: unknown) => {
+        if (!cancelado) onErrorRef.current?.(errorMessage(err));
+      });
+    return () => {
+      cancelado = true;
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    };
+  }, [activa, archivoFileKey, archivoPreviewUrl, archivoEsPdf]);
 
   useEffect(() => {
     setPreviewLoaded(false);
@@ -148,7 +182,7 @@ export function useZonaOCR(opts: {
         if (texto) {
           const field = activa.field;
           if (activa.numeric) {
-            const numVal = parseFloat(texto.replace(/[^\d.,\-]/g, '').replace(',', '.')) || 0;
+            const numVal = parseImporteTexto(texto);
             opts.onCampoExtraido(field, numVal, true);
           } else {
             opts.onCampoExtraido(field, texto, false);

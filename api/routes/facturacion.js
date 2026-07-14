@@ -6,6 +6,7 @@ import {
   DeleteCommand,
   QueryCommand,
   UpdateCommand,
+  TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import {
   S3Client,
@@ -554,16 +555,12 @@ router.put('/facturacion/facturas/:id', async (req, res) => {
 
     if (Array.isArray(body.lineas)) {
       const oldLineas = await queryLineasByFactura(id);
-      for (const ol of oldLineas) {
-        await docClient.send(new DeleteCommand({ TableName: tables.facturasLineas, Key: { id_factura: id, id_linea: ol.id_linea } }));
-      }
 
       let base_imponible = 0;
       let total_iva = 0;
       let total_retencion = 0;
 
-      for (let i = 0; i < body.lineas.length; i++) {
-        const l = body.lineas[i];
+      const nuevasLineas = body.lineas.map((l, i) => {
         const cantidad = Number(l.cantidad) || 0;
         const precio = Number(l.precio_unitario) || 0;
         const descuento = Number(l.descuento_pct) || 0;
@@ -579,28 +576,45 @@ router.put('/facturacion/facturas/:id', async (req, res) => {
         total_iva += iva;
         total_retencion += retencion;
 
-        await docClient.send(
-          new PutCommand({
-            TableName: tables.facturasLineas,
-            Item: {
-              id_factura: id,
-              id_linea: `L${String(i + 1).padStart(3, '0')}`,
-              producto_id: l.producto_id || '',
-              producto_ref: l.producto_ref || '',
-              descripcion: l.descripcion || '',
-              cantidad,
-              precio_unitario: precio,
-              descuento_pct: descuento,
-              tipo_iva: tipoIva,
-              iva_nombre: l.iva_nombre || `${tipoIva}%`,
-              retencion_pct: retencionPct,
-              base_linea: base,
-              iva_linea: iva,
-              retencion_linea: retencion,
-              total_linea: total,
-            },
-          })
-        );
+        return {
+          id_factura: id,
+          id_linea: `L${String(i + 1).padStart(3, '0')}`,
+          producto_id: l.producto_id || '',
+          producto_ref: l.producto_ref || '',
+          descripcion: l.descripcion || '',
+          cantidad,
+          precio_unitario: precio,
+          descuento_pct: descuento,
+          tipo_iva: tipoIva,
+          iva_nombre: l.iva_nombre || `${tipoIva}%`,
+          retencion_pct: retencionPct,
+          base_linea: base,
+          iva_linea: iva,
+          retencion_linea: retencion,
+          total_linea: total,
+        };
+      });
+
+      // Reemplazo atómico: los Put sobrescriben L001..LNNN y solo se borran las
+      // líneas antiguas sobrantes. Antes se borraba todo y se reinsertaba en un
+      // bucle sin transacción: un fallo a mitad dejaba la factura sin líneas.
+      const idsNuevos = new Set(nuevasLineas.map((l) => l.id_linea));
+      const operaciones = [
+        ...nuevasLineas.map((item) => ({ Put: { TableName: tables.facturasLineas, Item: item } })),
+        ...oldLineas
+          .filter((ol) => !idsNuevos.has(ol.id_linea))
+          .map((ol) => ({
+            Delete: { TableName: tables.facturasLineas, Key: { id_factura: id, id_linea: ol.id_linea } },
+          })),
+      ];
+      // TransactWrite admite hasta 100 operaciones; trocear por si acaso.
+      for (let i = 0; i < operaciones.length; i += 100) {
+        const bloque = operaciones.slice(i, i + 100);
+        if (bloque.length === 1 && bloque[0].Put) {
+          await docClient.send(new PutCommand(bloque[0].Put));
+        } else if (bloque.length > 0) {
+          await docClient.send(new TransactWriteCommand({ TransactItems: bloque }));
+        }
       }
 
       factura.base_imponible = round2(base_imponible);
@@ -1810,14 +1824,36 @@ router.get('/facturacion/ocr/preview-png', async (req, res) => {
   }
 });
 
+/**
+ * Worker Tesseract compartido: crear/terminar uno por petición añadía varios
+ * segundos por documento en el registro masivo. Se serializan los trabajos
+ * con una cola simple y, si el worker falla, se descarta para recrearlo.
+ */
+let tesseractWorkerPromise = null;
+let tesseractQueue = Promise.resolve();
+
 async function ocrWithTesseract(imageBuffer) {
-  const worker = await Tesseract.createWorker('spa+eng');
-  try {
-    const { data } = await worker.recognize(imageBuffer);
-    return data.text || '';
-  } finally {
-    await worker.terminate();
-  }
+  const run = async () => {
+    try {
+      if (!tesseractWorkerPromise) {
+        tesseractWorkerPromise = Tesseract.createWorker('spa+eng');
+      }
+      const worker = await tesseractWorkerPromise;
+      const { data } = await worker.recognize(imageBuffer);
+      return data.text || '';
+    } catch (e) {
+      const pendiente = tesseractWorkerPromise;
+      tesseractWorkerPromise = null;
+      try {
+        const w = await pendiente;
+        await w?.terminate();
+      } catch { /* worker ya roto */ }
+      throw e;
+    }
+  };
+  const p = tesseractQueue.then(run, run);
+  tesseractQueue = p.then(() => {}, () => {});
+  return p;
 }
 
 /** Normaliza importes factura ES (miles con `.`, decimales con `,`) y fallback OCR/PDF (ej. 160.00). */
@@ -1884,8 +1920,13 @@ async function extractTextFromPdfWithPdfjs(pdfBuffer) {
   return fullText;
 }
 
-/** Rasteriza la página 1 del PDF a PNG para OCR (requiere canvas + pdfjs-dist). */
-async function renderPdfFirstPageToPngBuffer(pdfBuffer) {
+/**
+ * Rasteriza páginas del PDF a PNG para OCR (requiere canvas + pdfjs-dist).
+ * Devuelve hasta `maxPages` páginas desde la primera y, si el documento es
+ * más largo e `incluirUltima` está activo, añade también la última página
+ * (donde suelen ir los totales de facturas multipágina).
+ */
+async function renderPdfPagesToPngBuffers(pdfBuffer, { maxPages = 1, incluirUltima = false } = {}) {
   try {
     const { createCanvas } = await import('@napi-rs/canvas');
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
@@ -1915,20 +1956,35 @@ async function renderPdfFirstPageToPngBuffer(pdfBuffer) {
       useSystemFonts: true,
       canvasFactory,
     }).promise;
-    if (doc.numPages < 1) return null;
-    const page = await doc.getPage(1);
-    const scale = 2;
-    const viewport = page.getViewport({ scale });
-    const w = Math.ceil(viewport.width);
-    const h = Math.ceil(viewport.height);
-    const canvas = createCanvas(w, h);
-    const ctx = canvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport }).promise;
-    return canvas.toBuffer('image/png');
+    if (doc.numPages < 1) return [];
+
+    const paginas = [];
+    for (let i = 1; i <= Math.min(doc.numPages, maxPages); i++) paginas.push(i);
+    if (incluirUltima && doc.numPages > maxPages) paginas.push(doc.numPages);
+
+    const buffers = [];
+    for (const num of paginas) {
+      const page = await doc.getPage(num);
+      const scale = 2;
+      const viewport = page.getViewport({ scale });
+      const w = Math.ceil(viewport.width);
+      const h = Math.ceil(viewport.height);
+      const canvas = createCanvas(w, h);
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      buffers.push(canvas.toBuffer('image/png'));
+    }
+    return buffers;
   } catch (e) {
     console.error('[OCR] No se pudo rasterizar PDF para OCR:', e.message);
-    return null;
+    return [];
   }
+}
+
+/** Rasteriza solo la página 1 (vista previa y zona OCR). */
+async function renderPdfFirstPageToPngBuffer(pdfBuffer) {
+  const pages = await renderPdfPagesToPngBuffers(pdfBuffer, { maxPages: 1 });
+  return pages[0] || null;
 }
 
 function inferProveedorNombre(text, cifProveedor) {
@@ -2110,12 +2166,18 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
     const necesitaFallback = text.trim().length < MIN_TEXT_THRESHOLD || scoreTxt < 4;
 
     if (necesitaFallback) {
-      console.log('[OCR] Texto embebido insuficiente o parseo pobre — intentando OCR por imagen (pág. 1)…');
-      const png = await renderPdfFirstPageToPngBuffer(buffer);
-      if (png) {
+      console.log('[OCR] Texto embebido insuficiente o parseo pobre — intentando OCR por imagen…');
+      // Hasta 2 primeras páginas + última: en facturas escaneadas largas los
+      // totales suelen ir al final y antes solo se OCR-izaba la página 1.
+      const pngs = await renderPdfPagesToPngBuffers(buffer, { maxPages: 2, incluirUltima: true });
+      if (pngs.length > 0) {
         try {
-          const ocrText = await ocrWithTesseract(png);
-          console.log(`[OCR] Tesseract (PDF rasterizado) extrajo ${(ocrText || '').length} caracteres`);
+          let ocrText = '';
+          for (const png of pngs) {
+            ocrText += (await ocrWithTesseract(png)) + '\n';
+          }
+          ocrText = ocrText.trim();
+          console.log(`[OCR] Tesseract (PDF rasterizado, ${pngs.length} pág.) extrajo ${ocrText.length} caracteres`);
           if (ocrText) {
             const parseoOcr = parsearTextoFactura(ocrText);
             const scoreOcr = scoreParseo(parseoOcr);
@@ -2147,6 +2209,7 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
     proveedor_cif,
     ambiguedad_proveedor,
     fechas,
+    fecha_emision_probable,
     totalFactura,
     baseImponible,
     base_imponible_total,
@@ -2216,7 +2279,7 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
     proveedor_en_maestros,
     nombre_sugerido_ocr: !proveedor_en_maestros && proveedor_cif ? nombreOcrSugerido || '' : '',
     numero_factura_proveedor: numFacturas[0] || '',
-    fecha_emision: fechas[0] || '',
+    fecha_emision: fecha_emision_probable || fechas[0] || '',
     total_factura: totalFactura,
     base_imponible: baseImponible,
     base_imponible_total: base_imponible_total ?? baseImponible,
@@ -2239,7 +2302,7 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
     extraction_snapshot: {
       proveedor_cif: proveedorCifCanon || proveedor_cif || '',
       numero_factura_proveedor: numFacturas[0] || '',
-      fecha_emision: fechas[0] || '',
+      fecha_emision: fecha_emision_probable || fechas[0] || '',
       base_imponible: baseImponible,
       total_iva: totalIva,
       retencion,
@@ -2511,10 +2574,15 @@ router.post('/facturacion/check-duplicados', async (req, res) => {
   const { proveedor_cif, numero_factura_proveedor, fecha_emision, total_factura } = req.body || {};
   try {
     const facturas = await scanAll(tables.facturas, '#t = :t', { ':t': 'IN' }, { '#t': 'tipo' });
+    // Comparar normalizado: el CIF/nº de factura del OCR llega con guiones,
+    // espacios o minúsculas y la igualdad estricta no detectaba el duplicado.
+    const cifBuscado = normalizeCif(proveedor_cif || '');
+    const normDoc = (s) => String(s || '').toUpperCase().replace(/[\s\-\/.]/g, '');
+    const docBuscado = normDoc(numero_factura_proveedor);
     const posibles = facturas.filter((f) => {
       let score = 0;
-      if (proveedor_cif && f.empresa_cif === proveedor_cif) score += 3;
-      if (numero_factura_proveedor && f.numero_factura_proveedor === numero_factura_proveedor) score += 4;
+      if (cifBuscado && normalizeCif(f.empresa_cif || '') === cifBuscado) score += 3;
+      if (docBuscado && normDoc(f.numero_factura_proveedor) === docBuscado) score += 4;
       if (fecha_emision && f.fecha_emision === fecha_emision) score += 1;
       if (total_factura && Math.abs((f.total_factura || 0) - total_factura) < 0.02) score += 2;
       return score >= 5;

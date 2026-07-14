@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -28,6 +28,7 @@ import { useFacturaFormLogic } from '../hooks/useFacturaFormLogic';
 import { ResumenTotales } from './ResumenTotales';
 import { InputFecha } from './InputFecha';
 import { SelectorDesplegable } from './SelectorDesplegable';
+import { ImporteMonedaInput } from './ImporteMonedaInput';
 import { textoFechaContabilizacionGasto } from '../utils/formatFecha';
 import { BadgeEstado } from './BadgeEstado';
 import { apiFetch } from '../utils/api';
@@ -36,13 +37,14 @@ import { apiFetch } from '../utils/api';
 const LINEA_W_IDX = 22;
 const LINEA_W_DEL = 28;
 const LINEA_W_CONCEPTO = 200;
-const LINEA_W_NUM = 50;
+// Ancho para importes tipo ###.###,## sin recortes
+const LINEA_W_NUM = 86;
 const LINEA_W_NUM_SM = 42;
-const LINEA_W_TOTALES = 120;
+const LINEA_W_TOTALES = 158;
 
 function getLineWidths(compact: boolean) {
   if (compact) {
-    return { IDX: 18, DEL: 24, CONCEPTO: 138, NUM: 44, NUM_SM: 36, TOTALES: 104 };
+    return { IDX: 18, DEL: 24, CONCEPTO: 138, NUM: 78, NUM_SM: 36, TOTALES: 140 };
   }
   return {
     IDX: LINEA_W_IDX,
@@ -69,6 +71,12 @@ type EmpresaCatalogo = {
   id_empresa?: string;
   Nombre?: string;
   Cif?: string;
+  Direccion?: string;
+  Cp?: string;
+  Municipio?: string;
+  Provincia?: string;
+  Email?: string;
+  Sede?: string;
 };
 
 type FacturaApi = Factura & {
@@ -97,6 +105,8 @@ type Props = {
   onAbrirCompleto: (id: string) => void;
   /** Panel lateral estrecho (p. ej. listado emitidas): menos padding, tipografía y columnas de líneas */
   compactPanel?: boolean;
+  /** Notifica los adjuntos cargados (para previsualizarlos fuera del panel, p. ej. modal dividido). */
+  onAdjuntos?: (adjuntos: AdjuntoItem[]) => void;
 };
 
 export function FacturaVentaDetallePanel({
@@ -109,6 +119,7 @@ export function FacturaVentaDetallePanel({
   onGuardado,
   onAbrirCompleto,
   compactPanel = false,
+  onAdjuntos,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -157,6 +168,9 @@ export function FacturaVentaDetallePanel({
   const [version, setVersion] = useState(1);
   const [adjuntos, setAdjuntos] = useState<AdjuntoItem[]>([]);
   const [adjuntosLoading, setAdjuntosLoading] = useState(false);
+  // Ref para no re-crear `cargar` (y re-fetchear) cada vez que cambie el callback.
+  const onAdjuntosRef = useRef(onAdjuntos);
+  onAdjuntosRef.current = onAdjuntos;
   const [modalAdjuntos, setModalAdjuntos] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
 
@@ -193,16 +207,91 @@ export function FacturaVentaDetallePanel({
       .catch(() => setEmpresasCatalogo([]));
   }, [apiUrl]);
 
-  /** Si el nombre coincide con una fila de `empresas`, rellena CIF e id desde la tabla */
-  const sincronizarEmisorConCatalogo = useCallback(() => {
-    const n = emisorNombre.trim().toLowerCase();
-    if (!n || empresasCatalogo.length === 0) return;
-    const e = empresasCatalogo.find((x) => (x.Nombre || '').trim().toLowerCase() === n);
-    if (e) {
+  /** Sociedades del grupo (con sede GRUPO PARIPE): emisor en ventas y empresa receptora en gastos. */
+  const opcionesEmisor = useMemo(
+    () =>
+      empresasCatalogo
+        .filter((e) => String(e.Sede ?? '').toUpperCase().includes('GRUPO PARIPE'))
+        .map((e) => ({
+          id: String(e.id_empresa ?? e.Nombre ?? ''),
+          titulo: String(e.Nombre ?? '—'),
+          subtitulo: String(e.Cif ?? '').trim() || undefined,
+        }))
+        .sort((a, b) => a.titulo.localeCompare(b.titulo, 'es')),
+    [empresasCatalogo],
+  );
+
+  const opcionesEmpresa = useMemo(
+    () =>
+      empresasCatalogo
+        .map((e) => ({
+          id: String(e.id_empresa ?? e.Nombre ?? ''),
+          titulo: String(e.Nombre ?? '—'),
+          subtitulo: String(e.Cif ?? '').trim() || undefined,
+        }))
+        .sort((a, b) => a.titulo.localeCompare(b.titulo, 'es')),
+    [empresasCatalogo],
+  );
+
+  const buscarEmpresaCatalogo = useCallback(
+    (id: string) =>
+      empresasCatalogo.find((e) => String(e.id_empresa ?? e.Nombre ?? '') === id) ?? null,
+    [empresasCatalogo],
+  );
+
+  /** Al seleccionar del desplegable se rellenan CIF y datos asociados automáticamente. */
+  const seleccionarEmisor = useCallback(
+    (id: string) => {
+      const e = buscarEmpresaCatalogo(id);
+      if (!e) return;
       setEmisorId(String(e.id_empresa ?? ''));
+      setEmisorNombre(String(e.Nombre ?? ''));
       setEmisorCif(String(e.Cif ?? '').trim());
-    }
-  }, [emisorNombre, empresasCatalogo]);
+      setEmisorDireccion(String(e.Direccion ?? ''));
+      setEmisorCp(String(e.Cp ?? ''));
+      setEmisorMunicipio(String(e.Municipio ?? ''));
+      setEmisorProvincia(String(e.Provincia ?? ''));
+      setEmisorEmail(String(e.Email ?? ''));
+    },
+    [buscarEmpresaCatalogo],
+  );
+
+  const seleccionarEmpresa = useCallback(
+    (id: string) => {
+      const e = buscarEmpresaCatalogo(id);
+      if (!e) return;
+      setEmpresaId(String(e.id_empresa ?? ''));
+      setEmpresaNombre(String(e.Nombre ?? ''));
+      setEmpresaCif(String(e.Cif ?? '').trim());
+      setEmpresaDireccion(String(e.Direccion ?? ''));
+      setEmpresaCp(String(e.Cp ?? ''));
+      setEmpresaMunicipio(String(e.Municipio ?? ''));
+      setEmpresaProvincia(String(e.Provincia ?? ''));
+      setEmpresaEmail(String(e.Email ?? ''));
+    },
+    [buscarEmpresaCatalogo],
+  );
+
+  /** Resuelve el valor guardado contra las opciones; si no está en catálogo se muestra como opción «actual». */
+  const resolverSeleccion = (
+    opciones: { id: string; titulo: string; subtitulo?: string }[],
+    id: string,
+    nombre: string,
+    cif: string,
+  ) => {
+    if (id && opciones.some((o) => o.id === id)) return { opciones, valorId: id };
+    const n = nombre.trim().toLowerCase();
+    const porNombre = n ? opciones.find((o) => o.titulo.trim().toLowerCase() === n) : undefined;
+    if (porNombre) return { opciones, valorId: porNombre.id };
+    if (!nombre.trim()) return { opciones, valorId: null };
+    return {
+      opciones: [{ id: '__actual__', titulo: nombre, subtitulo: cif || undefined }, ...opciones],
+      valorId: '__actual__',
+    };
+  };
+
+  const selEmisor = resolverSeleccion(opcionesEmisor, emisorId, emisorNombre, emisorCif);
+  const selEmpresa = resolverSeleccion(opcionesEmpresa, empresaId, empresaNombre, empresaCif);
 
   const cargar = useCallback(async () => {
     if (!facturaId) return;
@@ -256,8 +345,15 @@ export function FacturaVentaDetallePanel({
 
       apiFetch(`/api/facturacion/facturas/${facturaId}/adjuntos`)
         .then((r) => r.json())
-        .then((d) => setAdjuntos(Array.isArray(d.adjuntos) ? d.adjuntos : []))
-        .catch(() => setAdjuntos([]))
+        .then((d) => {
+          const arr = Array.isArray(d.adjuntos) ? d.adjuntos : [];
+          setAdjuntos(arr);
+          onAdjuntosRef.current?.(arr);
+        })
+        .catch(() => {
+          setAdjuntos([]);
+          onAdjuntosRef.current?.([]);
+        })
         .finally(() => setAdjuntosLoading(false));
     } catch (e: unknown) {
       setAdjuntos([]);
@@ -544,14 +640,26 @@ export function FacturaVentaDetallePanel({
       <View style={[styles.fechaRow, compactPanel && styles.fechaRowCompact]}>
         <View style={[styles.fechaCol, compactPanel && styles.fechaColCompact]}>
           <Text style={[styles.label, compactPanel && styles.labelCompact]}>{lblEmisor}</Text>
-          <TextInput
-            style={[styles.input, styles.inputFechaEnFila, compactPanel && styles.inputCompact, !esEditable && styles.inputDisabled]}
-            value={emisorNombre}
-            onChangeText={setEmisorNombre}
-            onBlur={sincronizarEmisorConCatalogo}
-            editable={esEditable}
-            placeholder={esIn ? 'Empresa del grupo' : 'Nombre'}
-          />
+          {esEditable ? (
+            <SelectorDesplegable
+              icono="business"
+              tituloLista={lblEmisor}
+              iconoLista="business"
+              placeholder={esIn ? 'Empresa del grupo' : 'Nombre'}
+              opciones={selEmisor.opciones}
+              valorId={selEmisor.valorId}
+              onSeleccionar={seleccionarEmisor}
+              buscador
+              buscadorPlaceholder="Buscar por nombre o CIF…"
+            />
+          ) : (
+            <TextInput
+              style={[styles.input, styles.inputFechaEnFila, compactPanel && styles.inputCompact, styles.inputDisabled]}
+              value={emisorNombre}
+              editable={false}
+              placeholder={esIn ? 'Empresa del grupo' : 'Nombre'}
+            />
+          )}
         </View>
         <View style={[styles.empresaColCif, compactPanel && styles.empresaColCifCompact]}>
           <Text style={[styles.label, compactPanel && styles.labelCompact]}>{esIn ? 'CIF empresa' : 'CIF/NIF'}</Text>
@@ -568,13 +676,26 @@ export function FacturaVentaDetallePanel({
       <View style={[styles.fechaRow, compactPanel && styles.fechaRowCompact]}>
         <View style={[styles.fechaCol, compactPanel && styles.fechaColCompact]}>
           <Text style={[styles.label, compactPanel && styles.labelCompact]}>{lblEmpresa}</Text>
-          <TextInput
-            style={[styles.input, styles.inputFechaEnFila, compactPanel && styles.inputCompact, !esEditable && styles.inputDisabled]}
-            value={empresaNombre}
-            onChangeText={setEmpresaNombre}
-            editable={esEditable}
-            placeholder={esIn ? 'Proveedor' : 'Cliente'}
-          />
+          {esEditable ? (
+            <SelectorDesplegable
+              icono={esIn ? 'local-shipping' : 'person'}
+              tituloLista={lblEmpresa}
+              iconoLista={esIn ? 'local-shipping' : 'person'}
+              placeholder={esIn ? 'Proveedor' : 'Cliente'}
+              opciones={selEmpresa.opciones}
+              valorId={selEmpresa.valorId}
+              onSeleccionar={seleccionarEmpresa}
+              buscador
+              buscadorPlaceholder="Buscar por nombre o CIF…"
+            />
+          ) : (
+            <TextInput
+              style={[styles.input, styles.inputFechaEnFila, compactPanel && styles.inputCompact, styles.inputDisabled]}
+              value={empresaNombre}
+              editable={false}
+              placeholder={esIn ? 'Proveedor' : 'Cliente'}
+            />
+          )}
         </View>
         <View style={[styles.empresaColCif, compactPanel && styles.empresaColCifCompact]}>
           <Text style={[styles.label, compactPanel && styles.labelCompact]}>{esIn ? 'CIF proveedor' : 'CIF/NIF'}</Text>
@@ -724,19 +845,18 @@ export function FacturaVentaDetallePanel({
                     editable={esEditable}
                     placeholder="Concepto"
                   />
-                  <TextInput
+                  <ImporteMonedaInput
                     style={[styles.inNum, { width: lw.NUM, minHeight: lineRowMinH }, compactPanel && styles.inNumCompact, !esEditable && styles.inputDisabled]}
-                    value={String(linea.cantidad)}
-                    onChangeText={(v) => updateLinea(idx, 'cantidad', v)}
-                    keyboardType="decimal-pad"
+                    valor={linea.cantidad}
+                    onChangeValor={(n) => updateLinea(idx, 'cantidad', String(n))}
+                    maxDecimales={3}
                     editable={esEditable}
                     placeholder="Cant"
                   />
-                  <TextInput
+                  <ImporteMonedaInput
                     style={[styles.inNum, { width: lw.NUM, minHeight: lineRowMinH }, compactPanel && styles.inNumCompact, !esEditable && styles.inputDisabled]}
-                    value={String(linea.precio_unitario)}
-                    onChangeText={(v) => updateLinea(idx, 'precio_unitario', v)}
-                    keyboardType="decimal-pad"
+                    valor={linea.precio_unitario}
+                    onChangeValor={(n) => updateLinea(idx, 'precio_unitario', String(n))}
                     editable={esEditable}
                     placeholder="€"
                   />

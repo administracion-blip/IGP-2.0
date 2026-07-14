@@ -14,6 +14,8 @@ import { docClient, tables, keyForFacturaPrincipalId } from '../lib/db.js';
 import { calcularPropuestaImporte, sanitizeTarifas, tarifasMatrizVacia } from '../lib/tarifaActuacion.js';
 import { empresaTieneEtiquetaMusicos } from '../lib/etiquetaMusicos.js';
 import { getIdEmpresaFromItem } from '../lib/empresaCif.js';
+import { requirePermission } from '../middleware/auth.js';
+import { usuarioPuedeAccederLocal, jornadaNegocioHoyIso } from '../lib/usuarioLocales.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
@@ -609,6 +611,25 @@ router.post('/actuaciones/mover-artista-aqui', async (req, res) => {
 });
 
 // ─── ACTUACIONES CRUD (rutas con /item/:id) ───
+
+const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Total de actuaciones de la jornada en locales permitidos (badge Planning). */
+router.get('/actuaciones/dia/total', requirePermission('actuaciones.ver'), async (req, res) => {
+  try {
+    const fecha = RE_FECHA.test(String(req.query.fecha || '')) ? String(req.query.fecha) : jornadaNegocioHoyIso();
+    const items = await scanAll(tables.actuaciones);
+    let total = 0;
+    for (const a of items) {
+      if (String(a.fecha || '') !== fecha) continue;
+      if (await usuarioPuedeAccederLocal(req.user, a.id_local)) total += 1;
+    }
+    return res.json({ total, fecha });
+  } catch (err) {
+    console.error('[actuaciones dia/total GET]', err.message || err);
+    return res.status(500).json({ error: 'Error al contar actuaciones del día' });
+  }
+});
 
 router.get('/actuaciones', async (req, res) => {
   let items = await scanAll(tables.actuaciones);

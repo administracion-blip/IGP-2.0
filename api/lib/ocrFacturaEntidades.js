@@ -296,6 +296,7 @@ export function parseTextoFacturaCompleto(text) {
   const ambiguedad_proveedor = ambiguedadProveedorDesdeEntidades(entidades_candidatas);
 
   const fechas = [];
+  const fechasConContexto = [];
   const fechaRegex = /(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/g;
   while ((m = fechaRegex.exec(text)) !== null) {
     let y = m[3].length === 2 ? '20' + m[3] : m[3];
@@ -304,7 +305,26 @@ export function parseTextoFacturaCompleto(text) {
     const day = parseInt(m[1], 10);
     const month = parseInt(m[2], 10);
     if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
-      fechas.push(`${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+      const iso = `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      fechas.push(iso);
+      fechasConContexto.push({ iso, contexto: text.slice(Math.max(0, m.index - 45), m.index).toLowerCase() });
+    }
+  }
+  // Fecha de emisión probable: puntuar por la etiqueta que precede a cada fecha
+  // en vez de coger la primera del documento (que puede ser vencimiento,
+  // fecha de pedido o de entrega).
+  let fecha_emision_probable = fechas[0] || '';
+  if (fechasConContexto.length > 1) {
+    let mejorScore = -Infinity;
+    for (const fc of fechasConContexto) {
+      let score = 0;
+      if (/fecha\s+(?:de\s+)?(?:factura|emisi[oó]n|expedici[oó]n)|invoice\s+date/i.test(fc.contexto)) score += 4;
+      else if (/\bfecha\b|\bdate\b/i.test(fc.contexto)) score += 1;
+      if (/vencimiento|venc\.|due\s+date|caducidad|entrega|pedido|albar[aá]n|pago/i.test(fc.contexto)) score -= 3;
+      if (score > mejorScore) {
+        mejorScore = score;
+        fecha_emision_probable = fc.iso;
+      }
     }
   }
 
@@ -366,14 +386,27 @@ export function parseTextoFacturaCompleto(text) {
     if (!Number.isNaN(v) && v > 0) totalGenericMatches.push(v);
   }
 
+  // Si base e IVA ya se han leído, un candidato que cuadre con
+  // base + IVA − retención es el total real aunque no sea el último match
+  // (evita quedarse con "Total productos" u otros subtotales intermedios).
+  const esperadoCandidato = baseImponible > 0 ? round2(baseImponible + totalIva - retencion) : 0;
+  const cuadraConEsperado = (v) => esperadoCandidato > 0 && Math.abs(v - esperadoCandidato) <= 0.05;
+
   if (totalSpecificMatches.length > 0) {
-    totalFactura = totalSpecificMatches[totalSpecificMatches.length - 1];
+    totalFactura =
+      totalSpecificMatches.find(cuadraConEsperado) ??
+      totalSpecificMatches[totalSpecificMatches.length - 1];
   } else {
-    const candidates = totalGenericMatches.filter((v) => !baseImponible || v !== baseImponible);
-    if (candidates.length > 0) {
-      totalFactura = candidates[candidates.length - 1];
-    } else if (totalGenericMatches.length > 0) {
-      totalFactura = totalGenericMatches[totalGenericMatches.length - 1];
+    const coherente = totalGenericMatches.find(cuadraConEsperado);
+    if (coherente != null) {
+      totalFactura = coherente;
+    } else {
+      const candidates = totalGenericMatches.filter((v) => !baseImponible || v !== baseImponible);
+      if (candidates.length > 0) {
+        totalFactura = candidates[candidates.length - 1];
+      } else if (totalGenericMatches.length > 0) {
+        totalFactura = totalGenericMatches[totalGenericMatches.length - 1];
+      }
     }
   }
 
@@ -473,6 +506,7 @@ export function parseTextoFacturaCompleto(text) {
     proveedor_cif,
     ambiguedad_proveedor,
     fechas,
+    fecha_emision_probable,
     totalFactura: round2(totalFactura),
     baseImponible: round2(baseImponible),
     base_imponible_total: round2(base_imponible_total),

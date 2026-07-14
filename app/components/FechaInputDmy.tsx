@@ -1,6 +1,10 @@
 /**
  * Núcleo del campo de fecha: visible dd/mm/aaaa, valor yyyy-mm-dd (ISO).
- * Solo confirma al padre en onBlur para no resetear el cursor al escribir rápido.
+ * Confirma al padre en cuanto lo tecleado es una fecha válida (el guard de
+ * `focusedRef` evita que la actualización del padre resetee el cursor) y
+ * normaliza el texto visible en onBlur. Confirmar solo en blur provocaba
+ * pérdidas: escribir la fecha y pulsar Guardar sin salir del campo enviaba
+ * el valor anterior.
  * En pantallas usar InputFecha (incluye calendario opcional).
  */
 import React, { useState, useEffect, useRef } from 'react';
@@ -40,6 +44,13 @@ export function FechaInputDmy({
       onChangeText={(t) => {
         textRef.current = t;
         setText(t);
+        const s = t.trim();
+        if (s === '') {
+          onChangeIso('');
+        } else {
+          const iso = isoValidoDesdeDmy(s);
+          if (iso) onChangeIso(iso);
+        }
       }}
       onFocus={(e) => {
         focusedRef.current = true;

@@ -338,6 +338,14 @@ export default function ComprasProveedorScreen() {
             <MaterialIcons name="account-tree" size={TOOLBAR_ICON_SIZE} color="#475569" />
           </ComprasToolbarIconBtn>
           <ComprasToolbarIconBtn
+            tooltip="Conciliación de albaranes con facturas de gasto"
+            onPress={() => router.push('/compras/conciliacion-facturas')}
+            accessibilityLabel="Conciliación con facturas"
+            variant="neutral"
+          >
+            <MaterialIcons name="fact-check" size={TOOLBAR_ICON_SIZE} color="#475569" />
+          </ComprasToolbarIconBtn>
+          <ComprasToolbarIconBtn
             tooltip="Última compra por producto (una fila por artículo)"
             onPress={() => router.push('/compras/compras-proveedor-ultimo')}
             accessibilityLabel="Última compra por producto"

@@ -55,6 +55,10 @@ export const tables = {
   empleados: process.env.DDB_EMPLEADOS || 'Igp_Empleados',
   /** Propuestas del módulo Marketing. PK = id_propuesta. GSIs: Local-Estado-index, Local-Fecha-index, Empresa-Estado-index. */
   marketing: process.env.DDB_MARKETING || 'Igp_Marketing',
+  /** Campañas de activación de marcas (ficha maestra). PK = id_activacion. */
+  activaciones: process.env.DDB_ACTIVACIONES || 'Igp_Activaciones',
+  /** Sesiones programadas de activaciones. PK = id_sesion. GSIs: local-fecha-index, activacion-index. */
+  activacionSesiones: process.env.DDB_ACTIVACION_SESIONES || 'Igp_ActivacionSesiones',
 };
 
 /**

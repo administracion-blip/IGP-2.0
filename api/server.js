@@ -57,6 +57,7 @@ import acuerdosRouter from './routes/acuerdos.js';
 import ajustesRouter from './routes/ajustes.js';
 import marketingRouter from './routes/marketing.js';
 import informesRouter from './routes/informes.js';
+import activacionesRouter from './routes/activaciones.js';
 
 // Valida variables críticas al arranque. Si falta alguna REQUIRED, aborta el proceso.
 validateEnv();
@@ -169,6 +170,7 @@ app.use('/api', cuadranteRouter);
 app.use('/api', ajustesRouter);
 app.use('/api', marketingRouter);
 app.use('/api', informesRouter);
+app.use('/api', activacionesRouter);
 
 // --- Middleware central de errores: DEBE ir tras todos los routers ---
 app.use(errorHandler);

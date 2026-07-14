@@ -11,6 +11,7 @@ import {
   Pressable,
   Platform,
   useWindowDimensions,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -23,6 +24,7 @@ import { useAgrupacionesObjetivos } from '../../hooks/useAgrupacionesObjetivos';
 import { captureRef } from 'react-native-view-shot';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import * as Clipboard from 'expo-clipboard';
 import { toPng } from 'html-to-image';
 import { useAuth } from '../../contexts/AuthContext';
 type jsPDF = import('jspdf').jsPDF;
@@ -36,6 +38,8 @@ import {
   mediasPorDiaSemanaDesdeFilas,
   obtenerFilasObjetivos,
 } from '../../lib/objetivosFilasApi';
+import { buildTextoResumenObjetivos } from '../../lib/objetivosListadoPdf';
+import { generarPdfListadoObjetivosWhatsApp } from '../../lib/objetivosReportePdf';
 import {
   type FilaFranja,
   type PlantillaFranjas,
@@ -44,6 +48,12 @@ import {
   obtenerVentasPorHora,
 } from '../../lib/ventasPorHoraApi';
 import { apiFetch, errorMessage } from '../../utils/api';
+import {
+  ObjetivosShareExport,
+  type ObjetivosShareExportProps,
+  type ObjetivosShareGrupo,
+  type ObjetivosShareLocal,
+} from '../../components/ObjetivosShareExport';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -158,15 +168,22 @@ function filaObjetivoToExportCells(r: FilaObjetivo): (string | number)[] {
   ];
 }
 
-function mesEnCurso(): { inicio: string; fin: string } {
+/** Primer y último día del mes desplazado `offset` meses respecto al actual. */
+function mesConOffset(offset: number): { inicio: string; fin: string } {
   const hoy = new Date();
-  const y = hoy.getFullYear();
-  const m = String(hoy.getMonth() + 1).padStart(2, '0');
-  const ultimoDia = new Date(y, hoy.getMonth() + 1, 0).getDate();
+  const inicioDate = new Date(hoy.getFullYear(), hoy.getMonth() + offset, 1);
+  const y = inicioDate.getFullYear();
+  const m = inicioDate.getMonth();
+  const ultimoDia = new Date(y, m + 1, 0).getDate();
+  const mStr = String(m + 1).padStart(2, '0');
   return {
-    inicio: `${y}-${m}-01`,
-    fin: `${y}-${m}-${String(ultimoDia).padStart(2, '0')}`,
+    inicio: `${y}-${mStr}-01`,
+    fin: `${y}-${mStr}-${String(ultimoDia).padStart(2, '0')}`,
   };
+}
+
+function mesEnCurso(): { inicio: string; fin: string } {
+  return mesConOffset(0);
 }
 
 function ultimoDiaDelMes(fecha: string): string {
@@ -423,6 +440,8 @@ export default function ObjetivosOpcionAScreen() {
   const [agrupModalOpen, setAgrupModalOpen] = useState(false);
   const { agrupaciones, guardar: guardarAgrupacion, borrar: borrarAgrupacion } = useAgrupacionesObjetivos();
   const widgetRef = useRef<View>(null);
+  const shareExportRef = useRef<View>(null);
+  const [shareCaptureProps, setShareCaptureProps] = useState<ObjetivosShareExportProps | null>(null);
   const [descargasMenuOpen, setDescargasMenuOpen] = useState(false);
   const [mediasAyudaOpen, setMediasAyudaOpen] = useState(false);
   const [massSelectedLocals, setMassSelectedLocals] = useState<Set<string>>(new Set());
@@ -664,6 +683,212 @@ export default function ObjetivosOpcionAScreen() {
     });
   }, [agrupaciones, localesObjetivosById]);
 
+  const datosShareWhatsApp = useMemo(() => {
+    const sorted = [...localesObjetivos].sort((a, b) => {
+      const na = String(a.local.nombre ?? a.local.Nombre ?? a.local.agoraCode ?? a.local.AgoraCode ?? '').trim();
+      const nb = String(b.local.nombre ?? b.local.Nombre ?? b.local.agoraCode ?? b.local.AgoraCode ?? '').trim();
+      return na.localeCompare(nb, 'es', { sensitivity: 'base' });
+    });
+    const locales: ObjetivosShareLocal[] = sorted.map((item) => {
+      const key = String(item.local.id_Locales ?? item.local.agoraCode ?? item.local.AgoraCode ?? '').trim();
+      return {
+        key,
+        nombre: String(item.local.nombre ?? item.local.Nombre ?? item.local.agoraCode ?? item.local.AgoraCode ?? '—').trim(),
+        sumRealHastaAyer: item.sumRealHastaAyer,
+        sumCompHastaAyer: item.sumCompHastaAyer,
+        desvioPctHastaAyer: item.desvioPctHastaAyer,
+      };
+    });
+    const localIdsEnGrupo = new Set(agrupaciones.flatMap((ag) => ag.localIds.map((id) => String(id))));
+    const localesSueltos = locales.filter((l) => !localIdsEnGrupo.has(l.key));
+    const grupos: ObjetivosShareGrupo[] = agrupacionesCalculadas
+      .filter((g) => g.encontrados > 0)
+      .map((g) => ({
+        id: g.agrupacion.id,
+        nombre: g.agrupacion.nombre,
+        color: g.agrupacion.color,
+        sumRealHastaAyer: g.sumRealHastaAyer,
+        sumCompHastaAyer: g.sumCompHastaAyer,
+        desvioPctHastaAyer: g.desvioPctHastaAyer,
+        locales: g.agrupacion.localIds
+          .map((id) => localesObjetivosById.get(String(id)))
+          .filter((lo): lo is LocalObjetivo => !!lo)
+          .map((lo) => {
+            const key = String(lo.local.id_Locales ?? lo.local.agoraCode ?? lo.local.AgoraCode ?? '').trim();
+            return {
+              key,
+              nombre: String(lo.local.nombre ?? lo.local.Nombre ?? lo.local.agoraCode ?? lo.local.AgoraCode ?? '—').trim(),
+              sumRealHastaAyer: lo.sumRealHastaAyer,
+              sumCompHastaAyer: lo.sumCompHastaAyer,
+              desvioPctHastaAyer: lo.desvioPctHastaAyer,
+            };
+          }),
+      }));
+    const sumRealHastaAyer = locales.reduce((a, l) => a + l.sumRealHastaAyer, 0);
+    const sumCompHastaAyer = locales.reduce((a, l) => a + l.sumCompHastaAyer, 0);
+    const desvioPctHastaAyer = sumCompHastaAyer === 0 ? null : sumRealHastaAyer / sumCompHastaAyer - 1;
+    return {
+      locales,
+      localesSueltos,
+      grupos,
+      totales: { sumRealHastaAyer, sumCompHastaAyer, desvioPctHastaAyer },
+    };
+  }, [localesObjetivos, agrupaciones, agrupacionesCalculadas, localesObjetivosById]);
+
+  const shareExportBase = useMemo(
+    (): Omit<ObjetivosShareExportProps, 'mode'> => ({
+      tituloPeriodo: tituloWidgetPeriodo,
+      fechaHastaLabel: formatFechaCorta(ayerYYYYMMDD()),
+      generadoLabel: `Generado ${new Date().toLocaleString('es-ES', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })}`,
+      totales: datosShareWhatsApp.totales,
+      locales: datosShareWhatsApp.locales,
+      grupos: datosShareWhatsApp.grupos,
+    }),
+    [tituloWidgetPeriodo, datosShareWhatsApp],
+  );
+
+  const captureShareExport = useCallback(async (props: ObjetivosShareExportProps): Promise<string | null> => {
+    setShareCaptureProps(props);
+    await new Promise((r) => setTimeout(r, 180));
+    try {
+      if (!shareExportRef.current) return null;
+      if (Platform.OS === 'web') {
+        const node = shareExportRef.current as unknown as HTMLElement;
+        return await toPng(node, { cacheBust: true, pixelRatio: 3 });
+      }
+      return await captureRef(shareExportRef, { format: 'png', quality: 1 });
+    } catch (e) {
+      console.warn('captureShareExport error:', e);
+      return null;
+    } finally {
+      setShareCaptureProps(null);
+    }
+  }, []);
+
+  const compartirImagenExport = useCallback(async (uri: string, fileBase: string) => {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const fname = `${fileBase}_${stamp}.png`;
+    if (Platform.OS === 'web') {
+      const a = document.createElement('a');
+      a.href = uri;
+      a.download = fname;
+      a.click();
+      return;
+    }
+    await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: fname });
+  }, []);
+
+  const compartirPdfExport = useCallback(async (doc: jsPDF, fileBase: string) => {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const fname = `${fileBase}_${stamp}.pdf`;
+    if (Platform.OS === 'web') {
+      doc.save(fname);
+      return;
+    }
+    const dataUri = doc.output('datauristring');
+    const base64 = dataUri.split(',')[1] || '';
+    const cacheDir = FileSystemLegacy.cacheDirectory ?? '';
+    const fileUri = `${cacheDir}${fname}`;
+    await FileSystemLegacy.writeAsStringAsync(fileUri, base64, {
+      encoding: FileSystemLegacy.EncodingType.Base64,
+    });
+    await Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: fname });
+  }, []);
+
+  const datosPdfListado = useMemo(
+    () => ({
+      grupos: datosShareWhatsApp.grupos.map((g) => ({
+        nombre: g.nombre,
+        orden: agrupacionesCalculadas.find((ac) => ac.agrupacion.id === g.id)?.agrupacion.orden ?? 0,
+        locales: g.locales.map((loc) => ({
+          nombre: loc.nombre,
+          sumRealHastaAyer: loc.sumRealHastaAyer,
+          sumCompHastaAyer: loc.sumCompHastaAyer,
+        })),
+      })),
+      localesSueltos: datosShareWhatsApp.localesSueltos.map((loc) => ({
+        nombre: loc.nombre,
+        sumRealHastaAyer: loc.sumRealHastaAyer,
+        sumCompHastaAyer: loc.sumCompHastaAyer,
+      })),
+    }),
+    [datosShareWhatsApp, agrupacionesCalculadas],
+  );
+
+  const handleShareResumenWhatsApp = useCallback(async () => {
+    if (datosShareWhatsApp.locales.length === 0) return;
+    setDescargasMenuOpen(false);
+    setCapturing(true);
+    try {
+      const uri = await captureShareExport({ ...shareExportBase, mode: 'resumen' });
+      if (!uri) return;
+      const slug = tituloWidgetPeriodo.replace(/\s/g, '_');
+      await compartirImagenExport(uri, `objetivos_resumen_${slug}`);
+    } finally {
+      setCapturing(false);
+    }
+  }, [captureShareExport, compartirImagenExport, datosShareWhatsApp.locales.length, shareExportBase, tituloWidgetPeriodo]);
+
+  const handleShareListadoWhatsApp = useCallback(async () => {
+    if (datosShareWhatsApp.locales.length === 0) return;
+    setDescargasMenuOpen(false);
+    setCapturing(true);
+    try {
+      const doc = await generarPdfListadoObjetivosWhatsApp({
+        tituloPeriodo: shareExportBase.tituloPeriodo,
+        fechaHastaLabel: shareExportBase.fechaHastaLabel,
+        generadoLabel: shareExportBase.generadoLabel,
+        totales: shareExportBase.totales,
+        grupos: datosPdfListado.grupos,
+        localesSueltos: datosPdfListado.localesSueltos,
+      });
+      const slug = tituloWidgetPeriodo.replace(/\s/g, '_');
+      await compartirPdfExport(doc, `objetivos_listado_${slug}`);
+    } catch (e) {
+      console.warn('handleShareListadoWhatsApp error:', e);
+    } finally {
+      setCapturing(false);
+    }
+  }, [
+    compartirPdfExport,
+    datosPdfListado,
+    datosShareWhatsApp.locales.length,
+    shareExportBase,
+    tituloWidgetPeriodo,
+  ]);
+
+  const handleCopiarResumenTexto = useCallback(async () => {
+    if (datosShareWhatsApp.locales.length === 0) return;
+    setDescargasMenuOpen(false);
+    const texto = buildTextoResumenObjetivos({
+      tituloPeriodo: shareExportBase.tituloPeriodo,
+      fechaHastaLabel: shareExportBase.fechaHastaLabel,
+      totales: shareExportBase.totales,
+      locales: datosShareWhatsApp.locales.map((loc) => ({
+        nombre: loc.nombre,
+        sumRealHastaAyer: loc.sumRealHastaAyer,
+        sumCompHastaAyer: loc.sumCompHastaAyer,
+        desvioPctHastaAyer: loc.desvioPctHastaAyer,
+      })),
+    });
+    try {
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(texto);
+      } else {
+        await Clipboard.setStringAsync(texto);
+      }
+      Alert.alert('Copiado', 'Resumen copiado al portapapeles. Pégalo en WhatsApp u otro chat.');
+    } catch {
+      Alert.alert('Error', 'No se pudo copiar el resumen al portapapeles.');
+    }
+  }, [datosShareWhatsApp, shareExportBase]);
+
   const captureWidget = useCallback(async (): Promise<string | null> => {
     if (!widgetRef.current) return null;
     try {
@@ -755,28 +980,6 @@ export default function ObjetivosOpcionAScreen() {
     }
   }, [captureWidget, tituloWidgetPeriodo]);
 
-  const handleShareWhatsApp = useCallback(async () => {
-    setDescargasMenuOpen(false);
-    setCapturing(true);
-    try {
-      const uri = await captureWidget();
-      if (!uri) return;
-      if (Platform.OS === 'web') {
-        const a = document.createElement('a');
-        a.href = uri;
-        a.download = `objetivos_${tituloWidgetPeriodo.replace(/\s/g, '_')}.png`;
-        a.click();
-        setTimeout(() => {
-          window.open('https://web.whatsapp.com/', '_blank');
-        }, 500);
-      } else {
-        await Sharing.shareAsync(uri, { mimeType: 'image/jpeg', dialogTitle: 'Compartir por WhatsApp' });
-      }
-    } finally {
-      setCapturing(false);
-    }
-  }, [captureWidget, tituloWidgetPeriodo]);
-
   const generarParaLocal = useCallback(async (loc?: Local | null) => {
     const target = loc ?? localSeleccionado;
     const workplaceId = (target?.agoraCode ?? target?.AgoraCode ?? '').toString().trim();
@@ -804,6 +1007,16 @@ export default function ObjetivosOpcionAScreen() {
 
   const esMesActual = useMemo(() => {
     const m = mesEnCurso();
+    return fechaInicio === m.inicio && fechaFin === m.fin;
+  }, [fechaInicio, fechaFin]);
+
+  const esMesAnterior = useMemo(() => {
+    const m = mesConOffset(-1);
+    return fechaInicio === m.inicio && fechaFin === m.fin;
+  }, [fechaInicio, fechaFin]);
+
+  const esMesProximo = useMemo(() => {
+    const m = mesConOffset(1);
     return fechaInicio === m.inicio && fechaFin === m.fin;
   }, [fechaInicio, fechaFin]);
 
@@ -1088,11 +1301,25 @@ export default function ObjetivosOpcionAScreen() {
             onChange={(f, t) => { setFechaInicio(f); setFechaFin(t); }}
           />
           <TouchableOpacity
+            style={[styles.chipMes, esMesAnterior && styles.chipMesOn]}
+            onPress={() => { const m = mesConOffset(-1); setFechaInicio(m.inicio); setFechaFin(m.fin); }}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.chipMesText, esMesAnterior && styles.chipMesTextOn]}>Mes anterior</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={[styles.chipMes, esMesActual && styles.chipMesOn]}
             onPress={() => { const m = mesEnCurso(); setFechaInicio(m.inicio); setFechaFin(m.fin); }}
             activeOpacity={0.7}
           >
             <Text style={[styles.chipMesText, esMesActual && styles.chipMesTextOn]}>Mes actual</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.chipMes, esMesProximo && styles.chipMesOn]}
+            onPress={() => { const m = mesConOffset(1); setFechaInicio(m.inicio); setFechaFin(m.fin); }}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.chipMesText, esMesProximo && styles.chipMesTextOn]}>Mes próximo</Text>
           </TouchableOpacity>
         </View>
         <View style={styles.formRow}>
@@ -1173,19 +1400,47 @@ export default function ObjetivosOpcionAScreen() {
           <Pressable onPress={() => {}}>
             <View style={styles.shareMenu}>
               <Text style={styles.exportMenuTitle}>Descargas</Text>
+              <TouchableOpacity
+                style={styles.shareMenuItem}
+                disabled={localesObjetivos.length === 0 || capturing}
+                onPress={handleShareResumenWhatsApp}
+              >
+                <MaterialIcons name="insights" size={16} color="#25d366" />
+                <View style={styles.shareMenuItemTextCol}>
+                  <Text style={styles.shareMenuText}>Resumen WhatsApp</Text>
+                  <Text style={styles.shareMenuHint}>KPIs y top locales</Text>
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.shareMenuItem}
+                disabled={localesObjetivos.length === 0 || capturing}
+                onPress={handleShareListadoWhatsApp}
+              >
+                <MaterialIcons name="picture-as-pdf" size={16} color="#25d366" />
+                <View style={styles.shareMenuItemTextCol}>
+                  <Text style={styles.shareMenuText}>Listado WhatsApp (PDF)</Text>
+                  <Text style={styles.shareMenuHint}>Informe visual con barras por zona</Text>
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.shareMenuItem}
+                disabled={localesObjetivos.length === 0 || capturing}
+                onPress={handleCopiarResumenTexto}
+              >
+                <MaterialIcons name="content-copy" size={16} color="#64748b" />
+                <View style={styles.shareMenuItemTextCol}>
+                  <Text style={styles.shareMenuText}>Copiar resumen texto</Text>
+                  <Text style={styles.shareMenuHint}>Pegar directamente en WhatsApp</Text>
+                </View>
+              </TouchableOpacity>
+              <View style={styles.shareMenuDivider} />
               <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); handleShareJPG(); }}>
                 <MaterialIcons name="image" size={16} color="#0ea5e9" />
-                <Text style={styles.shareMenuText}>Resumen JPG</Text>
+                <Text style={styles.shareMenuText}>Captura pantalla (JPG)</Text>
               </TouchableOpacity>
-              <View style={styles.shareMenuDivider} />
               <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); handleSharePDF(); }}>
                 <MaterialIcons name="picture-as-pdf" size={16} color="#dc2626" />
-                <Text style={styles.shareMenuText}>Resumen PDF</Text>
-              </TouchableOpacity>
-              <View style={styles.shareMenuDivider} />
-              <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); handleShareWhatsApp(); }}>
-                <MaterialIcons name="send" size={16} color="#25d366" />
-                <Text style={styles.shareMenuText}>WhatsApp</Text>
+                <Text style={styles.shareMenuText}>Captura pantalla (PDF)</Text>
               </TouchableOpacity>
               {registros.length > 0 && (
                 <>
@@ -1816,6 +2071,14 @@ export default function ObjetivosOpcionAScreen() {
         </Pressable>
       </Modal>
 
+      <View style={styles.shareCaptureHost} pointerEvents="none">
+        {shareCaptureProps ? (
+          <View ref={shareExportRef} collapsable={false}>
+            <ObjetivosShareExport {...shareCaptureProps} />
+          </View>
+        ) : null}
+      </View>
+
     </View>
   );
 }
@@ -1996,6 +2259,14 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 10,
     paddingHorizontal: 12,
+  },
+  shareMenuItemTextCol: { flex: 1, minWidth: 0 },
+  shareMenuHint: { fontSize: 10, color: '#94a3b8', marginTop: 1 },
+  shareCaptureHost: {
+    position: 'absolute',
+    left: -12000,
+    top: 0,
+    zIndex: -1,
   },
   shareMenuText: { fontSize: 12, color: '#334155', fontWeight: '500' },
   shareMenuDivider: { height: 1, backgroundColor: '#f1f5f9' },

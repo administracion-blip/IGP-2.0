@@ -29,12 +29,37 @@ export function isoToDmy(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
+/**
+ * Convierte texto OCR/tecleado a número aceptando formato español (1.234,56)
+ * y anglosajón (1,234.56). Un `replace(',', '.')` simple convertía
+ * "1.234,56" en 1.234 (importe dividido por mil).
+ */
+export function parseImporteTexto(texto: string): number {
+  let s = String(texto ?? '').replace(/[^\d.,-]/g, '');
+  if (!s) return 0;
+  const coma = s.lastIndexOf(',');
+  const punto = s.lastIndexOf('.');
+  if (coma > -1 && punto > -1) {
+    // El último separador es el decimal; el otro es de miles.
+    s = coma > punto ? s.replace(/\./g, '').replace(/,/g, '.') : s.replace(/,/g, '');
+  } else if (coma > -1) {
+    // Solo comas: la última es decimal, las anteriores (ruido/miles) se quitan.
+    s = s.slice(0, coma).replace(/,/g, '') + '.' + s.slice(coma + 1);
+  } else if (punto > -1) {
+    // Solo puntos: con varios puntos o exactamente 3 dígitos detrás → miles.
+    const decimales = s.length - punto - 1;
+    if (s.indexOf('.') !== punto || decimales === 3) s = s.replace(/\./g, '');
+  }
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
 /** Etiqueta legible del método de extracción reportado por el pipeline OCR. */
 export function metodoExtraccionLabel(m: string | undefined): string {
   if (!m) return '';
   if (m === 'pdf_text') return 'Texto embebido (PDF)';
   if (m === 'image_ocr') return 'OCR (imagen)';
-  if (m === 'pdf_ocr_fallback') return 'OCR (PDF escaneado, pág. 1)';
+  if (m === 'pdf_ocr_fallback') return 'OCR (PDF escaneado)';
   return m;
 }
 
