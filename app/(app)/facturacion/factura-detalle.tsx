@@ -9,13 +9,17 @@ import {
   Modal,
   Pressable,
   useWindowDimensions,
-  Alert,
   Platform,
   StyleSheet,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { InputFecha } from '../../components/InputFecha';
+import {
+  RegistrarPagoModal,
+  type RegistrarPagoInitial,
+  type RegistrarPagoPayloadFactura,
+} from '../../components/RegistrarPagoModal';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { ResumenTotales } from '../../components/ResumenTotales';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
@@ -29,7 +33,6 @@ import {
   formatMoneda,
   labelFormaPago,
   mapTipoReciboToFormaPago,
-  resolveMetodoPagoParaEnvio,
   type LineaFactura,
   type Factura,
   type EmpresaFactura,
@@ -49,6 +52,7 @@ import { useFacturaFormLogic } from '../../hooks/useFacturaFormLogic';
 import { fechaEmisionFacturaAIso, formatCreadoEn, formatFechaPagoRow, textoFechaContabilizacionGasto } from '../../utils/formatFecha';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalToast, detectToastType } from '../../components/Toast';
+import { useConfirmar } from '../../hooks/useConfirmar';
 import { apiFetch, errorMessage } from '../../utils/api';
 
 const DATOS_EMISOR = {
@@ -61,16 +65,6 @@ const DATOS_EMISOR = {
   email: 'admin@ipg.es',
   telefono: '958 000 000',
 };
-
-function confirmMsg(titulo: string, msg: string): Promise<boolean> {
-  if (Platform.OS === 'web') return Promise.resolve(window.confirm(`${titulo}\n${msg}`));
-  return new Promise((res) =>
-    Alert.alert(titulo, msg, [
-      { text: 'Cancelar', style: 'cancel', onPress: () => res(false) },
-      { text: 'Aceptar', onPress: () => res(true) },
-    ]),
-  );
-}
 
 export default function FacturaDetalleScreen() {
   const params = useLocalSearchParams<{ tipo: string; modo: string; id: string }>();
@@ -170,13 +164,8 @@ export default function FacturaDetalleScreen() {
 
   // ── Pago modal ──
   const [showPagoModal, setShowPagoModal] = useState(false);
-  const [pagoFecha, setPagoFecha] = useState(hoyISO());
-  const [pagoImporte, setPagoImporte] = useState('');
-  const [pagoMetodo, setPagoMetodo] = useState('transferencia');
-  const [pagoMetodoOtro, setPagoMetodoOtro] = useState('');
-  const [pagoFechaEditadaManual, setPagoFechaEditadaManual] = useState(false);
-  const [pagoReferencia, setPagoReferencia] = useState('');
-  const [pagoObservaciones, setPagoObservaciones] = useState('');
+  const [pagoInitial, setPagoInitial] = useState<RegistrarPagoInitial>({});
+  const [fechaReferenciaTarjetaPago, setFechaReferenciaTarjetaPago] = useState<string | undefined>();
   const [savingPago, setSavingPago] = useState(false);
 
   // ── Email modal ──
@@ -192,6 +181,7 @@ export default function FacturaDetalleScreen() {
 
   // ── Toast nativo ──
   const { show: showToast, ToastView } = useLocalToast();
+  const { confirmar, ConfirmarView } = useConfirmar();
   const alertMsg = useCallback((titulo: string, msg: string) => {
     showToast(titulo, msg, detectToastType(titulo, msg));
   }, [showToast]);
@@ -220,7 +210,8 @@ export default function FacturaDetalleScreen() {
   }, [serie, emisorId, fechaEmision, series, modo]);
 
   const esEditable = estado === 'borrador' || (tipo === 'IN' && estado === 'pendiente_revision');
-  const puedeEmitir = estado === 'borrador';
+  const esValidacionRevisionIn = tipo === 'IN' && estado === 'pendiente_revision';
+  const puedeEmitir = estado === 'borrador' || esValidacionRevisionIn;
   const puedeRegistrarPago =
     modo === 'editar' &&
     ['emitida', 'parcialmente_cobrada', 'pendiente_pago', 'parcialmente_pagada'].includes(estado);
@@ -522,7 +513,13 @@ export default function FacturaDetalleScreen() {
 
   // ── Emitir ──
   const emitirFactura = async () => {
-    const ok = await confirmMsg('Emitir factura', '¿Seguro que deseas emitir esta factura? No podrá editarse después.');
+    const tituloAccion = esValidacionRevisionIn ? 'Validar revisión' : 'Emitir factura';
+    const textoAccion = esValidacionRevisionIn
+      ? '¿Confirmas que los datos OCR son correctos? La factura pasará a pendiente de pago.'
+      : '¿Seguro que deseas emitir esta factura? No podrá editarse después.';
+    const ok = await confirmar(tituloAccion, textoAccion, {
+      confirmarLabel: esValidacionRevisionIn ? 'Validar revisión' : 'Emitir',
+    });
     if (!ok) return;
     setSaving(true);
     setError('');
@@ -570,7 +567,12 @@ export default function FacturaDetalleScreen() {
           const msg = d.errores ? `Validación:\n• ${d.errores.join('\n• ')}` : (d.error ?? 'Error al emitir');
           throw new Error(msg);
         }
-        alertMsg('Emitida', 'Factura emitida correctamente');
+        alertMsg(
+          esValidacionRevisionIn ? 'Validada' : 'Emitida',
+          esValidacionRevisionIn
+            ? 'Factura validada. Ya está pendiente de pago.'
+            : 'Factura emitida correctamente',
+        );
         await fetchFactura();
       }
     } catch (e: unknown) {
@@ -583,7 +585,9 @@ export default function FacturaDetalleScreen() {
 
   // ── Duplicar ──
   const duplicarFactura = async () => {
-    const ok = await confirmMsg('Duplicar', '¿Crear una copia borrador de esta factura?');
+    const ok = await confirmar('Duplicar', '¿Crear una copia borrador de esta factura?', {
+      confirmarLabel: 'Duplicar',
+    });
     if (!ok) return;
     setSaving(true);
     try {
@@ -607,7 +611,9 @@ export default function FacturaDetalleScreen() {
 
   // ── Rectificar ──
   const rectificarFactura = async () => {
-    const ok = await confirmMsg('Rectificativa', '¿Generar una factura rectificativa?');
+    const ok = await confirmar('Rectificativa', '¿Generar una factura rectificativa?', {
+      confirmarLabel: 'Generar',
+    });
     if (!ok) return;
     setSaving(true);
     try {
@@ -630,63 +636,38 @@ export default function FacturaDetalleScreen() {
   };
 
   const abrirModalPago = () => {
-    setPagoFechaEditadaManual(false);
-    setPagoImporte('');
-    setPagoReferencia('');
-    setPagoObservaciones('');
-
     const emp = empresas.find((e) => e.id_empresa === empresaId);
     const { clave, otroTexto } = mapTipoReciboToFormaPago(emp?.tipoRecibo ?? '');
-    setPagoMetodo(clave);
-    setPagoMetodoOtro(clave === 'otro' ? otroTexto : '');
 
     const hoy = hoyISO();
     const fechaFactura = /^\d{4}-\d{2}-\d{2}$/.test(fechaEmision)
       ? fechaEmision
       : (fechaEmisionFacturaAIso(fechaEmision) ?? hoy);
-    setPagoFecha(clave === 'tarjeta' ? fechaFactura : hoy);
 
+    setFechaReferenciaTarjetaPago(fechaFactura);
+    setPagoInitial({
+      fecha: clave === 'tarjeta' ? fechaFactura : hoy,
+      metodo: clave,
+      metodoOtro: clave === 'otro' ? otroTexto : '',
+      referencia: '',
+      observaciones: '',
+      importe: '',
+    });
     setShowPagoModal(true);
   };
 
-  const onSeleccionarMetodoPago = (fp: string) => {
-    setPagoMetodo(fp);
-    if (fp !== 'otro') setPagoMetodoOtro('');
-    if (pagoFechaEditadaManual) return;
-    const hoy = hoyISO();
-    const fechaFactura = /^\d{4}-\d{2}-\d{2}$/.test(fechaEmision)
-      ? fechaEmision
-      : (fechaEmisionFacturaAIso(fechaEmision) ?? hoy);
-    setPagoFecha(fp === 'tarjeta' ? fechaFactura : hoy);
-  };
-
   // ── Registrar pago ──
-  const registrarPago = async () => {
-    const importe = parseFloat(pagoImporte);
-    if (!pagoFecha || isNaN(importe) || importe <= 0) {
-      alertMsg('Error', 'Indica fecha e importe válidos');
-      return;
-    }
-    const fechaIso = pagoFecha.trim();
-    if (!fechaIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
-      alertMsg('Error', 'Indica una fecha válida');
-      return;
-    }
-    const metodoEnvio = resolveMetodoPagoParaEnvio(pagoMetodo, pagoMetodoOtro);
-    if (metodoEnvio == null) {
-      alertMsg('Error', 'Describe el método de pago si eliges «Otro»');
-      return;
-    }
+  const registrarPago = async (payload: RegistrarPagoPayloadFactura) => {
     setSavingPago(true);
     try {
       const res = await apiFetch(`/api/facturacion/facturas/${facturaId}/pagos`, {
         method: 'POST',
         body: JSON.stringify({
-          fecha: fechaIso,
-          importe,
-          metodo_pago: metodoEnvio,
-          referencia: pagoReferencia,
-          observaciones: pagoObservaciones,
+          fecha: payload.fecha,
+          importe: payload.importe,
+          metodo_pago: payload.metodo_pago,
+          referencia: payload.referencia,
+          observaciones: payload.observaciones,
           usuario_id: user?.id_usuario,
           usuario_nombre: user?.Nombre,
         }),
@@ -695,10 +676,6 @@ export default function FacturaDetalleScreen() {
       if (!res.ok) throw new Error(data.error ?? 'Error al registrar pago');
       alertMsg('Registrado', 'Pago registrado correctamente');
       setShowPagoModal(false);
-      setPagoImporte('');
-      setPagoMetodoOtro('');
-      setPagoReferencia('');
-      setPagoObservaciones('');
       fetchFactura();
     } catch (e: unknown) {
       alertMsg('Error', errorMessage(e));
@@ -806,7 +783,10 @@ export default function FacturaDetalleScreen() {
   };
 
   const eliminarAdjunto = async (adjId: string) => {
-    const ok = await confirmMsg('Eliminar adjunto', '¿Seguro que deseas eliminar este adjunto?');
+    const ok = await confirmar('Eliminar adjunto', '¿Seguro que deseas eliminar este adjunto?', {
+      confirmarLabel: 'Eliminar',
+      variant: 'danger',
+    });
     if (!ok) return;
     try {
       await apiFetch(`/api/facturacion/facturas/${facturaId}/adjuntos/${adjId}`, {
@@ -917,8 +897,10 @@ export default function FacturaDetalleScreen() {
         )}
         {puedeEmitir && (
           <TouchableOpacity style={styles.btnSuccess} onPress={emitirFactura} disabled={saving}>
-            <MaterialIcons name="send" size={16} color="#fff" />
-            <Text style={styles.btnSuccessText}>Emitir</Text>
+            <MaterialIcons name={esValidacionRevisionIn ? 'task-alt' : 'send'} size={16} color="#fff" />
+            <Text style={styles.btnSuccessText}>
+              {esValidacionRevisionIn ? 'Validar revisión' : 'Emitir'}
+            </Text>
           </TouchableOpacity>
         )}
         {puedeDuplicar && (
@@ -1526,105 +1508,17 @@ export default function FacturaDetalleScreen() {
         </Pressable>
       </Modal>
 
-      {/* ── MODAL PAGO ── */}
-      <Modal visible={showPagoModal} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setShowPagoModal(false)}>
-          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Registrar {esVenta ? 'cobro' : 'pago'}</Text>
-              <TouchableOpacity onPress={() => setShowPagoModal(false)}>
-                <MaterialIcons name="close" size={22} color="#334155" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>Fecha</Text>
-              <InputFecha
-                valueIso={pagoFecha}
-                onChangeIso={(v) => {
-                  setPagoFecha(v);
-                  setPagoFechaEditadaManual(true);
-                }}
-                placeholder="dd/mm/aaaa"
-              />
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>Importe (€)</Text>
-              <TextInput
-                style={styles.input}
-                value={pagoImporte}
-                onChangeText={setPagoImporte}
-                keyboardType="decimal-pad"
-                placeholder="0.00"
-                placeholderTextColor="#94a3b8"
-              />
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>Método de pago</Text>
-              <View style={styles.pickerWrap}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  {FORMAS_PAGO.map((fp) => (
-                    <TouchableOpacity
-                      key={fp}
-                      style={[styles.chip, pagoMetodo === fp && styles.chipActive]}
-                      onPress={() => onSeleccionarMetodoPago(fp)}
-                    >
-                      <Text style={[styles.chipText, pagoMetodo === fp && styles.chipTextActive]}>
-                        {labelFormaPago(fp)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-            </View>
-
-            {pagoMetodo === 'otro' && (
-              <View style={styles.field}>
-                <Text style={styles.label}>Describe el método *</Text>
-                <TextInput
-                  style={styles.input}
-                  value={pagoMetodoOtro}
-                  onChangeText={setPagoMetodoOtro}
-                  placeholder="Ej. Cheque, PayPal…"
-                  placeholderTextColor="#94a3b8"
-                />
-              </View>
-            )}
-
-            <View style={styles.field}>
-              <Text style={styles.label}>Referencia</Text>
-              <TextInput
-                style={styles.input}
-                value={pagoReferencia}
-                onChangeText={setPagoReferencia}
-                placeholder="Nº transferencia, cheque…"
-                placeholderTextColor="#94a3b8"
-              />
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>Observaciones</Text>
-              <TextInput
-                style={[styles.input, styles.inputMultiline]}
-                value={pagoObservaciones}
-                onChangeText={setPagoObservaciones}
-                placeholder="Notas opcionales…"
-                placeholderTextColor="#94a3b8"
-                multiline
-                numberOfLines={2}
-              />
-            </View>
-
-            <TouchableOpacity style={[styles.btnPrimary, { marginTop: 8 }]} onPress={registrarPago} disabled={savingPago}>
-              {savingPago ? <ActivityIndicator size="small" color="#fff" /> : (
-                <Text style={styles.btnPrimaryText}>Guardar {esVenta ? 'cobro' : 'pago'}</Text>
-              )}
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <RegistrarPagoModal
+        visible={showPagoModal}
+        onClose={() => setShowPagoModal(false)}
+        modo="factura"
+        variant={esVenta ? 'cobro' : 'pago'}
+        initial={pagoInitial}
+        fechaReferenciaTarjeta={fechaReferenciaTarjetaPago}
+        submitting={savingPago}
+        onValidationError={alertMsg}
+        onSubmit={registrarPago}
+      />
 
       {/* ── EMAIL MODAL ── */}
       <Modal visible={showEmailModal} transparent animationType="fade">
@@ -1690,6 +1584,7 @@ export default function FacturaDetalleScreen() {
       </Modal>
     </ScrollView>
     {ToastView}
+    {ConfirmarView}
     </View>
   );
 }

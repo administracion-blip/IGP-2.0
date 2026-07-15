@@ -9,6 +9,7 @@ import { hubTileSideSize } from '../../constants/layout';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
 import HubTile from '../../components/HubTile';
+import { ObjetivoMensualCard } from '../../components/ObjetivoMensualCard';
 
 /**
  * Hub del módulo "Planning del día": accesos rápidos a las acciones
@@ -77,6 +78,8 @@ export default function PlanningDiaIndexScreen() {
   const tileSize = hubTileSideSize(width, height);
   const [activacionesHoy, setActivacionesHoy] = useState(0);
   const [actuacionesHoy, setActuacionesHoy] = useState(0);
+  const [objetivoLocalIdx, setObjetivoLocalIdx] = useState(0);
+  const puedeObjetivoCard = hasPermiso('planning_dia.objetivo_card');
 
   const cargarContadoresDia = useCallback(async () => {
     const fecha = encodeURIComponent(fechaJornadaNegocioIso());
@@ -127,6 +130,12 @@ export default function PlanningDiaIndexScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {puedeObjetivoCard ? (
+          <ObjetivoMensualCard
+            localIndex={objetivoLocalIdx}
+            onLocalIndexChange={setObjetivoLocalIdx}
+          />
+        ) : null}
         {visibles.length === 0 ? (
           <View style={styles.emptyBox}>
             <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />

@@ -420,7 +420,7 @@ export default function RegistroMasivoScreen() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Error');
-      alertMsg('Creados', `${data.creados} factura(s) creada(s) como borradores pendientes de revisión`);
+      alertMsg('Creados', `${data.creados} factura(s) importada(s). Revísalas y pulsa «Validar revisión» en Facturas recibidas.`);
       router.push('/facturacion/facturas-gasto' as any);
     } catch (e: unknown) {
       alertMsg('Error', errorMessage(e));

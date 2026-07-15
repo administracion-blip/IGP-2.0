@@ -117,6 +117,13 @@ El `<nombreRol>` debe coincidir exactamente con el campo `Rol` de la tabla de us
 | `personal.ver` | Personal · Ver empleados (Factorial HR) |
 | `activaciones.ver` | Activaciones de marca · Ver las del día en Planning Diario y lista en solo lectura; marcar realizada/cancelada y añadir incidencias (personal de barra) |
 | `activaciones.gestionar` | Activaciones de marca · Crear, editar y archivar campañas; programar, cancelar y eliminar sesiones (administración) |
+| `incentivos_producto.ver` | Incentivos por producto · Ver campañas y resultados |
+| `incentivos_producto.gestionar` | Incentivos por producto · Crear, editar, activar y archivar campañas |
+| `incentivos_producto.exportar` | Incentivos por producto · Exportar informe Excel/PDF |
+| `remesas.ver` | Remesas de pago · Ver |
+| `remesas.gestionar` | Remesas de pago · Crear, generar fichero BBVA, ejecutar y anular |
+| `planning_dia.ver` | Planning del Día · Ver menú y acciones del hub |
+| `planning_dia.objetivo_card` | Planning del Día · Card de consecución del objetivo mensual (solo %) |
 
 ## Comportamiento
 

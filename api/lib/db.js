@@ -59,6 +59,16 @@ export const tables = {
   activaciones: process.env.DDB_ACTIVACIONES || 'Igp_Activaciones',
   /** Sesiones programadas de activaciones. PK = id_sesion. GSIs: local-fecha-index, activacion-index. */
   activacionSesiones: process.env.DDB_ACTIVACION_SESIONES || 'Igp_ActivacionSesiones',
+  /**
+   * Ventas agregadas por producto/día/usuario (sync Ágora).
+   * PK = LOCAL#<localId>, SK = DIA#<YYYY-MM-DD>#PROD#<productId>#USER#<agoraUserId>.
+   * GSI: ProductId-Fecha-index.
+   */
+  ventasProducto: process.env.DDB_VENTAS_PRODUCTO_TABLE || 'Igp_VentasProducto',
+  /** Campañas de incentivo por producto. PK = campanaId (UUID). */
+  campanas: process.env.DDB_CAMPANAS_TABLE || 'Igp_Campanas',
+  /** Remesas de pago a proveedores. PK = remesaId (UUID). */
+  remesas: process.env.DDB_REMESAS_TABLE || 'Igp_Remesas',
 };
 
 /**

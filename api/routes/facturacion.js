@@ -37,6 +37,8 @@ import {
   isIaEnriquecimientoDisponible,
 } from '../lib/ocrEnriquecerIa.js';
 import { aplicarPostProcesadoPipeline } from '../lib/ocrFacturaValidacion.js';
+import { registrarPagoFactura } from '../lib/facturacion/registrarPago.js';
+import { emitirOValidarFacturaPorId } from '../lib/facturacion/emitirFactura.js';
 import crypto from 'crypto';
 import { enviarEmail } from '../lib/email.js';
 import multer from 'multer';
@@ -640,68 +642,57 @@ router.put('/facturacion/facturas/:id', async (req, res) => {
 
 // ─── EMITIR factura (cambia estado + genera hash VERI*FACTU) ───
 
+/** Validación masiva de facturas IN en pendiente_revision (p. ej. tras OCR). */
+router.post('/facturacion/facturas/validar-revision', async (req, res) => {
+  const { facturaIds, usuario_id, usuario_nombre } = req.body || {};
+  const ids = Array.isArray(facturaIds)
+    ? [...new Set(facturaIds.map((x) => String(x).trim()).filter(Boolean))]
+    : [];
+  if (ids.length === 0) {
+    return res.status(400).json({ error: 'facturaIds debe ser un array no vacío' });
+  }
+
+  try {
+    const validadas = [];
+    const fallidas = [];
+
+    for (const id of ids) {
+      const result = await emitirOValidarFacturaPorId(id, { usuario_id, usuario_nombre, soloRevision: true });
+      if (result.ok) {
+        validadas.push({ id_factura: id, estado: result.factura.estado });
+      } else {
+        fallidas.push({
+          id_factura: id,
+          motivo: result.errores?.join(' · ') || result.error || 'Error al validar',
+        });
+      }
+    }
+
+    res.json({
+      ok: true,
+      validadas: validadas.length,
+      fallidas: fallidas.length,
+      detalleValidadas: validadas,
+      detalleFallidas: fallidas,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/facturacion/facturas/:id/emitir', async (req, res) => {
   const id = req.params.id;
   const { usuario_id, usuario_nombre } = req.body || {};
 
   try {
-    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
-    if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
-    const factura = existing.Item;
-
-    if (factura.estado !== 'borrador') {
-      return res.status(400).json({ error: 'Solo se pueden emitir facturas en borrador' });
+    const result = await emitirOValidarFacturaPorId(id, { usuario_id, usuario_nombre });
+    if (!result.ok) {
+      return res.status(result.status).json({
+        error: result.error,
+        ...(result.errores ? { errores: result.errores } : {}),
+      });
     }
-
-    // Validaciones fiscales obligatorias
-    const errores = [];
-    if (!factura.empresa_nombre && !factura.empresa_cif) errores.push('Datos de empresa (nombre o CIF) obligatorios');
-    if (factura.tipo === 'OUT' && !factura.empresa_cif) errores.push('CIF/NIF del cliente es obligatorio para facturas de venta');
-    if (!factura.fecha_emision) errores.push('La fecha de emisión es obligatoria');
-    if (!factura.serie) errores.push('La serie es obligatoria');
-    if ((factura.total_factura || 0) === 0) errores.push('La factura no puede tener importe 0');
-
-    const lineas = await queryLineasByFactura(id);
-    if (factura.tipo === 'OUT' && lineas.length === 0) errores.push('La factura debe tener al menos una línea');
-
-    for (const l of lineas) {
-      if (!l.descripcion) errores.push(`Línea ${l.id_linea}: falta descripción`);
-      if ((l.cantidad || 0) <= 0) errores.push(`Línea ${l.id_linea}: cantidad debe ser mayor que 0`);
-    }
-
-    if (errores.length > 0) {
-      return res.status(400).json({ error: 'Validación fiscal fallida', errores });
-    }
-
-    factura.estado = 'emitida';
-    if (factura.tipo === 'IN') factura.estado = 'pendiente_pago';
-
-    if (!factura.fecha_vencimiento && factura.condiciones_pago) {
-      const diasMap = { contado: 0, '15_dias': 15, '30_dias': 30, '60_dias': 60, '90_dias': 90 };
-      const dias = diasMap[factura.condiciones_pago];
-      if (dias != null) {
-        const base = new Date(factura.fecha_emision || now().slice(0, 10));
-        base.setDate(base.getDate() + dias);
-        factura.fecha_vencimiento = base.toISOString().slice(0, 10);
-      }
-    }
-
-    factura.modificado_por = usuario_id || '';
-    factura.modificado_en = now();
-    factura.version = (factura.version || 1) + 1;
-
-    factura.verifactu_hash = computeHash(factura);
-    factura.verifactu_registro_alta = JSON.stringify({
-      id_factura: factura.id_factura,
-      fecha_emision: factura.fecha_emision,
-      hash: factura.verifactu_hash,
-      timestamp: now(),
-    });
-
-    await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
-    await registrarAuditoria(id, 'emision', usuario_id, usuario_nombre, { estado: factura.estado, hash: factura.verifactu_hash });
-
-    res.json({ ok: true, factura });
+    res.json({ ok: true, factura: result.factura });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

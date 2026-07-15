@@ -45,6 +45,7 @@ const SYNC_ENDPOINTS = {
   agora_usuarios: { path: '/api/agora/users/sync', body: { force: true } },
   compras_proveedor: { path: '/api/agora/purchases/sync', body: {} },
   closeouts: { path: '/api/agora/closeouts/sync', body: {} },
+  ventas_producto: { path: '/api/agora/sales-lines/sync', body: {} },
   almacenes: { path: '/api/agora/warehouses/sync', body: {} },
   formas_pago: { path: '/api/agora/payment-methods/sync', body: {} },
 };
@@ -153,6 +154,36 @@ export async function checkInformeDiario(port) {
 }
 
 export const VENCIMIENTOS_INTERVAL_MS = 60 * 60 * 1000;
+
+/** Sync nocturno de ventas por producto (día anterior). */
+export const SYNC_SALES_LINES_ENABLED = process.env.SYNC_SALES_LINES_ENABLED !== 'false';
+
+export async function runSalesLinesSync(port) {
+  if (!SYNC_SALES_LINES_ENABLED) return;
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    const res = await fetch(`${baseUrl}/api/agora/sales-lines/sync`, {
+      method: 'POST',
+      headers: internalSyncFetchHeaders(),
+      body: JSON.stringify({ businessDay: yesterday, force: true }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      logger.info(
+        { businessDay: yesterday, items: data.items ?? 0, locales: data.locales ?? 0 },
+        `[sales-lines/sync] OK: ${yesterday} | items: ${data.items ?? 0}`,
+      );
+    } else {
+      logger.error(
+        { status: res.status, error: data.error || res.statusText },
+        '[sales-lines/sync] Error',
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, '[sales-lines/sync]');
+  }
+}
 
 export async function checkVencimientosFacturas(port) {
   try {

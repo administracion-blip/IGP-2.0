@@ -22,8 +22,10 @@ import { requireAuth } from './middleware/auth.js';
 import { ensureComprasGSI } from './lib/dynamo/comprasProveedor.js';
 import { ensureUsuariosEmailGSI } from './lib/dynamo/usuarios.js';
 import { ensureMarketingGSIs } from './lib/dynamo/marketing.js';
+import { ensureVentasProductoGSI } from './lib/dynamo/ventasProducto.js';
 import {
   runCloseoutsSync,
+  runSalesLinesSync,
   checkAutoSyncs,
   checkInformeDiario,
   checkVencimientosFacturas,
@@ -31,6 +33,7 @@ import {
   SYNC_CLOSEOUTS_INTERVAL_MS,
   SYNC_CLOSEOUTS_RECENT_DAYS,
   SYNC_SCHEDULER_INTERVAL_MS,
+  SYNC_SALES_LINES_ENABLED,
   VENCIMIENTOS_INTERVAL_MS,
 } from './lib/jobs/scheduledTasks.js';
 import facturacionRouter from './routes/facturacion.js';
@@ -58,6 +61,8 @@ import ajustesRouter from './routes/ajustes.js';
 import marketingRouter from './routes/marketing.js';
 import informesRouter from './routes/informes.js';
 import activacionesRouter from './routes/activaciones.js';
+import campanasRouter from './routes/campanas.js';
+import remesasRouter from './routes/remesas.js';
 
 // Valida variables críticas al arranque. Si falta alguna REQUIRED, aborta el proceso.
 validateEnv();
@@ -148,6 +153,7 @@ app.use('/api', agoraRouter);
 ensureComprasGSI();
 ensureUsuariosEmailGSI();
 ensureMarketingGSIs();
+ensureVentasProductoGSI();
 app.use('/api', acuerdosRouter);
 
 app.use('/api', usuariosRouter);
@@ -171,6 +177,8 @@ app.use('/api', ajustesRouter);
 app.use('/api', marketingRouter);
 app.use('/api', informesRouter);
 app.use('/api', activacionesRouter);
+app.use('/api', campanasRouter);
+app.use('/api', remesasRouter);
 
 // --- Middleware central de errores: DEBE ir tras todos los routers ---
 app.use(errorHandler);
@@ -225,6 +233,15 @@ app.listen(port, host, () => {
     { intervalSec: SYNC_SCHEDULER_INTERVAL_MS / 1000 },
     `[informe-diario] Scheduler activo — revisa cada ${SYNC_SCHEDULER_INTERVAL_MS / 1000}s`,
   );
+  if (SYNC_SALES_LINES_ENABLED) {
+    const salesLinesIntervalMs = 24 * 60 * 60 * 1000;
+    setTimeout(() => runSalesLinesSync(port), 18000);
+    setInterval(() => runSalesLinesSync(port), salesLinesIntervalMs);
+    logger.info(
+      { intervalHours: salesLinesIntervalMs / 3600000 },
+      '[sales-lines/sync] Job nocturno activo (día anterior de Ágora)',
+    );
+  }
   if (!process.env.INTERNAL_SYNC_SECRET) {
     logger.warn(
       '[api] INTERNAL_SYNC_SECRET no definido: los jobs internos (auto-sync Ágora, cierres, vencimientos) devolverán 401. Añádelo en api/.env.local',

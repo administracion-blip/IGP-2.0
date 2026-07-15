@@ -55,9 +55,18 @@ import {
   isGsiReady,
 } from '../lib/dynamo/comprasProveedor.js';
 import {
+  getLastSalesLinesSync,
+  setLastSalesLinesSync,
+  shouldSkipSalesLinesSyncByThrottle,
+  syncSalesLinesForDay,
+  listDaysBetween,
+} from '../lib/dynamo/ventasProducto.js';
+import {
   listFormasPago,
   upsertFormasFromAgora,
 } from '../lib/agora/formasPago.js';
+import { requirePermission } from '../middleware/auth.js';
+import { buildObjetivoMensualCard } from '../lib/agora/objetivoMensual.js';
 
 const router = Router();
 const env = () => ({
@@ -820,6 +829,16 @@ router.get('/agora/closeouts', async (req, res) => {
     return addExcelStyleFields(base);
   });
   res.json({ closeouts: normalized });
+});
+
+router.get('/agora/closeouts/objetivo-mensual-card', requirePermission('planning_dia.objetivo_card'), async (req, res) => {
+  try {
+    const payload = await buildObjetivoMensualCard(req.user);
+    res.json(payload);
+  } catch (err) {
+    console.error('[agora/closeouts/objetivo-mensual-card]', err.message || err);
+    res.status(500).json({ error: err.message || 'Error al calcular objetivo mensual' });
+  }
 });
 
 router.get('/agora/closeouts/totals-by-local-range', async (req, res) => {
@@ -4828,6 +4847,99 @@ router.post('/agora/purchases/sync', async (req, res) => {
       errors: errors.length > 0 ? errors : undefined,
     });
   }
+});
+
+router.post('/agora/sales-lines/sync', async (req, res) => {
+  const body = req.body || {};
+  const force = body.force === true || String(req.query.force || '') === '1';
+
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const businessDay = (body.businessDay || yesterday).toString().trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
+    return res.status(400).json({ error: 'businessDay debe ser YYYY-MM-DD' });
+  }
+
+  if (!force) {
+    const lastSync = await getLastSalesLinesSync(docClient);
+    if (shouldSkipSalesLinesSyncByThrottle(lastSync)) {
+      return res.json({
+        ok: true,
+        skipped: true,
+        reason: 'throttle',
+        businessDay,
+        throttleMinutes: parseInt(process.env.AGORA_SALES_LINES_SYNC_THROTTLE_MINUTES || '30', 10) || 30,
+      });
+    }
+  }
+
+  try {
+    const result = await syncSalesLinesForDay(docClient, businessDay, {
+      localId: body.localId ? String(body.localId).trim() : null,
+      workplaces: body.workplaces != null
+        ? (Array.isArray(body.workplaces) ? body.workplaces : [body.workplaces]).map(String)
+        : null,
+    });
+    await setLastSalesLinesSync(docClient);
+    req.log.info(result, '[agora/sales-lines/sync] Completado');
+    return res.json(result);
+  } catch (err) {
+    req.log.error({ err, businessDay }, '[agora/sales-lines/sync] Error');
+    return res.status(500).json({ error: err.message || 'Error en sync de ventas por producto' });
+  }
+});
+
+router.post('/agora/sales-lines/full-sync', async (req, res) => {
+  const body = req.body || {};
+  const today = new Date().toISOString().slice(0, 10);
+  const default60daysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const fechaInicio = (body.fechaInicio || body.dateFrom || default60daysAgo).toString().trim();
+  const fechaFin = (body.fechaFin || body.dateTo || today).toString().trim();
+  const localId = body.localId ? String(body.localId).trim() : null;
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaInicio) || !/^\d{4}-\d{2}-\d{2}$/.test(fechaFin)) {
+    return res.status(400).json({ error: 'fechaInicio y fechaFin deben ser YYYY-MM-DD' });
+  }
+  if (fechaInicio > fechaFin) {
+    return res.status(400).json({ error: 'fechaInicio no puede ser mayor que fechaFin' });
+  }
+
+  const days = listDaysBetween(fechaInicio, fechaFin);
+  let totalItems = 0;
+  let totalDeleted = 0;
+  const errors = [];
+
+  for (let i = 0; i < days.length; i++) {
+    const businessDay = days[i];
+    try {
+      const r = await syncSalesLinesForDay(docClient, businessDay, { localId });
+      totalItems += r.items ?? 0;
+      totalDeleted += r.deleted ?? 0;
+    } catch (err) {
+      errors.push({ day: businessDay, error: err.message || String(err) });
+    }
+    if ((i + 1) % 30 === 0) {
+      console.log('[agora/sales-lines/full-sync] Progreso:', i + 1, '/', days.length, 'días');
+    }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+
+  await setLastSalesLinesSync(docClient);
+  req.log.info(
+    { fechaInicio, fechaFin, totalItems, totalDeleted, errors: errors.length },
+    '[agora/sales-lines/full-sync] Completado',
+  );
+
+  return res.json({
+    ok: true,
+    fechaInicio,
+    fechaFin,
+    daysProcessed: days.length,
+    totalItems,
+    totalDeleted,
+    localId: localId || undefined,
+    errors: errors.length > 0 ? errors : undefined,
+  });
 });
 
 export default router;

@@ -6,6 +6,8 @@ export default function FacturacionLayout() {
       <Stack.Screen name="index" />
       <Stack.Screen name="facturas-venta" />
       <Stack.Screen name="facturas-gasto" />
+      <Stack.Screen name="remesas/index" />
+      <Stack.Screen name="remesas/[remesaId]" />
       <Stack.Screen name="factura-detalle" />
       <Stack.Screen name="series" />
       <Stack.Screen name="pagos-cobros" />

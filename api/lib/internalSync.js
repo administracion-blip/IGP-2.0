@@ -9,6 +9,8 @@ export const INTERNAL_SYNC_POST_PATHS = new Set([
   '/api/agora/purchases/sync',
   '/api/agora/closeouts/sync',
   '/api/agora/closeouts/full-sync',
+  '/api/agora/sales-lines/sync',
+  '/api/agora/sales-lines/full-sync',
   '/api/agora/warehouses/sync',
   '/api/facturacion/check-vencimientos',
   '/api/facturacion/enviar-recordatorios',

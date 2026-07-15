@@ -55,6 +55,13 @@ const OPCIONES: { id: string; label: string; icon: React.ComponentProps<typeof M
     permiso: 'objetivos.ver',
   },
   {
+    id: 'incentivos-producto',
+    label: 'Incentivos por producto',
+    icon: 'redeem',
+    descripcion: 'Premios al equipo por vender productos concretos',
+    permiso: 'incentivos_producto.ver',
+  },
+  {
     id: 'franjas-horarias',
     label: 'Plantillas de franjas',
     icon: 'schedule',
@@ -89,6 +96,7 @@ export default function CajasIndexScreen() {
     if (id === 'revision-cajas') router.push('/cajas/revision-cajas');
     if (id === 'comparativa-fechas-cajas') router.push('/cajas/comparativa-fechas-cajas');
     if (id === 'objetivos') router.push('/cajas/objetivos');
+    if (id === 'incentivos-producto') router.push('/cajas/incentivos-producto');
     if (id === 'franjas-horarias') router.push('/cajas/franjas-horarias');
     if (id === 'control-excepciones') router.push('/cajas/control-excepciones');
     if (id === 'top') router.push('/cajas/top');

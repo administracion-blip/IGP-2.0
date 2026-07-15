@@ -129,6 +129,7 @@ const PERMISOS_CODIGOS = [
   'ajustes.sincronizaciones.empleados',
   // --- Planning del Día ---
   'planning_dia.ver',
+  'planning_dia.objetivo_card',
   // --- Recursos Humanos ---
   'personal.ver',
   'rrhh.horas',
@@ -138,6 +139,11 @@ const PERMISOS_CODIGOS = [
   // --- Activaciones de marca ---
   'activaciones.ver',
   'activaciones.gestionar',
+  'incentivos_producto.ver',
+  'incentivos_producto.gestionar',
+  'incentivos_producto.exportar',
+  'remesas.ver',
+  'remesas.gestionar',
 ] as const;
 
 const PERMISOS_LABELS: Record<string, string> = {
@@ -235,10 +241,16 @@ const PERMISOS_LABELS: Record<string, string> = {
   'marketing.proponer': 'Marketing · Proponer',
   'marketing.gestionar': 'Marketing · Gestionar',
   'activaciones.ver': 'Activaciones · Ver / marcar realizada',
+  'incentivos_producto.ver': 'Incentivos producto · Ver',
+  'incentivos_producto.gestionar': 'Incentivos producto · Gestionar',
+  'incentivos_producto.exportar': 'Incentivos producto · Exportar',
+  'remesas.ver': 'Remesas de pago · Ver',
+  'remesas.gestionar': 'Remesas de pago · Gestionar',
   'activaciones.gestionar': 'Activaciones · Gestionar campañas y sesiones',
   'personal.ver': 'Personal · Ver empleados',
   'rrhh.horas': 'RRHH · Horas por facturación',
   'planning_dia.ver': 'Planning del Día (menú)',
+  'planning_dia.objetivo_card': 'Planning del Día · Card objetivo mensual',
 };
 
 /**
@@ -260,15 +272,16 @@ const GRUPOS_PERMISOS: { titulo: string; codigos: string[] }[] = [
   { titulo: 'Cierres teóricos', codigos: ['cierres.ver', 'cierres.crear', 'cierres.editar', 'cierres.borrar', 'cierres.sincronizar', 'cierres.exportar'] },
   { titulo: 'Comparativa fechas', codigos: ['comparativa.ver', 'comparativa.crear', 'comparativa.editar', 'comparativa.borrar', 'comparativa.importar', 'comparativa.exportar'] },
   { titulo: 'Objetivos', codigos: ['objetivos.ver', 'objetivos.compartir'] },
+  { titulo: 'Incentivos por producto', codigos: ['incentivos_producto.ver', 'incentivos_producto.gestionar', 'incentivos_producto.exportar'] },
   { titulo: 'Control de excepciones', codigos: ['excepciones.ver', 'excepciones.exportar'] },
   { titulo: 'Top', codigos: ['top.ver', 'top.exportar'] },
   { titulo: 'Mantenimiento', codigos: ['mantenimiento.crear', 'mantenimiento.editar', 'mantenimiento.borrar'] },
   { titulo: 'Pedidos', codigos: ['pedidos.ver', 'pedidos.ver_completados', 'pedidos.preparar', 'pedidos.exportar_traspaso', 'pedidos.crear', 'pedidos.editar', 'pedidos.borrar', 'pedidos.editar_enviado', 'pedidos.borrar_enviado'] },
   { titulo: 'Compras proveedor', codigos: ['compras_proveedor.ver', 'compras_proveedor.sincronizar'] },
   { titulo: 'Acuerdos', codigos: ['acuerdos.ver', 'acuerdos.crear', 'acuerdos.editar', 'acuerdos.borrar', 'acuerdos.exportar'] },
-  { titulo: 'Facturación', codigos: ['facturacion.ver', 'facturacion.crear', 'facturacion.editar', 'facturacion.emitir', 'facturacion.anular', 'facturacion.cobrar_pagar', 'facturacion.series', 'facturacion.exportar'] },
+  { titulo: 'Facturación', codigos: ['facturacion.ver', 'facturacion.crear', 'facturacion.editar', 'facturacion.emitir', 'facturacion.anular', 'facturacion.cobrar_pagar', 'facturacion.series', 'facturacion.exportar', 'remesas.ver', 'remesas.gestionar'] },
   { titulo: 'Ajustes', codigos: ['ajustes.ver', 'ajustes.sincronizaciones.agora_productos', 'ajustes.sincronizaciones.agora_usuarios', 'ajustes.sincronizaciones.compras_proveedor', 'ajustes.sincronizaciones.closeouts', 'ajustes.sincronizaciones.almacenes', 'ajustes.sincronizaciones.empleados'] },
-  { titulo: 'Planning del Día', codigos: ['planning_dia.ver'] },
+  { titulo: 'Planning del Día', codigos: ['planning_dia.ver', 'planning_dia.objetivo_card'] },
   { titulo: 'Recursos Humanos', codigos: ['personal.ver', 'rrhh.horas'] },
   { titulo: 'Marketing', codigos: ['marketing.proponer', 'marketing.gestionar'] },
   { titulo: 'Activaciones de marca', codigos: ['activaciones.ver', 'activaciones.gestionar'] },

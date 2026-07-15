@@ -58,6 +58,7 @@ const OPCIONES: {
 }[] = [
   { id: 'facturas-venta', label: 'Facturas emitidas', icon: 'receipt-long', descripcion: 'Facturas de venta a clientes', permiso: 'facturacion.ver' },
   { id: 'facturas-gasto', label: 'Facturas recibidas', icon: 'description', descripcion: 'Facturas de gasto / proveedores', permiso: 'facturacion.ver' },
+  { id: 'remesas', label: 'Remesas de pago', icon: 'account-balance', descripcion: 'Agrupa facturas y genera fichero para el banco', permiso: 'remesas.ver' },
   { id: 'pagos-cobros', label: 'Pagos y cobros', icon: 'account-balance-wallet', descripcion: 'Movimientos de pago y cobro', permiso: 'facturacion.cobrar_pagar' },
   { id: 'cuadro-mando', label: 'Cuadro de mando', icon: 'analytics', descripcion: 'Análisis financiero, IVA, aging', permiso: 'facturacion.ver' },
   { id: 'series', label: 'Series', icon: 'format-list-numbered', descripcion: 'Configuración de series de facturación', permiso: 'facturacion.series' },

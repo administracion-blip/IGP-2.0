@@ -37,6 +37,7 @@ import { useLocalToast } from '../../components/Toast';
 import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
 import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
 import { apiFetch } from '../../utils/api';
+import { ESTADOS_FACTURA_REMESABLES, esFacturaSeleccionableEnListado } from '../../lib/remesas';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const PAGE_SIZE = 50;
@@ -67,7 +68,7 @@ const MIN_COL_WIDTH = 40;
 function tipoIvaImplicitoPct(f: FacturaListado): number | null {
   const base = Number(f.base_imponible) || 0;
   const iva = Number(f.total_iva) || 0;
-  if (base <= 0) return null;
+  if (base === 0) return null;
   return Math.round((10000 * iva) / base) / 100;
 }
 
@@ -165,6 +166,7 @@ const TOOLBAR_BUTTONS: ToolbarBtn[] = [
   { id: 'crear', icon: 'add', label: 'Crear', permiso: 'facturacion.crear', needsSelection: false },
   { id: 'editar', icon: 'edit', label: 'Editar', permiso: 'facturacion.editar', needsSelection: true },
   { id: 'emitir', icon: 'send', label: 'Emitir', permiso: 'facturacion.emitir', needsSelection: true },
+  { id: 'validar', icon: 'task-alt', label: 'Validar revisión', permiso: 'facturacion.emitir', needsSelection: true },
   { id: 'borrar', icon: 'delete-outline', label: 'Borrar', permiso: 'facturacion.editar', needsSelection: true },
   { id: 'pagar', icon: 'payments', label: 'Pagar', permiso: 'facturacion.cobrar_pagar', needsSelection: true },
   { id: 'refresh', icon: 'refresh', label: 'Actualizar', permiso: '', needsSelection: false },
@@ -216,6 +218,14 @@ export default function FacturasGastoScreen() {
   const [detallePagosError, setDetallePagosError] = useState<string | null>(null);
   const [detallePagosLista, setDetallePagosLista] = useState<Record<string, unknown>[]>([]);
   const [detallePagosFactura, setDetallePagosFactura] = useState<FacturaListado | null>(null);
+
+  const [modoSeleccion, setModoSeleccion] = useState(false);
+  const [selectedMultiIds, setSelectedMultiIds] = useState<Set<string>>(new Set());
+  const [modalRemesa, setModalRemesa] = useState(false);
+  const [remesaNombre, setRemesaNombre] = useState('');
+  const [remesaFechaEjecucion, setRemesaFechaEjecucion] = useState('');
+
+  const puedeModoSeleccion = hasPermiso('facturacion.emitir') || hasPermiso('remesas.gestionar');
 
   const fetchFacturas = useCallback(() => {
     setLoading(true);
@@ -468,6 +478,7 @@ export default function FacturasGastoScreen() {
       return;
     }
     if (id === 'emitir') { handleEmitir(); return; }
+    if (id === 'validar') { handleValidarRevision(); return; }
     if (id === 'pagar') {
       abrirModalPagar();
       return;
@@ -481,18 +492,45 @@ export default function FacturasGastoScreen() {
       showToast('Aviso', 'Solo se pueden emitir facturas en borrador', 'warning');
       return;
     }
+    await ejecutarValidacionOEmision('emitir');
+  };
+
+  const handleValidarRevision = async () => {
+    if (!selectedFactura) return;
+    if (selectedFactura.estado !== 'pendiente_revision') {
+      showToast('Aviso', 'Solo facturas pendientes de revisión (p. ej. importadas por OCR)', 'warning');
+      return;
+    }
+    await ejecutarValidacionOEmision('validar');
+  };
+
+  const ejecutarValidacionOEmision = async (modo: 'emitir' | 'validar') => {
+    if (!selectedFactura) return;
     setProcesando(true);
     try {
       const res = await apiFetch(`/api/facturacion/facturas/${selectedFactura.id_factura}/emitir`, {
         method: 'POST',
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          usuario_id: user?.id_usuario ?? '',
+          usuario_nombre: user?.Nombre ?? '',
+        }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error al emitir');
+      if (!res.ok) {
+        const detalle = Array.isArray(data.errores) ? data.errores.join(' · ') : (data.error || 'Error');
+        throw new Error(detalle);
+      }
       fetchFacturas();
       setSelectedId(null);
+      showToast(
+        modo === 'validar' ? 'Validada' : 'Emitida',
+        modo === 'validar'
+          ? 'La factura ya está pendiente de pago'
+          : 'Factura emitida correctamente',
+        'success',
+      );
     } catch (e: unknown) {
-      showToast('Error', e instanceof Error ? e.message : 'Error al emitir la factura', 'error');
+      showToast('Error', e instanceof Error ? e.message : 'Error al procesar la factura', 'error');
     } finally {
       setProcesando(false);
     }
@@ -558,10 +596,150 @@ export default function FacturasGastoScreen() {
 
   const isBtnDisabled = (btn: ToolbarBtn) => {
     if (procesando) return true;
+    if (modoSeleccion && btn.needsSelection) return true;
     if (btn.needsSelection && selectedId == null) return true;
     if (btn.id === 'emitir' && selectedFactura?.estado !== 'borrador') return true;
+    if (btn.id === 'validar' && selectedFactura?.estado !== 'pendiente_revision') return true;
     if (btn.id === 'pagar' && selectedFactura && (selectedFactura.estado === 'anulada' || selectedFactura.estado === 'pagada' || selectedFactura.estado === 'borrador')) return true;
     return false;
+  };
+
+  const facturasSeleccionadas = useMemo(
+    () => filtradas.filter((f) => selectedMultiIds.has(f.id_factura)),
+    [filtradas, selectedMultiIds],
+  );
+
+  const facturasSeleccionadasRemesa = useMemo(
+    () => facturasSeleccionadas.filter((f) => ESTADOS_FACTURA_REMESABLES.has(f.estado || '')),
+    [facturasSeleccionadas],
+  );
+
+  const facturasSeleccionadasRevision = useMemo(
+    () => facturasSeleccionadas.filter((f) => f.estado === 'pendiente_revision'),
+    [facturasSeleccionadas],
+  );
+
+  const sociedadRemesa = useMemo(() => {
+    const ids = new Set(facturasSeleccionadasRemesa.map((f) => f.emisor_id).filter(Boolean));
+    if (ids.size !== 1) return null;
+    const f0 = facturasSeleccionadasRemesa[0];
+    return {
+      id: String(f0?.emisor_id || ''),
+      nombre: String(f0?.emisor_nombre || ''),
+    };
+  }, [facturasSeleccionadasRemesa]);
+
+  const toggleSeleccionMulti = (id: string) => {
+    setSelectedMultiIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const entrarModoSeleccionConFactura = (id: string, estado?: string | null) => {
+    if (!puedeModoSeleccion) return;
+    setModoSeleccion(true);
+    if (esFacturaSeleccionableEnListado(estado)) {
+      setSelectedMultiIds((prev) => new Set(prev).add(id));
+    }
+  };
+
+  const abrirModalCrearRemesa = () => {
+    if (facturasSeleccionadasRemesa.length === 0) {
+      showToast('Aviso', 'Selecciona facturas pendientes de pago, parcialmente pagadas o vencidas', 'warning');
+      return;
+    }
+    if (!sociedadRemesa) {
+      showToast('Aviso', 'Todas las facturas deben ser de la misma empresa (sociedad ordenante)', 'warning');
+      return;
+    }
+    const hoy = new Date();
+    const defNombre = `Pagos proveedores ${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+    setRemesaNombre(defNombre);
+    setRemesaFechaEjecucion('');
+    setModalRemesa(true);
+  };
+
+  const crearRemesa = async () => {
+    if (!sociedadRemesa || facturasSeleccionadasRemesa.length === 0) return;
+    const nombre = remesaNombre.trim();
+    if (!nombre) {
+      showToast('Aviso', 'Indica un nombre para la remesa', 'warning');
+      return;
+    }
+    setProcesando(true);
+    try {
+      const res = await apiFetch('/api/remesas', {
+        method: 'POST',
+        body: JSON.stringify({
+          nombre,
+          sociedadId: sociedadRemesa.id,
+          facturaIds: facturasSeleccionadasRemesa.map((f) => f.id_factura),
+          fechaEjecucion: remesaFechaEjecucion || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al crear remesa');
+      setModalRemesa(false);
+      setModoSeleccion(false);
+      setSelectedMultiIds(new Set());
+      if (data.excluidas?.length) {
+        showToast('Remesa creada', `${data.excluidas.length} factura(s) excluida(s)`, 'warning');
+      } else {
+        showToast('Remesa creada', 'Redirigiendo al detalle…', 'success');
+      }
+      router.push(`/facturacion/remesas/${data.remesa.remesaId}` as never);
+    } catch (e: unknown) {
+      showToast('Error', e instanceof Error ? e.message : 'No se pudo crear la remesa', 'error');
+    } finally {
+      setProcesando(false);
+    }
+  };
+
+  const validarRevisionMasiva = async () => {
+    const ids = facturasSeleccionadasRevision.map((f) => f.id_factura);
+    if (ids.length === 0) {
+      showToast('Aviso', 'Selecciona facturas en «Pte. revisión»', 'warning');
+      return;
+    }
+    setProcesando(true);
+    try {
+      const res = await apiFetch('/api/facturacion/facturas/validar-revision', {
+        method: 'POST',
+        body: JSON.stringify({
+          facturaIds: ids,
+          usuario_id: user?.id_usuario ?? '',
+          usuario_nombre: user?.Nombre ?? '',
+        }),
+        timeoutMs: 120_000,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al validar');
+      fetchFacturas();
+      setSelectedMultiIds(new Set());
+      if (data.fallidas > 0) {
+        const detalle = (data.detalleFallidas || [])
+          .slice(0, 3)
+          .map((x: { id_factura: string; motivo: string }) => `${x.id_factura}: ${x.motivo}`)
+          .join('\n');
+        showToast(
+          'Validación parcial',
+          `${data.validadas} validada(s), ${data.fallidas} con error.${detalle ? ` ${detalle}` : ''}`,
+          'warning',
+        );
+      } else {
+        showToast('Validadas', `${data.validadas} factura(s) pendientes de pago`, 'success');
+      }
+      if (data.validadas > 0 && data.fallidas === 0) {
+        setModoSeleccion(false);
+      }
+    } catch (e: unknown) {
+      showToast('Error', e instanceof Error ? e.message : 'Error al validar revisiones', 'error');
+    } finally {
+      setProcesando(false);
+    }
   };
 
   const subtitleText = filtradas.length === 0
@@ -651,6 +829,61 @@ export default function FacturasGastoScreen() {
               </View>
             );
           })}
+          {puedeModoSeleccion ? (
+            <>
+              <View
+                style={styles.toolbarBtnWrap}
+                {...(Platform.OS === 'web' ? { onMouseEnter: () => setHoveredBtn('sel_mode'), onMouseLeave: () => setHoveredBtn(null) } as object : {})}
+              >
+                {hoveredBtn === 'sel_mode' && (
+                  <View style={styles.tooltip}><Text style={styles.tooltipText}>Selección múltiple</Text></View>
+                )}
+                <TouchableOpacity
+                  style={[styles.toolbarBtn, modoSeleccion && styles.toolbarBtnActive]}
+                  onPress={() => {
+                    setModoSeleccion((m) => !m);
+                    if (modoSeleccion) setSelectedMultiIds(new Set());
+                  }}
+                >
+                  <MaterialIcons name="checklist" size={18} color={modoSeleccion ? '#fff' : '#0ea5e9'} />
+                </TouchableOpacity>
+              </View>
+              {modoSeleccion ? (
+                <View style={styles.modoSeleccionAcciones}>
+                  {hasPermiso('facturacion.emitir') ? (
+                    <TouchableOpacity
+                      style={[
+                        styles.validarMasivoBtn,
+                        facturasSeleccionadasRevision.length === 0 && styles.toolbarBtnDisabled,
+                      ]}
+                      onPress={validarRevisionMasiva}
+                      disabled={facturasSeleccionadasRevision.length === 0 || procesando}
+                    >
+                      <MaterialIcons name="task-alt" size={16} color="#fff" />
+                      <Text style={styles.validarMasivoBtnText}>
+                        Validar revisión ({facturasSeleccionadasRevision.length})
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {hasPermiso('remesas.gestionar') ? (
+                    <TouchableOpacity
+                      style={[
+                        styles.remesaCrearBtn,
+                        facturasSeleccionadasRemesa.length === 0 && styles.toolbarBtnDisabled,
+                      ]}
+                      onPress={abrirModalCrearRemesa}
+                      disabled={facturasSeleccionadasRemesa.length === 0 || procesando}
+                    >
+                      <MaterialIcons name="account-balance" size={16} color="#fff" />
+                      <Text style={styles.remesaCrearBtnText}>
+                        Crear remesa ({facturasSeleccionadasRemesa.length})
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              ) : null}
+            </>
+          ) : null}
         </View>
 
         {Platform.OS === 'web' && hasPermiso('facturacion.ver') && (
@@ -787,13 +1020,43 @@ export default function FacturasGastoScreen() {
                   </View>
                 </View>
               ) : (
-                paginadas.map((f) => (
+                paginadas.map((f) => {
+                  const seleccionable = esFacturaSeleccionableEnListado(f.estado);
+                  return (
                   <Pressable
                     key={f.id_factura}
-                    style={[styles.row, selectedId === f.id_factura && styles.rowSelected]}
-                    onPress={() => setSelectedId(selectedId === f.id_factura ? null : f.id_factura)}
+                    style={[
+                      styles.row,
+                      selectedId === f.id_factura && !modoSeleccion && styles.rowSelected,
+                      modoSeleccion && selectedMultiIds.has(f.id_factura) && styles.rowSelected,
+                    ]}
+                    onPress={() => {
+                      if (modoSeleccion) {
+                        if (seleccionable) toggleSeleccionMulti(f.id_factura);
+                        return;
+                      }
+                      setSelectedId(selectedId === f.id_factura ? null : f.id_factura);
+                    }}
+                    onLongPress={() => entrarModoSeleccionConFactura(f.id_factura, f.estado)}
+                    delayLongPress={450}
                   >
                     <View style={styles.actionCell}>
+                      {modoSeleccion ? (
+                        <Pressable
+                          hitSlop={8}
+                          onPress={(e) => {
+                            absorberClickFila(e);
+                            if (seleccionable) toggleSeleccionMulti(f.id_factura);
+                          }}
+                          style={styles.actionBtn}
+                        >
+                          <MaterialIcons
+                            name={selectedMultiIds.has(f.id_factura) ? 'check-box' : 'check-box-outline-blank'}
+                            size={18}
+                            color={seleccionable ? '#0ea5e9' : '#cbd5e1'}
+                          />
+                        </Pressable>
+                      ) : (
                       <Pressable
                         hitSlop={8}
                         accessibilityLabel="Ver detalle y documento"
@@ -806,6 +1069,7 @@ export default function FacturasGastoScreen() {
                       >
                         <MaterialIcons name="vertical-split" size={16} color="#0369a1" />
                       </Pressable>
+                      )}
                     </View>
                     {COLUMNAS.map((col) => {
                       if (col === 'estado') {
@@ -847,7 +1111,8 @@ export default function FacturasGastoScreen() {
                       );
                     })}
                   </Pressable>
-                ))
+                  );
+                })
               )}
             </ScrollView>
           </View>
@@ -870,6 +1135,44 @@ export default function FacturasGastoScreen() {
           router.push(`/facturacion/factura-detalle?id=${id}&modo=editar&tipo=IN` as never)
         }
       />
+
+      {/* Modal crear remesa */}
+      <Modal visible={modalRemesa} transparent animationType="fade" onRequestClose={() => !procesando && setModalRemesa(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => !procesando && setModalRemesa(false)}>
+          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitle}>Crear remesa de pago</Text>
+            <Text style={styles.modalLabel}>
+              {facturasSeleccionadasRemesa.length} factura(s) · Sociedad: {sociedadRemesa?.nombre || '—'}
+            </Text>
+            <Text style={styles.modalFieldLabel}>Nombre de la remesa *</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={remesaNombre}
+              onChangeText={setRemesaNombre}
+              placeholder="Pagos proveedores…"
+              placeholderTextColor="#94a3b8"
+            />
+            <Text style={styles.modalFieldLabel}>Fecha ejecución en banco (opcional)</Text>
+            <InputFecha valueIso={remesaFechaEjecucion} onChangeIso={setRemesaFechaEjecucion} placeholder="Vacío = Ahora" />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setModalRemesa(false)} disabled={procesando}>
+                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtnConfirm, procesando && styles.modalBtnDisabled]}
+                onPress={crearRemesa}
+                disabled={procesando}
+              >
+                {procesando ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.modalBtnConfirmText}>Crear remesa</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Modal Borrar (solo facturas IN; eliminación definitiva) */}
       <Modal visible={modalBorrar} transparent animationType="fade" onRequestClose={() => !procesando && setModalBorrar(false)}>
@@ -1089,6 +1392,28 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   toolbarBtnDisabled: { opacity: 0.5 },
+  toolbarBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
+  remesaCrearBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#0369a1',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  remesaCrearBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  modoSeleccionAcciones: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+  validarMasivoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#16a34a',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  validarMasivoBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
 
   searchWrap: {
     flex: 1,

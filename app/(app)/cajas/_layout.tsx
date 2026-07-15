@@ -9,6 +9,7 @@ export default function CajasLayout() {
       <Stack.Screen name="arqueo-caja" />
       <Stack.Screen name="comparativa-fechas-cajas" />
       <Stack.Screen name="objetivos" />
+      <Stack.Screen name="incentivos-producto" />
       <Stack.Screen name="franjas-horarias" />
       <Stack.Screen name="control-excepciones" />
       <Stack.Screen name="efectivo-ingresar" />
