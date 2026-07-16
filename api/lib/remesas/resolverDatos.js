@@ -120,7 +120,7 @@ export function evaluarFacturaParaRemesa(factura, lineasFactura, sociedadId, emp
       },
     };
   }
-  const descripcionResumen = resumenDescripcionFactura(lineasFactura, factura.observaciones);
+  const descripcionResumen = resumenDescripcionFactura(null, factura.observaciones);
   const concepto = buildConceptoRemesa({
     numeroFacturaProveedor: factura.numero_factura_proveedor,
     numeroFactura: factura.numero_factura,

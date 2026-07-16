@@ -13,7 +13,7 @@ import {
   Pressable,
   useWindowDimensions,
 } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -109,6 +109,7 @@ const TABS_ESTADO = [
 
 export default function FacturasVentaScreen() {
   const router = useRouter();
+  const searchParams = useLocalSearchParams<{ modalFactura?: string; maestroActualizado?: string }>();
   const { hasPermiso, user } = useAuth();
   const { width: winW } = useWindowDimensions();
   const layoutSplit = Platform.OS === 'web' && winW >= 1024;
@@ -142,6 +143,8 @@ export default function FacturasVentaScreen() {
   const [errorModal, setErrorModal] = useState<string | null>(null);
   const [haySeries, setHaySeries] = useState(true);
   const [empresasCatalogo, setEmpresasCatalogo] = useState<EmpresaConTipoRecibo[]>([]);
+  const [resyncMaestroToken, setResyncMaestroToken] = useState(0);
+  const maestroToastRef = useRef(false);
 
   const [modalDetallePagosVisible, setModalDetallePagosVisible] = useState(false);
   const [detallePagosLoading, setDetallePagosLoading] = useState(false);
@@ -203,12 +206,46 @@ export default function FacturasVentaScreen() {
   const primerFocoListado = useRef(true);
   useFocusEffect(
     useCallback(() => {
+      const modalId = (
+        Array.isArray(searchParams.modalFactura)
+          ? searchParams.modalFactura[0]
+          : searchParams.modalFactura
+      )?.trim() ?? '';
+      const maestroOk = (
+        Array.isArray(searchParams.maestroActualizado)
+          ? searchParams.maestroActualizado[0]
+          : searchParams.maestroActualizado
+      ) === '1';
+
+      if (modalId || maestroOk) {
+        if (modalId) {
+          setModalFacturaId(modalId);
+          setSelectedId(modalId);
+        }
+        if (maestroOk) {
+          setResyncMaestroToken((t) => t + 1);
+          if (!maestroToastRef.current) {
+            maestroToastRef.current = true;
+            showToast(
+              'Maestro actualizado',
+              'Revisa emisor o receptor en la factura si cambió algún dato.',
+              'info',
+            );
+            setTimeout(() => {
+              maestroToastRef.current = false;
+            }, 800);
+          }
+        }
+        router.replace('/facturacion/facturas-venta' as never);
+      }
+
       if (primerFocoListado.current) {
         primerFocoListado.current = false;
+        if (modalId || maestroOk) refetch();
         return;
       }
       refetch();
-    }, [refetch]),
+    }, [refetch, searchParams.modalFactura, searchParams.maestroActualizado, router, showToast]),
   );
 
   const emisoresOpciones = useMemo(() => {
@@ -820,6 +857,7 @@ export default function FacturasVentaScreen() {
         usuarioNombre={user?.Nombre}
         onClose={() => setModalFacturaId(null)}
         onGuardado={refetch}
+        resyncMaestroToken={resyncMaestroToken}
         onAbrirCompleto={(id) => router.push(`/facturacion/factura-detalle?id=${id}&modo=editar&tipo=OUT` as any)}
       />
 

@@ -32,7 +32,7 @@ import {
   BatchWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
-import { requirePermission, hasPermission } from '../middleware/auth.js';
+import { requirePermission, requireAnyPermission, hasPermission } from '../middleware/auth.js';
 import { usuarioPuedeAccederLocal, jornadaNegocioHoyIso, formatId6 } from '../lib/usuarioLocales.js';
 
 const router = Router();
@@ -209,7 +209,7 @@ async function sincronizarVigenciaDesdeSesiones(idActivacion, ficha, fechasSesio
 // ──────────────────────────────────────────
 
 /** Contador de sesiones programadas para la jornada (badge Planning). */
-router.get('/activaciones/sesiones/pendientes-dia', requirePermission('activaciones.ver'), async (req, res) => {
+router.get('/activaciones/sesiones/pendientes-dia', requireAnyPermission('activaciones.ver', 'planning_dia.activaciones'), async (req, res) => {
   try {
     const fecha = RE_FECHA.test(String(req.query.fecha || '')) ? String(req.query.fecha) : jornadaNegocioHoyIso();
     const sesiones = await scanAll({
@@ -261,7 +261,7 @@ router.get('/activaciones/sesiones/rango', requirePermission('activaciones.ver')
 });
 
 /** Sesiones de un local en una jornada, enriquecidas con la ficha. */
-router.get('/activaciones/sesiones/dia', requirePermission('activaciones.ver'), async (req, res) => {
+router.get('/activaciones/sesiones/dia', requireAnyPermission('activaciones.ver', 'planning_dia.activaciones'), async (req, res) => {
   try {
     const idLocal = formatId6(String(req.query.id_local ?? req.query.localId ?? '').trim());
     if (!idLocal || idLocal === '000000') {
@@ -293,7 +293,7 @@ router.get('/activaciones/sesiones/dia', requirePermission('activaciones.ver'), 
 });
 
 /** Actualiza una sesión (estado/incidencia con `ver`; fecha/hora con `gestionar`). */
-router.patch('/activaciones/sesiones/:id_sesion', requirePermission('activaciones.ver'), async (req, res) => {
+router.patch('/activaciones/sesiones/:id_sesion', requireAnyPermission('activaciones.ver', 'planning_dia.activaciones'), async (req, res) => {
   try {
     const idSesion = String(req.params.id_sesion);
     const body = req.body || {};

@@ -24,6 +24,8 @@ import {
   GRUPO_EFECTIVO,
   GRUPO_PREPAGO,
 } from '../lib/cajas/movimientos.js';
+import { formatId6 } from '../lib/usuarioLocales.js';
+import { queryMovimientosLocalRango, agregarCashflowPorLocal } from '../lib/cashflow/store.js';
 
 /** Grupo canónico de tarjeta (para banderas de boletas en la revisión). */
 const GRUPO_TARJETA = 'Tarjeta';
@@ -914,13 +916,14 @@ router.get('/cajas/efectivo-ingresar', async (req, res) => {
       scanAll(tables.empresas).catch(() => []),
     ]);
 
-    const localByAgora = new Map(); // agoraCode -> { nombre, empresa }
+    const localByAgora = new Map(); // agoraCode -> { nombre, empresa, localId }
     for (const l of localesItems) {
       const code = String(l.agoraCode ?? l.AgoraCode ?? '').trim();
       if (!code) continue;
       localByAgora.set(code, {
         nombre: String(l.nombre ?? l.Nombre ?? '').trim(),
         empresa: String(l.empresa ?? l.Empresa ?? '').trim(),
+        localId: formatId6(l.id_Locales),
       });
     }
     const empresaByNombre = new Map(); // normNombre -> { nombre, iban }
@@ -977,11 +980,23 @@ router.get('/cajas/efectivo-ingresar', async (req, res) => {
       }
       retiradas = round2(retiradas);
 
-      const aIngresar = round2(billetesConteo + monedasConteo + sinDesglose + retiradas);
-      // Solo incluir locales con algo que ingresar.
-      if (aIngresar <= 0 && retiradas <= 0) continue;
+      let cf = { pagosFueraCaja: 0, cobrosFueraCaja: 0, cobrosRepartoSocios: 0, ajusteNeto: 0 };
+      const locMeta = localByAgora.get(wp);
+      if (locMeta?.localId) {
+        try {
+          const cfRows = await queryMovimientosLocalRango(locMeta.localId, lo, dateTo);
+          cf = agregarCashflowPorLocal(cfRows);
+        } catch (cfErr) {
+          console.warn('[efectivo-ingresar] cashflow', cfErr.message || cfErr);
+        }
+      }
 
-      const local = localByAgora.get(wp) || null;
+      const aIngresarBase = round2(billetesConteo + monedasConteo + sinDesglose + retiradas);
+      const aIngresar = round2(aIngresarBase + cf.ajusteNeto);
+      // Solo incluir locales con algo que ingresar.
+      if (aIngresar <= 0 && retiradas <= 0 && cf.pagosFueraCaja <= 0 && cf.cobrosFueraCaja <= 0) continue;
+
+      const local = locMeta || null;
       porLocal.push({
         workplaceId: wp,
         nombre: local?.nombre || workplaceName || wp,
@@ -990,6 +1005,10 @@ router.get('/cajas/efectivo-ingresar', async (req, res) => {
         monedas: round2(monedasConteo),
         sinDesglose: round2(sinDesglose),
         retiradas,
+        pagosFueraCaja: cf.pagosFueraCaja,
+        cobrosFueraCaja: cf.cobrosFueraCaja,
+        cobrosRepartoSocios: cf.cobrosRepartoSocios,
+        aIngresarBase,
         aIngresar,
         arqueosSinConteo,
       });
@@ -1009,6 +1028,9 @@ router.get('/cajas/efectivo-ingresar', async (req, res) => {
           totalMonedas: 0,
           totalSinDesglose: 0,
           totalRetiradas: 0,
+          totalPagosFueraCaja: 0,
+          totalCobrosFueraCaja: 0,
+          totalCobrosRepartoSocios: 0,
           totalAIngresar: 0,
           locales: [],
         });
@@ -1018,6 +1040,9 @@ router.get('/cajas/efectivo-ingresar', async (req, res) => {
       s.totalMonedas = round2(s.totalMonedas + l.monedas);
       s.totalSinDesglose = round2(s.totalSinDesglose + l.sinDesglose);
       s.totalRetiradas = round2(s.totalRetiradas + l.retiradas);
+      s.totalPagosFueraCaja = round2(s.totalPagosFueraCaja + (l.pagosFueraCaja || 0));
+      s.totalCobrosFueraCaja = round2(s.totalCobrosFueraCaja + (l.cobrosFueraCaja || 0));
+      s.totalCobrosRepartoSocios = round2(s.totalCobrosRepartoSocios + (l.cobrosRepartoSocios || 0));
       s.totalAIngresar = round2(s.totalAIngresar + l.aIngresar);
       s.locales.push(l);
     }
@@ -1031,9 +1056,21 @@ router.get('/cajas/efectivo-ingresar', async (req, res) => {
         monedas: round2(acc.monedas + s.totalMonedas),
         sinDesglose: round2(acc.sinDesglose + s.totalSinDesglose),
         retiradas: round2(acc.retiradas + s.totalRetiradas),
+        pagosFueraCaja: round2(acc.pagosFueraCaja + s.totalPagosFueraCaja),
+        cobrosFueraCaja: round2(acc.cobrosFueraCaja + s.totalCobrosFueraCaja),
+        cobrosRepartoSocios: round2(acc.cobrosRepartoSocios + s.totalCobrosRepartoSocios),
         aIngresar: round2(acc.aIngresar + s.totalAIngresar),
       }),
-      { billetes: 0, monedas: 0, sinDesglose: 0, retiradas: 0, aIngresar: 0 },
+      {
+        billetes: 0,
+        monedas: 0,
+        sinDesglose: 0,
+        retiradas: 0,
+        pagosFueraCaja: 0,
+        cobrosFueraCaja: 0,
+        cobrosRepartoSocios: 0,
+        aIngresar: 0,
+      },
     );
 
     res.json({ dateFrom, dateTo, sociedades, totalGeneral });

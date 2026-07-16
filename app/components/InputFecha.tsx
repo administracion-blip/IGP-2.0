@@ -14,6 +14,8 @@ import {
   Pressable,
   StyleSheet,
   type TextInputProps,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -33,6 +35,8 @@ type InputFechaStyleProps = {
   editable?: boolean;
   placeholderTextColor?: string;
   showCalendar?: boolean;
+  /** Altura fija (~32px) con texto e icono centrados; para toolbars y filtros compactos. */
+  compact?: boolean;
 };
 
 /** API preferida: estado del padre en ISO yyyy-mm-dd. */
@@ -74,6 +78,8 @@ function abrirPickerNativo(input: HTMLInputElement) {
   }
 }
 
+const COMPACT_HEIGHT_DEFAULT = 32;
+
 export function InputFecha(props: InputFechaProps) {
   const {
     placeholder = 'dd/mm/aaaa',
@@ -81,7 +87,14 @@ export function InputFecha(props: InputFechaProps) {
     editable = true,
     placeholderTextColor = '#94a3b8',
     showCalendar = true,
+    compact = false,
   } = props;
+
+  const compactHeight = useMemo(() => {
+    if (!compact) return COMPACT_HEIGHT_DEFAULT;
+    const h = (style as { height?: number } | undefined)?.height;
+    return typeof h === 'number' && h > 0 ? h : COMPACT_HEIGHT_DEFAULT;
+  }, [compact, style]);
 
   const format: FechaInputFormat =
     'format' in props && props.format ? props.format : 'iso';
@@ -117,11 +130,60 @@ export function InputFecha(props: InputFechaProps) {
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dateValue = isoADate(valueIso);
 
+  /** En formularios, el `style` del padre define borde/radio/alto del contenedor (coherente con otros campos). */
+  const containerFromStyle = useMemo((): StyleProp<ViewStyle> | null => {
+    if (compact || !style || Platform.OS !== 'web') return null;
+    const f = StyleSheet.flatten(style);
+    if (!f) return null;
+    const out: ViewStyle = {};
+    if (f.backgroundColor != null) out.backgroundColor = f.backgroundColor;
+    if (f.borderWidth != null) out.borderWidth = f.borderWidth;
+    if (f.borderColor != null) out.borderColor = f.borderColor;
+    if (f.borderRadius != null) out.borderRadius = f.borderRadius;
+    if (f.minHeight != null) out.minHeight = f.minHeight;
+    if (f.height != null) out.height = f.height;
+    return Object.keys(out).length ? out : null;
+  }, [style, compact]);
+
+  const wrapFormStyle = !compact ? ({ flex: 1, width: '100%', minWidth: 0 } as const) : null;
+
+  const compactFieldStyle = compact
+    ? {
+        flex: 1,
+        borderWidth: 0,
+        paddingVertical: 0,
+        paddingHorizontal: 8,
+        paddingRight: 4,
+        fontSize: (style as { fontSize?: number } | undefined)?.fontSize ?? 12,
+        color: '#334155',
+        textAlignVertical: 'center' as const,
+        backgroundColor: 'transparent',
+        minHeight: compactHeight,
+        height: compactHeight,
+        ...(Platform.OS === 'web'
+          ? ({ lineHeight: `${compactHeight}px` } as object)
+          : { lineHeight: compactHeight }),
+      }
+    : undefined;
+
   const fieldStyle = showCalendar
     ? Platform.OS === 'web'
-      ? [styles.inputBase, style, styles.webInputField, { borderWidth: 0 }]
-      : [styles.inputBase, style ?? styles.inputDefault]
-    : (style ?? styles.inputDefault);
+      ? compact
+        ? [styles.inputBase, compactFieldStyle]
+        : [styles.inputBase, style, styles.webInputField, { borderWidth: 0 }]
+      : compact
+        ? [styles.inputBase, compactFieldStyle]
+        : [styles.inputBase, style ?? styles.inputDefault]
+    : compact
+      ? [compactFieldStyle, style]
+      : (style ?? styles.inputDefault);
+
+  const wrapCompactStyle = compact
+    ? [styles.wrapCompact, style, { height: compactHeight, minHeight: compactHeight }]
+    : null;
+
+  const iconBtnStyle = compact ? styles.iconBtnCompact : styles.iconBtn;
+  const webIconBtnStyle = compact ? styles.webIconBtnCompact : styles.webIconBtn;
 
   const abrirCalendario = useCallback(() => {
     if (!editable) return;
@@ -250,8 +312,14 @@ export function InputFecha(props: InputFechaProps) {
     ) as React.CSSProperties;
 
     return (
-      <View style={[styles.wrap, styles.webInputRow]}>
-        <View style={styles.webFieldWrap}>
+      <View
+        style={
+          compact
+            ? [styles.wrap, ...(wrapCompactStyle ?? [])]
+            : [styles.wrap, styles.webInputRow, containerFromStyle, wrapFormStyle]
+        }
+      >
+        <View style={[styles.webFieldWrap, compact && styles.webFieldWrapCompact]}>
           {modoEdicion ? (
             campoEditable
           ) : (
@@ -279,25 +347,29 @@ export function InputFecha(props: InputFechaProps) {
           />
         </View>
         <TouchableOpacity
-          style={styles.webIconBtn}
+          style={webIconBtnStyle}
           onPress={abrirCalendario}
           disabled={!editable}
           accessibilityLabel="Abrir calendario"
         >
-          <MaterialIcons name="calendar-today" size={18} color="#64748b" />
+          <MaterialIcons name="calendar-today" size={compact ? 16 : 18} color="#64748b" />
         </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <View style={styles.wrap}>
-      {campo}
+    <View style={compact ? [styles.wrap, ...(wrapCompactStyle ?? [])] : [styles.wrap, containerFromStyle, wrapFormStyle]}>
+      {compact ? (
+        <View style={styles.compactFieldOuter}>{campo}</View>
+      ) : (
+        campo
+      )}
       <TouchableOpacity
-        style={styles.iconBtn}
+        style={iconBtnStyle}
         onPress={abrirCalendario}
         disabled={!editable}
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        hitSlop={compact ? { top: 4, bottom: 4, left: 4, right: 4 } : { top: 10, bottom: 10, left: 10, right: 10 }}
         accessibilityLabel="Abrir calendario"
       >
         <MaterialIcons name="calendar-today" size={16} color="#64748b" />
@@ -337,6 +409,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'relative' as const,
   },
+  wrapCompact: {
+    overflow: 'hidden',
+    alignItems: 'center',
+    width: '100%',
+  },
+  compactFieldOuter: {
+    flex: 1,
+    justifyContent: 'center',
+    minWidth: 0,
+  },
   inputBase: {
     flex: 1,
     paddingRight: 28,
@@ -359,6 +441,10 @@ const styles = StyleSheet.create({
     flex: 1,
     position: 'relative' as const,
     minWidth: 90,
+  },
+  webFieldWrapCompact: {
+    justifyContent: 'center',
+    alignSelf: 'stretch',
   },
   webInputField: {
     flex: 1,
@@ -385,6 +471,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  iconBtnCompact: {
+    width: 28,
+    height: 28,
+    minWidth: 28,
+    minHeight: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 2,
+  },
   webIconBtn: {
     width: MIN_TOUCH,
     minWidth: MIN_TOUCH,
@@ -393,6 +488,17 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     borderLeftWidth: StyleSheet.hairlineWidth,
     borderLeftColor: '#e5e7eb',
+  },
+  webIconBtnCompact: {
+    width: 28,
+    height: 28,
+    minWidth: 28,
+    minHeight: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: '#e2e8f0',
   },
   webDateInputOverlay: {
     position: 'absolute',

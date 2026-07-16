@@ -20,20 +20,29 @@ type Props = {
   /** Base64 PNG (sin data URL) */
   onConfirm: (base64Png: string) => void;
   uploading?: boolean;
+  title?: string;
+  subtitle?: string;
 };
 
-export function FirmaEnPantallaModal({ visible, onClose, onConfirm, uploading }: Props) {
+export function FirmaEnPantallaModal({
+  visible,
+  onClose,
+  onConfirm,
+  uploading,
+  title = 'Firma del artista',
+  subtitle = 'Dibuja con el dedo o el ratón en el recuadro.',
+}: Props) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
-            <Text style={styles.title}>Firma del artista</Text>
+            <Text style={styles.title}>{title}</Text>
             <TouchableOpacity onPress={onClose} disabled={uploading} hitSlop={12}>
               <MaterialIcons name="close" size={24} color="#64748b" />
             </TouchableOpacity>
           </View>
-          <Text style={styles.sub}>Dibuja con el dedo o el ratón en el recuadro.</Text>
+          <Text style={styles.sub}>{subtitle}</Text>
           <View style={styles.padSection}>
             <SignaturePad
               height={Platform.OS === 'web' ? 260 : 220}

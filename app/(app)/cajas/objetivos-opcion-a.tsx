@@ -1408,7 +1408,7 @@ export default function ObjetivosOpcionAScreen() {
                 <MaterialIcons name="insights" size={16} color="#25d366" />
                 <View style={styles.shareMenuItemTextCol}>
                   <Text style={styles.shareMenuText}>Resumen WhatsApp</Text>
-                  <Text style={styles.shareMenuHint}>KPIs y top locales</Text>
+                  <Text style={styles.shareMenuHint}>KPIs, tops y consecución por local</Text>
                 </View>
               </TouchableOpacity>
               <TouchableOpacity

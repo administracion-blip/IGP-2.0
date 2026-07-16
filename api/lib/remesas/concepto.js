@@ -2,23 +2,12 @@ const SEP = ' · ';
 const MAX_CONCEPTO = 140;
 
 /**
- * Resumen de descripción desde líneas de factura u observaciones.
- * @param {{ descripcion?: string }[]} lineas
+ * Texto de observaciones recortado para el concepto remesa (sin usar líneas de factura).
  * @param {string} observaciones
  * @param {number} maxLen
  */
-export function resumenDescripcionFactura(lineas, observaciones, maxLen = 80) {
-  const textos = [];
-  if (Array.isArray(lineas)) {
-    for (const l of lineas) {
-      const d = String(l?.descripcion ?? '').trim();
-      if (d && !textos.includes(d)) textos.push(d);
-    }
-  }
-  let base = textos.join(SEP);
-  if (!base) {
-    base = String(observaciones ?? '').trim().replace(/\s+/g, ' ');
-  }
+export function resumenDescripcionFactura(_lineas, observaciones, maxLen = 80) {
+  const base = String(observaciones ?? '').trim().replace(/\s+/g, ' ');
   if (!base) return '';
   if (base.length <= maxLen) return base;
   return base.slice(0, maxLen).trim();

@@ -9,6 +9,21 @@ export function formatId6(val) {
   return String(Math.max(0, n)).padStart(6, '0');
 }
 
+/** Nombres de locales permitidos desde registro igp_usuarios (campo `Local`). */
+export function normalizeLocalesUsuario(record) {
+  if (!record) return [];
+  const rawLocal = record.Local ?? record.Locales;
+  if (Array.isArray(rawLocal)) {
+    return rawLocal
+      .filter((l) => l != null && String(l).trim() !== '')
+      .map((l) => String(l).trim());
+  }
+  if (rawLocal != null && String(rawLocal).trim() !== '') {
+    return [String(rawLocal).trim()];
+  }
+  return [];
+}
+
 /**
  * ¿Puede el usuario del token acceder a este local?
  * Administrador o Locales vacío = todos.
@@ -18,8 +33,8 @@ export async function usuarioPuedeAccederLocal(user, idLocal) {
   if (user.rol === 'Administrador') return true;
   try {
     const usuarios = await findUsuarioByEmail(String(user.email || '').trim().toLowerCase());
-    const locales = usuarios[0]?.Locales;
-    if (!Array.isArray(locales) || locales.length === 0) return true;
+    const locales = normalizeLocalesUsuario(usuarios[0]);
+    if (locales.length === 0) return true;
     const loc = await docClient.send(
       new GetCommand({ TableName: tables.locales, Key: { id_Locales: formatId6(idLocal) } }),
     );

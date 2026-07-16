@@ -22,6 +22,14 @@ export const MODULOS: ModuloMenu[] = [
   { route: '/planning-dia', label: 'Planning del Día', icon: 'today', permiso: 'planning_dia.ver' },
 ];
 
+/** Permisos que controlan entradas del menú lateral (derivado de MODULOS). */
+export const PERMISOS_MENU_LATERAL: string[] = MODULOS.map((m) => m.permiso).filter(
+  (p): p is string => Boolean(p)
+);
+
+/** Permisos del menú engranaje de cabecera (no están en MODULOS). */
+export const PERMISOS_MENU_CONFIGURACION = ['permisos.ver', 'ajustes.ver'] as const;
+
 /** Devuelve el módulo (entrada de menú) al que pertenece una ruta de submódulo. */
 export function moduloDeRuta(route: string): ModuloMenu | null {
   const seg = route.split('/').filter(Boolean)[0];

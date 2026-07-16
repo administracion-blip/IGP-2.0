@@ -20,6 +20,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useAuth } from '../../contexts/AuthContext';
+import { puedeVerArqueoCaja } from '../../lib/permisosModulos';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
@@ -857,7 +858,7 @@ export default function ArqueoCajaScreen() {
     capturarEscanearBoleta(nl.id, source);
   }, [businessDayIso, formLocal, capturarEscanearBoleta]);
 
-  if (!hasPermiso('cierres.ver')) {
+  if (!puedeVerArqueoCaja(hasPermiso)) {
     return (
       <View style={styles.container}>
         <Text style={styles.errorText}>No tienes permiso para ver esta pantalla.</Text>

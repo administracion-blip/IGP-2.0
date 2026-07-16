@@ -44,7 +44,7 @@ const CAMPOS_FORM: { key: (typeof ATRIBUTOS_TABLA_USUARIOS)[number]; label: stri
 
 const INITIAL_FORM = Object.fromEntries(CAMPOS_FORM.map((c) => [c.key, ''])) as Record<(typeof ATRIBUTOS_TABLA_USUARIOS)[number], string>;
 
-const ROL_OPCIONES = ['Administrador', 'SuperUser', 'Administracion', 'Local', 'Socio', 'Marketing'] as const;
+type RolCatalogo = { nombre: string; descripcion?: string; sistema?: boolean };
 
 type Usuario = Record<string, string | number | undefined>;
 
@@ -80,6 +80,7 @@ export default function UsuariosScreen() {
   const [formCrearLocal, setFormCrearLocal] = useState({ Nombre: '' });
   const [guardandoCrearLocal, setGuardandoCrearLocal] = useState(false);
   const [errorCrearLocal, setErrorCrearLocal] = useState<string | null>(null);
+  const [rolesCatalogo, setRolesCatalogo] = useState<RolCatalogo[]>([]);
   const resizeRef = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
 
   const abrirModalNuevo = () => {
@@ -165,8 +166,16 @@ export default function UsuariosScreen() {
   };
 
   const rolOpciones = useMemo(
-    () => [...ROL_OPCIONES].sort((a, b) => a.localeCompare(b)).map((r) => ({ id: r, titulo: r, icono: 'badge' as const })),
-    [],
+    () =>
+      [...rolesCatalogo]
+        .sort((a, b) => a.nombre.localeCompare(b.nombre))
+        .map((r) => ({
+          id: r.nombre,
+          titulo: r.nombre,
+          subtitulo: r.descripcion || undefined,
+          icono: 'badge' as const,
+        })),
+    [rolesCatalogo]
   );
   const localesFiltrados = useMemo(() => {
     const q = localSearchFilter.trim().toLowerCase();
@@ -197,6 +206,15 @@ export default function UsuariosScreen() {
       })
       .catch((e) => setError(e.message || 'Error de conexión'));
   }, [ordenarPorId]);
+
+  const refetchRoles = useCallback(() => {
+    apiFetch('/api/roles')
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.error) setRolesCatalogo(data.roles || []);
+      })
+      .catch(() => {});
+  }, []);
 
   const guardarNuevo = async () => {
     const isEdit = editingUsuarioId != null;
@@ -369,6 +387,10 @@ export default function UsuariosScreen() {
   useEffect(() => {
     refetchLocales();
   }, [refetchLocales]);
+
+  useEffect(() => {
+    refetchRoles();
+  }, [refetchRoles]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !resizingCol) return;

@@ -23,6 +23,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { FacturaVentaDetallePanel } from './FacturaVentaDetallePanel';
+import { descargarAdjuntoFacturaRecibida } from '../lib/descargarAdjuntoFactura';
 
 type AdjuntoItem = {
   id: string;
@@ -42,6 +43,8 @@ type Props = {
   onClose: () => void;
   onGuardado: () => void;
   onAbrirCompleto: (id: string) => void;
+  /** Tras editar empresa/proveedor en maestro y volver al listado. */
+  resyncMaestroToken?: number;
 };
 
 export function FacturaDetalleModal({
@@ -54,6 +57,7 @@ export function FacturaDetalleModal({
   onClose,
   onGuardado,
   onAbrirCompleto,
+  resyncMaestroToken = 0,
 }: Props) {
   const { width: winW, height: winH } = useWindowDimensions();
   const apilado = winW < 900;
@@ -61,14 +65,33 @@ export function FacturaDetalleModal({
   // null = adjuntos aún cargando; [] = sin adjuntos.
   const [adjuntos, setAdjuntos] = useState<AdjuntoItem[] | null>(null);
   const [selIdx, setSelIdx] = useState(0);
+  const [descargando, setDescargando] = useState(false);
+  const [descargaOk, setDescargaOk] = useState(false);
 
   useEffect(() => {
     setAdjuntos(null);
     setSelIdx(0);
+    setDescargando(false);
+    setDescargaOk(false);
   }, [facturaId]);
 
   const adjSel =
     adjuntos && adjuntos.length > 0 ? adjuntos[Math.min(selIdx, adjuntos.length - 1)] : null;
+
+  const descargarDocumento = async () => {
+    if (!facturaId || !adjSel?.id || tipoFactura !== 'IN') return;
+    setDescargando(true);
+    setDescargaOk(false);
+    try {
+      await descargarAdjuntoFacturaRecibida(facturaId, adjSel.id);
+      setDescargaOk(true);
+      setTimeout(() => setDescargaOk(false), 2000);
+    } catch {
+      // El panel de detalle ya gestiona errores en su modal de adjuntos; aquí feedback mínimo.
+    } finally {
+      setDescargando(false);
+    }
+  };
 
   const renderPreview = () => {
     if (adjuntos === null) {
@@ -137,11 +160,30 @@ export function FacturaDetalleModal({
                   onGuardado={onGuardado}
                   onAbrirCompleto={onAbrirCompleto}
                   onAdjuntos={setAdjuntos}
+                  resyncMaestroToken={resyncMaestroToken}
                 />
               </View>
 
               {/* Derecha: previsualización del documento */}
               <View style={[styles.panelPreview, apilado && styles.panelApilado]}>
+                {tipoFactura === 'IN' && adjSel?.url && facturaId ? (
+                  <View style={styles.previewToolbar}>
+                    <TouchableOpacity
+                      style={styles.descargarBtn}
+                      onPress={descargarDocumento}
+                      disabled={descargando}
+                    >
+                      {descargando ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <MaterialIcons name="download" size={16} color="#fff" />
+                      )}
+                      <Text style={styles.descargarBtnText}>
+                        {descargaOk ? 'Descargado' : 'Descargar (id_Documento)'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
                 {adjuntos && adjuntos.length > 1 ? (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
                     <View style={styles.chipsRow}>
@@ -201,6 +243,17 @@ const styles = StyleSheet.create({
   panelDetalle: { flex: 1.2, minWidth: 0, borderRightWidth: 1, borderRightColor: '#e2e8f0', backgroundColor: '#f8fafc' },
   panelPreview: { flex: 1, minWidth: 0, padding: 10 },
   panelApilado: { borderRightWidth: 0 },
+  previewToolbar: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 },
+  descargarBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#059669',
+  },
+  descargarBtnText: { fontSize: 12, fontWeight: '600', color: '#fff' },
 
   chipsRow: { flexDirection: 'row', gap: 6, marginBottom: 8 },
   chip: {

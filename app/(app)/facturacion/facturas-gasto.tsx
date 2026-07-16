@@ -12,13 +12,16 @@ import {
   Pressable,
   useWindowDimensions,
 } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
+import { SelectorDesplegableMulti } from '../../components/SelectorDesplegableMulti';
 import {
+  colorEstado,
+  ESTADOS_IN,
   formatMoneda,
   FORMAS_PAGO,
   labelFormaPago,
@@ -38,6 +41,8 @@ import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla'
 import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
 import { apiFetch } from '../../utils/api';
 import { ESTADOS_FACTURA_REMESABLES, esFacturaSeleccionableEnListado } from '../../lib/remesas';
+import { descargarAdjuntoFacturaRecibida } from '../../lib/descargarAdjuntoFactura';
+import { textoTrimestreFactura, trimestreDesdeFechaEmision } from '../../lib/idDocumentoFactura';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const PAGE_SIZE = 50;
@@ -52,6 +57,12 @@ function formatFechaEmisionCelda(raw: string): string {
 function fechaEmisionComparable(s: string | undefined | null): string {
   if (s == null || String(s).trim() === '') return '';
   return fechaEmisionFacturaAIso(String(s).trim()) ?? '';
+}
+
+function trimestreComparable(raw: string | undefined | null): string {
+  const t = trimestreDesdeFechaEmision(raw);
+  if (!t) return '';
+  return `${t.anio}-${t.trimestre}`;
 }
 
 /** Evita que el click del icono dispare la selección de fila (p. ej. en web). */
@@ -79,7 +90,7 @@ function formatoTipoIvaPct(f: FacturaListado): string {
   return `${s} %`;
 }
 
-type TabEstado = 'todas' | 'borrador' | 'pendiente_revision' | 'pendiente_pago' | 'parcialmente_pagada' | 'pagada' | 'anulada';
+type TabEstado = 'todas' | (typeof ESTADOS_IN)[number];
 
 const TABS: { key: TabEstado; label: string }[] = [
   { key: 'todas', label: 'Todas' },
@@ -87,13 +98,32 @@ const TABS: { key: TabEstado; label: string }[] = [
   { key: 'pendiente_revision', label: 'Pte. revisión' },
   { key: 'pendiente_pago', label: 'Pte. pago' },
   { key: 'parcialmente_pagada', label: 'Parcial pagada' },
+  { key: 'vencida', label: 'Vencida' },
   { key: 'pagada', label: 'Pagada' },
   { key: 'anulada', label: 'Anulada' },
 ];
 
+const ESTADOS_GASTO_CHIP = new Set<string>(ESTADOS_IN);
+
+const FILTER_FIELD_HEIGHT = 32;
+
+function empresaFiltroKey(f: FacturaListado): string {
+  const id = String(f.emisor_id ?? '').trim();
+  if (id) return id;
+  return String(f.emisor_nombre ?? '').trim();
+}
+
+function pastelChipEstado(key: TabEstado): { bg: string; text: string; border: string } {
+  if (key === 'todas') return { bg: '#f1f5f9', text: '#475569', border: '#cbd5e1' };
+  const { bg, text } = colorEstado(key);
+  const border = key === 'parcialmente_pagada' ? '#fed7aa' : bg;
+  return { bg, text, border };
+}
+
 const COLUMNAS = [
   'id_factura',
   'fecha_emision',
+  'trimestre',
   'fecha_contabilizacion',
   'emisor_nombre',
   'empresa_nombre',
@@ -112,6 +142,7 @@ const COLUMNAS = [
 const COL_LABELS: Record<string, string> = {
   id_factura: 'ID',
   fecha_emision: 'Fecha',
+  trimestre: 'Trimestre',
   fecha_contabilizacion: 'F. contabilización',
   emisor_nombre: 'Empresa',
   empresa_nombre: 'Proveedor',
@@ -130,6 +161,7 @@ const COL_LABELS: Record<string, string> = {
 const DEFAULT_WIDTHS: Record<string, number> = {
   id_factura: 74,
   fecha_emision: 82,
+  trimestre: 72,
   fecha_contabilizacion: 180,
   emisor_nombre: 150,
   empresa_nombre: 140,
@@ -170,11 +202,12 @@ const TOOLBAR_BUTTONS: ToolbarBtn[] = [
   { id: 'borrar', icon: 'delete-outline', label: 'Borrar', permiso: 'facturacion.editar', needsSelection: true },
   { id: 'pagar', icon: 'payments', label: 'Pagar', permiso: 'facturacion.cobrar_pagar', needsSelection: true },
   { id: 'refresh', icon: 'refresh', label: 'Actualizar', permiso: '', needsSelection: false },
-  { id: 'ver_doc', icon: 'description', label: 'Ver documento', permiso: '', needsSelection: true },
+  { id: 'ver_doc', icon: 'download', label: 'Descargar documento', permiso: '', needsSelection: true },
 ];
 
 export default function FacturasGastoScreen() {
   const router = useRouter();
+  const searchParams = useLocalSearchParams<{ modalFactura?: string; maestroActualizado?: string }>();
   const { hasPermiso, user } = useAuth();
   const { width: winW } = useWindowDimensions();
   const layoutSplit = Platform.OS === 'web' && winW >= 1024;
@@ -188,6 +221,7 @@ export default function FacturasGastoScreen() {
   const [busqueda, setBusqueda] = useState('');
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
+  const [empresasFiltroIds, setEmpresasFiltroIds] = useState<string[]>([]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalFacturaId, setModalFacturaId] = useState<string | null>(null);
@@ -224,6 +258,8 @@ export default function FacturasGastoScreen() {
   const [modalRemesa, setModalRemesa] = useState(false);
   const [remesaNombre, setRemesaNombre] = useState('');
   const [remesaFechaEjecucion, setRemesaFechaEjecucion] = useState('');
+  const [resyncMaestroToken, setResyncMaestroToken] = useState(0);
+  const maestroToastRef = useRef(false);
 
   const puedeModoSeleccion = hasPermiso('facturacion.emitir') || hasPermiso('remesas.gestionar');
 
@@ -247,12 +283,46 @@ export default function FacturasGastoScreen() {
   const primerFocoListado = useRef(true);
   useFocusEffect(
     useCallback(() => {
+      const modalId = (
+        Array.isArray(searchParams.modalFactura)
+          ? searchParams.modalFactura[0]
+          : searchParams.modalFactura
+      )?.trim() ?? '';
+      const maestroOk = (
+        Array.isArray(searchParams.maestroActualizado)
+          ? searchParams.maestroActualizado[0]
+          : searchParams.maestroActualizado
+      ) === '1';
+
+      if (modalId || maestroOk) {
+        if (modalId) {
+          setModalFacturaId(modalId);
+          setSelectedId(modalId);
+        }
+        if (maestroOk) {
+          setResyncMaestroToken((t) => t + 1);
+          if (!maestroToastRef.current) {
+            maestroToastRef.current = true;
+            showToast(
+              'Maestro actualizado',
+              'Revisa empresa o proveedor en la factura si cambió algún dato.',
+              'info',
+            );
+            setTimeout(() => {
+              maestroToastRef.current = false;
+            }, 800);
+          }
+        }
+        router.replace('/facturacion/facturas-gasto' as never);
+      }
+
       if (primerFocoListado.current) {
         primerFocoListado.current = false;
+        if (modalId || maestroOk) fetchFacturas();
         return;
       }
       fetchFacturas();
-    }, [fetchFacturas]),
+    }, [fetchFacturas, searchParams.modalFactura, searchParams.maestroActualizado, router, showToast]),
   );
 
   useEffect(() => {
@@ -280,9 +350,24 @@ export default function FacturasGastoScreen() {
     else { setSortCol(col); setSortDir('asc'); }
   }, [sortCol]);
 
-  const filtradas = useMemo(() => {
+  const empresasFiltroOpciones = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const f of facturas) {
+      const key = empresaFiltroKey(f);
+      const nombre = String(f.emisor_nombre || '—').trim();
+      if (key) map.set(key, nombre);
+    }
+    return [...map.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1], 'es'))
+      .map(([id, titulo]) => ({ id, titulo, icono: 'business' as const }));
+  }, [facturas]);
+
+  const facturasBaseFiltradas = useMemo(() => {
     let list = facturas;
-    if (tabActivo !== 'todas') list = list.filter((f) => f.estado === tabActivo);
+    if (empresasFiltroIds.length > 0) {
+      const set = new Set(empresasFiltroIds);
+      list = list.filter((f) => set.has(empresaFiltroKey(f)));
+    }
     if (fechaDesde) {
       list = list.filter((f) => (fechaEmisionComparable(f.fecha_emision) || '') >= fechaDesde);
     }
@@ -300,12 +385,34 @@ export default function FacturasGastoScreen() {
         f.id_factura?.toLowerCase().includes(q)
       );
     }
+    return list;
+  }, [facturas, empresasFiltroIds, fechaDesde, fechaHasta, busqueda]);
+
+  const conteosPorTab = useMemo(() => {
+    const counts = Object.fromEntries(TABS.map((t) => [t.key, 0])) as Record<TabEstado, number>;
+    counts.todas = facturasBaseFiltradas.length;
+    for (const f of facturasBaseFiltradas) {
+      const estado = String(f.estado ?? '').trim();
+      if (ESTADOS_GASTO_CHIP.has(estado)) {
+        counts[estado as TabEstado] += 1;
+      }
+    }
+    return counts;
+  }, [facturasBaseFiltradas]);
+
+  const filtradas = useMemo(() => {
+    let list = facturasBaseFiltradas;
+    if (tabActivo !== 'todas') list = list.filter((f) => f.estado === tabActivo);
     if (sortCol) {
       list = [...list].sort((a, b) => {
         if (sortCol === 'fecha_emision') {
           const fa = fechaEmisionComparable(a.fecha_emision);
           const fb = fechaEmisionComparable(b.fecha_emision);
           const cmp = fa.localeCompare(fb);
+          return sortDir === 'desc' ? -cmp : cmp;
+        }
+        if (sortCol === 'trimestre') {
+          const cmp = trimestreComparable(a.fecha_emision).localeCompare(trimestreComparable(b.fecha_emision));
           return sortDir === 'desc' ? -cmp : cmp;
         }
         if (sortCol === 'fecha_contabilizacion') {
@@ -339,13 +446,16 @@ export default function FacturasGastoScreen() {
       });
     }
     return list;
-  }, [facturas, tabActivo, busqueda, fechaDesde, fechaHasta, sortCol, sortDir]);
+  }, [facturasBaseFiltradas, tabActivo, sortCol, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(filtradas.length / PAGE_SIZE));
   const pageClamped = Math.min(Math.max(0, pageIndex), totalPages - 1);
   const paginadas = filtradas.slice(pageClamped * PAGE_SIZE, (pageClamped + 1) * PAGE_SIZE);
 
-  useEffect(() => { setPageIndex(0); setSelectedId(null); }, [tabActivo, busqueda, fechaDesde, fechaHasta]);
+  useEffect(() => {
+    setPageIndex(0);
+    setSelectedId(null);
+  }, [tabActivo, busqueda, fechaDesde, fechaHasta, empresasFiltroIds]);
 
   const selectedFactura: FacturaListado | null = useMemo(
     () => (selectedId ? filtradas.find((f) => f.id_factura === selectedId) ?? null : null),
@@ -383,6 +493,7 @@ export default function FacturasGastoScreen() {
         creadoEn: f.creado_en,
       });
     }
+    if (col === 'trimestre') return textoTrimestreFactura(f.fecha_emision);
     if (col === 'iva_tipo') return formatoTipoIvaPct(f);
     if (col === 'total_retencion') return formatMoneda(Number(f.total_retencion ?? 0));
     if (col === 'pagado') return formatMoneda(Number(f.total_cobrado ?? 0));
@@ -457,14 +568,10 @@ export default function FacturasGastoScreen() {
         showToast('Sin documento', 'Esta factura no tiene documento adjunto', 'warning');
         return;
       }
-      const url = adjuntos[0].url;
-      if (url && Platform.OS === 'web') {
-        window.open(url, '_blank');
-      } else {
-        showToast('Info', 'Abre la factura en modo edición para ver adjuntos', 'info');
-      }
-    } catch {
-      showToast('Error', 'No se pudo obtener el documento', 'error');
+      await descargarAdjuntoFacturaRecibida(selectedFactura.id_factura, adjuntos[0].id);
+      showToast('Descargado', 'Documento guardado con id_Documento', 'success');
+    } catch (e) {
+      showToast('Error', (e as Error).message || 'No se pudo descargar el documento', 'error');
     }
   };
 
@@ -789,18 +896,49 @@ export default function FacturasGastoScreen() {
         )}
       </View>
 
-      {/* Tabs */}
+      {empresasFiltroOpciones.length > 0 ? (
+        <SelectorDesplegableMulti
+          style={styles.empresaFiltroSelector}
+          placeholder="Todas las empresas"
+          icono="business"
+          tituloLista="Filtrar por empresa"
+          iconoLista="business"
+          buscador
+          buscadorPlaceholder="Buscar empresa…"
+          valorIds={empresasFiltroIds}
+          opciones={empresasFiltroOpciones}
+          onChange={setEmpresasFiltroIds}
+          vacioTexto="No hay empresas en el listado."
+        />
+      ) : null}
+
+      {/* Chips de estado */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll} contentContainerStyle={styles.tabsContent}>
-        {TABS.map((t) => (
-          <TouchableOpacity
-            key={t.key}
-            style={[styles.tab, tabActivo === t.key && styles.tabActive]}
-            onPress={() => setTabActivo(t.key)}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.tabText, tabActivo === t.key && styles.tabTextActive]}>{t.label}</Text>
-          </TouchableOpacity>
-        ))}
+        {TABS.map((t) => {
+          const pastel = pastelChipEstado(t.key);
+          const activo = tabActivo === t.key;
+          return (
+            <TouchableOpacity
+              key={t.key}
+              style={[
+                styles.estadoChip,
+                { backgroundColor: pastel.bg, borderColor: activo ? pastel.text : pastel.border },
+                activo && styles.estadoChipActive,
+              ]}
+              onPress={() => setTabActivo(t.key)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.estadoChipText, { color: pastel.text }, activo && styles.estadoChipTextActive]}>
+                {t.label}
+              </Text>
+              <View style={[styles.estadoChipCount, { backgroundColor: activo ? pastel.text : 'rgba(15, 23, 42, 0.08)' }]}>
+                <Text style={[styles.estadoChipCountText, { color: activo ? '#fff' : pastel.text }]}>
+                  {conteosPorTab[t.key]}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
 
       {/* Toolbar */}
@@ -919,8 +1057,24 @@ export default function FacturasGastoScreen() {
         </View>
 
         <View style={styles.dateFilters}>
-          <InputFecha valueIso={fechaDesde} onChangeIso={setFechaDesde} placeholder="dd/mm/aaaa" />
-          <InputFecha valueIso={fechaHasta} onChangeIso={setFechaHasta} placeholder="dd/mm/aaaa" />
+          <View style={styles.dateFilterCell}>
+            <InputFecha
+              compact
+              valueIso={fechaDesde}
+              onChangeIso={setFechaDesde}
+              placeholder="Desde"
+              style={styles.dateFilterInput}
+            />
+          </View>
+          <View style={styles.dateFilterCell}>
+            <InputFecha
+              compact
+              valueIso={fechaHasta}
+              onChangeIso={setFechaHasta}
+              placeholder="Hasta"
+              style={styles.dateFilterInput}
+            />
+          </View>
         </View>
       </View>
 
@@ -1104,7 +1258,15 @@ export default function FacturasGastoScreen() {
                       const isMoneda = MONEDA_COLS.has(col);
                       return (
                         <View key={col} style={[styles.cell, { width: getColWidth(col) }, isMoneda && styles.cellRight]}>
-                          <Text style={[styles.cellText, isMoneda && styles.cellTextRight]} numberOfLines={1} ellipsizeMode="tail">
+                          <Text
+                            style={[
+                              styles.cellText,
+                              isMoneda && styles.cellTextRight,
+                              col === 'total_factura' && styles.cellTextBold,
+                            ]}
+                            numberOfLines={1}
+                            ellipsizeMode="tail"
+                          >
                             {getCellValue(f, col)}
                           </Text>
                         </View>
@@ -1131,6 +1293,7 @@ export default function FacturasGastoScreen() {
         usuarioNombre={user?.Nombre}
         onClose={() => setModalFacturaId(null)}
         onGuardado={fetchFacturas}
+        resyncMaestroToken={resyncMaestroToken}
         onAbrirCompleto={(id) =>
           router.push(`/facturacion/factura-detalle?id=${id}&modo=editar&tipo=IN` as never)
         }
@@ -1355,19 +1518,35 @@ const styles = StyleSheet.create({
   backBtn: { padding: 4 },
   title: { fontSize: 20, fontWeight: '700', color: '#334155' },
 
-  tabsScroll: { maxHeight: 36, marginBottom: 8 },
-  tabsContent: { flexDirection: 'row', gap: 4 },
-  tab: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+  empresaFiltroSelector: { marginBottom: 8, maxWidth: 360 },
+
+  tabsScroll: { maxHeight: 40, marginBottom: 8 },
+  tabsContent: { flexDirection: 'row', gap: 6, paddingRight: 8 },
+  estadoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
   },
-  tabActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  tabText: { fontSize: 11, fontWeight: '500', color: '#64748b' },
-  tabTextActive: { color: '#fff', fontWeight: '600' },
+  estadoChipActive: {
+    borderWidth: 2,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  estadoChipText: { fontSize: 11, fontWeight: '500' },
+  estadoChipTextActive: { fontWeight: '700' },
+  estadoChipCount: {
+    minWidth: 20,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  estadoChipCountText: { fontSize: 10, fontWeight: '700' },
 
   toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 10, flexWrap: 'wrap' },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -1432,6 +1611,20 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
 
   dateFilters: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  dateFilterCell: {
+    width: 130,
+    height: FILTER_FIELD_HEIGHT,
+  },
+  dateFilterInput: {
+    width: '100%',
+    height: FILTER_FIELD_HEIGHT,
+    minHeight: FILTER_FIELD_HEIGHT,
+    fontSize: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+  },
 
   subtitleRow: {
     flexDirection: 'row',
@@ -1559,6 +1752,7 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
   cellTextRight: { textAlign: 'right' as const, alignSelf: 'stretch' as const },
+  cellTextBold: { fontWeight: '700', color: '#334155' },
   cellEmpty: {
     flex: 1,
     paddingVertical: 24,

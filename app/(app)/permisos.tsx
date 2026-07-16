@@ -8,156 +8,200 @@ import {
   TouchableOpacity,
   TextInput,
   Platform,
+  Modal,
+  Alert,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiFetch } from '../utils/api';
+import { SelectorDesplegable } from '../components/SelectorDesplegable';
+import { MODULOS, PERMISOS_MENU_CONFIGURACION } from '../constants/modulos';
 
-const ROLES_OPCIONES = ['Administrador', 'SuperUser', 'Administracion', 'Local', 'Socio'] as const;
+type RolCatalogo = {
+  nombre: string;
+  descripcion?: string;
+  sistema?: boolean;
+  orden?: number;
+  permisosCount?: number;
+};
 
-const PERMISOS_CODIGOS = [
-  // --- Módulos (menú lateral) ---
-  'base_datos.ver',
-  'mantenimiento.ver',
-  'compras.ver',
-  'cajas.ver',
-  'cashflow.ver',
-  'actuaciones.ver',
-  'rrpp.ver',
-  'recursos_humanos.ver',
-  'rrss.ver',
-  'mystery_guest.ver',
-  'reservas.ver',
-  // --- Usuarios ---
-  'usuarios.ver',
-  'usuarios.crear',
-  'usuarios.editar',
-  'usuarios.borrar',
-  // --- Locales ---
-  'locales.ver',
-  'locales.crear',
-  'locales.editar',
-  'locales.borrar',
-  // --- Empresas ---
-  'empresas.ver',
-  'empresas.crear',
-  'empresas.editar',
-  'empresas.importar',
-  // --- Productos ---
-  'productos.ver',
-  'productos.editar',
-  'productos.sincronizar',
-  // --- Almacenes ---
-  'almacenes.ver',
-  'almacenes.crear',
-  'almacenes.editar',
-  'almacenes.borrar',
-  'almacenes.sincronizar',
-  // --- Usuarios Ágora (maestro) ---
-  'usuarios_agora.ver',
-  'usuarios_agora.sincronizar',
-  // --- Puntos de venta ---
-  'puntos_venta.ver',
-  'puntos_venta.editar',
-  // --- Permisos ---
-  'permisos.ver',
-  'permisos.crear',
-  'permisos.editar',
-  'permisos.borrar',
-  // --- Cajas: Cierres teóricos ---
-  'cierres.ver',
-  'cierres.crear',
-  'cierres.editar',
-  'cierres.borrar',
-  'cierres.sincronizar',
-  'cierres.exportar',
-  // --- Cajas: Comparativa fechas ---
-  'comparativa.ver',
-  'comparativa.crear',
-  'comparativa.editar',
-  'comparativa.borrar',
-  'comparativa.importar',
-  'comparativa.exportar',
-  // --- Cajas: Objetivos ---
-  'objetivos.ver',
-  'objetivos.compartir',
-  // --- Cajas: Control de excepciones ---
-  'excepciones.ver',
-  'excepciones.exportar',
-  // --- Cajas: Top ---
-  'top.ver',
-  'top.exportar',
-  // --- Mantenimiento ---
-  'mantenimiento.crear',
-  'mantenimiento.editar',
-  'mantenimiento.borrar',
-  // --- Compras: Pedidos ---
-  'pedidos.ver',
-  'pedidos.ver_completados',
-  'pedidos.preparar',
-  'pedidos.exportar_traspaso',
-  'pedidos.crear',
-  'pedidos.editar',
-  'pedidos.borrar',
-  'pedidos.editar_enviado',
-  'pedidos.borrar_enviado',
-  // --- Compras: Compras proveedor ---
-  'compras_proveedor.ver',
-  'compras_proveedor.sincronizar',
-  // --- Acuerdos ---
-  'acuerdos.ver',
-  'acuerdos.crear',
-  'acuerdos.editar',
-  'acuerdos.borrar',
-  'acuerdos.exportar',
-  // --- Facturación ---
-  'facturacion.ver',
-  'facturacion.crear',
-  'facturacion.editar',
-  'facturacion.emitir',
-  'facturacion.anular',
-  'facturacion.cobrar_pagar',
-  'facturacion.series',
-  'facturacion.exportar',
-  // --- Ajustes ---
-  'ajustes.ver',
-  'ajustes.sincronizaciones.agora_productos',
-  'ajustes.sincronizaciones.agora_usuarios',
-  'ajustes.sincronizaciones.compras_proveedor',
-  'ajustes.sincronizaciones.closeouts',
-  'ajustes.sincronizaciones.almacenes',
-  'ajustes.sincronizaciones.empleados',
-  // --- Planning del Día ---
-  'planning_dia.ver',
-  'planning_dia.objetivo_card',
-  // --- Recursos Humanos ---
-  'personal.ver',
-  'rrhh.horas',
-  // --- Marketing ---
-  'marketing.proponer',
-  'marketing.gestionar',
-  // --- Activaciones de marca ---
-  'activaciones.ver',
-  'activaciones.gestionar',
-  'incentivos_producto.ver',
-  'incentivos_producto.gestionar',
-  'incentivos_producto.exportar',
-  'remesas.ver',
-  'remesas.gestionar',
-] as const;
+/**
+ * Familias de permisos: cada módulo incluye primero el permiso de acceso (menú)
+ * y después las acciones granulares. Una fila = un código; marcar/desmarcar
+ * sigue bloqueando o concediendo solo ese permiso al rol.
+ */
+const GRUPOS_PERMISOS: { titulo: string; codigos: string[] }[] = [
+  {
+    titulo: 'Configuración (engranaje)',
+    codigos: [
+      'permisos.ver',
+      'permisos.crear',
+      'permisos.editar',
+      'permisos.borrar',
+      'ajustes.ver',
+      'ajustes.sincronizaciones.agora_productos',
+      'ajustes.sincronizaciones.agora_usuarios',
+      'ajustes.sincronizaciones.compras_proveedor',
+      'ajustes.sincronizaciones.closeouts',
+      'ajustes.sincronizaciones.almacenes',
+      'ajustes.sincronizaciones.empleados',
+    ],
+  },
+  {
+    titulo: 'Base de datos',
+    codigos: [
+      'base_datos.ver',
+      'usuarios.ver',
+      'usuarios.crear',
+      'usuarios.editar',
+      'usuarios.borrar',
+      'locales.ver',
+      'locales.crear',
+      'locales.editar',
+      'locales.borrar',
+      'empresas.ver',
+      'empresas.crear',
+      'empresas.editar',
+      'empresas.importar',
+      'productos.ver',
+      'productos.editar',
+      'productos.sincronizar',
+      'almacenes.ver',
+      'almacenes.crear',
+      'almacenes.editar',
+      'almacenes.borrar',
+      'almacenes.sincronizar',
+      'usuarios_agora.ver',
+      'usuarios_agora.sincronizar',
+      'puntos_venta.ver',
+      'puntos_venta.editar',
+    ],
+  },
+  {
+    titulo: 'Compras',
+    codigos: [
+      'compras.ver',
+      'pedidos.ver',
+      'pedidos.ver_completados',
+      'pedidos.preparar',
+      'pedidos.exportar_traspaso',
+      'pedidos.crear',
+      'pedidos.editar',
+      'pedidos.borrar',
+      'pedidos.editar_enviado',
+      'pedidos.borrar_enviado',
+      'compras_proveedor.ver',
+      'compras_proveedor.sincronizar',
+    ],
+  },
+  {
+    titulo: 'Cajas',
+    codigos: [
+      'cajas.ver',
+      'cierres.ver',
+      'cierres.crear',
+      'cierres.editar',
+      'cierres.borrar',
+      'cierres.sincronizar',
+      'cierres.exportar',
+      'formas_pago.editar',
+      'comparativa.ver',
+      'comparativa.crear',
+      'comparativa.editar',
+      'comparativa.borrar',
+      'comparativa.importar',
+      'comparativa.exportar',
+      'objetivos.ver',
+      'objetivos.compartir',
+      'incentivos_producto.ver',
+      'incentivos_producto.gestionar',
+      'incentivos_producto.exportar',
+      'excepciones.ver',
+      'excepciones.exportar',
+      'top.ver',
+      'top.exportar',
+    ],
+  },
+  { titulo: 'Cashflow', codigos: ['cashflow.ver', 'cashflow.registrar', 'cashflow.validar'] },
+  {
+    titulo: 'Actuaciones',
+    codigos: [
+      'actuaciones.ver',
+      'actuaciones.programacion',
+      'actuaciones.crear',
+      'actuaciones.editar',
+      'actuaciones.borrar',
+      'actuaciones.firma',
+      'actuaciones.facturacion',
+    ],
+  },
+  { titulo: 'Rrpp', codigos: ['rrpp.ver'] },
+  {
+    titulo: 'Recursos Humanos',
+    codigos: ['recursos_humanos.ver', 'personal.ver', 'rrhh.horas'],
+  },
+  {
+    titulo: 'Marketing',
+    codigos: ['marketing.proponer', 'marketing.gestionar'],
+  },
+  { titulo: 'Mystery Guest', codigos: ['mystery_guest.ver'] },
+  {
+    titulo: 'Reservas',
+    codigos: ['reservas.ver', 'activaciones.ver', 'activaciones.gestionar'],
+  },
+  {
+    titulo: 'Acuerdos',
+    codigos: [
+      'acuerdos.ver',
+      'acuerdos.crear',
+      'acuerdos.editar',
+      'acuerdos.borrar',
+      'acuerdos.exportar',
+    ],
+  },
+  {
+    titulo: 'Facturación',
+    codigos: [
+      'facturacion.ver',
+      'facturacion.crear',
+      'facturacion.editar',
+      'facturacion.emitir',
+      'facturacion.anular',
+      'facturacion.cobrar_pagar',
+      'facturacion.series',
+      'facturacion.exportar',
+      'remesas.ver',
+      'remesas.gestionar',
+    ],
+  },
+  {
+    titulo: 'Planning del Día',
+    codigos: [
+      'planning_dia.ver',
+      'planning_dia.objetivo_card',
+      'planning_dia.actuaciones',
+      'planning_dia.activaciones',
+      'planning_dia.arqueo',
+    ],
+  },
+  {
+    titulo: 'Mantenimiento',
+    codigos: [
+      'mantenimiento.ver',
+      'mantenimiento.crear',
+      'mantenimiento.editar',
+      'mantenimiento.borrar',
+    ],
+  },
+  { titulo: 'Legacy / obsoleto', codigos: ['rrss.ver'] },
+];
+
+/** Catálogo plano (sin duplicados); mismo orden que los grupos. */
+const PERMISOS_CODIGOS: string[] = GRUPOS_PERMISOS.flatMap((g) => g.codigos);
 
 const PERMISOS_LABELS: Record<string, string> = {
-  'base_datos.ver': 'Base de datos (menú)',
-  'mantenimiento.ver': 'Mantenimiento (menú)',
-  'compras.ver': 'Compras (menú)',
-  'cajas.ver': 'Cajas (menú)',
-  'cashflow.ver': 'Cashflow (menú)',
-  'actuaciones.ver': 'Actuaciones (menú)',
-  'rrpp.ver': 'Rrpp (menú)',
-  'recursos_humanos.ver': 'Recursos Humanos (menú)',
-  'rrss.ver': 'Marketing (menú)',
-  'mystery_guest.ver': 'Mystery Guest (menú)',
-  'reservas.ver': 'Reservas (menú)',
+  'rrss.ver': 'Marketing · Ver módulo (obsoleto; usar marketing.proponer)',
   'usuarios.ver': 'Usuarios · Ver',
   'usuarios.crear': 'Usuarios · Crear',
   'usuarios.editar': 'Usuarios · Editar',
@@ -192,6 +236,7 @@ const PERMISOS_LABELS: Record<string, string> = {
   'cierres.borrar': 'Cierres teóricos · Borrar',
   'cierres.sincronizar': 'Cierres teóricos · Sincronizar',
   'cierres.exportar': 'Cierres teóricos · Exportar',
+  'formas_pago.editar': 'Formas de pago · Editar maestro',
   'comparativa.ver': 'Comparativa fechas · Ver',
   'comparativa.crear': 'Comparativa fechas · Crear',
   'comparativa.editar': 'Comparativa fechas · Editar',
@@ -218,12 +263,10 @@ const PERMISOS_LABELS: Record<string, string> = {
   'pedidos.borrar_enviado': 'Pedidos · Borrar (enviado)',
   'compras_proveedor.ver': 'Compras proveedor · Ver',
   'compras_proveedor.sincronizar': 'Compras proveedor · Sincronizar',
-  'acuerdos.ver': 'Acuerdos (menú) · Ver',
   'acuerdos.crear': 'Acuerdos · Crear',
   'acuerdos.editar': 'Acuerdos · Editar',
   'acuerdos.borrar': 'Acuerdos · Borrar',
   'acuerdos.exportar': 'Acuerdos · Exportar',
-  'facturacion.ver': 'Facturación (menú) · Ver',
   'facturacion.crear': 'Facturación · Crear',
   'facturacion.editar': 'Facturación · Editar',
   'facturacion.emitir': 'Facturación · Emitir',
@@ -238,7 +281,6 @@ const PERMISOS_LABELS: Record<string, string> = {
   'ajustes.sincronizaciones.closeouts': 'Ajustes · Sync Cierres de caja',
   'ajustes.sincronizaciones.almacenes': 'Ajustes · Sync Almacenes',
   'ajustes.sincronizaciones.empleados': 'Ajustes · Sync Empleados',
-  'marketing.proponer': 'Marketing · Proponer',
   'marketing.gestionar': 'Marketing · Gestionar',
   'activaciones.ver': 'Activaciones · Ver / marcar realizada',
   'incentivos_producto.ver': 'Incentivos producto · Ver',
@@ -249,43 +291,30 @@ const PERMISOS_LABELS: Record<string, string> = {
   'activaciones.gestionar': 'Activaciones · Gestionar campañas y sesiones',
   'personal.ver': 'Personal · Ver empleados',
   'rrhh.horas': 'RRHH · Horas por facturación',
-  'planning_dia.ver': 'Planning del Día (menú)',
   'planning_dia.objetivo_card': 'Planning del Día · Card objetivo mensual',
+  'planning_dia.actuaciones': 'Planning del Día · Actuaciones del día',
+  'planning_dia.activaciones': 'Planning del Día · Activaciones del día',
+  'planning_dia.arqueo': 'Planning del Día · Arqueo de caja',
+  'actuaciones.programacion': 'Actuaciones · Programación y artistas',
+  'actuaciones.crear': 'Actuaciones · Crear actuaciones / huecos',
+  'actuaciones.editar': 'Actuaciones · Editar actuaciones',
+  'actuaciones.borrar': 'Actuaciones · Borrar actuaciones',
+  'actuaciones.firma': 'Actuaciones · Firmar actuación',
+  'actuaciones.facturacion': 'Actuaciones · Asociar facturas de gasto',
+  'cashflow.registrar': 'Cashflow · Registrar y firmar movimientos',
+  'cashflow.validar': 'Cashflow · Validar importes altos y anular',
 };
 
-/**
- * Familias de permisos (orden y agrupación visual de la matriz). Cada familia
- * reúne los códigos que comparten contexto funcional; se definen explícitamente
- * (en vez de partir por el primer segmento del código) para títulos legibles y
- * para no mezclar familias distintas como `usuarios` y `usuarios_agora`.
- */
-const GRUPOS_PERMISOS: { titulo: string; codigos: string[] }[] = [
-  { titulo: 'Menú lateral', codigos: ['base_datos.ver', 'mantenimiento.ver', 'compras.ver', 'cajas.ver', 'cashflow.ver', 'actuaciones.ver', 'rrpp.ver', 'recursos_humanos.ver', 'rrss.ver', 'mystery_guest.ver', 'reservas.ver'] },
-  { titulo: 'Usuarios', codigos: ['usuarios.ver', 'usuarios.crear', 'usuarios.editar', 'usuarios.borrar'] },
-  { titulo: 'Locales', codigos: ['locales.ver', 'locales.crear', 'locales.editar', 'locales.borrar'] },
-  { titulo: 'Empresas', codigos: ['empresas.ver', 'empresas.crear', 'empresas.editar', 'empresas.importar'] },
-  { titulo: 'Productos', codigos: ['productos.ver', 'productos.editar', 'productos.sincronizar'] },
-  { titulo: 'Almacenes', codigos: ['almacenes.ver', 'almacenes.crear', 'almacenes.editar', 'almacenes.borrar', 'almacenes.sincronizar'] },
-  { titulo: 'Usuarios Ágora', codigos: ['usuarios_agora.ver', 'usuarios_agora.sincronizar'] },
-  { titulo: 'Puntos de venta', codigos: ['puntos_venta.ver', 'puntos_venta.editar'] },
-  { titulo: 'Permisos', codigos: ['permisos.ver', 'permisos.crear', 'permisos.editar', 'permisos.borrar'] },
-  { titulo: 'Cierres teóricos', codigos: ['cierres.ver', 'cierres.crear', 'cierres.editar', 'cierres.borrar', 'cierres.sincronizar', 'cierres.exportar'] },
-  { titulo: 'Comparativa fechas', codigos: ['comparativa.ver', 'comparativa.crear', 'comparativa.editar', 'comparativa.borrar', 'comparativa.importar', 'comparativa.exportar'] },
-  { titulo: 'Objetivos', codigos: ['objetivos.ver', 'objetivos.compartir'] },
-  { titulo: 'Incentivos por producto', codigos: ['incentivos_producto.ver', 'incentivos_producto.gestionar', 'incentivos_producto.exportar'] },
-  { titulo: 'Control de excepciones', codigos: ['excepciones.ver', 'excepciones.exportar'] },
-  { titulo: 'Top', codigos: ['top.ver', 'top.exportar'] },
-  { titulo: 'Mantenimiento', codigos: ['mantenimiento.crear', 'mantenimiento.editar', 'mantenimiento.borrar'] },
-  { titulo: 'Pedidos', codigos: ['pedidos.ver', 'pedidos.ver_completados', 'pedidos.preparar', 'pedidos.exportar_traspaso', 'pedidos.crear', 'pedidos.editar', 'pedidos.borrar', 'pedidos.editar_enviado', 'pedidos.borrar_enviado'] },
-  { titulo: 'Compras proveedor', codigos: ['compras_proveedor.ver', 'compras_proveedor.sincronizar'] },
-  { titulo: 'Acuerdos', codigos: ['acuerdos.ver', 'acuerdos.crear', 'acuerdos.editar', 'acuerdos.borrar', 'acuerdos.exportar'] },
-  { titulo: 'Facturación', codigos: ['facturacion.ver', 'facturacion.crear', 'facturacion.editar', 'facturacion.emitir', 'facturacion.anular', 'facturacion.cobrar_pagar', 'facturacion.series', 'facturacion.exportar', 'remesas.ver', 'remesas.gestionar'] },
-  { titulo: 'Ajustes', codigos: ['ajustes.ver', 'ajustes.sincronizaciones.agora_productos', 'ajustes.sincronizaciones.agora_usuarios', 'ajustes.sincronizaciones.compras_proveedor', 'ajustes.sincronizaciones.closeouts', 'ajustes.sincronizaciones.almacenes', 'ajustes.sincronizaciones.empleados'] },
-  { titulo: 'Planning del Día', codigos: ['planning_dia.ver', 'planning_dia.objetivo_card'] },
-  { titulo: 'Recursos Humanos', codigos: ['personal.ver', 'rrhh.horas'] },
-  { titulo: 'Marketing', codigos: ['marketing.proponer', 'marketing.gestionar'] },
-  { titulo: 'Activaciones de marca', codigos: ['activaciones.ver', 'activaciones.gestionar'] },
-];
+/** Permiso de acceso al módulo en menú lateral (fuente: MODULOS). */
+for (const m of MODULOS) {
+  if (m.permiso) {
+    PERMISOS_LABELS[m.permiso] = `${m.label} · Ver módulo (menú)`;
+  }
+}
+for (const cod of PERMISOS_MENU_CONFIGURACION) {
+  if (cod === 'permisos.ver') PERMISOS_LABELS[cod] = 'Permisos · Ver pantalla (engranaje)';
+  if (cod === 'ajustes.ver') PERMISOS_LABELS[cod] = 'Ajustes · Ver pantalla (engranaje)';
+}
 
 const TOTAL_PERMISOS = PERMISOS_CODIGOS.length;
 const LABEL_COL_WIDTH = 240;
@@ -307,20 +336,36 @@ function etiquetaFila(codigo: string): string {
 export default function PermisosScreen() {
   const router = useRouter();
   const [items, setItems] = useState<ItemPermiso[]>([]);
+  const [rolesCatalogo, setRolesCatalogo] = useState<RolCatalogo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState('');
   const [colapsados, setColapsados] = useState<Set<string>>(new Set());
   const [savingCells, setSavingCells] = useState<Set<string>>(new Set());
+  const [modalNuevoRol, setModalNuevoRol] = useState(false);
+  const [nombreNuevoRol, setNombreNuevoRol] = useState('');
+  const [descNuevoRol, setDescNuevoRol] = useState('');
+  const [clonarDeRol, setClonarDeRol] = useState('');
+  const [guardandoRol, setGuardandoRol] = useState(false);
+  const [errorModalRol, setErrorModalRol] = useState<string | null>(null);
+
+  const rolesNombres = useMemo(
+    () => rolesCatalogo.map((r) => r.nombre),
+    [rolesCatalogo]
+  );
 
   const refetch = useCallback(() => {
     setError(null);
     setLoading(true);
-    apiFetch('/api/permisos/todos')
-      .then((res) => res.json())
-      .then((data: { items?: ItemPermiso[]; error?: string }) => {
-        if (data.error) setError(data.error);
-        else setItems(data.items || []);
+    Promise.all([
+      apiFetch('/api/permisos/todos').then((res) => res.json()),
+      apiFetch('/api/roles').then((res) => res.json()),
+    ])
+      .then(([permData, rolesData]) => {
+        if (permData.error) setError(permData.error);
+        else setItems(permData.items || []);
+        if (rolesData.error && !permData.error) setError(rolesData.error);
+        else setRolesCatalogo(rolesData.roles || []);
       })
       .catch((e) => setError(e?.message || 'Error de conexión'))
       .finally(() => setLoading(false));
@@ -337,14 +382,110 @@ export default function PermisosScreen() {
 
   const conteoPorRol = useMemo(() => {
     const map: Record<string, number> = {};
-    for (const rol of ROLES_OPCIONES) {
+    for (const rol of rolesNombres) {
       map[rol] = PERMISOS_CODIGOS.reduce(
         (acc, codigo) => acc + (asignados.has(celKey(rol, codigo)) ? 1 : 0),
         0
       );
     }
     return map;
-  }, [asignados]);
+  }, [asignados, rolesNombres]);
+
+  const abrirModalNuevoRol = useCallback(() => {
+    setNombreNuevoRol('');
+    setDescNuevoRol('');
+    setClonarDeRol('');
+    setErrorModalRol(null);
+    setModalNuevoRol(true);
+  }, []);
+
+  const cerrarModalNuevoRol = useCallback(() => {
+    setModalNuevoRol(false);
+    setErrorModalRol(null);
+  }, []);
+
+  const crearRol = useCallback(async () => {
+    const nombre = nombreNuevoRol.trim();
+    if (!nombre) {
+      setErrorModalRol('El nombre del rol es obligatorio');
+      return;
+    }
+    setGuardandoRol(true);
+    setErrorModalRol(null);
+    try {
+      const res = await apiFetch('/api/roles', {
+        method: 'POST',
+        body: JSON.stringify({
+          nombre,
+          descripcion: descNuevoRol.trim(),
+          clonarDe: clonarDeRol || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErrorModalRol(data.error || 'No se pudo crear el rol');
+        return;
+      }
+      cerrarModalNuevoRol();
+      refetch();
+    } catch (e) {
+      setErrorModalRol(e instanceof Error ? e.message : 'Error de conexión');
+    } finally {
+      setGuardandoRol(false);
+    }
+  }, [nombreNuevoRol, descNuevoRol, clonarDeRol, cerrarModalNuevoRol, refetch]);
+
+  const confirmarEliminarRol = useCallback(
+    (rol: RolCatalogo) => {
+      if (rol.sistema) return;
+      const ejecutar = async () => {
+        setLoading(true);
+        try {
+          const res = await apiFetch(`/api/roles/${encodeURIComponent(rol.nombre)}`, {
+            method: 'DELETE',
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setError(data.error || 'No se pudo eliminar el rol');
+            return;
+          }
+          setError(null);
+          refetch();
+        } catch (e) {
+          setError(e instanceof Error ? e.message : 'Error de conexión');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      if (Platform.OS === 'web') {
+        if (window.confirm(`¿Eliminar el rol «${rol.nombre}»? Solo es posible si ningún usuario lo tiene asignado.`)) {
+          ejecutar();
+        }
+        return;
+      }
+      Alert.alert(
+        'Eliminar rol',
+        `¿Eliminar «${rol.nombre}»? Solo es posible si ningún usuario lo tiene asignado.`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Eliminar', style: 'destructive', onPress: ejecutar },
+        ]
+      );
+    },
+    [refetch]
+  );
+
+  const opcionesClonarRol = useMemo(
+    () =>
+      rolesCatalogo.map((r) => ({
+        id: r.nombre,
+        titulo: r.nombre,
+        subtitulo: r.descripcion || undefined,
+        icono: 'badge' as const,
+      })),
+    [rolesCatalogo]
+  );
 
   const q = busqueda.trim().toLowerCase();
   const grupos = useMemo(() => {
@@ -518,6 +659,14 @@ export default function PermisosScreen() {
           />
         </TouchableOpacity>
         <TouchableOpacity
+          style={styles.headerActionBtnPrimary}
+          onPress={abrirModalNuevoRol}
+          accessibilityLabel="Nuevo rol"
+        >
+          <MaterialIcons name="person-add" size={18} color="#fff" />
+          <Text style={styles.headerActionBtnPrimaryText}>Nuevo rol</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           style={styles.headerActionBtn}
           onPress={refetch}
           disabled={loading}
@@ -551,18 +700,36 @@ export default function PermisosScreen() {
       ) : null}
 
       <ScrollView horizontal style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        <View style={{ minWidth: LABEL_COL_WIDTH + ROLE_COL_WIDTH * ROLES_OPCIONES.length }}>
+        <View style={{ minWidth: LABEL_COL_WIDTH + ROLE_COL_WIDTH * Math.max(rolesNombres.length, 1) }}>
           {/* Cabecera: roles + contador por rol */}
           <View style={styles.matrixHeader}>
             <View style={[styles.labelCell, styles.labelHeaderCell]}>
               <Text style={styles.labelHeaderText}>Permiso</Text>
             </View>
-            {ROLES_OPCIONES.map((rol) => (
-              <View key={rol} style={styles.roleHeadCell}>
-                <Text style={styles.roleHeadText} numberOfLines={2}>{rol}</Text>
-                <Text style={styles.roleHeadCount}>{conteoPorRol[rol]}/{TOTAL_PERMISOS}</Text>
+            {rolesNombres.length === 0 ? (
+              <View style={styles.roleHeadCell}>
+                <Text style={styles.roleHeadText}>Sin roles</Text>
               </View>
-            ))}
+            ) : (
+              rolesCatalogo.map((rol) => (
+                <View key={rol.nombre} style={styles.roleHeadCell}>
+                  <Text style={styles.roleHeadText} numberOfLines={2}>{rol.nombre}</Text>
+                  <Text style={styles.roleHeadCount}>
+                    {conteoPorRol[rol.nombre] ?? 0}/{TOTAL_PERMISOS}
+                  </Text>
+                  {!rol.sistema ? (
+                    <TouchableOpacity
+                      style={styles.roleDeleteBtn}
+                      onPress={() => confirmarEliminarRol(rol)}
+                      accessibilityLabel={`Eliminar rol ${rol.nombre}`}
+                      hitSlop={6}
+                    >
+                      <MaterialIcons name="delete-outline" size={14} color="#fca5a5" />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              ))
+            )}
           </View>
 
           <ScrollView style={styles.matrixBody} nestedScrollEnabled>
@@ -590,7 +757,7 @@ export default function PermisosScreen() {
                         <Text style={styles.groupHeaderText}>{g.titulo}</Text>
                         <Text style={styles.groupHeaderCount}>{g.codigos.length}</Text>
                       </View>
-                      {ROLES_OPCIONES.map((rol) => {
+                      {rolesNombres.map((rol) => {
                         const total = g.codigos.length;
                         const activos = g.codigos.reduce(
                           (acc, c) => acc + (asignados.has(celKey(rol, c)) ? 1 : 0),
@@ -634,7 +801,7 @@ export default function PermisosScreen() {
                               {codigo}
                             </Text>
                           </View>
-                          {ROLES_OPCIONES.map((rol) => {
+                          {rolesNombres.map((rol) => {
                             const k = celKey(rol, codigo);
                             const activo = asignados.has(k);
                             const saving = savingCells.has(k);
@@ -666,6 +833,66 @@ export default function PermisosScreen() {
           </ScrollView>
         </View>
       </ScrollView>
+
+      <Modal visible={modalNuevoRol} transparent animationType="fade" onRequestClose={cerrarModalNuevoRol}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Nuevo rol</Text>
+            <Text style={styles.modalHint}>
+              Crea un rol vacío o copia los permisos de uno existente.
+            </Text>
+            <Text style={styles.modalLabel}>Nombre</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={nombreNuevoRol}
+              onChangeText={setNombreNuevoRol}
+              placeholder="Ej. Contabilidad"
+              placeholderTextColor="#94a3b8"
+              autoCapitalize="words"
+            />
+            <Text style={styles.modalLabel}>Descripción (opcional)</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={descNuevoRol}
+              onChangeText={setDescNuevoRol}
+              placeholder="Uso del rol"
+              placeholderTextColor="#94a3b8"
+            />
+            <SelectorDesplegable
+              label="Copiar permisos de"
+              placeholder="Ninguno (rol vacío)"
+              icono="content-copy"
+              opciones={opcionesClonarRol}
+              valorId={clonarDeRol || null}
+              onSeleccionar={(id) => setClonarDeRol(id)}
+              tituloLista="Rol origen"
+              buscador
+            />
+            {errorModalRol ? (
+              <Text style={styles.modalError}>{errorModalRol}</Text>
+            ) : null}
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalBtnSec} onPress={cerrarModalNuevoRol} disabled={guardandoRol}>
+                <Text style={styles.modalBtnSecText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtnPri, guardandoRol && styles.modalBtnDisabled]}
+                onPress={crearRol}
+                disabled={guardandoRol}
+              >
+                {guardandoRol ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.modalBtnPriText}>Crear rol</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -688,6 +915,67 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: '#f8fafc',
   },
+  headerActionBtnPrimary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#0ea5e9',
+  },
+  headerActionBtnPrimaryText: { fontSize: 12, fontWeight: '600', color: '#fff' },
+  roleDeleteBtn: { marginTop: 4, padding: 2 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    gap: 8,
+    ...(Platform.OS === 'web' ? { boxShadow: '0 8px 32px rgba(0,0,0,0.12)' } : {}),
+  },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: '#334155' },
+  modalHint: { fontSize: 12, color: '#64748b', marginBottom: 4 },
+  modalLabel: { fontSize: 12, fontWeight: '600', color: '#475569', marginTop: 4 },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: Platform.OS === 'web' ? 8 : 10,
+    fontSize: 14,
+    color: '#334155',
+    backgroundColor: '#f8fafc',
+    outlineStyle: 'none' as any,
+  },
+  modalError: { fontSize: 12, color: '#dc2626', marginTop: 4 },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 12 },
+  modalBtnSec: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  modalBtnSecText: { fontSize: 13, color: '#475569', fontWeight: '600' },
+  modalBtnPri: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: '#0ea5e9',
+    minWidth: 100,
+    alignItems: 'center',
+  },
+  modalBtnPriText: { fontSize: 13, color: '#fff', fontWeight: '600' },
+  modalBtnDisabled: { opacity: 0.7 },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -10,6 +10,11 @@ import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
 import HubTile from '../../components/HubTile';
 import { ObjetivoMensualCard } from '../../components/ObjetivoMensualCard';
+import {
+  puedeVerActuacionesPlanning,
+  puedeVerActivacionesPlanning,
+  puedeVerArqueoCaja,
+} from '../../lib/permisosModulos';
 
 /**
  * Hub del módulo "Planning del día": accesos rápidos a las acciones
@@ -81,10 +86,20 @@ export default function PlanningDiaIndexScreen() {
   const [objetivoLocalIdx, setObjetivoLocalIdx] = useState(0);
   const puedeObjetivoCard = hasPermiso('planning_dia.objetivo_card');
 
+  const tarjetaVisible = useCallback(
+    (t: Tarjeta) => {
+      if (t.id === 'actuaciones') return puedeVerActuacionesPlanning(hasPermiso);
+      if (t.id === 'activaciones') return puedeVerActivacionesPlanning(hasPermiso);
+      if (t.id === 'arqueo-caja') return puedeVerArqueoCaja(hasPermiso);
+      return hasPermiso(t.permiso);
+    },
+    [hasPermiso],
+  );
+
   const cargarContadoresDia = useCallback(async () => {
     const fecha = encodeURIComponent(fechaJornadaNegocioIso());
 
-    if (!hasPermiso('activaciones.ver')) {
+    if (!puedeVerActivacionesPlanning(hasPermiso)) {
       setActivacionesHoy(0);
     } else {
       try {
@@ -96,7 +111,7 @@ export default function PlanningDiaIndexScreen() {
       }
     }
 
-    if (!hasPermiso('actuaciones.ver')) {
+    if (!puedeVerActuacionesPlanning(hasPermiso)) {
       setActuacionesHoy(0);
     } else {
       try {
@@ -115,7 +130,7 @@ export default function PlanningDiaIndexScreen() {
     }, [cargarContadoresDia]),
   );
 
-  const visibles = TARJETAS.filter((t) => hasPermiso(t.permiso));
+  const visibles = TARJETAS.filter((t) => tarjetaVisible(t));
 
   return (
     <View style={styles.container}>

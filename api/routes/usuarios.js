@@ -3,13 +3,10 @@ import bcrypt from 'bcrypt';
 import { ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { validarRolUsuario } from '../lib/roles.js';
 
 const router = express.Router();
 const BCRYPT_ROUNDS = 10;
-
-// Roles aceptados por el backend al crear usuarios. Debe coincidir con ROL_OPCIONES
-// en app/(app)/usuarios.tsx. La cadena vacía está permitida (usuario sin rol).
-const ROLES_VALIDOS = ['Administrador', 'SuperUser', 'Administracion', 'Local', 'Socio', 'Marketing'];
 
 // Formato mínimo 6 dígitos para campos id_ (000001, 000002, ...).
 function formatId6(val) {
@@ -55,8 +52,9 @@ router.post('/usuarios', requireAuth, requireRole('Administrador'), async (req, 
   if (!body.Email || !body.Password) {
     return res.status(400).json({ error: 'Email y Password son obligatorios' });
   }
-  if (body.Rol && !ROLES_VALIDOS.includes(body.Rol)) {
-    return res.status(400).json({ error: 'Rol no válido' });
+  const valRol = await validarRolUsuario(body.Rol);
+  if (!valRol.ok) {
+    return res.status(400).json({ error: valRol.error });
   }
 
   const item = {};
@@ -95,6 +93,12 @@ router.put('/usuarios', requireAuth, requireRole('Administrador'), async (req, r
   }
   if (!body.Email || !body.Email.trim()) {
     return res.status(400).json({ error: 'Email es obligatorio' });
+  }
+  if (body.Rol !== undefined) {
+    const valRol = await validarRolUsuario(body.Rol);
+    if (!valRol.ok) {
+      return res.status(400).json({ error: valRol.error });
+    }
   }
 
   const getCmd = new GetCommand({

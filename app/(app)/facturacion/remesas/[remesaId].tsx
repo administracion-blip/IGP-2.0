@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   TextInput,
   Platform,
-  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -24,6 +23,8 @@ import {
   RegistrarPagoModal,
   type RegistrarPagoPayloadRemesa,
 } from '../../../components/RegistrarPagoModal';
+import { useLocalToast, detectToastType } from '../../../components/Toast';
+import { useConfirmar } from '../../../hooks/useConfirmar';
 import { colorEstadoRemesa, labelEstadoRemesa } from '../../../lib/remesas';
 import type { LineaRemesa, Remesa } from '../../../types/remesas';
 import { hoyISO } from '../../../utils/facturaFormLogic';
@@ -53,6 +54,15 @@ export default function RemesaDetalleScreen() {
   const [modalPagoRemesa, setModalPagoRemesa] = useState(false);
   const [errorEjecutar, setErrorEjecutar] = useState<string | null>(null);
   const [lineasEdit, setLineasEdit] = useState<LineaRemesa[]>([]);
+
+  const { show: showToast, ToastView } = useLocalToast();
+  const { confirmar, ConfirmarView } = useConfirmar();
+  const alertMsg = useCallback(
+    (titulo: string, msg: string) => {
+      showToast(titulo, msg, detectToastType(titulo, msg));
+    },
+    [showToast],
+  );
 
   const refetch = useCallback(() => {
     if (!remesaId || !puedeVer) {
@@ -88,7 +98,7 @@ export default function RemesaDetalleScreen() {
       setRemesa(data.remesa);
       setLineasEdit(data.remesa.lineas || []);
     } catch (e) {
-      Alert.alert('Error', (e as Error).message);
+      alertMsg('Error', (e as Error).message);
     } finally {
       setAccionando(false);
     }
@@ -132,7 +142,7 @@ export default function RemesaDetalleScreen() {
       }
       refetch();
     } catch (e) {
-      Alert.alert('Error', (e as Error).message);
+      alertMsg('Error', (e as Error).message);
     } finally {
       setAccionando(false);
     }
@@ -148,10 +158,13 @@ export default function RemesaDetalleScreen() {
       setRemesa(data.remesa);
       setLineasEdit(data.remesa.lineas || []);
       if (data.excluidas?.length) {
-        Alert.alert('Revalidación', `${data.excluidas.length} factura(s) excluida(s). Revisa el detalle.`);
+        alertMsg(
+          'Revalidación',
+          `${data.excluidas.length} factura(s) excluida(s). Revisa el detalle.`,
+        );
       }
     } catch (e) {
-      Alert.alert('Error', (e as Error).message);
+      alertMsg('Error', (e as Error).message);
     } finally {
       setAccionando(false);
     }
@@ -182,7 +195,7 @@ export default function RemesaDetalleScreen() {
       setModalPagoRemesa(false);
       setRemesa(data.remesa);
       const n = Array.isArray(data.pagos) ? data.pagos.length : remesa.lineas?.length ?? 0;
-      Alert.alert('Remesa pagada', `Se han registrado ${n} pago(s) en las facturas.`);
+      alertMsg('Remesa pagada', `Se han registrado ${n} pago(s) en las facturas.`);
     } catch (e) {
       setErrorEjecutar((e as Error).message);
     } finally {
@@ -192,53 +205,46 @@ export default function RemesaDetalleScreen() {
 
   const reabrir = async () => {
     if (!remesa) return;
-    Alert.alert('Reabrir remesa', 'Volverá a estado Borrador para editar.', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Reabrir',
-        onPress: async () => {
-          setAccionando(true);
-          try {
-            const res = await apiFetch(`/api/remesas/${remesa.remesaId}`, {
-              method: 'PATCH',
-              body: JSON.stringify({ accion: 'reabrir' }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error);
-            setRemesa(data.remesa);
-            setLineasEdit(data.remesa.lineas || []);
-          } catch (e) {
-            Alert.alert('Error', (e as Error).message);
-          } finally {
-            setAccionando(false);
-          }
-        },
-      },
-    ]);
+    const ok = await confirmar('Reabrir remesa', 'Volverá a estado Borrador para editar.', {
+      confirmarLabel: 'Reabrir',
+    });
+    if (!ok) return;
+    setAccionando(true);
+    try {
+      const res = await apiFetch(`/api/remesas/${remesa.remesaId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ accion: 'reabrir' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setRemesa(data.remesa);
+      setLineasEdit(data.remesa.lineas || []);
+    } catch (e) {
+      alertMsg('Error', (e as Error).message);
+    } finally {
+      setAccionando(false);
+    }
   };
 
   const anular = async () => {
     if (!remesa) return;
-    Alert.alert('Anular remesa', '¿Seguro? No se modificarán las facturas.', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Anular',
-        style: 'destructive',
-        onPress: async () => {
-          setAccionando(true);
-          try {
-            const res = await apiFetch(`/api/remesas/${remesa.remesaId}/anular`, { method: 'POST' });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error);
-            setRemesa(data.remesa);
-          } catch (e) {
-            Alert.alert('Error', (e as Error).message);
-          } finally {
-            setAccionando(false);
-          }
-        },
-      },
-    ]);
+    const ok = await confirmar('Anular remesa', '¿Seguro? No se modificarán las facturas.', {
+      confirmarLabel: 'Anular',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    setAccionando(true);
+    try {
+      const res = await apiFetch(`/api/remesas/${remesa.remesaId}/anular`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setRemesa(data.remesa);
+      alertMsg('Anulada', 'Remesa anulada correctamente');
+    } catch (e) {
+      alertMsg('Error', (e as Error).message);
+    } finally {
+      setAccionando(false);
+    }
   };
 
   const updateLinea = (id: string, patch: Partial<LineaRemesa>) => {
@@ -407,6 +413,8 @@ export default function RemesaDetalleScreen() {
         errorExterno={errorEjecutar ?? undefined}
         onSubmit={ejecutarRemesa}
       />
+      {ToastView}
+      {ConfirmarView}
     </ScrollView>
   );
 }

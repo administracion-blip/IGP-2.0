@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getToken, removeToken } from '../utils/authToken';
 import { authEvents } from '../utils/authEvents';
 import { apiFetch } from '../utils/api';
+import { permisoConcedido } from '../lib/permisoAliases';
 
 const AUTH_KEY = 'erp_user';
 
@@ -101,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!user) return false;
       if (user.Rol === 'Administrador') return true;
       if (permisosStatus !== 'loaded') return false;
-      return permisos.includes(codigo);
+      return permisoConcedido(permisos, codigo);
     },
     [user, permisos, permisosStatus]
   );

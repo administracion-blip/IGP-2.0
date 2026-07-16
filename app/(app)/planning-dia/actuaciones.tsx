@@ -15,6 +15,11 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
+import {
+  puedeVerActuacionesPlanning,
+  puedeEditarSeguimientoActuacion,
+  puedeFirmarActuacion,
+} from '../../lib/permisosModulos';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../../constants/layout';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
@@ -115,8 +120,11 @@ function telParaWhatsapp(tel: string): string {
 
 export default function PlanningActuacionesScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, hasPermiso } = useAuth();
   const { shouldStackPanels } = useBreakpoint();
+  const puedeVer = puedeVerActuacionesPlanning(hasPermiso);
+  const puedeEditarSeguimiento = puedeEditarSeguimientoActuacion(hasPermiso);
+  const puedeFirmar = puedeFirmarActuacion(hasPermiso);
 
   const [diaSeleccionado, setDiaSeleccionado] = useState<string>(() => fechaJornadaNegocioIso());
   const [actuaciones, setActuaciones] = useState<Actuacion[]>([]);
@@ -438,8 +446,8 @@ export default function PlanningActuacionesScreen() {
             </View>
           ) : null}
           <TouchableOpacity
-            style={[styles.firmaBtn, esFutura && styles.btnDisabled]}
-            disabled={esFutura}
+            style={[styles.firmaBtn, (esFutura || !puedeFirmar) && styles.btnDisabled]}
+            disabled={esFutura || !puedeFirmar}
             onPress={() => setModalFirma(true)}
           >
             <MaterialIcons name="draw" size={24} color={esFutura ? '#94a3b8' : '#fff'} />
@@ -456,9 +464,10 @@ export default function PlanningActuacionesScreen() {
             {[1, 2, 3, 4, 5].map((n) => (
               <TouchableOpacity
                 key={n}
-                onPress={() => setValoracionDraft((prev) => (prev === n ? 0 : n))}
+                onPress={() => puedeEditarSeguimiento && setValoracionDraft((prev) => (prev === n ? 0 : n))}
                 hitSlop={8}
                 style={styles.estrellaBtn}
+                disabled={!puedeEditarSeguimiento}
               >
                 <MaterialIcons
                   name={n <= valoracionDraft ? 'star' : 'star-border'}
@@ -480,6 +489,7 @@ export default function PlanningActuacionesScreen() {
             placeholder="Notas sobre la actuación…"
             placeholderTextColor="#94a3b8"
             multiline
+            editable={puedeEditarSeguimiento}
           />
         </ScrollView>
 
@@ -488,9 +498,9 @@ export default function PlanningActuacionesScreen() {
             <Text style={styles.cancelarBtnText}>Cerrar</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.guardarBtn, (!hayCambios || guardando) && styles.btnDisabled]}
+            style={[styles.guardarBtn, (!puedeEditarSeguimiento || !hayCambios || guardando) && styles.btnDisabled]}
             onPress={guardarSeguimiento}
-            disabled={!hayCambios || guardando}
+            disabled={!puedeEditarSeguimiento || !hayCambios || guardando}
           >
             {guardando ? (
               <ActivityIndicator color="#fff" size="small" />
@@ -573,6 +583,13 @@ export default function PlanningActuacionesScreen() {
 
   return (
     <View style={styles.outer}>
+      {!puedeVer ? (
+        <View style={styles.emptyBox}>
+          <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+          <Text style={styles.emptyText}>No tienes permiso para ver las actuaciones del día.</Text>
+        </View>
+      ) : (
+        <>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.push('/planning-dia' as never)} style={styles.backBtn}>
           <MaterialIcons name="arrow-back" size={24} color="#334155" />
@@ -663,6 +680,8 @@ export default function PlanningActuacionesScreen() {
           </View>
         </View>
       </Modal>
+        </>
+      )}
     </View>
   );
 }
@@ -699,6 +718,8 @@ const styles = StyleSheet.create({
   resumenChipText: { fontSize: 12, fontWeight: '700', color: '#0369a1' },
   resumenChipTextWarn: { color: '#b45309' },
   error: { color: '#b91c1c', fontSize: 12, marginBottom: 6 },
+  emptyBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 40 },
+  emptyText: { fontSize: 14, color: '#64748b', textAlign: 'center' },
   loading: { paddingVertical: 30, alignItems: 'center' },
 
   lista: { flex: 1, minHeight: 0 },

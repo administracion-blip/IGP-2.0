@@ -28,6 +28,14 @@ import { FirmaEnPantallaModal } from '../../components/FirmaEnPantallaModal';
 import { buildFirmaFormData } from '../../utils/uploadFirmaPng';
 import { empresaTieneEtiquetaMusicos } from '../../utils/etiquetaMusicos';
 import { apiFetch } from '../../utils/api';
+import {
+  puedeProgramacionActuaciones,
+  puedeCrearActuacion,
+  puedeEditarActuacion,
+  puedeBorrarActuacion,
+  puedeFacturacionActuaciones,
+  puedeFirmarActuacion,
+} from '../../lib/permisosModulos';
 
 type Actuacion = {
   id_actuacion: string;
@@ -132,7 +140,13 @@ function parseHoraHHMM(raw: string): string | null {
 
 export default function ProgramacionScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, hasPermiso } = useAuth();
+  const puedeVer = puedeProgramacionActuaciones(hasPermiso);
+  const puedeCrear = puedeCrearActuacion(hasPermiso);
+  const puedeEditar = puedeEditarActuacion(hasPermiso);
+  const puedeBorrar = puedeBorrarActuacion(hasPermiso);
+  const puedeFacturacion = puedeFacturacionActuaciones(hasPermiso);
+  const puedeFirmar = puedeFirmarActuacion(hasPermiso);
   const { show: showToast, ToastView } = useLocalToast();
   const [actuaciones, setActuaciones] = useState<Actuacion[]>([]);
   const [artistas, setArtistas] = useState<{ id_artista: string; nombre_artistico: string }[]>([]);
@@ -199,12 +213,13 @@ export default function ProgramacionScreen() {
 
   const mostrarSeccionFirma = useMemo(
     () =>
+      puedeFirmar &&
       !!(
         form.id_actuacion &&
         form.id_artista?.trim() &&
         fechaActuacionPermiteFirma(form.fecha)
       ),
-    [form.id_actuacion, form.id_artista, form.fecha]
+    [puedeFirmar, form.id_actuacion, form.id_artista, form.fecha]
   );
 
   useEffect(() => {
@@ -769,6 +784,13 @@ export default function ProgramacionScreen() {
   return (
     <View style={styles.screenWrap}>
       {ToastView}
+      {!puedeVer ? (
+        <View style={styles.sinPermisoBox}>
+          <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+          <Text style={styles.sinPermisoText}>No tienes permiso para ver la programación de actuaciones.</Text>
+        </View>
+      ) : (
+      <>
       <TablaBasica<Actuacion>
         title="Actuaciones — planificación"
         onBack={() => router.back()}
@@ -783,11 +805,12 @@ export default function ProgramacionScreen() {
         selectedRowIndex={selectedRowIndex}
         onSelectRow={setSelectedRowIndex}
         toolbarCrearLabel="Nuevos registros base"
-        onCrear={abrirNuevosRegistros}
-        onEditar={(item) => abrirEditar(item)}
-        onBorrar={(item) => borrarActuacion(item)}
-        borrarSeleccionExternaCount={selectedIds.size}
-        onBorrarSeleccionExterna={() => setModalBorrarMultipleOpen(true)}
+        onCrear={() => { if (puedeCrear) abrirNuevosRegistros(); }}
+        onEditar={(item) => { if (puedeEditar) abrirEditar(item); }}
+        onBorrar={(item) => { if (puedeBorrar) void borrarActuacion(item); }}
+        hideToolbarActions={!(puedeCrear || puedeEditar || puedeBorrar)}
+        borrarSeleccionExternaCount={puedeBorrar ? selectedIds.size : 0}
+        onBorrarSeleccionExterna={() => { if (puedeBorrar) setModalBorrarMultipleOpen(true); }}
         guardando={saving || generando || borrando}
         emptyMessage="No hay actuaciones. Pulsa + para nuevos registros base."
         emptyFilterMessage="Ningún resultado con el filtro"
@@ -803,6 +826,7 @@ export default function ProgramacionScreen() {
         }}
         renderCell={(item, col) => {
           if (col === 'Sel') {
+            if (!puedeFacturacion) return null;
             const on = selectedIds.has(item.id_actuacion);
             return (
               <TouchableOpacity
@@ -821,7 +845,7 @@ export default function ProgramacionScreen() {
               return (
                 <TouchableOpacity
                   style={styles.huecoBadge}
-                  onPress={() => abrirEditar(item)}
+                  onPress={() => puedeEditar && abrirEditar(item)}
                   activeOpacity={0.75}
                   hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                   accessibilityLabel="Hueco: editar actuación"
@@ -894,6 +918,7 @@ export default function ProgramacionScreen() {
                   placeholderTextColor="#94a3b8"
                 />
               </View>
+              {puedeFacturacion ? (
               <TouchableOpacity
                 style={[styles.asocBtn, selectedIds.size === 0 && styles.asocBtnOff]}
                 disabled={selectedIds.size === 0}
@@ -902,6 +927,7 @@ export default function ProgramacionScreen() {
                 <MaterialIcons name="link" size={ICON_SIZE - 2} color="#fff" />
                 <Text style={styles.asocBtnText}>Asociar ({selectedIds.size})</Text>
               </TouchableOpacity>
+              ) : null}
               <TouchableOpacity style={styles.refreshBtn} onPress={fetchAll} disabled={loading}>
                 {loading ? <ActivityIndicator size="small" color="#0ea5e9" /> : <MaterialIcons name="refresh" size={ICON_SIZE} color="#0ea5e9" />}
               </TouchableOpacity>
@@ -1565,12 +1591,16 @@ export default function ProgramacionScreen() {
           if (form.id_actuacion) void enviarFirmaDesdePantalla(form.id_actuacion, base64Png);
         }}
       />
+      </>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   screenWrap: { flex: 1, backgroundColor: '#f8fafc' },
+  sinPermisoBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 24 },
+  sinPermisoText: { fontSize: 14, color: '#64748b', textAlign: 'center' },
   filtersWrap: { flexDirection: 'column', gap: 8, flex: 1, minWidth: 0, width: '100%', overflow: 'visible', zIndex: 1 },
   filtersRowTop: {
     flexDirection: 'row',

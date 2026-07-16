@@ -23,6 +23,8 @@ import { ICON_SIZE } from '../../constants/icons';
 import { API_BASE_URL as API_URL } from '../../utils/apiBaseUrl';
 import { formatMoneda } from '../../utils/facturacion';
 import { apiFetch } from '../../utils/api';
+import { useAuth } from '../../contexts/AuthContext';
+import { puedeGestionarArtistas } from '../../lib/permisosModulos';
 
 const ESTILOS_OPTS = [
   'pop', 'rock', 'flamenco', 'rumba', 'jazz', 'latina', 'electronica', 'comercial', 'urbana', 'versiones', 'chill', 'tributo',
@@ -203,6 +205,8 @@ function getValorCeldaArtista(item: Artista, col: string): string {
 
 export default function ArtistasScreen() {
   const router = useRouter();
+  const { hasPermiso } = useAuth();
+  const puedeGestionar = puedeGestionarArtistas(hasPermiso);
   const { show: showToast, ToastView } = useLocalToast();
   const [lista, setLista] = useState<Artista[]>([]);
   const [loading, setLoading] = useState(true);
@@ -539,6 +543,13 @@ export default function ArtistasScreen() {
   return (
     <View style={styles.screenWrap}>
       {ToastView}
+      {!puedeGestionar ? (
+        <View style={styles.sinPermisoBox}>
+          <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+          <Text style={styles.sinPermisoText}>No tienes permiso para gestionar artistas.</Text>
+        </View>
+      ) : (
+      <>
       <TablaBasica<Artista>
         title="Artistas"
         onBack={() => router.back()}
@@ -938,12 +949,16 @@ export default function ArtistasScreen() {
           </View>
         </Pressable>
       </Modal>
+      </>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   screenWrap: { flex: 1, backgroundColor: '#f8fafc' },
+  sinPermisoBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 24 },
+  sinPermisoText: { fontSize: 14, color: '#64748b', textAlign: 'center' },
   cellImagenDash: { fontSize: 12, color: '#94a3b8', textAlign: 'center' },
   cellImagenBtn: { alignItems: 'center', justifyContent: 'center', padding: 4 },
   vistaImagenOverlay: {

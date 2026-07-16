@@ -13,7 +13,7 @@ import {
   Linking,
   Pressable,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
@@ -22,6 +22,10 @@ import * as XLSX from 'xlsx';
 import { ICONS, ICON_SIZE } from '../constants/icons';
 import { formatId6 } from '../utils/idFormat';
 import { apiFetch } from '../utils/api';
+import {
+  buildReturnFromEmpresasHref,
+  parseContextoRetornoEmpresas,
+} from '../lib/navegacionEmpresas';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -82,6 +86,17 @@ function truncar(val: string): string {
 
 export default function EmpresasScreen() {
   const router = useRouter();
+  const searchParams = useLocalSearchParams<{
+    id_empresa?: string;
+    editar?: string;
+    returnTo?: string;
+    returnModalFactura?: string;
+  }>();
+  const returnCtx = useMemo(
+    () => parseContextoRetornoEmpresas(searchParams),
+    [searchParams.returnTo, searchParams.returnModalFactura],
+  );
+  const deepLinkEditDoneRef = useRef(false);
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -129,6 +144,19 @@ export default function EmpresasScreen() {
     setModalNuevoVisible(true);
     setErrorForm(null);
   };
+  const volverTrasFactura = useCallback(
+    (maestroActualizado = false) => {
+      if (!returnCtx) {
+        router.back();
+        return;
+      }
+      router.replace(
+        buildReturnFromEmpresasHref({ ...returnCtx, maestroActualizado }) as never,
+      );
+    },
+    [returnCtx, router],
+  );
+
   const abrirModalEditar = (empresa: Empresa) => {
     const form: Record<string, string | string[]> = { ...INITIAL_FORM };
     for (const key of CAMPOS_FORM.map((c) => c.key)) {
@@ -424,6 +452,9 @@ export default function EmpresasScreen() {
       refetchEmpresas();
       setSelectedRowIndex(null);
       cerrarModalNuevo();
+      if (returnCtx) {
+        volverTrasFactura(true);
+      }
     } catch (e) {
       setErrorForm('No se pudo conectar con el servidor');
     } finally {
@@ -725,6 +756,28 @@ export default function EmpresasScreen() {
   }, [ordenarPorId]);
 
   useEffect(() => {
+    if (loading || deepLinkEditDoneRef.current || empresas.length === 0) return;
+    const idParam = (Array.isArray(searchParams.id_empresa)
+      ? searchParams.id_empresa[0]
+      : searchParams.id_empresa)?.trim();
+    const editarRaw = Array.isArray(searchParams.editar) ? searchParams.editar[0] : searchParams.editar;
+    const editar = editarRaw === '1' || editarRaw === 'true';
+    if (!idParam || !editar) return;
+
+    const idNorm = formatId6(idParam);
+    const idx = empresas.findIndex((e) => {
+      const id = String(valorEnLocal(e, 'id_empresa') ?? '').trim();
+      return formatId6(id) === idNorm || id === idParam;
+    });
+    if (idx < 0) return;
+
+    deepLinkEditDoneRef.current = true;
+    setPageIndex(Math.floor(idx / PAGE_SIZE));
+    setSelectedRowIndex(idx % PAGE_SIZE);
+    abrirModalEditar(empresas[idx]);
+  }, [loading, empresas, searchParams.id_empresa, searchParams.editar, valorEnLocal]);
+
+  useEffect(() => {
     if (Platform.OS !== 'web' || !resizingCol) return;
     const handleMove = (e: MouseEvent) => {
       const r = resizeRef.current;
@@ -773,11 +826,20 @@ export default function EmpresasScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => volverTrasFactura(false)} style={styles.backBtn}>
           <MaterialIcons name="arrow-back" size={22} color="#334155" />
         </TouchableOpacity>
         <Text style={styles.title}>Empresas</Text>
       </View>
+
+      {returnCtx ? (
+        <View style={styles.returnBanner}>
+          <MaterialIcons name="info-outline" size={16} color="#0369a1" />
+          <Text style={styles.returnBannerText}>
+            Edición desde factura. Al guardar volverás al detalle; con atrás regresas sin guardar cambios del maestro.
+          </Text>
+        </View>
+      ) : null}
 
       <View style={styles.toolbarRow}>
         <View style={styles.toolbar}>
@@ -1296,6 +1358,19 @@ const styles = StyleSheet.create({
   loadingText: { fontSize: 12, color: '#64748b' },
   errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8 },
+  returnBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#f0f9ff',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
+  returnBannerText: { flex: 1, fontSize: 12, color: '#0369a1', lineHeight: 17 },
   backBtn: { padding: 4 },
   title: { fontSize: 18, fontWeight: '700', color: '#334155' },
   toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12 },

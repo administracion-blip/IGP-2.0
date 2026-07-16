@@ -14,7 +14,13 @@ import { docClient, tables, keyForFacturaPrincipalId } from '../lib/db.js';
 import { calcularPropuestaImporte, sanitizeTarifas, tarifasMatrizVacia } from '../lib/tarifaActuacion.js';
 import { empresaTieneEtiquetaMusicos } from '../lib/etiquetaMusicos.js';
 import { getIdEmpresaFromItem } from '../lib/empresaCif.js';
-import { requirePermission } from '../middleware/auth.js';
+import { requirePermission, requireAnyPermission, hasPermission } from '../middleware/auth.js';
+import {
+  puedeLeerActuaciones,
+  puedeSeguimientoPlanningActuacion,
+  puedeFirmarActuacionApi,
+  esActualizacionSeguimiento,
+} from '../lib/permisosModulos.js';
 import { usuarioPuedeAccederLocal, jornadaNegocioHoyIso } from '../lib/usuarioLocales.js';
 
 const router = Router();
@@ -187,15 +193,41 @@ async function recomputarValoracionMediaArtista(idArtista) {
   }));
 }
 
+async function filtrarActuacionesPorLocal(user, items) {
+  const out = [];
+  for (const a of items) {
+    if (await usuarioPuedeAccederLocal(user, a.id_local)) out.push(a);
+  }
+  return out;
+}
+
+async function assertAccesoLocalActuacion(req, res, actuacion) {
+  if (!actuacion) {
+    res.status(404).json({ error: 'Actuación no encontrada' });
+    return false;
+  }
+  if (!(await usuarioPuedeAccederLocal(req.user, actuacion.id_local))) {
+    res.status(403).json({ error: 'No tienes acceso a este local' });
+    return false;
+  }
+  return true;
+}
+
 // ─── ARTISTAS ───
 
-router.get('/artistas', async (_req, res) => {
+router.get('/artistas', async (req, res) => {
+  if (!(await puedeLeerActuaciones(req.user))) {
+    return res.status(403).json({ error: 'Permiso insuficiente' });
+  }
   const items = await scanAll(tables.artistas);
   items.sort((a, b) => String(a.nombre_artistico || '').localeCompare(String(b.nombre_artistico || ''), 'es'));
   res.json({ artistas: items });
 });
 
 router.get('/artistas/:id', async (req, res) => {
+  if (!(await puedeLeerActuaciones(req.user))) {
+    return res.status(403).json({ error: 'Permiso insuficiente' });
+  }
   const r = await docClient.send(
     new GetCommand({ TableName: tables.artistas, Key: { id_artista: req.params.id } })
   );
@@ -204,6 +236,9 @@ router.get('/artistas/:id', async (req, res) => {
 });
 
 router.post('/artistas', async (req, res) => {
+  if (!(await hasPermission(req.user, 'actuaciones.programacion'))) {
+    return res.status(403).json({ error: 'Permiso insuficiente' });
+  }
   const body = req.body || {};
   const id_artista = body.id_artista && String(body.id_artista).trim() !== '' ? String(body.id_artista).trim() : uuid();
   const ts = now();
@@ -231,6 +266,9 @@ router.post('/artistas', async (req, res) => {
 });
 
 router.put('/artistas/:id', async (req, res) => {
+  if (!(await hasPermission(req.user, 'actuaciones.programacion'))) {
+    return res.status(403).json({ error: 'Permiso insuficiente' });
+  }
   const r = await docClient.send(
     new GetCommand({ TableName: tables.artistas, Key: { id_artista: req.params.id } })
   );
@@ -260,11 +298,17 @@ router.put('/artistas/:id', async (req, res) => {
 });
 
 router.delete('/artistas/:id', async (req, res) => {
+  if (!(await hasPermission(req.user, 'actuaciones.programacion'))) {
+    return res.status(403).json({ error: 'Permiso insuficiente' });
+  }
   await docClient.send(new DeleteCommand({ TableName: tables.artistas, Key: { id_artista: req.params.id } }));
   res.json({ ok: true });
 });
 
 router.post('/artistas/:id/imagen', upload.single('file'), async (req, res) => {
+  if (!(await hasPermission(req.user, 'actuaciones.programacion'))) {
+    return res.status(403).json({ error: 'Permiso insuficiente' });
+  }
   if (!req.file?.buffer) return res.status(400).json({ error: 'Falta archivo (field: file)' });
   const id = req.params.id;
   const ext = (req.file.originalname || 'img').match(/\.([a-zA-Z0-9]{1,8})$/)?.[1] || 'jpg';
@@ -287,6 +331,9 @@ router.post('/artistas/:id/imagen', upload.single('file'), async (req, res) => {
 
 /** URL prefirmada GET temporal para mostrar la imagen del artista (S3 privado). */
 router.get('/artistas/:id/imagen-url', async (req, res) => {
+  if (!(await puedeLeerActuaciones(req.user))) {
+    return res.status(403).json({ error: 'Permiso insuficiente' });
+  }
   const r = await docClient.send(
     new GetCommand({ TableName: tables.artistas, Key: { id_artista: req.params.id } })
   );
@@ -302,7 +349,7 @@ router.get('/artistas/:id/imagen-url', async (req, res) => {
 
 // ─── Rutas específicas ANTES de /actuaciones/:id ───
 
-router.get('/actuaciones/facturas-gasto-asociables', async (req, res) => {
+router.get('/actuaciones/facturas-gasto-asociables', requirePermission('actuaciones.facturacion'), async (req, res) => {
   const q = (req.query.q || '').toLowerCase().trim();
   const { numero, proveedor, cif, fecha, importeMin, importeMax } = req.query;
   const empresaIdFiltro = (req.query.empresa_id || '').trim();
@@ -370,7 +417,7 @@ router.get('/actuaciones/facturas-gasto-asociables', async (req, res) => {
   res.json({ facturas: out });
 });
 
-router.post('/actuaciones/calcular-importe', async (req, res) => {
+router.post('/actuaciones/calcular-importe', requireAnyPermission('actuaciones.programacion', 'actuaciones.editar', 'actuaciones.crear'), async (req, res) => {
   const { id_artista, fecha, hora_inicio } = req.body || {};
   if (!id_artista || !fecha) return res.status(400).json({ error: 'id_artista y fecha son obligatorios' });
   const r = await docClient.send(new GetCommand({ TableName: tables.artistas, Key: { id_artista } }));
@@ -383,7 +430,7 @@ router.post('/actuaciones/calcular-importe', async (req, res) => {
   res.json(out);
 });
 
-router.post('/actuaciones/asociar-factura', async (req, res) => {
+router.post('/actuaciones/asociar-factura', requirePermission('actuaciones.facturacion'), async (req, res) => {
   const { ids_actuacion, id_factura, usuario_id, usuario_nombre } = req.body || {};
   if (!Array.isArray(ids_actuacion) || ids_actuacion.length === 0) {
     return res.status(400).json({ error: 'ids_actuacion debe ser un array no vacío' });
@@ -484,7 +531,7 @@ async function crearItemHuecoActuacion({ fechaIso, horaIni, idLocFormatted, loca
 }
 
 /** Genera huecos del calendario (sin unicidad fecha+local+hora). */
-router.post('/actuaciones/generar-base', async (req, res) => {
+router.post('/actuaciones/generar-base', requirePermission('actuaciones.crear'), async (req, res) => {
   const body = req.body || {};
   const { fecha_inicio, fecha_fin, id_local, id_locales, horas } = body;
   /** Lista de ids de local únicos (6 dígitos). */
@@ -535,7 +582,7 @@ router.post('/actuaciones/generar-base', async (req, res) => {
 });
 
 /** Comprueba si el artista ya tiene otra actuación misma fecha y hora_inicio. */
-router.post('/actuaciones/conflicto-artista', async (req, res) => {
+router.post('/actuaciones/conflicto-artista', requireAnyPermission('actuaciones.programacion', 'actuaciones.editar', 'actuaciones.crear'), async (req, res) => {
   const { id_actuacion, id_artista, fecha, hora_inicio } = req.body || {};
   if (!id_artista) return res.json({ conflicto: false });
   const otro = await findConflictoArtistaExcluyendo({
@@ -549,7 +596,7 @@ router.post('/actuaciones/conflicto-artista', async (req, res) => {
 });
 
 /** Quita artista del registro conflicto y lo asigna al registro destino. */
-router.post('/actuaciones/mover-artista-aqui', async (req, res) => {
+router.post('/actuaciones/mover-artista-aqui', requireAnyPermission('actuaciones.programacion', 'actuaciones.editar'), async (req, res) => {
   const body = req.body || {};
   const id_vaciar = body.id_vaciar;
   const id_asignar = body.id_asignar;
@@ -615,7 +662,7 @@ router.post('/actuaciones/mover-artista-aqui', async (req, res) => {
 const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Total de actuaciones de la jornada en locales permitidos (badge Planning). */
-router.get('/actuaciones/dia/total', requirePermission('actuaciones.ver'), async (req, res) => {
+router.get('/actuaciones/dia/total', requireAnyPermission('actuaciones.ver', 'planning_dia.actuaciones'), async (req, res) => {
   try {
     const fecha = RE_FECHA.test(String(req.query.fecha || '')) ? String(req.query.fecha) : jornadaNegocioHoyIso();
     const items = await scanAll(tables.actuaciones);
@@ -632,6 +679,9 @@ router.get('/actuaciones/dia/total', requirePermission('actuaciones.ver'), async
 });
 
 router.get('/actuaciones', async (req, res) => {
+  if (!(await puedeLeerActuaciones(req.user))) {
+    return res.status(403).json({ error: 'Permiso insuficiente' });
+  }
   let items = await scanAll(tables.actuaciones);
   const { fechaDesde, fechaHasta, id_artista, id_local, id_locales, estado } = req.query;
   if (id_artista) items = items.filter((x) => x.id_artista === id_artista);
@@ -649,6 +699,7 @@ router.get('/actuaciones', async (req, res) => {
   if (estado) items = items.filter((x) => String(x.estado || '') === String(estado));
   if (fechaDesde) items = items.filter((x) => String(x.fecha || '') >= String(fechaDesde));
   if (fechaHasta) items = items.filter((x) => String(x.fecha || '') <= String(fechaHasta));
+  items = await filtrarActuacionesPorLocal(req.user, items);
   items.sort((a, b) => {
     const cf = String(a.fecha || '').localeCompare(String(b.fecha || ''));
     if (cf !== 0) return cf;
@@ -658,14 +709,20 @@ router.get('/actuaciones', async (req, res) => {
 });
 
 router.get('/actuaciones/item/:id', async (req, res) => {
+  if (!(await puedeLeerActuaciones(req.user))) {
+    return res.status(403).json({ error: 'Permiso insuficiente' });
+  }
   const r = await docClient.send(
     new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: req.params.id } })
   );
-  if (!r.Item) return res.status(404).json({ error: 'Actuación no encontrada' });
+  if (!(await assertAccesoLocalActuacion(req, res, r.Item))) return;
   res.json({ actuacion: r.Item });
 });
 
 router.post('/actuaciones', async (req, res) => {
+  if (!(await hasPermission(req.user, 'actuaciones.crear'))) {
+    return res.status(403).json({ error: 'Permiso insuficiente' });
+  }
   const body = req.body || {};
   const id_actuacion = body.id_actuacion || uuid();
   const ts = now();
@@ -746,6 +803,9 @@ router.post('/actuaciones', async (req, res) => {
       return res.status(409).json({ conflicto: true, otro: actuacionResumenConflicto(otro) });
     }
   }
+  if (item.id_local && !(await usuarioPuedeAccederLocal(req.user, item.id_local))) {
+    return res.status(403).json({ error: 'No tienes acceso a este local' });
+  }
   await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: item }));
   res.json({ ok: true, actuacion: item });
 });
@@ -754,9 +814,17 @@ router.put('/actuaciones/item/:id', async (req, res) => {
   const r = await docClient.send(
     new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: req.params.id } })
   );
-  if (!r.Item) return res.status(404).json({ error: 'Actuación no encontrada' });
-  const prev = r.Item;
+  if (!(await assertAccesoLocalActuacion(req, res, r.Item))) return;
   const body = req.body || {};
+  const soloSeguimiento = esActualizacionSeguimiento(body);
+  if (soloSeguimiento) {
+    if (!(await puedeSeguimientoPlanningActuacion(req.user))) {
+      return res.status(403).json({ error: 'Permiso insuficiente' });
+    }
+  } else if (!(await hasPermission(req.user, 'actuaciones.editar'))) {
+    return res.status(403).json({ error: 'Permiso insuficiente' });
+  }
+  const prev = r.Item;
   const keys = [
     'id_artista',
     'artista_nombre_snapshot',
@@ -796,6 +864,9 @@ router.put('/actuaciones/item/:id', async (req, res) => {
     }
   }
   if (body.fecha != null) item.fecha = fechaAIso(String(body.fecha));
+  if (item.id_local && !(await usuarioPuedeAccederLocal(req.user, item.id_local))) {
+    return res.status(403).json({ error: 'No tienes acceso a este local' });
+  }
   // Sello de auditoría de la valoración (servidor): quién y cuándo valoró.
   if (body.valoracion !== undefined) {
     item.valoracion_por = req.user?.email || req.user?.sub || '';
@@ -828,11 +899,21 @@ router.put('/actuaciones/item/:id', async (req, res) => {
 });
 
 router.delete('/actuaciones/item/:id', async (req, res) => {
+  if (!(await hasPermission(req.user, 'actuaciones.borrar'))) {
+    return res.status(403).json({ error: 'Permiso insuficiente' });
+  }
+  const r = await docClient.send(
+    new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: req.params.id } })
+  );
+  if (!(await assertAccesoLocalActuacion(req, res, r.Item))) return;
   await docClient.send(new DeleteCommand({ TableName: tables.actuaciones, Key: { id_actuacion: req.params.id } }));
   res.json({ ok: true });
 });
 
 router.post('/actuaciones/item/:id/firma', upload.single('file'), async (req, res) => {
+  if (!(await puedeFirmarActuacionApi(req.user))) {
+    return res.status(403).json({ error: 'Permiso insuficiente' });
+  }
   if (!req.file?.buffer) return res.status(400).json({ error: 'Falta archivo (field: file)' });
   const id = req.params.id;
   const ext = (req.file.originalname || 'firma.png').match(/\.([a-zA-Z0-9]{1,8})$/)?.[1] || 'png';
@@ -846,7 +927,7 @@ router.post('/actuaciones/item/:id/firma', upload.single('file'), async (req, re
     })
   );
   const r = await docClient.send(new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: id } }));
-  if (!r.Item) return res.status(404).json({ error: 'Actuación no encontrada' });
+  if (!(await assertAccesoLocalActuacion(req, res, r.Item))) return;
   const ts = now();
   const item = {
     ...r.Item,

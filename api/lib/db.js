@@ -69,6 +69,8 @@ export const tables = {
   campanas: process.env.DDB_CAMPANAS_TABLE || 'Igp_Campanas',
   /** Remesas de pago a proveedores. PK = remesaId (UUID). */
   remesas: process.env.DDB_REMESAS_TABLE || 'Igp_Remesas',
+  /** Movimientos cashflow (efectivo fuera TPV). PK LOCAL#id, SK FECHA#date#uuid. */
+  cashflow: process.env.DDB_CASHFLOW_TABLE || 'Igp_Cashflow',
 };
 
 /**

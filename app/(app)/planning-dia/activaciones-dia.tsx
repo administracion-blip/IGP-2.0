@@ -12,6 +12,7 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { puedeVerActivacionesPlanning } from '../../lib/permisosModulos';
 import { apiFetch } from '../../utils/api';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { formatId6 } from '../../utils/idFormat';
@@ -30,7 +31,8 @@ export const LOCAL_TODOS = '__todos__';
 
 export default function ActivacionesDiaScreen() {
   const router = useRouter();
-  const { localPermitido } = useAuth();
+  const { localPermitido, hasPermiso } = useAuth();
+  const puedeVer = puedeVerActivacionesPlanning(hasPermiso);
 
   const [locales, setLocales] = useState<LocalItem[]>([]);
   const [localSel, setLocalSel] = useState<string>(LOCAL_TODOS);
@@ -129,6 +131,13 @@ export default function ActivacionesDiaScreen() {
 
   return (
     <View style={styles.container}>
+      {!puedeVer ? (
+        <View style={styles.emptyBox}>
+          <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+          <Text style={styles.emptyText}>No tienes permiso para ver las activaciones del día.</Text>
+        </View>
+      ) : (
+        <>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <MaterialIcons name="arrow-back" size={22} color="#334155" />
@@ -247,6 +256,8 @@ export default function ActivacionesDiaScreen() {
         onClose={() => setSesionModal(null)}
         onSesionActualizada={cargar}
       />
+        </>
+      )}
     </View>
   );
 }
@@ -340,4 +351,6 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   verFichaText: { fontSize: 12, fontWeight: '700', color: '#0ea5e9' },
+  emptyBox: { alignItems: 'center', gap: 8, paddingVertical: 40 },
+  emptyText: { fontSize: 14, color: '#64748b', textAlign: 'center' },
 });

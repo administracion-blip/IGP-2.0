@@ -1,8 +1,10 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
-/** Ancho lógico fijo para captura nítida en móvil (× pixelRatio en export). */
-export const OBJETIVOS_SHARE_WIDTH = 390;
+/** Ancho lógico para captura PNG resumen WhatsApp (landscape, × pixelRatio en export). */
+export const OBJETIVOS_SHARE_WIDTH = 720;
+/** Listado visual en trozos (vertical estrecho). */
+export const OBJETIVOS_SHARE_WIDTH_LISTADO = 390;
 
 export type ObjetivosShareMode = 'resumen' | 'listado';
 
@@ -74,6 +76,96 @@ function estiloTicker(valor: number | null): { backgroundColor: string; color: s
 
 function nombreLocal(item: ObjetivosShareLocal): string {
   return item.nombre.trim() || '—';
+}
+
+/** Consecución % = real / comparativa × 100 (misma métrica que ObjetivoMensualCard). */
+function pctConsecucion(loc: ObjetivosShareLocal): number | null {
+  if (loc.desvioPctHastaAyer != null) return (loc.desvioPctHastaAyer + 1) * 100;
+  if (loc.sumCompHastaAyer === 0) return null;
+  return (loc.sumRealHastaAyer / loc.sumCompHastaAyer) * 100;
+}
+
+function colorConsecucion(pct: number): string {
+  if (pct < 95) return '#dc2626';
+  if (pct < 100) return '#d97706';
+  return '#059669';
+}
+
+function formatPctConsecucion(pct: number | null): string {
+  if (pct == null) return 'Sin datos';
+  const s = Number.isInteger(pct) ? String(pct) : pct.toFixed(1).replace('.', ',');
+  return `${s} %`;
+}
+
+function BadgeDesvioLocal({ desvioPct }: { desvioPct: number | null }) {
+  const estilo = estiloTicker(desvioPct);
+  return (
+    <View style={[styles.consecDesvioBadge, { backgroundColor: estilo.backgroundColor }]}>
+      {desvioPct != null ? (
+        <MaterialIcons
+          name={desvioPct >= 0 ? 'trending-up' : 'trending-down'}
+          size={11}
+          color={estilo.color}
+        />
+      ) : null}
+      <Text style={[styles.consecDesvioBadgeText, { color: estilo.color }]} numberOfLines={1}>
+        {formatPctTicker(desvioPct)}
+      </Text>
+    </View>
+  );
+}
+
+function ConsecucionLocalTile({ loc }: { loc: ObjetivosShareLocal }) {
+  const pct = pctConsecucion(loc);
+  const tienePct = pct != null;
+  const consecucionPositiva = tienePct && pct >= 100;
+  const desvio = loc.sumRealHastaAyer - loc.sumCompHastaAyer;
+  const barPct = tienePct ? Math.min(pct, 120) : 0;
+  const barWidth = (barPct / 120) * 100;
+  const barColor = tienePct ? colorConsecucion(pct) : '#cbd5e1';
+  const pctInBarColor = !tienePct ? '#64748b' : barWidth >= 38 ? '#ffffff' : barColor;
+
+  return (
+    <View style={styles.consecTile}>
+      <View style={styles.consecTileHeader}>
+        <Text style={styles.consecTileNombre} numberOfLines={1}>{nombreLocal(loc)}</Text>
+        <BadgeDesvioLocal desvioPct={loc.desvioPctHastaAyer} />
+      </View>
+      <View style={styles.consecTrack}>
+        <View style={[styles.consecMark100, { left: `${(100 / 120) * 100}%` }]} />
+        {tienePct ? (
+          <View style={[styles.consecFill, { width: `${barWidth}%`, backgroundColor: barColor }]} />
+        ) : null}
+        <Text style={[styles.consecPctInBar, { color: pctInBarColor }]} numberOfLines={1}>
+          {formatPctConsecucion(pct)}
+        </Text>
+      </View>
+      {tienePct && !consecucionPositiva ? (
+        <Text style={[styles.consecTileEuroDebajo, colorDesvio(desvio)]} numberOfLines={1}>
+          {formatMoneda(desvio)}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function ConsecucionLocalesGrid({ locales }: { locales: ObjetivosShareLocal[] }) {
+  const ordenados = [...locales].sort((a, b) =>
+    nombreLocal(a).localeCompare(nombreLocal(b), 'es', { sensitivity: 'base' }),
+  );
+
+  return (
+    <View style={styles.consecGridWrap}>
+      <Text style={styles.consecGridTitle}>Consecución por local</Text>
+      <View style={styles.consecGrid}>
+        {ordenados.map((loc) => (
+          <View key={loc.key} style={styles.consecGridCell}>
+            <ConsecucionLocalTile loc={loc} />
+          </View>
+        ))}
+      </View>
+    </View>
+  );
 }
 
 function ShareHeader({
@@ -244,10 +336,17 @@ function ResumenExport(props: ObjetivosShareExportProps) {
         fechaHastaLabel={props.fechaHastaLabel}
         generadoLabel={props.generadoLabel}
       />
-      <KpiGlobal totales={props.totales} />
-      <View style={styles.topGrid}>
-        <TopLocalesColumn titulo="Mejores" items={topPositivos} />
-        <TopLocalesColumn titulo="Peores" items={topNegativos} />
+      <View style={styles.resumenBody}>
+        <View style={styles.resumenLeft}>
+          <KpiGlobal totales={props.totales} />
+          <View style={styles.topGrid}>
+            <TopLocalesColumn titulo="Mejores" items={topPositivos} />
+            <TopLocalesColumn titulo="Peores" items={topNegativos} />
+          </View>
+        </View>
+        <View style={styles.resumenRight}>
+          <ConsecucionLocalesGrid locales={props.locales} />
+        </View>
       </View>
       <Text style={styles.footer}>IGP · {props.locales.length} locales</Text>
     </>
@@ -287,8 +386,9 @@ function ListadoExport(props: ObjetivosShareExportProps) {
 }
 
 export function ObjetivosShareExport(props: ObjetivosShareExportProps) {
+  const ancho = props.mode === 'resumen' ? OBJETIVOS_SHARE_WIDTH : OBJETIVOS_SHARE_WIDTH_LISTADO;
   return (
-    <View style={styles.root} collapsable={false}>
+    <View style={[styles.root, { width: ancho }]} collapsable={false}>
       {props.mode === 'resumen' ? <ResumenExport {...props} /> : <ListadoExport {...props} />}
     </View>
   );
@@ -296,7 +396,6 @@ export function ObjetivosShareExport(props: ObjetivosShareExportProps) {
 
 const styles = StyleSheet.create({
   root: {
-    width: OBJETIVOS_SHARE_WIDTH,
     backgroundColor: '#ffffff',
     paddingHorizontal: 16,
     paddingVertical: 20,
@@ -304,23 +403,138 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
-  header: { marginBottom: 16 },
-  headerTitle: { fontSize: 20, fontWeight: '800', color: '#0f172a', marginBottom: 4 },
-  headerSub: { fontSize: 14, fontWeight: '600', color: '#475569' },
+  header: { marginBottom: 14 },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a', marginBottom: 4 },
+  headerSub: { fontSize: 13, fontWeight: '600', color: '#475569' },
   headerChunk: { fontSize: 12, fontWeight: '600', color: '#0ea5e9', marginTop: 4 },
   headerGen: { fontSize: 11, color: '#94a3b8', marginTop: 4 },
+  resumenBody: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 14,
+  },
+  resumenLeft: {
+    width: 300,
+    flexShrink: 0,
+  },
+  resumenRight: {
+    flex: 1,
+    minWidth: 0,
+  },
+  consecGridWrap: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 10,
+  },
+  consecGridTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#334155',
+    marginBottom: 10,
+  },
+  consecGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  consecGridCell: {
+    width: '48.5%',
+    minWidth: 0,
+  },
+  consecTile: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    gap: 6,
+  },
+  consecTileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 4,
+  },
+  consecTileNombre: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1e293b',
+    minWidth: 0,
+  },
+  consecDesvioBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    flexShrink: 0,
+    marginLeft: 4,
+  },
+  consecDesvioBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  consecTileEuroDebajo: {
+    fontSize: 10,
+    fontWeight: '800',
+    textAlign: 'right',
+    alignSelf: 'stretch',
+    marginTop: -2,
+  },
+  consecTrack: {
+    height: 16,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 4,
+    overflow: 'hidden',
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  consecMark100: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 1,
+    marginLeft: -0.5,
+    backgroundColor: '#94a3b8',
+    zIndex: 2,
+  },
+  consecFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 4,
+  },
+  consecPctInBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    fontSize: 9,
+    fontWeight: '800',
+    textAlign: 'center',
+    lineHeight: 16,
+    zIndex: 3,
+    paddingHorizontal: 4,
+  },
   kpiBox: {
     backgroundColor: '#f8fafc',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    padding: 14,
-    marginBottom: 16,
-    gap: 8,
+    padding: 12,
+    marginBottom: 12,
+    gap: 6,
   },
   kpiRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  kpiLabel: { fontSize: 14, fontWeight: '600', color: '#64748b' },
-  kpiValue: { fontSize: 17, fontWeight: '800', color: '#1e293b' },
+  kpiLabel: { fontSize: 12, fontWeight: '600', color: '#64748b' },
+  kpiValue: { fontSize: 15, fontWeight: '800', color: '#1e293b' },
   kpiMuted: { color: '#64748b', fontWeight: '600' },
   kpiPctBadge: {
     flexDirection: 'row',
@@ -332,8 +546,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginTop: 4,
   },
-  kpiPctText: { fontSize: 20, fontWeight: '800' },
-  topGrid: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  kpiPctText: { fontSize: 18, fontWeight: '800' },
+  topGrid: { flexDirection: 'row', gap: 8, marginBottom: 0 },
   topCol: { flex: 1, minWidth: 0 },
   topColTitle: { fontSize: 13, fontWeight: '700', color: '#334155', marginBottom: 8 },
   topEmpty: { fontSize: 13, color: '#94a3b8' },

@@ -21,6 +21,9 @@ import {
   type RegistrarPagoPayloadFactura,
 } from '../../components/RegistrarPagoModal';
 import { BadgeEstado } from '../../components/BadgeEstado';
+import { CampoIdDocumentoFacturaRecibida } from '../../components/CampoIdDocumentoFacturaRecibida';
+import { CampoConceptoRemesaFacturaRecibida } from '../../components/CampoConceptoRemesaFacturaRecibida';
+import { descargarAdjuntoFacturaRecibida } from '../../lib/descargarAdjuntoFactura';
 import { ResumenTotales } from '../../components/ResumenTotales';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { ImporteMonedaInput } from '../../components/ImporteMonedaInput';
@@ -178,6 +181,7 @@ export default function FacturaDetalleScreen() {
   type Adjunto = { id: string; fileKey: string; nombre: string; tipo: string; size: number; url?: string; subido_en: string; subido_por: string };
   const [adjuntos, setAdjuntos] = useState<Adjunto[]>([]);
   const [subiendoAdjunto, setSubiendoAdjunto] = useState(false);
+  const [descargandoAdjId, setDescargandoAdjId] = useState<string | null>(null);
 
   // ── Toast nativo ──
   const { show: showToast, ToastView } = useLocalToast();
@@ -799,6 +803,24 @@ export default function FacturaDetalleScreen() {
     }
   };
 
+  const descargarAdjunto = async (adjId: string) => {
+    if (!facturaId) return;
+    setDescargandoAdjId(adjId);
+    try {
+      if (tipo === 'IN') {
+        await descargarAdjuntoFacturaRecibida(facturaId, adjId);
+        alertMsg('Descargado', 'Documento guardado con id_Documento');
+        return;
+      }
+      const adj = adjuntos.find((a) => a.id === adjId);
+      if (adj?.url && Platform.OS === 'web') window.open(adj.url, '_blank');
+    } catch (e: unknown) {
+      alertMsg('Error', errorMessage(e));
+    } finally {
+      setDescargandoAdjId(null);
+    }
+  };
+
   // ── Email ──
   const abrirModalEmail = () => {
     setEmailDestinatario(empresaEmail || '');
@@ -1167,6 +1189,17 @@ export default function FacturaDetalleScreen() {
                   placeholderTextColor="#94a3b8"
                 />
               </View>
+              <CampoIdDocumentoFacturaRecibida
+                empresaNombre={emisorNombre}
+                fechaEmision={fechaEmision}
+                numeroFacturaProveedor={numFacturaProveedor}
+              />
+              <CampoConceptoRemesaFacturaRecibida
+                numeroFacturaProveedor={numFacturaProveedor}
+                numeroFactura={numeroFactura || previewNumFactura}
+                proveedorNombre={empresaNombre}
+                observaciones={observaciones}
+              />
             </>
           )}
 
@@ -1433,10 +1466,20 @@ export default function FacturaDetalleScreen() {
                 </View>
                 {adj.url && (
                   <TouchableOpacity
-                    onPress={() => { if (Platform.OS === 'web') window.open(adj.url, '_blank'); }}
+                    onPress={() => descargarAdjunto(adj.id)}
                     style={{ padding: 4 }}
+                    disabled={descargandoAdjId === adj.id}
+                    accessibilityLabel={tipo === 'IN' ? 'Descargar documento' : 'Abrir documento'}
                   >
-                    <MaterialIcons name="open-in-new" size={16} color="#0ea5e9" />
+                    {descargandoAdjId === adj.id ? (
+                      <ActivityIndicator size="small" color="#0ea5e9" />
+                    ) : (
+                      <MaterialIcons
+                        name={tipo === 'IN' ? 'download' : 'open-in-new'}
+                        size={16}
+                        color="#0ea5e9"
+                      />
+                    )}
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity onPress={() => eliminarAdjunto(adj.id)} style={{ padding: 4 }}>

@@ -17,6 +17,11 @@ import { API_BASE_URL as API_URL } from '../../utils/apiBaseUrl';
 import { formatMoneda } from '../../utils/facturacion';
 import { formatId6 } from '../../utils/idFormat';
 import { apiFetch } from '../../utils/api';
+import { useAuth } from '../../contexts/AuthContext';
+import {
+  puedeProgramacionActuaciones,
+  puedeGestionarArtistas,
+} from '../../lib/permisosModulos';
 
 type ActuacionDia = {
   id_actuacion: string;
@@ -80,8 +85,11 @@ function importeMusicoActuacion(a: ActuacionDia): number {
 
 export default function ActuacionesIndexScreen() {
   const router = useRouter();
+  const { hasPermiso } = useAuth();
   const { width: winWidth } = useWindowDimensions();
   const isNarrow = winWidth < 900;
+  const puedeArtistas = puedeGestionarArtistas(hasPermiso);
+  const puedeProgramacion = puedeProgramacionActuaciones(hasPermiso);
 
   const [diaSeleccionado, setDiaSeleccionado] = useState<string>(() => fechaJornadaNegocioIso());
   const [actuaciones, setActuaciones] = useState<ActuacionDia[]>([]);
@@ -343,9 +351,10 @@ export default function ActuacionesIndexScreen() {
       <Text style={styles.subtitle}>Artistas y programación de actuaciones.</Text>
 
       <TouchableOpacity
-        style={styles.card}
-        onPress={() => router.push('/actuaciones/artistas' as any)}
-        activeOpacity={0.8}
+        style={[styles.card, !puedeArtistas && styles.cardDisabled]}
+        onPress={() => puedeArtistas && router.push('/actuaciones/artistas' as any)}
+        activeOpacity={puedeArtistas ? 0.8 : 1}
+        disabled={!puedeArtistas}
       >
         <MaterialIcons name="person" size={26} color="#0ea5e9" />
         <View style={styles.cardText}>
@@ -356,9 +365,10 @@ export default function ActuacionesIndexScreen() {
       </TouchableOpacity>
 
       <TouchableOpacity
-        style={styles.card}
-        onPress={() => router.push('/actuaciones/programacion' as any)}
-        activeOpacity={0.8}
+        style={[styles.card, !puedeProgramacion && styles.cardDisabled]}
+        onPress={() => puedeProgramacion && router.push('/actuaciones/programacion' as any)}
+        activeOpacity={puedeProgramacion ? 0.8 : 1}
+        disabled={!puedeProgramacion}
       >
         <MaterialIcons name="event" size={26} color="#0ea5e9" />
         <View style={styles.cardText}>
@@ -421,6 +431,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
+  cardDisabled: { opacity: 0.45 },
   cardText: { flex: 1, minWidth: 0 },
   cardTitle: { fontSize: 15, fontWeight: '700', color: '#334155' },
   cardDesc: { fontSize: 11, color: '#64748b', marginTop: 2 },

@@ -51,6 +51,7 @@ import almacenesRouter from './routes/almacenes.js';
 import localesRouter from './routes/locales.js';
 import empresasRouter from './routes/empresas.js';
 import permisosRouter from './routes/permisos.js';
+import rolesRouter from './routes/roles.js';
 import festivosRouter from './routes/festivos.js';
 import placesRouter from './routes/places.js';
 import pedidosRouter from './routes/pedidos.js';
@@ -63,6 +64,7 @@ import informesRouter from './routes/informes.js';
 import activacionesRouter from './routes/activaciones.js';
 import campanasRouter from './routes/campanas.js';
 import remesasRouter from './routes/remesas.js';
+import cashflowRouter from './routes/cashflow.js';
 
 // Valida variables críticas al arranque. Si falta alguna REQUIRED, aborta el proceso.
 validateEnv();
@@ -162,6 +164,7 @@ app.use('/api', almacenesRouter);
 app.use('/api', localesRouter);
 app.use('/api', empresasRouter);
 app.use('/api', permisosRouter);
+app.use('/api', rolesRouter);
 app.use('/api', festivosRouter);
 app.use('/api', placesRouter);
 app.use('/api', pedidosRouter);
@@ -179,6 +182,7 @@ app.use('/api', informesRouter);
 app.use('/api', activacionesRouter);
 app.use('/api', campanasRouter);
 app.use('/api', remesasRouter);
+app.use('/api', cashflowRouter);
 
 // --- Middleware central de errores: DEBE ir tras todos los routers ---
 app.use(errorHandler);

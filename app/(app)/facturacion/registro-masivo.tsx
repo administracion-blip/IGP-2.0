@@ -41,6 +41,7 @@ import { mergeReconciliacion } from '../../lib/registroMasivo';
 import { useZonaOCR } from '../../hooks/useZonaOCR';
 import { ZonaOCRPreview } from '../../components/registroMasivo/ZonaOCRPreview';
 import { DesgloseFiscalEditor } from '../../components/registroMasivo/DesgloseFiscalEditor';
+import { CampoIdDocumentoFacturaRecibida } from '../../components/CampoIdDocumentoFacturaRecibida';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -403,7 +404,7 @@ export default function RegistroMasivoScreen() {
             serie: '',
             forma_pago: '',
             condiciones_pago: '',
-            observaciones: b.observaciones || `Archivo: ${b.archivo.nombre}`,
+            observaciones: String(b.observaciones ?? '').trim(),
             archivo: b.archivo
               ? {
                   fileKey: b.archivo.fileKey,
@@ -633,7 +634,7 @@ export default function RegistroMasivoScreen() {
 
               {selectedBorrador.duplicados.length > 0 && (
                 <View style={styles.dupWarn}>
-                  <MaterialIcons name="warning" size={14} color="#b45309" />
+                  <MaterialIcons name="warning" size={14} color="#dc2626" />
                   <Text style={styles.dupWarnText}>
                     Posible(s) duplicado(s): {selectedBorrador.duplicados.map((d) => d.empresa_nombre || d.id_factura).join(', ')}
                   </Text>
@@ -735,6 +736,11 @@ export default function RegistroMasivoScreen() {
                   onChangeIso={(v) => usuarioEditaCampo(selectedBorrador.idx, 'fecha_emision', v)}
                   onZona={() => zona.activar('fecha_emision')}
                   zonaActiva={zona.activa?.field === 'fecha_emision'}
+                />
+                <CampoIdDocumentoFacturaRecibida
+                  empresaNombre={selectedBorrador.sociedad_grupo_nombre}
+                  fechaEmision={selectedBorrador.fecha_emision}
+                  numeroFacturaProveedor={selectedBorrador.numero_factura_proveedor}
                 />
               </View>
 
@@ -959,13 +965,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#fffbeb',
+    backgroundColor: '#fef2f2',
     borderRadius: 6,
     padding: 6,
     borderWidth: 1,
-    borderColor: '#fde68a',
+    borderColor: '#fecaca',
   },
-  dupWarnText: { fontSize: 10, color: '#b45309', flex: 1 },
+  dupWarnText: { fontSize: 10, color: '#b91c1c', flex: 1 },
 
   reconWarn: {
     flexDirection: 'row',

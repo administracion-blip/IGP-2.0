@@ -19,11 +19,30 @@ Crear en AWS DynamoDB:
 
 | PK            | SK              | Descripción        |
 |---------------|------------------|--------------------|
+| `ROL#<nombreRol>` | `META` | Catálogo del rol (nombre, descripción, orden, sistema) |
 | `ROL#<nombreRol>` | `PERMISO#<codigo>` | Un permiso asignado al rol |
 
 El `<nombreRol>` debe coincidir exactamente con el campo `Rol` de la tabla de usuarios (ej. `Administrador`, `SuperUser`, `Local`).
 
-## Endpoint
+## Catálogo de roles (API)
+
+**GET** `/api/roles` — Lista roles registrados (requiere sesión). Devuelve `{ roles: [{ nombre, descripcion, sistema, orden, permisosCount }] }`.
+
+**POST** `/api/roles` — Crea rol (solo Administrador). Body: `{ nombre, descripcion?, clonarDe? }`. Si `clonarDe` indica otro rol, copia sus permisos.
+
+**PUT** `/api/roles/:nombre` — Actualiza descripción u orden (solo Administrador).
+
+**DELETE** `/api/roles/:nombre` — Elimina rol y sus permisos si ningún usuario lo tiene asignado. No se puede borrar `Administrador`.
+
+Migración inicial de roles existentes:
+
+```bash
+node api/scripts/seed-roles-catalog.js
+```
+
+Inserta ítems `META` para: Administrador, SuperUser, Administracion, Local, Socio, Marketing.
+
+## Endpoints de permisos
 
 **GET** `/api/permisos?rol=<nombreRol>`
 
@@ -34,6 +53,14 @@ El `<nombreRol>` debe coincidir exactamente con el campo `Rol` de la tabla de us
 
 ### Módulos (menú lateral)
 
+La lista canónica de permisos de menú lateral está en `app/constants/modulos.ts` (`PERMISOS_MENU_LATERAL`).
+La pantalla **Permisos** agrupa cada módulo con su permiso **Ver módulo (menú)** y las acciones granulares debajo (misma fila = un código; desmarcado = bloqueado para ese rol).
+
+### Módulos (menú lateral)
+
+La lista canónica de permisos «Ver módulo» está en `app/constants/modulos.ts` (`PERMISOS_MENU_LATERAL`).
+En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc.), no en un grupo suelto.
+
 | Código | Descripción |
 |--------|-------------|
 | `base_datos.ver` | Ver menú Base de Datos |
@@ -41,12 +68,28 @@ El `<nombreRol>` debe coincidir exactamente con el campo `Rol` de la tabla de us
 | `compras.ver` | Ver menú Compras |
 | `cajas.ver` | Ver menú Cajas |
 | `cashflow.ver` | Ver menú Cashflow |
-| `actuaciones.ver` | Ver menú Actuaciones |
+| `actuaciones.ver` | Ver menú Actuaciones y consulta del día |
 | `rrpp.ver` | Ver menú Rrpp |
 | `recursos_humanos.ver` | Ver menú Recursos Humanos (hub de empleados y cuadrante) |
-| `rrss.ver` | Ver menú Marketing (gestión de marketing y redes sociales) |
+| `marketing.proponer` | Ver menú Marketing (propuestas y RRSS) |
 | `mystery_guest.ver` | Ver menú Mystery Guest |
 | `reservas.ver` | Ver menú Reservas |
+| `acuerdos.ver` | Ver menú Acuerdos |
+| `facturacion.ver` | Ver menú Facturación |
+| `planning_dia.ver` | Ver menú Planning del Día |
+
+### Configuración (engranaje de cabecera)
+
+| Código | Descripción |
+|--------|-------------|
+| `permisos.ver` | Ver pantalla Permisos |
+| `ajustes.ver` | Ver pantalla Ajustes |
+
+### Legacy
+
+| Código | Descripción |
+|--------|-------------|
+| `rrss.ver` | **Obsoleto** — equivalente legacy de `marketing.proponer` (sigue funcionando vía alias) |
 
 ### Acciones granulares por pantalla
 
@@ -86,6 +129,9 @@ El `<nombreRol>` debe coincidir exactamente con el campo `Rol` de la tabla de us
 | `cierres.borrar` | Cierres teóricos · Borrar |
 | `cierres.sincronizar` | Cierres teóricos · Sincronizar |
 | `cierres.exportar` | Cierres teóricos · Exportar |
+| `cashflow.registrar` | Cashflow · Registrar y firmar movimientos |
+| `cashflow.validar` | Cashflow · Validar importes altos, reparto socios y anular |
+| `formas_pago.editar` | Formas de pago · Editar maestro (Base de datos) |
 | `comparativa.ver` | Comparativa fechas · Ver |
 | `comparativa.crear` | Comparativa fechas · Crear |
 | `comparativa.editar` | Comparativa fechas · Editar |
@@ -124,6 +170,15 @@ El `<nombreRol>` debe coincidir exactamente con el campo `Rol` de la tabla de us
 | `remesas.gestionar` | Remesas de pago · Crear, generar fichero BBVA, ejecutar y anular |
 | `planning_dia.ver` | Planning del Día · Ver menú y acciones del hub |
 | `planning_dia.objetivo_card` | Planning del Día · Card de consecución del objetivo mensual (solo %) |
+| `planning_dia.actuaciones` | Planning del Día · Tarjeta y pantalla actuaciones del día |
+| `planning_dia.activaciones` | Planning del Día · Tarjeta y pantalla activaciones del día |
+| `planning_dia.arqueo` | Planning del Día · Tarjeta arqueo de caja (alternativa a `cierres.ver`) |
+| `actuaciones.programacion` | Actuaciones · Programación y fichas de artistas |
+| `actuaciones.crear` | Actuaciones · Crear actuaciones / huecos |
+| `actuaciones.editar` | Actuaciones · Editar actuaciones |
+| `actuaciones.borrar` | Actuaciones · Borrar actuaciones |
+| `actuaciones.firma` | Actuaciones · Firmar actuación |
+| `actuaciones.facturacion` | Actuaciones · Asociar facturas de gasto |
 
 ## Comportamiento
 

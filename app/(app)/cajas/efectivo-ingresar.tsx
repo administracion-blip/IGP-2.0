@@ -26,6 +26,10 @@ type LocalEfectivo = {
   monedas: number;
   sinDesglose: number;
   retiradas: number;
+  pagosFueraCaja: number;
+  cobrosFueraCaja: number;
+  cobrosRepartoSocios: number;
+  aIngresarBase?: number;
   aIngresar: number;
   arqueosSinConteo: number;
 };
@@ -37,6 +41,9 @@ type Sociedad = {
   totalMonedas: number;
   totalSinDesglose: number;
   totalRetiradas: number;
+  totalPagosFueraCaja: number;
+  totalCobrosFueraCaja: number;
+  totalCobrosRepartoSocios: number;
   totalAIngresar: number;
   locales: LocalEfectivo[];
 };
@@ -46,6 +53,9 @@ type TotalGeneral = {
   monedas: number;
   sinDesglose: number;
   retiradas: number;
+  pagosFueraCaja: number;
+  cobrosFueraCaja: number;
+  cobrosRepartoSocios: number;
   aIngresar: number;
 };
 
@@ -174,7 +184,7 @@ export default function EfectivoIngresarScreen() {
           </View>
           <Text style={styles.lead}>
             Total de efectivo a ingresar en banco por sociedad y local en el rango elegido. Incluye el efectivo
-            contado en los arqueos más las retiradas (que también se ingresan y cuentan como billetes).
+            contado en los arqueos más las retiradas, ajustado por pagos y cobros fuera del TPV registrados en Cashflow.
           </Text>
 
           <View style={[styles.filtrosRow, shouldStackPanels && styles.filtrosCol]}>
@@ -237,6 +247,24 @@ export default function EfectivoIngresarScreen() {
                     <Text style={styles.chipText}>Retiradas {formatMoneda(total.retiradas)}</Text>
                   </View>
                 ) : null}
+                {total.pagosFueraCaja > 0 ? (
+                  <View style={[styles.chip, styles.chipPagosCf]}>
+                    <MaterialIcons name="arrow-upward" size={14} color="#b91c1c" />
+                    <Text style={styles.chipText}>Pagos cashflow {formatMoneda(total.pagosFueraCaja)}</Text>
+                  </View>
+                ) : null}
+                {total.cobrosFueraCaja > 0 ? (
+                  <View style={[styles.chip, styles.chipCobrosCf]}>
+                    <MaterialIcons name="arrow-downward" size={14} color="#15803d" />
+                    <Text style={styles.chipText}>Cobros cashflow {formatMoneda(total.cobrosFueraCaja)}</Text>
+                  </View>
+                ) : null}
+                {total.cobrosRepartoSocios > 0 ? (
+                  <View style={[styles.chip, styles.chipReparto]}>
+                    <MaterialIcons name="groups" size={14} color="#64748b" />
+                    <Text style={styles.chipText}>Reparto socios {formatMoneda(total.cobrosRepartoSocios)}</Text>
+                  </View>
+                ) : null}
               </View>
               {total.sinDesglose > 0 ? (
                 <Text style={styles.sinDesgloseNote}>
@@ -275,28 +303,44 @@ export default function EfectivoIngresarScreen() {
                     {s.totalRetiradas > 0 ? (
                       <Text style={styles.socChipRet}>Retiradas {formatMoneda(s.totalRetiradas)}</Text>
                     ) : null}
+                    {s.totalPagosFueraCaja > 0 ? (
+                      <Text style={styles.socChipPagosCf}>- Pagos CF {formatMoneda(s.totalPagosFueraCaja)}</Text>
+                    ) : null}
+                    {s.totalCobrosFueraCaja > 0 ? (
+                      <Text style={styles.socChipCobrosCf}>+ Cobros CF {formatMoneda(s.totalCobrosFueraCaja)}</Text>
+                    ) : null}
                   </View>
 
                   {/* Tabla de locales */}
                   <View style={styles.tablaHead}>
                     <Text style={styles.thLocal}>Local</Text>
-                    <Text style={styles.thNum}>Billetes</Text>
-                    <Text style={styles.thNum}>Monedas</Text>
+                    <Text style={styles.thNumSm}>Pagos CF</Text>
+                    <Text style={styles.thNumSm}>Cobros CF</Text>
                     <Text style={styles.thNum}>A ingresar</Text>
                   </View>
                   {s.locales.map((l) => (
                     <View key={l.workplaceId} style={styles.tablaRow}>
                       <View style={styles.tdLocalWrap}>
                         <Text style={styles.tdLocal} numberOfLines={1}>{l.nombre}</Text>
-                        {l.retiradas > 0 ? (
-                          <Text style={styles.tdLocalSub}>incluye {formatMoneda(l.retiradas)} de retiradas</Text>
-                        ) : null}
+                        <Text style={styles.tdLocalSub}>
+                          Billetes {formatMoneda(l.billetes)} · Monedas {formatMoneda(l.monedas)}
+                          {l.retiradas > 0 ? ` · Retiradas ${formatMoneda(l.retiradas)}` : ''}
+                        </Text>
                         {l.arqueosSinConteo > 0 ? (
-                          <Text style={styles.tdLocalWarn}>{l.arqueosSinConteo} sin desglose</Text>
+                          <Text style={styles.tdLocalWarn}>{l.arqueosSinConteo} arqueo(s) sin desglose</Text>
+                        ) : null}
+                        {l.cobrosRepartoSocios > 0 ? (
+                          <Text style={styles.tdLocalReparto}>
+                            Reparto socios {formatMoneda(l.cobrosRepartoSocios)} (no suma al ingreso)
+                          </Text>
                         ) : null}
                       </View>
-                      <Text style={styles.tdNum}>{formatMoneda(l.billetes)}</Text>
-                      <Text style={styles.tdNum}>{formatMoneda(l.monedas)}</Text>
+                      <Text style={[styles.tdNumSm, l.pagosFueraCaja > 0 && styles.tdPagoCf]}>
+                        {l.pagosFueraCaja > 0 ? formatMoneda(l.pagosFueraCaja) : '—'}
+                      </Text>
+                      <Text style={[styles.tdNumSm, l.cobrosFueraCaja > 0 && styles.tdCobroCf]}>
+                        {l.cobrosFueraCaja > 0 ? formatMoneda(l.cobrosFueraCaja) : '—'}
+                      </Text>
                       <Text style={[styles.tdNum, styles.tdNumFuerte]}>{formatMoneda(l.aIngresar)}</Text>
                     </View>
                   ))}
@@ -339,6 +383,9 @@ const styles = StyleSheet.create({
   chipBilletes: { backgroundColor: '#f0fdfa', borderColor: '#99f6e4' },
   chipMonedas: { backgroundColor: '#fffbeb', borderColor: '#fde68a' },
   chipRetiradas: { backgroundColor: '#f5f3ff', borderColor: '#ddd6fe' },
+  chipPagosCf: { backgroundColor: '#fef2f2', borderColor: '#fecaca' },
+  chipCobrosCf: { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' },
+  chipReparto: { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' },
   chipText: { fontSize: 12, fontWeight: '700', color: '#334155' },
   sinDesgloseNote: { fontSize: 11, color: '#92400e', marginTop: 10, fontStyle: 'italic' },
 
@@ -353,15 +400,22 @@ const styles = StyleSheet.create({
   socChipBilletes: { fontSize: 12, fontWeight: '600', color: '#0f766e' },
   socChipMonedas: { fontSize: 12, fontWeight: '600', color: '#b45309' },
   socChipRet: { fontSize: 12, fontWeight: '600', color: '#7c3aed' },
+  socChipPagosCf: { fontSize: 12, fontWeight: '600', color: '#b91c1c' },
+  socChipCobrosCf: { fontSize: 12, fontWeight: '600', color: '#15803d' },
 
   tablaHead: { flexDirection: 'row', alignItems: 'center', paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   thLocal: { flex: 1, fontSize: 10, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase' },
+  thNumSm: { width: 72, fontSize: 10, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', textAlign: 'right' },
   thNum: { width: 88, fontSize: 10, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', textAlign: 'right' },
   tablaRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#f8fafc' },
   tdLocalWrap: { flex: 1, minWidth: 0 },
   tdLocal: { fontSize: 13, color: '#334155', fontWeight: '600' },
-  tdLocalSub: { fontSize: 10, color: '#7c3aed', marginTop: 1 },
+  tdLocalSub: { fontSize: 10, color: '#64748b', marginTop: 1 },
   tdLocalWarn: { fontSize: 10, color: '#b45309', marginTop: 1 },
+  tdLocalReparto: { fontSize: 10, color: '#64748b', marginTop: 1, fontStyle: 'italic' },
+  tdNumSm: { width: 72, fontSize: 12, color: '#94a3b8', textAlign: 'right' },
+  tdPagoCf: { color: '#b91c1c', fontWeight: '600' },
+  tdCobroCf: { color: '#15803d', fontWeight: '600' },
   tdNum: { width: 88, fontSize: 13, color: '#475569', textAlign: 'right' },
   tdNumFuerte: { fontWeight: '700', color: '#15803d' },
   errorText: { padding: 16, color: '#b91c1c' },

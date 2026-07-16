@@ -6,6 +6,7 @@ import { docClient, tables } from '../lib/db.js';
 import { findUsuarioByEmail } from '../lib/dynamo/usuarios.js';
 import { signToken } from '../lib/jwt.js';
 import { requireAuth } from '../middleware/auth.js';
+import { normalizeLocalesUsuario } from '../lib/usuarioLocales.js';
 import { enviarEmail, smtpConfigurado } from '../lib/email.js';
 
 const router = express.Router();
@@ -92,10 +93,7 @@ router.post('/login', async (req, res) => {
     return res.status(401).json({ error: 'Credenciales incorrectas' });
   }
 
-  const rawLocal = user.Local;
-  const locales = Array.isArray(rawLocal)
-    ? rawLocal.filter((l) => l != null && String(l).trim() !== '').map((l) => String(l).trim())
-    : (rawLocal != null && String(rawLocal).trim() !== '' ? [String(rawLocal).trim()] : []);
+  const locales = normalizeLocalesUsuario(user);
 
   const userPayload = {
     id_usuario: user.id_usuario ?? user.Email ?? '',
@@ -124,10 +122,7 @@ router.get('/me', requireAuth, async (req, res) => {
     return res.status(404).json({ error: 'Usuario no encontrado' });
   }
   const u = got.Item;
-  const rawLocal = u.Local;
-  const locales = Array.isArray(rawLocal)
-    ? rawLocal.filter((l) => l != null && String(l).trim() !== '').map((l) => String(l).trim())
-    : (rawLocal != null && String(rawLocal).trim() !== '' ? [String(rawLocal).trim()] : []);
+  const locales = normalizeLocalesUsuario(u);
 
   const userPayload = {
     id_usuario: u.id_usuario ?? '',

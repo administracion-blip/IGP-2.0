@@ -48,6 +48,7 @@ export const ESTADOS_IN = [
   'pendiente_revision',
   'pendiente_pago',
   'parcialmente_pagada',
+  'vencida',
   'pagada',
   'anulada',
 ] as const;
@@ -241,7 +242,7 @@ export function colorEstado(estado: string): { bg: string; text: string } {
     anulada: { bg: '#f1f5f9', text: '#94a3b8' },
     pendiente_revision: { bg: '#fef3c7', text: '#b45309' },
     pendiente_pago: { bg: '#dbeafe', text: '#1e40af' },
-    parcialmente_pagada: { bg: '#fef3c7', text: '#b45309' },
+    parcialmente_pagada: { bg: '#ffedd5', text: '#c2410c' },
     pagada: { bg: '#d1fae5', text: '#047857' },
   };
   return map[estado] || { bg: '#f1f5f9', text: '#64748b' };

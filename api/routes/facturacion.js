@@ -39,6 +39,7 @@ import {
 import { aplicarPostProcesadoPipeline } from '../lib/ocrFacturaValidacion.js';
 import { registrarPagoFactura } from '../lib/facturacion/registrarPago.js';
 import { emitirOValidarFacturaPorId } from '../lib/facturacion/emitirFactura.js';
+import { nombreFicheroAdjuntoFacturaRecibida } from '../lib/facturacion/idDocumento.js';
 import crypto from 'crypto';
 import { enviarEmail } from '../lib/email.js';
 import multer from 'multer';
@@ -1586,6 +1587,52 @@ router.delete('/facturacion/facturas/:id/adjuntos/:adjId', async (req, res) => {
   }
 });
 
+function adjuntosDeFacturaItem(item) {
+  let adjuntos = Array.isArray(item.adjuntos) ? [...item.adjuntos] : [];
+  if (adjuntos.length === 0 && item.documento_file_key) {
+    adjuntos = [
+      {
+        id: 'documento',
+        fileKey: item.documento_file_key,
+        nombre: item.documento_nombre || '',
+        tipo: 'application/octet-stream',
+        size: 0,
+      },
+    ];
+  }
+  return adjuntos;
+}
+
+router.get('/facturacion/facturas/:id/adjuntos/:adjId/descargar', async (req, res) => {
+  const { id, adjId } = req.params;
+  try {
+    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
+    if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+
+    const adjuntos = adjuntosDeFacturaItem(existing.Item);
+    const indice = adjuntos.findIndex((a) => a.id === adjId);
+    if (indice < 0) return res.status(404).json({ error: 'Adjunto no encontrado' });
+    const adj = adjuntos[indice];
+
+    const filename =
+      existing.Item.tipo === 'IN'
+        ? nombreFicheroAdjuntoFacturaRecibida(existing.Item, adj, indice)
+        : (adj.nombre || `adjunto-${adjId}`).replace(/[/\\:*?"<>|]/g, '_');
+
+    const obj = await s3.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: adj.fileKey }));
+    const chunks = [];
+    for await (const chunk of obj.Body) chunks.push(chunk);
+    const buffer = Buffer.concat(chunks);
+
+    const contentType = obj.ContentType || adj.tipo || 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── OCR / REGISTRO MASIVO ───
 
 router.post('/facturacion/ocr/extraer', upload.single('file'), async (req, res) => {
@@ -2468,7 +2515,7 @@ router.post('/facturacion/ocr/confirmar', async (req, res) => {
         saldo_pendiente: round2(b.total_factura || 0),
         forma_pago: b.forma_pago || '',
         condiciones_pago: b.condiciones_pago || '',
-        observaciones: b.observaciones || 'Creada desde OCR/registro masivo',
+        observaciones: String(b.observaciones ?? '').trim(),
         local_id: b.local_id || '',
         documento_file_key,
         documento_nombre,

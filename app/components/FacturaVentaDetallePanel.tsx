@@ -14,6 +14,8 @@ import {
   Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useAuth } from '../contexts/AuthContext';
 import {
   calcularLinea,
   formatMoneda,
@@ -31,7 +33,11 @@ import { SelectorDesplegable } from './SelectorDesplegable';
 import { ImporteMonedaInput } from './ImporteMonedaInput';
 import { textoFechaContabilizacionGasto } from '../utils/formatFecha';
 import { BadgeEstado } from './BadgeEstado';
+import { CampoIdDocumentoFacturaRecibida } from './CampoIdDocumentoFacturaRecibida';
+import { CampoConceptoRemesaFacturaRecibida } from './CampoConceptoRemesaFacturaRecibida';
+import { descargarAdjuntoFacturaRecibida } from '../lib/descargarAdjuntoFactura';
 import { apiFetch } from '../utils/api';
+import { buildEmpresasEditarHref, listadoFacturaReturnPath } from '../lib/navegacionEmpresas';
 
 /** Anchos fijos por columna (cabecera + filas en el mismo ScrollView) — sin flexGrow para que coincidan con los inputs */
 const LINEA_W_IDX = 22;
@@ -107,6 +113,8 @@ type Props = {
   compactPanel?: boolean;
   /** Notifica los adjuntos cargados (para previsualizarlos fuera del panel, p. ej. modal dividido). */
   onAdjuntos?: (adjuntos: AdjuntoItem[]) => void;
+  /** Incrementar tras volver del maestro de empresas para resincronizar empresa/proveedor. */
+  resyncMaestroToken?: number;
 };
 
 export function FacturaVentaDetallePanel({
@@ -120,7 +128,11 @@ export function FacturaVentaDetallePanel({
   onAbrirCompleto,
   compactPanel = false,
   onAdjuntos,
+  resyncMaestroToken = 0,
 }: Props) {
+  const router = useRouter();
+  const { hasPermiso } = useAuth();
+  const puedeIrMaestro = hasPermiso('empresas.editar');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -168,6 +180,7 @@ export function FacturaVentaDetallePanel({
   const [version, setVersion] = useState(1);
   const [adjuntos, setAdjuntos] = useState<AdjuntoItem[]>([]);
   const [adjuntosLoading, setAdjuntosLoading] = useState(false);
+  const [descargandoAdjId, setDescargandoAdjId] = useState<string | null>(null);
   // Ref para no re-crear `cargar` (y re-fetchear) cada vez que cambie el callback.
   const onAdjuntosRef = useRef(onAdjuntos);
   onAdjuntosRef.current = onAdjuntos;
@@ -293,6 +306,65 @@ export function FacturaVentaDetallePanel({
   const selEmisor = resolverSeleccion(opcionesEmisor, emisorId, emisorNombre, emisorCif);
   const selEmpresa = resolverSeleccion(opcionesEmpresa, empresaId, empresaNombre, empresaCif);
 
+  const returnToListado = listadoFacturaReturnPath(tipoFactura);
+
+  const irAMaestroEmpresa = useCallback(
+    (idEmpresa: string) => {
+      if (!facturaId || !idEmpresa.trim() || !puedeIrMaestro) return;
+      router.push(
+        buildEmpresasEditarHref({
+          idEmpresa: idEmpresa.trim(),
+          returnTo: returnToListado,
+          returnModalFactura: facturaId,
+        }) as never,
+      );
+    },
+    [facturaId, puedeIrMaestro, returnToListado, router],
+  );
+
+  useEffect(() => {
+    if (!resyncMaestroToken) return;
+    let cancel = false;
+    apiFetch('/api/empresas')
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancel) return;
+        const raw: unknown[] = d.empresas ?? d ?? [];
+        const catalog = (Array.isArray(raw) ? raw : []) as EmpresaCatalogo[];
+        setEmpresasCatalogo(catalog);
+        const findEnCatalogo = (id: string) =>
+          catalog.find((e) => String(e.id_empresa ?? e.Nombre ?? '') === id) ?? null;
+        if (emisorId) {
+          const e = findEnCatalogo(emisorId);
+          if (e) {
+            setEmisorNombre(String(e.Nombre ?? ''));
+            setEmisorCif(String(e.Cif ?? '').trim());
+            setEmisorDireccion(String(e.Direccion ?? ''));
+            setEmisorCp(String(e.Cp ?? ''));
+            setEmisorMunicipio(String(e.Municipio ?? ''));
+            setEmisorProvincia(String(e.Provincia ?? ''));
+            setEmisorEmail(String(e.Email ?? ''));
+          }
+        }
+        if (empresaId) {
+          const e = findEnCatalogo(empresaId);
+          if (e) {
+            setEmpresaNombre(String(e.Nombre ?? ''));
+            setEmpresaCif(String(e.Cif ?? '').trim());
+            setEmpresaDireccion(String(e.Direccion ?? ''));
+            setEmpresaCp(String(e.Cp ?? ''));
+            setEmpresaMunicipio(String(e.Municipio ?? ''));
+            setEmpresaProvincia(String(e.Provincia ?? ''));
+            setEmpresaEmail(String(e.Email ?? ''));
+          }
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancel = true;
+    };
+  }, [resyncMaestroToken, emisorId, empresaId]);
+
   const cargar = useCallback(async () => {
     if (!facturaId) return;
     setLoading(true);
@@ -371,6 +443,18 @@ export function FacturaVentaDetallePanel({
     }
     cargar();
   }, [facturaId, cargar]);
+
+  const descargarAdjunto = useCallback(async (adjId: string) => {
+    if (!facturaId || !esIn) return;
+    setDescargandoAdjId(adjId);
+    try {
+      await descargarAdjuntoFacturaRecibida(facturaId, adjId);
+    } catch (e) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo descargar el documento');
+    } finally {
+      setDescargandoAdjId(null);
+    }
+  }, [facturaId, esIn]);
 
   /** Misma lógica que «Previsualizar PDF» en ficha completa (`factura-detalle.tsx`). Solo emitidas (OUT). */
   const previsualizarPDF = useCallback(async () => {
@@ -661,6 +745,21 @@ export function FacturaVentaDetallePanel({
             />
           )}
         </View>
+        <View style={[styles.maestroLinkCol, compactPanel && styles.maestroLinkColCompact]}>
+          <Text style={[styles.label, compactPanel && styles.labelCompact, styles.maestroLinkLabel]}> </Text>
+          <TouchableOpacity
+            style={[styles.maestroLinkBtn, (!emisorId || !puedeIrMaestro) && styles.maestroLinkBtnDisabled]}
+            onPress={() => irAMaestroEmpresa(emisorId)}
+            disabled={!emisorId || !puedeIrMaestro}
+            accessibilityLabel={`Editar ${lblEmisor} en maestro`}
+          >
+            <MaterialIcons
+              name="open-in-new"
+              size={compactPanel ? 15 : 17}
+              color={emisorId && puedeIrMaestro ? '#0ea5e9' : '#cbd5e1'}
+            />
+          </TouchableOpacity>
+        </View>
         <View style={[styles.empresaColCif, compactPanel && styles.empresaColCifCompact]}>
           <Text style={[styles.label, compactPanel && styles.labelCompact]}>{esIn ? 'CIF empresa' : 'CIF/NIF'}</Text>
           <TextInput
@@ -697,6 +796,21 @@ export function FacturaVentaDetallePanel({
             />
           )}
         </View>
+        <View style={[styles.maestroLinkCol, compactPanel && styles.maestroLinkColCompact]}>
+          <Text style={[styles.label, compactPanel && styles.labelCompact, styles.maestroLinkLabel]}> </Text>
+          <TouchableOpacity
+            style={[styles.maestroLinkBtn, (!empresaId || !puedeIrMaestro) && styles.maestroLinkBtnDisabled]}
+            onPress={() => irAMaestroEmpresa(empresaId)}
+            disabled={!empresaId || !puedeIrMaestro}
+            accessibilityLabel={`Editar ${lblEmpresa} en maestro`}
+          >
+            <MaterialIcons
+              name="open-in-new"
+              size={compactPanel ? 15 : 17}
+              color={empresaId && puedeIrMaestro ? '#0ea5e9' : '#cbd5e1'}
+            />
+          </TouchableOpacity>
+        </View>
         <View style={[styles.empresaColCif, compactPanel && styles.empresaColCifCompact]}>
           <Text style={[styles.label, compactPanel && styles.labelCompact]}>{esIn ? 'CIF proveedor' : 'CIF/NIF'}</Text>
           <TextInput
@@ -730,6 +844,19 @@ export function FacturaVentaDetallePanel({
             multiline
             placeholder="—"
             placeholderTextColor="#94a3b8"
+          />
+          <CampoIdDocumentoFacturaRecibida
+            empresaNombre={emisorNombre}
+            fechaEmision={fechaEmision}
+            numeroFacturaProveedor={numFacturaProveedor}
+            compact={compactPanel}
+          />
+          <CampoConceptoRemesaFacturaRecibida
+            numeroFacturaProveedor={numFacturaProveedor}
+            numeroFactura={numeroFactura}
+            proveedorNombre={empresaNombre}
+            observaciones={observaciones}
+            compact={compactPanel}
           />
         </>
       ) : null}
@@ -940,21 +1067,7 @@ export function FacturaVentaDetallePanel({
             ) : (
               <ScrollView style={styles.modalAdjList} keyboardShouldPersistTaps="handled">
                 {adjuntos.map((adj) => (
-                  <TouchableOpacity
-                    key={adj.id}
-                    style={styles.modalAdjRow}
-                    onPress={() => {
-                      if (adj.url) {
-                        if (Platform.OS === 'web') {
-                          const w = globalThis as unknown as { open?: (u: string, t?: string) => void };
-                          w.open?.(adj.url, '_blank');
-                        } else {
-                          Linking.openURL(adj.url);
-                        }
-                      }
-                    }}
-                    disabled={!adj.url}
-                  >
+                  <View key={adj.id} style={styles.modalAdjRow}>
                     <MaterialIcons
                       name={adj.tipo?.includes('pdf') ? 'picture-as-pdf' : adj.tipo?.startsWith('image') ? 'image' : 'insert-drive-file'}
                       size={18}
@@ -969,11 +1082,40 @@ export function FacturaVentaDetallePanel({
                       </Text>
                     </View>
                     {adj.url ? (
-                      <MaterialIcons name="open-in-new" size={18} color="#0ea5e9" />
+                      <>
+                        {esIn ? (
+                          <TouchableOpacity
+                            onPress={() => descargarAdjunto(adj.id)}
+                            disabled={descargandoAdjId === adj.id}
+                            hitSlop={8}
+                            accessibilityLabel="Descargar con id_Documento"
+                          >
+                            {descargandoAdjId === adj.id ? (
+                              <ActivityIndicator size="small" color="#059669" />
+                            ) : (
+                              <MaterialIcons name="download" size={18} color="#059669" />
+                            )}
+                          </TouchableOpacity>
+                        ) : null}
+                        <TouchableOpacity
+                          onPress={() => {
+                            if (Platform.OS === 'web') {
+                              const w = globalThis as unknown as { open?: (u: string, t?: string) => void };
+                              w.open?.(adj.url!, '_blank');
+                            } else {
+                              Linking.openURL(adj.url!);
+                            }
+                          }}
+                          hitSlop={8}
+                          accessibilityLabel="Abrir documento"
+                        >
+                          <MaterialIcons name="open-in-new" size={18} color="#0ea5e9" />
+                        </TouchableOpacity>
+                      </>
                     ) : (
                       <Text style={styles.modalAdjSinUrl}>Sin enlace</Text>
                     )}
-                  </TouchableOpacity>
+                  </View>
                 ))}
               </ScrollView>
             )}
@@ -1097,6 +1239,21 @@ const styles = StyleSheet.create({
   /** Columna CIF en la misma fila que razón social (más estrecha) */
   empresaColCif: { width: 148, minWidth: 120, maxWidth: 200, flexShrink: 0 },
   empresaColCifCompact: { width: 112, minWidth: 88, maxWidth: 140 },
+  maestroLinkCol: { width: 36, minWidth: 36, flexShrink: 0, alignItems: 'center' },
+  maestroLinkColCompact: { width: 30, minWidth: 30 },
+  maestroLinkLabel: { opacity: 0 },
+  maestroLinkBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: Platform.OS === 'web' ? 0 : 0,
+  },
+  maestroLinkBtnDisabled: { opacity: 0.55 },
   inputFechaEnFila: { marginBottom: 0, alignSelf: 'stretch' },
   input: {
     borderWidth: 1,
