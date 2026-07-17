@@ -77,6 +77,7 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `acuerdos.ver` | Ver menú Acuerdos |
 | `facturacion.ver` | Ver menú Facturación |
 | `planning_dia.ver` | Ver menú Planning del Día |
+| `ia.informes` | Ver menú Informes IA (y operar con la IA) |
 
 ### Configuración (engranaje de cabecera)
 
@@ -131,6 +132,11 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `cierres.exportar` | Cierres teóricos · Exportar |
 | `cashflow.registrar` | Cashflow · Registrar y firmar movimientos |
 | `cashflow.validar` | Cashflow · Validar importes altos, reparto socios y anular |
+| `ia.informe_objetivos` | Informes IA · Fuente Objetivos (expone importes por local) |
+| `ia.informe_compras` | Informes IA · Fuente Compras (variaciones de gasto por proveedor/familia/producto) |
+| `ia.informe_ventas_hora` | Informes IA · Fuente Ventas por hora (distribución horaria y por franjas) |
+| `ia.prompts_gestionar` | Informes IA · Crear/editar/borrar plantillas de prompt |
+| `ia.ajustes` | Informes IA · Modificar ajustes de la IA (modelo, temperatura, límites) |
 | `formas_pago.editar` | Formas de pago · Editar maestro (Base de datos) |
 | `comparativa.ver` | Comparativa fechas · Ver |
 | `comparativa.crear` | Comparativa fechas · Crear |

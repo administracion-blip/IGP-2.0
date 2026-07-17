@@ -71,6 +71,16 @@ export const tables = {
   remesas: process.env.DDB_REMESAS_TABLE || 'Igp_Remesas',
   /** Movimientos cashflow (efectivo fuera TPV). PK LOCAL#id, SK FECHA#date#uuid. */
   cashflow: process.env.DDB_CASHFLOW_TABLE || 'Igp_Cashflow',
+  /**
+   * Informes generados por el framework de IA. PK = "FUENTE#<clave>",
+   * SK = "TS#<ISO>#<informeId>" (historial) o "CACHE#<firma>" (puntero de cache).
+   */
+  informesIa: process.env.DDB_INFORMES_IA_TABLE || 'Igp_InformesIa',
+  /**
+   * Plantillas de redacción editables por fuente. PK = "FUENTE#<clave>",
+   * SK = "PROMPT#<promptId>".
+   */
+  iaPrompts: process.env.DDB_IA_PROMPTS_TABLE || 'Igp_IaPrompts',
 };
 
 /**

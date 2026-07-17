@@ -169,15 +169,21 @@ export async function calcPctConsecucionLocal(workplaceId, fechaInicioMes, fecha
   }
 
   if (!tieneDatosReales) {
-    return { pctConsecucion: null, sinDatos: true };
+    return { pctConsecucion: null, sinDatos: true, importeRealHastaAyer: 0, importeCompHastaAyer: 0 };
   }
+
+  const importeRealHastaAyer = Math.round(sumRealHastaAyer * 100) / 100;
+  const importeCompHastaAyer = Math.round(sumCompHastaAyer * 100) / 100;
+
   if (sumCompHastaAyer === 0) {
-    return { pctConsecucion: null, sinDatos: false };
+    return { pctConsecucion: null, sinDatos: false, importeRealHastaAyer, importeCompHastaAyer };
   }
 
   return {
     pctConsecucion: round1((sumRealHastaAyer / sumCompHastaAyer) * 100),
     sinDatos: false,
+    importeRealHastaAyer,
+    importeCompHastaAyer,
   };
 }
 
@@ -251,4 +257,81 @@ export async function buildObjetivoMensualCard(user) {
   const payload = { mes, hastaFecha, locales };
   cardCache.set(cacheKey, { payload, cachedAt: Date.now() });
   return payload;
+}
+
+/**
+ * Variante para el framework de Informes IA: además de la consecución, expone
+ * importes agregados por local (real hasta ayer y comparativa del año anterior)
+ * y un total del grupo. Reutiliza la misma maquinaria y el filtrado de locales
+ * del usuario. NO modifica `buildObjetivoMensualCard` (que sigue sin importes).
+ *
+ * @param {object} user
+ * @param {{ localId?: string }} [params] - filtro opcional a un local visible.
+ */
+export async function buildObjetivoMensualConImportes(user, params = {}) {
+  const { mes, inicio: fechaInicioMes, fin: fechaFinMes } = mesEnCurso();
+  const fechaHastaAyerStr = ayerIso();
+  const hastaFecha =
+    fechaHastaAyerStr < fechaInicioMes
+      ? fechaInicioMes
+      : fechaFinMes < fechaHastaAyerStr
+        ? fechaFinMes
+        : fechaHastaAyerStr;
+
+  const festivosByFecha = await loadFestivosByFecha();
+  const todosLocales = await scanLocales();
+  const filtroLocalId = params.localId ? String(params.localId) : '';
+
+  const visibles = [];
+  for (const loc of todosLocales) {
+    const id = loc.id_Locales ?? loc.id_locales;
+    if (!id) continue;
+    if (filtroLocalId && String(id) !== filtroLocalId) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const ok = await usuarioPuedeAccederLocal(user, id);
+    if (!ok) continue;
+    visibles.push(loc);
+  }
+
+  visibles.sort((a, b) =>
+    String(a.nombre ?? a.Nombre ?? '').localeCompare(String(b.nombre ?? b.Nombre ?? ''), 'es', { sensitivity: 'base' }),
+  );
+
+  const locales = await Promise.all(
+    visibles.map(async (loc) => {
+      const localId = String(loc.id_Locales ?? loc.id_locales ?? '');
+      const nombre = String(loc.nombre ?? loc.Nombre ?? localId).trim();
+      const workplaceId = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+      const { pctConsecucion, sinDatos, importeRealHastaAyer, importeCompHastaAyer } = await calcPctConsecucionLocal(
+        workplaceId,
+        fechaInicioMes,
+        fechaFinMes,
+        hastaFecha,
+        festivosByFecha,
+      );
+      return {
+        localId,
+        nombre,
+        pctConsecucion,
+        importeRealHastaAyer: importeRealHastaAyer ?? 0,
+        importeCompHastaAyer: importeCompHastaAyer ?? 0,
+        sinDatos,
+      };
+    }),
+  );
+
+  const totalReal = Math.round(locales.reduce((s, l) => s + (l.importeRealHastaAyer || 0), 0) * 100) / 100;
+  const totalComp = Math.round(locales.reduce((s, l) => s + (l.importeCompHastaAyer || 0), 0) * 100) / 100;
+  const pctGrupo = totalComp > 0 ? round1((totalReal / totalComp) * 100) : null;
+
+  return {
+    mes,
+    hastaFecha,
+    total: {
+      importeRealHastaAyer: totalReal,
+      importeCompHastaAyer: totalComp,
+      pctConsecucion: pctGrupo,
+    },
+    locales,
+  };
 }

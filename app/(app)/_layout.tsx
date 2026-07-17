@@ -87,6 +87,17 @@ function AppLayoutContent() {
           />
         ) : null}
         <View style={styles.headerSpacer} />
+        {hasPermiso('ia.informes') ? (
+          <TouchableOpacity
+            style={styles.headerIaBtn}
+            onPress={() => router.push('/informes-ia' as never)}
+            activeOpacity={0.85}
+            accessibilityLabel="Informes IA"
+          >
+            <MaterialIcons name="auto-awesome" size={18} color="#0f172a" />
+            {width >= 640 ? <Text style={styles.headerIaBtnText}>Informes IA</Text> : null}
+          </TouchableOpacity>
+        ) : null}
         <View
           style={styles.headerConfigWrap}
           onMouseEnter={Platform.OS === 'web' ? () => setConfigLabelVisible(true) : undefined}
@@ -172,7 +183,10 @@ function AppLayoutContent() {
               </View>
               {sidebarOpen ? <Text style={[styles.menuItemText, styles.menuItemTextFavoritos]}>Favoritos</Text> : null}
             </TouchableOpacity>
-            {MENU_ITEMS.filter((item) => !item.permiso || hasPermiso(item.permiso)).map((item) => (
+            {MENU_ITEMS.filter(
+              (item) =>
+                item.route !== '/informes-ia' && (!item.permiso || hasPermiso(item.permiso)),
+            ).map((item) => (
               <TouchableOpacity
                 key={item.route}
                 style={[styles.menuItem, !sidebarOpen && styles.menuItemCollapsed]}
@@ -198,6 +212,7 @@ function AppLayoutContent() {
             <Stack.Screen name="compras" />
             <Stack.Screen name="cajas" />
             <Stack.Screen name="cashflow" />
+            <Stack.Screen name="informes-ia" />
             <Stack.Screen name="actuaciones" />
             <Stack.Screen name="rrpp" />
             <Stack.Screen name="recursos-humanos" />
@@ -268,6 +283,23 @@ const styles = StyleSheet.create({
   },
   headerSpacer: {
     flex: 1,
+  },
+  headerIaBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#fbbf24',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#eab308',
+  },
+  headerIaBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0f172a',
   },
   headerConfigWrap: {
     position: 'relative',

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -45,6 +45,38 @@ import { CampoIdDocumentoFacturaRecibida } from '../../components/CampoIdDocumen
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
+/** Estilos CSS para la zona de drop en web (RN View no reenvía onDrop al DOM). */
+function uploadAreaWebStyle(active: boolean): React.CSSProperties {
+  return {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+    margin: 16,
+    border: `2px dashed ${active ? '#0ea5e9' : '#e2e8f0'}`,
+    borderRadius: 12,
+    backgroundColor: active ? '#f0f9ff' : '#fff',
+    gap: 8,
+    minHeight: 220,
+    boxSizing: 'border-box',
+  };
+}
+
+function previewPaneWebStyle(active: boolean): React.CSSProperties {
+  return {
+    flex: 1,
+    flexShrink: 1,
+    minWidth: 260,
+    backgroundColor: active ? '#dbeafe' : '#e2e8f0',
+    display: 'flex',
+    flexDirection: 'column',
+    position: 'relative',
+    boxSizing: 'border-box',
+  };
+}
+
 export default function RegistroMasivoScreen() {
   const router = useRouter();
   const { user, hasPermiso } = useAuth();
@@ -60,6 +92,7 @@ export default function RegistroMasivoScreen() {
   const [guardando, setGuardando] = useState(false);
   const [step, setStep] = useState<'upload' | 'review'>('upload');
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const [dragOverUpload, setDragOverUpload] = useState(false);
 
   const [empresasCatalogo, setEmpresasCatalogo] = useState<EmpresaCatalogo[]>([]);
   /** Si está activo y el API tiene OPENAI_API_KEY, se llama a /ocr/enriquecer-ia tras cada extracción. */
@@ -129,18 +162,41 @@ export default function RegistroMasivoScreen() {
     };
   }, []);
 
-  const subirArchivos = useCallback(() => {
-    if (Platform.OS !== 'web') {
-      alertMsg('Info', 'Solo disponible en versión web');
-      return;
+  const checkDuplicados = async (borrador: Borrador) => {
+    setBorradores((prev) =>
+      prev.map((b) => b.idx === borrador.idx ? { ...b, checkingDup: true } : b)
+    );
+    try {
+      const res = await apiFetch(`/api/facturacion/check-duplicados`, {
+        method: 'POST',
+        body: JSON.stringify({
+          proveedor_cif: borrador.proveedor_cif,
+          numero_factura_proveedor: borrador.numero_factura_proveedor,
+          fecha_emision: borrador.fecha_emision,
+          total_factura: borrador.total_factura,
+        }),
+      });
+      const data = await res.json();
+      setBorradores((prev) =>
+        prev.map((b) => b.idx === borrador.idx ? { ...b, duplicados: data.duplicados || [], checkingDup: false } : b)
+      );
+    } catch {
+      setBorradores((prev) =>
+        prev.map((b) => b.idx === borrador.idx ? { ...b, checkingDup: false } : b)
+      );
     }
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.pdf,.jpg,.jpeg,.png';
-    input.multiple = true;
-    input.onchange = async () => {
-      const files = input.files;
-      if (!files || files.length === 0) return;
+  };
+
+  const procesarArchivosLista = useCallback(
+    async (fileList: FileList | File[]) => {
+      const files = Array.from(fileList).filter((f) =>
+        /\.(pdf|jpe?g|png)$/i.test(f.name || '') ||
+        /^(application\/pdf|image\/(jpeg|png))$/i.test(f.type || ''),
+      );
+      if (files.length === 0) {
+        alertMsg('Info', 'Solo se aceptan PDF, JPG o PNG');
+        return;
+      }
 
       setProcesando(true);
       const nuevos: Borrador[] = [];
@@ -252,34 +308,67 @@ export default function RegistroMasivoScreen() {
       for (const b of nuevos) {
         checkDuplicados(b);
       }
+    },
+    [alertMsg, borradores.length, usarEnriquecimientoIa],
+  );
+
+  const subirArchivos = useCallback(() => {
+    if (Platform.OS !== 'web') {
+      alertMsg('Info', 'Solo disponible en versión web');
+      return;
+    }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf,.jpg,.jpeg,.png';
+    input.multiple = true;
+    input.onchange = () => {
+      const files = input.files;
+      if (!files || files.length === 0) return;
+      void procesarArchivosLista(files);
     };
     input.click();
-  }, [borradores.length, usarEnriquecimientoIa]);
+  }, [alertMsg, procesarArchivosLista]);
 
-  const checkDuplicados = async (borrador: Borrador) => {
-    setBorradores((prev) =>
-      prev.map((b) => b.idx === borrador.idx ? { ...b, checkingDup: true } : b)
-    );
-    try {
-      const res = await apiFetch(`/api/facturacion/check-duplicados`, {
-        method: 'POST',
-        body: JSON.stringify({
-          proveedor_cif: borrador.proveedor_cif,
-          numero_factura_proveedor: borrador.numero_factura_proveedor,
-          fecha_emision: borrador.fecha_emision,
-          total_factura: borrador.total_factura,
-        }),
-      });
-      const data = await res.json();
-      setBorradores((prev) =>
-        prev.map((b) => b.idx === borrador.idx ? { ...b, duplicados: data.duplicados || [], checkingDup: false } : b)
-      );
-    } catch {
-      setBorradores((prev) =>
-        prev.map((b) => b.idx === borrador.idx ? { ...b, checkingDup: false } : b)
-      );
-    }
-  };
+  /** Handlers nativos de drag & drop (solo web; View de RNW no los reenvía al DOM). */
+  const fileDropHandlers = useMemo(() => {
+    if (Platform.OS !== 'web') return {};
+    return {
+      onDragEnter: (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragOverUpload(true);
+      },
+      onDragOver: (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'copy';
+        setDragOverUpload(true);
+      },
+      onDragLeave: (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const related = e.relatedTarget as Node | null;
+        if (!related || !e.currentTarget.contains(related)) {
+          setDragOverUpload(false);
+        }
+      },
+      onDrop: (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragOverUpload(false);
+        if (procesando) return;
+        const files = e.dataTransfer?.files;
+        if (files && files.length > 0) void procesarArchivosLista(files);
+      },
+    };
+  }, [procesando, procesarArchivosLista]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const allowFileDrop = (e: DragEvent) => e.preventDefault();
+    window.addEventListener('dragover', allowFileDrop);
+    return () => window.removeEventListener('dragover', allowFileDrop);
+  }, []);
 
   /** Actualización desde API/OCR/reconciliación (no marca campos manuales). */
   const patchBorrador = (idx: number, patch: Partial<Borrador>) => {
@@ -510,11 +599,37 @@ export default function RegistroMasivoScreen() {
       </View>
 
       {step === 'upload' && (
-        <View style={styles.uploadArea}>
-          <MaterialIcons name="cloud-upload" size={48} color="#94a3b8" />
-          <Text style={styles.uploadTitle}>Arrastra archivos o pulsa el botón superior</Text>
-          <Text style={styles.uploadHint}>PDF, JPG, PNG — máximo 20 MB por archivo</Text>
-        </View>
+        Platform.OS === 'web' ? (
+          <div {...fileDropHandlers} style={uploadAreaWebStyle(dragOverUpload)}>
+            {procesando ? (
+              <ActivityIndicator size="large" color="#0ea5e9" />
+            ) : (
+              <MaterialIcons name="cloud-upload" size={48} color={dragOverUpload ? '#0ea5e9' : '#94a3b8'} />
+            )}
+            <Text style={styles.uploadTitle}>
+              {procesando
+                ? 'Procesando archivos…'
+                : dragOverUpload
+                  ? 'Suelta aquí para procesar'
+                  : 'Arrastra archivos o pulsa el botón superior'}
+            </Text>
+            <Text style={styles.uploadHint}>PDF, JPG, PNG — máximo 20 MB por archivo</Text>
+          </div>
+        ) : (
+          <View style={[styles.uploadArea, dragOverUpload && styles.uploadAreaActive]}>
+            {procesando ? (
+              <ActivityIndicator size="large" color="#0ea5e9" />
+            ) : (
+              <MaterialIcons name="cloud-upload" size={48} color={dragOverUpload ? '#0ea5e9' : '#94a3b8'} />
+            )}
+            <Text style={styles.uploadTitle}>
+              {procesando
+                ? 'Procesando archivos…'
+                : 'Arrastra archivos o pulsa el botón superior'}
+            </Text>
+            <Text style={styles.uploadHint}>PDF, JPG, PNG — máximo 20 MB por archivo</Text>
+          </View>
+        )
       )}
 
       {step === 'review' && selectedBorrador && (
@@ -770,13 +885,46 @@ export default function RegistroMasivoScreen() {
           </View>
 
           {/* RIGHT: Preview con selección de zona (PDF → PNG vía API; coordenadas sobre capa = misma referencia que extraer-zona) */}
-          <View style={styles.previewPane}>
-            <ZonaOCRPreview
-              borrador={selectedBorrador}
-              zona={zona}
-              onPreviewLoadError={(msg) => alertMsg('Vista previa', msg)}
-            />
-          </View>
+          {Platform.OS === 'web' ? (
+            <div {...fileDropHandlers} style={previewPaneWebStyle(dragOverUpload)}>
+              {dragOverUpload && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    zIndex: 10,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'rgba(14, 165, 233, 0.12)',
+                    border: '2px dashed #0ea5e9',
+                    borderRadius: 8,
+                    margin: 8,
+                    pointerEvents: 'none',
+                  }}
+                >
+                  <span style={{ fontSize: 14, fontWeight: 600, color: '#0369a1' }}>
+                    Suelta para añadir más archivos
+                  </span>
+                </div>
+              )}
+              <View style={styles.previewPaneInner}>
+                <ZonaOCRPreview
+                  borrador={selectedBorrador}
+                  zona={zona}
+                  onPreviewLoadError={(msg) => alertMsg('Vista previa', msg)}
+                />
+              </View>
+            </div>
+          ) : (
+            <View style={styles.previewPane}>
+              <ZonaOCRPreview
+                borrador={selectedBorrador}
+                zona={zona}
+                onPreviewLoadError={(msg) => alertMsg('Vista previa', msg)}
+              />
+            </View>
+          )}
         </View>
       )}
 
@@ -909,6 +1057,7 @@ const styles = StyleSheet.create({
   confirmBtnText: { color: '#fff', fontSize: 11, fontWeight: '600' },
 
   uploadArea: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 40,
@@ -919,6 +1068,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: '#fff',
     gap: 8,
+    minHeight: 220,
+  },
+  uploadAreaActive: {
+    borderColor: '#0ea5e9',
+    backgroundColor: '#f0f9ff',
   },
   uploadTitle: { fontSize: 14, fontWeight: '500', color: '#334155' },
   uploadHint: { fontSize: 12, color: '#94a3b8' },
@@ -940,6 +1094,11 @@ const styles = StyleSheet.create({
   previewPane: {
     flex: 1,
     flexShrink: 1,
+    minWidth: 260,
+    backgroundColor: '#e2e8f0',
+  },
+  previewPaneInner: {
+    flex: 1,
     minWidth: 260,
     backgroundColor: '#e2e8f0',
   },

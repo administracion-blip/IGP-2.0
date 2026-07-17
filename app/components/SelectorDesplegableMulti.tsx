@@ -33,6 +33,8 @@ type Props = {
   style?: StyleProp<ViewStyle>;
   buscador?: boolean;
   buscadorPlaceholder?: string;
+  /** Trigger más bajo y tipografía reducida (formularios densos). */
+  compact?: boolean;
 };
 
 /**
@@ -54,6 +56,7 @@ export function SelectorDesplegableMulti({
   style,
   buscador,
   buscadorPlaceholder = 'Buscar…',
+  compact = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [filtro, setFiltro] = useState('');
@@ -94,31 +97,36 @@ export function SelectorDesplegableMulti({
 
   return (
     <View style={style}>
-      {label ? <Text style={styles.label}>{label}</Text> : null}
+      {label ? <Text style={[styles.label, compact && styles.labelCompact]}>{label}</Text> : null}
       <TouchableOpacity
-        style={[styles.trigger, open && styles.triggerActive, disabled && styles.triggerDisabled]}
+        style={[
+          styles.trigger,
+          compact && styles.triggerCompact,
+          open && styles.triggerActive,
+          disabled && styles.triggerDisabled,
+        ]}
         onPress={() => !disabled && setOpen(true)}
         activeOpacity={0.7}
         disabled={disabled}
       >
         {icono ? (
-          <MaterialIcons name={icono} size={16} color={seleccionadas.length > 0 ? '#0ea5e9' : '#94a3b8'} />
+          <MaterialIcons name={icono} size={compact ? 14 : 16} color={seleccionadas.length > 0 ? '#0ea5e9' : '#94a3b8'} />
         ) : null}
         <View style={styles.triggerTextWrap}>
           {loading ? (
-            <Text style={styles.placeholder}>Cargando…</Text>
+            <Text style={[styles.placeholder, compact && styles.textCompact]}>Cargando…</Text>
           ) : resumen ? (
-            <Text style={styles.value} numberOfLines={2}>{resumen}</Text>
+            <Text style={[styles.value, compact && styles.textCompact]} numberOfLines={1}>{resumen}</Text>
           ) : (
-            <Text style={styles.placeholder} numberOfLines={1}>{placeholder}</Text>
+            <Text style={[styles.placeholder, compact && styles.textCompact]} numberOfLines={1}>{placeholder}</Text>
           )}
         </View>
         {seleccionadas.length > 1 ? (
-          <View style={styles.countBadge}>
-            <Text style={styles.countBadgeText}>{seleccionadas.length}</Text>
+          <View style={[styles.countBadge, compact && styles.countBadgeCompact]}>
+            <Text style={[styles.countBadgeText, compact && styles.countBadgeTextCompact]}>{seleccionadas.length}</Text>
           </View>
         ) : null}
-        <MaterialIcons name={open ? 'arrow-drop-up' : 'arrow-drop-down'} size={22} color="#64748b" />
+        <MaterialIcons name={open ? 'arrow-drop-up' : 'arrow-drop-down'} size={compact ? 20 : 22} color="#64748b" />
       </TouchableOpacity>
 
       {open && (
@@ -235,6 +243,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     marginBottom: 4,
   },
+  labelCompact: {
+    fontSize: 9,
+    marginBottom: 3,
+  },
   trigger: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -247,6 +259,14 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     minHeight: 46,
   },
+  triggerCompact: {
+    minHeight: 34,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    gap: 6,
+  },
   triggerActive: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
   triggerDisabled: { opacity: 0.6 },
   triggerTextWrap: { flex: 1, minWidth: 0, overflow: 'hidden' },
@@ -256,6 +276,7 @@ const styles = StyleSheet.create({
     color: '#1e293b',
   },
   placeholder: { fontSize: 13, color: '#94a3b8' },
+  textCompact: { fontSize: 12 },
   countBadge: {
     minWidth: 22,
     height: 22,
@@ -266,6 +287,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   countBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  countBadgeCompact: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+  },
+  countBadgeTextCompact: { fontSize: 10 },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.3)',

@@ -20,6 +20,7 @@ export const MODULOS: ModuloMenu[] = [
   { route: '/acuerdos', label: 'Acuerdos', icon: 'handshake', permiso: 'acuerdos.ver' },
   { route: '/facturacion', label: 'Facturación', icon: 'receipt', permiso: 'facturacion.ver' },
   { route: '/planning-dia', label: 'Planning del Día', icon: 'today', permiso: 'planning_dia.ver' },
+  { route: '/informes-ia', label: 'Informes IA', icon: 'auto-awesome', permiso: 'ia.informes' },
 ];
 
 /** Permisos que controlan entradas del menú lateral (derivado de MODULOS). */

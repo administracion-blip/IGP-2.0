@@ -65,6 +65,7 @@ import activacionesRouter from './routes/activaciones.js';
 import campanasRouter from './routes/campanas.js';
 import remesasRouter from './routes/remesas.js';
 import cashflowRouter from './routes/cashflow.js';
+import iaRouter from './routes/ia.js';
 
 // Valida variables críticas al arranque. Si falta alguna REQUIRED, aborta el proceso.
 validateEnv();
@@ -183,6 +184,7 @@ app.use('/api', activacionesRouter);
 app.use('/api', campanasRouter);
 app.use('/api', remesasRouter);
 app.use('/api', cashflowRouter);
+app.use('/api', iaRouter);
 
 // --- Middleware central de errores: DEBE ir tras todos los routers ---
 app.use(errorHandler);

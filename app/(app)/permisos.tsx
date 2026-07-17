@@ -125,6 +125,17 @@ const GRUPOS_PERMISOS: { titulo: string; codigos: string[] }[] = [
   },
   { titulo: 'Cashflow', codigos: ['cashflow.ver', 'cashflow.registrar', 'cashflow.validar'] },
   {
+    titulo: 'Asistentes IA',
+    codigos: [
+      'ia.informes',
+      'ia.informe_objetivos',
+      'ia.informe_compras',
+      'ia.informe_ventas_hora',
+      'ia.prompts_gestionar',
+      'ia.ajustes',
+    ],
+  },
+  {
     titulo: 'Actuaciones',
     codigos: [
       'actuaciones.ver',
@@ -303,6 +314,12 @@ const PERMISOS_LABELS: Record<string, string> = {
   'actuaciones.facturacion': 'Actuaciones · Asociar facturas de gasto',
   'cashflow.registrar': 'Cashflow · Registrar y firmar movimientos',
   'cashflow.validar': 'Cashflow · Validar importes altos y anular',
+  'ia.informes': 'Informes IA · Operar (ver, ejecutar y leer)',
+  'ia.informe_objetivos': 'Informes IA · Fuente Objetivos (con importes)',
+  'ia.informe_compras': 'Informes IA · Fuente Compras',
+  'ia.informe_ventas_hora': 'Informes IA · Fuente Ventas por hora',
+  'ia.prompts_gestionar': 'Informes IA · Gestionar plantillas de prompt',
+  'ia.ajustes': 'Informes IA · Modificar ajustes de la IA',
 };
 
 /** Permiso de acceso al módulo en menú lateral (fuente: MODULOS). */

@@ -39,6 +39,7 @@ import {
 } from './comprasProveedorShared';
 import { apiFetch } from '../../utils/api';
 import { useGruposFamilias } from '../../hooks/useGruposFamilias';
+import { useAuth } from '../../contexts/AuthContext';
 
 type SyncOpcion = number | 'completo';
 
@@ -70,6 +71,8 @@ export default function ComprasProveedorScreen() {
   const [selAlmacenes, setSelAlmacenes] = useState<string[]>([]);
   const [filtroDropdownId, setFiltroDropdownId] = useState<FiltroDropdownKey | null>(null);
   const { grupos, crearGrupo, borrarGrupo } = useGruposFamilias();
+  const { hasPermiso } = useAuth();
+  const puedeInformeIa = hasPermiso('ia.informes') && hasPermiso('ia.informe_compras');
 
   const sincronizar = useCallback(async (opcion: SyncOpcion) => {
     setMenuSyncVisible(false);
@@ -329,6 +332,16 @@ export default function ComprasProveedorScreen() {
           </Text>
         </View>
         <View style={styles.toolbarRight}>
+          {puedeInformeIa ? (
+            <ComprasToolbarIconBtn
+              tooltip="Informe IA: variaciones de compras vs periodo anterior"
+              onPress={() => router.push('/informes-ia?fuente=compras_variaciones')}
+              accessibilityLabel="Informe IA de compras"
+              variant="neutral"
+            >
+              <MaterialIcons name="auto-awesome" size={TOOLBAR_ICON_SIZE} color="#7c3aed" />
+            </ComprasToolbarIconBtn>
+          ) : null}
           <ComprasToolbarIconBtn
             tooltip="Resumen por empresa y proveedor (importes por periodo)"
             onPress={() => router.push('/compras/compras-proveedor-resumen')}

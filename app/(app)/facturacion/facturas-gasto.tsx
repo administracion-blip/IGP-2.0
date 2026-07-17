@@ -65,6 +65,22 @@ function trimestreComparable(raw: string | undefined | null): string {
   return `${t.anio}-${t.trimestre}`;
 }
 
+/** T1 azul · T2 amarillo · T3 verde · T4 morado (tonos pastel). */
+function estiloChipTrimestre(trimestre: number): { bg: string; text: string; border: string } {
+  switch (trimestre) {
+    case 1:
+      return { bg: '#dbeafe', text: '#1e40af', border: '#bfdbfe' };
+    case 2:
+      return { bg: '#fef9c3', text: '#854d0e', border: '#fde68a' };
+    case 3:
+      return { bg: '#dcfce7', text: '#166534', border: '#bbf7d0' };
+    case 4:
+      return { bg: '#ede9fe', text: '#5b21b6', border: '#ddd6fe' };
+    default:
+      return { bg: '#f1f5f9', text: '#64748b', border: '#e2e8f0' };
+  }
+}
+
 /** Evita que el click del icono dispare la selección de fila (p. ej. en web). */
 function absorberClickFila(e: import('react-native').GestureResponderEvent) {
   const ev = e as unknown as { stopPropagation?: () => void; nativeEvent?: { stopPropagation?: () => void } };
@@ -124,7 +140,6 @@ const COLUMNAS = [
   'id_factura',
   'fecha_emision',
   'trimestre',
-  'fecha_contabilizacion',
   'emisor_nombre',
   'empresa_nombre',
   'empresa_cif',
@@ -137,6 +152,7 @@ const COLUMNAS = [
   'estado',
   'pagado',
   'saldo_pendiente',
+  'fecha_contabilizacion',
 ] as const;
 
 const COL_LABELS: Record<string, string> = {
@@ -222,6 +238,7 @@ export default function FacturasGastoScreen() {
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
   const [empresasFiltroIds, setEmpresasFiltroIds] = useState<string[]>([]);
+  const [anioFiltro, setAnioFiltro] = useState(() => String(new Date().getFullYear()));
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalFacturaId, setModalFacturaId] = useState<string | null>(null);
@@ -362,8 +379,28 @@ export default function FacturasGastoScreen() {
       .map(([id, titulo]) => ({ id, titulo, icono: 'business' as const }));
   }, [facturas]);
 
+  const aniosFiltroOpciones = useMemo(() => {
+    const set = new Set<number>();
+    set.add(new Date().getFullYear());
+    for (const f of facturas) {
+      const iso = fechaEmisionComparable(f.fecha_emision);
+      if (!iso || iso.length < 4) continue;
+      const y = parseInt(iso.slice(0, 4), 10);
+      if (Number.isFinite(y) && y >= 2000 && y <= 2100) set.add(y);
+    }
+    return [...set]
+      .sort((a, b) => b - a)
+      .map((y) => ({ id: String(y), titulo: String(y), icono: 'calendar-today' as const }));
+  }, [facturas]);
+
   const facturasBaseFiltradas = useMemo(() => {
     let list = facturas;
+    if (anioFiltro) {
+      list = list.filter((f) => {
+        const iso = fechaEmisionComparable(f.fecha_emision);
+        return iso.length >= 4 && iso.slice(0, 4) === anioFiltro;
+      });
+    }
     if (empresasFiltroIds.length > 0) {
       const set = new Set(empresasFiltroIds);
       list = list.filter((f) => set.has(empresaFiltroKey(f)));
@@ -386,7 +423,7 @@ export default function FacturasGastoScreen() {
       );
     }
     return list;
-  }, [facturas, empresasFiltroIds, fechaDesde, fechaHasta, busqueda]);
+  }, [facturas, anioFiltro, empresasFiltroIds, fechaDesde, fechaHasta, busqueda]);
 
   const conteosPorTab = useMemo(() => {
     const counts = Object.fromEntries(TABS.map((t) => [t.key, 0])) as Record<TabEstado, number>;
@@ -455,7 +492,7 @@ export default function FacturasGastoScreen() {
   useEffect(() => {
     setPageIndex(0);
     setSelectedId(null);
-  }, [tabActivo, busqueda, fechaDesde, fechaHasta, empresasFiltroIds]);
+  }, [tabActivo, busqueda, fechaDesde, fechaHasta, empresasFiltroIds, anioFiltro]);
 
   const selectedFactura: FacturaListado | null = useMemo(
     () => (selectedId ? filtradas.find((f) => f.id_factura === selectedId) ?? null : null),
@@ -885,32 +922,55 @@ export default function FacturasGastoScreen() {
           <MaterialIcons name="arrow-back" size={22} color="#334155" />
         </TouchableOpacity>
         <Text style={styles.title}>Facturas de gasto</Text>
-        {hasPermiso('facturacion.crear') && (
-          <TouchableOpacity
-            style={styles.masivoBtnHeader}
-            onPress={() => router.push('/facturacion/registro-masivo' as any)}
-          >
-            <MaterialIcons name="upload-file" size={16} color="#0ea5e9" />
-            <Text style={{ fontSize: 11, color: '#0ea5e9', fontWeight: '500' }}>Registro masivo</Text>
-          </TouchableOpacity>
-        )}
+        <View style={styles.headerActions}>
+          {hasPermiso('remesas.ver') ? (
+            <TouchableOpacity
+              style={styles.masivoBtnHeader}
+              onPress={() => router.push('/facturacion/remesas' as never)}
+            >
+              <MaterialIcons name="account-balance" size={16} color="#0ea5e9" />
+              <Text style={styles.headerActionText}>Remesas de pago</Text>
+            </TouchableOpacity>
+          ) : null}
+          {hasPermiso('facturacion.crear') ? (
+            <TouchableOpacity
+              style={styles.registroMasivoBtnHeader}
+              onPress={() => router.push('/facturacion/registro-masivo' as any)}
+            >
+              <MaterialIcons name="upload-file" size={16} color="#5b21b6" />
+              <Text style={styles.registroMasivoBtnText}>Registro masivo</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
 
-      {empresasFiltroOpciones.length > 0 ? (
-        <SelectorDesplegableMulti
-          style={styles.empresaFiltroSelector}
-          placeholder="Todas las empresas"
-          icono="business"
-          tituloLista="Filtrar por empresa"
-          iconoLista="business"
-          buscador
-          buscadorPlaceholder="Buscar empresa…"
-          valorIds={empresasFiltroIds}
-          opciones={empresasFiltroOpciones}
-          onChange={setEmpresasFiltroIds}
-          vacioTexto="No hay empresas en el listado."
+      <View style={styles.filtrosRow}>
+        {empresasFiltroOpciones.length > 0 ? (
+          <SelectorDesplegableMulti
+            style={styles.empresaFiltroSelector}
+            placeholder="Todas las empresas"
+            icono="business"
+            tituloLista="Filtrar por empresa"
+            iconoLista="business"
+            buscador
+            buscadorPlaceholder="Buscar empresa…"
+            valorIds={empresasFiltroIds}
+            opciones={empresasFiltroOpciones}
+            onChange={setEmpresasFiltroIds}
+            vacioTexto="No hay empresas en el listado."
+          />
+        ) : null}
+        <SelectorDesplegable
+          style={styles.anioFiltroSelector}
+          placeholder="Año"
+          icono="calendar-today"
+          tituloLista="Filtrar por año"
+          iconoLista="calendar-today"
+          valorId={anioFiltro}
+          opciones={aniosFiltroOpciones}
+          onSeleccionar={setAnioFiltro}
         />
-      ) : null}
+      </View>
 
       {/* Chips de estado */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll} contentContainerStyle={styles.tabsContent}>
@@ -1167,9 +1227,11 @@ export default function FacturasGastoScreen() {
                 <View style={styles.row}>
                   <View style={styles.cellEmpty}>
                     <Text style={styles.cellEmptyText}>
-                      {busqueda.trim() || fechaDesde || fechaHasta || tabActivo !== 'todas'
-                        ? 'Ningún resultado con los filtros aplicados'
-                        : 'No hay facturas de gasto'}
+                      {facturas.length === 0
+                        ? 'No hay facturas de gasto'
+                        : busqueda.trim() || fechaDesde || fechaHasta || empresasFiltroIds.length > 0 || tabActivo !== 'todas'
+                          ? 'Ningún resultado con los filtros aplicados'
+                          : `No hay facturas de gasto en ${anioFiltro}`}
                     </Text>
                   </View>
                 </View>
@@ -1226,6 +1288,24 @@ export default function FacturasGastoScreen() {
                       )}
                     </View>
                     {COLUMNAS.map((col) => {
+                      if (col === 'trimestre') {
+                        const t = trimestreDesdeFechaEmision(f.fecha_emision);
+                        const label = textoTrimestreFactura(f.fecha_emision);
+                        const chip = t ? estiloChipTrimestre(t.trimestre) : null;
+                        return (
+                          <View key={col} style={[styles.cell, { width: getColWidth(col) }]}>
+                            {chip ? (
+                              <View style={[styles.trimestreChip, { backgroundColor: chip.bg, borderColor: chip.border }]}>
+                                <Text style={[styles.trimestreChipText, { color: chip.text }]} numberOfLines={1}>
+                                  {label}
+                                </Text>
+                              </View>
+                            ) : (
+                              <Text style={styles.cellText}>{label}</Text>
+                            )}
+                          </View>
+                        );
+                      }
                       if (col === 'estado') {
                         return (
                           <View key={col} style={[styles.cell, { width: getColWidth(col) }]}>
@@ -1263,6 +1343,7 @@ export default function FacturasGastoScreen() {
                               styles.cellText,
                               isMoneda && styles.cellTextRight,
                               col === 'total_factura' && styles.cellTextBold,
+                              col === 'numero_factura_proveedor' && styles.cellTextBold,
                             ]}
                             numberOfLines={1}
                             ellipsizeMode="tail"
@@ -1503,11 +1584,20 @@ const styles = StyleSheet.create({
   retryBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '500' },
 
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginLeft: 'auto',
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  headerActionText: { fontSize: 11, color: '#0ea5e9', fontWeight: '500' },
   masivoBtnHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    marginLeft: 'auto',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderWidth: 1,
@@ -1515,10 +1605,30 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: '#f0f9ff',
   },
+  registroMasivoBtnHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#ddd6fe',
+    borderRadius: 6,
+    backgroundColor: '#ede9fe',
+  },
+  registroMasivoBtnText: { fontSize: 11, color: '#5b21b6', fontWeight: '500' },
   backBtn: { padding: 4 },
   title: { fontSize: 20, fontWeight: '700', color: '#334155' },
 
-  empresaFiltroSelector: { marginBottom: 8, maxWidth: 360 },
+  filtrosRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  empresaFiltroSelector: { flex: 1, minWidth: 200, maxWidth: 360 },
+  anioFiltroSelector: { width: 132, minWidth: 120, maxWidth: 160 },
 
   tabsScroll: { maxHeight: 40, marginBottom: 8 },
   tabsContent: { flexDirection: 'row', gap: 6, paddingRight: 8 },
@@ -1707,7 +1817,7 @@ const styles = StyleSheet.create({
     borderRightColor: '#cbd5e1',
     position: 'relative' as const,
   },
-  cellHeaderText: { fontSize: 9, fontWeight: '600', color: '#334155', lineHeight: 11 },
+  cellHeaderText: { fontSize: 10, fontWeight: '600', color: '#334155', lineHeight: 12 },
   cellHeaderRight: { alignItems: 'flex-end' as const },
   cellHeaderTextRight: { textAlign: 'right' as const },
   resizeHandle: {
@@ -1746,13 +1856,25 @@ const styles = StyleSheet.create({
   },
   cellRight: { alignItems: 'flex-end' as const },
   cellText: {
-    fontSize: 9,
+    fontSize: 10,
     color: '#475569',
-    lineHeight: 12,
+    lineHeight: 13,
     ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
   cellTextRight: { textAlign: 'right' as const, alignSelf: 'stretch' as const },
   cellTextBold: { fontWeight: '700', color: '#334155' },
+  trimestreChip: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  trimestreChipText: {
+    fontSize: 10,
+    fontWeight: '600',
+    lineHeight: 13,
+  },
   cellEmpty: {
     flex: 1,
     paddingVertical: 24,

@@ -1,85 +1,95 @@
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { EstrellaFavorito } from '../../components/EstrellaFavorito';
+import { FacturacionYtdWidget } from '../../components/FacturacionYtdWidget';
+import { MIN_TOUCH } from '../../constants/layout';
 
-const OPCIONES: { id: string; label: string; icon: React.ComponentProps<typeof MaterialIcons>['name']; descripcion: string; permiso: string }[] = [
+type OpcionCaja = {
+  id: string;
+  label: string;
+  shortLabel: string;
+  icon: React.ComponentProps<typeof MaterialIcons>['name'];
+  permiso: string;
+};
+
+const OPCIONES: OpcionCaja[] = [
   {
     id: 'cierres-teoricos',
     label: 'Cierres de ventas teóricas',
+    shortLabel: 'Cierres',
     icon: 'receipt-long',
-    descripcion: 'Cierres teóricos de ventas',
     permiso: 'cierres.ver',
   },
   {
     id: 'revision-formas-pago',
     label: 'Revisión formas de pago',
+    shortLabel: 'Formas pago',
     icon: 'payments',
-    descripcion: 'Desglose de pagos por ticket (consulta en vivo a Ágora)',
     permiso: 'cierres.ver',
   },
   {
     id: 'arqueo-caja',
     label: 'Arqueo de Caja',
+    shortLabel: 'Arqueo',
     icon: 'account-balance-wallet',
-    descripcion: 'Arqueo y conteo de caja',
     permiso: 'cierres.ver',
   },
   {
     id: 'movimientos-caja',
     label: 'Movimientos de caja',
+    shortLabel: 'Movimientos',
     icon: 'swap-horiz',
-    descripcion: 'Retiradas de efectivo y transferencias de prepago por TPV',
     permiso: 'cierres.ver',
   },
   {
     id: 'revision-cajas',
     label: 'Revisión de cajas',
+    shortLabel: 'Revisión',
     icon: 'fact-check',
-    descripcion: 'Centro de mando: teórico vs real por local, TPV y día con alertas',
     permiso: 'cierres.ver',
   },
   {
     id: 'comparativa-fechas-cajas',
     label: 'Comparativa Fechas Cajas',
+    shortLabel: 'Comparativa',
     icon: 'event',
-    descripcion: 'Festivos y estimaciones de ventas (Igp_Gestionfestivosyestimaciones)',
     permiso: 'comparativa.ver',
   },
   {
     id: 'objetivos',
     label: 'Objetivos',
+    shortLabel: 'Objetivos',
     icon: 'flag',
-    descripcion: 'Comparativa de facturación real vs año anterior por local',
     permiso: 'objetivos.ver',
   },
   {
     id: 'incentivos-producto',
     label: 'Incentivos por producto',
+    shortLabel: 'Incentivos',
     icon: 'redeem',
-    descripcion: 'Premios al equipo por vender productos concretos',
     permiso: 'incentivos_producto.ver',
   },
   {
     id: 'franjas-horarias',
     label: 'Plantillas de franjas',
+    shortLabel: 'Franjas',
     icon: 'schedule',
-    descripcion: 'Franjas horarias reutilizables para el desglose de ventas por horas en Objetivos',
     permiso: 'objetivos.ver',
   },
   {
     id: 'control-excepciones',
     label: 'Control de Excepciones',
+    shortLabel: 'Excepciones',
     icon: 'rule',
-    descripcion: 'Invitaciones, descuentos manuales y anulaciones por fecha y local',
     permiso: 'excepciones.ver',
   },
   {
     id: 'top',
     label: 'Top',
+    shortLabel: 'Top',
     icon: 'emoji-events',
-    descripcion: 'Top ventas locales, objetivos, camareros y clientes por rango de fechas',
     permiso: 'top.ver',
   },
 ];
@@ -87,6 +97,7 @@ const OPCIONES: { id: string; label: string; icon: React.ComponentProps<typeof M
 export default function CajasIndexScreen() {
   const router = useRouter();
   const { hasPermiso } = useAuth();
+  const visibles = OPCIONES.filter((o) => hasPermiso(o.permiso));
 
   function handleSeleccionar(id: string) {
     if (id === 'cierres-teoricos') router.push('/cajas/cierres-teoricos');
@@ -103,87 +114,109 @@ export default function CajasIndexScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
       <Text style={styles.title}>Cajas</Text>
-      <Text style={styles.subtitle}>Selecciona una opción</Text>
+      <Text style={styles.subtitle}>Ventas, arqueos y control diario</Text>
 
-      <View style={styles.grid}>
-        {OPCIONES.filter((o) => hasPermiso(o.permiso)).map((opcion) => (
+      <View style={styles.tilesRow}>
+        {visibles.map((opcion) => (
           <TouchableOpacity
             key={opcion.id}
-            style={styles.card}
+            style={styles.tile}
             onPress={() => handleSeleccionar(opcion.id)}
             activeOpacity={0.7}
+            accessibilityLabel={opcion.label}
           >
-            <View style={styles.cardLeft}>
+            <View style={styles.tileStar}>
               <EstrellaFavorito
-                favorito={{ route: `/cajas/${opcion.id}`, label: opcion.label, icon: opcion.icon, permiso: opcion.permiso }}
+                size={14}
+                favorito={{
+                  route: `/cajas/${opcion.id}`,
+                  label: opcion.label,
+                  icon: opcion.icon,
+                  permiso: opcion.permiso,
+                }}
               />
-              <MaterialIcons name={opcion.icon} size={24} color="#0ea5e9" />
-              <Text style={styles.cardLabel}>{opcion.label}</Text>
             </View>
-            <Text style={styles.cardDescripcion} numberOfLines={2}>
-              {opcion.descripcion}
+            <MaterialIcons name={opcion.icon} size={22} color="#0ea5e9" />
+            <Text style={styles.tileLabel} numberOfLines={2}>
+              {opcion.shortLabel}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
-    </View>
+
+      {visibles.length === 0 ? (
+        <Text style={styles.empty}>No tienes permisos para ningún submódulo de Cajas.</Text>
+      ) : null}
+
+      <Text style={styles.sectionLabel}>Facturación del grupo</Text>
+      <FacturacionYtdWidget />
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 10,
+  scroll: { flex: 1 },
+  scrollContent: {
+    padding: 12,
+    paddingBottom: 32,
   },
   title: {
     fontSize: 20,
     fontWeight: '700',
     color: '#334155',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#64748b',
-    marginBottom: 16,
+    marginBottom: 12,
   },
-  grid: {
+  tilesRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
+    marginBottom: 18,
   },
-  card: {
-    width: '47%',
-    minWidth: 200,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#f1f5f9',
+  tile: {
+    width: 96,
+    minHeight: MIN_TOUCH + 28,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
     borderRadius: 10,
-    padding: 12,
+    backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    gap: 10,
-  },
-  cardLeft: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    flexShrink: 0,
+    justifyContent: 'center',
+    gap: 4,
   },
-  cardLabel: {
-    fontSize: 15,
-    fontWeight: '500',
+  tileStar: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    zIndex: 1,
+  },
+  tileLabel: {
+    fontSize: 11,
+    fontWeight: '600',
     color: '#334155',
+    textAlign: 'center',
+    lineHeight: 14,
   },
-  cardDescripcion: {
-    flex: 1,
-    fontSize: 12,
-    fontWeight: '400',
-    fontStyle: 'italic',
+  empty: {
+    fontSize: 13,
     color: '#94a3b8',
-    marginLeft: 8,
-    textAlign: 'right',
+    fontStyle: 'italic',
+    marginBottom: 12,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 8,
   },
 });

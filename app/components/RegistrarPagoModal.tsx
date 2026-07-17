@@ -199,6 +199,12 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
             </View>
           ) : null}
 
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            style={styles.modalScroll}
+            contentContainerStyle={styles.modalScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
           <View style={styles.field}>
             <Text style={styles.label}>Fecha</Text>
             <InputFecha
@@ -208,6 +214,7 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
                 setFechaEditadaManual(true);
               }}
               placeholder="dd/mm/aaaa"
+              style={styles.input}
             />
           </View>
 
@@ -302,6 +309,7 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
               Esta acción crea los pagos en todas las facturas y no se puede deshacer desde aquí.
             </Text>
           ) : null}
+          </ScrollView>
         </Pressable>
       </Pressable>
     </Modal>
@@ -323,6 +331,13 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 520,
     maxHeight: '85%',
+  },
+  modalScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  modalScrollContent: {
+    paddingBottom: 4,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -349,10 +364,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   field: {
-    minWidth: 200,
-    flexGrow: 1,
-    flexBasis: '45%',
-    marginBottom: 4,
+    marginBottom: 12,
   },
   label: {
     fontSize: 12,
