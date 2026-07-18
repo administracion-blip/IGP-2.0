@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
 import {
   View,
   Text,
@@ -10,18 +10,51 @@ import {
   ActivityIndicator,
   useWindowDimensions,
   Image,
+  ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, usePathname, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
-import { AuthProvider, useAuth, AUTH_KEY } from '../contexts/AuthContext';
+import { AuthProvider, useAuth } from '../contexts/AuthContext';
 import { ProductosCacheProvider } from '../contexts/ProductosCache';
 import { ComprasProveedorCacheProvider } from '../contexts/ComprasProveedorCache';
 import { fetchImagenApp } from '../lib/personalizacion';
-import { MODULOS as MENU_ITEMS } from '../constants/modulos';
+import { MODULOS as MENU_ITEMS, moduloDeRuta } from '../constants/modulos';
+import { colors, iconSize, radius, shadowCard, sidebar, SPACING, typography } from '../constants/theme';
+import { SidebarNavItem } from '../components/ui/SidebarNavItem';
+
+function normalizarPath(pathname: string): string {
+  const p = pathname.replace(/\/$/, '');
+  return p === '' ? '/' : p;
+}
+
+/** Maestros accesibles desde el hub Base de datos (no son módulo raíz en MODULOS). */
+const RUTAS_HUB_BASE_DATOS = new Set([
+  '/usuarios',
+  '/locales',
+  '/almacenes',
+  '/empresas',
+  '/productos',
+  '/puntos-venta',
+  '/personal',
+  '/usuarios-agora',
+  '/formas-pago',
+]);
+
+function rutaMenuActiva(pathname: string, itemRoute: string): boolean {
+  const path = normalizarPath(pathname);
+  const route = normalizarPath(itemRoute);
+  if (route === '/') return path === '/';
+  if (path === route || path.startsWith(`${route}/`)) return true;
+  const padre = moduloDeRuta(path);
+  if (padre?.route === route) return true;
+  if (route === '/base-datos' && RUTAS_HUB_BASE_DATOS.has(path)) return true;
+  return false;
+}
 
 function AppLayoutContent() {
   const router = useRouter();
+  const pathname = usePathname();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { user, loading, hasPermiso, logout } = useAuth();
@@ -50,10 +83,16 @@ function AppLayoutContent() {
     router.replace('/login');
   }
 
+  const menuItemsVisibles = MENU_ITEMS.filter(
+    (item) => item.route !== '/informes-ia' && (!item.permiso || hasPermiso(item.permiso)),
+  );
+
+  const irMenu = useCallback((route: string) => router.push(route as never), [router]);
+
   if (loading) {
     return (
       <View style={styles.loadingWrap}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text style={styles.loadingText}>Cargando sesión…</Text>
       </View>
     );
@@ -62,7 +101,7 @@ function AppLayoutContent() {
   if (!user) {
     return (
       <View style={styles.loadingWrap}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text style={styles.loadingText}>Redirigiendo al inicio de sesión…</Text>
       </View>
     );
@@ -72,12 +111,13 @@ function AppLayoutContent() {
     <View style={[styles.wrapper, { paddingTop: insets.top }]}>
       {/* Barra superior */}
       <View style={[styles.header, { paddingLeft: Math.max(10, insets.left), paddingRight: Math.max(10, insets.right) }]}>
-        <TouchableOpacity
+        <Pressable
           onPress={() => setSidebarOpen((o) => !o)}
-          style={styles.menuButton}
+          style={({ pressed }) => [styles.menuButton, pressed && styles.menuButtonPressed]}
+          accessibilityLabel={sidebarOpen ? 'Contraer menú' : 'Expandir menú'}
         >
-          <MaterialIcons name="menu" size={22} color="#334155" />
-        </TouchableOpacity>
+          <MaterialIcons name="menu" size={iconSize.tab} color={colors.textPrimary} />
+        </Pressable>
         {imagenApp ? (
           <Image
             source={{ uri: imagenApp }}
@@ -113,7 +153,7 @@ function AppLayoutContent() {
             style={styles.headerConfigBtn}
             accessibilityLabel="Configuración"
           >
-            <MaterialIcons name="settings" size={22} color="#64748b" />
+            <MaterialIcons name="settings" size={iconSize.tab} color={colors.textSecondary} />
           </TouchableOpacity>
         </View>
         <Modal visible={configOpen} transparent animationType="fade">
@@ -128,7 +168,7 @@ function AppLayoutContent() {
                 }}
                 activeOpacity={0.7}
               >
-                <MaterialIcons name="lock" size={18} color="#475569" />
+                <MaterialIcons name="lock" size={iconSize.chip} color={colors.textSecondary} />
                 <Text style={styles.configDropdownItemText}>Permisos</Text>
               </TouchableOpacity>
               )}
@@ -141,7 +181,7 @@ function AppLayoutContent() {
                 }}
                 activeOpacity={0.7}
               >
-                <MaterialIcons name="tune" size={18} color="#475569" />
+                <MaterialIcons name="tune" size={iconSize.chip} color={colors.textSecondary} />
                 <Text style={styles.configDropdownItemText}>Ajustes</Text>
               </TouchableOpacity>
               )}
@@ -153,7 +193,7 @@ function AppLayoutContent() {
                 }}
                 activeOpacity={0.7}
               >
-                <MaterialIcons name="logout" size={18} color="#475569" />
+                <MaterialIcons name="logout" size={iconSize.chip} color={colors.textSecondary} />
                 <Text style={styles.configDropdownItemText}>Cerrar sesión</Text>
               </TouchableOpacity>
             </Pressable>
@@ -170,37 +210,35 @@ function AppLayoutContent() {
       </View>
 
       <View style={styles.body}>
-        {/* Sidebar: contraído solo icono, expandido icono + texto */}
         <View style={[styles.sidebar, sidebarOpen ? styles.sidebarExpanded : styles.sidebarCollapsed]}>
-          <View style={styles.sidebarInner}>
-            <TouchableOpacity
-              style={[styles.menuItem, styles.menuItemFavoritos, !sidebarOpen && styles.menuItemCollapsed]}
-              onPress={() => router.push('/favoritos')}
-              activeOpacity={0.7}
-            >
-              <View style={styles.menuIconWrap}>
-                <MaterialIcons name="star" size={20} color="#db2777" />
-              </View>
-              {sidebarOpen ? <Text style={[styles.menuItemText, styles.menuItemTextFavoritos]}>Favoritos</Text> : null}
-            </TouchableOpacity>
-            {MENU_ITEMS.filter(
-              (item) =>
-                item.route !== '/informes-ia' && (!item.permiso || hasPermiso(item.permiso)),
-            ).map((item) => (
-              <TouchableOpacity
+          <ScrollView
+            style={styles.sidebarScroll}
+            contentContainerStyle={styles.sidebarScrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            <SidebarNavItem
+              label="Favoritos"
+              icon="star-border"
+              collapsed={!sidebarOpen}
+              active={rutaMenuActiva(pathname, '/favoritos')}
+              onPress={() => irMenu('/favoritos')}
+            />
+            <View style={styles.sidebarDivider} />
+            {sidebarOpen ? (
+              <Text style={styles.sidebarSectionLabel}>Módulos</Text>
+            ) : null}
+            {menuItemsVisibles.map((item) => (
+              <SidebarNavItem
                 key={item.route}
-                style={[styles.menuItem, !sidebarOpen && styles.menuItemCollapsed]}
-                onPress={() => router.push(item.route as any)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.menuIconWrap}>
-                  <MaterialIcons name={item.icon as any} size={20} color="#0ea5e9" />
-                </View>
-                {sidebarOpen ? <Text style={styles.menuItemText}>{item.label}</Text> : null}
-              </TouchableOpacity>
+                label={item.label}
+                icon={item.icon as ComponentProps<typeof MaterialIcons>['name']}
+                collapsed={!sidebarOpen}
+                active={rutaMenuActiva(pathname, item.route)}
+                onPress={() => irMenu(item.route)}
+              />
             ))}
-            <View style={styles.sidebarSpacer} />
-          </View>
+          </ScrollView>
         </View>
 
         {/* Contenido */}
@@ -261,25 +299,29 @@ export default function AppLayout() {
 const styles = StyleSheet.create({
   wrapper: {
     flex: 1,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: colors.bg,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f1f5f9',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    backgroundColor: colors.surface,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs + 2,
     borderBottomWidth: 1,
-    borderBottomColor: '#cbd5e1',
+    borderBottomColor: colors.border,
   },
   menuButton: {
-    padding: 4,
-    marginRight: 4,
+    padding: SPACING.xs,
+    marginRight: SPACING.xs,
+    borderRadius: radius.sm,
+  },
+  menuButtonPressed: {
+    backgroundColor: colors.navActive,
   },
   headerLogo: {
     height: 36,
     maxWidth: 140,
-    marginRight: 8,
+    marginRight: SPACING.sm,
   },
   headerSpacer: {
     flex: 1,
@@ -291,8 +333,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#fbbf24',
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 6,
-    marginRight: 8,
+    borderRadius: radius.sm,
+    marginRight: SPACING.sm,
     borderWidth: 1,
     borderColor: '#eab308',
   },
@@ -303,79 +345,75 @@ const styles = StyleSheet.create({
   },
   headerConfigWrap: {
     position: 'relative',
-    marginRight: 8,
+    marginRight: SPACING.sm,
   },
   headerConfigBtn: {
-    padding: 4,
+    padding: SPACING.xs,
+    borderRadius: radius.sm,
   },
   configTooltip: {
     position: 'absolute',
     bottom: '100%',
     left: '50%',
-    marginBottom: 4,
+    marginBottom: SPACING.xs,
     transform: [{ translateX: -50 }],
-    backgroundColor: '#334155',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    backgroundColor: colors.textPrimary,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    borderRadius: radius.sm,
     zIndex: 10,
   },
   configTooltipText: {
     fontSize: 11,
-    color: '#f8fafc',
+    color: colors.bgSubtle,
     fontWeight: '500',
   },
   configOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.2)',
+    backgroundColor: colors.overlay,
     justifyContent: 'flex-start',
     alignItems: 'flex-end',
     paddingTop: 38,
-    paddingRight: 10,
+    paddingRight: SPACING.sm,
   },
   configDropdown: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
+    backgroundColor: colors.surface,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     minWidth: 160,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    paddingVertical: 4,
+    paddingVertical: SPACING.xs,
+    ...shadowCard(),
   },
   configDropdownItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
   },
   configDropdownItemText: {
-    fontSize: 14,
-    color: '#334155',
+    ...typography.cuerpo,
     fontWeight: '500',
   },
   configDropdownItemBorder: {
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
+    borderTopColor: colors.border,
   },
   headerUserBlock: {
     alignItems: 'flex-end',
-    marginRight: 8,
+    marginRight: SPACING.sm,
     maxWidth: 180,
   },
   headerNombre: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#334155',
+    color: colors.textPrimary,
   },
   headerRol: {
     fontSize: 11,
     height: 16,
-    color: '#64748b',
+    color: colors.textSecondary,
     fontStyle: 'italic',
     fontWeight: '400',
   },
@@ -384,78 +422,61 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   sidebar: {
-    backgroundColor: '#f1f5f9',
+    backgroundColor: colors.surface,
     borderRightWidth: 1,
-    borderRightColor: '#cbd5e1',
-    paddingTop: 8,
+    borderRightColor: colors.border,
   },
   sidebarExpanded: {
-    width: 160,
+    width: sidebar.widthExpanded,
   },
   sidebarCollapsed: {
-    width: 44,
+    width: sidebar.widthCollapsed,
   },
-  sidebarInner: { flex: 1 },
-  sidebarSpacer: { flex: 1, minHeight: 8 },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+  sidebarScroll: {
+    flex: 1,
   },
-  menuIconWrap: {
-    width: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
+  sidebarScrollContent: {
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.lg,
   },
-  menuItemCollapsed: {
-    paddingHorizontal: 6,
-    justifyContent: 'center',
+  sidebarDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginHorizontal: SPACING.md,
+    marginVertical: SPACING.sm,
   },
-  menuItemFavoritos: {
-    backgroundColor: '#fce7f3',
-    borderRadius: 8,
-    marginHorizontal: 4,
-    marginBottom: 4,
-  },
-  menuItemText: {
-    fontSize: 12,
-    color: '#334155',
-    fontWeight: '400',
-    marginLeft: 8,
-    flexShrink: 1,
-  },
-  menuItemTextFavoritos: {
-    color: '#be185d',
-    fontWeight: '600',
+  sidebarSectionLabel: {
+    ...typography.etiqueta,
+    marginLeft: SPACING.md + 2,
+    marginBottom: SPACING.xs,
+    marginTop: SPACING.xs,
   },
   content: {
     flex: 1,
-    padding: 10,
+    padding: SPACING.sm + 2,
   },
   footer: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    backgroundColor: '#f1f5f9',
+    paddingVertical: SPACING.xs + 2,
+    paddingHorizontal: SPACING.sm,
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderTopColor: '#cbd5e1',
+    borderTopColor: colors.border,
     alignItems: 'center',
   },
   footerText: {
     fontSize: 11,
-    color: '#64748b',
+    color: colors.textSecondary,
   },
   loadingWrap: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#e2e8f0',
-    gap: 12,
+    backgroundColor: colors.bg,
+    gap: SPACING.md,
   },
   loadingText: {
-    fontSize: 14,
-    color: '#64748b',
+    ...typography.cuerpo,
+    color: colors.textSecondary,
     fontWeight: '500',
   },
 });

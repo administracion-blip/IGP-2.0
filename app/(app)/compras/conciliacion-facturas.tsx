@@ -40,6 +40,9 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useAuth } from '../../contexts/AuthContext';
+import { useLocalToast } from '../../components/Toast';
+import { useConfirmar } from '../../hooks/useConfirmar';
 import * as XLSX from 'xlsx';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -192,8 +195,17 @@ type Empresa = Record<string, string | number | undefined>;
 const EMPRESA_TODAS = 'todas';
 const EMPRESA_SIN = 'sin';
 
+function absorberClickFila(e: { stopPropagation?: () => void; nativeEvent?: { stopPropagation?: () => void } }) {
+  if (typeof e.stopPropagation === 'function') e.stopPropagation();
+  const ne = e.nativeEvent;
+  if (ne && typeof ne.stopPropagation === 'function') ne.stopPropagation();
+}
+
 export default function ConciliacionFacturasScreen() {
   const router = useRouter();
+  const { hasPermiso, user } = useAuth();
+  const { show: showToast, ToastView } = useLocalToast();
+  const { confirmar, ConfirmarView } = useConfirmar();
   const { compras, loading: loadingCompras, recargar } = useComprasProveedorCache();
 
   const [facturas, setFacturas] = useState<FacturaListado[]>([]);
@@ -214,6 +226,10 @@ export default function ConciliacionFacturasScreen() {
   const [albaranModal, setAlbaranModal] = useState<AlbaranResumen | null>(null);
   /** Id de la factura cuyo adjunto se está resolviendo (spinner en la fila). */
   const [abriendoDocId, setAbriendoDocId] = useState<string | null>(null);
+  const [seleccionRevision, setSeleccionRevision] = useState<Set<string>>(new Set());
+  const [validandoRevision, setValidandoRevision] = useState(false);
+
+  const puedeValidarRevision = hasPermiso('facturacion.emitir');
 
   // ── Comparador albaranes ↔ factura (modal dividido) ──
   const { width: winW, height: winH } = useWindowDimensions();
@@ -594,6 +610,97 @@ export default function ConciliacionFacturasScreen() {
     });
   }, [proveedores, filtroEstado, busqueda]);
 
+  const facturaAProveedor = useMemo(() => {
+    const map = new Map<string, { estado: EstadoConciliacion; nombre: string }>();
+    for (const p of proveedores) {
+      for (const f of p.facturas) {
+        if (f.estado === 'pendiente_revision') {
+          map.set(f.id, { estado: p.estado, nombre: p.nombre });
+        }
+      }
+    }
+    return map;
+  }, [proveedores]);
+
+  useEffect(() => {
+    setSeleccionRevision((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (facturaAProveedor.has(id)) next.add(id);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+  }, [facturaAProveedor]);
+
+  const toggleSeleccionFactura = useCallback((id: string) => {
+    setSeleccionRevision((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const validarRevisionSeleccionadas = useCallback(async () => {
+    const ids = [...seleccionRevision];
+    if (ids.length === 0) {
+      showToast('Aviso', 'Selecciona facturas en «Pte. revisión»', 'warning');
+      return;
+    }
+
+    const conDescuadre = ids.filter((id) => {
+      const info = facturaAProveedor.get(id);
+      return info && (info.estado === 'descuadre' || info.estado === 'leve');
+    });
+
+    if (conDescuadre.length > 0) {
+      const nombres = [...new Set(conDescuadre.map((id) => facturaAProveedor.get(id)?.nombre).filter(Boolean))].slice(0, 3);
+      const ok = await confirmar(
+        'Validar con descuadre',
+        `${conDescuadre.length} factura${conDescuadre.length !== 1 ? 's' : ''} pertenecen a proveedores con diferencias en la conciliación${
+          nombres.length ? ` (${nombres.join(', ')}${conDescuadre.length > 3 ? '…' : ''})` : ''
+        }.\n\n¿Validar revisión igualmente? Las facturas pasarán a pendiente de pago.`,
+        { confirmarLabel: 'Validar igualmente' },
+      );
+      if (!ok) return;
+    }
+
+    setValidandoRevision(true);
+    try {
+      const res = await apiFetch('/api/facturacion/facturas/validar-revision', {
+        method: 'POST',
+        body: JSON.stringify({
+          facturaIds: ids,
+          usuario_id: user?.id_usuario ?? '',
+          usuario_nombre: user?.Nombre ?? '',
+        }),
+        timeoutMs: 120_000,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al validar');
+      cargarFacturas();
+      setSeleccionRevision(new Set());
+      if (data.fallidas > 0) {
+        const detalle = (data.detalleFallidas || [])
+          .slice(0, 3)
+          .map((x: { id_factura: string; motivo: string }) => `${x.id_factura}: ${x.motivo}`)
+          .join('\n');
+        showToast(
+          'Validación parcial',
+          `${data.validadas} validada(s), ${data.fallidas} con error.${detalle ? ` ${detalle}` : ''}`,
+          'warning',
+        );
+      } else {
+        showToast('Validadas', `${data.validadas} factura(s) pendientes de pago`, 'success');
+      }
+    } catch (e: unknown) {
+      showToast('Error', e instanceof Error ? e.message : 'Error al validar revisiones', 'error');
+    } finally {
+      setValidandoRevision(false);
+    }
+  }, [seleccionRevision, facturaAProveedor, confirmar, showToast, user, cargarFacturas]);
+
   const resumen = useMemo(() => {
     const r = { cuadran: 0, diferencias: 0, sinFactura: 0, sinAlbaran: 0, totalAlb: 0, totalFact: 0 };
     proveedores.forEach((p) => {
@@ -824,6 +931,34 @@ export default function ConciliacionFacturasScreen() {
         </View>
       ) : null}
 
+      {puedeValidarRevision && seleccionRevision.size > 0 ? (
+        <View style={local.validarBar}>
+          <MaterialIcons name="task-alt" size={18} color="#0369a1" />
+          <Text style={local.validarBarText}>
+            {seleccionRevision.size} factura{seleccionRevision.size !== 1 ? 's' : ''} seleccionada{seleccionRevision.size !== 1 ? 's' : ''}
+          </Text>
+          <TouchableOpacity
+            style={local.validarBarBtnSec}
+            onPress={() => setSeleccionRevision(new Set())}
+            disabled={validandoRevision}
+          >
+            <Text style={local.validarBarBtnSecText}>Deseleccionar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[local.validarBarBtn, validandoRevision && local.validarBarBtnDisabled]}
+            onPress={validarRevisionSeleccionadas}
+            disabled={validandoRevision}
+          >
+            {validandoRevision ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <MaterialIcons name="check-circle" size={16} color="#fff" />
+            )}
+            <Text style={local.validarBarBtnText}>Validar revisión</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
       {/* Listado */}
       {cargando ? (
         <View style={local.emptyWrap}>
@@ -916,37 +1051,64 @@ export default function ConciliacionFacturasScreen() {
                       <Text style={local.detalleVacio}>Sin facturas de gasto en el periodo.</Text>
                     ) : p.facturas.map((f) => {
                       const c = colorEstado(f.estado);
+                      const esPteRevision = f.estado === 'pendiente_revision';
+                      const seleccionada = seleccionRevision.has(f.id);
                       return (
-                        <TouchableOpacity
-                          key={f.id}
-                          style={local.detalleRow}
-                          onPress={() => abrirDocumentoFactura(f.id)}
-                          disabled={abriendoDocId === f.id}
-                          activeOpacity={0.6}
-                        >
-                          <Text style={local.detalleFecha}>{formatFechaCorta(f.fechaIso)}</Text>
-                          {abriendoDocId === f.id ? (
-                            <ActivityIndicator size={14} color="#0ea5e9" />
-                          ) : (
-                            <MaterialIcons name="description" size={14} color="#94a3b8" />
-                          )}
-                          <Text style={local.detalleDoc} numberOfLines={1}>
-                            {f.numero}{f.numeroProveedor ? `  ·  Nº prov: ${f.numeroProveedor}` : ''}
-                          </Text>
-                          {f.vinculada ? (
-                            <MaterialIcons name="link" size={15} color="#047857" />
+                        <View key={f.id} style={local.detalleRow}>
+                          {puedeValidarRevision ? (
+                            esPteRevision ? (
+                              <TouchableOpacity
+                                style={local.detalleCheckbox}
+                                onPress={(e) => {
+                                  absorberClickFila(e);
+                                  toggleSeleccionFactura(f.id);
+                                }}
+                                hitSlop={6}
+                                accessibilityLabel={seleccionada ? 'Desmarcar factura' : 'Marcar para validar revisión'}
+                              >
+                                <MaterialIcons
+                                  name={seleccionada ? 'check-box' : 'check-box-outline-blank'}
+                                  size={18}
+                                  color={seleccionada ? '#0ea5e9' : '#cbd5e1'}
+                                />
+                              </TouchableOpacity>
+                            ) : (
+                              <View style={local.detalleCheckbox} />
+                            )
                           ) : null}
-                          <View style={[local.badgeMini, { backgroundColor: c.bg }]}>
-                            <Text style={[local.badgeMiniText, { color: c.text }]}>{labelEstado(f.estado)}</Text>
-                          </View>
-                          <Text style={local.detalleImporte}>
-                            {formatMoneda(f.base)} <Text style={local.detalleImporteSec}>/ {formatMoneda(f.total)}</Text>
-                          </Text>
-                        </TouchableOpacity>
+                          <TouchableOpacity
+                            style={local.detalleRowMain}
+                            onPress={() => abrirDocumentoFactura(f.id)}
+                            disabled={abriendoDocId === f.id}
+                            activeOpacity={0.6}
+                          >
+                            <Text style={local.detalleFecha}>{formatFechaCorta(f.fechaIso)}</Text>
+                            {abriendoDocId === f.id ? (
+                              <ActivityIndicator size={14} color="#0ea5e9" />
+                            ) : (
+                              <MaterialIcons name="description" size={14} color="#94a3b8" />
+                            )}
+                            <Text style={local.detalleDoc} numberOfLines={1}>
+                              {f.numero}{f.numeroProveedor ? `  ·  Nº prov: ${f.numeroProveedor}` : ''}
+                            </Text>
+                            {f.vinculada ? (
+                              <MaterialIcons name="link" size={15} color="#047857" />
+                            ) : null}
+                            <View style={[local.badgeMini, { backgroundColor: c.bg }]}>
+                              <Text style={[local.badgeMiniText, { color: c.text }]}>{labelEstado(f.estado)}</Text>
+                            </View>
+                            <Text style={local.detalleImporte}>
+                              {formatMoneda(f.base)} <Text style={local.detalleImporteSec}>/ {formatMoneda(f.total)}</Text>
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
                       );
                     })}
                     {p.facturas.length > 0 ? (
-                      <Text style={local.detalleNota}>Importes de factura: base imponible / total con IVA. Toca una factura para abrir su documento adjunto.</Text>
+                      <Text style={local.detalleNota}>
+                        Importes de factura: base imponible / total con IVA. Toca una factura para abrir su documento adjunto.
+                        {puedeValidarRevision ? ' Marca las pendientes de revisión para validarlas desde conciliación.' : ''}
+                      </Text>
                     ) : null}
                   </View>
                 ) : null}
@@ -1146,6 +1308,8 @@ export default function ConciliacionFacturasScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+      {ToastView}
+      {ConfirmarView}
     </View>
   );
 }
@@ -1213,6 +1377,43 @@ const local = StyleSheet.create({
   errorBannerText: { flex: 1, fontSize: 12, color: '#b91c1c' },
   errorBannerRetry: { fontSize: 12, fontWeight: '700', color: '#0ea5e9' },
 
+  validarBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 12,
+    marginTop: 6,
+    marginBottom: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    borderRadius: 8,
+    flexWrap: 'wrap',
+  },
+  validarBarText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#0369a1', minWidth: 120 },
+  validarBarBtnSec: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#fff',
+  },
+  validarBarBtnSecText: { fontSize: 12, fontWeight: '500', color: '#64748b' },
+  validarBarBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#0ea5e9',
+  },
+  validarBarBtnDisabled: { opacity: 0.7 },
+  validarBarBtnText: { fontSize: 12, fontWeight: '600', color: '#fff' },
+
   provBlock: { marginHorizontal: 12, marginTop: 8, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, overflow: 'hidden', backgroundColor: '#fff' },
   provHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 10, backgroundColor: '#f8fafc' },
   provNombre: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
@@ -1227,7 +1428,9 @@ const local = StyleSheet.create({
   detalle: { paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
   detalleTitulo: { fontSize: 12, fontWeight: '700', color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.3 },
   detalleVacio: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', paddingVertical: 4 },
-  detalleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#f8fafc' },
+  detalleRow: { flexDirection: 'row', alignItems: 'center', gap: 4, borderBottomWidth: 1, borderBottomColor: '#f8fafc' },
+  detalleCheckbox: { width: 28, alignItems: 'center', justifyContent: 'center', paddingVertical: 6 },
+  detalleRowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6 },
   detalleFecha: { fontSize: 12, color: '#64748b', width: 76 },
   detalleDoc: { flex: 1, fontSize: 12.5, color: '#334155' },
   detalleImporte: { fontSize: 12.5, fontWeight: '600', color: '#0f172a', textAlign: 'right' },

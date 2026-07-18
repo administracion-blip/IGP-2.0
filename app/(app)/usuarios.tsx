@@ -2,7 +2,6 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   ScrollView,
   ActivityIndicator,
   TouchableOpacity,
@@ -10,11 +9,15 @@ import {
   Modal,
   Platform,
   KeyboardAvoidingView,
-  type ViewStyle,
+  Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import type { ComponentProps } from 'react';
 import { ICONS, ICON_SIZE } from '../constants/icons';
+import { erpTableStyles } from '../constants/erpTableStyles';
+import { colors, iconSize } from '../constants/theme';
+import { EstadoVacio } from '../components/ui/EstadoVacio';
 import { emailValido } from '../utils/validation';
 import { formatId6 } from '../utils/idFormat';
 import { useAuth, UserSession } from '../contexts/AuthContext';
@@ -30,6 +33,22 @@ const ATRIBUTOS_TABLA_USUARIOS = ['id_usuario', 'Nombre', 'Apellidos', 'Email', 
 
 // Columnas de la tabla (todos los atributos menos Password, que no se muestra)
 const ORDEN_COLUMNAS = ATRIBUTOS_TABLA_USUARIOS.filter((k) => k !== 'Password');
+
+const COL_LABELS: Record<string, string> = {
+  id_usuario: 'ID',
+  Nombre: 'Nombre',
+  Apellidos: 'Apellidos',
+  Email: 'Email',
+  Telefono: 'Teléfono',
+  Rol: 'Rol',
+  Local: 'Local',
+};
+
+function labelColumna(col: string): string {
+  return (COL_LABELS[col] ?? col).toUpperCase();
+}
+
+type ToolbarSecId = 'editar' | 'borrar';
 
 // Campos del formulario nuevo registro (todos menos id_usuario, que se calcula en el servidor/app)
 const CAMPOS_FORM: { key: (typeof ATRIBUTOS_TABLA_USUARIOS)[number]; label: string; secure?: boolean }[] = [
@@ -327,11 +346,31 @@ export default function UsuariosScreen() {
     setSelectedRowIndex((prev) => (prev === idx ? null : idx));
   };
 
-  const toolbarBtns = [
-    hasPermiso('usuarios.crear') && { id: 'crear', label: 'Crear registro', icon: ICONS.add },
-    hasPermiso('usuarios.editar') && { id: 'editar', label: 'Editar', icon: ICONS.edit },
-    hasPermiso('usuarios.borrar') && { id: 'borrar', label: 'Borrar', icon: ICONS.delete },
-  ].filter(Boolean) as { id: string; label: string; icon: string }[];
+  const puedeCrear = hasPermiso('usuarios.crear');
+  const puedeEditar = hasPermiso('usuarios.editar');
+  const puedeBorrar = hasPermiso('usuarios.borrar');
+
+  const toolbarSecundarios = [
+    puedeEditar && { id: 'editar' as const, label: 'Editar', icon: ICONS.edit as ComponentProps<typeof MaterialIcons>['name'] },
+    puedeBorrar && { id: 'borrar' as const, label: 'Borrar', icon: ICONS.delete as ComponentProps<typeof MaterialIcons>['name'] },
+  ].filter(Boolean) as { id: ToolbarSecId; label: string; icon: ComponentProps<typeof MaterialIcons>['name'] }[];
+
+  const filaSeleccionDisabled = selectedRowIndex == null;
+  const toolbarBusy = guardando;
+
+  const valorCelda = useCallback((usuario: Usuario, col: string) => {
+    if (col.startsWith('id_') && usuario[col] != null) {
+      return formatId6(usuario[col]);
+    }
+    if (col === 'Local') {
+      const locVal = usuario[col];
+      if (Array.isArray(locVal)) return (locVal as string[]).join(', ') || '—';
+      return locVal != null && String(locVal).trim() !== '' ? String(locVal) : '—';
+    }
+    const raw = usuario[col];
+    if (raw !== undefined && raw !== null && String(raw).trim() !== '') return String(raw);
+    return '—';
+  }, []);
 
   const getColWidth = useCallback((col: string) => columnWidths[col] ?? DEFAULT_COL_WIDTH, [columnWidths]);
 
@@ -422,121 +461,194 @@ export default function UsuariosScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
-        <Text style={styles.loadingText}>Cargando usuarios…</Text>
+      <View style={erpTableStyles.center}>
+        <ActivityIndicator size="large" color={colors.accent} />
+        <Text style={erpTableStyles.loadingText}>Cargando usuarios…</Text>
       </View>
     );
   }
 
-  if (error) {
+  if (error && usuarios.length === 0) {
     return (
-      <View style={styles.center}>
-        <MaterialIcons name="error-outline" size={48} color="#f87171" />
-        <Text style={styles.errorText}>{error}</Text>
+      <View style={erpTableStyles.center}>
+        <MaterialIcons name="error-outline" size={48} color={colors.danger} />
+        <Text style={erpTableStyles.errorText}>{error}</Text>
+        <TouchableOpacity style={erpTableStyles.btnPrimary} onPress={refetchUsuarios}>
+          <MaterialIcons name="refresh" size={iconSize.chip} color={colors.surface} />
+          <Text style={erpTableStyles.btnPrimaryText}>Reintentar</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
-        </TouchableOpacity>
-        <Text style={styles.title}>Usuarios</Text>
+    <View style={erpTableStyles.screen}>
+      <View style={erpTableStyles.headerRow}>
+        <Pressable onPress={() => router.back()} style={erpTableStyles.backBtn} accessibilityLabel="Volver">
+          <MaterialIcons name="arrow-back" size={iconSize.tab} color={colors.textPrimary} />
+        </Pressable>
+        <Text style={erpTableStyles.title}>Usuarios</Text>
       </View>
 
-      <View style={styles.toolbarRow}>
-        <View style={styles.toolbar}>
-          {toolbarBtns.map((btn) => (
-            <View
-              key={btn.id}
-              style={styles.toolbarBtnWrap}
-              {...(Platform.OS === 'web' ? { onMouseEnter: () => setHoveredBtn(btn.id), onMouseLeave: () => setHoveredBtn(null) } as unknown as object : {})}
+      <View style={erpTableStyles.subtitleRow}>
+        <Text style={erpTableStyles.subtitle}>
+          {usuariosFiltrados.length} usuario{usuariosFiltrados.length === 1 ? '' : 's'}
+          {filtroBusqueda.trim() ? ` · filtrado de ${usuarios.length}` : ''}
+        </Text>
+      </View>
+
+      <View style={erpTableStyles.toolbarRow}>
+        <View style={erpTableStyles.toolbar}>
+          {puedeCrear ? (
+            <TouchableOpacity
+              style={erpTableStyles.btnPrimary}
+              onPress={abrirModalNuevo}
+              disabled={toolbarBusy}
+              accessibilityLabel="Nuevo usuario"
             >
-              {hoveredBtn === btn.id && (
-                <View style={styles.tooltip}>
-                  <Text style={styles.tooltipText}>{btn.label}</Text>
-                </View>
-              )}
-              <TouchableOpacity
-                style={[styles.toolbarBtn, (btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null && styles.toolbarBtnDisabled]}
-                onPress={() => {
-                  if (btn.id === 'crear') abrirModalNuevo();
-                  if (btn.id === 'editar' && selectedRowIndex != null) abrirModalEditar(usuariosFiltrados[selectedRowIndex]);
-                  if (btn.id === 'borrar' && selectedRowIndex != null) borrarSeleccionado();
-                }}
-                disabled={guardando || ((btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null)}
-                accessibilityLabel={btn.label}
+              <MaterialIcons name={ICONS.add} size={iconSize.chip} color={colors.surface} />
+              <Text style={erpTableStyles.btnPrimaryText}>Nuevo usuario</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {toolbarSecundarios.map((btn) => {
+            const disabled = toolbarBusy || filaSeleccionDisabled;
+            return (
+              <View
+                key={btn.id}
+                style={erpTableStyles.toolbarBtnWrap}
+                {...(Platform.OS === 'web'
+                  ? ({
+                      onMouseEnter: () => setHoveredBtn(btn.id),
+                      onMouseLeave: () => setHoveredBtn(null),
+                    } as object)
+                  : {})}
               >
-              <MaterialIcons name={btn.icon} size={ICON_SIZE} color={guardando || ((btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null) ? '#94a3b8' : '#0ea5e9'} />
-              </TouchableOpacity>
-            </View>
-          ))}
+                {hoveredBtn === btn.id ? (
+                  <View style={erpTableStyles.tooltip}>
+                    <Text style={erpTableStyles.tooltipText}>{btn.label}</Text>
+                  </View>
+                ) : null}
+                <TouchableOpacity
+                  style={[erpTableStyles.toolbarBtn, disabled && erpTableStyles.toolbarBtnDisabled]}
+                  onPress={() => {
+                    if (btn.id === 'editar' && selectedRowIndex != null) {
+                      abrirModalEditar(usuariosFiltrados[selectedRowIndex]);
+                    }
+                    if (btn.id === 'borrar' && selectedRowIndex != null) borrarSeleccionado();
+                  }}
+                  disabled={disabled}
+                  accessibilityLabel={btn.label}
+                >
+                  <MaterialIcons
+                    name={btn.icon}
+                    size={ICON_SIZE}
+                    color={disabled ? colors.textMuted : colors.textSecondary}
+                  />
+                </TouchableOpacity>
+              </View>
+            );
+          })}
         </View>
-        <View style={styles.searchWrap}>
-          <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
+
+        <View style={[erpTableStyles.searchWrap, erpTableStyles.searchWrapFlex]}>
+          <MaterialIcons name="search" size={iconSize.chip} color={colors.textSecondary} style={erpTableStyles.searchIcon} />
           <TextInput
-            style={styles.searchInput}
+            style={erpTableStyles.searchInput}
             value={filtroBusqueda}
             onChangeText={setFiltroBusqueda}
             placeholder="Buscar en la tabla…"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
           />
         </View>
       </View>
 
-      <Text style={styles.subtitle}>
-        {filtroBusqueda.trim() ? `${usuariosFiltrados.length} de ${usuarios.length} registro${usuarios.length !== 1 ? 's' : ''}` : `${usuarios.length} registro${usuarios.length !== 1 ? 's' : ''} en la tabla`}
-      </Text>
+      <ScrollView
+        style={erpTableStyles.scrollVertical}
+        contentContainerStyle={erpTableStyles.scrollVerticalContent}
+        showsVerticalScrollIndicator
+      >
+        <ScrollView
+          horizontal
+          style={erpTableStyles.scrollTable}
+          contentContainerStyle={erpTableStyles.scrollTableContent}
+          showsHorizontalScrollIndicator
+        >
+          <View style={erpTableStyles.table}>
+            <View style={erpTableStyles.rowHeader}>
+              {columnas.map((col, colIdx) => (
+                <View
+                  key={col}
+                  style={[
+                    erpTableStyles.cellHeader,
+                    colIdx === columnas.length - 1 && erpTableStyles.cellHeaderLast,
+                    { width: getColWidth(col), minWidth: MIN_COL_WIDTH },
+                  ]}
+                >
+                  <Text style={erpTableStyles.cellHeaderText} numberOfLines={1}>
+                    {labelColumna(col)}
+                  </Text>
+                  {Platform.OS === 'web' ? (
+                    <View
+                      style={erpTableStyles.resizeHandle}
+                      {...({
+                        onMouseDown: (e: { nativeEvent?: { clientX: number }; clientX?: number }) =>
+                          handleResizeStart(col, e),
+                      } as object)}
+                    />
+                  ) : null}
+                </View>
+              ))}
+            </View>
 
-      <ScrollView horizontal style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.table}>
-          <View style={styles.rowHeader}>
-            {columnas.map((col) => (
-              <View key={col} style={[styles.cellHeader, { width: getColWidth(col) }]}>
-                <Text style={styles.cellHeaderText} numberOfLines={1} ellipsizeMode="tail">
-                  {col}
-                </Text>
-                {Platform.OS === 'web' && (
-                  <View
-                    style={styles.resizeHandle}
-                    {...({ onMouseDown: (e: React.MouseEvent) => handleResizeStart(col, e) } as unknown as object)}
-                  />
-                )}
-              </View>
-            ))}
-          </View>
-          {usuariosFiltrados.map((usuario, idx) => (
-            <TouchableOpacity
-              key={idx}
-              style={[styles.row, selectedRowIndex === idx && styles.rowSelected]}
-              onPress={() => seleccionarFila(idx)}
-              activeOpacity={0.8}
-            >
-              {columnas.map((col) => {
-                let raw: string;
-                if (col.startsWith('id_') && usuario[col] != null) {
-                  raw = formatId6(usuario[col]);
-                } else if (col === 'Local') {
-                  const locVal = usuario[col];
-                  raw = Array.isArray(locVal) ? (locVal as string[]).join(', ') : (locVal != null ? String(locVal) : '—');
-                } else {
-                  raw = usuario[col] != null ? String(usuario[col]) : '—';
+            {usuariosFiltrados.length === 0 ? (
+              <EstadoVacio
+                icon="people"
+                mensaje={
+                  filtroBusqueda.trim()
+                    ? 'No hay usuarios que coincidan con la búsqueda.'
+                    : 'No hay usuarios registrados.'
                 }
-                const text = raw.length > MAX_TEXT_LENGTH ? truncar(raw) : raw;
-                return (
-                  <View key={col} style={[styles.cell, { width: getColWidth(col) }]}>
-                    <Text style={styles.cellText} numberOfLines={1} ellipsizeMode="tail">
-                      {text}
-                    </Text>
-                  </View>
-                );
-              })}
-            </TouchableOpacity>
-          ))}
-        </View>
+                accion={
+                  puedeCrear && !filtroBusqueda.trim() ? (
+                    <TouchableOpacity style={erpTableStyles.btnPrimary} onPress={abrirModalNuevo}>
+                      <MaterialIcons name={ICONS.add} size={iconSize.chip} color={colors.surface} />
+                      <Text style={erpTableStyles.btnPrimaryText}>Nuevo usuario</Text>
+                    </TouchableOpacity>
+                  ) : undefined
+                }
+              />
+            ) : (
+              usuariosFiltrados.map((usuario, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={[
+                    erpTableStyles.row,
+                    idx === usuariosFiltrados.length - 1 && erpTableStyles.rowLast,
+                    selectedRowIndex === idx && erpTableStyles.rowSelected,
+                  ]}
+                  onPress={() => seleccionarFila(idx)}
+                  activeOpacity={0.7}
+                >
+                  {columnas.map((col, colIdx) => (
+                    <View
+                      key={col}
+                      style={[
+                        erpTableStyles.cell,
+                        colIdx === columnas.length - 1 && erpTableStyles.cellLast,
+                        { width: getColWidth(col), minWidth: MIN_COL_WIDTH },
+                      ]}
+                    >
+                      <Text style={erpTableStyles.cellText} numberOfLines={1} ellipsizeMode="tail">
+                        {truncar(valorCelda(usuario, col))}
+                      </Text>
+                    </View>
+                  ))}
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        </ScrollView>
       </ScrollView>
 
       <Modal
@@ -545,237 +657,259 @@ export default function UsuariosScreen() {
         animationType="fade"
         onRequestClose={cerrarModalNuevo}
       >
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => {}}>
+        <TouchableOpacity style={erpTableStyles.modalOverlayCenter} activeOpacity={1} onPress={() => {}}>
           <KeyboardAvoidingView
-            style={styles.modalContentWrap}
+            style={erpTableStyles.modalContentWrap}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           >
-            <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalCardTouch}>
-              <View style={styles.modalCard}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>{editingUsuarioId != null ? 'Editar registro' : 'Nuevo registro'}</Text>
-                <TouchableOpacity onPress={cerrarModalNuevo} style={styles.modalClose}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
-                </TouchableOpacity>
-              </View>
-              <View style={styles.modalBodyRow}>
-                <View style={styles.modalIdSide}>
-                  <Text style={styles.modalIdLabel}>ID</Text>
-                  <Text style={styles.modalIdValue}>{formatId6(editingUsuarioId ?? próximoId)}</Text>
+            <TouchableOpacity activeOpacity={1} onPress={() => {}} style={{ width: '100%' }}>
+              <View style={erpTableStyles.modalCard}>
+                <View style={erpTableStyles.modalHeader}>
+                  <Text style={erpTableStyles.modalHeaderTitle}>
+                    {editingUsuarioId != null ? 'Editar usuario' : 'Nuevo usuario'}
+                  </Text>
+                  <TouchableOpacity onPress={cerrarModalNuevo} style={erpTableStyles.modalCloseBtn}>
+                    <MaterialIcons name="close" size={iconSize.tab} color={colors.textSecondary} />
+                  </TouchableOpacity>
                 </View>
-                <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
-                  {CAMPOS_FORM.map((campo) =>
-                    campo.key === 'Rol' ? (
-                      <View key={campo.key} style={styles.formGroup}>
-                        <SelectorDesplegable
-                          label={campo.label}
-                          icono="badge"
-                          placeholder={`${campo.label}…`}
-                          tituloLista="Selecciona un rol"
-                          iconoLista="badge"
-                          buscador
-                          buscadorPlaceholder="Buscar rol…"
-                          valorId={formNuevo.Rol || ''}
-                          opciones={[{ id: '', titulo: '(sin rol)' }, ...rolOpciones]}
-                          onSeleccionar={(id) => setFormNuevo((prev) => ({ ...prev, Rol: id }))}
-                        />
-                      </View>
-                    ) : campo.key === 'Local' ? (
-                      <View key={campo.key} style={styles.formGroup}>
-                        <Text style={styles.formLabel}>{campo.label} (multi)</Text>
-                        <TouchableOpacity
-                          style={[styles.formInput, styles.formInputRow]}
-                          onPress={() => setLocalDropdownOpen((o) => !o)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={[styles.formInputText, formLocales.length === 0 && styles.formInputPlaceholder]} numberOfLines={1}>
-                            {formLocales.length > 0 ? formLocales.join(', ') : 'Seleccionar locales…'}
-                          </Text>
-                          <MaterialIcons name={localDropdownOpen ? 'expand-less' : 'expand-more'} size={18} color="#64748b" style={styles.rolChevron} />
-                        </TouchableOpacity>
-                        {formLocales.length > 0 && (
-                          <View style={styles.localesChipsWrap}>
-                            {formLocales.map((loc) => (
-                              <View key={loc} style={styles.localChip}>
-                                <Text style={styles.localChipText} numberOfLines={1}>{loc}</Text>
-                                <TouchableOpacity
-                                  onPress={() => setFormLocales((prev) => prev.filter((l) => l !== loc))}
-                                  style={styles.localChipRemove}
-                                  activeOpacity={0.7}
-                                >
-                                  <MaterialIcons name="close" size={14} color="#64748b" />
-                                </TouchableOpacity>
-                              </View>
-                            ))}
-                          </View>
-                        )}
-                        {localDropdownOpen && (
-                          <View style={styles.dropdownWrap}>
-                            <TextInput
-                              style={styles.dropdownSearch}
-                              value={localSearchFilter}
-                              onChangeText={setLocalSearchFilter}
-                              placeholder="Buscar local…"
-                              placeholderTextColor="#94a3b8"
+                <View style={erpTableStyles.modalBodyRow}>
+                  <View style={erpTableStyles.modalIdSide}>
+                    <Text style={erpTableStyles.modalIdLabel}>ID</Text>
+                    <Text style={erpTableStyles.modalIdValue}>{formatId6(editingUsuarioId ?? próximoId)}</Text>
+                  </View>
+                  <ScrollView style={erpTableStyles.modalBodyScroll} keyboardShouldPersistTaps="handled">
+                    {CAMPOS_FORM.map((campo) =>
+                      campo.key === 'Rol' ? (
+                        <View key={campo.key} style={erpTableStyles.formGroup}>
+                          <SelectorDesplegable
+                            label={campo.label}
+                            icono="badge"
+                            placeholder={`${campo.label}…`}
+                            tituloLista="Selecciona un rol"
+                            iconoLista="badge"
+                            buscador
+                            buscadorPlaceholder="Buscar rol…"
+                            valorId={formNuevo.Rol || ''}
+                            opciones={[{ id: '', titulo: '(sin rol)' }, ...rolOpciones]}
+                            onSeleccionar={(id) => setFormNuevo((prev) => ({ ...prev, Rol: id }))}
+                          />
+                        </View>
+                      ) : campo.key === 'Local' ? (
+                        <View key={campo.key} style={erpTableStyles.formGroup}>
+                          <Text style={erpTableStyles.formLabel}>{campo.label} (multi)</Text>
+                          <TouchableOpacity
+                            style={[erpTableStyles.formInput, erpTableStyles.formInputRow]}
+                            onPress={() => setLocalDropdownOpen((o) => !o)}
+                            activeOpacity={0.7}
+                          >
+                            <Text
+                              style={[
+                                erpTableStyles.formInputText,
+                                formLocales.length === 0 && erpTableStyles.formInputPlaceholder,
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {formLocales.length > 0 ? formLocales.join(', ') : 'Seleccionar locales…'}
+                            </Text>
+                            <MaterialIcons
+                              name={localDropdownOpen ? 'expand-less' : 'expand-more'}
+                              size={iconSize.chip}
+                              color={colors.textSecondary}
+                              style={{ marginLeft: 4 }}
                             />
-                            <ScrollView style={styles.dropdownScroll} keyboardShouldPersistTaps="handled">
-                              {formLocales.length > 0 ? (
-                                <TouchableOpacity
-                                  style={[styles.dropdownOption, styles.dropdownVaciarOption]}
-                                  onPress={() => {
-                                    setFormLocales([]);
-                                    setLocalSearchFilter('');
-                                  }}
-                                  activeOpacity={0.7}
-                                >
-                                  <MaterialIcons name="clear" size={16} color="#94a3b8" style={{ marginRight: 6 }} />
-                                  <Text style={styles.dropdownVaciarText}>Quitar todos</Text>
-                                </TouchableOpacity>
-                              ) : null}
-                              {localesGrupoParipe.length === 0 ? (
-                                <>
-                                  <View style={styles.dropdownOption}>
-                                    <Text style={styles.dropdownOptionText}>Sin locales</Text>
-                                  </View>
+                          </TouchableOpacity>
+                          {formLocales.length > 0 ? (
+                            <View style={erpTableStyles.localesChipsWrap}>
+                              {formLocales.map((loc) => (
+                                <View key={loc} style={erpTableStyles.localChip}>
+                                  <Text style={erpTableStyles.localChipText} numberOfLines={1}>
+                                    {loc}
+                                  </Text>
                                   <TouchableOpacity
-                                    style={[styles.dropdownOption, styles.dropdownCrearNuevoOption]}
+                                    onPress={() => setFormLocales((prev) => prev.filter((l) => l !== loc))}
+                                    style={erpTableStyles.localChipRemove}
+                                    activeOpacity={0.7}
+                                  >
+                                    <MaterialIcons name="close" size={14} color={colors.textSecondary} />
+                                  </TouchableOpacity>
+                                </View>
+                              ))}
+                            </View>
+                          ) : null}
+                          {localDropdownOpen ? (
+                            <View style={erpTableStyles.dropdownWrap}>
+                              <TextInput
+                                style={erpTableStyles.dropdownSearch}
+                                value={localSearchFilter}
+                                onChangeText={setLocalSearchFilter}
+                                placeholder="Buscar local…"
+                                placeholderTextColor={colors.textMuted}
+                              />
+                              <ScrollView style={erpTableStyles.dropdownScroll} keyboardShouldPersistTaps="handled">
+                                {formLocales.length > 0 ? (
+                                  <TouchableOpacity
+                                    style={[erpTableStyles.dropdownOption, erpTableStyles.dropdownVaciarOption]}
+                                    onPress={() => {
+                                      setFormLocales([]);
+                                      setLocalSearchFilter('');
+                                    }}
+                                    activeOpacity={0.7}
+                                  >
+                                    <MaterialIcons name="clear" size={16} color={colors.textMuted} style={{ marginRight: 6 }} />
+                                    <Text style={erpTableStyles.dropdownVaciarText}>Quitar todos</Text>
+                                  </TouchableOpacity>
+                                ) : null}
+                                {localesGrupoParipe.length === 0 ? (
+                                  <>
+                                    <View style={erpTableStyles.dropdownOption}>
+                                      <Text style={erpTableStyles.dropdownOptionText}>Sin locales</Text>
+                                    </View>
+                                    <TouchableOpacity
+                                      style={[erpTableStyles.dropdownOption, erpTableStyles.dropdownCrearOption]}
+                                      onPress={() => {
+                                        setLocalDropdownOpen(false);
+                                        abrirModalCrearLocal();
+                                      }}
+                                      activeOpacity={0.7}
+                                    >
+                                      <MaterialIcons name="add-circle-outline" size={16} color={colors.accent} style={{ marginRight: 6 }} />
+                                      <Text style={erpTableStyles.dropdownCrearText}>Crear nuevo local</Text>
+                                    </TouchableOpacity>
+                                  </>
+                                ) : localesFiltrados.length === 0 ? (
+                                  <TouchableOpacity
+                                    style={[erpTableStyles.dropdownOption, erpTableStyles.dropdownCrearOption]}
                                     onPress={() => {
                                       setLocalDropdownOpen(false);
                                       abrirModalCrearLocal();
                                     }}
                                     activeOpacity={0.7}
                                   >
-                                    <MaterialIcons name="add-circle-outline" size={16} color="#0ea5e9" style={{ marginRight: 6 }} />
-                                    <Text style={styles.dropdownCrearNuevoText}>Crear nuevo local</Text>
+                                    <MaterialIcons name="add-circle-outline" size={16} color={colors.accent} style={{ marginRight: 6 }} />
+                                    <Text style={erpTableStyles.dropdownCrearText}>Crear nuevo local</Text>
                                   </TouchableOpacity>
-                                </>
-                              ) : localesFiltrados.length === 0 ? (
-                                <TouchableOpacity
-                                  style={[styles.dropdownOption, styles.dropdownCrearNuevoOption]}
-                                  onPress={() => {
-                                    setLocalDropdownOpen(false);
-                                    abrirModalCrearLocal();
-                                  }}
-                                  activeOpacity={0.7}
-                                >
-                                  <MaterialIcons name="add-circle-outline" size={16} color="#0ea5e9" style={{ marginRight: 6 }} />
-                                  <Text style={styles.dropdownCrearNuevoText}>Crear nuevo local</Text>
-                                </TouchableOpacity>
-                              ) : (
-                                <>
-                                  {localesFiltrados.map((loc) => {
-                                    const nombre = loc.nombre ?? loc.Nombre ?? '';
-                                    const isSelected = formLocales.includes(nombre);
-                                    return (
-                                      <TouchableOpacity
-                                        key={loc.id_Locales ?? nombre}
-                                        style={[styles.dropdownOption, isSelected && styles.dropdownOptionSelected]}
-                                        onPress={() => {
-                                          setFormLocales((prev) =>
-                                            isSelected ? prev.filter((l) => l !== nombre) : [...prev, nombre]
-                                          );
-                                        }}
-                                        activeOpacity={0.7}
-                                      >
-                                        <MaterialIcons
-                                          name={isSelected ? 'check-box' : 'check-box-outline-blank'}
-                                          size={18}
-                                          color={isSelected ? '#0ea5e9' : '#94a3b8'}
-                                          style={{ marginRight: 8 }}
-                                        />
-                                        <Text style={[styles.dropdownOptionText, isSelected && { color: '#0ea5e9', fontWeight: '600' }]}>{nombre || '—'}</Text>
-                                      </TouchableOpacity>
-                                    );
-                                  })}
-                                  <TouchableOpacity
-                                    style={[styles.dropdownOption, styles.dropdownCrearNuevoOption]}
-                                    onPress={() => {
-                                      setLocalDropdownOpen(false);
-                                      abrirModalCrearLocal();
-                                    }}
-                                    activeOpacity={0.7}
-                                  >
-                                    <MaterialIcons name="add-circle-outline" size={16} color="#0ea5e9" style={{ marginRight: 6 }} />
-                                    <Text style={styles.dropdownCrearNuevoText}>Crear nuevo local</Text>
-                                  </TouchableOpacity>
-                                </>
-                              )}
-                            </ScrollView>
-                          </View>
-                        )}
-                      </View>
+                                ) : (
+                                  <>
+                                    {localesFiltrados.map((loc) => {
+                                      const nombre = loc.nombre ?? loc.Nombre ?? '';
+                                      const isSelected = formLocales.includes(nombre);
+                                      return (
+                                        <TouchableOpacity
+                                          key={loc.id_Locales ?? nombre}
+                                          style={[
+                                            erpTableStyles.dropdownOption,
+                                            isSelected && erpTableStyles.dropdownOptionSelected,
+                                          ]}
+                                          onPress={() => {
+                                            setFormLocales((prev) =>
+                                              isSelected ? prev.filter((l) => l !== nombre) : [...prev, nombre],
+                                            );
+                                          }}
+                                          activeOpacity={0.7}
+                                        >
+                                          <MaterialIcons
+                                            name={isSelected ? 'check-box' : 'check-box-outline-blank'}
+                                            size={18}
+                                            color={isSelected ? colors.accent : colors.textMuted}
+                                            style={{ marginRight: 8 }}
+                                          />
+                                          <Text
+                                            style={[
+                                              erpTableStyles.dropdownOptionText,
+                                              isSelected && { color: colors.accentPressed, fontWeight: '600' },
+                                            ]}
+                                          >
+                                            {nombre || '—'}
+                                          </Text>
+                                        </TouchableOpacity>
+                                      );
+                                    })}
+                                    <TouchableOpacity
+                                      style={[erpTableStyles.dropdownOption, erpTableStyles.dropdownCrearOption]}
+                                      onPress={() => {
+                                        setLocalDropdownOpen(false);
+                                        abrirModalCrearLocal();
+                                      }}
+                                      activeOpacity={0.7}
+                                    >
+                                      <MaterialIcons name="add-circle-outline" size={16} color={colors.accent} style={{ marginRight: 6 }} />
+                                      <Text style={erpTableStyles.dropdownCrearText}>Crear nuevo local</Text>
+                                    </TouchableOpacity>
+                                  </>
+                                )}
+                              </ScrollView>
+                            </View>
+                          ) : null}
+                        </View>
+                      ) : (
+                        <View key={campo.key} style={erpTableStyles.formGroup}>
+                          <Text style={erpTableStyles.formLabel}>{campo.label}</Text>
+                          <TextInput
+                            style={erpTableStyles.formInput}
+                            value={formNuevo[campo.key] ?? ''}
+                            onChangeText={(t) => setFormNuevo((prev) => ({ ...prev, [campo.key]: t }))}
+                            placeholder={`${campo.label}…`}
+                            placeholderTextColor={colors.textMuted}
+                            secureTextEntry={campo.secure}
+                            autoCapitalize={campo.key === 'Email' ? 'none' : 'words'}
+                          />
+                        </View>
+                      ),
+                    )}
+                  </ScrollView>
+                </View>
+                {errorForm ? <Text style={erpTableStyles.errorForm}>{errorForm}</Text> : null}
+                <View style={erpTableStyles.modalFooter}>
+                  <TouchableOpacity style={erpTableStyles.modalBtnCancel} onPress={cerrarModalNuevo} disabled={guardando}>
+                    <Text style={erpTableStyles.modalBtnCancelText}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={erpTableStyles.modalBtnSave} onPress={guardarNuevo} disabled={guardando}>
+                    {guardando ? (
+                      <ActivityIndicator size="small" color={colors.surface} />
                     ) : (
-                      <View key={campo.key} style={styles.formGroup}>
-                        <Text style={styles.formLabel}>{campo.label}</Text>
-                        <TextInput
-                          style={styles.formInput}
-                          value={formNuevo[campo.key] ?? ''}
-                          onChangeText={(t) => setFormNuevo((prev) => ({ ...prev, [campo.key]: t }))}
-                          placeholder={`${campo.label}…`}
-                          placeholderTextColor="#94a3b8"
-                          secureTextEntry={campo.secure}
-                          autoCapitalize={campo.key === 'Email' ? 'none' : 'words'}
-                        />
-                      </View>
-                    )
-                  )}
-                </ScrollView>
+                      <Text style={erpTableStyles.modalBtnSaveText}>Guardar</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
               </View>
-              {errorForm ? (
-                <Text style={styles.modalError}>{errorForm}</Text>
-              ) : null}
-              <View style={styles.modalFooter}>
-                <TouchableOpacity style={styles.modalFooterBtn} onPress={guardarNuevo} accessibilityLabel={editingUsuarioId != null ? 'Guardar' : 'Añadir'} disabled={guardando}>
-                  {guardando ? <ActivityIndicator size="small" color="#0ea5e9" /> : <MaterialIcons name={editingUsuarioId != null ? 'save' : ICONS.add} size={ICON_SIZE} color="#0ea5e9" />}
-                </TouchableOpacity>
-              </View>
-            </View>
             </TouchableOpacity>
           </KeyboardAvoidingView>
         </TouchableOpacity>
       </Modal>
 
       <Modal visible={modalCrearLocalVisible} transparent animationType="fade" onRequestClose={cerrarModalCrearLocal}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => {}}>
-          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalCardTouch}>
-            <View style={[styles.modalCard, { maxWidth: 360 }]}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Crear nuevo local</Text>
-                <TouchableOpacity onPress={cerrarModalCrearLocal} style={styles.modalClose}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+        <TouchableOpacity style={erpTableStyles.modalOverlayCenter} activeOpacity={1} onPress={() => {}}>
+          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={erpTableStyles.modalContentWrap}>
+            <View style={[erpTableStyles.modalCard, { maxWidth: 360 }]}>
+              <View style={erpTableStyles.modalHeader}>
+                <Text style={erpTableStyles.modalHeaderTitle}>Crear nuevo local</Text>
+                <TouchableOpacity onPress={cerrarModalCrearLocal} style={erpTableStyles.modalCloseBtn}>
+                  <MaterialIcons name="close" size={iconSize.tab} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
-              <View style={[styles.modalBody, { maxHeight: 200 }]}>
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Nombre *</Text>
+              <View style={[erpTableStyles.modalBodyScroll, { maxHeight: 200 }]}>
+                <View style={erpTableStyles.formGroup}>
+                  <Text style={erpTableStyles.formLabel}>Nombre *</Text>
                   <TextInput
-                    style={styles.formInput}
+                    style={erpTableStyles.formInput}
                     value={formCrearLocal.Nombre}
                     onChangeText={(t) => setFormCrearLocal((prev) => ({ ...prev, Nombre: t }))}
                     placeholder="Nombre del local"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                     autoCapitalize="words"
                   />
                 </View>
-                {errorCrearLocal ? <Text style={styles.modalError}>{errorCrearLocal}</Text> : null}
+                {errorCrearLocal ? <Text style={erpTableStyles.errorForm}>{errorCrearLocal}</Text> : null}
               </View>
-              <View style={styles.modalFooter}>
-                <TouchableOpacity style={[styles.modalFooterBtn, { flexDirection: 'row', alignItems: 'center' }]} onPress={cerrarModalCrearLocal} activeOpacity={0.7}>
-                  <Text style={{ color: '#64748b', fontSize: 14 }}>Cancelar</Text>
+              <View style={erpTableStyles.modalFooter}>
+                <TouchableOpacity style={erpTableStyles.modalBtnCancel} onPress={cerrarModalCrearLocal}>
+                  <Text style={erpTableStyles.modalBtnCancelText}>Cancelar</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.modalFooterBtn, { flexDirection: 'row', alignItems: 'center' }]}
-                  onPress={guardarCrearLocal}
-                  disabled={guardandoCrearLocal}
-                  activeOpacity={0.7}
-                >
+                <TouchableOpacity style={erpTableStyles.modalBtnSave} onPress={guardarCrearLocal} disabled={guardandoCrearLocal}>
                   {guardandoCrearLocal ? (
-                    <ActivityIndicator size="small" color="#0ea5e9" />
+                    <ActivityIndicator size="small" color={colors.surface} />
                   ) : (
-                    <>
-                      <MaterialIcons name="add" size={ICON_SIZE} color="#0ea5e9" />
-                      <Text style={{ color: '#0ea5e9', fontSize: 14, marginLeft: 6 }}>Crear</Text>
-                    </>
+                    <Text style={erpTableStyles.modalBtnSaveText}>Crear</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -786,350 +920,3 @@ export default function UsuariosScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 10,
-  },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 10,
-  },
-  loadingText: {
-    fontSize: 12,
-    color: '#64748b',
-  },
-  errorText: {
-    fontSize: 12,
-    color: '#f87171',
-    textAlign: 'center',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-    gap: 8,
-  },
-  backBtn: {
-    padding: 4,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#334155',
-  },
-  toolbarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-    gap: 12,
-  },
-  toolbar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  searchWrap: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    minWidth: 140,
-    maxWidth: 280,
-    height: 32,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-  },
-  searchIcon: {
-    marginRight: 6,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 12,
-    color: '#334155',
-    paddingVertical: 0,
-  },
-  toolbarBtnWrap: {
-    position: 'relative',
-  },
-  tooltip: {
-    position: 'absolute',
-    bottom: '100%',
-    alignSelf: 'center',
-    marginBottom: 4,
-    backgroundColor: '#334155',
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 4,
-    zIndex: 10,
-  },
-  tooltipText: {
-    fontSize: 9,
-    color: '#f8fafc',
-    fontWeight: '400',
-  },
-  toolbarBtn: {
-    padding: 6,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
-  },
-  toolbarBtnDisabled: {
-    opacity: 0.6,
-  },
-  subtitle: {
-    fontSize: 12,
-    color: '#64748b',
-    marginBottom: 8,
-  },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 20,
-  },
-  table: {
-    minWidth: '100%',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: '#fff',
-  },
-  rowHeader: {
-    flexDirection: 'row',
-    backgroundColor: '#e2e8f0',
-    borderBottomWidth: 1,
-    borderBottomColor: '#cbd5e1',
-  },
-  cellCheckbox: {
-    width: 36,
-    minWidth: 36,
-    paddingVertical: 6,
-    paddingHorizontal: 6,
-    borderRightWidth: 1,
-    borderRightColor: '#cbd5e1',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cellCheckboxRow: {
-    borderRightColor: '#e2e8f0',
-    paddingVertical: 4,
-  },
-  cellHeader: {
-    minWidth: MIN_COL_WIDTH,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRightWidth: 1,
-    borderRightColor: '#cbd5e1',
-    position: 'relative',
-  },
-  cellHeaderText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#334155',
-  },
-  resizeHandle: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    width: 6,
-    height: '100%',
-    cursor: 'col-resize',
-  } as unknown as ViewStyle,
-  row: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    backgroundColor: '#fff',
-  },
-  rowSelected: {
-    backgroundColor: '#e0f2fe',
-  },
-  cell: {
-    minWidth: MIN_COL_WIDTH,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRightWidth: 1,
-    borderRightColor: '#e2e8f0',
-  },
-  cellText: {
-    fontSize: 11,
-    color: '#475569',
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
-  },
-  modalContentWrap: {
-    width: '100%',
-    maxWidth: 420,
-    padding: 24,
-    alignItems: 'center',
-  },
-  modalCardTouch: {
-    width: '100%',
-  },
-  modalCard: {
-    width: '100%',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 24,
-    elevation: 12,
-    overflow: 'hidden',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#334155',
-  },
-  modalClose: {
-    padding: 4,
-  },
-  modalBodyRow: {
-    flexDirection: 'row',
-  },
-  modalIdSide: {
-    width: 56,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderRightWidth: 1,
-    borderRightColor: '#e2e8f0',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-  },
-  modalIdLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#94a3b8',
-    marginBottom: 2,
-  },
-  modalIdValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#334155',
-  },
-  modalBody: {
-    flex: 1,
-    maxHeight: 400,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  formGroup: {
-    marginBottom: 8,
-  },
-  formLabel: {
-    fontSize: 10,
-    fontWeight: '500',
-    color: '#475569',
-    marginBottom: 2,
-  },
-  formInput: {
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    fontSize: 13,
-    color: '#334155',
-  },
-  formInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  formInputText: {
-    fontSize: 13,
-    color: '#334155',
-    flex: 1,
-  },
-  formInputPlaceholder: {
-    color: '#94a3b8',
-  },
-  rolChevron: {
-    marginLeft: 4,
-  },
-  rolDropdown: {
-    marginTop: 2,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
-    overflow: 'hidden',
-    maxHeight: 180,
-  },
-  rolOption: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  rolOptionText: {
-    fontSize: 11,
-    color: '#334155',
-  },
-  dropdownWrap: { marginTop: 4, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', maxHeight: 200 },
-  dropdownSearch: { paddingVertical: 6, paddingHorizontal: 8, fontSize: 11, color: '#334155', backgroundColor: '#f8fafc', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  dropdownScroll: { maxHeight: 150 },
-  dropdownOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  dropdownOptionText: { fontSize: 11, color: '#334155' },
-  dropdownVaciarOption: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderBottomColor: '#e2e8f0' },
-  dropdownVaciarText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
-  dropdownCrearNuevoOption: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0f9ff', borderBottomColor: '#e2e8f0' },
-  dropdownCrearNuevoText: { fontSize: 11, color: '#0ea5e9', fontWeight: '600' },
-  dropdownOptionSelected: { backgroundColor: '#f0f9ff' },
-  localesChipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 },
-  localChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#e0f2fe',
-    borderRadius: 12,
-    paddingVertical: 2,
-    paddingLeft: 8,
-    paddingRight: 4,
-  },
-  localChipText: { fontSize: 11, color: '#0369a1', fontWeight: '500', maxWidth: 120 },
-  localChipRemove: { padding: 2, marginLeft: 2 },
-  modalError: {
-    fontSize: 11,
-    color: '#f87171',
-    paddingHorizontal: 20,
-    paddingVertical: 4,
-  },
-  modalFooter: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 6,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-  },
-  modalFooterBtn: {
-    padding: 6,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
-  },
-});

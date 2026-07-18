@@ -42,6 +42,13 @@ import { useZonaOCR } from '../../hooks/useZonaOCR';
 import { ZonaOCRPreview } from '../../components/registroMasivo/ZonaOCRPreview';
 import { DesgloseFiscalEditor } from '../../components/registroMasivo/DesgloseFiscalEditor';
 import { CampoIdDocumentoFacturaRecibida } from '../../components/CampoIdDocumentoFacturaRecibida';
+import {
+  RegistrarPagoModal,
+  type RegistrarPagoInitial,
+  type RegistrarPagoPayloadFactura,
+} from '../../components/RegistrarPagoModal';
+import { hoyISO } from '../../utils/facturaFormLogic';
+import { mapTipoReciboToFormaPago } from '../../utils/facturacion';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -97,6 +104,9 @@ export default function RegistroMasivoScreen() {
   const [empresasCatalogo, setEmpresasCatalogo] = useState<EmpresaCatalogo[]>([]);
   /** Si está activo y el API tiene OPENAI_API_KEY, se llama a /ocr/enriquecer-ia tras cada extracción. */
   const [usarEnriquecimientoIa, setUsarEnriquecimientoIa] = useState(true);
+  const [modalPagoBorradorIdx, setModalPagoBorradorIdx] = useState<number | null>(null);
+
+  const puedeRegistrarPago = hasPermiso('facturacion.cobrar_pagar');
 
   const selectedBorrador = selectedIdx !== null ? borradores.find((b) => b.idx === selectedIdx) : null;
 
@@ -483,6 +493,19 @@ export default function RegistroMasivoScreen() {
       );
       return;
     }
+    const pagoSinDatos = activos.find((b) => b.pago_al_confirmar && !b.pago_datos);
+    if (pagoSinDatos) {
+      alertMsg(
+        'Falta pago',
+        `Indica los datos de pago del borrador «${pagoSinDatos.archivo?.nombre || pagoSinDatos.numero_factura_proveedor || 'sin nombre'}».`,
+      );
+      return;
+    }
+    const conPago = activos.filter((b) => b.pago_al_confirmar && b.pago_datos);
+    if (conPago.length > 0 && !puedeRegistrarPago) {
+      alertMsg('Sin permiso', 'No tienes permiso para registrar pagos al confirmar.');
+      return;
+    }
     setGuardando(true);
     try {
       const res = await apiFetch(`/api/facturacion/ocr/confirmar`, {
@@ -491,8 +514,8 @@ export default function RegistroMasivoScreen() {
           borradores: activos.map((b) => ({
             ...b,
             serie: '',
-            forma_pago: '',
-            condiciones_pago: '',
+            forma_pago: b.pago_datos?.metodo_pago || '',
+            condiciones_pago: b.pago_al_confirmar ? 'contado' : '',
             observaciones: String(b.observaciones ?? '').trim(),
             archivo: b.archivo
               ? {
@@ -510,13 +533,140 @@ export default function RegistroMasivoScreen() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Error');
-      alertMsg('Creados', `${data.creados} factura(s) importada(s). Revísalas y pulsa «Validar revisión» en Facturas recibidas.`);
+
+      const ids: string[] = Array.isArray(data.ids) ? data.ids : [];
+      let pagadasOk = 0;
+      let pagadasFallidas = 0;
+
+      for (let i = 0; i < activos.length; i += 1) {
+        const b = activos[i];
+        const idFactura = ids[i];
+        if (!b.pago_al_confirmar || !b.pago_datos || !idFactura) continue;
+
+        const valRes = await apiFetch('/api/facturacion/facturas/validar-revision', {
+          method: 'POST',
+          body: JSON.stringify({
+            facturaIds: [idFactura],
+            usuario_id: user?.id_usuario ?? '',
+            usuario_nombre: user?.Nombre ?? '',
+          }),
+        });
+        const valData = await valRes.json();
+        if (!valRes.ok || valData.fallidas > 0) {
+          pagadasFallidas += 1;
+          continue;
+        }
+
+        const pago = b.pago_datos;
+        const pagRes = await apiFetch(`/api/facturacion/facturas/${idFactura}/pagos`, {
+          method: 'POST',
+          body: JSON.stringify({
+            fecha: pago.fecha,
+            importe: pago.importe,
+            metodo_pago: pago.metodo_pago,
+            referencia: pago.referencia,
+            observaciones: pago.observaciones,
+            usuario_id: user?.id_usuario ?? '',
+            usuario_nombre: user?.Nombre ?? '',
+          }),
+        });
+        if (!pagRes.ok) {
+          pagadasFallidas += 1;
+        } else {
+          pagadasOk += 1;
+        }
+      }
+
+      const pendientesRevision = activos.length - conPago.length;
+      if (conPago.length === 0) {
+        alertMsg('Creados', `${data.creados} factura(s) importada(s). Revísalas y pulsa «Validar revisión» en Facturas recibidas.`);
+      } else if (pagadasFallidas === 0) {
+        alertMsg(
+          'Registro completado',
+          `${data.creados} factura(s) creada(s): ${pagadasOk} pagada(s) al registrar${pendientesRevision > 0 ? `, ${pendientesRevision} pendiente(s) de revisión` : ''}.`,
+        );
+      } else {
+        showToast(
+          'Registro parcial',
+          `${data.creados} creada(s). ${pagadasOk} pagada(s), ${pagadasFallidas} con error al validar/pagar. Revisa en Facturas recibidas.`,
+          'warning',
+        );
+      }
       router.push('/facturacion/facturas-gasto' as any);
     } catch (e: unknown) {
       alertMsg('Error', errorMessage(e));
     } finally {
       setGuardando(false);
     }
+  };
+
+  const borradorParaModalPago = modalPagoBorradorIdx != null
+    ? borradores.find((b) => b.idx === modalPagoBorradorIdx) ?? null
+    : null;
+
+  const pagoInitialBorrador = useMemo((): RegistrarPagoInitial | undefined => {
+    if (!borradorParaModalPago) return undefined;
+    const b = borradorParaModalPago;
+    if (b.pago_datos) {
+      const { clave, otroTexto } = mapTipoReciboToFormaPago(b.pago_datos.metodo_pago);
+      return {
+        fecha: b.pago_datos.fecha,
+        importe: String(b.pago_datos.importe),
+        metodo: clave,
+        metodoOtro: clave === 'otro' ? otroTexto || b.pago_datos.metodo_pago : '',
+        referencia: b.pago_datos.referencia,
+        observaciones: b.pago_datos.observaciones,
+      };
+    }
+    const hoy = hoyISO();
+    const fechaFactura = fechaEmisionFacturaAIso(b.fecha_emision ?? '') ?? hoy;
+    return {
+      fecha: fechaFactura,
+      importe: String(b.total_factura || 0),
+      metodo: 'tarjeta',
+      referencia: '',
+      observaciones: '',
+    };
+  }, [borradorParaModalPago]);
+
+  const togglePagoAlConfirmar = (idx: number, activo: boolean) => {
+    if (activo && !puedeRegistrarPago) {
+      alertMsg('Sin permiso', 'No tienes permiso para registrar pagos.');
+      return;
+    }
+    setBorradores((prev) =>
+      prev.map((b) =>
+        b.idx === idx
+          ? {
+              ...b,
+              pago_al_confirmar: activo,
+              pago_datos: activo ? b.pago_datos : undefined,
+            }
+          : b,
+      ),
+    );
+    if (activo) setModalPagoBorradorIdx(idx);
+  };
+
+  const guardarPagoBorrador = (idx: number, payload: RegistrarPagoPayloadFactura) => {
+    setBorradores((prev) =>
+      prev.map((b) =>
+        b.idx === idx
+          ? {
+              ...b,
+              pago_al_confirmar: true,
+              pago_datos: {
+                fecha: payload.fecha,
+                importe: payload.importe,
+                metodo_pago: payload.metodo_pago,
+                referencia: payload.referencia,
+                observaciones: payload.observaciones,
+              },
+            }
+          : b,
+      ),
+    );
+    setModalPagoBorradorIdx(null);
   };
 
   const navPrev = () => {
@@ -881,6 +1031,47 @@ export default function RegistroMasivoScreen() {
                 </View>
                 <FieldRow label="Observaciones" value={selectedBorrador.observaciones} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'observaciones', v)} placeholder="Notas adicionales…" />
               </View>
+
+              {puedeRegistrarPago ? (
+                <View style={styles.pagoIntegradoBlock}>
+                  <View style={styles.pagoIntegradoHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.pagoIntegradoTitle}>Ya está pagada</Text>
+                      <Text style={styles.pagoIntegradoHint}>
+                        Registra el pago al confirmar (tarjeta, efectivo…) y la factura quedará pagada.
+                      </Text>
+                    </View>
+                    <Switch
+                      value={!!selectedBorrador.pago_al_confirmar}
+                      onValueChange={(v) => togglePagoAlConfirmar(selectedBorrador.idx, v)}
+                      trackColor={{ false: '#cbd5e1', true: '#86efac' }}
+                      thumbColor={selectedBorrador.pago_al_confirmar ? '#16a34a' : '#fff'}
+                    />
+                  </View>
+                  {selectedBorrador.pago_al_confirmar ? (
+                    <View style={styles.pagoIntegradoResumen}>
+                      {selectedBorrador.pago_datos ? (
+                        <Text style={styles.pagoIntegradoResumenText}>
+                          {selectedBorrador.pago_datos.metodo_pago}
+                          {' · '}{formatMoneda(selectedBorrador.pago_datos.importe)}
+                          {' · '}{selectedBorrador.pago_datos.fecha}
+                        </Text>
+                      ) : (
+                        <Text style={styles.pagoIntegradoResumenPending}>Completa los datos de pago</Text>
+                      )}
+                      <TouchableOpacity
+                        style={styles.pagoIntegradoBtn}
+                        onPress={() => setModalPagoBorradorIdx(selectedBorrador.idx)}
+                      >
+                        <MaterialIcons name="payments" size={16} color="#0369a1" />
+                        <Text style={styles.pagoIntegradoBtnText}>
+                          {selectedBorrador.pago_datos ? 'Editar pago' : 'Registrar pago'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
             </ScrollView>
           </View>
 
@@ -936,6 +1127,21 @@ export default function RegistroMasivoScreen() {
       )}
 
       <CrearEmpresaModal modal={crearEmpresaModal} />
+
+      <RegistrarPagoModal
+        visible={modalPagoBorradorIdx != null && borradorParaModalPago != null}
+        modo="factura"
+        variant="pago"
+        initial={pagoInitialBorrador}
+        fechaReferenciaTarjeta={borradorParaModalPago ? fechaEmisionFacturaAIso(borradorParaModalPago.fecha_emision ?? '') ?? undefined : undefined}
+        submitting={false}
+        onClose={() => setModalPagoBorradorIdx(null)}
+        onValidationError={alertMsg}
+        onSubmit={(payload) => {
+          if (modalPagoBorradorIdx == null) return;
+          guardarPagoBorrador(modalPagoBorradorIdx, payload);
+        }}
+      />
 
       {ToastView}
     </View>
@@ -1055,6 +1261,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#059669',
   },
   confirmBtnText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+
+  pagoIntegradoBlock: {
+    marginTop: 8,
+    marginBottom: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    borderRadius: 8,
+    backgroundColor: '#f0f9ff',
+    gap: 8,
+  },
+  pagoIntegradoHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  pagoIntegradoTitle: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
+  pagoIntegradoHint: { fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 15 },
+  pagoIntegradoResumen: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  pagoIntegradoResumenText: { flex: 1, fontSize: 12, color: '#0369a1', fontWeight: '600', minWidth: 140 },
+  pagoIntegradoResumenPending: { flex: 1, fontSize: 12, color: '#b45309', fontStyle: 'italic' },
+  pagoIntegradoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#7dd3fc',
+    backgroundColor: '#fff',
+  },
+  pagoIntegradoBtnText: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
 
   uploadArea: {
     flex: 1,

@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   ScrollView,
   ActivityIndicator,
   TouchableOpacity,
@@ -10,10 +9,15 @@ import {
   Modal,
   Platform,
   KeyboardAvoidingView,
+  Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import type { ComponentProps } from 'react';
 import { ICONS, ICON_SIZE } from '../constants/icons';
+import { erpTableStyles } from '../constants/erpTableStyles';
+import { colors, iconSize } from '../constants/theme';
+import { EstadoVacio } from '../components/ui/EstadoVacio';
 import { formatId6 } from '../utils/idFormat';
 import { apiFetch } from '../utils/api';
 
@@ -26,11 +30,18 @@ const COL_LOCALES_ASIGNADOS = 'Locales asignados';
 const ORDEN_COLUMNAS = [...ATRIBUTOS_TABLA_ALMACENES, COL_LOCALES_ASIGNADOS];
 
 const COL_LABELS: Record<string, string> = {
+  Id: 'ID',
+  Nombre: 'Nombre',
   NombreFiscal: 'Nombre fiscal',
   Cif: 'CIF',
   Descripcion: 'Descripción',
   Direccion: 'Dirección',
+  [COL_LOCALES_ASIGNADOS]: 'Locales asignados',
 };
+
+function labelColumna(col: string): string {
+  return (COL_LABELS[col] ?? col).toUpperCase();
+}
 
 function parseAlmacenesOrigen(val: string | number | undefined): string[] {
   if (val == null || String(val).trim() === '') return [];
@@ -55,6 +66,18 @@ const INITIAL_FORM = Object.fromEntries(CAMPOS_FORM.map((c) => [c.key, ''])) as 
 
 type Almacen = Record<string, string | number | undefined>;
 type Local = Record<string, string | number | undefined>;
+
+type ToolbarBtnId = 'editar' | 'borrar' | 'sync';
+
+const TOOLBAR_SECUNDARIOS: {
+  id: ToolbarBtnId;
+  label: string;
+  icon: ComponentProps<typeof MaterialIcons>['name'];
+}[] = [
+  { id: 'editar', label: 'Editar', icon: ICONS.edit },
+  { id: 'borrar', label: 'Borrar', icon: ICONS.delete },
+  { id: 'sync', label: 'Sincronizar desde Ágora', icon: 'sync' },
+];
 
 function truncar(val: string): string {
   if (val.length <= MAX_TEXT_LENGTH) return val;
@@ -169,7 +192,7 @@ export default function AlmacenesScreen() {
       refetchAlmacenes();
       setSelectedRowIndex(null);
       cerrarModalNuevo();
-    } catch (e) {
+    } catch {
       setErrorForm('No se pudo conectar con el servidor');
     } finally {
       setGuardando(false);
@@ -234,13 +257,6 @@ export default function AlmacenesScreen() {
     setSelectedRowIndex((prev) => (prev === idx ? null : idx));
   };
 
-  const toolbarBtns = [
-    { id: 'crear', label: 'Crear registro', icon: ICONS.add },
-    { id: 'editar', label: 'Editar', icon: ICONS.edit },
-    { id: 'borrar', label: 'Borrar', icon: ICONS.delete },
-    { id: 'sync', label: 'Sincronizar desde Ágora', icon: 'sync' },
-  ];
-
   const localesPorAlmacen = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const alm of almacenes) {
@@ -250,13 +266,18 @@ export default function AlmacenesScreen() {
         const almacenesOrig = parseAlmacenesOrigen(valorEnLocal(loc, 'Almacen origen') ?? valorEnLocal(loc, 'almacen origen'));
         return almacenesOrig.includes(nombreAlm);
       });
-      const nombresLocales = localesConEsteAlm.map((l) => String(valorEnLocal(l, 'Nombre') ?? valorEnLocal(l, 'nombre') ?? '').trim()).filter(Boolean);
+      const nombresLocales = localesConEsteAlm
+        .map((l) => String(valorEnLocal(l, 'Nombre') ?? valorEnLocal(l, 'nombre') ?? '').trim())
+        .filter(Boolean);
       map.set(nombreAlm, nombresLocales);
     }
     return map;
   }, [almacenes, locales, valorEnLocal]);
 
-  const getColWidth = useCallback((col: string) => columnWidths[col] ?? (col === COL_LOCALES_ASIGNADOS ? 180 : DEFAULT_COL_WIDTH), [columnWidths]);
+  const getColWidth = useCallback(
+    (col: string) => columnWidths[col] ?? (col === COL_LOCALES_ASIGNADOS ? 180 : DEFAULT_COL_WIDTH),
+    [columnWidths],
+  );
   const columnas = useMemo(() => [...ORDEN_COLUMNAS], []);
 
   const valorCelda = useCallback(
@@ -276,7 +297,7 @@ export default function AlmacenesScreen() {
       if (raw !== undefined && raw !== null && String(raw).trim() !== '') return String(raw);
       return '—';
     },
-    [localesPorAlmacen]
+    [localesPorAlmacen],
   );
 
   const almacenesFiltrados = useMemo(() => {
@@ -286,9 +307,12 @@ export default function AlmacenesScreen() {
       columnas.some((col) => {
         const val = valorCelda(u, col);
         return val !== '—' && val.toLowerCase().includes(q);
-      })
+      }),
     );
   }, [almacenes, filtroBusqueda, columnas, valorCelda]);
+
+  const filaSeleccionDisabled = selectedRowIndex == null;
+  const toolbarBusy = guardando || sincronizando;
 
   useEffect(() => {
     let cancelled = false;
@@ -344,161 +368,231 @@ export default function AlmacenesScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
-        <Text style={styles.loadingText}>Cargando almacenes…</Text>
+      <View style={erpTableStyles.center}>
+        <ActivityIndicator size="large" color={colors.accent} />
+        <Text style={erpTableStyles.loadingText}>Cargando almacenes…</Text>
       </View>
     );
   }
 
-  if (error) {
+  if (error && almacenes.length === 0) {
     return (
-      <View style={styles.center}>
-        <MaterialIcons name="error-outline" size={48} color="#f87171" />
-        <Text style={styles.errorText}>{error}</Text>
+      <View style={erpTableStyles.center}>
+        <MaterialIcons name="error-outline" size={48} color={colors.danger} />
+        <Text style={erpTableStyles.errorText}>{error}</Text>
+        <TouchableOpacity style={erpTableStyles.btnPrimary} onPress={refetchAlmacenes}>
+          <MaterialIcons name="refresh" size={iconSize.chip} color={colors.surface} />
+          <Text style={erpTableStyles.btnPrimaryText}>Reintentar</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
-        </TouchableOpacity>
-        <Text style={styles.title}>Almacenes</Text>
+    <View style={erpTableStyles.screen}>
+      <View style={erpTableStyles.headerRow}>
+        <Pressable onPress={() => router.back()} style={erpTableStyles.backBtn} accessibilityLabel="Volver">
+          <MaterialIcons name="arrow-back" size={iconSize.tab} color={colors.textPrimary} />
+        </Pressable>
+        <Text style={erpTableStyles.title}>Almacenes</Text>
       </View>
 
-      <View style={styles.toolbarRow}>
-        <View style={styles.toolbar}>
-          {toolbarBtns.map((btn) => (
-            <View
-              key={btn.id}
-              style={styles.toolbarBtnWrap}
-              {...(Platform.OS === 'web'
-                ? ({
-                    onMouseEnter: () => setHoveredBtn(btn.id),
-                    onMouseLeave: () => setHoveredBtn(null),
-                  } as object)
-                : {})}
-            >
-              {hoveredBtn === btn.id && (
-                <View style={styles.tooltip}>
-                  <Text style={styles.tooltipText}>{btn.label}</Text>
-                </View>
-              )}
-              <TouchableOpacity
-                style={[
-                  styles.toolbarBtn,
-                  (btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null && styles.toolbarBtnDisabled,
-                ]}
-                onPress={() => {
-                  if (btn.id === 'crear') abrirModalNuevo();
-                  if (btn.id === 'editar' && selectedRowIndex != null) abrirModalEditar(almacenesFiltrados[selectedRowIndex]);
-                  if (btn.id === 'borrar' && selectedRowIndex != null) borrarSeleccionado();
-                  if (btn.id === 'sync') sincronizarAlmacenes();
-                }}
-                disabled={guardando || sincronizando || ((btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null)}
-                accessibilityLabel={btn.label}
+      <View style={erpTableStyles.subtitleRow}>
+        <Text style={erpTableStyles.subtitle}>
+          {almacenesFiltrados.length} almacén{almacenesFiltrados.length === 1 ? '' : 'es'}
+          {filtroBusqueda.trim() ? ` · filtrado de ${almacenes.length}` : ''}
+        </Text>
+      </View>
+
+      <View style={erpTableStyles.toolbarRow}>
+        <View style={erpTableStyles.toolbar}>
+          <TouchableOpacity
+            style={erpTableStyles.btnPrimary}
+            onPress={abrirModalNuevo}
+            disabled={toolbarBusy}
+            accessibilityLabel="Nuevo almacén"
+          >
+            <MaterialIcons name={ICONS.add} size={iconSize.chip} color={colors.surface} />
+            <Text style={erpTableStyles.btnPrimaryText}>Nuevo almacén</Text>
+          </TouchableOpacity>
+
+          {TOOLBAR_SECUNDARIOS.map((btn) => {
+            const needsRow = btn.id === 'editar' || btn.id === 'borrar';
+            const disabled = toolbarBusy || (needsRow && filaSeleccionDisabled);
+            return (
+              <View
+                key={btn.id}
+                style={erpTableStyles.toolbarBtnWrap}
+                {...(Platform.OS === 'web'
+                  ? ({
+                      onMouseEnter: () => setHoveredBtn(btn.id),
+                      onMouseLeave: () => setHoveredBtn(null),
+                    } as object)
+                  : {})}
               >
-                {btn.id === 'sync' && sincronizando ? (
-                  <ActivityIndicator size="small" color="#0ea5e9" />
-                ) : (
-                  <MaterialIcons
-                    name={(btn.id === 'sync' ? 'sync' : btn.icon) as any}
-                    size={ICON_SIZE}
-                    color={guardando || sincronizando || ((btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null) ? '#94a3b8' : '#0ea5e9'}
-                  />
-                )}
-              </TouchableOpacity>
-            </View>
-          ))}
+                {hoveredBtn === btn.id ? (
+                  <View style={erpTableStyles.tooltip}>
+                    <Text style={erpTableStyles.tooltipText}>{btn.label}</Text>
+                  </View>
+                ) : null}
+                <TouchableOpacity
+                  style={[erpTableStyles.toolbarBtn, disabled && erpTableStyles.toolbarBtnDisabled]}
+                  onPress={() => {
+                    if (btn.id === 'editar' && selectedRowIndex != null) {
+                      abrirModalEditar(almacenesFiltrados[selectedRowIndex]);
+                    }
+                    if (btn.id === 'borrar' && selectedRowIndex != null) borrarSeleccionado();
+                    if (btn.id === 'sync') sincronizarAlmacenes();
+                  }}
+                  disabled={disabled}
+                  accessibilityLabel={btn.label}
+                >
+                  {btn.id === 'sync' && sincronizando ? (
+                    <ActivityIndicator size="small" color={colors.textSecondary} />
+                  ) : (
+                    <MaterialIcons
+                      name={btn.icon}
+                      size={ICON_SIZE}
+                      color={disabled ? colors.textMuted : colors.textSecondary}
+                    />
+                  )}
+                </TouchableOpacity>
+              </View>
+            );
+          })}
         </View>
-        <View style={styles.searchWrap}>
-          <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
+
+        <View style={[erpTableStyles.searchWrap, erpTableStyles.searchWrapFlex]}>
+          <MaterialIcons name="search" size={iconSize.chip} color={colors.textSecondary} style={erpTableStyles.searchIcon} />
           <TextInput
-            style={styles.searchInput}
+            style={erpTableStyles.searchInput}
             value={filtroBusqueda}
             onChangeText={setFiltroBusqueda}
             placeholder="Buscar…"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
           />
         </View>
       </View>
 
-      <ScrollView style={styles.scrollVertical} contentContainerStyle={styles.scrollVerticalContent} showsVerticalScrollIndicator>
-      <ScrollView horizontal style={styles.scrollTable} contentContainerStyle={styles.scrollTableContent} showsHorizontalScrollIndicator>
-        <View style={styles.tableWrap}>
-          <View style={styles.tableRowHeader}>
-            {columnas.map((col) => (
-              <View key={col} style={[styles.tableCellHeader, { width: getColWidth(col), minWidth: MIN_COL_WIDTH }]}>
-                <Text style={styles.tableCellHeaderText} numberOfLines={1} ellipsizeMode="tail">
-                  {truncar(COL_LABELS[col] ?? col)}
-                </Text>
-                {Platform.OS === 'web' && (
-                  <View
-                    style={styles.resizeHandle}
-                    {...({
-                      onMouseDown: (e: { nativeEvent?: { clientX: number }; clientX?: number }) =>
-                        handleResizeStart(col, e),
-                    } as object)}
-                  />
-                )}
-              </View>
-            ))}
-          </View>
-          {almacenesFiltrados.length === 0 ? (
-            <View style={styles.emptyRow}>
-              <Text style={styles.emptyText}>No hay almacenes. Pulsa Crear para añadir uno.</Text>
+      <ScrollView
+        style={erpTableStyles.scrollVertical}
+        contentContainerStyle={erpTableStyles.scrollVerticalContent}
+        showsVerticalScrollIndicator
+      >
+        <ScrollView
+          horizontal
+          style={erpTableStyles.scrollTable}
+          contentContainerStyle={erpTableStyles.scrollTableContent}
+          showsHorizontalScrollIndicator
+        >
+          <View style={erpTableStyles.table}>
+            <View style={erpTableStyles.rowHeader}>
+              {columnas.map((col, colIdx) => (
+                <View
+                  key={col}
+                  style={[
+                    erpTableStyles.cellHeader,
+                    colIdx === columnas.length - 1 && erpTableStyles.cellHeaderLast,
+                    { width: getColWidth(col), minWidth: MIN_COL_WIDTH },
+                  ]}
+                >
+                  <Text style={erpTableStyles.cellHeaderText} numberOfLines={1}>
+                    {labelColumna(col)}
+                  </Text>
+                  {Platform.OS === 'web' ? (
+                    <View
+                      style={erpTableStyles.resizeHandle}
+                      {...({
+                        onMouseDown: (e: { nativeEvent?: { clientX: number }; clientX?: number }) =>
+                          handleResizeStart(col, e),
+                      } as object)}
+                    />
+                  ) : null}
+                </View>
+              ))}
             </View>
-          ) : (
-            almacenesFiltrados.map((almacen, idx) => (
-              <TouchableOpacity
-                key={valorCelda(almacen, 'Id') + '-' + idx}
-                style={[styles.tableRow, selectedRowIndex === idx && styles.tableRowSelected]}
-                onPress={() => seleccionarFila(idx)}
-                activeOpacity={0.7}
-              >
-                {columnas.map((col) => (
-                  <View key={col} style={[styles.tableCell, { width: getColWidth(col), minWidth: MIN_COL_WIDTH }]}>
-                    <Text style={styles.tableCellText} numberOfLines={1} ellipsizeMode="tail">
-                      {truncar(valorCelda(almacen, col))}
-                    </Text>
-                  </View>
-                ))}
-              </TouchableOpacity>
-            ))
-          )}
-        </View>
-      </ScrollView>
+
+            {almacenesFiltrados.length === 0 ? (
+              <EstadoVacio
+                icon="local-shipping"
+                mensaje={
+                  filtroBusqueda.trim()
+                    ? 'No hay almacenes que coincidan con la búsqueda.'
+                    : 'No hay almacenes registrados.'
+                }
+                accion={
+                  !filtroBusqueda.trim() ? (
+                    <TouchableOpacity style={erpTableStyles.btnPrimary} onPress={abrirModalNuevo}>
+                      <MaterialIcons name={ICONS.add} size={iconSize.chip} color={colors.surface} />
+                      <Text style={erpTableStyles.btnPrimaryText}>Nuevo almacén</Text>
+                    </TouchableOpacity>
+                  ) : undefined
+                }
+              />
+            ) : (
+              almacenesFiltrados.map((almacen, idx) => (
+                <TouchableOpacity
+                  key={valorCelda(almacen, 'Id') + '-' + idx}
+                  style={[
+                    erpTableStyles.row,
+                    idx === almacenesFiltrados.length - 1 && erpTableStyles.rowLast,
+                    selectedRowIndex === idx && erpTableStyles.rowSelected,
+                  ]}
+                  onPress={() => seleccionarFila(idx)}
+                  activeOpacity={0.7}
+                >
+                  {columnas.map((col, colIdx) => (
+                    <View
+                      key={col}
+                      style={[
+                        erpTableStyles.cell,
+                        colIdx === columnas.length - 1 && erpTableStyles.cellLast,
+                        { width: getColWidth(col), minWidth: MIN_COL_WIDTH },
+                      ]}
+                    >
+                      <Text style={erpTableStyles.cellText} numberOfLines={1} ellipsizeMode="tail">
+                        {truncar(valorCelda(almacen, col))}
+                      </Text>
+                    </View>
+                  ))}
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        </ScrollView>
       </ScrollView>
 
       <Modal visible={modalNuevoVisible} transparent animationType="fade">
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>{editingAlmacenId != null ? 'Editar almacén' : 'Nuevo almacén'}</Text>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={erpTableStyles.modalOverlay}
+        >
+          <View style={erpTableStyles.modalContent}>
+            <Text style={erpTableStyles.modalTitle}>
+              {editingAlmacenId != null ? 'Editar almacén' : 'Nuevo almacén'}
+            </Text>
             {CAMPOS_FORM.map(({ key, label }) => (
-              <View key={key} style={styles.formRow}>
-                <Text style={styles.formLabel}>{label}</Text>
+              <View key={key} style={erpTableStyles.formRow}>
+                <Text style={erpTableStyles.formLabel}>{label}</Text>
                 <TextInput
-                  style={styles.formInput}
+                  style={erpTableStyles.formInput}
                   value={formNuevo[key] ?? ''}
                   onChangeText={(t) => setFormNuevo((prev) => ({ ...prev, [key]: t }))}
                   placeholder={label}
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={colors.textMuted}
                 />
               </View>
             ))}
-            {errorForm ? <Text style={styles.errorForm}>{errorForm}</Text> : null}
-            <View style={styles.modalButtons}>
-              <TouchableOpacity style={styles.modalBtnCancel} onPress={cerrarModalNuevo} disabled={guardando}>
-                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+            {errorForm ? <Text style={erpTableStyles.errorForm}>{errorForm}</Text> : null}
+            <View style={erpTableStyles.modalButtons}>
+              <TouchableOpacity style={erpTableStyles.modalBtnCancel} onPress={cerrarModalNuevo} disabled={guardando}>
+                <Text style={erpTableStyles.modalBtnCancelText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalBtnSave} onPress={guardarNuevo} disabled={guardando}>
+              <TouchableOpacity style={erpTableStyles.modalBtnSave} onPress={guardarNuevo} disabled={guardando}>
                 {guardando ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={colors.surface} />
                 ) : (
-                  <Text style={styles.modalBtnSaveText}>Guardar</Text>
+                  <Text style={erpTableStyles.modalBtnSaveText}>Guardar</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -508,107 +602,3 @@ export default function AlmacenesScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
-  loadingText: { fontSize: 14, color: '#64748b' },
-  errorText: { fontSize: 14, color: '#dc2626', textAlign: 'center' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  backBtn: { padding: 4, marginRight: 8 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 },
-  toolbar: { flexDirection: 'row', gap: 4 },
-  toolbarBtnWrap: { position: 'relative' },
-  toolbarBtn: { padding: 6 },
-  toolbarBtnDisabled: { opacity: 0.5 },
-  tooltip: {
-    position: 'absolute',
-    bottom: '100%',
-    left: 0,
-    marginBottom: 4,
-    backgroundColor: '#334155',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    zIndex: 10,
-  },
-  tooltipText: { fontSize: 11, color: '#f8fafc' },
-  searchWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f5f9', borderRadius: 8, paddingHorizontal: 10 },
-  searchIcon: { marginRight: 6 },
-  searchInput: { flex: 1, paddingVertical: 8, fontSize: 14, color: '#334155' },
-  scrollVertical: { flex: 1 },
-  scrollVerticalContent: { flexGrow: 1, paddingBottom: 20 },
-  scrollTable: { flexGrow: 0 },
-  scrollTableContent: { flexGrow: 1 },
-  tableWrap: { backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
-  tableRowHeader: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
-  tableCellHeader: {
-    minWidth: MIN_COL_WIDTH,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRightWidth: 1,
-    borderRightColor: '#cbd5e1',
-    position: 'relative',
-  },
-  tableCellHeaderText: { fontSize: 10, fontWeight: '700', color: '#334155' },
-  resizeHandle: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    width: 6,
-    height: '100%',
-    cursor: 'col-resize' as 'pointer',
-  },
-  tableRow: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e2e8f0', backgroundColor: '#fff' },
-  tableRowSelected: { backgroundColor: '#e0f2fe' },
-  tableCell: {
-    minWidth: MIN_COL_WIDTH,
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    borderRightWidth: 1,
-    borderRightColor: '#e2e8f0',
-  },
-  tableCellText: { fontSize: 10, color: '#475569' },
-  emptyRow: { padding: 24, alignItems: 'center' },
-  emptyText: { fontSize: 14, color: '#94a3b8', fontStyle: 'italic' },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    width: '100%',
-    maxWidth: 400,
-  },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: '#334155', marginBottom: 16 },
-  formRow: { marginBottom: 12 },
-  formLabel: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 4 },
-  formInput: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: '#334155',
-  },
-  errorForm: { fontSize: 12, color: '#dc2626', marginBottom: 8 },
-  modalButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 16 },
-  modalBtnCancel: { paddingVertical: 10, paddingHorizontal: 16 },
-  modalBtnCancelText: { fontSize: 14, color: '#64748b' },
-  modalBtnSave: {
-    backgroundColor: '#0ea5e9',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    minWidth: 100,
-    alignItems: 'center',
-  },
-  modalBtnSaveText: { fontSize: 14, fontWeight: '600', color: '#fff' },
-});

@@ -20,6 +20,9 @@ import { SelectorDesplegable } from '../components/SelectorDesplegable';
 import { useProductosCache } from '../contexts/ProductosCache';
 import { useLocalToast } from '../components/Toast';
 import { apiFetch } from '../utils/api';
+import { erpTableStyles } from '../constants/erpTableStyles';
+import { colors, iconSize, radius, SPACING, statusColors } from '../constants/theme';
+import { EstadoVacio } from '../components/ui/EstadoVacio';
 
 const PAGE_SIZE = 50;
 const MAX_TEXT_LENGTH = 30;
@@ -122,6 +125,16 @@ function columnasFromProductos(
   return ordered.length ? ordered : [...fallback];
 }
 
+function getAnchoColumna(col: string): number {
+  if (col === 'IGP') return 56;
+  if (col === 'Name') return 180;
+  return DEFAULT_COL_WIDTH;
+}
+
+function labelColumna(col: string): string {
+  return col.toUpperCase();
+}
+
 function truncar(val: string, max = MAX_TEXT_LENGTH_TABLE): string {
   if (val.length <= max) return val;
   return val.slice(0, max - 3) + '…';
@@ -138,6 +151,7 @@ type ProductRowProps = {
   producto: Producto;
   rowId: string;
   isSelected: boolean;
+  isLastRow: boolean;
   columnas: string[];
   onToggleSelect: (rowId: string, shiftKey: boolean) => void;
   onToggleIGP: (producto: Producto) => void;
@@ -145,7 +159,7 @@ type ProductRowProps = {
 };
 
 const ProductRow = memo(function ProductRow({
-  producto, rowId, isSelected, columnas, onToggleSelect, onToggleIGP, valorCelda,
+  producto, rowId, isSelected, isLastRow, columnas, onToggleSelect, onToggleIGP, valorCelda,
 }: ProductRowProps) {
   const handlePress = useCallback((e: any) => {
     if (!rowId) return;
@@ -159,38 +173,62 @@ const ProductRow = memo(function ProductRow({
   }, [producto, onToggleIGP]);
 
   return (
-    <Pressable style={[styles.rowAgora, isSelected && styles.rowSelected]} onPress={handlePress}>
-      <View style={[styles.cellAgora, styles.cellIGP, { width: 32 }]}>
+    <Pressable
+      style={[
+        erpTableStyles.row,
+        isLastRow && erpTableStyles.rowLast,
+        isSelected && erpTableStyles.rowSelected,
+      ]}
+      onPress={handlePress}
+    >
+      <View style={erpTableStyles.cellCheckbox}>
         <MaterialIcons
           name={isSelected ? 'check-box' : 'check-box-outline-blank'}
           size={16}
-          color={isSelected ? '#0ea5e9' : '#cbd5e1'}
+          color={isSelected ? colors.accent : colors.border}
         />
       </View>
-      {columnas.map((col) => {
+      {columnas.map((col, colIdx) => {
+        const isLastCol = colIdx === columnas.length - 1;
+        const colWidth = getAnchoColumna(col);
         const isMoneda = col === 'CostPrice';
         const isIGP = col === 'IGP';
-        const colWidth = isIGP ? 56 : col === 'Name' ? 180 : DEFAULT_COL_WIDTH;
         if (isIGP) {
           const igpVal = producto.IGP === true || producto.IGP === 'true';
           return (
             <TouchableOpacity
               key={col}
-              style={[styles.cellAgora, styles.cellIGP, { width: colWidth }]}
+              style={[
+                erpTableStyles.cell,
+                isLastCol && erpTableStyles.cellLast,
+                { width: colWidth, alignItems: 'center' },
+              ]}
               onPress={handleIGP}
               activeOpacity={0.7}
             >
               <MaterialIcons
                 name={igpVal ? 'check-box' : 'check-box-outline-blank'}
                 size={18}
-                color={igpVal ? '#0ea5e9' : '#94a3b8'}
+                color={igpVal ? colors.accent : colors.textMuted}
               />
             </TouchableOpacity>
           );
         }
         return (
-          <View key={col} style={[styles.cellAgora, { width: colWidth }, isMoneda && styles.cellRight]}>
-            <Text style={[styles.cellTextAgora, isMoneda && styles.cellTextRight]} numberOfLines={1} ellipsizeMode="tail">
+          <View
+            key={col}
+            style={[
+              erpTableStyles.cell,
+              isLastCol && erpTableStyles.cellLast,
+              { width: colWidth },
+              isMoneda && { alignItems: 'flex-end' },
+            ]}
+          >
+            <Text
+              style={[erpTableStyles.cellText, isMoneda && erpTableStyles.cellTextRight]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
               {truncar(valorCelda(producto, col))}
             </Text>
           </View>
@@ -557,134 +595,157 @@ export default function ProductosScreen() {
   }, []);
 
 
+  const anchoTabla = 32 + columnasAgora.reduce((w, c) => w + getAnchoColumna(c), 0);
+
   return (
-    <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
-        </TouchableOpacity>
-        <Text style={styles.title}>Productos Ágora</Text>
+    <View style={erpTableStyles.screen}>
+      <View style={erpTableStyles.headerRow}>
+        <Pressable onPress={() => router.back()} style={erpTableStyles.backBtn} accessibilityLabel="Volver">
+          <MaterialIcons name="arrow-back" size={iconSize.tab} color={colors.textPrimary} />
+        </Pressable>
+        <Text style={erpTableStyles.title}>Productos Ágora</Text>
       </View>
 
-      {
-        <View style={styles.agoraContent}>
-          <View style={styles.agoraToolbar}>
-            <TouchableOpacity
-              style={styles.reloadBtn}
-              onPress={refetchProductosAgora}
-              disabled={loadingAgora}
-              accessibilityLabel="Recargar"
-            >
-              {loadingAgora ? (
-                <ActivityIndicator size="small" color="#0ea5e9" />
-              ) : (
-                <MaterialIcons name="refresh" size={22} color="#0ea5e9" />
-              )}
-              <Text style={styles.reloadBtnText}>Recargar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.reloadBtn}
-              onPress={syncProductosAgoraGlobal}
-              disabled={syncingAgora}
-              accessibilityLabel="Sincronizar desde Ágora"
-            >
-              {syncingAgora ? (
-                <ActivityIndicator size="small" color="#0ea5e9" />
-              ) : (
-                <MaterialIcons name="sync" size={22} color="#0ea5e9" />
-              )}
-              <Text style={styles.reloadBtnText}>Sincronizar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.reloadBtn}
-              onPress={() => { setFiltroBusquedaFamilias(''); setModalFamiliasVisible(true); }}
-              accessibilityLabel="Familias"
-            >
-              <MaterialIcons name="category" size={22} color="#0ea5e9" />
-              <Text style={styles.reloadBtnText}>Familias</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.reloadBtn, filtrosActivos.length > 0 && styles.filterBtnActive]}
-              onPress={() => setFiltrosPanelOpen((o) => !o)}
-              accessibilityLabel="Filtros"
-            >
-              <MaterialIcons name="filter-list" size={22} color={filtrosActivos.length > 0 ? '#fff' : '#0ea5e9'} />
-              <Text style={[styles.reloadBtnText, filtrosActivos.length > 0 && { color: '#fff' }]}>
-                Filtros{filtrosActivos.length > 0 ? ` (${filtrosActivos.length})` : ''}
-              </Text>
-            </TouchableOpacity>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Switch
-                value={mostrarTodos}
-                onValueChange={setMostrarTodos}
-                trackColor={{ false: '#e2e8f0', true: '#a3e635' }}
-                thumbColor={mostrarTodos ? '#65a30d' : '#fff'}
-              />
-              <Text style={{ fontSize: 12, color: '#475569', fontWeight: '500' }}>Mostrar todos</Text>
-            </View>
-            {selectedIds.size > 0 && (
-              <>
-                <View style={styles.selectionInfo}>
-                  <Text style={styles.selectionInfoText}>{selectedIds.size} seleccionado{selectedIds.size !== 1 ? 's' : ''}</Text>
-                </View>
-                <TouchableOpacity
-                  style={[styles.reloadBtn, { backgroundColor: '#16a34a' }]}
-                  onPress={() => batchToggleIGP(true)}
-                  disabled={batchUpdating}
-                >
-                  {batchUpdating ? <ActivityIndicator size="small" color="#fff" /> : <MaterialIcons name="check-box" size={18} color="#fff" />}
-                  <Text style={[styles.reloadBtnText, { color: '#fff' }]}>Marcar IGP</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.reloadBtn, { backgroundColor: '#ef4444' }]}
-                  onPress={() => batchToggleIGP(false)}
-                  disabled={batchUpdating}
-                >
-                  {batchUpdating ? <ActivityIndicator size="small" color="#fff" /> : <MaterialIcons name="check-box-outline-blank" size={18} color="#fff" />}
-                  <Text style={[styles.reloadBtnText, { color: '#fff' }]}>Desmarcar IGP</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.reloadBtn}
-                  onPress={() => setSelectedIds(new Set())}
-                >
-                  <MaterialIcons name="deselect" size={18} color="#64748b" />
-                  <Text style={[styles.reloadBtnText, { color: '#64748b' }]}>Deseleccionar</Text>
-                </TouchableOpacity>
-              </>
+      <View style={styles.agoraContent}>
+        <View style={erpTableStyles.toolbarRow}>
+          <TouchableOpacity
+            style={erpTableStyles.toolbarBtnLabeled}
+            onPress={refetchProductosAgora}
+            disabled={loadingAgora}
+            accessibilityLabel="Recargar"
+          >
+            {loadingAgora ? (
+              <ActivityIndicator size="small" color={colors.textSecondary} />
+            ) : (
+              <MaterialIcons name="refresh" size={iconSize.chip} color={colors.textSecondary} />
             )}
-            <View style={styles.searchWrap}>
-              <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
-              <TextInput
-                style={styles.searchInput}
-                value={filtroAgoraInput}
-                onChangeText={setFiltroAgoraInput}
-                placeholder="Buscar en la tabla…"
-                placeholderTextColor="#94a3b8"
-                onSubmitEditing={aplicarBusqueda}
-                returnKeyType="search"
-                {...(Platform.OS === 'web' ? {
-                  onKeyDown: (e: any) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      aplicarBusqueda();
-                    }
-                  },
-                } : {})}
-              />
-              <TouchableOpacity style={styles.buscarBtn} onPress={aplicarBusqueda}>
-                <MaterialIcons name="search" size={18} color="#fff" />
-                <Text style={styles.buscarBtnText}>Buscar</Text>
-              </TouchableOpacity>
-              {(filtroAgoraInput || filtroAgora) ? (
-                <TouchableOpacity style={styles.limpiarBusquedaBtn} onPress={limpiarBusqueda}>
-                  <MaterialIcons name="close" size={16} color="#64748b" />
-                </TouchableOpacity>
-              ) : null}
-            </View>
-            {lastFetchLabel && (
-              <Text style={styles.lastFetchText}>Última carga: {lastFetchLabel}</Text>
+            <Text style={erpTableStyles.toolbarBtnLabeledText}>Recargar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={erpTableStyles.toolbarBtnLabeled}
+            onPress={syncProductosAgoraGlobal}
+            disabled={syncingAgora}
+            accessibilityLabel="Sincronizar desde Ágora"
+          >
+            {syncingAgora ? (
+              <ActivityIndicator size="small" color={colors.textSecondary} />
+            ) : (
+              <MaterialIcons name="sync" size={iconSize.chip} color={colors.textSecondary} />
             )}
+            <Text style={erpTableStyles.toolbarBtnLabeledText}>Sincronizar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={erpTableStyles.toolbarBtnLabeled}
+            onPress={() => { setFiltroBusquedaFamilias(''); setModalFamiliasVisible(true); }}
+            accessibilityLabel="Familias"
+          >
+            <MaterialIcons name="category" size={iconSize.chip} color={colors.textSecondary} />
+            <Text style={erpTableStyles.toolbarBtnLabeledText}>Familias</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              erpTableStyles.toolbarBtnLabeled,
+              filtrosActivos.length > 0 && erpTableStyles.toolbarBtnLabeledActive,
+            ]}
+            onPress={() => setFiltrosPanelOpen((o) => !o)}
+            accessibilityLabel="Filtros"
+          >
+            <MaterialIcons
+              name="filter-list"
+              size={iconSize.chip}
+              color={filtrosActivos.length > 0 ? colors.surface : colors.textSecondary}
+            />
+            <Text
+              style={[
+                erpTableStyles.toolbarBtnLabeledText,
+                filtrosActivos.length > 0 && erpTableStyles.toolbarBtnLabeledTextActive,
+              ]}
+            >
+              Filtros{filtrosActivos.length > 0 ? ` (${filtrosActivos.length})` : ''}
+            </Text>
+          </TouchableOpacity>
+          <View style={styles.switchRow}>
+            <Switch
+              value={mostrarTodos}
+              onValueChange={setMostrarTodos}
+              trackColor={{ false: colors.border, true: statusColors.success.bg }}
+              thumbColor={mostrarTodos ? colors.success : colors.surface}
+            />
+            <Text style={styles.switchLabel}>Mostrar todos</Text>
           </View>
+          {selectedIds.size > 0 && (
+            <>
+              <View style={styles.selectionInfo}>
+                <Text style={styles.selectionInfoText}>
+                  {selectedIds.size} seleccionado{selectedIds.size !== 1 ? 's' : ''}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[erpTableStyles.toolbarBtnLabeled, styles.batchBtnSuccess]}
+                onPress={() => batchToggleIGP(true)}
+                disabled={batchUpdating}
+              >
+                {batchUpdating ? (
+                  <ActivityIndicator size="small" color={colors.surface} />
+                ) : (
+                  <MaterialIcons name="check-box" size={18} color={colors.surface} />
+                )}
+                <Text style={[erpTableStyles.toolbarBtnLabeledText, styles.batchBtnText]}>Marcar IGP</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[erpTableStyles.toolbarBtnLabeled, styles.batchBtnDanger]}
+                onPress={() => batchToggleIGP(false)}
+                disabled={batchUpdating}
+              >
+                {batchUpdating ? (
+                  <ActivityIndicator size="small" color={colors.surface} />
+                ) : (
+                  <MaterialIcons name="check-box-outline-blank" size={18} color={colors.surface} />
+                )}
+                <Text style={[erpTableStyles.toolbarBtnLabeledText, styles.batchBtnText]}>Desmarcar IGP</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={erpTableStyles.toolbarBtnLabeled}
+                onPress={() => setSelectedIds(new Set())}
+              >
+                <MaterialIcons name="deselect" size={18} color={colors.textSecondary} />
+                <Text style={erpTableStyles.toolbarBtnLabeledText}>Deseleccionar</Text>
+              </TouchableOpacity>
+            </>
+          )}
+          <View style={styles.searchWrapFlex}>
+            <MaterialIcons name="search" size={iconSize.chip} color={colors.textMuted} />
+            <TextInput
+              style={styles.searchInputFlex}
+              value={filtroAgoraInput}
+              onChangeText={setFiltroAgoraInput}
+              placeholder="Buscar en la tabla…"
+              placeholderTextColor={colors.textMuted}
+              onSubmitEditing={aplicarBusqueda}
+              returnKeyType="search"
+              {...(Platform.OS === 'web' ? {
+                onKeyDown: (e: any) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    aplicarBusqueda();
+                  }
+                },
+              } : {})}
+            />
+            <TouchableOpacity style={erpTableStyles.searchBuscarBtn} onPress={aplicarBusqueda}>
+              <MaterialIcons name="search" size={iconSize.chip} color={colors.surface} />
+              <Text style={erpTableStyles.searchBuscarBtnText}>Buscar</Text>
+            </TouchableOpacity>
+            {(filtroAgoraInput || filtroAgora) ? (
+              <TouchableOpacity style={styles.limpiarBusquedaBtn} onPress={limpiarBusqueda}>
+                <MaterialIcons name="close" size={16} color={colors.textMuted} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          {lastFetchLabel ? (
+            <Text style={styles.lastFetchText}>Última carga: {lastFetchLabel}</Text>
+          ) : null}
+        </View>
           {filtrosPanelOpen && (
             <View style={styles.filterPanel}>
               {filtrosAvanzados.map((f) => {
@@ -714,24 +775,24 @@ export default function ProductosScreen() {
                         value={f.valor}
                         onChangeText={(v) => updateFiltro(f.id, { valor: v })}
                         placeholder="Valor…"
-                        placeholderTextColor="#94a3b8"
+                        placeholderTextColor={colors.textMuted}
                         keyboardType={COLUMNAS_NUMERICAS.includes(f.columna) ? 'numeric' : 'default'}
                       />
                     )}
                     <TouchableOpacity onPress={() => removeFiltro(f.id)} style={styles.filterRemoveBtn}>
-                      <MaterialIcons name="close" size={16} color="#ef4444" />
+                      <MaterialIcons name="close" size={16} color={colors.danger} />
                     </TouchableOpacity>
                   </View>
                 );
               })}
               <View style={styles.filterActions}>
                 <TouchableOpacity style={styles.filterAddBtn} onPress={addFiltro}>
-                  <MaterialIcons name="add" size={16} color="#0ea5e9" />
+                  <MaterialIcons name="add" size={16} color={colors.accent} />
                   <Text style={styles.filterAddBtnText}>Añadir filtro</Text>
                 </TouchableOpacity>
                 {filtrosAvanzados.length > 0 && (
                   <TouchableOpacity style={styles.filterClearBtn} onPress={limpiarFiltros}>
-                    <MaterialIcons name="delete-sweep" size={16} color="#94a3b8" />
+                    <MaterialIcons name="delete-sweep" size={16} color={colors.textMuted} />
                     <Text style={styles.filterClearBtnText}>Limpiar filtros</Text>
                   </TouchableOpacity>
                 )}
@@ -740,48 +801,57 @@ export default function ProductosScreen() {
           )}
 
           {!lastFetch && !loadingAgora && !errorAgora ? (
-            <View style={styles.center}>
-              <MaterialIcons name="cloud-download" size={48} color="#94a3b8" />
-              <Text style={styles.emptyText}>Pulsa Recargar para cargar los productos desde la base de datos,{'\n'}o Sincronizar para descargar desde Ágora.</Text>
-            </View>
+            <EstadoVacio
+              icon="cloud-download"
+              mensaje="Pulsa Recargar para cargar los productos desde la base de datos, o Sincronizar para descargar desde Ágora."
+            />
           ) : loadingAgora && productosAgora.length === 0 ? (
-            <View style={styles.center}>
-              <ActivityIndicator size="large" color="#0ea5e9" />
-              <Text style={styles.loadingText}>Cargando productos Ágora…</Text>
+            <View style={erpTableStyles.center}>
+              <ActivityIndicator size="large" color={colors.accent} />
+              <Text style={erpTableStyles.loadingText}>Cargando productos Ágora…</Text>
             </View>
           ) : errorAgora && productosAgora.length === 0 ? (
-            <View style={styles.center}>
-              <MaterialIcons name="error-outline" size={48} color="#f87171" />
-              <Text style={styles.errorText}>{errorAgora}</Text>
-              <TouchableOpacity style={styles.retryBtn} onPress={refetchProductosAgora}>
-                <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
-                <Text style={styles.retryBtnText}>Reintentar</Text>
+            <View style={erpTableStyles.center}>
+              <MaterialIcons name="error-outline" size={48} color={colors.danger} />
+              <Text style={erpTableStyles.errorText}>{errorAgora}</Text>
+              <TouchableOpacity style={erpTableStyles.btnPrimary} onPress={refetchProductosAgora}>
+                <MaterialIcons name="refresh" size={iconSize.chip} color={colors.surface} />
+                <Text style={erpTableStyles.btnPrimaryText}>Reintentar</Text>
               </TouchableOpacity>
             </View>
           ) : (
             <>
-              <Text style={styles.subtitle}>
+              <Text style={erpTableStyles.subtitle}>
                 {productosAgoraFiltrados.length} registro{productosAgoraFiltrados.length !== 1 ? 's' : ''}
                 {totalPagesAgora > 1 && ` · Página ${pageIndexClampedAgora + 1} de ${totalPagesAgora}`}
               </Text>
-              <ScrollView horizontal style={styles.scroll} contentContainerStyle={[styles.scrollContent, { flexGrow: 1 }]}>
-                <View style={[styles.table, styles.tableAgora, { minWidth: 32 + columnasAgora.reduce((w, c) => w + (c === 'IGP' ? 56 : c === 'Name' ? 180 : DEFAULT_COL_WIDTH), 0) }]}>
-                  <View style={styles.rowHeaderAgora}>
-                    <TouchableOpacity
-                      style={[styles.cellHeaderAgora, styles.cellIGP, { width: 32 }]}
-                      onPress={handleHeaderCheck}
-                    >
+              <ScrollView horizontal style={styles.scroll} contentContainerStyle={erpTableStyles.scrollTableContent}>
+                <View style={[erpTableStyles.table, styles.tableFlex, { minWidth: anchoTabla }]}>
+                  <View style={erpTableStyles.rowHeader}>
+                    <TouchableOpacity style={erpTableStyles.cellCheckbox} onPress={handleHeaderCheck}>
                       <MaterialIcons
                         name={headerCheckState === 'all' ? 'check-box' : headerCheckState === 'some' ? 'indeterminate-check-box' : 'check-box-outline-blank'}
                         size={16}
-                        color="#64748b"
+                        color={colors.textSecondary}
                       />
                     </TouchableOpacity>
-                    {columnasAgora.map((col) => (
-                      <View key={col} style={[styles.cellHeaderAgora, { width: col === 'IGP' ? 56 : col === 'Name' ? 180 : DEFAULT_COL_WIDTH }]}>
-                        <Text style={styles.cellHeaderTextAgora} numberOfLines={1} ellipsizeMode="tail">{col}</Text>
-                      </View>
-                    ))}
+                    {columnasAgora.map((col, colIdx) => {
+                      const isLastCol = colIdx === columnasAgora.length - 1;
+                      return (
+                        <View
+                          key={col}
+                          style={[
+                            erpTableStyles.cellHeader,
+                            isLastCol && erpTableStyles.cellHeaderLast,
+                            { width: getAnchoColumna(col) },
+                          ]}
+                        >
+                          <Text style={erpTableStyles.cellHeaderText} numberOfLines={1} ellipsizeMode="tail">
+                            {labelColumna(col)}
+                          </Text>
+                        </View>
+                      );
+                    })}
                   </View>
                   <ScrollView style={styles.agoraBodyScroll} nestedScrollEnabled>
                   {productosAgoraPagina.map((p, idx) => {
@@ -792,6 +862,7 @@ export default function ProductosScreen() {
                         producto={p}
                         rowId={rowId}
                         isSelected={rowId ? selectedIds.has(rowId) : false}
+                        isLastRow={idx === productosAgoraPagina.length - 1}
                         columnas={columnasAgora}
                         onToggleSelect={handleToggleSelect}
                         onToggleIGP={toggleAgoraProductIGP}
@@ -809,7 +880,7 @@ export default function ProductosScreen() {
                     onPress={goPrevPageAgora}
                     disabled={pageIndexClampedAgora === 0}
                   >
-                    <MaterialIcons name="chevron-left" size={20} color={pageIndexClampedAgora === 0 ? '#94a3b8' : '#0ea5e9'} />
+                    <MaterialIcons name="chevron-left" size={20} color={pageIndexClampedAgora === 0 ? colors.textMuted : colors.accent} />
                     <Text style={[styles.pagBtnText, pageIndexClampedAgora === 0 && styles.pagBtnTextDisabled]}>Anterior</Text>
                   </TouchableOpacity>
                   <Text style={styles.pagInfo}>
@@ -821,12 +892,12 @@ export default function ProductosScreen() {
                     disabled={pageIndexClampedAgora >= totalPagesAgora - 1}
                   >
                     <Text style={[styles.pagBtnText, pageIndexClampedAgora >= totalPagesAgora - 1 && styles.pagBtnTextDisabled]}>Siguiente</Text>
-                    <MaterialIcons name="chevron-right" size={20} color={pageIndexClampedAgora >= totalPagesAgora - 1 ? '#94a3b8' : '#0ea5e9'} />
+                    <MaterialIcons name="chevron-right" size={20} color={pageIndexClampedAgora >= totalPagesAgora - 1 ? colors.textMuted : colors.accent} />
                   </TouchableOpacity>
                 </View>
               )}
               {productosAgoraFiltrados.length === 0 && (
-                <Text style={styles.emptyText}>
+                <Text style={erpTableStyles.emptyText}>
                   {filtroAgora.trim()
                     ? 'Ningún resultado con el filtro'
                     : 'No hay productos. Pulsa Sincronizar para cargar desde Ágora a DynamoDB.'}
@@ -835,7 +906,6 @@ export default function ProductosScreen() {
             </>
           )}
         </View>
-      }
 
       {modalFamiliasVisible && (
         <Modal visible transparent animationType="fade">
@@ -844,21 +914,21 @@ export default function ProductosScreen() {
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Familias</Text>
                 <TouchableOpacity onPress={() => setModalFamiliasVisible(false)} style={styles.modalClose}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
               <View style={styles.familiasSearchWrap}>
-                <MaterialIcons name="search" size={18} color="#94a3b8" />
+                <MaterialIcons name="search" size={18} color={colors.textMuted} />
                 <TextInput
                   style={styles.familiasSearchInput}
                   value={filtroBusquedaFamilias}
                   onChangeText={setFiltroBusquedaFamilias}
                   placeholder="Buscar familia…"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={colors.textMuted}
                 />
                 {filtroBusquedaFamilias.length > 0 && (
                   <TouchableOpacity onPress={() => setFiltroBusquedaFamilias('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <MaterialIcons name="close" size={16} color="#94a3b8" />
+                    <MaterialIcons name="close" size={16} color={colors.textMuted} />
                   </TouchableOpacity>
                 )}
               </View>
@@ -895,7 +965,7 @@ export default function ProductosScreen() {
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>Editar producto</Text>
                   <TouchableOpacity onPress={cerrarModalEditar} style={styles.modalClose} disabled={guardando}>
-                    <MaterialIcons name="close" size={22} color="#64748b" />
+                    <MaterialIcons name="close" size={22} color={colors.textSecondary} />
                   </TouchableOpacity>
                 </View>
                 <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
@@ -914,7 +984,7 @@ export default function ProductosScreen() {
                           value={formName}
                           onChangeText={setFormName}
                           placeholder="Nombre del producto"
-                          placeholderTextColor="#94a3b8"
+                          placeholderTextColor={colors.textMuted}
                           editable={!guardando}
                         />
                       </View>
@@ -925,7 +995,7 @@ export default function ProductosScreen() {
                           value={formCostPrice}
                           onChangeText={setFormCostPrice}
                           placeholder="0.00"
-                          placeholderTextColor="#94a3b8"
+                          placeholderTextColor={colors.textMuted}
                           keyboardType="decimal-pad"
                           editable={!guardando}
                         />
@@ -937,7 +1007,7 @@ export default function ProductosScreen() {
                           value={formBaseSaleFormatId}
                           onChangeText={setFormBaseSaleFormatId}
                           placeholder="Opcional"
-                          placeholderTextColor="#94a3b8"
+                          placeholderTextColor={colors.textMuted}
                           editable={!guardando}
                         />
                       </View>
@@ -948,7 +1018,7 @@ export default function ProductosScreen() {
                           value={formFamilyId}
                           onChangeText={setFormFamilyId}
                           placeholder="Opcional"
-                          placeholderTextColor="#94a3b8"
+                          placeholderTextColor={colors.textMuted}
                           editable={!guardando}
                         />
                       </View>
@@ -959,7 +1029,7 @@ export default function ProductosScreen() {
                           value={formVatId}
                           onChangeText={setFormVatId}
                           placeholder="Opcional"
-                          placeholderTextColor="#94a3b8"
+                          placeholderTextColor={colors.textMuted}
                           editable={!guardando}
                         />
                       </View>
@@ -969,8 +1039,8 @@ export default function ProductosScreen() {
                           value={formIGP}
                           onValueChange={setFormIGP}
                           disabled={guardando}
-                          trackColor={{ false: '#e2e8f0', true: '#0ea5e9' }}
-                          thumbColor="#fff"
+                          trackColor={{ false: colors.border, true: colors.accent }}
+                          thumbColor={colors.surface}
                         />
                       </View>
                     </View>
@@ -979,17 +1049,17 @@ export default function ProductosScreen() {
                 {errorEditar ? <Text style={styles.modalError}>{errorEditar}</Text> : null}
                 <View style={styles.modalFooter}>
                   <TouchableOpacity style={styles.modalFooterBtn} onPress={cerrarModalEditar} disabled={guardando}>
-                    <Text style={styles.reloadBtnText}>Cancelar</Text>
+                    <Text style={styles.modalFooterBtnText}>Cancelar</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.modalFooterBtn, { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' }]}
+                    style={[styles.modalFooterBtn, styles.modalFooterBtnPrimary]}
                     onPress={guardarEdicion}
                     disabled={guardando}
                   >
                     {guardando ? (
-                      <ActivityIndicator size="small" color="#fff" />
+                      <ActivityIndicator size="small" color={colors.surface} />
                     ) : (
-                      <Text style={[styles.reloadBtnText, { color: '#fff' }]}>Guardar</Text>
+                      <Text style={styles.modalFooterBtnPrimaryText}>Guardar</Text>
                     )}
                   </TouchableOpacity>
                 </View>
@@ -1004,101 +1074,79 @@ export default function ProductosScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 },
-  backBtn: { padding: 4 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155', flex: 1 },
   agoraContent: { flex: 1 },
-  agoraToolbar: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' },
-  reloadBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#f1f5f9', borderRadius: 8 },
-  reloadBtnText: { fontSize: 13, color: '#0ea5e9', fontWeight: '500' },
-  searchWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f5f9', borderRadius: 8, paddingHorizontal: 10, gap: 8 },
-  searchIcon: { marginRight: 2 },
-  searchInput: { flex: 1, minWidth: 120, paddingVertical: 8, fontSize: 13, color: '#334155' },
-  buscarBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#0ea5e9', borderRadius: 8 },
-  buscarBtnText: { fontSize: 13, color: '#fff', fontWeight: '600' },
-  limpiarBusquedaBtn: { padding: 6 },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs + 2 },
+  switchLabel: { fontSize: 12, color: colors.textSecondary, fontWeight: '500' },
+  searchWrapFlex: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 140,
+    height: 32,
+    backgroundColor: colors.bgSubtle,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingHorizontal: SPACING.sm,
+    gap: SPACING.xs,
+  },
+  searchInputFlex: { flex: 1, minWidth: 80, fontSize: 12, color: colors.textPrimary, paddingVertical: 0 },
+  limpiarBusquedaBtn: { padding: SPACING.xs + 2 },
+  batchBtnSuccess: { backgroundColor: colors.success, borderColor: colors.success },
+  batchBtnDanger: { backgroundColor: colors.danger, borderColor: colors.danger },
+  batchBtnText: { color: colors.surface },
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 20 },
-  table: { backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
-  tableAgora: { flex: 1 },
-  rowHeader: { flexDirection: 'row', backgroundColor: '#f1f5f9', borderBottomWidth: 2, borderBottomColor: '#e2e8f0' },
-  cellHeader: { paddingVertical: 10, paddingHorizontal: 10 },
-  cellHeaderText: { fontSize: 11, fontWeight: '600', color: '#334155' },
-  row: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e2e8f0' },
-  cell: { paddingVertical: 8, paddingHorizontal: 10 },
-  cellIGP: { alignItems: 'center', justifyContent: 'center' },
-  cellText: { fontSize: 12, color: '#334155' },
-  rowHeaderAgora: { flexDirection: 'row', backgroundColor: '#f1f5f9', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  cellHeaderAgora: { paddingVertical: 5, paddingHorizontal: 6 },
-  cellHeaderTextAgora: { fontSize: 9, fontWeight: '600', color: '#334155' },
+  tableFlex: { flex: 1 },
   agoraBodyScroll: { flex: 1, minHeight: 200 },
-  rowAgora: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e2e8f0' },
-  cellAgora: { paddingVertical: 4, paddingHorizontal: 6 },
-  cellTextAgora: { fontSize: 10, color: '#334155' },
-  cellEditarAgora: { alignItems: 'center', justifyContent: 'center' },
-  cellRight: { alignItems: 'flex-end' },
-  cellTextRight: { textAlign: 'right' },
-  subtitle: { fontSize: 12, color: '#64748b', marginBottom: 6 },
-  emptyText: { fontSize: 12, color: '#94a3b8', textAlign: 'center', marginTop: 12 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
-  loadingText: { fontSize: 12, color: '#64748b' },
-  errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
-  retryBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, padding: 8, backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-  retryBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '500' },
-  paginacionAgora: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 12, paddingVertical: 8 },
-  pagBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#f1f5f9', borderRadius: 8 },
+  selectionInfo: { backgroundColor: colors.accentMuted, borderRadius: radius.sm, paddingHorizontal: SPACING.sm + 2, paddingVertical: SPACING.xs + 2 },
+  selectionInfoText: { fontSize: 12, fontWeight: '600', color: statusColors.info.text },
+  lastFetchText: { fontSize: 10, color: colors.textMuted, fontStyle: 'italic' },
+  paginacionAgora: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.lg, marginTop: SPACING.md, paddingVertical: SPACING.sm },
+  pagBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: SPACING.sm, paddingHorizontal: SPACING.md, backgroundColor: colors.bgSubtle, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
   pagBtnDisabled: { opacity: 0.6 },
-  pagBtnText: { fontSize: 13, color: '#0ea5e9', fontWeight: '500' },
-  pagBtnTextDisabled: { color: '#94a3b8' },
-  pagInfo: { fontSize: 12, color: '#64748b' },
-  modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
-  modalCenter: { flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%', padding: 20 },
-  modalContentWrap: { width: '100%', maxWidth: 420, padding: 24, alignItems: 'center' },
+  pagBtnText: { fontSize: 13, color: colors.accent, fontWeight: '500' },
+  pagBtnTextDisabled: { color: colors.textMuted },
+  pagInfo: { fontSize: 12, color: colors.textSecondary },
+  modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.overlay },
+  modalCenter: { flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%', padding: SPACING.lg - 4 },
   modalCardTouch: { width: '100%' },
-  modalCard: { width: '100%', backgroundColor: 'rgba(255, 255, 255, 0.9)', borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: '#334155' },
-  modalClose: { padding: 4 },
+  modalCard: { width: '100%', backgroundColor: colors.surface, borderRadius: radius.md, overflow: 'hidden' },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.lg - 4, paddingVertical: SPACING.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
+  modalTitle: { fontSize: 18, fontWeight: '600', color: colors.textPrimary },
+  modalClose: { padding: SPACING.xs },
   modalBodyRow: { flexDirection: 'row' },
-  modalIdSide: { width: 56, paddingVertical: 12, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#e2e8f0', alignItems: 'center', justifyContent: 'flex-start' },
-  modalIdLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', marginBottom: 2 },
-  modalIdValue: { fontSize: 14, fontWeight: '600', color: '#334155' },
-  modalBody: { flex: 1, maxHeight: 400, paddingHorizontal: 16, paddingVertical: 12 },
-  formGroup: { marginBottom: 8 },
-  formLabel: { fontSize: 10, fontWeight: '500', color: '#475569', marginBottom: 2 },
-  formInput: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, fontSize: 13, color: '#334155' },
-  modalError: { fontSize: 11, color: '#f87171', paddingHorizontal: 20, paddingVertical: 4 },
-  modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: 6, paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
-  modalFooterBtn: { padding: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
-  importHelpText: { fontSize: 12, color: '#475569', marginBottom: 16, lineHeight: 18 },
-  importButtonsRow: { flexDirection: 'row', gap: 12, marginBottom: 8 },
-  importOptionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
-  importOptionLabel: { fontSize: 12, color: '#334155', fontWeight: '500' },
-  importSuccessText: { fontSize: 11, color: '#22c55e', paddingHorizontal: 20, paddingVertical: 4 },
-  lastFetchText: { fontSize: 10, color: '#94a3b8', fontStyle: 'italic' },
-  rowSelected: { backgroundColor: '#eff6ff' },
-  selectionInfo: { backgroundColor: '#e0f2fe', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6 },
-  selectionInfoText: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
-  filterBtnActive: { backgroundColor: '#0ea5e9' },
-  filterPanel: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, padding: 12, marginBottom: 10, gap: 8 },
-  filterRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  modalIdSide: { width: 56, paddingVertical: SPACING.md, paddingHorizontal: SPACING.sm, borderRightWidth: 1, borderRightColor: colors.border, alignItems: 'center', justifyContent: 'flex-start' },
+  modalIdLabel: { fontSize: 10, fontWeight: '600', color: colors.textMuted, marginBottom: 2 },
+  modalIdValue: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
+  modalBody: { flex: 1, maxHeight: 400, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md },
+  formGroup: { marginBottom: SPACING.sm },
+  formLabel: { fontSize: 10, fontWeight: '500', color: colors.textSecondary, marginBottom: 2 },
+  formInput: { backgroundColor: colors.bgSubtle, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: SPACING.sm + 2, paddingVertical: SPACING.xs, fontSize: 13, color: colors.textPrimary },
+  modalError: { fontSize: 11, color: colors.danger, paddingHorizontal: SPACING.lg - 4, paddingVertical: SPACING.xs },
+  modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: SPACING.xs + 2, paddingHorizontal: SPACING.lg - 4, paddingVertical: SPACING.md, borderTopWidth: 1, borderTopColor: colors.border },
+  modalFooterBtn: { padding: SPACING.xs + 2, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.bgSubtle },
+  modalFooterBtnPrimary: { backgroundColor: colors.accent, borderColor: colors.accent },
+  modalFooterBtnPrimaryText: { fontSize: 13, color: colors.surface, fontWeight: '600' },
+  modalFooterBtnText: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
+  emptyText: { fontSize: 12, color: colors.textMuted, textAlign: 'center', marginTop: SPACING.md },
+  filterPanel: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: SPACING.md, marginBottom: SPACING.sm + 2, gap: SPACING.sm },
+  filterRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   filterSelect: { width: 150, flexShrink: 1 },
-  filterValueInput: { flex: 1, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, color: '#334155', minWidth: 80 },
-  filterRemoveBtn: { padding: 4 },
-  filterActions: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 },
-  filterAddBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6, borderWidth: 1, borderColor: '#0ea5e9', borderStyle: 'dashed' },
-  filterAddBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '600' },
-  filterClearBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 10 },
-  filterClearBtnText: { fontSize: 12, color: '#94a3b8' },
-  familiasModalCard: { width: '90%', maxWidth: 520, maxHeight: '80%', backgroundColor: '#fff', borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
-  familiasSearchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#f8fafc' },
-  familiasSearchInput: { flex: 1, fontSize: 13, color: '#334155', paddingVertical: 4 },
-  familiasCount: { fontSize: 11, color: '#94a3b8', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
-  familiasTableHeader: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 6, borderBottomWidth: 2, borderBottomColor: '#e2e8f0', backgroundColor: '#f1f5f9' },
-  familiasHeaderCell: { fontSize: 10, fontWeight: '600', color: '#475569' },
+  filterValueInput: { flex: 1, backgroundColor: colors.bgSubtle, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: SPACING.sm + 2, paddingVertical: SPACING.xs + 2, fontSize: 12, color: colors.textPrimary, minWidth: 80 },
+  filterRemoveBtn: { padding: SPACING.xs },
+  filterActions: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, marginTop: SPACING.xs },
+  filterAddBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: SPACING.xs + 1, paddingHorizontal: SPACING.sm + 2, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.accent, borderStyle: 'dashed' },
+  filterAddBtnText: { fontSize: 12, color: colors.accent, fontWeight: '600' },
+  filterClearBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: SPACING.xs + 1, paddingHorizontal: SPACING.sm + 2 },
+  filterClearBtnText: { fontSize: 12, color: colors.textMuted },
+  familiasModalCard: { width: '90%', maxWidth: 520, maxHeight: '80%', backgroundColor: colors.surface, borderRadius: radius.md, overflow: 'hidden' },
+  familiasSearchWrap: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.sm + 2, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.bgSubtle },
+  familiasSearchInput: { flex: 1, fontSize: 13, color: colors.textPrimary, paddingVertical: SPACING.xs },
+  familiasCount: { fontSize: 11, color: colors.textMuted, paddingHorizontal: SPACING.lg, paddingTop: SPACING.sm, paddingBottom: SPACING.xs },
+  familiasTableHeader: { flexDirection: 'row', paddingHorizontal: SPACING.lg, paddingVertical: SPACING.xs + 2, borderBottomWidth: 1, borderBottomColor: colors.borderStrong, backgroundColor: colors.bgSubtle },
+  familiasHeaderCell: { fontSize: 10, fontWeight: '600', color: colors.textSecondary, letterSpacing: 0.3, textTransform: 'uppercase' },
   familiasBody: { maxHeight: 400, paddingHorizontal: 0 },
-  familiasRow: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e2e8f0' },
-  familiasCell: { fontSize: 12, color: '#334155' },
-  familiasCellId: { fontSize: 11, color: '#64748b', fontFamily: Platform.OS === 'web' ? 'monospace' : undefined },
+  familiasRow: { flexDirection: 'row', paddingHorizontal: SPACING.lg, paddingVertical: SPACING.xs + 2, borderBottomWidth: 1, borderBottomColor: colors.borderStrong },
+  familiasCell: { fontSize: 12, color: colors.textPrimary },
+  familiasCellId: { fontSize: 11, color: colors.textSecondary, fontFamily: Platform.OS === 'web' ? 'monospace' : undefined },
 });

@@ -70,4 +70,5 @@ export type FacturaListado = { id_factura: string } & Partial<Pick<Factura,
   | 'contabilizado_por'
   | 'creado_en'
   | 'impuestos_resumen'
+  | 'forma_pago'
 >>;

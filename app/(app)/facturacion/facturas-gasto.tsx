@@ -35,8 +35,9 @@ import {
   textoFechaContabilizacionGasto,
 } from '../../utils/formatFecha';
 import { hoyISO } from '../../utils/facturaFormLogic';
-import { getTipoReciboFromEmpresasList, type EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
+import { getTipoReciboFromEmpresasList, listProveedoresNoTransferenciaRemesa, filtrarFacturasPorColaPago, type EmpresaConTipoRecibo, type FiltroColaPago } from '../../utils/empresaTipoRecibo';
 import { useLocalToast } from '../../components/Toast';
+import { useConfirmar } from '../../hooks/useConfirmar';
 import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
 import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
 import { apiFetch } from '../../utils/api';
@@ -228,6 +229,7 @@ export default function FacturasGastoScreen() {
   const { width: winW } = useWindowDimensions();
   const layoutSplit = Platform.OS === 'web' && winW >= 1024;
   const { show: showToast, ToastView } = useLocalToast();
+  const { confirmar, ConfirmarView } = useConfirmar();
 
   const [facturas, setFacturas] = useState<FacturaListado[]>([]);
   const [loading, setLoading] = useState(true);
@@ -239,6 +241,7 @@ export default function FacturasGastoScreen() {
   const [fechaHasta, setFechaHasta] = useState('');
   const [empresasFiltroIds, setEmpresasFiltroIds] = useState<string[]>([]);
   const [anioFiltro, setAnioFiltro] = useState(() => String(new Date().getFullYear()));
+  const [filtroColaPago, setFiltroColaPago] = useState<FiltroColaPago>('todos');
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalFacturaId, setModalFacturaId] = useState<string | null>(null);
@@ -353,6 +356,7 @@ export default function FacturasGastoScreen() {
             const tipoReciboRaw = e['Tipo de recibo'];
             return {
               id_empresa: e.id_empresa != null ? String(e.id_empresa) : '',
+              Cif: e.Cif != null ? String(e.Cif).trim() : e.cif != null ? String(e.cif).trim() : '',
               tipoRecibo: tipoReciboRaw != null ? String(tipoReciboRaw).trim() : undefined,
               'Tipo de recibo': typeof tipoReciboRaw === 'string' ? tipoReciboRaw : undefined,
             };
@@ -440,6 +444,7 @@ export default function FacturasGastoScreen() {
   const filtradas = useMemo(() => {
     let list = facturasBaseFiltradas;
     if (tabActivo !== 'todas') list = list.filter((f) => f.estado === tabActivo);
+    list = filtrarFacturasPorColaPago(list, filtroColaPago, empresasCatalogo);
     if (sortCol) {
       list = [...list].sort((a, b) => {
         if (sortCol === 'fecha_emision') {
@@ -483,7 +488,7 @@ export default function FacturasGastoScreen() {
       });
     }
     return list;
-  }, [facturasBaseFiltradas, tabActivo, sortCol, sortDir]);
+  }, [facturasBaseFiltradas, tabActivo, filtroColaPago, empresasCatalogo, sortCol, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(filtradas.length / PAGE_SIZE));
   const pageClamped = Math.min(Math.max(0, pageIndex), totalPages - 1);
@@ -492,7 +497,7 @@ export default function FacturasGastoScreen() {
   useEffect(() => {
     setPageIndex(0);
     setSelectedId(null);
-  }, [tabActivo, busqueda, fechaDesde, fechaHasta, empresasFiltroIds, anioFiltro]);
+  }, [tabActivo, busqueda, fechaDesde, fechaHasta, empresasFiltroIds, anioFiltro, filtroColaPago]);
 
   const selectedFactura: FacturaListado | null = useMemo(
     () => (selectedId ? filtradas.find((f) => f.id_factura === selectedId) ?? null : null),
@@ -773,6 +778,11 @@ export default function FacturasGastoScreen() {
     };
   }, [facturasSeleccionadasRemesa]);
 
+  const proveedoresNoTransferenciaRemesa = useMemo(
+    () => listProveedoresNoTransferenciaRemesa(facturasSeleccionadasRemesa, empresasCatalogo),
+    [facturasSeleccionadasRemesa, empresasCatalogo],
+  );
+
   const toggleSeleccionMulti = (id: string) => {
     setSelectedMultiIds((prev) => {
       const next = new Set(prev);
@@ -813,6 +823,23 @@ export default function FacturasGastoScreen() {
       showToast('Aviso', 'Indica un nombre para la remesa', 'warning');
       return;
     }
+
+    if (proveedoresNoTransferenciaRemesa.length > 0) {
+      const lista = proveedoresNoTransferenciaRemesa
+        .slice(0, 5)
+        .map((p) => `· ${p.nombre} (${p.tipoReciboLabel})`)
+        .join('\n');
+      const extra = proveedoresNoTransferenciaRemesa.length > 5
+        ? `\n… y ${proveedoresNoTransferenciaRemesa.length - 5} más`
+        : '';
+      const ok = await confirmar(
+        'Tipo de recibo distinto de transferencia',
+        `${proveedoresNoTransferenciaRemesa.length} proveedor${proveedoresNoTransferenciaRemesa.length !== 1 ? 'es' : ''} no tienen «Transferencia» en su ficha:\n\n${lista}${extra}\n\nPuedes crear la remesa igualmente. ¿Continuar?`,
+        { confirmarLabel: 'Crear remesa' },
+      );
+      if (!ok) return;
+    }
+
     setProcesando(true);
     try {
       const res = await apiFetch('/api/remesas', {
@@ -996,6 +1023,37 @@ export default function FacturasGastoScreen() {
                   {conteosPorTab[t.key]}
                 </Text>
               </View>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      {/* Filtro cola de pago (forma de pago / tipo de recibo) */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll} contentContainerStyle={styles.tabsContent}>
+        {([
+          { id: 'todos' as FiltroColaPago, label: 'Todos los métodos' },
+          { id: 'cola_transferencia' as FiltroColaPago, label: 'Cola transferencia' },
+          { id: 'otro_metodo' as FiltroColaPago, label: 'Otros métodos' },
+        ]).map((f) => {
+          const activo = filtroColaPago === f.id;
+          return (
+            <TouchableOpacity
+              key={f.id}
+              style={[
+                styles.colaPagoChip,
+                activo && styles.colaPagoChipActive,
+              ]}
+              onPress={() => setFiltroColaPago(f.id)}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons
+                name={f.id === 'cola_transferencia' ? 'account-balance' : f.id === 'otro_metodo' ? 'credit-card' : 'filter-list'}
+                size={14}
+                color={activo ? '#0369a1' : '#64748b'}
+              />
+              <Text style={[styles.colaPagoChipText, activo && styles.colaPagoChipTextActive]}>
+                {f.label}
+              </Text>
             </TouchableOpacity>
           );
         })}
@@ -1229,7 +1287,7 @@ export default function FacturasGastoScreen() {
                     <Text style={styles.cellEmptyText}>
                       {facturas.length === 0
                         ? 'No hay facturas de gasto'
-                        : busqueda.trim() || fechaDesde || fechaHasta || empresasFiltroIds.length > 0 || tabActivo !== 'todas'
+                        : busqueda.trim() || fechaDesde || fechaHasta || empresasFiltroIds.length > 0 || tabActivo !== 'todas' || filtroColaPago !== 'todos'
                           ? 'Ningún resultado con los filtros aplicados'
                           : `No hay facturas de gasto en ${anioFiltro}`}
                     </Text>
@@ -1388,6 +1446,29 @@ export default function FacturasGastoScreen() {
             <Text style={styles.modalLabel}>
               {facturasSeleccionadasRemesa.length} factura(s) · Sociedad: {sociedadRemesa?.nombre || '—'}
             </Text>
+            {proveedoresNoTransferenciaRemesa.length > 0 ? (
+              <View style={styles.modalAvisoTipoRecibo}>
+                <MaterialIcons name="warning-amber" size={18} color="#b45309" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalAvisoTipoReciboTitulo}>
+                    {proveedoresNoTransferenciaRemesa.length} proveedor{proveedoresNoTransferenciaRemesa.length !== 1 ? 'es' : ''} sin tipo de recibo «Transferencia»
+                  </Text>
+                  {proveedoresNoTransferenciaRemesa.slice(0, 4).map((p) => (
+                    <Text key={p.key} style={styles.modalAvisoTipoReciboLinea} numberOfLines={1}>
+                      · {p.nombre} — {p.tipoReciboLabel}
+                    </Text>
+                  ))}
+                  {proveedoresNoTransferenciaRemesa.length > 4 ? (
+                    <Text style={styles.modalAvisoTipoReciboLinea}>
+                      … y {proveedoresNoTransferenciaRemesa.length - 4} más
+                    </Text>
+                  ) : null}
+                  <Text style={styles.modalAvisoTipoReciboPie}>
+                    Puedes crear la remesa igualmente; revisa la ficha del proveedor si procede.
+                  </Text>
+                </View>
+              </View>
+            ) : null}
             <Text style={styles.modalFieldLabel}>Nombre de la remesa *</Text>
             <TextInput
               style={styles.modalInput}
@@ -1557,6 +1638,7 @@ export default function FacturasGastoScreen() {
       </Modal>
 
       {ToastView}
+      {ConfirmarView}
     </View>
   );
 }
@@ -1632,6 +1714,23 @@ const styles = StyleSheet.create({
 
   tabsScroll: { maxHeight: 40, marginBottom: 8 },
   tabsContent: { flexDirection: 'row', gap: 6, paddingRight: 8 },
+  colaPagoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#f8fafc',
+  },
+  colaPagoChipActive: {
+    borderColor: '#7dd3fc',
+    backgroundColor: '#e0f2fe',
+  },
+  colaPagoChipText: { fontSize: 11, fontWeight: '500', color: '#64748b' },
+  colaPagoChipTextActive: { color: '#0369a1', fontWeight: '600' },
   estadoChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1899,6 +1998,20 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 16, fontWeight: '700', color: '#334155', marginBottom: 12 },
   modalWarningTitle: { fontSize: 13, fontWeight: '700', color: '#b45309', marginBottom: 8 },
+  modalAvisoTipoRecibo: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 12,
+    padding: 10,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    borderRadius: 8,
+  },
+  modalAvisoTipoReciboTitulo: { fontSize: 12, fontWeight: '700', color: '#b45309', marginBottom: 4 },
+  modalAvisoTipoReciboLinea: { fontSize: 11, color: '#92400e', lineHeight: 16 },
+  modalAvisoTipoReciboPie: { fontSize: 11, color: '#78716c', marginTop: 6, fontStyle: 'italic' },
   modalLabel: { fontSize: 12, color: '#64748b', marginBottom: 12, lineHeight: 18 },
   modalLabelMuted: { fontSize: 11, color: '#94a3b8', marginBottom: 4, lineHeight: 16, fontStyle: 'italic' },
   modalStrong: { fontWeight: '700', color: '#334155' },

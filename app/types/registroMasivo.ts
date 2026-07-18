@@ -186,6 +186,16 @@ export type Borrador = {
   descartado: boolean;
   duplicados: { id_factura: string; numero_factura: string; empresa_nombre: string; total_factura: number }[];
   checkingDup: boolean;
+  /** Registrar pago al confirmar (factura ya cobrada en el momento del gasto). */
+  pago_al_confirmar?: boolean;
+  /** Datos del pago capturados con RegistrarPagoModal. */
+  pago_datos?: {
+    fecha: string;
+    importe: number;
+    metodo_pago: string;
+    referencia: string;
+    observaciones: string;
+  };
 };
 
 /**
