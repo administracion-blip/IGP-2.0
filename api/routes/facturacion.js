@@ -1635,6 +1635,15 @@ router.get('/facturacion/facturas/:id/adjuntos/:adjId/descargar', async (req, re
 
 // ─── OCR / REGISTRO MASIVO ───
 
+router.post('/facturacion/ocr/prewarm', async (_req, res) => {
+  try {
+    await prewarmTesseractWorker();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/facturacion/ocr/extraer', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
 
@@ -1869,6 +1878,17 @@ router.get('/facturacion/ocr/preview-png', async (req, res) => {
  */
 let tesseractWorkerPromise = null;
 let tesseractQueue = Promise.resolve();
+
+/** Precarga el worker Tesseract en segundo plano (evita timeout en la 1ª factura escaneada). */
+export function prewarmTesseractWorker() {
+  if (tesseractWorkerPromise) return tesseractWorkerPromise;
+  tesseractWorkerPromise = Tesseract.createWorker('spa+eng').catch((e) => {
+    tesseractWorkerPromise = null;
+    console.warn('[OCR] Precarga Tesseract falló:', e.message);
+    throw e;
+  });
+  return tesseractWorkerPromise;
+}
 
 async function ocrWithTesseract(imageBuffer) {
   const run = async () => {
@@ -2631,5 +2651,8 @@ router.post('/facturacion/check-duplicados', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+/** Precalienta OCR al arranque del módulo (no bloquea peticiones). */
+prewarmTesseractWorker().catch(() => {});
 
 export default router;

@@ -52,6 +52,12 @@ export function DesgloseFiscalEditor({
     const nuevas = linesEffective.map((L, idx) => {
       if (idx !== i) return L;
       const updated: LineaDesglose = { ...L, [field]: value, origen: 'manual' };
+      if (field === 'tipo' && value === 'retencion' && i > 0) {
+        const baseAnterior = round2(Number(linesEffective[i - 1].base) || 0);
+        if (baseAnterior > 0) {
+          updated.base = baseAnterior;
+        }
+      }
       const bVal = round2(Number(field === 'base' ? value : updated.base) || 0);
       const pct = Number(field === 'porcentaje' ? value : updated.porcentaje) || 0;
       updated.cuota = round2((bVal * pct) / 100);

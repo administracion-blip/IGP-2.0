@@ -67,6 +67,10 @@ function fechaCorta(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
+function registroKey(r: Registro): string {
+  return `${r.local_id}|${r.fecha_programada}|${r.tipo_objeto_id}`;
+}
+
 /** Añade una imagen base64 (dataURL o crudo) a un FormData de forma multiplataforma. */
 async function appendImagen(formData: FormData, field: string, dataUrl: string, filename: string, mime: string) {
   const raw = dataUrl.replace(/^data:[^;]+;base64,/, '');
@@ -88,6 +92,7 @@ export default function RegistrosLimpiezaScreen() {
   const { hasPermiso } = useAuth();
   const { isPhone } = useBreakpoint();
   const puedeCompletar = hasPermiso('limpieza.completar');
+  const puedeBorrar = hasPermiso('limpieza.borrar');
 
   const [localId, setLocalId] = useState('');
   const [fecha, setFecha] = useState(hoyIso());
@@ -96,6 +101,11 @@ export default function RegistrosLimpiezaScreen() {
   const [registros, setRegistros] = useState<Registro[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [modalBorrarVisible, setModalBorrarVisible] = useState(false);
+  const [borrando, setBorrando] = useState(false);
 
   const [selected, setSelected] = useState<Registro | null>(null);
   const [realizadoPorId, setRealizadoPorId] = useState('');
@@ -164,6 +174,85 @@ export default function RegistrosLimpiezaScreen() {
     setSelected(null);
     setRealizadoPorId('');
     setRealizadoPorNombre('');
+  };
+
+  const salirMultiSelect = () => {
+    setMultiSelectMode(false);
+    setSelectedKeys(new Set());
+  };
+
+  const activarMultiSelect = (r: Registro) => {
+    if (!puedeBorrar) return;
+    setMultiSelectMode(true);
+    setSelectedKeys(new Set([registroKey(r)]));
+    cerrarDetalle();
+  };
+
+  const toggleSeleccion = (r: Registro) => {
+    const key = registroKey(r);
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleSeleccionTodas = () => {
+    if (selectedKeys.size === registros.length) {
+      setSelectedKeys(new Set());
+    } else {
+      setSelectedKeys(new Set(registros.map(registroKey)));
+    }
+  };
+
+  const registrosSeleccionados = useMemo(
+    () => registros.filter((r) => selectedKeys.has(registroKey(r))),
+    [registros, selectedKeys],
+  );
+
+  const hayHechasSeleccionadas = registrosSeleccionados.some((r) => r.estado === 'hecha');
+
+  const abrirModalBorrar = () => {
+    if (registrosSeleccionados.length === 0) return;
+    setModalBorrarVisible(true);
+  };
+
+  const cerrarModalBorrar = () => setModalBorrarVisible(false);
+
+  const ejecutarBorrado = async () => {
+    if (registrosSeleccionados.length === 0) return;
+    setBorrando(true);
+    setError(null);
+    cerrarModalBorrar();
+    try {
+      const res = await apiFetch('/api/limpieza/registros', {
+        method: 'DELETE',
+        body: JSON.stringify({
+          items: registrosSeleccionados.map((r) => ({
+            local_id: r.local_id,
+            fecha_programada: r.fecha_programada,
+            tipo_objeto_id: r.tipo_objeto_id,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? 'Error al borrar');
+        return;
+      }
+      salirMultiSelect();
+      cargar();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error de conexión');
+    } finally {
+      setBorrando(false);
+    }
+  };
+
+  const pulsarRegistro = (r: Registro) => {
+    if (multiSelectMode) toggleSeleccion(r);
+    else abrirDetalle(r);
   };
 
   const seleccionarStaff = (id: string) => {
@@ -244,12 +333,49 @@ export default function RegistrosLimpiezaScreen() {
               tituloLista="Local"
               valorId={localId}
               opciones={localesOpciones}
-              onSeleccionar={setLocalId}
+              onSeleccionar={(id) => { salirMultiSelect(); setLocalId(id); }}
             />
             <View style={isPhone ? undefined : styles.fechaWrap}>
-              <InputFecha compact valueIso={fecha} onChangeIso={setFecha} style={estiloCampoFechaCompacto} />
+              <InputFecha compact valueIso={fecha} onChangeIso={(f) => { salirMultiSelect(); setFecha(f); }} style={estiloCampoFechaCompacto} />
             </View>
           </View>
+
+          {puedeBorrar && registros.length > 0 && !loading ? (
+            <View style={styles.toolbar}>
+              {multiSelectMode ? (
+                <>
+                  <TouchableOpacity style={styles.toolbarBtn} onPress={toggleSeleccionTodas} activeOpacity={0.7}>
+                    <MaterialIcons
+                      name={selectedKeys.size === registros.length && registros.length > 0 ? 'check-box' : 'check-box-outline-blank'}
+                      size={20}
+                      color={selectedKeys.size === registros.length && registros.length > 0 ? '#0ea5e9' : '#94a3b8'}
+                    />
+                    <Text style={styles.toolbarBtnText}>Todas</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.toolbarBtn} onPress={salirMultiSelect} activeOpacity={0.7}>
+                    <MaterialIcons name="close" size={18} color="#64748b" />
+                    <Text style={styles.toolbarBtnText}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.deleteBtn, (selectedKeys.size === 0 || borrando) && styles.deleteBtnDisabled]}
+                    onPress={abrirModalBorrar}
+                    disabled={selectedKeys.size === 0 || borrando}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialIcons name="delete-outline" size={20} color={selectedKeys.size === 0 || borrando ? '#94a3b8' : '#dc2626'} />
+                    <Text style={[styles.deleteBtnText, (selectedKeys.size === 0 || borrando) && styles.deleteBtnTextDisabled]}>
+                      Borrar{selectedKeys.size > 0 ? ` (${selectedKeys.size})` : ''}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <TouchableOpacity style={styles.toolbarBtn} onPress={() => setMultiSelectMode(true)} activeOpacity={0.7}>
+                  <MaterialIcons name="checklist" size={18} color="#0ea5e9" />
+                  <Text style={[styles.toolbarBtnText, { color: '#0ea5e9' }]}>Seleccionar</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : null}
 
           {error && !selected ? <Text style={styles.errorText}>{error}</Text> : null}
 
@@ -266,8 +392,24 @@ export default function RegistrosLimpiezaScreen() {
                 const est = ESTADO_STYLE[r.estado] ?? ESTADO_STYLE.pendiente;
                 const tipo = tipos[r.tipo_objeto_id];
                 const arrastrada = r.estado !== 'hecha' && r.fecha_programada < fecha;
+                const key = registroKey(r);
+                const isSelected = selectedKeys.has(key);
                 return (
-                  <TouchableOpacity key={r.id_registro} style={styles.card} onPress={() => abrirDetalle(r)} activeOpacity={0.8}>
+                  <TouchableOpacity
+                    key={r.id_registro}
+                    style={[styles.card, isSelected && styles.cardSelected]}
+                    onPress={() => pulsarRegistro(r)}
+                    onLongPress={() => activarMultiSelect(r)}
+                    activeOpacity={0.8}
+                  >
+                    {multiSelectMode ? (
+                      <MaterialIcons
+                        name={isSelected ? 'check-box' : 'check-box-outline-blank'}
+                        size={22}
+                        color={isSelected ? '#0ea5e9' : '#94a3b8'}
+                        style={{ marginRight: 4 }}
+                      />
+                    ) : null}
                     <View style={{ flex: 1 }}>
                       <Text style={styles.cardTitle}>{tipo?.nombre ?? r.tipo_objeto_id}</Text>
                       <Text style={styles.cardMeta}>
@@ -280,7 +422,9 @@ export default function RegistrosLimpiezaScreen() {
                     <View style={[styles.badge, { backgroundColor: est.bg }]}>
                       <Text style={[styles.badgeText, { color: est.color }]}>{est.label}</Text>
                     </View>
-                    <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
+                    {!multiSelectMode ? (
+                      <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
+                    ) : null}
                   </TouchableOpacity>
                 );
               })}
@@ -376,6 +520,45 @@ export default function RegistrosLimpiezaScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={modalBorrarVisible} transparent animationType="fade" onRequestClose={cerrarModalBorrar}>
+        <TouchableOpacity style={styles.modalBorrarOverlay} activeOpacity={1} onPress={cerrarModalBorrar}>
+          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalBorrarWrap}>
+            <View style={styles.modalBorrarCard}>
+              <View style={styles.modalBorrarHeader}>
+                <Text style={styles.modalBorrarTitle}>
+                  {registrosSeleccionados.length === 1 ? 'Borrar registro' : 'Borrar registros'}
+                </Text>
+                <TouchableOpacity onPress={cerrarModalBorrar} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <MaterialIcons name="close" size={22} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.modalBorrarMsg}>
+                {registrosSeleccionados.length === 1
+                  ? '¿Estás seguro de que deseas borrar este registro de limpieza?'
+                  : `¿Estás seguro de que deseas borrar los ${registrosSeleccionados.length} registros seleccionados?`}
+              </Text>
+              {hayHechasSeleccionadas ? (
+                <Text style={styles.modalBorrarAviso}>
+                  Algunos registros ya están marcados como hechos: se eliminará también la evidencia (fotos).
+                </Text>
+              ) : null}
+              <View style={styles.modalBorrarFooter}>
+                <TouchableOpacity style={styles.modalBtnNo} onPress={cerrarModalBorrar}>
+                  <Text style={styles.modalBtnNoText}>No</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.modalBtnSi} onPress={ejecutarBorrado} disabled={borrando}>
+                  {borrando ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.modalBtnSiText}>Sí, borrar</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -388,6 +571,13 @@ const styles = StyleSheet.create({
   filtros: { flexDirection: 'row', gap: 8, marginBottom: 12, alignItems: 'center' },
   filtrosStacked: { flexDirection: 'column', alignItems: 'stretch', gap: 8 },
   fechaWrap: { width: 130 },
+  toolbar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
+  toolbarBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 8 },
+  toolbarBtnText: { fontSize: 13, color: '#64748b', fontWeight: '600' },
+  deleteBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 'auto', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: '#fecaca', backgroundColor: '#fef2f2' },
+  deleteBtnDisabled: { borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
+  deleteBtnText: { fontSize: 13, fontWeight: '700', color: '#dc2626' },
+  deleteBtnTextDisabled: { color: '#94a3b8' },
   center: { paddingVertical: 40, alignItems: 'center' },
   errorText: { fontSize: 12, color: '#dc2626', marginBottom: 8 },
   errorTextModal: { fontSize: 13, color: '#dc2626', marginTop: 12 },
@@ -395,6 +585,7 @@ const styles = StyleSheet.create({
   list: { gap: 8, paddingBottom: 20 },
   vacio: { fontSize: 13, color: '#94a3b8', padding: 16, lineHeight: 19 },
   card: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, padding: 14, minHeight: 60 },
+  cardSelected: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
   cardTitle: { fontSize: 15, fontWeight: '600', color: '#334155' },
   cardMeta: { fontSize: 12, color: '#64748b', marginTop: 2 },
   badge: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999 },
@@ -418,4 +609,16 @@ const styles = StyleSheet.create({
   ayuda: { fontSize: 11, color: '#64748b', marginTop: 8, textAlign: 'center', marginBottom: 10 },
   hechaWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#f0fdf4', borderRadius: 10, padding: 14, marginTop: 14, marginBottom: 10 },
   hechaText: { flex: 1, fontSize: 13, color: '#15803d' },
+  modalBorrarOverlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalBorrarWrap: { width: '100%', maxWidth: 420 },
+  modalBorrarCard: { backgroundColor: '#fff', borderRadius: 14, padding: 18, gap: 12 },
+  modalBorrarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  modalBorrarTitle: { fontSize: 17, fontWeight: '700', color: '#334155' },
+  modalBorrarMsg: { fontSize: 14, color: '#475569', lineHeight: 20 },
+  modalBorrarAviso: { fontSize: 12, color: '#b45309', backgroundColor: '#fffbeb', borderRadius: 8, padding: 10, lineHeight: 17 },
+  modalBorrarFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 4 },
+  modalBtnNo: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
+  modalBtnNoText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
+  modalBtnSi: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: '#dc2626', minWidth: 100, alignItems: 'center' },
+  modalBtnSiText: { fontSize: 14, fontWeight: '700', color: '#fff' },
 });

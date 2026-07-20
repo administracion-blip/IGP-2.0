@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -52,6 +52,16 @@ import { mapTipoReciboToFormaPago } from '../../utils/facturacion';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
+function aceptaArchivoFactura(f: File): boolean {
+  const name = (f.name || '').toLowerCase();
+  const type = (f.type || '').toLowerCase();
+  if (/\.(pdf|jpe?g|png)$/i.test(name)) return true;
+  if (type === 'application/pdf') return true;
+  if (/^image\/(jpeg|jpg|png)$/.test(type)) return true;
+  if (type === 'application/octet-stream' && /\.(pdf|jpe?g|png)$/i.test(name)) return true;
+  return false;
+}
+
 /** Estilos CSS para la zona de drop en web (RN View no reenvía onDrop al DOM). */
 function uploadAreaWebStyle(active: boolean): React.CSSProperties {
   return {
@@ -95,7 +105,10 @@ export default function RegistroMasivoScreen() {
   }, [showToast]);
 
   const [borradores, setBorradores] = useState<Borrador[]>([]);
+  const borradoresCountRef = useRef(0);
+  borradoresCountRef.current = borradores.length;
   const [procesando, setProcesando] = useState(false);
+  const [procesandoArchivo, setProcesandoArchivo] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [step, setStep] = useState<'upload' | 'review'>('upload');
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
@@ -172,6 +185,10 @@ export default function RegistroMasivoScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    apiFetch('/api/facturacion/ocr/prewarm', { method: 'POST', timeoutMs: 120_000 }).catch(() => {});
+  }, []);
+
   const checkDuplicados = async (borrador: Borrador) => {
     setBorradores((prev) =>
       prev.map((b) => b.idx === borrador.idx ? { ...b, checkingDup: true } : b)
@@ -199,10 +216,7 @@ export default function RegistroMasivoScreen() {
 
   const procesarArchivosLista = useCallback(
     async (fileList: FileList | File[]) => {
-      const files = Array.from(fileList).filter((f) =>
-        /\.(pdf|jpe?g|png)$/i.test(f.name || '') ||
-        /^(application\/pdf|image\/(jpeg|png))$/i.test(f.type || ''),
-      );
+      const files = Array.from(fileList).filter(aceptaArchivoFactura);
       if (files.length === 0) {
         alertMsg('Info', 'Solo se aceptan PDF, JPG o PNG');
         return;
@@ -210,10 +224,11 @@ export default function RegistroMasivoScreen() {
 
       setProcesando(true);
       const nuevos: Borrador[] = [];
-      const baseIdx = borradores.length;
+      const baseIdx = borradoresCountRef.current;
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        setProcesandoArchivo(file.name);
         try {
           const formData = new FormData();
           formData.append('file', file);
@@ -314,12 +329,13 @@ export default function RegistroMasivoScreen() {
         setSelectedIdx(nuevos[0].idx);
       }
       setProcesando(false);
+      setProcesandoArchivo('');
 
       for (const b of nuevos) {
         checkDuplicados(b);
       }
     },
-    [alertMsg, borradores.length, usarEnriquecimientoIa],
+    [alertMsg, usarEnriquecimientoIa],
   );
 
   const subirArchivos = useCallback(() => {
@@ -366,12 +382,18 @@ export default function RegistroMasivoScreen() {
         e.preventDefault();
         e.stopPropagation();
         setDragOverUpload(false);
-        if (procesando) return;
+        if (procesando) {
+          alertMsg(
+            'Info',
+            'Espera a que termine el procesamiento actual antes de subir más archivos',
+          );
+          return;
+        }
         const files = e.dataTransfer?.files;
         if (files && files.length > 0) void procesarArchivosLista(files);
       },
     };
-  }, [procesando, procesarArchivosLista]);
+  }, [alertMsg, procesando, procesarArchivosLista]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -758,12 +780,18 @@ export default function RegistroMasivoScreen() {
             )}
             <Text style={styles.uploadTitle}>
               {procesando
-                ? 'Procesando archivos…'
+                ? procesandoArchivo
+                  ? `Procesando ${procesandoArchivo}…`
+                  : 'Procesando archivos…'
                 : dragOverUpload
                   ? 'Suelta aquí para procesar'
                   : 'Arrastra archivos o pulsa el botón superior'}
             </Text>
-            <Text style={styles.uploadHint}>PDF, JPG, PNG — máximo 20 MB por archivo</Text>
+            <Text style={styles.uploadHint}>
+              {procesando
+                ? 'La primera factura puede tardar 1–2 min (OCR). No cierres ni vuelvas a subir hasta que termine.'
+                : 'PDF, JPG, PNG — máximo 20 MB por archivo'}
+            </Text>
           </div>
         ) : (
           <View style={[styles.uploadArea, dragOverUpload && styles.uploadAreaActive]}>
@@ -774,10 +802,16 @@ export default function RegistroMasivoScreen() {
             )}
             <Text style={styles.uploadTitle}>
               {procesando
-                ? 'Procesando archivos…'
+                ? procesandoArchivo
+                  ? `Procesando ${procesandoArchivo}…`
+                  : 'Procesando archivos…'
                 : 'Arrastra archivos o pulsa el botón superior'}
             </Text>
-            <Text style={styles.uploadHint}>PDF, JPG, PNG — máximo 20 MB por archivo</Text>
+            <Text style={styles.uploadHint}>
+              {procesando
+                ? 'La primera factura puede tardar 1–2 min (OCR).'
+                : 'PDF, JPG, PNG — máximo 20 MB por archivo'}
+            </Text>
           </View>
         )
       )}

@@ -13,7 +13,7 @@
  *
  * Datos SEPARADOS del mantenimiento correctivo (nunca se mezclan en listas).
  * Permisos: limpieza.ver, limpieza.completar, limpieza.programar,
- * limpieza.catalogo, limpieza.informes.
+ * limpieza.catalogo, limpieza.informes, limpieza.borrar.
  */
 import { Router } from 'express';
 import crypto from 'node:crypto';
@@ -22,6 +22,7 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import {
@@ -719,6 +720,78 @@ router.post(
     }
   },
 );
+
+/** Borrar uno o varios registros (checklist). Elimina también las fotos en S3 si las hay. */
+router.delete('/limpieza/registros', requirePermission('limpieza.borrar'), async (req, res) => {
+  const rawItems = Array.isArray(req.body?.items) ? req.body.items : [];
+  if (rawItems.length === 0) {
+    return res.status(400).json({ error: 'items es obligatorio (array no vacío)' });
+  }
+
+  const accesibles = new Map();
+  let borrados = 0;
+  const errores = [];
+
+  for (const raw of rawItems) {
+    const localId = formatId6(String(raw?.local_id ?? '').trim());
+    const fecha = String(raw?.fecha_programada ?? '').trim();
+    const tipoObjetoId = String(raw?.tipo_objeto_id ?? '').trim();
+
+    if (!localId || localId === '000000' || !RE_FECHA.test(fecha) || !tipoObjetoId) {
+      errores.push({ local_id: localId, fecha_programada: fecha, tipo_objeto_id: tipoObjetoId, error: 'Datos incompletos o no válidos' });
+      continue;
+    }
+
+    if (!accesibles.has(localId)) {
+      accesibles.set(localId, await usuarioPuedeAccederLocal(req.user, localId));
+    }
+    if (!accesibles.get(localId)) {
+      errores.push({ local_id: localId, fecha_programada: fecha, tipo_objeto_id: tipoObjetoId, error: 'Sin acceso al local' });
+      continue;
+    }
+
+    try {
+      const item = await getRegistro(localId, fecha, tipoObjetoId);
+      if (!item) {
+        errores.push({ local_id: localId, fecha_programada: fecha, tipo_objeto_id: tipoObjetoId, error: 'Registro no encontrado' });
+        continue;
+      }
+
+      const fotoKeys = Array.isArray(item.foto_keys) ? item.foto_keys.filter(Boolean) : [];
+      for (const key of fotoKeys) {
+        try {
+          await s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+        } catch {
+          // No bloquear el borrado del registro si falla S3
+        }
+      }
+
+      await docClient.send(
+        new DeleteCommand({
+          TableName: tReg,
+          Key: { PK: pkLocal(localId), SK: skRegistro(fecha, tipoObjetoId) },
+        }),
+      );
+      borrados += 1;
+    } catch (err) {
+      try { throwSiTablaFalta(err, tReg); } catch (e) {
+        return res.status(e.status || 500).json({ error: e.message });
+      }
+      errores.push({
+        local_id: localId,
+        fecha_programada: fecha,
+        tipo_objeto_id: tipoObjetoId,
+        error: err.message || 'Error al borrar',
+      });
+    }
+  }
+
+  if (borrados === 0 && errores.length > 0) {
+    return res.status(400).json({ error: errores[0].error, errores });
+  }
+
+  return res.json({ ok: true, borrados, errores: errores.length ? errores : undefined });
+});
 
 /** Evidencia (URLs firmadas de fotos) de un registro concreto. */
 router.get('/limpieza/registros/evidencia', requireAnyPermission('limpieza.ver', 'limpieza.informes'), async (req, res) => {

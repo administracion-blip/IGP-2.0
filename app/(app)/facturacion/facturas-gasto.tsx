@@ -35,7 +35,15 @@ import {
   textoFechaContabilizacionGasto,
 } from '../../utils/formatFecha';
 import { hoyISO } from '../../utils/facturaFormLogic';
-import { getTipoReciboFromEmpresasList, listProveedoresNoTransferenciaRemesa, filtrarFacturasPorColaPago, type EmpresaConTipoRecibo, type FiltroColaPago } from '../../utils/empresaTipoRecibo';
+import {
+  facturaProveedorCoincideEtiquetas,
+  filtrarFacturasPorColaPago,
+  getTipoReciboFromEmpresasList,
+  listEtiquetasUnicasEmpresas,
+  listProveedoresNoTransferenciaRemesa,
+  type EmpresaConTipoRecibo,
+  type FiltroColaPago,
+} from '../../utils/empresaTipoRecibo';
 import { useLocalToast } from '../../components/Toast';
 import { useConfirmar } from '../../hooks/useConfirmar';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
@@ -248,6 +256,7 @@ export default function FacturasGastoScreen() {
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
   const [empresasFiltroIds, setEmpresasFiltroIds] = useState<string[]>([]);
+  const [etiquetasProveedorFiltro, setEtiquetasProveedorFiltro] = useState<string[]>([]);
   const [anioFiltro, setAnioFiltro] = useState(() => String(new Date().getFullYear()));
   const [filtroColaPago, setFiltroColaPago] = useState<FiltroColaPago>('todos');
 
@@ -362,9 +371,16 @@ export default function FacturasGastoScreen() {
           raw.map((item): EmpresaConTipoRecibo => {
             const e = (item ?? {}) as Record<string, unknown>;
             const tipoReciboRaw = e['Tipo de recibo'];
+            const etiquetaRaw = e.Etiqueta ?? e.etiqueta;
+            const Etiqueta = Array.isArray(etiquetaRaw)
+              ? etiquetaRaw.map((t) => String(t).trim()).filter(Boolean)
+              : etiquetaRaw != null && String(etiquetaRaw).trim() !== ''
+                ? [String(etiquetaRaw).trim()]
+                : [];
             return {
               id_empresa: e.id_empresa != null ? String(e.id_empresa) : '',
               Cif: e.Cif != null ? String(e.Cif).trim() : e.cif != null ? String(e.cif).trim() : '',
+              Etiqueta,
               tipoRecibo: tipoReciboRaw != null ? String(tipoReciboRaw).trim() : undefined,
               'Tipo de recibo': typeof tipoReciboRaw === 'string' ? tipoReciboRaw : undefined,
             };
@@ -390,6 +406,16 @@ export default function FacturasGastoScreen() {
       .sort((a, b) => a[1].localeCompare(b[1], 'es'))
       .map(([id, titulo]) => ({ id, titulo, icono: 'business' as const }));
   }, [facturas]);
+
+  const etiquetasProveedorOpciones = useMemo(
+    () =>
+      listEtiquetasUnicasEmpresas(empresasCatalogo).map((et) => ({
+        id: et,
+        titulo: et,
+        icono: 'label' as const,
+      })),
+    [empresasCatalogo],
+  );
 
   const aniosFiltroOpciones = useMemo(() => {
     const set = new Set<number>();
@@ -417,6 +443,11 @@ export default function FacturasGastoScreen() {
       const set = new Set(empresasFiltroIds);
       list = list.filter((f) => set.has(empresaFiltroKey(f)));
     }
+    if (etiquetasProveedorFiltro.length > 0) {
+      list = list.filter((f) =>
+        facturaProveedorCoincideEtiquetas(f, etiquetasProveedorFiltro, empresasCatalogo),
+      );
+    }
     if (fechaDesde) {
       list = list.filter((f) => (fechaEmisionComparable(f.fecha_emision) || '') >= fechaDesde);
     }
@@ -435,7 +466,7 @@ export default function FacturasGastoScreen() {
       );
     }
     return list;
-  }, [facturas, anioFiltro, empresasFiltroIds, fechaDesde, fechaHasta, busqueda]);
+  }, [facturas, anioFiltro, empresasFiltroIds, etiquetasProveedorFiltro, empresasCatalogo, fechaDesde, fechaHasta, busqueda]);
 
   const conteosPorTab = useMemo(() => {
     const counts = Object.fromEntries(TABS.map((t) => [t.key, 0])) as Record<TabEstado, number>;
@@ -505,7 +536,7 @@ export default function FacturasGastoScreen() {
   useEffect(() => {
     setPageIndex(0);
     setSelectedId(null);
-  }, [tabActivo, busqueda, fechaDesde, fechaHasta, empresasFiltroIds, anioFiltro, filtroColaPago]);
+  }, [tabActivo, busqueda, fechaDesde, fechaHasta, empresasFiltroIds, etiquetasProveedorFiltro, anioFiltro, filtroColaPago]);
 
   const selectedFactura: FacturaListado | null = useMemo(
     () => (selectedId ? filtradas.find((f) => f.id_factura === selectedId) ?? null : null),
@@ -995,6 +1026,21 @@ export default function FacturasGastoScreen() {
             vacioTexto="No hay empresas en el listado."
           />
         ) : null}
+        {etiquetasProveedorOpciones.length > 0 ? (
+          <SelectorDesplegableMulti
+            style={styles.empresaFiltroSelector}
+            placeholder="Etiquetas proveedor"
+            icono="label"
+            tituloLista="Filtrar por etiqueta de proveedor"
+            iconoLista="label"
+            buscador
+            buscadorPlaceholder="Buscar etiqueta…"
+            valorIds={etiquetasProveedorFiltro}
+            opciones={etiquetasProveedorOpciones}
+            onChange={setEtiquetasProveedorFiltro}
+            vacioTexto="No hay etiquetas en el maestro de empresas."
+          />
+        ) : null}
         <SelectorDesplegable
           style={styles.anioFiltroSelector}
           placeholder="Año"
@@ -1283,7 +1329,7 @@ export default function FacturasGastoScreen() {
                     <Text style={styles.cellEmptyText}>
                       {facturas.length === 0
                         ? 'No hay facturas de gasto'
-                        : busqueda.trim() || fechaDesde || fechaHasta || empresasFiltroIds.length > 0 || tabActivo !== 'todas' || filtroColaPago !== 'todos'
+                        : busqueda.trim() || fechaDesde || fechaHasta || empresasFiltroIds.length > 0 || etiquetasProveedorFiltro.length > 0 || tabActivo !== 'todas' || filtroColaPago !== 'todos'
                           ? 'Ningún resultado con los filtros aplicados'
                           : `No hay facturas de gasto en ${anioFiltro}`}
                     </Text>

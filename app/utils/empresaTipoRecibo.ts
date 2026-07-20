@@ -6,6 +6,7 @@ export type EmpresaConTipoRecibo = {
   Cif?: string;
   cif?: string;
   Nombre?: string;
+  Etiqueta?: string[];
   tipoRecibo?: string;
   'Tipo de recibo'?: string;
 };
@@ -38,6 +39,34 @@ function tipoReciboDeEmpresa(e: EmpresaConTipoRecibo): string {
   return String(e.tipoRecibo ?? e['Tipo de recibo'] ?? '').trim();
 }
 
+function etiquetasDeEmpresa(e: EmpresaConTipoRecibo | undefined): string[] {
+  if (!e?.Etiqueta) return [];
+  if (!Array.isArray(e.Etiqueta)) {
+    const uno = String(e.Etiqueta).trim();
+    return uno ? [uno] : [];
+  }
+  return e.Etiqueta.map((t) => String(t).trim()).filter(Boolean);
+}
+
+/** Busca empresa en catálogo por id_empresa o CIF (proveedor / emisor). */
+export function getEmpresaFromCatalog(
+  empresas: EmpresaConTipoRecibo[] | undefined | null,
+  empresaId: string | undefined | null,
+  empresaCif?: string | undefined | null,
+): EmpresaConTipoRecibo | undefined {
+  if (!empresas?.length) return undefined;
+  const id = (empresaId ?? '').trim();
+  if (id) {
+    const e = empresas.find((x) => String(x?.id_empresa ?? '').trim() === id);
+    if (e) return e;
+  }
+  const cif = normalizeCif(empresaCif);
+  if (cif) {
+    return empresas.find((x) => normalizeCif(x.Cif ?? x.cif) === cif);
+  }
+  return undefined;
+}
+
 /**
  * Lee «Tipo de recibo» desde una lista ya cargada (evita GET /empresas en cada modal).
  * Busca por id_empresa y, si no hay match, por CIF normalizado.
@@ -47,18 +76,47 @@ export function getTipoReciboFromEmpresasList(
   empresaId: string | undefined | null,
   empresaCif?: string | undefined | null,
 ): string {
-  if (!empresas?.length) return '';
-  const id = (empresaId ?? '').trim();
-  if (id) {
-    const e = empresas.find((x) => String(x?.id_empresa ?? '').trim() === id);
-    if (e) return tipoReciboDeEmpresa(e);
+  const e = getEmpresaFromCatalog(empresas, empresaId, empresaCif);
+  return e ? tipoReciboDeEmpresa(e) : '';
+}
+
+/** Etiquetas del proveedor según maestro de empresas (campo Etiqueta). */
+export function getProveedorEtiquetasFromEmpresasList(
+  empresas: EmpresaConTipoRecibo[] | undefined | null,
+  empresaId: string | undefined | null,
+  empresaCif?: string | undefined | null,
+): string[] {
+  return etiquetasDeEmpresa(getEmpresaFromCatalog(empresas, empresaId, empresaCif));
+}
+
+/** Lista única de etiquetas definidas en el maestro de empresas (orden alfabético). */
+export function listEtiquetasUnicasEmpresas(
+  empresas: EmpresaConTipoRecibo[] | undefined | null,
+): string[] {
+  const canon = new Map<string, string>();
+  for (const e of empresas ?? []) {
+    for (const t of etiquetasDeEmpresa(e)) {
+      const k = t.toLowerCase();
+      if (!canon.has(k)) canon.set(k, t);
+    }
   }
-  const cif = normalizeCif(empresaCif);
-  if (cif) {
-    const e = empresas.find((x) => normalizeCif(x.Cif ?? x.cif) === cif);
-    if (e) return tipoReciboDeEmpresa(e);
-  }
-  return '';
+  return [...canon.values()].sort((a, b) => a.localeCompare(b, 'es'));
+}
+
+/** True si la factura tiene proveedor con al menos una etiqueta seleccionada. */
+export function facturaProveedorCoincideEtiquetas(
+  factura: { empresa_id?: string | null; empresa_cif?: string | null },
+  etiquetasSeleccionadas: string[],
+  empresas: EmpresaConTipoRecibo[] | undefined | null,
+): boolean {
+  if (!etiquetasSeleccionadas.length) return true;
+  const tags = getProveedorEtiquetasFromEmpresasList(
+    empresas,
+    factura.empresa_id,
+    factura.empresa_cif,
+  );
+  const sel = new Set(etiquetasSeleccionadas.map((t) => t.trim().toLowerCase()));
+  return tags.some((t) => sel.has(t.trim().toLowerCase()));
 }
 
 /** Indica si el texto de «Tipo de recibo» se interpreta como transferencia bancaria. */
