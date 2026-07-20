@@ -51,8 +51,9 @@ export function buildIdDocumentoFacturaRecibida(input) {
   const fecha = iso || 'sin_fecha';
   const t = trimestreDesdeFechaEmision(input.fechaEmision);
   const tri = t ? `T${t.trimestre}-${t.anio}` : 'sin_trimestre';
+  const proveedor = sanitizarSegmentoIdDocumento(input.proveedorNombre) || 'sin_proveedor';
   const num = sanitizarSegmentoIdDocumento(input.numeroFacturaProveedor) || 'sin_numero';
-  return `${empresa}_${fecha}_${tri}_${num}`;
+  return `${empresa}_${fecha}_${tri}_${proveedor}_${num}`;
 }
 
 export function extensionAdjuntoFactura(nombre, tipo) {
@@ -71,6 +72,7 @@ export function nombreFicheroAdjuntoFacturaRecibida(factura, adj, indice = 0) {
   const base = buildIdDocumentoFacturaRecibida({
     empresaNombre: factura.emisor_nombre,
     fechaEmision: factura.fecha_emision,
+    proveedorNombre: factura.empresa_nombre,
     numeroFacturaProveedor: factura.numero_factura_proveedor,
   });
   const ext = extensionAdjuntoFactura(adj.nombre, adj.tipo);

@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
+import { SubmoduloTabs } from './SubmoduloTabs';
 import { ICONS, ICON_SIZE } from '../../constants/icons';
 import { apiFetch } from '../../utils/api';
 
@@ -442,6 +443,7 @@ export default function MantenimientoScreen() {
 
   return (
     <View style={styles.container}>
+      <SubmoduloTabs activo="mantenimiento" />
       <Text style={styles.title}>Mantenimiento</Text>
       <Text style={styles.subtitle}>Opciones de mantenimiento del sistema.</Text>
 

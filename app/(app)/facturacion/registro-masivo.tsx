@@ -1005,6 +1005,7 @@ export default function RegistroMasivoScreen() {
                 <CampoIdDocumentoFacturaRecibida
                   empresaNombre={selectedBorrador.sociedad_grupo_nombre}
                   fechaEmision={selectedBorrador.fecha_emision}
+                  proveedorNombre={selectedBorrador.proveedor_nombre}
                   numeroFacturaProveedor={selectedBorrador.numero_factura_proveedor}
                 />
               </View>

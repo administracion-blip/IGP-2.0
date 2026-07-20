@@ -1192,6 +1192,7 @@ export default function FacturaDetalleScreen() {
               <CampoIdDocumentoFacturaRecibida
                 empresaNombre={emisorNombre}
                 fechaEmision={fechaEmision}
+                proveedorNombre={empresaNombre}
                 numeroFacturaProveedor={numFacturaProveedor}
               />
               <CampoConceptoRemesaFacturaRecibida

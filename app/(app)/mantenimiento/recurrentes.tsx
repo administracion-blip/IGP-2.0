@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
 import { InputFecha } from '../../components/InputFecha';
+import { estiloCampoFechaCompacto } from '../../components/RangoFechas';
 import { apiFetch } from '../../utils/api';
 
 const AUTH_KEY = 'erp_user';
@@ -398,19 +399,21 @@ export default function RecurrentesScreen() {
               <View style={[styles.field, { flex: 1 }]}>
                 <Text style={styles.label}>Desde</Text>
                 <InputFecha
+                  compact
                   valueIso={fechaDesde}
                   onChangeIso={setFechaDesde}
-                  placeholder="dd/mm/aaaa"
-                  style={styles.input}
+                  placeholder="Desde"
+                  style={estiloCampoFechaCompacto}
                 />
               </View>
               <View style={[styles.field, { flex: 1 }]}>
                 <Text style={styles.label}>Hasta</Text>
                 <InputFecha
+                  compact
                   valueIso={fechaHasta}
                   onChangeIso={setFechaHasta}
-                  placeholder="dd/mm/aaaa"
-                  style={styles.input}
+                  placeholder="Hasta"
+                  style={estiloCampoFechaCompacto}
                 />
               </View>
             </View>

@@ -74,6 +74,14 @@ const TARJETAS: Tarjeta[] = [
     ruta: '/planning-dia/activaciones-dia',
     permiso: 'activaciones.ver',
   },
+  {
+    id: 'limpieza',
+    label: 'Limpieza de hoy',
+    descripcion: 'Checklist de limpieza pendiente por local con foto y firma',
+    icon: 'cleaning-services',
+    ruta: '/mantenimiento/limpieza/registros',
+    permiso: 'limpieza.ver',
+  },
 ];
 
 export default function PlanningDiaIndexScreen() {
@@ -83,6 +91,7 @@ export default function PlanningDiaIndexScreen() {
   const tileSize = hubTileSideSize(width, height);
   const [activacionesHoy, setActivacionesHoy] = useState(0);
   const [actuacionesHoy, setActuacionesHoy] = useState(0);
+  const [limpiezaHoy, setLimpiezaHoy] = useState(0);
   const [objetivoLocalIdx, setObjetivoLocalIdx] = useState(0);
   const puedeObjetivoCard = hasPermiso('planning_dia.objetivo_card');
 
@@ -91,6 +100,7 @@ export default function PlanningDiaIndexScreen() {
       if (t.id === 'actuaciones') return puedeVerActuacionesPlanning(hasPermiso);
       if (t.id === 'activaciones') return puedeVerActivacionesPlanning(hasPermiso);
       if (t.id === 'arqueo-caja') return puedeVerArqueoCaja(hasPermiso);
+      if (t.id === 'limpieza') return hasPermiso('limpieza.ver');
       return hasPermiso(t.permiso);
     },
     [hasPermiso],
@@ -120,6 +130,18 @@ export default function PlanningDiaIndexScreen() {
         setActuacionesHoy(r.ok ? Number(d.total) || 0 : 0);
       } catch {
         setActuacionesHoy(0);
+      }
+    }
+
+    if (!hasPermiso('limpieza.ver')) {
+      setLimpiezaHoy(0);
+    } else {
+      try {
+        const r = await apiFetch(`/api/limpieza/registros/pendientes-dia?fecha=${fecha}`);
+        const d = await r.json();
+        setLimpiezaHoy(r.ok ? Number(d.total) || 0 : 0);
+      } catch {
+        setLimpiezaHoy(0);
       }
     }
   }, [hasPermiso]);
@@ -173,7 +195,9 @@ export default function PlanningDiaIndexScreen() {
                     ? activacionesHoy
                     : t.id === 'actuaciones'
                       ? actuacionesHoy
-                      : undefined
+                      : t.id === 'limpieza'
+                        ? limpiezaHoy
+                        : undefined
                 }
                 onPress={() => router.push(t.ruta as never)}
                 favorito={{ route: t.ruta, label: t.label, icon: t.icon, permiso: t.permiso }}

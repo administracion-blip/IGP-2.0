@@ -38,6 +38,7 @@ import { hoyISO } from '../../utils/facturaFormLogic';
 import { getTipoReciboFromEmpresasList, listProveedoresNoTransferenciaRemesa, filtrarFacturasPorColaPago, type EmpresaConTipoRecibo, type FiltroColaPago } from '../../utils/empresaTipoRecibo';
 import { useLocalToast } from '../../components/Toast';
 import { useConfirmar } from '../../hooks/useConfirmar';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
 import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
 import { apiFetch } from '../../utils/api';
@@ -118,6 +119,12 @@ const TABS: { key: TabEstado; label: string }[] = [
   { key: 'vencida', label: 'Vencida' },
   { key: 'pagada', label: 'Pagada' },
   { key: 'anulada', label: 'Anulada' },
+];
+
+const COLA_PAGO_OPCIONES = [
+  { id: 'todos' as FiltroColaPago, titulo: 'Todos los métodos', icono: 'filter-list' as const },
+  { id: 'cola_transferencia' as FiltroColaPago, titulo: 'Cola transferencia', icono: 'account-balance' as const },
+  { id: 'otro_metodo' as FiltroColaPago, titulo: 'Otros métodos', icono: 'credit-card' as const },
 ];
 
 const ESTADOS_GASTO_CHIP = new Set<string>(ESTADOS_IN);
@@ -227,6 +234,7 @@ export default function FacturasGastoScreen() {
   const searchParams = useLocalSearchParams<{ modalFactura?: string; maestroActualizado?: string }>();
   const { hasPermiso, user } = useAuth();
   const { width: winW } = useWindowDimensions();
+  const { shouldStackToolbar } = useBreakpoint();
   const layoutSplit = Platform.OS === 'web' && winW >= 1024;
   const { show: showToast, ToastView } = useLocalToast();
   const { confirmar, ConfirmarView } = useConfirmar();
@@ -999,65 +1007,53 @@ export default function FacturasGastoScreen() {
         />
       </View>
 
-      {/* Chips de estado */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll} contentContainerStyle={styles.tabsContent}>
-        {TABS.map((t) => {
-          const pastel = pastelChipEstado(t.key);
-          const activo = tabActivo === t.key;
-          return (
-            <TouchableOpacity
-              key={t.key}
-              style={[
-                styles.estadoChip,
-                { backgroundColor: pastel.bg, borderColor: activo ? pastel.text : pastel.border },
-                activo && styles.estadoChipActive,
-              ]}
-              onPress={() => setTabActivo(t.key)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.estadoChipText, { color: pastel.text }, activo && styles.estadoChipTextActive]}>
-                {t.label}
-              </Text>
-              <View style={[styles.estadoChipCount, { backgroundColor: activo ? pastel.text : 'rgba(15, 23, 42, 0.08)' }]}>
-                <Text style={[styles.estadoChipCountText, { color: activo ? '#fff' : pastel.text }]}>
-                  {conteosPorTab[t.key]}
+      {/* Chips de estado + filtro método de pago */}
+      <View style={[styles.estadoTabsRow, shouldStackToolbar && styles.estadoTabsRowStacked]}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.estadoTabsScroll}
+          contentContainerStyle={styles.tabsContent}
+        >
+          {TABS.map((t) => {
+            const pastel = pastelChipEstado(t.key);
+            const activo = tabActivo === t.key;
+            return (
+              <TouchableOpacity
+                key={t.key}
+                style={[
+                  styles.estadoChip,
+                  { backgroundColor: pastel.bg, borderColor: activo ? pastel.text : pastel.border },
+                  activo && styles.estadoChipActive,
+                ]}
+                onPress={() => setTabActivo(t.key)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.estadoChipText, { color: pastel.text }, activo && styles.estadoChipTextActive]}>
+                  {t.label}
                 </Text>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+                <View style={[styles.estadoChipCount, { backgroundColor: activo ? pastel.text : 'rgba(15, 23, 42, 0.08)' }]}>
+                  <Text style={[styles.estadoChipCountText, { color: activo ? '#fff' : pastel.text }]}>
+                    {conteosPorTab[t.key]}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
 
-      {/* Filtro cola de pago (forma de pago / tipo de recibo) */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll} contentContainerStyle={styles.tabsContent}>
-        {([
-          { id: 'todos' as FiltroColaPago, label: 'Todos los métodos' },
-          { id: 'cola_transferencia' as FiltroColaPago, label: 'Cola transferencia' },
-          { id: 'otro_metodo' as FiltroColaPago, label: 'Otros métodos' },
-        ]).map((f) => {
-          const activo = filtroColaPago === f.id;
-          return (
-            <TouchableOpacity
-              key={f.id}
-              style={[
-                styles.colaPagoChip,
-                activo && styles.colaPagoChipActive,
-              ]}
-              onPress={() => setFiltroColaPago(f.id)}
-              activeOpacity={0.7}
-            >
-              <MaterialIcons
-                name={f.id === 'cola_transferencia' ? 'account-balance' : f.id === 'otro_metodo' ? 'credit-card' : 'filter-list'}
-                size={14}
-                color={activo ? '#0369a1' : '#64748b'}
-              />
-              <Text style={[styles.colaPagoChipText, activo && styles.colaPagoChipTextActive]}>
-                {f.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+        <SelectorDesplegable
+          style={[styles.colaPagoFiltroSelector, shouldStackToolbar && styles.colaPagoFiltroSelectorStacked]}
+          compact
+          placeholder="Método"
+          icono="payments"
+          tituloLista="Filtrar por método de pago"
+          iconoLista="payments"
+          valorId={filtroColaPago}
+          opciones={COLA_PAGO_OPCIONES}
+          onSeleccionar={(id) => setFiltroColaPago(id as FiltroColaPago)}
+        />
+      </View>
 
       {/* Toolbar */}
       <View style={styles.toolbarRow}>
@@ -1712,50 +1708,49 @@ const styles = StyleSheet.create({
   empresaFiltroSelector: { flex: 1, minWidth: 200, maxWidth: 360 },
   anioFiltroSelector: { width: 132, minWidth: 120, maxWidth: 160 },
 
-  tabsScroll: { maxHeight: 40, marginBottom: 8 },
-  tabsContent: { flexDirection: 'row', gap: 6, paddingRight: 8 },
-  colaPagoChip: {
+  estadoTabsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
-    backgroundColor: '#f8fafc',
+    gap: 8,
+    marginBottom: 8,
   },
-  colaPagoChipActive: {
-    borderColor: '#7dd3fc',
-    backgroundColor: '#e0f2fe',
+  estadoTabsRowStacked: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
   },
-  colaPagoChipText: { fontSize: 11, fontWeight: '500', color: '#64748b' },
-  colaPagoChipTextActive: { color: '#0369a1', fontWeight: '600' },
+  estadoTabsScroll: {
+    flex: 1,
+    minWidth: 0,
+    maxHeight: 32,
+  },
+  tabsContent: { flexDirection: 'row', gap: 4, paddingRight: 4, alignItems: 'center' },
+  colaPagoFiltroSelector: { width: 168, flexShrink: 0 },
+  colaPagoFiltroSelectorStacked: { width: '100%' as const, maxWidth: '100%' as const },
   estadoChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 999,
     borderWidth: 1,
   },
   estadoChipActive: {
-    borderWidth: 2,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+    borderWidth: 1.5,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
   },
-  estadoChipText: { fontSize: 11, fontWeight: '500' },
+  estadoChipText: { fontSize: 10, fontWeight: '500' },
   estadoChipTextActive: { fontWeight: '700' },
   estadoChipCount: {
-    minWidth: 20,
-    height: 18,
-    paddingHorizontal: 5,
+    minWidth: 18,
+    height: 16,
+    paddingHorizontal: 4,
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  estadoChipCountText: { fontSize: 10, fontWeight: '700' },
+  estadoChipCountText: { fontSize: 9, fontWeight: '700' },
 
   toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 10, flexWrap: 'wrap' },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },

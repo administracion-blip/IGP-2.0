@@ -28,6 +28,38 @@ const [fecha, setFecha] = useState('2026-06-15'); // yyyy-mm-dd
 
 No usar en código nuevo `value` + `onChange` + `format="dmy"`. Migrar pantallas legacy a `valueIso` / `onChangeIso`.
 
+## Diseño estándar (aspecto "Facturas de gasto")
+
+Todos los campos de fecha deben verse igual: **compactos**, con fondo suave,
+borde redondeado y fuente pequeña. Es el patrón de `facturacion/facturas-gasto`.
+
+- **Rango Desde / Hasta**: usar **`RangoFechas`** (`app/components/RangoFechas.tsx`).
+  Renderiza dos `InputFecha compact` en fila con placeholders `Desde` / `Hasta`.
+
+```tsx
+import { RangoFechas } from '../components/RangoFechas';
+
+<RangoFechas
+  desdeIso={desde}
+  hastaIso={hasta}
+  onChangeDesde={setDesde}
+  onChangeHasta={setHasta}
+/>
+```
+
+- **Fecha única** con el mismo aspecto: `InputFecha` con `compact` y el estilo
+  exportado `estiloCampoFechaCompacto`:
+
+```tsx
+import { InputFecha } from '../components/InputFecha';
+import { estiloCampoFechaCompacto } from '../components/RangoFechas';
+
+<InputFecha compact valueIso={fecha} onChangeIso={setFecha} style={estiloCampoFechaCompacto} />
+```
+
+No crear estilos de fecha ad-hoc por pantalla: reutilizar `RangoFechas` /
+`estiloCampoFechaCompacto` para mantener la coherencia visual.
+
 ## Interacción (con calendario, default)
 
 | Acción | Comportamiento |

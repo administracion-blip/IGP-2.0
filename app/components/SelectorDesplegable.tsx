@@ -42,6 +42,8 @@ type Props = {
   vacioTexto?: string;
   vacioAccion?: { texto: string; onPress: () => void };
   style?: StyleProp<ViewStyle>;
+  /** Trigger más bajo para toolbars y filtros en línea con chips. */
+  compact?: boolean;
   /** Muestra un campo de búsqueda en la cabecera de la lista (filtra por título y subtítulo). */
   buscador?: boolean;
   buscadorPlaceholder?: string;
@@ -66,6 +68,7 @@ export function SelectorDesplegable({
   vacioTexto = 'No hay opciones disponibles.',
   vacioAccion,
   style,
+  compact = false,
   buscador,
   buscadorPlaceholder = 'Buscar…',
 }: Props) {
@@ -89,31 +92,36 @@ export function SelectorDesplegable({
 
   return (
     <View style={style}>
-      {label ? <Text style={styles.label}>{label}</Text> : null}
+      {label ? <Text style={[styles.label, compact && styles.labelCompact]}>{label}</Text> : null}
       <TouchableOpacity
-        style={[styles.trigger, open && styles.triggerActive, disabled && styles.triggerDisabled]}
+        style={[
+          styles.trigger,
+          compact && styles.triggerCompact,
+          open && styles.triggerActive,
+          disabled && styles.triggerDisabled,
+        ]}
         onPress={() => !disabled && setOpen(true)}
         activeOpacity={0.7}
         disabled={disabled}
       >
         {icono ? (
-          <MaterialIcons name={icono} size={16} color={seleccionada ? '#0ea5e9' : '#94a3b8'} />
+          <MaterialIcons name={icono} size={compact ? 14 : 16} color={seleccionada ? '#0ea5e9' : '#94a3b8'} />
         ) : null}
         <View style={styles.triggerTextWrap}>
           {loading ? (
-            <Text style={styles.placeholder}>Cargando…</Text>
+            <Text style={[styles.placeholder, compact && styles.textCompact]}>Cargando…</Text>
           ) : seleccionada ? (
             <>
-              <Text style={styles.value} numberOfLines={1}>{seleccionada.titulo}</Text>
-              {seleccionada.subtitulo ? (
+              <Text style={[styles.value, compact && styles.textCompact]} numberOfLines={1}>{seleccionada.titulo}</Text>
+              {seleccionada.subtitulo && !compact ? (
                 <Text style={styles.sub} numberOfLines={1}>{seleccionada.subtitulo}</Text>
               ) : null}
             </>
           ) : (
-            <Text style={styles.placeholder} numberOfLines={1}>{placeholder}</Text>
+            <Text style={[styles.placeholder, compact && styles.textCompact]} numberOfLines={1}>{placeholder}</Text>
           )}
         </View>
-        <MaterialIcons name={open ? 'arrow-drop-up' : 'arrow-drop-down'} size={22} color="#64748b" />
+        <MaterialIcons name={open ? 'arrow-drop-up' : 'arrow-drop-down'} size={compact ? 20 : 22} color="#64748b" />
       </TouchableOpacity>
 
       {open && (
@@ -217,6 +225,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     marginBottom: 4,
   },
+  labelCompact: {
+    fontSize: 9,
+    marginBottom: 3,
+  },
   trigger: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -228,6 +240,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     minHeight: 46,
+  },
+  triggerCompact: {
+    minHeight: 30,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    gap: 6,
   },
   triggerActive: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
   triggerDisabled: { opacity: 0.6 },
@@ -245,6 +265,7 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' ? ({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as object) : {}),
   },
   placeholder: { fontSize: 13, color: '#94a3b8' },
+  textCompact: { fontSize: 11, fontWeight: '500' },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.3)',

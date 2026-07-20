@@ -205,6 +205,16 @@ const GRUPOS_PERMISOS: { titulo: string; codigos: string[] }[] = [
       'mantenimiento.borrar',
     ],
   },
+  {
+    titulo: 'Limpieza',
+    codigos: [
+      'limpieza.ver',
+      'limpieza.completar',
+      'limpieza.programar',
+      'limpieza.catalogo',
+      'limpieza.informes',
+    ],
+  },
   { titulo: 'Legacy / obsoleto', codigos: ['rrss.ver'] },
 ];
 
@@ -263,6 +273,11 @@ const PERMISOS_LABELS: Record<string, string> = {
   'mantenimiento.crear': 'Mantenimiento · Crear',
   'mantenimiento.editar': 'Mantenimiento · Editar',
   'mantenimiento.borrar': 'Mantenimiento · Borrar',
+  'limpieza.ver': 'Limpieza · Ver',
+  'limpieza.completar': 'Limpieza · Completar checklist (foto+firma)',
+  'limpieza.programar': 'Limpieza · Programar (reglas y plantillas)',
+  'limpieza.catalogo': 'Limpieza · Catálogo de objetos',
+  'limpieza.informes': 'Limpieza · Informes e histórico',
   'pedidos.ver': 'Pedidos · Ver',
   'pedidos.ver_completados': 'Pedidos · Ver completados',
   'pedidos.preparar': 'Pedidos · Preparar (almacén)',

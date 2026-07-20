@@ -17,7 +17,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
 import { apiFetch } from '../../utils/api';
-import { InputFecha } from '../../components/InputFecha';
+import { RangoFechas } from '../../components/RangoFechas';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -704,27 +704,18 @@ export default function ReparacionesRealizadasScreen() {
                     </View>
                   ) : null}
                   <View style={styles.modalField}>
-                    <Text style={styles.modalLabel}>Desde (fecha completada)</Text>
-                    <InputFecha
-                      style={styles.modalInput}
-                      valueIso={draftFechaDesdeIso}
-                      onChangeIso={(iso) => {
+                    <Text style={styles.modalLabel}>Rango por fecha completada</Text>
+                    <RangoFechas
+                      desdeIso={draftFechaDesdeIso}
+                      hastaIso={draftFechaHastaIso}
+                      onChangeDesde={(iso) => {
                         setModalFiltroError('');
                         setDraftFechaDesdeIso(iso);
                       }}
-                      placeholder="dd/mm/aaaa"
-                    />
-                  </View>
-                  <View style={styles.modalField}>
-                    <Text style={styles.modalLabel}>Hasta (fecha completada)</Text>
-                    <InputFecha
-                      style={styles.modalInput}
-                      valueIso={draftFechaHastaIso}
-                      onChangeIso={(iso) => {
+                      onChangeHasta={(iso) => {
                         setModalFiltroError('');
                         setDraftFechaHastaIso(iso);
                       }}
-                      placeholder="dd/mm/aaaa"
                     />
                   </View>
                   <View style={styles.modalField}>
@@ -917,7 +908,6 @@ const styles = StyleSheet.create({
   modalField: { marginBottom: 14 },
   modalLabel: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 6 },
   modalLabelMuted: { fontWeight: '400', color: '#94a3b8' },
-  modalInput: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12, fontSize: 14, color: '#334155', backgroundColor: '#fff' },
   modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 8 },
   modalBtnLimpiar: { paddingVertical: 10, paddingHorizontal: 16, backgroundColor: '#f1f5f9', borderRadius: 10 },
   modalBtnLimpiarText: { fontSize: 14, fontWeight: '600', color: '#64748b' },

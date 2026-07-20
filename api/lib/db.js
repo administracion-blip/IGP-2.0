@@ -81,6 +81,23 @@ export const tables = {
    * SK = "PROMPT#<promptId>".
    */
   iaPrompts: process.env.DDB_IA_PROMPTS_TABLE || 'Igp_IaPrompts',
+  /** Limpieza: catálogo de objetos a limpiar. PK = "TIPO", SK = id_tipo. */
+  limpiezaTipos: process.env.DDB_LIMPIEZA_TIPOS_TABLE || 'Igp_LimpiezaTipos',
+  /**
+   * Limpieza: reglas de frecuencia y plantillas. PK = LOCAL#<localId>,
+   * SK = REGLA#<uuid> | PLANTILLA#<uuid>. GSI: Tipo-Local-index (tipo → local_id).
+   */
+  limpiezaProgramacion: process.env.DDB_LIMPIEZA_PROGRAMACION_TABLE || 'Igp_LimpiezaProgramacion',
+  /**
+   * Limpieza: registros por fecha/local. PK = LOCAL#<localId>,
+   * SK = FECHA#<YYYY-MM-DD>#<tipo_objeto_id>. GSI: Fecha-Local-index (fecha_programada → local_id).
+   */
+  limpiezaRegistros: process.env.DDB_LIMPIEZA_REGISTROS_TABLE || 'Igp_LimpiezaRegistros',
+  /**
+   * Limpieza: incidencias detectadas al limpiar. PK = LOCAL#<localId>,
+   * SK = INC#<ISO>#<uuid>. GSI: Registro-index (registro_id).
+   */
+  limpiezaIncidencias: process.env.DDB_LIMPIEZA_INCIDENCIAS_TABLE || 'Igp_LimpiezaIncidencias',
 };
 
 /**

@@ -7,6 +7,7 @@ import { copyToClipboard } from '../utils/clipboard';
 type Props = {
   empresaNombre?: string | null;
   fechaEmision?: string | null;
+  proveedorNombre?: string | null;
   numeroFacturaProveedor?: string | null;
   compact?: boolean;
 };
@@ -14,6 +15,7 @@ type Props = {
 export function CampoIdDocumentoFacturaRecibida({
   empresaNombre,
   fechaEmision,
+  proveedorNombre,
   numeroFacturaProveedor,
   compact = false,
 }: Props) {
@@ -22,9 +24,10 @@ export function CampoIdDocumentoFacturaRecibida({
       buildIdDocumentoFacturaRecibida({
         empresaNombre,
         fechaEmision,
+        proveedorNombre,
         numeroFacturaProveedor,
       }),
-    [empresaNombre, fechaEmision, numeroFacturaProveedor],
+    [empresaNombre, fechaEmision, proveedorNombre, numeroFacturaProveedor],
   );
 
   const [copiado, setCopiado] = useState(false);

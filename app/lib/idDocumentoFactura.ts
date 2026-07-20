@@ -36,11 +36,13 @@ export type IdDocumentoFacturaRecibidaInput = {
   /** En facturas IN: empresa del grupo (emisor_nombre). */
   empresaNombre?: string | null;
   fechaEmision?: string | null;
+  /** Proveedor / emisor comercial del documento (empresa_nombre en IN). */
+  proveedorNombre?: string | null;
   numeroFacturaProveedor?: string | null;
 };
 
 /**
- * Identificador virtual para facturas recibidas: empresa + fecha + trimestre + nº factura proveedor.
+ * Identificador virtual para facturas recibidas: empresa + fecha + trimestre + proveedor + nº factura proveedor.
  * Pensado para renombrar PDFs y copiar/pegar desde el detalle.
  */
 export function buildIdDocumentoFacturaRecibida(input: IdDocumentoFacturaRecibidaInput): string {
@@ -49,8 +51,9 @@ export function buildIdDocumentoFacturaRecibida(input: IdDocumentoFacturaRecibid
   const fecha = iso || 'sin_fecha';
   const t = trimestreDesdeFechaEmision(input.fechaEmision);
   const tri = t ? `T${t.trimestre}-${t.anio}` : 'sin_trimestre';
+  const proveedor = sanitizarSegmentoIdDocumento(input.proveedorNombre) || 'sin_proveedor';
   const num = sanitizarSegmentoIdDocumento(input.numeroFacturaProveedor) || 'sin_numero';
-  return `${empresa}_${fecha}_${tri}_${num}`;
+  return `${empresa}_${fecha}_${tri}_${proveedor}_${num}`;
 }
 
 export function extensionAdjuntoFactura(nombre?: string | null, tipo?: string | null): string {

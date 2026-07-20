@@ -848,6 +848,7 @@ export function FacturaVentaDetallePanel({
           <CampoIdDocumentoFacturaRecibida
             empresaNombre={emisorNombre}
             fechaEmision={fechaEmision}
+            proveedorNombre={empresaNombre}
             numeroFacturaProveedor={numFacturaProveedor}
             compact={compactPanel}
           />
