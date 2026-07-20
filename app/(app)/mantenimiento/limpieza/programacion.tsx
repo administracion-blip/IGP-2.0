@@ -21,14 +21,18 @@ import { apiFetch } from '../../../utils/api';
 type Regla = {
   id_regla: string;
   local_id: string;
+  objeto_id?: string | null;
   tipo_objeto_id: string;
+  nombre_tarea?: string | null;
   frecuencia: string;
   cada_n_dias?: number | null;
   dias_semana?: boolean[];
   rol_responsable?: string | null;
+  hora_limite?: string | null;
   activo?: boolean;
 };
 type Tipo = { id_tipo: string; nombre: string };
+type Objeto = { id_objeto: string; nombre: string; ubicacion?: string; tipo_objeto_id?: string | null; activo?: boolean };
 
 const FRECUENCIAS = ['diaria', 'cada_n_dias', 'semanal', 'mensual', 'trimestral', 'anual', 'personalizada'] as const;
 const FREQ_LABEL: Record<string, string> = {
@@ -57,6 +61,7 @@ export default function ProgramacionLimpiezaScreen() {
 
   const [localId, setLocalId] = useState('');
   const [tipos, setTipos] = useState<Tipo[]>([]);
+  const [objetos, setObjetos] = useState<Objeto[]>([]);
   const [reglas, setReglas] = useState<Regla[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +70,8 @@ export default function ProgramacionLimpiezaScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [tipoObjetoId, setTipoObjetoId] = useState('');
+  const [objetoId, setObjetoId] = useState('');
+  const [nombreTarea, setNombreTarea] = useState('');
   const [frecuencia, setFrecuencia] = useState<string>('diaria');
   const [cadaNDias, setCadaNDias] = useState('2');
   const [diasSemana, setDiasSemana] = useState<boolean[]>([false, false, false, false, false, false, false]);
@@ -111,11 +117,26 @@ export default function ProgramacionLimpiezaScreen() {
 
   useEffect(() => { cargarReglas(); }, [cargarReglas]);
 
+  useEffect(() => {
+    if (!localId) { setObjetos([]); return; }
+    apiFetch(`/api/limpieza/objetos?local_id=${encodeURIComponent(localId)}&solo_activos=1`)
+      .then((res) => res.json())
+      .then((data: { objetos?: Objeto[] }) => setObjetos(Array.isArray(data.objetos) ? data.objetos : []))
+      .catch(() => setObjetos([]));
+  }, [localId]);
+
   const nombreTipo = useCallback((id: string) => tipos.find((t) => t.id_tipo === id)?.nombre ?? id, [tipos]);
+  const objetoLabel = useCallback((o: Objeto) => (o.ubicacion ? `${o.nombre} · ${o.ubicacion}` : o.nombre), []);
+  const nombreObjeto = useCallback((r: Regla) => {
+    const o = objetos.find((x) => x.id_objeto === r.objeto_id);
+    if (o) return objetoLabel(o);
+    return nombreTipo(r.tipo_objeto_id);
+  }, [objetos, objetoLabel, nombreTipo]);
 
   const abrirNuevo = () => {
     setEditId(null);
-    setTipoObjetoId(tipos[0]?.id_tipo ?? '');
+    setObjetoId(objetos[0]?.id_objeto ?? '');
+    setNombreTarea('');
     setFrecuencia('diaria');
     setCadaNDias('2');
     setDiasSemana([false, false, false, false, false, false, false]);
@@ -125,7 +146,8 @@ export default function ProgramacionLimpiezaScreen() {
 
   const abrirEditar = (r: Regla) => {
     setEditId(r.id_regla);
-    setTipoObjetoId(r.tipo_objeto_id);
+    setObjetoId(r.objeto_id ?? '');
+    setNombreTarea(r.nombre_tarea ?? '');
     setFrecuencia(r.frecuencia);
     setCadaNDias(String(r.cada_n_dias ?? 2));
     setDiasSemana(Array.isArray(r.dias_semana) && r.dias_semana.length === 7 ? r.dias_semana : [false, false, false, false, false, false, false]);
@@ -137,7 +159,7 @@ export default function ProgramacionLimpiezaScreen() {
   const algunDia = diasSemana.some(Boolean);
 
   const guardar = async () => {
-    if (!tipoObjetoId) { setError('Selecciona un objeto del catálogo'); return; }
+    if (!objetoId) { setError('Selecciona un objeto del local'); return; }
     if (CON_DIAS_SEMANA.includes(frecuencia) && !algunDia) {
       setError('Marca al menos un día de la semana');
       return;
@@ -146,7 +168,8 @@ export default function ProgramacionLimpiezaScreen() {
     setError(null);
     const payload = {
       local_id: localId,
-      tipo_objeto_id: tipoObjetoId,
+      objeto_id: objetoId,
+      nombre_tarea: nombreTarea.trim() || undefined,
       frecuencia,
       cada_n_dias: frecuencia === 'cada_n_dias' ? Number(cadaNDias) || 1 : undefined,
       dias_semana: usaDiasSemana && algunDia ? diasSemana : undefined,
@@ -252,13 +275,13 @@ export default function ProgramacionLimpiezaScreen() {
 
           <View style={styles.listHeader}>
             <Text style={styles.sectionTitle}>Reglas de frecuencia</Text>
-            <TouchableOpacity style={styles.addBtn} onPress={abrirNuevo} disabled={tipos.length === 0}>
+            <TouchableOpacity style={styles.addBtn} onPress={abrirNuevo} disabled={objetos.length === 0}>
               <MaterialIcons name="add" size={18} color="#fff" />
               <Text style={styles.addBtnText}>Nueva regla</Text>
             </TouchableOpacity>
           </View>
-          {tipos.length === 0 ? (
-            <Text style={styles.vacio}>Crea primero objetos en el catálogo.</Text>
+          {objetos.length === 0 ? (
+            <Text style={styles.vacio}>Crea primero objetos de este local en «Objetos por local».</Text>
           ) : null}
 
           {loading ? (
@@ -270,9 +293,9 @@ export default function ProgramacionLimpiezaScreen() {
               ) : reglas.map((r) => (
                 <View key={r.id_regla} style={styles.card}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.cardTitle}>{nombreTipo(r.tipo_objeto_id)}</Text>
+                    <Text style={styles.cardTitle}>{nombreObjeto(r)}{r.nombre_tarea ? ` — ${r.nombre_tarea}` : ''}</Text>
                     <Text style={styles.cardMeta}>
-                      {resumenFrecuencia(r)}{r.hora_limite ? ` · hasta ${r.hora_limite}` : ''}{r.activo === false ? ' · inactiva' : ''}
+                      {resumenFrecuencia(r)}{r.activo === false ? ' · inactiva' : ''}
                     </Text>
                   </View>
                   <TouchableOpacity onPress={() => abrirEditar(r)} style={styles.iconBtn}>
@@ -302,10 +325,21 @@ export default function ProgramacionLimpiezaScreen() {
               <SelectorDesplegable
                 placeholder="Selecciona objeto"
                 icono="inventory-2"
-                tituloLista="Objeto del catálogo"
-                valorId={tipoObjetoId}
-                opciones={tipos.map((t) => ({ id: t.id_tipo, titulo: t.nombre, icono: 'cleaning-services' as const }))}
-                onSeleccionar={setTipoObjetoId}
+                tituloLista="Objeto del local"
+                buscador
+                buscadorPlaceholder="Buscar objeto…"
+                valorId={objetoId}
+                opciones={objetos.map((o) => ({ id: o.id_objeto, titulo: objetoLabel(o), icono: 'kitchen' as const }))}
+                onSeleccionar={setObjetoId}
+              />
+
+              <Text style={styles.label}>Nombre de la tarea (opcional)</Text>
+              <TextInput
+                style={styles.input}
+                value={nombreTarea}
+                onChangeText={setNombreTarea}
+                placeholder="Repaso diario, Limpieza profunda…"
+                placeholderTextColor="#94a3b8"
               />
 
               <Text style={styles.label}>Frecuencia</Text>

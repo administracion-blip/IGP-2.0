@@ -54,6 +54,8 @@ const MAX_GEN_DIAS = 366;
 const PERIODICAS = { mensual: 1, trimestral: 3, anual: 12 };
 /** Cuántos días atrás miramos para arrastrar limpiezas pendientes al checklist. */
 const VENTANA_ATRASADAS_DIAS = 120;
+/** Días hacia delante que mantiene generados la auto-generación (al crear/activar regla y job nocturno). */
+const VENTANA_AUTOGEN_DIAS = 90;
 
 // ─────────────────────────── helpers ───────────────────────────
 
@@ -167,8 +169,41 @@ function generarFechasRegla(regla, desde, hasta) {
   return fechas;
 }
 
-const skRegistro = (fecha, tipoObjetoId) => `FECHA#${fecha}#${tipoObjetoId}`;
+/**
+ * SK de registro. Anti-colisión: un objeto físico puede tener varias tareas el
+ * mismo día (repaso diario + limpieza profunda mensual), por eso la clave
+ * incluye la "tarea" (id de regla, o id de alta manual). Formato:
+ *   FECHA#<fecha>#<objetoId>#<tareaKey>
+ * Compatibilidad: registros antiguos sin tarea usan FECHA#<fecha>#<objetoId|tipo>.
+ */
+const skRegistro = (fecha, objetoId, tareaKey) =>
+  tareaKey ? `FECHA#${fecha}#${objetoId}#${tareaKey}` : `FECHA#${fecha}#${objetoId}`;
 const pkLocal = (localId) => `LOCAL#${localId}`;
+const skObjeto = (id) => `OBJETO#${id}`;
+const tObj = tables.limpiezaObjetos;
+
+/** Objeto físico de un local (una nevera concreta). Devuelve item o null. */
+async function getObjeto(localId, objetoId) {
+  const r = await docClient.send(
+    new GetCommand({ TableName: tObj, Key: { PK: pkLocal(localId), SK: skObjeto(objetoId) } }),
+  );
+  return r.Item || null;
+}
+
+/** Mapea un objeto físico a la forma que consume el frontend. */
+function mapObjeto(item) {
+  return {
+    id_objeto: item.id_objeto,
+    local_id: item.local_id,
+    tipo_objeto_id: item.tipo_objeto_id ?? null,
+    nombre: item.nombre ?? '',
+    ubicacion: item.ubicacion ?? '',
+    codigo: item.codigo ?? '',
+    activo: item.activo !== false,
+    creado_en: item.creado_en ?? null,
+    actualizado_en: item.actualizado_en ?? null,
+  };
+}
 
 /** Índice de día de semana con Lun=0 … Dom=6 (a partir de un Date). */
 function idxDiaSemana(d) {
@@ -223,6 +258,13 @@ function fechaMenosDias(iso, n) {
   return toISODate(d);
 }
 
+/** Suma días a una fecha ISO (YYYY-MM-DD) y devuelve ISO. */
+function fechaMasDias(iso, n) {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  return toISODate(d);
+}
+
 /**
  * Mapea un registro a la forma que consume el frontend. Calcula el estado
  * efectivo: una tarea "pendiente" cuya fecha ya pasó (según jornada) se muestra
@@ -236,6 +278,11 @@ function mapRegistro(item, hoyRef) {
     id_registro: item.id_registro,
     local_id: item.local_id,
     tipo_objeto_id: item.tipo_objeto_id,
+    objeto_id: item.objeto_id ?? null,
+    objeto_nombre: item.objeto_nombre_snapshot ?? null,
+    ubicacion: item.ubicacion_snapshot ?? null,
+    tarea_key: item.tarea_key ?? null,
+    tarea_nombre: item.tarea_nombre ?? null,
     fecha_programada: item.fecha_programada,
     estado,
     estado_base: item.estado,
@@ -250,11 +297,11 @@ function mapRegistro(item, hoyRef) {
   };
 }
 
-async function getRegistro(localId, fecha, tipoObjetoId) {
+async function getRegistro(localId, fecha, objetoId, tareaKey) {
   const r = await docClient.send(
     new GetCommand({
       TableName: tReg,
-      Key: { PK: pkLocal(localId), SK: skRegistro(fecha, tipoObjetoId) },
+      Key: { PK: pkLocal(localId), SK: skRegistro(fecha, objetoId, tareaKey) },
     }),
   );
   return r.Item || null;
@@ -367,6 +414,139 @@ router.delete('/limpieza/tipos/:id', requirePermission('limpieza.catalogo'), asy
   }
 });
 
+// ═══════════════════════════ OBJETOS FÍSICOS POR LOCAL ═══════════════════════════
+
+/** Lista los objetos físicos de un local (p. ej. Nevera Cocina 1, Nevera Barra…). */
+router.get('/limpieza/objetos', requireAnyPermission('limpieza.ver', 'limpieza.catalogo', 'limpieza.programar'), async (req, res) => {
+  const localId = formatId6(String(req.query.local_id ?? '').trim());
+  if (!localId || localId === '000000') return res.status(400).json({ error: 'local_id es obligatorio' });
+  if (!(await usuarioPuedeAccederLocal(req.user, localId))) {
+    return res.status(403).json({ error: 'No tienes acceso a este local' });
+  }
+  try {
+    const items = await queryAll({
+      TableName: tObj,
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+      ExpressionAttributeValues: { ':pk': pkLocal(localId), ':sk': 'OBJETO#' },
+    });
+    const soloActivos = String(req.query.solo_activos || '') === '1';
+    const objetos = items
+      .filter((o) => (soloActivos ? o.activo !== false : true))
+      .map(mapObjeto)
+      .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || '')));
+    return res.json({ objetos });
+  } catch (err) {
+    try { throwSiTablaFalta(err, tObj); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+    return res.status(500).json({ error: 'Error al listar objetos' });
+  }
+});
+
+router.post('/limpieza/objetos', requireAnyPermission('limpieza.catalogo', 'limpieza.programar'), async (req, res) => {
+  const body = req.body || {};
+  const localId = formatId6(String(body.local_id ?? '').trim());
+  const tipoObjetoId = String(body.tipo_objeto_id ?? '').trim();
+  const nombre = String(body.nombre ?? '').trim();
+
+  if (!localId || localId === '000000') return res.status(400).json({ error: 'local_id es obligatorio' });
+  if (!tipoObjetoId) return res.status(400).json({ error: 'tipo_objeto_id es obligatorio' });
+  if (!nombre) return res.status(400).json({ error: 'nombre es obligatorio' });
+  if (!(await usuarioPuedeAccederLocal(req.user, localId))) {
+    return res.status(403).json({ error: 'No tienes acceso a este local' });
+  }
+
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const item = {
+    PK: pkLocal(localId),
+    SK: skObjeto(id),
+    id_objeto: id,
+    local_id: localId,
+    tipo_objeto_id: tipoObjetoId,
+    nombre,
+    ubicacion: String(body.ubicacion ?? '').trim(),
+    codigo: String(body.codigo ?? '').trim(),
+    activo: body.activo === undefined ? true : Boolean(body.activo),
+    creado_en: now,
+    actualizado_en: now,
+  };
+  try {
+    await docClient.send(new PutCommand({ TableName: tObj, Item: item }));
+    return res.json({ ok: true, objeto: mapObjeto(item) });
+  } catch (err) {
+    try { throwSiTablaFalta(err, tObj); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+    return res.status(500).json({ error: 'Error al crear el objeto' });
+  }
+});
+
+router.patch('/limpieza/objetos/:localId/:id', requireAnyPermission('limpieza.catalogo', 'limpieza.programar'), async (req, res) => {
+  const localId = formatId6(String(req.params.localId).trim());
+  const id = String(req.params.id);
+  const body = req.body || {};
+  if (!(await usuarioPuedeAccederLocal(req.user, localId))) {
+    return res.status(403).json({ error: 'No tienes acceso a este local' });
+  }
+
+  const sets = ['actualizado_en = :ts'];
+  const values = { ':ts': new Date().toISOString() };
+  const names = {};
+  const campos = {
+    tipo_objeto_id: (v) => String(v ?? '').trim(),
+    nombre: (v) => String(v ?? '').trim(),
+    ubicacion: (v) => String(v ?? '').trim(),
+    codigo: (v) => String(v ?? '').trim(),
+    activo: (v) => Boolean(v),
+  };
+  for (const [k, norm] of Object.entries(campos)) {
+    if (body[k] === undefined) continue;
+    names[`#${k}`] = k;
+    values[`:${k}`] = norm(body[k]);
+    sets.push(`#${k} = :${k}`);
+  }
+  if (sets.length === 1) return res.status(400).json({ error: 'Sin cambios' });
+
+  try {
+    const out = await docClient.send(new UpdateCommand({
+      TableName: tObj,
+      Key: { PK: pkLocal(localId), SK: skObjeto(id) },
+      UpdateExpression: `SET ${sets.join(', ')}`,
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
+      ConditionExpression: 'attribute_exists(SK)',
+      ReturnValues: 'ALL_NEW',
+    }));
+    return res.json({ ok: true, objeto: mapObjeto(out.Attributes) });
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') return res.status(404).json({ error: 'Objeto no encontrado' });
+    return res.status(500).json({ error: 'Error al actualizar el objeto' });
+  }
+});
+
+router.delete('/limpieza/objetos/:localId/:id', requireAnyPermission('limpieza.catalogo', 'limpieza.programar'), async (req, res) => {
+  const localId = formatId6(String(req.params.localId).trim());
+  const id = String(req.params.id);
+  if (!(await usuarioPuedeAccederLocal(req.user, localId))) {
+    return res.status(403).json({ error: 'No tienes acceso a este local' });
+  }
+  try {
+    // Borra también sus reglas de programación (dejarlas huérfanas no aporta).
+    const reglas = await queryAll({
+      TableName: tProg,
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+      ExpressionAttributeValues: { ':pk': pkLocal(localId), ':sk': 'REGLA#' },
+    });
+    for (const r of reglas) {
+      if (String(r.objeto_id || '') === id) {
+        await docClient.send(new DeleteCommand({ TableName: tProg, Key: { PK: r.PK, SK: r.SK } }));
+      }
+    }
+    await docClient.send(new DeleteCommand({ TableName: tObj, Key: { PK: pkLocal(localId), SK: skObjeto(id) } }));
+    return res.json({ ok: true });
+  } catch (err) {
+    try { throwSiTablaFalta(err, tObj); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+    return res.status(500).json({ error: 'Error al borrar el objeto' });
+  }
+});
+
 // ═══════════════════════════ PROGRAMACIÓN (REGLAS) ═══════════════════════════
 
 router.get('/limpieza/reglas', requireAnyPermission('limpieza.ver', 'limpieza.programar'), async (req, res) => {
@@ -392,15 +572,24 @@ router.get('/limpieza/reglas', requireAnyPermission('limpieza.ver', 'limpieza.pr
 router.post('/limpieza/reglas', requirePermission('limpieza.programar'), async (req, res) => {
   const body = req.body || {};
   const localId = formatId6(String(body.local_id ?? '').trim());
-  const tipoObjetoId = String(body.tipo_objeto_id ?? '').trim();
+  const objetoId = String(body.objeto_id ?? '').trim();
   const frecuencia = String(body.frecuencia ?? '').trim();
 
   if (!localId || localId === '000000') return res.status(400).json({ error: 'local_id es obligatorio' });
-  if (!tipoObjetoId) return res.status(400).json({ error: 'tipo_objeto_id es obligatorio' });
+  if (!objetoId) return res.status(400).json({ error: 'objeto_id es obligatorio' });
   if (!FRECUENCIAS.includes(frecuencia)) return res.status(400).json({ error: 'frecuencia no válida' });
   if (!(await usuarioPuedeAccederLocal(req.user, localId))) {
     return res.status(403).json({ error: 'No tienes acceso a este local' });
   }
+
+  let objeto;
+  try {
+    objeto = await getObjeto(localId, objetoId);
+  } catch (err) {
+    try { throwSiTablaFalta(err, tObj); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+    return res.status(500).json({ error: 'Error al cargar el objeto' });
+  }
+  if (!objeto) return res.status(404).json({ error: 'Objeto no encontrado en este local' });
 
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
@@ -410,7 +599,9 @@ router.post('/limpieza/reglas', requirePermission('limpieza.programar'), async (
     tipo: 'REGLA',
     id_regla: id,
     local_id: localId,
-    tipo_objeto_id: tipoObjetoId,
+    objeto_id: objetoId,
+    tipo_objeto_id: objeto.tipo_objeto_id ?? null,
+    nombre_tarea: String(body.nombre_tarea ?? '').trim() || null,
     frecuencia,
     cada_n_dias: frecuencia === 'cada_n_dias' ? Math.max(1, Number(body.cada_n_dias) || 1) : null,
     dias_semana: Array.isArray(body.dias_semana) ? body.dias_semana.map(Boolean).slice(0, 7) : [],
@@ -421,7 +612,14 @@ router.post('/limpieza/reglas', requirePermission('limpieza.programar'), async (
   };
   try {
     await docClient.send(new PutCommand({ TableName: tProg, Item: item }));
-    return res.json({ ok: true, regla: item });
+    // Auto-generación: materializa la ventana futura para que aparezca en
+    // calendario/checklist sin pasos manuales.
+    let generacion = null;
+    if (item.activo) {
+      const hoy = jornadaNegocioHoyIso();
+      try { generacion = await generarRegistrosLocal(localId, hoy, fechaMasDias(hoy, VENTANA_AUTOGEN_DIAS)); } catch { /* no bloquear la creación */ }
+    }
+    return res.json({ ok: true, regla: item, generacion });
   } catch (err) {
     try { throwSiTablaFalta(err, tProg); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
     return res.status(500).json({ error: 'Error al crear la regla' });
@@ -443,13 +641,26 @@ router.patch('/limpieza/reglas/:localId/:id', requirePermission('limpieza.progra
   const values = { ':ts': new Date().toISOString() };
   const names = {};
   const campos = {
+    objeto_id: (v) => String(v ?? '').trim(),
     tipo_objeto_id: (v) => String(v ?? '').trim(),
+    nombre_tarea: (v) => (String(v ?? '').trim() || null),
     frecuencia: (v) => String(v),
     cada_n_dias: (v) => Math.max(1, Number(v) || 1),
     dias_semana: (v) => (Array.isArray(v) ? v.map(Boolean).slice(0, 7) : []),
     rol_responsable: (v) => (String(v ?? '').trim() || null),
     activo: (v) => Boolean(v),
   };
+  // Si cambia el objeto, re-derivar el tipo desde el objeto destino.
+  if (body.objeto_id !== undefined) {
+    try {
+      const obj = await getObjeto(localId, String(body.objeto_id).trim());
+      if (!obj) return res.status(404).json({ error: 'Objeto no encontrado en este local' });
+      body.tipo_objeto_id = obj.tipo_objeto_id ?? null;
+    } catch (err) {
+      try { throwSiTablaFalta(err, tObj); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+      return res.status(500).json({ error: 'Error al cargar el objeto' });
+    }
+  }
   for (const [k, norm] of Object.entries(campos)) {
     if (body[k] === undefined) continue;
     names[`#${k}`] = k;
@@ -468,6 +679,11 @@ router.patch('/limpieza/reglas/:localId/:id', requirePermission('limpieza.progra
       ConditionExpression: 'attribute_exists(SK)',
       ReturnValues: 'ALL_NEW',
     }));
+    // Si la regla queda activa, re-materializar ventana futura.
+    if (out.Attributes?.activo !== false) {
+      const hoy = jornadaNegocioHoyIso();
+      try { await generarRegistrosLocal(localId, hoy, fechaMasDias(hoy, VENTANA_AUTOGEN_DIAS)); } catch { /* no bloquear */ }
+    }
     return res.json({ ok: true, regla: out.Attributes });
   } catch (err) {
     if (err?.name === 'ConditionalCheckFailedException') return res.status(404).json({ error: 'Regla no encontrada' });
@@ -491,10 +707,106 @@ router.delete('/limpieza/reglas/:localId/:id', requirePermission('limpieza.progr
 // ═══════════════════════════ GENERACIÓN DE REGISTROS ═══════════════════════════
 
 /**
- * Materializa registros a partir de las reglas activas de un local en un rango.
- * Idempotente: la SK es determinista (FECHA#fecha#tipo) y se usa
- * ConditionExpression attribute_not_exists(SK) para no duplicar.
+ * Materializa registros de un local en [desde, hasta] a partir de sus reglas
+ * activas. Cada registro se clava por objeto + tarea (regla) para que un mismo
+ * objeto pueda tener varias limpiezas el mismo día sin colisionar:
+ *   SK = FECHA#<fecha>#<objeto_id>#<regla_id>
+ * Idempotente (ConditionExpression attribute_not_exists(SK)). Devuelve conteos.
  */
+async function generarRegistrosLocal(localId, desde, hasta) {
+  const reglas = (await queryAll({
+    TableName: tProg,
+    KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+    ExpressionAttributeValues: { ':pk': pkLocal(localId), ':sk': 'REGLA#' },
+  })).filter((r) => r.activo !== false && r.objeto_id);
+
+  // Cache de objetos del local (para snapshot de nombre/ubicación).
+  const objetosItems = await queryAll({
+    TableName: tObj,
+    KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+    ExpressionAttributeValues: { ':pk': pkLocal(localId), ':sk': 'OBJETO#' },
+  });
+  const objetosMap = new Map(objetosItems.map((o) => [String(o.id_objeto), o]));
+
+  const existentesRango = await queryAll({
+    TableName: tReg,
+    KeyConditionExpression: 'PK = :pk AND SK BETWEEN :lo AND :hi',
+    ExpressionAttributeValues: { ':pk': pkLocal(localId), ':lo': `FECHA#${desde}`, ':hi': `FECHA#${hasta}#\uffff` },
+  });
+  const cargaPorFecha = new Map();
+  for (const it of existentesRango) {
+    const f = String(it.fecha_programada || '');
+    if (f) cargaPorFecha.set(f, (cargaPorFecha.get(f) || 0) + 1);
+  }
+
+  const now = new Date().toISOString();
+  let creados = 0;
+  let existentes = 0;
+  let omitidas = 0; // reglas cuyo objeto ya no existe o está inactivo
+
+  const crearRegistro = async (regla, fecha) => {
+    const objeto = objetosMap.get(String(regla.objeto_id));
+    if (!objeto || objeto.activo === false) { omitidas += 1; return; }
+    const item = {
+      PK: pkLocal(localId),
+      SK: skRegistro(fecha, regla.objeto_id, regla.id_regla),
+      id_registro: crypto.randomUUID(),
+      local_id: localId,
+      objeto_id: regla.objeto_id,
+      objeto_nombre_snapshot: objeto.nombre ?? '',
+      ubicacion_snapshot: objeto.ubicacion ?? '',
+      tipo_objeto_id: regla.tipo_objeto_id ?? objeto.tipo_objeto_id ?? null,
+      tarea_key: regla.id_regla,
+      tarea_nombre: regla.nombre_tarea ?? null,
+      fecha_programada: fecha,
+      rol_responsable: regla.rol_responsable ?? null,
+      estado: 'pendiente',
+      origen: 'frecuencia',
+      regla_id: regla.id_regla,
+      creado_en: now,
+      actualizado_en: now,
+    };
+    try {
+      await docClient.send(new PutCommand({
+        TableName: tReg,
+        Item: item,
+        ConditionExpression: 'attribute_not_exists(SK)',
+      }));
+      creados += 1;
+      cargaPorFecha.set(fecha, (cargaPorFecha.get(fecha) || 0) + 1);
+    } catch (e) {
+      if (e?.name === 'ConditionalCheckFailedException') existentes += 1;
+      else throw e;
+    }
+  };
+
+  for (const regla of reglas) {
+    if (esPeriodicaPorDiaSemana(regla)) {
+      const candMap = candidatasPorPeriodo(regla, desde, hasta);
+      const periodosOcupados = new Set(
+        existentesRango
+          .filter((e) => e.regla_id === regla.id_regla && e.fecha_programada)
+          .map((e) => clavePeriodo(new Date(`${e.fecha_programada}T00:00:00`), regla.frecuencia)),
+      );
+      for (const [periodo, fechas] of candMap) {
+        if (periodosOcupados.has(periodo)) { existentes += 1; continue; }
+        let best = null;
+        let bestCarga = Infinity;
+        for (const f of fechas) {
+          const carga = cargaPorFecha.get(f) || 0;
+          if (carga < bestCarga) { bestCarga = carga; best = f; }
+        }
+        if (best) await crearRegistro(regla, best);
+      }
+    } else {
+      const fechas = generarFechasRegla(regla, desde, hasta);
+      for (const fecha of fechas) await crearRegistro(regla, fecha);
+    }
+  }
+  return { creados, existentes, omitidas, reglas: reglas.length };
+}
+
+/** Endpoint manual: materializa un rango concreto (acción avanzada / regeneración). */
 router.post('/limpieza/registros/generar', requirePermission('limpieza.programar'), async (req, res) => {
   const body = req.body || {};
   const localId = formatId6(String(body.local_id ?? '').trim());
@@ -507,91 +819,58 @@ router.post('/limpieza/registros/generar', requirePermission('limpieza.programar
   if (!(await usuarioPuedeAccederLocal(req.user, localId))) {
     return res.status(403).json({ error: 'No tienes acceso a este local' });
   }
-
   try {
-    const reglas = (await queryAll({
-      TableName: tProg,
-      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
-      ExpressionAttributeValues: { ':pk': pkLocal(localId), ':sk': 'REGLA#' },
-    })).filter((r) => r.activo !== false);
-
-    // Registros ya existentes del local en el rango: para reparto de carga
-    // (elegir el día con menos limpiezas) y para "sticky" (no recolocar un
-    // periodo que ya tiene registro de esa regla).
-    const existentesRango = await queryAll({
-      TableName: tReg,
-      KeyConditionExpression: 'PK = :pk AND SK BETWEEN :lo AND :hi',
-      ExpressionAttributeValues: { ':pk': pkLocal(localId), ':lo': `FECHA#${desde}`, ':hi': `FECHA#${hasta}#\uffff` },
-    });
-    const cargaPorFecha = new Map();
-    for (const it of existentesRango) {
-      const f = String(it.fecha_programada || '');
-      if (f) cargaPorFecha.set(f, (cargaPorFecha.get(f) || 0) + 1);
-    }
-
-    const now = new Date().toISOString();
-    let creados = 0;
-    let existentes = 0;
-
-    const crearRegistro = async (regla, fecha) => {
-      const item = {
-        PK: pkLocal(localId),
-        SK: skRegistro(fecha, regla.tipo_objeto_id),
-        id_registro: crypto.randomUUID(),
-        local_id: localId,
-        tipo_objeto_id: regla.tipo_objeto_id,
-        fecha_programada: fecha,
-        rol_responsable: regla.rol_responsable ?? null,
-        estado: 'pendiente',
-        origen: 'frecuencia',
-        regla_id: regla.id_regla,
-        creado_en: now,
-        actualizado_en: now,
-      };
-      try {
-        await docClient.send(new PutCommand({
-          TableName: tReg,
-          Item: item,
-          ConditionExpression: 'attribute_not_exists(SK)',
-        }));
-        creados += 1;
-        cargaPorFecha.set(fecha, (cargaPorFecha.get(fecha) || 0) + 1);
-      } catch (e) {
-        if (e?.name === 'ConditionalCheckFailedException') existentes += 1;
-        else throw e;
-      }
-    };
-
-    for (const regla of reglas) {
-      if (esPeriodicaPorDiaSemana(regla)) {
-        // Periódica por día de semana: 1 registro por periodo, en la fecha
-        // candidata con MENOS carga (reparto). Sticky: si el periodo ya tiene
-        // un registro de esta regla, no se recoloca.
-        const candMap = candidatasPorPeriodo(regla, desde, hasta);
-        const periodosOcupados = new Set(
-          existentesRango
-            .filter((e) => e.regla_id === regla.id_regla && e.fecha_programada)
-            .map((e) => clavePeriodo(new Date(`${e.fecha_programada}T00:00:00`), regla.frecuencia)),
-        );
-        for (const [periodo, fechas] of candMap) {
-          if (periodosOcupados.has(periodo)) { existentes += 1; continue; }
-          let best = null;
-          let bestCarga = Infinity;
-          for (const f of fechas) {
-            const carga = cargaPorFecha.get(f) || 0;
-            if (carga < bestCarga) { bestCarga = carga; best = f; }
-          }
-          if (best) await crearRegistro(regla, best);
-        }
-      } else {
-        const fechas = generarFechasRegla(regla, desde, hasta);
-        for (const fecha of fechas) await crearRegistro(regla, fecha);
-      }
-    }
-    return res.json({ ok: true, creados, existentes, reglas: reglas.length });
+    const out = await generarRegistrosLocal(localId, desde, hasta);
+    return res.json({ ok: true, ...out });
   } catch (err) {
     try { throwSiTablaFalta(err, tReg); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
     return res.status(500).json({ error: 'Error al generar registros' });
+  }
+});
+
+/** Alta manual de un registro puntual (una limpieza extra fuera de plan). */
+router.post('/limpieza/registros', requirePermission('limpieza.programar'), async (req, res) => {
+  const body = req.body || {};
+  const localId = formatId6(String(body.local_id ?? '').trim());
+  const objetoId = String(body.objeto_id ?? '').trim();
+  const fecha = String(body.fecha_programada ?? '').trim();
+
+  if (!localId || localId === '000000') return res.status(400).json({ error: 'local_id es obligatorio' });
+  if (!objetoId) return res.status(400).json({ error: 'objeto_id es obligatorio' });
+  if (!RE_FECHA.test(fecha)) return res.status(400).json({ error: 'fecha_programada no válida (YYYY-MM-DD)' });
+  if (!(await usuarioPuedeAccederLocal(req.user, localId))) {
+    return res.status(403).json({ error: 'No tienes acceso a este local' });
+  }
+
+  try {
+    const objeto = await getObjeto(localId, objetoId);
+    if (!objeto) return res.status(404).json({ error: 'Objeto no encontrado en este local' });
+
+    const now = new Date().toISOString();
+    const tareaKey = `man-${crypto.randomUUID().slice(0, 8)}`;
+    const item = {
+      PK: pkLocal(localId),
+      SK: skRegistro(fecha, objetoId, tareaKey),
+      id_registro: crypto.randomUUID(),
+      local_id: localId,
+      objeto_id: objetoId,
+      objeto_nombre_snapshot: objeto.nombre ?? '',
+      ubicacion_snapshot: objeto.ubicacion ?? '',
+      tipo_objeto_id: objeto.tipo_objeto_id ?? null,
+      tarea_key: tareaKey,
+      tarea_nombre: String(body.nombre_tarea ?? '').trim() || null,
+      fecha_programada: fecha,
+      estado: 'pendiente',
+      origen: 'manual',
+      regla_id: null,
+      creado_en: now,
+      actualizado_en: now,
+    };
+    await docClient.send(new PutCommand({ TableName: tReg, Item: item }));
+    return res.json({ ok: true, registro: mapRegistro(item) });
+  } catch (err) {
+    try { throwSiTablaFalta(err, tReg); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+    return res.status(500).json({ error: 'Error al crear el registro' });
   }
 });
 
@@ -606,6 +885,10 @@ router.get('/limpieza/registros', requireAnyPermission('limpieza.ver', 'limpieza
     return res.status(403).json({ error: 'No tienes acceso a este local' });
   }
   try {
+    // Generación perezosa: asegura que el día pedido esté materializado a partir
+    // de las reglas activas, sin obligar a pulsar "Generar" manualmente.
+    try { await generarRegistrosLocal(localId, fecha, fecha); } catch { /* no bloquear el listado */ }
+
     // Trae la fecha pedida + una ventana hacia atrás, para arrastrar las
     // limpiezas pendientes de días anteriores (se muestran como "retrasada").
     const minDate = fechaMenosDias(fecha, VENTANA_ATRASADAS_DIAS);
@@ -666,13 +949,14 @@ router.post(
   async (req, res) => {
     const localId = formatId6(String(req.body.local_id ?? '').trim());
     const fecha = String(req.body.fecha_programada ?? '').trim();
-    const tipoObjetoId = String(req.body.tipo_objeto_id ?? '').trim();
+    const objetoId = String(req.body.objeto_id ?? '').trim();
+    const tareaKey = String(req.body.tarea_key ?? '').trim() || undefined;
     const realizadoPorId = String(req.body.realizado_por_id ?? '').trim();
     const realizadoPorNombre = String(req.body.realizado_por_nombre ?? '').trim();
 
     if (!localId || localId === '000000') return res.status(400).json({ error: 'local_id es obligatorio' });
     if (!RE_FECHA.test(fecha)) return res.status(400).json({ error: 'fecha_programada no válida' });
-    if (!tipoObjetoId) return res.status(400).json({ error: 'tipo_objeto_id es obligatorio' });
+    if (!objetoId) return res.status(400).json({ error: 'objeto_id es obligatorio' });
     if (!realizadoPorNombre) return res.status(400).json({ error: 'Indica quién ha realizado la limpieza' });
     if (!(await usuarioPuedeAccederLocal(req.user, localId))) {
       return res.status(403).json({ error: 'No tienes acceso a este local' });
@@ -682,10 +966,10 @@ router.post(
     if (fotos.length === 0) return res.status(400).json({ error: 'Se requiere al menos una foto' });
 
     try {
-      const existente = await getRegistro(localId, fecha, tipoObjetoId);
+      const existente = await getRegistro(localId, fecha, objetoId, tareaKey);
       if (!existente) return res.status(404).json({ error: 'Registro no encontrado. Genera la programación primero.' });
 
-      const base = `limpieza/${localId}/${fecha}/${tipoObjetoId}`;
+      const base = `limpieza/${localId}/${fecha}/${objetoId}${tareaKey ? `/${tareaKey}` : ''}`;
       const fotoKeys = [];
       for (const f of fotos) {
         const ext = (f.originalname || 'foto.jpg').split('.').pop();
@@ -698,7 +982,7 @@ router.post(
       const usuarioNombre = String(req.user?.Nombre ?? req.user?.nombre ?? req.user?.email ?? '').trim();
       const out = await docClient.send(new UpdateCommand({
         TableName: tReg,
-        Key: { PK: pkLocal(localId), SK: skRegistro(fecha, tipoObjetoId) },
+        Key: { PK: pkLocal(localId), SK: skRegistro(fecha, objetoId, tareaKey) },
         UpdateExpression: 'SET estado = :e, realizado_por_id = :rid, realizado_por_nombre = :rn, registrado_por_usuario_id = :uid, registrado_por_usuario_nombre = :un, completado_at = :ts, foto_keys = :fk, actualizado_en = :ts',
         ExpressionAttributeValues: {
           ':e': 'hecha',
@@ -735,10 +1019,15 @@ router.delete('/limpieza/registros', requirePermission('limpieza.borrar'), async
   for (const raw of rawItems) {
     const localId = formatId6(String(raw?.local_id ?? '').trim());
     const fecha = String(raw?.fecha_programada ?? '').trim();
+    // Nuevo esquema: objeto_id + tarea_key. Compatibilidad: tipo_objeto_id (registros antiguos).
+    const objetoId = String(raw?.objeto_id ?? '').trim();
+    const tareaKey = String(raw?.tarea_key ?? '').trim() || undefined;
     const tipoObjetoId = String(raw?.tipo_objeto_id ?? '').trim();
+    const clave = objetoId || tipoObjetoId;
+    const skTarea = objetoId ? tareaKey : undefined;
 
-    if (!localId || localId === '000000' || !RE_FECHA.test(fecha) || !tipoObjetoId) {
-      errores.push({ local_id: localId, fecha_programada: fecha, tipo_objeto_id: tipoObjetoId, error: 'Datos incompletos o no válidos' });
+    if (!localId || localId === '000000' || !RE_FECHA.test(fecha) || !clave) {
+      errores.push({ local_id: localId, fecha_programada: fecha, error: 'Datos incompletos o no válidos' });
       continue;
     }
 
@@ -746,14 +1035,14 @@ router.delete('/limpieza/registros', requirePermission('limpieza.borrar'), async
       accesibles.set(localId, await usuarioPuedeAccederLocal(req.user, localId));
     }
     if (!accesibles.get(localId)) {
-      errores.push({ local_id: localId, fecha_programada: fecha, tipo_objeto_id: tipoObjetoId, error: 'Sin acceso al local' });
+      errores.push({ local_id: localId, fecha_programada: fecha, error: 'Sin acceso al local' });
       continue;
     }
 
     try {
-      const item = await getRegistro(localId, fecha, tipoObjetoId);
+      const item = await getRegistro(localId, fecha, clave, skTarea);
       if (!item) {
-        errores.push({ local_id: localId, fecha_programada: fecha, tipo_objeto_id: tipoObjetoId, error: 'Registro no encontrado' });
+        errores.push({ local_id: localId, fecha_programada: fecha, error: 'Registro no encontrado' });
         continue;
       }
 
@@ -769,7 +1058,7 @@ router.delete('/limpieza/registros', requirePermission('limpieza.borrar'), async
       await docClient.send(
         new DeleteCommand({
           TableName: tReg,
-          Key: { PK: pkLocal(localId), SK: skRegistro(fecha, tipoObjetoId) },
+          Key: { PK: pkLocal(localId), SK: skRegistro(fecha, clave, skTarea) },
         }),
       );
       borrados += 1;
@@ -780,7 +1069,6 @@ router.delete('/limpieza/registros', requirePermission('limpieza.borrar'), async
       errores.push({
         local_id: localId,
         fecha_programada: fecha,
-        tipo_objeto_id: tipoObjetoId,
         error: err.message || 'Error al borrar',
       });
     }
@@ -797,15 +1085,19 @@ router.delete('/limpieza/registros', requirePermission('limpieza.borrar'), async
 router.get('/limpieza/registros/evidencia', requireAnyPermission('limpieza.ver', 'limpieza.informes'), async (req, res) => {
   const localId = formatId6(String(req.query.local_id ?? '').trim());
   const fecha = String(req.query.fecha_programada ?? '').trim();
+  const objetoId = String(req.query.objeto_id ?? '').trim();
+  const tareaKey = String(req.query.tarea_key ?? '').trim() || undefined;
   const tipoObjetoId = String(req.query.tipo_objeto_id ?? '').trim();
-  if (!localId || localId === '000000' || !RE_FECHA.test(fecha) || !tipoObjetoId) {
-    return res.status(400).json({ error: 'local_id, fecha_programada y tipo_objeto_id son obligatorios' });
+  const clave = objetoId || tipoObjetoId;
+  const skTarea = objetoId ? tareaKey : undefined;
+  if (!localId || localId === '000000' || !RE_FECHA.test(fecha) || !clave) {
+    return res.status(400).json({ error: 'local_id, fecha_programada y objeto_id son obligatorios' });
   }
   if (!(await usuarioPuedeAccederLocal(req.user, localId))) {
     return res.status(403).json({ error: 'No tienes acceso a este local' });
   }
   try {
-    const item = await getRegistro(localId, fecha, tipoObjetoId);
+    const item = await getRegistro(localId, fecha, clave, skTarea);
     if (!item) return res.status(404).json({ error: 'Registro no encontrado' });
     const fotoKeys = Array.isArray(item.foto_keys) ? item.foto_keys : [];
     const fotos = await Promise.all(
@@ -814,6 +1106,64 @@ router.get('/limpieza/registros/evidencia', requireAnyPermission('limpieza.ver',
     return res.json({ fotos });
   } catch (err) {
     return res.status(500).json({ error: 'Error al obtener la evidencia' });
+  }
+});
+
+/**
+ * Calendario: registros reales de los locales accesibles del usuario en un rango
+ * [fecha_desde, fecha_hasta]. Filtros opcionales: local_id, estado, tipo_objeto_id.
+ * Devuelve solo registros existentes (no fechas teóricas).
+ */
+router.get('/limpieza/registros/calendario', requireAnyPermission('limpieza.ver', 'limpieza.informes'), async (req, res) => {
+  const desde = String(req.query.fecha_desde ?? '').trim();
+  const hasta = String(req.query.fecha_hasta ?? '').trim();
+  if (!RE_FECHA.test(desde) || !RE_FECHA.test(hasta)) {
+    return res.status(400).json({ error: 'fecha_desde y fecha_hasta son obligatorias (YYYY-MM-DD)' });
+  }
+  if (desde > hasta) return res.status(400).json({ error: 'fecha_desde no puede ser posterior a fecha_hasta' });
+
+  const localFiltro = formatId6(String(req.query.local_id ?? '').trim());
+  const estadoFiltro = String(req.query.estado ?? '').trim();
+  const tipoFiltro = String(req.query.tipo_objeto_id ?? '').trim();
+
+  try {
+    let items;
+    if (localFiltro && localFiltro !== '000000') {
+      if (!(await usuarioPuedeAccederLocal(req.user, localFiltro))) {
+        return res.status(403).json({ error: 'No tienes acceso a este local' });
+      }
+      // Materializa el rango visible del local a partir de sus reglas activas.
+      try { await generarRegistrosLocal(localFiltro, desde, hasta); } catch { /* no bloquear */ }
+      items = await queryAll({
+        TableName: tReg,
+        KeyConditionExpression: 'PK = :pk AND SK BETWEEN :lo AND :hi',
+        ExpressionAttributeValues: { ':pk': pkLocal(localFiltro), ':lo': `FECHA#${desde}`, ':hi': `FECHA#${hasta}#\uffff` },
+      });
+    } else {
+      // Todos los locales del usuario: scan acotado por rango de fecha_programada.
+      const all = await scanAll({
+        TableName: tReg,
+        FilterExpression: 'fecha_programada BETWEEN :d AND :h',
+        ExpressionAttributeValues: { ':d': desde, ':h': hasta },
+      });
+      const accesibles = new Map();
+      items = [];
+      for (const it of all) {
+        const lid = String(it.local_id || '');
+        if (!accesibles.has(lid)) accesibles.set(lid, await usuarioPuedeAccederLocal(req.user, lid));
+        if (accesibles.get(lid)) items.push(it);
+      }
+    }
+
+    let registros = items.map((it) => mapRegistro(it, jornadaNegocioHoyIso()));
+    if (estadoFiltro) registros = registros.filter((r) => r.estado === estadoFiltro || r.estado_base === estadoFiltro);
+    if (tipoFiltro) registros = registros.filter((r) => String(r.tipo_objeto_id) === tipoFiltro);
+    registros.sort((a, b) => String(a.fecha_programada || '').localeCompare(String(b.fecha_programada || '')));
+
+    return res.json({ desde, hasta, registros });
+  } catch (err) {
+    try { throwSiTablaFalta(err, tReg); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+    return res.status(500).json({ error: 'Error al cargar el calendario' });
   }
 });
 

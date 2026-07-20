@@ -41,6 +41,11 @@ type Registro = {
   id_registro: string;
   local_id: string;
   tipo_objeto_id: string;
+  objeto_id?: string | null;
+  objeto_nombre?: string | null;
+  ubicacion?: string | null;
+  tarea_key?: string | null;
+  tarea_nombre?: string | null;
   fecha_programada: string;
   estado: string;
   realizado_por_nombre?: string | null;
@@ -68,7 +73,7 @@ function fechaCorta(iso: string): string {
 }
 
 function registroKey(r: Registro): string {
-  return `${r.local_id}|${r.fecha_programada}|${r.tipo_objeto_id}`;
+  return `${r.local_id}|${r.fecha_programada}|${r.objeto_id ?? r.tipo_objeto_id}|${r.tarea_key ?? ''}`;
 }
 
 /** Añade una imagen base64 (dataURL o crudo) a un FormData de forma multiplataforma. */
@@ -232,6 +237,8 @@ export default function RegistrosLimpiezaScreen() {
           items: registrosSeleccionados.map((r) => ({
             local_id: r.local_id,
             fecha_programada: r.fecha_programada,
+            objeto_id: r.objeto_id ?? undefined,
+            tarea_key: r.tarea_key ?? undefined,
             tipo_objeto_id: r.tipo_objeto_id,
           })),
         }),
@@ -292,7 +299,8 @@ export default function RegistrosLimpiezaScreen() {
       const formData = new FormData();
       formData.append('local_id', selected.local_id);
       formData.append('fecha_programada', selected.fecha_programada);
-      formData.append('tipo_objeto_id', selected.tipo_objeto_id);
+      formData.append('objeto_id', selected.objeto_id ?? '');
+      if (selected.tarea_key) formData.append('tarea_key', selected.tarea_key);
       formData.append('realizado_por_id', realizadoPorId);
       formData.append('realizado_por_nombre', realizadoPorNombre);
       await appendImagen(formData, 'foto', fotoDataUrl, 'foto.jpg', 'image/jpeg');
@@ -411,8 +419,12 @@ export default function RegistrosLimpiezaScreen() {
                       />
                     ) : null}
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.cardTitle}>{tipo?.nombre ?? r.tipo_objeto_id}</Text>
+                      <Text style={styles.cardTitle}>
+                        {r.objeto_nombre ?? tipo?.nombre ?? r.tipo_objeto_id}
+                        {r.tarea_nombre ? ` — ${r.tarea_nombre}` : ''}
+                      </Text>
                       <Text style={styles.cardMeta}>
+                        {r.ubicacion ? `${r.ubicacion} · ` : ''}
                         {arrastrada ? `Programada ${fechaCorta(r.fecha_programada)}` : (r.realizado_por_nombre ? `Por ${r.realizado_por_nombre}` : 'Sin realizar')}
                       </Text>
                     </View>
@@ -439,7 +451,13 @@ export default function RegistrosLimpiezaScreen() {
           <View style={[styles.modalCard, !isPhone && styles.modalCardCentered]}>
             <View style={styles.modalHeader}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle} numberOfLines={1}>{tipoSel?.nombre ?? 'Limpieza'}</Text>
+                <Text style={styles.modalTitle} numberOfLines={1}>
+                  {selected?.objeto_nombre ?? tipoSel?.nombre ?? 'Limpieza'}
+                  {selected?.tarea_nombre ? ` — ${selected.tarea_nombre}` : ''}
+                </Text>
+                {selected?.ubicacion ? (
+                  <Text style={styles.modalSub}>{selected.ubicacion}</Text>
+                ) : null}
                 {selected && selected.fecha_programada !== fecha ? (
                   <Text style={styles.modalSub}>Programada el {fechaCorta(selected.fecha_programada)}</Text>
                 ) : null}

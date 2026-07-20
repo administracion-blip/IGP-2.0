@@ -81,8 +81,13 @@ export const tables = {
    * SK = "PROMPT#<promptId>".
    */
   iaPrompts: process.env.DDB_IA_PROMPTS_TABLE || 'Igp_IaPrompts',
-  /** Limpieza: catálogo de objetos a limpiar. PK = "TIPO", SK = id_tipo. */
+  /** Limpieza: catálogo de tipos (cómo se limpia). PK = "TIPO", SK = id_tipo. */
   limpiezaTipos: process.env.DDB_LIMPIEZA_TIPOS_TABLE || 'Igp_LimpiezaTipos',
+  /**
+   * Limpieza: objetos físicos por local (p. ej. las 5 neveras de un local).
+   * PK = LOCAL#<localId>, SK = OBJETO#<uuid>. GSI: Tipo-index (tipo_objeto_id).
+   */
+  limpiezaObjetos: process.env.DDB_LIMPIEZA_OBJETOS_TABLE || 'Igp_LimpiezaObjetos',
   /**
    * Limpieza: reglas de frecuencia y plantillas. PK = LOCAL#<localId>,
    * SK = REGLA#<uuid> | PLANTILLA#<uuid>. GSI: Tipo-Local-index (tipo → local_id).
