@@ -281,7 +281,7 @@ export default function ProgramacionLimpiezaScreen() {
             </TouchableOpacity>
           </View>
           {objetos.length === 0 ? (
-            <Text style={styles.vacio}>Crea primero objetos de este local en «Objetos por local».</Text>
+            <Text style={styles.vacio}>Crea primero objetos de este local en «Tipos y objetos».</Text>
           ) : null}
 
           {loading ? (

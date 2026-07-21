@@ -10,7 +10,9 @@ type Acceso = {
   descripcion: string;
   icon: React.ComponentProps<typeof MaterialIcons>['name'];
   ruta: string;
-  permiso: string;
+  /** Si se define, debe cumplirse al menos uno. Si no, se usa `permiso`. */
+  permisosAny?: string[];
+  permiso?: string;
 };
 
 const ACCESOS: Acceso[] = [
@@ -31,12 +33,12 @@ const ACCESOS: Acceso[] = [
     permiso: 'limpieza.ver',
   },
   {
-    id: 'objetos',
-    label: 'Objetos por local',
-    descripcion: 'Las neveras, freidoras… concretas de cada local',
-    icon: 'kitchen',
-    ruta: '/mantenimiento/limpieza/objetos',
-    permiso: 'limpieza.programar',
+    id: 'maestros',
+    label: 'Tipos y objetos',
+    descripcion: 'Catálogo de tipos y unidades físicas de cada local',
+    icon: 'category',
+    ruta: '/mantenimiento/limpieza/maestros',
+    permisosAny: ['limpieza.catalogo', 'limpieza.programar'],
   },
   {
     id: 'programacion',
@@ -46,20 +48,15 @@ const ACCESOS: Acceso[] = [
     ruta: '/mantenimiento/limpieza/programacion',
     permiso: 'limpieza.programar',
   },
-  {
-    id: 'catalogo',
-    label: 'Catálogo de tipos',
-    descripcion: 'Cómo se limpia cada tipo: procedimiento, productos y EPIs',
-    icon: 'inventory-2',
-    ruta: '/mantenimiento/limpieza/catalogo',
-    permiso: 'limpieza.catalogo',
-  },
 ];
 
 export default function LimpiezaHubScreen() {
   const router = useRouter();
   const { hasPermiso } = useAuth();
-  const accesos = ACCESOS.filter((a) => hasPermiso(a.permiso));
+  const accesos = ACCESOS.filter((a) => {
+    if (a.permisosAny?.length) return a.permisosAny.some((p) => hasPermiso(p));
+    return a.permiso ? hasPermiso(a.permiso) : false;
+  });
 
   return (
     <View style={styles.container}>

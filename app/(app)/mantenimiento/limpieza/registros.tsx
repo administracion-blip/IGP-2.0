@@ -27,6 +27,7 @@ import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
 import { InputFecha } from '../../../components/InputFecha';
 import { estiloCampoFechaCompacto } from '../../../components/RangoFechas';
+import { LimpiezaAgenda, type RegistroAgenda } from '../../../components/limpieza/LimpiezaAgenda';
 import { apiFetch } from '../../../utils/api';
 
 type ProductoDosis = { producto: string; dosis: string; epi: string };
@@ -99,6 +100,10 @@ export default function RegistrosLimpiezaScreen() {
   const puedeCompletar = hasPermiso('limpieza.completar');
   const puedeBorrar = hasPermiso('limpieza.borrar');
 
+  /** Agenda (Próximas/Realizadas) o checklist de un día concreto. */
+  const [modoVista, setModoVista] = useState<'agenda' | 'dia'>('agenda');
+  const [agendaRefresh, setAgendaRefresh] = useState(0);
+
   const [localId, setLocalId] = useState('');
   const [fecha, setFecha] = useState(hoyIso());
   const [tipos, setTipos] = useState<Record<string, Tipo>>({});
@@ -153,7 +158,7 @@ export default function RegistrosLimpiezaScreen() {
   }, []);
 
   const cargar = useCallback(() => {
-    if (!localId) return;
+    if (!localId || modoVista !== 'dia') return;
     setLoading(true);
     setError(null);
     apiFetch(`/api/limpieza/registros?local_id=${encodeURIComponent(localId)}&fecha=${encodeURIComponent(fecha)}`)
@@ -164,12 +169,25 @@ export default function RegistrosLimpiezaScreen() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Error de conexión'))
       .finally(() => setLoading(false));
-  }, [localId, fecha]);
+  }, [localId, fecha, modoVista]);
 
   useFocusEffect(useCallback(() => { cargar(); }, [cargar]));
 
-  const abrirDetalle = (r: Registro) => {
-    setSelected(r);
+  const abrirDetalle = (r: Registro | RegistroAgenda) => {
+    setSelected({
+      id_registro: r.id_registro,
+      local_id: r.local_id,
+      tipo_objeto_id: r.tipo_objeto_id ?? '',
+      objeto_id: r.objeto_id,
+      objeto_nombre: r.objeto_nombre,
+      ubicacion: r.ubicacion,
+      tarea_key: r.tarea_key,
+      tarea_nombre: r.tarea_nombre,
+      fecha_programada: r.fecha_programada,
+      estado: r.estado,
+      realizado_por_nombre: r.realizado_por_nombre,
+      completado_at: r.completado_at,
+    });
     setRealizadoPorId('');
     setRealizadoPorNombre('');
     setError(null);
@@ -249,7 +267,34 @@ export default function RegistrosLimpiezaScreen() {
         return;
       }
       salirMultiSelect();
+      setAgendaRefresh((t) => t + 1);
       cargar();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error de conexión');
+    } finally {
+      setBorrando(false);
+    }
+  };
+
+  const borrarUnoAgenda = async (r: RegistroAgenda) => {
+    setBorrando(true);
+    setError(null);
+    try {
+      const res = await apiFetch('/api/limpieza/registros', {
+        method: 'DELETE',
+        body: JSON.stringify({
+          items: [{
+            local_id: r.local_id,
+            fecha_programada: r.fecha_programada,
+            objeto_id: r.objeto_id ?? undefined,
+            tarea_key: r.tarea_key ?? undefined,
+            tipo_objeto_id: r.tipo_objeto_id,
+          }],
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error ?? 'Error al borrar'); return; }
+      setAgendaRefresh((t) => t + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error de conexión');
     } finally {
@@ -309,6 +354,7 @@ export default function RegistrosLimpiezaScreen() {
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Error al completar'); return; }
       cerrarDetalle();
+      setAgendaRefresh((t) => t + 1);
       cargar();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error de conexión');
@@ -343,11 +389,43 @@ export default function RegistrosLimpiezaScreen() {
               opciones={localesOpciones}
               onSeleccionar={(id) => { salirMultiSelect(); setLocalId(id); }}
             />
-            <View style={isPhone ? undefined : styles.fechaWrap}>
-              <InputFecha compact valueIso={fecha} onChangeIso={(f) => { salirMultiSelect(); setFecha(f); }} style={estiloCampoFechaCompacto} />
+            <View style={styles.modoToggle}>
+              <TouchableOpacity
+                style={[styles.modoBtn, modoVista === 'agenda' && styles.modoBtnActive]}
+                onPress={() => { salirMultiSelect(); setModoVista('agenda'); }}
+              >
+                <Text style={[styles.modoBtnText, modoVista === 'agenda' && styles.modoBtnTextActive]}>Agenda</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modoBtn, modoVista === 'dia' && styles.modoBtnActive]}
+                onPress={() => { salirMultiSelect(); setModoVista('dia'); }}
+              >
+                <Text style={[styles.modoBtnText, modoVista === 'dia' && styles.modoBtnTextActive]}>Por día</Text>
+              </TouchableOpacity>
             </View>
+            {modoVista === 'dia' ? (
+              <View style={isPhone ? undefined : styles.fechaWrap}>
+                <InputFecha compact valueIso={fecha} onChangeIso={(f) => { salirMultiSelect(); setFecha(f); }} style={estiloCampoFechaCompacto} />
+              </View>
+            ) : null}
           </View>
 
+          {modoVista === 'agenda' ? (
+            <>
+              {error && !selected ? <Text style={styles.errorText}>{error}</Text> : null}
+              {localId ? (
+                <LimpiezaAgenda
+                  localId={localId}
+                  onPressRegistro={(r) => abrirDetalle(r)}
+                  onBorrarRegistro={puedeBorrar && !borrando ? borrarUnoAgenda : undefined}
+                  refreshToken={agendaRefresh}
+                />
+              ) : (
+                <Text style={styles.vacio}>Selecciona un local.</Text>
+              )}
+            </>
+          ) : (
+          <>
           {puedeBorrar && registros.length > 0 && !loading ? (
             <View style={styles.toolbar}>
               {multiSelectMode ? (
@@ -441,6 +519,8 @@ export default function RegistrosLimpiezaScreen() {
                 );
               })}
             </ScrollView>
+          )}
+          </>
           )}
         </>
       )}
@@ -586,8 +666,13 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
   backBtn: { padding: 4 },
   title: { flex: 1, fontSize: 18, fontWeight: '700', color: '#334155' },
-  filtros: { flexDirection: 'row', gap: 8, marginBottom: 12, alignItems: 'center' },
+  filtros: { flexDirection: 'row', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' },
   filtrosStacked: { flexDirection: 'column', alignItems: 'stretch', gap: 8 },
+  modoToggle: { flexDirection: 'row', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, overflow: 'hidden' },
+  modoBtn: { paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#f8fafc' },
+  modoBtnActive: { backgroundColor: '#e0f2fe' },
+  modoBtnText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+  modoBtnTextActive: { color: '#0369a1' },
   fechaWrap: { width: 130 },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
   toolbarBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 8 },

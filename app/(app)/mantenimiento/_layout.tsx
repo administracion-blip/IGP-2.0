@@ -12,6 +12,7 @@ export default function MantenimientoLayout() {
         <Stack.Screen name="reparaciones-realizadas" />
         <Stack.Screen name="recurrentes" />
         <Stack.Screen name="limpieza/index" />
+        <Stack.Screen name="limpieza/maestros" />
         <Stack.Screen name="limpieza/catalogo" />
         <Stack.Screen name="limpieza/objetos" />
         <Stack.Screen name="limpieza/programacion" />

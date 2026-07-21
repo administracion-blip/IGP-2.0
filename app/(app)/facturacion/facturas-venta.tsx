@@ -19,6 +19,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
   formatMoneda,
   labelEstado,
+  colorEstado,
+  ESTADOS_OUT,
   FORMAS_PAGO,
   labelFormaPago,
   mapTipoReciboToFormaPago,
@@ -31,9 +33,11 @@ import { getTipoReciboFromEmpresasList, type EmpresaConTipoRecibo } from '../../
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
+import { SelectorDesplegableMulti } from '../../components/SelectorDesplegableMulti';
 import { useLocalToast } from '../../components/Toast';
 import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
 import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { apiFetch } from '../../utils/api';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
@@ -64,6 +68,48 @@ function getEmisorKey(f: { emisor_id?: string; emisor_nombre?: string }): string
   const n = String(f.emisor_nombre || '').trim();
   return n ? `nom:${n}` : '';
 }
+
+/** Clave estable para filtrar por receptor/cliente. */
+function getReceptorKey(f: { empresa_id?: string; empresa_nombre?: string }): string {
+  const id = String(f.empresa_id || '').trim();
+  if (id) return id;
+  const n = String(f.empresa_nombre || '').trim();
+  return n ? `nom:${n}` : '';
+}
+
+function fechaEmisionComparable(s: string | undefined | null): string {
+  if (!s?.trim()) return '';
+  return fechaEmisionFacturaAIso(s.trim()) || '';
+}
+
+type TabEstado = 'todas' | (typeof ESTADOS_OUT)[number];
+
+const TABS: { key: TabEstado; label: string }[] = [
+  { key: 'todas', label: 'Todas' },
+  { key: 'borrador', label: 'Borrador' },
+  { key: 'emitida', label: 'Emitida' },
+  { key: 'parcialmente_cobrada', label: 'Parcial cobrada' },
+  { key: 'cobrada', label: 'Cobrada' },
+  { key: 'vencida', label: 'Vencida' },
+  { key: 'anulada', label: 'Anulada' },
+];
+
+const ESTADOS_VENTA_CHIP = new Set<string>(ESTADOS_OUT);
+
+function pastelChipEstado(key: TabEstado): { bg: string; text: string; border: string } {
+  if (key === 'todas') return { bg: '#f1f5f9', text: '#475569', border: '#cbd5e1' };
+  const { bg, text } = colorEstado(key);
+  const border = key === 'parcialmente_cobrada' ? '#fed7aa' : bg;
+  return { bg, text, border };
+}
+
+type ToolbarBtn = {
+  id: string;
+  label: string;
+  icon: React.ComponentProps<typeof MaterialIcons>['name'];
+  permiso: string;
+  needsSelection: boolean;
+};
 
 const COLUMNAS = [
   { key: 'fecha_emision', label: 'Fecha' },
@@ -97,21 +143,12 @@ const DEFAULT_WIDTHS: Record<string, number> = {
   saldo_pendiente: 92,
 };
 
-const TABS_ESTADO = [
-  { key: '', label: 'Todas' },
-  { key: 'borrador', label: 'Borrador' },
-  { key: 'emitida', label: 'Emitida' },
-  { key: 'parcialmente_cobrada', label: 'Parcial cobrada' },
-  { key: 'cobrada', label: 'Cobrada' },
-  { key: 'vencida', label: 'Vencida' },
-  { key: 'anulada', label: 'Anulada' },
-] as const;
-
 export default function FacturasVentaScreen() {
   const router = useRouter();
   const searchParams = useLocalSearchParams<{ modalFactura?: string; maestroActualizado?: string }>();
   const { hasPermiso, user } = useAuth();
   const { width: winW } = useWindowDimensions();
+  const { shouldStackToolbar } = useBreakpoint();
   const layoutSplit = Platform.OS === 'web' && winW >= 1024;
 
   const [facturas, setFacturas] = useState<FacturaListado[]>([]);
@@ -120,7 +157,7 @@ export default function FacturasVentaScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalFacturaId, setModalFacturaId] = useState<string | null>(null);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
-  const [filtroEstado, setFiltroEstado] = useState('');
+  const [tabActivo, setTabActivo] = useState<TabEstado>('todas');
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
   const [pageIndex, setPageIndex] = useState(0);
@@ -130,7 +167,9 @@ export default function FacturasVentaScreen() {
   const [operando, setOperando] = useState(false);
   const [sortCol, setSortCol] = useState<string>('fecha_emision');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [filtroEmisorId, setFiltroEmisorId] = useState('');
+  const [emisoresFiltroIds, setEmisoresFiltroIds] = useState<string[]>([]);
+  const [receptoresFiltroIds, setReceptoresFiltroIds] = useState<string[]>([]);
+  const [anioFiltro, setAnioFiltro] = useState(() => String(new Date().getFullYear()));
 
   const [modalAnularVisible, setModalAnularVisible] = useState(false);
   const [modalCobrarVisible, setModalCobrarVisible] = useState(false);
@@ -257,8 +296,35 @@ export default function FacturasVentaScreen() {
       if (!m.has(key)) m.set(key, label);
     }
     return [...m.entries()]
-      .map(([id, nombre]) => ({ id, nombre }))
-      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+      .sort((a, b) => a[1].localeCompare(b[1], 'es'))
+      .map(([id, titulo]) => ({ id, titulo, icono: 'business' as const }));
+  }, [facturas]);
+
+  const receptoresOpciones = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const f of facturas) {
+      const key = getReceptorKey(f);
+      if (!key) continue;
+      const label = String(f.empresa_nombre || '').trim() || key;
+      if (!m.has(key)) m.set(key, label);
+    }
+    return [...m.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1], 'es'))
+      .map(([id, titulo]) => ({ id, titulo, icono: 'person' as const }));
+  }, [facturas]);
+
+  const aniosFiltroOpciones = useMemo(() => {
+    const set = new Set<number>();
+    set.add(new Date().getFullYear());
+    for (const f of facturas) {
+      const iso = fechaEmisionComparable(f.fecha_emision);
+      if (!iso || iso.length < 4) continue;
+      const y = parseInt(iso.slice(0, 4), 10);
+      if (Number.isFinite(y) && y >= 2000 && y <= 2100) set.add(y);
+    }
+    return [...set]
+      .sort((a, b) => b - a)
+      .map((y) => ({ id: String(y), titulo: String(y), icono: 'calendar-today' as const }));
   }, [facturas]);
 
   const toggleSort = useCallback((col: string) => {
@@ -266,12 +332,22 @@ export default function FacturasVentaScreen() {
     else { setSortCol(col); setSortDir('asc'); }
   }, [sortCol]);
 
-  const facturasFiltradas = useMemo(() => {
+  const facturasBaseFiltradas = useMemo(() => {
     let resultado = facturas;
-    if (filtroEmisorId) {
-      resultado = resultado.filter((f) => getEmisorKey(f) === filtroEmisorId);
+    if (anioFiltro) {
+      resultado = resultado.filter((f) => {
+        const iso = fechaEmisionComparable(f.fecha_emision);
+        return iso.length >= 4 && iso.slice(0, 4) === anioFiltro;
+      });
     }
-    if (filtroEstado) resultado = resultado.filter((f) => f.estado === filtroEstado);
+    if (emisoresFiltroIds.length > 0) {
+      const set = new Set(emisoresFiltroIds);
+      resultado = resultado.filter((f) => set.has(getEmisorKey(f)));
+    }
+    if (receptoresFiltroIds.length > 0) {
+      const set = new Set(receptoresFiltroIds);
+      resultado = resultado.filter((f) => set.has(getReceptorKey(f)));
+    }
     if (filtroBusqueda.trim()) {
       const q = filtroBusqueda.trim().toLowerCase();
       resultado = resultado.filter(
@@ -279,14 +355,43 @@ export default function FacturasVentaScreen() {
           (f.numero_factura || '').toLowerCase().includes(q) ||
           (f.emisor_nombre || '').toLowerCase().includes(q) ||
           (f.empresa_nombre || '').toLowerCase().includes(q) ||
-          (f.empresa_cif || '').toLowerCase().includes(q)
+          (f.empresa_cif || '').toLowerCase().includes(q) ||
+          (f.id_factura || '').toLowerCase().includes(q),
       );
     }
-    if (fechaDesde) resultado = resultado.filter((f) => (f.fecha_emision ?? '') >= fechaDesde);
-    if (fechaHasta) resultado = resultado.filter((f) => (f.fecha_emision ?? '') <= fechaHasta);
+    if (fechaDesde) {
+      resultado = resultado.filter((f) => (fechaEmisionComparable(f.fecha_emision) || '') >= fechaDesde);
+    }
+    if (fechaHasta) {
+      resultado = resultado.filter((f) => (fechaEmisionComparable(f.fecha_emision) || '') <= fechaHasta);
+    }
+    return resultado;
+  }, [facturas, anioFiltro, emisoresFiltroIds, receptoresFiltroIds, filtroBusqueda, fechaDesde, fechaHasta]);
+
+  const conteosPorTab = useMemo(() => {
+    const counts = Object.fromEntries(TABS.map((t) => [t.key, 0])) as Record<TabEstado, number>;
+    counts.todas = facturasBaseFiltradas.length;
+    for (const f of facturasBaseFiltradas) {
+      const estado = String(f.estado ?? '').trim();
+      if (ESTADOS_VENTA_CHIP.has(estado)) {
+        counts[estado as TabEstado] += 1;
+      }
+    }
+    return counts;
+  }, [facturasBaseFiltradas]);
+
+  const facturasFiltradas = useMemo(() => {
+    let resultado = facturasBaseFiltradas;
+    if (tabActivo !== 'todas') resultado = resultado.filter((f) => f.estado === tabActivo);
 
     if (sortCol) {
       resultado = [...resultado].sort((a, b) => {
+        if (sortCol === 'fecha_emision') {
+          const fa = fechaEmisionComparable(a.fecha_emision);
+          const fb = fechaEmisionComparable(b.fecha_emision);
+          const cmp = fa.localeCompare(fb);
+          return sortDir === 'desc' ? -cmp : cmp;
+        }
         if (sortCol === 'pagado') {
           const na = Number(a.total_cobrado ?? 0);
           const nb = Number(b.total_cobrado ?? 0);
@@ -304,7 +409,7 @@ export default function FacturasVentaScreen() {
       });
     }
     return resultado;
-  }, [facturas, filtroEmisorId, filtroEstado, filtroBusqueda, fechaDesde, fechaHasta, sortCol, sortDir]);
+  }, [facturasBaseFiltradas, tabActivo, sortCol, sortDir]);
 
   const totalRegistros = facturasFiltradas.length;
   const totalPages = Math.max(1, Math.ceil(totalRegistros / PAGE_SIZE));
@@ -321,7 +426,7 @@ export default function FacturasVentaScreen() {
   useEffect(() => {
     setPageIndex(0);
     setSelectedId(null);
-  }, [filtroBusqueda, filtroEstado, fechaDesde, fechaHasta, filtroEmisorId]);
+  }, [filtroBusqueda, tabActivo, fechaDesde, fechaHasta, emisoresFiltroIds, receptoresFiltroIds, anioFiltro]);
 
   const goPrevPage = () => { setPageIndex((p) => Math.max(0, p - 1)); setSelectedId(null); };
   const goNextPage = () => { setPageIndex((p) => Math.min(totalPages - 1, p + 1)); setSelectedId(null); };
@@ -364,7 +469,7 @@ export default function FacturasVentaScreen() {
   };
   const handleEditar = () => {
     if (!selectedId) return;
-    router.push(`/facturacion/factura-detalle?id=${selectedId}&modo=editar` as any);
+    router.push(`/facturacion/factura-detalle?id=${selectedId}&modo=editar&tipo=OUT` as never);
   };
 
   const handleDuplicar = async () => {
@@ -509,7 +614,7 @@ export default function FacturasVentaScreen() {
     }
   };
 
-  const toolbarBtns: { id: string; label: string; icon: React.ComponentProps<typeof MaterialIcons>['name']; permiso: string; needsSelection: boolean }[] = [
+  const toolbarBtns: ToolbarBtn[] = [
     { id: 'crear', label: 'Crear', icon: 'add-circle-outline', permiso: 'facturacion.crear', needsSelection: false },
     { id: 'editar', label: 'Editar', icon: 'edit', permiso: 'facturacion.editar', needsSelection: true },
     { id: 'duplicar', label: 'Duplicar', icon: 'content-copy', permiso: 'facturacion.crear', needsSelection: true },
@@ -517,6 +622,21 @@ export default function FacturasVentaScreen() {
     { id: 'anular', label: 'Anular', icon: 'block', permiso: 'facturacion.anular', needsSelection: true },
     { id: 'cobrar', label: 'Cobrar', icon: 'payments', permiso: 'facturacion.cobrar_pagar', needsSelection: true },
   ];
+
+  const isBtnDisabled = (btn: ToolbarBtn) => {
+    if (operando) return true;
+    if (btn.needsSelection && !selectedId) return true;
+    const est = selectedFactura?.estado;
+    if (btn.id === 'editar' && est && est !== 'borrador') return true;
+    if (btn.id === 'emitir' && est !== 'borrador') return true;
+    if (btn.id === 'anular' && (!est || est === 'anulada')) return true;
+    if (
+      btn.id === 'cobrar'
+      && est
+      && (est === 'anulada' || est === 'cobrada' || est === 'borrador')
+    ) return true;
+    return false;
+  };
 
   const handleToolbarPress = (id: string) => {
     if (id === 'crear') handleCrear();
@@ -584,41 +704,90 @@ export default function FacturasVentaScreen() {
         <Text style={styles.title}>Facturas emitidas</Text>
       </View>
 
-      {/* Tabs de estado */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll} contentContainerStyle={styles.tabsContent}>
-        {TABS_ESTADO.map((tab) => (
-          <TouchableOpacity
-            key={tab.key}
-            style={[styles.tab, filtroEstado === tab.key && styles.tabActive]}
-            onPress={() => setFiltroEstado(tab.key)}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.tabText, filtroEstado === tab.key && styles.tabTextActive]}>{tab.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {emisoresOpciones.length > 0 ? (
+      <View style={[styles.filtrosRow, shouldStackToolbar && styles.filtrosRowStacked]}>
+        {emisoresOpciones.length > 0 ? (
+          <SelectorDesplegableMulti
+            style={styles.filtroSelector}
+            placeholder="Todos los emisores"
+            icono="storefront"
+            tituloLista="Filtrar por emisor"
+            iconoLista="storefront"
+            buscador
+            buscadorPlaceholder="Buscar emisor…"
+            valorIds={emisoresFiltroIds}
+            opciones={emisoresOpciones}
+            onChange={setEmisoresFiltroIds}
+            vacioTexto="No hay emisores en el listado."
+          />
+        ) : null}
+        {receptoresOpciones.length > 0 ? (
+          <SelectorDesplegableMulti
+            style={styles.filtroSelector}
+            placeholder="Todos los clientes"
+            icono="person"
+            tituloLista="Filtrar por cliente"
+            iconoLista="person"
+            buscador
+            buscadorPlaceholder="Buscar cliente…"
+            valorIds={receptoresFiltroIds}
+            opciones={receptoresOpciones}
+            onChange={setReceptoresFiltroIds}
+            vacioTexto="No hay clientes en el listado."
+          />
+        ) : null}
         <SelectorDesplegable
-          style={styles.emisorSelector}
-          icono="storefront"
-          tituloLista="Filtrar por emisor"
-          iconoLista="storefront"
-          placeholder="Todos los emisores"
-          valorId={filtroEmisorId}
-          opciones={[
-            { id: '', titulo: 'Todos los emisores', icono: 'layers' },
-            ...emisoresOpciones.map((e) => ({ id: e.id, titulo: e.nombre, icono: 'business' as const })),
-          ]}
-          onSeleccionar={(id) => setFiltroEmisorId(id)}
+          style={styles.anioFiltroSelector}
+          placeholder="Año"
+          icono="calendar-today"
+          tituloLista="Filtrar por año"
+          iconoLista="calendar-today"
+          valorId={anioFiltro}
+          opciones={aniosFiltroOpciones}
+          onSeleccionar={setAnioFiltro}
         />
-      ) : null}
+      </View>
+
+      {/* Chips de estado con conteos */}
+      <View style={[styles.estadoTabsRow, shouldStackToolbar && styles.estadoTabsRowStacked]}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.estadoTabsScroll}
+          contentContainerStyle={styles.tabsContent}
+        >
+          {TABS.map((t) => {
+            const pastel = pastelChipEstado(t.key);
+            const activo = tabActivo === t.key;
+            return (
+              <TouchableOpacity
+                key={t.key}
+                style={[
+                  styles.estadoChip,
+                  { backgroundColor: pastel.bg, borderColor: activo ? pastel.text : pastel.border },
+                  activo && styles.estadoChipActive,
+                ]}
+                onPress={() => setTabActivo(t.key)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.estadoChipText, { color: pastel.text }, activo && styles.estadoChipTextActive]}>
+                  {t.label}
+                </Text>
+                <View style={[styles.estadoChipCount, { backgroundColor: activo ? pastel.text : 'rgba(15, 23, 42, 0.08)' }]}>
+                  <Text style={[styles.estadoChipCountText, { color: activo ? '#fff' : pastel.text }]}>
+                    {conteosPorTab[t.key]}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
 
       {/* Toolbar */}
-      <View style={styles.toolbarRow}>
+      <View style={[styles.toolbarRow, shouldStackToolbar && styles.toolbarRowStacked]}>
         <View style={styles.toolbar}>
           {toolbarBtns.filter((b) => hasPermiso(b.permiso)).map((btn) => {
-            const disabled = operando || (btn.needsSelection && !selectedId);
+            const disabled = isBtnDisabled(btn);
             return (
               <View
                 key={btn.id}
@@ -686,7 +855,7 @@ export default function FacturasVentaScreen() {
             style={styles.searchInput}
             value={filtroBusqueda}
             onChangeText={setFiltroBusqueda}
-            placeholder="Buscar…"
+            placeholder="Nº, cliente, CIF, ID…"
             placeholderTextColor="#94a3b8"
           />
         </View>
@@ -788,7 +957,11 @@ export default function FacturasVentaScreen() {
             {facturasPagina.length === 0 ? (
               <View style={styles.emptyRow}>
                 <Text style={styles.emptyText}>
-                  {facturas.length === 0 ? 'No hay facturas' : 'Sin resultados para el filtro aplicado'}
+                  {facturas.length === 0
+                    ? 'No hay facturas'
+                    : filtroBusqueda.trim() || fechaDesde || fechaHasta || emisoresFiltroIds.length > 0 || receptoresFiltroIds.length > 0 || tabActivo !== 'todas'
+                      ? 'Sin resultados para el filtro aplicado'
+                      : `No hay facturas emitidas en ${anioFiltro}`}
                 </Text>
               </View>
             ) : (
@@ -1057,23 +1230,61 @@ const styles = StyleSheet.create({
   resumenLabel: { fontSize: 10, color: '#94a3b8' },
   resumenVal: { fontSize: 14, fontWeight: '700', color: '#334155' },
 
-  tabsScroll: { marginBottom: 8, flexGrow: 0 },
-  tabsContent: { gap: 6, paddingVertical: 2 },
-  tab: {
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#fff',
+  filtrosRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
   },
-  tabActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  tabText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
-  tabTextActive: { color: '#fff', fontWeight: '600' },
+  filtrosRowStacked: { flexDirection: 'column', alignItems: 'stretch' },
+  filtroSelector: { flex: 1, minWidth: 180, maxWidth: 320 },
+  anioFiltroSelector: { width: 132, minWidth: 120, maxWidth: 160 },
 
-  emisorSelector: { marginBottom: 8, alignSelf: 'stretch' },
+  estadoTabsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  estadoTabsRowStacked: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+  },
+  estadoTabsScroll: {
+    flex: 1,
+    minWidth: 0,
+    maxHeight: 32,
+  },
+  tabsContent: { flexDirection: 'row', gap: 4, paddingRight: 4, alignItems: 'center' },
+  estadoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  estadoChipActive: {
+    borderWidth: 1.5,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  estadoChipText: { fontSize: 10, fontWeight: '500' },
+  estadoChipTextActive: { fontWeight: '700' },
+  estadoChipCount: {
+    minWidth: 18,
+    height: 16,
+    paddingHorizontal: 4,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  estadoChipCountText: { fontSize: 9, fontWeight: '700' },
 
   toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12, flexWrap: 'wrap' },
+  toolbarRowStacked: { flexDirection: 'column', alignItems: 'stretch' },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   toolbarBtnWrap: { position: 'relative' },
   tooltip: {
@@ -1089,7 +1300,7 @@ const styles = StyleSheet.create({
   },
   tooltipText: { fontSize: 9, color: '#f8fafc', fontWeight: '400' },
   toolbarBtn: { padding: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
-  toolbarBtnDisabled: { opacity: 0.6 },
+  toolbarBtnDisabled: { opacity: 0.5 },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1105,7 +1316,7 @@ const styles = StyleSheet.create({
   searchIcon: { marginRight: 6 },
   searchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
 
-  fechaFilterWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  fechaFilterWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   fechaLabel: { fontSize: 11, color: '#64748b', fontWeight: '500' },
   fechaInput: { fontSize: 11, paddingVertical: 3, paddingHorizontal: 6, minHeight: 28, color: '#334155', width: 110 },
 

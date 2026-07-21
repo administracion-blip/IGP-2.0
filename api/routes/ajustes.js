@@ -47,10 +47,34 @@ router.get('/ajustes/:pk/:sk', async (req, res) => {
   }
 });
 
+/** Solo https:// con host; usado para enlaces externos configurables. */
+function normalizarUrlHttps(raw) {
+  const trimmed = String(raw ?? '').trim();
+  if (!trimmed) return '';
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:' || !parsed.hostname) return null;
+  return parsed.toString();
+}
+
 router.post('/ajustes', async (req, res) => {
   try {
     const body = req.body || {};
     if (!body.PK || !body.SK) return res.status(400).json({ error: 'PK y SK son obligatorios' });
+
+    // Enlaces externos del planning: validar UrlInventario (vacío = sin enlace).
+    if (body.PK === 'planning_dia' && body.SK === 'enlaces' && body.UrlInventario !== undefined) {
+      const norm = normalizarUrlHttps(body.UrlInventario);
+      if (norm === null) {
+        return res.status(400).json({ error: 'UrlInventario debe ser una URL https:// válida (o vacía)' });
+      }
+      body.UrlInventario = norm;
+    }
+
     const item = { ...body, updatedAt: new Date().toISOString() };
     await docClient.send(new PutCommand({ TableName: tableAjustesName, Item: item }));
     return res.json({ ok: true, item });

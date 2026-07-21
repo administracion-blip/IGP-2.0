@@ -205,6 +205,68 @@ function mapObjeto(item) {
   };
 }
 
+/** Slug para códigos de objeto: MAYÚSCULAS, sin acentos, no alfanumérico → `-`. */
+function slugCodigo(texto) {
+  const base = String(texto ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-+/g, '-');
+  return base || 'X';
+}
+
+/**
+ * Código auto: {TIPO}-{NN}-{LOCAL}-{UBICACION}
+ * NN = max+1 entre códigos del mismo tipo en el local (fallback: count+1).
+ */
+function siguienteNumeroTipo(objetosMismoTipo, slugTipo) {
+  let max = 0;
+  const re = new RegExp(`^${slugTipo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-(\\d+)-`);
+  for (const o of objetosMismoTipo) {
+    const m = String(o.codigo || '').match(re);
+    if (m) max = Math.max(max, parseInt(m[1], 10) || 0);
+  }
+  const porCount = objetosMismoTipo.length + 1;
+  return Math.max(max + 1, porCount);
+}
+
+async function nombreLocalPorId(localId) {
+  try {
+    const r = await docClient.send(
+      new GetCommand({ TableName: tables.locales, Key: { id_Locales: localId } }),
+    );
+    return String(r.Item?.nombre || r.Item?.Nombre || localId).trim();
+  } catch {
+    return localId;
+  }
+}
+
+async function getTipoPorId(tipoId) {
+  const r = await docClient.send(
+    new GetCommand({ TableName: tTipos, Key: { PK: 'TIPO', id_tipo: tipoId } }),
+  );
+  return r.Item || null;
+}
+
+async function generarCodigoObjeto({ localId, tipoObjetoId, ubicacion, nombreTipo }) {
+  const [nombreLocal, objetosLocal] = await Promise.all([
+    nombreLocalPorId(localId),
+    queryAll({
+      TableName: tObj,
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+      ExpressionAttributeValues: { ':pk': pkLocal(localId), ':sk': 'OBJETO#' },
+    }),
+  ]);
+  const slugTipo = slugCodigo(nombreTipo);
+  const slugLocal = slugCodigo(nombreLocal);
+  const slugUbic = ubicacion ? slugCodigo(ubicacion) : 'SINUBIC';
+  const mismos = objetosLocal.filter((o) => String(o.tipo_objeto_id || '') === tipoObjetoId);
+  const nn = String(siguienteNumeroTipo(mismos, slugTipo)).padStart(2, '0');
+  return `${slugTipo}-${nn}-${slugLocal}-${slugUbic}`;
+}
+
 /** Índice de día de semana con Lun=0 … Dom=6 (a partir de un Date). */
 function idxDiaSemana(d) {
   const dow = d.getDay();
@@ -446,6 +508,7 @@ router.post('/limpieza/objetos', requireAnyPermission('limpieza.catalogo', 'limp
   const localId = formatId6(String(body.local_id ?? '').trim());
   const tipoObjetoId = String(body.tipo_objeto_id ?? '').trim();
   const nombre = String(body.nombre ?? '').trim();
+  const ubicacion = String(body.ubicacion ?? '').trim();
 
   if (!localId || localId === '000000') return res.status(400).json({ error: 'local_id es obligatorio' });
   if (!tipoObjetoId) return res.status(400).json({ error: 'tipo_objeto_id es obligatorio' });
@@ -454,22 +517,30 @@ router.post('/limpieza/objetos', requireAnyPermission('limpieza.catalogo', 'limp
     return res.status(403).json({ error: 'No tienes acceso a este local' });
   }
 
-  const now = new Date().toISOString();
-  const id = crypto.randomUUID();
-  const item = {
-    PK: pkLocal(localId),
-    SK: skObjeto(id),
-    id_objeto: id,
-    local_id: localId,
-    tipo_objeto_id: tipoObjetoId,
-    nombre,
-    ubicacion: String(body.ubicacion ?? '').trim(),
-    codigo: String(body.codigo ?? '').trim(),
-    activo: body.activo === undefined ? true : Boolean(body.activo),
-    creado_en: now,
-    actualizado_en: now,
-  };
   try {
+    const tipo = await getTipoPorId(tipoObjetoId);
+    if (!tipo) return res.status(400).json({ error: 'tipo_objeto_id no existe' });
+    const codigo = await generarCodigoObjeto({
+      localId,
+      tipoObjetoId,
+      ubicacion,
+      nombreTipo: String(tipo.nombre || tipoObjetoId).trim(),
+    });
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    const item = {
+      PK: pkLocal(localId),
+      SK: skObjeto(id),
+      id_objeto: id,
+      local_id: localId,
+      tipo_objeto_id: tipoObjetoId,
+      nombre,
+      ubicacion,
+      codigo,
+      activo: body.activo === undefined ? true : Boolean(body.activo),
+      creado_en: now,
+      actualizado_en: now,
+    };
     await docClient.send(new PutCommand({ TableName: tObj, Item: item }));
     return res.json({ ok: true, objeto: mapObjeto(item) });
   } catch (err) {
@@ -489,11 +560,11 @@ router.patch('/limpieza/objetos/:localId/:id', requireAnyPermission('limpieza.ca
   const sets = ['actualizado_en = :ts'];
   const values = { ':ts': new Date().toISOString() };
   const names = {};
+  // `codigo` es inmutable tras el alta (se genera en POST).
   const campos = {
     tipo_objeto_id: (v) => String(v ?? '').trim(),
     nombre: (v) => String(v ?? '').trim(),
     ubicacion: (v) => String(v ?? '').trim(),
-    codigo: (v) => String(v ?? '').trim(),
     activo: (v) => Boolean(v),
   };
   for (const [k, norm] of Object.entries(campos)) {

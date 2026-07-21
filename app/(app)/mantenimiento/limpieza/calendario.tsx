@@ -16,9 +16,10 @@ import { useMantenimientoLocales, valorEnLocal } from '../LocalesContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
+import { LimpiezaAgenda, type RegistroAgenda } from '../../../components/limpieza/LimpiezaAgenda';
 import { apiFetch } from '../../../utils/api';
 
-type Vista = 'mes' | 'semana' | 'dia';
+type Vista = 'agenda' | 'mes' | 'semana' | 'dia';
 type Registro = {
   id_registro: string;
   local_id: string;
@@ -30,6 +31,8 @@ type Registro = {
   tipo_objeto_id?: string | null;
   fecha_programada: string;
   estado: string;
+  realizado_por_nombre?: string | null;
+  completado_at?: string | null;
 };
 type Objeto = { id_objeto: string; nombre: string; ubicacion?: string };
 
@@ -76,7 +79,7 @@ export default function CalendarioLimpiezaScreen() {
   const puedeAgregar = hasPermiso('limpieza.programar');
   const puedeBorrar = hasPermiso('limpieza.borrar');
 
-  const [vista, setVista] = useState<Vista>('mes');
+  const [vista, setVista] = useState<Vista>('agenda');
   const [ancla, setAncla] = useState<Date>(() => new Date());
   const [localId, setLocalId] = useState(TODOS);
   const [estado, setEstado] = useState('');
@@ -90,6 +93,7 @@ export default function CalendarioLimpiezaScreen() {
   const [addFecha, setAddFecha] = useState('');
   const [addModal, setAddModal] = useState(false);
   const [accion, setAccion] = useState(false);
+  const [agendaRefresh, setAgendaRefresh] = useState(0);
 
   const localesOpciones = useMemo(
     () => [
@@ -103,8 +107,9 @@ export default function CalendarioLimpiezaScreen() {
     [locales],
   );
 
-  // Rango [desde, hasta] visible según la vista.
+  // Rango [desde, hasta] visible según la vista (no aplica a agenda).
   const rango = useMemo(() => {
+    if (vista === 'agenda') return { desde: '', hasta: '' };
     if (vista === 'dia') { const iso = toIso(ancla); return { desde: iso, hasta: iso }; }
     if (vista === 'semana') {
       const ini = inicioSemanaLunes(ancla);
@@ -117,6 +122,7 @@ export default function CalendarioLimpiezaScreen() {
   }, [vista, ancla]);
 
   const cargar = useCallback(() => {
+    if (vista === 'agenda') return;
     setLoading(true);
     setError(null);
     const params = new URLSearchParams({ fecha_desde: rango.desde, fecha_hasta: rango.hasta });
@@ -130,7 +136,7 @@ export default function CalendarioLimpiezaScreen() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Error de conexión'))
       .finally(() => setLoading(false));
-  }, [rango.desde, rango.hasta, localId, estado]);
+  }, [vista, rango.desde, rango.hasta, localId, estado]);
 
   useFocusEffect(useCallback(() => { cargar(); }, [cargar]));
 
@@ -195,6 +201,7 @@ export default function CalendarioLimpiezaScreen() {
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Error al crear'); return; }
       setAddModal(false);
+      setAgendaRefresh((t) => t + 1);
       cargar();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error de conexión');
@@ -203,7 +210,7 @@ export default function CalendarioLimpiezaScreen() {
     }
   };
 
-  const borrarRegistro = async (r: Registro) => {
+  const borrarRegistro = async (r: Registro | RegistroAgenda) => {
     setAccion(true);
     setError(null);
     try {
@@ -221,6 +228,7 @@ export default function CalendarioLimpiezaScreen() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Error al borrar'); return; }
+      setAgendaRefresh((t) => t + 1);
       cargar();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error de conexión');
@@ -280,16 +288,29 @@ export default function CalendarioLimpiezaScreen() {
               onSeleccionar={setLocalId}
             />
             <View style={styles.vistaToggle}>
-              {(['mes', 'semana', 'dia'] as Vista[]).map((v) => (
-                <TouchableOpacity key={v} style={[styles.vistaBtn, vista === v && styles.vistaBtnActive]} onPress={() => setVista(v)}>
-                  <Text style={[styles.vistaBtnText, vista === v && styles.vistaBtnTextActive]}>
-                    {v === 'mes' ? 'Mes' : v === 'semana' ? 'Semana' : 'Día'}
-                  </Text>
+              {([
+                { id: 'agenda' as Vista, label: 'Agenda' },
+                { id: 'mes' as Vista, label: 'Mes' },
+                { id: 'semana' as Vista, label: 'Semana' },
+                { id: 'dia' as Vista, label: 'Día' },
+              ]).map((v) => (
+                <TouchableOpacity key={v.id} style={[styles.vistaBtn, vista === v.id && styles.vistaBtnActive]} onPress={() => setVista(v.id)}>
+                  <Text style={[styles.vistaBtnText, vista === v.id && styles.vistaBtnTextActive]}>{v.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
 
+          {vista === 'agenda' ? (
+            <LimpiezaAgenda
+              localId={localId === TODOS ? undefined : localId}
+              nombreLocal={localNombre}
+              onBorrarRegistro={puedeBorrar ? (r) => { if (!accion) borrarRegistro(r); } : undefined}
+              onPressRegistro={(r) => abrirDia(r.fecha_programada)}
+              refreshToken={agendaRefresh}
+            />
+          ) : (
+          <>
           <View style={styles.estadoChips}>
             {ESTADOS_FILTRO.map((e) => (
               <TouchableOpacity key={e.id || 'all'} style={[styles.chip, estado === e.id && styles.chipActive]} onPress={() => setEstado(e.id)}>
@@ -409,6 +430,8 @@ export default function CalendarioLimpiezaScreen() {
               )}
             </ScrollView>
           )}
+          </>
+          )}
         </>
       )}
 
@@ -480,7 +503,7 @@ export default function CalendarioLimpiezaScreen() {
                 onSeleccionar={setAddObjetoId}
               />
               {objetos.length === 0 ? (
-                <Text style={styles.ayuda}>Este local no tiene objetos. Créalos en «Objetos por local».</Text>
+                <Text style={styles.ayuda}>Este local no tiene objetos. Créalos en «Tipos y objetos».</Text>
               ) : null}
               <TouchableOpacity
                 style={[styles.saveBtn, (!addObjetoId || accion) && styles.saveBtnDisabled]}

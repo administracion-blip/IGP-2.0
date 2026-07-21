@@ -1103,6 +1103,16 @@ export default function AcuerdosScreen() {
             <MaterialIcons name="assessment" size={18} color="#7c3aed" />
             <Text style={styles.informeBtnText}>Informe</Text>
           </TouchableOpacity>
+          {hasPermiso('mayorista.ver') ? (
+            <TouchableOpacity
+              style={styles.operacionesBtn}
+              onPress={() => router.push('/mayorista' as any)}
+              accessibilityLabel="Operaciones de venta mayorista"
+            >
+              <MaterialIcons name="storefront" size={18} color="#334155" />
+              <Text style={styles.operacionesBtnText}>Operaciones</Text>
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity
             style={styles.productosActivosBtn}
             onPress={() => router.push('/acuerdos-productos-activos' as any)}
@@ -1954,6 +1964,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f3ff',
   },
   informeBtnText: { fontSize: 12, fontWeight: '600', color: '#7c3aed' },
+  operacionesBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#f1f5f9',
+  },
+  operacionesBtnText: { fontSize: 12, fontWeight: '600', color: '#334155' },
   productosAgoraBtn: {
     flexDirection: 'row',
     alignItems: 'center',

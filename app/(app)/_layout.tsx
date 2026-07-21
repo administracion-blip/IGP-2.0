@@ -22,6 +22,7 @@ import { fetchImagenApp } from '../lib/personalizacion';
 import { MODULOS as MENU_ITEMS, moduloDeRuta } from '../constants/modulos';
 import { colors, iconSize, radius, shadowCard, sidebar, SPACING, typography } from '../constants/theme';
 import { SidebarNavItem } from '../components/ui/SidebarNavItem';
+import { LaserBorderWrap } from '../components/ui/LaserBorderWrap';
 
 function normalizarPath(pathname: string): string {
   const p = pathname.replace(/\/$/, '');
@@ -128,15 +129,19 @@ function AppLayoutContent() {
         ) : null}
         <View style={styles.headerSpacer} />
         {hasPermiso('ia.informes') ? (
-          <TouchableOpacity
-            style={styles.headerIaBtn}
-            onPress={() => router.push('/informes-ia' as never)}
-            activeOpacity={0.85}
-            accessibilityLabel="Informes IA"
-          >
-            <MaterialIcons name="auto-awesome" size={18} color="#0f172a" />
-            {width >= 640 ? <Text style={styles.headerIaBtnText}>Informes IA</Text> : null}
-          </TouchableOpacity>
+          <View style={styles.headerIaWrap}>
+            <LaserBorderWrap borderRadius={radius.sm} borderWidth={2}>
+              <TouchableOpacity
+                style={styles.headerIaBtn}
+                onPress={() => router.push('/informes-ia' as never)}
+                activeOpacity={0.85}
+                accessibilityLabel="Informes IA"
+              >
+                <MaterialIcons name="auto-awesome" size={18} color="#0f172a" />
+                {width >= 640 ? <Text style={styles.headerIaBtnText}>Informes IA</Text> : null}
+              </TouchableOpacity>
+            </LaserBorderWrap>
+          </View>
         ) : null}
         <View
           style={styles.headerConfigWrap}
@@ -223,6 +228,7 @@ function AppLayoutContent() {
               collapsed={!sidebarOpen}
               active={rutaMenuActiva(pathname, '/favoritos')}
               onPress={() => irMenu('/favoritos')}
+              accentFavoritos
             />
             <View style={styles.sidebarDivider} />
             {sidebarOpen ? (
@@ -268,6 +274,8 @@ function AppLayoutContent() {
             <Stack.Screen name="acuerdos" />
             <Stack.Screen name="acuerdos-productos-activos" />
             <Stack.Screen name="acuerdos-informe-compras" />
+            <Stack.Screen name="mayorista/index" />
+            <Stack.Screen name="mayorista/[id]" />
             <Stack.Screen name="facturacion" />
             <Stack.Screen name="ajustes" />
             <Stack.Screen name="planning-dia" />
@@ -326,6 +334,9 @@ const styles = StyleSheet.create({
   headerSpacer: {
     flex: 1,
   },
+  headerIaWrap: {
+    marginRight: SPACING.sm,
+  },
   headerIaBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -333,10 +344,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fbbf24',
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: radius.sm,
-    marginRight: SPACING.sm,
-    borderWidth: 1,
-    borderColor: '#eab308',
+    borderRadius: radius.sm - 2,
   },
   headerIaBtnText: {
     fontSize: 12,

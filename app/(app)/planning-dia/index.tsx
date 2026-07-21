@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
@@ -8,6 +8,7 @@ import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { hubTileSideSize } from '../../constants/layout';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
+import { abrirEnlaceExterno, normalizarUrlHttps } from '../../utils/enlaceExterno';
 import HubTile from '../../components/HubTile';
 import { ObjetivoMensualCard } from '../../components/ObjetivoMensualCard';
 import {
@@ -27,9 +28,11 @@ type Tarjeta = {
   label: string;
   descripcion: string;
   icon: React.ComponentProps<typeof MaterialIcons>['name'];
-  ruta: string;
+  ruta?: string;
   permiso: string;
   variant?: 'default' | 'accent';
+  /** Enlace externo (URL en Ajustes). */
+  externo?: 'inventario';
 };
 
 const TARJETAS: Tarjeta[] = [
@@ -49,6 +52,14 @@ const TARJETAS: Tarjeta[] = [
     ruta: '/compras/almacen',
     permiso: 'pedidos.preparar',
     variant: 'accent',
+  },
+  {
+    id: 'inventario',
+    label: 'Realizar inventario',
+    descripcion: 'Abre la herramienta de inventario en una nueva pestaña',
+    icon: 'fact-check',
+    permiso: 'planning_dia.ver',
+    externo: 'inventario',
   },
   {
     id: 'actuaciones',
@@ -84,6 +95,14 @@ const TARJETAS: Tarjeta[] = [
   },
 ];
 
+function aviso(msg: string) {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    window.alert(msg);
+  } else {
+    Alert.alert('Inventario', msg);
+  }
+}
+
 export default function PlanningDiaIndexScreen() {
   const router = useRouter();
   const { hasPermiso } = useAuth();
@@ -93,6 +112,7 @@ export default function PlanningDiaIndexScreen() {
   const [actuacionesHoy, setActuacionesHoy] = useState(0);
   const [limpiezaHoy, setLimpiezaHoy] = useState(0);
   const [objetivoLocalIdx, setObjetivoLocalIdx] = useState(0);
+  const [urlInventario, setUrlInventario] = useState<string | null>(null);
   const puedeObjetivoCard = hasPermiso('planning_dia.objetivo_card');
 
   const tarjetaVisible = useCallback(
@@ -101,10 +121,37 @@ export default function PlanningDiaIndexScreen() {
       if (t.id === 'activaciones') return puedeVerActivacionesPlanning(hasPermiso);
       if (t.id === 'arqueo-caja') return puedeVerArqueoCaja(hasPermiso);
       if (t.id === 'limpieza') return hasPermiso('limpieza.ver');
+      if (t.externo === 'inventario') {
+        return hasPermiso(t.permiso) && Boolean(urlInventario);
+      }
       return hasPermiso(t.permiso);
     },
-    [hasPermiso],
+    [hasPermiso, urlInventario],
   );
+
+  const cargarUrlInventario = useCallback(async () => {
+    if (!hasPermiso('planning_dia.ver')) {
+      setUrlInventario(null);
+      return;
+    }
+    try {
+      const r = await apiFetch('/api/ajustes/planning_dia/enlaces');
+      const d = await r.json();
+      const raw = r.ok && d?.item?.UrlInventario != null ? String(d.item.UrlInventario) : '';
+      setUrlInventario(normalizarUrlHttps(raw));
+    } catch {
+      setUrlInventario(null);
+    }
+  }, [hasPermiso]);
+
+  const abrirInventario = useCallback(async () => {
+    if (!urlInventario) {
+      aviso('Configura la URL de inventario en Ajustes (solo https).');
+      return;
+    }
+    const res = await abrirEnlaceExterno(urlInventario);
+    if (!res.ok) aviso(res.error);
+  }, [urlInventario]);
 
   const cargarContadoresDia = useCallback(async () => {
     const fecha = encodeURIComponent(fechaJornadaNegocioIso());
@@ -149,7 +196,8 @@ export default function PlanningDiaIndexScreen() {
   useFocusEffect(
     useCallback(() => {
       cargarContadoresDia();
-    }, [cargarContadoresDia]),
+      cargarUrlInventario();
+    }, [cargarContadoresDia, cargarUrlInventario]),
   );
 
   const visibles = TARJETAS.filter((t) => tarjetaVisible(t));
@@ -199,8 +247,18 @@ export default function PlanningDiaIndexScreen() {
                         ? limpiezaHoy
                         : undefined
                 }
-                onPress={() => router.push(t.ruta as never)}
-                favorito={{ route: t.ruta, label: t.label, icon: t.icon, permiso: t.permiso }}
+                onPress={() => {
+                  if (t.externo === 'inventario') {
+                    void abrirInventario();
+                    return;
+                  }
+                  if (t.ruta) router.push(t.ruta as never);
+                }}
+                favorito={
+                  t.ruta
+                    ? { route: t.ruta, label: t.label, icon: t.icon, permiso: t.permiso }
+                    : undefined
+                }
               />
             ))}
           </View>

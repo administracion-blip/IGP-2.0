@@ -103,6 +103,11 @@ export const tables = {
    * SK = INC#<ISO>#<uuid>. GSI: Registro-index (registro_id).
    */
   limpiezaIncidencias: process.env.DDB_LIMPIEZA_INCIDENCIAS_TABLE || 'Igp_LimpiezaIncidencias',
+  /**
+   * Venta mayorista: negociaciones.
+   * PK = negociacionId (UUID), SK = META | LINEA#<uuid>.
+   */
+  negociaciones: process.env.DDB_NEGOCIACIONES_TABLE || 'Igp_Negociaciones',
 };
 
 /**

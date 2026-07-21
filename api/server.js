@@ -59,6 +59,7 @@ import mantenimientoRouter from './routes/mantenimiento.js';
 import limpiezaRouter from './routes/limpieza.js';
 import agoraRouter from './routes/agora.js';
 import acuerdosRouter from './routes/acuerdos.js';
+import mayoristaRouter from './routes/mayorista.js';
 import ajustesRouter from './routes/ajustes.js';
 import marketingRouter from './routes/marketing.js';
 import informesRouter from './routes/informes.js';
@@ -159,6 +160,7 @@ ensureUsuariosEmailGSI();
 ensureMarketingGSIs();
 ensureVentasProductoGSI();
 app.use('/api', acuerdosRouter);
+app.use('/api', mayoristaRouter);
 
 app.use('/api', usuariosRouter);
 app.use('/api', productosRouter);
