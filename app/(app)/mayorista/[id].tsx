@@ -23,6 +23,7 @@ import { DocumentoProveedorPreview } from '../../components/mayorista/DocumentoP
 import { PostitTooltip } from '../../components/PostitTooltip';
 import { LaserBorderWrap } from '../../components/ui/LaserBorderWrap';
 import { useAppDialog } from '../../components/AppDialog';
+import { useLocalToast } from '../../components/Toast';
 import { formatEur, recalcularLineaUx, round2 } from '../../lib/mayoristaCalculos';
 import { buildNombreOperacion } from '../../lib/mayoristaReferencia';
 import { formatFecha } from '../../utils/formatFecha';
@@ -92,6 +93,8 @@ type Linea = {
   alerta_nivel?: string;
   perdida_estimada?: number;
   alerta_aceptada?: boolean;
+  /** IVA de compra del artículo (ultimo_iva_compra). */
+  ultimo_iva_compra?: number | null;
   _modo_edicion?: 'pct' | 'pvp';
   _histPvp?: number | null;
 };
@@ -233,6 +236,17 @@ function productoIdDe(p: Record<string, unknown>) {
 function productoNombreDe(p: Record<string, unknown>) {
   return String(p.Name ?? p.Nombre ?? p.nombre ?? p.ProductName ?? p.Description ?? productoIdDe(p)).trim();
 }
+function ivaCompraDeProducto(p: Record<string, unknown> | undefined | null): number | null {
+  if (!p) return null;
+  const raw = p.ultimo_iva_compra ?? p.ULTIMO_IVA_COMPRA ?? p.PurchaseVatPercent ?? p.VatPercent;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+function formatIvaPct(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(Number(v))) return '—';
+  const n = Number(v);
+  return `${Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100)}%`;
+}
 
 function recalcLineaFields(
   cur: Linea,
@@ -295,6 +309,7 @@ export default function MayoristaDetalleScreen() {
   const puedeExportar = hasPermiso('mayorista.exportar');
   const { shouldStackPanels } = useBreakpoint();
   const { aviso, avisoErrores, confirmar: confirmarDialog, dialog } = useAppDialog();
+  const { show: showToast, ToastView } = useLocalToast();
 
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -324,9 +339,23 @@ export default function MayoristaDetalleScreen() {
     () => productosIgp.map((p) => ({
       id: productoIdDe(p as Record<string, unknown>),
       nombre: productoNombreDe(p as Record<string, unknown>),
+      ultimo_iva_compra: ivaCompraDeProducto(p as Record<string, unknown>),
     })).filter((p) => p.id),
     [productosIgp],
   );
+
+  const ivaPorProductoId = useMemo(() => {
+    const m = new Map<string, number | null>();
+    for (const p of catalogoProductos) m.set(p.id, p.ultimo_iva_compra);
+    return m;
+  }, [catalogoProductos]);
+
+  const ivaDeLinea = useCallback((l: Linea): number | null => {
+    if (l.ultimo_iva_compra != null && Number.isFinite(Number(l.ultimo_iva_compra))) {
+      return Number(l.ultimo_iva_compra);
+    }
+    return ivaPorProductoId.get(String(l.producto_id || '')) ?? null;
+  }, [ivaPorProductoId]);
 
   const prodHits = useMemo(() => {
     const qq = prodQ.trim().toLowerCase();
@@ -542,7 +571,7 @@ export default function MayoristaDetalleScreen() {
     setProvPrecios([]);
   };
 
-  const anadirProducto = async (prod: { id: string; nombre: string }) => {
+  const anadirProducto = async (prod: { id: string; nombre: string; ultimo_iva_compra?: number | null }) => {
     setProdModal(false);
     setProdQ('');
     try {
@@ -551,6 +580,7 @@ export default function MayoristaDetalleScreen() {
       const precios: PrecioProv[] = d.precios || [];
       const mejor = precios.find((p) => p.mejor_precio) || precios[0];
       const cn = round2(mejor?.cn ?? 0);
+      const iva = prod.ultimo_iva_compra ?? ivaPorProductoId.get(prod.id) ?? null;
       let nueva: Linea = {
         id_linea: `tmp-${Date.now()}`,
         producto_id: prod.id,
@@ -571,6 +601,7 @@ export default function MayoristaDetalleScreen() {
         aportacion_vigente: false,
         aportacion_unitaria: 0,
         dias_cobro: 0,
+        ultimo_iva_compra: iva,
         _modo_edicion: 'pvp',
       };
       nueva = recalcLineaFields(nueva, neg, config);
@@ -601,7 +632,11 @@ export default function MayoristaDetalleScreen() {
     nombre_manual: nombreManualRef.current,
     pct_ganancia_defecto: neg?.pct_ganancia_defecto ?? config.pct_ganancia_defecto ?? 0,
     tasa_capital: neg?.tasa_capital,
-    lineas: lineas.map((l) => ({ ...l, _modo_edicion: 'pvp' })),
+    lineas: lineas.map((l) => ({
+      ...l,
+      ultimo_iva_compra: ivaDeLinea(l),
+      _modo_edicion: 'pvp' as const,
+    })),
   });
 
   const aceptarAvisosProveedor = async (n: Negociacion, lista: Linea[], accion: 'guardar' | 'confirmar') => {
@@ -650,6 +685,7 @@ export default function MayoristaDetalleScreen() {
       setNeg(saved.negociacion);
       setLineas(saved.lineas);
       if (saved.negociacion?.id) void refrescarHistorico(saved.lineas, saved.negociacion.id);
+      showToast('Guardado', 'Operación guardada correctamente.', 'success');
       if (esNuevo && saved.negociacion?.id) {
         router.replace(`/mayorista/${saved.negociacion.id}` as never);
       }
@@ -710,8 +746,8 @@ export default function MayoristaDetalleScreen() {
       }
       setNeg(d.negociacion);
       setLineas(d.lineas || []);
+      showToast('Confirmada', 'La operación ha sido confirmada.', 'success');
       if (esNuevo && negId) router.replace(`/mayorista/${negId}` as never);
-      aviso('Operación confirmada');
     } catch (e) {
       aviso(e instanceof Error ? e.message : 'Error de conexión');
     } finally {
@@ -746,7 +782,7 @@ export default function MayoristaDetalleScreen() {
       if (!r.ok) { aviso(d.error || 'No se pudo facturar'); return; }
       setNeg(d.negociacion);
       setLineas(d.lineas || []);
-      aviso('Operación marcada como facturada');
+      showToast('Facturada', 'Operación marcada como facturada.', 'success');
     } catch (e) {
       aviso(e instanceof Error ? e.message : 'Error de conexión');
     } finally {
@@ -1010,6 +1046,10 @@ export default function MayoristaDetalleScreen() {
                         <Text style={styles.cellName} numberOfLines={1}>{l.product_name || l.producto_id}</Text>
                         <Text style={styles.cellMeta} numberOfLines={1}>
                           #{l.producto_id}
+                          {(() => {
+                            const iva = ivaDeLinea(l);
+                            return iva != null ? ` · IVA ${formatIvaPct(iva)}` : '';
+                          })()}
                           {l.alerta_nivel === 'rojo' ? ' · bajo coste' : ''}
                         </Text>
                       </View>
@@ -1114,7 +1154,14 @@ export default function MayoristaDetalleScreen() {
             )}
           </View>
           <View style={[styles.panelPreview, shouldStackPanels && styles.panelPreviewStack]}>
-            <DocumentoProveedorPreview neg={neg} lineas={lineas} puedeExportar={puedeExportar} />
+            <DocumentoProveedorPreview
+              neg={neg}
+              lineas={lineas.map((l) => ({
+                ...l,
+                ultimo_iva_compra: ivaDeLinea(l),
+              }))}
+              puedeExportar={puedeExportar}
+            />
           </View>
         </View>
       </ScrollView>
@@ -1260,6 +1307,7 @@ export default function MayoristaDetalleScreen() {
         </View>
       </Modal>
       {dialog}
+      {ToastView}
     </View>
   );
 }

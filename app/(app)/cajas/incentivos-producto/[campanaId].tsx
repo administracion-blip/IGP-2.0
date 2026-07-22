@@ -30,6 +30,60 @@ import type { Campana, ResultadosCampana } from '../../../types/incentivosProduc
 
 type TabKey = 'producto' | 'empleado' | 'local' | 'evolucion';
 
+function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <View style={styles.kpiCard}>
+      <Text style={styles.kpiCardLabel} numberOfLines={1}>{label}</Text>
+      <Text style={[styles.kpiCardValue, color ? { color } : null]} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
+
+function FilaCard({
+  titulo,
+  badge,
+  badgeColor,
+  semaforo,
+  fields,
+}: {
+  titulo: string;
+  badge?: string;
+  badgeColor?: { bg: string; text: string };
+  semaforo?: 'verde' | 'rojo' | null;
+  fields: { label: string; value: string }[];
+}) {
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardHeader}>
+        <View style={styles.cardTitleWrap}>
+          <Text style={styles.cardTitle} numberOfLines={1}>{titulo}</Text>
+          {badge && badgeColor ? (
+            <View style={[styles.badge, { backgroundColor: badgeColor.bg, borderColor: badgeColor.text }]}>
+              <Text style={[styles.badgeText, { color: badgeColor.text }]}>{badge}</Text>
+            </View>
+          ) : null}
+          {semaforo ? (
+            <View
+              style={[
+                styles.dotSem,
+                { backgroundColor: semaforo === 'verde' ? '#16a34a' : '#dc2626' },
+              ]}
+            />
+          ) : null}
+        </View>
+      </View>
+      <View style={styles.cardBody}>
+        {fields.map((f) => (
+          <View key={f.label} style={styles.cardField}>
+            <Text style={styles.cardFieldLabel}>{f.label}</Text>
+            <Text style={styles.cardFieldValue} numberOfLines={2}>{f.value}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export default function CampanaDetalleScreen() {
   const { campanaId } = useLocalSearchParams<{ campanaId: string }>();
   const router = useRouter();
@@ -179,20 +233,24 @@ export default function CampanaDetalleScreen() {
 
   if (!puedeVer) {
     return (
-      <View style={styles.container}>
+      <View style={styles.center}>
+        <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
         <Text style={styles.sinPermiso}>Sin permiso para ver esta campaña.</Text>
       </View>
     );
   }
 
+  const totalUdsCampana = resultados?.porProducto.reduce((a, p) => a + p.udsCampanaTotal, 0) ?? 0;
+  const totalIncrementales = resultados?.porProducto.reduce((a, p) => a + p.udsIncrementales, 0) ?? 0;
+
   return (
     <View style={styles.container}>
-      <View style={[styles.toolbar, shouldStackToolbar && styles.toolbarStack]}>
+      <View style={[styles.header, shouldStackToolbar && styles.headerStack]}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <MaterialIcons name="arrow-back" size={22} color="#0ea5e9" />
+          <MaterialIcons name="arrow-back" size={22} color="#334155" />
         </TouchableOpacity>
         <View style={styles.tituloBlock}>
-          <Text style={styles.title} numberOfLines={2}>{campana?.nombre || 'Campaña'}</Text>
+          <Text style={styles.headerTitle} numberOfLines={2}>{campana?.nombre || 'Campaña'}</Text>
           {campana ? (
             <Text style={styles.subtitle}>
               {formatFecha(campana.fechaInicio)} — {formatFecha(campana.fechaFin)}
@@ -202,7 +260,7 @@ export default function CampanaDetalleScreen() {
         <View style={styles.acciones}>
           {puedeGestionar && campana ? (
             <TouchableOpacity style={styles.btnIcon} onPress={() => setModalEditar(true)}>
-              <MaterialIcons name="edit" size={22} color="#0ea5e9" />
+              <MaterialIcons name="edit" size={20} color="#64748b" />
             </TouchableOpacity>
           ) : null}
           {puedeExportar ? (
@@ -213,16 +271,11 @@ export default function CampanaDetalleScreen() {
                 disabled={exportando || !resultados}
               >
                 {exportando ? (
-                  <ActivityIndicator size="small" color="#0ea5e9" />
+                  <ActivityIndicator size="small" color="#fff" />
                 ) : (
                   <>
-                    <MaterialIcons name="download" size={18} color="#0ea5e9" />
+                    <MaterialIcons name="download" size={16} color="#fff" />
                     <Text style={styles.btnExportText}>Descargar</Text>
-                    <MaterialIcons
-                      name={exportMenuOpen ? 'expand-less' : 'expand-more'}
-                      size={18}
-                      color="#64748b"
-                    />
                   </>
                 )}
               </TouchableOpacity>
@@ -240,9 +293,9 @@ export default function CampanaDetalleScreen() {
       </View>
 
       {loading ? (
-        <ActivityIndicator style={{ marginTop: 40 }} color="#0ea5e9" />
+        <View style={styles.center}><ActivityIndicator color="#0ea5e9" /></View>
       ) : error ? (
-        <Text style={styles.error}>{error}</Text>
+        <View style={styles.errorBar}><Text style={styles.errorText}>{error}</Text></View>
       ) : campana && resultados ? (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           {resultados.warnings?.length ? (
@@ -253,37 +306,8 @@ export default function CampanaDetalleScreen() {
             </View>
           ) : null}
 
-          <View style={[styles.kpiRow, shouldStackPanels && styles.kpiRowStack]}>
-            <View style={styles.kpi}>
-              <Text style={styles.kpiLabel}>Uds. campaña</Text>
-              <Text style={styles.kpiValor}>
-                {resultados.porProducto.reduce((a, p) => a + p.udsCampanaTotal, 0).toFixed(0)}
-              </Text>
-            </View>
-            <View style={styles.kpi}>
-              <Text style={styles.kpiLabel}>Incrementales</Text>
-              <Text style={styles.kpiValor}>
-                {resultados.porProducto.reduce((a, p) => a + p.udsIncrementales, 0).toFixed(0)}
-              </Text>
-            </View>
-            <View style={styles.kpi}>
-              <Text style={styles.kpiLabel}>Coste incentivo</Text>
-              <Text style={styles.kpiValor}>{formatMoneda(resultados.totales.costeIncentivo)}</Text>
-            </View>
-            <View
-              style={[
-                styles.kpi,
-                semaforoGlobal === 'verde' && styles.kpiVerde,
-                semaforoGlobal === 'rojo' && styles.kpiRojo,
-              ]}
-            >
-              <Text style={styles.kpiLabel}>Resultado neto</Text>
-              <Text style={styles.kpiValor}>{formatMoneda(resultados.totales.resultadoNeto)}</Text>
-            </View>
-          </View>
-
           <View style={styles.metaRow}>
-            <View style={[styles.estadoBadge, { backgroundColor: colorEstadoCampana(campana.estado) + '22' }]}>
+            <View style={[styles.estadoBadge, { backgroundColor: colorEstadoCampana(campana.estado) + '18', borderColor: colorEstadoCampana(campana.estado) }]}>
               <Text style={[styles.estadoText, { color: colorEstadoCampana(campana.estado) }]}>
                 {campana.estado}
               </Text>
@@ -294,51 +318,58 @@ export default function CampanaDetalleScreen() {
             <Text style={styles.metaText}>{etiquetaDestinatario(campana.destinatario)}</Text>
           </View>
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll}>
-            <View style={styles.tabsRow}>
-              {tabs.map((t) => (
-                <TouchableOpacity
-                  key={t.key}
-                  style={[styles.tab, tab === t.key && styles.tabActivo]}
-                  onPress={() => setTab(t.key)}
-                >
-                  <Text style={[styles.tabText, tab === t.key && styles.tabTextActivo]}>{t.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </ScrollView>
+          <View style={[styles.kpiRow, shouldStackPanels && styles.kpiRowStack]}>
+            <KpiCard label="Uds. campaña" value={totalUdsCampana.toFixed(0)} />
+            <KpiCard label="Incrementales" value={totalIncrementales.toFixed(0)} />
+            <KpiCard label="Coste incentivo" value={formatMoneda(resultados.totales.costeIncentivo)} color="#d97706" />
+            <KpiCard
+              label="Resultado neto"
+              value={formatMoneda(resultados.totales.resultadoNeto)}
+              color={semaforoGlobal === 'verde' ? '#16a34a' : semaforoGlobal === 'rojo' ? '#dc2626' : undefined}
+            />
+          </View>
+
+          <View style={styles.toolbarTabs}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={styles.chipRowTabs}>
+                {tabs.map((t) => {
+                  const sel = tab === t.key;
+                  return (
+                    <TouchableOpacity
+                      key={t.key}
+                      style={[styles.tabChip, sel && styles.tabChipSel]}
+                      onPress={() => setTab(t.key)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.tabChipText, sel && styles.tabChipTextSel]}>{t.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </View>
 
           {tab === 'producto' ? (
             <View style={styles.tabla}>
               {resultados.porProducto.map((p) => (
-                <View key={p.productId} style={styles.filaCard}>
-                  <View style={styles.filaTop}>
-                    <Text style={styles.filaTitulo}>{p.productName}</Text>
-                    <View
-                      style={[
-                        styles.veredicto,
-                        { backgroundColor: p.veredicto === 'RENTABLE' ? '#dcfce7' : '#fee2e2' },
-                      ]}
-                    >
-                      <Text
-                        style={{
-                          color: p.veredicto === 'RENTABLE' ? '#16a34a' : '#dc2626',
-                          fontSize: 11,
-                          fontWeight: '700',
-                        }}
-                      >
-                        {p.veredicto}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text style={styles.filaDet}>
-                    Campaña: {p.udsCampanaTotal} uds · Incrementales: {p.udsIncrementales}
-                  </Text>
-                  <Text style={styles.filaDet}>
-                    Margen incr.: {formatMoneda(p.margenIncremental)} · Incentivo:{' '}
-                    {formatMoneda(p.costeIncentivo)} · Neto: {formatMoneda(p.resultadoNeto)}
-                  </Text>
-                </View>
+                <FilaCard
+                  key={p.productId}
+                  titulo={p.productName}
+                  badge={p.veredicto}
+                  badgeColor={
+                    p.veredicto === 'RENTABLE'
+                      ? { bg: '#dcfce7', text: '#166534' }
+                      : { bg: '#fee2e2', text: '#991b1b' }
+                  }
+                  semaforo={p.resultadoNeto >= 0 ? 'verde' : 'rojo'}
+                  fields={[
+                    { label: 'Uds campaña', value: String(p.udsCampanaTotal) },
+                    { label: 'Incrementales', value: String(p.udsIncrementales) },
+                    { label: 'Margen incr.', value: formatMoneda(p.margenIncremental) },
+                    { label: 'Incentivo', value: formatMoneda(p.costeIncentivo) },
+                    { label: 'Neto', value: formatMoneda(p.resultadoNeto) },
+                  ]}
+                />
               ))}
             </View>
           ) : null}
@@ -346,18 +377,21 @@ export default function CampanaDetalleScreen() {
           {tab === 'empleado' ? (
             <View style={styles.tabla}>
               {resultados.porEmpleado.length === 0 ? (
-                <Text style={styles.vacioTab}>Sin datos de empleado (destinatario: equipo).</Text>
+                <View style={styles.emptyWrap}>
+                  <MaterialIcons name="groups" size={32} color="#cbd5e1" />
+                  <Text style={styles.vacioTab}>Sin datos de empleado (destinatario: equipo).</Text>
+                </View>
               ) : (
                 resultados.porEmpleado.map((e, i) => (
-                  <View key={`${e.localId}-${e.agoraUserId}`} style={styles.filaCard}>
-                    <Text style={styles.filaTitulo}>
-                      #{i + 1} {e.userName || e.agoraUserId}
-                    </Text>
-                    <Text style={styles.filaDet}>
-                      {nombreLocal(e.localId)} · {e.unidades} uds · Incentivo:{' '}
-                      {formatMoneda(e.incentivoDevengado)}
-                    </Text>
-                  </View>
+                  <FilaCard
+                    key={`${e.localId}-${e.agoraUserId}`}
+                    titulo={`#${i + 1} ${e.userName || e.agoraUserId}`}
+                    fields={[
+                      { label: 'Local', value: nombreLocal(e.localId) },
+                      { label: 'Unidades', value: String(e.unidades) },
+                      { label: 'Incentivo', value: formatMoneda(e.incentivoDevengado) },
+                    ]}
+                  />
                 ))
               )}
             </View>
@@ -366,12 +400,14 @@ export default function CampanaDetalleScreen() {
           {tab === 'local' ? (
             <View style={styles.tabla}>
               {resultados.porLocal.map((l) => (
-                <View key={l.localId} style={styles.filaCard}>
-                  <Text style={styles.filaTitulo}>{nombreLocal(l.localId)}</Text>
-                  <Text style={styles.filaDet}>
-                    {l.unidades} uds · Incentivo: {formatMoneda(l.incentivoDevengado)}
-                  </Text>
-                </View>
+                <FilaCard
+                  key={l.localId}
+                  titulo={nombreLocal(l.localId)}
+                  fields={[
+                    { label: 'Unidades', value: String(l.unidades) },
+                    { label: 'Incentivo', value: formatMoneda(l.incentivoDevengado) },
+                  ]}
+                />
               ))}
             </View>
           ) : null}
@@ -379,9 +415,13 @@ export default function CampanaDetalleScreen() {
           {tab === 'evolucion' ? (
             <View style={styles.tabla}>
               {resultados.serieDiaria.map((d) => (
-                <View key={d.fecha} style={styles.serieFila}>
-                  <Text style={styles.serieFecha}>{formatFecha(d.fecha)}</Text>
-                  <Text style={styles.serieUds}>{d.unidades} uds</Text>
+                <View key={d.fecha} style={styles.card}>
+                  <View style={styles.cardHeader}>
+                    <Text style={styles.cardTitle}>{formatFecha(d.fecha)}</Text>
+                    <Text style={[styles.cardFieldValue, { fontWeight: '700', color: '#0ea5e9' }]}>
+                      {d.unidades} uds
+                    </Text>
+                  </View>
                 </View>
               ))}
             </View>
@@ -409,21 +449,24 @@ export default function CampanaDetalleScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#e2e8f0' },
-  sinPermiso: { padding: 24, textAlign: 'center', color: '#64748b' },
-  toolbar: {
+  container: { flex: 1, backgroundColor: '#f8fafc' },
+  center: { padding: 40, alignItems: 'center', gap: 8 },
+  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: 10 },
+  sinPermiso: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
+  header: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    padding: 12,
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
+    gap: 12,
   },
-  toolbarStack: { flexWrap: 'wrap' },
-  backBtn: { padding: 4, marginTop: 2 },
-  tituloBlock: { flex: 1 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
+  headerStack: { flexWrap: 'wrap', alignItems: 'flex-start' },
+  backBtn: { padding: 4 },
+  tituloBlock: { flex: 1, minWidth: 0 },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: '#0f172a' },
   subtitle: { fontSize: 13, color: '#64748b', marginTop: 2 },
   acciones: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   btnIcon: { padding: 6 },
@@ -431,14 +474,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 10,
     paddingVertical: 8,
+    paddingHorizontal: 14,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#0ea5e9',
   },
-  btnExportText: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
+  btnExportText: { fontSize: 13, fontWeight: '600', color: '#fff' },
   exportMenu: {
     position: 'absolute',
     top: '100%',
@@ -474,63 +515,80 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 12,
     gap: 4,
+    borderWidth: 1,
+    borderColor: '#fde68a',
   },
   warningText: { fontSize: 13, color: '#92400e' },
-  kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 12 },
-  kpiRowStack: { flexDirection: 'column' },
-  kpi: {
-    flex: 1,
-    minWidth: 140,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  kpiVerde: { borderColor: '#86efac', backgroundColor: '#f0fdf4' },
-  kpiRojo: { borderColor: '#fca5a5', backgroundColor: '#fef2f2' },
-  kpiLabel: { fontSize: 12, color: '#64748b' },
-  kpiValor: { fontSize: 18, fontWeight: '700', color: '#334155', marginTop: 4 },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 12 },
-  estadoBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  estadoBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1 },
   estadoText: { fontSize: 11, fontWeight: '700' },
   metaText: { fontSize: 13, color: '#64748b' },
-  tabsScroll: { maxHeight: 44, marginBottom: 12 },
-  tabsRow: { flexDirection: 'row', gap: 8 },
-  tab: {
-    paddingHorizontal: 14,
+  kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 },
+  kpiRowStack: { flexDirection: 'column' },
+  kpiCard: {
+    flex: 1,
+    minWidth: 120,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  kpiCardLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
+  kpiCardValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 2 },
+  toolbarTabs: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    paddingHorizontal: 8,
     paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    marginBottom: 12,
+  },
+  chipRowTabs: { flexDirection: 'row', gap: 6 },
+  tabChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
   },
-  tabActivo: { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' },
-  tabText: { fontSize: 13, color: '#64748b' },
-  tabTextActivo: { color: '#0369a1', fontWeight: '600' },
-  tabla: { gap: 8 },
-  filaCard: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  filaTop: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
-  filaTitulo: { fontSize: 15, fontWeight: '600', color: '#334155', flex: 1 },
-  veredicto: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  filaDet: { fontSize: 13, color: '#64748b', marginTop: 4 },
-  serieFila: {
+  tabChipSel: { backgroundColor: '#e0f2fe', borderColor: '#7dd3fc' },
+  tabChipText: { fontSize: 11, fontWeight: '600', color: '#475569' },
+  tabChipTextSel: { color: '#075985', fontWeight: '800' },
+  tabla: { gap: 10 },
+  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
+  cardHeader: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#fff',
-    padding: 10,
-    borderRadius: 6,
-    marginBottom: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
   },
-  serieFecha: { fontSize: 14, color: '#334155' },
-  serieUds: { fontSize: 14, fontWeight: '600', color: '#0ea5e9' },
-  vacioTab: { color: '#94a3b8', fontStyle: 'italic', padding: 16 },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
+  cardTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', flexShrink: 1 },
+  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
+  badgeText: { fontSize: 11, fontWeight: '600' },
+  dotSem: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: 8 },
+  cardField: { minWidth: 84, marginRight: 8 },
+  cardFieldLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 1 },
+  cardFieldValue: { fontSize: 13, color: '#334155' },
+  vacioTab: { color: '#94a3b8', fontStyle: 'italic', textAlign: 'center' },
   notaPie: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', marginTop: 16, textAlign: 'center' },
-  error: { color: '#dc2626', padding: 16 },
+  errorBar: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  errorText: { fontSize: 12, color: '#dc2626' },
 });

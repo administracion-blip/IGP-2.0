@@ -570,12 +570,12 @@ export default function CashflowNuevoScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.topBar}>
+      <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <MaterialIcons name="arrow-back" size={22} color="#334155" />
         </TouchableOpacity>
-        <View style={styles.topBarTitle}>
-          <Text style={styles.title}>Nuevo movimiento</Text>
+        <View style={styles.headerText}>
+          <Text style={styles.headerTitle}>Nuevo movimiento</Text>
           <Text style={styles.subtitle}>Efectivo fuera del TPV</Text>
         </View>
         {splitView ? (
@@ -612,29 +612,20 @@ export default function CashflowNuevoScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#e2e8f0' },
-  topBar: {
+  container: { flex: 1, backgroundColor: '#f8fafc' },
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
-  topBarTitle: { flex: 1, minWidth: 0 },
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
+  headerText: { flex: 1, minWidth: 0 },
+  backBtn: { padding: 4 },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: '#0f172a' },
   subtitle: { fontSize: 12, color: '#64748b' },
   main: { flex: 1 },
   mainSplit: {

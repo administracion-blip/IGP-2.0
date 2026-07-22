@@ -283,6 +283,9 @@ async function enriquecerYRecalcularLinea(raw, cabecera, config) {
     dias_cobro: calc.dias_cobro,
     coste_neto: round2(calc.coste_neto),
     pmr: round2(calc.pmr),
+    ultimo_iva_compra: raw.ultimo_iva_compra != null && Number.isFinite(Number(raw.ultimo_iva_compra))
+      ? Number(raw.ultimo_iva_compra)
+      : null,
     coste_financiero: calc.coste_financiero,
     beneficio_comercial: calc.beneficio_comercial,
     beneficio_neto: calc.beneficio_neto,

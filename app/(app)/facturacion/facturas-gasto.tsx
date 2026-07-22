@@ -53,6 +53,7 @@ import { apiFetch } from '../../utils/api';
 import { ESTADOS_FACTURA_REMESABLES, esFacturaSeleccionableEnListado } from '../../lib/remesas';
 import { descargarAdjuntoFacturaRecibida } from '../../lib/descargarAdjuntoFactura';
 import { textoTrimestreFactura, trimestreDesdeFechaEmision } from '../../lib/idDocumentoFactura';
+import { buildEmpresasDesdeFacturasHref } from '../../lib/navegacionEmpresas';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const PAGE_SIZE = 50;
@@ -989,6 +990,16 @@ export default function FacturasGastoScreen() {
         </TouchableOpacity>
         <Text style={styles.title}>Facturas de gasto</Text>
         <View style={styles.headerActions}>
+          {hasPermiso('empresas.ver') ? (
+            <TouchableOpacity
+              style={styles.masivoBtnHeader}
+              onPress={() => router.push(buildEmpresasDesdeFacturasHref('IN') as never)}
+              accessibilityLabel="Ir al maestro de empresas"
+            >
+              <MaterialIcons name="business" size={16} color="#0ea5e9" />
+              <Text style={styles.headerActionText}>Empresas</Text>
+            </TouchableOpacity>
+          ) : null}
           {hasPermiso('remesas.ver') ? (
             <TouchableOpacity
               style={styles.masivoBtnHeader}

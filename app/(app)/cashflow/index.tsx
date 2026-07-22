@@ -25,6 +25,8 @@ import {
   type CashflowResumen,
   type CashflowTipo,
   ESTADO_CASHFLOW_META,
+  CHIP_ESTADO_CASHFLOW_PASTEL,
+  CHIP_TIPO_CASHFLOW_PASTEL,
   CATEGORIA_CASHFLOW_LABEL,
   formatImporteCashflow,
   lineasMovimiento,
@@ -108,6 +110,15 @@ const FILTROS_TIPO: { id: CashflowTipo | ''; label: string }[] = [
   { id: 'cobro', label: 'Cobros' },
 ];
 
+function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <View style={styles.kpiCard}>
+      <Text style={styles.kpiLabel} numberOfLines={1}>{label}</Text>
+      <Text style={[styles.kpiValue, color ? { color } : null]} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
+
 export default function CashflowIndexScreen() {
   const router = useRouter();
   const { hasPermiso, localPermitido } = useAuth();
@@ -141,11 +152,36 @@ export default function CashflowIndexScreen() {
     [locales, localPermitido],
   );
 
+  const conteoPorTipo = useMemo(() => {
+    const counts: Record<string, number> = { '': movimientos.length, pago: 0, cobro: 0 };
+    for (const m of movimientos) {
+      if (counts[m.tipo] != null) counts[m.tipo]++;
+    }
+    return counts;
+  }, [movimientos]);
+
+  const conteoPorEstado = useMemo(() => {
+    const counts: Record<string, number> = {
+      '': movimientos.length,
+      Pendiente_firma: 0,
+      Pendiente_validacion: 0,
+      Firmado: 0,
+      Anulado: 0,
+    };
+    for (const m of movimientos) {
+      if (counts[m.estado] != null) counts[m.estado]++;
+    }
+    return counts;
+  }, [movimientos]);
+
   const movimientosFiltrados = useMemo(() => {
+    let list = movimientos;
+    if (filtroTipo) list = list.filter((m) => m.tipo === filtroTipo);
+    if (filtroEstado) list = list.filter((m) => m.estado === filtroEstado);
     const q = busqueda.trim();
-    if (!q) return movimientos;
-    return movimientos.filter((m) => movimientoCoincideBusqueda(m, q));
-  }, [movimientos, busqueda]);
+    if (q) list = list.filter((m) => movimientoCoincideBusqueda(m, q));
+    return list;
+  }, [movimientos, filtroTipo, filtroEstado, busqueda]);
 
   const gruposMovimientos = useMemo(() => {
     const pendientes: CashflowMovimiento[] = [];
@@ -179,8 +215,6 @@ export default function CashflowIndexScreen() {
 
     const q = new URLSearchParams({ dateFrom: fromIso, dateTo: toIso });
     if (localId) q.set('localId', localId);
-    if (filtroTipo) q.set('tipo', filtroTipo);
-    if (filtroEstado) q.set('estado', filtroEstado);
 
     Promise.all([
       apiFetch(`/api/cashflow?${q}`).then((r) => r.json()),
@@ -202,7 +236,7 @@ export default function CashflowIndexScreen() {
       .finally(() => {
         if (reqIdRef.current === myId) setLoading(false);
       });
-  }, [fromIso, toIso, localId, filtroTipo, filtroEstado]);
+  }, [fromIso, toIso, localId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -211,365 +245,463 @@ export default function CashflowIndexScreen() {
     }, [cargar]),
   );
 
-  if (!hasPermiso('cashflow.ver')) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.errorText}>No tienes permiso para ver Cashflow.</Text>
-      </View>
-    );
-  }
-
   function renderMovimientoRow(m: CashflowMovimiento) {
     const meta = ESTADO_CASHFLOW_META[m.estado] ?? ESTADO_CASHFLOW_META.Pendiente_firma;
     const esPago = m.tipo === 'pago';
     return (
       <TouchableOpacity
         key={m.movimientoId}
-        style={styles.rowCard}
+        style={styles.card}
+        activeOpacity={0.7}
         onPress={() => router.push(`/cashflow/${m.movimientoId}` as never)}
       >
-        <View style={styles.rowTop}>
-          <View style={[styles.tipoBadge, esPago ? styles.tipoPago : styles.tipoCobro]}>
-            <MaterialIcons
-              name={esPago ? 'arrow-upward' : 'arrow-downward'}
-              size={14}
-              color={esPago ? '#b91c1c' : '#15803d'}
+        <View style={styles.cardHeader}>
+          <View style={styles.cardTitleWrap}>
+            <Text style={styles.cardTitle} numberOfLines={1}>{m.concepto}</Text>
+            <View style={[styles.badge, { backgroundColor: esPago ? '#fee2e2' : '#dcfce7', borderColor: esPago ? '#fca5a5' : '#86efac' }]}>
+              <Text style={[styles.badgeText, { color: esPago ? '#991b1b' : '#166534' }]}>
+                {esPago ? 'Pago' : 'Cobro'}
+              </Text>
+            </View>
+            <View style={[styles.badge, { backgroundColor: meta.bg, borderColor: meta.border }]}>
+              <Text style={[styles.badgeText, { color: meta.color }]}>{meta.label}</Text>
+            </View>
+            <View
+              style={[
+                styles.dotSem,
+                { backgroundColor: m.estado === 'Anulado' ? '#94a3b8' : esPago ? '#dc2626' : '#16a34a' },
+              ]}
             />
-            <Text style={[styles.tipoText, esPago ? styles.tipoTextPago : styles.tipoTextCobro]}>
-              {esPago ? 'Pago' : 'Cobro'}
-            </Text>
           </View>
-          <View style={[styles.estadoBadge, { backgroundColor: meta.bg }]}>
-            <Text style={[styles.estadoText, { color: meta.color }]}>{meta.label}</Text>
-          </View>
-          <Text style={[styles.importe, esPago ? styles.importePago : styles.importeCobro]}>
+          <Text style={[styles.cardImporte, esPago ? styles.importePago : styles.importeCobro]}>
             {formatImporteCashflow(m.importe, m.tipo)}
           </Text>
         </View>
-        <Text style={styles.concepto} numberOfLines={2}>{m.concepto}</Text>
-        <View style={styles.rowMeta}>
-          <Text style={styles.metaText}>{fechaCorta(m.fecha)} · {m.localNombre || '—'}</Text>
-          <Text style={styles.metaText}>{CATEGORIA_CASHFLOW_LABEL[m.categoria] ?? m.categoria}</Text>
+        <View style={styles.cardBody}>
+          <View style={styles.cardField}>
+            <Text style={styles.cardFieldLabel}>Fecha</Text>
+            <Text style={styles.cardFieldValue}>{fechaCorta(m.fecha)}</Text>
+          </View>
+          <View style={styles.cardField}>
+            <Text style={styles.cardFieldLabel}>Local</Text>
+            <Text style={styles.cardFieldValue} numberOfLines={1}>{m.localNombre || '—'}</Text>
+          </View>
+          <View style={styles.cardField}>
+            <Text style={styles.cardFieldLabel}>Categoría</Text>
+            <Text style={styles.cardFieldValue} numberOfLines={1}>
+              {CATEGORIA_CASHFLOW_LABEL[m.categoria] ?? m.categoria}
+            </Text>
+          </View>
+          <View style={styles.cardField}>
+            <Text style={styles.cardFieldLabel}>Contraparte</Text>
+            <Text style={styles.cardFieldValue} numberOfLines={1}>{m.contraparte?.nombre || '—'}</Text>
+          </View>
+          {m.numeroRecibo ? (
+            <View style={styles.cardField}>
+              <Text style={styles.cardFieldLabel}>Recibo</Text>
+              <Text style={styles.cardFieldValue}>{m.numeroRecibo}</Text>
+            </View>
+          ) : null}
         </View>
-        <Text style={styles.contraparte} numberOfLines={1}>
-          {m.contraparte?.nombre || '—'}
-          {m.numeroRecibo ? ` · Recibo ${m.numeroRecibo}` : ''}
-        </Text>
       </TouchableOpacity>
+    );
+  }
+
+  const listaContenido = () => {
+    if (loading) return null;
+    if (movimientos.length === 0 && !error) {
+      return (
+        <View style={styles.emptyWrap}>
+          <MaterialIcons name="account-balance-wallet" size={40} color="#cbd5e1" />
+          <Text style={styles.emptyText}>No hay movimientos en el rango seleccionado.</Text>
+        </View>
+      );
+    }
+    if (movimientosFiltrados.length === 0) {
+      return (
+        <View style={styles.emptyWrap}>
+          <MaterialIcons name="search-off" size={40} color="#cbd5e1" />
+          <Text style={styles.emptyText}>
+            {hayBusqueda ? 'No hay movimientos que coincidan con la búsqueda.' : 'No hay movimientos con este filtro.'}
+          </Text>
+        </View>
+      );
+    }
+    if (hayBusqueda) return movimientosFiltrados.map(renderMovimientoRow);
+    return (
+      <View style={styles.listaAgrupada}>
+        <View style={styles.sectionBlock}>
+          <View style={styles.sectionHeader}>
+            <MaterialIcons name="pending-actions" size={16} color="#d97706" />
+            <Text style={styles.sectionTitle}>
+              Pendientes ({gruposMovimientos.pendientes.length})
+            </Text>
+          </View>
+          {gruposMovimientos.pendientes.length > 0 ? (
+            gruposMovimientos.pendientes.map(renderMovimientoRow)
+          ) : (
+            <Text style={styles.sectionHint}>No hay movimientos pendientes en este rango.</Text>
+          )}
+        </View>
+        {gruposMovimientos.firmados.length > 0 ? (
+          <View style={styles.sectionBlock}>
+            <CollapsibleSection title={`Firmados (${gruposMovimientos.firmados.length})`} defaultOpen={false}>
+              {gruposMovimientos.firmados.map(renderMovimientoRow)}
+            </CollapsibleSection>
+          </View>
+        ) : null}
+        {gruposMovimientos.anulados.length > 0 ? (
+          <View style={styles.sectionBlock}>
+            <CollapsibleSection title={`Anulados (${gruposMovimientos.anulados.length})`} defaultOpen={false}>
+              {gruposMovimientos.anulados.map(renderMovimientoRow)}
+            </CollapsibleSection>
+          </View>
+        ) : null}
+      </View>
+    );
+  };
+
+  const panelKpi = (
+    <View style={styles.panelKpi}>
+      <Text style={styles.sectionTitle}>Resumen firmados</Text>
+      <Text style={styles.resumenHint}>
+        {resumen ? `${fechaCorta(resumen.dateFrom)} – ${fechaCorta(resumen.dateTo)}` : '—'}
+      </Text>
+      {resumen ? (
+        <>
+          <View style={styles.kpiRow}>
+            <KpiCard label="Pagos" value={formatMoneda(resumen.pagos)} color="#dc2626" />
+            <KpiCard label="Cobros banco" value={formatMoneda(resumen.cobrosBanco)} color="#16a34a" />
+          </View>
+          <View style={styles.kpiRow}>
+            <KpiCard label="Reparto socios" value={formatMoneda(resumen.cobrosReparto)} />
+            <KpiCard label="Neto banco" value={formatMoneda(resumen.neto)} color="#0ea5e9" />
+          </View>
+          <View style={styles.kpiRow}>
+            <KpiCard label="En lista" value={String(movimientosFiltrados.length)} />
+            <KpiCard label="Pendientes" value={String(conteoPorEstado.Pendiente_firma + conteoPorEstado.Pendiente_validacion)} color="#d97706" />
+          </View>
+        </>
+      ) : (
+        <Text style={styles.resumenHint}>Sin datos de resumen para el periodo.</Text>
+      )}
+      <Text style={styles.resumenHint}>
+        Pagos y cobros en efectivo fuera del TPV. Los firmados entran en el resumen financiero del periodo.
+      </Text>
+    </View>
+  );
+
+  if (!hasPermiso('cashflow.ver')) {
+    return (
+      <View style={styles.center}>
+        <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+        <Text style={styles.errorText}>No tienes permiso para ver Cashflow.</Text>
+      </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        <View style={styles.formMax}>
-          <View style={[styles.headerRow, shouldStackToolbar && styles.headerCol]}>
-            <View style={styles.headerMain}>
-              <TouchableOpacity onPress={() => router.push('/' as never)} style={styles.backBtn}>
-                <MaterialIcons name="arrow-back" size={22} color="#334155" />
-              </TouchableOpacity>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.title}>Cashflow</Text>
-                <Text style={styles.subtitle}>Pagos y cobros en efectivo fuera del TPV</Text>
-              </View>
-            </View>
-            {puedeRegistrar ? (
-              <TouchableOpacity
-                style={styles.btnNuevo}
-                onPress={() => router.push('/cashflow/nuevo' as never)}
-              >
-                <MaterialIcons name="add" size={20} color="#fff" />
-                <Text style={styles.btnNuevoText}>Nuevo movimiento</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.push('/' as never)} style={styles.backBtn}>
+          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Cashflow</Text>
+        {puedeRegistrar ? (
+          <TouchableOpacity style={styles.createBtn} onPress={() => router.push('/cashflow/nuevo' as never)}>
+            <MaterialIcons name="add" size={16} color="#fff" />
+            <Text style={styles.createBtnText}>Nuevo</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
 
-          <View style={[styles.filtrosRow, shouldStackPanels && styles.filtrosCol]}>
-            <View style={styles.filtroCol}>
-              <Text style={styles.labelFiltros}>Desde</Text>
-              <InputFecha valueIso={fromIso} onChangeIso={setFromIso} placeholder="dd/mm/aaaa" style={styles.inputFechaCompact} />
-            </View>
-            <View style={styles.filtroCol}>
-              <Text style={styles.labelFiltros}>Hasta</Text>
-              <InputFecha valueIso={toIso} onChangeIso={setToIso} placeholder="dd/mm/aaaa" style={styles.inputFechaCompact} />
-            </View>
-            <View style={styles.filtroColWide}>
-              <Text style={styles.labelFiltros}>Local</Text>
-              <SelectorDesplegable
-                icono="store"
-                iconoLista="store"
-                tituloLista="Local"
-                placeholder="Todos mis locales"
-                buscador
-                buscadorPlaceholder="Buscar local…"
-                valorId={localId}
-                opciones={[
-                  { id: '', titulo: 'Todos mis locales', icono: 'apps' as const },
-                  ...localesPermitidos.map((l) => ({
-                    id: l.id,
-                    titulo: l.nombre,
-                    subtitulo: `ID ${l.id}`,
-                    icono: 'store' as const,
-                  })),
-                ]}
-                onSeleccionar={setLocalId}
-              />
-            </View>
+      <View style={styles.toolbar}>
+        <View style={[styles.filtrosRow, shouldStackToolbar && styles.filtrosCol]}>
+          <View style={styles.filtroCol}>
+            <Text style={styles.labelFiltros}>Desde</Text>
+            <InputFecha valueIso={fromIso} onChangeIso={setFromIso} placeholder="dd/mm/aaaa" style={styles.inputFechaCompact} />
           </View>
-
-          <View style={styles.chipsRow}>
-            {FILTROS_TIPO.map((f) => (
-              <TouchableOpacity
-                key={f.id || 'todos'}
-                style={[styles.chipFiltro, filtroTipo === f.id && styles.chipFiltroActivo]}
-                onPress={() => setFiltroTipo(f.id)}
-              >
-                <Text style={[styles.chipFiltroText, filtroTipo === f.id && styles.chipFiltroTextActivo]}>
-                  {f.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          <View style={styles.filtroCol}>
+            <Text style={styles.labelFiltros}>Hasta</Text>
+            <InputFecha valueIso={toIso} onChangeIso={setToIso} placeholder="dd/mm/aaaa" style={styles.inputFechaCompact} />
           </View>
-          <View style={styles.chipsRow}>
-            {FILTROS_ESTADO.map((f) => (
-              <TouchableOpacity
-                key={f.id || 'est-todos'}
-                style={[styles.chipFiltro, filtroEstado === f.id && styles.chipFiltroActivo]}
-                onPress={() => setFiltroEstado(f.id)}
-              >
-                <Text style={[styles.chipFiltroText, filtroEstado === f.id && styles.chipFiltroTextActivo]}>
-                  {f.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <View style={styles.searchWrap}>
-            <MaterialIcons name="search" size={18} color="#94a3b8" />
-            <TextInput
-              style={styles.searchInput}
-              value={busqueda}
-              onChangeText={setBusqueda}
-              placeholder="Buscar por concepto, contraparte, NIF, recibo, local, empresa…"
-              placeholderTextColor="#94a3b8"
-              autoCorrect={false}
-              autoCapitalize="none"
+          <View style={styles.filtroColWide}>
+            <Text style={styles.labelFiltros}>Local</Text>
+            <SelectorDesplegable
+              icono="store"
+              iconoLista="store"
+              tituloLista="Local"
+              placeholder="Todos mis locales"
+              buscador
+              buscadorPlaceholder="Buscar local…"
+              valorId={localId}
+              opciones={[
+                { id: '', titulo: 'Todos mis locales', icono: 'apps' as const },
+                ...localesPermitidos.map((l) => ({
+                  id: l.id,
+                  titulo: l.nombre,
+                  subtitulo: `ID ${l.id}`,
+                  icono: 'store' as const,
+                })),
+              ]}
+              onSeleccionar={setLocalId}
             />
-            {busqueda.length > 0 ? (
-              <TouchableOpacity onPress={() => setBusqueda('')} hitSlop={8}>
-                <MaterialIcons name="close" size={16} color="#94a3b8" />
-              </TouchableOpacity>
-            ) : null}
           </View>
-          {movimientos.length > 0 ? (
-            <Text style={styles.resultCount}>
-              {movimientosFiltrados.length !== movimientos.length
-                ? `${movimientosFiltrados.length} de ${movimientos.length} movimientos`
-                : `${movimientos.length} movimiento${movimientos.length === 1 ? '' : 's'}`}
-            </Text>
-          ) : null}
-
-          {error ? (
-            <View style={styles.errBox}>
-              <MaterialIcons name="error-outline" size={18} color="#dc2626" />
-              <Text style={styles.errText}>{error}</Text>
-            </View>
-          ) : null}
-
-          {loading ? <ActivityIndicator color="#0ea5e9" style={{ marginVertical: 16 }} /> : null}
-
-          {!loading && resumen ? (
-            <View style={styles.resumenCard}>
-              <Text style={styles.resumenTitle}>Resumen firmados ({fechaCorta(resumen.dateFrom)} – {fechaCorta(resumen.dateTo)})</Text>
-              <View style={styles.resumenGrid}>
-                <View style={styles.resumenItem}>
-                  <Text style={styles.resumenLabel}>Pagos</Text>
-                  <Text style={[styles.resumenVal, styles.resumenPago]}>{formatMoneda(resumen.pagos)}</Text>
-                </View>
-                <View style={styles.resumenItem}>
-                  <Text style={styles.resumenLabel}>Cobros banco</Text>
-                  <Text style={[styles.resumenVal, styles.resumenCobro]}>{formatMoneda(resumen.cobrosBanco)}</Text>
-                </View>
-                <View style={styles.resumenItem}>
-                  <Text style={styles.resumenLabel}>Reparto socios</Text>
-                  <Text style={styles.resumenVal}>{formatMoneda(resumen.cobrosReparto)}</Text>
-                </View>
-                <View style={styles.resumenItem}>
-                  <Text style={styles.resumenLabel}>Neto banco</Text>
-                  <Text style={[styles.resumenVal, styles.resumenNeto]}>{formatMoneda(resumen.neto)}</Text>
-                </View>
-              </View>
-            </View>
-          ) : null}
-
-          {!loading && movimientos.length === 0 && !error ? (
-            <Text style={styles.hint}>No hay movimientos en el rango seleccionado.</Text>
-          ) : null}
-
-          {!loading && movimientos.length > 0 && movimientosFiltrados.length === 0 ? (
-            <Text style={styles.hint}>No hay movimientos que coincidan con la búsqueda.</Text>
-          ) : null}
-
-          {!loading && movimientosFiltrados.length > 0 ? (
-            hayBusqueda ? (
-              movimientosFiltrados.map(renderMovimientoRow)
-            ) : (
-              <View style={styles.listaAgrupada}>
-                <View style={styles.sectionBlock}>
-                  <View style={styles.sectionHeader}>
-                    <MaterialIcons name="pending-actions" size={18} color="#b45309" />
-                    <Text style={styles.sectionTitle}>
-                      Pendientes de firma y validación ({gruposMovimientos.pendientes.length})
-                    </Text>
-                  </View>
-                  {gruposMovimientos.pendientes.length > 0 ? (
-                    gruposMovimientos.pendientes.map(renderMovimientoRow)
-                  ) : (
-                    <Text style={styles.sectionHint}>No hay movimientos pendientes en este rango.</Text>
-                  )}
-                </View>
-
-                {gruposMovimientos.firmados.length > 0 ? (
-                  <View style={styles.sectionBlock}>
-                    <CollapsibleSection
-                      title={`Firmados (${gruposMovimientos.firmados.length})`}
-                      defaultOpen={false}
-                    >
-                      {gruposMovimientos.firmados.map(renderMovimientoRow)}
-                    </CollapsibleSection>
-                  </View>
-                ) : null}
-
-                {gruposMovimientos.anulados.length > 0 ? (
-                  <View style={styles.sectionBlock}>
-                    <CollapsibleSection
-                      title={`Anulados (${gruposMovimientos.anulados.length})`}
-                      defaultOpen={false}
-                    >
-                      {gruposMovimientos.anulados.map(renderMovimientoRow)}
-                    </CollapsibleSection>
-                  </View>
-                ) : null}
-              </View>
-            )
-          ) : null}
-
-          <View style={{ height: 32 }} />
         </View>
-      </ScrollView>
+
+        <View style={styles.chipRowEstado}>
+          {FILTROS_TIPO.map((f) => {
+            const key = f.id || '';
+            const pastel = CHIP_TIPO_CASHFLOW_PASTEL[key] ?? CHIP_TIPO_CASHFLOW_PASTEL[''];
+            const sel = filtroTipo === f.id;
+            const n = conteoPorTipo[key] ?? 0;
+            return (
+              <TouchableOpacity
+                key={key || 'tipo-todos'}
+                style={[
+                  styles.estadoChip,
+                  { backgroundColor: sel ? pastel.bgSel : pastel.bg, borderColor: sel ? pastel.borderSel : pastel.border },
+                ]}
+                onPress={() => setFiltroTipo(f.id)}
+                activeOpacity={0.75}
+              >
+                <Text style={[styles.estadoChipText, { color: pastel.text }, sel && styles.estadoChipTextSel]}>
+                  {f.label}
+                </Text>
+                <View style={[styles.estadoChipCount, sel && styles.estadoChipCountSel]}>
+                  <Text style={[styles.estadoChipCountText, { color: pastel.text }, sel && styles.estadoChipTextSel]}>
+                    {n}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={styles.chipRowEstado}>
+          {FILTROS_ESTADO.map((f) => {
+            const key = f.id || '';
+            const pastel = CHIP_ESTADO_CASHFLOW_PASTEL[key] ?? CHIP_ESTADO_CASHFLOW_PASTEL[''];
+            const sel = filtroEstado === f.id;
+            const n = conteoPorEstado[key] ?? 0;
+            return (
+              <TouchableOpacity
+                key={key || 'est-todos'}
+                style={[
+                  styles.estadoChip,
+                  { backgroundColor: sel ? pastel.bgSel : pastel.bg, borderColor: sel ? pastel.borderSel : pastel.border },
+                ]}
+                onPress={() => setFiltroEstado(f.id)}
+                activeOpacity={0.75}
+              >
+                <Text style={[styles.estadoChipText, { color: pastel.text }, sel && styles.estadoChipTextSel]}>
+                  {f.label}
+                </Text>
+                <View style={[styles.estadoChipCount, sel && styles.estadoChipCountSel]}>
+                  <Text style={[styles.estadoChipCountText, { color: pastel.text }, sel && styles.estadoChipTextSel]}>
+                    {n}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={styles.searchWrap}>
+          <MaterialIcons name="search" size={18} color="#94a3b8" />
+          <TextInput
+            style={styles.searchInput}
+            value={busqueda}
+            onChangeText={setBusqueda}
+            placeholder="Buscar por concepto, contraparte, NIF, recibo, local…"
+            placeholderTextColor="#94a3b8"
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          {busqueda.length > 0 ? (
+            <TouchableOpacity onPress={() => setBusqueda('')} hitSlop={8}>
+              <MaterialIcons name="close" size={16} color="#94a3b8" />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </View>
+
+      {error ? (
+        <View style={styles.errorBar}><Text style={styles.errorText}>{error}</Text></View>
+      ) : null}
+
+      <View style={[styles.split, shouldStackPanels && styles.splitStack]}>
+        <View style={[styles.panelLista, !shouldStackPanels && styles.panelListaBorder]}>
+          {loading ? (
+            <View style={styles.center}><ActivityIndicator color="#0ea5e9" /></View>
+          ) : (
+            <ScrollView style={styles.list} contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled">
+              {movimientos.length > 0 && movimientosFiltrados.length > 0 ? (
+                <Text style={styles.resultCount}>
+                  {movimientosFiltrados.length !== movimientos.length
+                    ? `${movimientosFiltrados.length} de ${movimientos.length} movimientos`
+                    : `${movimientos.length} movimiento${movimientos.length === 1 ? '' : 's'}`}
+                </Text>
+              ) : null}
+              {listaContenido()}
+            </ScrollView>
+          )}
+        </View>
+        <View style={[styles.panelKpiWrap, !shouldStackPanels && styles.panelKpiWrapSide, shouldStackPanels && styles.panelKpiWrapStack]}>
+          {panelKpi}
+        </View>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
-  scrollContent: { padding: 16, alignItems: 'center' },
-  formMax: { width: '100%', maxWidth: 960 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12 },
-  headerCol: { flexDirection: 'column', alignItems: 'stretch' },
-  headerMain: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  title: { fontSize: 20, fontWeight: '700', color: '#334155' },
-  subtitle: { fontSize: 13, color: '#64748b', marginTop: 2 },
-  btnNuevo: {
+  center: { padding: 40, alignItems: 'center', gap: 8 },
+  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12 },
+  emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
+
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#0ea5e9',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    gap: 12,
   },
-  btnNuevoText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  filtrosRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  backBtn: { padding: 4 },
+  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#0f172a' },
+  createBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: '#0ea5e9',
+  },
+  createBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
+
+  toolbar: {
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  filtrosRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   filtrosCol: { flexDirection: 'column' },
   filtroCol: { flexGrow: 1, minWidth: 120, maxWidth: 200 },
   filtroColWide: { flexGrow: 1, minWidth: 180, maxWidth: 320 },
   labelFiltros: { fontSize: 10, fontWeight: '600', color: '#64748b', marginBottom: 4, textTransform: 'uppercase' },
   inputFechaCompact: { fontSize: 13, paddingVertical: 8, paddingHorizontal: 10, minHeight: 40 },
-  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
-  chipFiltro: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
+
+  chipRowEstado: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  estadoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft: 10,
+    paddingRight: 6,
+    paddingVertical: 4,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#fff',
   },
-  chipFiltroActivo: { borderColor: '#0ea5e9', backgroundColor: '#e0f2fe' },
-  chipFiltroText: { fontSize: 12, color: '#64748b', fontWeight: '600' },
-  chipFiltroTextActivo: { color: '#0369a1' },
+  estadoChipText: { fontSize: 11, fontWeight: '600' },
+  estadoChipTextSel: { fontWeight: '800' },
+  estadoChipCount: {
+    minWidth: 20,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 8,
+    backgroundColor: 'rgba(15,23,42,0.06)',
+    alignItems: 'center',
+  },
+  estadoChipCountSel: { backgroundColor: 'rgba(15,23,42,0.10)' },
+  estadoChipCountText: { fontSize: 10, fontWeight: '700' },
+
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#fff',
+    backgroundColor: '#f8fafc',
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    marginBottom: 6,
   },
   searchInput: { flex: 1, fontSize: 14, color: '#334155', paddingVertical: 4, minHeight: 36 },
-  resultCount: { fontSize: 12, color: '#64748b', marginBottom: 10 },
-  listaAgrupada: { gap: 4 },
-  sectionBlock: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
+
+  errorBar: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  errorText: { fontSize: 12, color: '#dc2626' },
+
+  split: { flex: 1, flexDirection: 'row', minHeight: 0 },
+  splitStack: { flexDirection: 'column' },
+  panelLista: { flex: 1, minWidth: 0 },
+  panelListaBorder: { borderRightWidth: 1, borderRightColor: '#e2e8f0' },
+  panelKpiWrap: { minWidth: 280, backgroundColor: '#fff' },
+  panelKpiWrapSide: { flex: 0.42, maxWidth: 420 },
+  panelKpiWrapStack: { flex: undefined, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
+
+  list: { flex: 1 },
+  listContent: { padding: 12, gap: 10, paddingBottom: 24 },
+  resultCount: { fontSize: 11, color: '#64748b', fontWeight: '600', marginBottom: 4 },
+  listaAgrupada: { gap: 10 },
+  sectionBlock: { gap: 8 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 },
+  sectionTitle: { fontSize: 12, fontWeight: '700', color: '#0f172a' },
+  sectionHint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', paddingHorizontal: 4 },
+
+  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    gap: 8,
+  },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, flexWrap: 'wrap' },
+  cardTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', flexShrink: 1 },
+  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
+  badgeText: { fontSize: 11, fontWeight: '600' },
+  dotSem: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  cardImporte: { fontSize: 14, fontWeight: '800' },
+  importePago: { color: '#dc2626' },
+  importeCobro: { color: '#16a34a' },
+  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: 8 },
+  cardField: { minWidth: 84, marginRight: 8 },
+  cardFieldLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 1 },
+  cardFieldValue: { fontSize: 13, color: '#334155' },
+
+  panelKpi: { flex: 1, padding: 12, gap: 10 },
+  kpiRow: { flexDirection: 'row', gap: 6 },
+  kpiCard: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: '#f8fafc',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    paddingHorizontal: 12,
-    paddingBottom: 8,
-    marginBottom: 10,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10 },
-  sectionTitle: { fontSize: 13, fontWeight: '700', color: '#334155', flex: 1 },
-  sectionHint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', paddingBottom: 8 },
-  errBox: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8, marginBottom: 12 },
-  errText: { flex: 1, fontSize: 12, color: '#b91c1c' },
-  hint: { fontSize: 13, color: '#94a3b8', fontStyle: 'italic', marginVertical: 12 },
-  resumenCard: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', padding: 14, marginBottom: 14 },
-  resumenTitle: { fontSize: 13, fontWeight: '700', color: '#334155', marginBottom: 10 },
-  resumenGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  resumenItem: { minWidth: 120, flex: 1 },
-  resumenLabel: { fontSize: 11, color: '#64748b', marginBottom: 2 },
-  resumenVal: { fontSize: 16, fontWeight: '800', color: '#334155' },
-  resumenPago: { color: '#b91c1c' },
-  resumenCobro: { color: '#15803d' },
-  resumenNeto: { color: '#0369a1' },
-  rowCard: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 12,
-    marginBottom: 8,
-  },
-  rowTop: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-  tipoBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  tipoPago: { backgroundColor: '#fef2f2' },
-  tipoCobro: { backgroundColor: '#f0fdf4' },
-  tipoText: { fontSize: 11, fontWeight: '700' },
-  tipoTextPago: { color: '#b91c1c' },
-  tipoTextCobro: { color: '#15803d' },
-  estadoBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  estadoText: { fontSize: 11, fontWeight: '600' },
-  importe: { marginLeft: 'auto', fontSize: 16, fontWeight: '800', color: '#0f172a' },
-  importePago: { color: '#b91c1c' },
-  importeCobro: { color: '#15803d' },
-  concepto: { fontSize: 14, fontWeight: '600', color: '#334155', marginBottom: 4 },
-  rowMeta: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginBottom: 2 },
-  metaText: { fontSize: 11, color: '#64748b' },
-  contraparte: { fontSize: 12, color: '#475569' },
-  errorText: { padding: 16, color: '#b91c1c' },
+  kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
+  kpiValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 2 },
+  resumenHint: { fontSize: 11, color: '#94a3b8', lineHeight: 16 },
 });

@@ -19,7 +19,7 @@ import { InputFecha } from '../components/InputFecha';
 import { ComprasProveedorModal } from '../components/ComprasProveedorModal';
 import { useAuth } from '../contexts/AuthContext';
 import { useBreakpoint } from '../hooks/useBreakpoint';
-import { FILTROS_ESTADO_ACUERDO } from '../lib/acuerdosEstado';
+import { FILTROS_ESTADO_ACUERDO, CHIP_ESTADO_ACUERDO_PASTEL, colorEstadoAcuerdo } from '../lib/acuerdosEstado';
 import { apiFetch, errorMessage } from '../utils/api';
 import { formatMoneda } from '../utils/formatMoneda';
 import type { InformeComprasLinea, InformeComprasResumenAcuerdo } from '../types/acuerdo';
@@ -30,6 +30,32 @@ const PERIODOS = [
   { id: 'trimestre', label: 'Trimestre' },
   { id: 'anio', label: 'Este año' },
 ] as const;
+
+const CHIP_PERIODO_PASTEL = {
+  bg: '#f8fafc',
+  bgSel: '#e0f2fe',
+  border: '#e2e8f0',
+  borderSel: '#7dd3fc',
+  text: '#64748b',
+  textSel: '#075985',
+} as const;
+
+const CHIP_SOLO_COMPRAS_PASTEL = {
+  bg: '#eff6ff',
+  bgSel: '#dbeafe',
+  border: '#bfdbfe',
+  borderSel: '#93c5fd',
+  text: '#1e40af',
+} as const;
+
+function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <View style={styles.kpiCard}>
+      <Text style={styles.kpiLabel} numberOfLines={1}>{label}</Text>
+      <Text style={[styles.kpiValue, color ? { color } : null]} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
 
 function isoLocal(d: Date): string {
   const y = d.getFullYear();
@@ -174,6 +200,11 @@ export default function AcuerdosInformeComprasScreen() {
         (r.Nombre || '').toLowerCase().includes(q),
     );
   }, [resumen, busqueda]);
+
+  const conteoConCompras = useMemo(
+    () => resumen.filter((r) => (r.totalCompradas ?? 0) > 0).length,
+    [resumen],
+  );
 
   const aplicarPeriodo = (id: string) => {
     const r = rangoPeriodo(id);
@@ -333,25 +364,20 @@ export default function AcuerdosInformeComprasScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#0ea5e9" />
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} accessibilityLabel="Volver">
+          <MaterialIcons name="arrow-back" size={22} color="#334155" />
         </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Informe compras por acuerdo</Text>
-          <Text style={styles.headerSub}>Botellas compradas y aportación volumen generada en el periodo</Text>
-        </View>
+        <Text style={styles.headerTitle}>Informe compras por acuerdo</Text>
         {hasPermiso('acuerdos.exportar') ? (
           <View style={styles.exportAnchor}>
             <TouchableOpacity
-              style={[styles.exportMainBtn, !puedeExportar && styles.exportMainBtnDisabled]}
+              style={[styles.exportBtn, !puedeExportar && styles.exportBtnDisabled]}
               onPress={() => setExportMenuOpen((o) => !o)}
               disabled={!puedeExportar}
               activeOpacity={0.7}
             >
               <MaterialIcons name="download" size={16} color={puedeExportar ? '#0ea5e9' : '#94a3b8'} />
-              <Text style={[styles.exportMainBtnText, !puedeExportar && styles.exportMainBtnTextDisabled]}>
-                Descargar
-              </Text>
+              <Text style={[styles.exportBtnText, !puedeExportar && styles.exportBtnTextDisabled]}>Descargar</Text>
               <MaterialIcons
                 name={exportMenuOpen ? 'expand-less' : 'expand-more'}
                 size={16}
@@ -382,7 +408,7 @@ export default function AcuerdosInformeComprasScreen() {
       </View>
 
       <View style={[styles.toolbar, shouldStackToolbar && styles.toolbarStack]}>
-        <View style={styles.fechaRow}>
+        <View style={[styles.fechaRow, shouldStackToolbar && styles.fechaRowStack]}>
           <View style={styles.fechaField}>
             <Text style={styles.fechaLabel}>Desde</Text>
             <InputFecha
@@ -391,6 +417,7 @@ export default function AcuerdosInformeComprasScreen() {
                 setFechaDesde(v);
                 setPeriodoActivo(null);
               }}
+              style={styles.fechaInput}
             />
           </View>
           <View style={styles.fechaField}>
@@ -401,49 +428,87 @@ export default function AcuerdosInformeComprasScreen() {
                 setFechaHasta(v);
                 setPeriodoActivo(null);
               }}
+              style={styles.fechaInput}
             />
           </View>
-          <TouchableOpacity style={styles.refreshBtn} onPress={cargar} disabled={loading}>
+          <TouchableOpacity style={styles.btnFiltrar} onPress={cargar} disabled={loading}>
             {loading ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
               <>
-                <MaterialIcons name="refresh" size={18} color="#fff" />
-                <Text style={styles.refreshBtnText}>Actualizar</Text>
+                <MaterialIcons name="search" size={16} color="#fff" />
+                <Text style={styles.btnFiltrarText}>Actualizar</Text>
               </>
             )}
           </TouchableOpacity>
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
-          {PERIODOS.map((p) => (
-            <TouchableOpacity
-              key={p.id}
-              style={[styles.chip, periodoActivo === p.id && styles.chipActive]}
-              onPress={() => aplicarPeriodo(p.id)}
-            >
-              <Text style={[styles.chipText, periodoActivo === p.id && styles.chipTextActive]}>{p.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        <View style={styles.chipRowEstado}>
+          {PERIODOS.map((p) => {
+            const sel = periodoActivo === p.id;
+            return (
+              <TouchableOpacity
+                key={p.id}
+                style={[
+                  styles.estadoChip,
+                  {
+                    backgroundColor: sel ? CHIP_PERIODO_PASTEL.bgSel : CHIP_PERIODO_PASTEL.bg,
+                    borderColor: sel ? CHIP_PERIODO_PASTEL.borderSel : CHIP_PERIODO_PASTEL.border,
+                  },
+                ]}
+                onPress={() => aplicarPeriodo(p.id)}
+                activeOpacity={0.75}
+              >
+                <Text style={[styles.estadoChipText, { color: sel ? CHIP_PERIODO_PASTEL.textSel : CHIP_PERIODO_PASTEL.text }, sel && styles.estadoChipTextSel]}>
+                  {p.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
-          {FILTROS_ESTADO_ACUERDO.map((f) => (
-            <TouchableOpacity
-              key={f.id || 'todos'}
-              style={[styles.chip, filtroEstado === f.id && styles.chipEstadoActive]}
-              onPress={() => setFiltroEstado(f.id)}
-            >
-              <Text style={[styles.chipText, filtroEstado === f.id && styles.chipTextActive]}>{f.label}</Text>
-            </TouchableOpacity>
-          ))}
+        <View style={styles.chipRowEstado}>
+          {FILTROS_ESTADO_ACUERDO.map((f) => {
+            const key = f.id || '';
+            const pastel = CHIP_ESTADO_ACUERDO_PASTEL[key] ?? CHIP_ESTADO_ACUERDO_PASTEL[''];
+            const sel = filtroEstado === f.id;
+            return (
+              <TouchableOpacity
+                key={f.id || 'todos'}
+                style={[
+                  styles.estadoChip,
+                  { backgroundColor: sel ? pastel.bgSel : pastel.bg, borderColor: sel ? pastel.borderSel : pastel.border },
+                ]}
+                onPress={() => setFiltroEstado(f.id)}
+                activeOpacity={0.75}
+              >
+                <Text style={[styles.estadoChipText, { color: pastel.text }, sel && styles.estadoChipTextSel]}>
+                  {f.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
           <TouchableOpacity
-            style={[styles.chip, soloConCompras && styles.chipComprasActive]}
+            style={[
+              styles.estadoChip,
+              {
+                backgroundColor: soloConCompras ? CHIP_SOLO_COMPRAS_PASTEL.bgSel : CHIP_SOLO_COMPRAS_PASTEL.bg,
+                borderColor: soloConCompras ? CHIP_SOLO_COMPRAS_PASTEL.borderSel : CHIP_SOLO_COMPRAS_PASTEL.border,
+              },
+            ]}
             onPress={() => setSoloConCompras((v) => !v)}
+            activeOpacity={0.75}
           >
-            <Text style={[styles.chipText, soloConCompras && styles.chipTextActive]}>Solo con compras</Text>
+            <Text style={[styles.estadoChipText, { color: CHIP_SOLO_COMPRAS_PASTEL.text }, soloConCompras && styles.estadoChipTextSel]}>
+              Solo con compras
+            </Text>
+            <View style={[styles.estadoChipCount, soloConCompras && styles.estadoChipCountSel]}>
+              <Text style={[styles.estadoChipCountText, { color: CHIP_SOLO_COMPRAS_PASTEL.text }, soloConCompras && styles.estadoChipTextSel]}>
+                {conteoConCompras}
+              </Text>
+            </View>
           </TouchableOpacity>
-        </ScrollView>
+        </View>
 
         <View style={styles.searchRow}>
           <MaterialIcons name="search" size={18} color="#94a3b8" />
@@ -455,16 +520,15 @@ export default function AcuerdosInformeComprasScreen() {
             style={styles.searchInput}
           />
         </View>
-      </View>
 
-      <View style={styles.banner}>
-        <Text style={styles.bannerText}>
-          {totales.acuerdos} acuerdo{totales.acuerdos !== 1 ? 's' : ''}
-          {' · '}{fmtQty(totales.compradas)} uds.
-          {' · '}Aport. generada {formatMoneda(totales.aportacionGenerada)}
-        </Text>
-        <Text style={styles.bannerHint}>
-          Periodo informe: {formatFechaIso(fechaDesde)} — {formatFechaIso(fechaHasta)} (no modifica los acuerdos)
+        <View style={styles.kpiRow}>
+          <KpiCard label="Acuerdos" value={String(totales.acuerdos)} />
+          <KpiCard label="Uds. compradas" value={fmtQty(totales.compradas)} color="#0ea5e9" />
+          <KpiCard label="Aport. generada" value={formatMoneda(totales.aportacionGenerada)} color="#16a34a" />
+        </View>
+
+        <Text style={styles.toolbarHint}>
+          Periodo informe: {formatFechaIso(fechaDesde)} — {formatFechaIso(fechaHasta)}. Botellas compradas y aportación volumen generada (no modifica los acuerdos).
         </Text>
       </View>
 
@@ -489,33 +553,43 @@ export default function AcuerdosInformeComprasScreen() {
           resumenFiltrado.map((r) => {
             const isOpen = expanded.has(r.acuerdoPK);
             const detalle = lineasPorAcuerdo.get(r.acuerdoPK) || [];
-            const estadoColor =
-              r.Estado === 'Activo' ? '#16a34a' : r.Estado === 'Vencido' ? '#ef4444' : '#64748b';
+            const estadoColor = colorEstadoAcuerdo(r.Estado || '');
             return (
               <View key={r.acuerdoPK} style={styles.card}>
-                <TouchableOpacity style={styles.cardHead} onPress={() => toggleExpand(r.acuerdoPK)}>
-                  <MaterialIcons
-                    name={isOpen ? 'expand-less' : 'expand-more'}
-                    size={22}
-                    color="#64748b"
-                  />
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={styles.cardMarca} numberOfLines={1}>{r.Marca || '—'}</Text>
-                    {r.Nombre ? (
-                      <Text style={styles.cardNombre} numberOfLines={1}>{r.Nombre}</Text>
-                    ) : null}
-                    <Text style={styles.cardVigencia}>
-                      Vigencia {formatFechaIso(r.FechaInicio)} — {formatFechaIso(r.FechaFin)}
+                <TouchableOpacity style={styles.cardHeader} onPress={() => toggleExpand(r.acuerdoPK)} activeOpacity={0.7}>
+                  <MaterialIcons name={isOpen ? 'expand-less' : 'expand-more'} size={20} color="#64748b" />
+                  <View style={styles.cardTitleWrap}>
+                    <Text style={styles.cardTitle} numberOfLines={1}>{r.Marca || '—'}</Text>
+                    <View style={[styles.badge, { backgroundColor: estadoColor + '18', borderColor: estadoColor + '55' }]}>
+                      <Text style={[styles.badgeText, { color: estadoColor }]}>{r.Estado || '—'}</Text>
+                    </View>
+                    <View style={[styles.dotSem, { backgroundColor: estadoColor }]} />
+                  </View>
+                  <Text style={[styles.cardImporte, { color: '#16a34a' }]}>{formatMoneda(r.totalAportacionGenerada)}</Text>
+                </TouchableOpacity>
+
+                <View style={styles.cardBody}>
+                  {r.Nombre ? (
+                    <View style={styles.cardField}>
+                      <Text style={styles.cardFieldLabel}>Acuerdo</Text>
+                      <Text style={styles.cardFieldValue} numberOfLines={2}>{r.Nombre}</Text>
+                    </View>
+                  ) : null}
+                  <View style={styles.cardField}>
+                    <Text style={styles.cardFieldLabel}>Vigencia</Text>
+                    <Text style={styles.cardFieldValue}>
+                      {formatFechaIso(r.FechaInicio)} — {formatFechaIso(r.FechaFin)}
                     </Text>
                   </View>
-                  <View style={[styles.estadoBadge, { borderColor: estadoColor, backgroundColor: estadoColor + '18' }]}>
-                    <Text style={[styles.estadoBadgeText, { color: estadoColor }]}>{r.Estado}</Text>
+                  <View style={styles.cardField}>
+                    <Text style={styles.cardFieldLabel}>Compradas</Text>
+                    <Text style={styles.cardFieldValue}>{fmtQty(r.totalCompradas)} uds.</Text>
                   </View>
-                  <View style={styles.cardTotales}>
-                    <Text style={styles.cardQty}>{fmtQty(r.totalCompradas)} uds.</Text>
-                    <Text style={styles.cardAport}>{formatMoneda(r.totalAportacionGenerada)}</Text>
+                  <View style={styles.cardField}>
+                    <Text style={styles.cardFieldLabel}>Productos</Text>
+                    <Text style={styles.cardFieldValue}>{String(detalle.length)}</Text>
                   </View>
-                </TouchableOpacity>
+                </View>
 
                 {isOpen ? (
                   <View style={styles.detalleWrap}>
@@ -575,23 +649,24 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
   denied: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   deniedText: { fontSize: 15, color: '#64748b' },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
+    gap: 12,
     overflow: 'visible',
     zIndex: 20,
   },
   backBtn: { padding: 4 },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a' },
-  headerSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#0f172a' },
+
   exportAnchor: { position: 'relative', zIndex: 50 },
-  exportMainBtn: {
+  exportBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
@@ -603,9 +678,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f9ff',
     minHeight: 40,
   },
-  exportMainBtnDisabled: { borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
-  exportMainBtnText: { fontSize: 13, fontWeight: '700', color: '#0ea5e9' },
-  exportMainBtnTextDisabled: { color: '#94a3b8' },
+  exportBtnDisabled: { borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
+  exportBtnText: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
+  exportBtnTextDisabled: { color: '#94a3b8' },
   exportOverlay: {
     ...Platform.select({
       web: { position: 'fixed' as const, left: 0, right: 0, top: 0, bottom: 0, zIndex: 39 },
@@ -639,42 +714,69 @@ const styles = StyleSheet.create({
   },
   exportMenuItemLast: { borderBottomWidth: 0 },
   exportMenuItemText: { fontSize: 12, color: '#334155', fontWeight: '600' },
+
   toolbar: {
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
     gap: 8,
   },
   toolbarStack: { gap: 10 },
-  fechaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: 10 },
-  fechaField: { minWidth: 130 },
-  fechaLabel: { fontSize: 11, fontWeight: '600', color: '#94a3b8', marginBottom: 4 },
-  refreshBtn: {
+  fechaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: 8 },
+  fechaRowStack: { flexDirection: 'column', alignItems: 'stretch' },
+  fechaField: { flex: 1, minWidth: 120 },
+  fechaLabel: { fontSize: 10, fontWeight: '600', color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.3 },
+  fechaInput: {
+    fontSize: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 6,
+    backgroundColor: '#fff',
+    color: '#334155',
+    minHeight: 40,
+  },
+  btnFiltrar: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
+    backgroundColor: '#0ea5e9',
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 8,
-    backgroundColor: '#0ea5e9',
+    minHeight: 40,
+    alignSelf: 'flex-end',
   },
-  refreshBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
-  chipsRow: { flexDirection: 'row', gap: 6, paddingVertical: 2 },
-  chip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 14,
+  btnFiltrarText: { fontSize: 13, fontWeight: '600', color: '#fff' },
+
+  chipRowEstado: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  estadoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft: 10,
+    paddingRight: 6,
+    paddingVertical: 4,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#fff',
   },
-  chipActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  chipEstadoActive: { backgroundColor: '#16a34a', borderColor: '#16a34a' },
-  chipComprasActive: { backgroundColor: '#1e40af', borderColor: '#1e40af' },
-  chipText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
-  chipTextActive: { color: '#fff' },
+  estadoChipText: { fontSize: 11, fontWeight: '600' },
+  estadoChipTextSel: { fontWeight: '800' },
+  estadoChipCount: {
+    minWidth: 20,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 8,
+    backgroundColor: 'rgba(15,23,42,0.06)',
+    alignItems: 'center',
+  },
+  estadoChipCountSel: { backgroundColor: 'rgba(15,23,42,0.10)' },
+  estadoChipCountText: { fontSize: 10, fontWeight: '700' },
+
   searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -684,58 +786,63 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
+    backgroundColor: '#f8fafc',
   },
   searchInput: { flex: 1, fontSize: 14, color: '#1e293b', outlineStyle: 'none' } as object,
-  banner: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: '#eff6ff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#bfdbfe',
+
+  kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  kpiCard: {
+    flex: 1,
+    minWidth: 88,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
-  bannerText: { fontSize: 14, fontWeight: '700', color: '#1e40af' },
-  bannerHint: { fontSize: 11, color: '#64748b', marginTop: 4 },
+  kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
+  kpiValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 2 },
+  toolbarHint: { fontSize: 11, color: '#94a3b8', lineHeight: 16 },
+
   errorBar: {
     marginHorizontal: 16,
     marginTop: 8,
-    padding: 10,
-    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
     backgroundColor: '#fef2f2',
     borderWidth: 1,
     borderColor: '#fecaca',
   },
-  errorText: { fontSize: 13, color: '#dc2626' },
+  errorText: { fontSize: 12, color: '#dc2626' },
+
   scroll: { flex: 1 },
-  scrollContent: { padding: 16, gap: 10, paddingBottom: 32 },
-  empty: { alignItems: 'center', justifyContent: 'center', paddingVertical: 48, gap: 12 },
+  scrollContent: { padding: 12, gap: 10, paddingBottom: 32 },
+  empty: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12 },
   emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    overflow: 'hidden',
-  },
-  cardHead: {
+
+  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
+  cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
     paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    gap: 8,
   },
-  cardMarca: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
-  cardNombre: { fontSize: 12, color: '#64748b' },
-  cardVigencia: { fontSize: 11, color: '#94a3b8', marginTop: 2 },
-  estadoBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  estadoBadgeText: { fontSize: 10, fontWeight: '700' },
-  cardTotales: { alignItems: 'flex-end', minWidth: 88 },
-  cardQty: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
-  cardAport: { fontSize: 12, fontWeight: '600', color: '#16a34a' },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
+  cardTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', flexShrink: 1 },
+  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
+  badgeText: { fontSize: 11, fontWeight: '600' },
+  dotSem: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  cardImporte: { fontSize: 13, fontWeight: '700' },
+  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: 8 },
+  cardField: { minWidth: 84, marginRight: 8 },
+  cardFieldLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 1 },
+  cardFieldValue: { fontSize: 13, color: '#334155' },
+
   detalleWrap: {
     borderTopWidth: 1,
     borderTopColor: '#f1f5f9',
@@ -757,6 +864,7 @@ const styles = StyleSheet.create({
     gap: 4,
     borderTopWidth: 1,
     borderTopColor: '#e2e8f0',
+    backgroundColor: '#fff',
   },
   detCol: { fontSize: 10, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase' },
   detColNum: { width: 72, textAlign: 'right' },

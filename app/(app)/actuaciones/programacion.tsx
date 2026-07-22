@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { useAuth } from '../../contexts/AuthContext';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useLocalToast } from '../../components/Toast';
 import { TablaBasica } from '../../components/TablaBasica';
 import { InputFecha } from '../../components/InputFecha';
@@ -77,6 +78,45 @@ type FacturaOpt = {
 type LocalOpt = { id_Locales: string; nombre?: string; sede?: string; agoraCode?: string; AgoraCode?: string };
 
 const COLUMNAS = ['Sel', 'Fecha', 'Hora', 'Local', 'Artista', 'Importe', 'Estado', 'Firma', 'Pago'] as const;
+
+type FiltroChipActuacion = 'todos' | 'huecos' | 'pendientes' | 'asociadas' | 'firmadas';
+
+const FILTROS_CHIP: { id: FiltroChipActuacion; label: string }[] = [
+  { id: 'todos', label: 'Todos' },
+  { id: 'huecos', label: 'Huecos' },
+  { id: 'pendientes', label: 'Pendientes' },
+  { id: 'asociadas', label: 'Asociadas' },
+  { id: 'firmadas', label: 'Firmadas' },
+];
+
+const CHIP_ACTUACION_PASTEL: Record<
+  FiltroChipActuacion,
+  { bg: string; bgSel: string; border: string; borderSel: string; text: string }
+> = {
+  todos: { bg: '#f8fafc', bgSel: '#e2e8f0', border: '#e2e8f0', borderSel: '#cbd5e1', text: '#475569' },
+  huecos: { bg: '#ffedd5', bgSel: '#fed7aa', border: '#fed7aa', borderSel: '#fdba74', text: '#9a3412' },
+  pendientes: { bg: '#fffbeb', bgSel: '#fde68a', border: '#fde68a', borderSel: '#fcd34d', text: '#92400e' },
+  asociadas: { bg: '#dcfce7', bgSel: '#bbf7d0', border: '#bbf7d0', borderSel: '#86efac', text: '#166534' },
+  firmadas: { bg: '#e0f2fe', bgSel: '#bae6fd', border: '#bae6fd', borderSel: '#7dd3fc', text: '#075985' },
+};
+
+function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <View style={styles.kpiCard}>
+      <Text style={styles.kpiLabel} numberOfLines={1}>{label}</Text>
+      <Text style={[styles.kpiValue, color ? { color } : null]} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
+
+function actuacionCoincideChip(a: Actuacion, chip: FiltroChipActuacion): boolean {
+  if (chip === 'todos') return true;
+  if (chip === 'huecos') return !a.id_artista;
+  if (chip === 'pendientes') return String(a.estado || '').trim().toLowerCase() === 'pendiente';
+  if (chip === 'asociadas') return String(a.estado || '').trim().toLowerCase() === 'asociada';
+  if (chip === 'firmadas') return !!a.firma_artista_key?.trim();
+  return true;
+}
 
 /** true si la fecha de actuación (ISO) es hoy o anterior (no futura) */
 function fechaActuacionPermiteFirma(fechaIso: string | undefined): boolean {
@@ -148,12 +188,14 @@ export default function ProgramacionScreen() {
   const puedeFacturacion = puedeFacturacionActuaciones(hasPermiso);
   const puedeFirmar = puedeFirmarActuacion(hasPermiso);
   const { show: showToast, ToastView } = useLocalToast();
+  const { shouldStackToolbar } = useBreakpoint();
   const [actuaciones, setActuaciones] = useState<Actuacion[]>([]);
   const [artistas, setArtistas] = useState<{ id_artista: string; nombre_artistico: string }[]>([]);
   const [localesParipe, setLocalesParipe] = useState<LocalOpt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
+  const [filtroChip, setFiltroChip] = useState<FiltroChipActuacion>('todos');
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -205,11 +247,46 @@ export default function ProgramacionScreen() {
 
   const listaFiltrada = useMemo(() => {
     const q = filtroBusqueda.trim().toLowerCase();
-    if (!q) return actuaciones;
-    return actuaciones.filter((a) =>
+    let list = actuaciones;
+    if (filtroChip !== 'todos') {
+      list = list.filter((a) => actuacionCoincideChip(a, filtroChip));
+    }
+    if (!q) return list;
+    return list.filter((a) =>
       COLUMNAS.some((col) => getValorCelda(a, col).toLowerCase().includes(q))
     );
-  }, [actuaciones, filtroBusqueda]);
+  }, [actuaciones, filtroBusqueda, filtroChip]);
+
+  const conteoPorChip = useMemo(() => {
+    const counts: Record<FiltroChipActuacion, number> = {
+      todos: actuaciones.length,
+      huecos: 0,
+      pendientes: 0,
+      asociadas: 0,
+      firmadas: 0,
+    };
+    for (const a of actuaciones) {
+      if (!a.id_artista) counts.huecos++;
+      if (String(a.estado || '').trim().toLowerCase() === 'pendiente') counts.pendientes++;
+      if (String(a.estado || '').trim().toLowerCase() === 'asociada') counts.asociadas++;
+      if (a.firma_artista_key?.trim()) counts.firmadas++;
+    }
+    return counts;
+  }, [actuaciones]);
+
+  const resumenKpi = useMemo(() => {
+    let importe = 0;
+    for (const a of actuaciones) {
+      const v = a.importe_final ?? a.importe_previsto;
+      if (v != null && !Number.isNaN(Number(v))) importe += Number(v);
+    }
+    return {
+      total: actuaciones.length,
+      huecos: conteoPorChip.huecos,
+      firmadas: conteoPorChip.firmadas,
+      importe: Math.round(importe * 100) / 100,
+    };
+  }, [actuaciones, conteoPorChip]);
 
   const mostrarSeccionFirma = useMemo(
     () =>
@@ -791,8 +868,128 @@ export default function ProgramacionScreen() {
         </View>
       ) : (
       <>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerBackBtn}>
+          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Actuaciones — planificación</Text>
+      </View>
+
+      <View style={styles.toolbar}>
+        <View style={[styles.filtersRowBottom, shouldStackToolbar && styles.filtersColStack]}>
+          <Text style={styles.filterLabelInline}>Local</Text>
+          <View style={styles.filterLocalDropdownWrap}>
+            <TouchableOpacity
+              style={styles.filterToolbarTrigger}
+              onPress={() => setFiltroLocalDropdownOpen((v) => !v)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.filterToolbarTriggerText} numberOfLines={1}>
+                {textoFiltroLocal}
+              </Text>
+              <MaterialIcons name={filtroLocalDropdownOpen ? 'expand-less' : 'expand-more'} size={20} color="#64748b" />
+            </TouchableOpacity>
+            {filtroLocalDropdownOpen ? (
+              <View style={styles.filterToolbarList}>
+                <ScrollView style={styles.filterToolbarScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                  <TouchableOpacity
+                    style={[styles.filterToolbarOpt, filtroLocalesIds.length === 0 && styles.filterToolbarOptOn]}
+                    onPress={() => setFiltroLocalesIds([])}
+                  >
+                    <Text style={styles.filterToolbarOptText}>Todos los locales</Text>
+                    {filtroLocalesIds.length === 0 ? (
+                      <MaterialIcons name="check-box" size={18} color="#0ea5e9" />
+                    ) : (
+                      <MaterialIcons name="check-box-outline-blank" size={18} color="#94a3b8" />
+                    )}
+                  </TouchableOpacity>
+                  {localesParipe.map((loc) => {
+                    const sel = filtroLocalesIds.includes(loc.id_Locales);
+                    return (
+                      <TouchableOpacity
+                        key={loc.id_Locales}
+                        style={[styles.filterToolbarOpt, sel && styles.filterToolbarOptOn]}
+                        onPress={() => toggleFiltroLocal(loc.id_Locales)}
+                      >
+                        <Text style={styles.filterToolbarOptText} numberOfLines={2}>
+                          {loc.nombre || loc.id_Locales}
+                        </Text>
+                        <MaterialIcons
+                          name={sel ? 'check-box' : 'check-box-outline-blank'}
+                          size={18}
+                          color={sel ? '#0ea5e9' : '#94a3b8'}
+                        />
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            ) : null}
+          </View>
+          <Text style={styles.filterLabelInline}>Desde</Text>
+          <InputFecha
+            style={[styles.fInput, styles.fInputFecha]}
+            placeholder="dd/mm/aaaa"
+            valueIso={fechaDesde}
+            onChangeIso={setFechaDesde}
+          />
+          <Text style={styles.filterLabelInline}>Hasta</Text>
+          <InputFecha
+            style={[styles.fInput, styles.fInputFecha]}
+            placeholder="dd/mm/aaaa"
+            valueIso={fechaHasta}
+            onChangeIso={setFechaHasta}
+          />
+          <TouchableOpacity style={styles.fBtnPrimary} onPress={fetchAll}>
+            <MaterialIcons name="filter-list" size={16} color="#fff" />
+            <Text style={styles.fBtnPrimaryText}>Filtrar</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.chipRowEstado}>
+          {FILTROS_CHIP.map((f) => {
+            const pastel = CHIP_ACTUACION_PASTEL[f.id];
+            const sel = filtroChip === f.id;
+            const n = conteoPorChip[f.id] ?? 0;
+            return (
+              <TouchableOpacity
+                key={f.id}
+                style={[
+                  styles.estadoChip,
+                  { backgroundColor: sel ? pastel.bgSel : pastel.bg, borderColor: sel ? pastel.borderSel : pastel.border },
+                ]}
+                onPress={() => setFiltroChip(f.id)}
+                activeOpacity={0.75}
+              >
+                <Text style={[styles.estadoChipText, { color: pastel.text }, sel && styles.estadoChipTextSel]}>
+                  {f.label}
+                </Text>
+                <View style={[styles.estadoChipCount, sel && styles.estadoChipCountSel]}>
+                  <Text style={[styles.estadoChipCountText, { color: pastel.text }, sel && styles.estadoChipTextSel]}>
+                    {n}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={styles.kpiRow}>
+          <KpiCard label="Actuaciones" value={String(resumenKpi.total)} />
+          <KpiCard label="Huecos" value={String(resumenKpi.huecos)} color="#d97706" />
+          <KpiCard label="Firmadas" value={String(resumenKpi.firmadas)} color="#16a34a" />
+          <KpiCard label="Importe prev." value={formatMoneda(resumenKpi.importe)} color="#0ea5e9" />
+        </View>
+      </View>
+
+      {error ? (
+        <View style={styles.errorBar}><Text style={styles.errorBarText}>{error}</Text></View>
+      ) : null}
+
+      <View style={styles.tablaWrap}>
       <TablaBasica<Actuacion>
         title="Actuaciones — planificación"
+        hideHeader
         onBack={() => router.back()}
         columnas={[...COLUMNAS]}
         datos={listaFiltrada}
@@ -932,80 +1129,16 @@ export default function ProgramacionScreen() {
                 {loading ? <ActivityIndicator size="small" color="#0ea5e9" /> : <MaterialIcons name="refresh" size={ICON_SIZE} color="#0ea5e9" />}
               </TouchableOpacity>
             </View>
-            <View style={styles.filtersRowBottom}>
-              <Text style={styles.filterLabelInline}>Local</Text>
-              <View style={styles.filterLocalDropdownWrap}>
-                <TouchableOpacity
-                  style={styles.filterToolbarTrigger}
-                  onPress={() => setFiltroLocalDropdownOpen((v) => !v)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.filterToolbarTriggerText} numberOfLines={1}>
-                    {textoFiltroLocal}
-                  </Text>
-                  <MaterialIcons name={filtroLocalDropdownOpen ? 'expand-less' : 'expand-more'} size={20} color="#64748b" />
-                </TouchableOpacity>
-                {filtroLocalDropdownOpen ? (
-                  <View style={styles.filterToolbarList}>
-                    <ScrollView style={styles.filterToolbarScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                      <TouchableOpacity
-                        style={[styles.filterToolbarOpt, filtroLocalesIds.length === 0 && styles.filterToolbarOptOn]}
-                        onPress={() => {
-                          setFiltroLocalesIds([]);
-                        }}
-                      >
-                        <Text style={styles.filterToolbarOptText}>Todos los locales</Text>
-                        {filtroLocalesIds.length === 0 ? (
-                          <MaterialIcons name="check-box" size={18} color="#0ea5e9" />
-                        ) : (
-                          <MaterialIcons name="check-box-outline-blank" size={18} color="#94a3b8" />
-                        )}
-                      </TouchableOpacity>
-                      {localesParipe.map((loc) => {
-                        const sel = filtroLocalesIds.includes(loc.id_Locales);
-                        return (
-                          <TouchableOpacity
-                            key={loc.id_Locales}
-                            style={[styles.filterToolbarOpt, sel && styles.filterToolbarOptOn]}
-                            onPress={() => toggleFiltroLocal(loc.id_Locales)}
-                          >
-                            <Text style={styles.filterToolbarOptText} numberOfLines={2}>
-                              {loc.nombre || loc.id_Locales}
-                            </Text>
-                            <MaterialIcons
-                              name={sel ? 'check-box' : 'check-box-outline-blank'}
-                              size={18}
-                              color={sel ? '#0ea5e9' : '#94a3b8'}
-                            />
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                ) : null}
-              </View>
-              <Text style={styles.filterLabelInline}>Desde</Text>
-              <InputFecha
-                style={[styles.fInput, styles.fInputFecha]}
-                placeholder="dd/mm/aaaa"
-                valueIso={fechaDesde}
-                onChangeIso={setFechaDesde}
-              />
-              <Text style={styles.filterLabelInline}>Hasta</Text>
-              <InputFecha
-                style={[styles.fInput, styles.fInputFecha]}
-                placeholder="dd/mm/aaaa"
-                valueIso={fechaHasta}
-                onChangeIso={setFechaHasta}
-              />
-              <TouchableOpacity style={styles.fBtn} onPress={fetchAll}>
-                <Text style={styles.fBtnText}>Filtrar</Text>
-              </TouchableOpacity>
-            </View>
           </View>
         }
-        rightPanel={<ActuacionesCalendario actuaciones={actuaciones} locales={localesParipe} />}
+        rightPanel={
+          <View style={styles.panelCalendario}>
+            <Text style={styles.panelCalendarioTitle}>Calendario</Text>
+            <ActuacionesCalendario actuaciones={actuaciones} locales={localesParipe} />
+          </View>
+        }
       />
+      </View>
 
       <Modal visible={modalNuevos} transparent animationType="fade" onRequestClose={() => setModalNuevos(false)}>
         <View style={styles.modalOverlay}>
@@ -1601,7 +1734,91 @@ const styles = StyleSheet.create({
   screenWrap: { flex: 1, backgroundColor: '#f8fafc' },
   sinPermisoBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 24 },
   sinPermisoText: { fontSize: 14, color: '#64748b', textAlign: 'center' },
-  filtersWrap: { flexDirection: 'column', gap: 8, flex: 1, minWidth: 0, width: '100%', overflow: 'visible', zIndex: 1 },
+
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    gap: 12,
+  },
+  headerBackBtn: { padding: 4 },
+  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#0f172a' },
+
+  toolbar: {
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+    zIndex: 20,
+  },
+  filtersColStack: { flexDirection: 'column', alignItems: 'stretch' },
+  chipRowEstado: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  estadoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft: 10,
+    paddingRight: 6,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  estadoChipText: { fontSize: 11, fontWeight: '600' },
+  estadoChipTextSel: { fontWeight: '800' },
+  estadoChipCount: {
+    minWidth: 20,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 8,
+    backgroundColor: 'rgba(15,23,42,0.06)',
+    alignItems: 'center',
+  },
+  estadoChipCountSel: { backgroundColor: 'rgba(15,23,42,0.10)' },
+  estadoChipCountText: { fontSize: 10, fontWeight: '700' },
+  kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  kpiCard: {
+    flex: 1,
+    minWidth: 88,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
+  kpiValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 2 },
+
+  errorBar: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  errorBarText: { fontSize: 12, color: '#dc2626' },
+
+  tablaWrap: { flex: 1, minHeight: 0 },
+  panelCalendario: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderLeftWidth: 1,
+    borderLeftColor: '#e2e8f0',
+    padding: 10,
+    minWidth: 280,
+  },
+  panelCalendarioTitle: { fontSize: 12, fontWeight: '700', color: '#0f172a', marginBottom: 8 },
+
+  filtersWrap: { flexDirection: 'column', gap: 8, flex: 1, minWidth: 0, width: '100%', overflow: 'visible' },
   filtersRowTop: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1707,6 +1924,16 @@ const styles = StyleSheet.create({
   },
   fBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f5f9', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
   fBtnText: { color: '#0369a1', fontWeight: '600', fontSize: 12 },
+  fBtnPrimary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#0ea5e9',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  fBtnPrimaryText: { color: '#fff', fontWeight: '600', fontSize: 12 },
   asocBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#059669', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
   asocBtnOff: { opacity: 0.45 },
   asocBtnText: { color: '#fff', fontWeight: '700', fontSize: 12 },

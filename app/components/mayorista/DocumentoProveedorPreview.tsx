@@ -28,6 +28,7 @@ type Props = {
     producto_id?: string;
     cantidad?: number;
     pvp_unitario?: number;
+    ultimo_iva_compra?: number | null;
   }[];
   puedeExportar?: boolean;
 };
@@ -95,18 +96,39 @@ export function DocumentoProveedorPreview({ neg, lineas, puedeExportar }: Props)
             <Text style={[styles.th, styles.colProd]}>Producto</Text>
             <Text style={[styles.th, styles.colCant]}>Cant.</Text>
             <Text style={[styles.th, styles.colPvp]}>PVP</Text>
+            <Text style={[styles.th, styles.colIva]}>IVA</Text>
+            <Text style={[styles.th, styles.colTotal]}>Total</Text>
+            <Text style={[styles.th, styles.colIvaImp, styles.ivaBlueHeader]}>Imp. IVA</Text>
+            <Text style={[styles.th, styles.colTotalIva, styles.ivaBlueHeader]}>Total c/IVA</Text>
           </View>
           {data.lineas.length === 0 ? (
             <View style={styles.tableRow}>
               <Text style={[styles.td, styles.colProd, styles.emptyTd]}>Sin líneas</Text>
             </View>
-          ) : data.lineas.map((l, i) => (
-            <View key={`${l.producto}-${i}`} style={styles.tableRow}>
-              <Text style={[styles.td, styles.colProd]} numberOfLines={2}>{l.producto}</Text>
-              <Text style={[styles.td, styles.colCant]}>{l.cantidad}</Text>
-              <Text style={[styles.td, styles.colPvp]}>{l.pvp}</Text>
-            </View>
-          ))}
+          ) : (
+            <>
+              {data.lineas.map((l, i) => (
+                <View key={`${l.producto}-${i}`} style={styles.tableRow}>
+                  <Text style={[styles.td, styles.colProd]} numberOfLines={2}>{l.producto}</Text>
+                  <Text style={[styles.td, styles.colCant]}>{l.cantidad}</Text>
+                  <Text style={[styles.td, styles.colPvp]}>{l.pvp}</Text>
+                  <Text style={[styles.td, styles.colIva]}>{l.iva}</Text>
+                  <Text style={[styles.td, styles.colTotal, styles.totalBold]}>{l.total}</Text>
+                  <Text style={[styles.td, styles.colIvaImp, styles.ivaBlue]}>{l.ivaImporte}</Text>
+                  <Text style={[styles.td, styles.colTotalIva, styles.ivaBlue, styles.totalBold]}>{l.totalConIva}</Text>
+                </View>
+              ))}
+              <View style={styles.tableFooter}>
+                <Text style={[styles.tdFooter, styles.colProd]} />
+                <Text style={[styles.tdFooter, styles.colCant]} />
+                <Text style={[styles.tdFooter, styles.colPvp]} />
+                <Text style={[styles.tdFooter, styles.colIva, styles.subtotalLabel]}>Subtotal</Text>
+                <Text style={[styles.tdFooter, styles.colTotal, styles.subtotalValue]}>{data.subtotal}</Text>
+                <Text style={[styles.tdFooter, styles.colIvaImp, styles.ivaBlue, styles.subtotalConIvaValue]}>{data.subtotalIvaImporte}</Text>
+                <Text style={[styles.tdFooter, styles.colTotalIva, styles.ivaBlue, styles.subtotalConIvaValue]}>{data.subtotalConIva}</Text>
+              </View>
+            </>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -176,7 +198,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
-  th: { fontSize: 9, fontWeight: '700', color: '#475569', textTransform: 'uppercase' },
+  th: { fontSize: 8, fontWeight: '700', color: '#475569', textTransform: 'uppercase' },
+  ivaBlueHeader: { color: '#0ea5e9' },
+  ivaBlue: { color: '#0ea5e9', fontWeight: '600' },
   tableRow: {
     flexDirection: 'row',
     paddingVertical: 5,
@@ -185,9 +209,27 @@ const styles = StyleSheet.create({
     borderBottomColor: '#f1f5f9',
     alignItems: 'center',
   },
-  td: { fontSize: 11, color: '#334155' },
-  colProd: { flex: 1, minWidth: 0, paddingRight: 6 },
-  colCant: { width: 36, textAlign: 'center' },
-  colPvp: { width: 64, textAlign: 'right' },
+  td: { fontSize: 10, color: '#334155' },
+  tableFooter: {
+    flexDirection: 'row',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    backgroundColor: '#f8fafc',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  tdFooter: { fontSize: 11, fontWeight: '700', color: '#475569' },
+  totalBold: { fontWeight: '700', color: '#0f172a' },
+  subtotalLabel: { textAlign: 'right', color: '#475569' },
+  subtotalValue: { fontWeight: '800', color: '#0f172a' },
+  subtotalConIvaValue: { fontWeight: '800', color: '#0ea5e9' },
+  colProd: { flex: 1, minWidth: 0, paddingRight: 4 },
+  colCant: { width: 28, textAlign: 'center' },
+  colPvp: { width: 46, textAlign: 'right' },
+  colIva: { width: 32, textAlign: 'center' },
+  colTotal: { width: 54, textAlign: 'right' },
+  colIvaImp: { width: 50, textAlign: 'right' },
+  colTotalIva: { width: 58, textAlign: 'right' },
   emptyTd: { fontStyle: 'italic', color: '#94a3b8' },
 });

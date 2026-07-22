@@ -9,6 +9,13 @@ export function listadoFacturaReturnPath(tipo: 'IN' | 'OUT'): string {
   return tipo === 'IN' ? '/facturacion/facturas-gasto' : '/facturacion/facturas-venta';
 }
 
+/** Maestro de empresas con retorno al listado de facturas (gasto o emitidas). */
+export function buildEmpresasDesdeFacturasHref(tipo: 'IN' | 'OUT'): string {
+  const params = new URLSearchParams();
+  params.set('returnTo', listadoFacturaReturnPath(tipo));
+  return `/empresas?${params.toString()}`;
+}
+
 export function buildEmpresasEditarHref(opts: {
   idEmpresa: string;
   returnTo: string;

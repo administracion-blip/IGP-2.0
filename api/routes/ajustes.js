@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ScanCommand, QueryCommand, PutCommand, GetCommand, DeleteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
+import { normalizarUrlExterna, sanitizarEnlacesPlanning } from '../lib/planningEnlaces.js';
 
 const router = Router();
 const tableAjustesName = tables.ajustes;
@@ -47,18 +48,27 @@ router.get('/ajustes/:pk/:sk', async (req, res) => {
   }
 });
 
-/** Solo https:// con host; usado para enlaces externos configurables. */
-function normalizarUrlHttps(raw) {
-  const trimmed = String(raw ?? '').trim();
-  if (!trimmed) return '';
-  let parsed;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
+/** @deprecated Usa sanitizarEnlacesPlanning para planning_dia/enlaces */
+function aplicarValidacionEnlacesPlanning(body) {
+  if (body.PK !== 'planning_dia' || body.SK !== 'enlaces') return null;
+
+  if (body.Enlaces !== undefined) {
+    const r = sanitizarEnlacesPlanning(body.Enlaces);
+    if (!r.ok) return r.error;
+    body.Enlaces = r.enlaces;
+    delete body.UrlInventario;
     return null;
   }
-  if (parsed.protocol !== 'https:' || !parsed.hostname) return null;
-  return parsed.toString();
+
+  if (body.UrlInventario !== undefined) {
+    const norm = normalizarUrlExterna(body.UrlInventario);
+    if (norm === null) {
+      return 'UrlInventario debe ser una URL http:// o https:// válida (o vacía)';
+    }
+    body.UrlInventario = norm;
+  }
+
+  return null;
 }
 
 router.post('/ajustes', async (req, res) => {
@@ -66,14 +76,8 @@ router.post('/ajustes', async (req, res) => {
     const body = req.body || {};
     if (!body.PK || !body.SK) return res.status(400).json({ error: 'PK y SK son obligatorios' });
 
-    // Enlaces externos del planning: validar UrlInventario (vacío = sin enlace).
-    if (body.PK === 'planning_dia' && body.SK === 'enlaces' && body.UrlInventario !== undefined) {
-      const norm = normalizarUrlHttps(body.UrlInventario);
-      if (norm === null) {
-        return res.status(400).json({ error: 'UrlInventario debe ser una URL https:// válida (o vacía)' });
-      }
-      body.UrlInventario = norm;
-    }
+    const errEnlaces = aplicarValidacionEnlacesPlanning(body);
+    if (errEnlaces) return res.status(400).json({ error: errEnlaces });
 
     const item = { ...body, updatedAt: new Date().toISOString() };
     await docClient.send(new PutCommand({ TableName: tableAjustesName, Item: item }));
@@ -90,6 +94,11 @@ router.patch('/ajustes/:pk/:sk', async (req, res) => {
     const body = req.body || {};
     const keys = Object.keys(body).filter((k) => k !== 'PK' && k !== 'SK');
     if (keys.length === 0) return res.status(400).json({ error: 'Nada que actualizar' });
+
+    const patchBody = { ...body, PK: pk, SK: sk };
+    const errEnlaces = aplicarValidacionEnlacesPlanning(patchBody);
+    if (errEnlaces) return res.status(400).json({ error: errEnlaces });
+    if (patchBody.Enlaces !== undefined) body.Enlaces = patchBody.Enlaces;
 
     const exprParts = [];
     const exprValues = {};

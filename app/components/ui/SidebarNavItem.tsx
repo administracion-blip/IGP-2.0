@@ -1,14 +1,12 @@
 import type { ComponentProps } from 'react';
-import { useEffect, useRef } from 'react';
-import { Pressable, Text, View, StyleSheet, Animated, Easing, Platform } from 'react-native';
+import { Pressable, Text, View, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { colors, iconSize, MIN_TOUCH, radius, sidebar, typography } from '../../constants/theme';
+import { SoftPulseBorderWrap } from './SoftPulseBorderWrap';
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
 
 const FAV_PINK = '#f9a8d4';
-const FAV_PINK_BORDER = '#fbcfe8';
-const FAV_PINK_GLOW = 'rgba(251, 207, 232, 0.65)';
 
 type Props = {
   label: string;
@@ -33,40 +31,6 @@ export function SidebarNavItem({
   accessibilityLabel,
   accentFavoritos = false,
 }: Props) {
-  const pulse = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (!accentFavoritos) return;
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 1400,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: false,
-        }),
-        Animated.timing(pulse, {
-          toValue: 0,
-          duration: 1400,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: false,
-        }),
-      ]),
-    );
-    anim.start();
-    return () => anim.stop();
-  }, [accentFavoritos, pulse]);
-
-  const borderColor = pulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['rgba(251, 207, 232, 0.35)', 'rgba(244, 114, 182, 0.95)'],
-  });
-
-  const shadowOpacity = pulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.15, 0.45],
-  });
-
   const iconColor = accentFavoritos
     ? FAV_PINK
     : active
@@ -113,18 +77,13 @@ export function SidebarNavItem({
   if (!accentFavoritos) return itemInner;
 
   return (
-    <Animated.View
-      style={[
-        styles.favGlowWrap,
-        collapsed && styles.favGlowWrapCollapsed,
-        { borderColor },
-        Platform.OS !== 'web'
-          ? { shadowOpacity, shadowColor: FAV_PINK, shadowOffset: { width: 0, height: 0 }, shadowRadius: 8, elevation: 3 }
-          : ({ boxShadow: `0 0 10px ${FAV_PINK_GLOW}` } as object),
-      ]}
+    <SoftPulseBorderWrap
+      preset="favoritos"
+      borderRadius={radius.sm}
+      style={[styles.favGlowWrap, collapsed && styles.favGlowWrapCollapsed]}
     >
       {itemInner}
-    </Animated.View>
+    </SoftPulseBorderWrap>
   );
 }
 
@@ -178,9 +137,6 @@ const styles = StyleSheet.create({
   favGlowWrap: {
     marginHorizontal: 4,
     marginVertical: 2,
-    borderRadius: radius.sm,
-    borderWidth: 1.5,
-    borderColor: FAV_PINK_BORDER,
   },
   favGlowWrapCollapsed: {
     marginHorizontal: 2,

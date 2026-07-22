@@ -141,6 +141,23 @@ const ORDEN_URGENCIA: Record<EstadoCelda, number> = {
   vacio: 5,
 };
 
+const CHIP_MODO_PASTEL: Record<
+  'pendientes' | 'revisadas',
+  { bg: string; bgSel: string; border: string; borderSel: string; text: string }
+> = {
+  pendientes: { bg: '#fffbeb', bgSel: '#fde68a', border: '#fde68a', borderSel: '#fcd34d', text: '#92400e' },
+  revisadas: { bg: '#dcfce7', bgSel: '#bbf7d0', border: '#bbf7d0', borderSel: '#86efac', text: '#166534' },
+};
+
+function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <View style={styles.kpiCard}>
+      <Text style={styles.kpiLabel} numberOfLines={1}>{label}</Text>
+      <Text style={[styles.kpiValue, color ? { color } : null]} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
+
 /**
  * Motivos concretos por los que una caja no está "limpia", para mostrarlos junto al día.
  * El descuadre de importe solo se incluye si supera la tolerancia; el resto (boletas,
@@ -160,7 +177,7 @@ function motivosIncidencia(t: TpvCelda, tol: number): string[] {
 export default function RevisionCajasScreen() {
   const router = useRouter();
   const { hasPermiso, localPermitido, user } = useAuth();
-  const { shouldStackPanels } = useBreakpoint();
+  const { shouldStackPanels, shouldStackToolbar } = useBreakpoint();
 
   const [locales, setLocales] = useState<LocalItem[]>([]);
   const [saleCenters, setSaleCenters] = useState<SaleCenter[]>([]);
@@ -331,6 +348,21 @@ export default function RevisionCajasScreen() {
 
   const lista = modo === 'pendientes' ? pendientes : revisadas;
   const seleccion = useMemo<Item | null>(() => items.find((i) => i.key === selKey) ?? null, [items, selKey]);
+
+  const totalConArqueo = items.filter((i) => i.tpv.estadoArqueo !== 'sin_arqueo').length;
+  const resumenKpi = useMemo(() => {
+    const incidencias = items.filter((i) => estadoTpv(i.tpv, tol) === 'incidencia').length;
+    const sinArqueo = items.filter((i) => i.tpv.estadoArqueo === 'sin_arqueo').length;
+    const coberturaPct = totalConArqueo > 0 ? Math.round((revisadas.length / totalConArqueo) * 100) : 0;
+    return {
+      pendientes: pendientes.length,
+      revisadas: revisadas.length,
+      incidencias,
+      sinArqueo,
+      cobertura: `${revisadas.length}/${totalConArqueo}`,
+      coberturaPct,
+    };
+  }, [items, tol, pendientes.length, revisadas.length, totalConArqueo]);
 
   /** Bandeja agrupada por local (orden de aparición = orden de la lista plana). */
   const listaAgrupada = useMemo(() => {
@@ -529,48 +561,51 @@ export default function RevisionCajasScreen() {
     );
   };
 
-  /** Fila de la bandeja (una caja TPV-día). */
+  /** Fila de la bandeja (una caja TPV-día) — tarjeta ERP como operaciones. */
   const renderFila = (it: Item) => {
     const meta = STATUS_META[it.estado];
     const activo = it.key === selKey;
-    // El icono refleja si el descuadre de importe cuadra (verde) o no (rojo); el
-    // texto detalla el motivo real aunque el importe esté dentro de tolerancia.
     const descuadreOk = Math.abs(it.tpv.descuadreTotal) <= tol;
     const sinArqueo = it.estado === 'sin_arqueo';
-    const iconColor = sinArqueo ? STATUS_META.sin_arqueo.color : descuadreOk ? STATUS_META.ok.color : STATUS_META.incidencia.color;
-    const iconBg = sinArqueo ? STATUS_META.sin_arqueo.bg : descuadreOk ? STATUS_META.ok.bg : STATUS_META.incidencia.bg;
-    const iconBorder = sinArqueo ? STATUS_META.sin_arqueo.border : descuadreOk ? STATUS_META.ok.border : STATUS_META.incidencia.border;
-    const iconName: React.ComponentProps<typeof MaterialIcons>['name'] = it.tpv.revisado
-      ? 'verified'
-      : sinArqueo
-      ? 'money-off'
-      : descuadreOk
-      ? 'check-circle'
-      : 'warning';
+    const semColor = sinArqueo ? STATUS_META.sin_arqueo.color : descuadreOk ? STATUS_META.ok.color : STATUS_META.incidencia.color;
     const motivos = motivosIncidencia(it.tpv, tol);
     const detalle = it.tpv.revisado ? 'Revisada' : motivos.length > 0 ? motivos.join(' · ') : 'Cuadra';
     return (
       <TouchableOpacity
         key={it.key}
-        style={[styles.fila, activo && styles.filaActiva]}
+        style={[styles.card, activo && styles.cardActiva]}
         activeOpacity={0.7}
         onPress={() => setSelKey(it.key)}
       >
-        <View style={[styles.filaIcon, { backgroundColor: iconBg, borderColor: iconBorder }]}>
-          <MaterialIcons name={iconName} size={18} color={iconColor} />
-        </View>
-        <View style={styles.filaMain}>
-          <Text style={styles.filaTpv} numberOfLines={1}>{it.tpv.posName}</Text>
-          <Text style={styles.filaSub} numberOfLines={1}>{diaCorto(it.businessDay)} · {detalle}</Text>
-        </View>
-        <View style={styles.filaRight}>
-          {sinArqueo ? (
-            <Text style={[styles.filaEstadoTxt, { color: meta.color }]}>Sin arqueo</Text>
-          ) : (
-            <Text style={[styles.filaImporte, descuadreOk ? styles.diffOk : styles.diffBad]}>
+        <View style={styles.cardHeader}>
+          <View style={styles.cardTitleWrap}>
+            <Text style={styles.cardTitle} numberOfLines={1}>{it.tpv.posName}</Text>
+            <View style={[styles.badge, { backgroundColor: meta.bg, borderColor: meta.border }]}>
+              <Text style={[styles.badgeText, { color: meta.color }]}>{meta.label}</Text>
+            </View>
+            <View style={[styles.dotSem, { backgroundColor: semColor }]} />
+          </View>
+          {!sinArqueo ? (
+            <Text style={[styles.cardImporte, descuadreOk ? styles.diffOk : styles.diffBad]}>
               {formatMoneda(it.tpv.descuadreTotal)}
             </Text>
-          )}
+          ) : null}
+        </View>
+        <View style={styles.cardBody}>
+          <View style={styles.cardField}>
+            <Text style={styles.cardFieldLabel}>Día</Text>
+            <Text style={styles.cardFieldValue}>{diaCorto(it.businessDay)}</Text>
+          </View>
+          <View style={styles.cardField}>
+            <Text style={styles.cardFieldLabel}>Detalle</Text>
+            <Text style={styles.cardFieldValue} numberOfLines={2}>{detalle}</Text>
+          </View>
+          {it.tpv.revisado && it.tpv.revisadoPor ? (
+            <View style={styles.cardField}>
+              <Text style={styles.cardFieldLabel}>Revisada por</Text>
+              <Text style={styles.cardFieldValue} numberOfLines={1}>{it.tpv.revisadoPor}</Text>
+            </View>
+          ) : null}
         </View>
       </TouchableOpacity>
     );
@@ -578,94 +613,89 @@ export default function RevisionCajasScreen() {
 
   if (!hasPermiso('cierres.ver')) {
     return (
-      <View style={styles.flex}>
+      <View style={styles.center}>
+        <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
         <Text style={styles.errorText}>No tienes permiso para ver esta pantalla.</Text>
       </View>
     );
   }
 
   const hayDatos = (data?.locales || []).length > 0;
-  const totalConArqueo = items.filter((i) => i.tpv.estadoArqueo !== 'sin_arqueo').length;
 
   const listaPanel = (
-    <View style={styles.listaWrap}>
-      <View style={styles.segmentRow}>
-        <TouchableOpacity
-          style={[styles.segmentBtn, modo === 'pendientes' && styles.segmentBtnActivo]}
-          onPress={() => setModo('pendientes')}
-        >
-          <MaterialIcons name="inbox" size={16} color={modo === 'pendientes' ? '#0369a1' : '#94a3b8'} />
-          <Text style={[styles.segmentText, modo === 'pendientes' && styles.segmentTextActivo]}>Pendientes ({pendientes.length})</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.segmentBtn, modo === 'revisadas' && styles.segmentBtnActivo]}
-          onPress={() => setModo('revisadas')}
-        >
-          <MaterialIcons name="verified" size={16} color={modo === 'revisadas' ? '#15803d' : '#94a3b8'} />
-          <Text style={[styles.segmentText, modo === 'revisadas' && styles.segmentTextActivo]}>Revisadas ({revisadas.length})</Text>
-        </TouchableOpacity>
-      </View>
-
-      {loading ? <ActivityIndicator style={{ marginVertical: 16 }} color="#0ea5e9" /> : null}
-
-      {!loading && !hayDatos ? (
-        <Text style={styles.hint}>Selecciona un rango de fechas y local con datos para revisar.</Text>
-      ) : null}
-
-      {!loading && hayDatos && lista.length === 0 ? (
-        <View style={styles.vacioOk}>
-          <MaterialIcons name={modo === 'pendientes' ? 'check-circle' : 'inbox'} size={20} color={modo === 'pendientes' ? '#16a34a' : '#94a3b8'} />
-          <Text style={styles.vacioOkText}>
-            {modo === 'pendientes' ? '¡Todo revisado! No quedan cajas pendientes.' : 'Aún no hay cajas marcadas como revisadas.'}
-          </Text>
-        </View>
-      ) : null}
-
-      <ScrollView style={styles.listaScroll} contentContainerStyle={styles.listaContent} keyboardShouldPersistTaps="handled">
-        {!loading
-          ? listaAgrupada.map((g) => (
+    <View style={[styles.panelLista, !shouldStackPanels && styles.panelListaBorder]}>
+      {loading ? (
+        <View style={styles.center}><ActivityIndicator color="#0ea5e9" /></View>
+      ) : (
+        <ScrollView style={styles.list} contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled">
+          {!hayDatos ? (
+            <View style={styles.emptyWrap}>
+              <MaterialIcons name="date-range" size={40} color="#cbd5e1" />
+              <Text style={styles.emptyText}>Selecciona un rango de fechas y local con datos para revisar.</Text>
+            </View>
+          ) : lista.length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <MaterialIcons name={modo === 'pendientes' ? 'check-circle' : 'inbox'} size={40} color={modo === 'pendientes' ? '#86efac' : '#cbd5e1'} />
+              <Text style={styles.emptyText}>
+                {modo === 'pendientes' ? '¡Todo revisado! No quedan cajas pendientes.' : 'Aún no hay cajas marcadas como revisadas.'}
+              </Text>
+            </View>
+          ) : (
+            listaAgrupada.map((g) => (
               <View key={g.workplaceId} style={styles.grupoLocal}>
                 <View style={styles.grupoHeader}>
-                  <MaterialIcons name="store" size={15} color="#64748b" />
+                  <MaterialIcons name="store" size={14} color="#64748b" />
                   <Text style={styles.grupoNombre} numberOfLines={1}>{g.workplaceName}</Text>
-                  <Text style={styles.grupoCount}>{g.items.length}</Text>
+                  <View style={styles.grupoCount}>
+                    <Text style={styles.grupoCountText}>{g.items.length}</Text>
+                  </View>
                 </View>
                 {g.items.map(renderFila)}
               </View>
             ))
-          : null}
-      </ScrollView>
+          )}
+        </ScrollView>
+      )}
+    </View>
+  );
+
+  const panelDetalle = (
+    <View style={styles.panelDetalle}>
+      {seleccion ? (
+        renderDetalle(seleccion, false)
+      ) : (
+        <View style={styles.detalleVacio}>
+          <MaterialIcons name="touch-app" size={40} color="#cbd5e1" />
+          <Text style={styles.detalleVacioText}>Selecciona una caja de la lista para revisarla.</Text>
+          <Text style={styles.detalleVacioHint}>En escritorio puedes moverte con las flechas ↑ / ↓.</Text>
+        </View>
+      )}
     </View>
   );
 
   return (
-    <View style={styles.flex}>
-      {/* Cabecera + filtros (fijos) */}
-      <View style={styles.topBar}>
-        <View style={styles.headerRow}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <MaterialIcons name="arrow-back" size={22} color="#334155" />
-          </TouchableOpacity>
-          <Text style={styles.title}>Revisión de cajas</Text>
-          <TouchableOpacity
-            style={styles.ingresarBtn}
-            onPress={() =>
-              router.push({
-                pathname: '/cajas/efectivo-ingresar',
-                params: { dateFrom: fromIso, dateTo: toIso, ...(localFiltro ? { workplaceId: localFiltro } : {}) },
-              })
-            }
-          >
-            <MaterialIcons name="account-balance" size={16} color="#0369a1" />
-            <Text style={styles.ingresarBtnText}>Efectivo a ingresar</Text>
-          </TouchableOpacity>
-          <View style={styles.coberturaBox}>
-            <MaterialIcons name="fact-check" size={16} color="#0369a1" />
-            <Text style={styles.coberturaText}>{revisadas.length}/{totalConArqueo} revisadas</Text>
-          </View>
-        </View>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Revisión de cajas</Text>
+        <TouchableOpacity
+          style={styles.createBtnOutline}
+          onPress={() =>
+            router.push({
+              pathname: '/cajas/efectivo-ingresar',
+              params: { dateFrom: fromIso, dateTo: toIso, ...(localFiltro ? { workplaceId: localFiltro } : {}) },
+            })
+          }
+        >
+          <MaterialIcons name="account-balance" size={16} color="#0ea5e9" />
+          <Text style={styles.createBtnOutlineText}>Efectivo a ingresar</Text>
+        </TouchableOpacity>
+      </View>
 
-        <View style={styles.filtrosRow}>
+      <View style={styles.toolbar}>
+        <View style={[styles.filtrosRow, shouldStackToolbar && styles.filtrosRowStack]}>
           <View style={styles.filtroCol}>
             <Text style={styles.labelFiltros}>Desde</Text>
             <InputFecha valueIso={fromIso} onChangeIso={setFromIso} placeholder="dd/mm/aaaa" style={styles.inputFechaCompact} />
@@ -704,33 +734,54 @@ export default function RevisionCajasScreen() {
           </View>
         </View>
 
-        {error ? (
-          <View style={styles.errBox}>
-            <MaterialIcons name="error-outline" size={18} color="#dc2626" />
-            <Text style={styles.errText}>{error}</Text>
-          </View>
-        ) : null}
+        <View style={styles.chipRowEstado}>
+          {(['pendientes', 'revisadas'] as const).map((key) => {
+            const pastel = CHIP_MODO_PASTEL[key];
+            const sel = modo === key;
+            const n = key === 'pendientes' ? pendientes.length : revisadas.length;
+            return (
+              <TouchableOpacity
+                key={key}
+                style={[
+                  styles.estadoChip,
+                  {
+                    backgroundColor: sel ? pastel.bgSel : pastel.bg,
+                    borderColor: sel ? pastel.borderSel : pastel.border,
+                  },
+                ]}
+                onPress={() => setModo(key)}
+                activeOpacity={0.75}
+              >
+                <Text style={[styles.estadoChipText, { color: pastel.text }, sel && styles.estadoChipTextSel]}>
+                  {key === 'pendientes' ? 'Pendientes' : 'Revisadas'}
+                </Text>
+                <View style={[styles.estadoChipCount, sel && styles.estadoChipCountSel]}>
+                  <Text style={[styles.estadoChipCountText, { color: pastel.text }, sel && styles.estadoChipTextSel]}>
+                    {n}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={styles.kpiRow}>
+          <KpiCard label="Pendientes" value={String(resumenKpi.pendientes)} color="#d97706" />
+          <KpiCard label="Revisadas" value={String(resumenKpi.revisadas)} color="#16a34a" />
+          <KpiCard label="Incidencias" value={String(resumenKpi.incidencias)} color="#dc2626" />
+          <KpiCard label="Sin arqueo" value={String(resumenKpi.sinArqueo)} />
+          <KpiCard label="Cobertura" value={resumenKpi.cobertura} color="#0ea5e9" />
+        </View>
       </View>
 
-      {/* Cuerpo: web = lista + panel; compacto = solo lista (+ modal) */}
-      {shouldStackPanels ? (
-        listaPanel
-      ) : (
-        <View style={styles.split}>
-          <View style={styles.splitLista}>{listaPanel}</View>
-          <View style={styles.splitDetalle}>
-            {seleccion ? (
-              renderDetalle(seleccion, false)
-            ) : (
-              <View style={styles.detalleVacio}>
-                <MaterialIcons name="touch-app" size={32} color="#cbd5e1" />
-                <Text style={styles.detalleVacioText}>Selecciona una caja de la lista para revisarla.</Text>
-                <Text style={styles.detalleVacioHint}>En escritorio puedes moverte con las flechas ↑ / ↓.</Text>
-              </View>
-            )}
-          </View>
-        </View>
-      )}
+      {error ? (
+        <View style={styles.errorBar}><Text style={styles.errorText}>{error}</Text></View>
+      ) : null}
+
+      <View style={[styles.split, shouldStackPanels && styles.splitStack]}>
+        {listaPanel}
+        {!shouldStackPanels ? panelDetalle : null}
+      </View>
 
       {/* Modal de detalle solo en pantallas compactas */}
       <Modal
@@ -750,12 +801,46 @@ export default function RevisionCajasScreen() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: '#f8fafc' },
-  topBar: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
+  container: { flex: 1, backgroundColor: '#f8fafc' },
+  center: { padding: 40, alignItems: 'center', gap: 8 },
+  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12 },
+  emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
+
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    gap: 12,
+  },
   backBtn: { padding: 4 },
-  title: { flex: 1, fontSize: 18, fontWeight: '700', color: '#334155' },
+  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#0f172a' },
+  createBtnOutline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    backgroundColor: '#f0f9ff',
+  },
+  createBtnOutlineText: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+
+  toolbar: {
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+  },
   filtrosRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 8 },
+  filtrosRowStack: { flexDirection: 'column' },
   filtroCol: { flexGrow: 1, flexShrink: 1, minWidth: 120, maxWidth: 170 },
   filtroColWide: { flexGrow: 1, flexShrink: 1, minWidth: 160, maxWidth: 280 },
   filtroColTol: { flexGrow: 0, flexShrink: 0, width: 96 },
@@ -765,65 +850,113 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 9,
     fontSize: 14, color: '#334155', backgroundColor: '#fff', minHeight: 40, textAlign: 'center',
   },
-  coberturaBox: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#f0f9ff', borderRadius: 8, borderWidth: 1, borderColor: '#bae6fd' },
-  coberturaText: { fontSize: 13, fontWeight: '700', color: '#0369a1' },
-  ingresarBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#ecfdf5', borderRadius: 8, borderWidth: 1, borderColor: '#a7f3d0' },
-  ingresarBtnText: { fontSize: 13, fontWeight: '700', color: '#0369a1' },
-  errBox: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8, marginTop: 10 },
-  errText: { flex: 1, fontSize: 12, color: '#b91c1c' },
 
-  // Layout web: lista + panel
-  split: { flex: 1, flexDirection: 'row' },
-  splitLista: { width: 380, maxWidth: '42%', borderRightWidth: 1, borderRightColor: '#e2e8f0', backgroundColor: '#fff' },
-  splitDetalle: { flex: 1, minWidth: 0 },
+  chipRowEstado: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  estadoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft: 10,
+    paddingRight: 6,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  estadoChipText: { fontSize: 11, fontWeight: '600' },
+  estadoChipTextSel: { fontWeight: '800' },
+  estadoChipCount: {
+    minWidth: 20,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 8,
+    backgroundColor: 'rgba(15,23,42,0.06)',
+    alignItems: 'center',
+  },
+  estadoChipCountSel: { backgroundColor: 'rgba(15,23,42,0.10)' },
+  estadoChipCountText: { fontSize: 10, fontWeight: '700' },
+
+  kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  kpiCard: {
+    flex: 1,
+    minWidth: 88,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
+  kpiValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 2 },
+
+  errorBar: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  errorText: { fontSize: 12, color: '#dc2626' },
+
+  split: { flex: 1, flexDirection: 'row', minHeight: 0 },
+  splitStack: { flexDirection: 'column' },
+  panelLista: { flex: 1, minWidth: 0 },
+  panelListaBorder: { borderRightWidth: 1, borderRightColor: '#e2e8f0', maxWidth: 420 },
+  panelDetalle: { flex: 1.2, minWidth: 0, backgroundColor: '#fff' },
+
+  list: { flex: 1 },
+  listContent: { padding: 12, gap: 10, paddingBottom: 24 },
+
+  grupoLocal: { gap: 8 },
+  grupoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+  },
+  grupoNombre: { flex: 1, minWidth: 0, fontSize: 11, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.3 },
+  grupoCount: {
+    minWidth: 20,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 8,
+    backgroundColor: '#e2e8f0',
+    alignItems: 'center',
+  },
+  grupoCountText: { fontSize: 10, fontWeight: '700', color: '#475569' },
+
+  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
+  cardActiva: { borderColor: '#7dd3fc', backgroundColor: '#f0f9ff' },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    gap: 8,
+  },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
+  cardTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', flexShrink: 1 },
+  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
+  badgeText: { fontSize: 11, fontWeight: '600' },
+  dotSem: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  cardImporte: { fontSize: 13, fontWeight: '700' },
+  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: 8 },
+  cardField: { minWidth: 84, marginRight: 8 },
+  cardFieldLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 1 },
+  cardFieldValue: { fontSize: 13, color: '#334155' },
+
   detalleVacio: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8 },
   detalleVacioText: { fontSize: 14, color: '#94a3b8', textAlign: 'center', fontWeight: '600' },
   detalleVacioHint: { fontSize: 12, color: '#cbd5e1', textAlign: 'center' },
   detalleScroll: { padding: 20, maxWidth: 640, width: '100%', alignSelf: 'center' },
 
-  // Lista / bandeja
-  listaWrap: { flex: 1, minHeight: 0 },
-  segmentRow: { flexDirection: 'row', gap: 6, padding: 10, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  segmentBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, borderRadius: 8, backgroundColor: '#f1f5f9' },
-  segmentBtnActivo: { backgroundColor: '#e0f2fe', borderWidth: 1, borderColor: '#bae6fd' },
-  segmentText: { fontSize: 12, fontWeight: '700', color: '#94a3b8' },
-  segmentTextActivo: { color: '#0369a1' },
-  listaScroll: { flex: 1 },
-  listaContent: { padding: 8 },
-  hint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', padding: 16 },
-  vacioOk: { flexDirection: 'row', alignItems: 'center', gap: 8, margin: 12, padding: 12, backgroundColor: '#f0fdf4', borderRadius: 10, borderWidth: 1, borderColor: '#bbf7d0' },
-  vacioOkText: { flex: 1, fontSize: 13, color: '#15803d', fontWeight: '600' },
-  grupoLocal: { marginBottom: 10 },
-  grupoHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    marginBottom: 2,
-    backgroundColor: '#f1f5f9',
-    borderRadius: 8,
-  },
-  grupoNombre: { flex: 1, minWidth: 0, fontSize: 12, fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: 0.3 },
-  grupoCount: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#64748b',
-    backgroundColor: '#e2e8f0',
-    borderRadius: 999,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    overflow: 'hidden',
-  },
-  fila: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 10, borderRadius: 10, marginBottom: 4, borderWidth: 1, borderColor: 'transparent' },
-  filaActiva: { backgroundColor: '#f0f9ff', borderColor: '#bae6fd' },
-  filaIcon: { width: 34, height: 34, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  filaMain: { flex: 1, minWidth: 0 },
-  filaTpv: { fontSize: 12, fontWeight: '600', color: '#334155' },
-  filaSub: { fontSize: 11, color: '#94a3b8', marginTop: 2 },
-  filaRight: { alignItems: 'flex-end' },
-  filaEstadoTxt: { fontSize: 12, fontWeight: '700' },
-  filaImporte: { fontSize: 13, fontWeight: '700' },
   modalBackdrop: {
     flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'center', padding: 16,
     ...(Platform.OS === 'web' ? { zIndex: 9999 } as object : {}),
@@ -866,5 +999,4 @@ const styles = StyleSheet.create({
   navBtnText: { fontSize: 13, fontWeight: '600', color: '#0369a1' },
   diffOk: { color: '#059669' },
   diffBad: { color: '#dc2626' },
-  errorText: { padding: 16, color: '#b91c1c' },
 });

@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
@@ -8,7 +8,13 @@ import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { hubTileSideSize } from '../../constants/layout';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
-import { abrirEnlaceExterno, normalizarUrlHttps } from '../../utils/enlaceExterno';
+import { abrirEnlaceExterno } from '../../utils/enlaceExterno';
+import {
+  type EnlacePlanning,
+  enlacesDesdeItemAjuste,
+  enlacePlanningVisible,
+  iconoEnlaceValido,
+} from '../../lib/planningEnlaces';
 import HubTile from '../../components/HubTile';
 import { ObjetivoMensualCard } from '../../components/ObjetivoMensualCard';
 import {
@@ -17,25 +23,19 @@ import {
   puedeVerArqueoCaja,
 } from '../../lib/permisosModulos';
 
-/**
- * Hub del módulo "Planning del día": accesos rápidos a las acciones
- * operativas del día a día (mañana → cierre). Cada tarjeta enlaza a una
- * pantalla existente filtrada por su permiso granular para no duplicar
- * lógica ni acoplar este hub al resto de módulos.
- */
-type Tarjeta = {
+type IconName = React.ComponentProps<typeof MaterialIcons>['name'];
+
+type TarjetaInterna = {
   id: string;
   label: string;
   descripcion: string;
-  icon: React.ComponentProps<typeof MaterialIcons>['name'];
-  ruta?: string;
+  icon: IconName;
+  ruta: string;
   permiso: string;
   variant?: 'default' | 'accent';
-  /** Enlace externo (URL en Ajustes). */
-  externo?: 'inventario';
 };
 
-const TARJETAS: Tarjeta[] = [
+const TARJETAS_INTERNAS: TarjetaInterna[] = [
   {
     id: 'cuadrante',
     label: 'Cuadrante de personal',
@@ -52,14 +52,6 @@ const TARJETAS: Tarjeta[] = [
     ruta: '/compras/almacen',
     permiso: 'pedidos.preparar',
     variant: 'accent',
-  },
-  {
-    id: 'inventario',
-    label: 'Realizar inventario',
-    descripcion: 'Abre la herramienta de inventario en una nueva pestaña',
-    icon: 'fact-check',
-    permiso: 'planning_dia.ver',
-    externo: 'inventario',
   },
   {
     id: 'actuaciones',
@@ -99,7 +91,7 @@ function aviso(msg: string) {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     window.alert(msg);
   } else {
-    Alert.alert('Inventario', msg);
+    Alert.alert('Planning del día', msg);
   }
 }
 
@@ -112,46 +104,42 @@ export default function PlanningDiaIndexScreen() {
   const [actuacionesHoy, setActuacionesHoy] = useState(0);
   const [limpiezaHoy, setLimpiezaHoy] = useState(0);
   const [objetivoLocalIdx, setObjetivoLocalIdx] = useState(0);
-  const [urlInventario, setUrlInventario] = useState<string | null>(null);
+  const [enlacesExternos, setEnlacesExternos] = useState<EnlacePlanning[]>([]);
   const puedeObjetivoCard = hasPermiso('planning_dia.objetivo_card');
 
-  const tarjetaVisible = useCallback(
-    (t: Tarjeta) => {
+  const tarjetaInternaVisible = useCallback(
+    (t: TarjetaInterna) => {
       if (t.id === 'actuaciones') return puedeVerActuacionesPlanning(hasPermiso);
       if (t.id === 'activaciones') return puedeVerActivacionesPlanning(hasPermiso);
       if (t.id === 'arqueo-caja') return puedeVerArqueoCaja(hasPermiso);
       if (t.id === 'limpieza') return hasPermiso('limpieza.ver');
-      if (t.externo === 'inventario') {
-        return hasPermiso(t.permiso) && Boolean(urlInventario);
-      }
       return hasPermiso(t.permiso);
     },
-    [hasPermiso, urlInventario],
+    [hasPermiso],
   );
 
-  const cargarUrlInventario = useCallback(async () => {
+  const cargarEnlacesExternos = useCallback(async () => {
     if (!hasPermiso('planning_dia.ver')) {
-      setUrlInventario(null);
+      setEnlacesExternos([]);
       return;
     }
     try {
       const r = await apiFetch('/api/ajustes/planning_dia/enlaces');
       const d = await r.json();
-      const raw = r.ok && d?.item?.UrlInventario != null ? String(d.item.UrlInventario) : '';
-      setUrlInventario(normalizarUrlHttps(raw));
+      if (r.ok && d?.item) {
+        setEnlacesExternos(enlacesDesdeItemAjuste(d.item as Record<string, unknown>));
+      } else {
+        setEnlacesExternos([]);
+      }
     } catch {
-      setUrlInventario(null);
+      setEnlacesExternos([]);
     }
   }, [hasPermiso]);
 
-  const abrirInventario = useCallback(async () => {
-    if (!urlInventario) {
-      aviso('Configura la URL de inventario en Ajustes (solo https).');
-      return;
-    }
-    const res = await abrirEnlaceExterno(urlInventario);
+  const abrirEnlace = useCallback(async (url: string) => {
+    const res = await abrirEnlaceExterno(url);
     if (!res.ok) aviso(res.error);
-  }, [urlInventario]);
+  }, []);
 
   const cargarContadoresDia = useCallback(async () => {
     const fecha = encodeURIComponent(fechaJornadaNegocioIso());
@@ -196,11 +184,21 @@ export default function PlanningDiaIndexScreen() {
   useFocusEffect(
     useCallback(() => {
       cargarContadoresDia();
-      cargarUrlInventario();
-    }, [cargarContadoresDia, cargarUrlInventario]),
+      cargarEnlacesExternos();
+    }, [cargarContadoresDia, cargarEnlacesExternos]),
   );
 
-  const visibles = TARJETAS.filter((t) => tarjetaVisible(t));
+  const enlacesVisibles = useMemo(
+    () => enlacesExternos.filter((e) => enlacePlanningVisible(e, hasPermiso)),
+    [enlacesExternos, hasPermiso],
+  );
+
+  const tarjetasInternasVisibles = useMemo(
+    () => TARJETAS_INTERNAS.filter((t) => tarjetaInternaVisible(t)),
+    [tarjetaInternaVisible],
+  );
+
+  const hayContenido = tarjetasInternasVisibles.length > 0 || enlacesVisibles.length > 0;
 
   return (
     <View style={styles.container}>
@@ -221,7 +219,7 @@ export default function PlanningDiaIndexScreen() {
             onLocalIndexChange={setObjetivoLocalIdx}
           />
         ) : null}
-        {visibles.length === 0 ? (
+        {!hayContenido ? (
           <View style={styles.emptyBox}>
             <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
             <Text style={styles.emptyText}>
@@ -230,7 +228,7 @@ export default function PlanningDiaIndexScreen() {
           </View>
         ) : (
           <View style={styles.grid}>
-            {visibles.map((t) => (
+            {tarjetasInternasVisibles.map((t) => (
               <HubTile
                 key={t.id}
                 label={t.label}
@@ -247,18 +245,18 @@ export default function PlanningDiaIndexScreen() {
                         ? limpiezaHoy
                         : undefined
                 }
-                onPress={() => {
-                  if (t.externo === 'inventario') {
-                    void abrirInventario();
-                    return;
-                  }
-                  if (t.ruta) router.push(t.ruta as never);
-                }}
-                favorito={
-                  t.ruta
-                    ? { route: t.ruta, label: t.label, icon: t.icon, permiso: t.permiso }
-                    : undefined
-                }
+                onPress={() => router.push(t.ruta as never)}
+                favorito={{ route: t.ruta, label: t.label, icon: t.icon, permiso: t.permiso }}
+              />
+            ))}
+            {enlacesVisibles.map((e) => (
+              <HubTile
+                key={`ext-${e.id}`}
+                label={e.label}
+                description={e.descripcion ?? 'Abre enlace externo en nueva pestaña'}
+                icon={iconoEnlaceValido(e.icon) as IconName}
+                size={tileSize}
+                onPress={() => { void abrirEnlace(e.url); }}
               />
             ))}
           </View>

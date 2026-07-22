@@ -22,7 +22,7 @@ import * as Sharing from 'expo-sharing';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { apiFetch } from '../utils/api';
-import { normalizarUrlHttps } from '../utils/enlaceExterno';
+import { EnlacesPlanningPanel } from '../components/ajustes/EnlacesPlanningPanel';
 
 /** Límite aproximado para caber en un ítem DynamoDB (~400 KB con base64). */
 const MAX_IMAGEN_BASE64_LENGTH = 380000;
@@ -169,11 +169,6 @@ export default function AjustesScreen() {
   const [imagenLoading, setImagenLoading] = useState(false);
   const [errorPersonalizacion, setErrorPersonalizacion] = useState<string | null>(null);
 
-  const [urlInventario, setUrlInventario] = useState('');
-  const [loadingEnlacesPlanning, setLoadingEnlacesPlanning] = useState(true);
-  const [guardandoEnlacesPlanning, setGuardandoEnlacesPlanning] = useState(false);
-  const [errorEnlacesPlanning, setErrorEnlacesPlanning] = useState<string | null>(null);
-
   // --- Modal de configuración ---
   const [configModalId, setConfigModalId] = useState<string | null>(null);
   const [cfgEnabled, setCfgEnabled] = useState(false);
@@ -264,65 +259,8 @@ export default function AjustesScreen() {
     }
   }, []);
 
-  const cargarEnlacesPlanning = useCallback(async () => {
-    setLoadingEnlacesPlanning(true);
-    setErrorEnlacesPlanning(null);
-    try {
-      const res = await apiFetch('/api/ajustes/planning_dia/enlaces');
-      const data = await res.json();
-      if (res.ok && data.ok && data.item) {
-        const it = data.item as { UrlInventario?: string };
-        setUrlInventario(typeof it.UrlInventario === 'string' ? it.UrlInventario : '');
-      } else {
-        setUrlInventario('');
-      }
-    } catch {
-      setUrlInventario('');
-    } finally {
-      setLoadingEnlacesPlanning(false);
-    }
-  }, []);
-
-  const guardarEnlacesPlanning = useCallback(async () => {
-    setGuardandoEnlacesPlanning(true);
-    setErrorEnlacesPlanning(null);
-    try {
-      const raw = urlInventario.trim();
-      let urlNorm = '';
-      if (raw) {
-        const n = normalizarUrlHttps(raw);
-        if (!n) {
-          setErrorEnlacesPlanning('La URL debe ser https:// válida (o déjala vacía)');
-          setGuardandoEnlacesPlanning(false);
-          return;
-        }
-        urlNorm = n;
-      }
-      const res = await apiFetch('/api/ajustes', {
-        method: 'POST',
-        body: JSON.stringify({
-          PK: 'planning_dia',
-          SK: 'enlaces',
-          Nombre: 'Enlaces Planning del día',
-          UrlInventario: urlNorm,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setErrorEnlacesPlanning(data.error || 'No se pudo guardar');
-        return;
-      }
-      setUrlInventario(urlNorm);
-    } catch {
-      setErrorEnlacesPlanning('Error de conexión al guardar');
-    } finally {
-      setGuardandoEnlacesPlanning(false);
-    }
-  }, [urlInventario]);
-
   useEffect(() => { cargarEstados(); }, [cargarEstados]);
   useEffect(() => { cargarPersonalizacion(); }, [cargarPersonalizacion]);
-  useEffect(() => { cargarEnlacesPlanning(); }, [cargarEnlacesPlanning]);
 
   const seleccionarImagenApp = useCallback(async () => {
     try {
@@ -978,75 +916,7 @@ export default function AjustesScreen() {
           </View>
         )}
 
-        {hasPermiso('ajustes.ver') && (
-          <View style={styles.section}>
-            <View style={styles.persoHeaderRow}>
-              <View style={styles.persoHeaderTitleBlock}>
-                <MaterialIcons name="open-in-new" size={18} color="#0369a1" />
-                <Text style={styles.sectionTitle}>Enlaces · Planning del día</Text>
-              </View>
-              {!loadingEnlacesPlanning && (
-                <TouchableOpacity
-                  style={[styles.persoSaveHeaderBtn, guardandoEnlacesPlanning && styles.persoSaveHeaderBtnDisabled]}
-                  onPress={guardarEnlacesPlanning}
-                  disabled={guardandoEnlacesPlanning}
-                  activeOpacity={0.75}
-                  accessibilityLabel="Guardar enlaces del planning"
-                >
-                  {guardandoEnlacesPlanning ? (
-                    <ActivityIndicator size="small" color="#047857" />
-                  ) : (
-                    <>
-                      <MaterialIcons name="save" size={14} color="#047857" />
-                      <Text style={styles.persoSaveHeaderBtnText}>Guardar</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              )}
-            </View>
-            <Text style={styles.sectionDesc}>
-              URLs externas (solo https) que abren en nueva pestaña desde el hub del Planning.
-            </Text>
-
-            {loadingEnlacesPlanning ? (
-              <ActivityIndicator size="small" color="#0ea5e9" style={{ marginTop: 20 }} />
-            ) : (
-              <View style={styles.cardsGrid}>
-                <View style={[styles.card, { minWidth: winWidth < 500 ? '100%' as any : 320, maxWidth: winWidth < 500 ? '100%' as any : 520 }]}>
-                  <View style={styles.cardTop}>
-                    <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
-                      <MaterialIcons name="fact-check" size={20} color="#0369a1" />
-                    </View>
-                    <View style={styles.cardInfo}>
-                      <Text style={styles.cardTitle} numberOfLines={1}>URL inventario</Text>
-                      <Text style={styles.cardDesc} numberOfLines={2}>
-                        Botón «Realizar inventario» en Planning del día. Vacío = botón deshabilitado.
-                      </Text>
-                    </View>
-                    <View style={{ width: 22 }} />
-                  </View>
-                  <TextInput
-                    style={styles.persoPctInputCard}
-                    value={urlInventario}
-                    onChangeText={setUrlInventario}
-                    placeholder="https://…"
-                    placeholderTextColor="#94a3b8"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    keyboardType="url"
-                  />
-                </View>
-
-                {errorEnlacesPlanning ? (
-                  <View style={[styles.errorBox, { width: '100%' }]}>
-                    <MaterialIcons name="error-outline" size={12} color="#dc2626" />
-                    <Text style={styles.errorText}>{errorEnlacesPlanning}</Text>
-                  </View>
-                ) : null}
-              </View>
-            )}
-          </View>
-        )}
+        {hasPermiso('ajustes.ver') && <EnlacesPlanningPanel />}
 
         {hasPermiso('ajustes.ver') && (
           <View style={styles.section}>

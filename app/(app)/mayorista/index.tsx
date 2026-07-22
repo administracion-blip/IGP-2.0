@@ -25,6 +25,7 @@ import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { RangoFechas } from '../../components/RangoFechas';
 import { PostitTooltip } from '../../components/PostitTooltip';
 import { useAppDialog } from '../../components/AppDialog';
+import { useLocalToast } from '../../components/Toast';
 
 type Negociacion = {
   id: string;
@@ -209,6 +210,7 @@ export default function MayoristaIndexScreen() {
   const { hasPermiso } = useAuth();
   const { shouldStackPanels, isDesktop } = useBreakpoint();
   const { aviso, confirmar: confirmarDialog, dialog } = useAppDialog();
+  const { show: showToast, ToastView } = useLocalToast();
   const puedeVer = hasPermiso('mayorista.ver');
   const puedeCrear = hasPermiso('mayorista.crear');
   const puedeEditar = hasPermiso('mayorista.editar');
@@ -361,6 +363,7 @@ export default function MayoristaIndexScreen() {
       const r = await apiFetch(`/api/mayorista/negociaciones/${n.id}`, { method: 'DELETE' });
       const d = await r.json();
       if (!r.ok) { aviso(d.error || 'No se pudo borrar'); return; }
+      showToast('Eliminada', 'El borrador se ha eliminado.', 'success');
       refrescarTodo();
     } catch (e) {
       aviso(e instanceof Error ? e.message : 'Error de conexión');
@@ -379,8 +382,8 @@ export default function MayoristaIndexScreen() {
       const r = await apiFetch(`/api/mayorista/negociaciones/${n.id}/facturar`, { method: 'POST', body: '{}' });
       const d = await r.json();
       if (!r.ok) { aviso(d.error || 'No se pudo facturar'); return; }
+      showToast('Facturada', 'Operación marcada como facturada.', 'success');
       refrescarTodo();
-      aviso('Operación marcada como facturada');
     } catch (e) {
       aviso(e instanceof Error ? e.message : 'Error de conexión');
     }
@@ -673,6 +676,7 @@ export default function MayoristaIndexScreen() {
       </View>
 
       {dialog}
+      {ToastView}
 
       <Modal
         visible={clienteOpsModal != null}

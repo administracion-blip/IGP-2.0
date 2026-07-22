@@ -19,6 +19,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useAuth } from '../../contexts/AuthContext';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
 
@@ -28,10 +29,28 @@ type SaleCenter = { Id?: number; Nombre?: string; Local?: string; Activo?: boole
 const TIPO_RETIRADA = 'retirada';
 const TIPO_TRANSFERENCIA = 'transferencia';
 
-const TIPO_META: Record<string, { label: string; icon: React.ComponentProps<typeof MaterialIcons>['name']; color: string; bg: string }> = {
-  [TIPO_RETIRADA]: { label: 'Retirada de efectivo', icon: 'payments', color: '#b45309', bg: '#fffbeb' },
-  [TIPO_TRANSFERENCIA]: { label: 'Transferencia prepago', icon: 'swap-horiz', color: '#0369a1', bg: '#f0f9ff' },
+const TIPO_META: Record<string, { label: string; icon: React.ComponentProps<typeof MaterialIcons>['name']; color: string; bg: string; border: string }> = {
+  [TIPO_RETIRADA]: { label: 'Retirada', icon: 'payments', color: '#92400e', bg: '#fffbeb', border: '#fde68a' },
+  [TIPO_TRANSFERENCIA]: { label: 'Transferencia', icon: 'swap-horiz', color: '#075985', bg: '#e0f2fe', border: '#7dd3fc' },
 };
+
+const CHIP_TIPO_PASTEL: Record<
+  'todos' | typeof TIPO_RETIRADA | typeof TIPO_TRANSFERENCIA,
+  { bg: string; bgSel: string; border: string; borderSel: string; text: string }
+> = {
+  todos: { bg: '#f8fafc', bgSel: '#e2e8f0', border: '#e2e8f0', borderSel: '#cbd5e1', text: '#475569' },
+  [TIPO_RETIRADA]: { bg: '#fffbeb', bgSel: '#fde68a', border: '#fde68a', borderSel: '#fcd34d', text: '#92400e' },
+  [TIPO_TRANSFERENCIA]: { bg: '#e0f2fe', bgSel: '#bae6fd', border: '#bae6fd', borderSel: '#7dd3fc', text: '#075985' },
+};
+
+function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <View style={styles.kpiCard}>
+      <Text style={styles.kpiLabel} numberOfLines={1}>{label}</Text>
+      <Text style={[styles.kpiValue, color ? { color } : null]} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
 
 type Movimiento = {
   PK: string;
@@ -106,6 +125,7 @@ export default function MovimientosCajaScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ workplaceId?: string; posId?: string; posName?: string; businessDay?: string }>();
   const { hasPermiso, user } = useAuth();
+  const { shouldStackToolbar } = useBreakpoint();
 
   const [locales, setLocales] = useState<LocalItem[]>([]);
   const [saleCenters, setSaleCenters] = useState<SaleCenter[]>([]);
@@ -133,6 +153,7 @@ export default function MovimientosCajaScreen() {
   const [subiendoJustif, setSubiendoJustif] = useState(false);
   const [saving, setSaving] = useState(false);
   const [lightboxUri, setLightboxUri] = useState<string | null>(null);
+  const [filtroTipo, setFiltroTipo] = useState<'todos' | typeof TIPO_RETIRADA | typeof TIPO_TRANSFERENCIA>('todos');
 
   const agoraCodeToNombre = useMemo(() => {
     const map: Record<string, string> = {};
@@ -204,8 +225,20 @@ export default function MovimientosCajaScreen() {
     return {
       retiradas: Math.round(retiradas * 100) / 100,
       transferencias: Math.round(transferencias * 100) / 100,
+      total: movimientos.length,
     };
   }, [movimientos]);
+
+  const conteoPorTipo = useMemo(() => ({
+    todos: movimientos.length,
+    [TIPO_RETIRADA]: movimientos.filter((m) => m.tipo === TIPO_RETIRADA).length,
+    [TIPO_TRANSFERENCIA]: movimientos.filter((m) => m.tipo === TIPO_TRANSFERENCIA).length,
+  }), [movimientos]);
+
+  const movimientosFiltrados = useMemo(() => {
+    if (filtroTipo === 'todos') return movimientos;
+    return movimientos.filter((m) => m.tipo === filtroTipo);
+  }, [movimientos, filtroTipo]);
 
   const resetForm = useCallback(() => {
     setEditSK(null);
@@ -331,156 +364,230 @@ export default function MovimientosCajaScreen() {
 
   if (!hasPermiso('cierres.ver')) {
     return (
-      <View style={styles.container}>
+      <View style={styles.center}>
+        <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
         <Text style={styles.errorText}>No tienes permiso para ver esta pantalla.</Text>
       </View>
     );
   }
 
   const tpvSeleccionado = !!(formLocal.trim() && formPosId);
+  const localNombre = agoraCodeToNombre[formLocal.trim()] || formLocal;
+  const chipKeys: ('todos' | typeof TIPO_RETIRADA | typeof TIPO_TRANSFERENCIA)[] = ['todos', TIPO_RETIRADA, TIPO_TRANSFERENCIA];
+  const chipLabels: Record<string, string> = {
+    todos: 'Todos',
+    [TIPO_RETIRADA]: 'Retiradas',
+    [TIPO_TRANSFERENCIA]: 'Transferencias',
+  };
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={64}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.formMax}>
-          <View style={styles.headerRow}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-              <MaterialIcons name="arrow-back" size={22} color="#334155" />
-            </TouchableOpacity>
-            <Text style={styles.title}>Movimientos de caja</Text>
-          </View>
-          <Text style={styles.lead}>
-            Registra retiradas de efectivo y transferencias de prepago a cualquier hora. El arqueo del TPV los lee
-            automáticamente: las retiradas se suman al efectivo y las transferencias son el prepago real.
-          </Text>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={64}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Movimientos de caja</Text>
+        {tpvSeleccionado ? (
+          <TouchableOpacity style={styles.createBtn} onPress={abrirNuevo} activeOpacity={0.8}>
+            <MaterialIcons name="add" size={16} color="#fff" />
+            <Text style={styles.createBtnText}>Nuevo</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
 
-          <View style={styles.filtrosRow}>
-            <View style={styles.filtrosColFecha}>
-              <Text style={styles.labelFiltros}>Fecha negocio</Text>
-              <InputFecha valueIso={businessDayIso} onChangeIso={setBusinessDayIso} placeholder="dd/mm/aaaa" style={styles.inputFechaCompact} />
-            </View>
-            <View style={styles.filtrosColSelect}>
-              <Text style={styles.labelFiltros}>Local</Text>
-              <SelectorDesplegable
-                icono="store"
-                iconoLista="store"
-                tituloLista="Local"
-                placeholder="Seleccionar…"
-                buscador
-                buscadorPlaceholder="Buscar local…"
-                valorId={formLocal}
-                opciones={locales
-                  .map((loc) => ({
-                    code: String(loc.agoraCode ?? loc.AgoraCode ?? '').trim(),
-                    nombre: String(loc.nombre ?? loc.Nombre ?? '').trim(),
-                  }))
-                  .filter((l) => l.code)
-                  .map((l) => ({ id: l.code, titulo: l.nombre || '—', subtitulo: `id ${l.code}`, icono: 'store' as const }))}
-                onSeleccionar={(code) => setFormLocal(code)}
-              />
-            </View>
-            <View style={styles.filtrosColSelect}>
-              <Text style={styles.labelFiltros}>TPV</Text>
-              <SelectorDesplegable
-                icono="point-of-sale"
-                iconoLista="point-of-sale"
-                tituloLista="TPV"
-                placeholder="Seleccionar…"
-                disabled={!formLocal}
-                vacioTexto="No hay TPVs activos para este local."
-                valorId={formPosId}
-                opciones={saleCentersPorLocal.map((sc) => {
-                  const id = sc.Id != null ? String(sc.Id) : '';
-                  const nom = String(sc.Nombre ?? '').trim() || `TPV ${id}`;
-                  return { id, titulo: nom, subtitulo: `id ${id}`, icono: 'point-of-sale' as const };
-                })}
-                onSeleccionar={(id) => {
-                  const sc = saleCentersPorLocal.find((s) => String(s.Id) === id);
-                  setFormPosId(id);
-                  setFormPosName(String(sc?.Nombre ?? '').trim() || `TPV ${id}`);
-                }}
-              />
-            </View>
+      <View style={styles.toolbar}>
+        <View style={[styles.filtrosRow, shouldStackToolbar && styles.filtrosRowStack]}>
+          <View style={styles.filtrosColFecha}>
+            <Text style={styles.labelFiltros}>Fecha negocio</Text>
+            <InputFecha valueIso={businessDayIso} onChangeIso={setBusinessDayIso} placeholder="dd/mm/aaaa" style={styles.inputFechaCompact} />
           </View>
+          <View style={styles.filtrosColSelect}>
+            <Text style={styles.labelFiltros}>Local</Text>
+            <SelectorDesplegable
+              icono="store"
+              iconoLista="store"
+              tituloLista="Local"
+              placeholder="Seleccionar…"
+              buscador
+              buscadorPlaceholder="Buscar local…"
+              valorId={formLocal}
+              opciones={locales
+                .map((loc) => ({
+                  code: String(loc.agoraCode ?? loc.AgoraCode ?? '').trim(),
+                  nombre: String(loc.nombre ?? loc.Nombre ?? '').trim(),
+                }))
+                .filter((l) => l.code)
+                .map((l) => ({ id: l.code, titulo: l.nombre || '—', subtitulo: `id ${l.code}`, icono: 'store' as const }))}
+              onSeleccionar={(code) => setFormLocal(code)}
+            />
+          </View>
+          <View style={styles.filtrosColSelect}>
+            <Text style={styles.labelFiltros}>TPV</Text>
+            <SelectorDesplegable
+              icono="point-of-sale"
+              iconoLista="point-of-sale"
+              tituloLista="TPV"
+              placeholder="Seleccionar…"
+              disabled={!formLocal}
+              vacioTexto="No hay TPVs activos para este local."
+              valorId={formPosId}
+              opciones={saleCentersPorLocal.map((sc) => {
+                const id = sc.Id != null ? String(sc.Id) : '';
+                const nom = String(sc.Nombre ?? '').trim() || `TPV ${id}`;
+                return { id, titulo: nom, subtitulo: `id ${id}`, icono: 'point-of-sale' as const };
+              })}
+              onSeleccionar={(id) => {
+                const sc = saleCentersPorLocal.find((s) => String(s.Id) === id);
+                setFormPosId(id);
+                setFormPosName(String(sc?.Nombre ?? '').trim() || `TPV ${id}`);
+              }}
+            />
+          </View>
+        </View>
 
+        {tpvSeleccionado ? (
+          <>
+            <View style={styles.chipRowEstado}>
+              {chipKeys.map((key) => {
+                const pastel = CHIP_TIPO_PASTEL[key];
+                const sel = filtroTipo === key;
+                const n = conteoPorTipo[key] ?? 0;
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={[
+                      styles.estadoChip,
+                      {
+                        backgroundColor: sel ? pastel.bgSel : pastel.bg,
+                        borderColor: sel ? pastel.borderSel : pastel.border,
+                      },
+                    ]}
+                    onPress={() => setFiltroTipo(key)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.estadoChipText, { color: pastel.text }, sel && styles.estadoChipTextSel]}>
+                      {chipLabels[key]}
+                    </Text>
+                    <View style={[styles.estadoChipCount, sel && styles.estadoChipCountSel]}>
+                      <Text style={[styles.estadoChipCountText, { color: pastel.text }, sel && styles.estadoChipTextSel]}>
+                        {n}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.kpiRow}>
+              <KpiCard label="Retiradas" value={formatMoneda(totales.retiradas)} color="#d97706" />
+              <KpiCard label="Transferencias" value={formatMoneda(totales.transferencias)} color="#0ea5e9" />
+              <KpiCard label="Movimientos" value={String(totales.total)} />
+            </View>
+          </>
+        ) : null}
+
+        <Text style={styles.lead}>
+          Retiradas y transferencias de prepago. El arqueo del TPV las lee automáticamente.
+        </Text>
+      </View>
+
+      {error ? (
+        <View style={styles.errorBar}><Text style={styles.errorText}>{error}</Text></View>
+      ) : null}
+
+      {!tpvSeleccionado ? (
+        <View style={styles.emptyWrap}>
+          <MaterialIcons name="point-of-sale" size={40} color="#cbd5e1" />
+          <Text style={styles.emptyText}>Selecciona fecha, local y TPV para ver y registrar movimientos.</Text>
+        </View>
+      ) : loading ? (
+        <View style={styles.center}><ActivityIndicator color="#0ea5e9" /></View>
+      ) : (
+        <ScrollView style={styles.list} contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled">
           {tpvSeleccionado ? (
-            <View style={styles.totalesRow}>
-              <View style={[styles.totalCard, { backgroundColor: TIPO_META[TIPO_RETIRADA].bg }]}>
-                <MaterialIcons name={TIPO_META[TIPO_RETIRADA].icon} size={18} color={TIPO_META[TIPO_RETIRADA].color} />
-                <Text style={styles.totalCardLabel}>Retiradas</Text>
-                <Text style={[styles.totalCardVal, { color: TIPO_META[TIPO_RETIRADA].color }]}>{formatMoneda(totales.retiradas)}</Text>
-              </View>
-              <View style={[styles.totalCard, { backgroundColor: TIPO_META[TIPO_TRANSFERENCIA].bg }]}>
-                <MaterialIcons name={TIPO_META[TIPO_TRANSFERENCIA].icon} size={18} color={TIPO_META[TIPO_TRANSFERENCIA].color} />
-                <Text style={styles.totalCardLabel}>Transferencias</Text>
-                <Text style={[styles.totalCardVal, { color: TIPO_META[TIPO_TRANSFERENCIA].color }]}>{formatMoneda(totales.transferencias)}</Text>
-              </View>
+            <View style={styles.contextBar}>
+              <Text style={styles.contextText} numberOfLines={1}>
+                {localNombre} · {formPosName || `TPV ${formPosId}`}
+              </Text>
             </View>
           ) : null}
 
-          {error ? (
-            <View style={styles.errBox}>
-              <MaterialIcons name="error-outline" size={18} color="#dc2626" />
-              <Text style={styles.errText}>{error}</Text>
+          {movimientosFiltrados.length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <MaterialIcons name="receipt-long" size={40} color="#cbd5e1" />
+              <Text style={styles.emptyText}>
+                {movimientos.length === 0
+                  ? 'No hay movimientos registrados para este TPV y jornada.'
+                  : 'No hay movimientos con este filtro.'}
+              </Text>
             </View>
-          ) : null}
-
-          {tpvSeleccionado ? (
-            <TouchableOpacity style={styles.addBtn} onPress={abrirNuevo} activeOpacity={0.8}>
-              <MaterialIcons name="add" size={20} color="#fff" />
-              <Text style={styles.addBtnText}>Añadir movimiento</Text>
-            </TouchableOpacity>
           ) : (
-            <Text style={styles.hint}>Selecciona fecha, local y TPV para ver y registrar movimientos.</Text>
-          )}
-
-          {loading ? <ActivityIndicator style={{ marginVertical: 16 }} color="#0ea5e9" /> : null}
-
-          {tpvSeleccionado && !loading ? (
-            <View style={styles.listWrap}>
-              {movimientos.length === 0 ? (
-                <Text style={styles.empty}>No hay movimientos registrados para este TPV y jornada.</Text>
-              ) : (
-                movimientos.map((m) => {
-                  const meta = TIPO_META[m.tipo] ?? TIPO_META[TIPO_RETIRADA];
-                  return (
-                    <View key={m.SK} style={styles.movCard}>
-                      <View style={[styles.movIconWrap, { backgroundColor: meta.bg }]}>
-                        <MaterialIcons name={meta.icon} size={20} color={meta.color} />
-                      </View>
-                      <View style={styles.movMain}>
-                        <Text style={styles.movTipo}>{meta.label}</Text>
-                        {m.concepto ? <Text style={styles.movConcepto} numberOfLines={2}>{m.concepto}</Text> : null}
-                        <Text style={styles.movMeta}>
-                          {m.hora ? `${m.hora} · ` : ''}{m.usuarioNombre || ''}
-                        </Text>
-                      </View>
-                      <View style={styles.movRight}>
-                        <Text style={[styles.movImporte, { color: meta.color }]}>{formatMoneda(Number(m.importe) || 0)}</Text>
-                        <View style={styles.movActions}>
-                          {m.justificanteKey ? (
-                            <TouchableOpacity onPress={() => verJustificante(m.justificanteKey)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                              <MaterialIcons name="image" size={20} color="#0ea5e9" />
-                            </TouchableOpacity>
-                          ) : null}
-                          <TouchableOpacity onPress={() => abrirEditar(m)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                            <MaterialIcons name="edit" size={20} color="#64748b" />
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => eliminarMovimiento(m)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                            <MaterialIcons name="delete-outline" size={20} color="#b91c1c" />
-                          </TouchableOpacity>
-                        </View>
+            movimientosFiltrados.map((m) => {
+              const meta = TIPO_META[m.tipo] ?? TIPO_META[TIPO_RETIRADA];
+              return (
+                <View key={m.SK} style={styles.card}>
+                  <View style={styles.cardHeader}>
+                    <View style={styles.cardTitleWrap}>
+                      <MaterialIcons name={meta.icon} size={16} color={meta.color} />
+                      <Text style={styles.cardTitle} numberOfLines={1}>
+                        {m.tipo === TIPO_RETIRADA ? 'Retirada de efectivo' : 'Transferencia prepago'}
+                      </Text>
+                      <View style={[styles.badge, { backgroundColor: meta.bg, borderColor: meta.border }]}>
+                        <Text style={[styles.badgeText, { color: meta.color }]}>{meta.label}</Text>
                       </View>
                     </View>
-                  );
-                })
-              )}
-            </View>
-          ) : null}
-
-          <View style={{ height: 32 }} />
-        </View>
-      </ScrollView>
+                    <View style={styles.cardActions}>
+                      {m.justificanteKey ? (
+                        <TouchableOpacity style={styles.cardActionBtn} onPress={() => verJustificante(m.justificanteKey)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <MaterialIcons name="image" size={18} color="#0ea5e9" />
+                        </TouchableOpacity>
+                      ) : null}
+                      <TouchableOpacity style={styles.cardActionBtn} onPress={() => abrirEditar(m)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <MaterialIcons name="edit" size={18} color="#64748b" />
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.cardActionBtn} onPress={() => eliminarMovimiento(m)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <View style={styles.cardBody}>
+                    <View style={styles.cardField}>
+                      <Text style={styles.cardFieldLabel}>Importe</Text>
+                      <Text style={[styles.cardFieldValue, { fontWeight: '700', color: meta.color }]}>
+                        {formatMoneda(Number(m.importe) || 0)}
+                      </Text>
+                    </View>
+                    {m.hora ? (
+                      <View style={styles.cardField}>
+                        <Text style={styles.cardFieldLabel}>Hora</Text>
+                        <Text style={styles.cardFieldValue}>{m.hora}</Text>
+                      </View>
+                    ) : null}
+                    {m.usuarioNombre ? (
+                      <View style={styles.cardField}>
+                        <Text style={styles.cardFieldLabel}>Usuario</Text>
+                        <Text style={styles.cardFieldValue} numberOfLines={1}>{m.usuarioNombre}</Text>
+                      </View>
+                    ) : null}
+                    {m.concepto ? (
+                      <View style={[styles.cardField, { minWidth: 160, flex: 1 }]}>
+                        <Text style={styles.cardFieldLabel}>Concepto</Text>
+                        <Text style={styles.cardFieldValue} numberOfLines={2}>{m.concepto}</Text>
+                      </View>
+                    ) : null}
+                    {m.justificanteKey ? (
+                      <View style={styles.cardField}>
+                        <Text style={styles.cardFieldLabel}>Justificante</Text>
+                        <Text style={[styles.cardFieldValue, { color: '#0ea5e9' }]}>Adjunto</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                </View>
+              );
+            })
+          )}
+        </ScrollView>
+      )}
 
       <Modal visible={modalOpen} transparent animationType="slide" onRequestClose={() => setModalOpen(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setModalOpen(false)}>
@@ -505,7 +612,9 @@ export default function MovimientosCajaScreen() {
                     activeOpacity={0.8}
                   >
                     <MaterialIcons name={meta.icon} size={18} color={sel ? meta.color : '#94a3b8'} />
-                    <Text style={[styles.tipoBtnText, sel && { color: meta.color }]}>{meta.label}</Text>
+                    <Text style={[styles.tipoBtnText, sel && { color: meta.color }]}>
+                      {t === TIPO_RETIRADA ? 'Retirada de efectivo' : 'Transferencia prepago'}
+                    </Text>
                   </TouchableOpacity>
                 );
               })}
@@ -600,45 +709,131 @@ export default function MovimientosCajaScreen() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
   container: { flex: 1, backgroundColor: '#f8fafc' },
-  content: { padding: 16, paddingBottom: 40, alignItems: 'center' },
-  formMax: { width: '100%', maxWidth: 640 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
+  center: { padding: 40, alignItems: 'center', gap: 8 },
+  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12, paddingHorizontal: 24 },
+  emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
+
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    gap: 12,
+  },
   backBtn: { padding: 4 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  lead: { fontSize: 13, color: '#64748b', marginBottom: 16, lineHeight: 20 },
-  filtrosRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 8, marginBottom: 16 },
+  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#0f172a' },
+  createBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: '#0ea5e9',
+  },
+  createBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
+
+  toolbar: {
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  filtrosRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 8 },
+  filtrosRowStack: { flexDirection: 'column' },
   filtrosColFecha: { flexGrow: 1, flexShrink: 1, minWidth: 132, maxWidth: 200 },
-  filtrosColSelect: { flexGrow: 0, flexShrink: 1, minWidth: 140, maxWidth: 288, alignSelf: 'flex-start' },
+  filtrosColSelect: { flexGrow: 1, flexShrink: 1, minWidth: 140, maxWidth: 280 },
   labelFiltros: { fontSize: 10, fontWeight: '600', color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.3 },
   inputFechaCompact: { fontSize: 13, paddingVertical: 8, paddingHorizontal: 10, minHeight: 40 },
-  totalesRow: { flexDirection: 'row', gap: 10, marginBottom: 14 },
-  totalCard: { flex: 1, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', padding: 12, gap: 4 },
-  totalCardLabel: { fontSize: 11, fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.3 },
-  totalCardVal: { fontSize: 18, fontWeight: '700' },
-  errBox: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8, marginBottom: 12 },
-  errText: { flex: 1, fontSize: 12, color: '#b91c1c' },
-  addBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    paddingVertical: 12, backgroundColor: '#0ea5e9', borderRadius: 10, marginBottom: 12,
+
+  chipRowEstado: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  estadoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft: 10,
+    paddingRight: 6,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
   },
-  addBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
-  hint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', marginTop: 8 },
-  listWrap: { gap: 10 },
-  empty: { fontSize: 13, color: '#94a3b8', fontStyle: 'italic', textAlign: 'center', paddingVertical: 12 },
-  movCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12,
-    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0',
+  estadoChipText: { fontSize: 11, fontWeight: '600' },
+  estadoChipTextSel: { fontWeight: '800' },
+  estadoChipCount: {
+    minWidth: 20,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 8,
+    backgroundColor: 'rgba(15,23,42,0.06)',
+    alignItems: 'center',
   },
-  movIconWrap: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  movMain: { flex: 1, minWidth: 0 },
-  movTipo: { fontSize: 13, fontWeight: '700', color: '#334155' },
-  movConcepto: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  movMeta: { fontSize: 11, color: '#94a3b8', marginTop: 2 },
-  movRight: { alignItems: 'flex-end', gap: 6 },
-  movImporte: { fontSize: 15, fontWeight: '700' },
-  movActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  estadoChipCountSel: { backgroundColor: 'rgba(15,23,42,0.10)' },
+  estadoChipCountText: { fontSize: 10, fontWeight: '700' },
+
+  kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  kpiCard: {
+    flex: 1,
+    minWidth: 100,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
+  kpiValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 2 },
+
+  lead: { fontSize: 11, color: '#94a3b8', lineHeight: 16 },
+
+  errorBar: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  errorText: { fontSize: 12, color: '#dc2626' },
+
+  list: { flex: 1 },
+  listContent: { padding: 12, gap: 10, paddingBottom: 32, maxWidth: 720, width: '100%', alignSelf: 'center' },
+  contextBar: {
+    paddingHorizontal: 4,
+    paddingBottom: 4,
+  },
+  contextText: { fontSize: 11, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.3 },
+
+  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    gap: 8,
+  },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
+  cardTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', flexShrink: 1 },
+  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
+  badgeText: { fontSize: 11, fontWeight: '600' },
+  cardActions: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  cardActionBtn: { padding: 6 },
+  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: 8 },
+  cardField: { minWidth: 84, marginRight: 8 },
+  cardFieldLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 1 },
+  cardFieldValue: { fontSize: 13, color: '#334155' },
+
   modalBackdrop: {
     flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'center', padding: 20,
     ...(Platform.OS === 'web' ? { zIndex: 9999 } as object : {}),
@@ -656,7 +851,7 @@ const styles = StyleSheet.create({
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
     paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc',
   },
-  tipoBtnText: { fontSize: 12, fontWeight: '600', color: '#94a3b8' },
+  tipoBtnText: { fontSize: 11, fontWeight: '600', color: '#94a3b8', textAlign: 'center' },
   input: {
     borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 10,
     fontSize: 15, color: '#334155', backgroundColor: '#f8fafc',
@@ -679,5 +874,4 @@ const styles = StyleSheet.create({
   lightboxClose: { position: 'absolute', top: Platform.OS === 'ios' ? 48 : 24, right: 16, zIndex: 2, padding: 8 },
   lightboxInner: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   lightboxImg: { width: '100%', height: '100%', maxHeight: 720 },
-  errorText: { padding: 16, color: '#b91c1c' },
 });

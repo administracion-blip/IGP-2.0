@@ -209,7 +209,8 @@ export default function CashflowDetalleScreen() {
 
   if (!hasPermiso('cashflow.ver')) {
     return (
-      <View style={styles.container}>
+      <View style={styles.center}>
+        <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
         <Text style={styles.errorText}>No tienes permiso para ver Cashflow.</Text>
       </View>
     );
@@ -226,11 +227,15 @@ export default function CashflowDetalleScreen() {
   if (!mov) {
     return (
       <View style={styles.container}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backLink}>
-          <MaterialIcons name="arrow-back" size={20} color="#334155" />
-          <Text style={styles.backLinkText}>Volver</Text>
-        </TouchableOpacity>
-        <Text style={styles.errorText}>{error || 'Movimiento no encontrado'}</Text>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Movimiento cashflow</Text>
+        </View>
+        <View style={styles.center}>
+          <Text style={styles.errorText}>{error || 'Movimiento no encontrado'}</Text>
+        </View>
       </View>
     );
   }
@@ -247,75 +252,85 @@ export default function CashflowDetalleScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.formMax}>
-          <View style={styles.headerRow}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-              <MaterialIcons name="arrow-back" size={22} color="#334155" />
-            </TouchableOpacity>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>Movimiento cashflow</Text>
-              <Text style={styles.subtitle}>{mov.localNombre || mov.localId}</Text>
-            </View>
-            <View style={[styles.estadoBadge, { backgroundColor: meta.bg }]}>
-              <Text style={[styles.estadoText, { color: meta.color }]}>{meta.label}</Text>
-            </View>
-          </View>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+        </TouchableOpacity>
+        <View style={styles.headerText}>
+          <Text style={styles.headerTitle} numberOfLines={1}>{mov.concepto}</Text>
+          <Text style={styles.subtitle}>{mov.localNombre || mov.localId}</Text>
+        </View>
+        <View style={[styles.estadoBadge, { backgroundColor: meta.bg, borderColor: meta.border }]}>
+          <Text style={[styles.estadoText, { color: meta.color }]}>{meta.label}</Text>
+        </View>
+      </View>
 
-          <View style={styles.importeCard}>
-            <Text style={styles.importeLabel}>{esPago ? 'Pago' : 'Cobro'}</Text>
-            <Text style={[styles.importeVal, esPago ? styles.importePago : styles.importeCobro]}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        <View style={styles.kpiRow}>
+          <View style={styles.kpiCard}>
+            <Text style={styles.kpiLabel}>{esPago ? 'Pago' : 'Cobro'}</Text>
+            <Text style={[styles.kpiValue, esPago ? styles.importePago : styles.importeCobro]}>
               {formatImporteCashflow(mov.importe, mov.tipo)}
             </Text>
-            {mov.numeroRecibo ? <Text style={styles.reciboNum}>Recibo {mov.numeroRecibo}</Text> : null}
           </View>
-
-          {lineas.length > 0 ? (
-            <View style={styles.lineasCard}>
-              <Text style={styles.lineasTitle}>Detalle de conceptos</Text>
-              {lineas.map((ln, i) => (
-                <View key={`${ln.descripcion}-${i}`} style={styles.lineaRow}>
-                  <Text style={styles.lineaDesc} numberOfLines={2}>{ln.descripcion}</Text>
-                  <Text style={styles.lineaImp}>{formatMoneda(ln.importe)}</Text>
-                </View>
-              ))}
+          {mov.numeroRecibo ? (
+            <View style={styles.kpiCard}>
+              <Text style={styles.kpiLabel}>Recibo</Text>
+              <Text style={styles.kpiValue}>{mov.numeroRecibo}</Text>
             </View>
           ) : null}
+        </View>
 
-          <View style={styles.infoGrid}>
-            <InfoRow icon="event" label="Fecha jornada" value={fechaLarga(mov.fecha)} />
-            {mov.empresaNombre ? <InfoRow icon="business" label="Sociedad" value={mov.empresaNombre} /> : null}
-            <InfoRow icon="category" label="Categoría" value={CATEGORIA_CASHFLOW_LABEL[mov.categoria] ?? mov.categoria} />
-            <InfoRow icon="person" label="Contraparte" value={mov.contraparte?.nombre || '—'} />
-            {mov.contraparte?.nif ? <InfoRow icon="badge" label="NIF/CIF" value={mov.contraparte.nif} /> : null}
-            {mov.contraparte?.telefono ? <InfoRow icon="phone" label="Teléfono" value={mov.contraparte.telefono} /> : null}
+        {lineas.length > 0 ? (
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardHeaderTitle}>Detalle de conceptos</Text>
+            </View>
+            {lineas.map((ln, i) => (
+              <View key={`${ln.descripcion}-${i}`} style={styles.lineaRow}>
+                <Text style={styles.lineaDesc} numberOfLines={2}>{ln.descripcion}</Text>
+                <Text style={styles.lineaImp}>{formatMoneda(ln.importe)}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardHeaderTitle}>Información</Text>
+          </View>
+          <View style={styles.cardBody}>
+            <InfoField label="Fecha jornada" value={fechaLarga(mov.fecha)} />
+            {mov.empresaNombre ? <InfoField label="Sociedad" value={mov.empresaNombre} /> : null}
+            <InfoField label="Categoría" value={CATEGORIA_CASHFLOW_LABEL[mov.categoria] ?? mov.categoria} />
+            <InfoField label="Contraparte" value={mov.contraparte?.nombre || '—'} />
+            {mov.contraparte?.nif ? <InfoField label="NIF/CIF" value={mov.contraparte.nif} /> : null}
+            {mov.contraparte?.telefono ? <InfoField label="Teléfono" value={mov.contraparte.telefono} /> : null}
             {mov.tipo === 'cobro' ? (
-              <InfoRow
-                icon="account-balance"
+              <InfoField
                 label="Destino"
                 value={mov.destinoCobro === 'reparto_socios' ? 'Reparto entre socios' : 'Ingreso en banco'}
               />
             ) : null}
-            {mov.emailsCopia?.length ? (
-              <InfoRow icon="mail" label="Emails copia" value={mov.emailsCopia.join(', ')} />
-            ) : null}
-            {mov.creadoPorNombre ? <InfoRow icon="person-outline" label="Registrado por" value={mov.creadoPorNombre} /> : null}
-            {mov.creadoEn ? <InfoRow icon="schedule" label="Registrado el" value={fechaHora(mov.creadoEn)} /> : null}
-            {mov.firmadoPorNombre ? <InfoRow icon="draw" label="Firmado por" value={mov.firmadoPorNombre} /> : null}
-            {mov.validadoPor ? <InfoRow icon="verified" label="Validado por" value={mov.validadoPor} /> : null}
+            {mov.emailsCopia?.length ? <InfoField label="Emails copia" value={mov.emailsCopia.join(', ')} /> : null}
+            {mov.creadoPorNombre ? <InfoField label="Registrado por" value={mov.creadoPorNombre} /> : null}
+            {mov.creadoEn ? <InfoField label="Registrado el" value={fechaHora(mov.creadoEn)} /> : null}
+            {mov.firmadoPorNombre ? <InfoField label="Firmado por" value={mov.firmadoPorNombre} /> : null}
+            {mov.validadoPor ? <InfoField label="Validado por" value={mov.validadoPor} /> : null}
             {mov.anulacion?.motivo ? (
-              <InfoRow icon="block" label="Anulación" value={`${mov.anulacion.motivo}${mov.anulacion.usuarioEmail ? ` (${mov.anulacion.usuarioEmail})` : ''}`} />
+              <InfoField
+                label="Anulación"
+                value={`${mov.anulacion.motivo}${mov.anulacion.usuarioEmail ? ` (${mov.anulacion.usuarioEmail})` : ''}`}
+              />
             ) : null}
           </View>
+        </View>
 
-          {error ? (
-            <View style={styles.errBox}>
-              <MaterialIcons name="error-outline" size={18} color="#dc2626" />
-              <Text style={styles.errText}>{error}</Text>
-            </View>
-          ) : null}
+        {error ? (
+          <View style={styles.errorBar}><Text style={styles.errorText}>{error}</Text></View>
+        ) : null}
 
-          <View style={styles.acciones}>
+        <View style={styles.acciones}>
             {mov.estado === 'Pendiente_firma' && puedeRegistrar ? (
               <TouchableOpacity style={styles.btnPrimary} onPress={() => setModalFirma(true)}>
                 <MaterialIcons name="draw" size={20} color="#fff" />
@@ -372,8 +387,7 @@ export default function CashflowDetalleScreen() {
             ) : null}
           </View>
 
-          <View style={{ height: 40 }} />
-        </View>
+        <View style={{ height: 40 }} />
       </ScrollView>
 
       <FirmaEnPantallaModal
@@ -389,76 +403,83 @@ export default function CashflowDetalleScreen() {
   );
 }
 
-function InfoRow({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ComponentProps<typeof MaterialIcons>['name'];
-  label: string;
-  value: string;
-}) {
+function InfoField({ label, value }: { label: string; value: string }) {
   return (
-    <View style={styles.infoRow}>
-      <MaterialIcons name={icon} size={18} color="#64748b" />
-      <View style={{ flex: 1 }}>
-        <Text style={styles.infoLabel}>{label}</Text>
-        <Text style={styles.infoValue}>{value}</Text>
-      </View>
+    <View style={styles.infoField}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc', position: 'relative' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  scrollContent: { padding: 16, alignItems: 'center' },
-  formMax: { width: '100%', maxWidth: 640 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
-  backBtn: { padding: 4 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  subtitle: { fontSize: 13, color: '#64748b' },
-  estadoBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
-  estadoText: { fontSize: 12, fontWeight: '700' },
-  importeCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 16,
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
+  header: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 14,
-  },
-  importeLabel: { fontSize: 12, color: '#64748b', fontWeight: '600', textTransform: 'uppercase' },
-  importeVal: { fontSize: 28, fontWeight: '800', marginTop: 4 },
-  importePago: { color: '#b91c1c' },
-  importeCobro: { color: '#15803d' },
-  reciboNum: { fontSize: 12, color: '#64748b', marginTop: 6 },
-  lineasCard: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    gap: 12,
+  },
+  backBtn: { padding: 4 },
+  headerText: { flex: 1, minWidth: 0 },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: '#0f172a' },
+  subtitle: { fontSize: 13, color: '#64748b', marginTop: 2 },
+  estadoBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1 },
+  estadoText: { fontSize: 11, fontWeight: '700' },
+  scroll: { flex: 1 },
+  scrollContent: { padding: 12, paddingBottom: 32, maxWidth: 640, width: '100%', alignSelf: 'center', gap: 12 },
+  kpiRow: { flexDirection: 'row', gap: 6 },
+  kpiCard: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    padding: 12,
-    marginBottom: 14,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
-  lineasTitle: { fontSize: 13, fontWeight: '700', color: '#334155', marginBottom: 8 },
+  kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
+  kpiValue: { fontSize: 18, fontWeight: '800', color: '#0f172a', marginTop: 2 },
+  importePago: { color: '#dc2626' },
+  importeCobro: { color: '#16a34a' },
+  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
+  cardHeader: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  cardHeaderTitle: { fontSize: 12, fontWeight: '700', color: '#0f172a', textTransform: 'uppercase', letterSpacing: 0.3 },
+  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 8, gap: 8 },
   lineaRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
+    paddingHorizontal: 14,
     paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
   },
   lineaDesc: { flex: 1, fontSize: 13, color: '#475569' },
   lineaImp: { fontSize: 13, fontWeight: '700', color: '#334155' },
-  infoGrid: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', padding: 12, marginBottom: 14 },
-  infoRow: { flexDirection: 'row', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  infoField: { minWidth: 120, marginRight: 8, marginBottom: 4 },
   infoLabel: { fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', fontWeight: '600' },
   infoValue: { fontSize: 14, color: '#334155', marginTop: 2 },
-  errBox: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, backgroundColor: '#fef2f2', borderRadius: 8, marginBottom: 12 },
-  errText: { flex: 1, fontSize: 12, color: '#b91c1c' },
+  errorBar: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  errorText: { fontSize: 12, color: '#dc2626' },
   acciones: { gap: 10 },
   btnPrimary: {
     flexDirection: 'row',
@@ -517,7 +538,5 @@ const styles = StyleSheet.create({
   btnGhost: { paddingVertical: 10, paddingHorizontal: 14 },
   btnGhostText: { color: '#64748b', fontWeight: '600' },
   btnDanger: { backgroundColor: '#dc2626', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8 },
-  backLink: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 16 },
-  backLinkText: { fontSize: 14, color: '#334155' },
-  errorText: { padding: 16, color: '#b91c1c' },
+  errorText: { fontSize: 12, color: '#dc2626', textAlign: 'center' },
 });

@@ -1,0 +1,37 @@
+---
+description: Enrutado de tareas a los subagentes especializados de IGP-2.0 (planner-arquitecto, frontend-ui, backend-api, code-reviewer)
+alwaysApply: true
+---
+
+# Router de agentes — IGP-2.0
+
+Como agente principal, actúas de **router**: delega el trabajo en el subagente
+adecuado en lugar de picar tú todo el código. Los subagentes viven en
+`.cursor/agents/` y heredan las reglas del proyecto (`arquitectura-igp`, etc.).
+
+## Mapeo tarea → agente
+
+- **Tarea grande, ambigua, con varios enfoques, o que toca front + back** →
+  delega primero en `planner-arquitecto` para obtener un plan; luego reparte
+  la implementación.
+- **UI: pantallas `app/(app)`, componentes `app/components`, hooks, responsive,
+  TablaBasica** → `frontend-ui`.
+- **Backend: routers `api/routes`, lógica `api/lib`, DynamoDB, S3, Agora,
+  endpoints** → `backend-api`.
+- **Revisar un cambio ya hecho antes de cerrar** → `code-reviewer`.
+
+## Cómo enrutar
+
+- Cambios pequeños y de una sola disciplina: delega directo al especialista.
+- Cambios que cruzan front y back: `planner-arquitecto` → luego `frontend-ui`
+  y/o `backend-api` según el plan → `code-reviewer` al final.
+- Tareas triviales (un texto, un comentario, una duda): resuélvelas tú sin
+  delegar.
+
+## Reglas del enrutado
+
+- Un subagente no ve el historial del chat: pásale en el prompt todo el
+  contexto que necesite (fichero, objetivo, restricciones).
+- No mezcles disciplinas en un mismo subagente: `frontend-ui` no toca `api/` y
+  `backend-api` no toca `app/`.
+- Cierra siempre pasando por `code-reviewer` en cambios no triviales.

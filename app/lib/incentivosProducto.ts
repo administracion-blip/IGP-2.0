@@ -20,6 +20,18 @@ export function colorEstadoCampana(estado: string): string {
   }
 }
 
+/** Pastel chips de filtro (mismo lenguaje visual que operaciones mayoristas). */
+export const CHIP_ESTADO_CAMPANA_PASTEL: Record<
+  string,
+  { bg: string; bgSel: string; border: string; borderSel: string; text: string }
+> = {
+  todos: { bg: '#f8fafc', bgSel: '#e2e8f0', border: '#e2e8f0', borderSel: '#cbd5e1', text: '#475569' },
+  Activa: { bg: '#dcfce7', bgSel: '#bbf7d0', border: '#bbf7d0', borderSel: '#86efac', text: '#166534' },
+  Borrador: { bg: '#f1f5f9', bgSel: '#e2e8f0', border: '#e2e8f0', borderSel: '#cbd5e1', text: '#475569' },
+  Finalizada: { bg: '#e0f2fe', bgSel: '#bae6fd', border: '#bae6fd', borderSel: '#7dd3fc', text: '#075985' },
+  Archivada: { bg: '#f1f5f9', bgSel: '#e2e8f0', border: '#e2e8f0', borderSel: '#cbd5e1', text: '#64748b' },
+};
+
 export function etiquetaTipoIncentivo(tipo: TipoIncentivo): string {
   return tipo === 'eur_por_unidad' ? '€ por unidad' : '% del margen unitario';
 }

@@ -1,10 +1,12 @@
 import { Linking, Platform } from 'react-native';
 
+const PROTOCOLOS_PERMITIDOS = new Set(['http:', 'https:']);
+
 /**
- * Valida y normaliza una URL externa: solo https, sin espacios.
+ * Valida y normaliza una URL externa: http o https, con host, sin espacios.
  * Devuelve la URL canónica o null si no es válida.
  */
-export function normalizarUrlHttps(raw: string): string | null {
+export function normalizarUrlExterna(raw: string): string | null {
   const trimmed = String(raw ?? '').trim();
   if (!trimmed) return null;
   let parsed: URL;
@@ -13,16 +15,19 @@ export function normalizarUrlHttps(raw: string): string | null {
   } catch {
     return null;
   }
-  if (parsed.protocol !== 'https:') return null;
+  if (!PROTOCOLOS_PERMITIDOS.has(parsed.protocol)) return null;
   if (!parsed.hostname) return null;
   return parsed.toString();
 }
 
-/** Abre una URL https en nueva pestaña (web) o con el navegador del sistema (nativo). */
+/** @deprecated Usa normalizarUrlExterna */
+export const normalizarUrlHttps = normalizarUrlExterna;
+
+/** Abre una URL http(s) en nueva pestaña (web) o con el navegador del sistema (nativo). */
 export async function abrirEnlaceExterno(raw: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  const url = normalizarUrlHttps(raw);
+  const url = normalizarUrlExterna(raw);
   if (!url) {
-    return { ok: false, error: 'La URL debe ser https:// válida. Configúrala en Ajustes.' };
+    return { ok: false, error: 'La URL debe ser http:// o https:// válida. Configúrala en Ajustes.' };
   }
   try {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {

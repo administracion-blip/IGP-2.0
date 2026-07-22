@@ -22,7 +22,7 @@ import { fetchImagenApp } from '../lib/personalizacion';
 import { MODULOS as MENU_ITEMS, moduloDeRuta } from '../constants/modulos';
 import { colors, iconSize, radius, shadowCard, sidebar, SPACING, typography } from '../constants/theme';
 import { SidebarNavItem } from '../components/ui/SidebarNavItem';
-import { LaserBorderWrap } from '../components/ui/LaserBorderWrap';
+import { SoftPulseBorderWrap } from '../components/ui/SoftPulseBorderWrap';
 
 function normalizarPath(pathname: string): string {
   const p = pathname.replace(/\/$/, '');
@@ -129,19 +129,17 @@ function AppLayoutContent() {
         ) : null}
         <View style={styles.headerSpacer} />
         {hasPermiso('ia.informes') ? (
-          <View style={styles.headerIaWrap}>
-            <LaserBorderWrap borderRadius={radius.sm} borderWidth={2}>
-              <TouchableOpacity
-                style={styles.headerIaBtn}
-                onPress={() => router.push('/informes-ia' as never)}
-                activeOpacity={0.85}
-                accessibilityLabel="Informes IA"
-              >
-                <MaterialIcons name="auto-awesome" size={18} color="#0f172a" />
-                {width >= 640 ? <Text style={styles.headerIaBtnText}>Informes IA</Text> : null}
-              </TouchableOpacity>
-            </LaserBorderWrap>
-          </View>
+          <SoftPulseBorderWrap preset="ia" borderRadius={radius.sm} style={styles.headerIaWrap}>
+            <TouchableOpacity
+              style={styles.headerIaBtn}
+              onPress={() => router.push('/informes-ia' as never)}
+              activeOpacity={0.85}
+              accessibilityLabel="Informes IA"
+            >
+              <MaterialIcons name="auto-awesome" size={18} color="#92400e" />
+              {width >= 640 ? <Text style={styles.headerIaBtnText}>Informes IA</Text> : null}
+            </TouchableOpacity>
+          </SoftPulseBorderWrap>
         ) : null}
         <View
           style={styles.headerConfigWrap}
@@ -341,7 +339,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#fbbf24',
+    backgroundColor: '#fef3c7',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: radius.sm - 2,
@@ -349,7 +347,7 @@ const styles = StyleSheet.create({
   headerIaBtnText: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#0f172a',
+    color: '#92400e',
   },
   headerConfigWrap: {
     position: 'relative',

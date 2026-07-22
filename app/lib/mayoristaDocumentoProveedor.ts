@@ -1,10 +1,17 @@
-﻿import { formatEur } from './mayoristaCalculos';
+﻿import { formatEur, round2 } from './mayoristaCalculos';
 import { formatFecha } from '../utils/formatFecha';
 
 export type LineaDocumentoProveedor = {
   producto: string;
   cantidad: number;
   pvp: string;
+  iva: string;
+  total: string;
+  totalNum: number;
+  ivaImporte: string;
+  ivaImporteNum: number;
+  totalConIva: string;
+  totalConIvaNum: number;
 };
 
 export type DocumentoProveedorData = {
@@ -15,6 +22,12 @@ export type DocumentoProveedorData = {
   fechaRecogida: string;
   horaRecogida: string;
   lineas: LineaDocumentoProveedor[];
+  subtotal: string;
+  subtotalNum: number;
+  subtotalIvaImporte: string;
+  subtotalIvaImporteNum: number;
+  subtotalConIva: string;
+  subtotalConIvaNum: number;
 };
 
 type NegCabecera = {
@@ -31,12 +44,48 @@ type LineaNeg = {
   producto_id?: string;
   cantidad?: number;
   pvp_unitario?: number;
+  ultimo_iva_compra?: number | null;
 };
+
+function formatIvaPct(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(Number(v))) return '—';
+  const n = Number(v);
+  const s = Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+  return `${s}%`;
+}
+
+function ivaPctNum(v: number | null | undefined): number {
+  if (v == null || !Number.isFinite(Number(v))) return 0;
+  return Math.max(0, Number(v));
+}
 
 export function buildDocumentoProveedorData(
   neg: NegCabecera | null | undefined,
   lineas: LineaNeg[],
 ): DocumentoProveedorData {
+  const lineasDoc = lineas.map((l) => {
+    const cantidad = Number(l.cantidad) || 0;
+    const pvpNum = Number(l.pvp_unitario) || 0;
+    const totalNum = round2(cantidad * pvpNum);
+    const pct = ivaPctNum(l.ultimo_iva_compra);
+    const ivaImporteNum = pct > 0 ? round2(totalNum * (pct / 100)) : 0;
+    const totalConIvaNum = round2(totalNum + ivaImporteNum);
+    return {
+      producto: l.product_name || l.producto_id || '—',
+      cantidad,
+      pvp: formatEur(pvpNum, 2),
+      iva: formatIvaPct(l.ultimo_iva_compra),
+      total: formatEur(totalNum, 2),
+      totalNum,
+      ivaImporte: pct > 0 ? formatEur(ivaImporteNum, 2) : '—',
+      ivaImporteNum,
+      totalConIva: formatEur(totalConIvaNum, 2),
+      totalConIvaNum,
+    };
+  });
+  const subtotalNum = round2(lineasDoc.reduce((s, l) => s + l.totalNum, 0));
+  const subtotalIvaImporteNum = round2(lineasDoc.reduce((s, l) => s + l.ivaImporteNum, 0));
+  const subtotalConIvaNum = round2(lineasDoc.reduce((s, l) => s + l.totalConIvaNum, 0));
   return {
     cliente: neg?.cliente_nombre?.trim() || '—',
     referencia: neg?.nombre?.trim() || '—',
@@ -44,13 +93,17 @@ export function buildDocumentoProveedorData(
     recogidaEn: neg?.recogida_empresa_nombre?.trim() || '—',
     fechaRecogida: formatFecha(neg?.recogida_fecha),
     horaRecogida: neg?.recogida_hora?.trim() || '—',
-    lineas: lineas.map((l) => ({
-      producto: l.product_name || l.producto_id || '—',
-      cantidad: Number(l.cantidad) || 0,
-      pvp: formatEur(l.pvp_unitario, 2),
-    })),
+    lineas: lineasDoc,
+    subtotal: formatEur(subtotalNum, 2),
+    subtotalNum,
+    subtotalIvaImporte: formatEur(subtotalIvaImporteNum, 2),
+    subtotalIvaImporteNum,
+    subtotalConIva: formatEur(subtotalConIvaNum, 2),
+    subtotalConIvaNum,
   };
 }
+
+const PDF_AZUL = [14, 165, 233] as [number, number, number];
 
 export async function descargarPdfDocumentoProveedor(
   data: DocumentoProveedorData,
@@ -118,18 +171,55 @@ export async function descargarPdfDocumentoProveedor(
 
   autoTable(doc, {
     startY: y,
-    head: [['Producto', 'Cant.', 'PVP']],
+    head: [['Producto', 'Cant.', 'PVP', 'IVA', 'Total', 'Imp. IVA', 'Total c/IVA']],
     body: data.lineas.length
-      ? data.lineas.map((l) => [l.producto, String(l.cantidad), l.pvp])
-      : [['—', '—', '—']],
-    styles: { fontSize: 10, cellPadding: 3 },
-    headStyles: { fillColor: [248, 250, 252], textColor: [71, 85, 105], fontStyle: 'bold' },
+      ? data.lineas.map((l) => [
+        l.producto,
+        String(l.cantidad),
+        l.pvp,
+        l.iva,
+        l.total,
+        l.ivaImporte,
+        l.totalConIva,
+      ])
+      : [['—', '—', '—', '—', '—', '—', '—']],
+    foot: [
+      ['', '', '', 'Subtotal', data.subtotal, data.subtotalIvaImporte, data.subtotalConIva],
+    ],
+    styles: { fontSize: 9, cellPadding: 2.5 },
+    headStyles: { fillColor: [248, 250, 252], textColor: [71, 85, 105], fontStyle: 'bold', fontSize: 8 },
+    footStyles: {
+      fillColor: [248, 250, 252],
+      textColor: [15, 23, 42],
+      fontStyle: 'bold',
+      fontSize: 9,
+    },
     columnStyles: {
       0: { cellWidth: 'auto' },
-      1: { cellWidth: 22, halign: 'center' },
-      2: { cellWidth: 32, halign: 'right' },
+      1: { cellWidth: 14, halign: 'center' },
+      2: { cellWidth: 22, halign: 'right' },
+      3: { cellWidth: 14, halign: 'center' },
+      4: { cellWidth: 24, halign: 'right', fontStyle: 'bold' },
+      5: { cellWidth: 22, halign: 'right', textColor: PDF_AZUL },
+      6: { cellWidth: 26, halign: 'right', textColor: PDF_AZUL, fontStyle: 'bold' },
+    },
+    didParseCell: (hookData) => {
+      if (hookData.section === 'body') {
+        if (hookData.column.index === 4) hookData.cell.styles.fontStyle = 'bold';
+        if (hookData.column.index === 5 || hookData.column.index === 6) {
+          hookData.cell.styles.textColor = PDF_AZUL;
+          if (hookData.column.index === 6) hookData.cell.styles.fontStyle = 'bold';
+        }
+      }
+      if (hookData.section === 'foot') {
+        if (hookData.column.index === 5 || hookData.column.index === 6) {
+          hookData.cell.styles.textColor = PDF_AZUL;
+          hookData.cell.styles.fontStyle = 'bold';
+        }
+      }
     },
     margin: { left: 14, right: 14 },
+    showFoot: 'lastPage',
   });
 
   doc.save(filename);

@@ -39,6 +39,7 @@ import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla'
 import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { apiFetch } from '../../utils/api';
+import { buildEmpresasDesdeFacturasHref } from '../../lib/navegacionEmpresas';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -702,6 +703,18 @@ export default function FacturasVentaScreen() {
           <MaterialIcons name="arrow-back" size={22} color="#334155" />
         </TouchableOpacity>
         <Text style={styles.title}>Facturas emitidas</Text>
+        <View style={styles.headerActions}>
+          {hasPermiso('empresas.ver') ? (
+            <TouchableOpacity
+              style={styles.empresasBtnHeader}
+              onPress={() => router.push(buildEmpresasDesdeFacturasHref('OUT') as never)}
+              accessibilityLabel="Ir al maestro de empresas"
+            >
+              <MaterialIcons name="business" size={16} color="#0ea5e9" />
+              <Text style={styles.headerActionText}>Empresas</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
 
       <View style={[styles.filtrosRow, shouldStackToolbar && styles.filtrosRowStacked]}>
@@ -1222,6 +1235,27 @@ const styles = StyleSheet.create({
   retryBtn: { paddingVertical: 8, paddingHorizontal: 16, backgroundColor: '#fef2f2', borderRadius: 8 },
   retryBtnText: { fontSize: 12, color: '#dc2626', fontWeight: '600' },
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8 },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginLeft: 'auto',
+    flexShrink: 1,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  headerActionText: { fontSize: 11, color: '#0ea5e9', fontWeight: '500' },
+  empresasBtnHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#0ea5e9',
+    borderRadius: 6,
+    backgroundColor: '#f0f9ff',
+  },
   backBtn: { padding: 4 },
   title: { fontSize: 20, fontWeight: '700', color: '#334155' },
 

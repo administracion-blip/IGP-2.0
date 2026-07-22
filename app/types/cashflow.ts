@@ -66,12 +66,33 @@ export type CashflowResumen = {
 
 export const ESTADO_CASHFLOW_META: Record<
   CashflowEstado,
-  { label: string; color: string; bg: string }
+  { label: string; color: string; bg: string; border: string }
 > = {
-  Pendiente_firma: { label: 'Pendiente firma', color: '#b45309', bg: '#fffbeb' },
-  Pendiente_validacion: { label: 'Pendiente validación', color: '#7c3aed', bg: '#f5f3ff' },
-  Firmado: { label: 'Firmado', color: '#15803d', bg: '#f0fdf4' },
-  Anulado: { label: 'Anulado', color: '#b91c1c', bg: '#fef2f2' },
+  Pendiente_firma: { label: 'Pendiente firma', color: '#92400e', bg: '#fffbeb', border: '#fde68a' },
+  Pendiente_validacion: { label: 'Pendiente validación', color: '#6d28d9', bg: '#f5f3ff', border: '#ddd6fe' },
+  Firmado: { label: 'Firmado', color: '#166534', bg: '#dcfce7', border: '#86efac' },
+  Anulado: { label: 'Anulado', color: '#991b1b', bg: '#fee2e2', border: '#fca5a5' },
+};
+
+/** Pastel chips de filtro (mismo lenguaje visual que operaciones mayoristas). */
+export const CHIP_ESTADO_CASHFLOW_PASTEL: Record<
+  string,
+  { bg: string; bgSel: string; border: string; borderSel: string; text: string }
+> = {
+  '': { bg: '#f8fafc', bgSel: '#e2e8f0', border: '#e2e8f0', borderSel: '#cbd5e1', text: '#475569' },
+  Pendiente_firma: { bg: '#fffbeb', bgSel: '#fde68a', border: '#fde68a', borderSel: '#fcd34d', text: '#92400e' },
+  Pendiente_validacion: { bg: '#f5f3ff', bgSel: '#ddd6fe', border: '#ddd6fe', borderSel: '#c4b5fd', text: '#6d28d9' },
+  Firmado: { bg: '#dcfce7', bgSel: '#bbf7d0', border: '#bbf7d0', borderSel: '#86efac', text: '#166534' },
+  Anulado: { bg: '#fee2e2', bgSel: '#fecaca', border: '#fecaca', borderSel: '#fca5a5', text: '#991b1b' },
+};
+
+export const CHIP_TIPO_CASHFLOW_PASTEL: Record<
+  string,
+  { bg: string; bgSel: string; border: string; borderSel: string; text: string }
+> = {
+  '': { bg: '#f8fafc', bgSel: '#e2e8f0', border: '#e2e8f0', borderSel: '#cbd5e1', text: '#475569' },
+  pago: { bg: '#fee2e2', bgSel: '#fecaca', border: '#fecaca', borderSel: '#fca5a5', text: '#991b1b' },
+  cobro: { bg: '#dcfce7', bgSel: '#bbf7d0', border: '#bbf7d0', borderSel: '#86efac', text: '#166534' },
 };
 
 export const CATEGORIA_CASHFLOW_LABEL: Record<CashflowCategoria, string> = {
