@@ -49,6 +49,7 @@ import * as Sharing from 'expo-sharing';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useComprasProveedorCache } from '../../contexts/ComprasProveedorCache';
+import { DIAS_CARGA_COMPRAS, rangoComprasDefault } from '../../lib/comprasProveedorRango';
 import { apiFetch, errorMessage } from '../../utils/api';
 import { formatMoneda } from '../../utils/formatMoneda';
 import { labelEstado, colorEstado } from '../../utils/facturacion';
@@ -308,7 +309,8 @@ export default function ConciliacionFacturasScreen() {
   }, [router]);
 
   useEffect(() => {
-    recargar();
+    const { dateFrom, dateTo } = rangoComprasDefault(DIAS_CARGA_COMPRAS);
+    recargar({ dateFrom, dateTo });
   }, [recargar]);
 
   useEffect(() => {

@@ -243,7 +243,7 @@ export default function RecurrentesScreen() {
                 </View>
                 <TouchableOpacity
                   style={styles.successCloseBtn}
-                  onPress={() => router.replace('/mantenimiento')}
+                  onPress={() => router.replace('/mantenimiento/incidencias')}
                 >
                   <Text style={styles.successCloseBtnText}>Volver</Text>
                 </TouchableOpacity>
@@ -495,7 +495,7 @@ export default function RecurrentesScreen() {
             <View style={styles.buttonsRow}>
               <TouchableOpacity
                 style={[styles.submitBtn, styles.cancelBtn]}
-                onPress={() => router.replace('/mantenimiento')}
+                onPress={() => router.replace('/mantenimiento/incidencias')}
                 disabled={enviando}
               >
                 <MaterialIcons name="cancel" size={20} color="#fff" />

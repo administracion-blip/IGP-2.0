@@ -18,10 +18,15 @@ import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import * as XLSX from 'xlsx-js-style';
 import { exportRevisionFormasPagoPdf } from './pdfRevisionFormasPago';
 import { apiFetch } from '../../utils/api';
+import {
+  ERP_LIST_HEADER_TEXT_PROPS,
+  ERP_LIST_MIN_COL_WIDTH,
+  erpListTableStyles,
+} from '../../constants/erpListTableStyles';
 
 const PAGE_SIZE = 100;
 const DEFAULT_COL_WIDTH = 90;
-const MIN_COL_WIDTH = 50;
+const MIN_COL_WIDTH = ERP_LIST_MIN_COL_WIDTH;
 const MAX_COL_WIDTH = 220;
 
 type Payment = {
@@ -108,15 +113,13 @@ function CellWithTooltip({
   const isWeb = Platform.OS === 'web';
   return (
     <View
-      style={[styles.cell, cellStyle]}
+      style={[erpListTableStyles.cell, cellStyle]}
       {...(isWeb && {
         onMouseEnter: () => setShowTooltip(true),
         onMouseLeave: () => setShowTooltip(false),
       } as object)}
     >
-      <Text style={textStyle} numberOfLines={1}>
-        {fullText}
-      </Text>
+      <Text style={[erpListTableStyles.cellText, textStyle]}>{fullText}</Text>
       {isWeb && showTooltip && String(fullText).trim() !== '' && (
         <View style={styles.cellTooltip} pointerEvents="none">
           <Text style={styles.cellTooltipText} numberOfLines={10}>
@@ -1316,63 +1319,90 @@ export default function RevisionFormasPagoScreen() {
           <Text style={styles.loadingText}>Consultando Ágora…</Text>
         </View>
       ) : (
-        <ScrollView horizontal style={styles.tableScroll} showsHorizontalScrollIndicator>
-          <View style={styles.tableWrapper}>
-            <View style={styles.headerRowTable}>
-              {columnas.map((col) => (
-                <View key={col} style={[styles.cellHeader, isMonedaCol(col) && styles.cellRight, { width: getColWidth(col) }]}>
-                  <Text style={styles.cellHeaderText} numberOfLines={1}>{getHeaderLabel(col)}</Text>
-                  <View
-                    style={[styles.resizeHandle, Platform.OS === 'web' && (styles.resizeHandleWeb as object)]}
-                    {...(Platform.OS === 'web'
-                      ? { onMouseDown: handleWebResizeStart(col) }
-                      : (resizeHandlers[col]?.panHandlers || {}))}
-                  >
-                    <View style={styles.resizeLine} />
-                  </View>
-                </View>
-              ))}
-            </View>
-            <ScrollView style={styles.tableInner} showsVerticalScrollIndicator>
-              <View style={styles.table}>
-                {paginatedList.length === 0 ? (
-                  <View style={styles.emptyRow}>
-                    <Text style={styles.emptyText}>
-                      {rows.length === 0
-                        ? consultedFrom
-                          ? 'Sin datos para el rango consultado'
-                          : 'Consulta un rango de fechas para ver la información'
-                        : 'Ningún resultado con el filtro'}
-                    </Text>
-                  </View>
-                ) : (
-                  paginatedList.map((r, idx) => (
-                    <View key={`${r.WorkplaceId}-${r.PosId ?? ''}-${r.InvoiceNumber}-${r.TicketNumber}-${idx}`} style={styles.dataRow}>
-                      {columnas.map((col) => {
-                        const valor = getValorCelda(r, col);
-                        return (
-                          <CellWithTooltip
-                            key={col}
-                            fullText={String(valor ?? '')}
-                            cellStyle={[isMonedaCol(col) && styles.cellRight, { width: getColWidth(col) }]}
-                            textStyle={[styles.cellText, (col === 'Total' || col === 'GrossAmount') && styles.cellBold]}
-                          />
-                        );
-                      })}
+        <View style={erpListTableStyles.tableOuter}>
+          <View style={erpListTableStyles.tableWrapper}>
+            <ScrollView
+              horizontal
+              style={[erpListTableStyles.scroll, erpListTableStyles.scrollTable, erpListTableStyles.tableScrollLtr]}
+              contentContainerStyle={erpListTableStyles.scrollContent}
+              showsHorizontalScrollIndicator
+            >
+              <View style={erpListTableStyles.table}>
+                <View style={erpListTableStyles.rowHeader}>
+                  {columnas.map((col) => (
+                    <View
+                      key={col}
+                      style={[
+                        erpListTableStyles.cellHeader,
+                        isMonedaCol(col) && styles.cellRight,
+                        { width: getColWidth(col) },
+                      ]}
+                    >
+                      <Text style={[erpListTableStyles.cellHeaderText, isMonedaCol(col) && styles.cellTextRight]} {...ERP_LIST_HEADER_TEXT_PROPS}>
+                        {getHeaderLabel(col)}
+                      </Text>
+                      <View
+                        style={erpListTableStyles.resizeHandle}
+                        {...(Platform.OS === 'web'
+                          ? { onMouseDown: handleWebResizeStart(col) }
+                          : (resizeHandlers[col]?.panHandlers || {}))}
+                      />
                     </View>
-                  ))
-                )}
+                  ))}
+                </View>
+                <ScrollView
+                  style={erpListTableStyles.tableBodyScroll}
+                  contentContainerStyle={erpListTableStyles.tableBodyContent}
+                  showsVerticalScrollIndicator
+                  nestedScrollEnabled
+                >
+                  {paginatedList.length === 0 ? (
+                    <View style={erpListTableStyles.row}>
+                      <View style={erpListTableStyles.cellEmpty}>
+                        <Text style={erpListTableStyles.cellEmptyText}>
+                          {rows.length === 0
+                            ? consultedFrom
+                              ? 'Sin datos para el rango consultado'
+                              : 'Consulta un rango de fechas para ver la información'
+                            : 'Ningún resultado con el filtro'}
+                        </Text>
+                      </View>
+                    </View>
+                  ) : (
+                    paginatedList.map((r, idx) => (
+                      <View
+                        key={`${r.WorkplaceId}-${r.PosId ?? ''}-${r.InvoiceNumber}-${r.TicketNumber}-${idx}`}
+                        style={erpListTableStyles.row}
+                      >
+                        {columnas.map((col) => {
+                          const valor = getValorCelda(r, col);
+                          return (
+                            <CellWithTooltip
+                              key={col}
+                              fullText={String(valor ?? '')}
+                              cellStyle={[isMonedaCol(col) && styles.cellRight, { width: getColWidth(col) }]}
+                              textStyle={[
+                                isMonedaCol(col) && styles.cellTextRight,
+                                (col === 'Total' || col === 'GrossAmount') && styles.cellBold,
+                              ]}
+                            />
+                          );
+                        })}
+                      </View>
+                    ))
+                  )}
+                </ScrollView>
               </View>
             </ScrollView>
           </View>
-        </ScrollView>
+        </View>
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10, backgroundColor: '#fff' },
+  container: { flex: 1, padding: 10, backgroundColor: '#fff', minHeight: 0 },
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
   backBtn: { padding: 4 },
   title: { fontSize: 17, fontWeight: '600', color: '#1e293b', letterSpacing: -0.3 },
@@ -1511,14 +1541,9 @@ const styles = StyleSheet.create({
   pageBtnText: { fontSize: 12, color: '#334155', fontWeight: '500' },
   pageBtnTextDisabled: { color: '#94a3b8' },
   pageInfo: { fontSize: 12, color: '#64748b', fontWeight: '500' },
-  tableScroll: { flex: 1, backgroundColor: '#fff' },
-  tableWrapper: { flex: 1, flexDirection: 'column' },
-  tableInner: { flex: 1, backgroundColor: '#fff' },
-  table: { paddingBottom: 24, backgroundColor: '#fff' },
-  headerRowTable: { flexDirection: 'row', backgroundColor: '#f8fafc', borderBottomWidth: 1, borderColor: '#e2e8f0' },
-  dataRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: '#f1f5f9' },
-  cellHeader: { paddingHorizontal: 6, paddingVertical: 6, paddingRight: 18, justifyContent: 'center', position: 'relative' },
-  cell: { paddingHorizontal: 6, paddingVertical: 5, justifyContent: 'center', position: 'relative' },
+  cellRight: { alignItems: 'flex-end' },
+  cellTextRight: { textAlign: 'right' as const, alignSelf: 'stretch' as const },
+  cellBold: { fontWeight: '700' },
   cellTooltip: {
     position: 'absolute', left: 0, bottom: '100%', marginBottom: 2,
     backgroundColor: '#fef9c3', paddingHorizontal: 6, paddingVertical: 4,
@@ -1526,15 +1551,6 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' && { boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } as object),
   },
   cellTooltipText: { fontSize: 10, color: '#713f12', lineHeight: 14 },
-  cellRight: { alignItems: 'flex-end' },
-  cellHeaderText: { fontSize: 10, fontWeight: '600', color: '#475569', letterSpacing: 0.2 },
-  cellText: { fontSize: 10, color: '#334155', letterSpacing: 0.1 },
-  cellBold: { fontWeight: '700' },
-  resizeHandle: { position: 'absolute', right: 0, top: 0, bottom: 0, width: 16, justifyContent: 'center', alignItems: 'flex-end' },
-  resizeHandleWeb: { cursor: 'col-resize' } as Record<string, unknown>,
-  resizeLine: { width: StyleSheet.hairlineWidth, height: '70%', backgroundColor: '#f1f5f9', borderRadius: 0 },
-  emptyRow: { padding: 24, alignItems: 'center' },
-  emptyText: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
   loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
   loadingText: { fontSize: 13, color: '#64748b' },
   errorWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },

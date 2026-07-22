@@ -1,51 +1,38 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
-import { apiFetch } from '../utils/api';
+import { HubNavCard, HubNavGrid } from '../components/ui/HubNavCard';
+import { useHubNavGrid } from '../hooks/useHubNavGrid';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+type TablaHub = {
+  id: string;
+  label: string;
+  icon: React.ComponentProps<typeof MaterialIcons>['name'];
+  descripcion: string;
+  permiso: string;
+  accentBg: string;
+  accentFg: string;
+};
 
-const TABLAS: { id: string; label: string; icon: React.ComponentProps<typeof MaterialIcons>['name']; descripcion: string; permiso: string }[] = [
-  { id: 'usuarios', label: 'Usuarios', icon: 'people', descripcion: 'Cuentas y permisos de acceso', permiso: 'usuarios.ver' },
-  { id: 'locales', label: 'Locales', icon: 'store', descripcion: 'Sedes y puntos de venta', permiso: 'locales.ver' },
-  { id: 'almacenes', label: 'Almacenes', icon: 'local-shipping', descripcion: 'Almacenes y depósitos', permiso: 'almacenes.ver' },
-  { id: 'empresas', label: 'Empresas', icon: 'business', descripcion: 'Listado de empresas', permiso: 'empresas.ver' },
-  { id: 'productos', label: 'Productos', icon: 'inventory', descripcion: 'Carta y stock', permiso: 'productos.ver' },
-  { id: 'puntos-venta', label: 'Puntos de Venta', icon: 'storefront', descripcion: 'Puntos de venta y TPV', permiso: 'puntos_venta.ver' },
-  { id: 'artistas', label: 'Artistas', icon: 'mic', descripcion: 'Actuaciones y programación', permiso: 'actuaciones.ver' },
-  { id: 'personal', label: 'Personal', icon: 'badge', descripcion: 'Empleados (Factorial HR)', permiso: 'personal.ver' },
-  { id: 'usuarios-agora', label: 'Usuarios Ágora', icon: 'person-pin', descripcion: 'Maestro de usuarios de Ágora', permiso: 'usuarios_agora.ver' },
-  { id: 'formas-pago', label: 'Formas de Pago', icon: 'account-balance-wallet', descripcion: 'Formas de pago de Ágora y arqueo', permiso: 'cierres.ver' },
+const TABLAS: TablaHub[] = [
+  { id: 'usuarios', label: 'Usuarios', icon: 'people', descripcion: 'Cuentas y permisos de acceso', permiso: 'usuarios.ver', accentBg: '#e0f2fe', accentFg: '#0ea5e9' },
+  { id: 'locales', label: 'Locales', icon: 'store', descripcion: 'Sedes y puntos de venta', permiso: 'locales.ver', accentBg: '#dcfce7', accentFg: '#16a34a' },
+  { id: 'almacenes', label: 'Almacenes', icon: 'local-shipping', descripcion: 'Almacenes y depósitos', permiso: 'almacenes.ver', accentBg: '#ede9fe', accentFg: '#7c3aed' },
+  { id: 'empresas', label: 'Empresas', icon: 'business', descripcion: 'Listado de empresas', permiso: 'empresas.ver', accentBg: '#ccfbf1', accentFg: '#0d9488' },
+  { id: 'productos', label: 'Productos', icon: 'inventory', descripcion: 'Carta y stock', permiso: 'productos.ver', accentBg: '#e0e7ff', accentFg: '#4f46e5' },
+  { id: 'puntos-venta', label: 'Puntos de Venta', icon: 'storefront', descripcion: 'Puntos de venta y TPV', permiso: 'puntos_venta.ver', accentBg: '#cffafe', accentFg: '#0891b2' },
+  { id: 'artistas', label: 'Artistas', icon: 'mic', descripcion: 'Actuaciones y programación', permiso: 'actuaciones.ver', accentBg: '#fce7f3', accentFg: '#db2777' },
+  { id: 'personal', label: 'Personal', icon: 'badge', descripcion: 'Empleados (Factorial HR)', permiso: 'personal.ver', accentBg: '#d1fae5', accentFg: '#059669' },
+  { id: 'usuarios-agora', label: 'Usuarios Ágora', icon: 'person-pin', descripcion: 'Maestro de usuarios de Ágora', permiso: 'usuarios_agora.ver', accentBg: '#dbeafe', accentFg: '#2563eb' },
+  { id: 'formas-pago', label: 'Formas de Pago', icon: 'account-balance-wallet', descripcion: 'Formas de pago de Ágora y arqueo', permiso: 'cierres.ver', accentBg: '#ffedd5', accentFg: '#d97706' },
 ];
 
 export default function BaseDatosScreen() {
   const router = useRouter();
   const { hasPermiso } = useAuth();
-  const [apiConectado, setApiConectado] = useState<boolean | null>(null);
-  const [comprobando, setComprobando] = useState(true);
-
-  const comprobarConexion = useCallback(() => {
-    setComprobando(true);
-    setApiConectado(null);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    apiFetch('/api/health', { method: 'GET', signal: controller.signal })
-      .then((res) => (res.ok ? res.json() : Promise.resolve(null)))
-      .then((data) => {
-        setApiConectado(data?.ok === true);
-      })
-      .catch(() => setApiConectado(false))
-      .finally(() => {
-        clearTimeout(timeout);
-        setComprobando(false);
-      });
-  }, []);
-
-  useEffect(() => {
-    comprobarConexion();
-  }, [comprobarConexion]);
+  const { cardWidth, compact } = useHubNavGrid();
 
   function handleSeleccionar(id: string) {
     if (id === 'usuarios') router.push('/usuarios');
@@ -60,180 +47,44 @@ export default function BaseDatosScreen() {
     if (id === 'formas-pago') router.push('/formas-pago');
   }
 
+  const tablasVisibles = useMemo(
+    () =>
+      TABLAS.filter((tabla) => hasPermiso(tabla.permiso)).sort((a, b) =>
+        a.label.localeCompare(b.label, 'es'),
+      ),
+    [hasPermiso],
+  );
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Base de Datos</Text>
       <Text style={styles.subtitle}>Selecciona una tabla para gestionar sus datos</Text>
 
-      {comprobando && (
-        <View style={styles.banner}>
-          <ActivityIndicator size="small" color="#0ea5e9" />
-          <Text style={styles.bannerText}>Comprobando conexión con el servidor…</Text>
-        </View>
-      )}
-      {!comprobando && apiConectado === false && (
-        <View style={styles.bannerError}>
-          <MaterialIcons name="cloud-off" size={20} color="#fff" />
-          <Text style={styles.bannerErrorText}>
-            No se puede conectar al servidor. Las tablas no cargarán datos.
-          </Text>
-          <Text style={styles.bannerErrorUrl}>{API_URL}</Text>
-          <Text style={styles.bannerErrorHint}>
-            Arranca el API con: npm run dev (o en otra terminal: cd api && npm run dev)
-          </Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={comprobarConexion}>
-            <Text style={styles.retryBtnText}>Reintentar conexión</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-      {!comprobando && apiConectado === true && (
-        <View style={styles.bannerOk}>
-          <MaterialIcons name="cloud-done" size={18} color="#0f766e" />
-          <Text style={styles.bannerOkText}>Conectado al servidor</Text>
-        </View>
-      )}
-
-      <View style={styles.grid}>
-        {TABLAS.filter((tabla) => hasPermiso(tabla.permiso)).map((tabla) => (
-          <TouchableOpacity
-            key={tabla.id}
-            style={styles.card}
-            onPress={() => handleSeleccionar(tabla.id)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.cardLeft}>
-              <MaterialIcons name={tabla.icon} size={24} color="#0ea5e9" />
-              <Text style={styles.cardLabel}>{tabla.label}</Text>
-            </View>
-            <Text style={styles.cardDescripcion} numberOfLines={2}>
-              {tabla.descripcion}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
+        <HubNavGrid>
+          {tablasVisibles.map((tabla) => (
+            <HubNavCard
+              key={tabla.id}
+              label={tabla.label}
+              description={tabla.descripcion}
+              icon={tabla.icon}
+              accentBg={tabla.accentBg}
+              accentFg={tabla.accentFg}
+              width={cardWidth}
+              compact={compact}
+              onPress={() => handleSeleccionar(tabla.id)}
+            />
+          ))}
+        </HubNavGrid>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 10,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#334155',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#64748b',
-    marginBottom: 16,
-  },
-  banner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    padding: 10,
-    marginBottom: 12,
-    backgroundColor: '#f0f9ff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#bae6fd',
-  },
-  bannerText: {
-    fontSize: 13,
-    color: '#0369a1',
-  },
-  bannerOk: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    padding: 8,
-    marginBottom: 12,
-    backgroundColor: '#ccfbf1',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#5eead4',
-  },
-  bannerOkText: {
-    fontSize: 13,
-    color: '#0f766e',
-    fontWeight: '500',
-  },
-  bannerError: {
-    padding: 12,
-    marginBottom: 12,
-    backgroundColor: '#dc2626',
-    borderRadius: 8,
-  },
-  bannerErrorText: {
-    fontSize: 14,
-    color: '#fff',
-    fontWeight: '500',
-    marginTop: 4,
-  },
-  bannerErrorUrl: {
-    fontSize: 12,
-    color: '#fecaca',
-    marginTop: 4,
-    fontFamily: 'monospace',
-  },
-  bannerErrorHint: {
-    fontSize: 12,
-    color: '#fecaca',
-    marginTop: 8,
-  },
-  retryBtn: {
-    marginTop: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    borderRadius: 8,
-    alignSelf: 'flex-start',
-  },
-  retryBtnText: {
-    fontSize: 13,
-    color: '#fff',
-    fontWeight: '600',
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  card: {
-    width: '47%',
-    minWidth: 200,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#f1f5f9',
-    borderRadius: 10,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    gap: 10,
-  },
-  cardLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexShrink: 0,
-  },
-  cardLabel: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#334155',
-  },
-  cardDescripcion: {
-    flex: 1,
-    fontSize: 12,
-    fontWeight: '400',
-    fontStyle: 'italic',
-    color: '#94a3b8',
-    marginLeft: 8,
-    textAlign: 'right',
-  },
+  container: { flex: 1, padding: 16, backgroundColor: '#ffffff' },
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 24 },
+  title: { fontSize: 20, fontWeight: '700', color: '#0f172a', marginBottom: 4 },
+  subtitle: { fontSize: 14, color: '#64748b', marginBottom: 16 },
 });

@@ -14,6 +14,7 @@ import { exportInvoices } from '../agora/client.js';
 import {
   esDocumentoAnulado,
   esLineaVentaValidaParaIncentivo,
+  factorBonificacionLinea,
   toNumberSafe,
   pickCustomerId,
   pickCustomerName,
@@ -145,6 +146,18 @@ function pickUserName(it) {
   );
 }
 
+/**
+ * Usuario que comandó la LÍNEA (quien añadió el producto), no quien cerró el ticket.
+ * Según guía del integrador Ágora, cada línea trae su propio `UserId`.
+ */
+function pickLineUserId(line) {
+  return (
+    line?.UserId ?? line?.userId ??
+    line?.User?.Id ?? line?.user?.id ??
+    null
+  );
+}
+
 function pickProductId(line) {
   const id =
     line?.ProductId ?? line?.productId ??
@@ -215,14 +228,15 @@ export function buildSalesAggregatesFromInvoices(invoices, businessDay, workplac
     for (const it of invoiceItems) {
       if (esDocumentoAnulado(it)) continue;
 
-      const userIdRaw = pickUserId(it) ?? pickUserId(inv);
-      const agoraUserId = userIdRaw != null && String(userIdRaw).trim() !== ''
-        ? String(userIdRaw).trim()
+      // Usuario del documento/ticket: solo fallback si la línea no trae comandante.
+      const docUserIdRaw = pickUserId(it) ?? pickUserId(inv);
+      const docUserId = docUserIdRaw != null && String(docUserIdRaw).trim() !== ''
+        ? String(docUserIdRaw).trim()
         : '0';
-      let userName =
-        pickUserName(it) ?? pickUserName(inv) ??
-        userMap.get(agoraUserId) ?? null;
-      if (userName) userName = String(userName).trim();
+      const docUserName = (() => {
+        const n = pickUserName(it) ?? pickUserName(inv);
+        return n ? String(n).trim() : null;
+      })();
 
       const saleLines =
         it?.SaleLines ?? it?.saleLines ??
@@ -237,6 +251,15 @@ export function buildSalesAggregatesFromInvoices(invoices, businessDay, workplac
 
         const productId = pickProductId(line);
         if (!productId) continue;
+
+        // Usuario que comandó esta línea; si falta, el del ticket.
+        const lineUserIdRaw = pickLineUserId(line);
+        const agoraUserId = lineUserIdRaw != null && String(lineUserIdRaw).trim() !== ''
+          ? String(lineUserIdRaw).trim()
+          : docUserId;
+        const userName = userMap.get(agoraUserId)
+          ?? (agoraUserId === docUserId ? docUserName : null)
+          ?? null;
 
         const qty = toNumberSafe(line?.Quantity ?? line?.quantity);
         const lineGross = toNumberSafe(
@@ -262,11 +285,14 @@ export function buildSalesAggregatesFromInvoices(invoices, businessDay, workplac
             AgoraUserId: agoraUserId,
             UserName: userName || '',
             Unidades: 0,
+            UnidadesBonificables: 0,
             ImporteBruto: 0,
           });
         }
         const row = agg.get(key);
+        const factorBonif = factorBonificacionLinea(line, qty, lineGross);
         row.Unidades += qty;
+        row.UnidadesBonificables += qty * factorBonif;
         row.ImporteBruto = Math.round((row.ImporteBruto + Math.abs(lineGross)) * 100) / 100;
         if (!row.ProductName && productName) row.ProductName = productName;
         if (!row.UserName && userName) row.UserName = userName;
@@ -313,6 +339,7 @@ async function upsertAggregates(docClient, items) {
     const chunk = items.slice(i, i + BATCH_SIZE).map((item) => ({
       ...item,
       Unidades: Math.round(item.Unidades * 1000) / 1000,
+      UnidadesBonificables: Math.round(toNumberSafe(item.UnidadesBonificables) * 1000) / 1000,
       ImporteBruto: Math.round(item.ImporteBruto * 100) / 100,
       SyncedAt: syncedAt,
     }));

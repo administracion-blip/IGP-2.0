@@ -7,6 +7,8 @@ import { SoftPulseBorderWrap } from './SoftPulseBorderWrap';
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
 
 const FAV_PINK = '#f9a8d4';
+/** Texto e iconos de módulos del sidebar (no Favoritos). */
+const MODULO_NAV_COLOR = '#0f172a';
 
 type Props = {
   label: string;
@@ -31,12 +33,8 @@ export function SidebarNavItem({
   accessibilityLabel,
   accentFavoritos = false,
 }: Props) {
-  const iconColor = accentFavoritos
-    ? FAV_PINK
-    : active
-      ? colors.textPrimary
-      : colors.textSecondary;
-  const textWeight = active ? '600' : typography.nav.fontWeight;
+  const iconColor = accentFavoritos ? FAV_PINK : MODULO_NAV_COLOR;
+  const textWeight = accentFavoritos ? (active ? '600' : typography.nav.fontWeight) : '400';
 
   const resolvedIcon = accentFavoritos ? 'star' : icon;
 
@@ -62,8 +60,10 @@ export function SidebarNavItem({
         <Text
           style={[
             styles.label,
-            { fontWeight: textWeight },
-            active && styles.labelActive,
+            !accentFavoritos && styles.labelModulo,
+            accentFavoritos && { fontWeight: textWeight },
+            !accentFavoritos && { fontWeight: '400' },
+            accentFavoritos && active && styles.labelActive,
             accentFavoritos && styles.labelFavoritos,
           ]}
           numberOfLines={1}
@@ -127,6 +127,10 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginLeft: 6,
     flex: 1,
+  },
+  labelModulo: {
+    color: MODULO_NAV_COLOR,
+    fontWeight: '400',
   },
   labelActive: {
     color: colors.textPrimary,

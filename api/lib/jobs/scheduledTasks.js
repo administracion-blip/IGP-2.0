@@ -185,6 +185,74 @@ export async function runSalesLinesSync(port) {
   }
 }
 
+/**
+ * Resync semanal de ventas por producto.
+ * Se ejecuta en la madrugada del lunes y recopia la semana anterior completa
+ * (lunes anterior → domingo) desde Ágora vía full-sync (idempotente: borra y
+ * reescribe cada día, sin duplicar). Sirve de red de seguridad frente a fallos
+ * puntuales del sync nocturno y anulaciones tardías.
+ */
+export const SYNC_SALES_LINES_WEEKLY_ENABLED =
+  process.env.SYNC_SALES_LINES_WEEKLY_ENABLED !== 'false';
+export const SYNC_SALES_LINES_WEEKLY_HOUR =
+  parseInt(process.env.SYNC_SALES_LINES_WEEKLY_HOUR || '5', 10) || 5;
+
+let weeklyResyncLastRun = null;
+
+export async function checkWeeklySalesLinesResync(port) {
+  if (!SYNC_SALES_LINES_WEEKLY_ENABLED) return;
+
+  const now = new Date();
+  // 1 = lunes (madrugada de domingo a lunes)
+  if (now.getDay() !== 1) return;
+  if (now.getHours() !== SYNC_SALES_LINES_WEEKLY_HOUR) return;
+
+  const today = now.toISOString().slice(0, 10);
+  if (weeklyResyncLastRun === today) return;
+  weeklyResyncLastRun = today;
+
+  // Semana anterior completa: lunes anterior (hoy - 7 días) → ayer (domingo).
+  const fechaInicio = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const fechaFin = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+
+  const baseUrl = `http://127.0.0.1:${port}`;
+  logger.info(
+    { fechaInicio, fechaFin },
+    `[sales-lines/weekly-resync] Iniciando resync semanal ${fechaInicio} → ${fechaFin}`,
+  );
+  try {
+    const res = await fetch(`${baseUrl}/api/agora/sales-lines/full-sync`, {
+      method: 'POST',
+      headers: internalSyncFetchHeaders(),
+      body: JSON.stringify({ fechaInicio, fechaFin }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      logger.info(
+        {
+          fechaInicio,
+          fechaFin,
+          daysProcessed: data.daysProcessed ?? 0,
+          totalItems: data.totalItems ?? 0,
+          errors: data.errors?.length ?? 0,
+        },
+        `[sales-lines/weekly-resync] OK: ${fechaInicio} → ${fechaFin} | items: ${data.totalItems ?? 0}`,
+      );
+    } else {
+      logger.error(
+        { status: res.status, error: data.error || res.statusText },
+        '[sales-lines/weekly-resync] Error',
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, '[sales-lines/weekly-resync]');
+  }
+}
+
 export async function checkVencimientosFacturas(port) {
   try {
     const res = await fetch(`http://127.0.0.1:${port}/api/facturacion/check-vencimientos`, {

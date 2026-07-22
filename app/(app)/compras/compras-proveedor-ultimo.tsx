@@ -43,6 +43,7 @@ import {
   ComprasToolbarFiltrosBtn,
 } from './comprasProveedorShared';
 import { useGruposFamilias } from '../../hooks/useGruposFamilias';
+import { DIAS_CARGA_ULTIMO, rangoComprasDefault } from '../../lib/comprasProveedorRango';
 
 type ColUltimo = { key: string; label: string; width: number; align?: 'right' | 'center' };
 
@@ -128,7 +129,8 @@ export default function ComprasProveedorUltimoScreen() {
   const { grupos, crearGrupo, borrarGrupo } = useGruposFamilias();
 
   useEffect(() => {
-    recargar();
+    const { dateFrom, dateTo } = rangoComprasDefault(DIAS_CARGA_ULTIMO);
+    recargar({ dateFrom, dateTo });
   }, [recargar]);
 
   /** Una fila por (producto + unidad): última compra y variación de precio neto. */

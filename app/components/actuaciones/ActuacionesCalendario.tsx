@@ -34,6 +34,35 @@ function portalTooltipToBody(children: React.ReactNode): React.ReactNode {
   return createPortal(children, document.body);
 }
 
+type TooltipAnchor = { top: number; left: number; width: number; height: number };
+
+const TOOLTIP_WIDTH = 288;
+const TOOLTIP_MAX_HEIGHT = 248;
+const TOOLTIP_GAP = 6;
+
+function readAnchorFromHoverEvent(e: unknown): TooltipAnchor | null {
+  if (!IS_WEB) return null;
+  const el = (e as { currentTarget?: HTMLElement })?.currentTarget;
+  if (!el?.getBoundingClientRect) return null;
+  const r = el.getBoundingClientRect();
+  return { top: r.top, left: r.left, width: r.width, height: r.height };
+}
+
+function tooltipPosition(anchor: TooltipAnchor): { top: number; left: number } {
+  let top = anchor.top + anchor.height + TOOLTIP_GAP;
+  let left = anchor.left + anchor.width / 2 - TOOLTIP_WIDTH / 2;
+  if (typeof window !== 'undefined') {
+    const m = TOOLTIP_GAP;
+    if (left + TOOLTIP_WIDTH > window.innerWidth - m) left = window.innerWidth - TOOLTIP_WIDTH - m;
+    if (left < m) left = m;
+    if (top + TOOLTIP_MAX_HEIGHT > window.innerHeight - m) {
+      top = anchor.top - TOOLTIP_MAX_HEIGHT - TOOLTIP_GAP;
+    }
+    if (top < m) top = m;
+  }
+  return { top, left };
+}
+
 /** Sobre TotalFacturadoComparativa bruta para referencia neta (aprox. −10% impuestos). */
 const FACTOR_NETO_COMPARATIVA = 0.9;
 
@@ -168,6 +197,7 @@ function agruparActuacionesTooltipPorLocal(items: ActuacionCalItem[]): {
 type TooltipState = {
   iso: string;
   items: ActuacionCalItem[];
+  anchor: TooltipAnchor;
 };
 
 /** id_Locales + agoraCode (Agora workplace) para TotalFacturadoComparativa en vista día. */
@@ -208,9 +238,9 @@ export function ActuacionesCalendario({ actuaciones, locales }: Props) {
     return m;
   }, [actuaciones]);
 
-  const showDayTooltip = useCallback((iso: string, list: ActuacionCalItem[]) => {
+  const showDayTooltip = useCallback((iso: string, list: ActuacionCalItem[], anchor: TooltipAnchor) => {
     if (!IS_WEB || list.length === 0) return;
-    setDayTooltip({ iso, items: list });
+    setDayTooltip({ iso, items: list, anchor });
   }, []);
 
   const hideDayTooltip = useCallback(() => {
@@ -414,48 +444,56 @@ export function ActuacionesCalendario({ actuaciones, locales }: Props) {
 
   return (
     <View style={styles.root}>
-      <View style={styles.modeRow}>
-        <TouchableOpacity style={[styles.modeBtn, vista === 'mes' && styles.modeBtnOn]} onPress={() => setVista('mes')}>
-          <Text style={[styles.modeBtnText, vista === 'mes' && styles.modeBtnTextOn]}>Mes</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.modeBtn, vista === 'semana' && styles.modeBtnOn]} onPress={() => setVista('semana')}>
-          <Text style={[styles.modeBtnText, vista === 'semana' && styles.modeBtnTextOn]}>Semana</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.modeBtn, vista === 'dia' && styles.modeBtnOn]} onPress={() => setVista('dia')}>
-          <Text style={[styles.modeBtnText, vista === 'dia' && styles.modeBtnTextOn]}>Día</Text>
-        </TouchableOpacity>
-      </View>
+      <View style={styles.calHeader}>
+        <Text style={styles.calHeaderTitle}>Calendario</Text>
 
-      <View style={styles.navRow}>
-        <TouchableOpacity
-          onPress={vista === 'mes' ? prevMes : vista === 'semana' ? prevSemana : prevDia}
-          hitSlop={8}
-          style={styles.navIconBtn}
-        >
-          <MaterialIcons name="chevron-left" size={22} color="#0ea5e9" />
-        </TouchableOpacity>
-        <Text style={[styles.navTitle, vista === 'dia' && styles.navTitleDia]} numberOfLines={vista === 'dia' ? 2 : 1}>
-          {vista === 'mes' ? tituloMes : vista === 'semana' ? tituloSemana : tituloDia}
-        </Text>
-        <TouchableOpacity
-          onPress={vista === 'mes' ? nextMes : vista === 'semana' ? nextSemana : nextDia}
-          hitSlop={8}
-          style={styles.navIconBtn}
-        >
-          <MaterialIcons name="chevron-right" size={22} color="#0ea5e9" />
-        </TouchableOpacity>
-      </View>
+        <View style={styles.modeRowInline}>
+          <TouchableOpacity style={[styles.modeBtn, vista === 'mes' && styles.modeBtnOn]} onPress={() => setVista('mes')}>
+            <Text style={[styles.modeBtnText, vista === 'mes' && styles.modeBtnTextOn]}>Mes</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.modeBtn, vista === 'semana' && styles.modeBtnOn]} onPress={() => setVista('semana')}>
+            <Text style={[styles.modeBtnText, vista === 'semana' && styles.modeBtnTextOn]}>Semana</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.modeBtn, vista === 'dia' && styles.modeBtnOn]} onPress={() => setVista('dia')}>
+            <Text style={[styles.modeBtnText, vista === 'dia' && styles.modeBtnTextOn]}>Día</Text>
+          </TouchableOpacity>
+        </View>
 
-      <TouchableOpacity
-        style={styles.hoyLink}
-        onPress={vista === 'mes' ? irHoyMes : vista === 'semana' ? irHoySemana : irHoyDia}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.hoyLinkText}>Hoy</Text>
-      </TouchableOpacity>
+        <View style={styles.navInline}>
+          <TouchableOpacity
+            onPress={vista === 'mes' ? prevMes : vista === 'semana' ? prevSemana : prevDia}
+            hitSlop={8}
+            style={styles.navIconBtn}
+          >
+            <MaterialIcons name="chevron-left" size={18} color="#0ea5e9" />
+          </TouchableOpacity>
+          <Text style={[styles.navTitle, vista === 'dia' && styles.navTitleDia]} numberOfLines={1}>
+            {vista === 'mes' ? tituloMes : vista === 'semana' ? tituloSemana : tituloDia}
+          </Text>
+          <TouchableOpacity
+            onPress={vista === 'mes' ? nextMes : vista === 'semana' ? nextSemana : nextDia}
+            hitSlop={8}
+            style={styles.navIconBtn}
+          >
+            <MaterialIcons name="chevron-right" size={18} color="#0ea5e9" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.hoyLinkInline}
+            onPress={vista === 'mes' ? irHoyMes : vista === 'semana' ? irHoySemana : irHoyDia}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.hoyLinkText}>Hoy</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
 
       {vista === 'mes' ? (
-        <ScrollView style={styles.mesScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+        <ScrollView
+          style={styles.mesScroll}
+          contentContainerStyle={styles.mesScrollContent}
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.weekdayRow}>
             {DIAS_SEMANA.map((d) => (
               <Text key={d} style={styles.weekdayLbl}>
@@ -629,23 +667,38 @@ export function ActuacionesCalendario({ actuaciones, locales }: Props) {
 
       {IS_WEB && dayTooltip
         ? portalTooltipToBody(
-            <View style={styles.tooltipOverlay} pointerEvents="none">
-              <View style={styles.tooltipCard}>
+            <View style={styles.tooltipPortal} pointerEvents="none">
+              <View
+                style={[
+                  styles.tooltipCard,
+                  tooltipPosition(dayTooltip.anchor),
+                ]}
+              >
                 <View style={styles.tooltipTituloRow}>
-                  <Text style={styles.tooltipTitulo}>{formatFecha(dayTooltip.iso)}</Text>
+                  <View style={styles.tooltipTituloIzq}>
+                    <MaterialIcons name="event" size={14} color="#0ea5e9" />
+                    <Text style={styles.tooltipTitulo}>{formatFecha(dayTooltip.iso)}</Text>
+                  </View>
                   {tooltipTotalDia != null ? (
-                    <Text style={styles.tooltipTituloTotal}>{formatMoneda(tooltipTotalDia)}</Text>
+                    <View style={styles.tooltipTotalBadge}>
+                      <Text style={styles.tooltipTotalBadgeText}>{formatMoneda(tooltipTotalDia)}</Text>
+                    </View>
                   ) : null}
                 </View>
-                <View style={styles.tooltipTableHead}>
-                  <Text style={[styles.tooltipTh, styles.tooltipColHora]}>Hora</Text>
-                  <Text style={[styles.tooltipTh, styles.tooltipColArtGrupo]}>Artista</Text>
-                  <Text style={[styles.tooltipTh, styles.tooltipColImp]}>Importe</Text>
-                </View>
-                {tooltipGruposPorLocal.map((grp, idx) => (
-                  <View key={grp.key}>
-                    <View style={[styles.tooltipLocalHeader, idx > 0 && styles.tooltipLocalHeaderSep]}>
-                      <View style={styles.tooltipLocalHeaderRow}>
+                <ScrollView
+                  style={styles.tooltipScroll}
+                  contentContainerStyle={styles.tooltipScrollContent}
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator
+                >
+                  <View style={styles.tooltipTableHead}>
+                    <Text style={[styles.tooltipTh, styles.tooltipColHora]}>Hora</Text>
+                    <Text style={[styles.tooltipTh, styles.tooltipColArtGrupo]}>Artista</Text>
+                    <Text style={[styles.tooltipTh, styles.tooltipColImp]}>Imp.</Text>
+                  </View>
+                  {tooltipGruposPorLocal.map((grp, idx) => (
+                    <View key={grp.key}>
+                      <View style={[styles.tooltipLocalHeader, idx > 0 && styles.tooltipLocalHeaderSep]}>
                         <Text style={styles.tooltipLocalHeaderText} numberOfLines={1}>
                           {grp.nombre}
                         </Text>
@@ -655,34 +708,34 @@ export function ActuacionesCalendario({ actuaciones, locales }: Props) {
                           <Text style={styles.tooltipLocalHeaderSumaMuted}>—</Text>
                         )}
                       </View>
+                      {grp.items.map((a) => {
+                        const esHueco = !a.id_artista || !a.artista_nombre_snapshot?.trim();
+                        const artista = a.artista_nombre_snapshot?.trim() || '(hueco)';
+                        return (
+                          <View key={a.id_actuacion} style={styles.tooltipFila}>
+                            <Text style={[styles.tooltipTd, styles.tooltipColHora, styles.tooltipTdHora]} numberOfLines={1}>
+                              {a.hora_inicio || '—'}
+                            </Text>
+                            {esHueco ? (
+                              <View style={[styles.tooltipColArtGrupo, styles.tooltipHuecoWrap]}>
+                                <Text style={styles.tooltipHuecoText} numberOfLines={1}>
+                                  {artista}
+                                </Text>
+                              </View>
+                            ) : (
+                              <Text style={[styles.tooltipTd, styles.tooltipColArtGrupo]} numberOfLines={1} ellipsizeMode="tail">
+                                {artista}
+                              </Text>
+                            )}
+                            <Text style={[styles.tooltipTd, styles.tooltipColImp, styles.tooltipTdImp]} numberOfLines={1}>
+                              {precioActuacion(a)}
+                            </Text>
+                          </View>
+                        );
+                      })}
                     </View>
-                    {grp.items.map((a) => (
-                      <View key={a.id_actuacion} style={styles.tooltipFila}>
-                        <Text
-                          style={[styles.tooltipTd, styles.tooltipColHora, IS_WEB && styles.tooltipTdWebOneLine]}
-                          numberOfLines={1}
-                          ellipsizeMode="tail"
-                        >
-                          {a.hora_inicio || '—'}
-                        </Text>
-                        <Text
-                          style={[styles.tooltipTd, styles.tooltipColArtGrupo, IS_WEB && styles.tooltipTdWebOneLine]}
-                          numberOfLines={1}
-                          ellipsizeMode="tail"
-                        >
-                          {a.artista_nombre_snapshot?.trim() || '(hueco)'}
-                        </Text>
-                        <Text
-                          style={[styles.tooltipTd, styles.tooltipColImp, styles.tooltipTdImp, IS_WEB && styles.tooltipTdWebOneLine]}
-                          numberOfLines={1}
-                          ellipsizeMode="tail"
-                        >
-                          {precioActuacion(a)}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                ))}
+                  ))}
+                </ScrollView>
               </View>
             </View>,
           )
@@ -696,7 +749,7 @@ type CeldaProps = {
   iso: string;
   list: ActuacionCalItem[];
   esHoy: boolean;
-  onShowTooltip: (iso: string, list: ActuacionCalItem[]) => void;
+  onShowTooltip: (iso: string, list: ActuacionCalItem[], anchor: TooltipAnchor) => void;
   onHideTooltip: () => void;
 };
 
@@ -708,7 +761,10 @@ function DiaMesCelda({ cell, iso, list, esHoy, onShowTooltip, onHideTooltip }: C
   const webHover =
     IS_WEB && list.length > 0
       ? {
-          onMouseEnter: () => onShowTooltip(iso, list),
+          onMouseEnter: (e: unknown) => {
+            const anchor = readAnchorFromHoverEvent(e);
+            if (anchor) onShowTooltip(iso, list, anchor);
+          },
           onMouseLeave: onHideTooltip,
         }
       : {};
@@ -746,7 +802,7 @@ type SemanaColumnaProps = {
   list: ActuacionCalItem[];
   esHoy: boolean;
   isLast: boolean;
-  onShowTooltip: (iso: string, list: ActuacionCalItem[]) => void;
+  onShowTooltip: (iso: string, list: ActuacionCalItem[], anchor: TooltipAnchor) => void;
   onHideTooltip: () => void;
 };
 
@@ -758,7 +814,10 @@ function SemanaDiaColumna({ d, iso, list, esHoy, isLast, onShowTooltip, onHideTo
   const webHover =
     IS_WEB && list.length > 0
       ? {
-          onMouseEnter: () => onShowTooltip(iso, list),
+          onMouseEnter: (e: unknown) => {
+            const anchor = readAnchorFromHoverEvent(e);
+            if (anchor) onShowTooltip(iso, list, anchor);
+          },
           onMouseLeave: onHideTooltip,
         }
       : {};
@@ -795,37 +854,58 @@ function SemanaDiaColumna({ d, iso, list, esHoy, isLast, onShowTooltip, onHideTo
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, minHeight: 200 },
-  modeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+  root: { flex: 1, minHeight: 280, minWidth: 0 },
+  calHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+    minHeight: 28,
+  },
+  calHeaderTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0f172a',
+    flexShrink: 0,
+  },
+  modeRowInline: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    minWidth: 0,
+  },
   modeBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     backgroundColor: '#fff',
   },
   modeBtnOn: { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' },
-  modeBtnText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
+  modeBtnText: { fontSize: 10, fontWeight: '600', color: '#64748b' },
   modeBtnTextOn: { color: '#0369a1' },
-  navRow: {
+  navInline: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
+    flexShrink: 0,
+    gap: 2,
   },
-  navIconBtn: { padding: 4 },
-  navTitle: { flex: 1, textAlign: 'center', fontSize: 13, fontWeight: '700', color: '#334155' },
-  navTitleDia: { fontSize: 12, lineHeight: 16 },
-  hoyLink: { alignSelf: 'center', marginBottom: 8 },
-  hoyLinkText: { fontSize: 11, color: '#0ea5e9', fontWeight: '600' },
-  mesScroll: { flex: 1, maxHeight: Platform.OS === 'web' ? 480 : undefined },
+  navIconBtn: { padding: 2 },
+  navTitle: { fontSize: 12, fontWeight: '700', color: '#334155', minWidth: 52, textAlign: 'center' },
+  navTitleDia: { fontSize: 10, maxWidth: 88 },
+  hoyLinkInline: { marginLeft: 2, paddingHorizontal: 4, paddingVertical: 2 },
+  hoyLinkText: { fontSize: 10, color: '#0ea5e9', fontWeight: '600' },
+  mesScroll: { flex: 1, minHeight: 0 },
+  mesScrollContent: { flexGrow: 1, paddingBottom: 4 },
   weekdayRow: { flexDirection: 'row', marginBottom: 4 },
   weekdayLbl: { flex: 1, textAlign: 'center', fontSize: 10, fontWeight: '700', color: '#64748b' },
-  mesFila: { flexDirection: 'row' },
+  mesFila: { flexDirection: 'row', flex: 1, minHeight: 84 },
   diaCell: {
     flex: 1,
-    minHeight: 72,
+    minHeight: 84,
     borderWidth: 1,
     borderColor: '#f1f5f9',
     padding: 3,
@@ -845,108 +925,133 @@ const styles = StyleSheet.create({
   diaNumFuera: { color: '#cbd5e1' },
   localResumenLine: { fontSize: 7, color: '#475569', lineHeight: 10 },
   actMore: { fontSize: 7, color: '#0ea5e9', fontWeight: '600' },
-  tooltipOverlay: {
+  tooltipPortal: {
     position: 'fixed' as never,
     left: 0,
     right: 0,
     top: 0,
     bottom: 0,
-    /** Por encima de toolbars y controles (portal a document.body) */
     zIndex: 2147483647,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 16,
+    pointerEvents: 'none' as const,
   },
   tooltipCard: {
+    position: 'fixed' as never,
+    width: TOOLTIP_WIDTH,
+    maxWidth: TOOLTIP_WIDTH,
+    maxHeight: TOOLTIP_MAX_HEIGHT,
     backgroundColor: '#fff',
     borderRadius: 10,
-    padding: 12,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    elevation: 12,
-    minWidth: 520,
-    width: '90%' as never,
-    maxWidth: 920,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    elevation: 14,
+    overflow: 'hidden',
   },
   tooltipTituloRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 10,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#f8fafc',
+    borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
+  tooltipTituloIzq: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 },
   tooltipTitulo: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '700',
     color: '#334155',
-    flex: 1,
+    flexShrink: 1,
   },
-  tooltipTituloTotal: { fontSize: 14, fontWeight: '700', color: '#0ea5e9' },
+  tooltipTotalBadge: {
+    backgroundColor: '#e0f2fe',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    flexShrink: 0,
+  },
+  tooltipTotalBadgeText: { fontSize: 11, fontWeight: '700', color: '#0369a1' },
+  tooltipScroll: { maxHeight: TOOLTIP_MAX_HEIGHT - 40 },
+  tooltipScrollContent: { paddingBottom: 6 },
   tooltipTableHead: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingBottom: 6,
-    marginBottom: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    paddingHorizontal: 10,
+    paddingTop: 6,
+    paddingBottom: 4,
+    backgroundColor: '#f1f5f9',
   },
   tooltipTh: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
     color: '#64748b',
     textTransform: 'uppercase',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
   tooltipFila: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#f1f5f9',
   },
-  tooltipTd: { fontSize: 12, color: '#334155' },
-  /** Web: evita saltos de línea en celdas de la tabla flotante */
-  tooltipTdWebOneLine: { whiteSpace: 'nowrap' as never, overflow: 'hidden' as never },
-  tooltipTdImp: { fontWeight: '600', color: '#0f172a' },
+  tooltipTd: { fontSize: 10, color: '#475569', lineHeight: 13 },
+  tooltipTdHora: { fontWeight: '600', color: '#0ea5e9' },
+  tooltipTdImp: { fontWeight: '700', color: '#0f172a', textAlign: 'right' },
   tooltipLocalHeader: {
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    backgroundColor: '#f8fafc',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e2e8f0',
-  },
-  tooltipLocalHeaderSep: { marginTop: 8 },
-  tooltipLocalHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 10,
+    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingLeft: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#0ea5e9',
+    backgroundColor: '#f8fafc',
+    marginTop: 4,
   },
-  tooltipLocalHeaderText: { fontSize: 12, fontWeight: '700', color: '#0369a1', flex: 1, minWidth: 0 },
-  tooltipLocalHeaderSuma: { fontSize: 12, fontWeight: '700', color: '#0ea5e9', flexShrink: 0 },
-  tooltipLocalHeaderSumaMuted: { fontSize: 12, color: '#94a3b8', flexShrink: 0 },
-  tooltipColHora: { width: 52, flexShrink: 0, paddingRight: 6 },
-  tooltipColArtGrupo: { flex: 1, minWidth: 0, paddingRight: 8 },
-  tooltipColImp: { width: 96, flexShrink: 0, textAlign: 'right' },
-  semanaScroll: { flex: 1, maxHeight: Platform.OS === 'web' ? 480 : undefined },
-  semanaScrollContent: { flexGrow: 1 },
+  tooltipLocalHeaderSep: { marginTop: 6 },
+  tooltipLocalHeaderText: { fontSize: 10, fontWeight: '700', color: '#0369a1', flex: 1, minWidth: 0 },
+  tooltipLocalHeaderSuma: { fontSize: 10, fontWeight: '700', color: '#0ea5e9', flexShrink: 0 },
+  tooltipLocalHeaderSumaMuted: { fontSize: 10, color: '#94a3b8', flexShrink: 0 },
+  tooltipColHora: { width: 38, flexShrink: 0, paddingRight: 4 },
+  tooltipColArtGrupo: { flex: 1, minWidth: 0, paddingRight: 6 },
+  tooltipColImp: { width: 68, flexShrink: 0, textAlign: 'right' as const },
+  tooltipHuecoWrap: { justifyContent: 'center' },
+  tooltipHuecoText: {
+    alignSelf: 'flex-start',
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#9a3412',
+    backgroundColor: '#ffedd5',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#fdba74',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  semanaScroll: { flex: 1, minHeight: 0 },
+  semanaScrollContent: { flexGrow: 1, minHeight: '100%' as never },
   /** Una fila con los 7 días en columnas (horizontal) */
   semanaHorizontalContent: {
+    flex: 1,
     width: '100%' as never,
+    minHeight: 320,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: '#fff',
   },
-  semanaRow: { flexDirection: 'row', alignItems: 'stretch', width: '100%' as never },
+  semanaRow: { flex: 1, flexDirection: 'row', alignItems: 'stretch', width: '100%' as never, minHeight: 300 },
   semanaCol: {
     flex: 1,
     minWidth: 0,
@@ -957,13 +1062,13 @@ const styles = StyleSheet.create({
   semanaColBorder: { borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: '#e2e8f0' },
   semanaColHoy: { backgroundColor: '#f0f9ff' },
   semanaColHeader: { alignItems: 'center', marginBottom: 6, gap: 2 },
-  semanaColBody: { flex: 1, minHeight: 40 },
+  semanaColBody: { flex: 1, minHeight: 64 },
   semanaDiaSem: { fontSize: 10, fontWeight: '700', color: '#64748b' },
   semanaDiaNum: { fontSize: 15, fontWeight: '700', color: '#334155' },
   semanaDiaTotal: { fontSize: 8, fontWeight: '700', color: '#0ea5e9', textAlign: 'center' },
   semanaVacio: { fontSize: 11, color: '#cbd5e1', textAlign: 'center' },
   semanaLocalLine: { fontSize: 8, color: '#475569', marginBottom: 3, lineHeight: 11 },
-  diaScroll: { flex: 1, maxHeight: Platform.OS === 'web' ? 480 : undefined },
+  diaScroll: { flex: 1, minHeight: 0 },
   diaBloque: {
     borderWidth: 1,
     borderColor: '#e2e8f0',

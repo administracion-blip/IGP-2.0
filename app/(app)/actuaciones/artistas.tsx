@@ -19,6 +19,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalToast } from '../../components/Toast';
 import { TablaBasica } from '../../components/TablaBasica';
+import { erpListTableStyles } from '../../constants/erpListTableStyles';
 import { ICON_SIZE } from '../../constants/icons';
 import { API_BASE_URL as API_URL } from '../../utils/apiBaseUrl';
 import { formatMoneda } from '../../utils/facturacion';
@@ -569,7 +570,7 @@ export default function ArtistasScreen() {
         guardando={saving || deleting}
         emptyMessage="No hay artistas. Pulsa crear para añadir uno."
         emptyFilterMessage="Ningún artista coincide con la búsqueda"
-        defaultColWidth={100}
+        defaultColWidth={90}
         getColumnCellStyle={(col) => {
           if (col === 'Nombre') return { cell: { minWidth: 160 } };
           if (col === 'Imagen') return { cell: { width: 56, minWidth: 52, maxWidth: 64 } };
@@ -578,7 +579,7 @@ export default function ArtistasScreen() {
         renderCell={(item, col, _defaultText) => {
           if (col === 'Imagen') {
             if (!item.imagen_key) {
-              return <Text style={styles.cellImagenDash}>—</Text>;
+              return <Text style={erpListTableStyles.cellText}>—</Text>;
             }
             return (
               <TouchableOpacity
@@ -596,7 +597,7 @@ export default function ArtistasScreen() {
             const on = item.activo !== false;
             return (
               <View style={[styles.badge, on ? styles.badgeActivo : styles.badgeInactivo]}>
-                <Text style={[styles.badgeText, on ? styles.badgeTextActivo : styles.badgeTextInactivo]}>{on ? 'Activo' : 'Inactivo'}</Text>
+                <Text style={[erpListTableStyles.cellText, styles.badgeText, on ? styles.badgeTextActivo : styles.badgeTextInactivo]}>{on ? 'Activo' : 'Inactivo'}</Text>
               </View>
             );
           }
@@ -959,7 +960,7 @@ const styles = StyleSheet.create({
   screenWrap: { flex: 1, backgroundColor: '#f8fafc' },
   sinPermisoBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 24 },
   sinPermisoText: { fontSize: 14, color: '#64748b', textAlign: 'center' },
-  cellImagenDash: { fontSize: 12, color: '#94a3b8', textAlign: 'center' },
+
   cellImagenBtn: { alignItems: 'center', justifyContent: 'center', padding: 4 },
   vistaImagenOverlay: {
     flex: 1,
@@ -1010,7 +1011,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, alignSelf: 'flex-start' },
-  badgeText: { fontSize: 10, fontWeight: '600' },
+  badgeText: { fontWeight: '600' },
   badgeActivo: { backgroundColor: '#dcfce7' },
   badgeInactivo: { backgroundColor: '#fee2e2' },
   badgeTextActivo: { color: '#16a34a' },

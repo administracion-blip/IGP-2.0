@@ -154,7 +154,7 @@ export default function ReportarIncidenciaScreen() {
       .then((data: { ok?: boolean; incidencia?: unknown; error?: string }) => {
         if (data.ok) {
           setSuccessMessage('Incidencia reportada');
-          setTimeout(() => router.replace('/mantenimiento'), 300);
+          setTimeout(() => router.replace('/mantenimiento/incidencias'), 300);
         } else {
           setError(data.error ?? 'Error al crear la incidencia');
         }
@@ -312,7 +312,7 @@ export default function ReportarIncidenciaScreen() {
             <View style={styles.buttonsRow}>
               <TouchableOpacity
                 style={[styles.submitBtn, styles.cancelBtn]}
-                onPress={() => router.replace('/mantenimiento')}
+                onPress={() => router.replace('/mantenimiento/incidencias')}
                 disabled={enviando}
               >
                 <MaterialIcons name="cancel" size={20} color="#fff" />

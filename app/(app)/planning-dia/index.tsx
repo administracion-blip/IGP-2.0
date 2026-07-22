@@ -4,9 +4,9 @@ import { useCallback, useMemo, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
-import { useBreakpoint } from '../../hooks/useBreakpoint';
-import { hubTileSideSize } from '../../constants/layout';
+import { useHubNavGrid } from '../../hooks/useHubNavGrid';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
+import { hubAccentById } from '../../lib/hubNavAccent';
 import { apiFetch } from '../../utils/api';
 import { abrirEnlaceExterno } from '../../utils/enlaceExterno';
 import {
@@ -15,7 +15,8 @@ import {
   enlacePlanningVisible,
   iconoEnlaceValido,
 } from '../../lib/planningEnlaces';
-import HubTile from '../../components/HubTile';
+import { EstrellaFavorito } from '../../components/EstrellaFavorito';
+import { HubNavCard, HubNavGrid } from '../../components/ui/HubNavCard';
 import { ObjetivoMensualCard } from '../../components/ObjetivoMensualCard';
 import {
   puedeVerActuacionesPlanning,
@@ -98,8 +99,7 @@ function aviso(msg: string) {
 export default function PlanningDiaIndexScreen() {
   const router = useRouter();
   const { hasPermiso } = useAuth();
-  const { width, height } = useBreakpoint();
-  const tileSize = hubTileSideSize(width, height);
+  const { cardWidth, compact } = useHubNavGrid();
   const [activacionesHoy, setActivacionesHoy] = useState(0);
   const [actuacionesHoy, setActuacionesHoy] = useState(0);
   const [limpiezaHoy, setLimpiezaHoy] = useState(0);
@@ -200,6 +200,59 @@ export default function PlanningDiaIndexScreen() {
 
   const hayContenido = tarjetasInternasVisibles.length > 0 || enlacesVisibles.length > 0;
 
+  const hubItems = useMemo(() => {
+    type Item =
+      | {
+          kind: 'internal';
+          id: string;
+          label: string;
+          descripcion: string;
+          icon: IconName;
+          ruta: string;
+          permiso: string;
+          variant?: 'default' | 'accent';
+          badgeCount?: number;
+        }
+      | {
+          kind: 'external';
+          id: string;
+          label: string;
+          descripcion: string;
+          icon: IconName;
+          url: string;
+        };
+
+    const internas: Item[] = tarjetasInternasVisibles.map((t) => ({
+      kind: 'internal',
+      id: t.id,
+      label: t.label,
+      descripcion: t.descripcion,
+      icon: t.icon,
+      ruta: t.ruta,
+      permiso: t.permiso,
+      variant: t.variant,
+      badgeCount:
+        t.id === 'activaciones'
+          ? activacionesHoy
+          : t.id === 'actuaciones'
+            ? actuacionesHoy
+            : t.id === 'limpieza'
+              ? limpiezaHoy
+              : undefined,
+    }));
+
+    const externas: Item[] = enlacesVisibles.map((e) => ({
+      kind: 'external',
+      id: e.id,
+      label: e.label,
+      descripcion: e.descripcion ?? 'Abre enlace externo en nueva pestaña',
+      icon: iconoEnlaceValido(e.icon) as IconName,
+      url: e.url,
+    }));
+
+    return [...internas, ...externas].sort((a, b) => a.label.localeCompare(b.label, 'es'));
+  }, [tarjetasInternasVisibles, enlacesVisibles, activacionesHoy, actuacionesHoy, limpiezaHoy]);
+
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
@@ -213,13 +266,7 @@ export default function PlanningDiaIndexScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {puedeObjetivoCard ? (
-          <ObjetivoMensualCard
-            localIndex={objetivoLocalIdx}
-            onLocalIndexChange={setObjetivoLocalIdx}
-          />
-        ) : null}
-        {!hayContenido ? (
+        {!hayContenido && !puedeObjetivoCard ? (
           <View style={styles.emptyBox}>
             <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
             <Text style={styles.emptyText}>
@@ -227,39 +274,57 @@ export default function PlanningDiaIndexScreen() {
             </Text>
           </View>
         ) : (
-          <View style={styles.grid}>
-            {tarjetasInternasVisibles.map((t) => (
-              <HubTile
-                key={t.id}
-                label={t.label}
-                description={t.descripcion}
-                icon={t.icon}
-                size={tileSize}
-                variant={t.variant}
-                badgeCount={
-                  t.id === 'activaciones'
-                    ? activacionesHoy
-                    : t.id === 'actuaciones'
-                      ? actuacionesHoy
-                      : t.id === 'limpieza'
-                        ? limpiezaHoy
-                        : undefined
-                }
-                onPress={() => router.push(t.ruta as never)}
-                favorito={{ route: t.ruta, label: t.label, icon: t.icon, permiso: t.permiso }}
+          <HubNavGrid>
+            {puedeObjetivoCard ? (
+              <ObjetivoMensualCard
+                localIndex={objetivoLocalIdx}
+                onLocalIndexChange={setObjetivoLocalIdx}
               />
-            ))}
-            {enlacesVisibles.map((e) => (
-              <HubTile
-                key={`ext-${e.id}`}
-                label={e.label}
-                description={e.descripcion ?? 'Abre enlace externo en nueva pestaña'}
-                icon={iconoEnlaceValido(e.icon) as IconName}
-                size={tileSize}
-                onPress={() => { void abrirEnlace(e.url); }}
-              />
-            ))}
-          </View>
+            ) : null}
+            {hubItems.map((item) => {
+              const accent = hubAccentById(item.id);
+              if (item.kind === 'internal') {
+                return (
+                  <HubNavCard
+                    key={item.id}
+                    label={item.label}
+                    description={item.descripcion}
+                    icon={item.icon}
+                    accentBg={accent.accentBg}
+                    accentFg={accent.accentFg}
+                    variant={item.variant === 'accent' ? 'accent' : 'default'}
+                    width={cardWidth}
+                    compact={compact}
+                    badgeCount={item.badgeCount}
+                    onPress={() => router.push(item.ruta as never)}
+                    trailing={
+                      <EstrellaFavorito
+                        favorito={{
+                          route: item.ruta,
+                          label: item.label,
+                          icon: item.icon,
+                          permiso: item.permiso,
+                        }}
+                      />
+                    }
+                  />
+                );
+              }
+              return (
+                <HubNavCard
+                  key={`ext-${item.id}`}
+                  label={item.label}
+                  description={item.descripcion}
+                  icon={item.icon}
+                  accentBg={accent.accentBg}
+                  accentFg={accent.accentFg}
+                  width={cardWidth}
+                  compact={compact}
+                  onPress={() => { void abrirEnlace(item.url); }}
+                />
+              );
+            })}
+          </HubNavGrid>
         )}
       </ScrollView>
     </View>
@@ -267,7 +332,7 @@ export default function PlanningDiaIndexScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10 },
+  container: { flex: 1, padding: 16, backgroundColor: '#ffffff' },
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 10 },
   backBtn: {
     width: 36,
@@ -279,14 +344,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#334155' },
+  title: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
   subtitle: { fontSize: 14, color: '#64748b', marginTop: 2 },
   scrollContent: { paddingBottom: 24 },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
   emptyBox: { alignItems: 'center', gap: 8, paddingVertical: 40 },
   emptyText: { fontSize: 13, color: '#64748b', textAlign: 'center' },
 });

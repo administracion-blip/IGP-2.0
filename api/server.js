@@ -34,6 +34,9 @@ import {
   SYNC_CLOSEOUTS_RECENT_DAYS,
   SYNC_SCHEDULER_INTERVAL_MS,
   SYNC_SALES_LINES_ENABLED,
+  SYNC_SALES_LINES_WEEKLY_ENABLED,
+  SYNC_SALES_LINES_WEEKLY_HOUR,
+  checkWeeklySalesLinesResync,
   VENCIMIENTOS_INTERVAL_MS,
 } from './lib/jobs/scheduledTasks.js';
 import facturacionRouter from './routes/facturacion.js';
@@ -250,6 +253,13 @@ app.listen(port, host, () => {
     logger.info(
       { intervalHours: salesLinesIntervalMs / 3600000 },
       '[sales-lines/sync] Job nocturno activo (día anterior de Ágora)',
+    );
+  }
+  if (SYNC_SALES_LINES_WEEKLY_ENABLED) {
+    setInterval(() => checkWeeklySalesLinesResync(port), SYNC_SCHEDULER_INTERVAL_MS);
+    logger.info(
+      { hour: SYNC_SALES_LINES_WEEKLY_HOUR },
+      `[sales-lines/weekly-resync] Resync semanal activo — lunes madrugada (${String(SYNC_SALES_LINES_WEEKLY_HOUR).padStart(2, '0')}:00), semana anterior completa`,
     );
   }
   if (!process.env.INTERNAL_SYNC_SECRET) {

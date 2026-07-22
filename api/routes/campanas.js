@@ -19,23 +19,23 @@ import { docClient, tables } from '../lib/db.js';
 import { requirePermission } from '../middleware/auth.js';
 import {
   calcularResultadosCampana,
-  defaultBaselinePeriod,
   resolverMargenesProductos,
   round2,
 } from '../lib/campanas/campanaResultados.js';
-import { daysBetweenInclusive } from '../lib/dynamo/ventasProducto.js';
+import { campanaEnriquecida, estadoEfectivo } from '../lib/campanas/campanaEstado.js';
+import { daysBetweenInclusive, queryVentasPorLocalRango, getLastSalesLinesSync } from '../lib/dynamo/ventasProducto.js';
 
 const router = Router();
 const TABLE = tables.campanas;
 
-const ESTADOS = ['Borrador', 'Activa', 'Finalizada', 'Archivada'];
-const TIPOS_INCENTIVO = ['eur_por_unidad', 'pct_margen'];
+// pct_coste: nuevo modelo (% sobre precio de compra). pct_margen: compatibilidad con campañas antiguas.
+const TIPOS_INCENTIVO = ['eur_por_unidad', 'pct_coste', 'pct_margen'];
 const DESTINATARIOS = ['individual', 'equipo'];
 const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
 const CAMPOS_INMUTABLES_ACTIVA = new Set([
   'productos', 'locales', 'fechaInicio', 'fechaFin',
-  'baselineInicio', 'baselineFin', 'tipoIncentivo', 'valorIncentivo', 'destinatario',
+  'tipoIncentivo', 'valorIncentivo', 'destinatario',
 ]);
 
 async function scanCampanas() {
@@ -90,21 +90,6 @@ function validarCampanaPayload(body, { esCreacion = false, existente = null } = 
     errors.push('fechaInicio no puede ser posterior a fechaFin');
   }
 
-  let baselineInicio = String(body.baselineInicio ?? existente?.baselineInicio ?? '').trim();
-  let baselineFin = String(body.baselineFin ?? existente?.baselineFin ?? '').trim();
-  if (esCreacion && RE_FECHA.test(fechaInicio) && RE_FECHA.test(fechaFin)) {
-    if (!baselineInicio || !baselineFin) {
-      const def = defaultBaselinePeriod(fechaInicio, fechaFin);
-      baselineInicio = def.baselineInicio;
-      baselineFin = def.baselineFin;
-    }
-  }
-  if (!RE_FECHA.test(baselineInicio)) errors.push('baselineInicio debe ser YYYY-MM-DD');
-  if (!RE_FECHA.test(baselineFin)) errors.push('baselineFin debe ser YYYY-MM-DD');
-  if (RE_FECHA.test(baselineInicio) && RE_FECHA.test(baselineFin) && baselineInicio > baselineFin) {
-    errors.push('baselineInicio no puede ser posterior a baselineFin');
-  }
-
   const productos = body.productos !== undefined
     ? normalizarProductos(body.productos)
     : normalizarProductos(existente?.productos);
@@ -120,16 +105,17 @@ function validarCampanaPayload(body, { esCreacion = false, existente = null } = 
     errors.push(`tipoIncentivo debe ser ${TIPOS_INCENTIVO.join(' o ')}`);
   }
 
-  const valorIncentivo = toNumber(body.valorIncentivo ?? existente?.valorIncentivo);
+  let valorIncentivo = toNumber(body.valorIncentivo ?? existente?.valorIncentivo);
   if (!(valorIncentivo > 0)) errors.push('valorIncentivo debe ser mayor que 0');
+  // Si escriben 10 para 10 %, normalizar a fracción 0.10
+  if (['pct_coste', 'pct_margen'].includes(tipoIncentivo) && valorIncentivo > 1) {
+    valorIncentivo = round2(valorIncentivo / 100);
+  }
 
   const destinatario = String(body.destinatario ?? existente?.destinatario ?? 'equipo').trim();
   if (!DESTINATARIOS.includes(destinatario)) {
     errors.push(`destinatario debe ser ${DESTINATARIOS.join(' o ')}`);
   }
-
-  const estado = String(body.estado ?? existente?.estado ?? 'Borrador').trim();
-  if (!ESTADOS.includes(estado)) errors.push(`estado debe ser uno de: ${ESTADOS.join(', ')}`);
 
   if (RE_FECHA.test(fechaInicio) && RE_FECHA.test(fechaFin)) {
     const dias = daysBetweenInclusive(fechaInicio, fechaFin);
@@ -143,14 +129,11 @@ function validarCampanaPayload(body, { esCreacion = false, existente = null } = 
       nombre,
       fechaInicio,
       fechaFin,
-      baselineInicio,
-      baselineFin,
       productos,
       locales,
       tipoIncentivo,
       valorIncentivo,
       destinatario,
-      estado,
       notas: body.notas !== undefined
         ? String(body.notas ?? '').trim()
         : String(existente?.notas ?? '').trim(),
@@ -174,13 +157,28 @@ function limpiarProductosParaGuardar(productos) {
 router.get('/campanas', requirePermission('incentivos_producto.ver'), async (req, res) => {
   try {
     const estado = String(req.query.estado || '').trim();
-    let items = await scanCampanas();
-    if (estado) items = items.filter((c) => String(c.estado) === estado);
+    let items = (await scanCampanas()).map(campanaEnriquecida);
+    if (estado) items = items.filter((c) => c.estado === estado);
     items.sort((a, b) => (b.creadoEn || '').localeCompare(a.creadoEn || ''));
     return res.json({ ok: true, items });
   } catch (err) {
     console.error('[campanas GET]', err.message || err);
     return res.status(500).json({ error: err.message || 'Error al listar campañas' });
+  }
+});
+
+router.get('/campanas/ventas-sync', requirePermission('incentivos_producto.ver'), async (req, res) => {
+  try {
+    const lastSyncTs = await getLastSalesLinesSync(docClient);
+    const lastSync = lastSyncTs ? new Date(lastSyncTs).toISOString() : null;
+    const hoursSince = lastSyncTs != null
+      ? Math.round((Date.now() - lastSyncTs) / (60 * 60 * 1000))
+      : null;
+    const stale = lastSyncTs == null || (hoursSince != null && hoursSince > 36);
+    return res.json({ ok: true, lastSync, stale, hoursSince });
+  } catch (err) {
+    console.error('[campanas ventas-sync]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al consultar sync de ventas' });
   }
 });
 
@@ -192,7 +190,7 @@ router.get('/campanas/:campanaId', requirePermission('incentivos_producto.ver'),
       Key: { campanaId },
     }));
     if (!r.Item) return res.status(404).json({ error: 'Campaña no encontrada' });
-    return res.json({ ok: true, item: r.Item });
+    return res.json({ ok: true, item: campanaEnriquecida(r.Item) });
   } catch (err) {
     console.error('[campanas GET :id]', err.message || err);
     return res.status(500).json({ error: err.message || 'Error al cargar campaña' });
@@ -230,7 +228,6 @@ router.post('/campanas', requirePermission('incentivos_producto.gestionar'), asy
     const item = {
       campanaId,
       nombre: data.nombre,
-      estado: data.estado === 'Activa' ? 'Activa' : 'Borrador',
       locales: data.locales,
       productos: limpiarProductosParaGuardar(productosResueltos),
       fechaInicio: data.fechaInicio,
@@ -238,8 +235,6 @@ router.post('/campanas', requirePermission('incentivos_producto.gestionar'), asy
       tipoIncentivo: data.tipoIncentivo,
       valorIncentivo: data.valorIncentivo,
       destinatario: data.destinatario,
-      baselineInicio: data.baselineInicio,
-      baselineFin: data.baselineFin,
       notas: data.notas || undefined,
       creadoPor: String(req.user?.email ?? req.user?.Nombre ?? req.user?.id_usuario ?? '').trim() || undefined,
       creadoEn: now,
@@ -254,7 +249,7 @@ router.post('/campanas', requirePermission('incentivos_producto.gestionar'), asy
     return res.status(201).json({
       ok: true,
       campanaId,
-      item,
+      item: campanaEnriquecida(item),
       warnings: responseWarnings.length > 0 ? responseWarnings : undefined,
     });
   } catch (err) {
@@ -274,12 +269,66 @@ router.patch('/campanas/:campanaId', requirePermission('incentivos_producto.gest
     }));
     if (!existing.Item) return res.status(404).json({ error: 'Campaña no encontrada' });
 
-    const estadoActual = String(existing.Item.estado || 'Borrador');
-    if (estadoActual === 'Activa') {
+    if (body.estado !== undefined) {
+      return res.status(400).json({
+        error: 'El estado se calcula automáticamente según las fechas. Use archivar: true para archivar manualmente.',
+      });
+    }
+
+    if (body.archivar === true) {
+      if (estadoEfectivo(existing.Item) === 'Archivada') {
+        return res.json({ ok: true, campanaId, item: campanaEnriquecida(existing.Item) });
+      }
+      if (estadoEfectivo(existing.Item) !== 'Bonificada') {
+        return res.status(400).json({
+          error: 'Solo se pueden archivar campañas revisadas y cerradas por RRHH (Bonificada).',
+        });
+      }
+      const now = new Date().toISOString();
+      await docClient.send(new UpdateCommand({
+        TableName: TABLE,
+        Key: { campanaId },
+        UpdateExpression: 'SET archivadaManual = :am, archivadaEn = :ae, actualizadoEn = :u',
+        ExpressionAttributeValues: {
+          ':am': true,
+          ':ae': now,
+          ':u': now,
+        },
+      }));
+      const updated = await docClient.send(new GetCommand({ TableName: TABLE, Key: { campanaId } }));
+      return res.json({ ok: true, campanaId, item: campanaEnriquecida(updated.Item) });
+    }
+
+    if (body.bonificar === true) {
+      if (estadoEfectivo(existing.Item) !== 'Finalizada') {
+        return res.status(400).json({
+          error: 'Solo se pueden cerrar campañas finalizadas pendientes de revisión RRHH.',
+        });
+      }
+      const now = new Date().toISOString();
+      const userId = req.user?.id_usuario ?? req.user?.id ?? null;
+      const notas = body.bonificacionNotas != null ? String(body.bonificacionNotas).trim() : '';
+      await docClient.send(new UpdateCommand({
+        TableName: TABLE,
+        Key: { campanaId },
+        UpdateExpression: 'SET bonificadaEn = :be, bonificadaPor = :bp, actualizadoEn = :u'
+          + (notas ? ', bonificacionNotas = :bn' : ''),
+        ExpressionAttributeValues: {
+          ':be': now,
+          ':bp': userId != null ? String(userId) : '',
+          ':u': now,
+          ...(notas ? { ':bn': notas } : {}),
+        },
+      }));
+      const updated = await docClient.send(new GetCommand({ TableName: TABLE, Key: { campanaId } }));
+      return res.json({ ok: true, campanaId, item: campanaEnriquecida(updated.Item) });
+    }
+
+    if (estadoEfectivo(existing.Item) === 'Activa') {
       for (const campo of CAMPOS_INMUTABLES_ACTIVA) {
         if (body[campo] !== undefined) {
           return res.status(400).json({
-            error: `No se puede modificar "${campo}" en una campaña Activa. Finalízala y crea otra.`,
+            error: `No se puede modificar "${campo}" en una campaña en curso (Activa). Amplíe fechas antes del inicio o cree otra campaña.`,
           });
         }
       }
@@ -309,20 +358,17 @@ router.patch('/campanas/:campanaId', requirePermission('incentivos_producto.gest
     };
 
     if (body.nombre !== undefined) setField('nombre', data.nombre);
-    if (body.estado !== undefined) setField('estado', data.estado);
     if (body.locales !== undefined) setField('locales', data.locales);
     if (body.productos !== undefined) setField('productos', productosGuardar);
     if (body.fechaInicio !== undefined) setField('fechaInicio', data.fechaInicio);
     if (body.fechaFin !== undefined) setField('fechaFin', data.fechaFin);
-    if (body.baselineInicio !== undefined) setField('baselineInicio', data.baselineInicio);
-    if (body.baselineFin !== undefined) setField('baselineFin', data.baselineFin);
     if (body.tipoIncentivo !== undefined) setField('tipoIncentivo', data.tipoIncentivo);
     if (body.valorIncentivo !== undefined) setField('valorIncentivo', data.valorIncentivo);
     if (body.destinatario !== undefined) setField('destinatario', data.destinatario);
     if (body.notas !== undefined) setField('notas', data.notas);
 
     if (updates.length === 0) {
-      return res.json({ ok: true, campanaId, item: existing.Item });
+      return res.json({ ok: true, campanaId, item: campanaEnriquecida(existing.Item) });
     }
 
     setField('actualizadoEn', new Date().toISOString());
@@ -345,7 +391,7 @@ router.patch('/campanas/:campanaId', requirePermission('incentivos_producto.gest
     return res.json({
       ok: true,
       campanaId,
-      item: updated.Item,
+      item: campanaEnriquecida(updated.Item),
       warnings: responseWarnings.length > 0 ? responseWarnings : undefined,
     });
   } catch (err) {
@@ -363,10 +409,10 @@ router.delete('/campanas/:campanaId', requirePermission('incentivos_producto.ges
     }));
     if (!existing.Item) return res.status(404).json({ error: 'Campaña no encontrada' });
 
-    const estado = String(existing.Item.estado || '');
+    const estado = estadoEfectivo(existing.Item);
     if (!['Borrador', 'Archivada'].includes(estado)) {
       return res.status(400).json({
-        error: 'Solo se pueden borrar campañas en estado Borrador o Archivada',
+        error: 'Solo se pueden borrar campañas programadas (Borrador) o archivadas',
       });
     }
 
@@ -379,6 +425,106 @@ router.delete('/campanas/:campanaId', requirePermission('incentivos_producto.ges
   } catch (err) {
     console.error('[campanas DELETE]', err.message || err);
     return res.status(500).json({ error: err.message || 'Error al borrar campaña' });
+  }
+});
+
+/**
+ * Detalle de ventas de la campaña: líneas agregadas (día/producto/camarero),
+ * agrupadas por local y, dentro, por usuario, con líneas ordenadas por fecha.
+ */
+router.get('/campanas/:campanaId/ventas-detalle', requirePermission('incentivos_producto.ver'), async (req, res) => {
+  try {
+    const campanaId = String(req.params.campanaId).trim();
+    const r = await docClient.send(new GetCommand({ TableName: TABLE, Key: { campanaId } }));
+    if (!r.Item) return res.status(404).json({ error: 'Campaña no encontrada' });
+    const campana = r.Item;
+
+    const locales = Array.isArray(campana.locales) ? campana.locales.map(String) : [];
+    const productos = Array.isArray(campana.productos) ? campana.productos : [];
+    const productIds = new Set(
+      productos.map((p) => String(p.productId || '').trim()).filter(Boolean),
+    );
+    const fechaInicio = String(campana.fechaInicio || '').trim();
+    const fechaFin = String(campana.fechaFin || '').trim();
+    const tipoIncentivo = String(campana.tipoIncentivo || '').trim();
+    let valorIncentivo = Number(campana.valorIncentivo) || 0;
+    if (['pct_coste', 'pct_margen'].includes(tipoIncentivo) && valorIncentivo > 1) {
+      valorIncentivo = round2(valorIncentivo / 100);
+    }
+
+    // Coste por producto (para el incentivo por línea)
+    const costeMap = new Map();
+    for (const pid of productIds) {
+      const pr = await docClient.send(new GetCommand({
+        TableName: tables.agoraProducts,
+        Key: { PK: 'GLOBAL', SK: pid },
+      }));
+      costeMap.set(pid, Number(pr.Item?.CostPrice) || 0);
+    }
+
+    const incentivoLinea = (uds, costeUnitario) => {
+      if (!(uds > 0) || !(valorIncentivo > 0)) return 0;
+      if (tipoIncentivo === 'eur_por_unidad') return round2(uds * valorIncentivo);
+      if (tipoIncentivo === 'pct_coste') return round2(uds * costeUnitario * valorIncentivo);
+      return 0; // pct_margen no se detalla por línea (requiere margen medio)
+    };
+
+    const porLocal = [];
+    for (const localId of locales) {
+      const rows = (await queryVentasPorLocalRango(docClient, localId, fechaInicio, fechaFin))
+        .filter((row) => productIds.has(String(row.ProductId)));
+
+      const userMap = new Map();
+      for (const row of rows) {
+        const uid = String(row.AgoraUserId || '0');
+        if (!userMap.has(uid)) {
+          userMap.set(uid, {
+            agoraUserId: uid,
+            userName: String(row.UserName || '').trim() || null,
+            lineas: [],
+            totalUnidades: 0,
+            totalImporte: 0,
+            totalIncentivo: 0,
+          });
+        }
+        const u = userMap.get(uid);
+        const uds = Number(row.Unidades) || 0;
+        const importe = Number(row.ImporteBruto) || 0;
+        const coste = costeMap.get(String(row.ProductId)) || 0;
+        const inc = incentivoLinea(uds, coste);
+        u.lineas.push({
+          fecha: String(row.Fecha || ''),
+          productId: String(row.ProductId || ''),
+          productName: String(row.ProductName || row.ProductId || ''),
+          unidades: uds,
+          importe: round2(importe),
+          incentivo: inc,
+        });
+        u.totalUnidades += uds;
+        u.totalImporte = round2(u.totalImporte + importe);
+        u.totalIncentivo = round2(u.totalIncentivo + inc);
+        if (!u.userName && row.UserName) u.userName = String(row.UserName).trim();
+      }
+
+      const porUsuario = [...userMap.values()]
+        .map((u) => ({
+          ...u,
+          lineas: u.lineas.sort((a, b) => a.fecha.localeCompare(b.fecha)),
+        }))
+        .sort((a, b) => b.totalIncentivo - a.totalIncentivo);
+
+      porLocal.push({
+        localId,
+        porUsuario,
+        totalUnidades: round2(porUsuario.reduce((a, u) => a + u.totalUnidades, 0)),
+        totalIncentivo: round2(porUsuario.reduce((a, u) => a + u.totalIncentivo, 0)),
+      });
+    }
+
+    return res.json({ ok: true, campanaId, tipoIncentivo, valorIncentivo, porLocal });
+  } catch (err) {
+    console.error('[campanas ventas-detalle]', err.message || err);
+    return res.status(500).json({ error: err.message || 'Error al cargar detalle de ventas' });
   }
 });
 

@@ -18,16 +18,19 @@ import { apiFetch } from '../../../utils/api';
 import { formatFecha } from '../../../utils/formatFecha';
 import { formatMoneda } from '../../../utils/formatMoneda';
 import { CampanaFormModal } from '../../../components/CampanaFormModal';
+import { VentasSyncAviso } from '../../../components/VentasSyncAviso';
 import {
   colorEstadoCampana,
   CHIP_ESTADO_CAMPANA_PASTEL,
   FILTROS_ESTADO_CAMPANA,
   etiquetaTipoIncentivo,
+  formatValorIncentivoDisplay,
 } from '../../../lib/incentivosProducto';
-import type { Campana, EstadoCampana, ResultadosCampana } from '../../../types/incentivosProducto';
+import { estadoEfectivoCampana, campanaPendienteRevisionRrhh } from '../../../lib/campanaEstado';
+import type { Campana, EstadoCampana, ResultadosCampana, TipoIncentivo } from '../../../types/incentivosProducto';
 
 type CampanaConResultado = Campana & {
-  resultadoNeto?: number | null;
+  costeIncentivo?: number | null;
   cargandoResultado?: boolean;
 };
 
@@ -60,7 +63,7 @@ export default function IncentivosProductoIndexScreen() {
       const res = await apiFetch(`/api/campanas/${campanaId}/resultados`);
       const data = (await res.json()) as ResultadosCampana;
       if (!res.ok) return null;
-      return data.totales?.resultadoNeto ?? null;
+      return data.totales?.costeIncentivo ?? null;
     } catch {
       return null;
     }
@@ -95,11 +98,15 @@ export default function IncentivosProductoIndexScreen() {
           });
         });
 
-        const conResultado: CampanaConResultado[] = lista.map((c) => ({
-          ...c,
-          resultadoNeto: null,
-          cargandoResultado: c.estado === 'Activa' || c.estado === 'Finalizada',
-        }));
+        const conResultado: CampanaConResultado[] = lista.map((c) => {
+          const estado = estadoEfectivoCampana(c);
+          return {
+            ...c,
+            estado,
+            costeIncentivo: null,
+            cargandoResultado: estado === 'Activa' || estado === 'Finalizada' || estado === 'Bonificada',
+          };
+        });
         setItems(conResultado);
 
         const paraResultados = conResultado.filter((c) => c.cargandoResultado);
@@ -109,7 +116,7 @@ export default function IncentivosProductoIndexScreen() {
             setItems((prev) =>
               prev.map((x) =>
                 x.campanaId === c.campanaId
-                  ? { ...x, resultadoNeto: neto, cargandoResultado: false }
+                  ? { ...x, costeIncentivo: neto, cargandoResultado: false }
                   : x,
               ),
             );
@@ -128,7 +135,7 @@ export default function IncentivosProductoIndexScreen() {
 
   const itemsFiltrados = useMemo(() => {
     if (filtroEstado === 'todos') return items;
-    return items.filter((c) => c.estado === filtroEstado);
+    return items.filter((c) => estadoEfectivoCampana(c) === filtroEstado);
   }, [items, filtroEstado]);
 
   const conteoPorEstado = useMemo(() => {
@@ -137,25 +144,25 @@ export default function IncentivosProductoIndexScreen() {
       Activa: 0,
       Borrador: 0,
       Finalizada: 0,
+      Bonificada: 0,
       Archivada: 0,
     };
     for (const c of items) {
-      if (counts[c.estado] != null) counts[c.estado]++;
+      const e = estadoEfectivoCampana(c);
+      if (counts[e] != null) counts[e]++;
     }
     return counts;
   }, [items]);
 
   const resumenKpi = useMemo(() => {
     const visibles = itemsFiltrados;
-    const conNeto = visibles.filter((c) => c.resultadoNeto != null && !c.cargandoResultado);
-    const sumNeto = conNeto.reduce((a, c) => a + (c.resultadoNeto ?? 0), 0);
-    const rentables = conNeto.filter((c) => (c.resultadoNeto ?? 0) >= 0).length;
+    const conIncentivo = visibles.filter((c) => c.costeIncentivo != null && !c.cargandoResultado);
+    const sumIncentivo = conIncentivo.reduce((a, c) => a + (c.costeIncentivo ?? 0), 0);
     return {
       total: visibles.length,
-      activas: visibles.filter((c) => c.estado === 'Activa').length,
-      sumNeto,
-      rentables,
-      conNeto: conNeto.length,
+      activas: visibles.filter((c) => estadoEfectivoCampana(c) === 'Activa').length,
+      sumIncentivo,
+      conIncentivo: conIncentivo.length,
     };
   }, [itemsFiltrados]);
 
@@ -218,37 +225,25 @@ export default function IncentivosProductoIndexScreen() {
               <Text style={styles.emptyText}>No hay campañas con este filtro.</Text>
             </View>
           ) : itemsFiltrados.map((c) => {
-            const ec = colorEstadoCampana(c.estado);
-            const sem =
-              c.resultadoNeto == null
-                ? null
-                : c.resultadoNeto >= 0
-                  ? 'verde'
-                  : 'rojo';
+            const estado = estadoEfectivoCampana(c);
+            const ec = colorEstadoCampana(estado);
+            const pendienteRrhh = campanaPendienteRevisionRrhh(c);
             return (
               <TouchableOpacity
                 key={c.campanaId}
                 activeOpacity={0.7}
-                onPress={() => router.push(`/cajas/incentivos-producto/${c.campanaId}`)}
-                style={styles.card}
+                onPress={() => router.push(`/recursos-humanos/incentivos-producto/${c.campanaId}`)}
+                style={[styles.card, pendienteRrhh && styles.cardPendienteRrhh]}
               >
                 <View style={styles.cardHeader}>
                   <View style={styles.cardTitleWrap}>
                     <Text style={styles.cardTitle} numberOfLines={1}>{c.nombre}</Text>
                     <View style={[styles.badge, { backgroundColor: ec + '18', borderColor: ec }]}>
-                      <Text style={[styles.badgeText, { color: ec }]}>{c.estado}</Text>
+                      <Text style={[styles.badgeText, { color: ec }]}>{estado}</Text>
                     </View>
-                    {sem ? (
-                      <View
-                        style={[
-                          styles.dotSem,
-                          { backgroundColor: sem === 'verde' ? '#16a34a' : '#dc2626' },
-                        ]}
-                      />
-                    ) : null}
                   </View>
                   <View style={styles.cardActions}>
-                    {puedeGestionar && (c.estado === 'Borrador' || c.estado === 'Archivada') ? (
+                    {puedeGestionar && (estado === 'Borrador' || estado === 'Archivada') ? (
                       <TouchableOpacity
                         onPress={(e) => {
                           if (Platform.OS === 'web' && e && 'stopPropagation' in e) {
@@ -282,24 +277,17 @@ export default function IncentivosProductoIndexScreen() {
                   <View style={styles.cardField}>
                     <Text style={styles.cardFieldLabel}>Incentivo</Text>
                     <Text style={styles.cardFieldValue} numberOfLines={1}>
-                      {etiquetaTipoIncentivo(c.tipoIncentivo)} · {c.valorIncentivo}
+                      {etiquetaTipoIncentivo(c.tipoIncentivo as TipoIncentivo)} ·{' '}
+                      {formatValorIncentivoDisplay(c.tipoIncentivo as TipoIncentivo, c.valorIncentivo)}
                     </Text>
                   </View>
                   <View style={styles.cardField}>
-                    <Text style={styles.cardFieldLabel}>Resultado neto</Text>
+                    <Text style={styles.cardFieldLabel}>Total incentivo</Text>
                     {c.cargandoResultado ? (
                       <ActivityIndicator size="small" color="#94a3b8" />
-                    ) : c.resultadoNeto != null ? (
-                      <Text
-                        style={[
-                          styles.cardFieldValue,
-                          {
-                            fontWeight: '700',
-                            color: c.resultadoNeto >= 0 ? '#16a34a' : '#dc2626',
-                          },
-                        ]}
-                      >
-                        {formatMoneda(c.resultadoNeto)}
+                    ) : c.costeIncentivo != null ? (
+                      <Text style={[styles.cardFieldValue, styles.cardFieldIncentivo]}>
+                        {formatMoneda(c.costeIncentivo)}
                       </Text>
                     ) : (
                       <Text style={[styles.cardFieldValue, { color: '#94a3b8', fontStyle: 'italic' }]}>
@@ -325,14 +313,14 @@ export default function IncentivosProductoIndexScreen() {
       </View>
       <View style={styles.kpiRow}>
         <KpiCard
-          label="Resultado neto"
-          value={resumenKpi.conNeto ? formatMoneda(resumenKpi.sumNeto) : '—'}
-          color={resumenKpi.sumNeto >= 0 ? '#16a34a' : '#dc2626'}
+          label="Total incentivo"
+          value={resumenKpi.conIncentivo ? formatMoneda(resumenKpi.sumIncentivo) : '—'}
+          color="#d97706"
         />
-        <KpiCard label="Rentables" value={`${resumenKpi.rentables}/${resumenKpi.conNeto || 0}`} />
+        <KpiCard label="Con datos" value={`${resumenKpi.conIncentivo}/${resumenKpi.total}`} />
       </View>
       <Text style={styles.resumenHint}>
-        Premios al equipo por vender productos concretos. El resultado neto combina margen incremental menos coste del incentivo.
+        Premios al equipo por vender productos concretos. El total incentivo es la suma devengada en el periodo.
       </Text>
     </View>
   );
@@ -340,7 +328,7 @@ export default function IncentivosProductoIndexScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.replace('/cajas')} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => router.replace('/recursos-humanos')} style={styles.backBtn}>
           <MaterialIcons name="arrow-back" size={22} color="#334155" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Incentivos por producto</Text>
@@ -389,6 +377,8 @@ export default function IncentivosProductoIndexScreen() {
       {error ? (
         <View style={styles.errorBar}><Text style={styles.errorText}>{error}</Text></View>
       ) : null}
+
+      <VentasSyncAviso />
 
       <View style={[styles.split, shouldStackPanels && styles.splitStack]}>
         {panelLista}
@@ -484,14 +474,19 @@ const styles = StyleSheet.create({
   splitStack: { flexDirection: 'column' },
   panelLista: { flex: 1, minWidth: 0 },
   panelListaBorder: { borderRightWidth: 1, borderRightColor: '#e2e8f0' },
-  panelKpiWrap: { minWidth: 280, backgroundColor: '#fff' },
-  panelKpiWrapSide: { flex: 0.42, maxWidth: 420 },
+  panelKpiWrap: { flex: 1, minWidth: 0, backgroundColor: '#fff' },
+  panelKpiWrapSide: { flex: 1 },
   panelKpiWrapStack: { flex: undefined, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
 
   list: { flex: 1 },
   listContent: { padding: 12, gap: 10, paddingBottom: 24 },
 
   card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
+  cardPendienteRrhh: {
+    borderWidth: 2,
+    borderColor: '#d97706',
+    backgroundColor: '#fffbeb',
+  },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -512,6 +507,7 @@ const styles = StyleSheet.create({
   cardField: { minWidth: 84, marginRight: 8 },
   cardFieldLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 1 },
   cardFieldValue: { fontSize: 13, color: '#334155' },
+  cardFieldIncentivo: { fontWeight: '800', color: '#0f172a' },
 
   panelKpi: { flex: 1, padding: 12, gap: 10 },
   sectionTitle: { fontSize: 12, fontWeight: '700', color: '#0f172a' },

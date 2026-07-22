@@ -8,15 +8,18 @@ import {
   TouchableOpacity,
   TextInput,
   PanResponder,
-  Platform,
-  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import {
+  ERP_LIST_HEADER_TEXT_PROPS,
+  ERP_LIST_MIN_COL_WIDTH,
+  erpListTableStyles,
+} from '../constants/erpListTableStyles';
 import { apiFetch } from '../utils/api';
 
 const DEFAULT_COL_WIDTH = 100;
-const MIN_COL_WIDTH = 50;
+const MIN_COL_WIDTH = ERP_LIST_MIN_COL_WIDTH;
 const MAX_COL_WIDTH = 280;
 const PAGE_SIZE = 50;
 
@@ -33,6 +36,15 @@ type PuntoVentaItem = {
 
 const COLUMNAS: (keyof PuntoVentaItem)[] = ['Activo', 'Id', 'Nombre', 'Tipo', 'Local', 'Grupo'];
 
+const COL_LABELS: Record<string, string> = {
+  Activo: 'Activo',
+  Id: 'ID',
+  Nombre: 'Nombre',
+  Tipo: 'Tipo',
+  Local: 'Local',
+  Grupo: 'Grupo',
+};
+
 const ACTIVO_COL_WIDTH = 40;
 
 function getValorCelda(item: PuntoVentaItem, col: string): string {
@@ -48,8 +60,6 @@ function isActivo(item: PuntoVentaItem): boolean {
 
 export default function PuntosVentaScreen() {
   const router = useRouter();
-  const { height: windowHeight } = useWindowDimensions();
-  const tableViewportHeight = Math.max(200, Math.min(windowHeight - 280, windowHeight * 0.68));
   const [saleCenters, setSaleCenters] = useState<PuntoVentaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -253,70 +263,98 @@ export default function PuntosVentaScreen() {
         {filtrados.length > 0 && <Text style={styles.subtitlePage}> · Página {safePage} de {totalPages}</Text>}
       </Text>
 
-      <View style={[styles.tableWrap, { height: tableViewportHeight }]}>
-        <ScrollView
-          style={styles.scrollVertical}
-          contentContainerStyle={styles.scrollVerticalContent}
-          nestedScrollEnabled
-          showsVerticalScrollIndicator
-          keyboardShouldPersistTaps="handled"
-        >
+      <View style={erpListTableStyles.tableOuter}>
+        <View style={erpListTableStyles.tableWrapper}>
           <ScrollView
             horizontal
-            nestedScrollEnabled
-            style={styles.scrollHorizontal}
-            contentContainerStyle={[styles.scrollContent, { minWidth: tableMinWidth }]}
+            style={[erpListTableStyles.scroll, erpListTableStyles.scrollTable, erpListTableStyles.tableScrollLtr]}
+            contentContainerStyle={[erpListTableStyles.scrollContent, { minWidth: tableMinWidth }]}
             showsHorizontalScrollIndicator
+            nestedScrollEnabled
           >
-          <View style={[styles.table, { minWidth: tableMinWidth }]}>
-            <View style={styles.rowHeader}>
+            <View style={[erpListTableStyles.table, { minWidth: tableMinWidth }]}>
+              <View style={erpListTableStyles.rowHeader}>
                 {columnas.map((col, colIdx) => (
-                  <View key={col} style={[styles.cellHeader, styles.cellCentered, { width: getColWidth(col) }, colIdx === columnas.length - 1 && styles.cellLast]}>
-                    <Text style={styles.cellHeaderText} numberOfLines={1} ellipsizeMode="tail">{col}</Text>
-                    {colIdx < columnas.length - 1 ? <View style={styles.resizeHandle} {...(resizePanResponders[col]?.panHandlers ?? {})} /> : null}
+                  <View
+                    key={col}
+                    style={[
+                      erpListTableStyles.cellHeader,
+                      col === 'Activo' && styles.cellHeaderCenter,
+                      { width: getColWidth(col) },
+                    ]}
+                  >
+                    <Text style={erpListTableStyles.cellHeaderText} {...ERP_LIST_HEADER_TEXT_PROPS}>
+                      {COL_LABELS[col]}
+                    </Text>
+                    {colIdx < columnas.length - 1 ? (
+                      <View style={erpListTableStyles.resizeHandle} {...(resizePanResponders[col]?.panHandlers ?? {})} />
+                    ) : null}
                   </View>
                 ))}
               </View>
-              {filtrados.length === 0 ? (
-                <View style={[styles.row, styles.rowEmpty, { minWidth: tableMinWidth }]}>
-                  <View style={[styles.cellEmpty, { width: tableMinWidth }]}>
-                    <Text style={styles.cellEmptyText}>
-                      {saleCenters.length === 0 ? 'No hay puntos de venta. Comprueba la conexión con Ágora (export-master WorkplacesSummary).' : 'Ningún resultado con el filtro'}
-                    </Text>
-                  </View>
-                </View>
-              ) : (
-                paginated.map((item, idx) => {
-                  const activo = isActivo(item);
-                  return (
-                    <View key={`${item.Id ?? item.id ?? idx}-${idx}`} style={[styles.row, !activo && styles.rowInactiva]}>
-                      {columnas.map((col, colIdx) => (
-                        <View key={col} style={[styles.cell, styles.cellCentered, { width: getColWidth(col) }, colIdx === columnas.length - 1 && styles.cellLast]}>
-                          {col === 'Activo' ? (
-                            <TouchableOpacity
-                              style={styles.checkboxTouch}
-                              onPress={() => toggleActivo(item, !activo)}
-                              accessibilityLabel={activo ? 'Desactivar' : 'Activar'}
-                              accessibilityRole="checkbox"
-                            >
-                              <MaterialIcons
-                                name={activo ? 'check-box' : 'check-box-outline-blank'}
-                                size={16}
-                                color={activo ? '#0ea5e9' : '#94a3b8'}
-                              />
-                            </TouchableOpacity>
-                          ) : (
-                            <Text style={[styles.cellText, !activo && styles.cellTextInactiva]} numberOfLines={1} ellipsizeMode="tail">{getValorCelda(item, col)}</Text>
-                          )}
-                        </View>
-                      ))}
+
+              <ScrollView
+                style={erpListTableStyles.tableBodyScroll}
+                contentContainerStyle={erpListTableStyles.tableBodyContent}
+                showsVerticalScrollIndicator
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+              >
+                {filtrados.length === 0 ? (
+                  <View style={erpListTableStyles.row}>
+                    <View style={[erpListTableStyles.cellEmpty, { minWidth: tableMinWidth }]}>
+                      <Text style={erpListTableStyles.cellEmptyText}>
+                        {saleCenters.length === 0
+                          ? 'No hay puntos de venta. Comprueba la conexión con Ágora (export-master WorkplacesSummary).'
+                          : 'Ningún resultado con el filtro'}
+                      </Text>
                     </View>
-                  );
-                })
-              )}
+                  </View>
+                ) : (
+                  paginated.map((item, idx) => {
+                    const activo = isActivo(item);
+                    return (
+                      <View
+                        key={`${item.Id ?? item.id ?? idx}-${idx}`}
+                        style={[erpListTableStyles.row, !activo && styles.rowInactiva]}
+                      >
+                        {columnas.map((col) => (
+                          <View
+                            key={col}
+                            style={[
+                              erpListTableStyles.cell,
+                              col === 'Activo' && styles.cellCenter,
+                              { width: getColWidth(col) },
+                            ]}
+                          >
+                            {col === 'Activo' ? (
+                              <TouchableOpacity
+                                style={styles.checkboxTouch}
+                                onPress={() => toggleActivo(item, !activo)}
+                                accessibilityLabel={activo ? 'Desactivar' : 'Activar'}
+                                accessibilityRole="checkbox"
+                              >
+                                <MaterialIcons
+                                  name={activo ? 'check-box' : 'check-box-outline-blank'}
+                                  size={16}
+                                  color={activo ? '#0ea5e9' : '#94a3b8'}
+                                />
+                              </TouchableOpacity>
+                            ) : (
+                              <Text style={[erpListTableStyles.cellText, !activo && styles.cellTextInactiva]}>
+                                {getValorCelda(item, col)}
+                              </Text>
+                            )}
+                          </View>
+                        ))}
+                      </View>
+                    );
+                  })
+                )}
+              </ScrollView>
             </View>
           </ScrollView>
-        </ScrollView>
+        </View>
       </View>
 
       {filtrados.length > PAGE_SIZE ? (
@@ -360,40 +398,9 @@ const styles = StyleSheet.create({
   pageBtnText: { fontSize: 12, color: '#334155', fontWeight: '500' },
   pageBtnTextDisabled: { color: '#94a3b8' },
   pageInfo: { fontSize: 12, color: '#64748b' },
-  tableWrap: {
-    width: '100%',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: '#f8fafc',
-  },
-  scrollVertical: { flex: 1, minHeight: 0 },
-  scrollVerticalContent: { paddingBottom: 4 },
-  scrollHorizontal: {},
-  scrollContent: { paddingBottom: 12 },
-  table: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff', alignSelf: 'flex-start' },
-  rowHeader: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
-  cellHeader: { minWidth: MIN_COL_WIDTH, paddingVertical: 2, paddingHorizontal: 6, borderRightWidth: 1, borderRightColor: '#cbd5e1', position: 'relative' },
-  resizeHandle: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: 10,
-    backgroundColor: 'rgba(0,0,0,0.04)',
-    ...(Platform.OS === 'web' ? { cursor: 'col-resize' as import('react-native').ViewStyle['cursor'] } : {}),
-  },
-  cellHeaderText: { fontSize: 10, fontWeight: '600', color: '#334155' },
-  cellLast: { borderRightWidth: 0 },
-  row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#fff' },
-  rowInactiva: { backgroundColor: '#f1f5f9' },
-  rowEmpty: {},
-  cell: { minWidth: MIN_COL_WIDTH, paddingVertical: 2, paddingHorizontal: 6, borderRightWidth: 1, borderRightColor: '#e2e8f0' },
-  cellCentered: { justifyContent: 'center', alignItems: 'center' },
-  cellText: { fontSize: 10, color: '#475569', textAlign: 'center' },
+  cellHeaderCenter: { alignItems: 'center' },
+  cellCenter: { alignItems: 'center', justifyContent: 'center' },
+  rowInactiva: { backgroundColor: '#f8fafc' },
   cellTextInactiva: { color: '#94a3b8' },
   checkboxTouch: { padding: 2 },
-  cellEmpty: { paddingVertical: 28, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
-  cellEmptyText: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', textAlign: 'center' },
 });

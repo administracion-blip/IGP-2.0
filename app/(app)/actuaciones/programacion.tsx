@@ -18,6 +18,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useLocalToast } from '../../components/Toast';
 import { TablaBasica } from '../../components/TablaBasica';
+import { erpListTableStyles } from '../../constants/erpListTableStyles';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { formatFecha } from '../../utils/formatFecha';
@@ -100,11 +101,26 @@ const CHIP_ACTUACION_PASTEL: Record<
   firmadas: { bg: '#e0f2fe', bgSel: '#bae6fd', border: '#bae6fd', borderSel: '#7dd3fc', text: '#075985' },
 };
 
-function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
+function KpiCard({
+  label,
+  value,
+  color,
+  compact,
+}: {
+  label: string;
+  value: string;
+  color?: string;
+  compact?: boolean;
+}) {
   return (
-    <View style={styles.kpiCard}>
+    <View style={compact ? styles.kpiCardCompact : styles.kpiCard}>
       <Text style={styles.kpiLabel} numberOfLines={1}>{label}</Text>
-      <Text style={[styles.kpiValue, color ? { color } : null]} numberOfLines={1}>{value}</Text>
+      <Text
+        style={[compact ? styles.kpiValueCompact : styles.kpiValue, color ? { color } : null]}
+        numberOfLines={1}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -928,14 +944,16 @@ export default function ProgramacionScreen() {
           </View>
           <Text style={styles.filterLabelInline}>Desde</Text>
           <InputFecha
-            style={[styles.fInput, styles.fInputFecha]}
+            compact
+            style={[styles.fInput, styles.filterToolbarFieldFecha, styles.fInputFecha]}
             placeholder="dd/mm/aaaa"
             valueIso={fechaDesde}
             onChangeIso={setFechaDesde}
           />
           <Text style={styles.filterLabelInline}>Hasta</Text>
           <InputFecha
-            style={[styles.fInput, styles.fInputFecha]}
+            compact
+            style={[styles.fInput, styles.filterToolbarFieldFecha, styles.fInputFecha]}
             placeholder="dd/mm/aaaa"
             valueIso={fechaHasta}
             onChangeIso={setFechaHasta}
@@ -944,6 +962,13 @@ export default function ProgramacionScreen() {
             <MaterialIcons name="filter-list" size={16} color="#fff" />
             <Text style={styles.fBtnPrimaryText}>Filtrar</Text>
           </TouchableOpacity>
+
+          <View style={[styles.kpiRowInline, !shouldStackToolbar && styles.kpiRowInlineFlex]}>
+            <KpiCard compact label="Actuaciones" value={String(resumenKpi.total)} />
+            <KpiCard compact label="Huecos" value={String(resumenKpi.huecos)} color="#d97706" />
+            <KpiCard compact label="Firmadas" value={String(resumenKpi.firmadas)} color="#16a34a" />
+            <KpiCard compact label="Importe prev." value={formatMoneda(resumenKpi.importe)} color="#0ea5e9" />
+          </View>
         </View>
 
         <View style={styles.chipRowEstado}>
@@ -972,13 +997,6 @@ export default function ProgramacionScreen() {
               </TouchableOpacity>
             );
           })}
-        </View>
-
-        <View style={styles.kpiRow}>
-          <KpiCard label="Actuaciones" value={String(resumenKpi.total)} />
-          <KpiCard label="Huecos" value={String(resumenKpi.huecos)} color="#d97706" />
-          <KpiCard label="Firmadas" value={String(resumenKpi.firmadas)} color="#16a34a" />
-          <KpiCard label="Importe prev." value={formatMoneda(resumenKpi.importe)} color="#0ea5e9" />
         </View>
       </View>
 
@@ -1011,8 +1029,7 @@ export default function ProgramacionScreen() {
         guardando={saving || generando || borrando}
         emptyMessage="No hay actuaciones. Pulsa + para nuevos registros base."
         emptyFilterMessage="Ningún resultado con el filtro"
-        defaultColWidth={88}
-        dense
+        defaultColWidth={90}
         columnasMoneda={['Importe']}
         getColumnCellStyle={(col) => {
           if (col === 'Sel') return { cell: { width: 44, minWidth: 44, maxWidth: 48 } };
@@ -1052,7 +1069,7 @@ export default function ProgramacionScreen() {
               );
             }
             return (
-              <Text style={styles.cellSmall} numberOfLines={2}>
+              <Text style={erpListTableStyles.cellText}>
                 {nombre || '—'}
               </Text>
             );
@@ -1060,7 +1077,7 @@ export default function ProgramacionScreen() {
           if (col === 'Importe') {
             const v = item.importe_final ?? item.importe_previsto;
             return (
-              <Text style={[styles.cellMoney, v == null && styles.cellMuted]}>
+              <Text style={[erpListTableStyles.cellText, styles.cellTextRight, v == null && styles.cellMuted]}>
                 {v != null ? formatMoneda(v) : '—'}
               </Text>
             );
@@ -1075,7 +1092,7 @@ export default function ProgramacionScreen() {
               );
             }
             return (
-              <Text style={styles.cellSmall} numberOfLines={1}>
+              <Text style={erpListTableStyles.cellText}>
                 {raw || '—'}
               </Text>
             );
@@ -1086,10 +1103,10 @@ export default function ProgramacionScreen() {
               <View style={styles.firmaCell}>
                 <MaterialIcons
                   name={ok ? 'check-circle' : 'radio-button-unchecked'}
-                  size={12}
+                  size={11}
                   color={ok ? '#16a34a' : '#cbd5e1'}
                 />
-                <Text style={[styles.firmaBadgeText, ok ? styles.firmaSi : styles.firmaNo]} numberOfLines={1}>
+                <Text style={[erpListTableStyles.cellText, ok ? styles.firmaSi : styles.firmaNo]}>
                   {ok ? 'Sí' : 'No'}
                 </Text>
               </View>
@@ -1097,7 +1114,11 @@ export default function ProgramacionScreen() {
           }
           if (col === 'Pago') {
             const t = item.pago_asociado_numero_factura || item.id_factura_gasto;
-            return <Text style={styles.cellSmall} numberOfLines={1}>{t ? String(t).slice(0, 14) + (String(t).length > 14 ? '…' : '') : '—'}</Text>;
+            return (
+              <Text style={erpListTableStyles.cellText}>
+                {t ? String(t) : '—'}
+              </Text>
+            );
           }
           return null;
         }}
@@ -1133,7 +1154,6 @@ export default function ProgramacionScreen() {
         }
         rightPanel={
           <View style={styles.panelCalendario}>
-            <Text style={styles.panelCalendarioTitle}>Calendario</Text>
             <ActuacionesCalendario actuaciones={actuaciones} locales={localesParipe} />
           </View>
         }
@@ -1731,7 +1751,7 @@ export default function ProgramacionScreen() {
 }
 
 const styles = StyleSheet.create({
-  screenWrap: { flex: 1, backgroundColor: '#f8fafc' },
+  screenWrap: { flex: 1, minHeight: 0, backgroundColor: '#f8fafc' },
   sinPermisoBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, padding: 24 },
   sinPermisoText: { fontSize: 14, color: '#64748b', textAlign: 'center' },
 
@@ -1781,7 +1801,8 @@ const styles = StyleSheet.create({
   },
   estadoChipCountSel: { backgroundColor: 'rgba(15,23,42,0.10)' },
   estadoChipCountText: { fontSize: 10, fontWeight: '700' },
-  kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  kpiRowInline: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'stretch' },
+  kpiRowInlineFlex: { flex: 1, minWidth: 160 },
   kpiCard: {
     flex: 1,
     minWidth: 88,
@@ -1792,8 +1813,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 6,
   },
+  kpiCardCompact: {
+    flex: 1,
+    minWidth: 72,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
   kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
   kpiValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 2 },
+  kpiValueCompact: { fontSize: 13, fontWeight: '800', color: '#0f172a', marginTop: 1 },
 
   errorBar: {
     marginHorizontal: 16,
@@ -1807,16 +1839,20 @@ const styles = StyleSheet.create({
   },
   errorBarText: { fontSize: 12, color: '#dc2626' },
 
-  tablaWrap: { flex: 1, minHeight: 0 },
+  tablaWrap: { flex: 1, minHeight: 0, minWidth: 0, width: '100%' },
   panelCalendario: {
     flex: 1,
+    width: '100%',
+    height: '100%',
+    alignSelf: 'stretch',
     backgroundColor: '#fff',
-    borderLeftWidth: 1,
-    borderLeftColor: '#e2e8f0',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
     padding: 10,
-    minWidth: 280,
+    minWidth: 0,
+    overflow: 'hidden',
   },
-  panelCalendarioTitle: { fontSize: 12, fontWeight: '700', color: '#0f172a', marginBottom: 8 },
 
   filtersWrap: { flexDirection: 'column', gap: 8, flex: 1, minWidth: 0, width: '100%', overflow: 'visible' },
   filtersRowTop: {
@@ -1849,6 +1885,14 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   filterLabelInline: { fontSize: 11, fontWeight: '700', color: '#64748b', marginRight: -2 },
+  /** Ancho fijo mínimo solo para campos de fecha (dd/mm/aaaa + icono). */
+  filterToolbarFieldFecha: {
+    width: 96,
+    minWidth: 96,
+    maxWidth: 96,
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   filterLocalDropdownWrap: {
     minWidth: 140,
     maxWidth: 220,
@@ -1911,9 +1955,11 @@ const styles = StyleSheet.create({
   },
   filterChipOn: { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' },
   filterChipText: { fontSize: 11, color: '#334155', maxWidth: 120 },
-  fInputFecha: { width: 118, minWidth: 118 },
+  fInputFecha: {
+    paddingHorizontal: 4,
+    fontSize: 11,
+  },
   fInput: {
-    width: 100,
     backgroundColor: '#fff',
     borderRadius: 8,
     borderWidth: 1,
@@ -1939,9 +1985,8 @@ const styles = StyleSheet.create({
   asocBtnText: { color: '#fff', fontWeight: '700', fontSize: 12 },
   refreshBtn: { padding: 6, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0' },
   selCell: { alignItems: 'center', justifyContent: 'center' },
-  cellMoney: { fontSize: 11, color: '#334155', textAlign: 'right' },
+  cellTextRight: { textAlign: 'right', alignSelf: 'stretch' },
   cellMuted: { color: '#94a3b8' },
-  cellSmall: { fontSize: 11, color: '#475569' },
   huecoBadge: {
     alignSelf: 'flex-start',
     backgroundColor: '#ffedd5',
@@ -1951,22 +1996,22 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     borderRadius: 4,
   },
-  huecoBadgeText: { fontSize: 8, fontWeight: '700', color: '#9a3412', lineHeight: 11 },
+  huecoBadgeText: { fontSize: 10, fontWeight: '700', color: '#9a3412', lineHeight: 13 },
   /** Estado «asociada» en planificación */
   estadoBadgeAsociada: {
     alignSelf: 'flex-start',
     backgroundColor: '#d1fae5',
-    paddingHorizontal: 7.5,
-    paddingVertical: 3.5,
-    borderRadius: 7.5,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: '#a7f3d0',
   },
   estadoBadgeAsociadaText: {
-    fontSize: 9.5,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '600',
     color: '#166534',
-    letterSpacing: 0.14,
+    lineHeight: 13,
   },
   firmaRow: {
     flexDirection: 'row',
@@ -2000,10 +2045,9 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontStyle: 'italic',
   },
-  firmaCell: { flexDirection: 'row', alignItems: 'center', gap: 2, justifyContent: 'center' },
-  firmaBadgeText: { fontSize: 8, lineHeight: 10 },
-  firmaSi: { color: '#15803d', fontWeight: '700' },
-  firmaNo: { color: '#94a3b8', fontWeight: '600' },
+  firmaCell: { flexDirection: 'row', alignItems: 'center', gap: 3, justifyContent: 'center' },
+  firmaSi: { color: '#15803d', fontWeight: '600' },
+  firmaNo: { color: '#94a3b8' },
   hintImporte: { fontSize: 10, color: '#94a3b8', lineHeight: 14, marginTop: 6, marginBottom: 2 },
   importeSugeridoLine: { fontSize: 11, color: '#64748b', marginBottom: 4, marginTop: 2 },
   importeSugeridoVal: { fontWeight: '700', color: '#334155' },

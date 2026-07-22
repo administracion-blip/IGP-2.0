@@ -25,16 +25,15 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../constants/icons';
 import { MIN_TOUCH } from '../constants/layout';
 import { useBreakpoint } from '../hooks/useBreakpoint';
+import {
+  ERP_LIST_HEADER_TEXT_PROPS,
+  ERP_LIST_MIN_COL_WIDTH,
+  erpListTableStyles,
+} from '../constants/erpListTableStyles';
 
 const DEFAULT_COL_WIDTH = 90;
 const DENSE_COL_WIDTH = 72;
-const MIN_COL_WIDTH = 40;
-const MAX_TEXT_LENGTH = 30;
-
-function truncar(val: string): string {
-  if (val.length <= MAX_TEXT_LENGTH) return val;
-  return val.slice(0, MAX_TEXT_LENGTH - 3) + '…';
-}
+const MIN_COL_WIDTH = ERP_LIST_MIN_COL_WIDTH;
 
 export type PaginacionProps = {
   totalRegistros: number;
@@ -460,26 +459,51 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
       </View>
 
       <View style={[styles.tableAndRightRow, stackRightPanel && styles.tableAndRightColumn]}>
-        <View style={[styles.tableWrapper, rightPanel != null && !stackRightPanel && styles.tableWrapperSplit]}>
+        <View
+          style={[
+            erpListTableStyles.tableOuter,
+            styles.tableWrapper,
+            rightPanel != null && !stackRightPanel && styles.tableWrapperSplit,
+          ]}
+        >
+          <View
+            style={[
+              erpListTableStyles.tableWrapper,
+              rightPanel != null && !stackRightPanel && styles.tableWrapperInnerSplit,
+            ]}
+          >
           <ScrollView
             horizontal
-            style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
+            style={[
+              erpListTableStyles.scroll,
+              erpListTableStyles.scrollTable,
+              erpListTableStyles.tableScrollLtr,
+              rightPanel != null && !stackRightPanel && styles.tableScrollSplit,
+            ]}
+            contentContainerStyle={[
+              erpListTableStyles.scrollContent,
+              rightPanel != null && !stackRightPanel && styles.tableScrollContentSplit,
+            ]}
             showsHorizontalScrollIndicator
           >
-            <View style={styles.table}>
-            <View style={[styles.rowHeader, dense && styles.rowHeaderDense]}>
+            <View
+              style={[
+                erpListTableStyles.table,
+                rightPanel != null && !stackRightPanel && styles.tableFillSplit,
+              ]}
+            >
+            <View style={[erpListTableStyles.rowHeader, dense && styles.rowHeaderDense]}>
               {columnas.map((col) => {
                 const isMoneda = columnasMoneda.some((c) => c.toLowerCase() === col.toLowerCase());
                 const colStyle = getColumnCellStyle?.(col);
                 return (
-                <View key={col} style={[styles.cellHeader, dense && styles.cellHeaderDense, comodo && styles.cellHeaderComodo, { width: getColWidth(col) }, isMoneda && styles.cellHeaderRight, colStyle?.cell]}>
-                  <Text style={[styles.cellHeaderText, dense && styles.cellHeaderTextDense, comodo && styles.cellHeaderTextComodo, isMoneda && styles.cellHeaderTextRight, colStyle?.text]} numberOfLines={1} ellipsizeMode="tail">
+                <View key={col} style={[erpListTableStyles.cellHeader, dense && styles.cellHeaderDense, comodo && styles.cellHeaderComodo, { width: getColWidth(col) }, isMoneda && styles.cellHeaderRight, colStyle?.cell]}>
+                  <Text style={[erpListTableStyles.cellHeaderText, dense && styles.cellHeaderTextDense, comodo && styles.cellHeaderTextComodo, isMoneda && styles.cellHeaderTextRight, colStyle?.text]} {...ERP_LIST_HEADER_TEXT_PROPS}>
                     {col}
                   </Text>
                   {Platform.OS === 'web' && (
                     <View
-                      style={styles.resizeHandle}
+                      style={erpListTableStyles.resizeHandle}
                       {...({
                         onMouseDown: (e: {
                           nativeEvent?: { clientX: number };
@@ -492,15 +516,21 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
               );})}
             </View>
             <ScrollView
-              style={styles.tableBodyScroll}
-              contentContainerStyle={styles.tableBodyContent}
+              style={[
+                erpListTableStyles.tableBodyScroll,
+                rightPanel != null && !stackRightPanel && styles.tableBodyScrollSplit,
+              ]}
+              contentContainerStyle={[
+                erpListTableStyles.tableBodyContent,
+                rightPanel != null && !stackRightPanel && styles.tableBodyContentSplit,
+              ]}
               showsVerticalScrollIndicator
               nestedScrollEnabled
             >
               {datos.length === 0 ? (
-                <View style={styles.row}>
-                  <View style={styles.cellEmpty}>
-                    <Text style={styles.cellEmptyText}>
+                <View style={erpListTableStyles.row}>
+                  <View style={erpListTableStyles.cellEmpty}>
+                    <Text style={erpListTableStyles.cellEmptyText}>
                       {filtroBusqueda.trim() ? emptyFilterMessage : emptyMessage}
                     </Text>
                   </View>
@@ -510,25 +540,24 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                   <TouchableOpacity
                     key={idx}
                     style={[
-                      styles.row,
+                      erpListTableStyles.row,
                       dense && styles.rowDense,
                       comodo && styles.rowComodo,
-                      selectedRowIndex === idx && styles.rowSelected,
+                      selectedRowIndex === idx && erpListTableStyles.rowSelected,
                       getRowStyle?.(item, idx),
                     ]}
                     onPress={() => seleccionarFila(idx)}
                     activeOpacity={0.8}
                   >
                     {columnas.map((col) => {
-                      const raw = getValorCelda(item, col);
-                      const text = raw.length > MAX_TEXT_LENGTH ? truncar(raw) : raw;
+                      const text = getValorCelda(item, col);
                       const isMoneda = columnasMoneda.some((c) => c.toLowerCase() === col.toLowerCase());
                       const colStyle = getColumnCellStyle?.(col);
                       const custom = renderCell?.(item, col, text) ?? null;
                       return (
-                        <View key={col} style={[styles.cell, dense && styles.cellDense, comodo && styles.cellComodo, { width: getColWidth(col) }, isMoneda && styles.cellRight, colStyle?.cell]}>
+                        <View key={col} style={[erpListTableStyles.cell, dense && styles.cellDense, comodo && styles.cellComodo, { width: getColWidth(col) }, isMoneda && styles.cellRight, colStyle?.cell]}>
                           {custom !== null ? custom : (
-                            <Text style={[styles.cellText, dense && styles.cellTextDense, comodo && styles.cellTextComodo, isMoneda && styles.cellTextRight, colStyle?.text]} numberOfLines={1} ellipsizeMode="tail">
+                            <Text style={[erpListTableStyles.cellText, dense && styles.cellTextDense, comodo && styles.cellTextComodo, isMoneda && styles.cellTextRight, colStyle?.text]}>
                               {text}
                             </Text>
                           )}
@@ -541,6 +570,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
             </ScrollView>
           </View>
         </ScrollView>
+          </View>
         </View>
         {rightPanel != null ? (
           <View style={[styles.rightPanelWrap, stackRightPanel && styles.rightPanelWrapStacked]}>{rightPanel}</View>
@@ -551,7 +581,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10 },
+  container: { flex: 1, padding: 10, minHeight: 0, minWidth: 0, width: '100%', display: 'flex' as const, flexDirection: 'column' as const },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
   loadingText: { fontSize: 12, color: '#64748b' },
   errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
@@ -676,22 +706,57 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     minHeight: 0,
+    minWidth: 0,
+    width: '100%' as const,
     alignItems: 'stretch',
     zIndex: 0,
-    gap: 12,
+    gap: 0,
   },
   tableAndRightColumn: {
     flexDirection: 'column',
   },
-  tableWrapper: { flex: 1, minHeight: 0 },
-  /** Tabla ocupa ~mitad restante; el panel derecho lleva ~48% del ancho */
-  tableWrapperSplit: { flex: 1, minWidth: 0 },
-  rightPanelWrap: {
-    width: '48%' as const,
+  tableWrapper: { flex: 1, minHeight: 0, minWidth: 0, width: '100%' as const },
+  /** Mitad izquierda: misma altura y marco que el panel del calendario. */
+  tableWrapperSplit: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: '50%' as const,
+    width: '50%' as const,
     maxWidth: '50%' as const,
-    minWidth: 260,
-    minHeight: 200,
-    flexShrink: 0,
+    minWidth: 0,
+    minHeight: 280,
+    height: '100%' as const,
+    alignSelf: 'stretch',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+  },
+  tableWrapperInnerSplit: { flex: 1, height: '100%' as const, minHeight: 0 },
+  tableScrollSplit: { flex: 1, height: '100%' as const },
+  tableScrollContentSplit: { flexGrow: 1, minHeight: '100%' as const },
+  tableFillSplit: {
+    flex: 1,
+    minHeight: '100%' as const,
+    height: '100%' as const,
+    borderWidth: 0,
+    borderRadius: 0,
+    flexDirection: 'column' as const,
+    ...(Platform.OS === 'web' ? { display: 'flex' as const } : {}),
+  },
+  tableBodyScrollSplit: { flex: 1, minHeight: 0 },
+  tableBodyContentSplit: { flexGrow: 1 },
+  rightPanelWrap: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: '50%' as const,
+    width: '50%' as const,
+    maxWidth: '50%' as const,
+    minWidth: 0,
+    minHeight: 280,
+    height: '100%' as const,
+    alignSelf: 'stretch',
   },
   rightPanelWrapStacked: {
     width: '100%' as const,
@@ -699,83 +764,19 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexShrink: 1,
   },
-  scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 20 },
-  table: {
-    flex: 1,
-    minWidth: '100%',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: '#fff',
-  },
-  tableBodyScroll: { flex: 1 },
-  tableBodyContent: { paddingBottom: 20 },
-  rowHeader: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    backgroundColor: '#e2e8f0',
-    borderBottomWidth: 1,
-    borderBottomColor: '#cbd5e1',
-  },
   rowHeaderDense: { minHeight: 20 },
-  cellHeader: {
-    minWidth: MIN_COL_WIDTH,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRightWidth: 1,
-    borderRightColor: '#cbd5e1',
-    position: 'relative',
-    justifyContent: 'center',
-  },
-  cellHeaderText: { fontSize: 11, fontWeight: '600', color: '#334155' },
   cellHeaderTextDense: { fontSize: 9 },
   cellHeaderTextComodo: { fontSize: 13 },
   cellHeaderDense: { paddingVertical: 2, paddingHorizontal: 6 },
   cellHeaderComodo: { paddingVertical: 10 },
   cellHeaderTextRight: { textAlign: 'right' },
   cellHeaderRight: { alignItems: 'flex-end', justifyContent: 'center' },
-  resizeHandle: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    width: 6,
-    height: '100%',
-    cursor: 'col-resize' as 'pointer',
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    backgroundColor: '#fff',
-  },
   rowDense: { minHeight: 18 },
   rowComodo: { minHeight: MIN_TOUCH },
-  rowSelected: { backgroundColor: '#e0f2fe' },
-  cell: {
-    minWidth: MIN_COL_WIDTH,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRightWidth: 1,
-    borderRightColor: '#e2e8f0',
-    justifyContent: 'center',
-    alignSelf: 'stretch',
-  },
   cellDense: { paddingVertical: 1, paddingHorizontal: 6 },
   cellComodo: { paddingVertical: 10 },
   cellRight: { alignItems: 'flex-end', justifyContent: 'center' },
-  cellText: { fontSize: 11, color: '#475569' },
   cellTextDense: { fontSize: 9 },
   cellTextComodo: { fontSize: 14 },
   cellTextRight: { textAlign: 'right', alignSelf: 'stretch' },
-  cellEmpty: {
-    flex: 1,
-    paddingVertical: 24,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cellEmptyText: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
 });

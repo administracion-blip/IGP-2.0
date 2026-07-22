@@ -40,6 +40,7 @@ import {
 import { apiFetch } from '../../utils/api';
 import { useGruposFamilias } from '../../hooks/useGruposFamilias';
 import { useAuth } from '../../contexts/AuthContext';
+import { DIAS_CARGA_COMPRAS, rangoComprasDefault } from '../../lib/comprasProveedorRango';
 
 type SyncOpcion = number | 'completo';
 
@@ -55,7 +56,7 @@ export default function ComprasProveedorScreen() {
   const router = useRouter();
   const { width: winWidth } = useWindowDimensions();
 
-  const { compras: items, loading, error, lastFetch, recargar } = useComprasProveedorCache();
+  const { compras: items, loading, error, lastFetch, rangoCargado, recargar } = useComprasProveedorCache();
 
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState('');
@@ -107,7 +108,8 @@ export default function ComprasProveedorScreen() {
   }, [recargar]);
 
   useEffect(() => {
-    recargar();
+    const { dateFrom, dateTo } = rangoComprasDefault(DIAS_CARGA_COMPRAS);
+    recargar({ dateFrom, dateTo });
   }, [recargar]);
 
   const opcionesFiltros = useMemo(() => {
@@ -329,6 +331,11 @@ export default function ComprasProveedorScreen() {
           />
           <Text style={styles.resultCount}>
             {filtrados.length !== items.length ? `${filtrados.length} de ` : ''}{items.length} registros
+            {rangoCargado && !rangoCargado.all && rangoCargado.dateFrom && rangoCargado.dateTo
+              ? ` · ${rangoCargado.dateFrom.split('-').reverse().join('/')}–${rangoCargado.dateTo.split('-').reverse().join('/')}`
+              : rangoCargado?.all
+                ? ' · histórico completo'
+                : ''}
           </Text>
         </View>
         <View style={styles.toolbarRight}>

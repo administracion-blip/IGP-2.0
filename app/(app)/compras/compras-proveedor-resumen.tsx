@@ -16,6 +16,7 @@ import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { InputFecha } from '../../components/InputFecha';
 import { useComprasProveedorCache } from '../../contexts/ComprasProveedorCache';
+import { DIAS_CARGA_COMPRAS, rangoComprasDefault } from '../../lib/comprasProveedorRango';
 import { apiFetch } from '../../utils/api';
 import { formatMoneda } from '../../utils/formatMoneda';
 import {
@@ -110,7 +111,8 @@ export default function ComprasProveedorResumenScreen() {
   const [albaranModal, setAlbaranModal] = useState<NodoAlbaran | null>(null);
 
   useEffect(() => {
-    recargar();
+    const { dateFrom, dateTo } = rangoComprasDefault(DIAS_CARGA_COMPRAS);
+    recargar({ dateFrom, dateTo });
   }, [recargar]);
 
   useEffect(() => {

@@ -6,6 +6,7 @@ export default function MantenimientoLayout() {
     <MantenimientoLocalesProvider>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
+        <Stack.Screen name="incidencias" />
         <Stack.Screen name="reportar" />
         <Stack.Screen name="abiertas" />
         <Stack.Screen name="programadas-hoy" />

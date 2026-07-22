@@ -19,14 +19,18 @@ import { apiFetch } from '../utils/api';
 import { valorEnLocal } from '../utils/valorEnLocal';
 import {
   avisoDuracionLarga,
+  colorEstadoCampana,
   etiquetaDestinatario,
   etiquetaTipoIncentivo,
+  normalizarValorIncentivo,
+  parseValorIncentivoInput,
+  valorIncentivoParaFormulario,
 } from '../lib/incentivosProducto';
+import { DIAS_AUTO_ARCHIVAR, estadoEfectivoCampana, etiquetaEstadoAutomatico } from '../lib/campanaEstado';
 import type {
   Campana,
   CampanaFormValues,
   DestinatarioCampana,
-  EstadoCampana,
   TipoIncentivo,
 } from '../types/incentivosProducto';
 
@@ -52,9 +56,7 @@ const EMPTY_FORM: CampanaFormValues = {
   productos: [],
   fechaInicio: '',
   fechaFin: '',
-  baselineInicio: '',
-  baselineFin: '',
-  tipoIncentivo: 'eur_por_unidad',
+  tipoIncentivo: 'pct_coste',
   valorIncentivo: '',
   destinatario: 'equipo',
   notas: '',
@@ -67,13 +69,12 @@ function campanaAForm(c: Campana): CampanaFormValues {
     productos: [...(c.productos || [])],
     fechaInicio: c.fechaInicio || '',
     fechaFin: c.fechaFin || '',
-    baselineInicio: c.baselineInicio || '',
-    baselineFin: c.baselineFin || '',
     tipoIncentivo: c.tipoIncentivo || 'eur_por_unidad',
-    valorIncentivo: c.valorIncentivo != null ? String(c.valorIncentivo) : '',
+    valorIncentivo: c.valorIncentivo != null
+      ? valorIncentivoParaFormulario(c.tipoIncentivo || 'pct_coste', c.valorIncentivo)
+      : '',
     destinatario: c.destinatario || 'equipo',
     notas: c.notas || '',
-    estado: c.estado,
   };
 }
 
@@ -86,7 +87,8 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
   const formWide = windowWidth >= 900;
 
   const esEdicion = !!campana?.campanaId;
-  const inmutable = esEdicion && campana?.estado === 'Activa';
+  const estadoCampana = campana ? estadoEfectivoCampana(campana) : null;
+  const inmutable = esEdicion && estadoCampana === 'Activa';
 
   const [form, setForm] = useState<CampanaFormValues>(EMPTY_FORM);
   const [locales, setLocales] = useState<Record<string, unknown>[]>([]);
@@ -185,6 +187,41 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
     return m;
   }, [productosAgora]);
 
+  const resumenProductosSel = useMemo(
+    () =>
+      form.productos
+        .map((p) => String(p.productName || p.productId).trim())
+        .filter(Boolean)
+        .join(', '),
+    [form.productos],
+  );
+
+  // Previsualización del incentivo por producto según el tipo seleccionado.
+  const incentivoPreview = useMemo(() => {
+    const valorRaw = parseValorIncentivoInput(form.valorIncentivo);
+    const valor = normalizarValorIncentivo(form.tipoIncentivo, valorRaw);
+    if (!(valor > 0) || form.productos.length === 0) return '';
+    if (form.tipoIncentivo === 'eur_por_unidad') {
+      return `El trabajador recibe ${valor.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € por cada unidad vendida.`;
+    }
+    if (form.tipoIncentivo === 'pct_coste') {
+      const pct = Math.round(valor * 1000) / 10;
+      const ejemplos = form.productos
+        .map((p) => {
+          const prod = productosMap.get(p.productId);
+          const coste = Number(prod?.CostPrice) || 0;
+          if (!coste) return null;
+          const inc = Math.round(coste * valor * 100) / 100;
+          return `${String(p.productName || p.productId)}: ${inc.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €/ud`;
+        })
+        .filter(Boolean)
+        .slice(0, 4);
+      const cola = ejemplos.length > 0 ? ` — ${ejemplos.join(', ')}` : ' (falta coste en almacén de los productos)';
+      return `${pct} % del precio de compra${cola}`;
+    }
+    return '';
+  }, [form.valorIncentivo, form.tipoIncentivo, form.productos, productosMap]);
+
   const aplicarProductosIds = useCallback(
     (ids: string[]) => {
       setProductoIdsSel(ids);
@@ -229,7 +266,8 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
     if (!puedeGestionar) return;
     setError(null);
     setAvisos([]);
-    const valor = parseFloat(String(form.valorIncentivo).replace(',', '.'));
+    const valorRaw = parseValorIncentivoInput(form.valorIncentivo);
+    const valor = normalizarValorIncentivo(form.tipoIncentivo, valorRaw);
     if (!form.nombre.trim()) {
       setError('Indica un nombre para la campaña');
       return;
@@ -262,11 +300,6 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
       destinatario: form.destinatario,
       notas: form.notas.trim(),
     };
-    if (form.baselineInicio && form.baselineFin) {
-      body.baselineInicio = form.baselineInicio;
-      body.baselineFin = form.baselineFin;
-    }
-    if (esEdicion && form.estado) body.estado = form.estado;
 
     setGuardando(true);
     try {
@@ -320,33 +353,6 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
         </View>
       </View>
 
-      {!inmutable ? (
-        <View style={styles.filaFechas}>
-          <View style={styles.fechaCol}>
-            <Text style={styles.label}>Baseline desde</Text>
-            <InputFecha
-              valueIso={form.baselineInicio}
-              onChangeIso={(iso) => setForm((f) => ({ ...f, baselineInicio: iso }))}
-              placeholder="dd/mm/aaaa"
-              compact
-              style={styles.inputFecha}
-              editable={puedeGestionar}
-            />
-          </View>
-          <View style={styles.fechaCol}>
-            <Text style={styles.label}>Baseline hasta</Text>
-            <InputFecha
-              valueIso={form.baselineFin}
-              onChangeIso={(iso) => setForm((f) => ({ ...f, baselineFin: iso }))}
-              placeholder="dd/mm/aaaa"
-              compact
-              style={styles.inputFecha}
-              editable={puedeGestionar}
-            />
-          </View>
-        </View>
-      ) : null}
-
       {duracionLarga ? (
         <Text style={styles.avisoInline}>
           La duración supera 8 semanas. Revisa que el periodo sea el adecuado.
@@ -365,7 +371,7 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
         <View style={styles.incentivoTipoCol}>
           <Text style={styles.label}>Tipo de incentivo</Text>
           <View style={styles.chipsRow}>
-            {(['eur_por_unidad', 'pct_margen'] as TipoIncentivo[]).map((t) => (
+            {(['eur_por_unidad', 'pct_coste'] as TipoIncentivo[]).map((t) => (
               <TouchableOpacity
                 key={t}
                 style={[styles.chip, form.tipoIncentivo === t && styles.chipActivo]}
@@ -381,18 +387,22 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
         </View>
         <View style={styles.incentivoValorCol}>
           <Text style={styles.label}>
-            {form.tipoIncentivo === 'eur_por_unidad' ? '€ / ud.' : 'Fracción margen'}
+            {form.tipoIncentivo === 'eur_por_unidad' ? '€ / ud.' : '% (escribe 10 para 10 %)'}
           </Text>
           <TextInput
             style={[styles.input, styles.inputValor]}
             value={form.valorIncentivo}
             onChangeText={(t) => setForm((f) => ({ ...f, valorIncentivo: t }))}
             keyboardType="decimal-pad"
-            placeholder={form.tipoIncentivo === 'eur_por_unidad' ? '0,00' : '0,10'}
+            placeholder={form.tipoIncentivo === 'eur_por_unidad' ? '0,80' : '10'}
             editable={puedeGestionar && !inmutable}
           />
         </View>
       </View>
+
+      {incentivoPreview ? (
+        <Text style={styles.incentivoPreview}>{incentivoPreview}</Text>
+      ) : null}
 
       <Text style={styles.label}>Destinatario</Text>
       <View style={styles.chipsRow}>
@@ -410,22 +420,28 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
         ))}
       </View>
 
-      {esEdicion ? (
-        <>
-          <Text style={styles.label}>Estado</Text>
-          <View style={styles.chipsRow}>
-            {(['Borrador', 'Activa', 'Finalizada', 'Archivada'] as EstadoCampana[]).map((e) => (
-              <TouchableOpacity
-                key={e}
-                style={[styles.chip, form.estado === e && styles.chipActivo]}
-                onPress={() => setForm((f) => ({ ...f, estado: e }))}
-              >
-                <Text style={[styles.chipText, form.estado === e && styles.chipTextActivo]}>{e}</Text>
-              </TouchableOpacity>
-            ))}
+      {esEdicion && estadoCampana ? (
+        <View style={styles.estadoAutoBox}>
+          <View style={[
+            styles.estadoAutoBadge,
+            { backgroundColor: colorEstadoCampana(estadoCampana) + '18', borderColor: colorEstadoCampana(estadoCampana) },
+          ]}>
+            <Text style={[styles.estadoAutoBadgeText, { color: colorEstadoCampana(estadoCampana) }]}>
+              {estadoCampana}
+            </Text>
           </View>
-        </>
-      ) : null}
+          <Text style={styles.estadoAutoHint}>
+            {etiquetaEstadoAutomatico(estadoCampana)}
+            {estadoCampana !== 'Archivada'
+              ? ` · Archivo automático ${DIAS_AUTO_ARCHIVAR} días tras fin de periodo.`
+              : ''}
+          </Text>
+        </View>
+      ) : (
+        <Text style={styles.estadoAutoHintNueva}>
+          El estado se calcula solo: programada → activa (en fechas) → finalizada → archivada ({DIAS_AUTO_ARCHIVAR} días).
+        </Text>
+      )}
 
       <Text style={styles.label}>Notas</Text>
       <TextInput
@@ -519,6 +535,9 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
                   compact
                   style={styles.fieldGap}
                 />
+                {resumenProductosSel ? (
+                  <Text style={styles.resumenProductos}>{resumenProductosSel}</Text>
+                ) : null}
               </View>
 
               <View style={formWide ? styles.formCol : undefined}>
@@ -595,12 +614,37 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   fieldGap: { marginTop: 6 },
+  resumenProductos: {
+    fontSize: 10,
+    color: '#64748b',
+    fontStyle: 'italic',
+    marginTop: 4,
+    lineHeight: 14,
+  },
+  incentivoPreview: {
+    fontSize: 11,
+    color: '#0369a1',
+    marginTop: 6,
+    lineHeight: 15,
+  },
   label: {
     fontSize: 11,
     fontWeight: '600',
     color: '#64748b',
     marginBottom: 4,
     marginTop: 6,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 4,
+    marginTop: 6,
+  },
+  labelInline: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748b',
   },
   input: {
     borderWidth: 1,
@@ -646,6 +690,17 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 11, color: '#64748b' },
   chipTextActivo: { color: '#0369a1', fontWeight: '600' },
   notaFechas: { fontSize: 10, color: '#94a3b8', fontStyle: 'italic', marginTop: 4 },
+  estadoAutoBox: { gap: 6, marginBottom: 8 },
+  estadoAutoBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  estadoAutoBadgeText: { fontSize: 11, fontWeight: '700' },
+  estadoAutoHint: { fontSize: 10, color: '#64748b', lineHeight: 14 },
+  estadoAutoHintNueva: { fontSize: 10, color: '#64748b', lineHeight: 14, marginBottom: 8, fontStyle: 'italic' },
   avisoBox: {
     flexDirection: 'row',
     gap: 6,

@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { useBreakpoint } from '../hooks/useBreakpoint';
+import { useHubNavGrid } from '../hooks/useHubNavGrid';
 import { MIN_TOUCH } from '../constants/layout';
 import { apiFetch } from '../utils/api';
 
@@ -45,6 +45,13 @@ function colorConsecucion(pct: number): string {
   return '#059669';
 }
 
+function accentForPct(pct: number | null, sinDatos: boolean): { bg: string; fg: string } {
+  if (pct == null || sinDatos) return { bg: '#f1f5f9', fg: '#94a3b8' };
+  if (pct < 95) return { bg: '#fee2e2', fg: '#dc2626' };
+  if (pct < 100) return { bg: '#ffedd5', fg: '#d97706' };
+  return { bg: '#dcfce7', fg: '#059669' };
+}
+
 function formatPct(pct: number): string {
   const s = Number.isInteger(pct) ? String(pct) : pct.toFixed(1).replace('.', ',');
   return `${s} %`;
@@ -56,7 +63,7 @@ type Props = {
 };
 
 export function ObjetivoMensualCard({ localIndex, onLocalIndexChange }: Props) {
-  const { isPhone, shouldStackToolbar } = useBreakpoint();
+  const { compact, rowSpanWidth } = useHubNavGrid();
   const [data, setData] = useState<ObjetivoMensualCardData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -94,9 +101,14 @@ export function ObjetivoMensualCard({ localIndex, onLocalIndexChange }: Props) {
 
   if (loading) {
     return (
-      <View style={[styles.card, styles.cardLoading]}>
-        <ActivityIndicator size="small" color="#0ea5e9" />
-        <Text style={styles.loadingText}>Objetivo mensual…</Text>
+      <View style={[styles.card, compact && styles.cardCompact, { width: rowSpanWidth }]}>
+        <View style={[styles.iconWrap, compact && styles.iconWrapCompact, { backgroundColor: '#e0f2fe' }]}>
+          <ActivityIndicator size="small" color="#0ea5e9" />
+        </View>
+        <View style={styles.body}>
+          <Text style={[styles.title, compact && styles.titleCompact]}>Objetivo mensual</Text>
+          <Text style={[styles.desc, compact && styles.descCompact]}>Cargando consecución…</Text>
+        </View>
       </View>
     );
   }
@@ -112,35 +124,46 @@ export function ObjetivoMensualCard({ localIndex, onLocalIndexChange }: Props) {
   const barPct = tienePct ? Math.min(pct, 120) : 0;
   const barWidth = (barPct / 120) * 100;
   const barColor = tienePct ? colorConsecucion(pct) : '#cbd5e1';
+  const accent = accentForPct(pct, loc.sinDatos);
 
   const prev = () => onLocalIndexChange(idx <= 0 ? locales.length - 1 : idx - 1);
   const next = () => onLocalIndexChange(idx >= locales.length - 1 ? 0 : idx + 1);
 
   return (
-    <View style={[styles.card, isPhone && styles.cardPhone]}>
+    <View style={[styles.card, compact && styles.cardCompact, { width: rowSpanWidth }]}>
       {multi ? (
         <TouchableOpacity
-          style={styles.navBtn}
+          style={[styles.navBtn, compact && styles.navBtnCompact]}
           onPress={prev}
           accessibilityLabel="Local anterior"
           hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
         >
-          <MaterialIcons name="chevron-left" size={28} color="#64748b" />
+          <MaterialIcons name="chevron-left" size={compact ? 22 : 24} color="#64748b" />
         </TouchableOpacity>
       ) : null}
 
+      <View style={[styles.iconWrap, compact && styles.iconWrapCompact, { backgroundColor: accent.bg }]}>
+        <MaterialIcons name="flag" size={compact ? 22 : 26} color={accent.fg} />
+      </View>
+
       <View style={styles.body}>
-        <View style={styles.headerRow}>
-          <View style={styles.headerText}>
-            <Text style={styles.localNombre} numberOfLines={1}>{loc.nombre}</Text>
-            <Text style={styles.periodo}>{labelPeriodo(data.mes)}</Text>
-          </View>
+        <View style={styles.titleRow}>
+          <Text style={[styles.title, compact && styles.titleCompact]} numberOfLines={1}>
+            {loc.nombre}
+          </Text>
           {multi ? (
-            <Text style={styles.posicion}>{idx + 1}/{locales.length}</Text>
+            <View style={styles.posBadge}>
+              <Text style={styles.posBadgeText}>
+                {idx + 1}/{locales.length}
+              </Text>
+            </View>
           ) : null}
         </View>
+        <Text style={[styles.desc, compact && styles.descCompact]} numberOfLines={1}>
+          {labelPeriodo(data.mes)}
+        </Text>
 
-        <View style={[styles.progressRow, shouldStackToolbar && styles.progressRowStack]}>
+        <View style={styles.progressRow}>
           <View style={styles.trackWrap}>
             <View style={styles.track}>
               <View style={[styles.mark100, { left: `${(100 / 120) * 100}%` }]} />
@@ -148,7 +171,7 @@ export function ObjetivoMensualCard({ localIndex, onLocalIndexChange }: Props) {
             </View>
           </View>
           <Text
-            style={[styles.pctText, tienePct && { color: barColor }]}
+            style={[styles.pctText, compact && styles.pctTextCompact, tienePct && { color: barColor }]}
             accessibilityLabel={tienePct ? `Consecución ${formatPct(pct)}` : 'Sin datos de consecución'}
           >
             {tienePct ? formatPct(pct) : 'Sin datos'}
@@ -158,12 +181,12 @@ export function ObjetivoMensualCard({ localIndex, onLocalIndexChange }: Props) {
 
       {multi ? (
         <TouchableOpacity
-          style={styles.navBtn}
+          style={[styles.navBtn, compact && styles.navBtnCompact]}
           onPress={next}
           accessibilityLabel="Local siguiente"
           hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
         >
-          <MaterialIcons name="chevron-right" size={28} color="#64748b" />
+          <MaterialIcons name="chevron-right" size={compact ? 22 : 24} color="#64748b" />
         </TouchableOpacity>
       ) : null}
     </View>
@@ -174,83 +197,111 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    gap: 14,
+    backgroundColor: '#ffffff',
     borderRadius: 12,
+    padding: 16,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    marginBottom: 12,
-    minHeight: 88,
-    maxHeight: 110,
-    gap: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+    minHeight: MIN_TOUCH + 24,
+    alignSelf: 'flex-start',
   },
-  cardLoading: {
-    justifyContent: 'center',
-  },
-  cardPhone: {
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-  },
-  loadingText: {
-    fontSize: 12,
-    color: '#64748b',
-    marginLeft: 8,
+  cardCompact: {
+    gap: 10,
+    padding: 12,
+    borderRadius: 10,
   },
   navBtn: {
-    width: MIN_TOUCH,
-    height: MIN_TOUCH,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    flexShrink: 0,
+  },
+  navBtnCompact: {
+    width: 28,
+    height: 28,
+  },
+  iconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  iconWrapCompact: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
   },
   body: {
     flex: 1,
     minWidth: 0,
-    justifyContent: 'center',
-    gap: 8,
+    gap: 6,
   },
-  headerRow: {
+  titleRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
   },
-  headerText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  localNombre: {
+  title: {
     fontSize: 15,
     fontWeight: '700',
     color: '#0f172a',
+    flex: 1,
+    minWidth: 0,
   },
-  periodo: {
-    fontSize: 11,
+  titleCompact: {
+    fontSize: 14,
+  },
+  desc: {
+    fontSize: 12,
     color: '#64748b',
-    marginTop: 2,
+    lineHeight: 16,
   },
-  posicion: {
+  descCompact: {
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  posBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    flexShrink: 0,
+  },
+  posBadgeText: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#94a3b8',
-    paddingTop: 2,
+    color: '#64748b',
   },
   progressRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-  },
-  progressRowStack: {
-    flexWrap: 'wrap',
+    marginTop: 2,
   },
   trackWrap: {
     flex: 1,
-    minWidth: 80,
+    minWidth: 60,
   },
   track: {
-    height: 10,
+    height: 8,
     backgroundColor: '#f1f5f9',
-    borderRadius: 5,
+    borderRadius: 4,
     overflow: 'hidden',
     position: 'relative',
   },
@@ -260,18 +311,23 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: 2,
     marginLeft: -1,
-    backgroundColor: '#64748b',
+    backgroundColor: '#94a3b8',
     zIndex: 2,
   },
   fill: {
     height: '100%',
-    borderRadius: 5,
+    borderRadius: 4,
   },
   pctText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
     color: '#64748b',
-    minWidth: 72,
+    minWidth: 64,
     textAlign: 'right',
+    flexShrink: 0,
+  },
+  pctTextCompact: {
+    fontSize: 14,
+    minWidth: 56,
   },
 });

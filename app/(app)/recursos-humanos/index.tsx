@@ -1,21 +1,13 @@
+import { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { EstrellaFavorito } from '../../components/EstrellaFavorito';
+import { HubNavCard, HubNavGrid } from '../../components/ui/HubNavCard';
+import { useHubNavGrid } from '../../hooks/useHubNavGrid';
+import { hubAccentById } from '../../lib/hubNavAccent';
 
-/**
- * Hub del módulo "Recursos Humanos": accesos a empleados (Factorial HR)
- * y cuadrante de personal (turnos planificados vs fichajes reales).
- *
- * Las pantallas concretas siguen viviendo en sus rutas originales:
- *  - Empleados: `/personal` (`app/(app)/personal.tsx`)
- *  - Cuadrante: `/planning-dia/cuadrante` (`app/(app)/planning-dia/cuadrante.tsx`)
- *
- * Cada tarjeta se filtra por su permiso granular para no romper accesos
- * existentes (Base de Datos sigue mostrando "Personal" con `personal.ver`
- * y Planning del Día sigue enlazando al cuadrante con `planning_dia.ver`).
- */
 type Tarjeta = {
   id: string;
   label: string;
@@ -50,13 +42,36 @@ const TARJETAS: Tarjeta[] = [
     ruta: '/recursos-humanos/horas-facturacion',
     permiso: 'rrhh.horas',
   },
+  {
+    id: 'incentivos-producto',
+    label: 'Incentivos por producto',
+    descripcion: 'Bonificaciones por productos vendidos en campaña',
+    icon: 'redeem',
+    ruta: '/recursos-humanos/incentivos-producto',
+    permiso: 'incentivos_producto.ver',
+  },
+  {
+    id: 'rrpp',
+    label: 'RRPP',
+    descripcion: 'Relaciones públicas y promoción',
+    icon: 'people',
+    ruta: '/rrpp',
+    permiso: 'rrpp.ver',
+  },
 ];
 
 export default function RecursosHumanosIndexScreen() {
   const router = useRouter();
   const { hasPermiso } = useAuth();
+  const { cardWidth, compact } = useHubNavGrid();
 
-  const visibles = TARJETAS.filter((t) => hasPermiso(t.permiso));
+  const visibles = useMemo(
+    () =>
+      TARJETAS.filter((t) => hasPermiso(t.permiso)).sort((a, b) =>
+        a.label.localeCompare(b.label, 'es'),
+      ),
+    [hasPermiso],
+  );
 
   return (
     <View style={styles.container}>
@@ -66,11 +81,11 @@ export default function RecursosHumanosIndexScreen() {
         </TouchableOpacity>
         <View>
           <Text style={styles.title}>Recursos Humanos</Text>
-          <Text style={styles.subtitle}>Empleados, cuadrante y herramientas de personal</Text>
+          <Text style={styles.subtitle}>Empleados, cuadrante, incentivos y herramientas de personal</Text>
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={{ gap: 12, paddingBottom: 24 }}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
         {visibles.length === 0 ? (
           <View style={styles.emptyBox}>
             <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
@@ -79,24 +94,29 @@ export default function RecursosHumanosIndexScreen() {
             </Text>
           </View>
         ) : (
-          visibles.map((t) => (
-            <TouchableOpacity
-              key={t.id}
-              style={styles.card}
-              onPress={() => router.push(t.ruta as never)}
-              activeOpacity={0.75}
-            >
-              <View style={styles.cardIconWrap}>
-                <MaterialIcons name={t.icon} size={28} color="#0ea5e9" />
-              </View>
-              <View style={styles.cardBody}>
-                <Text style={styles.cardTitle}>{t.label}</Text>
-                <Text style={styles.cardDesc}>{t.descripcion}</Text>
-              </View>
-              <EstrellaFavorito favorito={{ route: t.ruta, label: t.label, icon: t.icon, permiso: t.permiso }} />
-              <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
-            </TouchableOpacity>
-          ))
+          <HubNavGrid>
+            {visibles.map((t) => {
+              const accent = hubAccentById(t.id);
+              return (
+                <HubNavCard
+                  key={t.id}
+                  label={t.label}
+                  description={t.descripcion}
+                  icon={t.icon}
+                  accentBg={accent.accentBg}
+                  accentFg={accent.accentFg}
+                  width={cardWidth}
+                  compact={compact}
+                  onPress={() => router.push(t.ruta as never)}
+                  trailing={
+                    <EstrellaFavorito
+                      favorito={{ route: t.ruta, label: t.label, icon: t.icon, permiso: t.permiso }}
+                    />
+                  }
+                />
+              );
+            })}
+          </HubNavGrid>
         )}
       </ScrollView>
     </View>
@@ -104,7 +124,7 @@ export default function RecursosHumanosIndexScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f1f5f9' },
+  container: { flex: 1, padding: 16, backgroundColor: '#ffffff' },
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 10 },
   backBtn: {
     width: 36,
@@ -116,40 +136,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#334155' },
+  title: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
   subtitle: { fontSize: 13, color: '#64748b', marginTop: 4 },
-
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  cardIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
-    backgroundColor: '#e0f2fe',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardBody: { flex: 1 },
-  cardTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 4 },
-  cardDesc: { fontSize: 13, color: '#64748b', lineHeight: 18 },
-
-  emptyBox: {
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 40,
-  },
+  scrollContent: { paddingBottom: 24 },
+  emptyBox: { alignItems: 'center', gap: 8, paddingVertical: 40 },
   emptyText: { fontSize: 13, color: '#64748b', textAlign: 'center' },
 });

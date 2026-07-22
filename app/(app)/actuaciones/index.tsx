@@ -22,6 +22,8 @@ import {
   puedeProgramacionActuaciones,
   puedeGestionarArtistas,
 } from '../../lib/permisosModulos';
+import { HubNavCard } from '../../components/ui/HubNavCard';
+import { hubAccentById } from '../../lib/hubNavAccent';
 
 type ActuacionDia = {
   id_actuacion: string;
@@ -350,33 +352,31 @@ export default function ActuacionesIndexScreen() {
       <Text style={styles.title}>Actuaciones</Text>
       <Text style={styles.subtitle}>Artistas y programación de actuaciones.</Text>
 
-      <TouchableOpacity
-        style={[styles.card, !puedeArtistas && styles.cardDisabled]}
-        onPress={() => puedeArtistas && router.push('/actuaciones/artistas' as any)}
-        activeOpacity={puedeArtistas ? 0.8 : 1}
+      <HubNavCard
+        label="Artistas"
+        description="Fichas, tarifas, contacto e imagen"
+        icon="person"
+        accentBg={hubAccentById('artistas').accentBg}
+        accentFg={hubAccentById('artistas').accentFg}
+        width="100%"
+        compact
         disabled={!puedeArtistas}
-      >
-        <MaterialIcons name="person" size={26} color="#0ea5e9" />
-        <View style={styles.cardText}>
-          <Text style={styles.cardTitle}>Artistas</Text>
-          <Text style={styles.cardDesc}>Fichas, tarifas, contacto e imagen</Text>
-        </View>
-        <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
-      </TouchableOpacity>
+        onPress={() => router.push('/actuaciones/artistas' as never)}
+        style={styles.menuCard}
+      />
 
-      <TouchableOpacity
-        style={[styles.card, !puedeProgramacion && styles.cardDisabled]}
-        onPress={() => puedeProgramacion && router.push('/actuaciones/programacion' as any)}
-        activeOpacity={puedeProgramacion ? 0.8 : 1}
+      <HubNavCard
+        label="Programación"
+        description="Actuaciones, firma y asociación a facturas"
+        icon="event"
+        accentBg={hubAccentById('programacion').accentBg}
+        accentFg={hubAccentById('programacion').accentFg}
+        width="100%"
+        compact
         disabled={!puedeProgramacion}
-      >
-        <MaterialIcons name="event" size={26} color="#0ea5e9" />
-        <View style={styles.cardText}>
-          <Text style={styles.cardTitle}>Programación</Text>
-          <Text style={styles.cardDesc}>Actuaciones, firma y asociación a facturas</Text>
-        </View>
-        <MaterialIcons name="chevron-right" size={22} color="#94a3b8" />
-      </TouchableOpacity>
+        onPress={() => router.push('/actuaciones/programacion' as never)}
+        style={styles.menuCard}
+      />
     </View>
   );
 
@@ -420,21 +420,7 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 20, fontWeight: '700', color: '#334155', marginBottom: 2 },
   subtitle: { fontSize: 13, color: '#64748b', marginBottom: 12 },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  cardDisabled: { opacity: 0.45 },
-  cardText: { flex: 1, minWidth: 0 },
-  cardTitle: { fontSize: 15, fontWeight: '700', color: '#334155' },
-  cardDesc: { fontSize: 11, color: '#64748b', marginTop: 2 },
+  menuCard: { marginBottom: 8 },
   panelDerecha: {
     flex: 6,
     minWidth: 0,

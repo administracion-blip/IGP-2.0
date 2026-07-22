@@ -4623,22 +4623,44 @@ router.get('/agora/purchases/por-producto', async (req, res) => {
   }
 });
 
-// --- Caché en memoria para GET /agora/purchases (TTL 5 min) ---
-const _purchasesCache = { data: null, ts: 0 };
+// --- Caché en memoria para GET /agora/purchases (TTL 5 min, clave por rango) ---
+const _purchasesCache = new Map();
 const _PURCHASES_TTL = 5 * 60 * 1000;
 
+function parsePurchasesIsoDate(val) {
+  const s = String(val ?? '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
+function purchasesCacheKey({ all, dateFrom, dateTo }) {
+  if (all) return 'all';
+  return `${dateFrom || ''}|${dateTo || ''}`;
+}
+
+function albaranFechaEnRango(fecha, dateFrom, dateTo) {
+  const f = String(fecha || '').trim();
+  if (!f) return true;
+  if (dateFrom && f < dateFrom) return false;
+  if (dateTo && f > dateTo) return false;
+  return true;
+}
+
 function invalidatePurchasesCache() {
-  _purchasesCache.data = null;
-  _purchasesCache.ts = 0;
+  _purchasesCache.clear();
 }
 
 router.get('/agora/purchases', async (req, res) => {
   {
     const forceRefresh = req.query.refresh === '1';
+    const loadAll = req.query.all === '1';
+    const dateFrom = loadAll ? null : parsePurchasesIsoDate(req.query.dateFrom);
+    const dateTo = loadAll ? null : parsePurchasesIsoDate(req.query.dateTo);
+    const cacheKey = purchasesCacheKey({ all: loadAll, dateFrom, dateTo });
     const now = Date.now();
 
-    if (!forceRefresh && _purchasesCache.data && (now - _purchasesCache.ts) < _PURCHASES_TTL) {
-      return res.json({ ..._purchasesCache.data, cached: true });
+    const cached = _purchasesCache.get(cacheKey);
+    if (!forceRefresh && cached && (now - cached.ts) < _PURCHASES_TTL) {
+      return res.json({ ...cached.data, cached: true });
     }
 
     const items = [];
@@ -4649,7 +4671,11 @@ router.get('/agora/purchases', async (req, res) => {
         ...(lastKey && { ExclusiveStartKey: lastKey }),
       });
       const result = await docClient.send(cmd);
-      items.push(...(result.Items || []));
+      for (const item of (result.Items || [])) {
+        if (loadAll || albaranFechaEnRango(item.AlbaranFecha, dateFrom, dateTo)) {
+          items.push(item);
+        }
+      }
       lastKey = result.LastEvaluatedKey || null;
     } while (lastKey);
 
@@ -4662,9 +4688,15 @@ router.get('/agora/purchases', async (req, res) => {
       return sa.localeCompare(sb);
     });
 
-    const payload = { ok: true, items, total: items.length };
-    _purchasesCache.data = payload;
-    _purchasesCache.ts = now;
+    const payload = {
+      ok: true,
+      items,
+      total: items.length,
+      dateFrom: loadAll ? null : dateFrom,
+      dateTo: loadAll ? null : dateTo,
+      all: loadAll,
+    };
+    _purchasesCache.set(cacheKey, { data: payload, ts: now });
 
     return res.json({ ...payload, cached: false });
   }

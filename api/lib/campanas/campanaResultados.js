@@ -1,6 +1,6 @@
 /**
  * Cálculo de resultados de campañas de incentivo por producto.
- * Fórmulas normativas: cursor-campanas-prompt.md § Decisiones cerradas.
+ * Modelo operativo: uds vendidas en campaña + incentivo devengado (sin baseline ni rentabilidad).
  */
 
 import { GetCommand, BatchGetCommand } from '@aws-sdk/lib-dynamodb';
@@ -48,20 +48,27 @@ function resolveMargenUnitario(productoCampana, campanaRows, agoraProduct, warni
     if (fijo !== 0) return fijo;
   }
   const costPrice = toNumberSafe(agoraProduct?.CostPrice);
-  if (!costPrice) {
-    if (!warnings.includes('coste_desconocido')) warnings.push('coste_desconocido');
-    return 0;
-  }
+  if (!costPrice) return 0;
   const precioSinIva = calcPrecioMedioSinIva(campanaRows, agoraProduct, warnings);
   return round2(precioSinIva - costPrice);
 }
 
-function calcIncentivoProducto(unidades, margenUnitario, tipoIncentivo, valorIncentivo) {
+/**
+ * Incentivo devengado.
+ * - eur_por_unidad: usa unidades bonificables (descuento > umbral reduce proporcional).
+ * - pct_coste / pct_margen: usan unidades reales (ajenos al descuento por unidad;
+ *   pct_margen ya refleja el descuento vía el precio medio real).
+ */
+function calcIncentivoProducto(unidades, unidadesBonificables, margenUnitario, costeUnitario, tipoIncentivo, valorIncentivo) {
   const uds = toNumberSafe(unidades);
+  const udsBonif = toNumberSafe(unidadesBonificables);
   const valor = toNumberSafe(valorIncentivo);
   if (uds <= 0 || valor <= 0) return 0;
   if (tipoIncentivo === 'eur_por_unidad') {
-    return round2(uds * valor);
+    return round2(udsBonif * valor);
+  }
+  if (tipoIncentivo === 'pct_coste') {
+    return round2(uds * toNumberSafe(costeUnitario) * valor);
   }
   if (tipoIncentivo === 'pct_margen') {
     return round2(uds * margenUnitario * valor);
@@ -69,9 +76,13 @@ function calcIncentivoProducto(unidades, margenUnitario, tipoIncentivo, valorInc
   return 0;
 }
 
-function veredictoProducto(resultadoNeto, warnings) {
-  if (warnings.includes('coste_desconocido')) return 'REVISAR';
-  return resultadoNeto >= 0 ? 'RENTABLE' : 'REVISAR';
+function calcBonificacionUnitaria(margenUnitario, costeUnitario, tipoIncentivo, valorIncentivo) {
+  const valor = toNumberSafe(valorIncentivo);
+  if (valor <= 0) return 0;
+  if (tipoIncentivo === 'eur_por_unidad') return round2(valor);
+  if (tipoIncentivo === 'pct_coste') return round2(toNumberSafe(costeUnitario) * valor);
+  if (tipoIncentivo === 'pct_margen') return round2(margenUnitario * valor);
+  return 0;
 }
 
 async function loadAgoraProductsMap(docClient, productIds) {
@@ -105,8 +116,15 @@ function sumUnidades(rows) {
   return rows.reduce((acc, r) => acc + toNumberSafe(r.Unidades), 0);
 }
 
-function sumImporte(rows) {
-  return round2(rows.reduce((acc, r) => acc + toNumberSafe(r.ImporteBruto), 0));
+/** Unidades bonificables de una fila (fallback a Unidades si el agregado es previo al campo). */
+function udsBonificablesRow(r) {
+  return r?.UnidadesBonificables != null
+    ? toNumberSafe(r.UnidadesBonificables)
+    : toNumberSafe(r.Unidades);
+}
+
+function sumUnidadesBonificables(rows) {
+  return rows.reduce((acc, r) => acc + udsBonificablesRow(r), 0);
 }
 
 /**
@@ -121,21 +139,17 @@ export async function calcularResultadosCampana(docClient, campana) {
 
   const fechaInicio = String(campana.fechaInicio || '').trim();
   const fechaFin = String(campana.fechaFin || '').trim();
-  const baselineInicio = String(campana.baselineInicio || '').trim();
-  const baselineFin = String(campana.baselineFin || '').trim();
   const tipoIncentivo = String(campana.tipoIncentivo || '').trim();
-  const valorIncentivo = toNumberSafe(campana.valorIncentivo);
+  let valorIncentivo = toNumberSafe(campana.valorIncentivo);
+  if (['pct_coste', 'pct_margen'].includes(tipoIncentivo) && valorIncentivo > 1) {
+    valorIncentivo = round2(valorIncentivo / 100);
+  }
   const destinatario = String(campana.destinatario || 'equipo').trim();
-
-  const diasBaseline = daysBetweenInclusive(baselineInicio, baselineFin);
   const diasCampana = daysBetweenInclusive(fechaInicio, fechaFin);
-
-  const fechaMin = [baselineInicio, fechaInicio].filter(Boolean).sort()[0];
-  const fechaMax = [baselineFin, fechaFin].filter(Boolean).sort().pop();
 
   const ventasPorLocal = new Map();
   for (const localId of locales) {
-    const rows = await queryVentasPorLocalRango(docClient, localId, fechaMin, fechaMax);
+    const rows = await queryVentasPorLocalRango(docClient, localId, fechaInicio, fechaFin);
     ventasPorLocal.set(localId, rows);
   }
 
@@ -152,35 +166,18 @@ export async function calcularResultadosCampana(docClient, campana) {
     const productName = String(prod.productName || productId).trim();
     const agoraProduct = agoraProducts.get(productId) || null;
 
-    let udsBaselineTotal = 0;
     let udsCampanaTotal = 0;
-    let udsIncrementalesTotal = 0;
-    let baselineIncompletoProducto = false;
-
+    let udsBonificablesTotal = 0;
     const campanaRowsAll = [];
-    const margenRowsAll = [];
 
     for (const localId of locales) {
       const allRows = ventasPorLocal.get(localId) || [];
-      const baselineRows = filterRows(allRows, productId, baselineInicio, baselineFin);
       const campanaRows = filterRows(allRows, productId, fechaInicio, fechaFin);
-
       campanaRowsAll.push(...campanaRows);
-      margenRowsAll.push(...campanaRows);
 
-      const udsBaselineLocal = sumUnidades(baselineRows);
       const udsCampanaLocal = sumUnidades(campanaRows);
-
-      udsBaselineTotal += udsBaselineLocal;
       udsCampanaTotal += udsCampanaLocal;
-
-      if (udsBaselineLocal <= 0) {
-        baselineIncompletoProducto = true;
-      } else {
-        const udsBaselinePorDiaLocal = udsBaselineLocal / diasBaseline;
-        const baselineExtrapoladoLocal = udsBaselinePorDiaLocal * diasCampana;
-        udsIncrementalesTotal += Math.max(0, udsCampanaLocal - baselineExtrapoladoLocal);
-      }
+      udsBonificablesTotal += sumUnidadesBonificables(campanaRows);
 
       if (destinatario === 'individual') {
         const byUser = new Map();
@@ -222,41 +219,41 @@ export async function calcularResultadosCampana(docClient, campana) {
       if (!localAgg.has(localId)) {
         localAgg.set(localId, { localId, unidades: 0, incentivoDevengado: 0 });
       }
-      const loc = localAgg.get(localId);
-      loc.unidades += udsCampanaLocal;
+      localAgg.get(localId).unidades += udsCampanaLocal;
     }
 
-    if (baselineIncompletoProducto && !warnings.includes('baseline_incompleto')) {
-      warnings.push('baseline_incompleto');
-    }
+    const costeUnitario = toNumberSafe(agoraProduct?.CostPrice);
 
-    const udsBaselinePorDia = diasBaseline > 0 ? udsBaselineTotal / diasBaseline : 0;
-    const udsCampanaPorDia = diasCampana > 0 ? udsCampanaTotal / diasCampana : 0;
-    const udsIncrementales = baselineIncompletoProducto ? 0 : round2(udsIncrementalesTotal);
+    const margenUnitario = tipoIncentivo === 'pct_margen'
+      ? resolveMargenUnitario(prod, campanaRowsAll, agoraProduct, warnings)
+      : 0;
 
-    const margenUnitario = resolveMargenUnitario(prod, margenRowsAll, agoraProduct, warnings);
-    const margenIncremental = round2(udsIncrementales * margenUnitario);
     const costeIncentivo = calcIncentivoProducto(
       udsCampanaTotal,
+      udsBonificablesTotal,
       margenUnitario,
+      costeUnitario,
       tipoIncentivo,
       valorIncentivo,
     );
-    const resultadoNeto = round2(margenIncremental - costeIncentivo);
+
+    const bonificacionUnitaria = calcBonificacionUnitaria(
+      margenUnitario,
+      costeUnitario,
+      tipoIncentivo,
+      valorIncentivo,
+    );
+
+    const udsCampanaPorDia = diasCampana > 0 ? udsCampanaTotal / diasCampana : 0;
 
     porProductoMap.set(productId, {
       productId,
       productName,
-      udsBaselinePorDia: round2(udsBaselinePorDia),
       udsCampanaPorDia: round2(udsCampanaPorDia),
       udsCampanaTotal: round2(udsCampanaTotal),
-      udsIncrementales,
-      margenUnitario,
-      margenIncremental,
       costeIncentivo,
-      resultadoNeto,
-      veredicto: veredictoProducto(resultadoNeto, warnings),
-      baselineIncompleto: baselineIncompletoProducto,
+      bonificacionUnitaria,
+      precioCoste: costeUnitario > 0 ? round2(costeUnitario) : undefined,
     });
 
     if (destinatario === 'individual') {
@@ -265,16 +262,18 @@ export async function calcularResultadosCampana(docClient, campana) {
         const byUser = new Map();
         for (const r of campanaRows) {
           const uid = String(r.AgoraUserId || '0');
-          if (!byUser.has(uid)) byUser.set(uid, 0);
-          byUser.set(uid, byUser.get(uid) + toNumberSafe(r.Unidades));
+          if (!byUser.has(uid)) byUser.set(uid, { uds: 0, udsBonif: 0 });
+          const acc = byUser.get(uid);
+          acc.uds += toNumberSafe(r.Unidades);
+          acc.udsBonif += udsBonificablesRow(r);
         }
-        for (const [uid, uds] of byUser) {
+        for (const [uid, { uds, udsBonif }] of byUser) {
           const empKey = `${localId}|${uid}`;
           const emp = empleadoAgg.get(empKey);
           if (!emp) continue;
           emp.incentivoDevengado = round2(
             emp.incentivoDevengado +
-            calcIncentivoProducto(uds, margenUnitario, tipoIncentivo, valorIncentivo),
+            calcIncentivoProducto(uds, udsBonif, margenUnitario, costeUnitario, tipoIncentivo, valorIncentivo),
           );
         }
       }
@@ -282,11 +281,12 @@ export async function calcularResultadosCampana(docClient, campana) {
       for (const localId of locales) {
         const campanaRows = filterRows(ventasPorLocal.get(localId) || [], productId, fechaInicio, fechaFin);
         const udsLocal = sumUnidades(campanaRows);
+        const udsBonifLocal = sumUnidadesBonificables(campanaRows);
         const loc = localAgg.get(localId);
         if (loc) {
           loc.incentivoDevengado = round2(
             loc.incentivoDevengado +
-            calcIncentivoProducto(udsLocal, margenUnitario, tipoIncentivo, valorIncentivo),
+            calcIncentivoProducto(udsLocal, udsBonifLocal, margenUnitario, costeUnitario, tipoIncentivo, valorIncentivo),
           );
         }
       }
@@ -309,11 +309,10 @@ export async function calcularResultadosCampana(docClient, campana) {
   const porProducto = [...porProductoMap.values()];
   const totales = porProducto.reduce(
     (acc, p) => ({
-      margenIncremental: round2(acc.margenIncremental + p.margenIncremental),
+      unidadesCampana: round2(acc.unidadesCampana + p.udsCampanaTotal),
       costeIncentivo: round2(acc.costeIncentivo + p.costeIncentivo),
-      resultadoNeto: round2(acc.resultadoNeto + p.resultadoNeto),
     }),
-    { margenIncremental: 0, costeIncentivo: 0, resultadoNeto: 0 },
+    { unidadesCampana: 0, costeIncentivo: 0 },
   );
 
   const porEmpleado = destinatario === 'individual'
@@ -336,19 +335,6 @@ export async function calcularResultadosCampana(docClient, campana) {
   };
 }
 
-/** Baseline por defecto: mismo número de días inmediatamente anterior a fechaInicio. */
-export function defaultBaselinePeriod(fechaInicio, fechaFin) {
-  const dias = daysBetweenInclusive(fechaInicio, fechaFin);
-  const fin = new Date(fechaInicio + 'T12:00:00');
-  fin.setDate(fin.getDate() - 1);
-  const inicio = new Date(fechaInicio + 'T12:00:00');
-  inicio.setDate(inicio.getDate() - dias);
-  return {
-    baselineInicio: inicio.toISOString().slice(0, 10),
-    baselineFin: fin.toISOString().slice(0, 10),
-  };
-}
-
 export async function resolverMargenesProductos(docClient, productos) {
   const warnings = [];
   const resolved = [];
@@ -366,7 +352,6 @@ export async function resolverMargenesProductos(docClient, productos) {
         Key: { PK: 'GLOBAL', SK: productId },
       }));
       const cost = toNumberSafe(r.Item?.CostPrice);
-      if (!cost) warnings.push(`coste_desconocido:${productId}`);
       out._costPrice = cost;
       out._productName = String(r.Item?.Name || out.productName).trim();
       if (out._productName) out.productName = out._productName;

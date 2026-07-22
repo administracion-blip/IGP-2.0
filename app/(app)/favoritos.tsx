@@ -1,12 +1,14 @@
 import { useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useFavoritos, type Favorito } from '../hooks/useFavoritos';
 import { MODULOS, moduloDeRuta, type ModuloMenu } from '../constants/modulos';
 import { EstrellaFavorito } from '../components/EstrellaFavorito';
-import { MIN_TOUCH } from '../constants/layout';
+import { HubNavCard, HubNavGrid } from '../components/ui/HubNavCard';
+import { useHubNavGrid } from '../hooks/useHubNavGrid';
+import { hubAccentById } from '../lib/hubNavAccent';
 
 type Grupo = { modulo: ModuloMenu; favoritos: Favorito[] };
 
@@ -14,9 +16,9 @@ export default function FavoritosScreen() {
   const router = useRouter();
   const { hasPermiso } = useAuth();
   const { favoritos, cargado } = useFavoritos();
+  const { cardWidth, compact } = useHubNavGrid();
 
   const grupos = useMemo<Grupo[]>(() => {
-    // Solo favoritos cuyo permiso conserva el usuario.
     const visibles = favoritos.filter((f) => !f.permiso || hasPermiso(f.permiso));
     const porModulo = new Map<string, Favorito[]>();
     for (const f of visibles) {
@@ -25,7 +27,6 @@ export default function FavoritosScreen() {
       if (!porModulo.has(key)) porModulo.set(key, []);
       porModulo.get(key)!.push(f);
     }
-    // Orden de módulos según el menú; favoritos alfabéticos dentro de cada uno.
     const orden = new Map(MODULOS.map((m, i) => [m.route, i] as const));
     return Array.from(porModulo.entries())
       .map(([route, favs]) => ({
@@ -60,22 +61,24 @@ export default function FavoritosScreen() {
                 <MaterialIcons name={g.modulo.icon as React.ComponentProps<typeof MaterialIcons>['name']} size={18} color="#0ea5e9" />
                 <Text style={styles.grupoTitle}>{g.modulo.label}</Text>
               </View>
-              <View style={styles.grid}>
-                {g.favoritos.map((fav) => (
-                  <TouchableOpacity
-                    key={fav.route}
-                    style={[styles.card, { minHeight: MIN_TOUCH + 20 }]}
-                    onPress={() => router.push(fav.route as never)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.cardLeft}>
-                      <MaterialIcons name={fav.icon as React.ComponentProps<typeof MaterialIcons>['name']} size={24} color="#0ea5e9" />
-                      <Text style={styles.cardLabel} numberOfLines={2}>{fav.label}</Text>
-                    </View>
-                    <EstrellaFavorito favorito={fav} />
-                  </TouchableOpacity>
-                ))}
-              </View>
+              <HubNavGrid>
+                {g.favoritos.map((fav) => {
+                  const accent = hubAccentById(fav.route);
+                  return (
+                    <HubNavCard
+                      key={fav.route}
+                      label={fav.label}
+                      icon={fav.icon as React.ComponentProps<typeof MaterialIcons>['name']}
+                      accentBg={accent.accentBg}
+                      accentFg={accent.accentFg}
+                      width={cardWidth}
+                      compact={compact}
+                      onPress={() => router.push(fav.route as never)}
+                      trailing={<EstrellaFavorito favorito={fav} />}
+                    />
+                  );
+                })}
+              </HubNavGrid>
             </View>
           ))}
         </ScrollView>
@@ -85,37 +88,22 @@ export default function FavoritosScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10 },
+  container: { flex: 1, padding: 16, backgroundColor: '#ffffff' },
   header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  title: { fontSize: 20, fontWeight: '700', color: '#334155' },
+  title: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
   subtitle: { fontSize: 14, color: '#64748b', marginTop: 4, marginBottom: 16 },
   scrollContent: { paddingBottom: 24 },
-  grupo: { marginBottom: 18 },
+  grupo: { marginBottom: 20 },
   grupoHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 10,
     paddingBottom: 6,
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
   grupoTitle: { fontSize: 15, fontWeight: '700', color: '#334155' },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  card: {
-    minWidth: 220,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    gap: 10,
-  },
-  cardLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1, minWidth: 0 },
-  cardLabel: { fontSize: 15, fontWeight: '500', color: '#334155', flexShrink: 1 },
   empty: { alignItems: 'center', gap: 12, paddingVertical: 40, paddingHorizontal: 24 },
   emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center', lineHeight: 20 },
 });

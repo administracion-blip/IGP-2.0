@@ -10,7 +10,6 @@ import {
   Modal,
   Pressable,
   Platform,
-  useWindowDimensions,
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,6 +26,7 @@ import * as Sharing from 'expo-sharing';
 import * as Clipboard from 'expo-clipboard';
 import { toPng } from 'html-to-image';
 import { useAuth } from '../../contexts/AuthContext';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 type jsPDF = import('jspdf').jsPDF;
 import * as XLSX from 'xlsx';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
@@ -122,6 +122,31 @@ function formatPctTicker(n: number | null): string {
   const pct = n * 100;
   const sign = pct >= 0 ? '+' : '';
   return `${sign}${pct.toFixed(1)}%`;
+}
+
+function colorSemDesvio(pct: number | null): string {
+  if (pct == null) return '#94a3b8';
+  return pct >= 0 ? '#16a34a' : '#dc2626';
+}
+
+const CHIP_MES_PASTEL = {
+  anterior: { bg: '#f8fafc', bgSel: '#e2e8f0', border: '#e2e8f0', borderSel: '#cbd5e1', text: '#475569' },
+  actual: { bg: '#e0f2fe', bgSel: '#bae6fd', border: '#bae6fd', borderSel: '#7dd3fc', text: '#075985' },
+  proximo: { bg: '#f5f3ff', bgSel: '#ddd6fe', border: '#ddd6fe', borderSel: '#c4b5fd', text: '#6d28d9' },
+} as const;
+
+const CHIP_TAB_PASTEL = {
+  tabla: { bg: '#f8fafc', bgSel: '#e0f2fe', border: '#e2e8f0', borderSel: '#7dd3fc', text: '#475569', textSel: '#075985' },
+  medias: { bg: '#f8fafc', bgSel: '#fef3c7', border: '#e2e8f0', borderSel: '#fcd34d', text: '#475569', textSel: '#92400e' },
+} as const;
+
+function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <View style={styles.kpiCard}>
+      <Text style={styles.kpiLabel} numberOfLines={1}>{label}</Text>
+      <Text style={[styles.kpiValue, color ? { color } : null]} numberOfLines={1}>{value}</Text>
+    </View>
+  );
 }
 
 function estiloTicker(valor: number | null): { backgroundColor: string; color: string } {
@@ -415,9 +440,9 @@ async function generarPdfObjetivos(
 /** UI Opción A — ver objetivos.tsx para revertir a la pantalla anterior. */
 export default function ObjetivosOpcionAScreen() {
   const router = useRouter();
-  const { width: winWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const isNarrow = winWidth < 900;
+  const { shouldStackPanels, shouldStackToolbar } = useBreakpoint();
+  const isNarrow = shouldStackPanels;
   const { localPermitido } = useAuth();
   const [fechaInicio, setFechaInicio] = useState(() => mesEnCurso().inicio);
   const [fechaFin, setFechaFin] = useState(() => mesEnCurso().fin);
@@ -1265,75 +1290,72 @@ export default function ObjetivosOpcionAScreen() {
   }, [horasModalOpen, filaHorasSel, plantillaSel, localSeleccionado]);
 
   return (
-    <View
-      style={[
-        styles.container,
-        {
-          paddingLeft: Math.max(10, insets.left),
-          paddingRight: Math.max(10, insets.right),
-        },
-      ]}
-    >
-      <View style={styles.headerRow}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+    <View style={styles.container}>
+      <View style={[styles.header, { paddingTop: Math.max(12, insets.top), paddingLeft: Math.max(16, insets.left), paddingRight: Math.max(16, insets.right) }]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} accessibilityLabel="Volver">
           <MaterialIcons name="arrow-back" size={22} color="#334155" />
         </TouchableOpacity>
-        <Text style={styles.title}>Objetivos</Text>
+        <Text style={styles.headerTitle}>Objetivos</Text>
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.outlineBtnPurple} onPress={() => setAgrupModalOpen(true)} accessibilityLabel="Agrupaciones">
+            <MaterialIcons name="workspaces" size={16} color="#7c3aed" />
+            <Text style={styles.outlineBtnPurpleText}>Agrupaciones</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.outlineBtnBlue}
+            onPress={() => setDescargasMenuOpen(true)}
+            disabled={capturing}
+            accessibilityLabel="Descargas"
+          >
+            {capturing ? (
+              <ActivityIndicator size="small" color="#0ea5e9" />
+            ) : (
+              <MaterialIcons name="download" size={16} color="#0ea5e9" />
+            )}
+            <Text style={styles.outlineBtnBlueText}>Descargas</Text>
+            <MaterialIcons name="expand-more" size={16} color="#0ea5e9" />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <ScrollView
-        style={[
-          styles.mainScroll,
-          Platform.OS === 'web' && ({ scrollbarGutter: 'stable' } as Record<string, unknown>),
-        ]}
-        contentContainerStyle={styles.mainScrollContent}
-        showsVerticalScrollIndicator
-      >
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-      {/* —— Barra de controles —— */}
-      <View style={[styles.widget, styles.controlBar, descargasMenuOpen && styles.controlBarOnTop]}>
-        <Text style={styles.sectionLabel}>Periodo</Text>
-        <View style={styles.controlPeriodRow}>
+      <View style={[styles.toolbar, descargasMenuOpen && styles.toolbarOnTop, { paddingLeft: Math.max(12, insets.left), paddingRight: Math.max(12, insets.right) }]}>
+        <View style={[styles.filaPeriodo, shouldStackToolbar && styles.filaPeriodoStack]}>
           <SelectorRangoSemana
             from={fechaInicio}
             to={fechaFin}
             onChange={(f, t) => { setFechaInicio(f); setFechaFin(t); }}
           />
-          <TouchableOpacity
-            style={[styles.chipMes, esMesAnterior && styles.chipMesOn]}
-            onPress={() => { const m = mesConOffset(-1); setFechaInicio(m.inicio); setFechaFin(m.fin); }}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.chipMesText, esMesAnterior && styles.chipMesTextOn]}>Mes anterior</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.chipMes, esMesActual && styles.chipMesOn]}
-            onPress={() => { const m = mesEnCurso(); setFechaInicio(m.inicio); setFechaFin(m.fin); }}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.chipMesText, esMesActual && styles.chipMesTextOn]}>Mes actual</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.chipMes, esMesProximo && styles.chipMesOn]}
-            onPress={() => { const m = mesConOffset(1); setFechaInicio(m.inicio); setFechaFin(m.fin); }}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.chipMesText, esMesProximo && styles.chipMesTextOn]}>Mes próximo</Text>
-          </TouchableOpacity>
+          <View style={styles.chipRowEstado}>
+            {([
+              { key: 'anterior' as const, label: 'Mes anterior', active: esMesAnterior, onPress: () => { const m = mesConOffset(-1); setFechaInicio(m.inicio); setFechaFin(m.fin); } },
+              { key: 'actual' as const, label: 'Mes actual', active: esMesActual, onPress: () => { const m = mesEnCurso(); setFechaInicio(m.inicio); setFechaFin(m.fin); } },
+              { key: 'proximo' as const, label: 'Mes próximo', active: esMesProximo, onPress: () => { const m = mesConOffset(1); setFechaInicio(m.inicio); setFechaFin(m.fin); } },
+            ]).map(({ key, label, active, onPress }) => {
+              const pastel = CHIP_MES_PASTEL[key];
+              return (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.estadoChip, { backgroundColor: active ? pastel.bgSel : pastel.bg, borderColor: active ? pastel.borderSel : pastel.border }]}
+                  onPress={onPress}
+                  activeOpacity={0.75}
+                >
+                  <Text style={[styles.estadoChipText, { color: pastel.text }, active && styles.estadoChipTextSel]}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
-        <View style={styles.formRow}>
-          <View style={[styles.formGroup, isNarrow && styles.formGroupNarrow]}>
+
+        <View style={[styles.filaFechas, shouldStackToolbar && styles.filaFechasStack]}>
+          <View style={styles.formGroup}>
             <Text style={styles.formLabel}>Desde</Text>
             <InputFecha valueIso={fechaInicio} onChangeIso={setFechaInicio} placeholder="dd/mm/aaaa" style={styles.formInput} />
           </View>
-          <View style={[styles.formGroup, isNarrow && styles.formGroupNarrow]}>
+          <View style={styles.formGroup}>
             <Text style={styles.formLabel}>Hasta</Text>
             <InputFecha valueIso={fechaFin} onChangeIso={setFechaFin} placeholder="dd/mm/aaaa" style={styles.formInput} />
           </View>
-        </View>
-        <View style={[styles.formRow, styles.controlActionsRow]}>
-          <View style={[styles.formGroup, { flex: 1, minWidth: 180 }]}>
+          <View style={[styles.formGroup, styles.formGroupWide]}>
             <SelectorDesplegable
               label="Local"
               icono="store"
@@ -1361,39 +1383,61 @@ export default function ObjetivosOpcionAScreen() {
               }}
             />
           </View>
-          <TouchableOpacity style={styles.agrupBtnOutline} onPress={() => setAgrupModalOpen(true)} accessibilityLabel="Agrupaciones">
-            <MaterialIcons name="workspaces" size={16} color="#7c3aed" />
-            <Text style={styles.agrupBtnOutlineText}>Agrupaciones</Text>
-          </TouchableOpacity>
-          <View style={styles.descargasAnchor}>
-            <TouchableOpacity
-              style={styles.descargasBtn}
-              onPress={() => setDescargasMenuOpen(true)}
-              disabled={capturing}
-            >
-              {capturing ? (
-                <ActivityIndicator size="small" color="#0ea5e9" />
-              ) : (
-                <MaterialIcons name="download" size={16} color="#0ea5e9" />
-              )}
-              <Text style={styles.descargasBtnText}>Descargas</Text>
-              <MaterialIcons name="expand-more" size={16} color="#0ea5e9" />
-            </TouchableOpacity>
-          </View>
           <TouchableOpacity
-            style={[styles.btnRefresh, generando && styles.btnGenerarDisabled]}
+            style={[styles.btnFiltrar, (generando || !localSeleccionado) && styles.btnFiltrarDisabled]}
             onPress={generar}
             disabled={generando || !localSeleccionado}
             accessibilityLabel="Recalcular"
           >
             {generando ? (
-              <ActivityIndicator size="small" color="#0ea5e9" />
+              <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <MaterialIcons name="refresh" size={18} color="#0ea5e9" />
+              <>
+                <MaterialIcons name="refresh" size={16} color="#fff" />
+                <Text style={styles.btnFiltrarText}>Recalcular</Text>
+              </>
             )}
           </TouchableOpacity>
         </View>
+
+        {registros.length > 0 && localSeleccionado ? (
+          <View style={styles.kpiRow}>
+            <KpiCard
+              label="Facturado"
+              value={formatMoneda(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumRealHoy : sumReal)}
+            />
+            <KpiCard
+              label="Comparativa"
+              value={formatMoneda(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumCompHoy : sumComp)}
+              color="#64748b"
+            />
+            <KpiCard
+              label="Desvío"
+              value={formatMoneda(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumDesvioHoy : sumDesvio)}
+              color={colorDesvio(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumDesvioHoy : sumDesvio).color}
+            />
+            <KpiCard
+              label="% vs comp."
+              value={formatPctTicker(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? desvioPctHoy : desvioPctTotal)}
+              color={(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? tickerEstiloHoy : tickerEstilo).color}
+            />
+          </View>
+        ) : null}
+
+        <Text style={styles.toolbarHint}>
+          Periodo {formatFechaCorta(fechaInicio)} → {formatFechaCorta(fechaFin)} · {tituloWidgetPeriodo}
+          {localSeleccionado ? ` · ${nombreLocal}` : ''}
+          {registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length
+            ? ` · Acumulado hasta ${formatFechaCorta(ayerStr)}`
+            : ''}
+        </Text>
       </View>
+
+      {error ? (
+        <View style={[styles.errorBar, { marginLeft: Math.max(16, insets.left), marginRight: Math.max(16, insets.right) }]}>
+          <Text style={styles.errorBarText}>{error}</Text>
+        </View>
+      ) : null}
 
       <Modal visible={descargasMenuOpen} transparent animationType="fade" onRequestClose={() => setDescargasMenuOpen(false)}>
         <Pressable style={styles.shareOverlay} onPress={() => setDescargasMenuOpen(false)}>
@@ -1464,236 +1508,6 @@ export default function ObjetivosOpcionAScreen() {
         </Pressable>
       </Modal>
 
-      <View style={styles.contentBelow}>
-
-      {/* —— Visión global (plegable, encima del resumen) —— */}
-          <View ref={widgetRef} style={[styles.widget, styles.widgetLocales]} collapsable={false}>
-          <TouchableOpacity
-            style={styles.widgetLocalesHeader}
-            onPress={() => setVisionGlobalAbierta((v) => !v)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.widgetLocalesTitle}>Visión global — {tituloWidgetPeriodo}</Text>
-            <MaterialIcons name={visionGlobalAbierta ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
-          </TouchableOpacity>
-          {!visionGlobalAbierta && localSeleccionado && (
-            <Text style={styles.visionGlobalCompact} numberOfLines={1}>
-              Seleccionado: {nombreLocal}
-              {(() => {
-                const item = localesObjetivos.find(
-                  (i) => String(i.local.id_Locales ?? i.local.agoraCode ?? i.local.AgoraCode ?? '') === localSeleccionadoKey,
-                );
-                return item ? ` · ${formatPctTicker(item.desvioPctHastaAyer)}` : '';
-              })()}
-            </Text>
-          )}
-          {visionGlobalAbierta && (loadingLocalesObjetivos ? (
-            <ActivityIndicator size="small" color="#64748b" style={styles.widgetLocalesLoader} />
-          ) : (
-            <>
-            {agrupacionesCalculadas.length > 0 && (
-              <View style={styles.agrupacionesWrap}>
-                {agrupacionesCalculadas.map((grupo) => {
-                  const ag = grupo.agrupacion;
-                  const sumDesvioHastaAyer = grupo.sumRealHastaAyer - grupo.sumCompHastaAyer;
-                  const estiloHastaAyer = estiloTicker(grupo.desvioPctHastaAyer);
-                  const datosAlDia = grupo.encontrados > 0 && grupo.ultimaFechaConDatos >= ayerYYYYMMDD();
-                  return (
-                    <View key={ag.id} style={[styles.localesListItem, styles.agrupacionItem, { borderLeftColor: ag.color }]}>
-                      <View style={styles.localesListHeader}>
-                        <View style={styles.agrupacionNombreWrap}>
-                          <View style={[styles.agrupacionDot, { backgroundColor: ag.color }]} />
-                          <Text style={styles.agrupacionNombre} numberOfLines={1}>{ag.nombre}</Text>
-                          <Text style={styles.agrupacionMeta}>{grupo.totalLocales} {grupo.totalLocales === 1 ? 'local' : 'locales'}</Text>
-                        </View>
-                        <View style={[styles.syncBadge, datosAlDia ? styles.syncBadgeOk : styles.syncBadgeWarn]}>
-                          <MaterialIcons
-                            name={datosAlDia ? 'check-circle' : 'warning'}
-                            size={10}
-                            color={datosAlDia ? '#16a34a' : '#d97706'}
-                          />
-                          <Text style={[styles.syncBadgeText, datosAlDia ? styles.syncBadgeTextOk : styles.syncBadgeTextWarn]} numberOfLines={1}>
-                            {datosAlDia
-                              ? 'Actualizado'
-                              : grupo.ultimaFechaConDatos
-                                ? `Último dato: ${formatFechaCorta(grupo.ultimaFechaConDatos)}`
-                                : 'Sin datos'}
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={styles.localesListHastaAyerInfo}>
-                        <View style={styles.localesListValoresRow}>
-                          <View style={styles.localesListValorItem} {...{ dataSet: { captureHide: 'true' } }}>
-                            <Text style={styles.localesListValorLabel}>Facturado</Text>
-                            <Text style={styles.localesListValorNum}>{formatMoneda(grupo.sumRealHastaAyer)}</Text>
-                          </View>
-                          <View style={styles.localesListValorItem} {...{ dataSet: { captureHide: 'true' } }}>
-                            <Text style={styles.localesListValorLabel}>Comparativa</Text>
-                            <Text style={[styles.localesListValorNum, styles.localesListValorSecundario]}>{formatMoneda(grupo.sumCompHastaAyer)}</Text>
-                          </View>
-                          <View style={styles.localesListValorItem}>
-                            <Text style={styles.localesListValorLabel}>Desvío</Text>
-                            <Text style={[styles.localesListValorNum, colorDesvio(sumDesvioHastaAyer)]}>{formatMoneda(sumDesvioHastaAyer)}</Text>
-                          </View>
-                          <View style={styles.localesListValorItem}>
-                            <View style={[styles.tickerBadge, styles.tickerBadgeSmall, { backgroundColor: estiloHastaAyer.backgroundColor }]}>
-                              {grupo.desvioPctHastaAyer != null && (
-                                <MaterialIcons name={grupo.desvioPctHastaAyer >= 0 ? 'trending-up' : 'trending-down'} size={9} color={estiloHastaAyer.color} />
-                              )}
-                              <Text style={[styles.tickerText, { color: estiloHastaAyer.color, fontSize: 9 }]}>
-                                {formatPctTicker(grupo.desvioPctHastaAyer)}
-                              </Text>
-                            </View>
-                          </View>
-                        </View>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-            <View style={styles.localesListWrap}>
-              {[...localesObjetivos]
-                .sort((a, b) => {
-                  const nomA = (a.local.nombre ?? a.local.Nombre ?? a.local.agoraCode ?? a.local.AgoraCode ?? '—').toString().trim().toLowerCase();
-                  const nomB = (b.local.nombre ?? b.local.Nombre ?? b.local.agoraCode ?? b.local.AgoraCode ?? '—').toString().trim().toLowerCase();
-                  return nomA.localeCompare(nomB);
-                })
-                .map((item) => {
-                const itemKey = String(item.local.id_Locales ?? item.local.agoraCode ?? item.local.AgoraCode ?? '');
-                const nom = (item.local.nombre ?? item.local.Nombre ?? item.local.agoraCode ?? item.local.AgoraCode ?? '—').toString().trim();
-                const sumDesvioHastaAyer = item.sumRealHastaAyer - item.sumCompHastaAyer;
-                const estiloHastaAyer = estiloTicker(item.desvioPctHastaAyer);
-                const ayerCheck = ayerYYYYMMDD();
-                const datosAlDia = item.ultimaFechaConDatos >= ayerCheck;
-                const seleccionado = itemKey === localSeleccionadoKey;
-                return (
-                  <TouchableOpacity
-                    key={itemKey}
-                    style={[styles.localesListItem, seleccionado && styles.localesListItemSelected]}
-                    onPress={() => seleccionarLocalLista(item.local)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.localesListHeader}>
-                      <Text style={styles.localesListNombre} numberOfLines={1}>{nom}</Text>
-                      <View style={[styles.syncBadge, datosAlDia ? styles.syncBadgeOk : styles.syncBadgeWarn]}>
-                        <MaterialIcons
-                          name={datosAlDia ? 'check-circle' : 'warning'}
-                          size={10}
-                          color={datosAlDia ? '#16a34a' : '#d97706'}
-                        />
-                        <Text style={[styles.syncBadgeText, datosAlDia ? styles.syncBadgeTextOk : styles.syncBadgeTextWarn]} numberOfLines={1}>
-                          {datosAlDia
-                            ? 'Actualizado'
-                            : item.ultimaFechaConDatos
-                              ? `Último dato: ${formatFechaCorta(item.ultimaFechaConDatos)}`
-                              : 'Sin datos'}
-                        </Text>
-                      </View>
-                    </View>
-                    {rangosHastaAyer && (
-                      <View style={styles.localesListHastaAyerInfo}>
-                        <View
-                          style={styles.localesListHastaAyerRangoWrap}
-                          {...(Platform.OS === 'web' && {
-                            onMouseEnter: () => setHoveredRangoKey(item.local.id_Locales ?? item.local.agoraCode ?? item.local.AgoraCode ?? ''),
-                            onMouseLeave: () => setHoveredRangoKey(null),
-                          } as any)}
-                        >
-                          <Text style={styles.localesListHastaAyerRango} numberOfLines={1}>
-                            Real {formatFechaCorta(rangosHastaAyer.fechaInicioMes)} → {formatFechaCorta(rangosHastaAyer.fechaFinRealHastaAyer)} | Comp. {formatFechaCorta(rangosHastaAyer.minCompHastaAyer)} → {formatFechaCorta(rangosHastaAyer.maxCompHastaAyer)}
-                          </Text>
-                          {Platform.OS === 'web' && hoveredRangoKey === (item.local.id_Locales ?? item.local.agoraCode ?? item.local.AgoraCode) && (
-                            <View style={styles.localesListRangoTooltip}>
-                              <Text style={styles.localesListRangoTooltipText}>
-                                Real {formatFechaCorta(rangosHastaAyer.fechaInicioMes)} → {formatFechaCorta(rangosHastaAyer.fechaFinRealHastaAyer)}{'\n'}Comp. {formatFechaCorta(rangosHastaAyer.minCompHastaAyer)} → {formatFechaCorta(rangosHastaAyer.maxCompHastaAyer)}
-                              </Text>
-                            </View>
-                          )}
-                        </View>
-                        <View style={styles.localesListValoresRow}>
-                          <View style={styles.localesListValorItem} {...{ dataSet: { captureHide: 'true' } }}>
-                            <Text style={styles.localesListValorLabel}>Facturado</Text>
-                            <Text style={styles.localesListValorNum}>{formatMoneda(item.sumRealHastaAyer)}</Text>
-                          </View>
-                          <View style={styles.localesListValorItem} {...{ dataSet: { captureHide: 'true' } }}>
-                            <Text style={styles.localesListValorLabel}>Comparativa</Text>
-                            <Text style={[styles.localesListValorNum, styles.localesListValorSecundario]}>{formatMoneda(item.sumCompHastaAyer)}</Text>
-                          </View>
-                          <View style={styles.localesListValorItem}>
-                            <Text style={styles.localesListValorLabel}>Desvío</Text>
-                            <Text style={[styles.localesListValorNum, colorDesvio(sumDesvioHastaAyer)]}>{formatMoneda(sumDesvioHastaAyer)}</Text>
-                          </View>
-                          <View style={styles.localesListValorItem}>
-                            <View style={[styles.tickerBadge, styles.tickerBadgeSmall, { backgroundColor: estiloHastaAyer.backgroundColor }]}>
-                              {item.desvioPctHastaAyer != null && (
-                                <MaterialIcons name={item.desvioPctHastaAyer >= 0 ? 'trending-up' : 'trending-down'} size={9} color={estiloHastaAyer.color} />
-                              )}
-                              <Text style={[styles.tickerText, { color: estiloHastaAyer.color, fontSize: 9 }]}>
-                                {formatPctTicker(item.desvioPctHastaAyer)}
-                              </Text>
-                            </View>
-                          </View>
-                        </View>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            </>
-          ))}
-          </View>
-
-      {/* —— Resumen KPIs —— */}
-      {registros.length > 0 && localSeleccionado && (
-        <View style={styles.kpiSection}>
-          <Text style={styles.kpiTitle}>
-            Resumen — {nombreLocal} · {tituloWidgetPeriodo}
-          </Text>
-          <Text style={styles.kpiSubtitle}>
-            {registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length
-              ? `Acumulado hasta ayer (${formatFechaCorta(ayerStr)})`
-              : `Periodo completo (${formatFechaCorta(fechaInicio)} → ${formatFechaCorta(fechaFin)})`}
-          </Text>
-          <View style={styles.kpiRow}>
-            <View style={styles.kpiCard}>
-              <Text style={styles.kpiLabel}>Facturado</Text>
-              <Text style={styles.kpiValue}>
-                {formatMoneda(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumRealHoy : sumReal)}
-              </Text>
-            </View>
-            <View style={styles.kpiCard}>
-              <Text style={styles.kpiLabel}>Comparativa</Text>
-              <Text style={[styles.kpiValue, styles.kpiValueMuted]}>
-                {formatMoneda(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumCompHoy : sumComp)}
-              </Text>
-            </View>
-            <View style={styles.kpiCard}>
-              <Text style={styles.kpiLabel}>Desvío</Text>
-              <Text style={[styles.kpiValue, colorDesvio(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumDesvioHoy : sumDesvio)]}>
-                {formatMoneda(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumDesvioHoy : sumDesvio)}
-              </Text>
-            </View>
-            <View style={styles.kpiCard}>
-              <Text style={styles.kpiLabel}>% vs comp.</Text>
-              <View style={[styles.tickerBadge, { backgroundColor: (registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? tickerEstiloHoy : tickerEstilo).backgroundColor, alignSelf: 'flex-start' }]}>
-                {(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? desvioPctHoy : desvioPctTotal) != null && (
-                  <MaterialIcons
-                    name={(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? desvioPctHoy : desvioPctTotal)! >= 0 ? 'trending-up' : 'trending-down'}
-                    size={14}
-                    color={(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? tickerEstiloHoy : tickerEstilo).color}
-                  />
-                )}
-                <Text style={[styles.tickerText, { color: (registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? tickerEstiloHoy : tickerEstilo).color }]}>
-                  {formatPctTicker(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? desvioPctHoy : desvioPctTotal)}
-                </Text>
-              </View>
-            </View>
-          </View>
-        </View>
-      )}
-
       <AgrupacionesObjetivosModal
         visible={agrupModalOpen}
         onClose={() => setAgrupModalOpen(false)}
@@ -1708,7 +1522,7 @@ export default function ObjetivosOpcionAScreen() {
           <Pressable onPress={() => {}} style={styles.massModal}>
             <Text style={styles.massTitle}>Descarga masiva de PDF</Text>
             <Text style={styles.massSubtitle}>
-              Periodo: {fechaInicio} → {fechaFin} · {tituloWidgetPeriodo}
+              Periodo: {formatFechaCorta(fechaInicio)} → {formatFechaCorta(fechaFin)} · {tituloWidgetPeriodo}
             </Text>
             <View style={styles.massSelectAllRow}>
               <TouchableOpacity style={styles.massCheckRow} onPress={toggleMassAll} disabled={massDownloading}>
@@ -1771,23 +1585,180 @@ export default function ObjetivosOpcionAScreen() {
         </Pressable>
       </Modal>
 
-      {registros.length > 0 && (
+      <View style={[styles.split, shouldStackPanels && styles.splitStack]}>
+        <View style={[styles.panelLista, !shouldStackPanels && styles.panelListaBorder]}>
+          <View ref={widgetRef} collapsable={false} style={styles.panelListaInner}>
+            <TouchableOpacity
+              style={styles.visionGlobalHeader}
+              onPress={() => setVisionGlobalAbierta((v) => !v)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.visionGlobalTitle}>Visión global — {tituloWidgetPeriodo}</Text>
+              <MaterialIcons name={visionGlobalAbierta ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
+            </TouchableOpacity>
+            {!visionGlobalAbierta && localSeleccionado ? (
+              <Text style={styles.visionGlobalCompact} numberOfLines={1}>
+                Seleccionado: {nombreLocal}
+                {(() => {
+                  const item = localesObjetivos.find(
+                    (i) => String(i.local.id_Locales ?? i.local.agoraCode ?? i.local.AgoraCode ?? '') === localSeleccionadoKey,
+                  );
+                  return item ? ` · ${formatPctTicker(item.desvioPctHastaAyer)}` : '';
+                })()}
+              </Text>
+            ) : null}
+            {visionGlobalAbierta ? (
+              loadingLocalesObjetivos ? (
+                <View style={styles.center}><ActivityIndicator size="small" color="#64748b" /></View>
+              ) : (
+                <ScrollView style={styles.list} contentContainerStyle={styles.listContent} nestedScrollEnabled showsVerticalScrollIndicator>
+                  {agrupacionesCalculadas.map((grupo) => {
+                    const ag = grupo.agrupacion;
+                    const sumDesvioHastaAyer = grupo.sumRealHastaAyer - grupo.sumCompHastaAyer;
+                    const estiloHastaAyer = estiloTicker(grupo.desvioPctHastaAyer);
+                    const datosAlDia = grupo.encontrados > 0 && grupo.ultimaFechaConDatos >= ayerYYYYMMDD();
+                    return (
+                      <View key={ag.id} style={[styles.card, { borderLeftWidth: 3, borderLeftColor: ag.color }]}>
+                        <View style={styles.cardHeader}>
+                          <View style={styles.cardTitleWrap}>
+                            <View style={[styles.dotSem, { backgroundColor: ag.color }]} />
+                            <Text style={styles.cardTitle} numberOfLines={1}>{ag.nombre}</Text>
+                            <View style={[styles.badge, { backgroundColor: estiloHastaAyer.backgroundColor, borderColor: estiloHastaAyer.color }]}>
+                              <Text style={[styles.badgeText, { color: estiloHastaAyer.color }]}>{formatPctTicker(grupo.desvioPctHastaAyer)}</Text>
+                            </View>
+                          </View>
+                          <View style={[styles.syncBadge, datosAlDia ? styles.syncBadgeOk : styles.syncBadgeWarn]}>
+                            <MaterialIcons name={datosAlDia ? 'check-circle' : 'warning'} size={10} color={datosAlDia ? '#16a34a' : '#d97706'} />
+                            <Text style={[styles.syncBadgeText, datosAlDia ? styles.syncBadgeTextOk : styles.syncBadgeTextWarn]} numberOfLines={1}>
+                              {datosAlDia ? 'Actualizado' : grupo.ultimaFechaConDatos ? `Último: ${formatFechaCorta(grupo.ultimaFechaConDatos)}` : 'Sin datos'}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={styles.cardBody}>
+                          <View style={styles.cardField}>
+                            <Text style={styles.cardFieldLabel}>Locales</Text>
+                            <Text style={styles.cardFieldValue}>{grupo.totalLocales}</Text>
+                          </View>
+                          <View style={styles.cardField} {...{ dataSet: { captureHide: 'true' } }}>
+                            <Text style={styles.cardFieldLabel}>Facturado</Text>
+                            <Text style={styles.cardFieldValue}>{formatMoneda(grupo.sumRealHastaAyer)}</Text>
+                          </View>
+                          <View style={styles.cardField} {...{ dataSet: { captureHide: 'true' } }}>
+                            <Text style={styles.cardFieldLabel}>Comparativa</Text>
+                            <Text style={[styles.cardFieldValue, styles.cardFieldMuted]}>{formatMoneda(grupo.sumCompHastaAyer)}</Text>
+                          </View>
+                          <View style={styles.cardField}>
+                            <Text style={styles.cardFieldLabel}>Desvío</Text>
+                            <Text style={[styles.cardFieldValue, colorDesvio(sumDesvioHastaAyer)]}>{formatMoneda(sumDesvioHastaAyer)}</Text>
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })}
+                  {[...localesObjetivos]
+                    .sort((a, b) => {
+                      const nomA = (a.local.nombre ?? a.local.Nombre ?? a.local.agoraCode ?? a.local.AgoraCode ?? '—').toString().trim().toLowerCase();
+                      const nomB = (b.local.nombre ?? b.local.Nombre ?? b.local.agoraCode ?? b.local.AgoraCode ?? '—').toString().trim().toLowerCase();
+                      return nomA.localeCompare(nomB);
+                    })
+                    .map((item) => {
+                      const itemKey = String(item.local.id_Locales ?? item.local.agoraCode ?? item.local.AgoraCode ?? '');
+                      const nom = (item.local.nombre ?? item.local.Nombre ?? item.local.agoraCode ?? item.local.AgoraCode ?? '—').toString().trim();
+                      const sumDesvioHastaAyer = item.sumRealHastaAyer - item.sumCompHastaAyer;
+                      const semColor = colorSemDesvio(item.desvioPctHastaAyer);
+                      const estiloHastaAyer = estiloTicker(item.desvioPctHastaAyer);
+                      const datosAlDia = item.ultimaFechaConDatos >= ayerYYYYMMDD();
+                      const seleccionado = itemKey === localSeleccionadoKey;
+                      return (
+                        <TouchableOpacity
+                          key={itemKey}
+                          style={[styles.card, seleccionado && styles.cardActiva]}
+                          onPress={() => seleccionarLocalLista(item.local)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={styles.cardHeader}>
+                            <View style={styles.cardTitleWrap}>
+                              <Text style={styles.cardTitle} numberOfLines={1}>{nom}</Text>
+                              <View style={[styles.badge, { backgroundColor: estiloHastaAyer.backgroundColor, borderColor: estiloHastaAyer.color }]}>
+                                <Text style={[styles.badgeText, { color: estiloHastaAyer.color }]}>{formatPctTicker(item.desvioPctHastaAyer)}</Text>
+                              </View>
+                              <View style={[styles.dotSem, { backgroundColor: semColor }]} />
+                            </View>
+                            <View style={[styles.syncBadge, datosAlDia ? styles.syncBadgeOk : styles.syncBadgeWarn]}>
+                              <MaterialIcons name={datosAlDia ? 'check-circle' : 'warning'} size={10} color={datosAlDia ? '#16a34a' : '#d97706'} />
+                              <Text style={[styles.syncBadgeText, datosAlDia ? styles.syncBadgeTextOk : styles.syncBadgeTextWarn]} numberOfLines={1}>
+                                {datosAlDia ? 'OK' : item.ultimaFechaConDatos ? formatFechaCorta(item.ultimaFechaConDatos) : '—'}
+                              </Text>
+                            </View>
+                          </View>
+                          <View style={styles.cardBody}>
+                            {rangosHastaAyer ? (
+                              <View style={styles.cardFieldFull}>
+                                <Text style={styles.cardFieldLabel}>Rango acumulado</Text>
+                                <Text style={styles.cardFieldValue} numberOfLines={2}>
+                                  Real {formatFechaCorta(rangosHastaAyer.fechaInicioMes)} → {formatFechaCorta(rangosHastaAyer.fechaFinRealHastaAyer)} · Comp. {formatFechaCorta(rangosHastaAyer.minCompHastaAyer)} → {formatFechaCorta(rangosHastaAyer.maxCompHastaAyer)}
+                                </Text>
+                              </View>
+                            ) : null}
+                            <View style={styles.cardField} {...{ dataSet: { captureHide: 'true' } }}>
+                              <Text style={styles.cardFieldLabel}>Facturado</Text>
+                              <Text style={styles.cardFieldValue}>{formatMoneda(item.sumRealHastaAyer)}</Text>
+                            </View>
+                            <View style={styles.cardField} {...{ dataSet: { captureHide: 'true' } }}>
+                              <Text style={styles.cardFieldLabel}>Comparativa</Text>
+                              <Text style={[styles.cardFieldValue, styles.cardFieldMuted]}>{formatMoneda(item.sumCompHastaAyer)}</Text>
+                            </View>
+                            <View style={styles.cardField}>
+                              <Text style={styles.cardFieldLabel}>Desvío</Text>
+                              <Text style={[styles.cardFieldValue, colorDesvio(sumDesvioHastaAyer)]}>{formatMoneda(sumDesvioHastaAyer)}</Text>
+                            </View>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  {localesObjetivos.length === 0 ? (
+                    <View style={styles.emptyWrap}>
+                      <MaterialIcons name="store" size={40} color="#cbd5e1" />
+                      <Text style={styles.emptyText}>No hay datos de locales para este periodo.</Text>
+                    </View>
+                  ) : null}
+                </ScrollView>
+              )
+            ) : null}
+          </View>
+        </View>
+
+        <View style={[styles.panelDetalle, shouldStackPanels && styles.panelDetalleStack]}>
+          {!localSeleccionado ? (
+            <View style={styles.emptyWrap}>
+              <MaterialIcons name="touch-app" size={40} color="#cbd5e1" />
+              <Text style={styles.emptyText}>Selecciona un local en la lista o en el filtro superior.</Text>
+            </View>
+          ) : registros.length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <MaterialIcons name="bar-chart" size={40} color="#cbd5e1" />
+              <Text style={styles.emptyText}>No hay registros para {nombreLocal}. Pulsa Recalcular.</Text>
+            </View>
+          ) : (
         <View style={styles.detailSection}>
           <View style={styles.detailHeader}>
             <Text style={styles.detailTitle}>Detalle — {nombreLocal}</Text>
             <View style={styles.detailTabsRow}>
-              <TouchableOpacity
-                style={[styles.detailTab, detalleTab === 'tabla' && styles.detailTabActive]}
-                onPress={() => setDetalleTab('tabla')}
-              >
-                <Text style={[styles.detailTabText, detalleTab === 'tabla' && styles.detailTabTextActive]}>Tabla diaria</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.detailTab, detalleTab === 'medias' && styles.detailTabActive]}
-                onPress={() => setDetalleTab('medias')}
-              >
-                <Text style={[styles.detailTabText, detalleTab === 'medias' && styles.detailTabTextActive]}>Media por día</Text>
-              </TouchableOpacity>
+              {(['tabla', 'medias'] as const).map((tabId) => {
+                const pastel = CHIP_TAB_PASTEL[tabId];
+                const sel = detalleTab === tabId;
+                const label = tabId === 'tabla' ? 'Tabla diaria' : 'Media por día';
+                return (
+                  <TouchableOpacity
+                    key={tabId}
+                    style={[styles.estadoChip, { backgroundColor: sel ? pastel.bgSel : pastel.bg, borderColor: sel ? pastel.borderSel : pastel.border }]}
+                    onPress={() => setDetalleTab(tabId)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.estadoChipText, { color: sel ? pastel.textSel : pastel.text }, sel && styles.estadoChipTextSel]}>{label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
               {detalleTab === 'medias' && (
                 <TouchableOpacity style={styles.detailTabInfo} onPress={() => setMediasAyudaOpen((v) => !v)}>
                   <MaterialIcons name="info-outline" size={18} color="#64748b" />
@@ -1807,7 +1778,7 @@ export default function ObjetivosOpcionAScreen() {
               {mediasAyudaOpen && (
                 <Text style={styles.mediasPorDiaHint}>
                   Media real: solo días con fecha ≤ {formatFechaCorta(corteMediasReal)} (mínimo entre fin de periodo y ayer). Comparativa:
-                  todo el periodo ({fechaInicio} → {fechaFin}). La real agrupa por día de la semana de la fecha; la comparativa por el
+                  todo el periodo ({formatFechaCorta(fechaInicio)} → {formatFechaCorta(fechaFin)}). La real agrupa por día de la semana de la fecha; la comparativa por el
                   día de la semana de la fecha de comparación. Entre paréntesis: días que entran en cada media.
                 </Text>
               )}
@@ -1932,8 +1903,8 @@ export default function ObjetivosOpcionAScreen() {
                   style={[styles.row, r.Fecha === fechaJornadaNegocio && styles.rowJornadaActual]}
                 >
                   <Text style={[styles.cell, styles.cellDia]}>{diaVirtual(r.Fecha, r.FechaComparacion)}</Text>
-                  <Text style={[styles.cell, styles.cellFecha, styles.cellBold]} numberOfLines={1}>{r.Fecha}</Text>
-                <Text style={[styles.cell, styles.cellFecha]} numberOfLines={1}>{r.FechaComparacion}</Text>
+                  <Text style={[styles.cell, styles.cellFecha, styles.cellBold]} numberOfLines={1}>{formatFechaCorta(r.Fecha)}</Text>
+                <Text style={[styles.cell, styles.cellFecha]} numberOfLines={1}>{formatFechaCorta(r.FechaComparacion)}</Text>
                 <Text style={[styles.cell, styles.cellFestivo]}>{r.Festivo ? 'Sí' : 'No'}</Text>
                   <View style={[styles.cell, styles.cellNombre]}>
                     {(r.NombreFestivo || r.NombreFestivoComparacion) ? (
@@ -1969,9 +1940,9 @@ export default function ObjetivosOpcionAScreen() {
         </View>
           )}
         </View>
-      )}
+          )}
+        </View>
       </View>
-      </ScrollView>
 
       <Modal visible={horasModalOpen} transparent animationType="fade" onRequestClose={() => setHorasModalOpen(false)}>
         <Pressable style={styles.shareOverlay} onPress={() => setHorasModalOpen(false)}>
@@ -2084,11 +2055,115 @@ export default function ObjetivosOpcionAScreen() {
 }
 
 const styles = StyleSheet.create({
-  /** Márgenes horizontales: inline con insets (misma idea que cabecera app). Vertical fijo. */
-  container: { flex: 1, paddingVertical: 10 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
+  container: { flex: 1, backgroundColor: '#f8fafc' },
+  center: { padding: 24, alignItems: 'center', justifyContent: 'center' },
+  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 48, gap: 12, paddingHorizontal: 24 },
+  emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
+
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    gap: 12,
+  },
   backBtn: { padding: 4 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
+  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#0f172a' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, flexWrap: 'wrap', justifyContent: 'flex-end' },
+  outlineBtnPurple: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8,
+    backgroundColor: '#f5f3ff', borderWidth: 1, borderColor: '#ddd6fe',
+  },
+  outlineBtnPurpleText: { fontSize: 11, fontWeight: '600', color: '#7c3aed' },
+  outlineBtnBlue: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8,
+    backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd',
+  },
+  outlineBtnBlueText: { fontSize: 11, fontWeight: '600', color: '#0ea5e9' },
+
+  toolbar: {
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+    position: 'relative' as const,
+    zIndex: 1,
+  },
+  toolbarOnTop: { zIndex: 50, ...(Platform.OS !== 'web' ? { elevation: 24 } : {}) },
+  filaPeriodo: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+  filaPeriodoStack: { flexDirection: 'column', alignItems: 'stretch' },
+  filaFechas: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' },
+  filaFechasStack: { flexDirection: 'column', alignItems: 'stretch' },
+  formGroupWide: { flex: 2, minWidth: 180 },
+  btnFiltrar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: '#0ea5e9', paddingVertical: 10, paddingHorizontal: 14,
+    borderRadius: 8, minHeight: 40, alignSelf: 'flex-end',
+  },
+  btnFiltrarDisabled: { opacity: 0.65 },
+  btnFiltrarText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+  toolbarHint: { fontSize: 11, color: '#94a3b8', lineHeight: 16 },
+
+  chipRowEstado: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  estadoChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1,
+  },
+  estadoChipText: { fontSize: 11, fontWeight: '600' },
+  estadoChipTextSel: { fontWeight: '800' },
+
+  errorBar: {
+    marginTop: 8, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6,
+    backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca',
+  },
+  errorBarText: { fontSize: 12, color: '#dc2626' },
+
+  split: { flex: 1, flexDirection: 'row', minHeight: 0 },
+  splitStack: { flexDirection: 'column' },
+  panelLista: { flex: 1, minWidth: 0 },
+  panelListaBorder: { borderRightWidth: 1, borderRightColor: '#e2e8f0', maxWidth: 480 },
+  panelListaInner: { flex: 1, minHeight: 0 },
+  panelDetalle: {
+    flex: 1.2, minWidth: 320, backgroundColor: '#fff', padding: 14, minHeight: 0,
+  },
+  panelDetalleStack: { flex: 1, minWidth: 0, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
+
+  list: { flex: 1 },
+  listContent: { padding: 12, gap: 10, paddingBottom: 24 },
+
+  visionGlobalHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#e2e8f0',
+    backgroundColor: '#fff',
+  },
+  visionGlobalTitle: { fontSize: 14, fontWeight: '700', color: '#334155' },
+  visionGlobalCompact: { fontSize: 11, color: '#64748b', paddingHorizontal: 12, paddingBottom: 8, backgroundColor: '#fff' },
+
+  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
+  cardActiva: { borderColor: '#7dd3fc', backgroundColor: '#f0f9ff' },
+  cardHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 14, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', gap: 8,
+  },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
+  cardTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', flexShrink: 1 },
+  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
+  badgeText: { fontSize: 11, fontWeight: '600' },
+  dotSem: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: 8 },
+  cardField: { minWidth: 84, marginRight: 8 },
+  cardFieldFull: { width: '100%', marginRight: 0, marginBottom: 4 },
+  cardFieldLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 1 },
+  cardFieldValue: { fontSize: 13, color: '#334155' },
+  cardFieldMuted: { color: '#64748b' },
+
   mainScroll: { flex: 1 },
   mainScrollContent: { flexGrow: 1, paddingBottom: 20 },
   mainRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', width: '100%' },
@@ -2127,18 +2202,19 @@ const styles = StyleSheet.create({
   tableOuterNoHScroll: { width: '100%', minWidth: 0, flex: 1 },
   widgetTitle: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 12 },
   formRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'flex-end' },
-  formGroup: { flex: 1, minWidth: 90, maxWidth: 180 },
+  formGroup: { flex: 1, minWidth: 120 },
   formGroupNarrow: { maxWidth: 320 },
-  formLabel: { fontSize: 11, fontWeight: '500', color: '#64748b', marginBottom: 1 },
+  formLabel: { fontSize: 10, fontWeight: '600', color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.3 },
   formInput: {
-    backgroundColor: '#fff',
+    fontSize: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    borderRadius: 5,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    fontSize: 12,
+    borderRadius: 6,
+    backgroundColor: '#fff',
     color: '#334155',
+    minHeight: 40,
   },
   formInputDisabled: { backgroundColor: '#f1f5f9', color: '#94a3b8' },
   btnGenerar: {
@@ -2182,38 +2258,22 @@ const styles = StyleSheet.create({
     width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
     backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd',
   },
-  kpiSection: {
-    alignSelf: 'stretch', marginBottom: 12, padding: 12,
-    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0',
-    position: 'relative' as const, zIndex: 0,
-  },
-  kpiTitle: { fontSize: 14, fontWeight: '700', color: '#334155', marginBottom: 2 },
-  kpiSubtitle: { fontSize: 11, color: '#94a3b8', marginBottom: 10 },
-  kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   kpiCard: {
-    flex: 1, minWidth: 120, padding: 10, borderRadius: 8,
-    backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0',
+    flex: 1, minWidth: 88, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0',
+    borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6,
   },
-  kpiLabel: { fontSize: 10, color: '#64748b', marginBottom: 4, fontWeight: '500' },
-  kpiValue: { fontSize: 16, fontWeight: '700', color: '#1e293b' },
-  kpiValueMuted: { color: '#64748b' },
-  detailSection: { alignSelf: 'stretch', marginTop: 12, position: 'relative' as const, zIndex: 0 },
+  kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
+  kpiValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 2 },
+  detailSection: { flex: 1, alignSelf: 'stretch', minHeight: 0 },
   detailHeader: { marginBottom: 8 },
-  detailTitle: { fontSize: 14, fontWeight: '700', color: '#334155', marginBottom: 8 },
+  detailTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 8 },
   detailTabsRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  detailTab: {
-    paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8,
-    borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc',
-  },
-  detailTabActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  detailTabText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
-  detailTabTextActive: { color: '#fff' },
   detailTabInfo: { padding: 6 },
   localesListItemSelected: {
     borderWidth: 2, borderColor: '#0ea5e9', backgroundColor: '#f0f9ff',
   },
   widgetLocales: { alignSelf: 'stretch', minHeight: 48, marginTop: 0, position: 'relative' as const, zIndex: 0 },
-  visionGlobalCompact: { fontSize: 11, color: '#64748b', marginBottom: 8, paddingHorizontal: 2 },
   widgetLocalesHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   widgetLocalesTitle: { fontSize: 15, fontWeight: '700', color: '#334155' },
   widgetLocalesActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },

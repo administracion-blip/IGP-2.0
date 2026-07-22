@@ -6,6 +6,13 @@
 export const CONSUMO_CUSTOMER_ID = '1';
 export const CONSUMO_CUSTOMER_NAME = 'CONSUMO';
 
+/**
+ * Umbral de descuento a partir del cual la bonificación por unidad se reduce
+ * proporcionalmente al precio realmente cobrado. Por defecto 30%.
+ */
+export const UMBRAL_DESCUENTO_BONIFICACION =
+  (parseFloat(process.env.INCENTIVOS_UMBRAL_DESCUENTO || '30') || 30) / 100;
+
 export function toNumberSafe(v) {
   if (typeof v === 'number') return v;
   if (v == null || v === '') return 0;
@@ -146,6 +153,58 @@ function esInvitacionPorDescuentoTotal(line, qty, lineGross) {
   if (lineDiscountRate >= 99.5) return true;
   if (baseAmount > 0.001 && Math.abs(lineGross) < 0.001) return true;
   return false;
+}
+
+/**
+ * Descuento efectivo de la línea en tanto por uno (0..1).
+ * Combina la tasa de descuento explícita (rate/importe) con el descuento
+ * derivado del precio (precio realmente cobrado vs. precio de tarifa), para
+ * capturar tanto descuentos por porcentaje como por importe.
+ */
+export function descuentoLinea(line, qty, lineGross) {
+  let descuento = 0;
+
+  const discountList =
+    line?.Discounts ?? line?.discounts ??
+    line?.SaleLineDiscounts ?? line?.saleLineDiscounts ??
+    line?.LineDiscounts ?? line?.lineDiscounts ?? [];
+  if (Array.isArray(discountList)) {
+    for (const d of discountList) {
+      const ratePct = normalizeDiscountRate(d?.DiscountRate ?? d?.discountRate ?? d?.Rate ?? d?.rate);
+      if (ratePct / 100 > descuento) descuento = ratePct / 100;
+    }
+  }
+  const lineRatePct = normalizeDiscountRate(line?.DiscountRate ?? line?.discountRate);
+  if (lineRatePct / 100 > descuento) descuento = lineRatePct / 100;
+
+  // Descuento derivado del precio (captura descuentos por importe).
+  const q = toNumberSafe(qty);
+  const productPrice = pickLineProductPrice(line);
+  const unitPrice = toNumberSafe(
+    line?.UnitPrice ?? line?.unitPrice ?? line?.Price ?? line?.price,
+  );
+  const tarifaUnit = productPrice > 0.001 ? productPrice : unitPrice;
+  if (tarifaUnit > 0.001 && q > 0) {
+    const realUnit = Math.abs(toNumberSafe(lineGross)) / q;
+    const descPrecio = 1 - realUnit / tarifaUnit;
+    if (descPrecio > descuento) descuento = descPrecio;
+  }
+
+  if (descuento < 0) descuento = 0;
+  if (descuento > 1) descuento = 1;
+  return descuento;
+}
+
+/**
+ * Factor de bonificación por unidad (0..1).
+ * - Descuento ≤ umbral (30% por defecto): factor 1 (bonificación entera).
+ * - Descuento > umbral: factor = precio realmente cobrado / precio de tarifa,
+ *   es decir, la bonificación se reduce proporcionalmente al descuento.
+ */
+export function factorBonificacionLinea(line, qty, lineGross, umbral = UMBRAL_DESCUENTO_BONIFICACION) {
+  const descuento = descuentoLinea(line, qty, lineGross);
+  if (descuento <= umbral + 1e-9) return 1;
+  return 1 - descuento;
 }
 
 /**

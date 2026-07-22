@@ -180,14 +180,51 @@ export function shouldUseComfortableTable(width: number, height: number): boolea
 
 
 
+/** Gap entre cards en grids de Ajustes (sincronizaciones, personalización). */
+export const SETTINGS_CARD_GAP = 12;
+export const SETTINGS_CARD_MIN = 260;
+export const SETTINGS_CARD_MAX = 360;
+
+/**
+ * Ancho fijo de card en Ajustes para que todas las filas mantengan el mismo tamaño
+ * (evita que la última fila se estire con flex:1).
+ */
+export function settingsCardWidth(
+  viewportWidth: number,
+  options?: { sidebarWidth?: number; horizontalPadding?: number },
+): number | '100%' {
+  const gap = SETTINGS_CARD_GAP;
+  const minW = SETTINGS_CARD_MIN;
+  const maxW = SETTINGS_CARD_MAX;
+  const sidebarW = options?.sidebarWidth ?? 220;
+  const hPad = options?.horizontalPadding ?? 64;
+
+  if (viewportWidth < 500) return '100%';
+
+  const available = Math.max(minW, viewportWidth - sidebarW - hPad);
+  const cols = Math.max(1, Math.floor((available + gap) / (minW + gap)));
+  return Math.min(maxW, Math.floor((available - (cols - 1) * gap) / cols));
+}
+
 /** Ancho de tarjeta en grid de hub según columnas (porcentaje aproximado con gap 10). */
 
 export function hubCardWidthPercent(columns: number): `${number}%` {
 
   if (columns <= 1) return '100%';
 
+  if (columns >= 3) return '31%';
+
   return '48%';
 
+}
+
+/** Ancho de varias tarjetas hub en la misma fila (alineado al borde de la última columna ocupada). */
+export function hubCardSpanWidthPercent(spanCards: number, gridColumns: number): `${number}%` {
+  const cols = Math.max(1, gridColumns);
+  const span = Math.max(1, Math.min(spanCards, cols));
+  if (cols >= 3 && span >= 3) return '95%';
+  if (cols === 2 && span >= 2) return '97%';
+  return hubCardWidthPercent(cols);
 }
 
 

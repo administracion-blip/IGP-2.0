@@ -10,6 +10,7 @@ export default function RecursosHumanosLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="horas-facturacion" />
+      <Stack.Screen name="incentivos-producto" />
     </Stack>
   );
 }

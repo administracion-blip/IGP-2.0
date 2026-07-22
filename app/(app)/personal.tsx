@@ -10,6 +10,10 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import {
+  ERP_LIST_HEADER_TEXT_PROPS,
+  erpListTableStyles,
+} from '../constants/erpListTableStyles';
 import { apiFetch, errorMessage } from '../utils/api';
 
 type Empleado = {
@@ -169,45 +173,81 @@ export default function PersonalScreen() {
             {filtrados.length} empleado{filtrados.length !== 1 ? 's' : ''}
             {soloActivos ? ' activos' : ''}
           </Text>
-          <ScrollView horizontal>
-            <View>
-              {/* Cabecera */}
-              <View style={styles.headerRowTable}>
-                {COLUMNAS.map((col) => (
-                  <View key={col.key} style={[styles.headerCell, { width: col.width }]}>
-                    <Text style={styles.headerCellText}>{col.label}</Text>
-                  </View>
-                ))}
-              </View>
-
-              {/* Filas */}
-              <ScrollView style={styles.bodyScroll}>
-                {filtrados.length === 0 && (
-                  <View style={styles.emptyRow}>
-                    <Text style={styles.emptyText}>
-                      {empleados.length === 0
-                        ? 'Sin datos. Pulsa "Sincronizar" para importar empleados.'
-                        : 'Ningún empleado coincide con el filtro.'}
-                    </Text>
-                  </View>
-                )}
-                {filtrados.map((emp, idx) => (
-                  <View
-                    key={emp.employee_id}
-                    style={[styles.dataRow, idx % 2 === 1 && styles.dataRowAlt]}
-                  >
+          <View style={erpListTableStyles.tableOuter}>
+            <View style={erpListTableStyles.tableWrapper}>
+              <ScrollView
+                horizontal
+                style={[erpListTableStyles.scroll, erpListTableStyles.scrollTable, erpListTableStyles.tableScrollLtr]}
+                contentContainerStyle={erpListTableStyles.scrollContent}
+                showsHorizontalScrollIndicator
+              >
+                <View style={erpListTableStyles.table}>
+                  <View style={erpListTableStyles.rowHeader}>
                     {COLUMNAS.map((col) => (
-                      <View key={col.key} style={[styles.dataCell, { width: col.width }]}>
-                        <Text style={styles.dataCellText} numberOfLines={1}>
-                          {formatCellValue(String(col.key), emp[col.key as keyof Empleado])}
+                      <View key={col.key} style={[erpListTableStyles.cellHeader, { width: col.width }]}>
+                        <Text style={erpListTableStyles.cellHeaderText} {...ERP_LIST_HEADER_TEXT_PROPS}>
+                          {col.label}
                         </Text>
                       </View>
                     ))}
                   </View>
-                ))}
+
+                  <ScrollView
+                    style={erpListTableStyles.tableBodyScroll}
+                    contentContainerStyle={erpListTableStyles.tableBodyContent}
+                    showsVerticalScrollIndicator
+                    nestedScrollEnabled
+                  >
+                    {filtrados.length === 0 ? (
+                      <View style={erpListTableStyles.row}>
+                        <View style={erpListTableStyles.cellEmpty}>
+                          <Text style={erpListTableStyles.cellEmptyText}>
+                            {empleados.length === 0
+                              ? 'Sin datos. Pulsa «Sincronizar» para importar empleados.'
+                              : 'Ningún empleado coincide con el filtro.'}
+                          </Text>
+                        </View>
+                      </View>
+                    ) : (
+                      filtrados.map((emp) => (
+                        <View key={emp.employee_id} style={erpListTableStyles.row}>
+                          {COLUMNAS.map((col) => {
+                            const raw = formatCellValue(String(col.key), emp[col.key as keyof Empleado]);
+                            const esActivo = col.key === 'active';
+                            const activoStyles =
+                              esActivo && emp.active !== false
+                                ? { backgroundColor: '#d1fae5', color: '#047857', fontWeight: '600' as const }
+                                : esActivo
+                                  ? { backgroundColor: '#fee2e2', color: '#b91c1c', fontWeight: '600' as const }
+                                  : null;
+                            return (
+                              <View
+                                key={col.key}
+                                style={[
+                                  erpListTableStyles.cell,
+                                  { width: col.width },
+                                  activoStyles && { backgroundColor: activoStyles.backgroundColor, borderRadius: 6 },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    erpListTableStyles.cellText,
+                                    activoStyles && { color: activoStyles.color, fontWeight: activoStyles.fontWeight },
+                                  ]}
+                                >
+                                  {raw}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      ))
+                    )}
+                  </ScrollView>
+                </View>
               </ScrollView>
             </View>
-          </ScrollView>
+          </View>
         </>
       )}
     </View>
@@ -221,7 +261,7 @@ function formatCellValue(key: string, val: unknown): string {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10, backgroundColor: '#fff' },
+  container: { flex: 1, padding: 10, backgroundColor: '#fff', minHeight: 0 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   backBtn: {
     width: 36,
@@ -301,19 +341,4 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
   loadingText: { marginTop: 8, fontSize: 14, color: '#64748b' },
   countText: { fontSize: 12, color: '#64748b', marginBottom: 6 },
-  headerRowTable: {
-    flexDirection: 'row',
-    backgroundColor: '#f1f5f9',
-    borderBottomWidth: 2,
-    borderBottomColor: '#cbd5e1',
-  },
-  headerCell: { paddingVertical: 8, paddingHorizontal: 6 },
-  headerCellText: { fontSize: 12, fontWeight: '700', color: '#475569' },
-  bodyScroll: { flex: 1 },
-  dataRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  dataRowAlt: { backgroundColor: '#f8fafc' },
-  dataCell: { paddingVertical: 7, paddingHorizontal: 6 },
-  dataCellText: { fontSize: 13, color: '#334155' },
-  emptyRow: { padding: 24, alignItems: 'center' },
-  emptyText: { fontSize: 14, color: '#94a3b8', fontStyle: 'italic' },
 });

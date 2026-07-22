@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { apiFetch } from '../utils/api';
 import { EnlacesPlanningPanel } from '../components/ajustes/EnlacesPlanningPanel';
+import { settingsCardWidth } from '../constants/layout';
 
 /** Límite aproximado para caber en un ítem DynamoDB (~400 KB con base64). */
 const MAX_IMAGEN_BASE64_LENGTH = 380000;
@@ -97,6 +98,9 @@ const SYNC_ITEMS: SyncConfig[] = [
     descripcion: 'Detecta y registra nuevas formas de pago desde Agora',
   },
 ];
+
+/** Opciones de rango (en días naturales, terminando hoy) para el sync manual de ventas por producto. */
+const VENTAS_SYNC_DAY_OPTIONS = [3, 5, 10] as const;
 
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 const DAY_LABELS: Record<string, string> = {
@@ -194,6 +198,14 @@ export default function AjustesScreen() {
   const [infError, setInfError] = useState<string | null>(null);
   const [infLastRun, setInfLastRun] = useState<string | null>(null);
   const [infDestCount, setInfDestCount] = useState<number | null>(null);
+
+  // --- Sync manual de ventas por producto (incentivos) ---
+  const puedeVentasSync = hasPermiso('ajustes.sincronizaciones.ventas_producto');
+  const [ventasSyncDays, setVentasSyncDays] = useState<number>(3);
+  const [ventasSyncing, setVentasSyncing] = useState(false);
+  const [ventasSyncResult, setVentasSyncResult] = useState<string | null>(null);
+  const [ventasSyncError, setVentasSyncError] = useState<string | null>(null);
+  const [ventasSyncLast, setVentasSyncLast] = useState<string | null>(null);
 
   const cargarEstados = useCallback(async () => {
     try {
@@ -521,6 +533,50 @@ export default function AjustesScreen() {
 
   useEffect(() => { cargarInforme(); }, [cargarInforme]);
 
+  const cargarVentasSync = useCallback(async () => {
+    if (!puedeVentasSync) return;
+    try {
+      const res = await apiFetch('/api/campanas/ventas-sync');
+      const data = await res.json();
+      if (res.ok && data.ok) setVentasSyncLast(data.lastSync ?? null);
+    } catch (_) {}
+  }, [puedeVentasSync]);
+
+  useEffect(() => { cargarVentasSync(); }, [cargarVentasSync]);
+
+  const ejecutarVentasSync = useCallback(async () => {
+    setVentasSyncing(true);
+    setVentasSyncResult(null);
+    setVentasSyncError(null);
+    try {
+      const hoy = new Date();
+      const fechaFin = hoy.toISOString().slice(0, 10);
+      const inicio = new Date(hoy);
+      inicio.setDate(inicio.getDate() - (ventasSyncDays - 1));
+      const fechaInicio = inicio.toISOString().slice(0, 10);
+
+      const res = await apiFetch('/api/agora/sales-lines/full-sync', {
+        method: 'POST',
+        body: JSON.stringify({ fechaInicio, fechaFin }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setVentasSyncError(data.error || 'No se pudo sincronizar');
+        return;
+      }
+      const errCount = Array.isArray(data.errors) ? data.errors.length : 0;
+      setVentasSyncResult(
+        `${data.daysProcessed ?? ventasSyncDays} días · ${data.totalItems ?? 0} registros`
+        + (errCount > 0 ? ` · ${errCount} error(es)` : ''),
+      );
+      setVentasSyncLast(new Date().toISOString());
+    } catch (err: any) {
+      setVentasSyncError(err?.message || 'Error de conexión');
+    } finally {
+      setVentasSyncing(false);
+    }
+  }, [ventasSyncDays]);
+
   const toggleInfDay = useCallback((day: string) => {
     setInfDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
   }, []);
@@ -655,6 +711,12 @@ export default function AjustesScreen() {
   const visibleItems = SYNC_ITEMS.filter((s) => hasPermiso(s.permiso));
   const configItem = configModalId ? SYNC_ITEMS.find((s) => s.id === configModalId) : null;
 
+  const gridCardStyle = useMemo(() => {
+    const w = settingsCardWidth(winWidth);
+    if (w === '100%') return { width: '100%' as const };
+    return { width: w, maxWidth: w };
+  }, [winWidth]);
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -676,14 +738,14 @@ export default function AjustesScreen() {
 
           {loadingAjustes ? (
             <ActivityIndicator size="small" color="#0ea5e9" style={{ marginTop: 20 }} />
-          ) : visibleItems.length === 0 ? (
+          ) : visibleItems.length === 0 && !puedeVentasSync ? (
             <Text style={styles.emptyText}>No tienes permisos para ninguna sincronización</Text>
           ) : (
             <View style={styles.cardsGrid}>
               {visibleItems.map((item) => {
                 const st = syncStates[item.id] ?? defaultState();
                 return (
-                  <View key={item.id} style={[styles.card, { minWidth: winWidth < 500 ? '100%' as any : 260, maxWidth: winWidth < 500 ? '100%' as any : 360 }]}>
+                  <View key={item.id} style={[styles.card, gridCardStyle]}>
                     {/* Cabecera */}
                     <View style={styles.cardTop}>
                       <View style={[styles.cardIconWrap, st.error ? styles.cardIconError : st.result ? styles.cardIconOk : styles.cardIconDefault]}>
@@ -770,6 +832,86 @@ export default function AjustesScreen() {
                   </View>
                 );
               })}
+
+              {/* Card especial: sync manual de ventas por producto (incentivos) */}
+              {puedeVentasSync && (
+                <View style={[styles.card, gridCardStyle]}>
+                  <View style={styles.cardTop}>
+                    <View style={[styles.cardIconWrap, ventasSyncError ? styles.cardIconError : ventasSyncResult ? styles.cardIconOk : styles.cardIconDefault]}>
+                      <MaterialIcons name="receipt-long" size={20} color={ventasSyncError ? '#dc2626' : ventasSyncResult ? '#059669' : '#0369a1'} />
+                    </View>
+                    <View style={styles.cardInfo}>
+                      <Text style={styles.cardTitle} numberOfLines={1}>Ventas por producto</Text>
+                      <Text style={styles.cardDesc} numberOfLines={2}>
+                        Re-sincroniza las líneas de venta de Agora (incentivos) de los últimos días.
+                      </Text>
+                    </View>
+                    <View style={{ width: 22 }} />
+                  </View>
+
+                  {/* Estado + última sync (igual que el resto de cards) */}
+                  <View style={styles.cardStatusRow}>
+                    <View style={[styles.statusBadge, styles.statusBadgeOff]}>
+                      <View style={[styles.statusDot, styles.statusDotOff]} />
+                      <Text style={[styles.statusText, styles.statusTextOff]}>Manual</Text>
+                    </View>
+                    <View style={styles.cardMetaRow}>
+                      <MaterialIcons name="schedule" size={11} color="#94a3b8" />
+                      <Text style={styles.cardMetaText}>{formatFechaHora(ventasSyncLast)}</Text>
+                    </View>
+                  </View>
+
+                  {/* Selector de rango compacto */}
+                  <View style={styles.daySelRow}>
+                    {VENTAS_SYNC_DAY_OPTIONS.map((n) => {
+                      const active = ventasSyncDays === n;
+                      return (
+                        <TouchableOpacity
+                          key={n}
+                          style={[styles.daySelChip, active && styles.daySelChipActive]}
+                          onPress={() => setVentasSyncDays(n)}
+                          disabled={ventasSyncing}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.daySelText, active && styles.daySelTextActive]}>{n} días</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  {ventasSyncResult && !ventasSyncError && (
+                    <View style={styles.resultBox}>
+                      <MaterialIcons name="check-circle" size={12} color="#059669" />
+                      <Text style={styles.resultText} numberOfLines={2}>{ventasSyncResult}</Text>
+                    </View>
+                  )}
+                  {ventasSyncError && (
+                    <View style={styles.errorBox}>
+                      <MaterialIcons name="error-outline" size={12} color="#dc2626" />
+                      <Text style={styles.errorText} numberOfLines={2}>{ventasSyncError}</Text>
+                    </View>
+                  )}
+
+                  <TouchableOpacity
+                    style={[styles.syncBtn, ventasSyncing && styles.syncBtnDisabled]}
+                    onPress={ejecutarVentasSync}
+                    disabled={ventasSyncing}
+                    activeOpacity={0.7}
+                  >
+                    {ventasSyncing ? (
+                      <>
+                        <ActivityIndicator size="small" color="#fff" />
+                        <Text style={styles.syncBtnText}>Sincronizando…</Text>
+                      </>
+                    ) : (
+                      <>
+                        <MaterialIcons name="sync" size={15} color="#fff" />
+                        <Text style={styles.syncBtnText}>Sincronizar</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           )}
         </View>
@@ -808,7 +950,7 @@ export default function AjustesScreen() {
               <ActivityIndicator size="small" color="#0ea5e9" style={{ marginTop: 20 }} />
             ) : (
               <View style={styles.cardsGrid}>
-                <View style={[styles.card, { minWidth: winWidth < 500 ? '100%' as any : 260, maxWidth: winWidth < 500 ? '100%' as any : 360 }]}>
+                <View style={[styles.card, gridCardStyle]}>
                   <View style={styles.cardTop}>
                     <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
                       <MaterialIcons name="image" size={20} color="#0369a1" />
@@ -853,7 +995,7 @@ export default function AjustesScreen() {
                   </View>
                 </View>
 
-                <View style={[styles.card, { minWidth: winWidth < 500 ? '100%' as any : 260, maxWidth: winWidth < 500 ? '100%' as any : 360 }]}>
+                <View style={[styles.card, gridCardStyle]}>
                   <View style={styles.cardTop}>
                     <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
                       <MaterialIcons name="percent" size={20} color="#0369a1" />
@@ -879,7 +1021,7 @@ export default function AjustesScreen() {
                   </View>
                 </View>
 
-                <View style={[styles.card, { minWidth: winWidth < 500 ? '100%' as any : 260, maxWidth: winWidth < 500 ? '100%' as any : 360 }]}>
+                <View style={[styles.card, gridCardStyle]}>
                   <View style={styles.cardTop}>
                     <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
                       <MaterialIcons name="schedule" size={20} color="#0369a1" />
@@ -1316,7 +1458,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   card: {
-    flex: 1,
+    flexGrow: 0,
+    flexShrink: 0,
     backgroundColor: '#f8fafc',
     borderRadius: 12,
     borderWidth: 1,
@@ -1386,6 +1529,21 @@ const styles = StyleSheet.create({
   dayChipSmallText: { fontSize: 9, fontWeight: '600', color: '#94a3b8' },
   dayChipSmallTextActive: { color: '#1d4ed8' },
   timesPreview: { fontSize: 10, color: '#64748b', fontWeight: '500' },
+
+  /* Selector de rango (ventas por producto) — escala de chips del card */
+  daySelRow: { flexDirection: 'row', gap: 4 },
+  daySelChip: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    backgroundColor: '#f1f5f9',
+  },
+  daySelChipActive: { backgroundColor: '#dbeafe' },
+  daySelText: { fontSize: 10, fontWeight: '600', color: '#64748b' },
+  daySelTextActive: { color: '#1d4ed8' },
 
   /* Result / Error */
   resultBox: {

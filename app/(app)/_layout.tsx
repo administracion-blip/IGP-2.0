@@ -22,6 +22,7 @@ import { fetchImagenApp } from '../lib/personalizacion';
 import { MODULOS as MENU_ITEMS, moduloDeRuta } from '../constants/modulos';
 import { colors, iconSize, radius, shadowCard, sidebar, SPACING, typography } from '../constants/theme';
 import { SidebarNavItem } from '../components/ui/SidebarNavItem';
+import { SidebarApiStatus } from '../components/ui/SidebarApiStatus';
 import { SoftPulseBorderWrap } from '../components/ui/SoftPulseBorderWrap';
 
 function normalizarPath(pathname: string): string {
@@ -243,6 +244,8 @@ function AppLayoutContent() {
               />
             ))}
           </ScrollView>
+          <View style={styles.sidebarDivider} />
+          <SidebarApiStatus collapsed={!sidebarOpen} />
         </View>
 
         {/* Contenido */}
@@ -428,6 +431,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   sidebar: {
+    flexDirection: 'column',
+    alignSelf: 'stretch',
     backgroundColor: colors.surface,
     borderRightWidth: 1,
     borderRightColor: colors.border,
@@ -443,7 +448,7 @@ const styles = StyleSheet.create({
   },
   sidebarScrollContent: {
     paddingTop: SPACING.sm,
-    paddingBottom: SPACING.lg,
+    paddingBottom: SPACING.sm,
   },
   sidebarDivider: {
     height: 1,
@@ -452,7 +457,11 @@ const styles = StyleSheet.create({
     marginVertical: SPACING.sm,
   },
   sidebarSectionLabel: {
-    ...typography.etiqueta,
+    fontSize: 11,
+    fontWeight: '400',
+    color: '#0f172a',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
     marginLeft: SPACING.md + 2,
     marginBottom: SPACING.xs,
     marginTop: SPACING.xs,
