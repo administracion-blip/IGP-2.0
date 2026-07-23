@@ -66,6 +66,61 @@ export type DetalleProducto = {
   createdAt?: string;
 };
 
+/** Justificante antiguo embebido en Dynamo como base64 (compatibilidad). */
+export type JustificanteLegacy = { name: string; data: string };
+
+/** Justificante nuevo almacenado en S3; `url` firmada la añade el backend en el GET. */
+export type JustificanteS3 = {
+  fileKey: string;
+  fileName: string;
+  contentType?: string;
+  size?: number;
+  uploadedAt?: string;
+  url?: string;
+};
+
+/** Un justificante puede venir en formato S3 (nuevo) o base64 (legacy). */
+export type Justificante = JustificanteLegacy | JustificanteS3;
+
+/** Devuelve `true` si el justificante está almacenado en S3. */
+export function esJustificanteS3(j: Justificante): j is JustificanteS3 {
+  return typeof (j as JustificanteS3).fileKey === 'string';
+}
+
+/** Nombre a mostrar de un justificante, sea S3 o legacy. */
+export function justificanteNombre(j: Justificante): string {
+  return esJustificanteS3(j) ? j.fileName : j.name;
+}
+
+/** Indica si el justificante se puede abrir (URL firmada S3 o data URL legacy). */
+export function justificanteAbrible(j: Justificante): boolean {
+  if (esJustificanteS3(j)) return Boolean(j.url);
+  return Boolean(j.data);
+}
+
+/** Abre un justificante en nueva pestaña (web). S3 vía url firmada; legacy vía data URL. */
+export function abrirJustificante(j: Justificante): void {
+  if (typeof window === 'undefined') return;
+  if (esJustificanteS3(j) && j.url) {
+    window.open(j.url, '_blank');
+    return;
+  }
+  if (!esJustificanteS3(j) && j.data) {
+    window.open(j.data, '_blank');
+  }
+}
+
+/** Icono MaterialIcons acorde al tipo de justificante. */
+export function justificanteIcono(j: Justificante): { name: 'image' | 'picture-as-pdf' | 'insert-drive-file'; color: string } {
+  const ct = esJustificanteS3(j) ? (j.contentType || '') : '';
+  const legacy = !esJustificanteS3(j) ? (j.data || '') : '';
+  const isImage = /^image\//i.test(ct) || legacy.startsWith('data:image/');
+  const isPdf = /\/pdf$/i.test(ct) || legacy.includes('application/pdf');
+  if (isImage) return { name: 'image', color: '#0ea5e9' };
+  if (isPdf) return { name: 'picture-as-pdf', color: '#ef4444' };
+  return { name: 'insert-drive-file', color: '#64748b' };
+}
+
 /** Imagen / justificante de pago asociado a un acuerdo — `IGP_AcuerdosImagen`. */
 export type PagoImagen = {
   PK: string;
@@ -73,7 +128,7 @@ export type PagoImagen = {
   Locales: string[];
   Acciones: string[];
   Importe: number;
-  Justificantes: { name: string; data: string }[];
+  Justificantes: Justificante[];
   Descripcion: string;
   Realizado: boolean;
   createdAt?: string;

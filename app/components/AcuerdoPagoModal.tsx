@@ -1,4 +1,5 @@
 import {
+  ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
@@ -11,6 +12,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import type { UseAcuerdoPagoReturn } from '../hooks/useAcuerdoPago';
 import { ACCIONES_IMAGEN } from '../hooks/useAcuerdoPago';
+import { esJustificanteS3, justificanteAbrible, justificanteIcono, justificanteNombre, abrirJustificante } from '../types/acuerdo';
 
 type Props = {
   /** Bag completo devuelto por `useAcuerdoPago`. */
@@ -35,8 +37,10 @@ export function AcuerdoPagoModal({ pago, isCompact }: Props) {
     form,
     setForm,
     files,
-    setFiles,
     guardando,
+    subiendoArchivo,
+    errorArchivo,
+    quitarArchivo,
     localDropdownOpen,
     setLocalDropdownOpen,
     localSearch,
@@ -181,28 +185,54 @@ export function AcuerdoPagoModal({ pago, isCompact }: Props) {
 
             <Text style={styles.label}>Justificante</Text>
             <TouchableOpacity
-              style={[styles.input, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+              style={[styles.input, { flexDirection: 'row', alignItems: 'center', gap: 6 }, subiendoArchivo && { opacity: 0.6 }]}
               onPress={handleFileSelect}
+              disabled={subiendoArchivo}
             >
-              <MaterialIcons name="attach-file" size={16} color="#64748b" />
-              <Text style={styles.inputPlaceholderText}>Adjuntar archivos…</Text>
+              {subiendoArchivo ? (
+                <ActivityIndicator size="small" color="#0ea5e9" />
+              ) : (
+                <MaterialIcons name="attach-file" size={16} color="#64748b" />
+              )}
+              <Text style={styles.inputPlaceholderText}>
+                {subiendoArchivo ? 'Subiendo…' : 'Adjuntar archivos…'}
+              </Text>
             </TouchableOpacity>
+            {errorArchivo ? (
+              <Text style={styles.errorText}>{errorArchivo}</Text>
+            ) : null}
             {files.length > 0 && (
-              <View style={{ gap: 4, marginBottom: 12 }}>
-                {files.map((f, i) => (
-                  <View
-                    key={i}
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 2 }}
-                  >
-                    <MaterialIcons name="insert-drive-file" size={14} color="#64748b" />
-                    <Text style={{ fontSize: 12, color: '#334155', flex: 1 }} numberOfLines={1}>
-                      {f.name}
-                    </Text>
-                    <TouchableOpacity onPress={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}>
-                      <MaterialIcons name="close" size={14} color="#ef4444" />
-                    </TouchableOpacity>
-                  </View>
-                ))}
+              <View style={{ gap: 4, marginBottom: 12, marginTop: 4 }}>
+                {files.map((f, i) => {
+                  const nombre = justificanteNombre(f);
+                  const abrible = justificanteAbrible(f);
+                  const icono = justificanteIcono(f);
+                  return (
+                    <View
+                      key={esJustificanteS3(f) ? f.fileKey : `legacy-${i}`}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 2 }}
+                    >
+                      <MaterialIcons name={icono.name} size={14} color={icono.color} />
+                      {abrible ? (
+                        <TouchableOpacity
+                          style={{ flex: 1 }}
+                          onPress={() => abrirJustificante(f)}
+                        >
+                          <Text style={{ fontSize: 12, color: '#0ea5e9', textDecorationLine: 'underline' }} numberOfLines={1}>
+                            {nombre}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <Text style={{ fontSize: 12, color: '#334155', flex: 1 }} numberOfLines={1}>
+                          {nombre}
+                        </Text>
+                      )}
+                      <TouchableOpacity onPress={() => quitarArchivo(i)}>
+                        <MaterialIcons name="close" size={14} color="#ef4444" />
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
               </View>
             )}
 
@@ -221,9 +251,9 @@ export function AcuerdoPagoModal({ pago, isCompact }: Props) {
                 <Text style={styles.cancelBtnText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.saveBtn, guardando && { opacity: 0.6 }]}
+                style={[styles.saveBtn, (guardando || subiendoArchivo) && { opacity: 0.6 }]}
                 onPress={guardar}
-                disabled={guardando}
+                disabled={guardando || subiendoArchivo}
               >
                 <Text style={styles.saveBtnText}>{guardando ? 'Guardando…' : 'Guardar'}</Text>
               </TouchableOpacity>
@@ -252,6 +282,7 @@ const styles = StyleSheet.create({
   },
   inputValueText: { fontSize: 14, color: '#334155' },
   inputPlaceholderText: { fontSize: 14, color: '#94a3b8' },
+  errorText: { fontSize: 12, color: '#ef4444', marginTop: 6 },
   localDropdown: {
     backgroundColor: '#fff',
     borderWidth: 1,

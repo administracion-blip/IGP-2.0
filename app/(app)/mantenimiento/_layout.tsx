@@ -4,7 +4,12 @@ import { MantenimientoLocalesProvider } from './LocalesContext';
 export default function MantenimientoLayout() {
   return (
     <MantenimientoLocalesProvider>
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: '#ffffff' },
+        }}
+      >
         <Stack.Screen name="index" />
         <Stack.Screen name="incidencias" />
         <Stack.Screen name="reportar" />

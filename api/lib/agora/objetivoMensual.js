@@ -4,7 +4,7 @@
  */
 import { QueryCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
-import { usuarioPuedeAccederLocal } from '../usuarioLocales.js';
+import { usuarioPuedeAccederLocal, jornadaNegocioHoyIso } from '../usuarioLocales.js';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const cardCache = new Map();
@@ -37,6 +37,17 @@ function mesEnCurso() {
     fin: `${y}-${mStr}-${String(ultimoDia).padStart(2, '0')}`,
   };
 }
+
+/** Días naturales desde la jornada de hoy hasta fin de mes (ambos inclusive). */
+function diasNaturalesRestantes(jornadaHoy, fechaFinMes) {
+  if (!RE_FECHA.test(jornadaHoy) || !RE_FECHA.test(fechaFinMes)) return 0;
+  if (jornadaHoy > fechaFinMes) return 0;
+  const d0 = new Date(`${jornadaHoy}T12:00:00`).getTime();
+  const d1 = new Date(`${fechaFinMes}T12:00:00`).getTime();
+  return Math.round((d1 - d0) / (24 * 60 * 60 * 1000)) + 1;
+}
+
+const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
 function sumCloseoutItemAmount(item) {
   const arr = item?.InvoicePayments ?? item?.invoicePayments;
@@ -134,7 +145,7 @@ function buildFechaToComp(fechaInicio, fechaFin, festivosByFecha) {
  * Calcula pctConsecucion = (sumRealHastaAyer / sumCompHastaAyer) × 100.
  * No expone importes.
  */
-export async function calcPctConsecucionLocal(workplaceId, fechaInicioMes, fechaFinMes, hastaFecha, festivosByFecha) {
+export async function calcPctConsecucionLocal(workplaceId, fechaInicioMes, fechaFinMes, hastaFecha, festivosByFecha, jornadaHoy = '') {
   if (!workplaceId) {
     return { pctConsecucion: null, sinDatos: true };
   }
@@ -168,15 +179,22 @@ export async function calcPctConsecucionLocal(workplaceId, fechaInicioMes, fecha
     d.setDate(d.getDate() + 1);
   }
 
+  // Objetivo de hoy = comparativa (año anterior + festivos) de la jornada de hoy.
+  let objetivoHoy = null;
+  if (jornadaHoy && RE_FECHA.test(jornadaHoy) && jornadaHoy >= fechaInicioMes && jornadaHoy <= fechaFinMes) {
+    const fechaCompHoy = fechaToComp[jornadaHoy];
+    objetivoHoy = fechaCompHoy ? Math.round((totalsComp[fechaCompHoy] ?? 0) * 100) / 100 : null;
+  }
+
   if (!tieneDatosReales) {
-    return { pctConsecucion: null, sinDatos: true, importeRealHastaAyer: 0, importeCompHastaAyer: 0 };
+    return { pctConsecucion: null, sinDatos: true, importeRealHastaAyer: 0, importeCompHastaAyer: 0, objetivoHoy };
   }
 
   const importeRealHastaAyer = Math.round(sumRealHastaAyer * 100) / 100;
   const importeCompHastaAyer = Math.round(sumCompHastaAyer * 100) / 100;
 
   if (sumCompHastaAyer === 0) {
-    return { pctConsecucion: null, sinDatos: false, importeRealHastaAyer, importeCompHastaAyer };
+    return { pctConsecucion: null, sinDatos: false, importeRealHastaAyer, importeCompHastaAyer, objetivoHoy };
   }
 
   return {
@@ -184,6 +202,7 @@ export async function calcPctConsecucionLocal(workplaceId, fechaInicioMes, fecha
     sinDatos: false,
     importeRealHastaAyer,
     importeCompHastaAyer,
+    objetivoHoy,
   };
 }
 
@@ -202,7 +221,8 @@ async function scanLocales() {
 }
 
 /**
- * Payload del card: solo porcentajes, sin importes.
+ * Payload del card: porcentaje de consecución + objetivo del día, desvío por día
+ * para recuperar y días naturales restantes hasta fin de mes.
  */
 export async function buildObjetivoMensualCard(user) {
   const userKey = String(user?.id_usuario ?? user?.sub ?? user?.email ?? 'anon');
@@ -215,7 +235,11 @@ export async function buildObjetivoMensualCard(user) {
         ? fechaFinMes
         : fechaHastaAyerStr;
 
-  const cacheKey = `${userKey}:${mes}:${hastaFecha}`;
+  const jornadaHoy = jornadaNegocioHoyIso();
+  const jornadaHoyEnMes = jornadaHoy >= fechaInicioMes && jornadaHoy <= fechaFinMes ? jornadaHoy : '';
+  const diasRestantes = jornadaHoyEnMes ? diasNaturalesRestantes(jornadaHoyEnMes, fechaFinMes) : 0;
+
+  const cacheKey = `${userKey}:${mes}:${hastaFecha}:${jornadaHoyEnMes}`;
   const cached = cardCache.get(cacheKey);
   if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
     return cached.payload;
@@ -243,18 +267,41 @@ export async function buildObjetivoMensualCard(user) {
       const localId = String(loc.id_Locales ?? loc.id_locales ?? '');
       const nombre = String(loc.nombre ?? loc.Nombre ?? localId).trim();
       const workplaceId = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
-      const { pctConsecucion, sinDatos } = await calcPctConsecucionLocal(
+      const {
+        pctConsecucion,
+        sinDatos,
+        importeRealHastaAyer,
+        importeCompHastaAyer,
+        objetivoHoy,
+      } = await calcPctConsecucionLocal(
         workplaceId,
         fechaInicioMes,
         fechaFinMes,
         hastaFecha,
         festivosByFecha,
+        jornadaHoyEnMes,
       );
-      return { localId, nombre, pctConsecucion, sinDatos };
+
+      // Desvío acumulado (positivo = vamos por debajo del comparable).
+      const desvioAcumulado = Math.round(((importeCompHastaAyer ?? 0) - (importeRealHastaAyer ?? 0)) * 100) / 100;
+      const extraPorDia =
+        desvioAcumulado > 0 && diasRestantes > 0
+          ? Math.round((desvioAcumulado / diasRestantes) * 100) / 100
+          : 0;
+
+      return {
+        localId,
+        nombre,
+        pctConsecucion,
+        sinDatos,
+        objetivoHoy: objetivoHoy ?? null,
+        desvioAcumulado,
+        extraPorDia,
+      };
     }),
   );
 
-  const payload = { mes, hastaFecha, locales };
+  const payload = { mes, hastaFecha, jornadaHoy: jornadaHoyEnMes || jornadaHoy, diasRestantes, locales };
   cardCache.set(cacheKey, { payload, cachedAt: Date.now() });
   return payload;
 }

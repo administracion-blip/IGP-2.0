@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { ICONS, ICON_SIZE } from '../../constants/icons';
 import {
   ERP_LIST_HEADER_TEXT_PROPS,
@@ -21,9 +22,51 @@ import {
   erpListTableStyles,
 } from '../../constants/erpListTableStyles';
 import { apiFetch } from '../../utils/api';
+import { InputFecha } from '../../components/InputFecha';
+import { MantenimientoFiltrosBar } from '../../components/mantenimiento/MantenimientoFiltrosBar';
+import { PrioridadIncidenciaBadge } from '../../components/mantenimiento/PrioridadIncidenciaBadge';
+import { MantenimientoFotosGaleriaModal } from '../../components/mantenimiento/MantenimientoFotosGaleriaModal';
+import {
+  type ChipPeriodoMantenimiento,
+  extraerFechaIsoIncidencia,
+  filtrarIncidenciasMantenimiento,
+  filtrosPorDefecto,
+  isDateInPast,
+  calcularContadoresMantenimiento,
+} from '../../lib/mantenimientoFiltros';
 
 const DEFAULT_COL_WIDTH = 90;
 const PAGE_SIZE = 50;
+const TABLE_FONT_SIZE = 11;
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+
+type Incidencia = Record<string, string | number | string[] | undefined>;
+
+function resolverUriFoto(uri: string): string {
+  const u = uri.trim();
+  if (u.startsWith('http') || u.startsWith('data:')) return u;
+  return `${API_URL}${u.startsWith('/') ? '' : '/'}${u}`;
+}
+
+function fotosIncidencia(inc: Incidencia): string[] {
+  if (!Array.isArray(inc.fotos)) return [];
+  return inc.fotos.filter((x): x is string => typeof x === 'string' && x.trim() !== '');
+}
+
+function nombreUsuarioVisible(
+  idUsuario: string | undefined,
+  mapaUsuarios: Record<string, string>,
+  usuarioLogin: { id_usuario?: string; Nombre?: string; email?: string } | null,
+): string {
+  const id = (idUsuario ?? '').toString().trim();
+  if (!id) return '—';
+  if (usuarioLogin?.id_usuario === id) {
+    const nomLogin = (usuarioLogin.Nombre ?? '').trim();
+    if (nomLogin) return nomLogin;
+    if (usuarioLogin.email) return usuarioLogin.email;
+  }
+  return mapaUsuarios[id] ?? id;
+}
 
 const COLUMNAS_INCIDENCIAS = [
   'fecha_creacion',
@@ -62,8 +105,6 @@ const COL_LABELS: Record<(typeof COLUMNAS_INCIDENCIAS)[number], string> = {
   fotos: 'Fotos',
   id_incidencia: 'ID incidencia',
 };
-
-type Incidencia = Record<string, string | number | string[] | undefined>;
 
 function formatearFecha(iso: string | undefined): string {
   if (!iso) return '—';
@@ -125,6 +166,7 @@ function estilosEstado(estado: string | undefined): { backgroundColor: string; c
 
 export default function MantenimientoScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const { locales } = useMantenimientoLocales();
   const [countAbiertas, setCountAbiertas] = useState<number | null>(null);
   const [incidencias, setIncidencias] = useState<Incidencia[]>([]);
@@ -152,6 +194,15 @@ export default function MantenimientoScreen() {
   const [editDescripcion, setEditDescripcion] = useState('');
   const [editZona, setEditZona] = useState('');
   const [editPrioridad, setEditPrioridad] = useState('');
+  const [editFechaProgramada, setEditFechaProgramada] = useState('');
+  const [editFechaProgramadaInicial, setEditFechaProgramadaInicial] = useState('');
+  const [mapaUsuarios, setMapaUsuarios] = useState<Record<string, string>>({});
+  const [modalFotos, setModalFotos] = useState<{ fotos: string[]; titulo: string } | null>(null);
+  const [fechaDesdeFiltro, setFechaDesdeFiltro] = useState(() => filtrosPorDefecto().fechaDesde);
+  const [fechaHastaFiltro, setFechaHastaFiltro] = useState(() => filtrosPorDefecto().fechaHasta);
+  const [chipPeriodoFiltro, setChipPeriodoFiltro] = useState<ChipPeriodoMantenimiento>(() => filtrosPorDefecto().chipPeriodo);
+  const [localIdsFiltro, setLocalIdsFiltro] = useState<string[]>([]);
+  const [estadosFiltro, setEstadosFiltro] = useState<string[]>([]);
   const resizeRef = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
 
   const ZONAS_EDIT = ['barra', 'cocina', 'baños', 'almacén', 'sala', 'terraza', 'otros'] as const;
@@ -166,6 +217,56 @@ export default function MantenimientoScreen() {
     });
     return m;
   }, [locales]);
+
+  const opcionesLocalesFiltro = useMemo(
+    () =>
+      locales
+        .map((loc) => {
+          const id = (valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'id_locales') ?? '').toString();
+          const nombre = (valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? id).toString();
+          return id ? { id, nombre } : null;
+        })
+        .filter((x): x is { id: string; nombre: string } => x !== null),
+    [locales],
+  );
+
+  const incidenciasFiltradas = useMemo(
+    () =>
+      filtrarIncidenciasMantenimiento(incidencias, {
+        fechaDesde: fechaDesdeFiltro,
+        fechaHasta: fechaHastaFiltro,
+        chipPeriodo: chipPeriodoFiltro,
+        localIds: localIdsFiltro,
+        estados: estadosFiltro,
+      }),
+    [incidencias, fechaDesdeFiltro, fechaHastaFiltro, chipPeriodoFiltro, localIdsFiltro, estadosFiltro],
+  );
+
+  const contadoresFiltros = useMemo(
+    () =>
+      calcularContadoresMantenimiento(incidencias, {
+        fechaDesde: fechaDesdeFiltro,
+        fechaHasta: fechaHastaFiltro,
+        chipPeriodo: chipPeriodoFiltro,
+        localIds: localIdsFiltro,
+        estados: estadosFiltro,
+      }),
+    [
+      incidencias,
+      fechaDesdeFiltro,
+      fechaHastaFiltro,
+      chipPeriodoFiltro,
+      localIdsFiltro,
+      estadosFiltro,
+    ],
+  );
+
+  useEffect(() => {
+    setPageIndex(0);
+    setSelectedRowIndex(null);
+    setMultiSelectMode(false);
+    setSelectedIndices(new Set());
+  }, [fechaDesdeFiltro, fechaHastaFiltro, chipPeriodoFiltro, localIdsFiltro, estadosFiltro]);
 
   const refetch = useCallback(() => {
     setError(null);
@@ -184,9 +285,7 @@ export default function MantenimientoScreen() {
         });
         setIncidencias(list);
         const abiertas = list.filter(
-          (i: Incidencia) =>
-            (i.estado ?? '') !== 'CANCELADA' &&
-            ((i.estado_valoracion ?? '') as string).toString().toUpperCase() !== 'REPARADO'
+          (i: Incidencia) => (i.estado ?? '').toString().trim() === 'Nuevo',
         );
         setCountAbiertas(abiertas.length);
       })
@@ -199,6 +298,22 @@ export default function MantenimientoScreen() {
       refetch();
     }, [refetch])
   );
+
+  useEffect(() => {
+    apiFetch('/api/usuarios')
+      .then((res) => res.json())
+      .then((data: { usuarios?: Record<string, string | number | undefined>[] }) => {
+        const map: Record<string, string> = {};
+        for (const u of data.usuarios ?? []) {
+          const id = String(u.id_usuario ?? u.id_Usuario ?? '').trim();
+          const nombre = String(u.Nombre ?? u.nombre ?? '').trim();
+          const email = String(u.email ?? u.Email ?? '').trim();
+          if (id) map[id] = nombre || email || id;
+        }
+        setMapaUsuarios(map);
+      })
+      .catch(() => setMapaUsuarios({}));
+  }, []);
 
   const badgeColor = countAbiertas === 0 ? '#22c55e' : '#dc2626';
 
@@ -226,27 +341,35 @@ export default function MantenimientoScreen() {
         const localId = (inc.local_id ?? '').toString().trim();
         return localId ? (mapLocalIdToNombre[localId] ?? localId) : '—';
       }
+      if (col === 'creado_por_id_usuario') {
+        return nombreUsuarioVisible(inc.creado_por_id_usuario as string, mapaUsuarios, user);
+      }
       if (col === 'fotos') {
-        const fotos = inc.fotos;
-        if (!Array.isArray(fotos) || fotos.length === 0) return '—';
-        return `${fotos.length} foto${fotos.length !== 1 ? 's' : ''}`;
+        const n = fotosIncidencia(inc).length;
+        if (n === 0) return '—';
+        return `${n} foto${n !== 1 ? 's' : ''}`;
       }
       const key = Object.keys(inc).find((k) => k.toLowerCase() === col.toLowerCase());
       const raw = key != null ? inc[key] : inc[col];
       if (raw !== undefined && raw !== null && String(raw).trim() !== '') return String(raw);
       return '—';
     },
-    [mapLocalIdToNombre]
+    [mapLocalIdToNombre, mapaUsuarios, user]
+  );
+
+  const cellTextStyle = useMemo(
+    () => [erpListTableStyles.cellText, { fontSize: TABLE_FONT_SIZE, lineHeight: TABLE_FONT_SIZE + 3 }],
+    [],
   );
 
   const columnas = useMemo(() => [...COLUMNAS_INCIDENCIAS], []);
-  const totalRegistros = incidencias.length;
+  const totalRegistros = incidenciasFiltradas.length;
   const totalPages = Math.max(1, Math.ceil(totalRegistros / PAGE_SIZE));
   const pageIndexClamped = Math.min(Math.max(0, pageIndex), totalPages - 1);
   const incidenciasPagina = useMemo(() => {
     const start = pageIndexClamped * PAGE_SIZE;
-    return incidencias.slice(start, start + PAGE_SIZE);
-  }, [incidencias, pageIndexClamped]);
+    return incidenciasFiltradas.slice(start, start + PAGE_SIZE);
+  }, [incidenciasFiltradas, pageIndexClamped]);
 
   const goPrevPage = useCallback(() => {
     setPageIndex((p) => Math.max(0, p - 1));
@@ -388,6 +511,9 @@ export default function MantenimientoScreen() {
     setEditDescripcion((incSeleccionada.descripcion ?? '').toString());
     setEditZona((incSeleccionada.zona ?? '').toString().toLowerCase());
     setEditPrioridad((incSeleccionada.prioridad_reportada ?? '').toString().toLowerCase());
+    const fp = extraerFechaIsoIncidencia(incSeleccionada, 'fecha_programada') ?? '';
+    setEditFechaProgramada(fp);
+    setEditFechaProgramadaInicial(fp);
     setModalEditarVisible(true);
   }, [incSeleccionada]);
 
@@ -398,22 +524,31 @@ export default function MantenimientoScreen() {
     const fechaCreacion = (incSeleccionada.fecha_creacion ?? '').toString().trim();
     if (!localId || !idIncidencia || !fechaCreacion) return;
     if (!editTitulo.trim()) { setError('El título es obligatorio'); return; }
+    const fpTrim = editFechaProgramada.trim();
+    if (fpTrim && isDateInPast(fpTrim)) {
+      setError('La fecha programada no puede ser anterior a hoy');
+      return;
+    }
     setModalEditarVisible(false);
     setGuardando(true);
     setError(null);
     try {
+      const payload: Record<string, unknown> = {
+        local_id: localId,
+        id_incidencia: idIncidencia,
+        fecha_creacion: fechaCreacion,
+        editar_campos: true,
+        titulo: editTitulo.trim(),
+        descripcion: editDescripcion.trim(),
+        zona: editZona,
+        prioridad_reportada: editPrioridad,
+      };
+      if (fpTrim !== editFechaProgramadaInicial) {
+        payload.fecha_programada = fpTrim || null;
+      }
       const res = await apiFetch('/api/mantenimiento/incidencias', {
         method: 'PATCH',
-        body: JSON.stringify({
-          local_id: localId,
-          id_incidencia: idIncidencia,
-          fecha_creacion: fechaCreacion,
-          editar_campos: true,
-          titulo: editTitulo.trim(),
-          descripcion: editDescripcion.trim(),
-          zona: editZona,
-          prioridad_reportada: editPrioridad,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Error al editar'); return; }
@@ -425,7 +560,17 @@ export default function MantenimientoScreen() {
     } finally {
       setGuardando(false);
     }
-  }, [incSeleccionada, editTitulo, editDescripcion, editZona, editPrioridad, refetch, salirMultiSelect]);
+  }, [
+    incSeleccionada,
+    editTitulo,
+    editDescripcion,
+    editZona,
+    editPrioridad,
+    editFechaProgramada,
+    editFechaProgramadaInicial,
+    refetch,
+    salirMultiSelect,
+  ]);
 
   const toolbarBtns = [
     { id: 'crear', label: 'Reportar incidencia', icon: ICONS.add, onPress: () => router.push('/mantenimiento/reportar') },
@@ -534,6 +679,23 @@ export default function MantenimientoScreen() {
         </View>
       )}
 
+      <MantenimientoFiltrosBar
+        fechaDesde={fechaDesdeFiltro}
+        fechaHasta={fechaHastaFiltro}
+        onFechaDesdeChange={setFechaDesdeFiltro}
+        onFechaHastaChange={setFechaHastaFiltro}
+        chipPeriodo={chipPeriodoFiltro}
+        onChipPeriodoChange={setChipPeriodoFiltro}
+        localIds={localIdsFiltro}
+        onLocalIdsChange={setLocalIdsFiltro}
+        locales={opcionesLocalesFiltro}
+        estados={estadosFiltro}
+        onEstadosChange={setEstadosFiltro}
+        totalFiltrado={incidenciasFiltradas.length}
+        totalSinFiltrar={incidencias.length}
+        contadores={contadoresFiltros}
+      />
+
       <View style={styles.subtitleRow}>
         <Text style={styles.subtitleTable}>
           {totalRegistros === 0 ? '0 registros' : totalPages > 1 ? `${pageIndexClamped * PAGE_SIZE + 1}–${Math.min((pageIndexClamped + 1) * PAGE_SIZE, totalRegistros)} de ${totalRegistros} registro${totalRegistros !== 1 ? 's' : ''}` : `${totalRegistros} registro${totalRegistros !== 1 ? 's' : ''}`}
@@ -590,7 +752,7 @@ export default function MantenimientoScreen() {
                   ) : null}
                   {columnas.map((col) => (
                     <View key={col} style={[erpListTableStyles.cellHeader, { width: getColWidth(col) }]}>
-                      <Text style={erpListTableStyles.cellHeaderText} {...ERP_LIST_HEADER_TEXT_PROPS}>
+                      <Text style={[erpListTableStyles.cellHeaderText, styles.tableHeaderText]} {...ERP_LIST_HEADER_TEXT_PROPS}>
                         {COL_LABELS[col]}
                       </Text>
                       {Platform.OS === 'web' && (
@@ -614,7 +776,11 @@ export default function MantenimientoScreen() {
                   {incidenciasPagina.length === 0 ? (
                     <View style={erpListTableStyles.row}>
                       <View style={erpListTableStyles.cellEmpty}>
-                        <Text style={erpListTableStyles.cellEmptyText}>No hay incidencias registradas.</Text>
+                        <Text style={erpListTableStyles.cellEmptyText}>
+                          {incidencias.length === 0
+                            ? 'No hay incidencias registradas.'
+                            : 'Ninguna incidencia coincide con los filtros aplicados.'}
+                        </Text>
                       </View>
                     </View>
                   ) : (
@@ -642,6 +808,12 @@ export default function MantenimientoScreen() {
                             const text = valorCelda(inc, col);
                             const esEstado = col === 'estado';
                             const estadoStyles = esEstado ? estilosEstado(inc.estado as string) : null;
+                            const esNegrita = col === 'nombre_local' || col === 'titulo';
+                            const cellTextBase = [
+                              cellTextStyle,
+                              esNegrita && styles.cellTextBold,
+                              estadoStyles && { color: estadoStyles.color, fontWeight: '600' as const },
+                            ];
 
                             if (col === 'espera') {
                               const estado = (inc.estado ?? '').toString();
@@ -668,13 +840,47 @@ export default function MantenimientoScreen() {
                                   {alerta ? <MaterialIcons name="warning" size={14} color="#dc2626" /> : null}
                                   <Text
                                     style={[
-                                      erpListTableStyles.cellText,
+                                      cellTextStyle,
                                       { flex: 1 },
                                       alerta && { color: '#dc2626', fontWeight: '700' },
                                     ]}
                                   >
                                     {text}
                                   </Text>
+                                </View>
+                              );
+                            }
+
+                            if (col === 'prioridad_reportada') {
+                              return (
+                                <View key={col} style={[erpListTableStyles.cell, { width: getColWidth(col) }]}>
+                                  <PrioridadIncidenciaBadge prioridad={inc.prioridad_reportada as string} compact />
+                                </View>
+                              );
+                            }
+
+                            if (col === 'fotos') {
+                              const listaFotos = fotosIncidencia(inc);
+                              return (
+                                <View key={col} style={[erpListTableStyles.cell, { width: getColWidth(col), alignItems: 'center' }]}>
+                                  {listaFotos.length > 0 ? (
+                                    <TouchableOpacity
+                                      style={styles.fotosIconBtn}
+                                      onPress={(e) => {
+                                        e.stopPropagation?.();
+                                        setModalFotos({
+                                          fotos: listaFotos,
+                                          titulo: (inc.titulo ?? '').toString(),
+                                        });
+                                      }}
+                                      accessibilityLabel={`Ver ${listaFotos.length} fotos`}
+                                    >
+                                      <MaterialIcons name="photo-library" size={18} color="#0ea5e9" />
+                                      <Text style={styles.fotosIconCount}>{listaFotos.length}</Text>
+                                    </TouchableOpacity>
+                                  ) : (
+                                    <Text style={cellTextStyle}>—</Text>
+                                  )}
                                 </View>
                               );
                             }
@@ -691,12 +897,7 @@ export default function MantenimientoScreen() {
                                   },
                                 ]}
                               >
-                                <Text
-                                  style={[
-                                    erpListTableStyles.cellText,
-                                    estadoStyles && { color: estadoStyles.color, fontWeight: '600' },
-                                  ]}
-                                >
+                                <Text style={cellTextBase} numberOfLines={col === 'descripcion' ? 2 : 1}>
                                   {text}
                                 </Text>
                               </View>
@@ -787,6 +988,29 @@ export default function MantenimientoScreen() {
                       ))}
                     </View>
                   </View>
+                  <View style={styles.modalField}>
+                    <Text style={styles.modalLabel}>Fecha programada</Text>
+                    <View style={styles.modalFechaRow}>
+                      <View style={styles.modalFechaInput}>
+                        <InputFecha
+                          compact
+                          valueIso={editFechaProgramada}
+                          onChangeIso={setEditFechaProgramada}
+                          placeholder="Sin programar"
+                        />
+                      </View>
+                      {editFechaProgramada.trim() !== '' && (
+                        <TouchableOpacity
+                          style={styles.modalQuitarFechaBtn}
+                          onPress={() => setEditFechaProgramada('')}
+                        >
+                          <MaterialIcons name="event-busy" size={18} color="#64748b" />
+                          <Text style={styles.modalQuitarFechaText}>Quitar</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    <Text style={styles.modalHint}>Opcional. Debe ser hoy o una fecha futura.</Text>
+                  </View>
                   <View style={styles.modalFooter}>
                     <TouchableOpacity style={styles.modalBtnNo} onPress={() => setModalEditarVisible(false)}>
                       <Text style={styles.modalBtnNoText}>Cancelar</Text>
@@ -801,6 +1025,14 @@ export default function MantenimientoScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      <MantenimientoFotosGaleriaModal
+        visible={modalFotos !== null}
+        fotos={modalFotos?.fotos ?? []}
+        titulo={modalFotos?.titulo}
+        onClose={() => setModalFotos(null)}
+        resolverUriFoto={resolverUriFoto}
+      />
     </View>
   );
 }
@@ -875,6 +1107,18 @@ const styles = StyleSheet.create({
   pageText: { fontSize: 11, color: '#64748b', marginHorizontal: 4 },
   center: { paddingVertical: 24, alignItems: 'center', gap: 10 },
   loadingText: { fontSize: 12, color: '#64748b' },
+  tableHeaderText: { fontSize: TABLE_FONT_SIZE, lineHeight: TABLE_FONT_SIZE + 3 },
+  cellTextBold: { fontWeight: '700', color: '#334155' },
+  fotosIconBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    borderRadius: 6,
+    backgroundColor: '#f0f9ff',
+  },
+  fotosIconCount: { fontSize: 10, fontWeight: '700', color: '#0369a1' },
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
   modalContentWrap: { width: '100%', maxWidth: 360, padding: 24, alignItems: 'center' },
   modalEditWrap: { width: '100%', maxWidth: 480, padding: 24, alignItems: 'center' },
@@ -901,4 +1145,17 @@ const styles = StyleSheet.create({
   modalOptionBtnSelected: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
   modalOptionText: { fontSize: 12, color: '#475569' },
   modalOptionTextSelected: { color: '#0ea5e9', fontWeight: '500' },
+  modalFechaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  modalFechaInput: { flex: 1, minWidth: 140 },
+  modalQuitarFechaBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: '#f1f5f9',
+  },
+  modalQuitarFechaText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
+  modalHint: { fontSize: 11, color: '#94a3b8', marginTop: 4 },
 });

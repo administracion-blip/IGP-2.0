@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform } from 'react-native';
-import type { Acuerdo, LocalAcuerdo, PagoImagen } from '../types/acuerdo';
+import type { Acuerdo, Justificante, LocalAcuerdo, PagoImagen } from '../types/acuerdo';
+import { esJustificanteS3 } from '../types/acuerdo';
 import { apiFetch, errorMessage } from '../utils/api';
+
+/** Tamaño máximo por justificante (coincide con el límite del body de Express). */
+export const MAX_JUSTIFICANTE_BYTES = 15 * 1024 * 1024;
 
 /** Acciones predefinidas que se pueden marcar en un pago/justificante. */
 export const ACCIONES_IMAGEN = [
@@ -54,8 +58,12 @@ export function useAcuerdoPago({ seleccionado, localPermitido, onError }: Args) 
   const [modalVisible, setModalVisible] = useState(false);
   const [editSK, setEditSK] = useState<string | null>(null);
   const [form, setForm] = useState<ImgForm>(EMPTY_IMG_FORM);
-  const [files, setFiles] = useState<{ name: string; data: string }[]>([]);
+  const [files, setFiles] = useState<Justificante[]>([]);
   const [guardando, setGuardando] = useState(false);
+  const [subiendoArchivo, setSubiendoArchivo] = useState(false);
+  const [errorArchivo, setErrorArchivo] = useState<string | null>(null);
+  /** fileKeys subidos a S3 en esta sesión del modal aún NO persistidos. */
+  const sessionUploads = useRef<Set<string>>(new Set());
 
   const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
   const [localSearch, setLocalSearch] = useState('');
@@ -107,6 +115,9 @@ export function useAcuerdoPago({ seleccionado, localPermitido, onError }: Args) 
     setEditSK(null);
     setForm(EMPTY_IMG_FORM);
     setFiles([]);
+    sessionUploads.current.clear();
+    setErrorArchivo(null);
+    setSubiendoArchivo(false);
     setLocalDropdownOpen(false);
     setLocalSearch('');
     setAccionDropdownOpen(false);
@@ -123,15 +134,45 @@ export function useAcuerdoPago({ seleccionado, localPermitido, onError }: Args) 
       Descripcion: pago.Descripcion || '',
     });
     setFiles(pago.Justificantes || []);
+    sessionUploads.current.clear();
+    setErrorArchivo(null);
+    setSubiendoArchivo(false);
     setLocalDropdownOpen(false);
     setLocalSearch('');
     setAccionDropdownOpen(false);
     setModalVisible(true);
   }, [cargarLocales]);
 
+  /** Borra un objeto de justificante ya subido a S3 pero aún no persistido. */
+  const borrarObjetoS3 = useCallback(async (fileKey: string) => {
+    if (!seleccionado) return;
+    try {
+      await apiFetch(
+        `/api/acuerdos/${seleccionado.PK}/imagen/objeto/${encodeURIComponent(fileKey)}`,
+        { method: 'DELETE' },
+      );
+    } catch { /* silencioso: limpieza best-effort */ }
+  }, [seleccionado]);
+
+  /** Quita un justificante de la lista; si era una subida de sesión, lo borra de S3. */
+  const quitarArchivo = useCallback((index: number) => {
+    setFiles((prev) => {
+      const target = prev[index];
+      if (target && esJustificanteS3(target) && sessionUploads.current.has(target.fileKey)) {
+        sessionUploads.current.delete(target.fileKey);
+        void borrarObjetoS3(target.fileKey);
+      }
+      return prev.filter((_, idx) => idx !== index);
+    });
+  }, [borrarObjetoS3]);
+
   const cerrarModal = useCallback(() => {
+    // Limpia de S3 los justificantes subidos en esta sesión que no se guardaron.
+    const pendientes = Array.from(sessionUploads.current);
+    sessionUploads.current.clear();
+    pendientes.forEach((k) => void borrarObjetoS3(k));
     setModalVisible(false);
-  }, []);
+  }, [borrarObjetoS3]);
 
   const guardar = useCallback(async () => {
     if (!seleccionado) return;
@@ -150,6 +191,8 @@ export function useAcuerdoPago({ seleccionado, localPermitido, onError }: Args) 
       const method = editSK ? 'PATCH' : 'POST';
       const res = await apiFetch(url, { method, body: JSON.stringify(payload) });
       if (res.ok) {
+        // Persistidos: ya no son huérfanos que limpiar al cerrar.
+        sessionUploads.current.clear();
         setModalVisible(false);
         await cargar(seleccionado.PK);
       }
@@ -186,25 +229,81 @@ export function useAcuerdoPago({ seleccionado, localPermitido, onError }: Args) 
     }
   }, [seleccionado, cargar, onError]);
 
-  /** Web: abre el selector nativo de archivos y los carga como Data URLs. */
+  /**
+   * Web: abre el selector nativo y sube cada archivo a S3 (presign → PUT →
+   * metadata local). Rechaza los que superen `MAX_JUSTIFICANTE_BYTES` mostrando
+   * un mensaje claro; solo se persisten al guardar el pago.
+   */
   const handleFileSelect = useCallback(() => {
     if (Platform.OS !== 'web') return;
+    if (!seleccionado) return;
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
-    input.onchange = () => {
+    input.onchange = async () => {
       const inputFiles = input.files;
-      if (!inputFiles) return;
-      Array.from(inputFiles).forEach((file) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          setFiles((prev) => [...prev, { name: file.name, data: reader.result as string }]);
-        };
-        reader.readAsDataURL(file);
-      });
+      if (!inputFiles || inputFiles.length === 0) return;
+      setErrorArchivo(null);
+      const rechazados: string[] = [];
+      setSubiendoArchivo(true);
+      try {
+        for (let i = 0; i < inputFiles.length; i++) {
+          const file = inputFiles[i];
+          if (file.size > MAX_JUSTIFICANTE_BYTES) {
+            rechazados.push(file.name);
+            continue;
+          }
+          const contentType = file.type || 'application/octet-stream';
+          const presignRes = await apiFetch(`/api/acuerdos/${seleccionado.PK}/imagen/presign-upload`, {
+            method: 'POST',
+            body: JSON.stringify({ fileName: file.name, contentType }),
+          });
+          if (!presignRes.ok) {
+            rechazados.push(file.name);
+            continue;
+          }
+          const { uploadUrl, fileKey } = await presignRes.json();
+          if (!uploadUrl || !fileKey) {
+            rechazados.push(file.name);
+            continue;
+          }
+
+          const putRes = await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': contentType },
+            body: file,
+          });
+          if (!putRes.ok) {
+            rechazados.push(file.name);
+            continue;
+          }
+
+          sessionUploads.current.add(fileKey);
+          setFiles((prev) => [
+            ...prev,
+            {
+              fileKey,
+              fileName: file.name,
+              contentType,
+              size: file.size,
+              uploadedAt: new Date().toISOString(),
+            },
+          ]);
+        }
+        if (rechazados.length > 0) {
+          const max = Math.round(MAX_JUSTIFICANTE_BYTES / (1024 * 1024));
+          setErrorArchivo(
+            `${rechazados.join(', ')} ${rechazados.length === 1 ? 'supera' : 'superan'} el máximo permitido (${max} MB).`,
+          );
+        }
+      } catch (err: unknown) {
+        setErrorArchivo(errorMessage(err));
+      } finally {
+        setSubiendoArchivo(false);
+      }
     };
     input.click();
-  }, []);
+  }, [seleccionado]);
 
   return {
     pagosImagen,
@@ -221,6 +320,8 @@ export function useAcuerdoPago({ seleccionado, localPermitido, onError }: Args) 
     files,
     setFiles,
     guardando,
+    subiendoArchivo,
+    errorArchivo,
     localDropdownOpen,
     setLocalDropdownOpen,
     localSearch,
@@ -234,5 +335,6 @@ export function useAcuerdoPago({ seleccionado, localPermitido, onError }: Args) 
     eliminar,
     marcarRealizado,
     handleFileSelect,
+    quitarArchivo,
   };
 }

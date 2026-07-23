@@ -9,6 +9,50 @@ const ZONAS = ['barra', 'cocina', 'baños', 'almacén', 'sala', 'terraza', 'otro
 const CATEGORIAS = ['electricidad', 'fontanería', 'frío', 'mobiliario', 'limpieza técnica', 'IT', 'plagas', 'otros'];
 const PRIORIDADES = ['baja', 'media', 'alta', 'urgente'];
 
+/** Redondeo a 2 decimales estable para importes. */
+function round2(n) {
+  return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * Sanitiza y recalcula las líneas de valoración de una reparación.
+ * Descarta líneas incompletas. Devuelve { lineas, base, iva, total }.
+ */
+function sanitizarValoracion(rawLineas) {
+  const lineas = [];
+  for (const l of Array.isArray(rawLineas) ? rawLineas : []) {
+    const articulo = (l?.articulo ?? '').toString().trim();
+    const cantidad = Number(l?.cantidad);
+    const precio = Number(l?.precio);
+    const tipoIvaRaw = l?.tipo_iva;
+    const tipoIva =
+      tipoIvaRaw === undefined || tipoIvaRaw === null || tipoIvaRaw === ''
+        ? 21
+        : Number(tipoIvaRaw);
+    if (!articulo) continue;
+    if (!Number.isFinite(cantidad) || cantidad <= 0) continue;
+    if (!Number.isFinite(precio) || precio < 0) continue;
+    const iva = Number.isFinite(tipoIva) && tipoIva >= 0 ? tipoIva : 21;
+    const baseLinea = round2(cantidad * precio);
+    const ivaLinea = round2((baseLinea * iva) / 100);
+    const totalLinea = round2(baseLinea + ivaLinea);
+    lineas.push({
+      ...(l?.id_producto ? { id_producto: String(l.id_producto).trim() } : {}),
+      articulo,
+      cantidad,
+      precio,
+      tipo_iva: iva,
+      base_linea: baseLinea,
+      iva_linea: ivaLinea,
+      total_linea: totalLinea,
+    });
+  }
+  const base = round2(lineas.reduce((s, l) => s + l.base_linea, 0));
+  const iva = round2(lineas.reduce((s, l) => s + l.iva_linea, 0));
+  const total = round2(base + iva);
+  return { lineas, base, iva, total };
+}
+
 /**
  * Si el error indica que la tabla mantenimiento no existe, lanza Error con
  * status 404 y mensaje custom para el operador. Resto se re-lanza.
@@ -146,6 +190,11 @@ router.get('/mantenimiento/incidencias', async (req, res) => {
     fotos: i.fotos ?? [],
     fecha_completada: i.FechaCompletada ?? null,
     estado_valoracion: i.EstadoValoracion ?? null,
+    fecha_valoracion: i.fecha_valoracion ?? null,
+    valoracion_lineas: i.valoracion_lineas ?? [],
+    valoracion_base: i.valoracion_base ?? null,
+    valoracion_iva: i.valoracion_iva ?? null,
+    valoracion_total: i.valoracion_total ?? null,
   }));
   return res.json({ incidencias });
 });
@@ -221,6 +270,7 @@ router.patch('/mantenimiento/incidencias', async (req, res) => {
   const fechaCreacion = (body.fecha_creacion ?? '').toString().trim();
   const fechaProgramada = (body.fecha_programada ?? '').toString().trim();
   const marcarReparado = body.marcar_reparado === true;
+  const valorar = body.valorar === true;
   const editarCampos = body.editar_campos === true;
 
   if (!localId || !idIncidencia || !fechaCreacion) {
@@ -230,7 +280,55 @@ router.patch('/mantenimiento/incidencias', async (req, res) => {
   const pk = `LOCAL#${localId}`;
   const sk = `INC#${fechaCreacion}#${idIncidencia}`;
 
+  // Valorar = reparar con líneas de cobro (obligatorio al menos una línea).
+  if (valorar) {
+    const current = await docClient.send(new GetCommand({ TableName: tables.mantenimiento, Key: { PK: pk, SK: sk } }));
+    const item = current.Item || {};
+    const tieneProgramacion =
+      (item.fecha_programada && String(item.fecha_programada).trim() !== '') ||
+      item.estado === 'Programado';
+    if (!tieneProgramacion) {
+      return res.status(400).json({ error: 'La incidencia debe estar programada antes de valorarla' });
+    }
+
+    const { lineas, base, iva, total } = sanitizarValoracion(body.lineas);
+    if (lineas.length === 0) {
+      return res.status(400).json({ error: 'La valoración debe incluir al menos una línea válida (artículo, cantidad y precio)' });
+    }
+
+    const fechaCompletada = new Date().toISOString();
+    await docClient.send(
+      new UpdateCommand({
+        TableName: tables.mantenimiento,
+        Key: { PK: pk, SK: sk },
+        UpdateExpression:
+          'SET FechaCompletada = :fc, fecha_valoracion = :fv, EstadoValoracion = :ev, #est = :est, valoracion_lineas = :ln, valoracion_base = :vb, valoracion_iva = :vi, valoracion_total = :vt',
+        ExpressionAttributeNames: { '#est': 'estado' },
+        ExpressionAttributeValues: {
+          ':fc': fechaCompletada,
+          ':fv': fechaCompletada,
+          ':ev': 'Valorado',
+          ':est': 'Reparacion',
+          ':ln': lineas,
+          ':vb': base,
+          ':vi': iva,
+          ':vt': total,
+        },
+      })
+    );
+    return res.json({ ok: true, valoracion: { lineas, base, iva, total } });
+  }
+
   if (marcarReparado) {
+    const current = await docClient.send(new GetCommand({ TableName: tables.mantenimiento, Key: { PK: pk, SK: sk } }));
+    const item = current.Item || {};
+    const tieneProgramacion =
+      (item.fecha_programada && String(item.fecha_programada).trim() !== '') ||
+      item.estado === 'Programado';
+    if (!tieneProgramacion) {
+      return res.status(400).json({ error: 'La incidencia debe estar programada antes de marcarla como reparada' });
+    }
+
     const fechaCompletada = new Date().toISOString();
     await docClient.send(
       new UpdateCommand({
@@ -246,6 +344,7 @@ router.patch('/mantenimiento/incidencias', async (req, res) => {
 
   if (editarCampos) {
     const sets = [];
+    const removes = [];
     const names = {};
     const values = {};
     const titulo = (body.titulo ?? '').toString().trim();
@@ -253,6 +352,7 @@ router.patch('/mantenimiento/incidencias', async (req, res) => {
     const zona = (body.zona ?? '').toString().trim().toLowerCase();
     const categoria = (body.categoria ?? '').toString().trim().toLowerCase();
     const prioridadReportada = (body.prioridad_reportada ?? '').toString().trim().toLowerCase();
+    const editarFechaProgramada = Object.prototype.hasOwnProperty.call(body, 'fecha_programada');
 
     if (titulo) { sets.push('#tit = :tit'); names['#tit'] = 'titulo'; values[':tit'] = titulo; }
     if (descripcion !== undefined && body.descripcion !== undefined) { sets.push('#desc = :desc'); names['#desc'] = 'descripcion'; values[':desc'] = descripcion; }
@@ -260,24 +360,63 @@ router.patch('/mantenimiento/incidencias', async (req, res) => {
     if (categoria && CATEGORIAS.includes(categoria)) { sets.push('categoria = :cat'); values[':cat'] = categoria; }
     if (prioridadReportada && PRIORIDADES.includes(prioridadReportada)) { sets.push('prioridad_reportada = :pr'); values[':pr'] = prioridadReportada; }
 
-    const current = await docClient.send(new GetCommand({ TableName: tables.mantenimiento, Key: { PK: pk, SK: sk } }));
-    const item = current.Item || {};
-    const tieneFechaProgramada = item.fecha_programada && String(item.fecha_programada).trim() !== '';
-    if (!tieneFechaProgramada && (item.estado === 'Programado')) {
-      sets.push('#est = :est');
-      names['#est'] = 'estado';
-      values[':est'] = 'Nuevo';
+    if (editarFechaProgramada) {
+      const fpRaw = body.fecha_programada;
+      const fp = fpRaw === null || fpRaw === undefined ? '' : String(fpRaw).trim();
+      const current = await docClient.send(new GetCommand({ TableName: tables.mantenimiento, Key: { PK: pk, SK: sk } }));
+      const item = current.Item || {};
+      const esReparacion = item.estado === 'Reparacion';
+      if (!fp) {
+        removes.push('fecha_programada');
+        if (!esReparacion) {
+          sets.push('#est = :estNuevo');
+          names['#est'] = 'estado';
+          values[':estNuevo'] = 'Nuevo';
+        }
+      } else if (!/^\d{4}-\d{2}-\d{2}$/.test(fp)) {
+        return res.status(400).json({ error: 'fecha_programada debe ser yyyy-mm-dd' });
+      } else {
+        const programada = new Date(fp + 'T12:00:00');
+        const hoy = new Date();
+        hoy.setHours(0, 0, 0, 0);
+        programada.setHours(0, 0, 0, 0);
+        if (programada.getTime() < hoy.getTime()) {
+          return res.status(400).json({ error: 'No se puede asignar una fecha anterior al día actual' });
+        }
+        sets.push('fecha_programada = :fp');
+        if (!esReparacion) {
+          sets.push('#est = :estProg');
+          names['#est'] = 'estado';
+          values[':estProg'] = 'Programado';
+        }
+        values[':fp'] = fp;
+      }
+    } else {
+      const current = await docClient.send(new GetCommand({ TableName: tables.mantenimiento, Key: { PK: pk, SK: sk } }));
+      const item = current.Item || {};
+      const tieneFechaProgramada = item.fecha_programada && String(item.fecha_programada).trim() !== '';
+      if (!tieneFechaProgramada && item.estado === 'Programado') {
+        sets.push('#est = :est');
+        names['#est'] = 'estado';
+        values[':est'] = 'Nuevo';
+      }
     }
 
-    if (sets.length === 0) return res.status(400).json({ error: 'No hay campos válidos para editar' });
+    if (sets.length === 0 && removes.length === 0) {
+      return res.status(400).json({ error: 'No hay campos válidos para editar' });
+    }
+
+    const parts = [];
+    if (sets.length > 0) parts.push(`SET ${sets.join(', ')}`);
+    if (removes.length > 0) parts.push(`REMOVE ${removes.join(', ')}`);
 
     await docClient.send(
       new UpdateCommand({
         TableName: tables.mantenimiento,
         Key: { PK: pk, SK: sk },
-        UpdateExpression: `SET ${sets.join(', ')}`,
+        UpdateExpression: parts.join(' '),
         ...(Object.keys(names).length > 0 && { ExpressionAttributeNames: names }),
-        ExpressionAttributeValues: values,
+        ...(Object.keys(values).length > 0 && { ExpressionAttributeValues: values }),
       })
     );
     return res.json({ ok: true });

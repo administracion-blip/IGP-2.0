@@ -39,12 +39,29 @@ import type {
   DetalleProducto,
   ArchivoAcuerdo,
 } from '../types/acuerdo';
+import {
+  abrirJustificante,
+  esJustificanteS3,
+  justificanteAbrible,
+  justificanteIcono,
+  justificanteNombre,
+} from '../types/acuerdo';
 import { useAcuerdoNotas } from '../hooks/useAcuerdoNotas';
 import { AcuerdoNotasModal } from '../components/AcuerdoNotasModal';
 import { useAcuerdoPago } from '../hooks/useAcuerdoPago';
 import { AcuerdoPagoModal } from '../components/AcuerdoPagoModal';
 import { useAcuerdosForm } from '../hooks/useAcuerdosForm';
 import { AcuerdoFormModal } from '../components/AcuerdoFormModal';
+
+/** Primeros `max` nombres de local visibles; el resto como "+N locales". */
+function resumenLocales(
+  ids: string[],
+  localNombre: (id: string) => string,
+  max = 2,
+): { visibles: string[]; resto: number; todos: string[] } {
+  const todos = ids.map((id) => localNombre(id)).filter(Boolean);
+  return { visibles: todos.slice(0, max), resto: Math.max(0, todos.length - max), todos };
+}
 
 /** Polyfill: Alert.alert no funciona en web; usa modal de confirmación */
 function useConfirmDelete() {
@@ -266,6 +283,8 @@ export default function AcuerdosScreen() {
 
   const [comprasModalVisible, setComprasModalVisible] = useState(false);
   const [comprasModalProduct, setComprasModalProduct] = useState<{ id: string; name: string } | null>(null);
+  /** SK del pago cuyo listado completo de locales está expandido. */
+  const [localesExpandido, setLocalesExpandido] = useState<string | null>(null);
 
   const cargarDetallesAcuerdoRef = useRef<string | null>(null);
   const cargarDetallesRequestIdRef = useRef<number>(0);
@@ -856,6 +875,39 @@ export default function AcuerdosScreen() {
   }, [productosIgp]);
 
   const isCompact = winWidth < 700;
+
+  const imgGridCols = useMemo(() => {
+    if (isCompact) return 1;
+    if (winWidth >= 1024) return 3;
+    if (winWidth >= 768) return 2;
+    return 1;
+  }, [winWidth, isCompact]);
+
+  const imgCardItemStyle = useMemo((): StyleProp<ViewStyle> => {
+    if (imgGridCols === 1) return styles.imgCardItemFull;
+    if (imgGridCols === 2) return styles.imgCardItemHalf;
+    return styles.imgCardItemThird;
+  }, [imgGridCols]);
+
+  const docGridCols = useMemo(() => {
+    if (isCompact) return 1;
+    if (winWidth >= 1280) return 5;
+    if (winWidth >= 1024) return 4;
+    if (winWidth >= 768) return 3;
+    return 2;
+  }, [winWidth, isCompact]);
+
+  const docCardItemStyle = useMemo((): StyleProp<ViewStyle> => {
+    if (docGridCols === 1) return styles.docCardItemFull;
+    if (docGridCols === 2) return styles.docCardItemHalf;
+    if (docGridCols === 3) return styles.docCardItemThird;
+    if (docGridCols === 4) return styles.docCardItemQuarter;
+    return styles.docCardItemFifth;
+  }, [docGridCols]);
+
+  useEffect(() => {
+    setLocalesExpandido(null);
+  }, [seleccionado?.PK]);
 
   const generarPDF = useCallback(async () => {
     if (!seleccionado) return;
@@ -1796,51 +1848,111 @@ export default function AcuerdosScreen() {
                 ) : pago.pagosImagen.length === 0 ? (
                   <Text style={styles.detailEmpty}>Sin pagos por imagen registrados</Text>
                 ) : (
-                  <View style={{ gap: 8, marginTop: 8 }}>
-                    {pago.pagosImagen.map((p) => (
-                      <View key={p.SK} style={styles.imgCard}>
-                        {/* Línea 1: Acciones | Importe | Realizado | Botones */}
-                        <View style={styles.imgCardLine1}>
-                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, flex: 1 }}>
-                            {p.Acciones.map((ac) => (
-                              <View key={ac} style={styles.imgAccionBadge}>
-                                <Text style={styles.imgAccionBadgeText}>{ac}</Text>
+                  <View style={{ marginTop: 8 }}>
+                    <View style={[styles.imgCardGrid, imgGridCols === 1 && styles.imgCardGridStack]}>
+                      {pago.pagosImagen.map((p) => {
+                        const localesResumen = resumenLocales(p.Locales, pago.localNombre, 2);
+                        const localesAbierto = localesExpandido === p.SK;
+                        return (
+                          <View key={p.SK} style={[styles.imgCard, imgCardItemStyle]}>
+                            {/* Cabecera: importe + acciones */}
+                            <View style={styles.imgCardHeader}>
+                              <Text style={styles.imgCardImporte}>
+                                {(p.Importe || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
+                              </Text>
+                              <View style={styles.imgCardHeaderActions}>
+                                <TouchableOpacity onPress={() => pago.abrirEditar(p)} style={styles.imgCardIconBtn}>
+                                  <MaterialIcons name="edit" size={14} color="#64748b" />
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => pago.eliminar(p.SK)} style={styles.imgCardIconBtn}>
+                                  <MaterialIcons name="delete-outline" size={14} color="#ef4444" />
+                                </TouchableOpacity>
                               </View>
-                            ))}
-                          </View>
-                          <Text style={styles.imgCardImporte}>{(p.Importe || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €</Text>
-                          <TouchableOpacity
-                            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 8 }}
-                            onPress={() => pago.marcarRealizado(p.SK, !p.Realizado)}
-                          >
-                            <MaterialIcons name={p.Realizado ? 'check-box' : 'check-box-outline-blank'} size={18} color={p.Realizado ? '#16a34a' : '#94a3b8'} />
-                            <Text style={{ fontSize: 11, color: p.Realizado ? '#16a34a' : '#94a3b8', fontWeight: '600' }}>Realizado</Text>
-                          </TouchableOpacity>
-                          <View style={{ flexDirection: 'row', gap: 4, marginLeft: 8 }}>
-                            <TouchableOpacity onPress={() => pago.abrirEditar(p)} style={{ padding: 4 }}>
-                              <MaterialIcons name="edit" size={14} color="#64748b" />
+                            </View>
+
+                            {p.Acciones.length > 0 && (
+                              <View style={styles.imgCardBadges}>
+                                {p.Acciones.map((ac) => (
+                                  <View key={ac} style={styles.imgAccionBadge}>
+                                    <Text style={styles.imgAccionBadgeText}>{ac}</Text>
+                                  </View>
+                                ))}
+                              </View>
+                            )}
+
+                            {p.Locales.length > 0 && (
+                              <View style={styles.imgCardLocalesWrap}>
+                                <Text style={styles.imgCardLocales} numberOfLines={localesAbierto ? undefined : 1}>
+                                  {localesAbierto ? localesResumen.todos.join(', ') : localesResumen.visibles.join(', ')}
+                                </Text>
+                                {localesResumen.resto > 0 && (
+                                  <TouchableOpacity
+                                    onPress={() => setLocalesExpandido(localesAbierto ? null : p.SK)}
+                                    hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                                  >
+                                    <Text style={styles.imgCardLocalesMore}>
+                                      {localesAbierto
+                                        ? 'Ver menos'
+                                        : `+${localesResumen.resto} ${localesResumen.resto === 1 ? 'local' : 'locales'}`}
+                                    </Text>
+                                  </TouchableOpacity>
+                                )}
+                              </View>
+                            )}
+
+                            {p.Descripcion ? (
+                              <Text style={styles.imgCardDesc} numberOfLines={2}>{p.Descripcion}</Text>
+                            ) : null}
+
+                            {p.Justificantes && p.Justificantes.length > 0 && (
+                              <View style={{ gap: 3, marginTop: 4 }}>
+                                {p.Justificantes.map((j, ji) => {
+                                  const nombre = justificanteNombre(j);
+                                  const abrible = justificanteAbrible(j);
+                                  const icono = justificanteIcono(j);
+                                  return (
+                                    <TouchableOpacity
+                                      key={esJustificanteS3(j) ? j.fileKey : `legacy-${p.SK}-${ji}`}
+                                      style={styles.imgCardRow}
+                                      disabled={!abrible}
+                                      onPress={() => abrirJustificante(j)}
+                                    >
+                                      <MaterialIcons name={icono.name} size={14} color={icono.color} />
+                                      <Text
+                                        style={[
+                                          styles.imgCardValue,
+                                          abrible && { color: '#0ea5e9', textDecorationLine: 'underline' },
+                                        ]}
+                                        numberOfLines={1}
+                                      >
+                                        {nombre}
+                                      </Text>
+                                      {abrible && (
+                                        <MaterialIcons name="open-in-new" size={12} color="#0ea5e9" />
+                                      )}
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                              </View>
+                            )}
+
+                            <TouchableOpacity
+                              style={styles.imgCardRealizado}
+                              onPress={() => pago.marcarRealizado(p.SK, !p.Realizado)}
+                            >
+                              <MaterialIcons
+                                name={p.Realizado ? 'check-box' : 'check-box-outline-blank'}
+                                size={16}
+                                color={p.Realizado ? '#16a34a' : '#94a3b8'}
+                              />
+                              <Text style={[styles.imgCardRealizadoText, p.Realizado && styles.imgCardRealizadoTextDone]}>
+                                Realizado
+                              </Text>
                             </TouchableOpacity>
-                            <TouchableOpacity onPress={() => pago.eliminar(p.SK)} style={{ padding: 4 }}>
-                              <MaterialIcons name="delete-outline" size={14} color="#ef4444" />
-                            </TouchableOpacity>
                           </View>
-                        </View>
-                        {/* Línea 2: Locales */}
-                        {p.Locales.length > 0 && (
-                          <Text style={styles.imgCardLocales} numberOfLines={2}>{p.Locales.map((id) => pago.localNombre(id)).join(', ')}</Text>
-                        )}
-                        {/* Línea 3: Descripción */}
-                        {p.Descripcion ? (
-                          <Text style={styles.imgCardDesc}>{p.Descripcion}</Text>
-                        ) : null}
-                        {p.Justificantes && p.Justificantes.length > 0 && (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                            <MaterialIcons name="attach-file" size={12} color="#64748b" />
-                            <Text style={styles.imgCardLabel}>{p.Justificantes.length} archivo(s)</Text>
-                          </View>
-                        )}
-                      </View>
-                    ))}
+                        );
+                      })}
+                    </View>
                     <View style={styles.detailResumen}>
                       <View style={styles.detailResumenRow}>
                         <Text style={styles.detailResumenLabel}>Total imagen</Text>
@@ -1872,29 +1984,44 @@ export default function AcuerdosScreen() {
                 ) : archivos.length === 0 ? (
                   <Text style={styles.detailEmpty}>Sin documentos adjuntos</Text>
                 ) : (
-                  <View style={{ gap: 6, marginTop: 8 }}>
+                  <View style={[styles.docCardGrid, docGridCols === 1 && styles.docCardGridStack]}>
                     {archivos.map((f) => {
                       const isImage = /^image\//i.test(f.contentType || '');
                       const isPdf = /\/pdf$/i.test(f.contentType || '');
                       const sizeKB = f.size ? (f.size / 1024).toFixed(1) : '?';
+                      const iconName = isImage ? 'image' : isPdf ? 'picture-as-pdf' : 'insert-drive-file';
+                      const iconColor = isImage ? '#0ea5e9' : isPdf ? '#ef4444' : '#64748b';
                       return (
-                        <View key={f.fileKey} style={styles.fileCard}>
-                          {isImage && f.url && (
-                            <TouchableOpacity onPress={() => { if (Platform.OS === 'web') window.open(f.url!, '_blank'); }}>
-                              <img src={f.url} alt={f.fileName} style={{ width: 120, height: 80, objectFit: 'cover', borderRadius: 6, marginBottom: 4 } as any} />
+                        <View key={f.fileKey} style={[styles.fileCard, docCardItemStyle]}>
+                          {isImage && f.url ? (
+                            <TouchableOpacity
+                              style={styles.fileCardPreview}
+                              onPress={() => { if (Platform.OS === 'web') window.open(f.url!, '_blank'); }}
+                            >
+                              <img
+                                src={f.url}
+                                alt={f.fileName}
+                                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6 } as any}
+                              />
                             </TouchableOpacity>
-                          )}
-                          <View style={styles.fileCardRow}>
-                            <MaterialIcons name={isImage ? 'image' : isPdf ? 'picture-as-pdf' : 'insert-drive-file'} size={18} color={isImage ? '#0ea5e9' : isPdf ? '#ef4444' : '#64748b'} />
-                            <View style={{ flex: 1, marginLeft: 6 }}>
-                              <Text style={styles.fileCardName} numberOfLines={1}>{f.fileName}</Text>
-                              <Text style={styles.fileCardMeta}>{sizeKB} KB · {f.uploadedAt ? new Date(f.uploadedAt).toLocaleDateString('es-ES') : ''}</Text>
+                          ) : (
+                            <View style={styles.fileCardIconWrap}>
+                              <MaterialIcons name={iconName} size={28} color={iconColor} />
                             </View>
-                            <TouchableOpacity onPress={() => { if (Platform.OS === 'web' && f.url) window.open(f.url, '_blank'); }} style={{ padding: 4 }}>
-                              <MaterialIcons name="open-in-new" size={16} color="#0ea5e9" />
+                          )}
+                          <Text style={styles.fileCardName} numberOfLines={2}>{f.fileName}</Text>
+                          <Text style={styles.fileCardMeta} numberOfLines={1}>
+                            {sizeKB} KB{f.uploadedAt ? ` · ${new Date(f.uploadedAt).toLocaleDateString('es-ES')}` : ''}
+                          </Text>
+                          <View style={styles.fileCardActions}>
+                            <TouchableOpacity
+                              onPress={() => { if (Platform.OS === 'web' && f.url) window.open(f.url, '_blank'); }}
+                              style={styles.fileCardActionBtn}
+                            >
+                              <MaterialIcons name="open-in-new" size={14} color="#0ea5e9" />
                             </TouchableOpacity>
-                            <TouchableOpacity onPress={() => eliminarArchivo(f.fileKey)} style={{ padding: 4 }}>
-                              <MaterialIcons name="delete-outline" size={16} color="#ef4444" />
+                            <TouchableOpacity onPress={() => eliminarArchivo(f.fileKey)} style={styles.fileCardActionBtn}>
+                              <MaterialIcons name="delete-outline" size={14} color="#ef4444" />
                             </TouchableOpacity>
                           </View>
                         </View>
@@ -2180,19 +2307,139 @@ const styles = StyleSheet.create({
   detailResumenRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   detailResumenLabel: { fontSize: 12, color: '#0369a1', fontWeight: '500' },
   detailResumenValue: { fontSize: 14, color: '#0f172a', fontWeight: '700' },
-  imgCard: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, padding: 10 },
-  imgCardLine1: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  imgCardLocales: { fontSize: 12, color: '#334155', marginBottom: 2 },
-  imgCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  imgCardImporte: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
-  imgCardRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 4 },
+  imgCardGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'stretch',
+  },
+  imgCardGridStack: {
+    flexDirection: 'column',
+  },
+  imgCardItemFull: {
+    width: '100%',
+  },
+  imgCardItemHalf: {
+    width: '48%',
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  imgCardItemThird: {
+    width: '31.5%',
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  imgCard: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    padding: 10,
+    minWidth: 0,
+    alignSelf: 'stretch',
+  },
+  imgCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+    gap: 8,
+  },
+  imgCardHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    flexShrink: 0,
+  },
+  imgCardIconBtn: {
+    padding: 4,
+  },
+  imgCardBadges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginBottom: 6,
+  },
+  imgCardLocalesWrap: {
+    marginBottom: 4,
+  },
+  imgCardLocales: { fontSize: 12, color: '#334155' },
+  imgCardLocalesMore: {
+    fontSize: 11,
+    color: '#0ea5e9',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  imgCardImporte: { fontSize: 15, fontWeight: '700', color: '#0f172a', flex: 1, minWidth: 0 },
+  imgCardRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
   imgCardLabel: { fontSize: 11, fontWeight: '600', color: '#64748b' },
-  imgCardValue: { fontSize: 12, color: '#334155', flex: 1 },
-  imgCardDesc: { fontSize: 12, color: '#475569', fontStyle: 'italic', marginTop: 4 },
+  imgCardValue: { fontSize: 12, color: '#334155', flex: 1, minWidth: 0 },
+  imgCardDesc: { fontSize: 12, color: '#475569', fontStyle: 'italic', marginTop: 2, marginBottom: 2 },
+  imgCardRealizado: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  imgCardRealizadoText: { fontSize: 11, color: '#94a3b8', fontWeight: '600' },
+  imgCardRealizadoTextDone: { color: '#16a34a' },
   imgAccionBadge: { backgroundColor: '#e0f2fe', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
   imgAccionBadgeText: { fontSize: 10, color: '#0369a1', fontWeight: '600' },
-  fileCard: { backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', padding: 8 },
-  fileCardRow: { flexDirection: 'row', alignItems: 'center' },
-  fileCardName: { fontSize: 12, fontWeight: '600', color: '#1e293b' },
-  fileCardMeta: { fontSize: 10, color: '#94a3b8', marginTop: 1 },
+  docCardGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+    alignItems: 'stretch',
+  },
+  docCardGridStack: {
+    flexDirection: 'column',
+  },
+  docCardItemFull: { width: '100%' },
+  docCardItemHalf: { width: '48%', flexGrow: 0, flexShrink: 0 },
+  docCardItemThird: { width: '31.5%', flexGrow: 0, flexShrink: 0 },
+  docCardItemQuarter: { width: '23%', flexGrow: 0, flexShrink: 0 },
+  docCardItemFifth: { width: '18%', flexGrow: 0, flexShrink: 0, minWidth: 120 },
+  fileCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 8,
+    minWidth: 0,
+    alignSelf: 'stretch',
+  },
+  fileCardPreview: {
+    width: '100%',
+    height: 72,
+    borderRadius: 6,
+    overflow: 'hidden',
+    marginBottom: 6,
+    backgroundColor: '#e2e8f0',
+  },
+  fileCardIconWrap: {
+    width: '100%',
+    height: 72,
+    borderRadius: 6,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  fileCardName: { fontSize: 11, fontWeight: '600', color: '#1e293b', minHeight: 28 },
+  fileCardMeta: { fontSize: 10, color: '#94a3b8', marginTop: 2 },
+  fileCardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 4,
+    marginTop: 6,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  fileCardActionBtn: { padding: 4 },
 });

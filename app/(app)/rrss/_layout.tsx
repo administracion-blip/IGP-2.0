@@ -4,7 +4,12 @@ import { MarketingLocalesProvider } from './LocalesContext';
 export default function RrssLayout() {
   return (
     <MarketingLocalesProvider>
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: '#ffffff' },
+        }}
+      >
         <Stack.Screen name="index" />
         <Stack.Screen name="nueva-propuesta" />
         <Stack.Screen name="propuesta/[id]" />

@@ -210,7 +210,9 @@ export function factorBonificacionLinea(line, qty, lineGross, umbral = UMBRAL_DE
 /**
  * ¿La línea cuenta para unidades de incentivo?
  * @param {object} line — SaleLine de Ágora
- * @param {{ it?: object, invCustomerId?: string|null, invCustomerName?: string|null }} invoiceCtx
+ * @param {{ it?: object, invCustomerId?: string|null, invCustomerName?: string|null, ignoreConsumo?: boolean }} invoiceCtx
+ *   - ignoreConsumo: si es true, NO se descartan las líneas de clientes CONSUMO
+ *     (el llamante decide qué hacer con ellas, p. ej. el Top respeta un toggle).
  */
 export function esLineaVentaValidaParaIncentivo(line, invoiceCtx = {}) {
   const qty = toNumberSafe(line?.Quantity ?? line?.quantity);
@@ -271,9 +273,25 @@ export function esLineaVentaValidaParaIncentivo(line, invoiceCtx = {}) {
     pickCustomerId(line) ?? pickCustomerId(it) ?? invoiceCtx.invCustomerId ?? null;
   const customerName =
     pickCustomerName(line) ?? pickCustomerName(it) ?? invoiceCtx.invCustomerName ?? null;
-  if (isConsumoCustomerEntry(customerId, customerName) && Math.abs(lineGross) > 0.001) {
+  if (
+    !invoiceCtx.ignoreConsumo &&
+    isConsumoCustomerEntry(customerId, customerName) &&
+    Math.abs(lineGross) > 0.001
+  ) {
     return false;
   }
 
   return true;
+}
+
+/**
+ * Usuario que comandó la LÍNEA (quien añadió el producto), no quien cerró el
+ * ticket. Según la guía del integrador de Ágora cada línea trae su `UserId`.
+ */
+export function pickLineUserId(line) {
+  return (
+    line?.UserId ?? line?.userId ??
+    line?.User?.Id ?? line?.user?.id ??
+    null
+  );
 }

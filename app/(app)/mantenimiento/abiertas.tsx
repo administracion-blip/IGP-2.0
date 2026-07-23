@@ -18,6 +18,26 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../../constants/icons';
 import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
 import { apiFetch } from '../../utils/api';
+import {
+  incidenciaEstaProgramada,
+  getPrioridadColor,
+  getPrioridadLabel,
+  getPrioridadOrden,
+  contarUrgentes,
+  formatearFechaIncidencia,
+} from '../../lib/mantenimientoIncidenciaUi';
+import { MantenimientoIncidenciaCard } from '../../components/mantenimiento/MantenimientoIncidenciaCard';
+import {
+  MantenimientoIncidenciaDetalleModal,
+  type MantenimientoIncidenciaDetalle,
+  type LineaValoracionDetalle,
+} from '../../components/mantenimiento/MantenimientoIncidenciaDetalleModal';
+import {
+  MantenimientoLocalColumnBoard,
+  type MantenimientoBoardColumn,
+} from '../../components/mantenimiento/MantenimientoLocalColumnBoard';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
+import { BREAKPOINTS } from '../../constants/layout';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -51,6 +71,39 @@ const COLUMNAS_INCIDENCIAS = [
 ] as const;
 
 type Incidencia = Record<string, string | number | string[] | undefined>;
+
+function fotosIncidencia(inc: Incidencia): string[] {
+  if (!Array.isArray(inc.fotos)) return [];
+  return inc.fotos.filter((x): x is string => typeof x === 'string' && x.trim() !== '');
+}
+
+function incidenciaKey(inc: Incidencia): string {
+  return `${(inc.local_id ?? '').toString().trim()}-${(inc.id_incidencia ?? '').toString().trim()}-${(inc.fecha_creacion ?? '').toString().trim()}`;
+}
+
+function incidenciaADetalle(inc: Incidencia, localNombre: string): MantenimientoIncidenciaDetalle {
+  return {
+    titulo: (inc.titulo ?? '—').toString(),
+    descripcion: (inc.descripcion ?? '').toString().trim() || undefined,
+    categoria: (inc.categoria ?? '').toString().trim() || undefined,
+    zona: (inc.zona ?? '').toString().trim() || undefined,
+    localNombre,
+    prioridad: (inc.prioridad_reportada ?? '').toString().trim() || undefined,
+    estado: (inc.estado ?? '').toString().trim() || undefined,
+    estadoValoracion: (inc.estado_valoracion ?? '').toString().trim() || undefined,
+    fechaCreacion: inc.fecha_creacion ? String(inc.fecha_creacion) : undefined,
+    fechaProgramada: inc.fecha_programada ? String(inc.fecha_programada) : undefined,
+    fechaCompletada: inc.fecha_completada ? String(inc.fecha_completada) : undefined,
+    idIncidencia: inc.id_incidencia ? String(inc.id_incidencia) : undefined,
+    fotos: fotosIncidencia(inc),
+    valoracionLineas: Array.isArray(inc.valoracion_lineas)
+      ? (inc.valoracion_lineas as unknown as LineaValoracionDetalle[])
+      : [],
+    valoracionBase: inc.valoracion_base != null ? Number(inc.valoracion_base) : null,
+    valoracionIva: inc.valoracion_iva != null ? Number(inc.valoracion_iva) : null,
+    valoracionTotal: inc.valoracion_total != null ? Number(inc.valoracion_total) : null,
+  };
+}
 
 function truncar(val: string): string {
   if (val.length <= MAX_TEXT_LENGTH) return val;
@@ -101,20 +154,14 @@ function getWeekStart(d: Date): Date {
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
-const PRIORIDAD_COLOR: Record<string, string> = {
-  urgente: '#dc2626',
-  alta: '#ea580c',
-  media: '#eab308',
-  baja: '#16a34a',
-};
-function getPrioridadColor(p: string | undefined): string {
-  if (!p) return '#94a3b8';
-  const key = (p ?? '').toString().trim().toLowerCase();
-  return PRIORIDAD_COLOR[key] ?? '#94a3b8';
-}
-
 const CHARS_PER_LINE_DESC = 100;
 const AVG_CHAR_WIDTH_PX = 7;
+
+function defaultExpandedKey(columns: MantenimientoBoardColumn<Incidencia>[]): string | null {
+  if (columns.length === 0) return null;
+  const conUrgente = columns.find((c) => (c.urgentCount ?? 0) > 0);
+  return conUrgente?.key ?? columns[0].key;
+}
 
 function isDateInPast(iso: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return true;
@@ -128,6 +175,9 @@ function isDateInPast(iso: string): boolean {
 export default function IncidenciasAbiertasScreen() {
   const router = useRouter();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const { width } = useBreakpoint();
+  const isAccordionMode = width < BREAKPOINTS.tablet;
+  const boardCols = width >= 1280 ? 6 : 4;
   const photoExpandedSize = useMemo(() => ({
     width: Math.min(windowWidth * 0.9, 900),
     height: Math.min(windowHeight * 0.85, 700),
@@ -163,9 +213,11 @@ export default function IncidenciasAbiertasScreen() {
   const [viewMode, setViewMode] = useState<'tabla' | 'deck'>('deck');
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [expandedPhotoUri, setExpandedPhotoUri] = useState<string | null>(null);
+  const [detalleIncidencia, setDetalleIncidencia] = useState<MantenimientoIncidenciaDetalle | null>(null);
   const [programandoIncidencia, setProgramandoIncidencia] = useState(false);
   const [marcandoReparadoKey, setMarcandoReparadoKey] = useState<string | null>(null);
   const [dragOverCalendarIso, setDragOverCalendarIso] = useState<string | null>(null);
+  const [expandedLocals, setExpandedLocals] = useState<Set<string>>(new Set());
   const [soloProgramadas, setSoloProgramadas] = useState(false);
   const [programadasDiaModalIso, setProgramadasDiaModalIso] = useState<string | null>(null);
   const resizeRef = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
@@ -348,19 +400,50 @@ export default function IncidenciasAbiertasScreen() {
     return incidenciasFiltrados.slice(start, start + PAGE_SIZE);
   }, [incidenciasFiltrados, pageIndexClamped]);
 
-  const incidenciasAgrupadasPorLocal = useMemo(() => {
-    const byLocalId = new Map<string, Incidencia[]>();
-    incidenciasFiltrados.forEach((inc) => {
+  const columnasPorLocal = useMemo((): MantenimientoBoardColumn<Incidencia>[] => {
+    const byLocal = new Map<string, Incidencia[]>();
+    const ordenadas = [...incidenciasFiltrados].sort(
+      (a, b) => getPrioridadOrden(a.prioridad_reportada as string) - getPrioridadOrden(b.prioridad_reportada as string),
+    );
+    ordenadas.forEach((inc) => {
       const localId = (inc.local_id ?? '').toString().trim() || '_sin_local';
-      if (!byLocalId.has(localId)) byLocalId.set(localId, []);
-      byLocalId.get(localId)!.push(inc);
+      if (!byLocal.has(localId)) byLocal.set(localId, []);
+      byLocal.get(localId)!.push(inc);
     });
-    return Array.from(byLocalId.entries()).map(([localId, incidencias]) => ({
-      localId,
-      nombreLocal: localId === '_sin_local' ? 'Sin local' : (mapLocalIdToNombre[localId] ?? localId),
-      incidencias,
-    }));
+    return Array.from(byLocal.entries())
+      .map(([localId, items]) => ({
+        key: localId,
+        title: localId === '_sin_local' ? 'Sin local' : (mapLocalIdToNombre[localId] ?? localId),
+        count: items.length,
+        urgentCount: contarUrgentes(items.map((i) => ({ prioridad: i.prioridad_reportada as string }))),
+        items,
+      }))
+      .sort((a, b) => a.title.localeCompare(b.title, 'es', { sensitivity: 'base' }));
   }, [incidenciasFiltrados, mapLocalIdToNombre]);
+
+  const columnKeysSig = useMemo(
+    () => columnasPorLocal.map((c) => c.key).join('|'),
+    [columnasPorLocal],
+  );
+
+  useEffect(() => {
+    if (!isAccordionMode) {
+      setExpandedLocals(new Set());
+      return;
+    }
+    if (!columnKeysSig) return;
+    const key = defaultExpandedKey(columnasPorLocal);
+    setExpandedLocals(key ? new Set([key]) : new Set());
+  }, [isAccordionMode, columnKeysSig, columnasPorLocal, filtroBusqueda, soloProgramadas]);
+
+  const toggleLocalExpand = useCallback((key: string) => {
+    setExpandedLocals((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const programadasPorDia = useMemo(() => {
     const map = new Map<string, { total: number; porLocal: Array<{ nombre: string; count: number }> }>();
@@ -553,6 +636,100 @@ export default function IncidenciasAbiertasScreen() {
   };
 
   const columnas = useMemo(() => [...COLUMNAS_INCIDENCIAS], []);
+
+  const renderIncidenciaCard = useCallback(
+    (inc: Incidencia) => {
+      const key = incidenciaKey(inc);
+      const localId = (inc.local_id ?? '').toString().trim();
+      const localNombre = localId ? (mapLocalIdToNombre[localId] ?? localId) : 'Sin local';
+      const estadoVal = (inc.estado_valoracion ?? '').toString().toUpperCase();
+      const reparado = estadoVal === 'REPARADO' || estadoVal === 'VALORADO';
+      const fotos = fotosIncidencia(inc);
+      const tieneProgramada =
+        inc.fecha_programada != null && String(inc.fecha_programada).trim() !== '';
+      const estadoTxt = (inc.estado ?? '—').toString();
+
+      const cardContent = (
+        <>
+          <MantenimientoIncidenciaCard
+            titulo={(inc.titulo ?? '—').toString()}
+            descripcion={(inc.descripcion ?? '').toString() || undefined}
+            categoria={(inc.categoria ?? '—').toString()}
+            zona={(inc.zona ?? '—').toString()}
+            prioridadColor={getPrioridadColor(inc.prioridad_reportada as string)}
+            prioridadLabel={getPrioridadLabel(inc.prioridad_reportada as string)}
+            fotos={fotos}
+            reparado={reparado}
+            puedeReparar={incidenciaEstaProgramada(inc)}
+            fechaCompletada={inc.fecha_completada ? String(inc.fecha_completada) : undefined}
+            valoracionTotal={inc.valoracion_total != null ? Number(inc.valoracion_total) : null}
+            marcando={marcandoReparadoKey === key}
+            onReparar={() => void marcarReparado(inc)}
+            onVerDetalle={() => setDetalleIncidencia(incidenciaADetalle(inc, localNombre))}
+            onFotoPress={(uri) => setExpandedPhotoUri(uri)}
+            resolverUriFoto={resolverUriFoto}
+            formatearFecha={formatearFechaIncidencia}
+          />
+          <View style={styles.cardExtras}>
+            <View style={styles.cardExtrasRow}>
+              {tieneProgramada ? (
+                <View style={styles.cardProgramado}>
+                  <Text style={styles.cardProgramadoText}>
+                    Programado: {formatearSoloFecha(inc.fecha_programada as string)}
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.cardExtrasSpacer} />
+              )}
+              <View style={styles.cardEstado}>
+                <Text style={styles.cardEstadoText}>{estadoTxt}</Text>
+              </View>
+            </View>
+            {tieneProgramada && !reparado ? (
+              <TouchableOpacity
+                onPress={() => quitarFechaProgramada(inc)}
+                disabled={programandoIncidencia}
+                style={styles.cardDeshacerBtn}
+                activeOpacity={0.7}
+              >
+                <MaterialIcons name="undo" size={12} color="#dc2626" />
+                <Text style={styles.cardDeshacerText}>Quitar programación</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </>
+      );
+
+      if (Platform.OS === 'web') {
+        const dragPayload = {
+          local_id: (inc.local_id ?? '').toString(),
+          id_incidencia: (inc.id_incidencia ?? '').toString(),
+          fecha_creacion: (inc.fecha_creacion ?? '').toString(),
+        };
+        return createElement(
+          'div',
+          {
+            draggable: true,
+            onDragStart: (e: React.DragEvent<HTMLDivElement>) => {
+              e.dataTransfer.setData('application/json', JSON.stringify(dragPayload));
+              e.dataTransfer.effectAllowed = 'move';
+            },
+            style: { width: '100%', cursor: 'grab', boxSizing: 'border-box' },
+          },
+          cardContent,
+        );
+      }
+
+      return cardContent;
+    },
+    [
+      mapLocalIdToNombre,
+      marcandoReparadoKey,
+      marcarReparado,
+      programandoIncidencia,
+      quitarFechaProgramada,
+    ],
+  );
 
   if (loading) {
     return (
@@ -796,179 +973,33 @@ export default function IncidenciasAbiertasScreen() {
       </View>
 
       {viewMode === 'deck' ? (
-        <ScrollView style={styles.deckScrollWrap} contentContainerStyle={styles.deckScrollContent} showsVerticalScrollIndicator>
-          <View style={styles.deckAndCalendarRow}>
-          <ScrollView style={styles.deckColumn} contentContainerStyle={styles.deckContent} showsVerticalScrollIndicator>
-            <View style={styles.deckContentInner}>
-            {incidenciasAgrupadasPorLocal.length === 0 ? (
-              <View style={styles.deckEmpty}>
-                <Text style={styles.deckEmptyText}>No hay incidencias</Text>
-              </View>
-            ) : (
-              incidenciasAgrupadasPorLocal.map((grupo) => (
-                <View key={grupo.localId} style={styles.deckGroup}>
-                  <View style={styles.deckGroupHeader}>
-                    <Text style={styles.deckGroupTitle}>{grupo.nombreLocal}</Text>
-                    <View style={styles.deckGroupBadge}>
-                      <Text style={styles.deckGroupBadgeText}>
-                        {grupo.incidencias.length} {grupo.incidencias.length === 1 ? 'incidencia' : 'incidencias'}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={styles.deckGroupCards}>
-                  {grupo.incidencias.map((inc, idx) => {
-                    const prioridad = (inc.prioridad_reportada ?? '—').toString().trim().toLowerCase();
-                    const prioridadLabel = prioridad && prioridad !== '—' ? prioridad.charAt(0).toUpperCase() + prioridad.slice(1) : '—';
-                    const prioridadBg = getPrioridadColor(inc.prioridad_reportada as string);
-                    const dragPayload = Platform.OS === 'web' ? {
-                      local_id: (inc.local_id ?? '').toString(),
-                      id_incidencia: (inc.id_incidencia ?? '').toString(),
-                      fecha_creacion: (inc.fecha_creacion ?? '').toString(),
-                    } : null;
-                    const cardContent = (
-                      <>
-                        <View style={styles.deckCardTitleBar}>
-                          <Text style={styles.deckCardTitleText}>{(inc.titulo ?? '—').toString()}</Text>
-                          <View style={[styles.deckPriorityBadge, { backgroundColor: prioridadBg }]}>
-                            <Text style={styles.deckPriorityBadgeText}>{prioridadLabel}</Text>
-                          </View>
-                        </View>
-                        <View style={styles.deckCardBody}>
-                          <View style={styles.deckCardLine}>
-                            <View style={styles.deckCardCell}>
-                              <Text style={styles.deckLabel}>Fecha creación</Text>
-                              <Text style={styles.deckValue}>{formatearFecha(inc.fecha_creacion as string)}</Text>
-                            </View>
-                            <View style={styles.deckCardCell}>
-                              <Text style={styles.deckLabel}>Local</Text>
-                              <Text style={styles.deckValue}>{valorCelda(inc, 'nombre_local')}</Text>
-                            </View>
-                          </View>
-                          <View style={[styles.deckCardLine, styles.deckCardLineFixed]}>
-                            <View style={styles.deckCardCellDesc}>
-                              <Text style={styles.deckLabel}>Descripción</Text>
-                              <Text style={[styles.deckValue, styles.deckValueDesc]}>
-                                {(inc.descripcion ?? '—').toString()}
-                              </Text>
-                            </View>
-                          </View>
-                        </View>
-                        <View style={styles.deckCardFotos}>
-                          {[0, 1, 2].map((i) => {
-                            const fotos = Array.isArray(inc.fotos) ? inc.fotos : [];
-                            const uri = fotos[i];
-                            if (uri && typeof uri === 'string') {
-                              return (
-                                <TouchableOpacity
-                                  key={i}
-                                  onPress={() => {
-                                  const resolvedUri = uri.startsWith('http') || uri.startsWith('data:')
-                                    ? uri
-                                    : `${API_URL}${uri.startsWith('/') ? '' : '/'}${uri}`;
-                                  setExpandedPhotoUri(resolvedUri);
-                                }}
-                                  style={styles.deckFotoThumbWrap}
-                                  activeOpacity={0.8}
-                                >
-                                  <View style={styles.deckFotoThumbInner}>
-                                    <Image source={{ uri }} style={styles.deckFotoThumbH as ImageStyle} resizeMode="cover" />
-                                  </View>
-                                </TouchableOpacity>
-                              );
-                            }
-                            return (
-                              <View key={i} style={[styles.deckFotoThumbH, styles.deckFotoPlaceholder]}>
-                                <MaterialIcons name="image-not-supported" size={20} color="#cbd5e1" />
-                              </View>
-                            );
-                          })}
-                        </View>
-                        <View style={styles.deckCardProgramadoRow}>
-                          {inc.fecha_programada != null && String(inc.fecha_programada).trim() !== '' ? (
-                            <View style={styles.deckCardProgramado}>
-                              <Text style={styles.deckCardProgramadoText}>Programado: {formatearSoloFecha(inc.fecha_programada as string)}</Text>
-                            </View>
-                          ) : null}
-                          <View style={[styles.deckCardBotonesRightWrap, (inc.estado_valoracion ?? '').toString().toUpperCase() === 'REPARADO' && styles.deckCardBotonesCenter]}>
-                            <View style={styles.deckCardReparadoWrap}>
-                              {(inc.estado_valoracion ?? '').toString().toUpperCase() === 'REPARADO' ? (
-                                <View style={styles.deckCardReparadoRow}>
-                                  <MaterialIcons name="check-circle" size={12} color="#0f766e" />
-                                  <Text style={styles.deckCardReparadoText}>
-                                    Reparado {inc.fecha_completada ? formatearFecha(inc.fecha_completada as string) : ''}
-                                  </Text>
-                                </View>
-                              ) : (
-                                <TouchableOpacity
-                                  onPress={() => marcarReparado(inc)}
-                                  disabled={marcandoReparadoKey === `${(inc.local_id ?? '').toString().trim()}-${(inc.id_incidencia ?? '').toString().trim()}-${(inc.fecha_creacion ?? '').toString().trim()}`}
-                                  style={styles.deckCardReparadoBtn}
-                                  activeOpacity={0.7}
-                                >
-                                  {marcandoReparadoKey === `${(inc.local_id ?? '').toString().trim()}-${(inc.id_incidencia ?? '').toString().trim()}-${(inc.fecha_creacion ?? '').toString().trim()}` ? (
-                                    <ActivityIndicator size="small" color="#0f766e" />
-                                  ) : (
-                                    <>
-                                      <MaterialIcons name="build" size={10} color="#0f766e" />
-                                      <Text style={styles.deckCardReparadoBtnText}>Reparado</Text>
-                                    </>
-                                  )}
-                                </TouchableOpacity>
-                              )}
-                            </View>
-                            {inc.fecha_programada != null && String(inc.fecha_programada).trim() !== '' && (inc.estado_valoracion ?? '').toString().toUpperCase() !== 'REPARADO' ? (
-                              <TouchableOpacity
-                                onPress={() => quitarFechaProgramada(inc)}
-                                disabled={programandoIncidencia}
-                                style={styles.deckCardDeshacerBtn}
-                                activeOpacity={0.7}
-                              >
-                                <MaterialIcons name="undo" size={10} color="#dc2626" />
-                                <Text style={styles.deckCardDeshacerText}>Deshacer</Text>
-                              </TouchableOpacity>
-                            ) : null}
-                          </View>
-                        </View>
-                        <View style={styles.deckCardEstado}>
-                          <Text style={styles.deckCardEstadoText}>{(inc.estado ?? '—').toString()}</Text>
-                        </View>
-                      </>
-                    );
-                    if (Platform.OS === 'web' && dragPayload) {
-                      return (
-                        <div
-                          key={String(inc.id_incidencia ?? idx)}
-                          draggable
-                          onDragStart={(e: React.DragEvent<HTMLDivElement>) => {
-                            e.dataTransfer.setData('application/json', JSON.stringify(dragPayload));
-                            e.dataTransfer.effectAllowed = 'move';
-                          }}
-                          style={{
-                            width: '21%',
-                            minWidth: 104,
-                            marginBottom: 12,
-                            cursor: 'grab',
-                            boxSizing: 'border-box',
-                          }}
-                        >
-                          <View style={styles.deckCard}>{cardContent}</View>
-                        </div>
-                      );
-                    }
-                    return (
-                      <View key={String(inc.id_incidencia ?? idx)} style={[styles.deckCard, styles.deckCardThird]}>
-                        {cardContent}
-                      </View>
-                    );
-                  })}
-                  </View>
-                </View>
-              ))
-            )}
-            </View>
+        columnasPorLocal.length === 0 ? (
+          <View style={styles.deckEmpty}>
+            <Text style={styles.deckEmptyText}>No hay incidencias</Text>
+          </View>
+        ) : (
+          <ScrollView
+            style={styles.boardScrollWrap}
+            contentContainerStyle={styles.boardScrollContent}
+            showsVerticalScrollIndicator
+          >
+            <MantenimientoLocalColumnBoard
+              columns={columnasPorLocal}
+              mode={isAccordionMode ? 'accordion' : 'board'}
+              boardCols={boardCols}
+              expandedKeys={expandedLocals}
+              onToggleExpand={toggleLocalExpand}
+              renderCard={renderIncidenciaCard}
+              getItemKey={(inc) => incidenciaKey(inc)}
+              summary={{
+                locales: columnasPorLocal.length,
+                total: incidenciasFiltrados.length,
+                itemSingular: 'incidencia',
+                itemPlural: 'incidencias',
+              }}
+            />
           </ScrollView>
-        </View>
-        </ScrollView>
+        )
       ) : (
       <ScrollView horizontal style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <View style={styles.table}>
@@ -1193,6 +1224,14 @@ export default function IncidenciasAbiertasScreen() {
         </TouchableOpacity>
       </Modal>
 
+      <MantenimientoIncidenciaDetalleModal
+        visible={detalleIncidencia !== null}
+        detalle={detalleIncidencia}
+        onClose={() => setDetalleIncidencia(null)}
+        resolverUriFoto={resolverUriFoto}
+        onFotoPress={setExpandedPhotoUri}
+      />
+
       <Modal visible={expandedPhotoUri !== null} transparent animationType="fade" onRequestClose={() => setExpandedPhotoUri(null)}>
         <TouchableOpacity
           style={[styles.photoOverlay, Platform.OS === 'web' && styles.photoOverlayWeb]}
@@ -1282,13 +1321,7 @@ const styles = StyleSheet.create({
   pageText: { fontSize: 11, color: '#64748b', marginHorizontal: 4 },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 20 },
-  deckScrollWrap: { flex: 1 },
-  deckScrollContent: { flexGrow: 1, paddingBottom: 40 },
-  deckAndCalendarRow: { flex: 1, flexDirection: 'row' },
-  deckColumn: { flex: 1, minWidth: 0 },
   calendarAboveCount: { width: '100%', paddingBottom: 6 },
-  deckContent: { paddingBottom: 24, paddingHorizontal: 4, alignItems: 'flex-start' },
-  deckContentInner: { width: '100%' },
   calendarCard: {
     width: '100%',
     alignSelf: 'stretch',
@@ -1330,120 +1363,54 @@ const styles = StyleSheet.create({
   calendarWeekDayNum: { fontSize: 18, fontWeight: '700', color: '#334155' },
   deckEmpty: { padding: 24, alignItems: 'center' },
   deckEmptyText: { fontSize: 13, color: '#94a3b8' },
-  deckGroup: { marginBottom: 12 },
-  deckGroupHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 10,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    backgroundColor: '#f1f5f9',
-    borderRadius: 10,
-    borderLeftWidth: 4,
-    borderLeftColor: '#0ea5e9',
-    height: 20,
+  boardScrollWrap: { flex: 1 },
+  boardScrollContent: { flexGrow: 1, paddingBottom: 24, paddingHorizontal: 4 },
+  cardExtras: {
+    marginTop: 6,
+    gap: 6,
   },
-  deckGroupTitle: { fontSize: 15, fontWeight: '700', color: '#334155' },
-  deckGroupBadge: { backgroundColor: '#e2e8f0', paddingVertical: 2, paddingHorizontal: 6, borderRadius: 10 },
-  deckGroupBadgeText: { fontSize: 10, fontWeight: '600', color: '#000' },
-  deckGroupCards: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  deckCardThird: { width: '21%', minWidth: 104 },
-  deckCardDraggableCursor: Platform.OS === 'web' ? { cursor: 'pointer' } : {},
-  deckCard: {
-    position: 'relative',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    marginBottom: 12,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  deckCardTitleBar: {
+  cardExtrasRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
-    backgroundColor: '#e2e8f0',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-  },
-  deckCardTitleText: { fontSize: 11, fontWeight: '700', color: '#334155', flex: 1, minWidth: 0 },
-  deckPriorityBadge: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    flexShrink: 0,
-  },
-  deckPriorityBadgeText: { fontSize: 10, fontWeight: '700', color: '#fff' },
-  deckCardBody: { padding: 14, paddingTop: 10, paddingRight: 72, paddingBottom: 8 },
-  deckCardLine: { flexDirection: 'row', gap: 12, marginBottom: 6 },
-  deckCardLineFixed: { minHeight: 40 },
-  deckCardCell: { flex: 1, minWidth: 0 },
-  deckCardCellDesc: { flex: 1, minWidth: 0 },
-  deckCardFotos: {
-    flexDirection: 'row',
     gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
-    backgroundColor: '#fafafa',
   },
-  deckCardBottomRow: { position: 'absolute', bottom: 6, left: 8, right: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  deckCardBottomSpacer: { flex: 1 },
-  deckCardBottomCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  deckCardProgramadoRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  deckCardProgramado: { paddingVertical: 4, paddingHorizontal: 8, backgroundColor: '#dcfce7', borderRadius: 6 },
-  deckCardProgramadoText: { fontSize: 10, fontWeight: '700', color: '#166534' },
-  deckCardDeshacerBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 5, paddingHorizontal: 7, backgroundColor: '#fef2f2', borderRadius: 6, borderWidth: 1, borderColor: '#fecaca' },
-  deckCardDeshacerText: { fontSize: 9, fontWeight: '600', color: '#dc2626' },
-  deckCardBotonesRightWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginRight: 6 },
-  deckCardBotonesCenter: { justifyContent: 'center' },
-  deckCardReparadoWrap: { marginTop: -2 },
-  deckCardReparadoRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  deckCardReparadoText: { fontSize: 9, fontWeight: '600', color: '#0d9488' },
-  deckCardReparadoBtn: {
+  cardExtrasSpacer: {
+    flex: 1,
+    minWidth: 0,
+  },
+  cardProgramado: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    backgroundColor: '#dcfce7',
+    borderRadius: 6,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  cardProgramadoText: { fontSize: 10, fontWeight: '700', color: '#166534' },
+  cardDeshacerBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
     paddingVertical: 5,
     paddingHorizontal: 7,
-    backgroundColor: '#f0fdfa',
+    backgroundColor: '#fef2f2',
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#99f6e4',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 4,
+    borderColor: '#fecaca',
   },
-  deckCardReparadoBtnText: { fontSize: 9, fontWeight: '600', color: '#0f766e' },
-  deckCardEstadoWrap: { flex: 1, alignItems: 'flex-end', justifyContent: 'center' },
-  deckCardEstado: {
+  cardDeshacerText: { fontSize: 10, fontWeight: '600', color: '#dc2626' },
+  cardEstado: {
     paddingVertical: 2,
     paddingHorizontal: 6,
     backgroundColor: '#f1f5f9',
     borderRadius: 6,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    flexShrink: 0,
   },
-  deckCardEstadoText: { fontSize: 9, fontWeight: '600', color: '#64748b' },
-  deckFotoThumbWrap: { borderRadius: 6, overflow: 'hidden' },
-  deckFotoThumbInner: { borderRadius: 6, overflow: 'hidden' },
-  deckFotoThumbH: { width: 40, height: 40, borderRadius: 6, backgroundColor: '#e2e8f0' },
-  deckLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', marginBottom: 1, textTransform: 'uppercase', letterSpacing: 0.2 },
-  deckValue: { fontSize: 11, color: '#334155' },
-  deckValueTitle: { fontWeight: '600', color: '#0f172a', fontSize: 11 },
-  deckValueDesc: { lineHeight: 16, color: '#475569', fontSize: 11 },
-  deckFotoPlaceholder: { alignItems: 'center', justifyContent: 'center' },
+  cardEstadoText: { fontSize: 9, fontWeight: '600', color: '#64748b' },
   photoOverlay: { flex: 1, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
   photoOverlayWeb: Platform.OS === 'web' ? { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999 } : {},
   photoExpandedWrap: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center', position: 'absolute' as const, left: 0, right: 0, top: 0, bottom: 0 },

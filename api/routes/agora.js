@@ -62,6 +62,11 @@ import {
   listDaysBetween,
 } from '../lib/dynamo/ventasProducto.js';
 import {
+  esDocumentoAnulado,
+  esLineaVentaValidaParaIncentivo,
+  pickLineUserId,
+} from '../lib/agora/invoiceSaleValidity.js';
+import {
   listFormasPago,
   upsertFormasFromAgora,
 } from '../lib/agora/formasPago.js';
@@ -2810,10 +2815,11 @@ router.get('/cajas/top', async (req, res) => {
     console.warn('[cajas/top] usersMap', e.message || e);
   }
 
-  const camarerosMap = new Map(); // userId → { id, nombre, amount, tickets }
+  const camarerosMap = new Map(); // userId → { userId, userName, amount, _tickets:Set }
   const clientesMap = new Map(); // customerId → { id, nombre, amount, tickets }
 
   // Operador (Cashier/User/Waiter) de una factura: cabecera o primer item con dato.
+  // Solo se usa como fallback cuando una línea no trae su propio comandante.
   const pickInvoiceOperator = (inv) => {
     let id = pickUserId(inv);
     let name = pickUserName(inv);
@@ -2833,33 +2839,99 @@ router.get('/cajas/top', async (req, res) => {
     return { id, name };
   };
 
+  // Id de ticket para contar tickets distintos en los que participa cada camarero.
+  const pickInvoiceId = (inv) =>
+    inv?.Id ?? inv?.id ?? inv?.InvoiceId ?? inv?.invoiceId ??
+    inv?.Number ?? inv?.number ?? inv?.InvoiceNumber ?? inv?.invoiceNumber ?? null;
+
   for (const day of days) {
     const invs = invoicesByDay.get(day) ?? [];
+    let invSeq = 0;
     for (const inv of invs) {
+      invSeq += 1;
       if (inv?.IsCancellation === true || inv?.isCancellation === true ||
           inv?.IsCancelled === true || inv?.isCancelled === true) continue;
-      const amount = sumInvoiceAmount(inv);
-      if (!(amount > 0.001)) continue;
 
-      const op = pickInvoiceOperator(inv);
-      if (op.id != null) {
-        const id = String(op.id).trim();
-        if (!camarerosMap.has(id)) {
-          camarerosMap.set(id, {
-            userId: id,
-            userName: op.name ?? userMap.get(id) ?? `#${id}`,
-            amount: 0,
-            tickets: 0,
-          });
-        }
-        const u = camarerosMap.get(id);
-        u.amount += amount;
-        u.tickets += 1;
-        if (!op.name && userMap.get(id) && (u.userName === `#${id}` || u.userName == null)) {
-          u.userName = userMap.get(id);
+      // ---- Top camareros: atribución POR LÍNEA (quien comanda), alineado con
+      // la lógica de incentivos: excluye anulaciones, cortesías e invitaciones.
+      const invIdRaw = pickInvoiceId(inv);
+      const ticketKey = invIdRaw != null && String(invIdRaw).trim() !== ''
+        ? String(invIdRaw).trim()
+        : `${day}#${invSeq}`;
+      const invOp = pickInvoiceOperator(inv);
+      const invOpId = invOp.id != null ? String(invOp.id).trim() : null;
+      const invCustomerId = pickCustomerId(inv);
+      const invCustomerName = pickCustomerName(inv);
+
+      const items = inv?.InvoiceItems ?? inv?.invoiceItems ?? [];
+      const invoiceItems = Array.isArray(items) && items.length > 0 ? items : [inv];
+      for (const it of invoiceItems) {
+        if (esDocumentoAnulado(it)) continue;
+
+        const docUserIdRaw = pickUserId(it) ?? invOpId;
+        const docUserId = docUserIdRaw != null && String(docUserIdRaw).trim() !== ''
+          ? String(docUserIdRaw).trim()
+          : null;
+        const itemCustomerId = pickCustomerId(it) ?? invCustomerId;
+        const itemCustomerName = pickCustomerName(it) ?? invCustomerName;
+
+        const saleLines =
+          it?.SaleLines ?? it?.saleLines ??
+          it?.Lines ?? it?.lines ??
+          it?.DocumentLines ?? it?.documentLines ?? [];
+        if (!Array.isArray(saleLines)) continue;
+
+        // ignoreConsumo: la validez de línea NO descarta CONSUMO; ese filtro lo
+        // aplica el toggle "Incluir CONSUMO" de la pantalla, igual que en clientes.
+        const lineCtx = { it, invCustomerId, invCustomerName, ignoreConsumo: true };
+        for (const line of saleLines) {
+          if (!esLineaVentaValidaParaIncentivo(line, lineCtx)) continue;
+
+          const esConsumoLine = isConsumoCustomerEntry(
+            pickCustomerId(line) ?? itemCustomerId,
+            pickCustomerName(line) ?? itemCustomerName,
+          );
+          if (!incluirConsumo && esConsumoLine) continue;
+
+          const lineGross = toNumberSafe(
+            line?.TotalAmount ?? line?.totalAmount ??
+            line?.LineGrossAmount ?? line?.lineGrossAmount ??
+            line?.GrossAmount ?? line?.grossAmount ??
+            line?.Total ?? line?.total ??
+            line?.NetAmount ?? line?.netAmount ??
+            line?.Amount ?? line?.amount,
+          );
+          const lineAmount = Math.abs(lineGross);
+          if (!(lineAmount > 0.001)) continue;
+
+          const lineUserIdRaw = pickLineUserId(line);
+          const userId = lineUserIdRaw != null && String(lineUserIdRaw).trim() !== ''
+            ? String(lineUserIdRaw).trim()
+            : docUserId;
+          if (userId == null) continue;
+
+          if (!camarerosMap.has(userId)) {
+            camarerosMap.set(userId, {
+              userId,
+              userName: userMap.get(userId)
+                ?? (userId === invOpId ? invOp.name : null)
+                ?? `#${userId}`,
+              amount: 0,
+              _tickets: new Set(),
+            });
+          }
+          const u = camarerosMap.get(userId);
+          u.amount += lineAmount;
+          u._tickets.add(ticketKey);
+          if ((u.userName === `#${userId}` || u.userName == null) && userMap.get(userId)) {
+            u.userName = userMap.get(userId);
+          }
         }
       }
 
+      // ---- Top clientes: atribución a nivel factura (sin cambios) ----
+      const amount = sumInvoiceAmount(inv);
+      if (!(amount > 0.001)) continue;
       const customerId = pickCustomerId(inv);
       const customerName = pickCustomerName(inv);
       const esConsumo = isConsumoCustomerEntry(customerId, customerName);
@@ -2883,6 +2955,12 @@ router.get('/cajas/top', async (req, res) => {
   }
 
   const topCamareros = Array.from(camarerosMap.values())
+    .map((u) => ({
+      userId: u.userId,
+      userName: u.userName,
+      amount: u.amount,
+      tickets: u._tickets.size,
+    }))
     .sort((a, b) => b.amount - a.amount || b.tickets - a.tickets)
     .slice(0, limit)
     .map((u, i) => ({

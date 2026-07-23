@@ -5,65 +5,56 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useHubNavGrid } from '../hooks/useHubNavGrid';
 import { MIN_TOUCH } from '../constants/layout';
 import { apiFetch } from '../utils/api';
+import { formatMoneda } from '../utils/formatMoneda';
+import {
+  accentForPct,
+  colorConsecucion,
+  formatPctConsecucion,
+  labelPeriodoMensual,
+} from '../lib/objetivoConsecucionCardUi';
 
 export type ObjetivoMensualLocal = {
   localId: string;
   nombre: string;
   pctConsecucion: number | null;
   sinDatos: boolean;
+  objetivoHoy?: number | null;
+  desvioAcumulado?: number;
+  extraPorDia?: number;
 };
 
 export type ObjetivoMensualCardData = {
   mes: string;
   hastaFecha: string;
+  jornadaHoy?: string;
+  diasRestantes?: number;
   locales: ObjetivoMensualLocal[];
 };
-
-const MESES = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-];
-
-function labelPeriodo(mes: string): string {
-  const m = /^(\d{4})-(\d{2})$/.exec(mes);
-  if (!m) return mes;
-  const y = Number(m[1]);
-  const mi = Number(m[2]);
-  const nombreMes = MESES[mi - 1] ?? m[2];
-  return `${nombreMes} ${y} · hasta ayer`;
-}
-
-function colorConsecucion(pct: number): string {
-  if (pct < 95) return '#dc2626';
-  if (pct < 100) return '#d97706';
-  return '#059669';
-}
-
-function accentForPct(pct: number | null, sinDatos: boolean): { bg: string; fg: string } {
-  if (pct == null || sinDatos) return { bg: '#f1f5f9', fg: '#94a3b8' };
-  if (pct < 95) return { bg: '#fee2e2', fg: '#dc2626' };
-  if (pct < 100) return { bg: '#ffedd5', fg: '#d97706' };
-  return { bg: '#dcfce7', fg: '#059669' };
-}
-
-function formatPct(pct: number): string {
-  const s = Number.isInteger(pct) ? String(pct) : pct.toFixed(1).replace('.', ',');
-  return `${s} %`;
-}
 
 type Props = {
   localIndex: number;
   onLocalIndexChange: (idx: number) => void;
+  width?: `${number}%` | '100%';
+  style?: StyleProp<ViewStyle>;
+  onLocalesLoaded?: (locales: ObjetivoMensualLocal[]) => void;
 };
 
-export function ObjetivoMensualCard({ localIndex, onLocalIndexChange }: Props) {
-  const { compact, rowSpanWidth } = useHubNavGrid();
+export function ObjetivoMensualCard({
+  localIndex,
+  onLocalIndexChange,
+  width = '100%',
+  style,
+  onLocalesLoaded,
+}: Props) {
+  const { compact } = useHubNavGrid();
   const [data, setData] = useState<ObjetivoMensualCardData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -99,9 +90,15 @@ export function ObjetivoMensualCard({ localIndex, onLocalIndexChange }: Props) {
     }
   }, [data, localIndex, onLocalIndexChange]);
 
+  useEffect(() => {
+    if (data?.locales?.length) {
+      onLocalesLoaded?.(data.locales);
+    }
+  }, [data, onLocalesLoaded]);
+
   if (loading) {
     return (
-      <View style={[styles.card, compact && styles.cardCompact, { width: rowSpanWidth }]}>
+      <View style={[styles.card, compact && styles.cardCompact, { width }, style]}>
         <View style={[styles.iconWrap, compact && styles.iconWrapCompact, { backgroundColor: '#e0f2fe' }]}>
           <ActivityIndicator size="small" color="#0ea5e9" />
         </View>
@@ -129,8 +126,14 @@ export function ObjetivoMensualCard({ localIndex, onLocalIndexChange }: Props) {
   const prev = () => onLocalIndexChange(idx <= 0 ? locales.length - 1 : idx - 1);
   const next = () => onLocalIndexChange(idx >= locales.length - 1 ? 0 : idx + 1);
 
+  const objetivoHoy = loc.objetivoHoy ?? null;
+  const extraPorDia = loc.extraPorDia ?? 0;
+  const diasRestantes = data.diasRestantes ?? 0;
+  const alDia = extraPorDia <= 0;
+  const mostrarLineaInfo = objetivoHoy != null || diasRestantes > 0;
+
   return (
-    <View style={[styles.card, compact && styles.cardCompact, { width: rowSpanWidth }]}>
+    <View style={[styles.card, compact && styles.cardCompact, { width }, style]}>
       {multi ? (
         <TouchableOpacity
           style={[styles.navBtn, compact && styles.navBtnCompact]}
@@ -160,7 +163,7 @@ export function ObjetivoMensualCard({ localIndex, onLocalIndexChange }: Props) {
           ) : null}
         </View>
         <Text style={[styles.desc, compact && styles.descCompact]} numberOfLines={1}>
-          {labelPeriodo(data.mes)}
+          {labelPeriodoMensual(data.mes)}
         </Text>
 
         <View style={styles.progressRow}>
@@ -172,11 +175,39 @@ export function ObjetivoMensualCard({ localIndex, onLocalIndexChange }: Props) {
           </View>
           <Text
             style={[styles.pctText, compact && styles.pctTextCompact, tienePct && { color: barColor }]}
-            accessibilityLabel={tienePct ? `Consecución ${formatPct(pct)}` : 'Sin datos de consecución'}
+            accessibilityLabel={tienePct ? `Consecución ${formatPctConsecucion(pct)}` : 'Sin datos de consecución'}
           >
-            {tienePct ? formatPct(pct) : 'Sin datos'}
+            {tienePct ? formatPctConsecucion(pct) : 'Sin datos'}
           </Text>
         </View>
+
+        {mostrarLineaInfo ? (
+          <View style={styles.infoRow}>
+            {objetivoHoy != null ? (
+              <Text style={styles.infoObjetivo} numberOfLines={1}>
+                Objetivo hoy{' '}
+                <Text style={styles.infoObjetivoValor}>{formatMoneda(objetivoHoy)}</Text>
+              </Text>
+            ) : null}
+
+            {!alDia ? (
+              <View style={styles.chipDesvio}>
+                <Text style={styles.chipDesvioText}>+{formatMoneda(extraPorDia)}/día</Text>
+              </View>
+            ) : tienePct ? (
+              <View style={styles.chipAlDia}>
+                <MaterialIcons name="check" size={12} color="#059669" />
+                <Text style={styles.chipAlDiaText}>Al día</Text>
+              </View>
+            ) : null}
+
+            {diasRestantes > 0 ? (
+              <Text style={styles.infoDias} numberOfLines={1}>
+                {diasRestantes} {diasRestantes === 1 ? 'día rest.' : 'días rest.'}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
       </View>
 
       {multi ? (
@@ -195,6 +226,7 @@ export function ObjetivoMensualCard({ localIndex, onLocalIndexChange }: Props) {
 
 const styles = StyleSheet.create({
   card: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
@@ -209,7 +241,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
     minHeight: MIN_TOUCH + 24,
-    alignSelf: 'flex-start',
+    alignSelf: 'stretch',
   },
   cardCompact: {
     gap: 10,
@@ -248,6 +280,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     gap: 6,
+    justifyContent: 'center',
   },
   titleRow: {
     flexDirection: 'row',
@@ -329,5 +362,57 @@ const styles = StyleSheet.create({
   pctTextCompact: {
     fontSize: 14,
     minWidth: 56,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
+  infoObjetivo: {
+    fontSize: 12,
+    color: '#334155',
+    flexShrink: 1,
+  },
+  infoObjetivoValor: {
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  chipDesvio: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: '#fee2e2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    flexShrink: 0,
+  },
+  chipDesvioText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#dc2626',
+  },
+  chipAlDia: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: '#dcfce7',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    flexShrink: 0,
+  },
+  chipAlDiaText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  infoDias: {
+    fontSize: 12,
+    color: '#94a3b8',
+    flexShrink: 0,
   },
 });

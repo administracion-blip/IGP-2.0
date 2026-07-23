@@ -1,10 +1,11 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useHubNavGrid } from '../../hooks/useHubNavGrid';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { hubAccentById } from '../../lib/hubNavAccent';
 import { apiFetch } from '../../utils/api';
@@ -17,7 +18,10 @@ import {
 } from '../../lib/planningEnlaces';
 import { EstrellaFavorito } from '../../components/EstrellaFavorito';
 import { HubNavCard, HubNavGrid } from '../../components/ui/HubNavCard';
-import { ObjetivoMensualCard } from '../../components/ObjetivoMensualCard';
+import { ObjetivoMensualCard, type ObjetivoMensualLocal } from '../../components/ObjetivoMensualCard';
+import { CampanasActivasPlanningCard } from '../../components/CampanasActivasPlanningCard';
+import { TopCamarerosPlanningCard } from '../../components/TopCamarerosPlanningCard';
+import { prefetchTopCamarerosPlanning } from '../../lib/topCamarerosPlanningCache';
 import {
   puedeVerActuacionesPlanning,
   puedeVerActivacionesPlanning,
@@ -99,13 +103,24 @@ function aviso(msg: string) {
 export default function PlanningDiaIndexScreen() {
   const router = useRouter();
   const { hasPermiso } = useAuth();
-  const { cardWidth, compact } = useHubNavGrid();
+  const { cardWidth, compact, rowSpanWidth } = useHubNavGrid();
+  const { shouldStackPanels } = useBreakpoint();
   const [activacionesHoy, setActivacionesHoy] = useState(0);
   const [actuacionesHoy, setActuacionesHoy] = useState(0);
   const [limpiezaHoy, setLimpiezaHoy] = useState(0);
   const [objetivoLocalIdx, setObjetivoLocalIdx] = useState(0);
+  const [objetivoLocales, setObjetivoLocales] = useState<ObjetivoMensualLocal[]>([]);
   const [enlacesExternos, setEnlacesExternos] = useState<EnlacePlanning[]>([]);
   const puedeObjetivoCard = hasPermiso('planning_dia.objetivo_card');
+  const puedeCampanasActivas = hasPermiso('incentivos_producto.ver');
+  const puedeTopCamareros = hasPermiso('top.ver');
+  const muestraFilaSuperior = puedeObjetivoCard || puedeCampanasActivas || puedeTopCamareros;
+  const localIdObjetivo = objetivoLocales[objetivoLocalIdx]?.localId ?? null;
+
+  useEffect(() => {
+    if (!hasPermiso('top.ver') || objetivoLocales.length === 0) return;
+    prefetchTopCamarerosPlanning(objetivoLocales.map((l) => l.localId));
+  }, [objetivoLocales, hasPermiso]);
 
   const tarjetaInternaVisible = useCallback(
     (t: TarjetaInterna) => {
@@ -200,6 +215,14 @@ export default function PlanningDiaIndexScreen() {
 
   const hayContenido = tarjetasInternasVisibles.length > 0 || enlacesVisibles.length > 0;
 
+  const objetivosThirdStyle = useMemo(
+    () => [
+      styles.objetivosThird,
+      shouldStackPanels && styles.objetivosThirdStack,
+    ],
+    [shouldStackPanels],
+  );
+
   const hubItems = useMemo(() => {
     type Item =
       | {
@@ -266,7 +289,7 @@ export default function PlanningDiaIndexScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {!hayContenido && !puedeObjetivoCard ? (
+        {!hayContenido && !muestraFilaSuperior ? (
           <View style={styles.emptyBox}>
             <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
             <Text style={styles.emptyText}>
@@ -274,13 +297,45 @@ export default function PlanningDiaIndexScreen() {
             </Text>
           </View>
         ) : (
-          <HubNavGrid>
-            {puedeObjetivoCard ? (
-              <ObjetivoMensualCard
-                localIndex={objetivoLocalIdx}
-                onLocalIndexChange={setObjetivoLocalIdx}
-              />
+          <>
+            {muestraFilaSuperior ? (
+              <View
+                style={[
+                  styles.objetivosRow,
+                  { width: rowSpanWidth },
+                  shouldStackPanels && styles.objetivosRowStack,
+                ]}
+              >
+                {puedeObjetivoCard ? (
+                  <View style={objetivosThirdStyle}>
+                    <ObjetivoMensualCard
+                      localIndex={objetivoLocalIdx}
+                      onLocalIndexChange={setObjetivoLocalIdx}
+                      onLocalesLoaded={setObjetivoLocales}
+                    />
+                  </View>
+                ) : null}
+                {puedeCampanasActivas ? (
+                  <View style={objetivosThirdStyle}>
+                    <CampanasActivasPlanningCard
+                      localId={localIdObjetivo}
+                      filtrarPorLocal={puedeObjetivoCard}
+                      localIndex={objetivoLocalIdx}
+                    />
+                  </View>
+                ) : null}
+                {puedeTopCamareros ? (
+                  <View style={objetivosThirdStyle}>
+                    <TopCamarerosPlanningCard
+                      localId={localIdObjetivo}
+                      filtrarPorLocal={puedeObjetivoCard}
+                      localIndex={objetivoLocalIdx}
+                    />
+                  </View>
+                ) : null}
+              </View>
             ) : null}
+            <HubNavGrid>
             {hubItems.map((item) => {
               const accent = hubAccentById(item.id);
               if (item.kind === 'internal') {
@@ -325,6 +380,7 @@ export default function PlanningDiaIndexScreen() {
               );
             })}
           </HubNavGrid>
+          </>
         )}
       </ScrollView>
     </View>
@@ -347,6 +403,26 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
   subtitle: { fontSize: 14, color: '#64748b', marginTop: 2 },
   scrollContent: { paddingBottom: 24 },
+  objetivosRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    marginBottom: 12,
+    gap: 12,
+  },
+  objetivosRowStack: {
+    flexDirection: 'column',
+  },
+  objetivosThird: {
+    flex: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    alignSelf: 'stretch',
+  },
+  objetivosThirdStack: {
+    flex: undefined,
+    flexBasis: undefined,
+    width: '100%',
+  },
   emptyBox: { alignItems: 'center', gap: 8, paddingVertical: 40 },
   emptyText: { fontSize: 13, color: '#64748b', textAlign: 'center' },
 });

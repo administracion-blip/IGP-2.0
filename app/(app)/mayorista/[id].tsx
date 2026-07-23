@@ -1020,8 +1020,8 @@ export default function MayoristaDetalleScreen() {
                   <View style={styles.colProd}><Text style={styles.detailTableHeaderText}>Producto</Text></View>
                   <View style={styles.colProv}><Text style={styles.detailTableHeaderText}>Proveedor</Text></View>
                   <View style={styles.colNum}><Text style={styles.detailTableHeaderText}>Coste</Text></View>
-                  <View style={styles.colNum}><Text style={[styles.detailTableHeaderText, styles.pmrHeaderText]}>PMR</Text></View>
                   <View style={styles.colNumSm}><Text style={styles.detailTableHeaderText}>Cant.</Text></View>
+                  <View style={styles.colNum}><Text style={[styles.detailTableHeaderText, styles.pmrHeaderText]}>PMR</Text></View>
                   <View style={styles.colNumSm}><Text style={styles.detailTableHeaderText}>Mk.%</Text></View>
                   <View style={styles.colNum}><Text style={styles.detailTableHeaderText}>PVP</Text></View>
                   <View style={styles.colAport}><Text style={styles.detailTableHeaderText}>Aport.</Text></View>
@@ -1076,11 +1076,6 @@ export default function MayoristaDetalleScreen() {
                           onCommit={(n) => patchLinea(idx, { precio_compra_operacion: n, es_precio_negociado: true, _modo_edicion: 'pvp' })}
                         />
                       </View>
-                      <View style={styles.colNum}>
-                        <Text style={[styles.detailTableCell, styles.pmrCellText]} numberOfLines={1}>
-                          {formatEur(Number(l.pmr ?? ((Number(l.coste_neto) || 0) - (Number(l.aportacion_unitaria) || 0))))}
-                        </Text>
-                      </View>
                       <View style={styles.colNumSm}>
                         <CellInput
                           numericValue={l.cantidad}
@@ -1089,6 +1084,11 @@ export default function MayoristaDetalleScreen() {
                           narrow
                           onCommit={(n) => patchLinea(idx, { cantidad: n, _modo_edicion: 'pvp' })}
                         />
+                      </View>
+                      <View style={styles.colNum}>
+                        <Text style={[styles.detailTableCell, styles.pmrCellText]} numberOfLines={1}>
+                          {formatEur(Number(l.pmr ?? ((Number(l.coste_neto) || 0) - (Number(l.aportacion_unitaria) || 0))))}
+                        </Text>
                       </View>
                       <View style={styles.colNumSm}>
                         <Text style={[styles.detailTableCell, styles.mkVirtualCell]} numberOfLines={1}>

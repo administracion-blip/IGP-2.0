@@ -15,3 +15,20 @@ export function fechaJornadaNegocioIso(): string {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
+
+/** Mes en curso (según jornada de hoy) desde el día 1 hasta el día anterior a la jornada. */
+export function rangoMesHastaAyerJornada(): {
+  dateFrom: string;
+  dateTo: string;
+  jornadaHoy: string;
+  sinDatos: boolean;
+} {
+  const jornadaHoy = fechaJornadaNegocioIso();
+  const [y, m] = jornadaHoy.split('-');
+  const dateFrom = `${y}-${m}-01`;
+  const d = new Date(`${jornadaHoy}T12:00:00`);
+  d.setDate(d.getDate() - 1);
+  const dateTo = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const sinDatos = dateTo < dateFrom;
+  return { dateFrom, dateTo, jornadaHoy, sinDatos };
+}

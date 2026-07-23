@@ -596,6 +596,34 @@ router.get('/acuerdos/:id/seguimiento', async (req, res) => {
 // Acuerdos - Pagos por Imagen
 // ──────────────────────────────────────────
 
+/**
+ * Normaliza el array de justificantes que llega del frontend para persistir en
+ * Dynamo solo metadata ligera. Soporta dos formatos:
+ *  - Nuevo (S3):   { fileKey, fileName, contentType?, size?, uploadedAt? }
+ *  - Legacy base64: { name, data }  (se conserva tal cual por compatibilidad)
+ * Descarta la `url` firmada (no debe persistirse) y entradas inválidas.
+ */
+function sanitizeJustificantes(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .map((j) => {
+      if (j && j.fileKey) {
+        return {
+          fileKey: j.fileKey,
+          fileName: j.fileName || '',
+          contentType: j.contentType || '',
+          size: j.size || 0,
+          uploadedAt: j.uploadedAt || new Date().toISOString(),
+        };
+      }
+      if (j && typeof j.data === 'string') {
+        return { name: j.name || '', data: j.data };
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
 router.get('/acuerdos/:id/imagen', async (req, res) => {
   try {
     const items = [];
@@ -612,7 +640,27 @@ router.get('/acuerdos/:id/imagen', async (req, res) => {
       lastKey = r.LastEvaluatedKey || null;
     } while (lastKey);
     items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-    return res.json({ ok: true, items });
+
+    // Firma URLs de lectura para justificantes almacenados en S3 (los legacy
+    // base64 se devuelven sin cambios).
+    const withUrls = await Promise.all(items.map(async (it) => {
+      const just = Array.isArray(it.Justificantes) ? it.Justificantes : [];
+      const signed = await Promise.all(just.map(async (j) => {
+        if (j && j.fileKey) {
+          try {
+            const cmd = new S3GetObjectCommand({ Bucket: S3_BUCKET, Key: j.fileKey });
+            const url = await getSignedUrl(s3, cmd, { expiresIn: 3600 });
+            return { ...j, url };
+          } catch {
+            return j;
+          }
+        }
+        return j;
+      }));
+      return { ...it, Justificantes: signed };
+    }));
+
+    return res.json({ ok: true, items: withUrls });
   } catch (err) {
     console.error('[acuerdos imagen GET]', err.message || err);
     return res.status(500).json({ error: err.message || 'Error al obtener pagos por imagen' });
@@ -629,7 +677,7 @@ router.post('/acuerdos/:id/imagen', async (req, res) => {
     Locales: Array.isArray(body.Locales) ? body.Locales : [],
     Acciones: Array.isArray(body.Acciones) ? body.Acciones : [],
     Importe: typeof body.Importe === 'number' ? body.Importe : parseFloat(body.Importe) || 0,
-    Justificantes: Array.isArray(body.Justificantes) ? body.Justificantes : [],
+    Justificantes: sanitizeJustificantes(body.Justificantes),
     Descripcion: body.Descripcion || '',
     Realizado: body.Realizado === true,
     createdAt: now,
@@ -652,11 +700,28 @@ router.patch('/acuerdos/:id/imagen/:sk', async (req, res) => {
   if (body.Locales !== undefined) { updates.push('#lo = :lo'); values[':lo'] = Array.isArray(body.Locales) ? body.Locales : []; names['#lo'] = 'Locales'; }
   if (body.Acciones !== undefined) { updates.push('#ac = :ac'); values[':ac'] = Array.isArray(body.Acciones) ? body.Acciones : []; names['#ac'] = 'Acciones'; }
   if (body.Importe !== undefined) { updates.push('Importe = :im'); values[':im'] = typeof body.Importe === 'number' ? body.Importe : parseFloat(body.Importe) || 0; }
-  if (body.Justificantes !== undefined) { updates.push('Justificantes = :ju'); values[':ju'] = Array.isArray(body.Justificantes) ? body.Justificantes : []; }
+  let nuevosJustificantes = null;
+  if (body.Justificantes !== undefined) {
+    nuevosJustificantes = sanitizeJustificantes(body.Justificantes);
+    updates.push('Justificantes = :ju'); values[':ju'] = nuevosJustificantes;
+  }
   if (body.Descripcion !== undefined) { updates.push('Descripcion = :de'); values[':de'] = body.Descripcion || ''; }
   if (body.Realizado !== undefined) { updates.push('Realizado = :re'); values[':re'] = body.Realizado === true; }
   updates.push('updatedAt = :ua'); values[':ua'] = new Date().toISOString();
   try {
+    // Si se actualizan justificantes, borra de S3 los que se hayan quitado.
+    if (nuevosJustificantes !== null) {
+      const prev = await docClient.send(new GetCommand({
+        TableName: tableAcuerdosImagen,
+        Key: { PK: req.params.id, SK: req.params.sk },
+      }));
+      const prevJust = prev.Item?.Justificantes || [];
+      const conservados = new Set(nuevosJustificantes.filter((j) => j.fileKey).map((j) => j.fileKey));
+      const eliminados = prevJust.filter((j) => j && j.fileKey && !conservados.has(j.fileKey));
+      await Promise.all(eliminados.map((j) =>
+        s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: j.fileKey })).catch(() => {}),
+      ));
+    }
     await docClient.send(new UpdateCommand({
       TableName: tableAcuerdosImagen,
       Key: { PK: req.params.id, SK: req.params.sk },
@@ -673,6 +738,15 @@ router.patch('/acuerdos/:id/imagen/:sk', async (req, res) => {
 
 router.delete('/acuerdos/:id/imagen/:sk', async (req, res) => {
   try {
+    // Borra de S3 los justificantes asociados antes de eliminar el registro.
+    const getRes = await docClient.send(new GetCommand({
+      TableName: tableAcuerdosImagen,
+      Key: { PK: req.params.id, SK: req.params.sk },
+    }));
+    const just = getRes.Item?.Justificantes || [];
+    await Promise.all(just.filter((j) => j && j.fileKey).map((j) =>
+      s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: j.fileKey })).catch(() => {}),
+    ));
     await docClient.send(new DeleteCommand({
       TableName: tableAcuerdosImagen,
       Key: { PK: req.params.id, SK: req.params.sk },
@@ -681,6 +755,48 @@ router.delete('/acuerdos/:id/imagen/:sk', async (req, res) => {
   } catch (err) {
     console.error('[acuerdos imagen DELETE]', err.message || err);
     return res.status(500).json({ error: err.message || 'Error al eliminar pago por imagen' });
+  }
+});
+
+/**
+ * Borra un objeto de justificante de S3 que aún NO está persistido en Dynamo
+ * (p. ej. el usuario lo adjuntó y luego canceló / lo quitó del modal). Valida
+ * que la clave pertenezca a la subcarpeta de justificantes de este acuerdo.
+ */
+router.delete('/acuerdos/:id/imagen/objeto/:encodedKey', async (req, res) => {
+  try {
+    const { id, encodedKey } = req.params;
+    const fileKey = decodeURIComponent(encodedKey);
+    const prefix = `acuerdos/${id}/justificantes/`;
+    if (!fileKey.startsWith(prefix)) {
+      return res.status(400).json({ error: 'Clave no válida para este acuerdo' });
+    }
+    await s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: fileKey })).catch(() => {});
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('imagen delete objeto error', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Presign de subida para justificantes de pago por imagen (subcarpeta propia). */
+router.post('/acuerdos/:id/imagen/presign-upload', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { fileName, contentType } = req.body || {};
+    if (!fileName || !contentType) return res.status(400).json({ error: 'fileName y contentType requeridos' });
+
+    const fileKey = `acuerdos/${id}/justificantes/${Date.now()}_${fileName}`;
+    const command = new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: fileKey,
+      ContentType: contentType,
+    });
+    const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
+    res.json({ uploadUrl, fileKey });
+  } catch (err) {
+    console.error('imagen presign-upload error', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

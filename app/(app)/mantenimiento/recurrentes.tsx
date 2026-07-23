@@ -524,7 +524,7 @@ export default function RecurrentesScreen() {
 }
 
 const styles = StyleSheet.create({
-  wrapper: { flex: 1, backgroundColor: '#f1f5f9' },
+  wrapper: { flex: 1, backgroundColor: '#ffffff' },
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, paddingHorizontal: 16, gap: 8 },
   backBtn: { padding: 4 },
   title: { fontSize: 18, fontWeight: '700', color: '#334155' },

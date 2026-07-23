@@ -102,6 +102,22 @@ function formatBusinessDayLabel(iso: string): string {
 
 const DIA_SEMANA_3 = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
+const DIAS_FILTRO: { id: number; label: string }[] = [
+  { id: 1, label: 'Lun' },
+  { id: 2, label: 'Mar' },
+  { id: 3, label: 'Mié' },
+  { id: 4, label: 'Jue' },
+  { id: 5, label: 'Vie' },
+  { id: 6, label: 'Sáb' },
+  { id: 0, label: 'Dom' },
+];
+
+function getDiaSemanaId(iso: string): number | null {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso.trim())) return null;
+  const [y, m, d] = iso.trim().split('-').map(Number);
+  return new Date(y, m - 1, d).getDay();
+}
+
 function getDiaSemana3(iso: string): string {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso.trim())) return '—';
   const [y, m, d] = iso.split('-').map(Number);
@@ -324,6 +340,8 @@ export default function CierresTeoricosScreen() {
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
   const [filtroLocal, setFiltroLocal] = useState('');
+  const [filtroTpvIds, setFiltroTpvIds] = useState<Set<string>>(() => new Set());
+  const [filtroDiasSemana, setFiltroDiasSemana] = useState<Set<number>>(() => new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
     __sel: 40,
@@ -517,6 +535,49 @@ export default function CierresTeoricosScreen() {
     });
   }, [saleCenters, formLocal, agoraCodeToNombre]);
 
+  const saleCentersPorFiltroLocal = useMemo(() => {
+    if (!filtroLocal.trim()) return [];
+    const localName = String(agoraCodeToNombre[filtroLocal.trim()] ?? '').trim();
+    return saleCenters.filter((sc) => {
+      if (sc.Activo === false) return false;
+      return String(sc.Local ?? '').trim() === localName;
+    });
+  }, [saleCenters, filtroLocal, agoraCodeToNombre]);
+
+  useEffect(() => {
+    setFiltroTpvIds(new Set());
+  }, [filtroLocal]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filtroLocal, filtroTpvIds, filtroDiasSemana, filtroFechaDesde, filtroFechaHasta, filtroBusqueda, soloConFacturacion]);
+
+  const toggleFiltroTpv = useCallback((tpvId: string) => {
+    setFiltroTpvIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(tpvId)) next.delete(tpvId);
+      else next.add(tpvId);
+      return next;
+    });
+  }, []);
+
+  const toggleFiltroDiaSemana = useCallback((diaId: number) => {
+    setFiltroDiasSemana((prev) => {
+      const next = new Set(prev);
+      if (next.has(diaId)) next.delete(diaId);
+      else next.add(diaId);
+      return next;
+    });
+  }, []);
+
+  const limpiarFiltrosPanel = useCallback(() => {
+    setFiltroFechaDesde('');
+    setFiltroFechaHasta('');
+    setFiltroLocal('');
+    setFiltroTpvIds(new Set());
+    setFiltroDiasSemana(new Set());
+  }, []);
+
   useEffect(() => {
     if (formLocal && formPosId && !saleCentersPorLocal.some((sc) => String(sc.Id) === formPosId)) {
       setFormPosId('');
@@ -552,6 +613,15 @@ export default function CierresTeoricosScreen() {
     let list = closeouts;
     if (filtroLocal) {
       list = list.filter((i) => (i.PK ?? i.pk) === filtroLocal);
+    }
+    if (filtroLocal && filtroTpvIds.size > 0) {
+      list = list.filter((i) => filtroTpvIds.has(String(i.PosId ?? i.posId ?? '')));
+    }
+    if (filtroDiasSemana.size > 0) {
+      list = list.filter((i) => {
+        const dia = getDiaSemanaId(getBusinessDay(i));
+        return dia !== null && filtroDiasSemana.has(dia);
+      });
     }
     const desde = filtroFechaDesde.trim();
     const hasta = filtroFechaHasta.trim();
@@ -593,7 +663,7 @@ export default function CierresTeoricosScreen() {
       return localA.localeCompare(localB);
     });
     return list;
-  }, [closeouts, filtroBusqueda, filtroLocal, filtroFechaDesde, filtroFechaHasta, soloConFacturacion, agoraCodeToNombre]);
+  }, [closeouts, filtroBusqueda, filtroLocal, filtroTpvIds, filtroDiasSemana, filtroFechaDesde, filtroFechaHasta, soloConFacturacion, agoraCodeToNombre]);
 
   const { paginatedList, totalPages, totalCount, effectivePage } = useMemo(() => {
     const total = closeoutsFiltrados.length;
@@ -1279,7 +1349,7 @@ export default function CierresTeoricosScreen() {
                 style={styles.filterInput}
               />
               </View>
-            <TouchableOpacity style={styles.filterClearBtn} onPress={() => { setFiltroFechaDesde(''); setFiltroFechaHasta(''); setFiltroLocal(''); }}>
+            <TouchableOpacity style={styles.filterClearBtn} onPress={limpiarFiltrosPanel}>
               <MaterialIcons name="clear" size={14} color="#64748b" />
               <Text style={styles.filterClearText}>Limpiar</Text>
             </TouchableOpacity>
@@ -1311,6 +1381,59 @@ export default function CierresTeoricosScreen() {
               })}
             </ScrollView>
         </View>
+          {filtroLocal ? (
+            <View style={styles.filterRowLocal}>
+              <Text style={styles.filterLabel}>TPV</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterLocalesWrap} contentContainerStyle={styles.filterLocalesContent}>
+                <TouchableOpacity
+                  style={[styles.filterChip, filtroTpvIds.size === 0 && styles.filterChipActive]}
+                  onPress={() => setFiltroTpvIds(new Set())}
+                >
+                  <Text style={[styles.filterChipText, filtroTpvIds.size === 0 && styles.filterChipTextActive]}>Todos</Text>
+                </TouchableOpacity>
+                {saleCentersPorFiltroLocal.map((sc) => {
+                  const id = String(sc.Id ?? '').trim();
+                  if (!id) return null;
+                  const nombre = String(sc.Nombre ?? '').trim() || posIdToNombre[id] || `TPV ${id}`;
+                  const sel = filtroTpvIds.has(id);
+                  return (
+                    <TouchableOpacity
+                      key={id}
+                      style={[styles.filterChip, sel && styles.filterChipActive]}
+                      onPress={() => toggleFiltroTpv(id)}
+                    >
+                      <Text style={[styles.filterChipText, sel && styles.filterChipTextActive]} numberOfLines={1}>
+                        {nombre}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : null}
+          <View style={styles.filterRowLocal}>
+            <Text style={styles.filterLabel}>Día de la semana</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterLocalesWrap} contentContainerStyle={styles.filterLocalesContent}>
+              <TouchableOpacity
+                style={[styles.filterChip, filtroDiasSemana.size === 0 && styles.filterChipActive]}
+                onPress={() => setFiltroDiasSemana(new Set())}
+              >
+                <Text style={[styles.filterChipText, filtroDiasSemana.size === 0 && styles.filterChipTextActive]}>Todos</Text>
+              </TouchableOpacity>
+              {DIAS_FILTRO.map((dia) => {
+                const sel = filtroDiasSemana.has(dia.id);
+                return (
+                  <TouchableOpacity
+                    key={dia.id}
+                    style={[styles.filterChip, sel && styles.filterChipActive]}
+                    onPress={() => toggleFiltroDiaSemana(dia.id)}
+                  >
+                    <Text style={[styles.filterChipText, sel && styles.filterChipTextActive]}>{dia.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
         </View>
       )}
 

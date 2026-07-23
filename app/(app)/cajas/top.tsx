@@ -3,7 +3,9 @@
  * Rankings por rango de fechas:
  *   - Ventas por local (todos los locales con registros)
  *   - Consecución de objetivos: real / comparativa * 100 (todos los locales con registros)
- *   - Top 10 camareros por importe (Waiter en Ágora)
+ *   - Top 10 camareros por importe: atribución POR LÍNEA (quien comanda),
+ *     excluyendo anulaciones, cortesías e invitaciones; "tickets" = tickets
+ *     distintos en los que participa. CONSUMO según el toggle.
  *   - Top 10 clientes por importe (excluye CONSUMO por defecto)
  *
  * Fuente: GET /api/cajas/top (cacheado 2 min en backend).

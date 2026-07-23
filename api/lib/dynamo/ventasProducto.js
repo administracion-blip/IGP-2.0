@@ -18,6 +18,7 @@ import {
   toNumberSafe,
   pickCustomerId,
   pickCustomerName,
+  pickLineUserId,
 } from '../agora/invoiceSaleValidity.js';
 import { client, tables } from '../db.js';
 import { getAllUsersMap } from './agoraUsuarios.js';
@@ -142,18 +143,6 @@ function pickUserName(it) {
     it?.UserName ?? it?.userName ??
     it?.Waiter?.Name ?? it?.waiter?.name ??
     it?.WaiterName ?? it?.waiterName ??
-    null
-  );
-}
-
-/**
- * Usuario que comandó la LÍNEA (quien añadió el producto), no quien cerró el ticket.
- * Según guía del integrador Ágora, cada línea trae su propio `UserId`.
- */
-function pickLineUserId(line) {
-  return (
-    line?.UserId ?? line?.userId ??
-    line?.User?.Id ?? line?.user?.id ??
     null
   );
 }

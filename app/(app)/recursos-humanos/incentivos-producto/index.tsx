@@ -15,19 +15,16 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { apiFetch } from '../../../utils/api';
-import { formatFecha } from '../../../utils/formatFecha';
 import { formatMoneda } from '../../../utils/formatMoneda';
 import { CampanaFormModal } from '../../../components/CampanaFormModal';
+import { CampanaIncentivoCard } from '../../../components/incentivos/CampanaIncentivoCard';
 import { VentasSyncAviso } from '../../../components/VentasSyncAviso';
 import {
-  colorEstadoCampana,
   CHIP_ESTADO_CAMPANA_PASTEL,
   FILTROS_ESTADO_CAMPANA,
-  etiquetaTipoIncentivo,
-  formatValorIncentivoDisplay,
 } from '../../../lib/incentivosProducto';
-import { estadoEfectivoCampana, campanaPendienteRevisionRrhh } from '../../../lib/campanaEstado';
-import type { Campana, EstadoCampana, ResultadosCampana, TipoIncentivo } from '../../../types/incentivosProducto';
+import { estadoEfectivoCampana } from '../../../lib/campanaEstado';
+import type { Campana, EstadoCampana, ResultadosCampana } from '../../../types/incentivosProducto';
 
 type CampanaConResultado = Campana & {
   costeIncentivo?: number | null;
@@ -192,18 +189,6 @@ export default function IncentivosProductoIndexScreen() {
     }
   };
 
-  const resumenLocales = useCallback(
-    (c: Campana) => {
-      const nombres = (c.locales || [])
-        .map((id) => localesMap[id] || id)
-        .slice(0, 2);
-      const extra = (c.locales?.length || 0) - nombres.length;
-      const txt = nombres.join(', ');
-      return extra > 0 ? `${txt} +${extra}` : txt || '—';
-    },
-    [localesMap],
-  );
-
   if (!puedeVer) {
     return (
       <View style={styles.center}>
@@ -224,81 +209,26 @@ export default function IncentivosProductoIndexScreen() {
               <MaterialIcons name="emoji-events" size={40} color="#cbd5e1" />
               <Text style={styles.emptyText}>No hay campañas con este filtro.</Text>
             </View>
-          ) : itemsFiltrados.map((c) => {
-            const estado = estadoEfectivoCampana(c);
-            const ec = colorEstadoCampana(estado);
-            const pendienteRrhh = campanaPendienteRevisionRrhh(c);
-            return (
-              <TouchableOpacity
-                key={c.campanaId}
-                activeOpacity={0.7}
-                onPress={() => router.push(`/recursos-humanos/incentivos-producto/${c.campanaId}`)}
-                style={[styles.card, pendienteRrhh && styles.cardPendienteRrhh]}
-              >
-                <View style={styles.cardHeader}>
-                  <View style={styles.cardTitleWrap}>
-                    <Text style={styles.cardTitle} numberOfLines={1}>{c.nombre}</Text>
-                    <View style={[styles.badge, { backgroundColor: ec + '18', borderColor: ec }]}>
-                      <Text style={[styles.badgeText, { color: ec }]}>{estado}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.cardActions}>
-                    {puedeGestionar && (estado === 'Borrador' || estado === 'Archivada') ? (
-                      <TouchableOpacity
-                        onPress={(e) => {
-                          if (Platform.OS === 'web' && e && 'stopPropagation' in e) {
-                            (e as unknown as { stopPropagation: () => void }).stopPropagation();
-                          }
-                          confirmarBorrar(c);
-                        }}
-                        style={styles.cardActionBtn}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-                </View>
-                <View style={styles.cardBody}>
-                  <View style={styles.cardField}>
-                    <Text style={styles.cardFieldLabel}>Periodo</Text>
-                    <Text style={styles.cardFieldValue}>
-                      {formatFecha(c.fechaInicio)} — {formatFecha(c.fechaFin)}
-                    </Text>
-                  </View>
-                  <View style={styles.cardField}>
-                    <Text style={styles.cardFieldLabel}>Locales</Text>
-                    <Text style={styles.cardFieldValue} numberOfLines={1}>{resumenLocales(c)}</Text>
-                  </View>
-                  <View style={styles.cardField}>
-                    <Text style={styles.cardFieldLabel}>Productos</Text>
-                    <Text style={styles.cardFieldValue}>{c.productos?.length || 0}</Text>
-                  </View>
-                  <View style={styles.cardField}>
-                    <Text style={styles.cardFieldLabel}>Incentivo</Text>
-                    <Text style={styles.cardFieldValue} numberOfLines={1}>
-                      {etiquetaTipoIncentivo(c.tipoIncentivo as TipoIncentivo)} ·{' '}
-                      {formatValorIncentivoDisplay(c.tipoIncentivo as TipoIncentivo, c.valorIncentivo)}
-                    </Text>
-                  </View>
-                  <View style={styles.cardField}>
-                    <Text style={styles.cardFieldLabel}>Total incentivo</Text>
-                    {c.cargandoResultado ? (
-                      <ActivityIndicator size="small" color="#94a3b8" />
-                    ) : c.costeIncentivo != null ? (
-                      <Text style={[styles.cardFieldValue, styles.cardFieldIncentivo]}>
-                        {formatMoneda(c.costeIncentivo)}
-                      </Text>
-                    ) : (
-                      <Text style={[styles.cardFieldValue, { color: '#94a3b8', fontStyle: 'italic' }]}>
-                        Sin datos
-                      </Text>
-                    )}
-                  </View>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
+          ) : itemsFiltrados.map((c) => (
+              <View key={c.campanaId} style={styles.cardWrap}>
+                <CampanaIncentivoCard
+                  campana={c}
+                  localesMap={localesMap}
+                  costeIncentivo={c.costeIncentivo}
+                  cargandoResultado={c.cargandoResultado}
+                  onPress={() => router.push(`/recursos-humanos/incentivos-producto/${c.campanaId}`)}
+                />
+                {puedeGestionar && (estadoEfectivoCampana(c) === 'Borrador' || estadoEfectivoCampana(c) === 'Archivada') ? (
+                  <TouchableOpacity
+                    onPress={() => confirmarBorrar(c)}
+                    style={styles.cardDeleteBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ))}
         </ScrollView>
       )}
     </View>
@@ -481,33 +411,16 @@ const styles = StyleSheet.create({
   list: { flex: 1 },
   listContent: { padding: 12, gap: 10, paddingBottom: 24 },
 
-  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
-  cardPendienteRrhh: {
-    borderWidth: 2,
-    borderColor: '#d97706',
-    backgroundColor: '#fffbeb',
+  cardWrap: { position: 'relative' },
+  cardDeleteBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    zIndex: 2,
+    padding: 6,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderRadius: 8,
   },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
-  cardTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', flexShrink: 1 },
-  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
-  badgeText: { fontSize: 11, fontWeight: '600' },
-  dotSem: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
-  cardActions: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  cardActionBtn: { padding: 6 },
-  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: 8 },
-  cardField: { minWidth: 84, marginRight: 8 },
-  cardFieldLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 1 },
-  cardFieldValue: { fontSize: 13, color: '#334155' },
-  cardFieldIncentivo: { fontWeight: '800', color: '#0f172a' },
 
   panelKpi: { flex: 1, padding: 12, gap: 10 },
   sectionTitle: { fontSize: 12, fontWeight: '700', color: '#0f172a' },
