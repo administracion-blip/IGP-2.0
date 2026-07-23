@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   type StyleProp,
   type ViewStyle,
+  type TextStyle,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
@@ -44,6 +45,12 @@ type Props = {
   style?: StyleProp<ViewStyle>;
   /** Trigger más bajo para toolbars y filtros en línea con chips. */
   compact?: boolean;
+  /** Oculta el icono izquierdo del trigger (solo texto + chevron, estilo filtro toolbar). */
+  sinIconoTrigger?: boolean;
+  /** Estilo extra del trigger (p. ej. coherente con desplegable «Local»). */
+  triggerStyle?: StyleProp<ViewStyle>;
+  /** Estilo del texto valor/placeholder en el trigger. */
+  triggerTextStyle?: StyleProp<TextStyle>;
   /** Muestra un campo de búsqueda en la cabecera de la lista (filtra por título y subtítulo). */
   buscador?: boolean;
   buscadorPlaceholder?: string;
@@ -69,6 +76,9 @@ export function SelectorDesplegable({
   vacioAccion,
   style,
   compact = false,
+  sinIconoTrigger = false,
+  triggerStyle,
+  triggerTextStyle,
   buscador,
   buscadorPlaceholder = 'Buscar…',
 }: Props) {
@@ -96,7 +106,9 @@ export function SelectorDesplegable({
       <TouchableOpacity
         style={[
           styles.trigger,
-          compact && styles.triggerCompact,
+          compact && !sinIconoTrigger && styles.triggerCompact,
+          sinIconoTrigger && styles.triggerToolbar,
+          triggerStyle,
           open && styles.triggerActive,
           disabled && styles.triggerDisabled,
         ]}
@@ -104,24 +116,28 @@ export function SelectorDesplegable({
         activeOpacity={0.7}
         disabled={disabled}
       >
-        {icono ? (
+        {icono && !sinIconoTrigger ? (
           <MaterialIcons name={icono} size={compact ? 14 : 16} color={seleccionada ? '#0ea5e9' : '#94a3b8'} />
         ) : null}
         <View style={styles.triggerTextWrap}>
           {loading ? (
-            <Text style={[styles.placeholder, compact && styles.textCompact]}>Cargando…</Text>
+            <Text style={[styles.placeholder, compact && styles.textCompact, sinIconoTrigger && styles.textToolbar, triggerTextStyle]}>Cargando…</Text>
           ) : seleccionada ? (
             <>
-              <Text style={[styles.value, compact && styles.textCompact]} numberOfLines={1}>{seleccionada.titulo}</Text>
+              <Text style={[styles.value, compact && styles.textCompact, sinIconoTrigger && styles.textToolbar, triggerTextStyle]} numberOfLines={1}>{seleccionada.titulo}</Text>
               {seleccionada.subtitulo && !compact ? (
                 <Text style={styles.sub} numberOfLines={1}>{seleccionada.subtitulo}</Text>
               ) : null}
             </>
           ) : (
-            <Text style={[styles.placeholder, compact && styles.textCompact]} numberOfLines={1}>{placeholder}</Text>
+            <Text style={[styles.placeholder, compact && styles.textCompact, sinIconoTrigger && styles.textToolbar, triggerTextStyle]} numberOfLines={1}>{placeholder}</Text>
           )}
         </View>
-        <MaterialIcons name={open ? 'arrow-drop-up' : 'arrow-drop-down'} size={compact ? 20 : 22} color="#64748b" />
+        <MaterialIcons
+          name={sinIconoTrigger ? (open ? 'expand-less' : 'expand-more') : (open ? 'arrow-drop-up' : 'arrow-drop-down')}
+          size={sinIconoTrigger ? 20 : (compact ? 20 : 22)}
+          color="#64748b"
+        />
       </TouchableOpacity>
 
       {open && (
@@ -248,6 +264,21 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     gap: 6,
+  },
+  triggerToolbar: {
+    minHeight: 0,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+    gap: 0,
+  },
+  textToolbar: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#334155',
   },
   triggerActive: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
   triggerDisabled: { opacity: 0.6 },

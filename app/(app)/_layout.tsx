@@ -251,7 +251,10 @@ function AppLayoutContent() {
         {/* Contenido */}
         <View style={styles.content}>
           <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="index" />
+            <Stack.Screen
+              name="index"
+              options={{ contentStyle: { backgroundColor: '#ffffff' } }}
+            />
             <Stack.Screen name="base-datos" />
             <Stack.Screen name="mantenimiento" />
             <Stack.Screen name="compras" />

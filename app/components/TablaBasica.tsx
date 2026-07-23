@@ -116,6 +116,11 @@ export type TablaBasicaProps<T = Record<string, unknown>> = {
   toolbarCrearLabel?: string;
   /** Renderizado personalizado de celda; si devuelve null usa el Text por defecto */
   renderCell?: (item: T, col: string, defaultText: string) => React.ReactNode | null;
+  /** Fila banda/cabecera de grupo (no seleccionable, ancho completo de la tabla) */
+  isBandRow?: (item: T) => boolean;
+  renderBandRow?: (item: T, index: number) => React.ReactNode;
+  /** Clave estable por fila (recomendado si hay filas banda mezcladas) */
+  getRowKey?: (item: T, index: number) => string;
   /** Panel opcional a la derecha de la tabla (misma fila, p. ej. calendario) */
   rightPanel?: React.ReactNode;
 };
@@ -160,6 +165,9 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     hideToolbarActions = false,
     toolbarCrearLabel,
     renderCell,
+    isBandRow,
+    renderBandRow,
+    getRowKey,
     rightPanel,
   } = props;
 
@@ -236,9 +244,13 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     onSelectRow(selectedRowIndex === idx ? null : idx);
   };
 
-  const editDisabled = guardando || selectedRowIndex == null;
+  const selectedItem = selectedRowIndex != null ? datos[selectedRowIndex] : null;
+  const selectedEsBanda = selectedItem != null && isBandRow?.(selectedItem) === true;
+  const editDisabled = guardando || selectedRowIndex == null || selectedEsBanda;
   const tieneBorradoExterno = borrarSeleccionExternaCount > 0 && typeof onBorrarSeleccionExterna === 'function';
-  const deleteDisabled = guardando || (selectedRowIndex == null && !tieneBorradoExterno);
+  const deleteDisabled = guardando || ((selectedRowIndex == null || selectedEsBanda) && !tieneBorradoExterno);
+
+  const totalTableWidth = columnas.reduce((sum, col) => sum + getColWidth(col), 0);
 
   if (loading && datos.length === 0) {
     return (
@@ -302,11 +314,11 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                 ]}
                 onPress={() => {
                   if (btn.id === 'crear') onCrear();
-                  if (btn.id === 'editar' && selectedRowIndex != null) onEditar(datos[selectedRowIndex]);
+                  if (btn.id === 'editar' && selectedRowIndex != null && !selectedEsBanda) onEditar(datos[selectedRowIndex]);
                   if (btn.id === 'borrar') {
                     if (tieneBorradoExterno) {
                       onBorrarSeleccionExterna!();
-                    } else if (selectedRowIndex != null) {
+                    } else if (selectedRowIndex != null && !selectedEsBanda) {
                       onBorrar(datos[selectedRowIndex]);
                     }
                   }
@@ -536,36 +548,57 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                   </View>
                 </View>
               ) : (
-                datos.map((item, idx) => (
-                  <TouchableOpacity
-                    key={idx}
-                    style={[
-                      erpListTableStyles.row,
-                      dense && styles.rowDense,
-                      comodo && styles.rowComodo,
-                      selectedRowIndex === idx && erpListTableStyles.rowSelected,
-                      getRowStyle?.(item, idx),
-                    ]}
-                    onPress={() => seleccionarFila(idx)}
-                    activeOpacity={0.8}
-                  >
-                    {columnas.map((col) => {
-                      const text = getValorCelda(item, col);
-                      const isMoneda = columnasMoneda.some((c) => c.toLowerCase() === col.toLowerCase());
-                      const colStyle = getColumnCellStyle?.(col);
-                      const custom = renderCell?.(item, col, text) ?? null;
-                      return (
-                        <View key={col} style={[erpListTableStyles.cell, dense && styles.cellDense, comodo && styles.cellComodo, { width: getColWidth(col) }, isMoneda && styles.cellRight, colStyle?.cell]}>
-                          {custom !== null ? custom : (
-                            <Text style={[erpListTableStyles.cellText, dense && styles.cellTextDense, comodo && styles.cellTextComodo, isMoneda && styles.cellTextRight, colStyle?.text]}>
-                              {text}
-                            </Text>
-                          )}
+                datos.map((item, idx) => {
+                  const rowKey = getRowKey?.(item, idx) ?? String(idx);
+                  if (isBandRow?.(item)) {
+                    const bandContent = renderBandRow?.(item, idx);
+                    if (bandContent == null) return null;
+                    return (
+                      <View
+                        key={rowKey}
+                        style={[
+                          erpListTableStyles.row,
+                          styles.bandRowWrapper,
+                          getRowStyle?.(item, idx),
+                        ]}
+                      >
+                        <View style={[styles.bandRowInner, { width: totalTableWidth, minWidth: totalTableWidth }]}>
+                          {bandContent}
                         </View>
-                      );
-                    })}
-                  </TouchableOpacity>
-                ))
+                      </View>
+                    );
+                  }
+                  return (
+                    <TouchableOpacity
+                      key={rowKey}
+                      style={[
+                        erpListTableStyles.row,
+                        dense && styles.rowDense,
+                        comodo && styles.rowComodo,
+                        selectedRowIndex === idx && erpListTableStyles.rowSelected,
+                        getRowStyle?.(item, idx),
+                      ]}
+                      onPress={() => seleccionarFila(idx)}
+                      activeOpacity={0.8}
+                    >
+                      {columnas.map((col) => {
+                        const text = getValorCelda(item, col);
+                        const isMoneda = columnasMoneda.some((c) => c.toLowerCase() === col.toLowerCase());
+                        const colStyle = getColumnCellStyle?.(col);
+                        const custom = renderCell?.(item, col, text) ?? null;
+                        return (
+                          <View key={col} style={[erpListTableStyles.cell, dense && styles.cellDense, comodo && styles.cellComodo, { width: getColWidth(col) }, isMoneda && styles.cellRight, colStyle?.cell]}>
+                            {custom !== null ? custom : (
+                              <Text style={[erpListTableStyles.cellText, dense && styles.cellTextDense, comodo && styles.cellTextComodo, isMoneda && styles.cellTextRight, colStyle?.text]}>
+                                {text}
+                              </Text>
+                            )}
+                          </View>
+                        );
+                      })}
+                    </TouchableOpacity>
+                  );
+                })
               )}
             </ScrollView>
           </View>
@@ -581,6 +614,16 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
 }
 
 const styles = StyleSheet.create({
+  bandRowWrapper: {
+    backgroundColor: 'transparent',
+    borderBottomWidth: 0,
+    paddingVertical: 0,
+  },
+  bandRowInner: {
+    flexGrow: 1,
+    flexShrink: 0,
+    alignSelf: 'stretch',
+  },
   container: { flex: 1, padding: 10, minHeight: 0, minWidth: 0, width: '100%', display: 'flex' as const, flexDirection: 'column' as const },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
   loadingText: { fontSize: 12, color: '#64748b' },

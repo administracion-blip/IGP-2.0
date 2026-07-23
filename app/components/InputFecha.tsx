@@ -37,6 +37,8 @@ type InputFechaStyleProps = {
   showCalendar?: boolean;
   /** Altura fija (~32px) con texto e icono centrados; para toolbars y filtros compactos. */
   compact?: boolean;
+  /** Trigger tipo toolbar (texto + chevron, sin icono calendario ni divisor). */
+  modoToolbar?: boolean;
 };
 
 /** API preferida: estado del padre en ISO yyyy-mm-dd. */
@@ -88,6 +90,7 @@ export function InputFecha(props: InputFechaProps) {
     placeholderTextColor = '#94a3b8',
     showCalendar = true,
     compact = false,
+    modoToolbar = false,
   } = props;
 
   const compactHeight = useMemo(() => {
@@ -178,12 +181,15 @@ export function InputFecha(props: InputFechaProps) {
       ? [compactFieldStyle, style]
       : (style ?? styles.inputDefault);
 
+  const wrapToolbarStyle = compact && modoToolbar ? styles.wrapToolbar : null;
+  const compactHeightFinal = compact && modoToolbar ? 34 : compactHeight;
+
   const wrapCompactStyle = compact
-    ? [styles.wrapCompact, style, { height: compactHeight, minHeight: compactHeight }]
+    ? [styles.wrapCompact, wrapToolbarStyle, style, { height: compactHeightFinal, minHeight: compactHeightFinal }]
     : null;
 
-  const iconBtnStyle = compact ? styles.iconBtnCompact : styles.iconBtn;
-  const webIconBtnStyle = compact ? styles.webIconBtnCompact : styles.webIconBtn;
+  const iconBtnStyle = compact ? (modoToolbar ? styles.toolbarIconBtn : styles.iconBtnCompact) : styles.iconBtn;
+  const webIconBtnStyle = compact ? (modoToolbar ? styles.toolbarIconBtn : styles.webIconBtnCompact) : styles.webIconBtn;
 
   const abrirCalendario = useCallback(() => {
     if (!editable) return;
@@ -311,6 +317,41 @@ export function InputFecha(props: InputFechaProps) {
       modoEdicion ? styles.webDateInputPickerOnly : styles.webDateInputOverlay
     ) as React.CSSProperties;
 
+    if (compact && modoToolbar) {
+      return (
+        <View style={[styles.wrap, styles.wrapToolbar, style]}>
+          <View style={[styles.webFieldWrap, styles.webFieldWrapCompact, styles.toolbarFieldWrap]}>
+            <FechaInputDmy
+              valueIso={valueIso}
+              onChangeIso={handleChangeIso}
+              placeholder={placeholder}
+              placeholderTextColor={placeholderTextColor}
+              editable={editable}
+              style={styles.toolbarInput}
+            />
+          </View>
+          <TouchableOpacity
+            style={styles.toolbarIconBtn}
+            onPress={abrirCalendario}
+            disabled={!editable}
+            accessibilityLabel="Abrir calendario"
+          >
+            <MaterialIcons name="calendar-today" size={18} color="#64748b" />
+          </TouchableOpacity>
+          <input
+            ref={webDateInputRef}
+            type="date"
+            value={valueIso}
+            onChange={handleWebCalendarChange}
+            disabled={!editable}
+            style={styles.webDateInputToolbarHidden as React.CSSProperties}
+            tabIndex={-1}
+            aria-hidden
+          />
+        </View>
+      );
+    }
+
     return (
       <View
         style={
@@ -361,7 +402,20 @@ export function InputFecha(props: InputFechaProps) {
   return (
     <View style={compact ? [styles.wrap, ...(wrapCompactStyle ?? [])] : [styles.wrap, containerFromStyle, wrapFormStyle]}>
       {compact ? (
-        <View style={styles.compactFieldOuter}>{campo}</View>
+        <View style={styles.compactFieldOuter}>
+          {modoToolbar ? (
+            <FechaInputDmy
+              valueIso={valueIso}
+              onChangeIso={handleChangeIso}
+              placeholder={placeholder}
+              placeholderTextColor={placeholderTextColor}
+              editable={editable}
+              style={styles.toolbarInput}
+            />
+          ) : (
+            campo
+          )}
+        </View>
       ) : (
         campo
       )}
@@ -372,7 +426,7 @@ export function InputFecha(props: InputFechaProps) {
         hitSlop={compact ? { top: 4, bottom: 4, left: 4, right: 4 } : { top: 10, bottom: 10, left: 10, right: 10 }}
         accessibilityLabel="Abrir calendario"
       >
-        <MaterialIcons name="calendar-today" size={16} color="#64748b" />
+        <MaterialIcons name="calendar-today" size={modoToolbar ? 18 : 16} color="#64748b" />
       </TouchableOpacity>
       {showPicker && Platform.OS === 'android' && (
         <DateTimePicker
@@ -539,5 +593,52 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginTop: 12,
     padding: 8,
+  },
+  wrapToolbar: {
+    width: '100%' as unknown as number,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    minHeight: 34,
+    height: 34,
+    overflow: 'hidden',
+    alignItems: 'center',
+  },
+  toolbarFieldWrap: { flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'center' },
+  toolbarInput: {
+    flex: 1,
+    width: '100%' as unknown as number,
+    minWidth: 0,
+    borderWidth: 0,
+    paddingVertical: 0,
+    paddingHorizontal: 8,
+    paddingRight: 2,
+    fontSize: 12,
+    color: '#334155',
+    backgroundColor: 'transparent',
+    minHeight: 32,
+    height: 32,
+    ...(Platform.OS === 'web'
+      ? ({ lineHeight: '32px', outlineStyle: 'none' } as object)
+      : { lineHeight: 32 }),
+  },
+  toolbarIconBtn: {
+    width: 28,
+    height: 28,
+    minWidth: 28,
+    minHeight: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 2,
+    flexShrink: 0,
+  },
+  webDateInputToolbarHidden: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+    pointerEvents: 'none',
+    overflow: 'hidden',
   },
 });

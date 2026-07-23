@@ -21,6 +21,8 @@ import { TablaBasica } from '../../components/TablaBasica';
 import { erpListTableStyles } from '../../constants/erpListTableStyles';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
+import { SelectorRangoSemana } from '../../components/SelectorRangoSemana';
+import { RangoFechas } from '../../components/RangoFechas';
 import { formatFecha } from '../../utils/formatFecha';
 import { formatMoneda, labelEstado } from '../../utils/facturacion';
 import { API_BASE_URL as API_URL } from '../../utils/apiBaseUrl';
@@ -30,6 +32,8 @@ import { FirmaEnPantallaModal } from '../../components/FirmaEnPantallaModal';
 import { buildFirmaFormData } from '../../utils/uploadFirmaPng';
 import { empresaTieneEtiquetaMusicos } from '../../utils/etiquetaMusicos';
 import { apiFetch } from '../../utils/api';
+import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
+import { fechaComparacionParaObjetivo, type FestivoGestionRow } from '../../utils/objetivosComparativa';
 import {
   puedeProgramacionActuaciones,
   puedeCrearActuacion,
@@ -76,9 +80,108 @@ type FacturaOpt = {
   estado: string;
 };
 
-type LocalOpt = { id_Locales: string; nombre?: string; sede?: string; agoraCode?: string; AgoraCode?: string };
+type LocalOpt = {
+  id_Locales: string;
+  nombre?: string;
+  sede?: string;
+  agoraCode?: string;
+  AgoraCode?: string;
+  ratio_musicos?: number | string | null;
+};
 
-const COLUMNAS = ['Sel', 'Fecha', 'Hora', 'Local', 'Artista', 'Importe', 'Estado', 'Firma', 'Pago'] as const;
+const COLUMNAS = ['Sel', 'Hora', 'Artista', 'Importe', 'Estado', 'Firma', 'Pago'] as const;
+
+/** Campos buscables (incluye fecha/local aunque no estén como columnas visibles). */
+const CAMPOS_BUSQUEDA = ['Fecha', 'Local', 'Hora', 'Artista', 'Importe', 'Estado', 'Firma', 'Pago'] as const;
+
+const MESES_NOMBRE = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+] as const;
+
+const MESES_FILTRO_OPCIONES = MESES_NOMBRE.map((nombre, i) => ({
+  id: String(i + 1).padStart(2, '0'),
+  titulo: nombre,
+}));
+
+/** Rango ISO del mes natural (mes 1–12). */
+function rangoMesCalendario(anio: number, mes: number): { from: string; to: string } {
+  const m = String(mes).padStart(2, '0');
+  const from = `${anio}-${m}-01`;
+  const lastDay = new Date(anio, mes, 0).getDate();
+  const to = `${anio}-${m}-${String(lastDay).padStart(2, '0')}`;
+  return { from, to };
+}
+
+function detectarAnioMesDesdeRango(from: string, to: string): { anio: string; mes: string } | null {
+  const mFrom = from.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const mTo = to.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!mFrom || !mTo) return null;
+  const anio = mFrom[1];
+  const mes = mFrom[2];
+  if (mTo[1] !== anio || mTo[2] !== mes || mFrom[3] !== '01') return null;
+  const r = rangoMesCalendario(parseInt(anio, 10), parseInt(mes, 10));
+  if (r.from === from && r.to === to) return { anio, mes };
+  return null;
+}
+
+function filtrosFechaPorDefecto(): { anio: string; mes: string; desde: string; hasta: string } {
+  const j = fechaJornadaNegocioIso();
+  const [anio, mes] = j.split('-');
+  const r = rangoMesCalendario(parseInt(anio, 10), parseInt(mes, 10));
+  return { anio, mes, desde: r.from, hasta: r.to };
+}
+
+type FilaGrupoProgramacion = {
+  _tipo: 'grupo';
+  clave: string;
+  fecha: string;
+  fechaLabel: string;
+  localNombre: string;
+  idLocal: string;
+  count: number;
+};
+
+type FilaTablaProgramacion = FilaGrupoProgramacion | ({ _tipo: 'actuacion' } & Actuacion);
+
+function esFilaGrupo(item: FilaTablaProgramacion): item is FilaGrupoProgramacion {
+  return item._tipo === 'grupo';
+}
+
+function actuacionDeFila(item: FilaTablaProgramacion): Actuacion | null {
+  return item._tipo === 'actuacion' ? item : null;
+}
+
+/** Sobre TotalFacturadoComparativa bruta para referencia neta (aprox. −10% impuestos); igual que el calendario. */
+const FACTOR_NETO_COMPARATIVA = 0.9;
+
+/** Clave de agrupación objetivo/gasto: fecha (YYYY-MM-DD) + local. */
+function claveFechaLocal(fecha: string | undefined, idLocal: string | undefined): string {
+  return `${String(fecha || '').slice(0, 10)}|${String(idLocal || '').trim()}`;
+}
+
+/** Importe de una actuación (final o previsto); null si no hay ninguno. */
+function importeActuacion(a: Actuacion): number | null {
+  if (a.importe_final != null && !Number.isNaN(Number(a.importe_final))) return Number(a.importe_final);
+  if (a.importe_previsto != null && !Number.isNaN(Number(a.importe_previsto))) return Number(a.importe_previsto);
+  return null;
+}
+
+/** Color del % de gasto según el ratio_musicos del local (verde ≤ ratio, ámbar ≤ ratio+1, rojo > ratio+1). */
+function colorPctGasto(pct: number, ratio: number | null): string {
+  if (ratio == null || Number.isNaN(ratio)) return '#334155';
+  if (pct <= ratio) return '#16a34a';
+  if (pct <= ratio + 1) return '#d97706';
+  return '#dc2626';
+}
+
+function estiloBadgePctGasto(pct: number, ratio: number | null): { bg: string; border: string; text: string } {
+  const color = colorPctGasto(pct, ratio);
+  if (color === '#16a34a') return { bg: '#dcfce7', border: '#86efac', text: '#16a34a' };
+  if (color === '#d97706') return { bg: '#fef3c7', border: '#fcd34d', text: '#d97706' };
+  if (color === '#dc2626') return { bg: '#fee2e2', border: '#fca5a5', text: '#dc2626' };
+  return { bg: '#f1f5f9', border: '#e2e8f0', text: '#334155' };
+}
 
 type FiltroChipActuacion = 'todos' | 'huecos' | 'pendientes' | 'asociadas' | 'firmadas';
 
@@ -157,7 +260,7 @@ type ConflictoOtro = {
   artista_nombre_snapshot: string;
 };
 
-function getValorCelda(a: Actuacion, col: string): string {
+function getValorCeldaActuacion(a: Actuacion, col: string): string {
   switch (col) {
     case 'Sel':
       return '';
@@ -180,6 +283,11 @@ function getValorCelda(a: Actuacion, col: string): string {
     default:
       return '—';
   }
+}
+
+function getValorCeldaFila(item: FilaTablaProgramacion, col: string): string {
+  if (esFilaGrupo(item)) return '';
+  return getValorCeldaActuacion(item, col);
 }
 
 /** Texto usuario → "HH:MM" válido (24 h) o null */
@@ -215,8 +323,12 @@ export default function ProgramacionScreen() {
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const [fechaDesde, setFechaDesde] = useState('');
-  const [fechaHasta, setFechaHasta] = useState('');
+  const filtrosDefecto = useMemo(() => filtrosFechaPorDefecto(), []);
+  const [anioFiltro, setAnioFiltro] = useState(filtrosDefecto.anio);
+  const [mesFiltro, setMesFiltro] = useState(filtrosDefecto.mes);
+  const [fechaDesde, setFechaDesde] = useState(filtrosDefecto.desde);
+  const [fechaHasta, setFechaHasta] = useState(filtrosDefecto.hasta);
+  const jornadaHoy = useMemo(() => fechaJornadaNegocioIso(), []);
   /** Vacío = todos los locales; si no, solo actuaciones de esos ids */
   const [filtroLocalesIds, setFiltroLocalesIds] = useState<string[]>([]);
 
@@ -261,6 +373,10 @@ export default function ProgramacionScreen() {
   /** Evita recalcular importe al abrir el modal (se mantienen valores de BD). */
   const skipImporteCalcOnceRef = useRef(false);
 
+  /** Objetivo neto (comparativa Agora × 0,9) por clave fecha|local. */
+  const [objetivosPorClave, setObjetivosPorClave] = useState<Record<string, number | null>>({});
+  const [loadingObjetivos, setLoadingObjetivos] = useState(false);
+
   const listaFiltrada = useMemo(() => {
     const q = filtroBusqueda.trim().toLowerCase();
     let list = actuaciones;
@@ -269,9 +385,94 @@ export default function ProgramacionScreen() {
     }
     if (!q) return list;
     return list.filter((a) =>
-      COLUMNAS.some((col) => getValorCelda(a, col).toLowerCase().includes(q))
+      CAMPOS_BUSQUEDA.some((col) => getValorCeldaActuacion(a, col).toLowerCase().includes(q))
     );
   }, [actuaciones, filtroBusqueda, filtroChip]);
+
+  /** Lista ordenada por fecha ↑ → local (alfabético) ↑ → hora ↑ (base del «merge» visual por grupo). */
+  const listaOrdenada = useMemo(() => {
+    const nombreLocal = (a: Actuacion) => (a.local_nombre_snapshot?.trim() || a.id_local || '').toLowerCase();
+    return [...listaFiltrada].sort((a, b) => {
+      const fa = String(a.fecha || '').slice(0, 10);
+      const fb = String(b.fecha || '').slice(0, 10);
+      if (fa !== fb) return fa < fb ? -1 : 1;
+      const la = nombreLocal(a);
+      const lb = nombreLocal(b);
+      const cmpLocal = la.localeCompare(lb, 'es', { sensitivity: 'base' });
+      if (cmpLocal !== 0) return cmpLocal;
+      const ha = String(a.hora_inicio || '').trim();
+      const hb = String(b.hora_inicio || '').trim();
+      if (ha === hb) return 0;
+      if (!ha) return 1;
+      if (!hb) return -1;
+      return ha < hb ? -1 : 1;
+    });
+  }, [listaFiltrada]);
+
+  const countPorClaveOrdenada = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of listaOrdenada) {
+      const k = claveFechaLocal(a.fecha, a.id_local);
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return m;
+  }, [listaOrdenada]);
+
+  const filasTabla = useMemo((): FilaTablaProgramacion[] => {
+    const out: FilaTablaProgramacion[] = [];
+    let prevKey = '';
+    for (const a of listaOrdenada) {
+      const key = claveFechaLocal(a.fecha, a.id_local);
+      if (key !== prevKey) {
+        out.push({
+          _tipo: 'grupo',
+          clave: key,
+          fecha: String(a.fecha || '').slice(0, 10),
+          fechaLabel: a.fecha ? formatFecha(a.fecha) : '—',
+          localNombre: a.local_nombre_snapshot?.trim() || a.id_local || 'Sin local',
+          idLocal: String(a.id_local || '').trim(),
+          count: countPorClaveOrdenada.get(key) ?? 1,
+        });
+        prevKey = key;
+      }
+      out.push({ _tipo: 'actuacion', ...a });
+    }
+    return out;
+  }, [listaOrdenada, countPorClaveOrdenada]);
+
+  /** Gasto real (suma de importes) por grupo fecha|local, sobre TODAS las actuaciones (no solo filtradas). */
+  const gastoPorClave = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of actuaciones) {
+      const v = importeActuacion(a);
+      if (v == null) continue;
+      const key = claveFechaLocal(a.fecha, a.id_local);
+      m.set(key, (m.get(key) ?? 0) + v);
+    }
+    return m;
+  }, [actuaciones]);
+
+  const agoraPorLocalId = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const l of localesParipe) {
+      const id = String(l.id_Locales || '').trim();
+      const code = String(l.agoraCode ?? l.AgoraCode ?? '').trim();
+      if (id && code) m[id] = code;
+    }
+    return m;
+  }, [localesParipe]);
+
+  const ratioPorLocalId = useMemo(() => {
+    const m: Record<string, number | null> = {};
+    for (const l of localesParipe) {
+      const id = String(l.id_Locales || '').trim();
+      if (!id) continue;
+      const raw = l.ratio_musicos;
+      const n = raw == null || raw === '' ? null : Number(raw);
+      m[id] = n != null && !Number.isNaN(n) ? n : null;
+    }
+    return m;
+  }, [localesParipe]);
 
   const conteoPorChip = useMemo(() => {
     const counts: Record<FiltroChipActuacion, number> = {
@@ -373,6 +574,43 @@ export default function ProgramacionScreen() {
     });
   }
 
+  const aplicarRangoFechas = useCallback((desde: string, hasta: string) => {
+    setFechaDesde(desde);
+    setFechaHasta(hasta);
+    const detectado = detectarAnioMesDesdeRango(desde, hasta);
+    if (detectado) {
+      setAnioFiltro(detectado.anio);
+      setMesFiltro(detectado.mes);
+    }
+  }, []);
+
+  const onAnioFiltroChange = useCallback((anio: string) => {
+    setAnioFiltro(anio);
+    const r = rangoMesCalendario(parseInt(anio, 10), parseInt(mesFiltro, 10));
+    setFechaDesde(r.from);
+    setFechaHasta(r.to);
+  }, [mesFiltro]);
+
+  const onMesFiltroChange = useCallback((mes: string) => {
+    setMesFiltro(mes);
+    const r = rangoMesCalendario(parseInt(anioFiltro, 10), parseInt(mes, 10));
+    setFechaDesde(r.from);
+    setFechaHasta(r.to);
+  }, [anioFiltro]);
+
+  const aniosFiltroOpciones = useMemo(() => {
+    const set = new Set<number>();
+    set.add(parseInt(anioFiltro, 10));
+    set.add(new Date().getFullYear());
+    for (const a of actuaciones) {
+      const y = parseInt(String(a.fecha || '').slice(0, 4), 10);
+      if (Number.isFinite(y) && y >= 2000 && y <= 2100) set.add(y);
+    }
+    return [...set]
+      .sort((a, b) => b - a)
+      .map((y) => ({ id: String(y), titulo: String(y), icono: 'calendar-today' as const }));
+  }, [actuaciones, anioFiltro]);
+
   /** Rojo = importe editado mayor al sugerido; verde = menor; neutro = igual o sin sugerido. */
   const importeComparacion = useMemo(() => {
     const sug = form.importe_previsto;
@@ -438,6 +676,78 @@ export default function ProgramacionScreen() {
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
+
+  /** Carga el objetivo neto (comparativa Agora × 0,9) por fecha|local para todas las actuaciones visibles. */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const fechas = new Set<string>();
+      const localIds = new Set<string>();
+      for (const a of actuaciones) {
+        const f = String(a.fecha || '').slice(0, 10);
+        const lid = String(a.id_local || '').trim();
+        if (f) fechas.add(f);
+        if (lid) localIds.add(lid);
+      }
+      if (fechas.size === 0 || localIds.size === 0) {
+        if (!cancelled) setObjetivosPorClave({});
+        return;
+      }
+      setLoadingObjetivos(true);
+      let festivosByFecha: Record<string, FestivoGestionRow> = {};
+      try {
+        const fr = await apiFetch('/api/gestion-festivos');
+        const fd = await fr.json();
+        const list = Array.isArray(fd.registros) ? fd.registros : [];
+        festivosByFecha = Object.fromEntries(
+          list
+            .filter((f: FestivoGestionRow) => f.PK || f.FechaComparativa)
+            .map((f: FestivoGestionRow) => [String(f.PK ?? f.FechaComparativa ?? '').slice(0, 10), f]),
+        );
+      } catch {
+        festivosByFecha = {};
+      }
+      const fechaToComp: Record<string, string> = {};
+      let minComp = '';
+      let maxComp = '';
+      for (const f of fechas) {
+        const fc = fechaComparacionParaObjetivo(f, festivosByFecha);
+        fechaToComp[f] = fc;
+        if (!minComp || fc < minComp) minComp = fc;
+        if (!maxComp || fc > maxComp) maxComp = fc;
+      }
+      const out: Record<string, number | null> = {};
+      await Promise.all(
+        [...localIds].map(async (lid) => {
+          const wp = agoraPorLocalId[lid];
+          if (!wp) {
+            for (const f of fechas) out[claveFechaLocal(f, lid)] = null;
+            return;
+          }
+          try {
+            const url = `/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(wp)}&dateFrom=${minComp}&dateTo=${maxComp}`;
+            const r = await apiFetch(url);
+            const d = (await r.json()) as { totals?: Record<string, number> };
+            const totals = d.totals ?? {};
+            for (const f of fechas) {
+              const raw = totals[fechaToComp[f]];
+              out[claveFechaLocal(f, lid)] =
+                raw == null || Number.isNaN(Number(raw)) ? null : Number(raw) * FACTOR_NETO_COMPARATIVA;
+            }
+          } catch {
+            for (const f of fechas) out[claveFechaLocal(f, lid)] = null;
+          }
+        }),
+      );
+      if (!cancelled) {
+        setObjetivosPorClave(out);
+        setLoadingObjetivos(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [actuaciones, agoraPorLocalId]);
 
   useEffect(() => {
     if (!modalAsoc) return;
@@ -892,7 +1202,7 @@ export default function ProgramacionScreen() {
       </View>
 
       <View style={styles.toolbar}>
-        <View style={[styles.filtersRowBottom, shouldStackToolbar && styles.filtersColStack]}>
+        <View style={[styles.filtersRowFecha, shouldStackToolbar && styles.filtersColStack]}>
           <Text style={styles.filterLabelInline}>Local</Text>
           <View style={styles.filterLocalDropdownWrap}>
             <TouchableOpacity
@@ -942,27 +1252,45 @@ export default function ProgramacionScreen() {
               </View>
             ) : null}
           </View>
-          <Text style={styles.filterLabelInline}>Desde</Text>
-          <InputFecha
-            compact
-            style={[styles.fInput, styles.filterToolbarFieldFecha, styles.fInputFecha]}
-            placeholder="dd/mm/aaaa"
-            valueIso={fechaDesde}
-            onChangeIso={setFechaDesde}
-          />
-          <Text style={styles.filterLabelInline}>Hasta</Text>
-          <InputFecha
-            compact
-            style={[styles.fInput, styles.filterToolbarFieldFecha, styles.fInputFecha]}
-            placeholder="dd/mm/aaaa"
-            valueIso={fechaHasta}
-            onChangeIso={setFechaHasta}
-          />
-          <TouchableOpacity style={styles.fBtnPrimary} onPress={fetchAll}>
-            <MaterialIcons name="filter-list" size={16} color="#fff" />
-            <Text style={styles.fBtnPrimaryText}>Filtrar</Text>
-          </TouchableOpacity>
 
+          <SelectorDesplegable
+            compact
+            sinIconoTrigger
+            style={styles.filtroAnioSelector}
+            placeholder="Año"
+            tituloLista="Filtrar por año"
+            iconoLista="calendar-today"
+            valorId={anioFiltro}
+            opciones={aniosFiltroOpciones}
+            onSeleccionar={onAnioFiltroChange}
+          />
+          <SelectorDesplegable
+            compact
+            sinIconoTrigger
+            style={styles.filtroMesSelector}
+            placeholder="Mes"
+            tituloLista="Filtrar por mes"
+            iconoLista="date-range"
+            valorId={mesFiltro}
+            opciones={MESES_FILTRO_OPCIONES}
+            onSeleccionar={onMesFiltroChange}
+          />
+
+          <RangoFechas
+            modoToolbar
+            desdeIso={fechaDesde}
+            hastaIso={fechaHasta}
+            onChangeDesde={(d) => aplicarRangoFechas(d, fechaHasta)}
+            onChangeHasta={(h) => aplicarRangoFechas(fechaDesde, h)}
+            cellWidth={132}
+          />
+        </View>
+
+        <View style={styles.filtersRowSemana}>
+          <SelectorRangoSemana from={fechaDesde} to={fechaHasta} onChange={aplicarRangoFechas} />
+        </View>
+
+        <View style={[styles.filtersRowBottom, shouldStackToolbar && styles.filtersColStack]}>
           <View style={[styles.kpiRowInline, !shouldStackToolbar && styles.kpiRowInlineFlex]}>
             <KpiCard compact label="Actuaciones" value={String(resumenKpi.total)} />
             <KpiCard compact label="Huecos" value={String(resumenKpi.huecos)} color="#d97706" />
@@ -1005,13 +1333,83 @@ export default function ProgramacionScreen() {
       ) : null}
 
       <View style={styles.tablaWrap}>
-      <TablaBasica<Actuacion>
+      <TablaBasica<FilaTablaProgramacion>
         title="Actuaciones — planificación"
         hideHeader
         onBack={() => router.back()}
         columnas={[...COLUMNAS]}
-        datos={listaFiltrada}
-        getValorCelda={getValorCelda}
+        datos={filasTabla}
+        getValorCelda={getValorCeldaFila}
+        isBandRow={esFilaGrupo}
+        getRowKey={(item) => (esFilaGrupo(item) ? `grupo-${item.clave}` : item.id_actuacion)}
+        renderBandRow={(item) => {
+          if (!esFilaGrupo(item)) return null;
+          const objetivo = objetivosPorClave[item.clave];
+          const gasto = gastoPorClave.get(item.clave) ?? null;
+          const pct = objetivo != null && objetivo > 0 && gasto != null ? (gasto / objetivo) * 100 : null;
+          const ratio = ratioPorLocalId[item.idLocal] ?? null;
+          const semaforo = pct != null ? estiloBadgePctGasto(pct, ratio) : null;
+          const borderColor = pct != null ? colorPctGasto(pct, ratio) : '#cbd5e1';
+          const esJornada = item.fecha === jornadaHoy;
+
+          return (
+            <View style={[styles.grupoBand, esJornada && styles.grupoBandJornada, { borderLeftColor: borderColor }]}>
+              <View style={styles.grupoBandMain}>
+                <MaterialIcons name="event" size={14} color={esJornada ? '#be185d' : '#0369a1'} />
+                <Text
+                  style={[styles.grupoBandFecha, esJornada && styles.grupoBandFechaJornada]}
+                  numberOfLines={1}
+                >
+                  {item.fechaLabel}
+                </Text>
+                <Text style={styles.grupoBandSep}>·</Text>
+                <MaterialIcons name="place" size={14} color="#0369a1" />
+                <Text style={styles.grupoBandLocal} numberOfLines={1}>
+                  {item.localNombre}
+                </Text>
+                <Text style={styles.grupoBandSep}>·</Text>
+                {objetivo === undefined && loadingObjetivos ? (
+                  <Text style={styles.grupoBandObjMuted}>Objetivo …</Text>
+                ) : objetivo != null ? (
+                  <Text style={styles.grupoBandObj} numberOfLines={1}>
+                    Objetivo {formatMoneda(objetivo)}
+                  </Text>
+                ) : (
+                  <Text style={styles.grupoBandObjMuted}>Objetivo —</Text>
+                )}
+                {pct != null && semaforo ? (
+                  <View
+                    style={[
+                      styles.grupoBandPctBadge,
+                      { backgroundColor: semaforo.bg, borderColor: semaforo.border },
+                    ]}
+                    accessibilityLabel={`Gasto sobre objetivo: ${pct.toFixed(1)} por ciento`}
+                  >
+                    <Text style={[styles.grupoBandPctText, { color: semaforo.text }]}>
+                      {pct.toFixed(1)}%
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.grupoBandPctMuted}>
+                    <Text style={styles.grupoBandPctMutedText}>—</Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.grupoBandRight}>
+                {gasto != null ? (
+                  <Text style={styles.grupoBandGasto} numberOfLines={1}>
+                    {formatMoneda(gasto)}
+                  </Text>
+                ) : (
+                  <Text style={styles.grupoBandGastoMuted}>—</Text>
+                )}
+                <Text style={styles.grupoBandCount}>
+                  {item.count} actuación{item.count !== 1 ? 'es' : ''}
+                </Text>
+              </View>
+            </View>
+          );
+        }}
         loading={loading}
         error={error}
         onRetry={fetchAll}
@@ -1021,8 +1419,14 @@ export default function ProgramacionScreen() {
         onSelectRow={setSelectedRowIndex}
         toolbarCrearLabel="Nuevos registros base"
         onCrear={() => { if (puedeCrear) abrirNuevosRegistros(); }}
-        onEditar={(item) => { if (puedeEditar) abrirEditar(item); }}
-        onBorrar={(item) => { if (puedeBorrar) void borrarActuacion(item); }}
+        onEditar={(item) => {
+          const a = actuacionDeFila(item);
+          if (a && puedeEditar) abrirEditar(a);
+        }}
+        onBorrar={(item) => {
+          const a = actuacionDeFila(item);
+          if (a && puedeBorrar) void borrarActuacion(a);
+        }}
         hideToolbarActions={!(puedeCrear || puedeEditar || puedeBorrar)}
         borrarSeleccionExternaCount={puedeBorrar ? selectedIds.size : 0}
         onBorrarSeleccionExterna={() => { if (puedeBorrar) setModalBorrarMultipleOpen(true); }}
@@ -1033,18 +1437,18 @@ export default function ProgramacionScreen() {
         columnasMoneda={['Importe']}
         getColumnCellStyle={(col) => {
           if (col === 'Sel') return { cell: { width: 44, minWidth: 44, maxWidth: 48 } };
-          if (col === 'Fecha') return { cell: { minWidth: 96 } };
-          if (col === 'Local') return { cell: { minWidth: 100 } };
           if (col === 'Firma') return { cell: { width: 56, minWidth: 52, maxWidth: 60 } };
           return undefined;
         }}
         renderCell={(item, col) => {
+          const act = actuacionDeFila(item);
+          if (!act) return null;
           if (col === 'Sel') {
             if (!puedeFacturacion) return null;
-            const on = selectedIds.has(item.id_actuacion);
+            const on = selectedIds.has(act.id_actuacion);
             return (
               <TouchableOpacity
-                onPress={() => toggleSel(item.id_actuacion)}
+                onPress={() => toggleSel(act.id_actuacion)}
                 style={styles.selCell}
                 hitSlop={8}
                 accessibilityLabel="Seleccionar para asociar factura"
@@ -1054,12 +1458,12 @@ export default function ProgramacionScreen() {
             );
           }
           if (col === 'Artista') {
-            const nombre = item.artista_nombre_snapshot?.trim();
-            if (!item.id_artista) {
+            const nombre = act.artista_nombre_snapshot?.trim();
+            if (!act.id_artista) {
               return (
                 <TouchableOpacity
                   style={styles.huecoBadge}
-                  onPress={() => puedeEditar && abrirEditar(item)}
+                  onPress={() => puedeEditar && abrirEditar(act)}
                   activeOpacity={0.75}
                   hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                   accessibilityLabel="Hueco: editar actuación"
@@ -1075,7 +1479,7 @@ export default function ProgramacionScreen() {
             );
           }
           if (col === 'Importe') {
-            const v = item.importe_final ?? item.importe_previsto;
+            const v = act.importe_final ?? act.importe_previsto;
             return (
               <Text style={[erpListTableStyles.cellText, styles.cellTextRight, v == null && styles.cellMuted]}>
                 {v != null ? formatMoneda(v) : '—'}
@@ -1083,7 +1487,7 @@ export default function ProgramacionScreen() {
             );
           }
           if (col === 'Estado') {
-            const raw = (item.estado || '').trim();
+            const raw = (act.estado || '').trim();
             if (raw.toLowerCase() === 'asociada') {
               return (
                 <View style={styles.estadoBadgeAsociada} accessibilityRole="text" accessibilityLabel="Estado asociada">
@@ -1098,7 +1502,7 @@ export default function ProgramacionScreen() {
             );
           }
           if (col === 'Firma') {
-            const ok = !!item.firma_artista_key?.trim();
+            const ok = !!act.firma_artista_key?.trim();
             return (
               <View style={styles.firmaCell}>
                 <MaterialIcons
@@ -1113,7 +1517,7 @@ export default function ProgramacionScreen() {
             );
           }
           if (col === 'Pago') {
-            const t = item.pago_asociado_numero_factura || item.id_factura_gasto;
+            const t = act.pago_asociado_numero_factura || act.id_factura_gasto;
             return (
               <Text style={erpListTableStyles.cellText}>
                 {t ? String(t) : '—'}
@@ -1877,13 +2281,24 @@ const styles = StyleSheet.create({
   },
   toolbarSearchIcon: { marginRight: 6 },
   toolbarSearchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
-  filtersRowBottom: {
+  filtersRowFecha: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
+    gap: 8,
+    width: '100%',
+    zIndex: 9998,
+  },
+  filtersRowSemana: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 6,
     width: '100%',
+    marginTop: 4,
   },
+  filtroAnioSelector: { width: 88, minWidth: 80, maxWidth: 100 },
+  filtroMesSelector: { width: 120, minWidth: 108, maxWidth: 140 },
   filterLabelInline: { fontSize: 11, fontWeight: '700', color: '#64748b', marginRight: -2 },
   /** Ancho fijo mínimo solo para campos de fecha (dd/mm/aaaa + icono). */
   filterToolbarFieldFecha: {
@@ -1898,9 +2313,17 @@ const styles = StyleSheet.create({
     maxWidth: 220,
     flexGrow: 1,
     flexShrink: 1,
-    zIndex: 9998,
+    zIndex: 9999,
     elevation: 24,
     overflow: 'visible',
+  },
+  filtersRowBottom: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    width: '100%',
+    marginTop: 4,
   },
   filterToolbarTrigger: {
     flexDirection: 'row',
@@ -1912,6 +2335,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 8,
+    minHeight: 34,
   },
   filterToolbarTriggerText: { fontSize: 12, color: '#334155', flex: 1, paddingRight: 6 },
   filterToolbarList: {
@@ -1987,6 +2411,61 @@ const styles = StyleSheet.create({
   selCell: { alignItems: 'center', justifyContent: 'center' },
   cellTextRight: { textAlign: 'right', alignSelf: 'stretch' },
   cellMuted: { color: '#94a3b8' },
+  grupoBand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: '#f8fafc',
+    borderLeftWidth: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e2e8f0',
+  },
+  grupoBandJornada: {
+    backgroundColor: '#fdf2f8',
+  },
+  grupoBandMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+    minWidth: 0,
+    flexWrap: 'wrap',
+  },
+  grupoBandRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flexShrink: 0,
+  },
+  grupoBandFecha: { fontSize: 12, fontWeight: '700', color: '#334155', flexShrink: 0 },
+  grupoBandFechaJornada: {
+    color: '#be185d',
+    backgroundColor: '#fce7f3',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  grupoBandLocal: { fontSize: 12, fontWeight: '800', color: '#0369a1', textTransform: 'uppercase', letterSpacing: 0.3, flexShrink: 1 },
+  grupoBandSep: { fontSize: 12, color: '#cbd5e1', flexShrink: 0 },
+  grupoBandObj: { fontSize: 11, fontWeight: '700', color: '#475569', flexShrink: 0 },
+  grupoBandObjMuted: { fontSize: 11, color: '#cbd5e1', flexShrink: 0 },
+  grupoBandPctBadge: {
+    flexShrink: 0,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  grupoBandPctText: { fontSize: 10, fontWeight: '800', textAlign: 'center' },
+  grupoBandPctMuted: { flexShrink: 0, paddingHorizontal: 6, paddingVertical: 3, minWidth: 36, alignItems: 'center' },
+  grupoBandPctMutedText: { fontSize: 10, fontWeight: '600', color: '#cbd5e1' },
+  grupoBandGasto: { fontSize: 12, fontWeight: '700', color: '#0ea5e9', flexShrink: 0 },
+  grupoBandGastoMuted: { fontSize: 12, color: '#94a3b8', flexShrink: 0 },
+  grupoBandCount: { fontSize: 10, fontWeight: '600', color: '#94a3b8', flexShrink: 0 },
   huecoBadge: {
     alignSelf: 'flex-start',
     backgroundColor: '#ffedd5',

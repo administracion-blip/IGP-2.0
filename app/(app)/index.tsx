@@ -158,12 +158,13 @@ export default function AppHome() {
 }
 
 const styles = StyleSheet.create({
-  scrollView: { flex: 1 },
+  scrollView: { flex: 1, backgroundColor: '#ffffff' },
   scrollContent: {
     padding: 12,
     paddingBottom: 32,
     alignItems: 'center',
     flexGrow: 1,
+    backgroundColor: '#ffffff',
   },
   homeInner: {
     width: '100%',

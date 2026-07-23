@@ -35,6 +35,8 @@ type Props = {
   cellWidth?: number;
   /** Si es true, cada celda ocupa el espacio disponible (flex:1) en vez de ancho fijo. */
   fill?: boolean;
+  /** Campos con aspecto de trigger toolbar (coherente con desplegable Local). */
+  modoToolbar?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -47,29 +49,32 @@ export function RangoFechas({
   placeholderHasta = 'Hasta',
   cellWidth = 130,
   fill = false,
+  modoToolbar = false,
   style,
 }: Props) {
   const cellStyle: StyleProp<ViewStyle> = fill
-    ? { flex: 1, height: CAMPO_FECHA_ALTO }
-    : { width: cellWidth, height: CAMPO_FECHA_ALTO };
+    ? { flex: 1, minWidth: modoToolbar ? 128 : 130 }
+    : { width: cellWidth, minWidth: modoToolbar ? Math.max(cellWidth, 128) : cellWidth };
   return (
     <View style={[styles.row, style]}>
       <View style={cellStyle}>
         <InputFecha
           compact
+          modoToolbar={modoToolbar}
           valueIso={desdeIso}
           onChangeIso={onChangeDesde}
           placeholder={placeholderDesde}
-          style={estiloCampoFechaCompacto}
+          style={modoToolbar ? undefined : estiloCampoFechaCompacto}
         />
       </View>
       <View style={cellStyle}>
         <InputFecha
           compact
+          modoToolbar={modoToolbar}
           valueIso={hastaIso}
           onChangeIso={onChangeHasta}
           placeholder={placeholderHasta}
-          style={estiloCampoFechaCompacto}
+          style={modoToolbar ? undefined : estiloCampoFechaCompacto}
         />
       </View>
     </View>
