@@ -145,6 +145,21 @@ const apiLimiter = rateLimit({
 });
 app.use('/api', apiLimiter);
 
+// Límite estricto para la sincronización de productos (operación pesada:
+// descarga el maestro de Ágora + escribe en DynamoDB). Evita que un usuario
+// autenticado la dispare en bucle. Las llamadas internas (scheduler) se saltan.
+const agoraProductsSyncLimiter = rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_AGORA_SYNC_WINDOW_MS || '60000', 10),
+  max: parseInt(process.env.RATE_LIMIT_AGORA_SYNC_MAX || '10', 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) =>
+    !!process.env.INTERNAL_SYNC_SECRET &&
+    req.headers['x-internal-secret'] === process.env.INTERNAL_SYNC_SECRET,
+  message: { error: 'Demasiadas sincronizaciones seguidas. Espera un momento e inténtalo de nuevo.' },
+});
+app.post('/api/agora/products/sync', agoraProductsSyncLimiter);
+
 // Health check para verificar que el API está en marcha
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, message: 'API ERP OK', port: process.env.PORT || 3002 });

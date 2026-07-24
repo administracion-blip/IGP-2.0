@@ -18,6 +18,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { formatId6 } from '../utils/idFormat';
 import { SelectorDesplegable } from '../components/SelectorDesplegable';
 import { useProductosCache } from '../contexts/ProductosCache';
+import { useAuth } from '../contexts/AuthContext';
 import { useLocalToast } from '../components/Toast';
 import { apiFetch } from '../utils/api';
 import { erpTableStyles } from '../constants/erpTableStyles';
@@ -250,6 +251,8 @@ export default function ProductosScreen() {
     sincronizar: syncProductosAgoraGlobal,
     updateProductoLocal,
   } = useProductosCache();
+  const { hasPermiso } = useAuth();
+  const puedeSincronizar = hasPermiso('productos.sincronizar');
   const [filtroAgoraInput, setFiltroAgoraInput] = useState('');
   const [filtroAgora, setFiltroAgora] = useState('');
   const [pageIndexAgora, setPageIndexAgora] = useState(0);
@@ -621,19 +624,21 @@ export default function ProductosScreen() {
             )}
             <Text style={erpTableStyles.toolbarBtnLabeledText}>Recargar</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={erpTableStyles.toolbarBtnLabeled}
-            onPress={syncProductosAgoraGlobal}
-            disabled={syncingAgora}
-            accessibilityLabel="Sincronizar desde Ágora"
-          >
-            {syncingAgora ? (
-              <ActivityIndicator size="small" color={colors.textSecondary} />
-            ) : (
-              <MaterialIcons name="sync" size={iconSize.chip} color={colors.textSecondary} />
-            )}
-            <Text style={erpTableStyles.toolbarBtnLabeledText}>Sincronizar</Text>
-          </TouchableOpacity>
+          {puedeSincronizar && (
+            <TouchableOpacity
+              style={erpTableStyles.toolbarBtnLabeled}
+              onPress={syncProductosAgoraGlobal}
+              disabled={syncingAgora}
+              accessibilityLabel="Sincronizar desde Ágora"
+            >
+              {syncingAgora ? (
+                <ActivityIndicator size="small" color={colors.textSecondary} />
+              ) : (
+                <MaterialIcons name="sync" size={iconSize.chip} color={colors.textSecondary} />
+              )}
+              <Text style={erpTableStyles.toolbarBtnLabeledText}>Sincronizar</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={erpTableStyles.toolbarBtnLabeled}
             onPress={() => { setFiltroBusquedaFamilias(''); setModalFamiliasVisible(true); }}

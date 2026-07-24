@@ -70,7 +70,7 @@ import {
   listFormasPago,
   upsertFormasFromAgora,
 } from '../lib/agora/formasPago.js';
-import { requirePermission } from '../middleware/auth.js';
+import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
 import { buildObjetivoMensualCard } from '../lib/agora/objetivoMensual.js';
 
 const router = Router();
@@ -3241,112 +3241,209 @@ router.get('/agora/products', async (req, res) => {
   }
 });
 
-router.post('/agora/products/sync', async (req, res) => {
+/**
+ * Estado en memoria del job de sincronización de productos. Permite lanzar la
+ * sincronización en segundo plano (sin depender del timeout HTTP del cliente,
+ * la tabla puede crecer) y consultar su progreso vía GET .../sync/status.
+ * `productsSyncInFlight` actúa de mutex: solo un job a la vez.
+ */
+const productsSyncState = {
+  status: 'idle', // 'idle' | 'running' | 'done' | 'error'
+  startedAt: null,
+  finishedAt: null,
+  fetched: 0,
+  added: 0,
+  updated: 0,
+  unchanged: 0,
+  error: null,
+};
+let productsSyncInFlight = null;
+
+/** Ejecuta la sincronización real (Ágora → DynamoDB). Lanza Error con `.status` en fallos conocidos. */
+async function runProductsSync() {
   const { AGORA_API_BASE_URL, AGORA_API_TOKEN } = env();
+  const baseUrl = (AGORA_API_BASE_URL || '').trim().replace(/\/+$/, '');
+  const token = (AGORA_API_TOKEN || '').trim();
+  if (!baseUrl) throw Object.assign(new Error('Falta AGORA_API_BASE_URL en .env.local'), { status: 400 });
+  if (!token) throw Object.assign(new Error('Falta AGORA_API_TOKEN en .env.local'), { status: 400 });
+
+  const url = `${baseUrl}/api/export-master/?DataType=Products`;
+  const r = await fetch(url, {
+    method: 'GET',
+    headers: { 'Api-Token': token, 'Content-Type': 'application/json' },
+  });
+
+  if (r.status === 401) {
+    throw Object.assign(
+      new Error('Token inválido o no autorizado. Revisa AGORA_API_TOKEN en Agora.'),
+      { status: 401 },
+    );
+  }
+  if (!r.ok) {
+    const text = await r.text();
+    throw Object.assign(
+      new Error(`Agora respondió ${r.status}: ${text.slice(0, 200)}`),
+      { status: r.status },
+    );
+  }
+
+  const data = await r.json().catch(() => ({}));
+  const rawList = Array.isArray(data)
+    ? data
+    : (data.productos ?? data.Products ?? data.Items ?? data.data ?? []);
+
+  const [familiesRaw, vatsRaw] = await Promise.all([
+    exportFamilies().catch(() => []),
+    exportVats().catch(() => []),
+  ]);
+  const familyMap = new Map();
+  for (const f of familiesRaw) {
+    const id = f.Id ?? f.id;
+    if (id != null) familyMap.set(String(id), f.Name ?? f.name ?? '');
+  }
+  const vatMap = new Map();
+  for (const v of vatsRaw) {
+    const id = v.Id ?? v.id;
+    if (id != null) {
+      const rate = v.VatRate ?? v.vatRate ?? 0;
+      vatMap.set(String(id), {
+        name: v.Name ?? v.name ?? '',
+        percent: typeof rate === 'number' ? Math.round(rate * 10000) / 100 : 0,
+      });
+    }
+  }
+  for (const p of rawList) {
+    const fid = p.FamilyId ?? p.familyId;
+    if (fid != null && familyMap.has(String(fid))) p.FamilyName = familyMap.get(String(fid));
+    const vid = p.VatId ?? p.vatId;
+    if (vid != null && vatMap.has(String(vid))) {
+      const vat = vatMap.get(String(vid));
+      p.VatName = vat.name;
+      p.VatPercent = vat.percent;
+    }
+  }
+
+  const { added, updated, unchanged } = await syncProducts(
+    docClient,
+    tableAgoraProductsName,
+    rawList,
+  );
+
+  await setLastSync(docClient, tableAgoraProductsName);
+
+  return { fetched: rawList.length, added, updated, unchanged };
+}
+
+/** Arranca el job si no hay otro en curso (mutex). Devuelve la promesa en vuelo. */
+function startProductsSync() {
+  if (productsSyncInFlight) return productsSyncInFlight;
+  productsSyncState.status = 'running';
+  productsSyncState.startedAt = Date.now();
+  productsSyncState.finishedAt = null;
+  productsSyncState.error = null;
+  productsSyncState.fetched = 0;
+  productsSyncState.added = 0;
+  productsSyncState.updated = 0;
+  productsSyncState.unchanged = 0;
+  productsSyncInFlight = (async () => {
+    try {
+      const result = await runProductsSync();
+      productsSyncState.status = 'done';
+      productsSyncState.fetched = result.fetched;
+      productsSyncState.added = result.added;
+      productsSyncState.updated = result.updated;
+      productsSyncState.unchanged = result.unchanged;
+    } catch (err) {
+      productsSyncState.status = 'error';
+      productsSyncState.error =
+        err?.name === 'ResourceNotFoundException'
+          ? 'Tabla Igp_AgoraProducts no existe. Ejecuta: node api/scripts/create-agora-products-table.js'
+          : (err?.message || 'Error al sincronizar productos');
+      console.error('[agora/products/sync]', err?.message || err);
+    } finally {
+      productsSyncState.finishedAt = Date.now();
+      productsSyncInFlight = null;
+    }
+  })();
+  return productsSyncInFlight;
+}
+
+router.post('/agora/products/sync', requireAnyPermission('productos.sincronizar', 'ajustes.sincronizaciones.agora_productos'), async (req, res) => {
+  const { AGORA_API_BASE_URL, AGORA_API_TOKEN } = env();
+  if (!(AGORA_API_BASE_URL || '').trim()) {
+    return res.status(400).json({ error: 'Falta AGORA_API_BASE_URL en .env.local' });
+  }
+  if (!(AGORA_API_TOKEN || '').trim()) {
+    return res.status(400).json({ error: 'Falta AGORA_API_TOKEN en .env.local' });
+  }
+
   const force =
     req.body?.force === true ||
     (req.query.force || req.body?.force || '').toString() === '1' ||
     (req.query.force || '').toString().toLowerCase() === 'true';
-  const baseUrl = (AGORA_API_BASE_URL || '').trim().replace(/\/+$/, '');
-  const token = (AGORA_API_TOKEN || '').trim();
+  // async=1: la app lanza en segundo plano y hace polling a .../sync/status.
+  // Sin async (cron/ajustes/scripts): espera el resultado y responde como antes.
+  const asyncMode =
+    !req.isInternal &&
+    ((req.query.async || req.body?.async || '').toString() === '1' ||
+      (req.query.async || '').toString().toLowerCase() === 'true');
 
-  if (!baseUrl) {
-    return res.status(400).json({ error: 'Falta AGORA_API_BASE_URL en .env.local' });
-  }
-  if (!token) {
-    return res.status(400).json({ error: 'Falta AGORA_API_TOKEN en .env.local' });
-  }
-
-  try {
-    if (!force) {
-      const lastSync = await getLastSync(docClient, tableAgoraProductsName);
-      if (shouldSkipSyncByThrottle(lastSync)) {
-        return res.json({
-          ok: true,
-          skipped: true,
-          reason: 'recent',
-          message: 'Sincronización reciente. Usa ?force=1 para forzar.',
-        });
-      }
-    }
-
-    const url = `${baseUrl}/api/export-master/?DataType=Products`;
-    const r = await fetch(url, {
-      method: 'GET',
-      headers: { 'Api-Token': token, 'Content-Type': 'application/json' },
-    });
-
-    if (r.status === 401) {
-      return res.status(401).json({
-        error: 'Token inválido o no autorizado. Revisa AGORA_API_TOKEN en Agora.',
+  // Throttle salvo force explícito (no aplica si ya hay un job en curso: nos sumamos a él).
+  if (!force && productsSyncState.status !== 'running') {
+    const lastSync = await getLastSync(docClient, tableAgoraProductsName);
+    if (shouldSkipSyncByThrottle(lastSync)) {
+      return res.json({
+        ok: true,
+        status: 'skipped',
+        skipped: true,
+        reason: 'recent',
+        message: 'Sincronización reciente. Usa ?force=1 para forzar.',
       });
     }
-    if (!r.ok) {
-      const text = await r.text();
-      return res.status(r.status).json({ error: `Agora respondió ${r.status}: ${text.slice(0, 200)}` });
-    }
-
-    const data = await r.json().catch(() => ({}));
-    const rawList = Array.isArray(data)
-      ? data
-      : (data.productos ?? data.Products ?? data.Items ?? data.data ?? []);
-
-    const [familiesRaw, vatsRaw] = await Promise.all([
-      exportFamilies().catch(() => []),
-      exportVats().catch(() => []),
-    ]);
-    const familyMap = new Map();
-    for (const f of familiesRaw) {
-      const id = f.Id ?? f.id;
-      if (id != null) familyMap.set(String(id), f.Name ?? f.name ?? '');
-    }
-    const vatMap = new Map();
-    for (const v of vatsRaw) {
-      const id = v.Id ?? v.id;
-      if (id != null) {
-        const rate = v.VatRate ?? v.vatRate ?? 0;
-        vatMap.set(String(id), {
-          name: v.Name ?? v.name ?? '',
-          percent: typeof rate === 'number' ? Math.round(rate * 10000) / 100 : 0,
-        });
-      }
-    }
-    for (const p of rawList) {
-      const fid = p.FamilyId ?? p.familyId;
-      if (fid != null && familyMap.has(String(fid))) p.FamilyName = familyMap.get(String(fid));
-      const vid = p.VatId ?? p.vatId;
-      if (vid != null && vatMap.has(String(vid))) {
-        const vat = vatMap.get(String(vid));
-        p.VatName = vat.name;
-        p.VatPercent = vat.percent;
-      }
-    }
-
-    const { added, updated, unchanged } = await syncProducts(
-      docClient,
-      tableAgoraProductsName,
-      rawList
-    );
-
-    await setLastSync(docClient, tableAgoraProductsName);
-
-    return res.json({
-      ok: true,
-      fetched: rawList.length,
-      added,
-      updated,
-      unchanged,
-    });
-  } catch (err) {
-    if (err.name === 'ResourceNotFoundException') {
-      const e = new Error(
-        'Tabla Igp_AgoraProducts no existe. Ejecuta: node api/scripts/create-agora-products-table.js'
-      );
-      e.status = 404;
-      throw e;
-    }
-    throw err;
   }
+
+  const inFlight = startProductsSync();
+
+  if (asyncMode) {
+    return res.status(202).json({
+      ok: true,
+      status: 'running',
+      message: 'Sincronización iniciada.',
+    });
+  }
+
+  // Modo espera: aguarda a que termine y devuelve el resultado final.
+  try {
+    await inFlight;
+  } catch {
+    // El estado ya refleja el error.
+  }
+  if (productsSyncState.status === 'error') {
+    const msg = productsSyncState.error || 'Error al sincronizar productos';
+    const status = /no existe/i.test(msg) ? 404 : 502;
+    return res.status(status).json({ ok: false, error: msg });
+  }
+  return res.json({
+    ok: true,
+    fetched: productsSyncState.fetched,
+    added: productsSyncState.added,
+    updated: productsSyncState.updated,
+    unchanged: productsSyncState.unchanged,
+  });
+});
+
+router.get('/agora/products/sync/status', requireAnyPermission('productos.sincronizar', 'ajustes.sincronizaciones.agora_productos'), (_req, res) => {
+  res.json({
+    ok: true,
+    status: productsSyncState.status,
+    startedAt: productsSyncState.startedAt,
+    finishedAt: productsSyncState.finishedAt,
+    fetched: productsSyncState.fetched,
+    added: productsSyncState.added,
+    updated: productsSyncState.updated,
+    unchanged: productsSyncState.unchanged,
+    error: productsSyncState.error,
+  });
 });
 
 router.patch('/agora/products/igp/batch', async (req, res) => {

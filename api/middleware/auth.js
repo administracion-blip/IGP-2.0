@@ -12,6 +12,8 @@ export function requireAuth(req, res, next) {
       INTERNAL_SYNC_POST_PATHS.has(pathname) &&
       req.headers['x-internal-secret'] === internalSecret
     ) {
+      // Llamada de confianza (scheduler/scripts): salta auth y permisos.
+      req.isInternal = true;
       return next();
     }
   }
@@ -69,6 +71,7 @@ export async function hasAnyPermission(user, ...permisos) {
 
 export function requirePermission(permiso) {
   return async (req, res, next) => {
+    if (req.isInternal) return next();
     if (!req.user) return res.status(401).json({ error: 'No autenticado' });
     if (req.user.rol === 'Administrador') return next();
     try {
@@ -83,6 +86,7 @@ export function requirePermission(permiso) {
 
 export function requireAnyPermission(...permisos) {
   return async (req, res, next) => {
+    if (req.isInternal) return next();
     if (!req.user) return res.status(401).json({ error: 'No autenticado' });
     if (req.user.rol === 'Administrador') return next();
     try {

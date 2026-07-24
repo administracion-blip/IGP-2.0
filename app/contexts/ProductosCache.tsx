@@ -3,6 +3,19 @@ import { apiFetch } from '../utils/api';
 
 type Producto = Record<string, unknown>;
 
+type SyncResultado = { added?: number; updated?: number; unchanged?: number };
+
+/** Mensaje de error legible según el tipo de fallo (timeout, red, o error propagado). */
+function mensajeErrorSync(e: unknown): string {
+  if (e && typeof e === 'object' && 'name' in e && (e as { name?: string }).name === 'AbortError') {
+    return 'La sincronización tardó demasiado en responder. Puede seguir en segundo plano; pulsa Recargar en unos segundos.';
+  }
+  if (e instanceof TypeError) {
+    return 'Error de red: no se pudo contactar con el servidor.';
+  }
+  return e instanceof Error ? e.message : 'Error al sincronizar';
+}
+
 type ProductosCacheValue = {
   productos: Producto[];
   productosIgp: Producto[];
@@ -59,32 +72,73 @@ export function ProductosCacheProvider({ children }: { children: React.ReactNode
     }
   }, []);
 
+  /** Consulta el estado del job de sync hasta que termine (done) o falle (error). */
+  const esperarSyncProductos = useCallback(async (): Promise<SyncResultado | null> => {
+    const MAX_MS = 5 * 60 * 1000; // tope de espera del cliente
+    const INTERVALO_MS = 2500;
+    const inicio = Date.now();
+    while (Date.now() - inicio < MAX_MS) {
+      await new Promise((r) => setTimeout(r, INTERVALO_MS));
+      const res = await apiFetch('/api/agora/products/sync/status', { timeoutMs: 15000 });
+      const st = await res.json().catch(() => ({} as Record<string, unknown>));
+      if (st.status === 'done') {
+        return { added: st.added, updated: st.updated, unchanged: st.unchanged };
+      }
+      if (st.status === 'error') {
+        setError(typeof st.error === 'string' && st.error ? st.error : 'Error al sincronizar productos');
+        return null;
+      }
+      // 'running' | 'idle' → seguir esperando
+    }
+    setError('La sincronización está tardando más de lo previsto. Sigue en segundo plano; pulsa Recargar en unos minutos.');
+    return null;
+  }, []);
+
   const sincronizar = useCallback(async () => {
     setSyncing(true);
     setError(null);
     try {
-      const res = await apiFetch('/api/agora/products/sync?force=1', {
+      // Lanza el job en segundo plano (respuesta inmediata); luego hacemos polling.
+      const res = await apiFetch('/api/agora/products/sync?force=1&async=1', {
         method: 'POST',
         body: '{}',
+        timeoutMs: 20000,
       });
-      const data = await res.json();
-      if (data.error) {
-        setError(data.error);
+      if (res.status === 403) {
+        setError('No tienes permiso para sincronizar productos.');
         return null;
       }
-      if (data.ok && ((data.added ?? 0) > 0 || (data.updated ?? 0) > 0)) {
+      if (res.status === 429) {
+        setError('Demasiadas sincronizaciones seguidas. Espera un momento e inténtalo de nuevo.');
+        return null;
+      }
+      const data = await res.json().catch(() => ({} as Record<string, unknown>));
+      if (!res.ok || data.error) {
+        setError(typeof data.error === 'string' && data.error ? data.error : 'Error al sincronizar');
+        return null;
+      }
+      // Sincronización reciente (throttle): nada que recargar.
+      if (data.status === 'skipped') {
+        setLastFetch(Date.now());
+        return { added: 0, updated: 0, unchanged: 0 };
+      }
+
+      const result = await esperarSyncProductos();
+      if (!result) return null;
+
+      if ((result.added ?? 0) > 0 || (result.updated ?? 0) > 0) {
         await recargar();
-      } else if (data.ok) {
+      } else {
         setLastFetch(Date.now());
       }
-      return { added: data.added, updated: data.updated, unchanged: data.unchanged };
+      return result;
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al sincronizar');
+      setError(mensajeErrorSync(e));
       return null;
     } finally {
       setSyncing(false);
     }
-  }, [recargar]);
+  }, [recargar, esperarSyncProductos]);
 
   const updateProductoLocal = useCallback((id: string, patch: Record<string, unknown>) => {
     setProductos((prev) =>
