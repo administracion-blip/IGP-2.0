@@ -47,6 +47,52 @@ node scripts/seed-pedidos.js
 | CreadoEn | String | Fecha de creación (ISO) |
 | CreadoPor | String | ID del usuario que creó el pedido |
 | Notas | String | Observaciones |
+| CompletadoEn | String | Fecha (ISO) del OK del almacén. **Decide el mes que se factura**; no se borra ni se rehace una vez facturado |
+| CompletadoPor | String | Email de quien completó el pedido |
+| lineas_rev | Number | Contador de revisión de las líneas: sube (`ADD`) **dos veces** en toda escritura que cree, modifique o borre una línea, una antes y otra después del contenido. Los pedidos antiguos no lo tienen y esa ausencia es su estado inicial válido |
+
+### Marca de facturación (contrato con la facturación mensual del almacén)
+
+Los escribe el generador mensual de facturas; el router de pedidos solo los lee.
+Con cualquiera de las dos marcas **presentes** (aunque venga vacía: es lo que mira
+`attribute_not_exists`), el pedido queda congelado: se rechazan añadir, modificar y
+borrar líneas, editar o borrar el pedido y cambiar la preparación de sus líneas
+(HTTP 409, nombrando el documento por su periodo). Sin marca, el comportamiento es
+el de siempre.
+
+La comprobación no basta con leerla: toda escritura del router va condicionada a
+la ausencia de las dos marcas, porque el generador puede marcar el pedido entre que
+la guarda lee y el handler escribe. En las escrituras de línea, el reclamo es el
+propio incremento de `lineas_rev`, que se hace antes de tocar la línea: si falla, la
+línea no se escribe. Y el contador se vuelve a subir **después** de escribir la
+línea, que es la invariante que necesita el generador: el contador cambia después
+de la última escritura de contenido, así que ninguna lectura incoherente de la
+pareja (cabecera, líneas) sobrevive al reclamo. El borrado del pedido borra primero
+la cabecera, condicionada, para no dejar una factura huérfana que la reconciliación
+ya no pueda liberar.
+
+| Atributo | Tipo | Descripción |
+|----------|------|-------------|
+| factura_ventas_id | String | Id (UUID) de la factura de venta de la mercancía al local |
+| factura_ventas_periodo | String | Mes facturado (`YYYY-MM`). Es con lo que se nombra la factura en el 409: los documentos generados nacen en borrador y **sin numerar** |
+| factura_rappel_id | String | Id (UUID) de la factura/abono del rappel del periodo |
+| factura_rappel_periodo | String | Mes del abono (`YYYY-MM`) |
+| factura_id_empresa_local | String | Sociedad (`igp_Locales.id_empresa`, 6 dígitos) del local del pedido, congelada al completarlo, y rehecha (o borrada) si el pedido cambia de local. Es el **receptor** de la factura de ventas; en una devolución los papeles se invierten. La sociedad del almacén de origen NO se congela aquí: la resuelve el generador |
+
+### Identificar el Almacén General
+
+El maestro `igp_Almacenes` no tiene ningún campo que marque el almacén central:
+lo único que lo distingue es su nombre. El criterio (nombre normalizado e igualdad
+exacta) vive en **`api/lib/pedidos/almacenGeneral.js`** y es el único origen del
+backend: lo usan el permiso `pedidos.crear_entre_locales` de este router y la
+resolución de la sociedad emisora de la facturación mensual.
+
+- `esAlmacenGeneral(nombre)` / `normalizarNombreAlmacen(nombre)`: el criterio.
+- `idsAlmacenGeneral()`: los `Id` del maestro que lo cumplen, con caché de 5
+  minutos. Devuelve `{ ok, ids }`; `ok: false` significa que el maestro **no se
+  pudo leer**, que no es lo mismo que leerlo y no encontrar ninguno.
+- `olvidarAlmacenGeneralCacheado()`: refresca el criterio tras sincronizar el
+  maestro (y lo usan las pruebas).
 
 ## Tabla de líneas (Igp_PedidosLineas)
 

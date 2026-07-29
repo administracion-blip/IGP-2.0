@@ -17,18 +17,25 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
 import { InputFecha } from '../../components/InputFecha';
+import { InputCantidad } from '../../components/InputCantidad';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useProductosCache } from '../../contexts/ProductosCache';
 import { useAuth } from '../../contexts/AuthContext';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { fetchPorcentajeBeneficio, aplicarPorcentajeBeneficio } from '../../lib/personalizacion';
 import { siguienteIdParaNuevoPedido } from '../../lib/pedidosId';
+import { idAlmacenGeneral } from '../../lib/pedidosEntreLocales';
 import { apiFetch } from '../../utils/api';
 import { formatCreadoEn } from '../../utils/formatFecha';
 import { MIN_TOUCH } from '../../constants/layout';
+import {
+  CeldaFacturacionPedido,
+  COLUMNA_FACTURACION,
+} from '../../components/compras/CeldaFacturacionPedido';
+import { estadoFacturacionPedido } from '../../lib/comprasFacturacion';
 
-const COLUMNAS = ['Id', 'Fecha', 'CreadoEn', 'LocalId', 'Local', 'AlmacenOrigen', 'AlmacenDestino', 'TotalAlbaran', 'Estado'] as const;
+const COLUMNAS = ['Id', 'Fecha', 'CreadoEn', 'LocalId', 'Local', 'AlmacenOrigen', 'AlmacenDestino', 'TotalAlbaran', 'Estado', COLUMNA_FACTURACION] as const;
 const ESTADOS = ['Borrador', 'Pendiente', 'Enviado', 'Exportado', 'Completado'] as const;
-const NOMBRE_ALMACEN_GENERAL = 'Almacén General';
 
 function parseAlmacenesOrigen(val: string | number | undefined): string[] {
   if (val == null || String(val).trim() === '') return [];
@@ -103,6 +110,7 @@ const READ_ONLY = true;
 export default function PedidosCompletadosScreen() {
   const router = useRouter();
   const { localPermitido, hasPermiso } = useAuth();
+  const { shouldUseComfortableTable } = useBreakpoint();
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [locales, setLocales] = useState<Local[]>([]);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
@@ -219,13 +227,7 @@ export default function PedidosCompletadosScreen() {
     return map;
   }, [locales]);
 
-  const almacenGeneralId = useMemo(() => {
-    const alm = almacenes.find((a) => {
-      const n = String(valorEnLocal(a, 'Nombre') ?? '').trim();
-      return n === NOMBRE_ALMACEN_GENERAL || n.toLowerCase().includes('almacén general') || n.toLowerCase().includes('almacen general');
-    });
-    return alm ? String(valorEnLocal(alm, 'Id') ?? '').trim() : '';
-  }, [almacenes]);
+  const almacenGeneralId = useMemo(() => idAlmacenGeneral(almacenes), [almacenes]);
 
   const totalAlbaranCalculado = useMemo(() => {
     if (editingPedidoId == null) return 0;
@@ -379,6 +381,7 @@ export default function PedidosCompletadosScreen() {
 
   const getValorCelda = useCallback((item: Pedido, col: string): string => {
     const v = valorEnLocal(item, col);
+    if (col === COLUMNA_FACTURACION) return estadoFacturacionPedido(item).texto;
     if (col === 'TotalAlbaran') return formatMoneda(v);
     if (col === 'Fecha') return formatFecha(v);
     if (col === 'CreadoEn') return formatCreadoEn(v);
@@ -897,6 +900,11 @@ export default function PedidosCompletadosScreen() {
             onBorrar={handleBorrar}
             columnasMoneda={['TotalAlbaran']}
             getColumnCellStyle={(col) => col === 'TotalAlbaran' ? { text: { fontWeight: '700' } } : undefined}
+            renderCell={(item, col) =>
+              col === COLUMNA_FACTURACION ? (
+                <CeldaFacturacionPedido pedido={item} comodo={shouldUseComfortableTable} />
+              ) : null
+            }
             getRowStyle={() => ({ backgroundColor: '#dcfce7' })}
             hideToolbarActions
             emptyMessage="No hay pedidos completados"
@@ -1002,14 +1010,11 @@ export default function PedidosCompletadosScreen() {
                 </View>
                 <View style={styles.formGroupCantidadLinea}>
                   <Text style={[styles.formLabel, styles.lineaFormLabelLinea]}>Cantidad</Text>
-                  <TextInput
-                    style={[styles.formInput, styles.lineaFormCantidadMatch]}
+                  <InputCantidad
                     value={formLinea.Cantidad}
                     onChangeText={(v) => setFormLinea((f) => ({ ...f, Cantidad: v }))}
                     placeholder="0"
-                    placeholderTextColor="#94a3b8"
-                    keyboardType="decimal-pad"
-                    {...(Platform.OS === 'android' ? { textAlignVertical: 'center' as const } : {})}
+                    style={styles.lineaFormCantidadMatch}
                   />
                 </View>
               </View>
@@ -1398,6 +1403,18 @@ const styles = StyleSheet.create({
   formInputDisabled: { backgroundColor: '#f1f5f9', color: '#94a3b8' },
   formInputPrecioReadonly: { backgroundColor: '#fafbfc', color: '#64748b' },
   formInputMultiline: { minHeight: 60, textAlignVertical: 'top' },
+  formAvisoFactura: {
+    fontSize: 12,
+    color: '#b45309',
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 6,
+    lineHeight: 17,
+    fontWeight: '500',
+  },
   formError: { fontSize: 12, color: '#dc2626', paddingHorizontal: 20, paddingVertical: 8 },
   modalFooter: {
     flexDirection: 'row',
@@ -1509,8 +1526,6 @@ const styles = StyleSheet.create({
   },
   lineaFormCantidadMatch: {
     minHeight: 40,
-    paddingVertical: 9,
-    paddingHorizontal: 12,
   },
   formGroupProductoLinea: {
     flex: 1,
@@ -1524,8 +1539,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   formGroupCantidadLinea: {
-    width: 88,
-    minWidth: 72,
+    width: 168,
+    minWidth: 168,
     flexShrink: 0,
     marginBottom: 0,
   },

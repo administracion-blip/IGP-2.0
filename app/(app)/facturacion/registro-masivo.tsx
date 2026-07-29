@@ -17,6 +17,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { formatMoneda, round2 } from '../../utils/facturacion';
 import { useLocalToast, detectToastType } from '../../components/Toast';
 import { apiFetch, errorMessage } from '../../utils/api';
+import { calcularProximoIdEmpresa } from '../../lib/empresaId';
 import type {
   Borrador,
   CamposManuales,
@@ -148,6 +149,11 @@ export default function RegistroMasivoScreen() {
     onError: (msg) => alertMsg('Reconciliación', msg),
   });
 
+  const proximoIdEmpresa = useMemo(
+    () => calcularProximoIdEmpresa(empresasCatalogo),
+    [empresasCatalogo],
+  );
+
   const crearEmpresaModal = useCrearEmpresaModal({
     onCreated: (idx, emp, nombre) => {
       setBorradores((prev) =>
@@ -164,6 +170,20 @@ export default function RegistroMasivoScreen() {
             : b,
         ),
       );
+      // Alta local para que el siguiente id y el dropdown de proveedor estén al día sin recargar.
+      const idCreada = emp?.id_empresa != null ? String(emp.id_empresa) : '';
+      setEmpresasCatalogo((prev) => {
+        if (idCreada && prev.some((e) => String(e.id_empresa ?? '') === idCreada)) return prev;
+        return [
+          ...prev,
+          {
+            id_empresa: idCreada,
+            Nombre: emp?.Nombre != null ? String(emp.Nombre) : nombre,
+            Cif: emp?.Cif != null ? String(emp.Cif) : '',
+            Sede: emp?.Sede != null ? String(emp.Sede) : '',
+          },
+        ];
+      });
     },
     onSuccess: (msg) => showToast('Empresa creada', msg, 'success'),
     onError: (msg) => alertMsg('Error', msg),
@@ -958,7 +978,7 @@ export default function RegistroMasivoScreen() {
                     {hasPermiso('empresas.crear') ? (
                       <TouchableOpacity
                         style={styles.maestroBtn}
-                        onPress={() => crearEmpresaModal.abrir(selectedBorrador)}
+                        onPress={() => crearEmpresaModal.abrir(selectedBorrador, proximoIdEmpresa)}
                         activeOpacity={0.85}
                       >
                         <MaterialIcons name="add-business" size={16} color="#fff" />

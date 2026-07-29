@@ -31,6 +31,7 @@ import {
   getIdEmpresaFromItem,
 } from '../lib/empresaCif.js';
 import { parseTextoFacturaCompleto, reconciliarFacturaOcr } from '../lib/ocrFacturaEntidades.js';
+import { ibansDeEmpresaItem } from '../lib/remesas/resolverDatos.js';
 import {
   enriquecerFacturaOcrConOpenAI,
   mergeExtraccionConIa,
@@ -39,7 +40,22 @@ import {
 import { aplicarPostProcesadoPipeline } from '../lib/ocrFacturaValidacion.js';
 import { registrarPagoFactura } from '../lib/facturacion/registrarPago.js';
 import { emitirOValidarFacturaPorId } from '../lib/facturacion/emitirFactura.js';
+import {
+  getSerieConfig,
+  buildNumeroFactura,
+  calcNextNumeroPorScan,
+  peekNextNumero,
+  errorSerieTipoIncompatible,
+  existeCorrelativoDuplicado,
+  serieRectificativaPorDefecto,
+} from '../lib/facturacion/series.js';
+import {
+  construirFacturaConLineas,
+  buildImpuestosResumenFromLineas,
+} from '../lib/facturacion/construirFactura.js';
 import { nombreFicheroAdjuntoFacturaRecibida } from '../lib/facturacion/idDocumento.js';
+import { limpiarMarcasFacturacionPeriodica } from '../lib/facturacion/marcasPeriodicas.js';
+import { requirePermission } from '../middleware/auth.js';
 import crypto from 'crypto';
 import { enviarEmail } from '../lib/email.js';
 import multer from 'multer';
@@ -65,23 +81,6 @@ function now() {
 
 function round2(n) {
   return Math.round(n * 100) / 100;
-}
-
-/** Texto corto para listados: tipos de IVA y % de retención presentes en las líneas. */
-function buildImpuestosResumenFromLineas(lineas) {
-  if (!Array.isArray(lineas) || lineas.length === 0) return '';
-  const tiposIva = new Set();
-  const retPcts = new Set();
-  for (const l of lineas) {
-    const t = Number(l.tipo_iva);
-    if (!Number.isNaN(t)) tiposIva.add(t);
-    const r = Number(l.retencion_pct);
-    if (!Number.isNaN(r) && r > 0) retPcts.add(r);
-  }
-  const ivaPart = [...tiposIva].sort((a, b) => a - b).map((x) => `${x}%`).join(' · ');
-  const retPart = [...retPcts].sort((a, b) => a - b).map((x) => `${x}%`).join(' · ');
-  if (retPart) return `IVA ${ivaPart || '—'} · Ret ${retPart}`;
-  return `IVA ${ivaPart || '—'}`;
 }
 
 /** Copia el fichero en S3 a `facturas/{id}/…` para asociarlo de forma estable a la factura. */
@@ -212,6 +211,19 @@ async function registrarAuditoria(id_factura, accion, usuario_id, usuario_nombre
   );
 }
 
+/**
+ * Usuario para la auditoría en rutas autenticadas: el id sale del token (el body
+ * puede no venir, p. ej. al emitir desde el listado) y el nombre visible del body
+ * si lo trae, porque el token solo lleva el email.
+ */
+function usuarioAuditoria(req) {
+  const body = req.body || {};
+  return {
+    usuario_id: req.user?.sub || body.usuario_id || '',
+    usuario_nombre: req.user?.Nombre || body.usuario_nombre || req.user?.email || '',
+  };
+}
+
 // ─── SERIES ───
 
 router.get('/facturacion/series', async (_req, res) => {
@@ -225,12 +237,15 @@ router.get('/facturacion/series', async (_req, res) => {
 });
 
 router.get('/facturacion/series/next-number', async (req, res) => {
-  const { serie, emisor_id, fecha_emision } = req.query;
+  const { serie, emisor_id, emisor_cif, fecha_emision } = req.query;
   if (!serie) return res.status(400).json({ error: 'serie es obligatorio' });
   try {
-    const result = await calcNextNumero(serie, emisor_id || 'DEFAULT', fecha_emision || '');
+    // El correlativo es por serie, año y sociedad emisora: sin el emisor el
+    // preview mostraría el número de otra sociedad.
+    const result = await peekNextNumero(serie, fecha_emision || '', { emisor_id, emisor_cif });
     if (!result) return res.status(404).json({ error: 'Serie no encontrada' });
 
+    // Se devuelve `emisor_id` tal cual llegó para no romper el contrato del frontend.
     res.json({ serie: result.serie, emisor_id: emisor_id || 'DEFAULT', ultimo_numero: result.ultimo_numero - 1, next_numero: result.ultimo_numero, num_digitos: result.num_digitos || 6 });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -240,6 +255,8 @@ router.get('/facturacion/series/next-number', async (req, res) => {
 router.post('/facturacion/series', async (req, res) => {
   const { serie, descripcion, tipo, prefijo_formato, activa, notas, reinicio_anual, num_digitos } = req.body || {};
   if (!serie || !tipo) return res.status(400).json({ error: 'serie y tipo son obligatorios' });
+  // El carácter "#" está reservado para los ítems contador de correlativo.
+  if (String(serie).includes('#')) return res.status(400).json({ error: 'El nombre de la serie no puede contener el carácter "#"' });
   try {
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturasSeries, Key: { serie } }));
     if (existing.Item) return res.status(409).json({ error: `La serie "${serie}" ya existe` });
@@ -285,6 +302,8 @@ router.put('/facturacion/series', async (req, res) => {
 router.delete('/facturacion/series', async (req, res) => {
   const { serie } = req.body || {};
   if (!serie) return res.status(400).json({ error: 'serie es obligatorio' });
+  // Los ítems contador de correlativo llevan "#": no son series borrables.
+  if (String(serie).includes('#')) return res.status(400).json({ error: 'El nombre de la serie no puede contener el carácter "#"' });
   try {
     await docClient.send(new DeleteCommand({ TableName: tables.facturasSeries, Key: { serie } }));
     res.json({ ok: true });
@@ -292,36 +311,6 @@ router.delete('/facturacion/series', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-async function getSerieConfig(serie) {
-  const existing = await docClient.send(new GetCommand({ TableName: tables.facturasSeries, Key: { serie } }));
-  return existing.Item || null;
-}
-
-async function calcNextNumero(serie, emisorId, fechaEmision) {
-  const serieConfig = await getSerieConfig(serie);
-  if (!serieConfig) return null;
-
-  const year = fechaEmision ? fechaEmision.substring(0, 4) : String(new Date().getFullYear());
-  const reinicioAnual = serieConfig.reinicio_anual !== false;
-
-  const todas = await scanAll(tables.facturas, 'serie = :s AND emisor_id = :e', { ':s': serie, ':e': emisorId || 'DEFAULT' });
-
-  let relevantes = todas;
-  if (reinicioAnual) {
-    relevantes = todas.filter(f => (f.fecha_emision || '').startsWith(year));
-  }
-
-  const maxNumero = relevantes.reduce((max, f) => Math.max(max, f.numero || 0), 0);
-  return { ...serieConfig, ultimo_numero: maxNumero + 1 };
-}
-
-function buildNumeroFactura(serieData, numero, fechaEmision) {
-  const year = fechaEmision ? fechaEmision.substring(0, 4) : String(new Date().getFullYear());
-  const digits = serieData.num_digitos || 6;
-  const prefix = `${serieData.serie}-${year}-`;
-  return `${prefix}${String(numero).padStart(digits, '0')}`;
-}
 
 // ─── FACTURAS ───
 
@@ -361,19 +350,10 @@ router.get('/facturacion/facturas/:id', async (req, res) => {
 
 router.post('/facturacion/facturas', async (req, res) => {
   const body = req.body || {};
+  // El resto de campos del cuerpo los normaliza `construirFacturaConLineas`.
   const {
-    tipo, serie,
-    emisor_id, emisor_nombre, emisor_cif, emisor_direccion,
-    emisor_cp, emisor_municipio, emisor_provincia, emisor_email,
-    emisor_iban, emisor_iban_alternativo,
-    empresa_id, empresa_nombre, empresa_cif, empresa_direccion,
-    empresa_cp, empresa_municipio, empresa_provincia, empresa_email,
-    empresa_iban, empresa_iban_alternativo,
-    fecha_emision, fecha_operacion, fecha_vencimiento,
-    condiciones_pago, forma_pago, observaciones, local_id,
-    es_rectificativa, factura_rectificada_id, motivo_rectificacion,
-    numero_factura_proveedor, fecha_contabilizacion,
-    lineas, usuario_id, usuario_nombre,
+    tipo, serie, emisor_nombre, emisor_cif, empresa_nombre, empresa_cif,
+    fecha_emision, usuario_id, usuario_nombre,
   } = body;
 
   if (!tipo || !serie) return res.status(400).json({ error: 'tipo y serie son obligatorios' });
@@ -381,132 +361,41 @@ router.post('/facturacion/facturas', async (req, res) => {
   if (!empresa_nombre && !empresa_cif) return res.status(400).json({ error: 'Datos de empresa son obligatorios' });
 
   try {
-    const emisorKey = emisor_id || emisor_cif || 'DEFAULT';
-    const serieData = await calcNextNumero(serie, emisorKey, fecha_emision);
-    if (!serieData) return res.status(404).json({ error: `Serie "${serie}" no encontrada` });
-    const numero = serieData.ultimo_numero;
-    const numero_factura = buildNumeroFactura(serieData, numero, fecha_emision);
+    const serieConfig = await getSerieConfig(serie);
+    if (!serieConfig) return res.status(404).json({ error: `Serie "${serie}" no encontrada` });
+    const errorTipoSerie = errorSerieTipoIncompatible(serieConfig, tipo);
+    if (errorTipoSerie) return res.status(400).json({ error: errorTipoSerie });
 
-    const duplicado = await scanAll(tables.facturas, 'numero_factura = :nf', { ':nf': numero_factura });
-    if (duplicado.length > 0) {
-      return res.status(409).json({ error: `El número de factura ${numero_factura} ya existe. Esto puede ocurrir si se registraron dos facturas simultáneamente. Por favor, inténtelo de nuevo.` });
+    // Ventas (OUT): el número se reserva al emitir, no al crear el borrador, para
+    // no dejar huecos en el correlativo si el borrador se descarta.
+    let numero = 0;
+    let numero_factura = '';
+    if (tipo !== 'OUT') {
+      const serieData = await calcNextNumeroPorScan(serie, fecha_emision, body);
+      if (!serieData) return res.status(404).json({ error: `Serie "${serie}" no encontrada` });
+      numero = serieData.ultimo_numero;
+      numero_factura = buildNumeroFactura(serieData, numero, fecha_emision);
+
+      // El mismo número en otra sociedad emisora no es duplicado: la numeración
+      // es correlativa por serie, año y emisor.
+      const duplicado = await existeCorrelativoDuplicado(
+        { serieConfig: serieData, numero, numero_factura, fecha_emision, emisor_id: body.emisor_id, emisor_cif },
+        '',
+      );
+      if (duplicado) {
+        return res.status(409).json({ error: `El número de factura ${numero_factura} ya existe para esta sociedad. Esto puede ocurrir si se registraron dos facturas simultáneamente. Por favor, inténtelo de nuevo.` });
+      }
     }
 
     const id_entrada = uuid();
 
-    let base_imponible = 0;
-    let total_iva = 0;
-    let total_retencion = 0;
-    const lineasToSave = [];
-
-    if (Array.isArray(lineas)) {
-      for (let i = 0; i < lineas.length; i++) {
-        const l = lineas[i];
-        const cantidad = Number(l.cantidad) || 0;
-        const precio = Number(l.precio_unitario) || 0;
-        const descuento = Number(l.descuento_pct) || 0;
-        const tipoIva = Number(l.tipo_iva) || 0;
-        const retencionPct = Number(l.retencion_pct) || 0;
-
-        const base = round2(cantidad * precio * (1 - descuento / 100));
-        const iva = round2(base * tipoIva / 100);
-        const retencion = round2(base * retencionPct / 100);
-        const total = round2(base + iva - retencion);
-
-        base_imponible += base;
-        total_iva += iva;
-        total_retencion += retencion;
-
-        lineasToSave.push({
-          id_factura: id_entrada,
-          id_linea: `L${String(i + 1).padStart(3, '0')}`,
-          producto_id: l.producto_id || '',
-          producto_ref: l.producto_ref || '',
-          descripcion: l.descripcion || '',
-          cantidad,
-          precio_unitario: precio,
-          descuento_pct: descuento,
-          tipo_iva: tipoIva,
-          iva_nombre: l.iva_nombre || `${tipoIva}%`,
-          retencion_pct: retencionPct,
-          base_linea: base,
-          iva_linea: iva,
-          retencion_linea: retencion,
-          total_linea: total,
-        });
-      }
-    }
-
-    base_imponible = round2(base_imponible);
-    total_iva = round2(total_iva);
-    total_retencion = round2(total_retencion);
-    const total_factura = round2(base_imponible + total_iva - total_retencion);
-
-    const factura = {
-      id_entrada,
+    const { factura, lineas: lineasToSave } = construirFacturaConLineas({
       id_factura: id_entrada,
-      numero_factura,
-      tipo,
-      serie,
       numero,
-      estado: 'borrador',
-      emisor_id: emisor_id || '',
-      emisor_nombre: emisor_nombre || '',
-      emisor_cif: emisor_cif || '',
-      emisor_direccion: emisor_direccion || '',
-      emisor_cp: emisor_cp || '',
-      emisor_municipio: emisor_municipio || '',
-      emisor_provincia: emisor_provincia || '',
-      emisor_email: emisor_email || '',
-      emisor_iban: emisor_iban || '',
-      emisor_iban_alternativo: emisor_iban_alternativo || '',
-      empresa_id: empresa_id || '',
-      empresa_nombre: empresa_nombre || '',
-      empresa_cif: empresa_cif || '',
-      empresa_direccion: empresa_direccion || '',
-      empresa_cp: empresa_cp || '',
-      empresa_municipio: empresa_municipio || '',
-      empresa_provincia: empresa_provincia || '',
-      empresa_email: empresa_email || '',
-      empresa_iban: empresa_iban || '',
-      empresa_iban_alternativo: empresa_iban_alternativo || '',
-      fecha_emision: fecha_emision || now().slice(0, 10),
-      fecha_operacion: fecha_operacion || '',
-      fecha_vencimiento: fecha_vencimiento || '',
-      condiciones_pago: condiciones_pago || '',
-      forma_pago: forma_pago || '',
-      base_imponible,
-      total_iva,
-      total_retencion,
-      total_factura,
-      total_cobrado: 0,
-      saldo_pendiente: total_factura,
-      observaciones: observaciones || '',
-      adjuntos: [],
-      local_id: local_id || '',
-      es_rectificativa: es_rectificativa || false,
-      factura_rectificada_id: factura_rectificada_id || '',
-      motivo_rectificacion: motivo_rectificacion || '',
-      numero_factura_proveedor: numero_factura_proveedor || '',
-      /** Facturas IN: fecha/hora de alta contable y usuario (automático al crear) */
-      fecha_contabilizacion: tipo === 'IN' ? now() : (fecha_contabilizacion || ''),
-      contabilizado_por: tipo === 'IN' ? (usuario_nombre || '') : '',
-      contabilizado_por_id: tipo === 'IN' ? (usuario_id || '') : '',
-      creado_por: usuario_id || '',
-      creado_en: now(),
-      modificado_por: usuario_id || '',
-      modificado_en: now(),
-      version: 1,
-      verifactu_hash: '',
-      verifactu_hash_anterior: '',
-      verifactu_qr_data: '',
-      verifactu_registro_alta: '',
-      verifactu_registro_anulacion: '',
-      verifactu_estado: 'no_enviado',
-      verifactu_huella_completa: '',
-      verifactu_cadena_encadenamiento: '',
-      impuestos_resumen: buildImpuestosResumenFromLineas(lineasToSave),
-    };
+      numero_factura,
+      datos: body,
+    });
+    const total_factura = factura.total_factura;
 
     await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
 
@@ -554,6 +443,17 @@ router.put('/facturacion/facturas/:id', async (req, res) => {
         changes[field] = body[field];
         factura[field] = body[field];
       }
+    }
+
+    // `es_abono` va aparte de la lista genérica porque es una bandera que decide
+    // una validación fiscal (un documento de venta solo puede ir en negativo si es
+    // un abono), y la lista genérica copia el valor tal cual: un "false" de texto
+    // habría pasado por verdadero. Sin este campo no había forma de emitir un
+    // abono manual desde la interfaz.
+    if (body.es_abono !== undefined) {
+      const esAbono = body.es_abono === true || body.es_abono === 'true';
+      changes.es_abono = esAbono;
+      factura.es_abono = esAbono;
     }
 
     if (Array.isArray(body.lineas)) {
@@ -644,8 +544,9 @@ router.put('/facturacion/facturas/:id', async (req, res) => {
 // ─── EMITIR factura (cambia estado + genera hash VERI*FACTU) ───
 
 /** Validación masiva de facturas IN en pendiente_revision (p. ej. tras OCR). */
-router.post('/facturacion/facturas/validar-revision', async (req, res) => {
-  const { facturaIds, usuario_id, usuario_nombre } = req.body || {};
+router.post('/facturacion/facturas/validar-revision', requirePermission('facturacion.emitir'), async (req, res) => {
+  const { facturaIds } = req.body || {};
+  const { usuario_id, usuario_nombre } = usuarioAuditoria(req);
   const ids = Array.isArray(facturaIds)
     ? [...new Set(facturaIds.map((x) => String(x).trim()).filter(Boolean))]
     : [];
@@ -681,9 +582,9 @@ router.post('/facturacion/facturas/validar-revision', async (req, res) => {
   }
 });
 
-router.post('/facturacion/facturas/:id/emitir', async (req, res) => {
+router.post('/facturacion/facturas/:id/emitir', requirePermission('facturacion.emitir'), async (req, res) => {
   const id = req.params.id;
-  const { usuario_id, usuario_nombre } = req.body || {};
+  const { usuario_id, usuario_nombre } = usuarioAuditoria(req);
 
   try {
     const result = await emitirOValidarFacturaPorId(id, { usuario_id, usuario_nombre });
@@ -800,12 +701,23 @@ router.post('/facturacion/facturas/:id/duplicar', async (req, res) => {
     const original = existing.Item;
 
     const targetSerie = serie || original.serie;
-    const emisorKey = original.emisor_id || original.emisor_cif || 'DEFAULT';
     const nuevaFechaEmision = now().slice(0, 10);
-    const serieData = await calcNextNumero(targetSerie, emisorKey, nuevaFechaEmision);
-    if (!serieData) return res.status(404).json({ error: `Serie "${targetSerie}" no encontrada` });
-    const numero = serieData.ultimo_numero;
-    const nuevo_numero_factura = buildNumeroFactura(serieData, numero, nuevaFechaEmision);
+    const serieConfig = await getSerieConfig(targetSerie);
+    if (!serieConfig) return res.status(404).json({ error: `Serie "${targetSerie}" no encontrada` });
+    const errorTipoSerie = errorSerieTipoIncompatible(serieConfig, original.tipo);
+    if (errorTipoSerie) return res.status(400).json({ error: errorTipoSerie });
+
+    // La copia nace en borrador: en ventas (OUT) sin número hasta la emisión.
+    let numero = 0;
+    let nuevo_numero_factura = '';
+    if (original.tipo !== 'OUT') {
+      // La copia conserva la sociedad emisora de la original, que es la que
+      // manda en el correlativo.
+      const serieData = await calcNextNumeroPorScan(targetSerie, nuevaFechaEmision, original);
+      if (!serieData) return res.status(404).json({ error: `Serie "${targetSerie}" no encontrada` });
+      numero = serieData.ultimo_numero;
+      nuevo_numero_factura = buildNumeroFactura(serieData, numero, nuevaFechaEmision);
+    }
     const nuevo_id = uuid();
 
     const nueva = { ...original };
@@ -834,6 +746,8 @@ router.post('/facturacion/facturas/:id/duplicar', async (req, res) => {
     nueva.es_rectificativa = false;
     nueva.factura_rectificada_id = '';
     nueva.motivo_rectificacion = '';
+    nueva.rectificativa_tipo = '';
+    limpiarMarcasFacturacionPeriodica(nueva);
     if (nueva.tipo === 'IN') {
       nueva.fecha_contabilizacion = now();
       nueva.contabilizado_por = usuario_nombre || '';
@@ -875,13 +789,27 @@ router.post('/facturacion/facturas/:id/rectificar', async (req, res) => {
       return res.status(400).json({ error: 'No se puede rectificar una factura en borrador o anulada' });
     }
 
-    const targetSerie = serie_rectificativa || 'FR';
-    const emisorKey = original.emisor_id || original.emisor_cif || 'DEFAULT';
+    // Sin serie explícita se elige una compatible con el tipo de la original: la
+    // 'FR' de siempre es serie de venta y bloqueaba rectificar gastos. Criterio
+    // definitivo (serie propia de rectificativas por tipo) pendiente de decidir.
+    const targetSerie = serie_rectificativa || (await serieRectificativaPorDefecto(original.tipo, original.serie));
+    if (!targetSerie) return res.status(400).json({ error: 'No hay ninguna serie disponible para la rectificativa' });
     const rectFechaEmision = now().slice(0, 10);
-    const serieData = await calcNextNumero(targetSerie, emisorKey, rectFechaEmision);
-    if (!serieData) return res.status(404).json({ error: `Serie "${targetSerie}" no encontrada` });
-    const numero = serieData.ultimo_numero;
-    const nuevo_numero_factura = buildNumeroFactura(serieData, numero, rectFechaEmision);
+    const serieConfig = await getSerieConfig(targetSerie);
+    if (!serieConfig) return res.status(404).json({ error: `Serie "${targetSerie}" no encontrada` });
+    const errorTipoSerie = errorSerieTipoIncompatible(serieConfig, original.tipo);
+    if (errorTipoSerie) return res.status(400).json({ error: errorTipoSerie });
+
+    // La rectificativa nace en borrador: en ventas (OUT) sin número hasta la emisión.
+    let numero = 0;
+    let nuevo_numero_factura = '';
+    if (original.tipo !== 'OUT') {
+      // La rectificativa la emite la misma sociedad que la factura original.
+      const serieData = await calcNextNumeroPorScan(targetSerie, rectFechaEmision, original);
+      if (!serieData) return res.status(404).json({ error: `Serie "${targetSerie}" no encontrada` });
+      numero = serieData.ultimo_numero;
+      nuevo_numero_factura = buildNumeroFactura(serieData, numero, rectFechaEmision);
+    }
     const nuevo_id = uuid();
 
     const rectificativa = { ...original };
@@ -894,6 +822,14 @@ router.post('/facturacion/facturas/:id/rectificar', async (req, res) => {
     rectificativa.es_rectificativa = true;
     rectificativa.factura_rectificada_id = id;
     rectificativa.motivo_rectificacion = motivo || '';
+    // Rectificar desde aquí es siempre **por sustitución**: se copia una factura
+    // concreta para rehacerla, y queda señalada en `factura_rectificada_id`. Hay
+    // que fijarlo y no heredarlo: rectificar un abono de rappel —que nace con
+    // `rectificativa_tipo: 'diferencias'` y sin factura señalada— arrastraría ese
+    // valor y produciría la combinación imposible "por diferencias con factura
+    // concreta", que es justo la que distingue los dos tipos ante VERI*FACTU.
+    rectificativa.rectificativa_tipo = 'sustitucion';
+    limpiarMarcasFacturacionPeriodica(rectificativa);
     rectificativa.fecha_emision = rectFechaEmision;
     rectificativa.total_cobrado = 0;
     rectificativa.saldo_pendiente = rectificativa.total_factura;
@@ -2157,6 +2093,29 @@ async function buscarEmpresaPorCif(cifRaw) {
   return found || null;
 }
 
+/** IBAN del proveedor: borrador OCR o, si falta, maestro por id/CIF. */
+async function ibansProveedorParaFactura(b) {
+  let iban = String(b?.empresa_iban ?? '').trim();
+  let ibanAlternativo = String(b?.empresa_iban_alternativo ?? '').trim();
+  if (iban) return { iban, iban_alternativo: ibanAlternativo };
+
+  let emp = null;
+  const id = String(b?.empresa_id ?? '').trim();
+  if (id) {
+    const r = await docClient.send(new GetCommand({ TableName: tables.empresas, Key: { id_empresa: id } }));
+    emp = r.Item ?? null;
+  }
+  if (!emp && b?.proveedor_cif) {
+    emp = await buscarEmpresaPorCif(b.proveedor_cif);
+  }
+  if (emp) {
+    const delMaestro = ibansDeEmpresaItem(emp);
+    if (!iban && delMaestro.iban) iban = delMaestro.iban;
+    if (!ibanAlternativo && delMaestro.iban_alternativo) ibanAlternativo = delMaestro.iban_alternativo;
+  }
+  return { iban, iban_alternativo: ibanAlternativo };
+}
+
 const IMAGE_MIMES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/tiff', 'image/bmp'];
 const MIN_TEXT_THRESHOLD = 50;
 
@@ -2495,6 +2454,8 @@ router.post('/facturacion/ocr/confirmar', async (req, res) => {
         ];
       }
 
+      const { iban: empresaIban, iban_alternativo: empresaIbanAlt } = await ibansProveedorParaFactura(b);
+
       const factura = {
         id_entrada: id_factura,
         id_factura,
@@ -2523,6 +2484,8 @@ router.post('/facturacion/ocr/confirmar', async (req, res) => {
         empresa_municipio: '',
         empresa_provincia: '',
         empresa_email: '',
+        empresa_iban: empresaIban,
+        empresa_iban_alternativo: empresaIbanAlt,
         numero_factura_proveedor: b.numero_factura_proveedor || '',
         base_imponible: round2(b.base_imponible || 0),
         base_imponible_total: round2(b.base_imponible_total ?? b.base_imponible ?? 0),

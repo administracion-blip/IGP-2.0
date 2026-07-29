@@ -17,6 +17,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { InputFecha } from '../../components/InputFecha';
+import { DatosParaPago } from '../../components/RegistrarPagoModal';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { SelectorDesplegableMulti } from '../../components/SelectorDesplegableMulti';
 import {
@@ -54,6 +55,8 @@ import { ESTADOS_FACTURA_REMESABLES, esFacturaSeleccionableEnListado } from '../
 import { descargarAdjuntoFacturaRecibida } from '../../lib/descargarAdjuntoFactura';
 import { textoTrimestreFactura, trimestreDesdeFechaEmision } from '../../lib/idDocumentoFactura';
 import { buildEmpresasDesdeFacturasHref } from '../../lib/navegacionEmpresas';
+import { buildConceptoRemesaFacturaRecibida } from '../../lib/conceptoRemesa';
+import { resolverIbanBeneficiarioFactura } from '../../lib/resolverIbanFactura';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const PAGE_SIZE = 50;
@@ -381,6 +384,13 @@ export default function FacturasGastoScreen() {
             return {
               id_empresa: e.id_empresa != null ? String(e.id_empresa) : '',
               Cif: e.Cif != null ? String(e.Cif).trim() : e.cif != null ? String(e.cif).trim() : '',
+              Iban: e.Iban != null ? String(e.Iban).trim() : e.iban != null ? String(e.iban).trim() : '',
+              IbanAlternativo:
+                e.IbanAlternativo != null
+                  ? String(e.IbanAlternativo).trim()
+                  : e.ibanAlternativo != null
+                    ? String(e.ibanAlternativo).trim()
+                    : '',
               Etiqueta,
               tipoRecibo: tipoReciboRaw != null ? String(tipoReciboRaw).trim() : undefined,
               'Tipo de recibo': typeof tipoReciboRaw === 'string' ? tipoReciboRaw : undefined,
@@ -1117,23 +1127,34 @@ export default function FacturasGastoScreen() {
         <View style={styles.toolbar}>
           {TOOLBAR_BUTTONS.filter((b) => hasPermiso(b.permiso)).map((btn) => {
             const disabled = isBtnDisabled(btn);
+            const esPagar = btn.id === 'pagar';
             return (
               <View
                 key={btn.id}
                 style={styles.toolbarBtnWrap}
-                {...(Platform.OS === 'web' ? { onMouseEnter: () => setHoveredBtn(btn.id), onMouseLeave: () => setHoveredBtn(null) } as object : {})}
+                {...(Platform.OS === 'web' && !esPagar
+                  ? { onMouseEnter: () => setHoveredBtn(btn.id), onMouseLeave: () => setHoveredBtn(null) }
+                  : {}) as object}
               >
-                {hoveredBtn === btn.id && (
+                {hoveredBtn === btn.id && !esPagar ? (
                   <View style={styles.tooltip}>
                     <Text style={styles.tooltipText}>{btn.label}</Text>
                   </View>
-                )}
+                ) : null}
                 <TouchableOpacity
-                  style={[styles.toolbarBtn, disabled && styles.toolbarBtnDisabled]}
+                  style={[
+                    esPagar ? styles.toolbarBtnPagar : styles.toolbarBtn,
+                    disabled && styles.toolbarBtnDisabled,
+                  ]}
                   onPress={() => handleToolbar(btn.id)}
                   disabled={disabled}
                 >
-                  <MaterialIcons name={btn.icon} size={18} color={disabled ? '#94a3b8' : '#0ea5e9'} />
+                  <MaterialIcons
+                    name={btn.icon}
+                    size={18}
+                    color={disabled ? '#94a3b8' : esPagar ? '#fff' : '#0ea5e9'}
+                  />
+                  {esPagar ? <Text style={styles.toolbarBtnPagarText}>Pagar</Text> : null}
                 </TouchableOpacity>
               </View>
             );
@@ -1454,6 +1475,7 @@ export default function FacturasGastoScreen() {
                               styles.cellText,
                               isMoneda && styles.cellTextRight,
                               col === 'total_factura' && styles.cellTextBold,
+                              col === 'empresa_nombre' && styles.cellTextBold,
                               col === 'numero_factura_proveedor' && styles.cellTextBold,
                             ]}
                             numberOfLines={1}
@@ -1593,17 +1615,62 @@ export default function FacturasGastoScreen() {
         <Pressable style={styles.modalOverlay} onPress={() => !procesando && setModalPagar(false)}>
           <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.modalTitle}>Registrar pago</Text>
+            {selectedFactura?.emisor_nombre ? (
+              <View style={styles.modalEmpresaChipRow}>
+                <Text style={styles.modalEmpresaChipLabel}>Empresa</Text>
+                <View style={styles.modalEmpresaChip}>
+                  <Text style={styles.modalEmpresaChipText} numberOfLines={1}>
+                    {selectedFactura.emisor_nombre}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
             <Text style={styles.modalLabel}>Factura: {selectedFactura?.id_factura} — Saldo: {selectedFactura ? formatMoneda(Number(selectedFactura.saldo_pendiente) || 0) : ''}</Text>
 
-            <Text style={styles.modalFieldLabel}>Fecha del pago *</Text>
-            <InputFecha
-              valueIso={pagoFecha}
-              onChangeIso={(v) => {
-                setPagoFecha(v);
-                setPagoFechaEditadaManual(true);
-              }}
-              placeholder="dd/mm/aaaa"
+            <DatosParaPago
+              datosPago={selectedFactura ? (() => {
+                const { iban, ibanAlternativo } = resolverIbanBeneficiarioFactura(selectedFactura, empresasCatalogo);
+                return {
+                  beneficiario: selectedFactura.empresa_nombre ?? '',
+                  iban,
+                  ibanAlternativo,
+                  concepto: buildConceptoRemesaFacturaRecibida({
+                    numeroFacturaProveedor: selectedFactura.numero_factura_proveedor,
+                    numeroFactura: selectedFactura.numero_factura,
+                    proveedorNombre: selectedFactura.empresa_nombre,
+                    observaciones: selectedFactura.observaciones,
+                  }),
+                };
+              })() : undefined}
             />
+
+            <View style={[styles.modalPagoFechaMetodoRow, shouldStackToolbar && styles.modalPagoFechaMetodoRowStacked]}>
+              <View style={styles.modalPagoFechaCell}>
+                <Text style={styles.modalFieldLabelInline}>Fecha del pago *</Text>
+                <InputFecha
+                  compact
+                  valueIso={pagoFecha}
+                  onChangeIso={(v) => {
+                    setPagoFecha(v);
+                    setPagoFechaEditadaManual(true);
+                  }}
+                  placeholder="dd/mm/aaaa"
+                  style={styles.dateFilterInput}
+                />
+              </View>
+              <View style={styles.modalPagoMetodoCell}>
+                <Text style={styles.modalFieldLabelInline}>Método de pago</Text>
+                <SelectorDesplegable
+                  compact
+                  icono="payments"
+                  tituloLista="Método de pago"
+                  iconoLista="payments"
+                  valorId={pagoMetodo}
+                  opciones={FORMAS_PAGO.map((m) => ({ id: m, titulo: labelFormaPago(m), icono: 'payments' as const }))}
+                  onSeleccionar={(id) => onCambiarMetodoPago(id)}
+                />
+              </View>
+            </View>
 
             <Text style={styles.modalFieldLabel}>Importe</Text>
             <TextInput
@@ -1615,15 +1682,6 @@ export default function FacturasGastoScreen() {
               keyboardType="decimal-pad"
             />
 
-            <Text style={styles.modalFieldLabel}>Método de pago</Text>
-            <SelectorDesplegable
-              icono="payments"
-              tituloLista="Método de pago"
-              iconoLista="payments"
-              valorId={pagoMetodo}
-              opciones={FORMAS_PAGO.map((m) => ({ id: m, titulo: labelFormaPago(m), icono: 'payments' as const }))}
-              onSeleccionar={(id) => onCambiarMetodoPago(id)}
-            />
             {pagoMetodo === 'otro' && (
               <>
                 <Text style={styles.modalFieldLabel}>Describe el método *</Text>
@@ -1833,6 +1891,20 @@ const styles = StyleSheet.create({
   },
   toolbarBtnDisabled: { opacity: 0.5 },
   toolbarBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
+  toolbarBtnPagar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minWidth: 64,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#4a7c59',
+    borderRadius: 10,
+    backgroundColor: '#6b9e7a',
+  },
+  toolbarBtnPagarText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   remesaCrearBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2048,7 +2120,33 @@ const styles = StyleSheet.create({
     width: '90%',
     maxWidth: 400,
   },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: '#334155', marginBottom: 12 },
+  modalTitle: { fontSize: 16, fontWeight: '700', color: '#334155', marginBottom: 8 },
+  modalEmpresaChipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+    flexWrap: 'wrap',
+  },
+  modalEmpresaChipLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  modalEmpresaChip: {
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    maxWidth: '100%',
+  },
+  modalEmpresaChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0369a1',
+  },
   modalWarningTitle: { fontSize: 13, fontWeight: '700', color: '#b45309', marginBottom: 8 },
   modalAvisoTipoRecibo: {
     flexDirection: 'row',
@@ -2068,6 +2166,24 @@ const styles = StyleSheet.create({
   modalLabelMuted: { fontSize: 11, color: '#94a3b8', marginBottom: 4, lineHeight: 16, fontStyle: 'italic' },
   modalStrong: { fontWeight: '700', color: '#334155' },
   modalFieldLabel: { fontSize: 11, fontWeight: '600', color: '#334155', marginBottom: 4, marginTop: 8 },
+  modalFieldLabelInline: { fontSize: 11, fontWeight: '600', color: '#334155', marginBottom: 4 },
+  modalPagoFechaMetodoRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    marginTop: 8,
+  },
+  modalPagoFechaMetodoRowStacked: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+  },
+  modalPagoFechaCell: {
+    width: 130,
+  },
+  modalPagoMetodoCell: {
+    flex: 1,
+    minWidth: 0,
+  },
   modalInput: {
     borderWidth: 1,
     borderColor: '#e2e8f0',

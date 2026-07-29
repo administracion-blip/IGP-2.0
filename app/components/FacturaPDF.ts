@@ -10,6 +10,8 @@ type DatosEmisor = {
   provincia: string;
   email: string;
   telefono?: string;
+  iban?: string;
+  ibanAlternativo?: string;
 };
 
 type DatosFactura = {
@@ -65,6 +67,124 @@ function formatFecha(iso: string | undefined): string {
   return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
+type DatosParte = {
+  label: string;
+  nombre: string;
+  cif: string;
+  direccion: string;
+  cp: string;
+  municipio: string;
+  provincia: string;
+  email?: string;
+  telefono?: string;
+};
+
+function medirAlturaCajaParte(doc: jsPDF, ancho: number, parte: DatosParte): number {
+  const pad = 4;
+  const interlinea = 4.5;
+  const salto = 5;
+  let h = 6 + 6 + salto + salto; // etiqueta + nombre + CIF + margen inferior
+
+  const dir = [parte.direccion, parte.cp, parte.municipio, parte.provincia].filter(Boolean).join(', ');
+  if (dir) {
+    const lineas = doc.splitTextToSize(dir, ancho - pad * 2);
+    h += lineas.length * interlinea + 2;
+  }
+  if (parte.email) h += salto;
+  if (parte.telefono) h += salto;
+  return Math.max(h, 38);
+}
+
+function dibujarCajaParte(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  ancho: number,
+  alto: number,
+  parte: DatosParte,
+) {
+  const pad = 4;
+  const interlinea = 4.5;
+  const salto = 5;
+
+  doc.setFillColor(...COLORS.bg);
+  doc.roundedRect(x, y, ancho, alto, 2, 2, 'F');
+
+  let cy = y + 6;
+  doc.setFontSize(8);
+  doc.setTextColor(...COLORS.medium);
+  doc.setFont('helvetica', 'normal');
+  doc.text(parte.label, x + pad, cy);
+  cy += 6;
+
+  doc.setFontSize(10);
+  doc.setTextColor(...COLORS.dark);
+  doc.setFont('helvetica', 'bold');
+  doc.text(parte.nombre || '—', x + pad, cy, { maxWidth: ancho - pad * 2 });
+  cy += 6;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(...COLORS.medium);
+  doc.text(`CIF: ${parte.cif || '—'}`, x + pad, cy);
+  cy += salto;
+
+  const dir = [parte.direccion, parte.cp, parte.municipio, parte.provincia].filter(Boolean).join(', ');
+  if (dir) {
+    const lineas = doc.splitTextToSize(dir, ancho - pad * 2);
+    doc.text(lineas, x + pad, cy);
+    cy += lineas.length * interlinea + 2;
+  }
+
+  if (parte.email) {
+    doc.text(parte.email, x + pad, cy);
+    cy += salto;
+  }
+  if (parte.telefono) {
+    doc.text(`Tel: ${parte.telefono}`, x + pad, cy);
+  }
+}
+
+function dibujarBandaDatosPago(
+  doc: jsPDF,
+  emisor: DatosEmisor,
+  idFactura: string,
+  margin: number,
+  contentWidth: number,
+  pageWidth: number,
+  pageH: number,
+) {
+  const lineY = pageH - 15;
+  const bandH = 18;
+  const bandY = lineY - bandH - 1;
+  const colW = contentWidth / 4;
+
+  doc.setFillColor(...COLORS.bg);
+  doc.rect(margin, bandY, contentWidth, bandH, 'F');
+
+  const campos = [
+    { label: 'Beneficiario', value: emisor.nombre || '—' },
+    { label: 'IBAN', value: emisor.iban?.trim() || '—' },
+    { label: 'IBAN alternativo', value: emisor.ibanAlternativo?.trim() || '—' },
+    { label: 'Concepto', value: idFactura || '—' },
+  ];
+
+  campos.forEach((campo, i) => {
+    const cx = margin + colW * i + 3;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...COLORS.medium);
+    doc.text(campo.label, cx, bandY + 5);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(...COLORS.dark);
+    doc.text(campo.value, cx, bandY + 11, { maxWidth: colW - 6 });
+  });
+
+  doc.setDrawColor(...COLORS.light);
+  doc.line(margin, lineY, pageWidth - margin, lineY);
+}
+
 export async function generarPDFFactura(
   emisor: DatosEmisor,
   cliente: DatosCliente,
@@ -106,46 +226,40 @@ export async function generarPDFFactura(
 
   // ── EMISOR / CLIENTE BOXES ──
   const colW = contentWidth / 2 - 4;
-
-  // Emisor
-  doc.setFillColor(...COLORS.bg);
-  doc.roundedRect(margin, y, colW, 38, 2, 2, 'F');
-  doc.setFontSize(8);
-  doc.setTextColor(...COLORS.medium);
-  doc.text('EMISOR', margin + 4, y + 6);
-  doc.setFontSize(10);
-  doc.setTextColor(...COLORS.dark);
-  doc.setFont('helvetica', 'bold');
-  doc.text(emisor.nombre, margin + 4, y + 13);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(...COLORS.medium);
-  doc.text(`CIF: ${emisor.cif}`, margin + 4, y + 19);
-  const dirEmisor = [emisor.direccion, emisor.cp, emisor.municipio, emisor.provincia].filter(Boolean).join(', ');
-  if (dirEmisor) doc.text(dirEmisor, margin + 4, y + 24, { maxWidth: colW - 8 });
-  if (emisor.email) doc.text(emisor.email, margin + 4, y + 29);
-  if (emisor.telefono) doc.text(`Tel: ${emisor.telefono}`, margin + 4, y + 34);
-
-  // Cliente / Proveedor
   const colX2 = margin + colW + 8;
-  doc.setFillColor(...COLORS.bg);
-  doc.roundedRect(colX2, y, colW, 38, 2, 2, 'F');
-  doc.setFontSize(8);
-  doc.setTextColor(...COLORS.medium);
-  doc.text(factura.tipo === 'OUT' ? 'CLIENTE' : 'PROVEEDOR', colX2 + 4, y + 6);
-  doc.setFontSize(10);
-  doc.setTextColor(...COLORS.dark);
-  doc.setFont('helvetica', 'bold');
-  doc.text(cliente.nombre || '—', colX2 + 4, y + 13);
+
+  const emisorParte: DatosParte = {
+    label: 'EMISOR',
+    nombre: emisor.nombre,
+    cif: emisor.cif,
+    direccion: emisor.direccion,
+    cp: emisor.cp,
+    municipio: emisor.municipio,
+    provincia: emisor.provincia,
+    email: emisor.email,
+    telefono: emisor.telefono,
+  };
+  const clienteParte: DatosParte = {
+    label: factura.tipo === 'OUT' ? 'CLIENTE' : 'PROVEEDOR',
+    nombre: cliente.nombre,
+    cif: cliente.cif,
+    direccion: cliente.direccion,
+    cp: cliente.cp,
+    municipio: cliente.municipio,
+    provincia: cliente.provincia,
+    email: cliente.email,
+  };
+
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
-  doc.setTextColor(...COLORS.medium);
-  doc.text(`CIF: ${cliente.cif || '—'}`, colX2 + 4, y + 19);
-  const dirCliente = [cliente.direccion, cliente.cp, cliente.municipio, cliente.provincia].filter(Boolean).join(', ');
-  if (dirCliente) doc.text(dirCliente, colX2 + 4, y + 24, { maxWidth: colW - 8 });
-  if (cliente.email) doc.text(cliente.email, colX2 + 4, y + 29);
+  const boxH = Math.max(
+    medirAlturaCajaParte(doc, colW, emisorParte),
+    medirAlturaCajaParte(doc, colW, clienteParte),
+  );
+  dibujarCajaParte(doc, margin, y, colW, boxH, emisorParte);
+  dibujarCajaParte(doc, colX2, y, colW, boxH, clienteParte);
 
-  y += 44;
+  y += boxH + 6;
 
   // ── DATOS DE FACTURA ──
   doc.setFillColor(...COLORS.primary);
@@ -375,14 +489,51 @@ export async function generarPDFFactura(
 
   // ── FOOTER ──
   const pageH = doc.internal.pageSize.getHeight();
-  doc.setDrawColor(...COLORS.light);
-  doc.line(margin, pageH - 15, pageWidth - margin, pageH - 15);
+  dibujarBandaDatosPago(doc, emisor, factura.id_factura, margin, contentWidth, pageWidth, pageH);
   doc.setFontSize(7);
   doc.setTextColor(...COLORS.medium);
   doc.text(`${emisor.nombre} · CIF ${emisor.cif}`, margin, pageH - 10);
   doc.text(`Generado: ${new Date().toLocaleDateString('es-ES')}`, pageWidth - margin, pageH - 10, { align: 'right' });
 
+  if (factura.estado === 'borrador') {
+    aplicarMarcaAguaBorrador(doc);
+  }
+
   return doc;
+}
+
+/** Marca de agua diagonal en todas las páginas para facturas en borrador. */
+function aplicarMarcaAguaBorrador(doc: jsPDF) {
+  const texto = 'BORRADOR';
+  const anguloGrados = 45;
+  const total = doc.getNumberOfPages();
+
+  for (let p = 1; p <= total; p++) {
+    doc.setPage(p);
+    const w = doc.internal.pageSize.getWidth();
+    const h = doc.internal.pageSize.getHeight();
+    doc.saveGraphicsState();
+    doc.setGState(new doc.GState({ opacity: 0.4 }));
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(68);
+    doc.setTextColor(128, 128, 128);
+
+    const dim = doc.getTextDimensions(texto);
+    const cx = w / 2;
+    const cy = h / 2;
+    // jsPDF rota alrededor del anclaje (x,y), no del centro del texto.
+    // Con align center + angle el pivote queda desplazado; compensamos el offset horizontal.
+    const rad = (-anguloGrados * Math.PI) / 180;
+    const offsetX = (dim.w / 2) * Math.cos(rad);
+    const offsetY = (dim.w / 2) * Math.sin(rad);
+
+    doc.text(texto, cx - offsetX, cy - offsetY, {
+      align: 'left',
+      baseline: 'middle',
+      angle: anguloGrados,
+    });
+    doc.restoreGraphicsState();
+  }
 }
 
 export async function descargarPDFFactura(

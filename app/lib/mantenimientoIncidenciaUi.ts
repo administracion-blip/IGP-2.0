@@ -63,6 +63,74 @@ export function incidenciaEstaProgramada(inc: {
   return (inc.estado ?? '').toString().trim() === 'Programado';
 }
 
+/**
+ * Segundos de trabajo cronometrado: tramos ya cerrados más el tramo abierto.
+ * El inicio del tramo lo marca el servidor, así que el total sigue siendo
+ * correcto aunque se recargue la pantalla mucho después.
+ */
+export function segundosTrabajo(
+  segundosAcumulados: unknown,
+  enCursoDesde: unknown,
+  ahoraMs: number,
+): number {
+  const base = Number(segundosAcumulados);
+  let total = Number.isFinite(base) && base > 0 ? base : 0;
+  const inicio = (enCursoDesde ?? '').toString().trim();
+  if (inicio) {
+    const inicioMs = new Date(inicio).getTime();
+    if (Number.isFinite(inicioMs)) total += Math.max(0, Math.floor((ahoraMs - inicioMs) / 1000));
+  }
+  return total;
+}
+
+/**
+ * Minutos facturables de un tramo: criterio único de redondeo al minuto, para
+ * que el texto «Cronometrado» y las horas precargadas nunca discrepen.
+ * Todo tiempo cronometrado cuenta al menos un minuto: si no, un tramo corto
+ * se convertiría en cero y la mano de obra desaparecería de la valoración.
+ */
+export function minutosTrabajo(segundos: number): number {
+  const s = Math.max(0, segundos);
+  if (s <= 0) return 0;
+  return Math.max(1, Math.round(s / 60));
+}
+
+/** Duración legible en horas y minutos: «1 h 38 min». */
+export function formatearDuracionTrabajo(segundos: number): string {
+  const minutos = minutosTrabajo(segundos);
+  if (minutos < 1) return '0 min';
+  const h = Math.floor(minutos / 60);
+  const m = minutos % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h} h`;
+  return `${h} h ${m} min`;
+}
+
+/** Cronómetro en marcha: «12:05» o «1:37:12». */
+export function formatearCronometro(segundos: number): string {
+  const s = Math.max(0, Math.floor(segundos));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const seg = s % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(seg).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+/**
+ * Segundos cronometrados a horas decimales para el campo de mano de obra.
+ * El criterio de negocio son minutos exactos: se redondea a minuto (mismo
+ * criterio que `formatearDuracionTrabajo`) y se conservan 4 decimales, que
+ * mantienen el importe exacto al céntimo y se leen bien en el campo
+ * (25 min → «0,4167»; 90 min → «1,5»).
+ */
+export function segundosAHorasInput(segundos: number): string {
+  const minutos = minutosTrabajo(segundos);
+  if (minutos <= 0) return '';
+  const txt = (minutos / 60).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  return txt.replace('.', ',');
+}
+
 export function formatearFechaIncidencia(iso: string | undefined): string {
   if (!iso) return '';
   try {

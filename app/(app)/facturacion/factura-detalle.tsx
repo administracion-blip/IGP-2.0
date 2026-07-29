@@ -21,7 +21,9 @@ import {
   type RegistrarPagoPayloadFactura,
 } from '../../components/RegistrarPagoModal';
 import { BadgeEstado } from '../../components/BadgeEstado';
+import { BadgeAbono } from '../../components/BadgeAbono';
 import { CampoIdDocumentoFacturaRecibida } from '../../components/CampoIdDocumentoFacturaRecibida';
+import { CampoIdFactura } from '../../components/CampoIdFactura';
 import { CampoConceptoRemesaFacturaRecibida } from '../../components/CampoConceptoRemesaFacturaRecibida';
 import { descargarAdjuntoFacturaRecibida } from '../../lib/descargarAdjuntoFactura';
 import { ResumenTotales } from '../../components/ResumenTotales';
@@ -35,6 +37,7 @@ import {
   calcularLinea,
   formatMoneda,
   labelFormaPago,
+  avisoSignoAbono,
   mapTipoReciboToFormaPago,
   type LineaFactura,
   type Factura,
@@ -55,8 +58,25 @@ import { useFacturaFormLogic } from '../../hooks/useFacturaFormLogic';
 import { fechaEmisionFacturaAIso, formatCreadoEn, formatFechaPagoRow, textoFechaContabilizacionGasto } from '../../utils/formatFecha';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalToast, detectToastType } from '../../components/Toast';
+import { MIN_TOUCH } from '../../constants/layout';
 import { useConfirmar } from '../../hooks/useConfirmar';
 import { apiFetch, errorMessage } from '../../utils/api';
+import { resolverIbanBeneficiarioFactura } from '../../lib/resolverIbanFactura';
+import { buildConceptoRemesaFacturaRecibida } from '../../lib/conceptoRemesa';
+import type { EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
+
+/**
+ * Crear/duplicar/rectificar responden `{ ok, factura, ... }` con el id en
+ * `factura.id_entrada`; el fallback cubre respuestas antiguas con el id en la raíz.
+ */
+type RespuestaConFactura = {
+  factura?: { id_entrada?: string; id_factura?: string };
+  id_factura?: string;
+};
+
+function idFacturaDeRespuesta(data: RespuestaConFactura): string {
+  return String(data.factura?.id_entrada || data.factura?.id_factura || data.id_factura || '');
+}
 
 const DATOS_EMISOR = {
   nombre: 'IPG Hostelería S.L.',
@@ -75,7 +95,7 @@ export default function FacturaDetalleScreen() {
   const modo = (params.modo ?? 'crear') as 'crear' | 'editar';
   const facturaId = params.id ?? '';
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, hasPermiso } = useAuth();
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
 
@@ -116,6 +136,10 @@ export default function FacturaDetalleScreen() {
   const [fechaOperacion, setFechaOperacion] = useState('');
   const [observaciones, setObservaciones] = useState('');
   const [localId, setLocalId] = useState('');
+  /** Solo ventas: documento que devuelve importe, con totales en negativo */
+  const [esAbono, setEsAbono] = useState(false);
+  /** Solo lectura: una rectificativa en negativo ya es un abono y no necesita la marca */
+  const [esRectificativa, setEsRectificativa] = useState(false);
   const [numFacturaProveedor, setNumFacturaProveedor] = useState('');
   /** ISO con hora; en facturas IN lo asigna el servidor al crear */
   const [fechaContabilizacionIso, setFechaContabilizacionIso] = useState('');
@@ -195,12 +219,17 @@ export default function FacturaDetalleScreen() {
 
   const [previewNumFactura, setPreviewNumFactura] = useState('');
   useEffect(() => {
-    if (!serie || !emisorId || modo === 'editar') { setPreviewNumFactura(''); return; }
+    // En ventas el número se reserva al emitir y el campo muestra «Provisional»:
+    // no hay preview que mostrar, así que se evita la consulta.
+    if (esVenta || !serie || !emisorId || modo === 'editar') { setPreviewNumFactura(''); return; }
     const s = series.find((x) => x.serie === serie);
     if (!s) { setPreviewNumFactura(''); return; }
     const iso = /^\d{4}-\d{2}-\d{2}$/.test(fechaEmision) ? fechaEmision : '';
     const year = iso ? iso.substring(0, 4) : String(new Date().getFullYear());
-    apiFetch(`/api/facturacion/series/next-number?serie=${encodeURIComponent(serie)}&emisor_id=${encodeURIComponent(emisorId)}`)
+    // La reserva real usa el año de fecha_emision: sin este parámetro el preview mentiría.
+    const qs = new URLSearchParams({ serie, emisor_id: emisorId });
+    if (iso) qs.set('fecha_emision', iso);
+    apiFetch(`/api/facturacion/series/next-number?${qs.toString()}`)
       .then((r) => r.json())
       .then((d) => {
         const digits = d.num_digitos || s.num_digitos || 6;
@@ -211,11 +240,15 @@ export default function FacturaDetalleScreen() {
         const digits = s.num_digitos || 6;
         setPreviewNumFactura(`${s.serie}-${year}-${String(1).padStart(digits, '0')}`);
       });
-  }, [serie, emisorId, fechaEmision, series, modo]);
+  }, [serie, emisorId, fechaEmision, series, modo, esVenta]);
 
   const esEditable = estado === 'borrador' || (tipo === 'IN' && estado === 'pendiente_revision');
   const esValidacionRevisionIn = tipo === 'IN' && estado === 'pendiente_revision';
   const puedeEmitir = estado === 'borrador' || esValidacionRevisionIn;
+  /** El correlativo de venta se reserva al emitir: en borrador no hay número que mostrar. */
+  const numeroProvisionalVenta = esVenta && estado === 'borrador' && !numeroFactura;
+  /** Facturas de venta ya emitidas: mostrar el identificador interno en la ficha. */
+  const mostrarIdFactura = esVenta && modo === 'editar' && !!facturaId && estado !== 'borrador';
   const puedeRegistrarPago =
     modo === 'editar' &&
     ['emitida', 'parcialmente_cobrada', 'pendiente_pago', 'parcialmente_pagada'].includes(estado);
@@ -223,6 +256,10 @@ export default function FacturaDetalleScreen() {
   const puedeRectificar =
     modo === 'editar' &&
     ['emitida', 'parcialmente_cobrada', 'cobrada', 'pendiente_pago', 'parcialmente_pagada', 'pagada'].includes(estado);
+  /** El signo de los totales debe cuadrar con la marca de abono o la emisión falla. */
+  const avisoAbono = esVenta
+    ? avisoSignoAbono({ esAbono, totalFactura: totales.total_factura, esRectificativa })
+    : null;
 
   /** Sociedad GRUPO PARIPE: emisor en ventas y en facturas recibidas (sociedad que recibe el gasto). */
   const emisorFiltradas = useMemo(() => {
@@ -241,6 +278,62 @@ export default function FacturaDetalleScreen() {
       (e) => (e.nombre || '').toLowerCase().includes(q) || (e.cif || '').toLowerCase().includes(q),
     );
   }, [empresas, empresaSearch]);
+
+  const empresasCatalogoPago = useMemo(
+    (): EmpresaConTipoRecibo[] =>
+      empresas.map((e) => ({
+        id_empresa: e.id_empresa,
+        Cif: e.cif,
+        Iban: e.iban,
+        IbanAlternativo: e.ibanAlternativo,
+        tipoRecibo: e.tipoRecibo,
+      })),
+    [empresas],
+  );
+
+  const datosPagoModal = useMemo(() => {
+    const refIban = esVenta
+      ? {
+          empresa_iban: emisorIban,
+          empresa_iban_alternativo: emisorIbanAlt,
+          empresa_id: emisorId,
+          empresa_cif: emisorCif,
+        }
+      : {
+          empresa_iban: empresaIban,
+          empresa_iban_alternativo: empresaIbanAlt,
+          empresa_id: empresaId,
+          empresa_cif: empresaCif,
+        };
+    const { iban, ibanAlternativo } = resolverIbanBeneficiarioFactura(refIban, empresasCatalogoPago);
+    return {
+      beneficiario: esVenta ? emisorNombre : empresaNombre,
+      iban,
+      ibanAlternativo,
+      concepto: buildConceptoRemesaFacturaRecibida({
+        numeroFacturaProveedor: numFacturaProveedor,
+        numeroFactura,
+        proveedorNombre: empresaNombre,
+        observaciones,
+      }),
+    };
+  }, [
+    esVenta,
+    emisorIban,
+    emisorIbanAlt,
+    emisorId,
+    emisorCif,
+    emisorNombre,
+    empresaIban,
+    empresaIbanAlt,
+    empresaId,
+    empresaCif,
+    empresaNombre,
+    numFacturaProveedor,
+    numeroFactura,
+    observaciones,
+    empresasCatalogoPago,
+  ]);
 
   const productosFiltrados = useMemo(() => {
     if (!productoSearch.trim()) return productos;
@@ -300,6 +393,8 @@ export default function FacturaDetalleScreen() {
       setFormaPago(f.forma_pago ?? 'transferencia');
       setObservaciones(f.observaciones ?? '');
       setLocalId(f.local_id ?? '');
+      setEsAbono(!!f.es_abono);
+      setEsRectificativa(!!f.es_rectificativa);
       setNumFacturaProveedor(f.numero_factura_proveedor ?? '');
       setFechaContabilizacionIso(String(f.fecha_contabilizacion ?? '').trim());
       setContabilizadoPor(String(f.contabilizado_por ?? '').trim());
@@ -442,6 +537,8 @@ export default function FacturaDetalleScreen() {
     forma_pago: formaPago,
     observaciones,
     local_id: localId || null,
+    /** En gastos el signo lo pone el proveedor, así que la marca no se toca. */
+    ...(esVenta ? { es_abono: esAbono } : {}),
     numero_factura_proveedor: tipo === 'IN' ? numFacturaProveedor : null,
     /** Al crear IN el servidor fija fecha/hora/usuario; al editar se reenvía el ISO para no perder la hora */
     ...(tipo === 'IN' && modo === 'editar' ? { fecha_contabilizacion: fechaContabilizacionIso || null } : {}),
@@ -494,7 +591,7 @@ export default function FacturaDetalleScreen() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Error al guardar');
-      const newId = data.factura?.id_entrada || data.id_factura;
+      const newId = idFacturaDeRespuesta(data);
       if (modo === 'crear' && newId) {
         alertMsg('Guardado', 'Factura guardada correctamente');
         router.replace({
@@ -536,7 +633,11 @@ export default function FacturaDetalleScreen() {
         });
         const createData = await createRes.json();
         if (!createRes.ok) throw new Error(createData.error ?? 'Error al crear');
-        const newId = createData.id_factura;
+        const newId = idFacturaDeRespuesta(createData);
+        // Sin id no se puede emitir: cortar aquí evita reintentos que dupliquen el borrador.
+        if (!newId) {
+          throw new Error('La factura se ha creado pero no se ha recibido su identificador. Búscala en el listado y emítela desde ahí para no duplicarla.');
+        }
         const emitRes = await apiFetch(`/api/facturacion/facturas/${newId}/emitir`, {
           method: 'POST',
           body: JSON.stringify({ usuario_id: user?.id_usuario, usuario_nombre: user?.Nombre }),
@@ -544,7 +645,12 @@ export default function FacturaDetalleScreen() {
         if (!emitRes.ok) {
           const d = await emitRes.json();
           const msg = d.errores ? `Validación:\n• ${d.errores.join('\n• ')}` : (d.error ?? 'Error al emitir');
-          throw new Error(msg);
+          // El borrador ya está creado: pasar a edición evita que cada reintento lo duplique.
+          router.replace({
+            pathname: '/facturacion/factura-detalle',
+            params: { tipo, modo: 'editar', id: newId },
+          } as any);
+          throw new Error(`${msg}\n\nLa factura ha quedado guardada como borrador: corrige los datos y vuelve a emitir.`);
         }
         alertMsg('Emitida', 'Factura emitida correctamente');
         router.replace({
@@ -601,10 +707,12 @@ export default function FacturaDetalleScreen() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Error al duplicar');
+      const newId = idFacturaDeRespuesta(data);
+      if (!newId) throw new Error('Se ha creado la copia pero no se ha recibido su identificador. Búscala en el listado.');
       alertMsg('Duplicada', 'Se ha creado la copia');
       router.replace({
         pathname: '/facturacion/factura-detalle',
-        params: { tipo, modo: 'editar', id: data.id_factura },
+        params: { tipo, modo: 'editar', id: newId },
       } as any);
     } catch (e: unknown) {
       alertMsg('Error', errorMessage(e));
@@ -627,10 +735,12 @@ export default function FacturaDetalleScreen() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Error al rectificar');
+      const newId = idFacturaDeRespuesta(data);
+      if (!newId) throw new Error('Se ha creado la rectificativa pero no se ha recibido su identificador. Búscala en el listado.');
       alertMsg('Rectificativa creada', 'Se ha generado la factura rectificativa');
       router.replace({
         pathname: '/facturacion/factura-detalle',
-        params: { tipo, modo: 'editar', id: data.id_factura },
+        params: { tipo, modo: 'editar', id: newId },
       } as any);
     } catch (e: unknown) {
       alertMsg('Error', errorMessage(e));
@@ -694,6 +804,7 @@ export default function FacturaDetalleScreen() {
       nombre: emisorNombre, cif: emisorCif, direccion: emisorDireccion,
       cp: emisorCp, municipio: emisorMunicipio, provincia: emisorProvincia,
       email: emisorEmail, telefono: DATOS_EMISOR.telefono,
+      iban: emisorIban, ibanAlternativo: emisorIbanAlt,
     };
     const clienteData = {
       nombre: empresaNombre, cif: empresaCif, direccion: empresaDireccion,
@@ -702,7 +813,9 @@ export default function FacturaDetalleScreen() {
     };
     const numFactura = modo === 'editar' && numeroFactura ? numeroFactura : previewNumFactura || '';
     const facturaData = {
-      id_factura: numFactura || facturaId,
+      // El borrador de venta aún no tiene correlativo; este valor sale en la cabecera del
+      // PDF (ya con marca de agua BORRADOR), en el concepto de pago y en el nombre del fichero.
+      id_factura: numeroProvisionalVenta ? 'Provisional' : numFactura || facturaId,
       tipo, serie, numero: 0, estado,
       fecha_emision: fechaEmision,
       fecha_operacion: fechaOperacion || undefined,
@@ -840,6 +953,7 @@ export default function FacturaDetalleScreen() {
           nombre: emisorNombre, cif: emisorCif, direccion: emisorDireccion,
           cp: emisorCp, municipio: emisorMunicipio, provincia: emisorProvincia,
           email: emisorEmail, telefono: DATOS_EMISOR.telefono,
+          iban: emisorIban, ibanAlternativo: emisorIbanAlt,
         };
         const doc = await generarPDFFactura(
           emisorData,
@@ -879,7 +993,7 @@ export default function FacturaDetalleScreen() {
   // ── Title ──
   const titulo = modo === 'crear'
     ? esVenta ? 'Nueva factura de venta' : 'Nueva factura de gasto'
-    : `Factura ${facturaId}`;
+    : `Factura ${numeroFactura || facturaId}`;
 
   // ── Loading / Error ──
   if (loading) {
@@ -902,6 +1016,7 @@ export default function FacturaDetalleScreen() {
         <View style={styles.headerTitleWrap}>
           <Text style={styles.title}>{titulo}</Text>
           {modo === 'editar' && <BadgeEstado estado={estado} />}
+          {esVenta && esAbono ? <BadgeAbono /> : null}
         </View>
       </View>
 
@@ -917,7 +1032,7 @@ export default function FacturaDetalleScreen() {
             )}
           </TouchableOpacity>
         )}
-        {puedeEmitir && (
+        {puedeEmitir && hasPermiso('facturacion.emitir') && (
           <TouchableOpacity style={styles.btnSuccess} onPress={emitirFactura} disabled={saving}>
             <MaterialIcons name={esValidacionRevisionIn ? 'task-alt' : 'send'} size={16} color="#fff" />
             <Text style={styles.btnSuccessText}>
@@ -1095,7 +1210,12 @@ export default function FacturaDetalleScreen() {
           {/* Nº Factura */}
           <View style={styles.field}>
             <Text style={styles.label}>Nº de factura</Text>
-            {modo === 'editar' && numeroFactura ? (
+            {numeroProvisionalVenta ? (
+              <>
+                <Text style={styles.numeroFacturaProvisional}>Provisional</Text>
+                <Text style={styles.numeroFacturaHint}>El número se asignará al emitir la factura</Text>
+              </>
+            ) : modo === 'editar' && numeroFactura ? (
               <Text style={styles.numeroFacturaText}>{numeroFactura}</Text>
             ) : previewNumFactura ? (
               <Text style={styles.numeroFacturaPreview}>{previewNumFactura}</Text>
@@ -1107,6 +1227,12 @@ export default function FacturaDetalleScreen() {
               </Text>
             )}
           </View>
+
+          {mostrarIdFactura ? (
+            <View style={styles.field}>
+              <CampoIdFactura idFactura={facturaId} />
+            </View>
+          ) : null}
 
           {/* Fecha emisión */}
           <View style={styles.field}>
@@ -1229,6 +1355,37 @@ export default function FacturaDetalleScreen() {
               </ScrollView>
             </View>
           </View>
+
+          {/* Es abono: en ventas el total solo puede ser negativo si el documento es un abono */}
+          {esVenta && esEditable && (
+            <View style={[styles.field, styles.fieldFull]}>
+              <TouchableOpacity
+                style={styles.checkRow}
+                onPress={() => setEsAbono((v) => !v)}
+                activeOpacity={0.7}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: esAbono }}
+                accessibilityLabel="Es abono (importes en negativo)"
+              >
+                <MaterialIcons
+                  name={esAbono ? 'check-box' : 'check-box-outline-blank'}
+                  size={20}
+                  color={esAbono ? '#b91c1c' : '#64748b'}
+                />
+                <Text style={styles.checkLabel}>Es abono (importes en negativo)</Text>
+              </TouchableOpacity>
+              <Text style={styles.checkHint}>
+                Márcalo para devolver importe (por ejemplo, abonos de rappel). Solo puede cambiarse mientras es un borrador.
+              </Text>
+            </View>
+          )}
+
+          {avisoAbono ? (
+            <View style={[styles.field, styles.fieldFull, styles.avisoAbonoBox]}>
+              <MaterialIcons name="warning" size={16} color="#b45309" />
+              <Text style={styles.avisoAbonoText}>{avisoAbono}</Text>
+            </View>
+          ) : null}
 
           {/* Observaciones */}
           <View style={[styles.field, styles.fieldFull]}>
@@ -1559,6 +1716,7 @@ export default function FacturaDetalleScreen() {
         variant={esVenta ? 'cobro' : 'pago'}
         initial={pagoInitial}
         fechaReferenciaTarjeta={fechaReferenciaTarjetaPago}
+        datosPago={datosPagoModal}
         submitting={savingPago}
         onValidationError={alertMsg}
         onSubmit={registrarPago}
@@ -1890,6 +2048,41 @@ const styles = StyleSheet.create({
     color: '#334155',
     paddingVertical: 8,
   },
+  checkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: MIN_TOUCH,
+    alignSelf: 'flex-start',
+    paddingRight: 8,
+  },
+  checkLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  checkHint: {
+    fontSize: 11,
+    color: '#64748b',
+    lineHeight: 15,
+  },
+  avisoAbonoBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  avisoAbonoText: {
+    flex: 1,
+    fontSize: 11,
+    color: '#92400e',
+    lineHeight: 16,
+  },
   label: {
     fontSize: 12,
     fontWeight: '600',
@@ -1919,6 +2112,18 @@ const styles = StyleSheet.create({
     color: '#059669',
     paddingVertical: 4,
     fontStyle: 'italic',
+  },
+  numeroFacturaProvisional: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#b45309',
+    paddingVertical: 4,
+    fontStyle: 'italic',
+  },
+  numeroFacturaHint: {
+    fontSize: 10,
+    color: '#94a3b8',
+    lineHeight: 14,
   },
   labelSmall: {
     fontSize: 10,

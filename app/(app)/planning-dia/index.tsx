@@ -335,6 +335,9 @@ export default function PlanningDiaIndexScreen() {
                 ) : null}
               </View>
             ) : null}
+            {muestraFilaSuperior ? (
+              <View style={[styles.sectionDivider, { width: rowSpanWidth }]} />
+            ) : null}
             <HubNavGrid>
             {hubItems.map((item) => {
               const accent = hubAccentById(item.id);
@@ -408,6 +411,13 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
     marginBottom: 12,
     gap: 12,
+  },
+  sectionDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#e2e8f0',
+    marginTop: 4,
+    marginBottom: 16,
+    alignSelf: 'flex-start',
   },
   objetivosRowStack: {
     flexDirection: 'column',

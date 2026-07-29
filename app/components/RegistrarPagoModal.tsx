@@ -19,6 +19,7 @@ import {
   resolveMetodoPagoParaEnvio,
 } from '../utils/facturacion';
 import { hoyISO } from '../utils/facturaFormLogic';
+import { copyToClipboard } from '../utils/clipboard';
 
 export type RegistrarPagoInitial = {
   fecha?: string;
@@ -53,10 +54,18 @@ type BaseProps = {
   onValidationError?: (titulo: string, mensaje: string) => void;
 };
 
+export type DatosPagoInfo = {
+  beneficiario: string;
+  iban: string;
+  ibanAlternativo?: string;
+  concepto: string;
+};
+
 type FacturaProps = BaseProps & {
   modo: 'factura';
   variant: 'pago' | 'cobro';
   fechaReferenciaTarjeta?: string;
+  datosPago?: DatosPagoInfo;
   onSubmit: (payload: RegistrarPagoPayloadFactura) => void;
 };
 
@@ -67,6 +76,104 @@ type RemesaProps = BaseProps & {
 };
 
 export type RegistrarPagoModalProps = FacturaProps | RemesaProps;
+
+function FilaCopiable({
+  label,
+  valor,
+  compact = true,
+  multiline = false,
+}: {
+  label: string;
+  valor: string;
+  compact?: boolean;
+  multiline?: boolean;
+}) {
+  const [copiado, setCopiado] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const vacio = !valor || !valor.trim();
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  const onCopiar = async () => {
+    if (vacio) return;
+    const ok = await copyToClipboard(valor);
+    if (!ok) return;
+    setCopiado(true);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => setCopiado(false), 1500);
+  };
+
+  const btnStyle = compact ? styles.filaCopiableBtnCompact : styles.filaCopiableBtn;
+
+  return (
+    <View style={compact ? styles.filaCopiableCompact : styles.filaCopiable}>
+      {compact ? (
+        <Text
+          style={styles.filaCopiableInline}
+          numberOfLines={multiline ? 2 : 1}
+        >
+          <Text style={styles.filaCopiableLabelInline}>{label}: </Text>
+          <Text style={[styles.filaCopiableValorInline, vacio && styles.filaCopiableValorVacio]}>
+            {vacio ? '—' : valor}
+          </Text>
+        </Text>
+      ) : (
+        <View style={styles.filaCopiableTexto}>
+          <Text style={styles.filaCopiableLabel}>{label}</Text>
+          <Text
+            style={[styles.filaCopiableValor, vacio && styles.filaCopiableValorVacio]}
+            numberOfLines={multiline ? 2 : 1}
+          >
+            {vacio ? '—' : valor}
+          </Text>
+        </View>
+      )}
+      <TouchableOpacity
+        onPress={onCopiar}
+        disabled={vacio}
+        style={btnStyle}
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: vacio }}
+        accessibilityLabel={`Copiar ${label}`}
+      >
+        <MaterialIcons
+          name={copiado ? 'check' : 'content-copy'}
+          size={compact ? 15 : 16}
+          color={vacio ? '#cbd5e1' : copiado ? '#16a34a' : '#64748b'}
+        />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+/** Bloque de solo lectura con los datos para realizar el pago (con copiar). */
+export function DatosParaPago({
+  datosPago,
+  compact = true,
+}: {
+  datosPago?: DatosPagoInfo;
+  compact?: boolean;
+}) {
+  if (!datosPago) return null;
+  return (
+    <View style={compact ? styles.datosPagoBoxCompact : styles.datosPagoBox}>
+      <Text style={compact ? styles.datosPagoTituloCompact : styles.datosPagoTitulo}>
+        Datos para el pago
+      </Text>
+      <FilaCopiable compact={compact} label="Beneficiario" valor={datosPago.beneficiario} />
+      <FilaCopiable compact={compact} label="IBAN" valor={datosPago.iban} />
+      {datosPago.ibanAlternativo ? (
+        <FilaCopiable compact={compact} label="IBAN alt." valor={datosPago.ibanAlternativo} />
+      ) : null}
+      <FilaCopiable compact={compact} label="Concepto" valor={datosPago.concepto} multiline />
+    </View>
+  );
+}
 
 export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
   const {
@@ -82,6 +189,7 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
   const variant = props.modo === 'factura' ? props.variant : 'pago';
   const fechaReferenciaTarjeta =
     props.modo === 'factura' ? props.fechaReferenciaTarjeta : undefined;
+  const datosPago = props.modo === 'factura' ? props.datosPago : undefined;
   const resumen = props.modo === 'remesa' ? props.resumen : undefined;
 
   const [fecha, setFecha] = useState(hoyISO());
@@ -205,6 +313,8 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
             contentContainerStyle={styles.modalScrollContent}
             showsVerticalScrollIndicator={false}
           >
+          <DatosParaPago datosPago={datosPago} />
+
           <View style={styles.field}>
             <Text style={styles.label}>Fecha</Text>
             <InputFecha
@@ -362,6 +472,89 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#0c4a6e',
     lineHeight: 20,
+  },
+  datosPagoBox: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  datosPagoBoxCompact: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  datosPagoTitulo: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+    marginBottom: 8,
+  },
+  datosPagoTituloCompact: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#334155',
+    marginBottom: 4,
+  },
+  filaCopiable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  filaCopiableCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+    paddingVertical: 2,
+    minHeight: 28,
+  },
+  filaCopiableTexto: {
+    flex: 1,
+  },
+  filaCopiableInline: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 16,
+    color: '#334155',
+  },
+  filaCopiableLabel: {
+    fontSize: 11,
+    color: '#64748b',
+  },
+  filaCopiableLabelInline: {
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  filaCopiableValor: {
+    fontSize: 12,
+    color: '#334155',
+  },
+  filaCopiableValorInline: {
+    color: '#0f172a',
+  },
+  filaCopiableValorVacio: {
+    color: '#94a3b8',
+  },
+  filaCopiableBtn: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filaCopiableBtnCompact: {
+    minWidth: 32,
+    minHeight: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   field: {
     marginBottom: 12,

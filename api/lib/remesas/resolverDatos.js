@@ -16,6 +16,14 @@ function ibanAltFromEmpresaItem(item) {
   return normalizarIban(item.IbanAlternativo ?? item.ibanAlternativo ?? '');
 }
 
+/** IBANs del maestro de empresas (normalizados). */
+export function ibansDeEmpresaItem(item) {
+  return {
+    iban: ibanFromEmpresaItem(item),
+    iban_alternativo: ibanAltFromEmpresaItem(item),
+  };
+}
+
 /**
  * Índice de empresas por id y por CIF normalizado.
  * @param {object[]} empresasItems

@@ -23,7 +23,19 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { apiFetch } from '../utils/api';
 import { EnlacesPlanningPanel } from '../components/ajustes/EnlacesPlanningPanel';
+import { SelectorDesplegable } from '../components/SelectorDesplegable';
 import { settingsCardWidth } from '../constants/layout';
+import { useTarifasMantenimiento } from '../hooks/useTarifasMantenimiento';
+import {
+  useAjustesFacturacionMantenimiento,
+  horaValida,
+  DIA_GENERACION_DEFECTO,
+  HORA_DEFECTO,
+} from '../hooks/useAjustesFacturacionMantenimiento';
+import { useAjustesFacturacionCompras } from '../hooks/useAjustesFacturacionCompras';
+import { normalizarIdEmpresa, type EmpresaMaestro } from '../lib/empresaId';
+import { labelPeriodo } from '../lib/facturacionPeriodica';
+import type { SerieFactura } from '../utils/facturacion';
 
 /** Límite aproximado para caber en un ítem DynamoDB (~400 KB con base64). */
 const MAX_IMAGEN_BASE64_LENGTH = 380000;
@@ -172,6 +184,66 @@ export default function AjustesScreen() {
   const [guardandoPersonalizacion, setGuardandoPersonalizacion] = useState(false);
   const [imagenLoading, setImagenLoading] = useState(false);
   const [errorPersonalizacion, setErrorPersonalizacion] = useState<string | null>(null);
+
+  // --- Tarifas de mantenimiento (PK='mantenimiento' / SK='desplazamiento') ---
+  const {
+    tarifas: tarifasMantenimiento,
+    loading: loadingMantenimiento,
+    error: errorCargaMantenimiento,
+    guardar: guardarTarifasMantenimiento,
+  } = useTarifasMantenimiento();
+  const [precioKm, setPrecioKm] = useState('');
+  const [importeHoraMantenimiento, setImporteHoraMantenimiento] = useState('');
+  const [guardandoMantenimiento, setGuardandoMantenimiento] = useState(false);
+  const [errorMantenimiento, setErrorMantenimiento] = useState<string | null>(null);
+
+  // --- Facturación de mantenimiento (PK='mantenimiento' / SK='facturacion') ---
+  const puedeAjustes = hasPermiso('ajustes.ver');
+  /**
+   * El backend exige `mantenimiento.facturar` para guardar este ajuste, mientras
+   * el panel se ve con `ajustes.ver`. La configuración (quién emite, con qué
+   * serie, si está activa) es útil de consultar, así que sin ese permiso se
+   * muestra en solo lectura y sin ningún control que invite a guardar.
+   */
+  const facturacionSoloLectura = !hasPermiso('mantenimiento.facturar');
+  const {
+    ajustes: ajustesFacturacion,
+    loading: loadingFacturacion,
+    error: errorCargaFacturacion,
+    guardar: guardarAjustesFacturacion,
+  } = useAjustesFacturacionMantenimiento();
+  const [facEmpresa, setFacEmpresa] = useState('');
+  const [facSerie, setFacSerie] = useState('');
+  const [facDia, setFacDia] = useState('');
+  const [facHora, setFacHora] = useState('');
+  const [facCondiciones, setFacCondiciones] = useState('');
+  const [facEnabled, setFacEnabled] = useState(false);
+  const [guardandoFacturacion, setGuardandoFacturacion] = useState(false);
+  const [errorFacturacion, setErrorFacturacion] = useState<string | null>(null);
+  const [empresasFacturacion, setEmpresasFacturacion] = useState<EmpresaMaestro[]>([]);
+  const [loadingEmpresasFacturacion, setLoadingEmpresasFacturacion] = useState(true);
+  const [seriesFacturacion, setSeriesFacturacion] = useState<SerieFactura[]>([]);
+  const [loadingSeriesFacturacion, setLoadingSeriesFacturacion] = useState(true);
+
+  // --- Facturación de ventas internas (PK='compras' / SK='facturacion') ---
+  /** Mismo criterio que en mantenimiento: se consulta con `ajustes.ver`, se cambia con el permiso del módulo. */
+  const comprasSoloLectura = !hasPermiso('compras.facturar');
+  const {
+    ajustes: ajustesCompras,
+    ultimoPeriodoGenerado: ultimoPeriodoCompras,
+    loading: loadingCompras,
+    error: errorCargaCompras,
+    guardar: guardarAjustesCompras,
+  } = useAjustesFacturacionCompras();
+  const [comEmpresaAlmacen, setComEmpresaAlmacen] = useState('');
+  const [comSerieVentas, setComSerieVentas] = useState('');
+  const [comSerieRappel, setComSerieRappel] = useState('');
+  const [comDia, setComDia] = useState('');
+  const [comHora, setComHora] = useState('');
+  const [comCondiciones, setComCondiciones] = useState('');
+  const [comEnabled, setComEnabled] = useState(false);
+  const [guardandoCompras, setGuardandoCompras] = useState(false);
+  const [errorCompras, setErrorCompras] = useState<string | null>(null);
 
   // --- Modal de configuración ---
   const [configModalId, setConfigModalId] = useState<string | null>(null);
@@ -371,6 +443,230 @@ export default function AjustesScreen() {
       setGuardandoPersonalizacion(false);
     }
   }, [imagenApp, porcentajeBeneficio, importeHoraDefecto]);
+
+  // Las tarifas se editan como texto (coma decimal); el hook manda mientras carga
+  // o tras guardar, así el formulario nunca queda en blanco.
+  useEffect(() => {
+    if (loadingMantenimiento) return;
+    setPrecioKm(String(tarifasMantenimiento.precioKm).replace('.', ','));
+    setImporteHoraMantenimiento(String(tarifasMantenimiento.importeHora).replace('.', ','));
+  }, [loadingMantenimiento, tarifasMantenimiento.precioKm, tarifasMantenimiento.importeHora]);
+
+  const guardarMantenimiento = useCallback(async () => {
+    const leer = (v: string): number | null => {
+      const n = parseFloat(v.trim().replace(',', '.'));
+      return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+    };
+    const km = leer(precioKm);
+    const hora = leer(importeHoraMantenimiento);
+    if (km == null || hora == null) {
+      setErrorMantenimiento('El precio por kilómetro y el importe por hora deben ser números mayores que 0');
+      return;
+    }
+    setGuardandoMantenimiento(true);
+    setErrorMantenimiento(null);
+    const err = await guardarTarifasMantenimiento({ precioKm: km, importeHora: hora });
+    setErrorMantenimiento(err);
+    setGuardandoMantenimiento(false);
+  }, [precioKm, importeHoraMantenimiento, guardarTarifasMantenimiento]);
+
+  // La empresa emisora y la serie se eligen de sus maestros, no se teclean.
+  useEffect(() => {
+    if (!puedeAjustes) return;
+    let vivo = true;
+    (async () => {
+      try {
+        const res = await apiFetch('/api/empresas');
+        const data = await res.json();
+        if (vivo && res.ok && Array.isArray(data.empresas)) setEmpresasFacturacion(data.empresas);
+      } catch (_) {
+      } finally {
+        if (vivo) setLoadingEmpresasFacturacion(false);
+      }
+    })();
+    (async () => {
+      try {
+        const res = await apiFetch('/api/facturacion/series');
+        const data = await res.json();
+        const lista = Array.isArray(data.series) ? data.series : Array.isArray(data) ? data : [];
+        if (vivo) setSeriesFacturacion(lista as SerieFactura[]);
+      } catch (_) {
+      } finally {
+        if (vivo) setLoadingSeriesFacturacion(false);
+      }
+    })();
+    return () => { vivo = false; };
+  }, [puedeAjustes]);
+
+  // El hook manda mientras carga o tras guardar: el formulario nunca queda vacío
+  // aunque el ajuste todavía no exista en la base de datos.
+  useEffect(() => {
+    if (loadingFacturacion) return;
+    setFacEmpresa(ajustesFacturacion.idEmpresaEmisora);
+    setFacSerie(ajustesFacturacion.serie);
+    setFacDia(String(ajustesFacturacion.diaGeneracion));
+    setFacHora(ajustesFacturacion.hora);
+    setFacCondiciones(ajustesFacturacion.condicionesPago);
+    setFacEnabled(ajustesFacturacion.enabled);
+  }, [loadingFacturacion, ajustesFacturacion]);
+
+  /** Sociedades del maestro, ordenadas por nombre y con su id de 6 dígitos. */
+  const opcionesEmpresaFacturacion = useMemo(
+    () =>
+      empresasFacturacion
+        .map((e) => {
+          const id = normalizarIdEmpresa(e.id_empresa);
+          const cif = String(e.Cif ?? '').trim();
+          return {
+            id,
+            titulo: String(e.Nombre ?? '').trim() || `Empresa ${id}`,
+            subtitulo: cif ? `${id} · ${cif}` : id,
+          };
+        })
+        .filter((o) => o.id !== '')
+        .sort((a, b) => a.titulo.localeCompare(b.titulo, 'es')),
+    [empresasFacturacion],
+  );
+
+  /** Solo series de venta activas: la sede central emite, no recibe. */
+  const opcionesSerieFacturacion = useMemo(
+    () =>
+      seriesFacturacion
+        .filter((s) => s.tipo === 'OUT' && s.activa !== false)
+        .map((s) => ({
+          id: s.serie,
+          titulo: s.serie,
+          subtitulo: String(s.descripcion ?? '').trim() || undefined,
+        })),
+    [seriesFacturacion],
+  );
+
+  /** Sociedad emisora con nombre, para el modo de solo lectura. */
+  const nombreSociedadFacturacion = useMemo(() => {
+    const opcion = opcionesEmpresaFacturacion.find((o) => o.id === facEmpresa);
+    return opcion ? `${opcion.titulo} · ${opcion.id}` : facEmpresa;
+  }, [opcionesEmpresaFacturacion, facEmpresa]);
+
+  const empresaFacturacionDesconocida =
+    !loadingEmpresasFacturacion &&
+    facEmpresa !== '' &&
+    !opcionesEmpresaFacturacion.some((o) => o.id === facEmpresa);
+  const serieFacturacionDesconocida =
+    !loadingSeriesFacturacion &&
+    facSerie !== '' &&
+    !opcionesSerieFacturacion.some((o) => o.id === facSerie);
+
+  const guardarFacturacionMantenimiento = useCallback(async () => {
+    const empresa = normalizarIdEmpresa(facEmpresa);
+    if (!empresa) {
+      setErrorFacturacion('Selecciona la sociedad que emite las facturas');
+      return;
+    }
+    if (!facSerie.trim()) {
+      setErrorFacturacion('Selecciona la serie de facturación');
+      return;
+    }
+    const diaNum = parseInt(facDia.trim(), 10);
+    if (!Number.isFinite(diaNum) || diaNum < 1 || diaNum > 31) {
+      setErrorFacturacion('El día de generación debe ser un número entre 1 y 31');
+      return;
+    }
+    if (!horaValida(facHora.trim())) {
+      setErrorFacturacion('La hora debe tener el formato HH:MM (por ejemplo, 06:00)');
+      return;
+    }
+    setGuardandoFacturacion(true);
+    setErrorFacturacion(null);
+    const err = await guardarAjustesFacturacion({
+      idEmpresaEmisora: empresa,
+      serie: facSerie.trim(),
+      diaGeneracion: diaNum,
+      hora: facHora.trim(),
+      condicionesPago: facCondiciones.trim(),
+      enabled: facEnabled,
+    });
+    setErrorFacturacion(err);
+    setGuardandoFacturacion(false);
+  }, [facEmpresa, facSerie, facDia, facHora, facCondiciones, facEnabled, guardarAjustesFacturacion]);
+
+  // Mismo criterio que en mantenimiento: el hook manda mientras carga o tras
+  // guardar, así el formulario nunca queda vacío aunque el ajuste no exista.
+  useEffect(() => {
+    if (loadingCompras) return;
+    setComEmpresaAlmacen(ajustesCompras.idEmpresaAlmacenGeneral);
+    setComSerieVentas(ajustesCompras.serieVentas);
+    setComSerieRappel(ajustesCompras.serieRappel);
+    setComDia(String(ajustesCompras.diaGeneracion));
+    setComHora(ajustesCompras.hora);
+    setComCondiciones(ajustesCompras.condicionesPago);
+    setComEnabled(ajustesCompras.enabled);
+  }, [loadingCompras, ajustesCompras]);
+
+  /** Sociedad del Almacén General con nombre, para el modo de solo lectura. */
+  const nombreSociedadAlmacen = useMemo(() => {
+    const opcion = opcionesEmpresaFacturacion.find((o) => o.id === comEmpresaAlmacen);
+    return opcion ? `${opcion.titulo} · ${opcion.id}` : comEmpresaAlmacen;
+  }, [opcionesEmpresaFacturacion, comEmpresaAlmacen]);
+
+  const empresaAlmacenDesconocida =
+    !loadingEmpresasFacturacion &&
+    comEmpresaAlmacen !== '' &&
+    !opcionesEmpresaFacturacion.some((o) => o.id === comEmpresaAlmacen);
+  const serieVentasDesconocida =
+    !loadingSeriesFacturacion &&
+    comSerieVentas !== '' &&
+    !opcionesSerieFacturacion.some((o) => o.id === comSerieVentas);
+  const serieRappelDesconocida =
+    !loadingSeriesFacturacion &&
+    comSerieRappel !== '' &&
+    !opcionesSerieFacturacion.some((o) => o.id === comSerieRappel);
+
+  const guardarFacturacionCompras = useCallback(async () => {
+    const empresa = normalizarIdEmpresa(comEmpresaAlmacen);
+    if (!empresa) {
+      setErrorCompras('Selecciona la sociedad que emite las facturas del Almacén General');
+      return;
+    }
+    if (!comSerieVentas.trim()) {
+      setErrorCompras('Selecciona la serie de las facturas de ventas internas');
+      return;
+    }
+    if (!comSerieRappel.trim()) {
+      setErrorCompras('Selecciona la serie de los abonos de rappel');
+      return;
+    }
+    const diaNum = parseInt(comDia.trim(), 10);
+    if (!Number.isFinite(diaNum) || diaNum < 1 || diaNum > 31) {
+      setErrorCompras('El día de generación debe ser un número entre 1 y 31');
+      return;
+    }
+    if (!horaValida(comHora.trim())) {
+      setErrorCompras('La hora debe tener el formato HH:MM (por ejemplo, 06:00)');
+      return;
+    }
+    setGuardandoCompras(true);
+    setErrorCompras(null);
+    const err = await guardarAjustesCompras({
+      idEmpresaAlmacenGeneral: empresa,
+      serieVentas: comSerieVentas.trim(),
+      serieRappel: comSerieRappel.trim(),
+      diaGeneracion: diaNum,
+      hora: comHora.trim(),
+      condicionesPago: comCondiciones.trim(),
+      enabled: comEnabled,
+    });
+    setErrorCompras(err);
+    setGuardandoCompras(false);
+  }, [
+    comEmpresaAlmacen,
+    comSerieVentas,
+    comSerieRappel,
+    comDia,
+    comHora,
+    comCondiciones,
+    comEnabled,
+    guardarAjustesCompras,
+  ]);
 
   const ejecutarSync = useCallback(async (item: SyncConfig) => {
     setSyncStates((prev) => ({
@@ -1027,7 +1323,7 @@ export default function AjustesScreen() {
                       <MaterialIcons name="schedule" size={20} color="#0369a1" />
                     </View>
                     <View style={styles.cardInfo}>
-                      <Text style={styles.cardTitle} numberOfLines={1}>Importe por hora (defecto)</Text>
+                      <Text style={styles.cardTitle} numberOfLines={1}>Importe por hora (RRHH)</Text>
                       <Text style={styles.cardDesc} numberOfLines={2}>
                         € por hora por defecto en Horas por facturación. Se puede editar por local.
                       </Text>
@@ -1054,6 +1350,755 @@ export default function AjustesScreen() {
                   </View>
                 ) : null}
               </View>
+            )}
+          </View>
+        )}
+
+        {hasPermiso('ajustes.ver') && (
+          <View style={styles.section}>
+            <View style={styles.persoHeaderRow}>
+              <View style={styles.persoHeaderTitleBlock}>
+                <MaterialIcons name="build" size={18} color="#0369a1" />
+                <Text style={styles.sectionTitle}>Tarifas de mantenimiento</Text>
+              </View>
+              {!loadingMantenimiento && (
+                <TouchableOpacity
+                  style={[styles.persoSaveHeaderBtn, guardandoMantenimiento && styles.persoSaveHeaderBtnDisabled]}
+                  onPress={guardarMantenimiento}
+                  disabled={guardandoMantenimiento}
+                  activeOpacity={0.75}
+                  accessibilityLabel="Guardar tarifas de mantenimiento"
+                >
+                  {guardandoMantenimiento ? (
+                    <ActivityIndicator size="small" color="#047857" />
+                  ) : (
+                    <>
+                      <MaterialIcons name="save" size={14} color="#047857" />
+                      <Text style={styles.persoSaveHeaderBtnText}>Guardar</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+            <Text style={styles.sectionDesc}>
+              Precios por defecto al valorar una reparación de Mantenimiento. Se pueden ajustar parte a parte.
+            </Text>
+
+            {loadingMantenimiento ? (
+              <ActivityIndicator size="small" color="#0ea5e9" style={{ marginTop: 20 }} />
+            ) : (
+              <View style={styles.cardsGrid}>
+                <View style={[styles.card, gridCardStyle]}>
+                  <View style={styles.cardTop}>
+                    <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
+                      <MaterialIcons name="directions-car" size={20} color="#0369a1" />
+                    </View>
+                    <View style={styles.cardInfo}>
+                      <Text style={styles.cardTitle} numberOfLines={1}>Precio por kilómetro</Text>
+                      <Text style={styles.cardDesc} numberOfLines={2}>
+                        € por km del desplazamiento del técnico. Los km salen de la ficha del local.
+                      </Text>
+                    </View>
+                    <View style={{ width: 22 }} />
+                  </View>
+                  <View style={styles.persoPctRowCard}>
+                    <TextInput
+                      style={styles.persoPctInputCard}
+                      value={precioKm}
+                      onChangeText={setPrecioKm}
+                      placeholder="7,25"
+                      placeholderTextColor="#94a3b8"
+                      keyboardType="decimal-pad"
+                    />
+                    <Text style={styles.persoPctSuffix}>€/km</Text>
+                  </View>
+                </View>
+
+                <View style={[styles.card, gridCardStyle]}>
+                  <View style={styles.cardTop}>
+                    <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
+                      <MaterialIcons name="handyman" size={20} color="#0369a1" />
+                    </View>
+                    <View style={styles.cardInfo}>
+                      <Text style={styles.cardTitle} numberOfLines={1}>Importe por hora (técnico)</Text>
+                      <Text style={styles.cardDesc} numberOfLines={2}>
+                        € por hora de mano de obra en las reparaciones de Mantenimiento.
+                      </Text>
+                    </View>
+                    <View style={{ width: 22 }} />
+                  </View>
+                  <View style={styles.persoPctRowCard}>
+                    <TextInput
+                      style={styles.persoPctInputCard}
+                      value={importeHoraMantenimiento}
+                      onChangeText={setImporteHoraMantenimiento}
+                      placeholder="30"
+                      placeholderTextColor="#94a3b8"
+                      keyboardType="decimal-pad"
+                    />
+                    <Text style={styles.persoPctSuffix}>€/h</Text>
+                  </View>
+                </View>
+
+                {errorMantenimiento || errorCargaMantenimiento ? (
+                  <View style={[styles.errorBox, { width: '100%' }]}>
+                    <MaterialIcons name="error-outline" size={12} color="#dc2626" />
+                    <Text style={styles.errorText}>{errorMantenimiento ?? errorCargaMantenimiento}</Text>
+                  </View>
+                ) : null}
+              </View>
+            )}
+          </View>
+        )}
+
+        {puedeAjustes && (
+          <View style={styles.section}>
+            <View style={styles.persoHeaderRow}>
+              <View style={styles.persoHeaderTitleBlock}>
+                <MaterialIcons name="request-quote" size={18} color="#0369a1" />
+                <Text style={[styles.sectionTitle, { flexShrink: 1 }]} numberOfLines={1}>
+                  Facturación de mantenimiento
+                </Text>
+                {!loadingFacturacion && (
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      ajustesFacturacion.enabled ? styles.statusBadgeOn : styles.statusBadgeOff,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.statusDot,
+                        ajustesFacturacion.enabled ? styles.statusDotOn : styles.statusDotOff,
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        styles.statusText,
+                        ajustesFacturacion.enabled ? styles.statusTextOn : styles.statusTextOff,
+                      ]}
+                    >
+                      {ajustesFacturacion.enabled ? 'Automática activa' : 'Desactivada'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              {!loadingFacturacion && !facturacionSoloLectura && (
+                <TouchableOpacity
+                  style={[styles.persoSaveHeaderBtn, guardandoFacturacion && styles.persoSaveHeaderBtnDisabled]}
+                  onPress={guardarFacturacionMantenimiento}
+                  disabled={guardandoFacturacion}
+                  activeOpacity={0.75}
+                  accessibilityLabel="Guardar configuración de facturación de mantenimiento"
+                >
+                  {guardandoFacturacion ? (
+                    <ActivityIndicator size="small" color="#047857" />
+                  ) : (
+                    <>
+                      <MaterialIcons name="save" size={14} color="#047857" />
+                      <Text style={styles.persoSaveHeaderBtnText}>Guardar</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+            <Text style={styles.sectionDesc}>
+              Factura mensual de las reparaciones ya valoradas: la sociedad emisora factura a las
+              sociedades propietarias de cada local. Las facturas se crean en estado borrador.
+            </Text>
+
+            {loadingFacturacion ? (
+              <ActivityIndicator size="small" color="#0ea5e9" style={{ marginTop: 20 }} />
+            ) : (
+              <>
+                {facturacionSoloLectura && (
+                  <View style={styles.facLecturaBox}>
+                    <MaterialIcons name="lock-outline" size={14} color="#0369a1" />
+                    <Text style={styles.facLecturaText}>
+                      Solo lectura: puedes consultar la configuración, pero para cambiarla necesitas
+                      permiso para facturar mantenimiento.
+                    </Text>
+                  </View>
+                )}
+
+                <View style={[styles.card, styles.facCardAncha]}>
+                  <View style={styles.cfgRowBetween}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cfgLabel}>Generación automática</Text>
+                      <Text style={styles.cfgHint}>
+                        Emite las facturas del mes en el día y la hora configurados.
+                      </Text>
+                    </View>
+                    {facturacionSoloLectura ? (
+                      <Text style={styles.facValorLectura}>
+                        {ajustesFacturacion.enabled ? 'Activada' : 'Desactivada'}
+                      </Text>
+                    ) : (
+                      <Switch
+                        value={facEnabled}
+                        onValueChange={setFacEnabled}
+                        trackColor={{ false: '#cbd5e1', true: '#7dd3fc' }}
+                        thumbColor={facEnabled ? '#0ea5e9' : '#94a3b8'}
+                        style={Platform.OS === 'web' ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
+                      />
+                    )}
+                  </View>
+
+                  {!ajustesFacturacion.enabled && (
+                    <View style={styles.facAvisoBox}>
+                      <MaterialIcons name="pause-circle-outline" size={14} color="#b45309" />
+                      <Text style={styles.facAvisoText}>
+                        {facturacionSoloLectura
+                          ? 'La generación automática está desactivada: no se emitirá ninguna factura de mantenimiento.'
+                          : 'La generación automática está desactivada: no se emitirá ninguna factura hasta que la actives y guardes.'}
+                      </Text>
+                    </View>
+                  )}
+                  {facEnabled !== ajustesFacturacion.enabled && (
+                    <Text style={styles.facPendienteText}>
+                      {facEnabled
+                        ? 'Activación pendiente de guardar.'
+                        : 'Desactivación pendiente de guardar.'}
+                    </Text>
+                  )}
+                </View>
+
+                <View style={[styles.cardsGrid, styles.facGrid]}>
+                  <View style={[styles.card, gridCardStyle]}>
+                    <View style={styles.cardTop}>
+                      <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
+                        <MaterialIcons name="business" size={20} color="#0369a1" />
+                      </View>
+                      <View style={styles.cardInfo}>
+                        <Text style={styles.cardTitle} numberOfLines={1}>Sociedad emisora</Text>
+                        <Text style={styles.cardDesc} numberOfLines={2}>
+                          Empresa del grupo que emite las facturas de mantenimiento.
+                        </Text>
+                      </View>
+                      <View style={{ width: 22 }} />
+                    </View>
+                    {facturacionSoloLectura ? (
+                      <Text style={[styles.facValorLectura, styles.facCampo]}>
+                        {loadingEmpresasFacturacion ? '…' : nombreSociedadFacturacion || '—'}
+                      </Text>
+                    ) : (
+                      <SelectorDesplegable
+                        style={styles.facCampo}
+                        icono="business"
+                        placeholder="Selecciona la sociedad"
+                        opciones={opcionesEmpresaFacturacion}
+                        valorId={facEmpresa}
+                        onSeleccionar={setFacEmpresa}
+                        tituloLista="Maestro de empresas"
+                        iconoLista="business"
+                        loading={loadingEmpresasFacturacion}
+                        buscador
+                        buscadorPlaceholder="Buscar empresa…"
+                        vacioTexto="No se pudo cargar el maestro de empresas."
+                      />
+                    )}
+                    {empresaFacturacionDesconocida && (
+                      <Text style={styles.facAvisoInline}>
+                        La sociedad guardada ({facEmpresa}) ya no está en el maestro de empresas.
+                      </Text>
+                    )}
+                  </View>
+
+                  <View style={[styles.card, gridCardStyle]}>
+                    <View style={styles.cardTop}>
+                      <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
+                        <MaterialIcons name="receipt-long" size={20} color="#0369a1" />
+                      </View>
+                      <View style={styles.cardInfo}>
+                        <Text style={styles.cardTitle} numberOfLines={1}>Serie de facturación</Text>
+                        <Text style={styles.cardDesc} numberOfLines={2}>
+                          Serie de venta con la que se numeran las facturas generadas.
+                        </Text>
+                      </View>
+                      <View style={{ width: 22 }} />
+                    </View>
+                    {facturacionSoloLectura ? (
+                      <Text style={[styles.facValorLectura, styles.facCampo]}>{facSerie || '—'}</Text>
+                    ) : (
+                      <SelectorDesplegable
+                        style={styles.facCampo}
+                        icono="tag"
+                        placeholder="Selecciona la serie"
+                        opciones={opcionesSerieFacturacion}
+                        valorId={facSerie}
+                        onSeleccionar={setFacSerie}
+                        tituloLista="Series de venta activas"
+                        iconoLista="receipt-long"
+                        loading={loadingSeriesFacturacion}
+                        vacioTexto="No hay series de venta activas. Créala en Facturación › Series."
+                      />
+                    )}
+                    {serieFacturacionDesconocida && (
+                      <Text style={styles.facAvisoInline}>
+                        La serie guardada ({facSerie}) no está entre las series de venta activas.
+                      </Text>
+                    )}
+                  </View>
+
+                  <View style={[styles.card, gridCardStyle]}>
+                    <View style={styles.cardTop}>
+                      <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
+                        <MaterialIcons name="event" size={20} color="#0369a1" />
+                      </View>
+                      <View style={styles.cardInfo}>
+                        <Text style={styles.cardTitle} numberOfLines={1}>Día de generación</Text>
+                        <Text style={styles.cardDesc} numberOfLines={2}>
+                          Día del mes en que se facturan las reparaciones del mes anterior.
+                        </Text>
+                      </View>
+                      <View style={{ width: 22 }} />
+                    </View>
+                    {facturacionSoloLectura ? (
+                      <Text style={[styles.facValorLectura, styles.facCampo]}>
+                        {`Día ${facDia || String(DIA_GENERACION_DEFECTO)} del mes`}
+                      </Text>
+                    ) : (
+                      <View style={styles.persoPctRowCard}>
+                        <TextInput
+                          style={styles.persoPctInputCard}
+                          value={facDia}
+                          onChangeText={setFacDia}
+                          placeholder={String(DIA_GENERACION_DEFECTO)}
+                          placeholderTextColor="#94a3b8"
+                          keyboardType="number-pad"
+                          maxLength={2}
+                        />
+                        <Text style={styles.persoPctSuffix}>del mes</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={[styles.card, gridCardStyle]}>
+                    <View style={styles.cardTop}>
+                      <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
+                        <MaterialIcons name="schedule" size={20} color="#0369a1" />
+                      </View>
+                      <View style={styles.cardInfo}>
+                        <Text style={styles.cardTitle} numberOfLines={1}>Hora de generación</Text>
+                        <Text style={styles.cardDesc} numberOfLines={2}>
+                          Hora a la que se lanza el proceso, en formato HH:MM.
+                        </Text>
+                      </View>
+                      <View style={{ width: 22 }} />
+                    </View>
+                    {facturacionSoloLectura ? (
+                      <Text style={[styles.facValorLectura, styles.facCampo]}>
+                        {`${facHora || HORA_DEFECTO} h`}
+                      </Text>
+                    ) : (
+                      <View style={styles.persoPctRowCard}>
+                        <TextInput
+                          style={styles.persoPctInputCard}
+                          value={facHora}
+                          onChangeText={setFacHora}
+                          placeholder={HORA_DEFECTO}
+                          placeholderTextColor="#94a3b8"
+                          keyboardType="numbers-and-punctuation"
+                          maxLength={5}
+                        />
+                        <Text style={styles.persoPctSuffix}>h</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={[styles.card, styles.facCardAncha]}>
+                    <View style={styles.cardTop}>
+                      <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
+                        <MaterialIcons name="description" size={20} color="#0369a1" />
+                      </View>
+                      <View style={styles.cardInfo}>
+                        <Text style={styles.cardTitle} numberOfLines={1}>Condiciones de pago</Text>
+                        <Text style={styles.cardDesc} numberOfLines={2}>
+                          Texto que se volcará en cada factura generada. Opcional.
+                        </Text>
+                      </View>
+                      <View style={{ width: 22 }} />
+                    </View>
+                    {facturacionSoloLectura ? (
+                      <Text style={[styles.facValorLectura, styles.facValorLecturaLargo, styles.facCampo]}>
+                        {facCondiciones.trim() || 'Sin condiciones de pago'}
+                      </Text>
+                    ) : (
+                      <TextInput
+                        style={[styles.persoPctInputCard, styles.facTextarea]}
+                        value={facCondiciones}
+                        onChangeText={setFacCondiciones}
+                        placeholder="Ej.: Pago por transferencia a 30 días desde la fecha de factura."
+                        placeholderTextColor="#94a3b8"
+                        multiline
+                        numberOfLines={3}
+                        textAlignVertical="top"
+                      />
+                    )}
+                  </View>
+
+                  {errorFacturacion || errorCargaFacturacion ? (
+                    <View style={[styles.errorBox, { width: '100%' }]}>
+                      <MaterialIcons name="error-outline" size={12} color="#dc2626" />
+                      <Text style={styles.errorText}>{errorFacturacion ?? errorCargaFacturacion}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </>
+            )}
+          </View>
+        )}
+
+        {puedeAjustes && (
+          <View style={styles.section}>
+            <View style={styles.persoHeaderRow}>
+              <View style={styles.persoHeaderTitleBlock}>
+                <MaterialIcons name="local-shipping" size={18} color="#0369a1" />
+                <Text style={[styles.sectionTitle, { flexShrink: 1 }]} numberOfLines={1}>
+                  Facturación de ventas internas
+                </Text>
+                {!loadingCompras && (
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      ajustesCompras.enabled ? styles.statusBadgeOn : styles.statusBadgeOff,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.statusDot,
+                        ajustesCompras.enabled ? styles.statusDotOn : styles.statusDotOff,
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        styles.statusText,
+                        ajustesCompras.enabled ? styles.statusTextOn : styles.statusTextOff,
+                      ]}
+                    >
+                      {ajustesCompras.enabled ? 'Automática activa' : 'Desactivada'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              {!loadingCompras && !comprasSoloLectura && (
+                <TouchableOpacity
+                  style={[styles.persoSaveHeaderBtn, guardandoCompras && styles.persoSaveHeaderBtnDisabled]}
+                  onPress={guardarFacturacionCompras}
+                  disabled={guardandoCompras}
+                  activeOpacity={0.75}
+                  accessibilityLabel="Guardar configuración de facturación de ventas internas"
+                >
+                  {guardandoCompras ? (
+                    <ActivityIndicator size="small" color="#047857" />
+                  ) : (
+                    <>
+                      <MaterialIcons name="save" size={14} color="#047857" />
+                      <Text style={styles.persoSaveHeaderBtnText}>Guardar</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+            <Text style={styles.sectionDesc}>
+              Factura mensual de los pedidos servidos desde un almacén a los locales y de los abonos
+              de rappel: la sociedad que sirve factura a la sociedad que recibe. Las facturas se
+              crean en estado borrador.
+            </Text>
+
+            {loadingCompras ? (
+              <ActivityIndicator size="small" color="#0ea5e9" style={{ marginTop: 20 }} />
+            ) : (
+              <>
+                {comprasSoloLectura && (
+                  <View style={styles.facLecturaBox}>
+                    <MaterialIcons name="lock-outline" size={14} color="#0369a1" />
+                    <Text style={styles.facLecturaText}>
+                      Solo lectura: puedes consultar la configuración, pero para cambiarla necesitas
+                      permiso para facturar las ventas internas de compras.
+                    </Text>
+                  </View>
+                )}
+
+                <View style={[styles.card, styles.facCardAncha]}>
+                  <View style={styles.cfgRowBetween}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cfgLabel}>Generación automática</Text>
+                      <Text style={styles.cfgHint}>
+                        Emite las facturas del mes en el día y la hora configurados.
+                      </Text>
+                    </View>
+                    {comprasSoloLectura ? (
+                      <Text style={styles.facValorLectura}>
+                        {ajustesCompras.enabled ? 'Activada' : 'Desactivada'}
+                      </Text>
+                    ) : (
+                      <Switch
+                        value={comEnabled}
+                        onValueChange={setComEnabled}
+                        trackColor={{ false: '#cbd5e1', true: '#7dd3fc' }}
+                        thumbColor={comEnabled ? '#0ea5e9' : '#94a3b8'}
+                        style={Platform.OS === 'web' ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
+                      />
+                    )}
+                  </View>
+
+                  {!ajustesCompras.enabled && (
+                    <View style={styles.facAvisoBox}>
+                      <MaterialIcons name="pause-circle-outline" size={14} color="#b45309" />
+                      <Text style={styles.facAvisoText}>
+                        {comprasSoloLectura
+                          ? 'La generación automática está desactivada: no se emitirá ninguna factura de ventas internas.'
+                          : 'La generación automática está desactivada: no se emitirá ninguna factura hasta que la actives y guardes.'}
+                      </Text>
+                    </View>
+                  )}
+                  {comEnabled !== ajustesCompras.enabled && (
+                    <Text style={styles.facPendienteText}>
+                      {comEnabled
+                        ? 'Activación pendiente de guardar.'
+                        : 'Desactivación pendiente de guardar.'}
+                    </Text>
+                  )}
+                  {ultimoPeriodoCompras !== '' && (
+                    <View style={styles.cardMetaRow}>
+                      <MaterialIcons name="event-available" size={13} color="#64748b" />
+                      <Text style={styles.cardMetaText}>
+                        {`Último mes ya facturado: ${labelPeriodo(ultimoPeriodoCompras)}`}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                <View style={[styles.cardsGrid, styles.facGrid]}>
+                  <View style={[styles.card, gridCardStyle]}>
+                    <View style={styles.cardTop}>
+                      <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
+                        <MaterialIcons name="warehouse" size={20} color="#0369a1" />
+                      </View>
+                      <View style={styles.cardInfo}>
+                        <Text style={styles.cardTitle} numberOfLines={1}>Sociedad del Almacén General</Text>
+                        <Text style={styles.cardDesc} numberOfLines={2}>
+                          Empresa que emite las facturas de lo servido desde el Almacén General.
+                        </Text>
+                      </View>
+                      <View style={{ width: 22 }} />
+                    </View>
+                    {comprasSoloLectura ? (
+                      <Text style={[styles.facValorLectura, styles.facCampo]}>
+                        {loadingEmpresasFacturacion ? '…' : nombreSociedadAlmacen || 'Sin configurar'}
+                      </Text>
+                    ) : (
+                      <SelectorDesplegable
+                        style={styles.facCampo}
+                        icono="business"
+                        placeholder="Selecciona la sociedad"
+                        opciones={opcionesEmpresaFacturacion}
+                        valorId={comEmpresaAlmacen}
+                        onSeleccionar={setComEmpresaAlmacen}
+                        tituloLista="Maestro de empresas"
+                        iconoLista="business"
+                        loading={loadingEmpresasFacturacion}
+                        buscador
+                        buscadorPlaceholder="Buscar empresa…"
+                        vacioTexto="No se pudo cargar el maestro de empresas."
+                      />
+                    )}
+                    {empresaAlmacenDesconocida && (
+                      <Text style={styles.facAvisoInline}>
+                        La sociedad guardada ({comEmpresaAlmacen}) ya no está en el maestro de
+                        empresas. Vuelve a elegirla para que el Almacén General tenga emisor.
+                      </Text>
+                    )}
+                    {comEmpresaAlmacen === '' && (
+                      <Text style={styles.facAvisoInline}>
+                        Sin sociedad configurada no se puede facturar lo servido desde el Almacén
+                        General.
+                      </Text>
+                    )}
+                    <Text style={styles.cfgHint}>
+                      Los almacenes de local usan la sociedad de su propio local; el Almacén General
+                      no es de ningún local, así que su sociedad se configura aquí.
+                    </Text>
+                  </View>
+
+                  <View style={[styles.card, gridCardStyle]}>
+                    <View style={styles.cardTop}>
+                      <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
+                        <MaterialIcons name="receipt-long" size={20} color="#0369a1" />
+                      </View>
+                      <View style={styles.cardInfo}>
+                        <Text style={styles.cardTitle} numberOfLines={1}>Serie de ventas internas</Text>
+                        <Text style={styles.cardDesc} numberOfLines={2}>
+                          Serie de venta con la que se numeran las facturas de mercancía servida.
+                        </Text>
+                      </View>
+                      <View style={{ width: 22 }} />
+                    </View>
+                    {comprasSoloLectura ? (
+                      <Text style={[styles.facValorLectura, styles.facCampo]}>{comSerieVentas || '—'}</Text>
+                    ) : (
+                      <SelectorDesplegable
+                        style={styles.facCampo}
+                        icono="tag"
+                        placeholder="Selecciona la serie"
+                        opciones={opcionesSerieFacturacion}
+                        valorId={comSerieVentas}
+                        onSeleccionar={setComSerieVentas}
+                        tituloLista="Series de venta activas"
+                        iconoLista="receipt-long"
+                        loading={loadingSeriesFacturacion}
+                        vacioTexto="No hay series de venta activas. Créala en Facturación › Series."
+                      />
+                    )}
+                    {serieVentasDesconocida && (
+                      <Text style={styles.facAvisoInline}>
+                        La serie guardada ({comSerieVentas}) no está entre las series de venta activas.
+                      </Text>
+                    )}
+                  </View>
+
+                  <View style={[styles.card, gridCardStyle]}>
+                    <View style={styles.cardTop}>
+                      <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
+                        <MaterialIcons name="savings" size={20} color="#0369a1" />
+                      </View>
+                      <View style={styles.cardInfo}>
+                        <Text style={styles.cardTitle} numberOfLines={1}>Serie de abonos de rappel</Text>
+                        <Text style={styles.cardDesc} numberOfLines={2}>
+                          Serie con la que se numeran los abonos de rappel del periodo.
+                        </Text>
+                      </View>
+                      <View style={{ width: 22 }} />
+                    </View>
+                    {comprasSoloLectura ? (
+                      <Text style={[styles.facValorLectura, styles.facCampo]}>{comSerieRappel || '—'}</Text>
+                    ) : (
+                      <SelectorDesplegable
+                        style={styles.facCampo}
+                        icono="tag"
+                        placeholder="Selecciona la serie"
+                        opciones={opcionesSerieFacturacion}
+                        valorId={comSerieRappel}
+                        onSeleccionar={setComSerieRappel}
+                        tituloLista="Series de venta activas"
+                        iconoLista="receipt-long"
+                        loading={loadingSeriesFacturacion}
+                        vacioTexto="No hay series de venta activas. Créala en Facturación › Series."
+                      />
+                    )}
+                    {serieRappelDesconocida && (
+                      <Text style={styles.facAvisoInline}>
+                        La serie guardada ({comSerieRappel}) no está entre las series de venta activas.
+                      </Text>
+                    )}
+                  </View>
+
+                  <View style={[styles.card, gridCardStyle]}>
+                    <View style={styles.cardTop}>
+                      <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
+                        <MaterialIcons name="event" size={20} color="#0369a1" />
+                      </View>
+                      <View style={styles.cardInfo}>
+                        <Text style={styles.cardTitle} numberOfLines={1}>Día de generación</Text>
+                        <Text style={styles.cardDesc} numberOfLines={2}>
+                          Día del mes en que se facturan los pedidos del mes anterior.
+                        </Text>
+                      </View>
+                      <View style={{ width: 22 }} />
+                    </View>
+                    {comprasSoloLectura ? (
+                      <Text style={[styles.facValorLectura, styles.facCampo]}>
+                        {`Día ${comDia || String(DIA_GENERACION_DEFECTO)} del mes`}
+                      </Text>
+                    ) : (
+                      <View style={styles.persoPctRowCard}>
+                        <TextInput
+                          style={styles.persoPctInputCard}
+                          value={comDia}
+                          onChangeText={setComDia}
+                          placeholder={String(DIA_GENERACION_DEFECTO)}
+                          placeholderTextColor="#94a3b8"
+                          keyboardType="number-pad"
+                          maxLength={2}
+                        />
+                        <Text style={styles.persoPctSuffix}>del mes</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={[styles.card, gridCardStyle]}>
+                    <View style={styles.cardTop}>
+                      <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
+                        <MaterialIcons name="schedule" size={20} color="#0369a1" />
+                      </View>
+                      <View style={styles.cardInfo}>
+                        <Text style={styles.cardTitle} numberOfLines={1}>Hora de generación</Text>
+                        <Text style={styles.cardDesc} numberOfLines={2}>
+                          Hora a la que se lanza el proceso, en formato HH:MM.
+                        </Text>
+                      </View>
+                      <View style={{ width: 22 }} />
+                    </View>
+                    {comprasSoloLectura ? (
+                      <Text style={[styles.facValorLectura, styles.facCampo]}>
+                        {`${comHora || HORA_DEFECTO} h`}
+                      </Text>
+                    ) : (
+                      <View style={styles.persoPctRowCard}>
+                        <TextInput
+                          style={styles.persoPctInputCard}
+                          value={comHora}
+                          onChangeText={setComHora}
+                          placeholder={HORA_DEFECTO}
+                          placeholderTextColor="#94a3b8"
+                          keyboardType="numbers-and-punctuation"
+                          maxLength={5}
+                        />
+                        <Text style={styles.persoPctSuffix}>h</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={[styles.card, styles.facCardAncha]}>
+                    <View style={styles.cardTop}>
+                      <View style={[styles.cardIconWrap, styles.cardIconDefault]}>
+                        <MaterialIcons name="description" size={20} color="#0369a1" />
+                      </View>
+                      <View style={styles.cardInfo}>
+                        <Text style={styles.cardTitle} numberOfLines={1}>Condiciones de pago</Text>
+                        <Text style={styles.cardDesc} numberOfLines={2}>
+                          Texto que se volcará en cada factura generada. Opcional.
+                        </Text>
+                      </View>
+                      <View style={{ width: 22 }} />
+                    </View>
+                    {comprasSoloLectura ? (
+                      <Text style={[styles.facValorLectura, styles.facValorLecturaLargo, styles.facCampo]}>
+                        {comCondiciones.trim() || 'Sin condiciones de pago'}
+                      </Text>
+                    ) : (
+                      <TextInput
+                        style={[styles.persoPctInputCard, styles.facTextarea]}
+                        value={comCondiciones}
+                        onChangeText={setComCondiciones}
+                        placeholder="Ej.: Pago por transferencia a 30 días desde la fecha de factura."
+                        placeholderTextColor="#94a3b8"
+                        multiline
+                        numberOfLines={3}
+                        textAlignVertical="top"
+                      />
+                    )}
+                  </View>
+
+                  {errorCompras || errorCargaCompras ? (
+                    <View style={[styles.errorBox, { width: '100%' }]}>
+                      <MaterialIcons name="error-outline" size={12} color="#dc2626" />
+                      <Text style={styles.errorText}>{errorCompras ?? errorCargaCompras}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </>
             )}
           </View>
         )}
@@ -1843,4 +2888,39 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   persoPctSuffix: { fontSize: 15, fontWeight: '600', color: '#64748b' },
+
+  /* Facturación de mantenimiento */
+  facCardAncha: { width: '100%', maxWidth: '100%' },
+  facGrid: { marginTop: 12 },
+  facCampo: { marginTop: 6 },
+  facTextarea: { height: 76, paddingVertical: 8, fontWeight: '400', marginTop: 6 },
+  facAvisoBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: '#fffbeb',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  facAvisoText: { fontSize: 11, color: '#92400e', flex: 1, lineHeight: 15 },
+  facAvisoInline: { fontSize: 10, color: '#b45309', marginTop: 4 },
+  facPendienteText: { fontSize: 10, color: '#0369a1', fontWeight: '600' },
+  facLecturaBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: '#f0f9ff',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    marginBottom: 12,
+  },
+  facLecturaText: { fontSize: 11, color: '#0369a1', flex: 1, lineHeight: 15 },
+  facValorLectura: { fontSize: 13, fontWeight: '600', color: '#0f172a' },
+  facValorLecturaLargo: { fontWeight: '400', color: '#334155', lineHeight: 18 },
 });

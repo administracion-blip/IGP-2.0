@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { MIN_TOUCH } from '../../constants/layout';
+import { MantenimientoCronometroFila } from './MantenimientoCronometroFila';
 
 export type MantenimientoIncidenciaCardProps = {
   titulo: string;
@@ -27,6 +28,15 @@ export type MantenimientoIncidenciaCardProps = {
   /** Total de la valoración (con IVA); si viene, se muestra junto al estado. */
   valoracionTotal?: number | null;
   marcando: boolean;
+  /** Segundos de trabajo de los tramos ya cerrados. */
+  trabajoSegundos?: number;
+  /** ISO de inicio del tramo abierto; vacío si el cronómetro está parado. */
+  trabajoEnCursoDesde?: string;
+  /** Petición de cronómetro en vuelo: bloquea el botón. */
+  trabajoOcupado?: boolean;
+  /** Si no se pasan, la tarjeta no muestra el cronómetro. */
+  onIniciarTrabajo?: () => void;
+  onFinalizarTrabajo?: () => void;
   onReparar: () => void;
   onVerDetalle?: () => void;
   onFotoPress: (uri: string) => void;
@@ -162,6 +172,11 @@ export function MantenimientoIncidenciaCard({
   fechaCompletada,
   valoracionTotal,
   marcando,
+  trabajoSegundos,
+  trabajoEnCursoDesde,
+  trabajoOcupado = false,
+  onIniciarTrabajo,
+  onFinalizarTrabajo,
   onReparar,
   onVerDetalle,
   onFotoPress,
@@ -173,6 +188,9 @@ export function MantenimientoIncidenciaCard({
     valoracionTotal != null && Number.isFinite(valoracionTotal)
       ? `${valoracionTotal.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
       : '';
+
+  const mostrarCronometro =
+    !reparado && puedeReparar && Boolean(onIniciarTrabajo || onFinalizarTrabajo);
 
   return (
     <View style={styles.item}>
@@ -201,6 +219,16 @@ export function MantenimientoIncidenciaCard({
           <Text style={styles.itemMeta} numberOfLines={1}>
             {metaParts.join(' · ')}
           </Text>
+        ) : null}
+
+        {mostrarCronometro ? (
+          <MantenimientoCronometroFila
+            segundosAcumulados={trabajoSegundos}
+            enCursoDesde={trabajoEnCursoDesde}
+            ocupado={trabajoOcupado}
+            onIniciar={onIniciarTrabajo}
+            onFinalizar={onFinalizarTrabajo}
+          />
         ) : null}
 
         {(reparado || puedeReparar || onVerDetalle) ? (

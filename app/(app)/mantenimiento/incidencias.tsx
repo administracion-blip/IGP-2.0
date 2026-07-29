@@ -27,6 +27,11 @@ import { MantenimientoFiltrosBar } from '../../components/mantenimiento/Mantenim
 import { PrioridadIncidenciaBadge } from '../../components/mantenimiento/PrioridadIncidenciaBadge';
 import { MantenimientoFotosGaleriaModal } from '../../components/mantenimiento/MantenimientoFotosGaleriaModal';
 import {
+  facturaMantenimientoDeParte,
+  labelPeriodoCorto,
+  parteFacturado,
+} from '../../lib/mantenimientoFacturacion';
+import {
   type ChipPeriodoMantenimiento,
   extraerFechaIsoIncidencia,
   filtrarIncidenciasMantenimiento,
@@ -166,7 +171,7 @@ function estilosEstado(estado: string | undefined): { backgroundColor: string; c
 
 export default function MantenimientoScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, hasPermiso } = useAuth();
   const { locales } = useMantenimientoLocales();
   const [countAbiertas, setCountAbiertas] = useState<number | null>(null);
   const [incidencias, setIncidencias] = useState<Incidencia[]>([]);
@@ -450,6 +455,25 @@ export default function MantenimientoScreen() {
   const incidenciasSeleccionadasCount = multiSelectMode ? selectedIndices.size : selectedRowIndex !== null ? 1 : 0;
   const haySeleccion = incidenciasSeleccionadasCount > 0;
 
+  const facturaIncSeleccionada = useMemo(
+    () => (incSeleccionada ? facturaMantenimientoDeParte(incSeleccionada) : null),
+    [incSeleccionada],
+  );
+
+  /**
+   * Partes facturados dentro de la selección. El backend rechaza borrarlos y
+   * cambiarles la fecha, así que la acción no se ofrece en lugar de dejar que
+   * el usuario reciba un error del servidor.
+   */
+  const seleccionFacturadaCount = useMemo(() => {
+    const seleccionadas = multiSelectMode
+      ? [...selectedIndices].map((idx) => incidenciasPagina[idx])
+      : incSeleccionada
+        ? [incSeleccionada]
+        : [];
+    return seleccionadas.filter((inc) => inc != null && parteFacturado(inc)).length;
+  }, [multiSelectMode, selectedIndices, incidenciasPagina, incSeleccionada]);
+
   const cerrarModalBorrar = useCallback(() => {
     setModalBorrarVisible(false);
     setIncidenciasToDelete([]);
@@ -543,7 +567,7 @@ export default function MantenimientoScreen() {
         zona: editZona,
         prioridad_reportada: editPrioridad,
       };
-      if (fpTrim !== editFechaProgramadaInicial) {
+      if (!facturaIncSeleccionada && fpTrim !== editFechaProgramadaInicial) {
         payload.fecha_programada = fpTrim || null;
       }
       const res = await apiFetch('/api/mantenimiento/incidencias', {
@@ -568,6 +592,7 @@ export default function MantenimientoScreen() {
     editPrioridad,
     editFechaProgramada,
     editFechaProgramadaInicial,
+    facturaIncSeleccionada,
     refetch,
     salirMultiSelect,
   ]);
@@ -585,7 +610,7 @@ export default function MantenimientoScreen() {
       id: 'borrar',
       label: 'Borrar',
       icon: ICONS.delete,
-      disabled: !haySeleccion || guardando,
+      disabled: !haySeleccion || guardando || seleccionFacturadaCount > 0,
       onPress: abrirModalBorrar,
     },
   ];
@@ -640,6 +665,12 @@ export default function MantenimientoScreen() {
           <MaterialIcons name="event-repeat" size={22} color="#0ea5e9" />
           <Text style={styles.btnText}>Reparaciones recurrentes</Text>
         </TouchableOpacity>
+        {hasPermiso('mantenimiento.facturar') ? (
+          <TouchableOpacity style={styles.btn} onPress={() => router.push('/mantenimiento/facturacion' as never)} activeOpacity={0.7}>
+            <MaterialIcons name="receipt-long" size={22} color="#0ea5e9" />
+            <Text style={styles.btnText}>Facturación mensual</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       <View style={styles.toolbarRow}>
@@ -668,6 +699,16 @@ export default function MantenimientoScreen() {
             {loading ? <ActivityIndicator size="small" color="#0ea5e9" /> : <MaterialIcons name="refresh" size={ICON_SIZE} color="#0ea5e9" />}
           </TouchableOpacity>
         </View>
+        {seleccionFacturadaCount > 0 ? (
+          <View style={styles.facturadoAviso}>
+            <MaterialIcons name="receipt-long" size={14} color="#0f766e" />
+            <Text style={styles.facturadoAvisoText}>
+              {seleccionFacturadaCount === 1
+                ? 'La incidencia seleccionada ya está facturada: no se puede borrar ni cambiar su fecha programada.'
+                : `${seleccionFacturadaCount} incidencias seleccionadas ya están facturadas: no se pueden borrar ni cambiar de fecha.`}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       {error && (
@@ -990,26 +1031,37 @@ export default function MantenimientoScreen() {
                   </View>
                   <View style={styles.modalField}>
                     <Text style={styles.modalLabel}>Fecha programada</Text>
-                    <View style={styles.modalFechaRow}>
-                      <View style={styles.modalFechaInput}>
-                        <InputFecha
-                          compact
-                          valueIso={editFechaProgramada}
-                          onChangeIso={setEditFechaProgramada}
-                          placeholder="Sin programar"
-                        />
+                    {facturaIncSeleccionada ? (
+                      <View style={styles.modalFacturadaBox}>
+                        <MaterialIcons name="receipt-long" size={16} color="#0f766e" />
+                        <Text style={styles.modalFacturadaText}>
+                          {`Reparación facturada${facturaIncSeleccionada.periodo ? ` en ${labelPeriodoCorto(facturaIncSeleccionada.periodo)}` : ''}: su fecha programada ya no se puede cambiar, porque el desplazamiento se cobró con el reparto de ese día. El resto de campos sí se pueden corregir.`}
+                        </Text>
                       </View>
-                      {editFechaProgramada.trim() !== '' && (
-                        <TouchableOpacity
-                          style={styles.modalQuitarFechaBtn}
-                          onPress={() => setEditFechaProgramada('')}
-                        >
-                          <MaterialIcons name="event-busy" size={18} color="#64748b" />
-                          <Text style={styles.modalQuitarFechaText}>Quitar</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                    <Text style={styles.modalHint}>Opcional. Debe ser hoy o una fecha futura.</Text>
+                    ) : (
+                      <>
+                        <View style={styles.modalFechaRow}>
+                          <View style={styles.modalFechaInput}>
+                            <InputFecha
+                              compact
+                              valueIso={editFechaProgramada}
+                              onChangeIso={setEditFechaProgramada}
+                              placeholder="Sin programar"
+                            />
+                          </View>
+                          {editFechaProgramada.trim() !== '' && (
+                            <TouchableOpacity
+                              style={styles.modalQuitarFechaBtn}
+                              onPress={() => setEditFechaProgramada('')}
+                            >
+                              <MaterialIcons name="event-busy" size={18} color="#64748b" />
+                              <Text style={styles.modalQuitarFechaText}>Quitar</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                        <Text style={styles.modalHint}>Opcional. Debe ser hoy o una fecha futura.</Text>
+                      </>
+                    )}
                   </View>
                   <View style={styles.modalFooter}>
                     <TouchableOpacity style={styles.modalBtnNo} onPress={() => setModalEditarVisible(false)}>
@@ -1095,6 +1147,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   cancelSelectBtnText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
+  facturadoAviso: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#f0fdfa',
+    borderWidth: 1,
+    borderColor: '#99f6e4',
+    borderRadius: 8,
+  },
+  facturadoAvisoText: { flex: 1, minWidth: 0, fontSize: 11, color: '#0f766e', lineHeight: 15 },
   errorWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   errorText: { fontSize: 12, color: '#f87171', flex: 1 },
   retryBtn: { paddingVertical: 6, paddingHorizontal: 12, backgroundColor: '#fef2f2', borderRadius: 8 },
@@ -1157,5 +1223,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#f1f5f9',
   },
   modalQuitarFechaText: { fontSize: 12, color: '#64748b', fontWeight: '500' },
+  modalFacturadaBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: '#f0fdfa',
+    borderWidth: 1,
+    borderColor: '#99f6e4',
+    borderRadius: 8,
+  },
+  modalFacturadaText: { flex: 1, minWidth: 0, fontSize: 11, color: '#0f766e', lineHeight: 16 },
   modalHint: { fontSize: 11, color: '#94a3b8', marginTop: 4 },
 });

@@ -18,6 +18,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
 import { apiFetch } from '../../utils/api';
 import { RangoFechas } from '../../components/RangoFechas';
+import { estadoFacturacionParte } from '../../lib/mantenimientoFacturacion';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -30,6 +31,7 @@ const COLUMNAS_INCIDENCIAS = [
   'fecha_programada',
   'fecha_completada',
   'estado_valoracion',
+  'facturado',
   'local_id',
   'nombre_local',
   'zona',
@@ -123,7 +125,16 @@ function estilosEstado(estado: string | undefined): { backgroundColor: string; c
 function headerLabel(col: string): string {
   if (col === 'nombre_local') return 'Local';
   if (col === 'fecha_programada') return 'Fecha programada';
+  if (col === 'facturado') return 'Facturación';
   return col.replace(/_/g, ' ');
+}
+
+/**
+ * Periodo en el que se cobró la reparación, «Sin factura» si el proceso mensual
+ * la cerró sin nada que facturar, o «Pendiente» si sigue por facturar.
+ */
+function textoFacturacion(inc: Incidencia): string {
+  return estadoFacturacionParte(inc).texto;
 }
 
 function cumpleRangoFechaCompletada(inc: Incidencia, desdeIso: string, hastaIso: string): boolean {
@@ -190,6 +201,7 @@ export default function ReparacionesRealizadasScreen() {
     fecha_creacion: 130,
     nombre_local: 120,
     espera: 80,
+    facturado: 100,
   });
   const [pageIndex, setPageIndex] = useState(0);
   const [resizingCol, setResizingCol] = useState<string | null>(null);
@@ -267,6 +279,7 @@ export default function ReparacionesRealizadasScreen() {
       if (col === 'fecha_programada') return formatearSoloFecha(inc.fecha_programada as string);
       if (col === 'fecha_completada') return inc.fecha_completada ? formatearFecha(inc.fecha_completada as string) : '—';
       if (col === 'estado_valoracion') return (inc.estado_valoracion ?? '').toString().trim() || '—';
+      if (col === 'facturado') return textoFacturacion(inc);
       if (col === 'nombre_local') {
         const localId = (inc.local_id ?? '').toString().trim();
         return localId ? (mapLocalIdToNombre[localId] ?? localId) : '—';
@@ -462,6 +475,39 @@ export default function ReparacionesRealizadasScreen() {
               const esEstado = col === 'estado';
               const estadoStyles = esEstado ? estilosEstado(inc.estado as string) : null;
               if (col === 'espera') return <React.Fragment key="espera">{renderCeldaEspera(inc)}</React.Fragment>;
+              if (col === 'facturado') {
+                const fac = estadoFacturacionParte(inc);
+                return (
+                  <View
+                    key={col}
+                    style={[
+                      styles.cell,
+                      { width: getColWidth(col) },
+                      fac.estado === 'facturado'
+                        ? styles.cellFacturadaSi
+                        : fac.estado === 'sin_factura'
+                          ? styles.cellSinFactura
+                          : styles.cellFacturadaNo,
+                    ]}
+                    accessibilityLabel={fac.detalle ? `${fac.texto}. ${fac.detalle}` : undefined}
+                    {...(Platform.OS === 'web' && fac.detalle ? { title: fac.detalle } : {})}
+                  >
+                    <Text
+                      style={[
+                        styles.cellText,
+                        fac.estado === 'facturado'
+                          ? styles.cellFacturadaTextSi
+                          : fac.estado === 'sin_factura'
+                            ? styles.cellSinFacturaText
+                            : styles.cellFacturadaTextNo,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {text}
+                    </Text>
+                  </View>
+                );
+              }
               return (
                 <View
                   key={col}
@@ -595,6 +641,7 @@ export default function ReparacionesRealizadasScreen() {
                     const prioridadLabel = prioridad && prioridad !== '—' ? prioridad.charAt(0).toUpperCase() + prioridad.slice(1) : '—';
                     const prioridadBg = getPrioridadColor(inc.prioridad_reportada as string);
                     const diasEspera = valorCelda(inc, 'espera');
+                    const facturacion = estadoFacturacionParte(inc);
                     return (
                       <View key={String(inc.id_incidencia ?? idx)} style={[styles.deckCard, styles.deckCardThird]}>
                         <View style={styles.deckCardTitleBar}>
@@ -624,6 +671,28 @@ export default function ReparacionesRealizadasScreen() {
                             <View style={styles.deckCardCell}>
                               <Text style={styles.deckLabel}>Zona</Text>
                               <Text style={styles.deckValue}>{(inc.zona ?? '—').toString()}</Text>
+                            </View>
+                          </View>
+                          <View style={styles.deckCardLine}>
+                            <View style={styles.deckCardCell}>
+                              <Text style={styles.deckLabel}>Facturación</Text>
+                              <Text
+                                style={[
+                                  styles.deckValue,
+                                  facturacion.estado === 'facturado'
+                                    ? styles.deckValueFacturada
+                                    : facturacion.estado === 'sin_factura'
+                                      ? styles.deckValueSinFactura
+                                      : styles.deckValuePendiente,
+                                ]}
+                              >
+                                {facturacion.texto}
+                              </Text>
+                              {facturacion.detalle ? (
+                                <Text style={styles.deckValueNota} numberOfLines={3}>
+                                  {facturacion.detalle}
+                                </Text>
+                              ) : null}
                             </View>
                           </View>
                           <View style={[styles.deckCardLine, styles.deckCardLineFixed]}>
@@ -826,6 +895,12 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#fff' },
   cell: { minWidth: MIN_COL_WIDTH, paddingVertical: 4, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#e2e8f0' },
   cellText: { fontSize: 11, color: '#475569' },
+  cellFacturadaSi: { backgroundColor: '#f0fdfa', borderRadius: 6 },
+  cellFacturadaNo: { backgroundColor: '#fffbeb', borderRadius: 6 },
+  cellFacturadaTextSi: { color: '#0f766e', fontWeight: '700' },
+  cellFacturadaTextNo: { color: '#b45309', fontWeight: '600' },
+  cellSinFactura: { backgroundColor: '#f1f5f9', borderRadius: 6 },
+  cellSinFacturaText: { color: '#475569', fontWeight: '600' },
   deckScrollWrap: { flex: 1 },
   deckScrollContent: { paddingBottom: 24 },
   deckEmpty: { padding: 24, alignItems: 'center' },
@@ -882,6 +957,10 @@ const styles = StyleSheet.create({
   deckLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', marginBottom: 1, textTransform: 'uppercase', letterSpacing: 0.2 },
   deckValue: { fontSize: 11, color: '#334155' },
   deckValueDesc: { lineHeight: 16, color: '#475569', fontSize: 11 },
+  deckValueFacturada: { color: '#0f766e', fontWeight: '700' },
+  deckValuePendiente: { color: '#b45309', fontWeight: '600' },
+  deckValueSinFactura: { color: '#475569', fontWeight: '600' },
+  deckValueNota: { fontSize: 10, color: '#64748b', lineHeight: 14, marginTop: 2 },
   deckCardFotos: {
     flexDirection: 'row',
     gap: 6,

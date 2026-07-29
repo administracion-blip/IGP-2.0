@@ -15,6 +15,9 @@ export const INTERNAL_SYNC_POST_PATHS = new Set([
   '/api/facturacion/check-vencimientos',
   '/api/facturacion/enviar-recordatorios',
   '/api/informes/diario/enviar',
+  '/api/mantenimiento/facturacion/generar',
+  '/api/compras/facturacion/generar',
+  '/api/compras/facturacion/rappel/generar',
 ]);
 
 export function normalizeApiPathname(req) {

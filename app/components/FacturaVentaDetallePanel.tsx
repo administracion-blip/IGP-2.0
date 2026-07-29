@@ -22,18 +22,23 @@ import {
   CONDICIONES_PAGO,
   FORMAS_PAGO,
   labelFormaPago,
+  avisoSignoAbono,
   type Factura,
 } from '../utils/facturacion';
 import { hydrateLineasDesdeFactura, lineasPayloadForApi } from '../utils/facturaFormLogic';
 import { fechaEmisionFacturaAIso } from '../utils/formatFecha';
 import { useFacturaFormLogic } from '../hooks/useFacturaFormLogic';
+import { useConfirmar } from '../hooks/useConfirmar';
 import { ResumenTotales } from './ResumenTotales';
 import { InputFecha } from './InputFecha';
 import { SelectorDesplegable } from './SelectorDesplegable';
 import { ImporteMonedaInput } from './ImporteMonedaInput';
 import { textoFechaContabilizacionGasto } from '../utils/formatFecha';
 import { BadgeEstado } from './BadgeEstado';
+import { BadgeAbono } from './BadgeAbono';
+import { MIN_TOUCH } from '../constants/layout';
 import { CampoIdDocumentoFacturaRecibida } from './CampoIdDocumentoFacturaRecibida';
+import { CampoIdFactura } from './CampoIdFactura';
 import { CampoConceptoRemesaFacturaRecibida } from './CampoConceptoRemesaFacturaRecibida';
 import { descargarAdjuntoFacturaRecibida } from '../lib/descargarAdjuntoFactura';
 import { apiFetch } from '../utils/api';
@@ -82,6 +87,8 @@ type EmpresaCatalogo = {
   Municipio?: string;
   Provincia?: string;
   Email?: string;
+  Iban?: string;
+  IbanAlternativo?: string;
   Sede?: string;
 };
 
@@ -132,9 +139,11 @@ export function FacturaVentaDetallePanel({
 }: Props) {
   const router = useRouter();
   const { hasPermiso } = useAuth();
+  const { confirmar, ConfirmarView } = useConfirmar();
   const puedeIrMaestro = hasPermiso('empresas.editar');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [emitiendo, setEmitiendo] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const facturaForm = useFacturaFormLogic({
@@ -184,6 +193,7 @@ export function FacturaVentaDetallePanel({
   // Ref para no re-crear `cargar` (y re-fetchear) cada vez que cambie el callback.
   const onAdjuntosRef = useRef(onAdjuntos);
   onAdjuntosRef.current = onAdjuntos;
+  const pdfPreviewUrlRef = useRef<string | null>(null);
   const [modalAdjuntos, setModalAdjuntos] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
 
@@ -192,6 +202,8 @@ export function FacturaVentaDetallePanel({
   const [emisorMunicipio, setEmisorMunicipio] = useState('');
   const [emisorProvincia, setEmisorProvincia] = useState('');
   const [emisorEmail, setEmisorEmail] = useState('');
+  const [emisorIban, setEmisorIban] = useState('');
+  const [emisorIbanAlt, setEmisorIbanAlt] = useState('');
   const [empresaDireccion, setEmpresaDireccion] = useState('');
   const [empresaCp, setEmpresaCp] = useState('');
   const [empresaMunicipio, setEmpresaMunicipio] = useState('');
@@ -201,6 +213,8 @@ export function FacturaVentaDetallePanel({
   const [totalCobrado, setTotalCobrado] = useState(0);
   const [saldoPendiente, setSaldoPendiente] = useState(0);
   const [esRectificativa, setEsRectificativa] = useState(false);
+  /** Solo ventas: documento que devuelve importe, con totales en negativo */
+  const [esAbono, setEsAbono] = useState(false);
   const [facturaRectificadaId, setFacturaRectificadaId] = useState('');
   const [motivoRectificacion, setMotivoRectificacion] = useState('');
   const [verifactuHash, setVerifactuHash] = useState('');
@@ -211,6 +225,16 @@ export function FacturaVentaDetallePanel({
   const lblEmpresa = esIn ? 'Proveedor' : 'Receptor';
 
   const esEditable = puedeEditar && (estado === 'borrador' || estado === 'pendiente_revision');
+  /** El correlativo de venta se reserva al emitir: en borrador todavía no hay número. */
+  const numeroProvisionalVenta = !esIn && estado === 'borrador' && !numeroFactura;
+  const mostrarIdFactura = !esIn && !!facturaId && estado !== 'borrador';
+  const esValidacionRevisionIn = esIn && estado === 'pendiente_revision';
+  const mostrarEmitir =
+    hasPermiso('facturacion.emitir') && ((!esIn && estado === 'borrador') || esValidacionRevisionIn);
+  /** El signo de los totales debe cuadrar con la marca de abono o la emisión falla. */
+  const avisoAbono = esIn
+    ? null
+    : avisoSignoAbono({ esAbono, totalFactura: totales.total_factura, esRectificativa });
 
   useEffect(() => {
     if (!apiUrl) return;
@@ -265,6 +289,8 @@ export function FacturaVentaDetallePanel({
       setEmisorMunicipio(String(e.Municipio ?? ''));
       setEmisorProvincia(String(e.Provincia ?? ''));
       setEmisorEmail(String(e.Email ?? ''));
+      setEmisorIban(String(e.Iban ?? '').trim());
+      setEmisorIbanAlt(String(e.IbanAlternativo ?? '').trim());
     },
     [buscarEmpresaCatalogo],
   );
@@ -344,6 +370,8 @@ export function FacturaVentaDetallePanel({
             setEmisorMunicipio(String(e.Municipio ?? ''));
             setEmisorProvincia(String(e.Provincia ?? ''));
             setEmisorEmail(String(e.Email ?? ''));
+            setEmisorIban(String(e.Iban ?? '').trim());
+            setEmisorIbanAlt(String(e.IbanAlternativo ?? '').trim());
           }
         }
         if (empresaId) {
@@ -367,6 +395,10 @@ export function FacturaVentaDetallePanel({
 
   const cargar = useCallback(async () => {
     if (!facturaId) return;
+    if (pdfPreviewUrlRef.current) {
+      URL.revokeObjectURL(pdfPreviewUrlRef.current);
+      pdfPreviewUrlRef.current = null;
+    }
     setLoading(true);
     setError(null);
     setAdjuntos([]);
@@ -393,6 +425,8 @@ export function FacturaVentaDetallePanel({
       setEmisorMunicipio(f.emisor_municipio ?? '');
       setEmisorProvincia(f.emisor_provincia ?? '');
       setEmisorEmail(f.emisor_email ?? '');
+      setEmisorIban(f.emisor_iban ?? '');
+      setEmisorIbanAlt(f.emisor_iban_alternativo ?? '');
       setEmpresaId(f.empresa_id ?? '');
       setEmpresaNombre(f.empresa_nombre ?? '');
       setEmpresaCif(f.empresa_cif ?? '');
@@ -405,6 +439,7 @@ export function FacturaVentaDetallePanel({
       setTotalCobrado(Number(f.total_cobrado ?? 0));
       setSaldoPendiente(Number(f.saldo_pendiente ?? 0));
       setEsRectificativa(!!f.es_rectificativa);
+      setEsAbono(!!f.es_abono);
       setFacturaRectificadaId(f.factura_rectificada_id ?? '');
       setMotivoRectificacion(f.motivo_rectificacion ?? '');
       setVerifactuHash(f.verifactu_hash ?? '');
@@ -420,21 +455,26 @@ export function FacturaVentaDetallePanel({
         .then((d) => {
           const arr = Array.isArray(d.adjuntos) ? d.adjuntos : [];
           setAdjuntos(arr);
-          onAdjuntosRef.current?.(arr);
+          if (arr.length > 0 || tipoFactura === 'IN') {
+            onAdjuntosRef.current?.(arr);
+          }
         })
         .catch(() => {
           setAdjuntos([]);
-          onAdjuntosRef.current?.([]);
+          if (tipoFactura === 'IN') {
+            onAdjuntosRef.current?.([]);
+          }
         })
         .finally(() => setAdjuntosLoading(false));
     } catch (e: unknown) {
       setAdjuntos([]);
       setAdjuntosLoading(false);
+      onAdjuntosRef.current?.([]);
       setError(e instanceof Error ? e.message : 'Error');
     } finally {
       setLoading(false);
     }
-  }, [apiUrl, facturaId, markHydrationFromApi]);
+  }, [apiUrl, facturaId, markHydrationFromApi, tipoFactura]);
 
   useEffect(() => {
     if (!facturaId) {
@@ -456,69 +496,54 @@ export function FacturaVentaDetallePanel({
     }
   }, [facturaId, esIn]);
 
-  /** Misma lógica que «Previsualizar PDF» en ficha completa (`factura-detalle.tsx`). Solo emitidas (OUT). */
-  const previsualizarPDF = useCallback(async () => {
-    if (Platform.OS !== 'web') {
-      Alert.alert('PDF', 'La previsualización de PDF solo está disponible en versión web.');
-      return;
-    }
-    if (!facturaId || esIn) return;
-    setPdfLoading(true);
-    try {
-      const { generarPDFFactura } = await import('./FacturaPDF');
-      const emisorData = {
-        nombre: emisorNombre,
-        cif: emisorCif,
-        direccion: emisorDireccion,
-        cp: emisorCp,
-        municipio: emisorMunicipio,
-        provincia: emisorProvincia,
-        email: emisorEmail,
-      };
-      const clienteData = {
-        nombre: empresaNombre,
-        cif: empresaCif,
-        direccion: empresaDireccion,
-        cp: empresaCp,
-        municipio: empresaMunicipio,
-        provincia: empresaProvincia,
-        email: empresaEmail,
-      };
-      const facturaData = {
-        id_factura: numeroFactura || facturaId,
-        tipo: tipoFactura,
-        serie,
-        numero: numeroCorrelativo,
-        estado,
-        fecha_emision: fechaEmision,
-        fecha_vencimiento: fechaVencimiento || undefined,
-        condiciones_pago: condicionesPago,
-        forma_pago: formaPago,
-        observaciones: observaciones || undefined,
-        numero_factura_proveedor: numFacturaProveedor || undefined,
-        base_imponible: totales.base_imponible,
-        total_iva: totales.total_iva,
-        total_retencion: totales.total_retencion,
-        total_factura: totales.total_factura,
-        total_cobrado: totalCobrado,
-        saldo_pendiente: saldoPendiente,
-        es_rectificativa: esRectificativa,
-        factura_rectificada_id: facturaRectificadaId || undefined,
-        motivo_rectificacion: motivoRectificacion || undefined,
-        verifactu_hash: verifactuHash || undefined,
-      };
-      const doc = await generarPDFFactura(emisorData, clienteData, facturaData, lineas);
-      const blobUrl = doc.output('bloburl');
-      const w = globalThis as unknown as { open?: (u: string, t?: string) => void };
-      w.open?.(String(blobUrl), '_blank');
-    } catch (e: unknown) {
-      Alert.alert('Error PDF', e instanceof Error ? e.message : 'No se pudo generar la previsualización');
-    } finally {
-      setPdfLoading(false);
-    }
+  const buildPdfPayload = useCallback(() => {
+    const emisorData = {
+      nombre: emisorNombre,
+      cif: emisorCif,
+      direccion: emisorDireccion,
+      cp: emisorCp,
+      municipio: emisorMunicipio,
+      provincia: emisorProvincia,
+      email: emisorEmail,
+      iban: emisorIban,
+      ibanAlternativo: emisorIbanAlt,
+    };
+    const clienteData = {
+      nombre: empresaNombre,
+      cif: empresaCif,
+      direccion: empresaDireccion,
+      cp: empresaCp,
+      municipio: empresaMunicipio,
+      provincia: empresaProvincia,
+      email: empresaEmail,
+    };
+    const facturaData = {
+      // Borrador de venta sin correlativo: el id interno es un UUID y este valor
+      // acaba en la cabecera del PDF, en el concepto de pago y en el nombre del fichero.
+      id_factura: numeroFactura || (numeroProvisionalVenta ? 'Provisional' : facturaId || ''),
+      tipo: tipoFactura,
+      serie,
+      numero: numeroCorrelativo,
+      estado,
+      fecha_emision: fechaEmision,
+      fecha_vencimiento: fechaVencimiento || undefined,
+      condiciones_pago: condicionesPago,
+      forma_pago: formaPago,
+      observaciones: observaciones || undefined,
+      numero_factura_proveedor: numFacturaProveedor || undefined,
+      base_imponible: totales.base_imponible,
+      total_iva: totales.total_iva,
+      total_retencion: totales.total_retencion,
+      total_factura: totales.total_factura,
+      total_cobrado: totalCobrado,
+      saldo_pendiente: saldoPendiente,
+      es_rectificativa: esRectificativa,
+      factura_rectificada_id: facturaRectificadaId || undefined,
+      motivo_rectificacion: motivoRectificacion || undefined,
+      verifactu_hash: verifactuHash || undefined,
+    };
+    return { emisorData, clienteData, facturaData };
   }, [
-    facturaId,
-    esIn,
     emisorNombre,
     emisorCif,
     emisorDireccion,
@@ -526,6 +551,8 @@ export function FacturaVentaDetallePanel({
     emisorMunicipio,
     emisorProvincia,
     emisorEmail,
+    emisorIban,
+    emisorIbanAlt,
     empresaNombre,
     empresaCif,
     empresaDireccion,
@@ -534,6 +561,8 @@ export function FacturaVentaDetallePanel({
     empresaProvincia,
     empresaEmail,
     numeroFactura,
+    numeroProvisionalVenta,
+    facturaId,
     tipoFactura,
     serie,
     numeroCorrelativo,
@@ -545,7 +574,6 @@ export function FacturaVentaDetallePanel({
     observaciones,
     numFacturaProveedor,
     totales,
-    lineas,
     totalCobrado,
     saldoPendiente,
     esRectificativa,
@@ -553,6 +581,90 @@ export function FacturaVentaDetallePanel({
     motivoRectificacion,
     verifactuHash,
   ]);
+
+  const generarPdfBlobUrl = useCallback(async () => {
+    const { generarPDFFactura } = await import('./FacturaPDF');
+    const { emisorData, clienteData, facturaData } = buildPdfPayload();
+    const doc = await generarPDFFactura(emisorData, clienteData, facturaData, lineas);
+    return String(doc.output('bloburl'));
+  }, [buildPdfPayload, lineas]);
+
+  /** Emitidas (OUT) sin adjunto en S3: genera PDF para el iframe del modal de detalle. */
+  useEffect(() => {
+    if (esIn || Platform.OS !== 'web' || !facturaId || !onAdjuntos) return;
+    if (loading || adjuntosLoading) return;
+    if (adjuntos.length > 0) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        if (pdfPreviewUrlRef.current) {
+          URL.revokeObjectURL(pdfPreviewUrlRef.current);
+          pdfPreviewUrlRef.current = null;
+        }
+        const url = await generarPdfBlobUrl();
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        pdfPreviewUrlRef.current = url;
+        onAdjuntosRef.current?.([{
+          id: '__pdf_generado__',
+          nombre: `${numeroFactura || (numeroProvisionalVenta ? 'Provisional' : facturaId)}.pdf`,
+          url,
+          tipo: 'application/pdf',
+        }]);
+      } catch {
+        if (!cancelled) onAdjuntosRef.current?.([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    esIn,
+    facturaId,
+    onAdjuntos,
+    loading,
+    adjuntosLoading,
+    adjuntos.length,
+    generarPdfBlobUrl,
+    numeroFactura,
+    numeroProvisionalVenta,
+    estado,
+    lineas,
+    fechaEmision,
+    totales,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (pdfPreviewUrlRef.current) {
+        URL.revokeObjectURL(pdfPreviewUrlRef.current);
+        pdfPreviewUrlRef.current = null;
+      }
+    };
+  }, [facturaId]);
+
+  /** Misma lógica que «Previsualizar PDF» en ficha completa (`factura-detalle.tsx`). Solo emitidas (OUT). */
+  const previsualizarPDF = useCallback(async () => {
+    if (Platform.OS !== 'web') {
+      Alert.alert('PDF', 'La previsualización de PDF solo está disponible en versión web.');
+      return;
+    }
+    if (!facturaId || esIn) return;
+    setPdfLoading(true);
+    try {
+      const blobUrl = await generarPdfBlobUrl();
+      const w = globalThis as unknown as { open?: (u: string, t?: string) => void };
+      w.open?.(blobUrl, '_blank');
+    } catch (e: unknown) {
+      Alert.alert('Error PDF', e instanceof Error ? e.message : 'No se pudo generar la previsualización');
+    } finally {
+      setPdfLoading(false);
+    }
+  }, [facturaId, esIn, generarPdfBlobUrl]);
 
   const guardar = async () => {
     if (!facturaId || !esEditable) return;
@@ -594,6 +706,9 @@ export function FacturaVentaDetallePanel({
       if (esIn) {
         body.numero_factura_proveedor = numFacturaProveedor;
         body.fecha_contabilizacion = fechaContabilizacionIso || null;
+      } else {
+        // En gastos el signo lo pone el proveedor, así que la marca no se toca.
+        body.es_abono = esAbono;
       }
       const res = await apiFetch(`/api/facturacion/facturas/${facturaId}`, {
         method: 'PUT',
@@ -608,6 +723,46 @@ export function FacturaVentaDetallePanel({
       setError(e instanceof Error ? e.message : 'Error');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const emitir = async () => {
+    if (!facturaId || !mostrarEmitir) return;
+    const mensaje = esValidacionRevisionIn
+      ? '¿Confirmas que los datos son correctos? La factura pasará a pendiente de pago.'
+      : '¿Seguro que deseas emitir esta factura? Se le asignará el número definitivo y no podrá editarse después.';
+    // El panel emite con lo que hay en base de datos, no con lo tecleado aquí.
+    const avisoSinGuardar = esEditable
+      ? '\n\nSe emitirá con los datos ya guardados: si has hecho cambios en este panel y no has pulsado «Guardar cambios», se perderán.'
+      : '';
+    const ok = await confirmar(
+      esValidacionRevisionIn ? 'Validar revisión' : 'Emitir factura',
+      `${mensaje}${avisoSinGuardar}`,
+      { confirmarLabel: esValidacionRevisionIn ? 'Validar revisión' : 'Emitir' },
+    );
+    if (!ok) return;
+    setEmitiendo(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/facturacion/facturas/${facturaId}/emitir`, {
+        method: 'POST',
+        body: JSON.stringify({ usuario_id: usuarioId, usuario_nombre: usuarioNombre }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; errores?: string[] };
+      if (!res.ok) {
+        const errores = Array.isArray(data.errores) ? data.errores : null;
+        throw new Error(
+          errores && errores.length > 0
+            ? `Validación fiscal:\n• ${errores.join('\n• ')}`
+            : data.error || 'Error al emitir',
+        );
+      }
+      onGuardado();
+      await cargar();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Error al emitir');
+    } finally {
+      setEmitiendo(false);
     }
   };
 
@@ -637,10 +792,18 @@ export function FacturaVentaDetallePanel({
     >
       <View style={[styles.head, compactPanel && styles.headCompact]}>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.num, compactPanel && styles.numCompact]} numberOfLines={1}>{numeroFactura || '—'}</Text>
+          <Text
+            style={[styles.num, compactPanel && styles.numCompact, numeroProvisionalVenta && styles.numProvisional]}
+            numberOfLines={1}
+          >
+            {numeroFactura || (numeroProvisionalVenta ? 'Provisional' : '—')}
+          </Text>
           <Text style={[styles.serie, compactPanel && styles.serieCompact]} numberOfLines={1}>{serie ? `Serie ${serie}` : ''}</Text>
         </View>
-        <BadgeEstado estado={estado} />
+        <View style={styles.headBadges}>
+          <BadgeEstado estado={estado} />
+          {!esIn && esAbono ? <BadgeAbono compact={compactPanel} /> : null}
+        </View>
       </View>
 
       <TouchableOpacity
@@ -689,6 +852,29 @@ export function FacturaVentaDetallePanel({
                 : `Adjuntos${adjuntos.length ? ` (${adjuntos.length})` : ''}`}
           </Text>
         </TouchableOpacity>
+        {mostrarEmitir ? (
+          <TouchableOpacity
+            style={[styles.emitirBtn, compactPanel && styles.emitirBtnCompact, (emitiendo || saving) && styles.emitirBtnDis]}
+            onPress={emitir}
+            disabled={emitiendo || saving}
+            accessibilityLabel={esValidacionRevisionIn ? 'Validar revisión' : 'Emitir factura'}
+          >
+            {emitiendo ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <MaterialIcons
+                name={esValidacionRevisionIn ? 'task-alt' : 'send'}
+                size={compactPanel ? 14 : 16}
+                color="#fff"
+              />
+            )}
+            <Text style={[styles.emitirBtnText, compactPanel && styles.emitirBtnTextCompact]}>
+              {emitiendo
+                ? esValidacionRevisionIn ? 'Validando…' : 'Emitiendo…'
+                : esValidacionRevisionIn ? 'Validar revisión' : 'Emitir'}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {error ? (
@@ -862,6 +1048,8 @@ export function FacturaVentaDetallePanel({
         </>
       ) : null}
 
+      {mostrarIdFactura ? <CampoIdFactura idFactura={facturaId} compact={compactPanel} /> : null}
+
       <View style={[styles.condFormaRow, compactPanel && styles.condFormaRowCompact]}>
         <View style={[styles.condFormaCol, compactPanel && styles.condFormaColCompact]}>
           <Text style={[styles.label, compactPanel && styles.labelCompact]}>Condiciones</Text>
@@ -904,6 +1092,34 @@ export function FacturaVentaDetallePanel({
         multiline
         placeholder="—"
       />
+
+      {/* Es abono: en ventas el total solo puede ser negativo si el documento es un abono */}
+      {!esIn && esEditable ? (
+        <TouchableOpacity
+          style={[styles.checkRow, { minHeight: compactPanel ? 34 : MIN_TOUCH }]}
+          onPress={() => setEsAbono((v) => !v)}
+          activeOpacity={0.7}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: esAbono }}
+          accessibilityLabel="Es abono (importes en negativo)"
+        >
+          <MaterialIcons
+            name={esAbono ? 'check-box' : 'check-box-outline-blank'}
+            size={compactPanel ? 18 : 20}
+            color={esAbono ? '#b91c1c' : '#64748b'}
+          />
+          <Text style={[styles.checkLabel, compactPanel && styles.checkLabelCompact]}>
+            Es abono (importes en negativo)
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+
+      {avisoAbono ? (
+        <View style={styles.avisoAbonoBox}>
+          <MaterialIcons name="warning" size={14} color="#b45309" />
+          <Text style={styles.avisoAbonoText}>{avisoAbono}</Text>
+        </View>
+      ) : null}
 
       <Text style={[styles.secTitle, compactPanel && styles.secTitleCompact]}>Líneas</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.lineaTableScroll} nestedScrollEnabled>
@@ -1042,7 +1258,11 @@ export function FacturaVentaDetallePanel({
       />
 
       {esEditable && puedeEditar ? (
-        <TouchableOpacity style={[styles.saveBtn, compactPanel && styles.saveBtnCompact, saving && styles.saveBtnDis]} onPress={guardar} disabled={saving}>
+        <TouchableOpacity
+          style={[styles.saveBtn, compactPanel && styles.saveBtnCompact, (saving || emitiendo) && styles.saveBtnDis]}
+          onPress={guardar}
+          disabled={saving || emitiendo}
+        >
           {saving ? <ActivityIndicator color="#fff" size="small" /> : <MaterialIcons name="save" size={compactPanel ? 16 : 18} color="#fff" />}
           <Text style={[styles.saveBtnTxt, compactPanel && styles.saveBtnTxtCompact]}>{saving ? 'Guardando…' : 'Guardar cambios'}</Text>
         </TouchableOpacity>
@@ -1123,6 +1343,8 @@ export function FacturaVentaDetallePanel({
           </Pressable>
         </Pressable>
       </Modal>
+
+      {ConfirmarView}
     </ScrollView>
   );
 }
@@ -1137,8 +1359,10 @@ const styles = StyleSheet.create({
   placeholderText: { fontSize: 13, color: '#94a3b8', textAlign: 'center', maxWidth: 260 },
   head: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8, gap: 8 },
   headCompact: { marginBottom: 4, gap: 4 },
+  headBadges: { alignItems: 'flex-end', gap: 3, flexShrink: 0 },
   num: { fontSize: 16, fontWeight: '700', color: '#334155' },
   numCompact: { fontSize: 14 },
+  numProvisional: { color: '#b45309', fontStyle: 'italic' },
   serie: { fontSize: 11, color: '#64748b' },
   serieCompact: { fontSize: 10 },
   linkFull: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
@@ -1186,6 +1410,20 @@ const styles = StyleSheet.create({
   adjuntosBtnExtraCompact: { paddingVertical: 4, paddingHorizontal: 8, gap: 4, borderRadius: 6 },
   adjuntosBtnTextExtraCompact: { fontSize: 11 },
   adjuntosBtnTextMuted: { color: '#64748b', fontWeight: '500' },
+  emitirBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: '#059669',
+    alignSelf: 'flex-start',
+  },
+  emitirBtnCompact: { paddingVertical: 4, paddingHorizontal: 8, gap: 4, borderRadius: 6 },
+  emitirBtnDis: { opacity: 0.7 },
+  emitirBtnText: { fontSize: 12, fontWeight: '700', color: '#fff' },
+  emitirBtnTextCompact: { fontSize: 11 },
   modalAdjOverlay: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.45)',
@@ -1288,6 +1526,22 @@ const styles = StyleSheet.create({
   textAreaCompact: { padding: 8, minHeight: 44, fontSize: 12, marginBottom: 6 },
   ro: { fontSize: 13, color: '#334155', marginBottom: 8 },
   roCompact: { fontSize: 12, marginBottom: 6 },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', paddingRight: 8 },
+  checkLabel: { fontSize: 12, fontWeight: '600', color: '#334155' },
+  checkLabelCompact: { fontSize: 11 },
+  avisoAbonoBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    marginBottom: 6,
+  },
+  avisoAbonoText: { flex: 1, fontSize: 11, color: '#92400e', lineHeight: 15 },
   /** Condiciones + forma de pago en una fila, cada una desplegable */
   condFormaRow: { flexDirection: 'row', gap: 10, marginBottom: 8, alignItems: 'flex-start' },
   condFormaRowCompact: { gap: 8, marginBottom: 6 },

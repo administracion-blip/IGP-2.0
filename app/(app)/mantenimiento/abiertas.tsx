@@ -26,6 +26,10 @@ import {
   contarUrgentes,
   formatearFechaIncidencia,
 } from '../../lib/mantenimientoIncidenciaUi';
+import {
+  cierreSinFacturaDeParte,
+  facturaMantenimientoDeParte,
+} from '../../lib/mantenimientoFacturacion';
 import { MantenimientoIncidenciaCard } from '../../components/mantenimiento/MantenimientoIncidenciaCard';
 import {
   MantenimientoIncidenciaDetalleModal,
@@ -102,6 +106,8 @@ function incidenciaADetalle(inc: Incidencia, localNombre: string): Mantenimiento
     valoracionBase: inc.valoracion_base != null ? Number(inc.valoracion_base) : null,
     valoracionIva: inc.valoracion_iva != null ? Number(inc.valoracion_iva) : null,
     valoracionTotal: inc.valoracion_total != null ? Number(inc.valoracion_total) : null,
+    factura: facturaMantenimientoDeParte(inc),
+    cierre: cierreSinFacturaDeParte(inc),
   };
 }
 

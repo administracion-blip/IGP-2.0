@@ -348,11 +348,51 @@ async function getUserLocales(userId) {
   return normalizeLocalField(r.Item?.Local);
 }
 
+/** Normaliza un nombre de empresa para cruzar `locales.empresa` con `empresas.Nombre`. */
+function normNombreEmpresa(val) {
+  return String(val ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[.,]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /**
- * Resuelve el `id_empresa` del local. El campo en `tables.locales` se llama
- * `empresa` (lower, no `id_empresa`); puede contener un id-string o estar
- * vacío. Si no hay valor, devuelve `''` y registra warning (la propuesta se
- * podrá crear pero no entrará en el GSI Empresa-Estado-index).
+ * Busca el `id_empresa` del maestro a partir del nombre. Solo se usa como
+ * respaldo para locales sin `id_empresa` (pendientes de la migración
+ * `scripts/migrar-locales-id-empresa.js`). Devuelve `''` si no hay una única
+ * coincidencia clara.
+ */
+async function buscarEmpresaIdPorNombre(nombreEmpresa) {
+  const clave = normNombreEmpresa(nombreEmpresa);
+  if (!clave) return '';
+  const items = [];
+  let lastKey = null;
+  do {
+    const r = await docClient.send(new ScanCommand({
+      TableName: tables.empresas,
+      ProjectionExpression: 'id_empresa, Nombre',
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    }));
+    items.push(...(r.Items || []));
+    lastKey = r.LastEvaluatedKey || null;
+  } while (lastKey);
+  const coincidencias = items.filter((e) => normNombreEmpresa(e.Nombre) === clave);
+  if (coincidencias.length !== 1) return '';
+  return String(coincidencias[0].id_empresa ?? '').trim();
+}
+
+/**
+ * Resuelve el `id_empresa` del local para indexarlo en `Empresa-Estado-index`.
+ * En `tables.locales` conviven dos campos: `id_empresa` (identificador real de
+ * `igp_Empresas`) y `empresa` (nombre legible). Se lee `id_empresa`; si el
+ * local todavía no lo tiene (migración pendiente) se resuelve por nombre contra
+ * el maestro. Si no hay forma de resolverlo devuelve `''` y registra warning: en
+ * ese caso el atributo se omite del ítem (índice disperso), porque DynamoDB
+ * rechaza cadenas vacías en claves de índice. La propuesta se guarda igual, pero
+ * queda fuera de `Empresa-Estado-index` y solo aparece vía Scan.
  */
 async function getEmpresaIdFromLocal(idLocalNorm, log) {
   if (!idLocalNorm) return '';
@@ -363,14 +403,18 @@ async function getEmpresaIdFromLocal(idLocalNorm, log) {
   if (!r.Item) {
     throw notFound(`Local ${idLocalNorm} no encontrado`);
   }
-  const empresa = String(r.Item.empresa ?? '').trim();
-  if (!empresa && log) {
+  const idEmpresa = String(r.Item.id_empresa ?? '').trim();
+  if (idEmpresa) return idEmpresa;
+
+  const empresaNombre = String(r.Item.empresa ?? '').trim();
+  const idEmpresaPorNombre = empresaNombre ? await buscarEmpresaIdPorNombre(empresaNombre) : '';
+  if (!idEmpresaPorNombre && log) {
     log.warn(
-      { id_local: idLocalNorm },
-      '[marketing] local sin empresa asignada — la propuesta no aparecerá en consultas por id_empresa',
+      { id_local: idLocalNorm, empresa: empresaNombre },
+      '[marketing] no se pudo resolver id_empresa del local — la propuesta no aparecerá en consultas por id_empresa',
     );
   }
-  return empresa;
+  return idEmpresaPorNombre;
 }
 
 /**
@@ -739,7 +783,8 @@ router.post('/marketing/propuestas', requirePermission('marketing.proponer'), as
     }
   }
 
-  // id_empresa SIEMPRE derivado del local (nunca del body).
+  // id_empresa SIEMPRE derivado del local (nunca del body). Si no se resuelve se
+  // omite el atributo: es clave del GSI y DynamoDB rechaza cadenas vacías ahí.
   const idEmpresa = await getEmpresaIdFromLocal(idLocal, req.log);
 
   const now = new Date().toISOString();
@@ -748,7 +793,7 @@ router.post('/marketing/propuestas', requirePermission('marketing.proponer'), as
   const item = {
     id_propuesta: crypto.randomUUID(),
     id_local: idLocal,
-    id_empresa: idEmpresa,
+    ...(idEmpresa ? { id_empresa: idEmpresa } : {}),
     tipo,
     redes,
     fecha_sugerida: fechaSugerida,
@@ -880,15 +925,26 @@ router.patch('/marketing/propuestas/:id', requirePermission('marketing.proponer'
       }
     }
   }
+
+  // Campos a borrar del ítem en lugar de asignarles valor.
+  const removeKeys = [];
+
   if ('id_local' in updates) {
     const norm = formatId6(String(updates.id_local || '').trim());
     if (!norm) throw badRequest('id_local inválido');
     updates.id_local = norm;
-    // Re-derivar id_empresa cuando cambia el local.
-    updates.id_empresa = await getEmpresaIdFromLocal(norm, req.log);
+    // Re-derivar id_empresa cuando cambia el local. Si no se resuelve se quita el
+    // atributo: es clave del GSI y DynamoDB rechaza cadenas vacías ahí.
+    const idEmpresaDerivada = await getEmpresaIdFromLocal(norm, req.log);
+    if (idEmpresaDerivada) {
+      updates.id_empresa = idEmpresaDerivada;
+    } else {
+      removeKeys.push('id_empresa');
+    }
   }
 
   const sets = [];
+  const removes = [];
   const exprNames = {};
   const exprValues = {};
   let i = 0;
@@ -900,19 +956,30 @@ router.patch('/marketing/propuestas/:id', requirePermission('marketing.proponer'
     exprValues[placeholderValue] = v;
     i += 1;
   }
+  for (const k of removeKeys) {
+    const placeholderName = `#k${i}`;
+    removes.push(placeholderName);
+    exprNames[placeholderName] = k;
+    i += 1;
+  }
 
-  if (sets.length === 0) {
+  if (sets.length === 0 && removes.length === 0) {
     return res.json({ propuesta: prev });
   }
+
+  const updateExpression = [
+    sets.length ? `SET ${sets.join(', ')}` : '',
+    removes.length ? `REMOVE ${removes.join(', ')}` : '',
+  ].filter(Boolean).join(' ');
 
   let updated;
   try {
     const r = await docClient.send(new UpdateCommand({
       TableName: TABLE_MARKETING,
       Key: { id_propuesta: id },
-      UpdateExpression: `SET ${sets.join(', ')}`,
+      UpdateExpression: updateExpression,
       ExpressionAttributeNames: exprNames,
-      ExpressionAttributeValues: exprValues,
+      ...(Object.keys(exprValues).length ? { ExpressionAttributeValues: exprValues } : {}),
       ReturnValues: 'ALL_NEW',
     }));
     updated = r.Attributes;

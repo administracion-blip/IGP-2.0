@@ -16,9 +16,15 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { PrioridadIncidenciaBadge } from './PrioridadIncidenciaBadge';
 import { formatearFechaIncidencia } from '../../lib/mantenimientoIncidenciaUi';
+import {
+  labelPeriodo,
+  type CierreSinFacturaParte,
+  type FacturaMantenimientoParte,
+} from '../../lib/mantenimientoFacturacion';
 import { formatId6 } from '../../utils/idFormat';
 
 export type LineaValoracionDetalle = {
+  tipo?: 'material' | 'mano_obra' | 'desplazamiento';
   articulo?: string;
   cantidad?: number;
   precio?: number;
@@ -26,6 +32,10 @@ export type LineaValoracionDetalle = {
   base_linea?: number;
   iva_linea?: number;
   total_linea?: number;
+  /** Kilómetros del viaje completo antes de repartirlo (solo desplazamiento). */
+  km_totales?: number;
+  /** Partes del día entre los que se repartió el viaje (solo desplazamiento). */
+  reparto_partes?: number;
 };
 
 export type MantenimientoIncidenciaDetalle = {
@@ -46,6 +56,10 @@ export type MantenimientoIncidenciaDetalle = {
   valoracionBase?: number | null;
   valoracionIva?: number | null;
   valoracionTotal?: number | null;
+  /** Marca de la facturación mensual; si viene, el importe está congelado. */
+  factura?: FacturaMantenimientoParte | null;
+  /** Cierre sin factura: el parte no tiene nada que facturar (por ahora). */
+  cierre?: CierreSinFacturaParte | null;
 };
 
 type Props = {
@@ -55,6 +69,23 @@ type Props = {
   resolverUriFoto: (uri: string) => string;
   onFotoPress?: (uri: string) => void;
 };
+
+/**
+ * Explica de dónde salen los kilómetros de una línea de desplazamiento: el
+ * viaje del técnico se cobra una vez por local y día, así que la cantidad de la
+ * línea es la parte que le toca a este parte, no el trayecto completo. Sin esta
+ * nota parece un error y alguien podría «corregirla» a mano. Las valoraciones
+ * anteriores al reparto no traen los campos y no muestran nada.
+ */
+function notaReparto(linea: LineaValoracionDetalle): string | null {
+  if (linea.tipo !== 'desplazamiento') return null;
+  const partes = Number(linea.reparto_partes);
+  const kmTotales = Number(linea.km_totales);
+  if (!Number.isFinite(partes) || partes <= 1) return null;
+  if (!Number.isFinite(kmTotales) || kmTotales <= 0) return null;
+  const km = kmTotales.toLocaleString('es-ES', { maximumFractionDigits: 3 });
+  return `Viaje de ${km} km repartido entre ${Math.round(partes)} partes de ese día`;
+}
 
 function MetaCell({ label, value, compact }: { label: string; value: string; compact?: boolean }) {
   if (!value || value === '—') return null;
@@ -213,6 +244,59 @@ export function MantenimientoIncidenciaDetalleModal({
               <MetaCell compact={isCompact} label="Completada" value={fmt(detalle.fechaCompletada) || '—'} />
             </MetaGrid>
 
+            {detalle.factura ? (
+              <View style={styles.facturadoBlock}>
+                <MaterialIcons name="receipt-long" size={18} color="#0f766e" />
+                <View style={styles.facturadoBody}>
+                  <Text style={styles.facturadoTitulo}>
+                    {detalle.factura.periodo
+                      ? `Facturado · periodo de ${labelPeriodo(detalle.factura.periodo)}`
+                      : 'Facturado'}
+                  </Text>
+                  {detalle.factura.fechaFacturacion || detalle.factura.idEmpresa ? (
+                    <Text style={styles.facturadoTexto}>
+                      {[
+                        detalle.factura.fechaFacturacion
+                          ? `Factura generada el ${fmt(detalle.factura.fechaFacturacion)}`
+                          : '',
+                        detalle.factura.idEmpresa
+                          ? `sociedad ${detalle.factura.idEmpresa}`
+                          : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </Text>
+                  ) : null}
+                  <Text style={styles.facturadoNota}>
+                    El importe está congelado en la factura: esta reparación ya no se puede volver a
+                    valorar, ni cambiar de fecha, ni borrar.
+                  </Text>
+                </View>
+              </View>
+            ) : detalle.cierre ? (
+              <View style={styles.sinFacturaBlock}>
+                <MaterialIcons name="money-off" size={18} color="#475569" />
+                <View style={styles.facturadoBody}>
+                  <Text style={styles.sinFacturaTitulo}>
+                    {detalle.cierre.periodo
+                      ? `Sin factura · cerrada en ${labelPeriodo(detalle.cierre.periodo)}`
+                      : 'Sin factura'}
+                  </Text>
+                  <Text style={styles.sinFacturaTexto}>{detalle.cierre.texto}</Text>
+                  {detalle.cierre.fechaCierre ? (
+                    <Text style={styles.sinFacturaMeta}>
+                      {`Cerrada el ${fmt(detalle.cierre.fechaCierre)}`}
+                    </Text>
+                  ) : null}
+                  <Text style={styles.sinFacturaNota}>
+                    No es definitivo: si el importe de la reparación vuelve a cambiar —por ejemplo,
+                    si el reparto del desplazamiento le devuelve kilómetros—, entrará otra vez en la
+                    facturación del mes.
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+
             <View style={styles.descBlock}>
               <Text style={styles.sectionLabel}>Descripción</Text>
               <Text style={styles.descText}>
@@ -223,19 +307,23 @@ export function MantenimientoIncidenciaDetalleModal({
             {lineasValoracion.length > 0 ? (
               <View style={styles.valBlock}>
                 <Text style={styles.sectionLabel}>Valoración</Text>
-                {lineasValoracion.map((l, i) => (
-                  <View key={i} style={styles.valLinea}>
-                    <View style={styles.valLineaMain}>
-                      <Text style={styles.valArticulo} numberOfLines={1}>
-                        {l.articulo ?? '—'}
+                {lineasValoracion.map((l, i) => {
+                  const reparto = notaReparto(l);
+                  return (
+                    <View key={i} style={styles.valLinea}>
+                      <View style={styles.valLineaMain}>
+                        <Text style={styles.valArticulo} numberOfLines={1}>
+                          {l.articulo ?? '—'}
+                        </Text>
+                        <Text style={styles.valTotalLinea}>{fmtEur(l.total_linea)}</Text>
+                      </View>
+                      <Text style={styles.valDetalle} numberOfLines={1}>
+                        {fmtNum(l.cantidad)} × {fmtEur(l.precio)} · IVA {l.tipo_iva ?? 0}%
                       </Text>
-                      <Text style={styles.valTotalLinea}>{fmtEur(l.total_linea)}</Text>
+                      {reparto ? <Text style={styles.valDetalle}>{reparto}</Text> : null}
                     </View>
-                    <Text style={styles.valDetalle} numberOfLines={1}>
-                      {fmtNum(l.cantidad)} × {fmtEur(l.precio)} · IVA {l.tipo_iva ?? 0}%
-                    </Text>
-                  </View>
-                ))}
+                  );
+                })}
                 <View style={styles.valTotales}>
                   <View style={styles.valTotalRow}>
                     <Text style={styles.valTotalLabel}>Total sin IVA</Text>
@@ -363,6 +451,34 @@ const styles = StyleSheet.create({
   metaCellLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.2 },
   metaCellValue: { fontSize: 12, fontWeight: '600', color: '#334155', lineHeight: 16 },
   metaCellValueCompact: { flex: 1, textAlign: 'right' as const },
+  facturadoBlock: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#99f6e4',
+    backgroundColor: '#f0fdfa',
+  },
+  facturadoBody: { flex: 1, minWidth: 0, gap: 2 },
+  facturadoTitulo: { fontSize: 13, fontWeight: '700', color: '#0f766e' },
+  facturadoTexto: { fontSize: 11, color: '#0d9488' },
+  facturadoNota: { fontSize: 11, color: '#0f766e', lineHeight: 16 },
+  sinFacturaBlock: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#f8fafc',
+  },
+  sinFacturaTitulo: { fontSize: 13, fontWeight: '700', color: '#334155' },
+  sinFacturaTexto: { fontSize: 12, color: '#475569', lineHeight: 17 },
+  sinFacturaMeta: { fontSize: 11, color: '#94a3b8' },
+  sinFacturaNota: { fontSize: 11, color: '#64748b', lineHeight: 16 },
   descBlock: {
     gap: 6,
     padding: 12,

@@ -20,19 +20,29 @@ import { MIN_TOUCH } from '../../constants/layout';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
 import { InputFecha } from '../../components/InputFecha';
+import { InputCantidad } from '../../components/InputCantidad';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useProductosCache } from '../../contexts/ProductosCache';
 import { useAuth } from '../../contexts/AuthContext';
 import { fetchPorcentajeBeneficio, aplicarPorcentajeBeneficio } from '../../lib/personalizacion';
 import { siguienteIdParaNuevoPedido } from '../../lib/pedidosId';
+import {
+  avisoFacturacionSalida,
+  buscarLocalPorId,
+  idAlmacenGeneral,
+  localDeAlmacen,
+} from '../../lib/pedidosEntreLocales';
 import { apiFetch } from '../../utils/api';
 import { formatCreadoEn } from '../../utils/formatFecha';
+import {
+  CeldaFacturacionPedido,
+  COLUMNA_FACTURACION,
+} from '../../components/compras/CeldaFacturacionPedido';
+import { estadoFacturacionPedido } from '../../lib/comprasFacturacion';
 import NuevoPedidoModal from './NuevoPedidoModal';
 
-const COLUMNAS = ['Id', 'Fecha', 'CreadoEn', 'LocalId', 'Local', 'AlmacenOrigen', 'AlmacenDestino', 'TotalAlbaran', 'Estado'] as const;
+const COLUMNAS = ['Id', 'Fecha', 'CreadoEn', 'LocalId', 'Local', 'AlmacenOrigen', 'AlmacenDestino', 'TotalAlbaran', 'Estado', COLUMNA_FACTURACION] as const;
 const ESTADOS = ['Borrador', 'Pendiente', 'Enviado', 'Exportado', 'Completado'] as const;
-const NOMBRE_ALMACEN_GENERAL = 'Almacén General';
-
 function parseAlmacenesOrigen(val: string | number | undefined): string[] {
   if (val == null || String(val).trim() === '') return [];
   return String(val)
@@ -121,6 +131,8 @@ export default function PedidosScreen() {
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<string | null>(null);
+  /** Motivo por el que no se puede tocar un pedido ya facturado. */
+  const [avisoFacturado, setAvisoFacturado] = useState<string | null>(null);
 
   const [modalFormVisible, setModalFormVisible] = useState(false);
   const [nuevoPedidoVisible, setNuevoPedidoVisible] = useState(false);
@@ -280,13 +292,10 @@ export default function PedidosScreen() {
     return map;
   }, [locales]);
 
-  const almacenGeneralId = useMemo(() => {
-    const alm = almacenes.find((a) => {
-      const n = String(valorEnLocal(a, 'Nombre') ?? '').trim();
-      return n === NOMBRE_ALMACEN_GENERAL || n.toLowerCase().includes('almacén general') || n.toLowerCase().includes('almacen general');
-    });
-    return alm ? String(valorEnLocal(alm, 'Id') ?? '').trim() : '';
-  }, [almacenes]);
+  const almacenGeneralId = useMemo(() => idAlmacenGeneral(almacenes), [almacenes]);
+
+  /** El maestro está cargado pero ningún almacén se llama «Almacén General». */
+  const generalNoIdentificado = almacenes.length > 0 && !almacenGeneralId;
 
   const totalAlbaranCalculado = useMemo(() => {
     if (editingPedidoId == null) return 0;
@@ -310,6 +319,64 @@ export default function PedidosScreen() {
       return nombresPermitidos.some((n) => n === nombre || nombre.toLowerCase().includes(n.toLowerCase()));
     });
   }, [form.LocalId, almacenesPorLocalId, almacenes]);
+
+  /**
+   * Cambiar el origen a (o desde) el almacén de otro local cambia quién factura
+   * a quién al cerrar el mes, así que solo se ofrece con el permiso del envío
+   * entre locales; el resto ve fijo el origen que ya tiene el pedido.
+   */
+  const puedeEnviarEntreLocales = hasPermiso('pedidos.crear_entre_locales');
+
+  /**
+   * Opciones de origen al editar. Con el permiso, todos los almacenes. Sin él,
+   * el origen que ya tiene el pedido y el Almacén General: el backend solo
+   * rechaza *mover* el origen a un almacén que no sea el central, así que
+   * devolver al general un pedido con el origen mal puesto es legítimo y sería
+   * un error impedirlo (además de dejar al usuario sin salida).
+   */
+  const almacenesOrigenEdicion = useMemo(() => {
+    if (puedeEnviarEntreLocales) return almacenes;
+    const fijo = form.AlmacenOrigenId.trim();
+    const permitidos = new Set([fijo, almacenGeneralId].filter(Boolean));
+    if (permitidos.size === 0) return almacenes;
+    const opciones = almacenes.filter((alm) => permitidos.has(String(valorEnLocal(alm, 'Id') ?? '').trim()));
+    // El origen guardado puede no estar en el maestro (almacén borrado o
+    // renombrado en Ágora): se pinta igualmente, para no dejar la lista vacía.
+    if (fijo && !opciones.some((alm) => String(valorEnLocal(alm, 'Id') ?? '').trim() === fijo)) {
+      return [{ Id: fijo, Nombre: `Almacén ${fijo}` } as Almacen, ...opciones];
+    }
+    return opciones;
+  }, [puedeEnviarEntreLocales, almacenes, form.AlmacenOrigenId, almacenGeneralId]);
+
+  /** El origen guardado no aparece en el maestro de almacenes. */
+  const origenFueraDeMaestro = useMemo(() => {
+    const fijo = form.AlmacenOrigenId.trim();
+    if (!fijo || almacenes.length === 0) return false;
+    return !almacenes.some((alm) => String(valorEnLocal(alm, 'Id') ?? '').trim() === fijo);
+  }, [form.AlmacenOrigenId, almacenes]);
+
+  /** El origen es el almacén central: ni genera factura ni hay nada que advertir. */
+  const origenEsGeneral = almacenGeneralId !== '' && form.AlmacenOrigenId.trim() === almacenGeneralId;
+
+  /** Local que sirve la mercancía según el almacén de origen elegido. */
+  const localOrigenPedido = useMemo(
+    () => localDeAlmacen(form.AlmacenOrigenId, locales, almacenes),
+    [form.AlmacenOrigenId, locales, almacenes],
+  );
+
+  /**
+   * Aviso de facturación cuando el origen no es el Almacén General: ese pedido
+   * entra en la facturación mensual de ventas internas entre sociedades.
+   */
+  const avisoOrigenPedido = useMemo(() => {
+    const origenId = form.AlmacenOrigenId.trim();
+    if (!origenId || (almacenGeneralId && origenId === almacenGeneralId)) return null;
+    return avisoFacturacionSalida({
+      localOrigen: localOrigenPedido,
+      localDestino: buscarLocalPorId(form.LocalId, locales),
+      localOrigenDesconocido: !localOrigenPedido,
+    });
+  }, [form.AlmacenOrigenId, form.LocalId, almacenGeneralId, localOrigenPedido, locales]);
 
   // Si el usuario no puede ver completados, se excluyen de TODA la pantalla
   // (también del chip "Todos" y de los conteos), no solo del filtro.
@@ -366,6 +433,7 @@ export default function PedidosScreen() {
 
   const getValorCelda = useCallback((item: Pedido, col: string): string => {
     const v = valorEnLocal(item, col);
+    if (col === COLUMNA_FACTURACION) return estadoFacturacionPedido(item).texto;
     if (col === 'TotalAlbaran') return formatMoneda(v);
     if (col === 'Fecha') return formatFecha(v);
     if (col === 'CreadoEn') return formatCreadoEn(v);
@@ -789,8 +857,15 @@ export default function PedidosScreen() {
   const pedidoEnviado = estadoPedidoActual === 'Enviado';
   const puedeEditarEnviado = hasPermiso('pedidos.editar_enviado');
   const puedeBorrarEnviado = hasPermiso('pedidos.borrar_enviado');
-  const bloqueadoEditar = pedidoEnviado && !puedeEditarEnviado;
-  const bloqueadoBorrar = pedidoEnviado && !puedeBorrarEnviado;
+  /**
+   * Un pedido ya facturado tiene el importe congelado: el backend rechaza
+   * cualquier escritura sobre sus líneas, así que sus acciones se deshabilitan
+   * en vez de dejar que el usuario descubra el 409 al guardar.
+   */
+  const facturacionPedidoActual = estadoFacturacionPedido(pedidoParaLineas);
+  const pedidoActualFacturado = facturacionPedidoActual.estado === 'facturado';
+  const bloqueadoEditar = (pedidoEnviado && !puedeEditarEnviado) || pedidoActualFacturado;
+  const bloqueadoBorrar = (pedidoEnviado && !puedeBorrarEnviado) || pedidoActualFacturado;
 
   // Hay un pedido recién creado (Borrador) con líneas que aún no se ha enviado a
   // almacén. Al salir avisamos para ofrecer marcarlo como Enviado.
@@ -849,18 +924,31 @@ export default function PedidosScreen() {
   }, []);
 
   const handleCrear = () => abrirModalCrear();
+  /**
+   * El backend rechaza con un 409 cualquier cambio en un pedido ya facturado.
+   * Se corta antes de abrir el formulario y se dice por qué: si el usuario
+   * rellena el modal y el error salta al guardar, la culpa parece de la app.
+   */
+  const bloqueoFacturacion = (item: Pedido): boolean => {
+    const facturacion = estadoFacturacionPedido(item);
+    if (facturacion.estado !== 'facturado') return false;
+    setAvisoFacturado(facturacion.detalle);
+    return true;
+  };
   const handleEditar = (item: Pedido) => {
     const est = String(valorEnLocal(item, 'Estado') ?? '');
     if (est === 'Enviado' && !puedeEditarEnviado) return;
+    if (bloqueoFacturacion(item)) return;
     abrirModalEditar(item);
   };
   const handleBorrar = (item: Pedido) => {
     const est = String(valorEnLocal(item, 'Estado') ?? '');
     if (est === 'Enviado' && !puedeBorrarEnviado) return;
+    if (bloqueoFacturacion(item)) return;
     abrirModalBorrar(item);
   };
 
-  const { shouldStackPanels } = useBreakpoint();
+  const { shouldStackPanels, shouldUseComfortableTable } = useBreakpoint();
   const insets = useSafeAreaInsets();
   // Tabla de líneas estirada cuando hay espacio horizontal (tablet/escritorio horizontal).
   const isWide = !shouldStackPanels;
@@ -899,13 +987,17 @@ export default function PedidosScreen() {
               <View style={styles.lineasColPreparada}>
                 <TouchableOpacity
                   onPress={() => togglePreparadaLinea(key)}
-                  disabled={guardandoPreparada !== null}
+                  disabled={guardandoPreparada !== null || pedidoActualFacturado}
                   style={[styles.lineasCheckBtn, preparada && styles.lineasCheckBtnActive]}
                 >
                   {guardandoPreparada === key ? (
                     <ActivityIndicator size="small" color={preparada ? '#fff' : '#0ea5e9'} />
                   ) : (
-                    <MaterialIcons name={preparada ? 'check-circle' : 'check-circle-outline'} size={22} color={preparada ? '#16a34a' : '#94a3b8'} />
+                    <MaterialIcons
+                      name={preparada ? 'check-circle' : 'check-circle-outline'}
+                      size={22}
+                      color={pedidoActualFacturado ? '#d1d5db' : preparada ? '#16a34a' : '#94a3b8'}
+                    />
                   )}
                 </TouchableOpacity>
               </View>
@@ -1013,6 +1105,22 @@ export default function PedidosScreen() {
     <View style={styles.container}>
       <View style={[styles.mainRow, !isWide && styles.mainRowColumn]}>
         <View style={styles.pedidosSection}>
+          {/* Encima de la tabla: si va debajo, con una lista larga el usuario
+              pulsa «Editar», no pasa nada y el motivo queda fuera de pantalla. */}
+          {avisoFacturado ? (
+            <View style={[styles.avisoFacturadoBox, styles.avisoFacturadoBoxTop]}>
+              <MaterialIcons name="lock-outline" size={16} color="#b45309" />
+              <Text style={styles.avisoFacturadoText}>{avisoFacturado}</Text>
+              <TouchableOpacity
+                onPress={() => setAvisoFacturado(null)}
+                style={styles.avisoFacturadoCerrar}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityLabel="Cerrar aviso"
+              >
+                <MaterialIcons name="close" size={16} color="#b45309" />
+              </TouchableOpacity>
+            </View>
+          ) : null}
           <TablaBasica<Pedido>
             extraToolbarLeft={chipsEstado}
             title="Pedidos"
@@ -1033,6 +1141,11 @@ export default function PedidosScreen() {
             onBorrar={handleBorrar}
             columnasMoneda={['TotalAlbaran']}
             getColumnCellStyle={(col) => col === 'TotalAlbaran' ? { text: { fontWeight: '700' } } : undefined}
+            renderCell={(item, col) =>
+              col === COLUMNA_FACTURACION ? (
+                <CeldaFacturacionPedido pedido={item} comodo={shouldUseComfortableTable} />
+              ) : null
+            }
             getRowStyle={(item) => String(valorEnLocal(item, 'Estado') ?? '') === 'Completado' ? { backgroundColor: '#dcfce7' } : undefined}
             emptyMessage="No hay pedidos"
             emptyFilterMessage="Ningún pedido coincide con el filtro"
@@ -1057,6 +1170,12 @@ export default function PedidosScreen() {
               </Text>
             )}
           </View>
+          {pedidoActualFacturado ? (
+            <View style={styles.avisoFacturadoBox}>
+              <MaterialIcons name="lock-outline" size={16} color="#b45309" />
+              <Text style={styles.avisoFacturadoText}>{facturacionPedidoActual.detalle}</Text>
+            </View>
+          ) : null}
           {!pedidoParaLineas ? (
             <Text style={styles.lineasEmptyHint}>Selecciona un pedido para ver sus líneas</Text>
           ) : loadingLineas ? (
@@ -1150,14 +1269,11 @@ export default function PedidosScreen() {
                 </View>
                 <View style={styles.formGroupCantidadLinea}>
                   <Text style={[styles.formLabel, styles.lineaFormLabelLinea]}>Cantidad</Text>
-                  <TextInput
-                    style={[styles.formInput, styles.lineaFormCantidadMatch]}
+                  <InputCantidad
                     value={formLinea.Cantidad}
                     onChangeText={(v) => setFormLinea((f) => ({ ...f, Cantidad: v }))}
                     placeholder="0"
-                    placeholderTextColor="#94a3b8"
-                    keyboardType="decimal-pad"
-                    {...(Platform.OS === 'android' ? { textAlignVertical: 'center' as const } : {})}
+                    style={styles.lineaFormCantidadMatch}
                   />
                 </View>
               </View>
@@ -1294,7 +1410,7 @@ export default function PedidosScreen() {
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerRow}>
                     {editingPedidoId != null ? (
                       <>
-                        {almacenes.map((alm) => {
+                        {almacenesOrigenEdicion.map((alm) => {
                           const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
                           const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
                           const sel = idAlm !== '' && form.AlmacenOrigenId === idAlm;
@@ -1302,7 +1418,14 @@ export default function PedidosScreen() {
                             <TouchableOpacity
                               key={idAlm || nombre}
                               style={[styles.pickerChip, sel && styles.pickerChipActive]}
-                              onPress={() => setForm((f) => ({ ...f, AlmacenOrigenId: sel ? '' : idAlm }))}
+                              // Sin permiso de envío entre locales el origen es fijo: no se puede
+                              // deseleccionar y dejar el pedido sin origen.
+                              onPress={() =>
+                                setForm((f) => ({
+                                  ...f,
+                                  AlmacenOrigenId: sel && puedeEnviarEntreLocales ? '' : idAlm,
+                                }))
+                              }
                             >
                               <Text style={[styles.pickerChipText, sel && styles.pickerChipTextActive]} numberOfLines={1}>
                                 {nombre || idAlm || '—'}
@@ -1333,6 +1456,38 @@ export default function PedidosScreen() {
                         })
                     )}
                   </ScrollView>
+                  {/* Solo cuando hay algo que advertir: con el origen ya en el
+                      almacén central no hay factura de por medio ni alternativa
+                      que explicar. */}
+                  {editingPedidoId != null && !puedeEnviarEntreLocales && !origenEsGeneral ? (
+                    <Text style={styles.formHint}>
+                      {almacenGeneralId
+                        ? 'Sin el permiso de envíos entre locales solo puedes devolver el origen al Almacén General: cambiarlo al almacén de otro local crearía una factura entre sociedades.'
+                        : 'El origen no se puede cambiar sin el permiso de envíos entre locales: hacerlo puede crear o quitar una factura entre sociedades.'}
+                    </Text>
+                  ) : null}
+                  {editingPedidoId != null && origenFueraDeMaestro ? (
+                    <Text style={styles.formAvisoFactura}>
+                      El almacén de origen de este pedido no está en el maestro de almacenes, así que no se
+                      puede saber qué local sirvió la mercancía y la facturación mensual lo dejará fuera.
+                      Revísalo en Almacenes.
+                    </Text>
+                  ) : null}
+                  {editingPedidoId == null && generalNoIdentificado ? (
+                    <Text style={styles.formAvisoFactura}>
+                      No hay ningún almacén llamado «Almacén General» en el maestro, así que no se ha podido
+                      preseleccionar el origen habitual: elígelo a mano. Si el almacén elegido no es el central,
+                      el pedido generará factura entre sociedades y se rechazará sin el permiso de envíos entre
+                      locales. Revisa el nombre del almacén central en Almacenes.
+                    </Text>
+                  ) : null}
+                  {avisoOrigenPedido ? (
+                    <Text
+                      style={avisoOrigenPedido.tono === 'aviso' ? styles.formAvisoFactura : styles.formHint}
+                    >
+                      {avisoOrigenPedido.texto}
+                    </Text>
+                  ) : null}
                 </View>
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Almacén destino *</Text>
@@ -1614,6 +1769,40 @@ const styles = StyleSheet.create({
   formInputMultiline: { minHeight: 60, textAlignVertical: 'top' },
   rappelHintOk: { fontSize: 11, color: '#16a34a', marginTop: 6 },
   rappelHintWarn: { fontSize: 11, color: '#d97706', marginTop: 6 },
+  formHint: { fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 17 },
+  formAvisoFactura: {
+    fontSize: 12,
+    color: '#b45309',
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 6,
+    lineHeight: 17,
+    fontWeight: '500',
+  },
+  avisoFacturadoBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    marginTop: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    borderRadius: 8,
+  },
+  avisoFacturadoBoxTop: { marginTop: 0, marginBottom: 6 },
+  avisoFacturadoText: { flex: 1, minWidth: 0, fontSize: 12, color: '#b45309', lineHeight: 17 },
+  avisoFacturadoCerrar: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
   formError: { fontSize: 12, color: '#dc2626', paddingHorizontal: 20, paddingVertical: 8 },
   modalFooter: {
     flexDirection: 'row',
@@ -1772,8 +1961,6 @@ const styles = StyleSheet.create({
   },
   lineaFormCantidadMatch: {
     minHeight: 40,
-    paddingVertical: 9,
-    paddingHorizontal: 12,
   },
   formGroupProductoLinea: {
     flex: 1,
@@ -1787,8 +1974,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   formGroupCantidadLinea: {
-    width: 88,
-    minWidth: 72,
+    width: 168,
+    minWidth: 168,
     flexShrink: 0,
     marginBottom: 0,
   },

@@ -1,4 +1,5 @@
-import { labelFormaPago, mapTipoReciboToFormaPago, type FormaPagoClave } from './facturacion';
+import { FORMAS_PAGO, labelFormaPago, mapTipoReciboToFormaPago, type FormaPagoClave } from './facturacion';
+import type { OpcionDesplegable } from '../components/SelectorDesplegable';
 
 /** Compatible con ítems de GET /api/empresas (Dynamo / front mapeado). */
 export type EmpresaConTipoRecibo = {
@@ -9,6 +10,10 @@ export type EmpresaConTipoRecibo = {
   Etiqueta?: string[];
   tipoRecibo?: string;
   'Tipo de recibo'?: string;
+  Iban?: string;
+  iban?: string;
+  IbanAlternativo?: string;
+  ibanAlternativo?: string;
 };
 
 /** Estados IN con saldo pendiente de gestionar en tesorería. */
@@ -208,4 +213,25 @@ export function filtrarFacturasPorColaPago<T extends FacturaRefFormaPago>(
     return facturas.filter((f) => esFacturaColaTransferencia(f, empresas));
   }
   return facturas.filter((f) => esFacturaOtroMetodoPago(f, empresas));
+}
+
+/** Opciones del desplegable «Tipo de recibo» en el maestro de empresas. */
+export const OPCIONES_TIPO_RECIBO_EMPRESA: OpcionDesplegable[] = FORMAS_PAGO.map((id) => ({
+  id,
+  titulo: labelFormaPago(id),
+  icono: 'payments',
+}));
+
+/** Interpreta el valor guardado en Dynamo (texto histórico o clave). */
+export function parseTipoReciboEmpresa(val: string | null | undefined): {
+  clave: FormaPagoClave;
+  otroTexto: string;
+} {
+  return mapTipoReciboToFormaPago(val);
+}
+
+/** Valor a persistir en `Tipo de recibo` desde el selector. */
+export function serializarTipoReciboEmpresa(clave: FormaPagoClave, otroTexto: string): string {
+  if (clave === 'otro') return otroTexto.trim();
+  return labelFormaPago(clave);
 }

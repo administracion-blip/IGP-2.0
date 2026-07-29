@@ -22,7 +22,15 @@ import { ICONS, ICON_SIZE } from '../constants/icons';
 import { formatId6 } from '../utils/idFormat';
 import { useAuth } from '../contexts/AuthContext';
 import { SelectorDesplegable } from '../components/SelectorDesplegable';
-import { apiFetch } from '../utils/api';
+import { apiFetch, errorMessage } from '../utils/api';
+import {
+  calcularProximoIdEmpresa,
+  claveNombreEmpresa,
+  crearEmpresaConIdLibre,
+  normalizarIdEmpresa,
+  resolverEmpresaPorNombre,
+} from '../lib/empresaId';
+import { calcularProximoIdLocal } from '../lib/localId';
 
 const MAX_IMAGEN_BASE64_LENGTH = 380000;
 
@@ -36,11 +44,15 @@ const MAX_TEXT_LENGTH = 30;
 
 const COL_THUMBNAIL = '_thumbnail';
 
-// Atributos exactos de la tabla igp_Locales en AWS (mismo orden que api/server.js TABLE_LOCALES_ATTRS).
+// Atributos exactos de la tabla igp_Locales en AWS (mismo orden que TABLE_LOCALES_ATTRS en api/routes/locales.js).
 // `factorial_location_id` es opcional: ID de la location correspondiente en Factorial HR (cuadrante).
-const ATRIBUTOS_TABLA_LOCALES = ['id_Locales', 'Nombre', 'AgoraCode', 'Empresa', 'Direccion', 'Cp', 'Municipio', 'Provincia', 'Almacen origen', 'Sede', 'lat', 'lng', 'Imagen', 'factorial_location_id', 'ratio_personal', 'ratio_musicos', 'ratio_mercaderia'] as const;
+// `km_desplazamiento`: kilómetros de ida desde la sede central; los usa Mantenimiento para valorar el desplazamiento.
+// `id_empresa`: vínculo estable con el maestro de empresas. Convive con `Empresa`, que sigue guardando el
+// nombre porque otros módulos (abonos y rappel de compras) cruzan por nombre.
+const ATRIBUTOS_TABLA_LOCALES = ['id_Locales', 'Nombre', 'AgoraCode', 'Empresa', 'id_empresa', 'Direccion', 'Cp', 'Municipio', 'Provincia', 'Almacen origen', 'Sede', 'lat', 'lng', 'km_desplazamiento', 'Imagen', 'factorial_location_id', 'ratio_personal', 'ratio_musicos', 'ratio_mercaderia'] as const;
 
-const ORDEN_COLUMNAS = [...ATRIBUTOS_TABLA_LOCALES];
+// En la tabla se muestra el nombre de la empresa, no su id: el id no aporta nada al usuario en el listado.
+const ORDEN_COLUMNAS = ATRIBUTOS_TABLA_LOCALES.filter((c) => c !== 'id_empresa');
 
 const CAMPOS_FORM: { key: (typeof ATRIBUTOS_TABLA_LOCALES)[number]; label: string }[] = [
   { key: 'Nombre', label: 'Nombre' },
@@ -54,6 +66,7 @@ const CAMPOS_FORM: { key: (typeof ATRIBUTOS_TABLA_LOCALES)[number]; label: strin
   { key: 'Sede', label: 'Sede' },
   { key: 'lat', label: 'Lat' },
   { key: 'lng', label: 'Lng' },
+  { key: 'km_desplazamiento', label: 'Km desde sede central (ida)' },
   { key: 'Imagen', label: 'Imagen' },
   { key: 'factorial_location_id', label: 'Factorial location ID' },
   { key: 'ratio_personal', label: 'Ratio personal (%)' },
@@ -61,7 +74,11 @@ const CAMPOS_FORM: { key: (typeof ATRIBUTOS_TABLA_LOCALES)[number]; label: strin
   { key: 'ratio_mercaderia', label: 'Ratio mercadería (%)' },
 ];
 
-const INITIAL_FORM = Object.fromEntries(CAMPOS_FORM.map((c) => [c.key, ''])) as Record<(typeof ATRIBUTOS_TABLA_LOCALES)[number], string>;
+// Claves que viven en el formulario: las visibles más `id_empresa`, que no tiene campo propio
+// porque lo rellena el desplegable de Empresa.
+const CLAVES_FORM: (typeof ATRIBUTOS_TABLA_LOCALES)[number][] = [...CAMPOS_FORM.map((c) => c.key), 'id_empresa'];
+
+const INITIAL_FORM = Object.fromEntries(CLAVES_FORM.map((k) => [k, ''])) as Record<(typeof ATRIBUTOS_TABLA_LOCALES)[number], string>;
 
 const SEDE_OPCIONES = ['Grupo Paripe'] as const;
 
@@ -145,7 +162,7 @@ export default function LocalesScreen() {
 
   const abrirModalEditar = (local: Local) => {
     const form: Record<string, string> = { ...INITIAL_FORM };
-    for (const key of CAMPOS_FORM.map((c) => c.key)) {
+    for (const key of CLAVES_FORM) {
       const v = valorEnLocal(local, key);
       form[key] = v != null ? String(v) : '';
     }
@@ -193,22 +210,79 @@ export default function LocalesScreen() {
     });
   }, [almacenes, almacenSearchFilter]);
 
+  // Cada opción se identifica por el `id_empresa` del maestro y muestra el nombre: al seleccionar
+  // se rellenan los dos campos del local (id y nombre como copia legible).
+  // Se dejan fuera las empresas sin id (no hay vínculo estable que guardar) y las que no tienen
+  // nombre (el local acabaría con el id de una empresa y el nombre de la anterior). Las dos son
+  // fichas rotas del maestro: se arreglan allí, no desde aquí, y la pista lo indica.
   const empresaOpciones = useMemo(
     () => [
-      ...[...empresasGrupoParipe]
-        .sort((a, b) => {
-          const na = (a.Nombre ?? a.id_empresa ?? '').toLowerCase();
-          const nb = (b.Nombre ?? b.id_empresa ?? '').toLowerCase();
-          return na.localeCompare(nb);
-        })
-        .map((emp) => {
-          const nombre = emp.Nombre ?? emp.id_empresa ?? '';
-          return { id: nombre, titulo: nombre || '—', icono: 'business' as const };
-        }),
+      ...empresasGrupoParipe
+        .map((emp) => ({ id: normalizarIdEmpresa(emp.id_empresa), nombre: (emp.Nombre ?? '').trim() }))
+        .filter(({ id, nombre }) => id !== '' && nombre !== '')
+        .sort((a, b) => a.nombre.toLowerCase().localeCompare(b.nombre.toLowerCase()))
+        .map(({ id, nombre }) => ({ id, titulo: nombre, icono: 'business' as const })),
       { id: CREAR_EMPRESA_OPCION_ID, titulo: 'Crear nueva empresa', icono: 'add-business' as const },
     ],
     [empresasGrupoParipe],
   );
+
+  /** Cruce del nombre guardado con el maestro para los locales anteriores a la migración. */
+  const empresaResuelta = useMemo(
+    () => resolverEmpresaPorNombre(formNuevo.Empresa, empresasGrupoParipe),
+    [formNuevo.Empresa, empresasGrupoParipe],
+  );
+
+  /**
+   * Empresa vinculada al local que se está editando: el `id_empresa` guardado y, si el local es
+   * anterior a la migración y solo tiene el nombre, el id que se resuelve desde ese nombre.
+   */
+  const empresaIdVinculado = useMemo(() => {
+    const guardado = normalizarIdEmpresa(formNuevo.id_empresa);
+    return guardado || empresaResuelta.id;
+  }, [formNuevo.id_empresa, empresaResuelta.id]);
+
+  /** Ficha del maestro a la que apunta el id vinculado (`null` si ese id ya no existe). */
+  const empresaMaestroVinculada = useMemo(
+    () => empresasGrupoParipe.find((e) => normalizarIdEmpresa(e.id_empresa) === empresaIdVinculado) ?? null,
+    [empresasGrupoParipe, empresaIdVinculado],
+  );
+
+  /** Nombre actual en el maestro: es el que se guarda cuando el id casa. */
+  const nombreEmpresaMaestro = (empresaMaestroVinculada?.Nombre ?? '').trim();
+
+  /** Pista bajo el desplegable: confirma el vínculo o explica por qué no se ha podido establecer. */
+  const pistaEmpresa = useMemo((): { texto: string; aviso: boolean } | null => {
+    if (!empresasGrupoParipe.length) return null;
+    const nombre = (formNuevo.Empresa ?? '').trim();
+    if (empresaIdVinculado) {
+      if (!empresaMaestroVinculada) {
+        return { texto: `El ID ${empresaIdVinculado} guardado no existe en el maestro de empresas.`, aviso: true };
+      }
+      if (!nombreEmpresaMaestro) {
+        return { texto: `La empresa ${empresaIdVinculado} no tiene nombre en el maestro. Ponle nombre en Empresas para que el local lo muestre bien.`, aviso: true };
+      }
+      if (claveNombreEmpresa(nombre) !== claveNombreEmpresa(nombreEmpresaMaestro)) {
+        return { texto: `Vinculada al maestro con el ID ${empresaIdVinculado}. Al guardar se actualizará el nombre a «${nombreEmpresaMaestro}».`, aviso: false };
+      }
+      return { texto: `Vinculada al maestro de empresas con el ID ${empresaIdVinculado}.`, aviso: false };
+    }
+    if (!nombre) return null;
+    if (empresaResuelta.estado === 'ambigua') {
+      return { texto: `Hay varias empresas llamadas «${nombre}» en el maestro. Elígela en la lista para saber a cuál se factura.`, aviso: true };
+    }
+    if (empresaResuelta.estado === 'sin-id') {
+      return { texto: `«${nombre}» está en el maestro pero sin ID válido. Corrígelo en Empresas para poder enlazarla.`, aviso: true };
+    }
+    return { texto: `«${nombre}» no coincide con ninguna empresa del maestro. Vuelve a elegirla en la lista para enlazarla.`, aviso: true };
+  }, [
+    empresasGrupoParipe,
+    formNuevo.Empresa,
+    empresaIdVinculado,
+    empresaMaestroVinculada,
+    nombreEmpresaMaestro,
+    empresaResuelta.estado,
+  ]);
 
   const fetchDireccionSuggestions = useCallback((input: string) => {
     if (input.trim().length < 2) {
@@ -391,6 +465,12 @@ export default function LocalesScreen() {
       const body: Record<string, string | number> = {};
       for (const key of ATRIBUTOS_TABLA_LOCALES) {
         if (key === 'id_Locales') body[key] = isEdit ? editingLocalId! : próximoId;
+        // Se envía el id que muestra el desplegable, de modo que editar un local antiguo
+        // que solo tenía el nombre deja el vínculo guardado sin tocar nada más.
+        else if (key === 'id_empresa') body[key] = empresaIdVinculado;
+        // El id es el vínculo fiable: cuando casa con el maestro se resincroniza el nombre,
+        // que es lo que siguen cruzando abonos, rappel y compras.
+        else if (key === 'Empresa') body[key] = nombreEmpresaMaestro || (formNuevo.Empresa ?? '');
         else body[key] = formNuevo[key] ?? '';
       }
       const res = await apiFetch('/api/locales', {
@@ -464,38 +544,39 @@ export default function LocalesScreen() {
     setErrorCrearEmpresa(null);
     setGuardandoCrearEmpresa(true);
     try {
-      const res = await apiFetch('/api/empresas', {
-        method: 'POST',
-        body: JSON.stringify({
-          Nombre: nombre,
-          Cif: cif,
-          Sede: 'Grupo Paripe',
-        }),
+      const { empresa, idUsado } = await crearEmpresaConIdLibre({
+        id_empresa: próximoIdEmpresa,
+        Nombre: nombre,
+        Cif: cif,
+        Sede: 'Grupo Paripe',
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setErrorCrearEmpresa(data.error || 'Error al crear empresa');
-        return;
-      }
+      // Alta local con el id realmente usado (puede diferir si hubo colisión).
+      setEmpresasGrupoParipe((prev) =>
+        prev.some((e) => String(e.id_empresa ?? '') === idUsado)
+          ? prev
+          : [
+              ...prev,
+              {
+                id_empresa: idUsado,
+                Nombre: empresa.Nombre ?? nombre,
+                Sede: empresa.Sede ?? 'Grupo Paripe',
+              },
+            ],
+      );
       refetchEmpresas();
-      setFormNuevo((prev) => ({ ...prev, Empresa: nombre }));
+      setFormNuevo((prev) => ({ ...prev, id_empresa: normalizarIdEmpresa(idUsado), Empresa: nombre }));
       cerrarModalCrearEmpresa();
     } catch (e) {
-      setErrorCrearEmpresa('No se pudo conectar con el servidor');
+      setErrorCrearEmpresa(errorMessage(e, 'Error al crear empresa'));
     } finally {
       setGuardandoCrearEmpresa(false);
     }
   };
 
-  const próximoId = (() => {
-    if (!locales.length) return formatId6(1);
-    const ids = locales.map((u) => {
-      const v = valorEnLocal(u, 'id_Locales') ?? 0;
-      const n = typeof v === 'number' ? v : parseInt(String(v).replace(/^0+/, ''), 10);
-      return Number.isNaN(n) ? 0 : n;
-    });
-    return formatId6(Math.max(0, ...ids) + 1);
-  })();
+  /** Siguiente id libre del maestro de empresas (el alta rápida crea el registro con su id). */
+  const próximoIdEmpresa = calcularProximoIdEmpresa(empresasGrupoParipe);
+
+  const próximoId = calcularProximoIdLocal(locales);
 
   const seleccionarFila = (idx: number) => {
     setSelectedRowIndex((prev) => (prev === idx ? null : idx));
@@ -872,7 +953,7 @@ export default function LocalesScreen() {
                             iconoLista="business"
                             buscador
                             buscadorPlaceholder="Buscar empresa…"
-                            valorId={formNuevo.Empresa || ''}
+                            valorId={empresaIdVinculado}
                             opciones={empresaOpciones}
                             vacioTexto="Sin empresas"
                             onSeleccionar={(id) => {
@@ -880,9 +961,18 @@ export default function LocalesScreen() {
                                 abrirModalCrearEmpresa();
                                 return;
                               }
-                              setFormNuevo((prev) => ({ ...prev, Empresa: id }));
+                              const emp = empresasGrupoParipe.find((e) => normalizarIdEmpresa(e.id_empresa) === id);
+                              const nombre = (emp?.Nombre ?? '').trim();
+                              // Sin nombre el local guardaría el id de una empresa y el nombre de la anterior.
+                              if (!nombre) return;
+                              setFormNuevo((prev) => ({ ...prev, id_empresa: id, Empresa: nombre }));
                             }}
                           />
+                          {pistaEmpresa ? (
+                            <Text style={[styles.direccionHint, pistaEmpresa.aviso && styles.empresaHintAviso]}>
+                              {pistaEmpresa.texto}
+                            </Text>
+                          ) : null}
                         </View>
                       ) : campo.key === 'Almacen origen' ? (
                         <View key={campo.key} style={styles.formGroup}>
@@ -1013,6 +1103,21 @@ export default function LocalesScreen() {
                               </TouchableOpacity>
                             </View>
                           ) : null}
+                        </View>
+                      ) : campo.key === 'km_desplazamiento' ? (
+                        <View key={campo.key} style={styles.formGroup}>
+                          <Text style={styles.formLabel}>{campo.label}</Text>
+                          <TextInput
+                            style={styles.formInput}
+                            value={formNuevo.km_desplazamiento ?? ''}
+                            onChangeText={(t) => setFormNuevo((prev) => ({ ...prev, km_desplazamiento: t }))}
+                            placeholder="Ej. 12,5"
+                            placeholderTextColor="#94a3b8"
+                            keyboardType="decimal-pad"
+                          />
+                          <Text style={styles.direccionHint}>
+                            Kilómetros de ida desde la sede central hasta este local. Se usan para valorar el desplazamiento del técnico en Mantenimiento.
+                          </Text>
                         </View>
                       ) : campo.key === 'Cp' ? (
                         <View key={campo.key} style={styles.formGroup}>
@@ -1194,6 +1299,7 @@ const styles = StyleSheet.create({
   direccionLoadingWrap: { marginTop: 4, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 8 },
   direccionLoadingText: { fontSize: 12, color: '#64748b' },
   direccionHint: { marginTop: 4, fontSize: 11, color: '#64748b' },
+  empresaHintAviso: { color: '#d97706' },
   direccionDropdown: { marginTop: 4, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, maxHeight: 200, overflow: 'hidden' },
   direccionDropdownScroll: { maxHeight: 150 },
   direccionOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },

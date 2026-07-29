@@ -30,8 +30,12 @@ import type { FacturaListado, SerieFactura } from '../../types/factura';
 import { fechaEmisionFacturaAIso } from '../../utils/formatFecha';
 import { hoyISO } from '../../utils/facturaFormLogic';
 import { getTipoReciboFromEmpresasList, type EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
+import { resolverIbanBeneficiarioFactura } from '../../lib/resolverIbanFactura';
 import { BadgeEstado } from '../../components/BadgeEstado';
+import { BadgeAbono } from '../../components/BadgeAbono';
 import { InputFecha } from '../../components/InputFecha';
+import { DatosParaPago } from '../../components/RegistrarPagoModal';
+import { buildConceptoRemesaFacturaRecibida } from '../../lib/conceptoRemesa';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { SelectorDesplegableMulti } from '../../components/SelectorDesplegableMulti';
 import { useLocalToast } from '../../components/Toast';
@@ -217,6 +221,14 @@ export default function FacturasVentaScreen() {
             const tipoReciboRaw = e['Tipo de recibo'];
             return {
               id_empresa: e.id_empresa != null ? String(e.id_empresa) : '',
+              Cif: e.Cif != null ? String(e.Cif).trim() : e.cif != null ? String(e.cif).trim() : '',
+              Iban: e.Iban != null ? String(e.Iban).trim() : e.iban != null ? String(e.iban).trim() : '',
+              IbanAlternativo:
+                e.IbanAlternativo != null
+                  ? String(e.IbanAlternativo).trim()
+                  : e.ibanAlternativo != null
+                    ? String(e.ibanAlternativo).trim()
+                    : '',
               tipoRecibo: tipoReciboRaw != null ? String(tipoReciboRaw).trim() : undefined,
               'Tipo de recibo': typeof tipoReciboRaw === 'string' ? tipoReciboRaw : undefined,
             };
@@ -1002,6 +1014,14 @@ export default function FacturasVentaScreen() {
                     <View key={col.key} style={[styles.cell, { width: getColWidth(col.key) }]}>
                       {col.key === 'estado' ? (
                         <BadgeEstado estado={item.estado ?? ''} compact />
+                      ) : col.key === 'numero_factura' && item.es_abono ? (
+                        /* Un abono no es una factura: se distingue sin abrir el detalle */
+                        <View style={styles.cellAbonoRow}>
+                          <Text style={[styles.cellText, styles.cellTextFlex]} numberOfLines={1} ellipsizeMode="tail">
+                            {valorCelda(item, col.key)}
+                          </Text>
+                          <BadgeAbono compact />
+                        </View>
                       ) : col.key === 'pagado' ? (
                         <View style={styles.cellPagadoRow}>
                           <Text style={[styles.cellText, styles.cellTextFlex]} numberOfLines={1} ellipsizeMode="tail">
@@ -1095,99 +1115,130 @@ export default function FacturasVentaScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Modal cobrar */}
+      {/* Modal cobrar — mismo diseño que Registrar pago (facturas recibidas) */}
       <Modal visible={modalCobrarVisible} transparent animationType="fade" onRequestClose={() => setModalCobrarVisible(false)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => {}}>
-          <KeyboardAvoidingView style={styles.modalContentWrap} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalCardTouch}>
-              <View style={styles.modalCard}>
-                <View style={styles.modalHeader}>
-                  <View>
-                    <Text style={styles.modalTitle}>Registrar cobro</Text>
-                    <Text style={styles.modalSubtitle}>Factura {selectedFactura?.numero_factura}</Text>
-                  </View>
-                  <TouchableOpacity onPress={() => setModalCobrarVisible(false)} style={styles.modalClose}>
-                    <MaterialIcons name="close" size={22} color="#64748b" />
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.modalBody}>
-                  <Text style={styles.formLabel}>Fecha del cobro *</Text>
-                  <InputFecha
-                    valueIso={cobroFecha}
-                    onChangeIso={(v) => {
-                      setCobroFecha(v);
-                      setCobroFechaEditadaManual(true);
-                    }}
-                    placeholder="dd/mm/aaaa"
-                  />
-                  <Text style={styles.formLabel}>Importe (€)</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    value={cobroImporte}
-                    onChangeText={setCobroImporte}
-                    keyboardType="decimal-pad"
-                    placeholder="0.00"
-                    placeholderTextColor="#94a3b8"
-                  />
-                  <Text style={styles.formLabel}>Método de pago</Text>
-                  <SelectorDesplegable
-                    icono="payments"
-                    tituloLista="Método de pago"
-                    iconoLista="payments"
-                    valorId={cobroMetodo}
-                    opciones={FORMAS_PAGO.map((m) => ({ id: m, titulo: labelFormaPago(m), icono: 'payments' as const }))}
-                    onSeleccionar={(id) => onCambiarMetodoCobro(id)}
-                  />
-                  {cobroMetodo === 'otro' && (
-                    <>
-                      <Text style={styles.formLabel}>Describe el método *</Text>
-                      <TextInput
-                        style={styles.formInput}
-                        value={cobroMetodoOtro}
-                        onChangeText={setCobroMetodoOtro}
-                        placeholder="Ej. Cheque, PayPal…"
-                        placeholderTextColor="#94a3b8"
-                      />
-                    </>
-                  )}
-                  <Text style={styles.formLabel}>Referencia (opcional)</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    value={cobroReferencia}
-                    onChangeText={setCobroReferencia}
-                    placeholder="Nº transferencia, recibo…"
-                    placeholderTextColor="#94a3b8"
-                  />
-                </View>
-                {errorModal && (
-                  <View style={styles.modalErrorWrap}>
-                    <MaterialIcons name="error-outline" size={16} color="#dc2626" />
-                    <Text style={styles.modalError}>{errorModal}</Text>
-                  </View>
-                )}
-                <View style={styles.modalFooter}>
-                  <TouchableOpacity style={styles.modalFooterBtnSecondary} onPress={() => setModalCobrarVisible(false)} disabled={operando}>
-                    <Text style={styles.modalFooterBtnSecondaryText}>Cancelar</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.modalFooterBtnPrimary, operando && styles.modalFooterBtnDisabled]}
-                    onPress={confirmarCobro}
-                    disabled={operando}
-                  >
-                    {operando ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <>
-                        <MaterialIcons name="payments" size={18} color="#fff" />
-                        <Text style={styles.modalFooterBtnPrimaryText}>Cobrar</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
+        <Pressable style={styles.modalDetalleOverlay} onPress={() => !operando && setModalCobrarVisible(false)}>
+          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitleForm}>Registrar cobro</Text>
+            {selectedFactura?.emisor_nombre ? (
+              <View style={styles.modalEmpresaChipRow}>
+                <Text style={styles.modalEmpresaChipLabel}>Empresa</Text>
+                <View style={styles.modalEmpresaChip}>
+                  <Text style={styles.modalEmpresaChipText} numberOfLines={1}>
+                    {selectedFactura.emisor_nombre}
+                  </Text>
                 </View>
               </View>
-            </TouchableOpacity>
-          </KeyboardAvoidingView>
-        </TouchableOpacity>
+            ) : null}
+            <Text style={styles.modalLabel}>
+              Factura: {selectedFactura?.numero_factura || selectedFactura?.id_factura} — Saldo:{' '}
+              {selectedFactura ? formatMoneda(Number(selectedFactura.saldo_pendiente) || 0) : ''}
+            </Text>
+
+            <DatosParaPago
+              datosPago={selectedFactura ? (() => {
+                const { iban, ibanAlternativo } = resolverIbanBeneficiarioFactura(
+                  {
+                    empresa_iban: selectedFactura.emisor_iban,
+                    empresa_iban_alternativo: selectedFactura.emisor_iban_alternativo,
+                    empresa_id: selectedFactura.emisor_id,
+                    empresa_cif: selectedFactura.emisor_cif,
+                  },
+                  empresasCatalogo,
+                );
+                return {
+                  beneficiario: selectedFactura.emisor_nombre ?? '',
+                  iban,
+                  ibanAlternativo,
+                  concepto: buildConceptoRemesaFacturaRecibida({
+                    numeroFactura: selectedFactura.numero_factura,
+                    proveedorNombre: selectedFactura.empresa_nombre,
+                    observaciones: selectedFactura.observaciones,
+                  }),
+                };
+              })() : undefined}
+            />
+
+            <View style={[styles.modalPagoFechaMetodoRow, shouldStackToolbar && styles.modalPagoFechaMetodoRowStacked]}>
+              <View style={styles.modalPagoFechaCell}>
+                <Text style={styles.modalFieldLabelInline}>Fecha del cobro *</Text>
+                <InputFecha
+                  compact
+                  valueIso={cobroFecha}
+                  onChangeIso={(v) => {
+                    setCobroFecha(v);
+                    setCobroFechaEditadaManual(true);
+                  }}
+                  placeholder="dd/mm/aaaa"
+                  style={styles.modalDateFilterInput}
+                />
+              </View>
+              <View style={styles.modalPagoMetodoCell}>
+                <Text style={styles.modalFieldLabelInline}>Método de pago</Text>
+                <SelectorDesplegable
+                  compact
+                  icono="payments"
+                  tituloLista="Método de pago"
+                  iconoLista="payments"
+                  valorId={cobroMetodo}
+                  opciones={FORMAS_PAGO.map((m) => ({ id: m, titulo: labelFormaPago(m), icono: 'payments' as const }))}
+                  onSeleccionar={(id) => onCambiarMetodoCobro(id)}
+                />
+              </View>
+            </View>
+
+            <Text style={styles.modalFieldLabel}>Importe</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={cobroImporte}
+              onChangeText={setCobroImporte}
+              placeholder="0,00"
+              placeholderTextColor="#94a3b8"
+              keyboardType="decimal-pad"
+            />
+
+            {cobroMetodo === 'otro' && (
+              <>
+                <Text style={styles.modalFieldLabel}>Describe el método *</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={cobroMetodoOtro}
+                  onChangeText={setCobroMetodoOtro}
+                  placeholder="Ej. Cheque, PayPal…"
+                  placeholderTextColor="#94a3b8"
+                />
+              </>
+            )}
+
+            <Text style={styles.modalFieldLabel}>Referencia (opcional)</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={cobroReferencia}
+              onChangeText={setCobroReferencia}
+              placeholder="Nº transferencia, recibo…"
+              placeholderTextColor="#94a3b8"
+            />
+
+            {errorModal ? <Text style={styles.modalErrorInline}>{errorModal}</Text> : null}
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setModalCobrarVisible(false)} disabled={operando}>
+                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtnConfirm, operando && styles.modalBtnDisabled]}
+                onPress={confirmarCobro}
+                disabled={operando}
+              >
+                {operando ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.modalBtnConfirmText}>Cobrar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <Modal visible={modalDetallePagosVisible} transparent animationType="fade" onRequestClose={cerrarModalDetallePagos}>
@@ -1465,6 +1516,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cellPagadoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 },
+  cellAbonoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 },
   cellTextFlex: { flex: 1, minWidth: 0 },
   cellPagadoIconBtn: { padding: 2 },
   cellText: { fontSize: 9, color: '#475569', lineHeight: 12, ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}) },
@@ -1519,10 +1571,103 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e2e8f0',
   },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#334155', marginBottom: 4 },
+  modalTitleForm: { fontSize: 16, fontWeight: '700', color: '#334155', marginBottom: 8 },
+  modalLabel: { fontSize: 12, color: '#64748b', marginBottom: 12, lineHeight: 18 },
+  modalFieldLabel: { fontSize: 11, fontWeight: '600', color: '#334155', marginBottom: 4, marginTop: 8 },
+  modalFieldLabelInline: { fontSize: 11, fontWeight: '600', color: '#334155', marginBottom: 4 },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: '#334155',
+    backgroundColor: '#f8fafc',
+  },
+  modalErrorInline: { fontSize: 12, color: '#dc2626', marginTop: 8 },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 16,
+  },
+  modalBtnCancel: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+  },
+  modalBtnCancelText: { fontSize: 13, color: '#64748b', fontWeight: '500' },
+  modalBtnConfirm: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#0ea5e9',
+  },
+  modalBtnConfirmText: { fontSize: 13, color: '#fff', fontWeight: '600' },
+  modalBtnDisabled: { opacity: 0.6 },
+  modalEmpresaChipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+    marginTop: 2,
+    flexWrap: 'wrap',
+  },
+  modalEmpresaChipLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  modalEmpresaChip: {
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    maxWidth: '100%',
+  },
+  modalEmpresaChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0369a1',
+  },
   modalSubtitle: { fontSize: 13, color: '#64748b', lineHeight: 18 },
   modalClose: { padding: 4, marginTop: -4 },
   modalBody: { paddingHorizontal: 24, paddingVertical: 20, gap: 12 },
   formLabel: { fontSize: 12, fontWeight: '600', color: '#334155', marginBottom: 4 },
+  formLabelInline: { fontSize: 12, fontWeight: '600', color: '#334155', marginBottom: 4 },
+  modalPagoFechaMetodoRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    marginTop: 8,
+  },
+  modalPagoFechaMetodoRowStacked: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+  },
+  modalPagoFechaCell: {
+    width: 130,
+  },
+  modalPagoMetodoCell: {
+    flex: 1,
+    minWidth: 0,
+  },
+  modalDateFilterInput: {
+    width: '100%',
+    height: 32,
+    minHeight: 32,
+    fontSize: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+  },
   formInput: {
     fontSize: 13,
     color: '#334155',

@@ -26,6 +26,7 @@ import {
   buildReturnFromEmpresasHref,
   parseContextoRetornoEmpresas,
 } from '../lib/navegacionEmpresas';
+import { CampoTipoReciboEmpresa } from '../components/CampoTipoReciboEmpresa';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -1162,6 +1163,16 @@ export default function EmpresasScreen() {
                               autoCapitalize="none"
                             />
                           </View>
+                        </View>
+                      ) : campo.key === 'Tipo de recibo' ? (
+                        <View key={campo.key} style={styles.formGroup}>
+                          <Text style={styles.formLabel}>{campo.label}{campo.required ? ' *' : ''}</Text>
+                          <CampoTipoReciboEmpresa
+                            value={(formNuevo[campo.key] ?? '') as string}
+                            onChange={(stored) => setFormNuevo((prev) => ({ ...prev, [campo.key]: stored }))}
+                            inputStyle={styles.formInput}
+                            otroInputStyle={styles.formInput}
+                          />
                         </View>
                       ) : (
                         <View key={campo.key} style={styles.formGroup}>

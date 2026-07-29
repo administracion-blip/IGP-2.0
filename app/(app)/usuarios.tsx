@@ -23,6 +23,7 @@ import { formatId6 } from '../utils/idFormat';
 import { useAuth, UserSession } from '../contexts/AuthContext';
 import { SelectorDesplegable } from '../components/SelectorDesplegable';
 import { apiFetch } from '../utils/api';
+import { calcularProximoIdLocal } from '../lib/localId';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -92,7 +93,9 @@ export default function UsuariosScreen() {
   const [errorForm, setErrorForm] = useState<string | null>(null);
   const [localDropdownOpen, setLocalDropdownOpen] = useState(false);
   const [localSearchFilter, setLocalSearchFilter] = useState('');
-  const [localesGrupoParipe, setLocalesGrupoParipe] = useState<LocalItem[]>([]);
+  // Lista completa: el desplegable solo muestra los de Grupo Paripe, pero el próximo
+  // `id_Locales` libre debe calcularse sobre todos para no pisar ninguno.
+  const [locales, setLocales] = useState<LocalItem[]>([]);
   const [formLocales, setFormLocales] = useState<string[]>([]);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
   const [modalCrearLocalVisible, setModalCrearLocalVisible] = useState(false);
@@ -164,12 +167,20 @@ export default function UsuariosScreen() {
       const res = await apiFetch('/api/locales', {
         method: 'POST',
         body: JSON.stringify({
+          // Sin id el backend guardaría el local con `000000` y pisaría el que ya lo tenga.
+          id_Locales: calcularProximoIdLocal(locales),
           Nombre: nombre,
           Sede: 'Grupo Paripe',
         }),
       });
-      const data = await res.json();
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
+        if (res.status === 409) {
+          // Alguien ha creado un local mientras tanto: al recargar la lista el siguiente id ya es libre.
+          refetchLocales();
+          setErrorCrearLocal('Ese identificador de local acaba de ocuparse. Vuelve a pulsar «Crear» para reintentarlo.');
+          return;
+        }
         setErrorCrearLocal(data.error || 'Error al crear local');
         return;
       }
@@ -195,6 +206,10 @@ export default function UsuariosScreen() {
           icono: 'badge' as const,
         })),
     [rolesCatalogo]
+  );
+  const localesGrupoParipe = useMemo(
+    () => locales.filter((item) => (item.sede ?? item.Sede ?? '') === 'Grupo Paripe'),
+    [locales],
   );
   const localesFiltrados = useMemo(() => {
     const q = localSearchFilter.trim().toLowerCase();
@@ -413,14 +428,8 @@ export default function UsuariosScreen() {
   const refetchLocales = useCallback(() => {
     apiFetch('/api/locales')
       .then((res) => res.json())
-      .then((data: { locales?: LocalItem[] }) => {
-        const list = data.locales || [];
-        const filtrados = list.filter(
-          (item) => (item.sede ?? item.Sede ?? '') === 'Grupo Paripe'
-        );
-        setLocalesGrupoParipe(filtrados);
-      })
-      .catch(() => setLocalesGrupoParipe([]));
+      .then((data: { locales?: LocalItem[] }) => setLocales(data.locales || []))
+      .catch(() => setLocales([]));
   }, []);
 
   useEffect(() => {

@@ -82,6 +82,13 @@ router.post('/empresas', async (req, res) => {
   if (!body.Cif || !String(body.Cif).trim()) {
     return res.status(400).json({ error: 'CIF es obligatorio' });
   }
+  if (body.id_empresa == null || !String(body.id_empresa).trim()) {
+    return res.status(400).json({ error: 'id_empresa es obligatorio' });
+  }
+  const idEmpresa = formatId6(body.id_empresa);
+  if (idEmpresa === '000000') {
+    return res.status(400).json({ error: 'id_empresa es obligatorio y debe ser mayor que 0' });
+  }
   const cifValue = normalizeCif(body.Cif);
   try {
     const items = [];
@@ -103,8 +110,7 @@ router.post('/empresas', async (req, res) => {
     const item = {};
     for (const key of TABLE_EMPRESAS_ATTRS) {
       if (key === 'id_empresa') {
-        const v = body.id_empresa;
-        item[key] = v != null ? formatId6(v) : '000000';
+        item[key] = idEmpresa;
       } else if (key === 'Etiqueta') {
         item[key] = normalizarEtiqueta(body[key]);
       } else if (key === 'Cif') {
@@ -117,9 +123,13 @@ router.post('/empresas', async (req, res) => {
     await docClient.send(new PutCommand({
       TableName: tableEmpresasName,
       Item: item,
+      ConditionExpression: 'attribute_not_exists(id_empresa)',
     }));
     res.json({ ok: true, empresa: item });
   } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') {
+      return res.status(409).json({ error: `Ya existe una empresa con el id ${idEmpresa}` });
+    }
     console.error('DynamoDB error:', err);
     res.status(500).json({ error: err.message || 'Error al guardar la empresa' });
   }

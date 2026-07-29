@@ -132,6 +132,8 @@ export type Factura = {
   adjuntos: AdjuntoFactura[];
   local_id: string;
   es_rectificativa: boolean;
+  /** Documento que devuelve importe (rappel, devolución): sus totales van en negativo */
+  es_abono?: boolean;
   factura_rectificada_id: string;
   motivo_rectificacion: string;
   numero_factura_proveedor: string;
@@ -246,6 +248,31 @@ export function colorEstado(estado: string): { bg: string; text: string } {
     pagada: { bg: '#d1fae5', text: '#047857' },
   };
   return map[estado] || { bg: '#f1f5f9', text: '#64748b' };
+}
+
+/**
+ * Un abono devuelve importe (total negativo) y una factura lo cobra (total
+ * positivo). La emisión rechaza el documento cuyo signo no cuadra con la marca,
+ * y una vez emitido ya no se puede editar: el aviso sale mientras es borrador.
+ *
+ * Una rectificativa en negativo ya es un abono por definición, así que la
+ * emisión no le exige la marca y aquí tampoco se avisa.
+ *
+ * @returns texto del aviso, o `null` si signo y marca son coherentes
+ */
+export function avisoSignoAbono(opciones: {
+  esAbono: boolean;
+  totalFactura: number;
+  esRectificativa?: boolean;
+}): string | null {
+  const total = Number(opciones.totalFactura) || 0;
+  if (opciones.esAbono && total > 0) {
+    return 'Está marcada como abono pero el total es positivo. Un abono devuelve importe: pon los precios en negativo o desmarca la casilla, o no se podrá emitir.';
+  }
+  if (!opciones.esAbono && !opciones.esRectificativa && total < 0) {
+    return 'El total es negativo y no está marcada como abono. Marca «Es abono» o corrige los importes, o no se podrá emitir.';
+  }
+  return null;
 }
 
 export function labelFormaPago(fp: string): string {

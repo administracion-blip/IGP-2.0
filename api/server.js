@@ -28,6 +28,9 @@ import {
   runSalesLinesSync,
   checkAutoSyncs,
   checkInformeDiario,
+  checkFacturacionMantenimiento,
+  checkFacturacionVentasInternas,
+  checkFacturacionRappel,
   checkVencimientosFacturas,
   SYNC_CLOSEOUTS_ENABLED,
   SYNC_CLOSEOUTS_INTERVAL_MS,
@@ -58,6 +61,7 @@ import rolesRouter from './routes/roles.js';
 import festivosRouter from './routes/festivos.js';
 import placesRouter from './routes/places.js';
 import pedidosRouter from './routes/pedidos.js';
+import comprasFacturacionRouter from './routes/comprasFacturacion.js';
 import mantenimientoRouter from './routes/mantenimiento.js';
 import limpiezaRouter from './routes/limpieza.js';
 import agoraRouter from './routes/agora.js';
@@ -191,6 +195,7 @@ app.use('/api', rolesRouter);
 app.use('/api', festivosRouter);
 app.use('/api', placesRouter);
 app.use('/api', pedidosRouter);
+app.use('/api', comprasFacturacionRouter);
 app.use('/api', mantenimientoRouter);
 app.use('/api', limpiezaRouter);
 app.use('/api', facturacionRouter);
@@ -263,6 +268,30 @@ app.listen(port, host, () => {
     { intervalSec: SYNC_SCHEDULER_INTERVAL_MS / 1000 },
     `[informe-diario] Scheduler activo — revisa cada ${SYNC_SCHEDULER_INTERVAL_MS / 1000}s`,
   );
+  setTimeout(() => checkFacturacionMantenimiento(port), 15000);
+  setInterval(() => checkFacturacionMantenimiento(port), SYNC_SCHEDULER_INTERVAL_MS);
+  logger.info(
+    { intervalSec: SYNC_SCHEDULER_INTERVAL_MS / 1000 },
+    '[facturacion-mantenimiento] Scheduler activo — genera el periodo pendiente si está activada en Ajustes',
+  );
+  // Desfasado del de mantenimiento: las dos tandas recorren los mismos maestros
+  // y la tabla de facturas entera, y arrancarlas a la vez duplicaría el pico de
+  // lecturas sin ganar nada.
+  setTimeout(() => checkFacturacionVentasInternas(port), 21000);
+  setInterval(() => checkFacturacionVentasInternas(port), SYNC_SCHEDULER_INTERVAL_MS);
+  logger.info(
+    { intervalSec: SYNC_SCHEDULER_INTERVAL_MS / 1000 },
+    '[facturacion-ventas-internas] Scheduler activo — genera el periodo pendiente si está activada en Ajustes',
+  );
+  // El abono del rappel es una tanda aparte de la venta de la mercancía (ver
+  // `checkFacturacionRappel`), también desfasada para no solapar los recorridos.
+  setTimeout(() => checkFacturacionRappel(port), 27000);
+  setInterval(() => checkFacturacionRappel(port), SYNC_SCHEDULER_INTERVAL_MS);
+  logger.info(
+    { intervalSec: SYNC_SCHEDULER_INTERVAL_MS / 1000 },
+    '[facturacion-rappel] Scheduler activo — genera el periodo pendiente si está activada en Ajustes',
+  );
+
   if (SYNC_SALES_LINES_ENABLED) {
     const salesLinesIntervalMs = 24 * 60 * 60 * 1000;
     setTimeout(() => runSalesLinesSync(port), 18000);

@@ -23,6 +23,7 @@ const OPCIONES: {
   { id: 'compras-proveedor', label: 'Compras a Proveedor', icon: 'receipt-long', descripcion: 'Albaranes de entrada desde Ágora', permiso: 'compras_proveedor.ver' },
   { id: 'conciliacion-facturas', label: 'Conciliación Facturas', icon: 'fact-check', descripcion: 'Contraste de albaranes de Ágora con facturas de gasto por proveedor', permiso: 'compras_proveedor.ver' },
   { id: 'abonos-rappel', label: 'Abonos por Rappel', icon: 'savings', descripcion: 'Abono al local por rappels, por mes y año', permiso: 'pedidos.ver' },
+  { id: 'facturacion', label: 'Facturación Mensual', icon: 'request-quote', descripcion: 'Facturas de ventas internas y abonos de rappel entre sociedades del grupo', permiso: 'compras.facturar' },
   { id: 'ventas-empresa', label: 'Ventas por Empresa', icon: 'point-of-sale', descripcion: 'Total a cobrar a cada sociedad (pedidos completados)', permiso: 'pedidos.ver' },
   { id: 'acuerdos', label: 'Acuerdos', icon: 'handshake', descripcion: 'Acuerdos comerciales con proveedores', permiso: 'acuerdos.ver' },
 ];
@@ -49,6 +50,7 @@ export default function ComprasIndexScreen() {
     if (id === 'compras-proveedor') router.push('/compras/compras-proveedor');
     if (id === 'conciliacion-facturas') router.push('/compras/conciliacion-facturas');
     if (id === 'abonos-rappel') router.push('/compras/abonos-rappel');
+    if (id === 'facturacion') router.push('/compras/facturacion');
     if (id === 'ventas-empresa') router.push('/compras/ventas-empresa');
     if (id === 'acuerdos') router.push('/acuerdos');
   }

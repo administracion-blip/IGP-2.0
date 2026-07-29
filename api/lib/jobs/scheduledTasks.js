@@ -3,6 +3,22 @@ import { docClient, tables } from '../db.js';
 import { internalSyncFetchHeaders } from '../internalSync.js';
 import { logger } from '../logger.js';
 import { INFORME_AJUSTE_PK, INFORME_AJUSTE_SK } from '../informes/informeDiario.js';
+import { crearTrabajoFacturacionPeriodica } from './facturacionPeriodicaJob.js';
+import {
+  hayGeneracionEnCurso as hayGeneracionMantenimientoEnCurso,
+  leerAjustesFacturacion as leerAjustesFacturacionMantenimiento,
+  marcarIntentoGeneracion as marcarIntentoGeneracionMantenimiento,
+} from '../facturacion/facturarMantenimiento.js';
+import {
+  hayGeneracionEnCurso as hayGeneracionVentasInternasEnCurso,
+  leerAjustesFacturacion as leerAjustesFacturacionVentasInternas,
+  marcarIntentoGeneracion as marcarIntentoGeneracionVentasInternas,
+} from '../facturacion/facturarVentasInternas.js';
+import {
+  hayGeneracionEnCurso as hayGeneracionRappelEnCurso,
+  leerAjustesRappel,
+  marcarIntentoGeneracion as marcarIntentoGeneracionRappel,
+} from '../facturacion/facturarRappel.js';
 
 const tableAjustesName = tables.ajustes;
 
@@ -252,6 +268,73 @@ export async function checkWeeklySalesLinesResync(port) {
     logger.error({ err }, '[sales-lines/weekly-resync]');
   }
 }
+
+/**
+ * Facturación mensual de reparaciones de mantenimiento.
+ *
+ * La mecánica (recuperación de meses perdidos, espera tras un fallo, protección
+ * frente a tandas solapadas) vive en `facturacionPeriodicaJob.js` y la comparte
+ * con la facturación de ventas internas; aquí solo va la configuración de este
+ * dominio.
+ */
+export const checkFacturacionMantenimiento = crearTrabajoFacturacionPeriodica({
+  etiqueta: 'facturacion-mantenimiento',
+  ruta: '/api/mantenimiento/facturacion/generar',
+  leerAjustes: leerAjustesFacturacionMantenimiento,
+  marcarIntentoGeneracion: marcarIntentoGeneracionMantenimiento,
+  hayGeneracionEnCurso: hayGeneracionMantenimientoEnCurso,
+  mensajeSinSecreto:
+    'La generación automática está activada pero el servidor no tiene configurado INTERNAL_SYNC_SECRET, así que la llamada interna no puede autenticarse. Configúralo y reinicia la API.',
+  datosLogOk: (data) => ({ partes: data.total_partes ?? 0 }),
+});
+
+/**
+ * Facturación mensual de las ventas internas del grupo: los pedidos servidos
+ * desde un almacén a los locales, facturados entre la sociedad que sirve y la
+ * que recibe. Mismo mecanismo que el de mantenimiento, con su propia
+ * configuración (`Igp_Ajustes`, PK 'compras' / SK 'facturacion'), su propio
+ * cerrojo y su propio endpoint.
+ */
+export const checkFacturacionVentasInternas = crearTrabajoFacturacionPeriodica({
+  etiqueta: 'facturacion-ventas-internas',
+  ruta: '/api/compras/facturacion/generar',
+  leerAjustes: leerAjustesFacturacionVentasInternas,
+  marcarIntentoGeneracion: marcarIntentoGeneracionVentasInternas,
+  hayGeneracionEnCurso: hayGeneracionVentasInternasEnCurso,
+  mensajeSinSecreto:
+    'La generación automática está activada pero el servidor no tiene configurado INTERNAL_SYNC_SECRET, así que la llamada interna no puede autenticarse. Configúralo y reinicia la API.',
+  datosLogOk: (data) => ({ pedidos: data.total_pedidos ?? 0 }),
+});
+
+/**
+ * Liquidación mensual del rappel como abono. **Pasada aparte** de la de ventas
+ * internas, aunque las dos recorran los mismos pedidos y lean el mismo ítem de
+ * configuración.
+ *
+ * Dos pasadas y no una porque las dos marcas del pedido son independientes por
+ * diseño (`factura_ventas_id` y `factura_rappel_id`) y sus documentos no deben
+ * compartir suerte: si el abono no se puede emitir —un IVA sin resolver en una
+ * línea con rappel, un mes en que las devoluciones superan a las compras— la
+ * venta de la mercancía tiene que facturarse igual, y al revés. Con una sola
+ * pasada habría un único marcador de periodo y un fallo en la mitad del proceso
+ * obligaría a elegir entre dar el mes por hecho (perdiendo el documento que
+ * falló) o repetirlo entero. Con dos, cada uno lleva su marcador
+ * (`ultimo_periodo_generado` y `ultimo_periodo_generado_rappel`), su cerrojo y su
+ * estado de último intento, y el que falla se reintenta solo.
+ *
+ * El coste de la segunda pasada es un recorrido más de `Igp_Pedidos` al mes.
+ */
+export const checkFacturacionRappel = crearTrabajoFacturacionPeriodica({
+  etiqueta: 'facturacion-rappel',
+  ruta: '/api/compras/facturacion/rappel/generar',
+  leerAjustes: leerAjustesRappel,
+  marcarIntentoGeneracion: marcarIntentoGeneracionRappel,
+  hayGeneracionEnCurso: hayGeneracionRappelEnCurso,
+  mensajeSinSecreto:
+    'La generación automática está activada pero el servidor no tiene configurado INTERNAL_SYNC_SECRET, así que la llamada interna no puede autenticarse. Configúralo y reinicia la API.',
+  datosLogOk: (data) => ({ pedidos: data.total_pedidos ?? 0 }),
+  nombreDocumento: 'abono',
+});
 
 export async function checkVencimientosFacturas(port) {
   try {

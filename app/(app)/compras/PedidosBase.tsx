@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
 import { InputFecha } from '../../components/InputFecha';
+import { InputCantidad } from '../../components/InputCantidad';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { valorEnLocal } from '../../utils/valorEnLocal';
 import { useProductosCache } from '../../contexts/ProductosCache';
@@ -28,11 +29,11 @@ import { Pedido, Local, Almacen } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import { fetchPorcentajeBeneficio, aplicarPorcentajeBeneficio } from '../../lib/personalizacion';
 import { siguienteIdParaNuevoPedido } from '../../lib/pedidosId';
+import { idAlmacenGeneral } from '../../lib/pedidosEntreLocales';
 import { apiFetch } from '../../utils/api';
 
 const COLUMNAS = ['Id', 'Fecha', 'CreadoEn', 'LocalId', 'Local', 'AlmacenOrigen', 'AlmacenDestino', 'TotalAlbaran', 'Estado'] as const;
 const ESTADOS = ['Borrador', 'Pendiente', 'Enviado', 'Exportado', 'Completado'] as const;
-const NOMBRE_ALMACEN_GENERAL = 'Almacén General';
 
 type PedidosBaseProps = {
   readOnly?: boolean;
@@ -163,13 +164,7 @@ export default function PedidosBase({
     return map;
   }, [locales]);
 
-  const almacenGeneralId = useMemo(() => {
-    const alm = almacenes.find((a) => {
-      const n = String(valorEnLocal(a, 'Nombre') ?? '').trim();
-      return n === NOMBRE_ALMACEN_GENERAL || n.toLowerCase().includes('almacén general') || n.toLowerCase().includes('almacen general');
-    });
-    return alm ? String(valorEnLocal(alm, 'Id') ?? '').trim() : '';
-  }, [almacenes]);
+  const almacenGeneralId = useMemo(() => idAlmacenGeneral(almacenes), [almacenes]);
 
   const totalAlbaranCalculado = useMemo(() => {
     if (editingPedidoId == null) return 0;
@@ -751,14 +746,11 @@ export default function PedidosBase({
                 </View>
                 <View style={styles.formGroupCantidadLinea}>
                   <Text style={[styles.formLabel, styles.lineaFormLabelLinea]}>Cantidad</Text>
-                  <TextInput
-                    style={[styles.formInput, styles.lineaFormCantidadMatch]}
+                  <InputCantidad
                     value={formLinea.Cantidad}
                     onChangeText={(v) => setFormLinea((f) => ({ ...f, Cantidad: v }))}
                     placeholder="0"
-                    placeholderTextColor="#94a3b8"
-                    keyboardType="decimal-pad"
-                    {...(Platform.OS === 'android' ? { textAlignVertical: 'center' as const } : {})}
+                    style={styles.lineaFormCantidadMatch}
                   />
                 </View>
               </View>
@@ -1262,8 +1254,6 @@ const styles = StyleSheet.create({
   },
   lineaFormCantidadMatch: {
     minHeight: 40,
-    paddingVertical: 9,
-    paddingHorizontal: 12,
   },
   formGroupProductoLinea: {
     flex: 1,
@@ -1277,8 +1267,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   formGroupCantidadLinea: {
-    width: 88,
-    minWidth: 72,
+    width: 168,
+    minWidth: 168,
     flexShrink: 0,
     marginBottom: 0,
   },

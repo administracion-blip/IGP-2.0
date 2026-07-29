@@ -1,6 +1,7 @@
 import express from 'express';
 import { ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
+import { formatId6 } from '../lib/usuarioLocales.js';
 
 const router = express.Router();
 
@@ -9,11 +10,40 @@ let cachedLocalesMinimal = null;
 let cachedLocalesMinimalTime = 0;
 const CACHE_LOCALES_TTL_MS = 5 * 60 * 1000;
 
-// Formato mínimo 6 dígitos para campos id_ (000001, 000002, ...).
-function formatId6(val) {
-  if (val == null || val === '') return '000000';
-  const n = parseInt(String(val).replace(/^0+/, ''), 10) || 0;
-  return String(Math.max(0, n)).padStart(6, '0');
+/**
+ * `id_empresa` con el mismo padding a 6 dígitos que usa el maestro de empresas,
+ * para que el formato no dependa de quién escriba (pantalla, API o migración).
+ * Sin valor devuelve cadena vacía: '000000' no es una empresa válida y guardarlo
+ * inventaría un vínculo inexistente.
+ */
+function formatIdEmpresa(val) {
+  const s = val != null ? String(val).trim() : '';
+  if (!s) return '';
+  const norm = formatId6(s);
+  return norm === '000000' ? '' : norm;
+}
+
+/**
+ * Siguiente `id_Locales` libre (máximo del maestro + 1). Solo se usa en altas sin
+ * identificador (creación rápida desde Usuarios): antes se asignaba '000000' fijo,
+ * que pisaba el local que ya tuviera ese id.
+ */
+async function siguienteIdLocalLibre() {
+  let max = 0;
+  let lastKey = null;
+  do {
+    const r = await docClient.send(new ScanCommand({
+      TableName: tables.locales,
+      ProjectionExpression: 'id_Locales',
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    }));
+    for (const it of r.Items || []) {
+      const n = parseInt(String(it?.id_Locales ?? '').trim(), 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+    lastKey = r.LastEvaluatedKey || null;
+  } while (lastKey);
+  return formatId6(max + 1);
 }
 
 // Estructura exacta de la tabla igp_Locales en AWS (orden: id_Locales, nombre, agoraCode, empresa, ...).
@@ -22,7 +52,12 @@ function formatId6(val) {
 // aquí solo se listan para que el PUT /locales no los machaque al reconstruir el item.
 // `ratio_personal` / `ratio_musicos` / `ratio_mercaderia`: porcentaje (0–100) del facturado que se
 // destina a cada partida. `ratio_personal` se usa en RRHH → Horas por facturación para estimar horas.
-const TABLE_LOCALES_ATTRS = ['id_Locales', 'nombre', 'agoraCode', 'empresa', 'direccion', 'cp', 'municipio', 'provincia', 'almacen origen', 'sede', 'lat', 'lng', 'imagen', 'factorial_location_id', 'ratio_personal', 'ratio_musicos', 'ratio_mercaderia', 'estilo_visual_brief', 'estilo_visual_imagen_keys', 'web'];
+// `km_desplazamiento`: kilómetros de un trayecto de ida desde la sede central hasta el local. Se
+// rellena a mano (no se calcula) y lo usa Mantenimiento para valorar el desplazamiento del técnico.
+// `id_empresa`: identificador real en `igp_Empresas`, vínculo estable con la empresa del local.
+// Convive con `empresa` (nombre), que siguen usando pedidos/abonos, arqueos reales y cashflow;
+// `empresa` es copia desnormalizada legible y `id_empresa` es la referencia que no se rompe al renombrar.
+const TABLE_LOCALES_ATTRS = ['id_Locales', 'nombre', 'agoraCode', 'empresa', 'id_empresa', 'direccion', 'cp', 'municipio', 'provincia', 'almacen origen', 'sede', 'lat', 'lng', 'km_desplazamiento', 'imagen', 'factorial_location_id', 'ratio_personal', 'ratio_musicos', 'ratio_mercaderia', 'estilo_visual_brief', 'estilo_visual_imagen_keys', 'web'];
 
 // Acepta body con claves en minúsculas (API) o PascalCase (frontend).
 function bodyLocalesVal(body, key) {
@@ -51,7 +86,7 @@ router.get('/locales', async (req, res) => {
   do {
     const cmd = new ScanCommand({
       TableName: tables.locales,
-      ...(minimal && !grupoParipe && { ProjectionExpression: 'id_Locales, nombre, estilo_visual_brief' }),
+      ...(minimal && !grupoParipe && { ProjectionExpression: 'id_Locales, nombre, id_empresa, estilo_visual_brief, km_desplazamiento' }),
       ...(lastKey && { ExclusiveStartKey: lastKey }),
     });
     const result = await docClient.send(cmd);
@@ -74,11 +109,14 @@ router.post('/locales', async (req, res) => {
   if (!bodyLocalesVal(body, 'nombre') || !String(bodyLocalesVal(body, 'nombre')).trim()) {
     return res.status(400).json({ error: 'nombre es obligatorio' });
   }
+  const idBody = body.id_Locales ?? body.Id_Locales;
+  const idExplicito = idBody != null && String(idBody).trim() !== '';
   const item = {};
   for (const key of TABLE_LOCALES_ATTRS) {
     if (key === 'id_Locales') {
-      const v = body.id_Locales ?? body.Id_Locales;
-      item[key] = v != null ? formatId6(v) : '000000';
+      item[key] = idExplicito ? formatId6(idBody) : '';
+    } else if (key === 'id_empresa') {
+      item[key] = formatIdEmpresa(bodyLocalesVal(body, key));
     } else if (key === 'estilo_visual_imagen_keys') {
       const raw = body.estilo_visual_imagen_keys;
       item[key] = Array.isArray(raw)
@@ -89,12 +127,34 @@ router.post('/locales', async (req, res) => {
       item[key] = v != null && v !== '' ? String(v) : '';
     }
   }
-  await docClient.send(new PutCommand({
-    TableName: tables.locales,
-    Item: item,
-  }));
-  cachedLocalesMinimal = null;
-  res.json({ ok: true, local: item });
+
+  // El id se calcula en el cliente sobre una lista que puede estar obsoleta: sin
+  // condición, un Put pisaría por completo el local existente con ese id.
+  const MAX_INTENTOS = idExplicito ? 1 : 3;
+  for (let intento = 1; intento <= MAX_INTENTOS; intento += 1) {
+    if (!idExplicito) item.id_Locales = await siguienteIdLocalLibre();
+    try {
+      await docClient.send(new PutCommand({
+        TableName: tables.locales,
+        Item: item,
+        ConditionExpression: 'attribute_not_exists(id_Locales)',
+      }));
+      cachedLocalesMinimal = null;
+      return res.json({ ok: true, local: item });
+    } catch (err) {
+      if (err?.name !== 'ConditionalCheckFailedException') {
+        console.error('DynamoDB error:', err);
+        return res.status(500).json({ error: err.message || 'Error al guardar el local' });
+      }
+      if (intento === MAX_INTENTOS) {
+        return res.status(409).json({
+          error: idExplicito
+            ? `El identificador de local ${item.id_Locales} ya está en uso. Recarga la pantalla de locales y vuelve a crearlo con el siguiente identificador libre.`
+            : 'No se ha podido asignar un identificador de local libre porque se están creando locales a la vez. Recarga la pantalla y vuelve a intentarlo.',
+        });
+      }
+    }
+  }
 });
 
 router.put('/locales', async (req, res) => {
@@ -111,7 +171,10 @@ router.put('/locales', async (req, res) => {
   const item = {};
   for (const key of TABLE_LOCALES_ATTRS) {
     if (key === 'id_Locales') item[key] = idLocales;
-    else if (key === 'estilo_visual_imagen_keys') {
+    else if (key === 'id_empresa') {
+      const v = bodyLocalesVal(body, key);
+      item[key] = formatIdEmpresa(v != null && v !== '' ? v : existing[key]);
+    } else if (key === 'estilo_visual_imagen_keys') {
       const raw = body.estilo_visual_imagen_keys;
       if (Array.isArray(raw)) {
         item[key] = raw.map((x) => String(x).trim()).filter(Boolean).slice(0, 3);

@@ -12,7 +12,10 @@ import {
   Pressable,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
+import { MIN_TOUCH } from '../../constants/layout';
 import { InputFecha } from '../../components/InputFecha';
+import { InputCantidad } from '../../components/InputCantidad';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useAuth } from '../../contexts/AuthContext';
 import { useProductosCache } from '../../contexts/ProductosCache';
@@ -21,12 +24,19 @@ import { valorEnLocal } from '../../utils/valorEnLocal';
 import { formatMoneda } from '../../utils/formatMoneda';
 import { formatFecha } from '../../utils/formatFecha';
 import { hoyISO } from '../../utils/facturaFormLogic';
-import { parseAlmacenesOrigen } from '../../utils/parseAlmacenesOrigen';
 import { fetchPorcentajeBeneficio, aplicarPorcentajeBeneficio } from '../../lib/personalizacion';
+import {
+  almacenesDeLocal,
+  avisoFacturacionSalida,
+  buscarLocalPorId,
+  idAlmacenGeneral,
+  idLocal,
+  nombreAlmacen,
+  nombreLocal,
+  type AvisoSalida,
+} from '../../lib/pedidosEntreLocales';
 
 type Registro = Record<string, string | number | boolean | undefined | null>;
-
-const NOMBRE_ALMACEN_GENERAL = 'Almacén General';
 
 type Props = {
   visible: boolean;
@@ -38,7 +48,8 @@ type Props = {
 const FORM_LINEA_VACIO = { ProductId: '', ProductoNombre: '', Cantidad: '', PrecioUnitario: '', Iva: '', TotalRappel: '' };
 
 export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) {
-  const { localPermitido } = useAuth();
+  const { localPermitido, hasPermiso } = useAuth();
+  const { isCompact } = useBreakpoint();
   const {
     productosIgp: productosIgpCache,
     loading: loadingProductos,
@@ -57,6 +68,11 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
   // Tipo de movimiento: 'Pedido' (general → local) o 'Devolucion' (local → general).
   const [tipo, setTipo] = useState<'Pedido' | 'Devolucion'>('Pedido');
   const [form, setForm] = useState({ LocalId: '', AlmacenOrigenId: '', AlmacenDestinoId: '', Fecha: hoyISO(), Notas: '' });
+  // Envío entre locales: la mercancía sale del almacén de otro local en vez del
+  // Almacén General. Es la excepción, así que vive detrás de un chip y no cambia
+  // el flujo habitual mientras esté apagado.
+  const [origenOtroLocal, setOrigenOtroLocal] = useState(false);
+  const [localOrigenId, setLocalOrigenId] = useState('');
   const [errorForm, setErrorForm] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
   // Certificación de la devolución antes de enviarla.
@@ -79,6 +95,8 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
     setFase('cabecera');
     setTipo('Pedido');
     setForm({ LocalId: '', AlmacenOrigenId: '', AlmacenDestinoId: '', Fecha: hoyISO(), Notas: '' });
+    setOrigenOtroLocal(false);
+    setLocalOrigenId('');
     setErrorForm(null);
     setPedidoCreado(null);
     setLineas([]);
@@ -112,36 +130,49 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
   }, [visible, productosLastFetch, recargarProductos]);
 
   // Almacén general por defecto como origen.
-  const almacenGeneralId = useMemo(() => {
-    const alm = almacenes.find((a) => {
-      const n = String(valorEnLocal(a, 'Nombre') ?? '').trim();
-      return (
-        n === NOMBRE_ALMACEN_GENERAL ||
-        n.toLowerCase().includes('almacén general') ||
-        n.toLowerCase().includes('almacen general')
-      );
-    });
-    return alm ? String(valorEnLocal(alm, 'Id') ?? '').trim() : '';
-  }, [almacenes]);
+  const almacenGeneralId = useMemo(() => idAlmacenGeneral(almacenes), [almacenes]);
+
+  /**
+   * El maestro está cargado pero no hay ningún «Almacén General»: no se puede
+   * preseleccionar el origen habitual, así que hay que decírselo al usuario en vez
+   * de dejarle un formulario que no se rellena solo y sin explicación.
+   */
+  const generalNoIdentificado = !loadingDatos && almacenes.length > 0 && !almacenGeneralId;
 
   // Almacén general por defecto en el lado fijo según el tipo:
-  // - Pedido: el general es el ORIGEN.
+  // - Pedido: el general es el ORIGEN (salvo envío entre locales).
   // - Devolución: el general es el DESTINO (el local devuelve al general).
   useEffect(() => {
     if (!almacenGeneralId) return;
-    if (tipo === 'Pedido' && !form.AlmacenOrigenId) {
+    if (tipo === 'Pedido' && !origenOtroLocal && !form.AlmacenOrigenId) {
       setForm((f) => ({ ...f, AlmacenOrigenId: almacenGeneralId }));
     } else if (tipo === 'Devolucion' && !form.AlmacenDestinoId) {
       setForm((f) => ({ ...f, AlmacenDestinoId: almacenGeneralId }));
     }
-  }, [almacenGeneralId, tipo, form.AlmacenOrigenId, form.AlmacenDestinoId]);
+  }, [almacenGeneralId, tipo, origenOtroLocal, form.AlmacenOrigenId, form.AlmacenDestinoId]);
 
   // Alternar tipo: invierte el lado del local y limpia la selección manual para
   // que el efecto recoloque el almacén general en el lado correcto.
   const cambiarTipo = useCallback((nuevo: 'Pedido' | 'Devolucion') => {
     setTipo(nuevo);
     setErrorForm(null);
+    setOrigenOtroLocal(false);
+    setLocalOrigenId('');
     setForm((f) => ({ ...f, AlmacenOrigenId: '', AlmacenDestinoId: '' }));
+  }, []);
+
+  // El origen vuelve al Almacén General (el efecto lo repone al limpiarlo).
+  const usarAlmacenGeneral = useCallback(() => {
+    setOrigenOtroLocal(false);
+    setLocalOrigenId('');
+    setErrorForm(null);
+    setForm((f) => ({ ...f, AlmacenOrigenId: '' }));
+  }, []);
+
+  const usarOtroLocalComoOrigen = useCallback(() => {
+    setOrigenOtroLocal(true);
+    setErrorForm(null);
+    setForm((f) => ({ ...f, AlmacenOrigenId: '' }));
   }, []);
 
   const localesOrdenados = useMemo(
@@ -154,27 +185,16 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
     [locales],
   );
 
-  const almacenesPorLocalId = useMemo(() => {
-    const map: Record<string, string[]> = {};
-    for (const loc of locales) {
-      const id = String(valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'Id_Locales') ?? valorEnLocal(loc, 'Id') ?? '').trim();
-      const almacenOrig = valorEnLocal(loc, 'almacen origen') ?? valorEnLocal(loc, 'Almacen origen');
-      const nombres = parseAlmacenesOrigen(almacenOrig as string | number | undefined);
-      if (id) map[id] = nombres;
-    }
-    return map;
-  }, [locales]);
+  /** Local que recibe la mercancía (en devolución, el que la devuelve). */
+  const localDestino = useMemo(
+    () => buscarLocalPorId(form.LocalId, locales),
+    [form.LocalId, locales],
+  );
 
-  const almacenesDestinoParaLocal = useMemo(() => {
-    const localId = form.LocalId.trim();
-    if (!localId) return [];
-    const nombresPermitidos = almacenesPorLocalId[localId] ?? [];
-    if (nombresPermitidos.length === 0) return [];
-    return almacenes.filter((alm) => {
-      const nombre = String(valorEnLocal(alm, 'Nombre') ?? '').trim();
-      return nombresPermitidos.some((n) => n === nombre || nombre.toLowerCase().includes(n.toLowerCase()));
-    });
-  }, [form.LocalId, almacenesPorLocalId, almacenes]);
+  const almacenesDestinoParaLocal = useMemo(
+    () => almacenesDeLocal(localDestino, almacenes),
+    [localDestino, almacenes],
+  );
 
   const almacenesGeneralOpc = useMemo(
     () =>
@@ -184,12 +204,60 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
     [almacenes, almacenGeneralId],
   );
 
+  /** Solo quien tenga el permiso puede sacar mercancía del almacén de otro local. */
+  const puedeEnviarEntreLocales = hasPermiso('pedidos.crear_entre_locales');
+
+  const localOrigen = useMemo(
+    () => buscarLocalPorId(localOrigenId, locales),
+    [localOrigenId, locales],
+  );
+
+  const almacenesDelLocalOrigen = useMemo(
+    () => almacenesDeLocal(localOrigen, almacenes),
+    [localOrigen, almacenes],
+  );
+
+  /** Locales que pueden servir: todos los permitidos menos el que recibe. */
+  const localesOrigenOpciones = useMemo(
+    () =>
+      localesOrdenados
+        .filter((loc) => !form.LocalId.trim() || idLocal(loc) !== form.LocalId.trim())
+        .map((loc, idx) => ({
+          id: idLocal(loc) || `loc-origen-${idx}`,
+          titulo: nombreLocal(loc) || idLocal(loc) || '—',
+          icono: 'store' as const,
+        })),
+    [localesOrdenados, form.LocalId],
+  );
+
   const esDevolucion = tipo === 'Devolucion';
   // En devolución se invierten los lados: el local es el origen y el general el destino.
   const opcionesOrigen = esDevolucion ? almacenesDestinoParaLocal : almacenesGeneralOpc;
   const opcionesDestino = esDevolucion ? almacenesGeneralOpc : almacenesDestinoParaLocal;
   // El lado del local (el que depende de la configuración de almacenes del local).
   const localSinAlmacenes = form.LocalId.trim() !== '' && almacenesDestinoParaLocal.length === 0;
+
+  /**
+   * El local que sirve puede tener el Almacén General entre sus almacenes, así
+   * que ese chip aparece también dentro de «Desde otro local». Si es el origen
+   * elegido, la mercancía sale del almacén central: no hay factura entre
+   * sociedades (ni el backend pide el permiso), así que no se anuncia ninguna.
+   */
+  const origenEsGeneral = almacenGeneralId !== '' && form.AlmacenOrigenId.trim() === almacenGeneralId;
+
+  /** Consecuencia de facturación del envío entre locales, tal como quedará. */
+  const avisoEntreLocales = useMemo<AvisoSalida | null>(() => {
+    if (!origenOtroLocal || esDevolucion) return null;
+    if (!form.AlmacenOrigenId.trim()) return null;
+    if (origenEsGeneral) {
+      return {
+        tono: 'info',
+        texto:
+          'El origen elegido es el Almacén General: la mercancía sale del almacén central, así que este pedido no generará factura entre sociedades.',
+      };
+    }
+    return avisoFacturacionSalida({ localOrigen, localDestino });
+  }, [origenOtroLocal, esDevolucion, form.AlmacenOrigenId, origenEsGeneral, localOrigen, localDestino]);
 
   const totalAlbaran = useMemo(
     () => lineas.reduce((s, l) => s + Number(l.TotalLinea ?? 0), 0),
@@ -262,8 +330,16 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
       setErrorForm('Selecciona un local.');
       return;
     }
+    if (origenOtroLocal && !localOrigenId.trim()) {
+      setErrorForm('Selecciona el local que sirve la mercancía.');
+      return;
+    }
     if (!form.AlmacenOrigenId.trim()) {
-      setErrorForm('Selecciona un almacén de origen.');
+      setErrorForm(
+        origenOtroLocal && almacenesDelLocalOrigen.length === 0
+          ? 'El local que sirve no tiene almacenes configurados.'
+          : 'Selecciona un almacén de origen.',
+      );
       return;
     }
     if (!form.AlmacenDestinoId.trim()) {
@@ -309,7 +385,7 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
     } finally {
       setGuardando(false);
     }
-  }, [form, tipo, localSinAlmacenes, onCreado]);
+  }, [form, tipo, localSinAlmacenes, origenOtroLocal, localOrigenId, almacenesDelLocalOrigen, onCreado]);
 
   const handleAddLinea = useCallback(async () => {
     if (!pedidoCreado) return;
@@ -320,6 +396,10 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
       return;
     }
     const cant = parseFloat(String(formLinea.Cantidad).replace(',', '.')) || 0;
+    if (!(cant > 0)) {
+      alert('La cantidad debe ser mayor que cero');
+      return;
+    }
     const precio = parseFloat(String(formLinea.PrecioUnitario).replace(',', '.')) || 0;
     const ivaPct = parseFloat(String(formLinea.Iva).replace(',', '.')) || 0;
     const vatRate = ivaPct / 100;
@@ -428,6 +508,41 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
     return loc ? String(valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? form.LocalId).trim() : form.LocalId;
   }, [locales, form.LocalId]);
 
+  /** Resumen del movimiento cuando origen y destino están elegidos. */
+  const resumenTraspaso = useMemo(() => {
+    const etiquetaAlmacen = (idAlm: string) => {
+      const alm = almacenes.find((a) => String(valorEnLocal(a, 'Id') ?? '').trim() === idAlm.trim());
+      return alm ? nombreAlmacen(alm as Record<string, unknown>) || idAlm : idAlm;
+    };
+    if (esDevolucion) {
+      if (!form.LocalId.trim() || !form.AlmacenOrigenId.trim() || !form.AlmacenDestinoId.trim()) return null;
+      const locNom = nombreLocal(localDestino as Record<string, unknown>) || localNombre;
+      return `Devolución: ${etiquetaAlmacen(form.AlmacenOrigenId)} (${locNom}) → ${etiquetaAlmacen(form.AlmacenDestinoId)}`;
+    }
+    if (!form.LocalId.trim() || !form.AlmacenDestinoId.trim() || !form.AlmacenOrigenId.trim()) return null;
+    const destLoc = nombreLocal(localDestino as Record<string, unknown>) || localNombre;
+    const destAlm = etiquetaAlmacen(form.AlmacenDestinoId);
+    const origAlm = etiquetaAlmacen(form.AlmacenOrigenId);
+    if (origenOtroLocal && localOrigen) {
+      const origLoc = nombreLocal(localOrigen as Record<string, unknown>);
+      return `Traspaso: ${origAlm} (${origLoc}) → ${destAlm} (${destLoc})`;
+    }
+    return `Pedido: ${origAlm} → ${destAlm} (${destLoc})`;
+  }, [
+    esDevolucion,
+    form.LocalId,
+    form.AlmacenOrigenId,
+    form.AlmacenDestinoId,
+    localDestino,
+    localNombre,
+    localOrigen,
+    origenOtroLocal,
+    almacenes,
+  ]);
+
+  // Zona táctil cómoda para los chips en móvil y tablet.
+  const chipTouch = isCompact ? styles.pickerChipTouch : null;
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       {/* El fondo no cierra el pedido en curso (evita perder datos); se cierra con la X o Cancelar. */}
@@ -476,75 +591,263 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
                   ) : null}
                 </View>
 
-                <View style={styles.group}>
-                  <Text style={styles.label}>Local *</Text>
-                  <SelectorDesplegable
-                    placeholder="— Seleccionar local —"
-                    icono="store"
-                    tituloLista="Selecciona un local"
-                    iconoLista="store"
-                    buscador
-                    valorId={form.LocalId || null}
-                    opciones={localesOrdenados.map((loc, idx) => {
-                      const idLoc = String(valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'Id_Locales') ?? '').trim();
-                      const nombre = String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? idLoc) || '—').trim();
-                      return { id: idLoc || `loc-${idx}`, titulo: nombre || idLoc || '—', icono: 'store' as const };
-                    })}
-                    onSeleccionar={(id) => setForm((f) => ({ ...f, LocalId: id, AlmacenDestinoId: '' }))}
-                  />
-                </View>
+                {esDevolucion ? (
+                  <View style={styles.bloqueSeccion}>
+                    <Text style={styles.bloqueSeccionTitulo}>Origen</Text>
+                    <View style={styles.group}>
+                      <Text style={styles.label}>Local *</Text>
+                      <SelectorDesplegable
+                        placeholder="— Seleccionar local —"
+                        icono="store"
+                        tituloLista="Selecciona un local"
+                        iconoLista="store"
+                        buscador
+                        valorId={form.LocalId || null}
+                        opciones={localesOrdenados.map((loc, idx) => {
+                          const idLoc = String(valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'Id_Locales') ?? '').trim();
+                          const nombre = String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? idLoc) || '—').trim();
+                          return { id: idLoc || `loc-${idx}`, titulo: nombre || idLoc || '—', icono: 'store' as const };
+                        })}
+                        onSeleccionar={(id) => {
+                          setForm((f) => ({ ...f, LocalId: id, AlmacenDestinoId: '', AlmacenOrigenId: '' }));
+                        }}
+                      />
+                    </View>
+                    <View style={[styles.group, styles.groupUltimo]}>
+                      <Text style={styles.label}>Almacén origen *</Text>
+                      {localSinAlmacenes ? (
+                        <Text style={styles.hintWarn}>Este local no tiene almacenes configurados.</Text>
+                      ) : (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerRow}>
+                          {opcionesOrigen.map((alm) => {
+                            const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
+                            const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
+                            const sel = idAlm !== '' && form.AlmacenOrigenId === idAlm;
+                            return (
+                              <TouchableOpacity
+                                key={idAlm || nombre}
+                                style={[styles.pickerChip, chipTouch, sel && styles.pickerChipActive]}
+                                onPress={() => setForm((f) => ({ ...f, AlmacenOrigenId: sel ? '' : idAlm }))}
+                              >
+                                <Text style={[styles.pickerChipText, sel && styles.pickerChipTextActive]} numberOfLines={1}>
+                                  {nombre || idAlm || '—'}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </ScrollView>
+                      )}
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.bloqueSeccion}>
+                    <Text style={styles.bloqueSeccionTitulo}>Destino</Text>
+                    <View style={styles.group}>
+                      <Text style={styles.label}>Local *</Text>
+                      <SelectorDesplegable
+                        placeholder="— Seleccionar local —"
+                        icono="store"
+                        tituloLista="Selecciona un local"
+                        iconoLista="store"
+                        buscador
+                        valorId={form.LocalId || null}
+                        opciones={localesOrdenados.map((loc, idx) => {
+                          const idLoc = String(valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'Id_Locales') ?? '').trim();
+                          const nombre = String((valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? idLoc) || '—').trim();
+                          return { id: idLoc || `loc-${idx}`, titulo: nombre || idLoc || '—', icono: 'store' as const };
+                        })}
+                        onSeleccionar={(id) => {
+                          if (origenOtroLocal && id === localOrigenId) {
+                            setLocalOrigenId('');
+                            setForm((f) => ({ ...f, LocalId: id, AlmacenDestinoId: '', AlmacenOrigenId: '' }));
+                            return;
+                          }
+                          setForm((f) => ({ ...f, LocalId: id, AlmacenDestinoId: '' }));
+                        }}
+                      />
+                    </View>
+                    <View style={[styles.group, styles.groupUltimo]}>
+                      <Text style={styles.label}>Almacén destino *</Text>
+                      {localSinAlmacenes ? (
+                        <Text style={styles.hintWarn}>Este local no tiene almacenes de destino configurados.</Text>
+                      ) : (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerRow}>
+                          {opcionesDestino.map((alm) => {
+                            const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
+                            const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
+                            const sel = idAlm !== '' && form.AlmacenDestinoId === idAlm;
+                            return (
+                              <TouchableOpacity
+                                key={idAlm || nombre}
+                                style={[styles.pickerChip, chipTouch, sel && styles.pickerChipActive]}
+                                onPress={() => setForm((f) => ({ ...f, AlmacenDestinoId: sel ? '' : idAlm }))}
+                              >
+                                <Text style={[styles.pickerChipText, sel && styles.pickerChipTextActive]} numberOfLines={1}>
+                                  {nombre || idAlm || '—'}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </ScrollView>
+                      )}
+                    </View>
+                  </View>
+                )}
 
-                <View style={styles.group}>
-                  <Text style={styles.label}>Almacén origen *</Text>
-                  {esDevolucion && localSinAlmacenes ? (
-                    <Text style={styles.hintWarn}>Este local no tiene almacenes configurados.</Text>
+                <View style={styles.bloqueSeccion}>
+                  <Text style={styles.bloqueSeccionTitulo}>{esDevolucion ? 'Destino' : 'Origen'}</Text>
+                  {esDevolucion ? (
+                    <View style={[styles.group, styles.groupUltimo]}>
+                      <Text style={styles.label}>Almacén destino *</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerRow}>
+                        {opcionesDestino.map((alm) => {
+                          const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
+                          const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
+                          const sel = idAlm !== '' && form.AlmacenDestinoId === idAlm;
+                          return (
+                            <TouchableOpacity
+                              key={idAlm || nombre}
+                              style={[styles.pickerChip, chipTouch, sel && styles.pickerChipActive]}
+                              onPress={() => setForm((f) => ({ ...f, AlmacenDestinoId: sel ? '' : idAlm }))}
+                            >
+                              <Text style={[styles.pickerChipText, sel && styles.pickerChipTextActive]} numberOfLines={1}>
+                                {nombre || idAlm || '—'}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                      {generalNoIdentificado ? (
+                        <Text style={styles.avisoFactura}>
+                          No hay ningún almacén llamado «Almacén General» en el maestro, así que no se ha podido
+                          preseleccionar el destino de la devolución: elígelo a mano. Revisa el nombre del almacén
+                          central en Almacenes.
+                        </Text>
+                      ) : null}
+                    </View>
                   ) : (
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerRow}>
-                      {opcionesOrigen.map((alm) => {
-                        const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
-                        const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
-                        const sel = idAlm !== '' && form.AlmacenOrigenId === idAlm;
-                        return (
-                          <TouchableOpacity
-                            key={idAlm || nombre}
-                            style={[styles.pickerChip, sel && styles.pickerChipActive]}
-                            onPress={() => setForm((f) => ({ ...f, AlmacenOrigenId: sel ? '' : idAlm }))}
-                          >
-                            <Text style={[styles.pickerChipText, sel && styles.pickerChipTextActive]} numberOfLines={1}>
-                              {nombre || idAlm || '—'}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
+                    <View style={[styles.group, styles.groupUltimo]}>
+                      <Text style={styles.label}>Almacén origen *</Text>
+                      <>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerRow}>
+                          {almacenesGeneralOpc.map((alm) => {
+                            const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
+                            const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
+                            const sel = !origenOtroLocal && idAlm !== '' && form.AlmacenOrigenId === idAlm;
+                            return (
+                              <TouchableOpacity
+                                key={idAlm || nombre}
+                                style={[styles.pickerChip, chipTouch, sel && styles.pickerChipActive]}
+                                onPress={() => {
+                                  if (origenOtroLocal) {
+                                    usarAlmacenGeneral();
+                                    setForm((f) => ({ ...f, AlmacenOrigenId: idAlm }));
+                                    return;
+                                  }
+                                  setForm((f) => ({ ...f, AlmacenOrigenId: sel ? '' : idAlm }));
+                                }}
+                              >
+                                <Text style={[styles.pickerChipText, sel && styles.pickerChipTextActive]} numberOfLines={1}>
+                                  {nombre || idAlm || '—'}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                          {puedeEnviarEntreLocales ? (
+                            <TouchableOpacity
+                              style={[styles.pickerChip, chipTouch, origenOtroLocal && styles.pickerChipActive]}
+                              onPress={origenOtroLocal ? usarAlmacenGeneral : usarOtroLocalComoOrigen}
+                            >
+                              <Text
+                                style={[styles.pickerChipText, origenOtroLocal && styles.pickerChipTextActive]}
+                                numberOfLines={1}
+                              >
+                                Desde otro local
+                              </Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </ScrollView>
+
+                        {generalNoIdentificado ? (
+                          <Text style={styles.avisoFactura}>
+                            No hay ningún almacén llamado «Almacén General» en el maestro, así que no se ha podido
+                            preseleccionar el origen habitual: elígelo a mano. Si el almacén elegido no es el central,
+                            el pedido generará factura entre sociedades y se rechazará sin el permiso de envíos entre
+                            locales. Revisa el nombre del almacén central en Almacenes.
+                          </Text>
+                        ) : null}
+
+                        {origenOtroLocal ? (
+                          <View style={styles.subGroup}>
+                            <Text style={styles.label}>Local que sirve *</Text>
+                            <SelectorDesplegable
+                              placeholder="— Seleccionar local que sirve —"
+                              icono="store"
+                              tituloLista="¿Qué local sirve la mercancía?"
+                              iconoLista="store"
+                              buscador
+                              valorId={localOrigenId || null}
+                              opciones={localesOrigenOpciones}
+                              vacioTexto="No hay otros locales disponibles."
+                              onSeleccionar={(id) => {
+                                setLocalOrigenId(id);
+                                setErrorForm(null);
+                                setForm((f) => ({ ...f, AlmacenOrigenId: '' }));
+                              }}
+                            />
+                            {!localOrigenId ? (
+                              <Text style={styles.hint}>Elige el local del que sale la mercancía.</Text>
+                            ) : almacenesDelLocalOrigen.length === 0 ? (
+                              <Text style={styles.hintWarn}>
+                                Este local no tiene almacenes configurados. Asígnalos en Locales o elige otro origen.
+                              </Text>
+                            ) : (
+                              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerRow}>
+                                {almacenesDelLocalOrigen.map((alm) => {
+                                    const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
+                                    const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
+                                    const sel = idAlm !== '' && form.AlmacenOrigenId === idAlm;
+                                    return (
+                                      <TouchableOpacity
+                                        key={idAlm || nombre}
+                                        style={[styles.pickerChip, chipTouch, sel && styles.pickerChipActive]}
+                                        onPress={() => setForm((f) => ({ ...f, AlmacenOrigenId: sel ? '' : idAlm }))}
+                                      >
+                                        <Text
+                                          style={[styles.pickerChipText, sel && styles.pickerChipTextActive]}
+                                          numberOfLines={1}
+                                        >
+                                          {nombre || idAlm || '—'}
+                                        </Text>
+                                      </TouchableOpacity>
+                                    );
+                                  })}
+                                </ScrollView>
+                            )}
+                            {avisoEntreLocales ? (
+                              <Text style={avisoEntreLocales.tono === 'aviso' ? styles.avisoFactura : styles.hint}>
+                                {avisoEntreLocales.texto}
+                              </Text>
+                            ) : null}
+                          </View>
+                        ) : null}
+                      </>
+                    </View>
                   )}
                 </View>
 
-                <View style={styles.group}>
-                  <Text style={styles.label}>Almacén destino *</Text>
-                  {!esDevolucion && localSinAlmacenes ? (
-                    <Text style={styles.hintWarn}>Este local no tiene almacenes de destino configurados.</Text>
-                  ) : (
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pickerRow}>
-                      {opcionesDestino.map((alm) => {
-                        const idAlm = String(valorEnLocal(alm, 'Id') ?? '').trim();
-                        const nombre = String((valorEnLocal(alm, 'Nombre') ?? idAlm) || '—').trim();
-                        const sel = idAlm !== '' && form.AlmacenDestinoId === idAlm;
-                        return (
-                          <TouchableOpacity
-                            key={idAlm || nombre}
-                            style={[styles.pickerChip, sel && styles.pickerChipActive]}
-                            onPress={() => setForm((f) => ({ ...f, AlmacenDestinoId: sel ? '' : idAlm }))}
-                          >
-                            <Text style={[styles.pickerChipText, sel && styles.pickerChipTextActive]} numberOfLines={1}>
-                              {nombre || idAlm || '—'}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  )}
-                </View>
+                {resumenTraspaso ? (
+                  <View style={[styles.resumenTraspaso, esDevolucion && styles.resumenTraspasoDev]}>
+                    <MaterialIcons
+                      name={esDevolucion ? 'undo' : 'swap-horiz'}
+                      size={18}
+                      color={esDevolucion ? '#b45309' : '#0369a1'}
+                    />
+                    <Text style={[styles.resumenTraspasoText, esDevolucion && styles.resumenTraspasoTextDev]} numberOfLines={2}>
+                      {resumenTraspaso}
+                    </Text>
+                  </View>
+                ) : null}
 
                 <View style={styles.group}>
                   <Text style={styles.label}>Fecha *</Text>
@@ -585,9 +888,14 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
               <View style={[styles.resumenCabecera, esDevolucion && styles.resumenCabeceraDev]}>
                 <MaterialIcons name={esDevolucion ? 'undo' : 'store'} size={16} color={esDevolucion ? '#b45309' : '#0369a1'} />
                 <Text style={[styles.resumenText, esDevolucion && styles.resumenTextDev]} numberOfLines={1}>
-                  {esDevolucion ? 'Devolución · ' : ''}{localNombre} · {formatFecha(form.Fecha)}
+                  {esDevolucion ? 'Devolución · ' : ''}
+                  {origenOtroLocal && localOrigen && !origenEsGeneral ? `${nombreLocal(localOrigen)} → ` : ''}
+                  {localNombre} · {formatFecha(form.Fecha)}
                 </Text>
               </View>
+              {avisoEntreLocales?.tono === 'aviso' ? (
+                <Text style={[styles.avisoFactura, styles.avisoFacturaLineas]}>{avisoEntreLocales.texto}</Text>
+              ) : null}
 
               <View style={styles.lineaForm}>
                 <View style={styles.group}>
@@ -625,16 +933,12 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
                   />
                 </View>
                 <View style={styles.lineaValoresRow}>
-                  <View style={styles.lineaValorCol}>
+                  <View style={styles.lineaValorColCantidad}>
                     <Text style={styles.label}>Cantidad</Text>
-                    <TextInput
-                      style={styles.input}
+                    <InputCantidad
                       value={formLinea.Cantidad}
                       onChangeText={(v) => setFormLinea((f) => ({ ...f, Cantidad: v }))}
                       placeholder="0"
-                      placeholderTextColor="#94a3b8"
-                      keyboardType="decimal-pad"
-                      {...(Platform.OS === 'android' ? { textAlignVertical: 'center' as const } : {})}
                     />
                   </View>
                   <View style={styles.lineaValorCol}>
@@ -798,16 +1102,55 @@ const styles = StyleSheet.create({
   loadingWrap: { paddingVertical: 48, alignItems: 'center' },
   body: { paddingHorizontal: 16, paddingTop: 12 },
   group: { marginBottom: 14 },
+  groupUltimo: { marginBottom: 0 },
+  bloqueSeccion: {
+    marginBottom: 14,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+  },
+  bloqueSeccionTitulo: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 10,
+  },
+  resumenTraspaso: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#eff6ff',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
+  resumenTraspasoDev: {
+    backgroundColor: '#fffbeb',
+    borderColor: '#fde68a',
+  },
+  resumenTraspasoText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#0369a1', lineHeight: 18 },
+  resumenTraspasoTextDev: { color: '#b45309' },
   label: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 6 },
   input: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, paddingHorizontal: 12, minHeight: 44, fontSize: 15, color: '#334155', backgroundColor: '#fff', justifyContent: 'center', ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}) },
   inputMultiline: { minHeight: 70, textAlignVertical: 'top', paddingTop: 10 },
   inputReadonly: { backgroundColor: '#f8fafc', color: '#64748b' },
   pickerRow: { flexDirection: 'row' },
   pickerChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc', marginRight: 8, minHeight: 40, justifyContent: 'center' },
+  pickerChipTouch: { minHeight: MIN_TOUCH },
   pickerChipActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
   pickerChipText: { fontSize: 13, color: '#475569', fontWeight: '600' },
   pickerChipTextActive: { color: '#fff' },
+  hint: { fontSize: 12, color: '#64748b', marginTop: 6 },
   hintWarn: { fontSize: 12, color: '#b45309', marginTop: 2 },
+  subGroup: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
+  avisoFactura: { fontSize: 12, color: '#b45309', backgroundColor: '#fffbeb', borderWidth: 1, borderColor: '#fde68a', borderRadius: 10, padding: 10, marginTop: 8, lineHeight: 17, fontWeight: '500' },
+  avisoFacturaLineas: { marginHorizontal: 16, marginTop: 10, marginBottom: 0 },
   hintOk: { fontSize: 12, color: '#15803d', marginTop: 2 },
   error: { fontSize: 13, color: '#dc2626', paddingHorizontal: 16, paddingTop: 8, fontWeight: '500' },
   footer: { flexDirection: 'row', gap: 10, padding: 16, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
@@ -845,6 +1188,7 @@ const styles = StyleSheet.create({
   lineaForm: { paddingHorizontal: 16, paddingTop: 12 },
   lineaValoresRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   lineaValorCol: { flex: 1, minWidth: 80, marginBottom: 14 },
+  lineaValorColCantidad: { flexGrow: 0, flexShrink: 0, minWidth: 168, width: 168, marginBottom: 14 },
   btnAdd: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: '#86efac', backgroundColor: '#f0fdf4', marginTop: 4 },
   btnAddText: { fontSize: 14, fontWeight: '700', color: '#16a34a' },
 
