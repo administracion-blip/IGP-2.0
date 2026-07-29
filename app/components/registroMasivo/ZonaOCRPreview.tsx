@@ -1,5 +1,6 @@
 import React from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
+import { PreviewDocumentoArchivo } from '../PreviewDocumentoArchivo';
 import type { Borrador } from '../../types/registroMasivo';
 import type { UseZonaOCRReturn } from '../../hooks/useZonaOCR';
 
@@ -29,9 +30,7 @@ export function ZonaOCRPreview({
 }) {
   if (!borrador.archivo.previewUrl) {
     return (
-      <View style={styles.previewFallbackWrap}>
-        <Text style={styles.previewFallback}>Sin vista previa disponible</Text>
-      </View>
+      <PreviewDocumentoArchivo archivo={null} />
     );
   }
 
@@ -141,40 +140,13 @@ export function ZonaOCRPreview({
     );
   }
 
-  if (borrador.archivo.tipo.includes('pdf')) {
-    if (Platform.OS === 'web') {
-      return (
-        <iframe
-          src={borrador.archivo.previewUrl}
-          style={{ width: '100%', height: '100%', border: 'none' } as any}
-          title="Vista previa"
-        />
-      );
-    }
-    return (
-      <View style={styles.previewFallbackWrap}>
-        <Text style={styles.previewFallback}>Vista previa no disponible en esta plataforma</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <img
-        src={borrador.archivo.previewUrl}
-        style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' } as any}
-        alt="Vista previa"
-      />
-    </View>
+    <PreviewDocumentoArchivo
+      archivo={{
+        nombre: borrador.archivo.nombre,
+        tipo: borrador.archivo.tipo,
+        previewUrl: borrador.archivo.previewUrl,
+      }}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  previewFallbackWrap: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-  },
-  previewFallback: { fontSize: 12, color: '#94a3b8', textAlign: 'center' },
-});

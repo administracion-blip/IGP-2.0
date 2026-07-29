@@ -10,7 +10,135 @@
 
 import { round2 } from '../utils/facturacion';
 import { fechaEmisionFacturaAIso } from '../utils/formatFecha';
-import type { Borrador, LineaDesglose } from '../types/registroMasivo';
+import type { Borrador, DuplicadoLote, LineaDesglose } from '../types/registroMasivo';
+
+const normDoc = (s: string | null | undefined) => String(s ?? '').toUpperCase().replace(/[\s\-/.]/g, '');
+const normCif = (s: string | null | undefined) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/** Año yyyy de la fecha de emisión; vacío si no parsea. */
+export function anioEmisionFactura(raw: string | undefined | null): string {
+  const iso = fechaEmisionFacturaAIso(raw);
+  return iso ? iso.slice(0, 4) : '';
+}
+
+export type RefDuplicadoFacturaProveedor = {
+  proveedor_cif?: string | null;
+  empresa_cif?: string | null;
+  numero_factura_proveedor?: string | null;
+  fecha_emision?: string | null;
+};
+
+function cifRef(r: RefDuplicadoFacturaProveedor): string {
+  return normCif(r.proveedor_cif ?? r.empresa_cif);
+}
+
+/**
+ * Misma factura del proveedor: CIF + nº factura + año de emisión.
+ * Sin los tres datos no hay coincidencia (p. ej. distinto año = facturas distintas).
+ */
+export function esMismaFacturaProveedor(
+  a: RefDuplicadoFacturaProveedor,
+  b: RefDuplicadoFacturaProveedor,
+): boolean {
+  const cif = cifRef(a);
+  const doc = normDoc(a.numero_factura_proveedor);
+  const anio = anioEmisionFactura(a.fecha_emision);
+  if (!cif || !doc || !anio) return false;
+  return cifRef(b) === cif && normDoc(b.numero_factura_proveedor) === doc && anioEmisionFactura(b.fecha_emision) === anio;
+}
+
+/** Huella de los campos que usa `POST /api/facturacion/check-duplicados`. */
+export function claveIdentidadFacturaProveedor(r: RefDuplicadoFacturaProveedor): string {
+  const cif = cifRef(r);
+  const doc = normDoc(r.numero_factura_proveedor);
+  const anio = anioEmisionFactura(r.fecha_emision);
+  if (!cif || !doc || !anio) return '';
+  return `${cif}|${doc}|${anio}`;
+}
+
+type FacturaConIdProveedor = RefDuplicadoFacturaProveedor & { id_factura: string };
+
+/** IDs de facturas cuya tripleta CIF + nº proveedor + año aparece ≥2 veces en la lista. */
+export function idsFacturasProveedorDuplicadas(facturas: FacturaConIdProveedor[]): Set<string> {
+  const porClave = new Map<string, string[]>();
+  for (const f of facturas) {
+    const key = claveIdentidadFacturaProveedor(f);
+    if (!key) continue;
+    const ids = porClave.get(key) ?? [];
+    ids.push(f.id_factura);
+    porClave.set(key, ids);
+  }
+  const dup = new Set<string>();
+  for (const ids of porClave.values()) {
+    if (ids.length >= 2) ids.forEach((id) => dup.add(id));
+  }
+  return dup;
+}
+
+/** Resumen de grupos duplicados (misma tripleta CIF + nº + año). */
+export function resumenDuplicadosProveedor(facturas: FacturaConIdProveedor[]): {
+  grupos: number;
+  facturas: number;
+} {
+  const porClave = new Map<string, number>();
+  for (const f of facturas) {
+    const key = claveIdentidadFacturaProveedor(f);
+    if (!key) continue;
+    porClave.set(key, (porClave.get(key) ?? 0) + 1);
+  }
+  let grupos = 0;
+  let facturasEnGrupo = 0;
+  for (const n of porClave.values()) {
+    if (n >= 2) {
+      grupos += 1;
+      facturasEnGrupo += n;
+    }
+  }
+  return { grupos, facturas: facturasEnGrupo };
+}
+
+/** Huella de los campos que usa `POST /api/facturacion/check-duplicados` (borrador OCR). */
+export function fingerprintCheckDuplicados(
+  b: Pick<Borrador, 'proveedor_cif' | 'numero_factura_proveedor' | 'fecha_emision'>,
+): string {
+  return [normCif(b.proveedor_cif), normDoc(b.numero_factura_proveedor), anioEmisionFactura(b.fecha_emision)].join('|');
+}
+
+/**
+ * Duplicados *dentro del propio lote*: subir dos veces la misma factura no lo
+ * detecta el backend si aún no está registrada. Devuelve, por cada borrador
+ * activo, los otros borradores activos que parecen la misma factura.
+ */
+export function calcularDuplicadosDeLote(borradores: Borrador[]): Map<number, DuplicadoLote[]> {
+  const activos = borradores.filter((b) => !b.descartado);
+  const mapa = new Map<number, DuplicadoLote[]>();
+
+  for (const a of activos) {
+    const coincidencias = activos
+      .filter((b) => b.idx !== a.idx && esMismaFacturaProveedor(a, b))
+      .map((b) => ({
+        idx: b.idx,
+        archivo: b.archivo?.nombre ?? '',
+        numero_factura_proveedor: b.numero_factura_proveedor ?? '',
+      }));
+    if (coincidencias.length > 0) mapa.set(a.idx, coincidencias);
+  }
+
+  return mapa;
+}
+
+/** Identificador estable de duplicados (backend + lote) para detectar cambios de coincidencia. */
+export function identidadDuplicados(
+  b: Pick<Borrador, 'duplicados'>,
+  duplicadosLote: DuplicadoLote[] = [],
+): string {
+  const backend = b.duplicados
+    .map((d) => String(d.id_factura ?? d.numero_factura ?? ''))
+    .sort()
+    .join(',');
+  const lote = duplicadosLote.map((x) => String(x.idx)).sort().join(',');
+  return `${backend}|${lote}`;
+}
 
 /**
  * Color del dot de confianza OCR según el nivel reportado por el API:

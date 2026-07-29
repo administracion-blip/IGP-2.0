@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { confColor } from '../../lib/registroMasivo';
+import { useRegistroMasivoField } from '../../hooks/useRegistroMasivoFocusChain';
 
 /**
  * Fila label + input de texto para el formulario del registro masivo.
@@ -14,6 +15,8 @@ export function FieldRow({
   onChange,
   numeric,
   placeholder,
+  focusFieldId,
+  multiline,
 }: {
   label: string;
   value: string;
@@ -21,7 +24,12 @@ export function FieldRow({
   onChange: (v: string) => void;
   numeric?: boolean;
   placeholder?: string;
+  /** Id en la cadena Tab/Enter del registro masivo (solo web). */
+  focusFieldId?: string;
+  multiline?: boolean;
 }) {
+  const focus = useRegistroMasivoField(focusFieldId, { multiline });
+
   return (
     <View style={styles.fieldRow}>
       <View style={styles.fieldLabelWrap}>
@@ -29,12 +37,16 @@ export function FieldRow({
         {conf && <View style={[styles.confDot, { backgroundColor: confColor(conf) }]} />}
       </View>
       <TextInput
+        ref={focus.ref}
         style={[styles.fieldInput, numeric && { textAlign: 'right' as const }]}
         value={value}
         onChangeText={onChange}
+        onFocus={focus.onFocus}
+        onKeyDown={focus.onKeyDown as never}
         keyboardType={numeric ? 'decimal-pad' : 'default'}
         placeholder={placeholder}
         placeholderTextColor="#94a3b8"
+        multiline={multiline}
       />
     </View>
   );

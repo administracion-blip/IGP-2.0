@@ -1,10 +1,14 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { confColor } from '../../lib/registroMasivo';
 import { InputFecha } from '../InputFecha';
 import { isoDesdeValor } from '../../utils/fechaInput';
 import { fechaToIso } from '../../utils/formatFecha';
+import { useRegistroMasivoField } from '../../hooks/useRegistroMasivoFocusChain';
+
+const zonaBtnWebProps =
+  Platform.OS === 'web' ? ({ focusable: false, tabIndex: -1 } as object) : {};
 
 function normalizarIsoFecha(val: string): string {
   const s = val?.trim() ?? '';
@@ -25,17 +29,22 @@ export function FieldRowZonaFecha({
   valueIso,
   conf,
   onChangeIso,
+  onBlurIso,
   onZona,
   zonaActiva,
+  focusFieldId,
 }: {
   label: string;
   valueIso: string;
   conf?: string;
   onChangeIso: (iso: string) => void;
+  onBlurIso?: () => void;
   onZona: () => void;
   zonaActiva?: boolean;
+  focusFieldId?: string;
 }) {
   const iso = normalizarIsoFecha(valueIso);
+  const focus = useRegistroMasivoField(focusFieldId);
 
   return (
     <View style={styles.fieldRow}>
@@ -44,12 +53,22 @@ export function FieldRowZonaFecha({
         {conf && <View style={[styles.confDot, { backgroundColor: confColor(conf) }]} />}
       </View>
       <View style={styles.fieldInputWrap}>
-        <InputFecha valueIso={iso} onChangeIso={onChangeIso} style={styles.fieldInput} />
+        <InputFecha
+          showCalendar={false}
+          valueIso={iso}
+          onChangeIso={onChangeIso}
+          onBlur={onBlurIso}
+          style={styles.fieldInput}
+          inputRef={focus.ref}
+          onFocus={focus.onFocus}
+          onKeyDown={focus.onKeyDown as never}
+        />
       </View>
       <TouchableOpacity
         onPress={onZona}
         style={[styles.zonaBtn, zonaActiva && styles.zonaBtnActive]}
         activeOpacity={0.7}
+        {...zonaBtnWebProps}
       >
         <MaterialIcons name="crop-free" size={14} color={zonaActiva ? '#fff' : '#0ea5e9'} />
       </TouchableOpacity>

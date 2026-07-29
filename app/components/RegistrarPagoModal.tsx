@@ -52,6 +52,10 @@ type BaseProps = {
   submitting?: boolean;
   errorExterno?: string;
   onValidationError?: (titulo: string, mensaje: string) => void;
+  /** Sustituye el título por defecto («Registrar pago/cobro»). */
+  tituloPersonalizado?: string;
+  /** Sustituye el texto del botón principal. */
+  textoBotonPersonalizado?: string;
 };
 
 export type DatosPagoInfo = {
@@ -183,6 +187,8 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
     submitting = false,
     errorExterno,
     onValidationError,
+    tituloPersonalizado,
+    textoBotonPersonalizado,
     modo,
   } = props;
 
@@ -277,14 +283,16 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
   };
 
   const titulo =
-    modo === 'remesa'
+    tituloPersonalizado ??
+    (modo === 'remesa'
       ? 'Registrar pago de remesa'
-      : `Registrar ${variant === 'cobro' ? 'cobro' : 'pago'}`;
+      : `Registrar ${variant === 'cobro' ? 'cobro' : 'pago'}`);
 
   const textoBoton =
-    modo === 'remesa'
+    textoBotonPersonalizado ??
+    (modo === 'remesa'
       ? 'Confirmar pagos'
-      : `Guardar ${variant === 'cobro' ? 'cobro' : 'pago'}`;
+      : `Guardar ${variant === 'cobro' ? 'cobro' : 'pago'}`);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>

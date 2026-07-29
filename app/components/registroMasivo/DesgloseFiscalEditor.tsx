@@ -1,10 +1,13 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { formatMoneda, round2 } from '../../utils/facturacion';
 import { LINEA_VACIA, type LineaDesglose } from '../../types/registroMasivo';
 import { calcularTotalesDesdeDesglose, type DesgloseTotales } from '../../lib/registroMasivo';
 import { DesgloseNumInput } from './DesgloseNumInput';
+
+const btnFueraTabProps =
+  Platform.OS === 'web' ? ({ focusable: false, tabIndex: -1 } as object) : {};
 
 /**
  * Editor controlado del desglose fiscal de una factura: lista de líneas
@@ -73,7 +76,7 @@ export function DesgloseFiscalEditor({
     <View style={styles.desgloseBlock}>
       <View style={styles.desgloseHeader}>
         <Text style={styles.desgloseTitle}>Desglose fiscal</Text>
-        <TouchableOpacity onPress={addLinea} style={styles.desgloseAddBtn}>
+        <TouchableOpacity onPress={addLinea} style={styles.desgloseAddBtn} {...btnFueraTabProps}>
           <MaterialIcons name="add-circle-outline" size={15} color="#0369a1" />
           <Text style={styles.desgloseAddText}>Añadir línea</Text>
         </TouchableOpacity>
@@ -94,6 +97,7 @@ export function DesgloseFiscalEditor({
                   styles.desgloseTipoBadge,
                   esRet && { backgroundColor: '#fef2f2', borderColor: '#fca5a5' },
                 ]}
+                {...btnFueraTabProps}
               >
                 <Text style={[styles.desgloseTipoText, esRet && { color: '#dc2626' }]}>
                   {esRet ? 'Retención' : 'IVA'}
@@ -109,6 +113,7 @@ export function DesgloseFiscalEditor({
                     initial={L.base}
                     placeholder="0,00"
                     onCommit={(n) => updateLinea(i, 'base', n)}
+                    focusFieldId={`desglose_${i}_base`}
                   />
                 </View>
                 <View style={[styles.desgloseFieldGroup, { flex: 0.5 }]}>
@@ -117,6 +122,7 @@ export function DesgloseFiscalEditor({
                     initial={L.porcentaje ?? 0}
                     placeholder="0"
                     onCommit={(n) => updateLinea(i, 'porcentaje', n)}
+                    focusFieldId={`desglose_${i}_pct`}
                   />
                 </View>
                 <View style={styles.desgloseFieldGroup}>
@@ -127,7 +133,7 @@ export function DesgloseFiscalEditor({
                 </View>
               </View>
               {numLineas > 1 && (
-                <TouchableOpacity onPress={() => removeLinea(i)} style={styles.desgloseRemoveBtn}>
+                <TouchableOpacity onPress={() => removeLinea(i)} style={styles.desgloseRemoveBtn} {...btnFueraTabProps}>
                   <MaterialIcons name="delete-outline" size={16} color="#ef4444" />
                 </TouchableOpacity>
               )}

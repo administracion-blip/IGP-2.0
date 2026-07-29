@@ -24,8 +24,11 @@ import type {
   EmpresaCatalogo,
 } from '../../types/registroMasivo';
 import {
+  calcularDuplicadosDeLote,
   derivarPctDesdeImportes,
   esDesgloseMulti,
+  fingerprintCheckDuplicados,
+  identidadDuplicados,
   metodoExtraccionLabel,
   recalcImportesDesdePct,
 } from '../../lib/registroMasivo';
@@ -35,6 +38,11 @@ import { FieldRowZona } from '../../components/registroMasivo/FieldRowZona';
 import { FieldRowZonaFecha } from '../../components/registroMasivo/FieldRowZonaFecha';
 import { ProveedorDropdownField } from '../../components/registroMasivo/ProveedorDropdownField';
 import { CrearEmpresaModal } from '../../components/registroMasivo/CrearEmpresaModal';
+import {
+  ConfirmarDuplicadoModal,
+  DuplicadoFacturaBanner,
+  DuplicadoFacturaModal,
+} from '../../components/registroMasivo/DuplicadoFacturaModal';
 import { useCrearEmpresaModal } from '../../hooks/useCrearEmpresaModal';
 import { EmpresaGrupoSelector } from '../../components/registroMasivo/EmpresaGrupoSelector';
 import { useEmpresasGrupo } from '../../hooks/useEmpresasGrupo';
@@ -42,6 +50,12 @@ import { mergeReconciliacion } from '../../lib/registroMasivo';
 import { useZonaOCR } from '../../hooks/useZonaOCR';
 import { ZonaOCRPreview } from '../../components/registroMasivo/ZonaOCRPreview';
 import { DesgloseFiscalEditor } from '../../components/registroMasivo/DesgloseFiscalEditor';
+import {
+  RegistroMasivoAutoFocusEmpresa,
+  RegistroMasivoFocusProvider,
+  RegistroMasivoKeyboardShortcuts,
+  buildRegistroMasivoFocusOrder,
+} from '../../hooks/useRegistroMasivoFocusChain';
 import { CampoIdDocumentoFacturaRecibida } from '../../components/CampoIdDocumentoFacturaRecibida';
 import {
   RegistrarPagoModal,
@@ -52,6 +66,13 @@ import { hoyISO } from '../../utils/facturaFormLogic';
 import { mapTipoReciboToFormaPago } from '../../utils/facturacion';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
+
+/** Campos cuya edición puede cambiar el resultado de check-duplicados. */
+const CAMPOS_DISPARAN_DUP = new Set<string>([
+  'proveedor_cif',
+  'numero_factura_proveedor',
+  'fecha_emision',
+]);
 
 function aceptaArchivoFactura(f: File): boolean {
   const name = (f.name || '').toLowerCase();
@@ -64,7 +85,7 @@ function aceptaArchivoFactura(f: File): boolean {
 }
 
 /** Estilos CSS para la zona de drop en web (RN View no reenvía onDrop al DOM). */
-function uploadAreaWebStyle(active: boolean): React.CSSProperties {
+function uploadAreaWebStyle(active: boolean, deshabilitado = false): React.CSSProperties {
   return {
     flex: 1,
     display: 'flex',
@@ -73,13 +94,42 @@ function uploadAreaWebStyle(active: boolean): React.CSSProperties {
     justifyContent: 'center',
     padding: 40,
     margin: 16,
-    border: `2px dashed ${active ? '#0ea5e9' : '#e2e8f0'}`,
+    border: `2px dashed ${deshabilitado ? '#e2e8f0' : active ? '#0ea5e9' : '#e2e8f0'}`,
     borderRadius: 12,
-    backgroundColor: active ? '#f0f9ff' : '#fff',
+    backgroundColor: deshabilitado ? '#f8fafc' : active ? '#f0f9ff' : '#fff',
     gap: 8,
     minHeight: 220,
     boxSizing: 'border-box',
+    cursor: deshabilitado ? 'not-allowed' : 'default',
+    opacity: deshabilitado ? 0.92 : 1,
   };
+}
+
+type OcrPrewarmEstado = 'loading' | 'ready' | 'error';
+
+function OcrPrewarmIndicador({ estado }: { estado: OcrPrewarmEstado }) {
+  if (estado === 'loading') {
+    return (
+      <View style={styles.ocrChipLoading} accessibilityLabel="Preparando motor OCR">
+        <ActivityIndicator size="small" color="#0369a1" />
+        <Text style={styles.ocrChipLoadingText}>Preparando OCR…</Text>
+      </View>
+    );
+  }
+  if (estado === 'error') {
+    return (
+      <View style={styles.ocrChipWarn} accessibilityLabel="OCR no precalentado">
+        <MaterialIcons name="warning-amber" size={14} color="#b45309" />
+        <Text style={styles.ocrChipWarnText}>OCR sin precalentar</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.ocrChipReady} accessibilityLabel="OCR listo">
+      <MaterialIcons name="document-scanner" size={14} color="#059669" />
+      <Text style={styles.ocrChipReadyText}>OCR listo</Text>
+    </View>
+  );
 }
 
 function previewPaneWebStyle(active: boolean): React.CSSProperties {
@@ -108,6 +158,12 @@ export default function RegistroMasivoScreen() {
   const [borradores, setBorradores] = useState<Borrador[]>([]);
   const borradoresCountRef = useRef(0);
   borradoresCountRef.current = borradores.length;
+  const borradoresRef = useRef(borradores);
+  borradoresRef.current = borradores;
+  const ultimoDupCheckRef = useRef<Map<number, string>>(new Map());
+  const dupCheckTimerRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const dupCheckGenRef = useRef<Map<number, number>>(new Map());
+  const prevDupIdentityRef = useRef<Map<number, string>>(new Map());
   const [procesando, setProcesando] = useState(false);
   const [procesandoArchivo, setProcesandoArchivo] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -119,10 +175,147 @@ export default function RegistroMasivoScreen() {
   /** Si está activo y el API tiene OPENAI_API_KEY, se llama a /ocr/enriquecer-ia tras cada extracción. */
   const [usarEnriquecimientoIa, setUsarEnriquecimientoIa] = useState(true);
   const [modalPagoBorradorIdx, setModalPagoBorradorIdx] = useState<number | null>(null);
+  /** Incrementa al terminar OCR para auto-enfocar Empresa en el borrador nuevo. */
+  const [ocrFocusTick, setOcrFocusTick] = useState(0);
+  const [confirmDupModalOpen, setConfirmDupModalOpen] = useState(false);
+  const [confirmDupCantidad, setConfirmDupCantidad] = useState(0);
+  const confirmarDupAckRef = useRef(false);
+  /** Precarga Tesseract al montar; bloquea subida mientras carga (soft fail → permite subir con aviso). */
+  const [ocrPrewarm, setOcrPrewarm] = useState<OcrPrewarmEstado>(
+    Platform.OS === 'web' ? 'loading' : 'ready',
+  );
 
   const puedeRegistrarPago = hasPermiso('facturacion.cobrar_pagar');
 
   const selectedBorrador = selectedIdx !== null ? borradores.find((b) => b.idx === selectedIdx) : null;
+
+  /** Duplicados dentro del propio lote (el backend solo mira lo ya registrado). */
+  const duplicadosLotePorIdx = useMemo(() => calcularDuplicadosDeLote(borradores), [borradores]);
+
+  const tieneAlgunDuplicado = useCallback(
+    (b: Borrador) => b.duplicados.length > 0 || (duplicadosLotePorIdx.get(b.idx)?.length ?? 0) > 0,
+    [duplicadosLotePorIdx],
+  );
+
+  const checkDuplicadosPorIdx = useCallback(
+    async (idx: number, opts?: { force?: boolean }) => {
+      const b = borradoresRef.current.find((x) => x.idx === idx);
+      if (!b || b.descartado) return;
+
+      const fp = fingerprintCheckDuplicados(b);
+      if (!opts?.force && ultimoDupCheckRef.current.get(idx) === fp) return;
+
+      const gen = (dupCheckGenRef.current.get(idx) ?? 0) + 1;
+      dupCheckGenRef.current.set(idx, gen);
+
+      setBorradores((prev) =>
+        prev.map((x) => (x.idx === idx ? { ...x, checkingDup: true } : x)),
+      );
+
+      try {
+        const res = await apiFetch(`/api/facturacion/check-duplicados`, {
+          method: 'POST',
+          body: JSON.stringify({
+            proveedor_cif: b.proveedor_cif,
+            numero_factura_proveedor: b.numero_factura_proveedor,
+            fecha_emision: b.fecha_emision,
+          }),
+        });
+        const data = await res.json();
+        const duplicados = data.duplicados || [];
+
+        if (dupCheckGenRef.current.get(idx) !== gen) return;
+
+        const actual = borradoresRef.current.find((x) => x.idx === idx);
+        if (!actual || fingerprintCheckDuplicados(actual) !== fp) {
+          setBorradores((prev) =>
+            prev.map((x) => (x.idx === idx ? { ...x, checkingDup: false } : x)),
+          );
+          return;
+        }
+
+        ultimoDupCheckRef.current.set(idx, fp);
+
+        setBorradores((prev) =>
+          prev.map((x) => {
+            if (x.idx !== idx) return x;
+            const prevId = identidadDuplicados(x, duplicadosLotePorIdx.get(idx) ?? []);
+            const nextRow = { ...x, duplicados, checkingDup: false };
+            const nextId = identidadDuplicados(nextRow, duplicadosLotePorIdx.get(idx) ?? []);
+            const patch: Partial<Borrador> = { duplicados, checkingDup: false };
+            if (nextId !== '|' && nextId !== prevId) {
+              patch.duplicado_modal_visto = false;
+              patch.duplicado_ack_confirmacion = false;
+            }
+            return { ...x, ...patch };
+          }),
+        );
+      } catch {
+        if (dupCheckGenRef.current.get(idx) !== gen) return;
+        setBorradores((prev) =>
+          prev.map((x) => (x.idx === idx ? { ...x, checkingDup: false } : x)),
+        );
+      }
+    },
+    [duplicadosLotePorIdx],
+  );
+
+  const programarCheckDuplicados = useCallback(
+    (idx: number, delayMs = 450) => {
+      const prev = dupCheckTimerRef.current.get(idx);
+      if (prev) clearTimeout(prev);
+      dupCheckTimerRef.current.set(
+        idx,
+        setTimeout(() => {
+          dupCheckTimerRef.current.delete(idx);
+          void checkDuplicadosPorIdx(idx);
+        }, delayMs),
+      );
+    },
+    [checkDuplicadosPorIdx],
+  );
+
+  const checkDuplicadosInmediato = useCallback(
+    (idx: number) => {
+      const prev = dupCheckTimerRef.current.get(idx);
+      if (prev) clearTimeout(prev);
+      dupCheckTimerRef.current.delete(idx);
+      void checkDuplicadosPorIdx(idx, { force: true });
+    },
+    [checkDuplicadosPorIdx],
+  );
+
+  useEffect(() => {
+    return () => {
+      dupCheckTimerRef.current.forEach((t) => clearTimeout(t));
+    };
+  }, []);
+
+  /** Reabrir modal si cambia la identidad del duplicado (backend u otro archivo del lote). */
+  useEffect(() => {
+    for (const b of borradores) {
+      if (b.descartado) continue;
+      const lote = duplicadosLotePorIdx.get(b.idx) ?? [];
+      const id = identidadDuplicados(b, lote);
+      const prevId = prevDupIdentityRef.current.get(b.idx) ?? '';
+      if (id !== prevId && id !== '|' && b.duplicado_modal_visto) {
+        setBorradores((prevB) =>
+          prevB.map((x) =>
+            x.idx === b.idx
+              ? { ...x, duplicado_modal_visto: false, duplicado_ack_confirmacion: false }
+              : x,
+          ),
+        );
+      }
+      prevDupIdentityRef.current.set(b.idx, id);
+    }
+  }, [borradores, duplicadosLotePorIdx]);
+
+  const registroMasivoFocusOrder = useMemo(() => {
+    const lineas = selectedBorrador?.desglose_impuestos ?? [];
+    const count = lineas.length > 0 ? lineas.length : 1;
+    return buildRegistroMasivoFocusOrder(count);
+  }, [selectedBorrador?.desglose_impuestos]);
 
   const empGrupo = useEmpresasGrupo({
     empresasCatalogo,
@@ -145,6 +338,7 @@ export default function RegistroMasivoScreen() {
       setBorradores((prev) =>
         prev.map((row) => (row.idx === idx ? mergeReconciliacion(row, datos) : row)),
       );
+      programarCheckDuplicados(idx);
     },
     onError: (msg) => alertMsg('Reconciliación', msg),
   });
@@ -206,33 +400,38 @@ export default function RegistroMasivoScreen() {
   }, []);
 
   useEffect(() => {
-    apiFetch('/api/facturacion/ocr/prewarm', { method: 'POST', timeoutMs: 120_000 }).catch(() => {});
+    if (Platform.OS !== 'web') return;
+    let cancelled = false;
+    (async () => {
+      setOcrPrewarm('loading');
+      try {
+        const statusRes = await apiFetch('/api/facturacion/ocr/status', { timeoutMs: 15_000 });
+        if (cancelled) return;
+        if (statusRes.ok) {
+          const statusData = await statusRes.json();
+          if (statusData.ready) {
+            setOcrPrewarm('ready');
+            return;
+          }
+        }
+        const res = await apiFetch('/api/facturacion/ocr/prewarm', {
+          method: 'POST',
+          timeoutMs: 120_000,
+        });
+        if (cancelled) return;
+        if (res.ok) {
+          setOcrPrewarm('ready');
+        } else {
+          setOcrPrewarm('error');
+        }
+      } catch {
+        if (!cancelled) setOcrPrewarm('error');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
-
-  const checkDuplicados = async (borrador: Borrador) => {
-    setBorradores((prev) =>
-      prev.map((b) => b.idx === borrador.idx ? { ...b, checkingDup: true } : b)
-    );
-    try {
-      const res = await apiFetch(`/api/facturacion/check-duplicados`, {
-        method: 'POST',
-        body: JSON.stringify({
-          proveedor_cif: borrador.proveedor_cif,
-          numero_factura_proveedor: borrador.numero_factura_proveedor,
-          fecha_emision: borrador.fecha_emision,
-          total_factura: borrador.total_factura,
-        }),
-      });
-      const data = await res.json();
-      setBorradores((prev) =>
-        prev.map((b) => b.idx === borrador.idx ? { ...b, duplicados: data.duplicados || [], checkingDup: false } : b)
-      );
-    } catch {
-      setBorradores((prev) =>
-        prev.map((b) => b.idx === borrador.idx ? { ...b, checkingDup: false } : b)
-      );
-    }
-  };
 
   const procesarArchivosLista = useCallback(
     async (fileList: FileList | File[]) => {
@@ -337,6 +536,9 @@ export default function RegistroMasivoScreen() {
             descartado: false,
             duplicados: [],
             checkingDup: false,
+            duplicado_modal_visto: false,
+            duplicado_continuar: false,
+            duplicado_ack_confirmacion: false,
           });
         } catch (e: unknown) {
           alertMsg('Error', `${file.name}: ${errorMessage(e)}`);
@@ -347,20 +549,50 @@ export default function RegistroMasivoScreen() {
       if (nuevos.length > 0) {
         setStep('review');
         setSelectedIdx(nuevos[0].idx);
+        setOcrFocusTick((t) => t + 1);
       }
       setProcesando(false);
       setProcesandoArchivo('');
 
+      await Promise.resolve();
       for (const b of nuevos) {
-        checkDuplicados(b);
+        await checkDuplicadosPorIdx(b.idx, { force: true });
       }
     },
-    [alertMsg, usarEnriquecimientoIa],
+    [alertMsg, usarEnriquecimientoIa, checkDuplicadosPorIdx],
+  );
+
+  const intentarProcesarArchivos = useCallback(
+    (fileList: FileList | File[]) => {
+      if (ocrPrewarm === 'loading') {
+        alertMsg(
+          'Info',
+          'Espera a que termine la preparación del motor OCR (Tesseract) antes de soltar o seleccionar facturas.',
+        );
+        return;
+      }
+      if (ocrPrewarm === 'error') {
+        showToast(
+          'Aviso OCR',
+          'El motor OCR no se precalentó: la primera factura puede tardar 1–2 minutos.',
+          'warning',
+        );
+      }
+      void procesarArchivosLista(fileList);
+    },
+    [alertMsg, ocrPrewarm, procesarArchivosLista, showToast],
   );
 
   const subirArchivos = useCallback(() => {
     if (Platform.OS !== 'web') {
       alertMsg('Info', 'Solo disponible en versión web');
+      return;
+    }
+    if (ocrPrewarm === 'loading') {
+      alertMsg(
+        'Info',
+        'Espera a que termine la preparación del motor OCR (Tesseract) antes de seleccionar facturas.',
+      );
       return;
     }
     const input = document.createElement('input');
@@ -370,25 +602,26 @@ export default function RegistroMasivoScreen() {
     input.onchange = () => {
       const files = input.files;
       if (!files || files.length === 0) return;
-      void procesarArchivosLista(files);
+      intentarProcesarArchivos(files);
     };
     input.click();
-  }, [alertMsg, procesarArchivosLista]);
+  }, [alertMsg, intentarProcesarArchivos, ocrPrewarm]);
 
   /** Handlers nativos de drag & drop (solo web; View de RNW no los reenvía al DOM). */
   const fileDropHandlers = useMemo(() => {
     if (Platform.OS !== 'web') return {};
+    const ocrBloqueado = ocrPrewarm === 'loading';
     return {
       onDragEnter: (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
         e.stopPropagation();
-        setDragOverUpload(true);
+        if (!ocrBloqueado) setDragOverUpload(true);
       },
       onDragOver: (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
         e.stopPropagation();
-        e.dataTransfer.dropEffect = 'copy';
-        setDragOverUpload(true);
+        e.dataTransfer.dropEffect = ocrBloqueado || procesando ? 'none' : 'copy';
+        if (!ocrBloqueado) setDragOverUpload(true);
       },
       onDragLeave: (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
@@ -402,6 +635,13 @@ export default function RegistroMasivoScreen() {
         e.preventDefault();
         e.stopPropagation();
         setDragOverUpload(false);
+        if (ocrBloqueado) {
+          alertMsg(
+            'Info',
+            'Espera a que termine la preparación del motor OCR (Tesseract) antes de soltar facturas.',
+          );
+          return;
+        }
         if (procesando) {
           alertMsg(
             'Info',
@@ -410,10 +650,10 @@ export default function RegistroMasivoScreen() {
           return;
         }
         const files = e.dataTransfer?.files;
-        if (files && files.length > 0) void procesarArchivosLista(files);
+        if (files && files.length > 0) intentarProcesarArchivos(files);
       },
     };
-  }, [alertMsg, procesando, procesarArchivosLista]);
+  }, [alertMsg, intentarProcesarArchivos, ocrPrewarm, procesando]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -457,6 +697,9 @@ export default function RegistroMasivoScreen() {
         return next;
       }),
     );
+    if (CAMPOS_DISPARAN_DUP.has(field)) {
+      programarCheckDuplicados(idx);
+    }
   };
 
   const lookupCifEnMaestro = useCallback(
@@ -512,6 +755,9 @@ export default function RegistroMasivoScreen() {
         usuarioEditaCampo(selectedBorrador.idx, field as keyof CamposManuales, value);
       } else {
         patchBorrador(selectedBorrador.idx, { [field]: value } as Partial<Borrador>);
+        if (CAMPOS_DISPARAN_DUP.has(field)) {
+          programarCheckDuplicados(selectedBorrador.idx);
+        }
       }
       if (field === 'proveedor_cif' && typeof value === 'string') {
         setTimeout(() => lookupCifEnMaestro(selectedBorrador.idx, value), 100);
@@ -527,7 +773,35 @@ export default function RegistroMasivoScreen() {
       alertMsg('Info', 'No hay borradores activos para confirmar');
       return;
     }
-    const sinSociedad = activos.find((b) => !String(b.sociedad_grupo_id || '').trim());
+
+    for (const b of activos) {
+      const timer = dupCheckTimerRef.current.get(b.idx);
+      if (timer) {
+        clearTimeout(timer);
+        dupCheckTimerRef.current.delete(b.idx);
+      }
+      const fp = fingerprintCheckDuplicados(b);
+      const hadTimerPendiente = Boolean(timer);
+      if (hadTimerPendiente || ultimoDupCheckRef.current.get(b.idx) !== fp || b.checkingDup) {
+        await checkDuplicadosPorIdx(b.idx, { force: true });
+      }
+    }
+    if (borradoresRef.current.some((b) => !b.descartado && b.checkingDup)) {
+      alertMsg('Info', 'Comprobando duplicados, espera un momento…');
+      return;
+    }
+
+    const activosActualizados = borradoresRef.current.filter((b) => !b.descartado);
+    if (!confirmarDupAckRef.current) {
+      const conDup = activosActualizados.filter(tieneAlgunDuplicado);
+      if (conDup.length > 0) {
+        setConfirmDupCantidad(conDup.length);
+        setConfirmDupModalOpen(true);
+        return;
+      }
+    }
+    confirmarDupAckRef.current = false;
+    const sinSociedad = activosActualizados.find((b) => !String(b.sociedad_grupo_id || '').trim());
     if (sinSociedad) {
       alertMsg(
         'Falta empresa',
@@ -535,7 +809,7 @@ export default function RegistroMasivoScreen() {
       );
       return;
     }
-    const pagoSinDatos = activos.find((b) => b.pago_al_confirmar && !b.pago_datos);
+    const pagoSinDatos = activosActualizados.find((b) => b.pago_al_confirmar && !b.pago_datos);
     if (pagoSinDatos) {
       alertMsg(
         'Falta pago',
@@ -543,7 +817,7 @@ export default function RegistroMasivoScreen() {
       );
       return;
     }
-    const conPago = activos.filter((b) => b.pago_al_confirmar && b.pago_datos);
+    const conPago = activosActualizados.filter((b) => b.pago_al_confirmar && b.pago_datos);
     if (conPago.length > 0 && !puedeRegistrarPago) {
       alertMsg('Sin permiso', 'No tienes permiso para registrar pagos al confirmar.');
       return;
@@ -553,7 +827,7 @@ export default function RegistroMasivoScreen() {
       const res = await apiFetch(`/api/facturacion/ocr/confirmar`, {
         method: 'POST',
         body: JSON.stringify({
-          borradores: activos.map((b) => ({
+          borradores: activosActualizados.map((b) => ({
             ...b,
             serie: '',
             forma_pago: b.pago_datos?.metodo_pago || '',
@@ -580,8 +854,8 @@ export default function RegistroMasivoScreen() {
       let pagadasOk = 0;
       let pagadasFallidas = 0;
 
-      for (let i = 0; i < activos.length; i += 1) {
-        const b = activos[i];
+      for (let i = 0; i < activosActualizados.length; i += 1) {
+        const b = activosActualizados[i];
         const idFactura = ids[i];
         if (!b.pago_al_confirmar || !b.pago_datos || !idFactura) continue;
 
@@ -619,7 +893,7 @@ export default function RegistroMasivoScreen() {
         }
       }
 
-      const pendientesRevision = activos.length - conPago.length;
+      const pendientesRevision = activosActualizados.length - conPago.length;
       if (conPago.length === 0) {
         alertMsg('Creados', `${data.creados} factura(s) importada(s). Revísalas y pulsa «Validar revisión» en Facturas recibidas.`);
       } else if (pagadasFallidas === 0) {
@@ -722,6 +996,65 @@ export default function RegistroMasivoScreen() {
     if (cur < borradores.length - 1) setSelectedIdx(borradores[cur + 1].idx);
   };
 
+  const abrirFacturaExistente = useCallback(
+    (idFactura: string) => {
+      const href = `/facturacion/factura-detalle?id=${encodeURIComponent(idFactura)}&modo=editar&tipo=IN`;
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.open(href, '_blank', 'noopener,noreferrer');
+      } else {
+        router.push(href as never);
+      }
+    },
+    [router],
+  );
+
+  /** Tras descartar, salta al siguiente borrador activo (o al anterior si era el último). */
+  const irASiguienteBorradorActivo = useCallback(
+    (idxDescartado: number) => {
+      const cur = borradores.findIndex((b) => b.idx === idxDescartado);
+      if (cur < 0) return;
+      const activo = (b: Borrador) => !b.descartado && b.idx !== idxDescartado;
+      const siguiente =
+        borradores.slice(cur + 1).find(activo) ?? borradores.slice(0, cur).reverse().find(activo);
+      if (siguiente) setSelectedIdx(siguiente.idx);
+    },
+    [borradores],
+  );
+
+  const descartarBorradorDuplicado = useCallback(
+    (idx: number) => {
+      patchBorrador(idx, { descartado: true, duplicado_modal_visto: true });
+      irASiguienteBorradorActivo(idx);
+    },
+    [irASiguienteBorradorActivo],
+  );
+
+  const seguirEditandoDuplicado = useCallback((idx: number) => {
+    patchBorrador(idx, { duplicado_modal_visto: true, duplicado_continuar: true });
+  }, []);
+
+  const duplicadosLoteSeleccionado = selectedBorrador
+    ? duplicadosLotePorIdx.get(selectedBorrador.idx) ?? []
+    : [];
+
+  /**
+   * El modal es estado derivado del borrador visible: al descartar saltamos al
+   * siguiente y, si ese también está duplicado, su aviso aparece solo.
+   */
+  const mostrarModalDuplicado =
+    step === 'review'
+    && selectedBorrador != null
+    && !selectedBorrador.descartado
+    && !selectedBorrador.duplicado_modal_visto
+    && tieneAlgunDuplicado(selectedBorrador)
+    && !confirmDupModalOpen
+    && modalPagoBorradorIdx == null
+    && !crearEmpresaModal.visible;
+
+  const dupPendientesRevision = borradores.filter(
+    (b) => !b.descartado && !b.duplicado_modal_visto && tieneAlgunDuplicado(b),
+  ).length;
+
   if (!hasPermiso('facturacion.crear')) {
     return (
       <View style={styles.center}>
@@ -731,6 +1064,8 @@ export default function RegistroMasivoScreen() {
   }
 
   const currentPos = selectedIdx !== null ? borradores.findIndex((b) => b.idx === selectedIdx) + 1 : 0;
+  const ocrCargando = ocrPrewarm === 'loading';
+  const subidaDeshabilitada = procesando || ocrCargando;
 
   return (
     <View style={styles.container}>
@@ -756,19 +1091,31 @@ export default function RegistroMasivoScreen() {
           </View>
         </View>
         <View style={styles.headerActions}>
+          {Platform.OS === 'web' ? <OcrPrewarmIndicador estado={ocrPrewarm} /> : null}
           {step === 'review' && (
             <View style={styles.navBtns}>
               <TouchableOpacity onPress={navPrev} disabled={currentPos <= 1} style={styles.navArrow}>
                 <MaterialIcons name="chevron-left" size={20} color={currentPos <= 1 ? '#cbd5e1' : '#334155'} />
               </TouchableOpacity>
-              <Text style={styles.navLabel}>{currentPos} / {borradores.length}</Text>
+              <Text style={styles.navLabel}>
+                {currentPos} / {borradores.length}
+                {dupPendientesRevision > 0 ? (
+                  <Text style={styles.navDupHint}> · {dupPendientesRevision} dup.</Text>
+                ) : null}
+              </Text>
               <TouchableOpacity onPress={navNext} disabled={currentPos >= borradores.length} style={styles.navArrow}>
                 <MaterialIcons name="chevron-right" size={20} color={currentPos >= borradores.length ? '#cbd5e1' : '#334155'} />
               </TouchableOpacity>
             </View>
           )}
-          <TouchableOpacity style={styles.addMoreBtn} onPress={subirArchivos} disabled={procesando}>
-            {procesando ? <ActivityIndicator size="small" color="#0ea5e9" /> : (
+          <TouchableOpacity
+            style={[styles.addMoreBtn, subidaDeshabilitada && styles.addMoreBtnDisabled]}
+            onPress={subirArchivos}
+            disabled={subidaDeshabilitada}
+          >
+            {subidaDeshabilitada ? (
+              <ActivityIndicator size="small" color="#0ea5e9" />
+            ) : (
               <>
                 <MaterialIcons name="cloud-upload" size={16} color="#0ea5e9" />
                 <Text style={styles.addMoreText}>{step === 'upload' ? 'Seleccionar archivos' : 'Añadir más'}</Text>
@@ -792,31 +1139,45 @@ export default function RegistroMasivoScreen() {
 
       {step === 'upload' && (
         Platform.OS === 'web' ? (
-          <div {...fileDropHandlers} style={uploadAreaWebStyle(dragOverUpload)}>
+          <div {...fileDropHandlers} style={uploadAreaWebStyle(dragOverUpload && !ocrCargando, ocrCargando)}>
             {procesando ? (
               <ActivityIndicator size="large" color="#0ea5e9" />
+            ) : ocrCargando ? (
+              <ActivityIndicator size="large" color="#0369a1" />
             ) : (
-              <MaterialIcons name="cloud-upload" size={48} color={dragOverUpload ? '#0ea5e9' : '#94a3b8'} />
+              <MaterialIcons
+                name={ocrPrewarm === 'ready' ? 'document-scanner' : 'cloud-upload'}
+                size={48}
+                color={dragOverUpload ? '#0ea5e9' : ocrPrewarm === 'error' ? '#b45309' : '#94a3b8'}
+              />
             )}
             <Text style={styles.uploadTitle}>
               {procesando
                 ? procesandoArchivo
                   ? `Procesando ${procesandoArchivo}…`
                   : 'Procesando archivos…'
-                : dragOverUpload
-                  ? 'Suelta aquí para procesar'
-                  : 'Arrastra archivos o pulsa el botón superior'}
+                : ocrCargando
+                  ? 'Preparando motor OCR (Tesseract)…'
+                  : dragOverUpload
+                    ? 'Suelta aquí para procesar'
+                    : 'Arrastra archivos o pulsa el botón superior'}
             </Text>
             <Text style={styles.uploadHint}>
               {procesando
                 ? 'La primera factura puede tardar 1–2 min (OCR). No cierres ni vuelvas a subir hasta que termine.'
-                : 'PDF, JPG, PNG — máximo 20 MB por archivo'}
+                : ocrCargando
+                  ? 'Espera a «OCR listo» en la barra superior antes de soltar facturas.'
+                  : ocrPrewarm === 'error'
+                    ? 'OCR sin precalentar: la primera factura puede tardar más. PDF, JPG, PNG — máx. 20 MB.'
+                    : 'PDF, JPG, PNG — máximo 20 MB por archivo'}
             </Text>
           </div>
         ) : (
-          <View style={[styles.uploadArea, dragOverUpload && styles.uploadAreaActive]}>
+          <View style={[styles.uploadArea, dragOverUpload && styles.uploadAreaActive, ocrCargando && styles.uploadAreaDisabled]}>
             {procesando ? (
               <ActivityIndicator size="large" color="#0ea5e9" />
+            ) : ocrCargando ? (
+              <ActivityIndicator size="large" color="#0369a1" />
             ) : (
               <MaterialIcons name="cloud-upload" size={48} color={dragOverUpload ? '#0ea5e9' : '#94a3b8'} />
             )}
@@ -825,12 +1186,16 @@ export default function RegistroMasivoScreen() {
                 ? procesandoArchivo
                   ? `Procesando ${procesandoArchivo}…`
                   : 'Procesando archivos…'
-                : 'Arrastra archivos o pulsa el botón superior'}
+                : ocrCargando
+                  ? 'Preparando motor OCR…'
+                  : 'Arrastra archivos o pulsa el botón superior'}
             </Text>
             <Text style={styles.uploadHint}>
               {procesando
                 ? 'La primera factura puede tardar 1–2 min (OCR).'
-                : 'PDF, JPG, PNG — máximo 20 MB por archivo'}
+                : ocrCargando
+                  ? 'Espera a que el OCR esté listo.'
+                  : 'PDF, JPG, PNG — máximo 20 MB por archivo'}
             </Text>
           </View>
         )
@@ -854,6 +1219,18 @@ export default function RegistroMasivoScreen() {
                   color={selectedBorrador.archivo.tipo.includes('pdf') ? '#dc2626' : '#0ea5e9'}
                 />
                 <Text style={styles.fileInfoName} numberOfLines={1}>{selectedBorrador.archivo.nombre}</Text>
+                {selectedBorrador.checkingDup ? (
+                  <View style={styles.dupCheckingChip}>
+                    <ActivityIndicator size="small" color="#64748b" />
+                    <Text style={styles.dupCheckingText}>Comprobando…</Text>
+                  </View>
+                ) : null}
+                {tieneAlgunDuplicado(selectedBorrador) && !selectedBorrador.descartado ? (
+                  <View style={styles.dupChip}>
+                    <MaterialIcons name="content-copy" size={12} color="#b91c1c" />
+                    <Text style={styles.dupChipText}>Duplicado</Text>
+                  </View>
+                ) : null}
                 {selectedBorrador.descartado ? (
                   <TouchableOpacity style={styles.restoreBtn} onPress={() => patchBorrador(selectedBorrador.idx, { descartado: false })}>
                     <MaterialIcons name="undo" size={14} color="#059669" />
@@ -936,6 +1313,40 @@ export default function RegistroMasivoScreen() {
                 </View>
               ) : null}
 
+              <DuplicadoFacturaBanner
+                borrador={selectedBorrador}
+                duplicadosLote={duplicadosLoteSeleccionado}
+                onDescartar={() => descartarBorradorDuplicado(selectedBorrador.idx)}
+                onVerFactura={abrirFacturaExistente}
+              />
+
+              <RegistroMasivoFocusProvider fieldOrder={registroMasivoFocusOrder}>
+                <RegistroMasivoKeyboardShortcuts
+                  enabled={
+                    modalPagoBorradorIdx == null
+                    && !crearEmpresaModal.visible
+                    && !mostrarModalDuplicado
+                    && !confirmDupModalOpen
+                  }
+                  zonaActiva={!!zona.activa}
+                  onCancelZona={zona.cancelar}
+                  onActivarZona={(field) => zona.activar(field)}
+                  onNavPrev={navPrev}
+                  onNavNext={navNext}
+                />
+
+                <RegistroMasivoAutoFocusEmpresa
+                  tick={ocrFocusTick}
+                  enabled={!selectedBorrador.sociedad_grupo_id}
+                  onAbrirDropdown={() => empGrupo.setShowDropdown(true)}
+                />
+
+                {Platform.OS === 'web' ? (
+                  <Text style={styles.keyboardHint}>
+                    Tab/↑↓ en listas · Enter confirmar · Escape cerrar · F2 recorte · Alt+←/→ factura
+                  </Text>
+                ) : null}
+
               <EmpresaGrupoSelector
                 empGrupo={empGrupo}
                 borrador={selectedBorrador}
@@ -950,15 +1361,6 @@ export default function RegistroMasivoScreen() {
                   )
                 }
               />
-
-              {selectedBorrador.duplicados.length > 0 && (
-                <View style={styles.dupWarn}>
-                  <MaterialIcons name="warning" size={14} color="#dc2626" />
-                  <Text style={styles.dupWarnText}>
-                    Posible(s) duplicado(s): {selectedBorrador.duplicados.map((d) => d.empresa_nombre || d.id_factura).join(', ')}
-                  </Text>
-                </View>
-              )}
 
               {!!selectedBorrador.reconciliacion_warning?.trim() && (
                 <View style={styles.reconWarn}>
@@ -1021,7 +1423,7 @@ export default function RegistroMasivoScreen() {
               )}
 
               <View style={styles.formGrid}>
-                <FieldRowZona label="CIF Proveedor" value={selectedBorrador.proveedor_cif} conf={selectedBorrador.confianza.proveedor_cif} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'proveedor_cif', v)} onBlur={() => lookupCifEnMaestro(selectedBorrador.idx)} onZona={() => zona.activar('proveedor_cif')} zonaActiva={zona.activa?.field === 'proveedor_cif'} />
+                <FieldRowZona label="CIF Proveedor" value={selectedBorrador.proveedor_cif} conf={selectedBorrador.confianza.proveedor_cif} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'proveedor_cif', v)} onBlur={() => { lookupCifEnMaestro(selectedBorrador.idx); checkDuplicadosInmediato(selectedBorrador.idx); }} onZona={() => zona.activar('proveedor_cif')} zonaActiva={zona.activa?.field === 'proveedor_cif'} focusFieldId="proveedor_cif" />
                 <ProveedorDropdownField
                   borrador={selectedBorrador}
                   empresas={empresasCatalogo}
@@ -1042,19 +1444,22 @@ export default function RegistroMasivoScreen() {
                           : b,
                       ),
                     );
+                    programarCheckDuplicados(selectedBorrador.idx);
                   }}
                   onManualChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'proveedor_nombre', v)}
                   onZona={() => zona.activar('proveedor_nombre')}
                   zonaActiva={zona.activa?.field === 'proveedor_nombre'}
                 />
-                <FieldRowZona label="Nº Factura" value={selectedBorrador.numero_factura_proveedor} conf={selectedBorrador.confianza.numero_factura} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'numero_factura_proveedor', v)} onZona={() => zona.activar('numero_factura_proveedor')} zonaActiva={zona.activa?.field === 'numero_factura_proveedor'} />
+                <FieldRowZona label="Nº Factura" value={selectedBorrador.numero_factura_proveedor} conf={selectedBorrador.confianza.numero_factura} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'numero_factura_proveedor', v)} onBlur={() => checkDuplicadosInmediato(selectedBorrador.idx)} onZona={() => zona.activar('numero_factura_proveedor')} zonaActiva={zona.activa?.field === 'numero_factura_proveedor'} focusFieldId="numero_factura" />
                 <FieldRowZonaFecha
                   label="Fecha emisión"
                   valueIso={selectedBorrador.fecha_emision}
                   conf={selectedBorrador.confianza.fecha}
                   onChangeIso={(v) => usuarioEditaCampo(selectedBorrador.idx, 'fecha_emision', v)}
+                  onBlurIso={() => checkDuplicadosInmediato(selectedBorrador.idx)}
                   onZona={() => zona.activar('fecha_emision')}
                   zonaActiva={zona.activa?.field === 'fecha_emision'}
+                  focusFieldId="fecha_emision"
                 />
                 <CampoIdDocumentoFacturaRecibida
                   empresaNombre={selectedBorrador.sociedad_grupo_nombre}
@@ -1084,8 +1489,10 @@ export default function RegistroMasivoScreen() {
                   </View>
                   <Text style={styles.totalFacturaReadonly}>{formatMoneda(selectedBorrador.total_factura || 0)}</Text>
                 </View>
-                <FieldRow label="Observaciones" value={selectedBorrador.observaciones} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'observaciones', v)} placeholder="Notas adicionales…" />
+                <FieldRow label="Observaciones" value={selectedBorrador.observaciones} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'observaciones', v)} placeholder="Notas adicionales…" focusFieldId="observaciones" multiline />
               </View>
+
+              </RegistroMasivoFocusProvider>
 
               {puedeRegistrarPago ? (
                 <View style={styles.pagoIntegradoBlock}>
@@ -1181,7 +1588,38 @@ export default function RegistroMasivoScreen() {
         </View>
       )}
 
-      <CrearEmpresaModal modal={crearEmpresaModal} />
+      <CrearEmpresaModal modal={crearEmpresaModal} empresasMaestro={empresasCatalogo} />
+
+      <DuplicadoFacturaModal
+        visible={mostrarModalDuplicado}
+        borrador={selectedBorrador ?? null}
+        duplicadosLote={duplicadosLoteSeleccionado}
+        onDescartar={() => {
+          if (selectedBorrador) descartarBorradorDuplicado(selectedBorrador.idx);
+        }}
+        onSeguirEditando={() => {
+          if (selectedBorrador) seguirEditandoDuplicado(selectedBorrador.idx);
+        }}
+        onVerFactura={abrirFacturaExistente}
+      />
+
+      <ConfirmarDuplicadoModal
+        visible={confirmDupModalOpen}
+        cantidad={confirmDupCantidad}
+        onCancelar={() => setConfirmDupModalOpen(false)}
+        onConfirmar={() => {
+          setBorradores((prev) =>
+            prev.map((b) =>
+              !b.descartado && tieneAlgunDuplicado(b)
+                ? { ...b, duplicado_ack_confirmacion: true }
+                : b,
+            ),
+          );
+          setConfirmDupModalOpen(false);
+          confirmarDupAckRef.current = true;
+          void confirmar();
+        }}
+      />
 
       <RegistrarPagoModal
         visible={modalPagoBorradorIdx != null && borradorParaModalPago != null}
@@ -1293,6 +1731,7 @@ const styles = StyleSheet.create({
   navBtns: { flexDirection: 'row', alignItems: 'center', gap: 2, marginRight: 4 },
   navArrow: { padding: 2 },
   navLabel: { fontSize: 11, fontWeight: '600', color: '#64748b', minWidth: 40, textAlign: 'center' },
+  navDupHint: { fontSize: 10, fontWeight: '700', color: '#b91c1c' },
 
   addMoreBtn: {
     flexDirection: 'row',
@@ -1305,7 +1744,44 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: '#f0f9ff',
   },
+  addMoreBtnDisabled: { opacity: 0.65, borderColor: '#cbd5e1', backgroundColor: '#f8fafc' },
   addMoreText: { fontSize: 11, color: '#0ea5e9', fontWeight: '500' },
+  ocrChipLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: '#f0f9ff',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
+  ocrChipLoadingText: { fontSize: 11, fontWeight: '600', color: '#0369a1' },
+  ocrChipReady: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  ocrChipReadyText: { fontSize: 11, fontWeight: '600', color: '#059669' },
+  ocrChipWarn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  ocrChipWarnText: { fontSize: 11, fontWeight: '600', color: '#b45309' },
   confirmBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1364,6 +1840,11 @@ const styles = StyleSheet.create({
     borderColor: '#0ea5e9',
     backgroundColor: '#f0f9ff',
   },
+  uploadAreaDisabled: {
+    opacity: 0.65,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#f8fafc',
+  },
   uploadTitle: { fontSize: 14, fontWeight: '500', color: '#334155' },
   uploadHint: { fontSize: 12, color: '#94a3b8' },
 
@@ -1407,6 +1888,30 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   fileInfoName: { flex: 1, fontSize: 12, fontWeight: '600', color: '#334155' },
+  dupChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  dupChipText: { fontSize: 10, fontWeight: '700', color: '#b91c1c' },
+  dupCheckingChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  dupCheckingText: { fontSize: 10, fontWeight: '500', color: '#64748b' },
   discardBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca' },
   restoreBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0' },
 
@@ -1464,6 +1969,13 @@ const styles = StyleSheet.create({
   maestroNoPerm: { fontSize: 10, color: '#9a3412', fontStyle: 'italic' as const, marginTop: 2 },
 
   legendRow: { paddingVertical: 2 },
+  keyboardHint: {
+    fontSize: 10,
+    color: '#64748b',
+    marginBottom: 8,
+    lineHeight: 14,
+    fontStyle: 'italic',
+  },
   legendText: { fontSize: 10, color: '#64748b', flexWrap: 'wrap' as const },
   metodoHint: { fontSize: 10, color: '#0ea5e9', fontWeight: '500' as const },
 

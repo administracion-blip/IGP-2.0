@@ -184,8 +184,23 @@ export type Borrador = {
     total_calculado_desde_desglose?: number;
   };
   descartado: boolean;
-  duplicados: { id_factura: string; numero_factura: string; empresa_nombre: string; total_factura: number }[];
+  /** Coincidencias con facturas ya registradas (backend). */
+  duplicados: {
+    id_factura: string;
+    numero_factura: string;
+    numero_factura_proveedor?: string;
+    empresa_nombre: string;
+    empresa_cif?: string;
+    total_factura: number;
+    fecha_emision?: string;
+  }[];
   checkingDup: boolean;
+  /** Usuario vio el modal de duplicado (descartar o seguir editando). */
+  duplicado_modal_visto?: boolean;
+  /** Usuario eligió seguir editando pese al duplicado. */
+  duplicado_continuar?: boolean;
+  /** Usuario confirmó importar pese al aviso en Confirmar lote. */
+  duplicado_ack_confirmacion?: boolean;
   /** Registrar pago al confirmar (factura ya cobrada en el momento del gasto). */
   pago_al_confirmar?: boolean;
   /** Datos del pago capturados con RegistrarPagoModal. */
@@ -196,6 +211,16 @@ export type Borrador = {
     referencia: string;
     observaciones: string;
   };
+};
+
+/**
+ * Otro borrador del mismo lote que parece ser la misma factura.
+ * Se calcula en cliente: el backend solo compara contra lo ya registrado.
+ */
+export type DuplicadoLote = {
+  idx: number;
+  archivo: string;
+  numero_factura_proveedor: string;
 };
 
 /**

@@ -17,7 +17,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { InputFecha } from '../../components/InputFecha';
-import { DatosParaPago } from '../../components/RegistrarPagoModal';
+import { DatosParaPago, RegistrarPagoModal, type RegistrarPagoPayloadFactura } from '../../components/RegistrarPagoModal';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { SelectorDesplegableMulti } from '../../components/SelectorDesplegableMulti';
 import {
@@ -34,14 +34,17 @@ import {
   formatFecha,
   fechaEmisionFacturaAIso,
   textoFechaContabilizacionGasto,
+  formatFechaPagoRow,
 } from '../../utils/formatFecha';
 import { hoyISO } from '../../utils/facturaFormLogic';
 import {
   facturaProveedorCoincideEtiquetas,
   filtrarFacturasPorColaPago,
+  getProveedorEtiquetasFromEmpresasList,
   getTipoReciboFromEmpresasList,
   listEtiquetasUnicasEmpresas,
   listProveedoresNoTransferenciaRemesa,
+  resolverFormaPagoEfectiva,
   type EmpresaConTipoRecibo,
   type FiltroColaPago,
 } from '../../utils/empresaTipoRecibo';
@@ -49,6 +52,13 @@ import { useLocalToast } from '../../components/Toast';
 import { useConfirmar } from '../../hooks/useConfirmar';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
+import {
+  actualizarPagoFactura,
+  eliminarPagoFactura,
+  fetchPagosFactura,
+  pagoRecordToInitial,
+  type PagoDetalleRow,
+} from '../../lib/pagosFacturaDetalle';
 import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
 import { apiFetch } from '../../utils/api';
 import { ESTADOS_FACTURA_REMESABLES, esFacturaSeleccionableEnListado } from '../../lib/remesas';
@@ -57,6 +67,10 @@ import { textoTrimestreFactura, trimestreDesdeFechaEmision } from '../../lib/idD
 import { buildEmpresasDesdeFacturasHref } from '../../lib/navegacionEmpresas';
 import { buildConceptoRemesaFacturaRecibida } from '../../lib/conceptoRemesa';
 import { resolverIbanBeneficiarioFactura } from '../../lib/resolverIbanFactura';
+import {
+  idsFacturasProveedorDuplicadas,
+  resumenDuplicadosProveedor,
+} from '../../lib/registroMasivo';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const PAGE_SIZE = 50;
@@ -164,11 +178,13 @@ const COLUMNAS = [
   'empresa_nombre',
   'empresa_cif',
   'numero_factura_proveedor',
+  'total_factura',
+  'forma_pago',
+  'proveedor_etiquetas',
   'base_imponible',
   'iva_tipo',
   'total_iva',
   'total_retencion',
-  'total_factura',
   'estado',
   'pagado',
   'saldo_pendiente',
@@ -183,6 +199,8 @@ const COL_LABELS: Record<string, string> = {
   emisor_nombre: 'Empresa',
   empresa_nombre: 'Proveedor',
   empresa_cif: 'CIF',
+  forma_pago: 'Forma de pago',
+  proveedor_etiquetas: 'Etiquetas',
   numero_factura_proveedor: 'Nº Factura Prov.',
   base_imponible: 'Base Imp.',
   iva_tipo: '% IVA',
@@ -202,6 +220,8 @@ const DEFAULT_WIDTHS: Record<string, number> = {
   emisor_nombre: 150,
   empresa_nombre: 140,
   empresa_cif: 92,
+  forma_pago: 108,
+  proveedor_etiquetas: 120,
   numero_factura_proveedor: 118,
   base_imponible: 88,
   iva_tipo: 48,
@@ -291,8 +311,14 @@ export default function FacturasGastoScreen() {
   const [modalDetallePagosVisible, setModalDetallePagosVisible] = useState(false);
   const [detallePagosLoading, setDetallePagosLoading] = useState(false);
   const [detallePagosError, setDetallePagosError] = useState<string | null>(null);
-  const [detallePagosLista, setDetallePagosLista] = useState<Record<string, unknown>[]>([]);
+  const [detallePagosLista, setDetallePagosLista] = useState<PagoDetalleRow[]>([]);
   const [detallePagosFactura, setDetallePagosFactura] = useState<FacturaListado | null>(null);
+  const [procesandoPagoDetalleId, setProcesandoPagoDetalleId] = useState<string | null>(null);
+  const [pagoDetalleEditando, setPagoDetalleEditando] = useState<PagoDetalleRow | null>(null);
+  const [modalEditarPagoDetalle, setModalEditarPagoDetalle] = useState(false);
+  const [guardandoPagoDetalle, setGuardandoPagoDetalle] = useState(false);
+
+  const puedeGestionarPagos = hasPermiso('facturacion.cobrar_pagar');
 
   const [modoSeleccion, setModoSeleccion] = useState(false);
   const [selectedMultiIds, setSelectedMultiIds] = useState<Set<string>>(new Set());
@@ -467,14 +493,26 @@ export default function FacturasGastoScreen() {
     }
     if (busqueda.trim()) {
       const q = busqueda.toLowerCase();
-      list = list.filter((f) =>
-        f.emisor_nombre?.toLowerCase().includes(q) ||
-        f.emisor_cif?.toLowerCase().includes(q) ||
-        f.empresa_nombre?.toLowerCase().includes(q) ||
-        f.empresa_cif?.toLowerCase().includes(q) ||
-        f.numero_factura_proveedor?.toLowerCase().includes(q) ||
-        f.id_factura?.toLowerCase().includes(q)
-      );
+      list = list.filter((f) => {
+        const formaPagoTxt = labelFormaPago(resolverFormaPagoEfectiva(f, empresasCatalogo)).toLowerCase();
+        const etiquetasTxt = getProveedorEtiquetasFromEmpresasList(
+          empresasCatalogo,
+          f.empresa_id,
+          f.empresa_cif,
+        )
+          .join(', ')
+          .toLowerCase();
+        return (
+          f.emisor_nombre?.toLowerCase().includes(q) ||
+          f.emisor_cif?.toLowerCase().includes(q) ||
+          f.empresa_nombre?.toLowerCase().includes(q) ||
+          f.empresa_cif?.toLowerCase().includes(q) ||
+          f.numero_factura_proveedor?.toLowerCase().includes(q) ||
+          f.id_factura?.toLowerCase().includes(q) ||
+          formaPagoTxt.includes(q) ||
+          etiquetasTxt.includes(q)
+        );
+      });
     }
     return list;
   }, [facturas, anioFiltro, empresasFiltroIds, etiquetasProveedorFiltro, empresasCatalogo, fechaDesde, fechaHasta, busqueda]);
@@ -527,6 +565,18 @@ export default function FacturasGastoScreen() {
           const cmp = na - nb;
           return sortDir === 'desc' ? -cmp : cmp;
         }
+        if (sortCol === 'forma_pago') {
+          const fa = labelFormaPago(resolverFormaPagoEfectiva(a, empresasCatalogo));
+          const fb = labelFormaPago(resolverFormaPagoEfectiva(b, empresasCatalogo));
+          const cmp = fa.localeCompare(fb, 'es', { sensitivity: 'base' });
+          return sortDir === 'desc' ? -cmp : cmp;
+        }
+        if (sortCol === 'proveedor_etiquetas') {
+          const fa = getProveedorEtiquetasFromEmpresasList(empresasCatalogo, a.empresa_id, a.empresa_cif).join(', ');
+          const fb = getProveedorEtiquetasFromEmpresasList(empresasCatalogo, b.empresa_id, b.empresa_cif).join(', ');
+          const cmp = fa.localeCompare(fb, 'es', { sensitivity: 'base' });
+          return sortDir === 'desc' ? -cmp : cmp;
+        }
         const va = (a as Record<string, unknown>)[sortCol] ?? '';
         const vb = (b as Record<string, unknown>)[sortCol] ?? '';
         const numA = typeof va === 'number' ? va : parseFloat(String(va));
@@ -543,6 +593,20 @@ export default function FacturasGastoScreen() {
   const totalPages = Math.max(1, Math.ceil(filtradas.length / PAGE_SIZE));
   const pageClamped = Math.min(Math.max(0, pageIndex), totalPages - 1);
   const paginadas = filtradas.slice(pageClamped * PAGE_SIZE, (pageClamped + 1) * PAGE_SIZE);
+
+  /** Duplicados CIF + nº factura proveedor + año (todo el listado cargado). */
+  const idsDuplicadosProveedor = useMemo(
+    () => idsFacturasProveedorDuplicadas(facturas),
+    [facturas],
+  );
+  const resumenDupGlobal = useMemo(
+    () => resumenDuplicadosProveedor(facturas),
+    [facturas],
+  );
+  const dupVisiblesEnFiltro = useMemo(
+    () => filtradas.filter((f) => idsDuplicadosProveedor.has(f.id_factura)).length,
+    [filtradas, idsDuplicadosProveedor],
+  );
 
   useEffect(() => {
     setPageIndex(0);
@@ -589,6 +653,13 @@ export default function FacturasGastoScreen() {
     if (col === 'iva_tipo') return formatoTipoIvaPct(f);
     if (col === 'total_retencion') return formatMoneda(Number(f.total_retencion ?? 0));
     if (col === 'pagado') return formatMoneda(Number(f.total_cobrado ?? 0));
+    if (col === 'forma_pago') {
+      return labelFormaPago(resolverFormaPagoEfectiva(f, empresasCatalogo));
+    }
+    if (col === 'proveedor_etiquetas') {
+      const tags = getProveedorEtiquetasFromEmpresasList(empresasCatalogo, f.empresa_id, f.empresa_cif);
+      return tags.length ? tags.join(', ') : '—';
+    }
     const val = (f as Record<string, unknown>)[col];
     if (val == null) return '';
     if (MONEDA_COLS.has(col)) return formatMoneda(Number(val));
@@ -600,28 +671,111 @@ export default function FacturasGastoScreen() {
     return String(val);
   };
 
+  const recargarDetallePagos = useCallback(async (idFactura: string) => {
+    setDetallePagosLoading(true);
+    setDetallePagosError(null);
+    try {
+      const pagos = await fetchPagosFactura(idFactura);
+      setDetallePagosLista(pagos);
+    } catch (err) {
+      setDetallePagosError(err instanceof Error ? err.message : 'Error de conexión');
+    } finally {
+      setDetallePagosLoading(false);
+    }
+  }, []);
+
   const abrirModalDetallePagos = useCallback((factura: FacturaListado) => {
     setDetallePagosFactura(factura);
     setModalDetallePagosVisible(true);
-    setDetallePagosLoading(true);
     setDetallePagosError(null);
     setDetallePagosLista([]);
-    apiFetch(`/api/facturacion/facturas/${factura.id_factura}/pagos`)
-      .then(async (r) => {
-        const data = await r.json();
-        if (!r.ok) throw new Error(data.error || 'Error al cargar pagos');
-        setDetallePagosLista(Array.isArray(data.pagos) ? data.pagos : []);
-      })
-      .catch((err) => setDetallePagosError(err instanceof Error ? err.message : 'Error de conexión'))
-      .finally(() => setDetallePagosLoading(false));
-  }, []);
+    void recargarDetallePagos(factura.id_factura);
+  }, [recargarDetallePagos]);
 
   const cerrarModalDetallePagos = useCallback(() => {
     setModalDetallePagosVisible(false);
     setDetallePagosFactura(null);
     setDetallePagosError(null);
     setDetallePagosLista([]);
+    setPagoDetalleEditando(null);
+    setModalEditarPagoDetalle(false);
+    setProcesandoPagoDetalleId(null);
   }, []);
+
+  const sincronizarFacturaTrasPago = useCallback((facturaActualizada: FacturaListado | null) => {
+    fetchFacturas();
+    if (facturaActualizada && detallePagosFactura?.id_factura === facturaActualizada.id_factura) {
+      setDetallePagosFactura((prev) => (prev ? { ...prev, ...facturaActualizada } : prev));
+    }
+  }, [detallePagosFactura?.id_factura, fetchFacturas]);
+
+  const handleEditarPagoDetalle = useCallback((pago: PagoDetalleRow) => {
+    setPagoDetalleEditando(pago);
+    setModalEditarPagoDetalle(true);
+  }, []);
+
+  const handleBorrarPagoDetalle = useCallback(async (pago: PagoDetalleRow) => {
+    if (!detallePagosFactura?.id_factura || !pago.id_pago) return;
+    const importeTxt = formatMoneda(Number(pago.importe ?? 0));
+    const ok = await confirmar(
+      'Eliminar pago',
+      `¿Eliminar el pago de ${importeTxt} del ${formatFechaPagoRow(String(pago.fecha ?? ''))}?`,
+    );
+    if (!ok) return;
+    setProcesandoPagoDetalleId(String(pago.id_pago));
+    try {
+      const factura = await eliminarPagoFactura(
+        detallePagosFactura.id_factura,
+        String(pago.id_pago),
+        { id: user?.id_usuario, nombre: user?.Nombre },
+      );
+      showToast('Eliminado', 'Pago eliminado correctamente', 'success');
+      sincronizarFacturaTrasPago(factura);
+      await recargarDetallePagos(detallePagosFactura.id_factura);
+    } catch (e: unknown) {
+      showToast('Error', e instanceof Error ? e.message : 'No se pudo eliminar el pago', 'error');
+    } finally {
+      setProcesandoPagoDetalleId(null);
+    }
+  }, [
+    detallePagosFactura?.id_factura,
+    confirmar,
+    user?.id_usuario,
+    user?.Nombre,
+    showToast,
+    sincronizarFacturaTrasPago,
+    recargarDetallePagos,
+  ]);
+
+  const guardarEdicionPagoDetalle = useCallback(async (payload: RegistrarPagoPayloadFactura) => {
+    if (!detallePagosFactura?.id_factura || !pagoDetalleEditando?.id_pago) return;
+    setGuardandoPagoDetalle(true);
+    try {
+      const { factura } = await actualizarPagoFactura(
+        detallePagosFactura.id_factura,
+        String(pagoDetalleEditando.id_pago),
+        payload,
+        { id: user?.id_usuario, nombre: user?.Nombre },
+      );
+      showToast('Guardado', 'Pago actualizado correctamente', 'success');
+      setModalEditarPagoDetalle(false);
+      setPagoDetalleEditando(null);
+      sincronizarFacturaTrasPago(factura);
+      await recargarDetallePagos(detallePagosFactura.id_factura);
+    } catch (e: unknown) {
+      showToast('Error', e instanceof Error ? e.message : 'No se pudo actualizar el pago', 'error');
+    } finally {
+      setGuardandoPagoDetalle(false);
+    }
+  }, [
+    detallePagosFactura?.id_factura,
+    pagoDetalleEditando?.id_pago,
+    user?.id_usuario,
+    user?.Nombre,
+    showToast,
+    sincronizarFacturaTrasPago,
+    recargarDetallePagos,
+  ]);
 
   const abrirModalPagar = () => {
     if (!selectedFactura) return;
@@ -1228,7 +1382,7 @@ export default function FacturasGastoScreen() {
               style={styles.toolbarBtn}
               onPress={async () => {
                 const { exportarFacturasGastoExcel } = await import('../../utils/exportFacturasExcel');
-                exportarFacturasGastoExcel(filtradas);
+                exportarFacturasGastoExcel(filtradas, undefined, empresasCatalogo);
               }}
               accessibilityLabel="Exportar Excel"
             >
@@ -1319,6 +1473,19 @@ export default function FacturasGastoScreen() {
       {/* Tabla + panel detalle */}
       <View style={[styles.tableSplitWrap, layoutSplit ? styles.tableSplitRow : styles.tableSplitCol]}>
         <View style={styles.tableOuter}>
+          {resumenDupGlobal.grupos > 0 ? (
+            <View style={styles.dupBannerTabla} accessibilityRole="summary">
+              <MaterialIcons name="content-copy" size={16} color="#c2410c" />
+              <Text style={styles.dupBannerTablaText}>
+                {resumenDupGlobal.grupos} grupo{resumenDupGlobal.grupos !== 1 ? 's' : ''} ·{' '}
+                {resumenDupGlobal.facturas} factura{resumenDupGlobal.facturas !== 1 ? 's' : ''} con mismo CIF, nº
+                proveedor y año
+                {dupVisiblesEnFiltro < resumenDupGlobal.facturas
+                  ? ` · ${dupVisiblesEnFiltro} visible${dupVisiblesEnFiltro !== 1 ? 's' : ''} con filtros actuales`
+                  : ''}
+              </Text>
+            </View>
+          ) : null}
           <View style={styles.tableWrapper}>
         <ScrollView
           horizontal
@@ -1370,13 +1537,17 @@ export default function FacturasGastoScreen() {
               ) : (
                 paginadas.map((f) => {
                   const seleccionable = esFacturaSeleccionableEnListado(f.estado);
+                  const esDupProveedor = idsDuplicadosProveedor.has(f.id_factura);
+                  const filaSeleccionada =
+                    (selectedId === f.id_factura && !modoSeleccion) ||
+                    (modoSeleccion && selectedMultiIds.has(f.id_factura));
                   return (
                   <Pressable
                     key={f.id_factura}
                     style={[
                       styles.row,
-                      selectedId === f.id_factura && !modoSeleccion && styles.rowSelected,
-                      modoSeleccion && selectedMultiIds.has(f.id_factura) && styles.rowSelected,
+                      esDupProveedor && styles.rowDuplicado,
+                      filaSeleccionada && (esDupProveedor ? styles.rowDuplicadoSelected : styles.rowSelected),
                     ]}
                     onPress={() => {
                       if (modoSeleccion) {
@@ -1743,10 +1914,32 @@ export default function FacturasGastoScreen() {
               emptyText="No hay pagos registrados"
               pagos={detallePagosLista}
               totalLabel="Total pagado"
+              puedeGestionar={puedeGestionarPagos}
+              procesandoPagoId={procesandoPagoDetalleId}
+              onEditar={puedeGestionarPagos ? handleEditarPagoDetalle : undefined}
+              onBorrar={puedeGestionarPagos ? handleBorrarPagoDetalle : undefined}
             />
           </Pressable>
         </Pressable>
       </Modal>
+
+      <RegistrarPagoModal
+        visible={modalEditarPagoDetalle}
+        onClose={() => {
+          if (!guardandoPagoDetalle) {
+            setModalEditarPagoDetalle(false);
+            setPagoDetalleEditando(null);
+          }
+        }}
+        modo="factura"
+        variant="pago"
+        initial={pagoDetalleEditando ? pagoRecordToInitial(pagoDetalleEditando) : undefined}
+        submitting={guardandoPagoDetalle}
+        tituloPersonalizado="Editar pago"
+        textoBotonPersonalizado="Guardar cambios"
+        onValidationError={(titulo, mensaje) => showToast(titulo, mensaje, 'warning')}
+        onSubmit={guardarEdicionPagoDetalle}
+      />
 
       {ToastView}
       {ConfirmarView}
@@ -2060,6 +2253,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   rowSelected: { backgroundColor: '#e0f2fe' },
+  rowDuplicado: {
+    backgroundColor: '#fff7ed',
+    borderLeftWidth: 3,
+    borderLeftColor: '#ea580c',
+  },
+  rowDuplicadoSelected: { backgroundColor: '#ffedd5' },
+  dupBannerTabla: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#fff7ed',
+    borderBottomWidth: 1,
+    borderBottomColor: '#fed7aa',
+  },
+  dupBannerTablaText: { flex: 1, fontSize: 12, color: '#9a3412', fontWeight: '600', lineHeight: 16 },
   actionHeaderCell: { width: 40, flexShrink: 0 },
   actionCell: { width: 40, flexShrink: 0, alignItems: 'center', justifyContent: 'center', paddingVertical: 2 },
   actionBtn: {

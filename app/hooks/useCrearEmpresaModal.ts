@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { errorMessage } from '../utils/api';
 import { crearEmpresaConIdLibre, type EmpresaMaestro } from '../lib/empresaId';
 import type { Borrador } from '../types/registroMasivo';
+import type { DocumentoPreviewArchivo } from '../components/PreviewDocumentoArchivo';
 
 /**
  * Hook que encapsula el modal "Crear empresa desde OCR" del registro masivo.
@@ -56,13 +57,11 @@ export const ATRIBUTOS_TABLA_EMPRESAS = [
 export type CampoEmpresa = (typeof ATRIBUTOS_TABLA_EMPRESAS)[number];
 
 /**
- * Formulario del modal. Todos los campos son texto; `Etiqueta` se edita como
- * lista separada por comas y se convierte a array al enviar (igual que hace
- * la edición rápida de `app/(app)/empresas.tsx`).
+ * Formulario del modal. Campos de texto salvo `etiquetas`, gestionadas aparte.
  */
-export type FormEmpresa = Record<CampoEmpresa, string>;
+export type FormEmpresa = Omit<Record<CampoEmpresa, string>, 'Etiqueta'>;
 
-const FORM_VACIO: FormEmpresa = ATRIBUTOS_TABLA_EMPRESAS.reduce(
+const FORM_VACIO: FormEmpresa = ATRIBUTOS_TABLA_EMPRESAS.filter((k) => k !== 'Etiqueta').reduce(
   (acc, key) => ({ ...acc, [key]: '' }),
   {} as FormEmpresa,
 );
@@ -105,12 +104,16 @@ export type UseCrearEmpresaModalReturn = {
   /** CIF del borrador para el que se está creando la empresa (solo lectura). */
   cif: string;
   form: FormEmpresa;
-  setCampo: (key: CampoEmpresa, value: string) => void;
+  etiquetas: string[];
+  setEtiquetas: (tags: string[]) => void;
+  setCampo: (key: Exclude<CampoEmpresa, 'Etiqueta'>, value: string) => void;
   guardando: boolean;
   /** Error del último intento de guardado, para pintarlo dentro del modal. */
   error: string | null;
   /** True si la dirección se prellenó desde la entidad candidata del OCR. */
   direccionDesdeOcr: boolean;
+  /** Documento OCR del borrador para previsualizar mientras se da de alta la empresa. */
+  documentoPreview: DocumentoPreviewArchivo | null;
   abrir: (b: Borrador, proximoId: string) => void;
   cerrar: () => void;
   guardar: () => Promise<void>;
@@ -126,9 +129,11 @@ export function useCrearEmpresaModal(opts: {
 }): UseCrearEmpresaModalReturn {
   const [idx, setIdx] = useState<number | null>(null);
   const [form, setForm] = useState<FormEmpresa>(FORM_VACIO);
+  const [etiquetas, setEtiquetas] = useState<string[]>([]);
   const [guardando, setGuardando] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [direccionDesdeOcr, setDireccionDesdeOcr] = useState<boolean>(false);
+  const [documentoPreview, setDocumentoPreview] = useState<DocumentoPreviewArchivo | null>(null);
 
   const fallar = useCallback(
     (msg: string) => {
@@ -147,7 +152,17 @@ export function useCrearEmpresaModal(opts: {
     const direccion = partirDireccion(candidata?.direccion_candidata || '');
     setIdx(b.idx);
     setError(null);
+    setEtiquetas([]);
     setDireccionDesdeOcr(Boolean(direccion.Direccion));
+    setDocumentoPreview(
+      b.archivo?.previewUrl
+        ? {
+            nombre: b.archivo.nombre,
+            tipo: b.archivo.tipo,
+            previewUrl: b.archivo.previewUrl,
+          }
+        : null,
+    );
     setForm({
       ...FORM_VACIO,
       id_empresa: proximoId,
@@ -160,12 +175,14 @@ export function useCrearEmpresaModal(opts: {
   const cerrar = useCallback(() => {
     setIdx(null);
     setForm(FORM_VACIO);
+    setEtiquetas([]);
     setGuardando(false);
     setError(null);
     setDireccionDesdeOcr(false);
+    setDocumentoPreview(null);
   }, []);
 
-  const setCampo = useCallback((key: CampoEmpresa, value: string) => {
+  const setCampo = useCallback((key: Exclude<CampoEmpresa, 'Etiqueta'>, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   }, []);
 
@@ -186,7 +203,7 @@ export function useCrearEmpresaModal(opts: {
       const body: Record<string, string | string[]> = {};
       for (const key of ATRIBUTOS_TABLA_EMPRESAS) {
         if (key === 'Etiqueta') {
-          body[key] = form.Etiqueta.split(',').map((s) => s.trim()).filter(Boolean);
+          body[key] = etiquetas.map((s) => s.trim()).filter(Boolean);
         } else if (key === 'Nombre') {
           body[key] = nombreLimpio;
         } else {
@@ -200,22 +217,27 @@ export function useCrearEmpresaModal(opts: {
       opts.onSuccess?.(`${nombreLimpio} vinculada al CIF ${form.Cif}`);
       setIdx(null);
       setForm(FORM_VACIO);
+      setEtiquetas([]);
       setDireccionDesdeOcr(false);
+      setDocumentoPreview(null);
     } catch (e: unknown) {
       fallar(errorMessage(e, 'Error al crear empresa'));
     } finally {
       setGuardando(false);
     }
-  }, [idx, form, opts, fallar]);
+  }, [idx, form, etiquetas, opts, fallar]);
 
   return {
     visible: idx !== null,
     cif: form.Cif,
     form,
+    etiquetas,
+    setEtiquetas,
     setCampo,
     guardando,
     error,
     direccionDesdeOcr,
+    documentoPreview,
     abrir,
     cerrar,
     guardar,

@@ -27,6 +27,7 @@ import {
   parseContextoRetornoEmpresas,
 } from '../lib/navegacionEmpresas';
 import { CampoTipoReciboEmpresa } from '../components/CampoTipoReciboEmpresa';
+import { CampoEtiquetasEmpresa } from '../components/CampoEtiquetasEmpresa';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -117,7 +118,6 @@ export default function EmpresasScreen() {
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
-  const [etiquetaDraft, setEtiquetaDraft] = useState('');
   const [cifChecking, setCifChecking] = useState(false);
   const [cifExists, setCifExists] = useState(false);
   const [cifCheckError, setCifCheckError] = useState<string | null>(null);
@@ -139,7 +139,6 @@ export default function EmpresasScreen() {
   const abrirModalNuevo = () => {
     setEditingEmpresaId(null);
     setFormNuevo(INITIAL_FORM);
-    setEtiquetaDraft('');
     setCifExists(false);
     setCifCheckError(null);
     setModalNuevoVisible(true);
@@ -169,7 +168,6 @@ export default function EmpresasScreen() {
       }
     }
     setFormNuevo(form);
-    setEtiquetaDraft('');
     const idVal = valorEnLocal(empresa, 'id_empresa');
     setEditingEmpresaId(idVal != null ? String(idVal) : null);
     setCifExists(false);
@@ -180,29 +178,11 @@ export default function EmpresasScreen() {
   const cerrarModalNuevo = () => {
     setModalNuevoVisible(false);
     setFormNuevo(INITIAL_FORM);
-    setEtiquetaDraft('');
     setEditingEmpresaId(null);
     setCifExists(false);
     setCifCheckError(null);
     setErrorForm(null);
   };
-
-  const agregarEtiqueta = useCallback(() => {
-    const t = etiquetaDraft.trim();
-    if (!t) return;
-    setFormNuevo((prev) => ({
-      ...prev,
-      Etiqueta: [...(Array.isArray(prev.Etiqueta) ? prev.Etiqueta : []), t],
-    }));
-    setEtiquetaDraft('');
-  }, [etiquetaDraft]);
-
-  const quitarEtiqueta = useCallback((idx: number) => {
-    setFormNuevo((prev) => {
-      const list = Array.isArray(prev.Etiqueta) ? prev.Etiqueta : [];
-      return { ...prev, Etiqueta: list.filter((_, i) => i !== idx) };
-    });
-  }, []);
 
   const handleCifChange = useCallback(
     (value: string) => {
@@ -1125,44 +1105,12 @@ export default function EmpresasScreen() {
                       campo.key === 'Etiqueta' ? (
                         <View key={campo.key} style={styles.formGroup}>
                           <Text style={styles.formLabel}>{campo.label}{campo.required ? ' *' : ''}</Text>
-                          <View style={styles.etiquetasWrap}>
-                            {(Array.isArray(formNuevo.Etiqueta) ? formNuevo.Etiqueta : []).map((tag, idx) => (
-                              <View key={idx} style={styles.etiquetaChip}>
-                                <Text style={styles.etiquetaChipText} numberOfLines={1}>
-                                  {tag}
-                                </Text>
-                                <TouchableOpacity
-                                  onPress={() => quitarEtiqueta(idx)}
-                                  style={styles.etiquetaChipRemove}
-                                  hitSlop={6}
-                                  accessibilityLabel="Quitar etiqueta"
-                                >
-                                  <MaterialIcons name="close" size={14} color="#64748b" />
-                                </TouchableOpacity>
-                              </View>
-                            ))}
-                            <TextInput
-                              style={styles.etiquetaInput}
-                              value={etiquetaDraft}
-                              onChangeText={(t) => {
-                                if (t.includes(',')) {
-                                  const parts = t.split(',').map((s) => s.trim()).filter(Boolean);
-                                  if (parts.length) {
-                                    setFormNuevo((prev) => ({
-                                      ...prev,
-                                      Etiqueta: [...(Array.isArray(prev.Etiqueta) ? prev.Etiqueta : []), ...parts],
-                                    }));
-                                    setEtiquetaDraft('');
-                                  }
-                                } else setEtiquetaDraft(t);
-                              }}
-                              onSubmitEditing={agregarEtiqueta}
-                              onBlur={agregarEtiqueta}
-                              placeholder="Añadir etiqueta (Enter o coma)"
-                              placeholderTextColor="#94a3b8"
-                              autoCapitalize="none"
-                            />
-                          </View>
+                          <CampoEtiquetasEmpresa
+                            value={Array.isArray(formNuevo.Etiqueta) ? formNuevo.Etiqueta : []}
+                            onChange={(tags) => setFormNuevo((prev) => ({ ...prev, Etiqueta: tags }))}
+                            empresas={empresas}
+                            inputStyle={styles.formInput}
+                          />
                         </View>
                       ) : campo.key === 'Tipo de recibo' ? (
                         <View key={campo.key} style={styles.formGroup}>

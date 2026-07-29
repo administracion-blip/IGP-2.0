@@ -7,23 +7,26 @@
  * el valor anterior.
  * En pantallas usar InputFecha (incluye calendario opcional).
  */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { forwardRef, useState, useEffect, useRef } from 'react';
 import { TextInput, type TextInputProps } from 'react-native';
-import { isoValidoDesdeDmy, isoADisplay } from '../utils/fechaInput';
+import { formatearEntradaDmy, isoValidoDesdeDmy, isoADisplay } from '../utils/fechaInput';
 
 export type FechaInputDmyProps = Omit<TextInputProps, 'value' | 'onChangeText'> & {
   valueIso: string;
   onChangeIso: (iso: string) => void;
 };
 
-export function FechaInputDmy({
-  valueIso,
-  onChangeIso,
-  placeholder = 'dd/mm/aaaa',
-  onBlur,
-  onFocus,
-  ...rest
-}: FechaInputDmyProps) {
+export const FechaInputDmy = forwardRef<TextInput, FechaInputDmyProps>(function FechaInputDmy(
+  {
+    valueIso,
+    onChangeIso,
+    placeholder = 'dd/mm/aaaa',
+    onBlur,
+    onFocus,
+    ...rest
+  },
+  ref,
+) {
   const [text, setText] = useState('');
   const focusedRef = useRef(false);
   const textRef = useRef('');
@@ -37,18 +40,19 @@ export function FechaInputDmy({
 
   return (
     <TextInput
+      ref={ref}
       {...rest}
       value={text}
       placeholder={placeholder}
       placeholderTextColor={rest.placeholderTextColor ?? '#94a3b8'}
       onChangeText={(t) => {
-        textRef.current = t;
-        setText(t);
-        const s = t.trim();
-        if (s === '') {
+        const formatted = formatearEntradaDmy(t);
+        textRef.current = formatted;
+        setText(formatted);
+        if (formatted === '') {
           onChangeIso('');
         } else {
-          const iso = isoValidoDesdeDmy(s);
+          const iso = isoValidoDesdeDmy(formatted);
           if (iso) onChangeIso(iso);
         }
       }}
@@ -58,7 +62,8 @@ export function FechaInputDmy({
       }}
       onBlur={(e) => {
         focusedRef.current = false;
-        const s = textRef.current.trim();
+        const s = formatearEntradaDmy(textRef.current.trim());
+        textRef.current = s;
         if (s === '') {
           onChangeIso('');
           setText('');
@@ -80,4 +85,4 @@ export function FechaInputDmy({
       }}
     />
   );
-}
+});

@@ -54,6 +54,7 @@ import {
   buildImpuestosResumenFromLineas,
 } from '../lib/facturacion/construirFactura.js';
 import { nombreFicheroAdjuntoFacturaRecibida } from '../lib/facturacion/idDocumento.js';
+import { esDuplicadoFacturaProveedor } from '../lib/facturacion/duplicadosProveedor.js';
 import { limpiarMarcasFacturacionPeriodica } from '../lib/facturacion/marcasPeriodicas.js';
 import { requirePermission } from '../middleware/auth.js';
 import crypto from 'crypto';
@@ -986,6 +987,87 @@ router.post('/facturacion/facturas/:id/pagos', maybeUploadReciboPago, async (req
   }
 });
 
+router.put('/facturacion/pagos/:id_factura/:id_pago', async (req, res) => {
+  const { id_factura, id_pago } = req.params;
+  const b = req.body || {};
+  const fechaRaw = b.fecha;
+  const importe = b.importe;
+  const metodo_pago = b.metodo_pago;
+  const referencia = b.referencia;
+  const observaciones = b.observaciones;
+  const usuario_id = b.usuario_id;
+  const usuario_nombre = b.usuario_nombre;
+
+  const fechaIso = fechaToIsoGuardada(fechaRaw);
+  if (!fechaIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
+    return res.status(400).json({ error: 'La fecha es obligatoria (AAAA-MM-DD o dd/mm/aaaa)' });
+  }
+
+  const importeNum = round2(Number(importe));
+  if (!importe || Number.isNaN(importeNum) || importeNum <= 0) {
+    return res.status(400).json({ error: 'Importe debe ser mayor que 0' });
+  }
+
+  try {
+    const pagoResult = await docClient.send(
+      new GetCommand({ TableName: tables.facturasPagos, Key: { id_factura, id_pago } }),
+    );
+    if (!pagoResult.Item) return res.status(404).json({ error: 'Pago no encontrado' });
+
+    const facResult = await docClient.send(
+      new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura) }),
+    );
+    if (!facResult.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    const factura = facResult.Item;
+
+    const importeAnterior = round2(Number(pagoResult.Item.importe) || 0);
+    const delta = round2(importeNum - importeAnterior);
+    const nuevoTotalCobrado = round2(Math.max(0, (factura.total_cobrado || 0) + delta));
+    const nuevoSaldo = round2(factura.total_factura - nuevoTotalCobrado);
+
+    let nuevoEstado = factura.estado;
+    if (nuevoSaldo <= 0 && factura.estado !== 'anulada') {
+      nuevoEstado = factura.tipo === 'OUT' ? 'cobrada' : 'pagada';
+    } else if (nuevoTotalCobrado <= 0 && factura.estado !== 'anulada') {
+      nuevoEstado = factura.tipo === 'OUT' ? 'emitida' : 'pendiente_pago';
+    } else if (nuevoTotalCobrado > 0 && nuevoSaldo > 0) {
+      nuevoEstado = factura.tipo === 'OUT' ? 'parcialmente_cobrada' : 'parcialmente_pagada';
+    }
+
+    const pagoActualizado = {
+      ...pagoResult.Item,
+      fecha: fechaIso,
+      importe: importeNum,
+      metodo_pago: metodo_pago || '',
+      referencia: referencia || '',
+      observaciones: observaciones || '',
+      modificado_por: usuario_id || '',
+      modificado_en: now(),
+    };
+
+    await docClient.send(new PutCommand({ TableName: tables.facturasPagos, Item: pagoActualizado }));
+
+    factura.total_cobrado = nuevoTotalCobrado;
+    factura.saldo_pendiente = Math.max(0, nuevoSaldo);
+    factura.estado = nuevoEstado;
+    factura.modificado_por = usuario_id || '';
+    factura.modificado_en = now();
+
+    await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
+    await registrarAuditoria(id_factura, 'editar_pago', usuario_id, usuario_nombre, {
+      id_pago,
+      importe_anterior: importeAnterior,
+      importe_nuevo: importeNum,
+      metodo_pago,
+      nuevo_estado: nuevoEstado,
+    });
+
+    res.json({ ok: true, pago: pagoActualizado, factura });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.delete('/facturacion/pagos/:id_factura/:id_pago', async (req, res) => {
   const { id_factura, id_pago } = req.params;
   const { usuario_id, usuario_nombre } = req.body || {};
@@ -1018,6 +1100,8 @@ router.delete('/facturacion/pagos/:id_factura/:id_pago', async (req, res) => {
 
       await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
       await registrarAuditoria(id_factura, 'eliminar_pago', usuario_id, usuario_nombre, { id_pago, importe: pagoResult.Item.importe });
+      res.json({ ok: true, factura });
+      return;
     }
 
     res.json({ ok: true });
@@ -1571,12 +1655,16 @@ router.get('/facturacion/facturas/:id/adjuntos/:adjId/descargar', async (req, re
 
 // ─── OCR / REGISTRO MASIVO ───
 
+router.get('/facturacion/ocr/status', (_req, res) => {
+  res.json({ ready: isTesseractWorkerReady() });
+});
+
 router.post('/facturacion/ocr/prewarm', async (_req, res) => {
   try {
     await prewarmTesseractWorker();
-    res.json({ ok: true });
+    res.json({ ok: true, ready: isTesseractWorkerReady() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message, ready: false });
   }
 });
 
@@ -1813,16 +1901,31 @@ router.get('/facturacion/ocr/preview-png', async (req, res) => {
  * con una cola simple y, si el worker falla, se descarta para recrearlo.
  */
 let tesseractWorkerPromise = null;
+let tesseractWorkerReady = false;
 let tesseractQueue = Promise.resolve();
+
+/** True cuando el worker Tesseract terminó de cargar (spa+eng). */
+export function isTesseractWorkerReady() {
+  return tesseractWorkerReady;
+}
 
 /** Precarga el worker Tesseract en segundo plano (evita timeout en la 1ª factura escaneada). */
 export function prewarmTesseractWorker() {
+  if (tesseractWorkerReady && tesseractWorkerPromise) {
+    return tesseractWorkerPromise;
+  }
   if (tesseractWorkerPromise) return tesseractWorkerPromise;
-  tesseractWorkerPromise = Tesseract.createWorker('spa+eng').catch((e) => {
-    tesseractWorkerPromise = null;
-    console.warn('[OCR] Precarga Tesseract falló:', e.message);
-    throw e;
-  });
+  tesseractWorkerPromise = Tesseract.createWorker('spa+eng')
+    .then((worker) => {
+      tesseractWorkerReady = true;
+      return worker;
+    })
+    .catch((e) => {
+      tesseractWorkerPromise = null;
+      tesseractWorkerReady = false;
+      console.warn('[OCR] Precarga Tesseract falló:', e.message);
+      throw e;
+    });
   return tesseractWorkerPromise;
 }
 
@@ -1830,7 +1933,10 @@ async function ocrWithTesseract(imageBuffer) {
   const run = async () => {
     try {
       if (!tesseractWorkerPromise) {
-        tesseractWorkerPromise = Tesseract.createWorker('spa+eng');
+        tesseractWorkerPromise = Tesseract.createWorker('spa+eng').then((worker) => {
+          tesseractWorkerReady = true;
+          return worker;
+        });
       }
       const worker = await tesseractWorkerPromise;
       const { data } = await worker.recognize(imageBuffer);
@@ -1838,6 +1944,7 @@ async function ocrWithTesseract(imageBuffer) {
     } catch (e) {
       const pendiente = tesseractWorkerPromise;
       tesseractWorkerPromise = null;
+      tesseractWorkerReady = false;
       try {
         const w = await pendiente;
         await w?.terminate();
@@ -2592,24 +2699,23 @@ router.post('/facturacion/enviar-recordatorios', async (req, res) => {
 // ─── DETECCIÓN DUPLICADOS ───
 
 router.post('/facturacion/check-duplicados', async (req, res) => {
-  const { proveedor_cif, numero_factura_proveedor, fecha_emision, total_factura } = req.body || {};
+  const { proveedor_cif, numero_factura_proveedor, fecha_emision } = req.body || {};
   try {
+    const ref = { proveedor_cif, numero_factura_proveedor, fecha_emision };
     const facturas = await scanAll(tables.facturas, '#t = :t', { ':t': 'IN' }, { '#t': 'tipo' });
-    // Comparar normalizado: el CIF/nº de factura del OCR llega con guiones,
-    // espacios o minúsculas y la igualdad estricta no detectaba el duplicado.
-    const cifBuscado = normalizeCif(proveedor_cif || '');
-    const normDoc = (s) => String(s || '').toUpperCase().replace(/[\s\-\/.]/g, '');
-    const docBuscado = normDoc(numero_factura_proveedor);
-    const posibles = facturas.filter((f) => {
-      let score = 0;
-      if (cifBuscado && normalizeCif(f.empresa_cif || '') === cifBuscado) score += 3;
-      if (docBuscado && normDoc(f.numero_factura_proveedor) === docBuscado) score += 4;
-      if (fecha_emision && f.fecha_emision === fecha_emision) score += 1;
-      if (total_factura && Math.abs((f.total_factura || 0) - total_factura) < 0.02) score += 2;
-      return score >= 5;
-    });
+    const posibles = facturas.filter((f) => esDuplicadoFacturaProveedor(ref, f));
 
-    res.json({ duplicados: posibles.map((f) => ({ id_factura: f.id_factura, numero_factura: f.numero_factura, empresa_nombre: f.empresa_nombre, total_factura: f.total_factura, fecha_emision: f.fecha_emision })) });
+    res.json({
+      duplicados: posibles.map((f) => ({
+        id_factura: f.id_factura,
+        numero_factura: f.numero_factura,
+        numero_factura_proveedor: f.numero_factura_proveedor,
+        empresa_nombre: f.empresa_nombre,
+        empresa_cif: f.empresa_cif,
+        total_factura: f.total_factura,
+        fecha_emision: f.fecha_emision,
+      })),
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -5,7 +5,7 @@
  * - Pulsación larga o doble toque → edición manual escribiendo (confirma en onBlur).
  * - Calendario opcional vía showCalendar=false (vuelve a edición manual directa).
  */
-import React, { useState, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useRef, useMemo, type Ref } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -13,6 +13,7 @@ import {
   Platform,
   Pressable,
   StyleSheet,
+  TextInput,
   type TextInputProps,
   type StyleProp,
   type ViewStyle,
@@ -46,6 +47,8 @@ export type InputFechaIsoProps = InputFechaStyleProps &
   Omit<TextInputProps, 'value' | 'onChangeText' | 'style'> & {
     valueIso: string;
     onChangeIso: (iso: string) => void;
+    /** Ref al TextInput interno (p. ej. cadena Tab del registro masivo). */
+    inputRef?: Ref<TextInput>;
     value?: never;
     onChange?: never;
     format?: never;
@@ -91,7 +94,12 @@ export function InputFecha(props: InputFechaProps) {
     showCalendar = true,
     compact = false,
     modoToolbar = false,
+    onFocus,
+    onKeyDown,
+    ...textInputRest
   } = props;
+
+  const inputRef = 'inputRef' in props ? props.inputRef : undefined;
 
   const compactHeight = useMemo(() => {
     if (!compact) return COMPACT_HEIGHT_DEFAULT;
@@ -270,7 +278,10 @@ export function InputFecha(props: InputFechaProps) {
       placeholderTextColor={placeholderTextColor}
       editable={editable}
       onBlur={salirEdicion}
+      onFocus={onFocus}
+      onKeyDown={onKeyDown}
       style={fieldStyle}
+      {...textInputRest}
     />
   );
 
@@ -299,12 +310,16 @@ export function InputFecha(props: InputFechaProps) {
   // Sin calendario: comportamiento clásico (edición manual directa).
   const fechaInput = (
     <FechaInputDmy
+      ref={inputRef}
       valueIso={valueIso}
       onChangeIso={handleChangeIso}
       placeholder={placeholder}
       placeholderTextColor={placeholderTextColor}
       editable={editable}
+      onFocus={onFocus}
+      onKeyDown={onKeyDown}
       style={fieldStyle}
+      {...textInputRest}
     />
   );
 

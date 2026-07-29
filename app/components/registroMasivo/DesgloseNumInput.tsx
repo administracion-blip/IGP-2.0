@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, TextInput } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Platform, StyleSheet, TextInput } from 'react-native';
 import { round2 } from '../../utils/facturacion';
 import { parseImporteTexto } from '../../lib/registroMasivo';
+import { useRegistroMasivoField } from '../../hooks/useRegistroMasivoFocusChain';
 
 /**
  * Input numérico para celdas del desglose fiscal: maneja un buffer de texto
@@ -16,32 +17,67 @@ export function DesgloseNumInput({
   initial,
   placeholder,
   onCommit,
+  focusFieldId,
 }: {
   initial: number;
   placeholder: string;
   onCommit: (n: number) => void;
+  /** Id en la cadena Tab/Enter del registro masivo (solo web). */
+  focusFieldId?: string;
 }) {
   const [text, setText] = useState(initial ? String(initial) : '');
   const prevInitial = useRef(initial);
+  const textRef = useRef(text);
+  textRef.current = text;
+  const focus = useRegistroMasivoField(focusFieldId);
+
+  const commitNow = useCallback(() => {
+    const n = parseImporteTexto(textRef.current);
+    onCommit(round2(n));
+    const normalized = n ? String(n) : '';
+    setText(normalized);
+    textRef.current = normalized;
+  }, [onCommit]);
+
   useEffect(() => {
     if (prevInitial.current !== initial) {
       prevInitial.current = initial;
-      const parsed = parseImporteTexto(text);
+      const parsed = parseImporteTexto(textRef.current);
       if (initial !== parsed) {
-        setText(initial ? String(initial) : '');
+        const next = initial ? String(initial) : '';
+        setText(next);
+        textRef.current = next;
       }
     }
   }, [initial]);
+
+  const onKeyDown = useCallback(
+    (e: {
+      nativeEvent?: { key?: string; shiftKey?: boolean };
+      key?: string;
+      shiftKey?: boolean;
+      preventDefault?: () => void;
+    }) => {
+      const key = e.nativeEvent?.key ?? e.key ?? '';
+      if (key === 'Tab' || key === 'Enter') {
+        commitNow();
+      }
+      focus.onKeyDown?.(e);
+    },
+    [commitNow, focus.onKeyDown],
+  );
+
   return (
     <TextInput
+      ref={focus.ref}
       style={styles.input}
       value={text}
       onChangeText={setText}
-      onBlur={() => {
-        const n = parseImporteTexto(text);
-        onCommit(round2(n));
-        setText(n ? String(n) : '');
-      }}
+      onBlur={commitNow}
+      onFocus={focus.onFocus}
+      {...(Platform.OS === 'web' && focusFieldId
+        ? { onKeyDown: onKeyDown as (e: unknown) => void }
+        : {})}
       keyboardType="decimal-pad"
       placeholder={placeholder}
       placeholderTextColor="#94a3b8"

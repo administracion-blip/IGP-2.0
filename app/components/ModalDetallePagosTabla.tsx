@@ -1,16 +1,31 @@
 import { useMemo } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
+import {
+  View,
+  Text,
+  ScrollView,
+  ActivityIndicator,
+  StyleSheet,
+  TouchableOpacity,
+} from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { formatMoneda, labelMetodoPagoDisplay } from '../utils/facturacion';
 import { formatFechaPagoRow } from '../utils/formatFecha';
+import { MIN_TOUCH } from '../constants/layout';
+import type { PagoDetalleRow } from '../lib/pagosFacturaDetalle';
 
 export type ModalDetallePagosTablaProps = {
   loading: boolean;
   loadingText: string;
   error: string | null;
   emptyText: string;
-  pagos: Record<string, unknown>[];
+  pagos: PagoDetalleRow[];
   /** Etiqueta de la fila de totales (p. ej. «Total cobrado» / «Total pagado»). */
   totalLabel?: string;
+  /** Muestra iconos editar/borrar por fila (p. ej. con `facturacion.cobrar_pagar`). */
+  puedeGestionar?: boolean;
+  procesandoPagoId?: string | null;
+  onEditar?: (pago: PagoDetalleRow) => void;
+  onBorrar?: (pago: PagoDetalleRow) => void;
 };
 
 /**
@@ -23,11 +38,17 @@ export function ModalDetallePagosTabla({
   emptyText,
   pagos,
   totalLabel = 'Total',
+  puedeGestionar = false,
+  procesandoPagoId = null,
+  onEditar,
+  onBorrar,
 }: ModalDetallePagosTablaProps) {
   const totalImportes = useMemo(
     () => pagos.reduce((s, p) => s + Number(p.importe ?? 0), 0),
     [pagos],
   );
+
+  const mostrarAcciones = puedeGestionar && (onEditar || onBorrar);
 
   if (loading) {
     return (
@@ -52,6 +73,7 @@ export function ModalDetallePagosTabla({
         <Text style={[styles.th, styles.colFecha]}>Fecha</Text>
         <Text style={[styles.th, styles.colImporte]}>Importe</Text>
         <Text style={[styles.th, styles.colMetodo]}>Método</Text>
+        {mostrarAcciones ? <View style={styles.colAcciones} /> : null}
       </View>
 
       <ScrollView
@@ -68,9 +90,13 @@ export function ModalDetallePagosTabla({
           const ref = p.referencia != null ? String(p.referencia).trim() : '';
           const obs = p.observaciones != null ? String(p.observaciones).trim() : '';
           const hasExtra = Boolean(ref || obs);
+          const idPago = p.id_pago != null ? String(p.id_pago) : '';
+          const rowKey = idPago || `pago-${idx}`;
+          const procesando = idPago && procesandoPagoId === idPago;
+
           return (
             <View
-              key={idx}
+              key={rowKey}
               style={[styles.dataBlock, idx % 2 === 1 && styles.dataBlockAlt]}
             >
               <View style={styles.dataRow}>
@@ -83,6 +109,36 @@ export function ModalDetallePagosTabla({
                 <Text style={[styles.td, styles.colMetodo]} numberOfLines={2}>
                   {labelMetodoPagoDisplay(metodoRaw)}
                 </Text>
+                {mostrarAcciones ? (
+                  <View style={styles.colAcciones}>
+                    {procesando ? (
+                      <ActivityIndicator size="small" color="#0ea5e9" />
+                    ) : (
+                      <>
+                        {onEditar ? (
+                          <TouchableOpacity
+                            onPress={() => onEditar(p)}
+                            style={styles.accionBtn}
+                            accessibilityLabel="Editar pago"
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          >
+                            <MaterialIcons name="edit" size={18} color="#0ea5e9" />
+                          </TouchableOpacity>
+                        ) : null}
+                        {onBorrar ? (
+                          <TouchableOpacity
+                            onPress={() => onBorrar(p)}
+                            style={styles.accionBtn}
+                            accessibilityLabel="Eliminar pago"
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          >
+                            <MaterialIcons name="delete-outline" size={18} color="#dc2626" />
+                          </TouchableOpacity>
+                        ) : null}
+                      </>
+                    )}
+                  </View>
+                ) : null}
               </View>
               {hasExtra ? (
                 <View style={styles.extraRow}>
@@ -160,6 +216,14 @@ const styles = StyleSheet.create({
   colFecha: { flex: 1.1, minWidth: 76 },
   colImporte: { flex: 0.95, minWidth: 80, textAlign: 'right' },
   colMetodo: { flex: 1.35, minWidth: 96, flexShrink: 1 },
+  colAcciones: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 2,
+    minWidth: 64,
+    flexShrink: 0,
+  },
 
   scroll: {
     maxHeight: 300,
@@ -189,6 +253,12 @@ const styles = StyleSheet.create({
   tdImporte: {
     fontWeight: '600',
     color: '#047857',
+  },
+  accionBtn: {
+    minWidth: MIN_TOUCH,
+    minHeight: MIN_TOUCH,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   extraRow: {
     paddingHorizontal: 12,

@@ -27,19 +27,27 @@ import {
   resolveMetodoPagoParaEnvio,
 } from '../../utils/facturacion';
 import type { FacturaListado, SerieFactura } from '../../types/factura';
-import { fechaEmisionFacturaAIso } from '../../utils/formatFecha';
+import { fechaEmisionFacturaAIso, formatFechaPagoRow } from '../../utils/formatFecha';
 import { hoyISO } from '../../utils/facturaFormLogic';
 import { getTipoReciboFromEmpresasList, type EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
 import { resolverIbanBeneficiarioFactura } from '../../lib/resolverIbanFactura';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { BadgeAbono } from '../../components/BadgeAbono';
 import { InputFecha } from '../../components/InputFecha';
-import { DatosParaPago } from '../../components/RegistrarPagoModal';
+import { DatosParaPago, RegistrarPagoModal, type RegistrarPagoPayloadFactura } from '../../components/RegistrarPagoModal';
+import { useConfirmar } from '../../hooks/useConfirmar';
 import { buildConceptoRemesaFacturaRecibida } from '../../lib/conceptoRemesa';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { SelectorDesplegableMulti } from '../../components/SelectorDesplegableMulti';
 import { useLocalToast } from '../../components/Toast';
 import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
+import {
+  actualizarPagoFactura,
+  eliminarPagoFactura,
+  fetchPagosFactura,
+  pagoRecordToInitial,
+  type PagoDetalleRow,
+} from '../../lib/pagosFacturaDetalle';
 import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { apiFetch } from '../../utils/api';
@@ -193,10 +201,17 @@ export default function FacturasVentaScreen() {
   const [modalDetallePagosVisible, setModalDetallePagosVisible] = useState(false);
   const [detallePagosLoading, setDetallePagosLoading] = useState(false);
   const [detallePagosError, setDetallePagosError] = useState<string | null>(null);
-  const [detallePagosLista, setDetallePagosLista] = useState<Record<string, unknown>[]>([]);
+  const [detallePagosLista, setDetallePagosLista] = useState<PagoDetalleRow[]>([]);
   const [detallePagosFactura, setDetallePagosFactura] = useState<FacturaListado | null>(null);
+  const [procesandoPagoDetalleId, setProcesandoPagoDetalleId] = useState<string | null>(null);
+  const [pagoDetalleEditando, setPagoDetalleEditando] = useState<PagoDetalleRow | null>(null);
+  const [modalEditarPagoDetalle, setModalEditarPagoDetalle] = useState(false);
+  const [guardandoPagoDetalle, setGuardandoPagoDetalle] = useState(false);
+
+  const puedeGestionarPagos = hasPermiso('facturacion.cobrar_pagar');
 
   const { show: showToast, ToastView } = useLocalToast();
+  const { confirmar, ConfirmarView } = useConfirmar();
 
   const resizeRef = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
 
@@ -569,28 +584,111 @@ export default function FacturasVentaScreen() {
     setCobroFecha(aplicarFechaSegunMetodo(m, fechaFactura, hoy));
   };
 
+  const recargarDetallePagos = useCallback(async (idFactura: string) => {
+    setDetallePagosLoading(true);
+    setDetallePagosError(null);
+    try {
+      const pagos = await fetchPagosFactura(idFactura);
+      setDetallePagosLista(pagos);
+    } catch (err) {
+      setDetallePagosError(err instanceof Error ? err.message : 'Error de conexión');
+    } finally {
+      setDetallePagosLoading(false);
+    }
+  }, []);
+
   const abrirModalDetallePagos = useCallback((factura: FacturaListado) => {
     setDetallePagosFactura(factura);
     setModalDetallePagosVisible(true);
-    setDetallePagosLoading(true);
     setDetallePagosError(null);
     setDetallePagosLista([]);
-    apiFetch(`/api/facturacion/facturas/${factura.id_factura}/pagos`)
-      .then(async (r) => {
-        const data = await r.json();
-        if (!r.ok) throw new Error(data.error || 'Error al cargar cobros');
-        setDetallePagosLista(Array.isArray(data.pagos) ? data.pagos : []);
-      })
-      .catch((err) => setDetallePagosError(err instanceof Error ? err.message : 'Error de conexión'))
-      .finally(() => setDetallePagosLoading(false));
-  }, []);
+    void recargarDetallePagos(factura.id_factura);
+  }, [recargarDetallePagos]);
 
   const cerrarModalDetallePagos = useCallback(() => {
     setModalDetallePagosVisible(false);
     setDetallePagosFactura(null);
     setDetallePagosError(null);
     setDetallePagosLista([]);
+    setPagoDetalleEditando(null);
+    setModalEditarPagoDetalle(false);
+    setProcesandoPagoDetalleId(null);
   }, []);
+
+  const sincronizarFacturaTrasPago = useCallback((facturaActualizada: FacturaListado | null) => {
+    refetch();
+    if (facturaActualizada && detallePagosFactura?.id_factura === facturaActualizada.id_factura) {
+      setDetallePagosFactura((prev) => (prev ? { ...prev, ...facturaActualizada } : prev));
+    }
+  }, [detallePagosFactura?.id_factura, refetch]);
+
+  const handleEditarPagoDetalle = useCallback((pago: PagoDetalleRow) => {
+    setPagoDetalleEditando(pago);
+    setModalEditarPagoDetalle(true);
+  }, []);
+
+  const handleBorrarPagoDetalle = useCallback(async (pago: PagoDetalleRow) => {
+    if (!detallePagosFactura?.id_factura || !pago.id_pago) return;
+    const importeTxt = formatMoneda(Number(pago.importe ?? 0));
+    const ok = await confirmar(
+      'Eliminar cobro',
+      `¿Eliminar el cobro de ${importeTxt} del ${formatFechaPagoRow(String(pago.fecha ?? ''))}?`,
+    );
+    if (!ok) return;
+    setProcesandoPagoDetalleId(String(pago.id_pago));
+    try {
+      const factura = await eliminarPagoFactura(
+        detallePagosFactura.id_factura,
+        String(pago.id_pago),
+        { id: user?.id_usuario, nombre: user?.Nombre },
+      );
+      showToast('Eliminado', 'Cobro eliminado correctamente', 'success');
+      sincronizarFacturaTrasPago(factura);
+      await recargarDetallePagos(detallePagosFactura.id_factura);
+    } catch (e: unknown) {
+      showToast('Error', e instanceof Error ? e.message : 'No se pudo eliminar el cobro', 'error');
+    } finally {
+      setProcesandoPagoDetalleId(null);
+    }
+  }, [
+    detallePagosFactura?.id_factura,
+    confirmar,
+    user?.id_usuario,
+    user?.Nombre,
+    showToast,
+    sincronizarFacturaTrasPago,
+    recargarDetallePagos,
+  ]);
+
+  const guardarEdicionPagoDetalle = useCallback(async (payload: RegistrarPagoPayloadFactura) => {
+    if (!detallePagosFactura?.id_factura || !pagoDetalleEditando?.id_pago) return;
+    setGuardandoPagoDetalle(true);
+    try {
+      const { factura } = await actualizarPagoFactura(
+        detallePagosFactura.id_factura,
+        String(pagoDetalleEditando.id_pago),
+        payload,
+        { id: user?.id_usuario, nombre: user?.Nombre },
+      );
+      showToast('Guardado', 'Cobro actualizado correctamente', 'success');
+      setModalEditarPagoDetalle(false);
+      setPagoDetalleEditando(null);
+      sincronizarFacturaTrasPago(factura);
+      await recargarDetallePagos(detallePagosFactura.id_factura);
+    } catch (e: unknown) {
+      showToast('Error', e instanceof Error ? e.message : 'No se pudo actualizar el cobro', 'error');
+    } finally {
+      setGuardandoPagoDetalle(false);
+    }
+  }, [
+    detallePagosFactura?.id_factura,
+    pagoDetalleEditando?.id_pago,
+    user?.id_usuario,
+    user?.Nombre,
+    showToast,
+    sincronizarFacturaTrasPago,
+    recargarDetallePagos,
+  ]);
 
   const confirmarCobro = async () => {
     if (!selectedId) return;
@@ -1268,12 +1366,35 @@ export default function FacturasVentaScreen() {
               emptyText="No hay cobros registrados"
               pagos={detallePagosLista}
               totalLabel="Total cobrado"
+              puedeGestionar={puedeGestionarPagos}
+              procesandoPagoId={procesandoPagoDetalleId}
+              onEditar={puedeGestionarPagos ? handleEditarPagoDetalle : undefined}
+              onBorrar={puedeGestionarPagos ? handleBorrarPagoDetalle : undefined}
             />
           </Pressable>
         </Pressable>
       </Modal>
 
+      <RegistrarPagoModal
+        visible={modalEditarPagoDetalle}
+        onClose={() => {
+          if (!guardandoPagoDetalle) {
+            setModalEditarPagoDetalle(false);
+            setPagoDetalleEditando(null);
+          }
+        }}
+        modo="factura"
+        variant="cobro"
+        initial={pagoDetalleEditando ? pagoRecordToInitial(pagoDetalleEditando) : undefined}
+        submitting={guardandoPagoDetalle}
+        tituloPersonalizado="Editar cobro"
+        textoBotonPersonalizado="Guardar cambios"
+        onValidationError={(titulo, mensaje) => showToast(titulo, mensaje, 'warning')}
+        onSubmit={guardarEdicionPagoDetalle}
+      />
+
       {ToastView}
+      {ConfirmarView}
     </View>
   );
 }

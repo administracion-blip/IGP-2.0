@@ -1,7 +1,11 @@
 import React from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { confColor } from '../../lib/registroMasivo';
+import { useRegistroMasivoField } from '../../hooks/useRegistroMasivoFocusChain';
+
+const zonaBtnWebProps =
+  Platform.OS === 'web' ? ({ focusable: false, tabIndex: -1 } as object) : {};
 
 /**
  * Fila label + input + botón "selección de zona OCR".
@@ -18,6 +22,7 @@ export function FieldRowZona({
   onZona,
   zonaActiva,
   onBlur,
+  focusFieldId,
 }: {
   label: string;
   value: string;
@@ -28,7 +33,10 @@ export function FieldRowZona({
   onZona: () => void;
   zonaActiva?: boolean;
   onBlur?: () => void;
+  focusFieldId?: string;
 }) {
+  const focus = useRegistroMasivoField(focusFieldId);
+
   return (
     <View style={styles.fieldRow}>
       <View style={styles.fieldLabelWrap}>
@@ -36,10 +44,13 @@ export function FieldRowZona({
         {conf && <View style={[styles.confDot, { backgroundColor: confColor(conf) }]} />}
       </View>
       <TextInput
+        ref={focus.ref}
         style={[styles.fieldInput, numeric && { textAlign: 'right' as const }]}
         value={value}
         onChangeText={onChange}
         onBlur={onBlur}
+        onFocus={focus.onFocus}
+        onKeyDown={focus.onKeyDown as never}
         keyboardType={numeric ? 'decimal-pad' : 'default'}
         placeholder={placeholder}
         placeholderTextColor="#94a3b8"
@@ -48,6 +59,7 @@ export function FieldRowZona({
         onPress={onZona}
         style={[styles.zonaBtn, zonaActiva && styles.zonaBtnActive]}
         activeOpacity={0.7}
+        {...zonaBtnWebProps}
       >
         <MaterialIcons name="crop-free" size={14} color={zonaActiva ? '#fff' : '#0ea5e9'} />
       </TouchableOpacity>
