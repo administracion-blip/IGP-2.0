@@ -704,36 +704,68 @@ export default function RegistroMasivoScreen() {
 
   const lookupCifEnMaestro = useCallback(
     (idx: number, cifOverride?: string) => {
-      const cifRaw = cifOverride ?? borradores.find((b) => b.idx === idx)?.proveedor_cif;
-      if (!cifRaw) return;
-      const cifNorm = cifRaw.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-      if (cifNorm.length < 6) return;
-      const match = empresasCatalogo.find((e) => {
-        const ec = (e.Cif || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-        return ec && ec === cifNorm;
-      });
-      if (match) {
-        setBorradores((prev) =>
-          prev.map((b) =>
-            b.idx === idx
+      setBorradores((prev) => {
+        const b = prev.find((x) => x.idx === idx);
+        if (!b) return prev;
+
+        const cifRaw = (cifOverride ?? b.proveedor_cif)?.trim();
+        if (!cifRaw) {
+          return prev.map((x) =>
+            x.idx === idx ? { ...x, proveedor_en_maestros: false, empresa_id: '' } : x,
+          );
+        }
+
+        const cifNorm = cifRaw.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        if (cifNorm.length < 6) {
+          return prev.map((x) =>
+            x.idx === idx ? { ...x, proveedor_en_maestros: false, empresa_id: '' } : x,
+          );
+        }
+
+        const match = empresasCatalogo.find((e) => {
+          const ec = (e.Cif || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+          return ec && ec === cifNorm;
+        });
+
+        if (match) {
+          return prev.map((x) =>
+            x.idx === idx
               ? {
-                  ...b,
+                  ...x,
                   proveedor_nombre: String(match.Nombre || '').trim(),
                   empresa_id: match.id_empresa != null ? String(match.id_empresa) : '',
                   proveedor_en_maestros: true,
                   nombre_sugerido_ocr: '',
                   confianza: {
-                    ...b.confianza,
+                    ...x.confianza,
                     proveedor_nombre: 'alta',
                     proveedor_cif: 'alta',
                   },
                 }
-              : b,
-          ),
+              : x,
+          );
+        }
+
+        const sugOcr =
+          (b.nombre_sugerido_ocr || '').trim() || (b.proveedor_nombre || '').trim();
+        return prev.map((x) =>
+          x.idx === idx
+            ? {
+                ...x,
+                proveedor_nombre: '',
+                empresa_id: '',
+                proveedor_en_maestros: false,
+                nombre_sugerido_ocr: sugOcr,
+                confianza: {
+                  ...x.confianza,
+                  proveedor_nombre: 'baja',
+                },
+              }
+            : x,
         );
-      }
+      });
     },
-    [borradores, empresasCatalogo],
+    [empresasCatalogo],
   );
 
   /** Campos numéricos cuyo recálculo IVA/retención lo dispara `usuarioEditaCampo`. */
@@ -1427,6 +1459,8 @@ export default function RegistroMasivoScreen() {
                 <ProveedorDropdownField
                   borrador={selectedBorrador}
                   empresas={empresasCatalogo}
+                  proveedorEnMaestros={selectedBorrador.proveedor_en_maestros}
+                  nombreSugeridoOcr={selectedBorrador.nombre_sugerido_ocr}
                   onSelect={(emp) => {
                     setBorradores((prev) =>
                       prev.map((b) =>
