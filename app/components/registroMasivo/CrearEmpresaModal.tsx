@@ -216,6 +216,7 @@ export function CrearEmpresaModal({
                       style={[styles.modalInput, isCompact && styles.inputTactil]}
                       value={modal.form[campo.key]}
                       onChangeText={(t) => modal.setCampo(campo.key, t)}
+                      onBlur={() => modal.setCampo(campo.key, (modal.form[campo.key] || '').trim())}
                       placeholder={'placeholder' in campo ? campo.placeholder : undefined}
                       placeholderTextColor="#94a3b8"
                       keyboardType={'keyboardType' in campo ? campo.keyboardType : undefined}
@@ -264,10 +265,8 @@ export function CrearEmpresaModal({
   return (
     <Modal visible={modal.visible} transparent animationType="fade" onRequestClose={modal.cerrar}>
       <KeyboardAvoidingView style={styles.modalKb} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={modal.cerrar}>
-          <TouchableOpacity
-            activeOpacity={1}
-            onPress={() => {}}
+        <View style={styles.modalOverlay}>
+          <View
             style={[
               styles.modalWrap,
               {
@@ -293,8 +292,8 @@ export function CrearEmpresaModal({
                 ) : null}
               </View>
             </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
+          </View>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );

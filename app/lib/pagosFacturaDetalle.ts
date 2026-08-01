@@ -1,5 +1,6 @@
 import { apiFetch } from '../utils/api';
 import { mapTipoReciboToFormaPago } from '../utils/facturacion';
+import { esMetodoCompensacion } from './compensacionFactura';
 import type { RegistrarPagoInitial, RegistrarPagoPayloadFactura } from '../components/RegistrarPagoModal';
 import type { FacturaListado } from '../types/factura';
 
@@ -14,6 +15,17 @@ export type PagoDetalleRow = {
 
 export function pagoRecordToInitial(p: PagoDetalleRow): RegistrarPagoInitial {
   const metodo = String(p.metodo_pago ?? '');
+  if (esMetodoCompensacion(metodo)) {
+    const fechaRaw = String(p.fecha ?? '').trim();
+    const fechaIso = /^\d{4}-\d{2}-\d{2}$/.test(fechaRaw) ? fechaRaw : fechaRaw.slice(0, 10);
+    return {
+      fecha: fechaIso,
+      metodo: 'compensacion',
+      referencia: String(p.referencia ?? ''),
+      observaciones: String(p.observaciones ?? ''),
+      importe: p.importe != null ? String(p.importe) : '',
+    };
+  }
   const { clave, otroTexto } = mapTipoReciboToFormaPago(metodo);
   const fechaRaw = String(p.fecha ?? '').trim();
   const fechaIso = /^\d{4}-\d{2}-\d{2}$/.test(fechaRaw) ? fechaRaw : fechaRaw.slice(0, 10);
@@ -34,11 +46,54 @@ export async function fetchPagosFactura(idFactura: string): Promise<PagoDetalleR
   return Array.isArray(data.pagos) ? data.pagos : [];
 }
 
+export async function registrarPagoFacturaApi(
+  idFactura: string,
+  payload: RegistrarPagoPayloadFactura,
+  usuario: { id?: string; nombre?: string },
+): Promise<{ pago?: PagoDetalleRow; factura?: FacturaListado | null }> {
+  const baseBody = {
+    fecha: payload.fecha,
+    importe: payload.importe,
+    observaciones: payload.observaciones,
+    usuario_id: usuario.id ?? '',
+    usuario_nombre: usuario.nombre ?? '',
+  };
+
+  if (esMetodoCompensacion(payload.metodo_pago)) {
+    const r = await apiFetch(`/api/facturacion/facturas/${idFactura}/pagos/compensacion`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...baseBody,
+        facturas_compensar: payload.facturas_compensar ?? [],
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Error al registrar compensación');
+    return { pago: data.pago, factura: (data.factura as FacturaListado | undefined) ?? null };
+  }
+
+  const r = await apiFetch(`/api/facturacion/facturas/${idFactura}/pagos`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...baseBody,
+      metodo_pago: payload.metodo_pago,
+      referencia: payload.referencia,
+    }),
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || 'Error al registrar pago');
+  return { pago: data.pago, factura: (data.factura as FacturaListado | undefined) ?? null };
+}
+
 export async function eliminarPagoFactura(
   idFactura: string,
   idPago: string,
   usuario: { id?: string; nombre?: string },
+  pago?: PagoDetalleRow,
 ): Promise<FacturaListado | null> {
+  if (pago && esMetodoCompensacion(pago.metodo_pago)) {
+    throw new Error('Los pagos por compensación no se pueden eliminar desde aquí');
+  }
   const r = await apiFetch(`/api/facturacion/pagos/${idFactura}/${idPago}`, {
     method: 'DELETE',
     body: JSON.stringify({
@@ -57,6 +112,9 @@ export async function actualizarPagoFactura(
   payload: RegistrarPagoPayloadFactura,
   usuario: { id?: string; nombre?: string },
 ): Promise<{ pago: PagoDetalleRow; factura: FacturaListado | null }> {
+  if (esMetodoCompensacion(payload.metodo_pago)) {
+    throw new Error('Los pagos por compensación no se pueden editar');
+  }
   const r = await apiFetch(`/api/facturacion/pagos/${idFactura}/${idPago}`, {
     method: 'PUT',
     body: JSON.stringify({

@@ -69,11 +69,20 @@ export default function RemesasIndexScreen() {
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
+      <View style={styles.headerRow}>
+        <TouchableOpacity
+          onPress={() => router.push('/facturacion' as never)}
+          style={styles.backBtn}
+          accessibilityLabel="Volver"
+        >
+          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+        </TouchableOpacity>
+        <Text style={styles.title}>Remesas de pago</Text>
+      </View>
+      <Text style={styles.subtitle}>Agrupa facturas pendientes y genera el fichero para el banco</Text>
+
       <View style={[styles.toolbar, shouldStackToolbar && styles.toolbarStack]}>
-        <View>
-          <Text style={styles.title}>Remesas de pago</Text>
-          <Text style={styles.subtitle}>Agrupa facturas pendientes y genera el fichero para el banco</Text>
-        </View>
+        <View style={styles.toolbarSpacer} />
         <TouchableOpacity style={styles.btnSecondary} onPress={() => router.push('/facturacion/facturas-gasto' as never)}>
           <MaterialIcons name="description" size={18} color="#0ea5e9" />
           <Text style={styles.btnSecondaryText}>Ir a facturas recibidas</Text>
@@ -136,10 +145,13 @@ const styles = StyleSheet.create({
   pageContent: { padding: 16, paddingBottom: 40 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   denied: { color: '#64748b', fontSize: 15 },
-  toolbar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, gap: 12 },
-  toolbarStack: { flexDirection: 'column' },
-  title: { fontSize: 22, fontWeight: '700', color: '#0f172a' },
-  subtitle: { fontSize: 14, color: '#64748b', marginTop: 4 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  backBtn: { padding: 4 },
+  toolbar: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'flex-start', marginBottom: 16, gap: 12 },
+  toolbarStack: { flexDirection: 'column', alignItems: 'stretch' },
+  toolbarSpacer: { flex: 1 },
+  title: { fontSize: 22, fontWeight: '700', color: '#0f172a', flex: 1 },
+  subtitle: { fontSize: 14, color: '#64748b', marginBottom: 12 },
   btnSecondary: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -207,6 +207,7 @@ function negociacionNuevaVacia(
 function estadoLabel(s?: string) {
   if (s === 'confirmada') return 'Confirmada';
   if (s === 'facturada') return 'Facturada';
+  if (s === 'pagada') return 'Pagada';
   return 'Borrador';
 }
 
@@ -329,6 +330,7 @@ export default function MayoristaDetalleScreen() {
 
   const esBorrador = esNuevo || neg?.estado === 'borrador';
   const esConfirmada = !esNuevo && neg?.estado === 'confirmada';
+  const esFacturada = !esNuevo && neg?.estado === 'facturada';
   const editable = esNuevo ? (puedeCrear || puedeEditar) : Boolean(esBorrador && puedeEditar);
 
   useEffect(() => {
@@ -790,6 +792,29 @@ export default function MayoristaDetalleScreen() {
     }
   };
 
+  const marcarPagada = async () => {
+    if (!neg?.id || neg.estado !== 'facturada' || !puedeEditar) return;
+    const ok = await confirmarDialog(
+      'Marcar como pagada',
+      `¿Marcar «${neg.nombre || neg.id}» como pagada?`,
+      { confirmLabel: 'Marcar pagada' },
+    );
+    if (!ok) return;
+    setGuardando(true);
+    try {
+      const r = await apiFetch(`/api/mayorista/negociaciones/${neg.id}/pagar`, { method: 'POST', body: '{}' });
+      const d = await r.json();
+      if (!r.ok) { aviso(d.error || 'No se pudo marcar como pagada'); return; }
+      setNeg(d.negociacion);
+      setLineas(d.lineas || []);
+      showToast('Pagada', 'Operación marcada como pagada.', 'success');
+    } catch (e) {
+      aviso(e instanceof Error ? e.message : 'Error de conexión');
+    } finally {
+      setGuardando(false);
+    }
+  };
+
   const semColor = neg?.semaforo === 'verde' ? '#16a34a' : neg?.semaforo === 'ambar' ? '#d97706' : '#dc2626';
   const clientesOpts = useMemo(
     () => clientes.map((c) => ({
@@ -1197,6 +1222,18 @@ export default function MayoristaDetalleScreen() {
               <>
                 <MaterialIcons name="receipt-long" size={14} color="#fff" />
                 <Text style={styles.saveBtnText}>Marcar facturada</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        ) : null}
+        {esFacturada && puedeEditar ? (
+          <TouchableOpacity style={[styles.saveBtn, styles.saveBtnPagada]} onPress={marcarPagada} disabled={guardando}>
+            {guardando ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <>
+                <MaterialIcons name="payments" size={14} color="#fff" />
+                <Text style={styles.saveBtnText}>Marcar pagada</Text>
               </>
             )}
           </TouchableOpacity>
@@ -1694,6 +1731,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: '#0ea5e9',
   },
+  saveBtnPagada: { backgroundColor: '#7c3aed' },
   saveBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
   errorBar: {
     flexDirection: 'row',

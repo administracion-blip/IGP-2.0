@@ -18,12 +18,15 @@ export function DesgloseNumInput({
   placeholder,
   onCommit,
   focusFieldId,
+  desgloseCampo,
 }: {
   initial: number;
   placeholder: string;
   onCommit: (n: number) => void;
   /** Id en la cadena Tab/Enter del registro masivo (solo web). */
   focusFieldId?: string;
+  /** Marca el input para captura Tab en window (RN Web no entrega Tab al TextInput). */
+  desgloseCampo?: string;
 }) {
   const [text, setText] = useState(initial ? String(initial) : '');
   const prevInitial = useRef(initial);
@@ -59,9 +62,7 @@ export function DesgloseNumInput({
       preventDefault?: () => void;
     }) => {
       const key = e.nativeEvent?.key ?? e.key ?? '';
-      if (key === 'Tab' || key === 'Enter') {
-        commitNow();
-      }
+      if (key === 'Enter') commitNow();
       focus.onKeyDown?.(e);
     },
     [commitNow, focus.onKeyDown],
@@ -77,6 +78,9 @@ export function DesgloseNumInput({
       onFocus={focus.onFocus}
       {...(Platform.OS === 'web' && focusFieldId
         ? { onKeyDown: onKeyDown as (e: unknown) => void }
+        : {})}
+      {...(Platform.OS === 'web' && desgloseCampo
+        ? ({ dataSet: { desgloseCampo } } as object)
         : {})}
       keyboardType="decimal-pad"
       placeholder={placeholder}

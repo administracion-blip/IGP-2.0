@@ -20,6 +20,7 @@ import {
   type RegistrarPagoInitial,
   type RegistrarPagoPayloadFactura,
 } from '../../components/RegistrarPagoModal';
+import { registrarPagoFacturaApi } from '../../lib/pagosFacturaDetalle';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { BadgeAbono } from '../../components/BadgeAbono';
 import { CampoIdDocumentoFacturaRecibida } from '../../components/CampoIdDocumentoFacturaRecibida';
@@ -131,6 +132,7 @@ export default function FacturaDetalleScreen() {
   } = facturaForm;
 
   const [estado, setEstado] = useState('borrador');
+  const [saldoPendiente, setSaldoPendiente] = useState(0);
   const [numeroFactura, setNumeroFactura] = useState('');
   const [serie, setSerie] = useState('');
   const [fechaOperacion, setFechaOperacion] = useState('');
@@ -251,7 +253,8 @@ export default function FacturaDetalleScreen() {
   const mostrarIdFactura = esVenta && modo === 'editar' && !!facturaId && estado !== 'borrador';
   const puedeRegistrarPago =
     modo === 'editar' &&
-    ['emitida', 'parcialmente_cobrada', 'pendiente_pago', 'parcialmente_pagada'].includes(estado);
+    hasPermiso('facturacion.cobrar_pagar') &&
+    ['emitida', 'parcialmente_cobrada', 'pendiente_pago', 'parcialmente_pagada', 'pendiente_revision'].includes(estado);
   const puedeDuplicar = modo === 'editar';
   const puedeRectificar =
     modo === 'editar' &&
@@ -384,6 +387,7 @@ export default function FacturaDetalleScreen() {
       const f: Factura = data.factura ?? data;
       markHydrationFromApi();
       setEstado(f.estado);
+      setSaldoPendiente(Number(f.saldo_pendiente ?? f.total_factura ?? 0));
       setNumeroFactura(f.numero_factura ?? '');
       setSerie(f.serie);
       setFechaEmision(fechaEmisionFacturaAIso(f.fecha_emision ?? '') ?? '');
@@ -774,21 +778,16 @@ export default function FacturaDetalleScreen() {
   const registrarPago = async (payload: RegistrarPagoPayloadFactura) => {
     setSavingPago(true);
     try {
-      const res = await apiFetch(`/api/facturacion/facturas/${facturaId}/pagos`, {
-        method: 'POST',
-        body: JSON.stringify({
-          fecha: payload.fecha,
-          importe: payload.importe,
-          metodo_pago: payload.metodo_pago,
-          referencia: payload.referencia,
-          observaciones: payload.observaciones,
-          usuario_id: user?.id_usuario,
-          usuario_nombre: user?.Nombre,
-        }),
+      await registrarPagoFacturaApi(facturaId!, payload, {
+        id: user?.id_usuario,
+        nombre: user?.Nombre,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Error al registrar pago');
-      alertMsg('Registrado', 'Pago registrado correctamente');
+      alertMsg(
+        'Registrado',
+        payload.metodo_pago === 'compensacion'
+          ? 'Compensación registrada correctamente'
+          : 'Pago registrado correctamente',
+      );
       setShowPagoModal(false);
       fetchFactura();
     } catch (e: unknown) {
@@ -1717,6 +1716,9 @@ export default function FacturaDetalleScreen() {
         initial={pagoInitial}
         fechaReferenciaTarjeta={fechaReferenciaTarjetaPago}
         datosPago={datosPagoModal}
+        habilitarCompensacion={!esVenta}
+        facturaId={facturaId}
+        saldoOrigen={saldoPendiente}
         submitting={savingPago}
         onValidationError={alertMsg}
         onSubmit={registrarPago}

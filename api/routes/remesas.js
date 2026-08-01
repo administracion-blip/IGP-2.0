@@ -47,6 +47,15 @@ function round2(n) {
   return Math.round(Number(n) * 100) / 100;
 }
 
+function slugNombreArchivoRemesa(nombre) {
+  return String(nombre || 'sociedad')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40) || 'sociedad';
+}
+
 async function scanRemesas() {
   const items = [];
   let lastKey = null;
@@ -390,8 +399,9 @@ router.get('/remesas/:remesaId/fichero', requirePermission('remesas.gestionar'),
 
     const buffer = await generarFicheroRemesa(remesa);
     const fecha = (remesa.fechaEjecucion || now().slice(0, 10)).replace(/-/g, '');
+    const nombreSlug = slugNombreArchivoRemesa(remesa.sociedadNombre);
     const cif = String(remesa.sociedadCif || 'remesa').replace(/[^A-Za-z0-9]/g, '');
-    const filename = `remesa-${cif}-${fecha}.xlsx`;
+    const filename = `remesa-${nombreSlug}-${cif}-${fecha}.xlsx`;
 
     remesa.estado = 'Generada';
     remesa.generadaEn = now();

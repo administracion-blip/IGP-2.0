@@ -28,7 +28,7 @@ const tEmpresas = tables.empresas;
 
 const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 const RE_HORA = /^([01]?\d|2[0-3]):[0-5]\d$/;
-const ESTADOS = new Set(['borrador', 'confirmada', 'facturada']);
+const ESTADOS = new Set(['borrador', 'confirmada', 'facturada', 'pagada']);
 
 function normalizarHora(raw) {
   const t = String(raw ?? '').trim();
@@ -468,7 +468,7 @@ router.get('/mayorista/productos/:productId/ultima-venta', requireAnyPermission(
   try {
     const metas = (await scanMetas()).filter((m) => {
       const est = String(m.estado || '');
-      if (est !== 'confirmada' && est !== 'facturada') return false;
+      if (est !== 'confirmada' && est !== 'facturada' && est !== 'pagada') return false;
       if (excluirId && String(m.id || m.PK) === excluirId) return false;
       return true;
     });
@@ -839,6 +839,27 @@ router.post('/mayorista/negociaciones/:id/facturar', requirePermission('mayorist
     return res.json({ ok: true, negociacion: meta, lineas: actual.lineas });
   } catch (err) {
     return res.status(500).json({ error: err.message || 'Error al facturar' });
+  }
+});
+
+router.post('/mayorista/negociaciones/:id/pagar', requirePermission('mayorista.editar'), async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const actual = await cargarNegociacion(id);
+    if (!actual) return res.status(404).json({ error: 'Negociación no encontrada' });
+    if (actual.meta.estado !== 'facturada') {
+      return res.status(400).json({ error: 'Solo se puede marcar como pagada una operación facturada' });
+    }
+    const meta = {
+      ...actual.meta,
+      estado: 'pagada',
+      pagado_at: nowIso(),
+      pagado_por: req.user?.email || req.user?.sub || '',
+    };
+    await persistirNegociacion(meta, actual.lineas);
+    return res.json({ ok: true, negociacion: meta, lineas: actual.lineas });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Error al marcar como pagada' });
   }
 });
 

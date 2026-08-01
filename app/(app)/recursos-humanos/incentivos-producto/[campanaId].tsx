@@ -411,7 +411,7 @@ export default function CampanaDetalleScreen() {
       const wb = XLSX.utils.book_new();
       const resumen = [
         ['Campaña', campana.nombre],
-        ['Estado', campana.estado],
+        ['Estado', estadoEfectivoCampana(campana)],
         ['Periodo', `${campana.fechaInicio} — ${campana.fechaFin}`],
         ['Unidades campaña', resultados.totales.unidadesCampana],
         ['Coste incentivo', resultados.totales.costeIncentivo],
@@ -452,6 +452,7 @@ export default function CampanaDetalleScreen() {
     try {
       const doc = await generarPdfIncentivosCampana(campana, resultados, {
         localesMap: new Map(Object.entries(localesMap)),
+        ventasDetalle,
       });
       const fname = `${pdfIncentivosCampanaFileSlug(campana)}.pdf`;
       if (Platform.OS === 'web') {
@@ -617,7 +618,7 @@ export default function CampanaDetalleScreen() {
             </TouchableOpacity>
           ) : null}
           {puedeExportar ? (
-            <View>
+            <View style={styles.exportAnchor}>
               <TouchableOpacity
                 style={styles.createBtnOutline}
                 onPress={() => setExportMenuOpen((v) => !v)}
@@ -633,16 +634,19 @@ export default function CampanaDetalleScreen() {
                 )}
               </TouchableOpacity>
               {exportMenuOpen ? (
-                <View style={styles.exportMenu}>
-                  <TouchableOpacity style={styles.exportItem} onPress={exportarExcel}>
-                    <MaterialIcons name="table-chart" size={18} color="#16a34a" />
-                    <Text style={styles.exportItemText}>Excel (.xlsx)</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.exportItem} onPress={exportarPdf}>
-                    <MaterialIcons name="picture-as-pdf" size={18} color="#dc2626" />
-                    <Text style={styles.exportItemText}>PDF</Text>
-                  </TouchableOpacity>
-                </View>
+                <>
+                  <Pressable style={styles.exportOverlay} onPress={() => setExportMenuOpen(false)} />
+                  <View style={styles.exportMenu}>
+                    <TouchableOpacity style={styles.exportItem} onPress={exportarExcel}>
+                      <MaterialIcons name="table-chart" size={18} color="#16a34a" />
+                      <Text style={styles.exportItemText}>Excel (.xlsx)</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.exportItem} onPress={exportarPdf}>
+                      <MaterialIcons name="picture-as-pdf" size={18} color="#dc2626" />
+                      <Text style={styles.exportItemText}>PDF detalle</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
               ) : null}
             </View>
           ) : null}
@@ -772,10 +776,6 @@ export default function CampanaDetalleScreen() {
         titulo={ventasProductoModal ? `Ventas · ${ventasProductoModal.titulo}` : undefined}
       />
 
-      {exportMenuOpen ? (
-        <Pressable style={styles.exportOverlay} onPress={() => setExportMenuOpen(false)} />
-      ) : null}
-
       <CampanaFormModal
         visible={modalEditar}
         onClose={() => setModalEditar(false)}
@@ -802,6 +802,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
     gap: 12,
+    position: 'relative',
+    zIndex: 30,
   },
   backBtn: { padding: 4 },
   headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#0f172a', minWidth: 0 },
@@ -819,6 +821,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f9ff',
   },
   createBtnOutlineText: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+  exportAnchor: { position: 'relative', zIndex: 60 },
   exportMenu: {
     position: 'absolute',
     top: '100%',
@@ -828,16 +831,27 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    zIndex: 20,
+    zIndex: 41,
     minWidth: 160,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    overflow: 'hidden',
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }
+      : {
+          elevation: 12,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.16,
+          shadowRadius: 12,
+        }),
   },
   exportItem: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12 },
   exportItemText: { fontSize: 13, fontWeight: '600', color: '#334155' },
-  exportOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 10 },
+  exportOverlay: {
+    ...Platform.select({
+      web: { position: 'fixed', left: 0, right: 0, top: 0, bottom: 0, zIndex: 39 },
+      default: { position: 'absolute', left: -2000, right: -2000, top: -2000, bottom: -2000 },
+    }),
+  },
 
   toolbar: {
     backgroundColor: '#fff',
@@ -846,6 +860,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     gap: 8,
+    position: 'relative',
+    zIndex: 0,
   },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'center' },
   metaText: { fontSize: 12, color: '#64748b' },
@@ -901,7 +917,7 @@ const styles = StyleSheet.create({
   },
   errorText: { fontSize: 12, color: '#dc2626' },
 
-  split: { flex: 1, flexDirection: 'row', minHeight: 0 },
+  split: { flex: 1, flexDirection: 'row', minHeight: 0, position: 'relative', zIndex: 0 },
   splitStack: { flexDirection: 'column' },
   panelHalf: { flex: 1, width: '50%', maxWidth: '50%' },
   panelLista: { flex: 1, minWidth: 0, minHeight: 0 },

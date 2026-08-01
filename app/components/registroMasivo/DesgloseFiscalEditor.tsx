@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { formatMoneda, round2 } from '../../utils/facturacion';
 import { LINEA_VACIA, type LineaDesglose } from '../../types/registroMasivo';
 import { calcularTotalesDesdeDesglose, type DesgloseTotales } from '../../lib/registroMasivo';
+import { useRegistroMasivoFocus } from '../../hooks/useRegistroMasivoFocusChain';
+import { useDesgloseTabTeclado } from '../../hooks/useDesgloseTabTeclado';
 import { DesgloseNumInput } from './DesgloseNumInput';
 
 const btnFueraTabProps =
@@ -29,12 +31,15 @@ export function DesgloseFiscalEditor({
   lineas: LineaDesglose[];
   onChange: (lineas: LineaDesglose[], totales: DesgloseTotales) => void;
 }) {
+  const focusCtx = useRegistroMasivoFocus();
   const linesEffective: LineaDesglose[] =
     lineas.length > 0 ? lineas : [{ ...LINEA_VACIA }];
 
-  const emit = (nuevas: LineaDesglose[]) => {
+  const emit = useCallback((nuevas: LineaDesglose[]) => {
     onChange(nuevas, calcularTotalesDesdeDesglose(nuevas));
-  };
+  }, [onChange]);
+
+  useDesgloseTabTeclado(linesEffective, emit, focusCtx);
 
   const addLinea = () => {
     emit([...linesEffective, { ...LINEA_VACIA }]);
@@ -114,6 +119,7 @@ export function DesgloseFiscalEditor({
                     placeholder="0,00"
                     onCommit={(n) => updateLinea(i, 'base', n)}
                     focusFieldId={`desglose_${i}_base`}
+                    desgloseCampo={`${i}_base`}
                   />
                 </View>
                 <View style={[styles.desgloseFieldGroup, { flex: 0.5 }]}>
@@ -123,6 +129,7 @@ export function DesgloseFiscalEditor({
                     placeholder="0"
                     onCommit={(n) => updateLinea(i, 'porcentaje', n)}
                     focusFieldId={`desglose_${i}_pct`}
+                    desgloseCampo={`${i}_pct`}
                   />
                 </View>
                 <View style={styles.desgloseFieldGroup}>

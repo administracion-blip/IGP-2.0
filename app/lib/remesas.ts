@@ -40,3 +40,50 @@ export const ESTADOS_FACTURA_REMESABLES = new Set([
   'parcialmente_pagada',
   'vencida',
 ]);
+
+/** Factura IN con sociedad ordenante (emisor_*) para agrupar remesas. */
+export type FacturaRemesaAgrupable = {
+  id_factura: string;
+  emisor_id?: string | null;
+  emisor_nombre?: string | null;
+};
+
+export type GrupoRemesaPorSociedad = {
+  sociedadId: string;
+  sociedadNombre: string;
+  facturas: FacturaRemesaAgrupable[];
+};
+
+/**
+ * Una remesa FIT = una sociedad ordenante (emisor_id en facturas IN).
+ * Varias sociedades en la selección → varios grupos / varias remesas.
+ */
+export function agruparFacturasRemesaPorSociedad(facturas: FacturaRemesaAgrupable[]): GrupoRemesaPorSociedad[] {
+  const map = new Map<string, GrupoRemesaPorSociedad>();
+  for (const f of facturas) {
+    const sociedadId = String(f.emisor_id ?? '').trim();
+    const sociedadNombre = String(f.emisor_nombre ?? '').trim();
+    const key = sociedadId || sociedadNombre || '__sin_sociedad__';
+    const prev = map.get(key);
+    if (prev) {
+      prev.facturas.push(f);
+    } else {
+      map.set(key, {
+        sociedadId,
+        sociedadNombre: sociedadNombre || 'Sin sociedad ordenante',
+        facturas: [f],
+      });
+    }
+  }
+  return [...map.values()];
+}
+
+/** Slug seguro para nombre de fichero de remesa (sociedad ordenante). */
+export function slugNombreArchivoRemesa(nombre: string | null | undefined): string {
+  return String(nombre || 'sociedad')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40) || 'sociedad';
+}

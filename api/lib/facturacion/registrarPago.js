@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { PutCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables, keyForFacturaPrincipalId } from '../db.js';
 import { queryPagosByFactura } from '../dynamo/facturasRelacionadas.js';
+import { METODO_PAGO_COMPENSACION } from './compensacionFactura.js';
 
 function uuid() {
   return crypto.randomUUID();
@@ -82,6 +83,13 @@ export async function registrarPagoFactura(opts) {
   const importeNum = round2(Number(importe));
   if (!importe || Number.isNaN(importeNum) || importeNum <= 0) {
     throw Object.assign(new Error('Importe debe ser mayor que 0'), { status: 400 });
+  }
+
+  if (String(metodo_pago || '').trim().toLowerCase() === METODO_PAGO_COMPENSACION) {
+    throw Object.assign(
+      new Error('La compensación entre facturas debe registrarse desde el flujo dedicado de compensación'),
+      { status: 400 },
+    );
   }
 
   const existing = await docClient.send(

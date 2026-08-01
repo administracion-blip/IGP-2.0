@@ -25,6 +25,7 @@ const SYNC_ITEMS = [
   { SK: 'compras_proveedor', Nombre: 'Compras a Proveedor', Descripcion: 'Importa albaranes de entrada desde Agora' },
   { SK: 'closeouts', Nombre: 'Cierres de Caja', Descripcion: 'Sincroniza cierres de caja desde Agora' },
   { SK: 'almacenes', Nombre: 'Almacenes', Descripcion: 'Sincroniza almacenes desde Agora' },
+  { SK: 'ventas_producto', Nombre: 'Ventas por producto', Descripcion: 'Sincroniza líneas de venta desde Agora (incentivos, planning…)' },
 ];
 
 async function run() {

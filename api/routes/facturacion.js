@@ -39,6 +39,13 @@ import {
 } from '../lib/ocrEnriquecerIa.js';
 import { aplicarPostProcesadoPipeline } from '../lib/ocrFacturaValidacion.js';
 import { registrarPagoFactura } from '../lib/facturacion/registrarPago.js';
+import {
+  filtrarFacturasCompensables,
+  registrarPagoCompensacion,
+  METODO_PAGO_COMPENSACION,
+  etiquetaFacturaCompensable,
+  saldoFirmadoFactura,
+} from '../lib/facturacion/compensacionFactura.js';
 import { emitirOValidarFacturaPorId } from '../lib/facturacion/emitirFactura.js';
 import {
   getSerieConfig,
@@ -55,6 +62,10 @@ import {
 } from '../lib/facturacion/construirFactura.js';
 import { nombreFicheroAdjuntoFacturaRecibida } from '../lib/facturacion/idDocumento.js';
 import { esDuplicadoFacturaProveedor } from '../lib/facturacion/duplicadosProveedor.js';
+import {
+  ERROR_PROVEEDOR_IGUAL_SOCIEDAD,
+  proveedorCoincideConSociedad,
+} from '../lib/facturacion/validarProveedorSociedad.js';
 import { limpiarMarcasFacturacionPeriodica } from '../lib/facturacion/marcasPeriodicas.js';
 import { requirePermission } from '../middleware/auth.js';
 import crypto from 'crypto';
@@ -887,6 +898,59 @@ router.get('/facturacion/facturas/:id/pagos', async (req, res) => {
   }
 });
 
+/** Facturas IN compensables con la origen (misma sociedad + proveedor, saldo ≠ 0). */
+router.get('/facturacion/facturas/:id/compensables', requirePermission('facturacion.cobrar_pagar'), async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const origenResult = await docClient.send(
+      new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }),
+    );
+    if (!origenResult.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    const origen = origenResult.Item;
+    if (origen.tipo !== 'IN') {
+      return res.status(400).json({ error: 'La compensación solo aplica a facturas de gasto' });
+    }
+
+    const todas = await scanAll(tables.facturas, '#t = :t', { ':t': 'IN' }, { '#t': 'tipo' });
+    const candidatas = filtrarFacturasCompensables(origen, todas).map((f) => ({
+      id_factura: f.id_factura,
+      numero_factura: f.numero_factura || '',
+      numero_factura_proveedor: f.numero_factura_proveedor || '',
+      empresa_nombre: f.empresa_nombre || '',
+      emisor_nombre: f.emisor_nombre || '',
+      fecha_emision: f.fecha_emision || '',
+      estado: f.estado || '',
+      total_factura: f.total_factura,
+      saldo_pendiente: saldoFirmadoFactura(f),
+      etiqueta: etiquetaFacturaCompensable(f),
+    }));
+    candidatas.sort((a, b) => String(b.fecha_emision || '').localeCompare(String(a.fecha_emision || '')));
+    res.json({ ok: true, facturas: candidatas });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Error al listar compensables' });
+  }
+});
+
+router.post('/facturacion/facturas/:id/pagos/compensacion', requirePermission('facturacion.cobrar_pagar'), async (req, res) => {
+  const b = req.body || {};
+  const { usuario_id, usuario_nombre } = usuarioAuditoria(req);
+  try {
+    const result = await registrarPagoCompensacion({
+      id_factura_origen: req.params.id,
+      facturas_compensar: b.facturas_compensar,
+      importe: b.importe,
+      fecha: b.fecha,
+      observaciones: b.observaciones,
+      usuario_id,
+      usuario_nombre,
+    });
+    res.json(result);
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message || 'Error al registrar compensación' });
+  }
+});
+
 /** Acepta JSON o multipart/form-data (campo archivo `recibo`). */
 function maybeUploadReciboPago(req, res, next) {
   const ct = req.headers['content-type'] || '';
@@ -916,6 +980,12 @@ router.post('/facturacion/facturas/:id/pagos', maybeUploadReciboPago, async (req
   const importeNum = round2(Number(importe));
   if (!importe || Number.isNaN(importeNum) || importeNum <= 0) {
     return res.status(400).json({ error: 'Importe debe ser mayor que 0' });
+  }
+
+  if (String(metodo_pago || '').trim().toLowerCase() === METODO_PAGO_COMPENSACION) {
+    return res.status(400).json({
+      error: 'La compensación entre facturas debe registrarse desde el flujo dedicado de compensación',
+    });
   }
 
   try {
@@ -1013,6 +1083,16 @@ router.put('/facturacion/pagos/:id_factura/:id_pago', async (req, res) => {
       new GetCommand({ TableName: tables.facturasPagos, Key: { id_factura, id_pago } }),
     );
     if (!pagoResult.Item) return res.status(404).json({ error: 'Pago no encontrado' });
+    if (String(pagoResult.Item.metodo_pago || '') === METODO_PAGO_COMPENSACION) {
+      return res.status(400).json({
+        error: 'Los pagos por compensación no se pueden editar. Contacta con administración si necesitas corregirlos.',
+      });
+    }
+    if (String(metodo_pago || '').trim().toLowerCase() === METODO_PAGO_COMPENSACION) {
+      return res.status(400).json({
+        error: 'La compensación entre facturas debe registrarse desde el flujo dedicado de compensación',
+      });
+    }
 
     const facResult = await docClient.send(
       new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura) }),
@@ -1077,6 +1157,11 @@ router.delete('/facturacion/pagos/:id_factura/:id_pago', async (req, res) => {
       new GetCommand({ TableName: tables.facturasPagos, Key: { id_factura, id_pago } })
     );
     if (!pagoResult.Item) return res.status(404).json({ error: 'Pago no encontrado' });
+    if (String(pagoResult.Item.metodo_pago || '') === METODO_PAGO_COMPENSACION) {
+      return res.status(400).json({
+        error: 'Los pagos por compensación no se pueden eliminar desde aquí. Contacta con administración si necesitas corregirlos.',
+      });
+    }
 
     await docClient.send(new DeleteCommand({ TableName: tables.facturasPagos, Key: { id_factura, id_pago } }));
 
@@ -2494,6 +2579,20 @@ router.post('/facturacion/ocr/confirmar', async (req, res) => {
   }
 
   try {
+    const activos = borradores.filter((b) => !b.descartado);
+    for (const b of activos) {
+      const emisorId = b.sociedad_grupo_id || b.emisor_id || '';
+      const emisorNombre = b.sociedad_grupo_nombre || b.emisor_nombre || '';
+      if (!emisorId && !emisorNombre) {
+        return res.status(400).json({
+          error: 'Falta la empresa del grupo (GRUPO PARIPE) en uno o más borradores. Selecciónala antes de confirmar.',
+        });
+      }
+      if (proveedorCoincideConSociedad(b)) {
+        return res.status(400).json({ error: ERROR_PROVEEDOR_IGUAL_SOCIEDAD });
+      }
+    }
+
     const creados = [];
     for (const b of borradores) {
       if (b.descartado) continue;
@@ -2530,11 +2629,6 @@ router.post('/facturacion/ocr/confirmar', async (req, res) => {
       const emisorId = b.sociedad_grupo_id || b.emisor_id || '';
       const emisorNombre = b.sociedad_grupo_nombre || b.emisor_nombre || '';
       const emisorCif = b.sociedad_grupo_cif || b.emisor_cif || '';
-      if (!emisorId && !emisorNombre) {
-        return res.status(400).json({
-          error: 'Falta la empresa del grupo (GRUPO PARIPE) en uno o más borradores. Selecciónala antes de confirmar.',
-        });
-      }
 
       let adjuntos = [];
       let documento_file_key = '';

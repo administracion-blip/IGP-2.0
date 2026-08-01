@@ -25,7 +25,7 @@ import {
 } from '../../../components/RegistrarPagoModal';
 import { useLocalToast, detectToastType } from '../../../components/Toast';
 import { useConfirmar } from '../../../hooks/useConfirmar';
-import { colorEstadoRemesa, labelEstadoRemesa } from '../../../lib/remesas';
+import { colorEstadoRemesa, labelEstadoRemesa, slugNombreArchivoRemesa } from '../../../lib/remesas';
 import type { LineaRemesa, Remesa } from '../../../types/remesas';
 import { hoyISO } from '../../../utils/facturaFormLogic';
 
@@ -125,7 +125,9 @@ export default function RemesaDetalleScreen() {
       const buffer = await res.arrayBuffer();
       const disp = res.headers.get('Content-Disposition') || '';
       const m = disp.match(/filename="?([^"]+)"?/);
-      const fileName = m?.[1] || `remesa-${remesa.sociedadCif}.xlsx`;
+      const nombreSlug = slugNombreArchivoRemesa(remesa.sociedadNombre);
+      const cif = String(remesa.sociedadCif || 'remesa').replace(/[^A-Za-z0-9]/g, '');
+      const fileName = m?.[1] || `remesa-${nombreSlug}-${cif}.xlsx`;
 
       if (Platform.OS === 'web') {
         const blob = new Blob([buffer], {

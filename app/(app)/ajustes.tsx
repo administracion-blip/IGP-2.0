@@ -94,6 +94,15 @@ const SYNC_ITEMS: SyncConfig[] = [
     descripcion: 'Sincroniza almacenes desde Agora',
   },
   {
+    id: 'ventas_producto',
+    label: 'Ventas por producto',
+    icon: 'receipt-long',
+    endpoint: '/api/agora/sales-lines/sync',
+    permiso: 'ajustes.sincronizaciones.ventas_producto',
+    descripcion: 'Líneas de venta de Agora (incentivos, planning…). El automático sincroniza el día anterior.',
+    bodyBuilder: () => ({ force: true }),
+  },
+  {
     id: 'empleados_factorial',
     label: 'Empleados',
     icon: 'badge',
@@ -271,13 +280,8 @@ export default function AjustesScreen() {
   const [infLastRun, setInfLastRun] = useState<string | null>(null);
   const [infDestCount, setInfDestCount] = useState<number | null>(null);
 
-  // --- Sync manual de ventas por producto (incentivos) ---
-  const puedeVentasSync = hasPermiso('ajustes.sincronizaciones.ventas_producto');
+  /** Rango (días) para el sync manual de ventas por producto (full-sync). */
   const [ventasSyncDays, setVentasSyncDays] = useState<number>(3);
-  const [ventasSyncing, setVentasSyncing] = useState(false);
-  const [ventasSyncResult, setVentasSyncResult] = useState<string | null>(null);
-  const [ventasSyncError, setVentasSyncError] = useState<string | null>(null);
-  const [ventasSyncLast, setVentasSyncLast] = useState<string | null>(null);
 
   const cargarEstados = useCallback(async () => {
     try {
@@ -675,16 +679,43 @@ export default function AjustesScreen() {
     }));
 
     try {
-      const body = item.bodyBuilder ? item.bodyBuilder() : {};
-      const res = await apiFetch(item.endpoint, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
+      let res: Response;
+      if (item.id === 'ventas_producto') {
+        // Manual con rango: full-sync de los últimos N días (chips 3/5/10).
+        const hoy = new Date();
+        const fechaFin = hoy.toISOString().slice(0, 10);
+        const inicio = new Date(hoy);
+        inicio.setDate(inicio.getDate() - (ventasSyncDays - 1));
+        const fechaInicio = inicio.toISOString().slice(0, 10);
+        res = await apiFetch('/api/agora/sales-lines/full-sync', {
+          method: 'POST',
+          body: JSON.stringify({ fechaInicio, fechaFin }),
+          // full-sync recorre varios días en Ágora; el default 30s corta la petición.
+          timeoutMs: 0,
+        });
+      } else {
+        const body = item.bodyBuilder ? item.bodyBuilder() : {};
+        res = await apiFetch(item.endpoint, {
+          method: 'POST',
+          body: JSON.stringify(body),
+          // Syncs Ágora/Factorial pueden superar el timeout por defecto (30s).
+          timeoutMs: 0,
+        });
+      }
       const data = await res.json();
 
       let resultMsg = '';
       if (data.skipped) {
         resultMsg = data.message || 'Sincronización omitida (reciente)';
+      } else if (data.totalItems != null) {
+        const errCount = Array.isArray(data.errors) ? data.errors.length : 0;
+        resultMsg =
+          `${data.daysProcessed ?? ventasSyncDays} días · ${data.totalItems} registros`
+          + (errCount > 0 ? ` · ${errCount} error(es)` : '');
+      } else if (data.items != null) {
+        resultMsg =
+          `Líneas: ${data.items}`
+          + (data.locales != null ? ` | Locales: ${data.locales}` : '');
       } else if (data.added != null || data.updated != null || data.unchanged != null) {
         resultMsg = `Añadidos: ${data.added ?? 0} | Actualizados: ${data.updated ?? 0} | Sin cambios: ${data.unchanged ?? 0}`;
       } else if (data.totalUpserted != null) {
@@ -710,11 +741,10 @@ export default function AjustesScreen() {
       }));
 
       try {
-        await apiFetch('/api/ajustes', {
-          method: 'POST',
+        // PATCH parcial: no pisar Enabled/Days/Times de la programación automática.
+        await apiFetch(`/api/ajustes/sincronizaciones/${item.id}`, {
+          method: 'PATCH',
           body: JSON.stringify({
-            PK: 'sincronizaciones',
-            SK: item.id,
             Nombre: item.label,
             UltimaSync: ahora,
             Estado: data.ok ? 'ok' : 'error',
@@ -733,7 +763,7 @@ export default function AjustesScreen() {
         },
       }));
     }
-  }, []);
+  }, [ventasSyncDays]);
 
   // --- Config modal helpers ---
   const abrirConfig = useCallback((id: string) => {
@@ -828,50 +858,6 @@ export default function AjustesScreen() {
   }, []);
 
   useEffect(() => { cargarInforme(); }, [cargarInforme]);
-
-  const cargarVentasSync = useCallback(async () => {
-    if (!puedeVentasSync) return;
-    try {
-      const res = await apiFetch('/api/campanas/ventas-sync');
-      const data = await res.json();
-      if (res.ok && data.ok) setVentasSyncLast(data.lastSync ?? null);
-    } catch (_) {}
-  }, [puedeVentasSync]);
-
-  useEffect(() => { cargarVentasSync(); }, [cargarVentasSync]);
-
-  const ejecutarVentasSync = useCallback(async () => {
-    setVentasSyncing(true);
-    setVentasSyncResult(null);
-    setVentasSyncError(null);
-    try {
-      const hoy = new Date();
-      const fechaFin = hoy.toISOString().slice(0, 10);
-      const inicio = new Date(hoy);
-      inicio.setDate(inicio.getDate() - (ventasSyncDays - 1));
-      const fechaInicio = inicio.toISOString().slice(0, 10);
-
-      const res = await apiFetch('/api/agora/sales-lines/full-sync', {
-        method: 'POST',
-        body: JSON.stringify({ fechaInicio, fechaFin }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setVentasSyncError(data.error || 'No se pudo sincronizar');
-        return;
-      }
-      const errCount = Array.isArray(data.errors) ? data.errors.length : 0;
-      setVentasSyncResult(
-        `${data.daysProcessed ?? ventasSyncDays} días · ${data.totalItems ?? 0} registros`
-        + (errCount > 0 ? ` · ${errCount} error(es)` : ''),
-      );
-      setVentasSyncLast(new Date().toISOString());
-    } catch (err: any) {
-      setVentasSyncError(err?.message || 'Error de conexión');
-    } finally {
-      setVentasSyncing(false);
-    }
-  }, [ventasSyncDays]);
 
   const toggleInfDay = useCallback((day: string) => {
     setInfDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]));
@@ -1034,7 +1020,7 @@ export default function AjustesScreen() {
 
           {loadingAjustes ? (
             <ActivityIndicator size="small" color="#0ea5e9" style={{ marginTop: 20 }} />
-          ) : visibleItems.length === 0 && !puedeVentasSync ? (
+          ) : visibleItems.length === 0 ? (
             <Text style={styles.emptyText}>No tienes permisos para ninguna sincronización</Text>
           ) : (
             <View style={styles.cardsGrid}>
@@ -1092,6 +1078,31 @@ export default function AjustesScreen() {
                       </View>
                     )}
 
+                    {/* Rango manual (solo ventas por producto → full-sync) */}
+                    {item.id === 'ventas_producto' && (
+                      <View style={styles.daySelBlock}>
+                        <View style={styles.daySelRow}>
+                          {VENTAS_SYNC_DAY_OPTIONS.map((n) => {
+                            const active = ventasSyncDays === n;
+                            return (
+                              <TouchableOpacity
+                                key={n}
+                                style={[styles.daySelChip, active && styles.daySelChipActive]}
+                                onPress={() => setVentasSyncDays(n)}
+                                disabled={st.syncing}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={[styles.daySelText, active && styles.daySelTextActive]}>{n} días</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                        <Text style={styles.daySelHint}>
+                          Rango del sync manual. El automático sincroniza el día anterior.
+                        </Text>
+                      </View>
+                    )}
+
                     {/* Resultado / Error */}
                     {st.result && !st.error && (
                       <View style={styles.resultBox}>
@@ -1128,86 +1139,6 @@ export default function AjustesScreen() {
                   </View>
                 );
               })}
-
-              {/* Card especial: sync manual de ventas por producto (incentivos) */}
-              {puedeVentasSync && (
-                <View style={[styles.card, gridCardStyle]}>
-                  <View style={styles.cardTop}>
-                    <View style={[styles.cardIconWrap, ventasSyncError ? styles.cardIconError : ventasSyncResult ? styles.cardIconOk : styles.cardIconDefault]}>
-                      <MaterialIcons name="receipt-long" size={20} color={ventasSyncError ? '#dc2626' : ventasSyncResult ? '#059669' : '#0369a1'} />
-                    </View>
-                    <View style={styles.cardInfo}>
-                      <Text style={styles.cardTitle} numberOfLines={1}>Ventas por producto</Text>
-                      <Text style={styles.cardDesc} numberOfLines={2}>
-                        Re-sincroniza las líneas de venta de Agora (incentivos) de los últimos días.
-                      </Text>
-                    </View>
-                    <View style={{ width: 22 }} />
-                  </View>
-
-                  {/* Estado + última sync (igual que el resto de cards) */}
-                  <View style={styles.cardStatusRow}>
-                    <View style={[styles.statusBadge, styles.statusBadgeOff]}>
-                      <View style={[styles.statusDot, styles.statusDotOff]} />
-                      <Text style={[styles.statusText, styles.statusTextOff]}>Manual</Text>
-                    </View>
-                    <View style={styles.cardMetaRow}>
-                      <MaterialIcons name="schedule" size={11} color="#94a3b8" />
-                      <Text style={styles.cardMetaText}>{formatFechaHora(ventasSyncLast)}</Text>
-                    </View>
-                  </View>
-
-                  {/* Selector de rango compacto */}
-                  <View style={styles.daySelRow}>
-                    {VENTAS_SYNC_DAY_OPTIONS.map((n) => {
-                      const active = ventasSyncDays === n;
-                      return (
-                        <TouchableOpacity
-                          key={n}
-                          style={[styles.daySelChip, active && styles.daySelChipActive]}
-                          onPress={() => setVentasSyncDays(n)}
-                          disabled={ventasSyncing}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={[styles.daySelText, active && styles.daySelTextActive]}>{n} días</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-
-                  {ventasSyncResult && !ventasSyncError && (
-                    <View style={styles.resultBox}>
-                      <MaterialIcons name="check-circle" size={12} color="#059669" />
-                      <Text style={styles.resultText} numberOfLines={2}>{ventasSyncResult}</Text>
-                    </View>
-                  )}
-                  {ventasSyncError && (
-                    <View style={styles.errorBox}>
-                      <MaterialIcons name="error-outline" size={12} color="#dc2626" />
-                      <Text style={styles.errorText} numberOfLines={2}>{ventasSyncError}</Text>
-                    </View>
-                  )}
-
-                  <TouchableOpacity
-                    style={[styles.syncBtn, ventasSyncing && styles.syncBtnDisabled]}
-                    onPress={ejecutarVentasSync}
-                    disabled={ventasSyncing}
-                    activeOpacity={0.7}
-                  >
-                    {ventasSyncing ? (
-                      <>
-                        <ActivityIndicator size="small" color="#fff" />
-                        <Text style={styles.syncBtnText}>Sincronizando…</Text>
-                      </>
-                    ) : (
-                      <>
-                        <MaterialIcons name="sync" size={15} color="#fff" />
-                        <Text style={styles.syncBtnText}>Sincronizar</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              )}
             </View>
           )}
         </View>
@@ -2576,6 +2507,7 @@ const styles = StyleSheet.create({
   timesPreview: { fontSize: 10, color: '#64748b', fontWeight: '500' },
 
   /* Selector de rango (ventas por producto) — escala de chips del card */
+  daySelBlock: { gap: 4 },
   daySelRow: { flexDirection: 'row', gap: 4 },
   daySelChip: {
     flex: 1,
@@ -2589,6 +2521,7 @@ const styles = StyleSheet.create({
   daySelChipActive: { backgroundColor: '#dbeafe' },
   daySelText: { fontSize: 10, fontWeight: '600', color: '#64748b' },
   daySelTextActive: { color: '#1d4ed8' },
+  daySelHint: { fontSize: 10, color: '#94a3b8', lineHeight: 13 },
 
   /* Result / Error */
   resultBox: {

@@ -12,10 +12,19 @@ function formatId6(val) {
   return String(Math.max(0, n)).padStart(6, '0');
 }
 
+function idEmpresaCoincide(a, b) {
+  if (a == null || b == null || a === '' || b === '') return false;
+  return formatId6(a) === formatId6(b);
+}
+
 function normalizarEtiqueta(val) {
   if (Array.isArray(val)) return val.map((x) => String(x).trim()).filter(Boolean);
   if (val != null && val !== '') return [String(val).trim()];
   return [];
+}
+
+function trimCampoString(val) {
+  return val != null && val !== '' ? String(val).trim() : '';
 }
 
 const TABLE_EMPRESAS_ATTRS = ['id_empresa', 'Nombre', 'Cif', 'Iban', 'IbanAlternativo', 'Direccion', 'Cp', 'Municipio', 'Provincia', 'Email', 'Telefono', 'Tipo de recibo', 'Vencimiento', 'Etiqueta', 'Cuenta contable', 'Administrador', 'Sede', 'CCC'];
@@ -49,7 +58,7 @@ router.get('/empresas', async (req, res) => {
 
 router.get('/empresas/check-cif', async (req, res) => {
   const cif = normalizeCif(req.query?.cif);
-  const excludeId = req.query?.excludeId != null ? String(req.query.excludeId).trim() : '';
+  const excludeId = req.query?.excludeId != null ? formatId6(req.query.excludeId) : '';
   if (!cif) return res.status(400).json({ error: 'cif es obligatorio' });
   try {
     const items = [];
@@ -65,7 +74,7 @@ router.get('/empresas/check-cif', async (req, res) => {
     } while (lastKey);
     const exists = items.some((item) => {
       const itemCif = normalizeCif(getCifFromEmpresaItem(item));
-      return itemCif && itemCif === cif && getIdEmpresaFromItem(item) !== excludeId;
+      return itemCif && itemCif === cif && !idEmpresaCoincide(getIdEmpresaFromItem(item), excludeId);
     });
     return res.json({ exists });
   } catch (err) {
@@ -116,8 +125,7 @@ router.post('/empresas', async (req, res) => {
       } else if (key === 'Cif') {
         item[key] = cifValue;
       } else {
-        const v = body[key];
-        item[key] = v != null && v !== '' ? String(v) : '';
+        item[key] = trimCampoString(body[key]);
       }
     }
     await docClient.send(new PutCommand({
@@ -137,8 +145,10 @@ router.post('/empresas', async (req, res) => {
 
 router.put('/empresas', async (req, res) => {
   const body = req.body || {};
-  const idEmpresa = body.id_empresa != null ? String(body.id_empresa) : '';
-  if (!idEmpresa) return res.status(400).json({ error: 'id_empresa es obligatorio para editar' });
+  const idSolicitado = body.id_empresa != null ? formatId6(body.id_empresa) : '';
+  if (!idSolicitado || idSolicitado === '000000') {
+    return res.status(400).json({ error: 'id_empresa es obligatorio para editar' });
+  }
   if (!body.Nombre || !String(body.Nombre).trim()) return res.status(400).json({ error: 'Nombre es obligatorio' });
   if (!body.Cif || !String(body.Cif).trim()) return res.status(400).json({ error: 'CIF es obligatorio' });
   const cifValue = normalizeCif(body.Cif);
@@ -154,19 +164,20 @@ router.put('/empresas', async (req, res) => {
       items.push(...(result.Items || []));
       lastKey = result.LastEvaluatedKey || null;
     } while (lastKey);
+    const existingItem = items.find((item) => idEmpresaCoincide(getIdEmpresaFromItem(item), idSolicitado));
+    if (!existingItem) return res.status(404).json({ error: 'Empresa no encontrada' });
+
     const dup = items.find(
-      (item) => normalizeCif(getCifFromEmpresaItem(item)) === cifValue && getIdEmpresaFromItem(item) !== idEmpresa
+      (item) =>
+        normalizeCif(getCifFromEmpresaItem(item)) === cifValue
+        && !idEmpresaCoincide(getIdEmpresaFromItem(item), idSolicitado),
     );
     if (dup) {
       return res.status(409).json({ error: 'CIF ya existe' });
     }
 
-    const getCmd = new GetCommand({
-      TableName: tableEmpresasName,
-      Key: { id_empresa: idEmpresa },
-    });
-    const got = await docClient.send(getCmd);
-    const existing = got.Item || {};
+    const idEmpresa = getIdEmpresaFromItem(existingItem);
+    const existing = existingItem;
     const item = {};
     for (const key of TABLE_EMPRESAS_ATTRS) {
       if (key === 'id_empresa') item[key] = idEmpresa;
@@ -176,7 +187,7 @@ router.put('/empresas', async (req, res) => {
         item[key] = cifValue;
       } else {
         const v = body[key];
-        item[key] = v != null && v !== '' ? String(v) : String(existing[key] ?? '');
+        item[key] = v != null && v !== '' ? trimCampoString(v) : trimCampoString(existing[key] ?? '');
       }
     }
     await docClient.send(new PutCommand({

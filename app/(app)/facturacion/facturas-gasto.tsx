@@ -17,17 +17,15 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { InputFecha } from '../../components/InputFecha';
-import { DatosParaPago, RegistrarPagoModal, type RegistrarPagoPayloadFactura } from '../../components/RegistrarPagoModal';
+import { RegistrarPagoModal, type RegistrarPagoInitial, type RegistrarPagoPayloadFactura } from '../../components/RegistrarPagoModal';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { SelectorDesplegableMulti } from '../../components/SelectorDesplegableMulti';
 import {
   colorEstado,
   ESTADOS_IN,
   formatMoneda,
-  FORMAS_PAGO,
   labelFormaPago,
   mapTipoReciboToFormaPago,
-  resolveMetodoPagoParaEnvio,
 } from '../../utils/facturacion';
 import type { FacturaListado } from '../../types/factura';
 import {
@@ -57,11 +55,17 @@ import {
   eliminarPagoFactura,
   fetchPagosFactura,
   pagoRecordToInitial,
+  registrarPagoFacturaApi,
   type PagoDetalleRow,
 } from '../../lib/pagosFacturaDetalle';
+import { esMetodoCompensacion } from '../../lib/compensacionFactura';
 import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
 import { apiFetch } from '../../utils/api';
-import { ESTADOS_FACTURA_REMESABLES, esFacturaSeleccionableEnListado } from '../../lib/remesas';
+import {
+  ESTADOS_FACTURA_REMESABLES,
+  agruparFacturasRemesaPorSociedad,
+  esFacturaSeleccionableEnListado,
+} from '../../lib/remesas';
 import { descargarAdjuntoFacturaRecibida } from '../../lib/descargarAdjuntoFactura';
 import { textoTrimestreFactura, trimestreDesdeFechaEmision } from '../../lib/idDocumentoFactura';
 import { buildEmpresasDesdeFacturasHref } from '../../lib/navegacionEmpresas';
@@ -300,12 +304,7 @@ export default function FacturasGastoScreen() {
 
   const [modalBorrar, setModalBorrar] = useState(false);
   const [modalPagar, setModalPagar] = useState(false);
-  const [pagoImporte, setPagoImporte] = useState('');
-  const [pagoFecha, setPagoFecha] = useState('');
-  const [pagoMetodo, setPagoMetodo] = useState('transferencia');
-  const [pagoMetodoOtro, setPagoMetodoOtro] = useState('');
-  const [pagoFechaEditadaManual, setPagoFechaEditadaManual] = useState(false);
-  const [pagoReferencia, setPagoReferencia] = useState('');
+  const [pagoRegistrarInitial, setPagoRegistrarInitial] = useState<RegistrarPagoInitial>({});
   const [empresasCatalogo, setEmpresasCatalogo] = useState<EmpresaConTipoRecibo[]>([]);
 
   const [modalDetallePagosVisible, setModalDetallePagosVisible] = useState(false);
@@ -710,9 +709,13 @@ export default function FacturasGastoScreen() {
   }, [detallePagosFactura?.id_factura, fetchFacturas]);
 
   const handleEditarPagoDetalle = useCallback((pago: PagoDetalleRow) => {
+    if (esMetodoCompensacion(pago.metodo_pago)) {
+      showToast('No editable', 'Los pagos por compensación no se pueden editar', 'warning');
+      return;
+    }
     setPagoDetalleEditando(pago);
     setModalEditarPagoDetalle(true);
-  }, []);
+  }, [showToast]);
 
   const handleBorrarPagoDetalle = useCallback(async (pago: PagoDetalleRow) => {
     if (!detallePagosFactura?.id_factura || !pago.id_pago) return;
@@ -728,6 +731,7 @@ export default function FacturasGastoScreen() {
         detallePagosFactura.id_factura,
         String(pago.id_pago),
         { id: user?.id_usuario, nombre: user?.Nombre },
+        pago,
       );
       showToast('Eliminado', 'Pago eliminado correctamente', 'success');
       sincronizarFacturaTrasPago(factura);
@@ -779,29 +783,43 @@ export default function FacturasGastoScreen() {
 
   const abrirModalPagar = () => {
     if (!selectedFactura) return;
-    setPagoFechaEditadaManual(false);
-    setPagoImporte(String(selectedFactura.saldo_pendiente ?? 0));
-    setPagoReferencia('');
-
+    const saldo = Number(selectedFactura.saldo_pendiente ?? 0);
     const tipoRecibo = getTipoReciboFromEmpresasList(empresasCatalogo, selectedFactura.empresa_id);
     const { clave, otroTexto } = mapTipoReciboToFormaPago(tipoRecibo);
-    setPagoMetodo(clave);
-    setPagoMetodoOtro(clave === 'otro' ? otroTexto : '');
-
     const hoy = hoyISO();
     const fechaFactura = fechaEmisionFacturaAIso(selectedFactura.fecha_emision ?? '') ?? hoy;
-    setPagoFecha(clave === 'tarjeta' ? fechaFactura : hoy);
-
+    setPagoRegistrarInitial({
+      importe: String(Math.abs(saldo) || ''),
+      metodo: clave,
+      metodoOtro: clave === 'otro' ? otroTexto : '',
+      fecha: clave === 'tarjeta' ? fechaFactura : hoy,
+    });
     setModalPagar(true);
   };
 
-  const onCambiarMetodoPago = (m: string) => {
-    setPagoMetodo(m);
-    if (m !== 'otro') setPagoMetodoOtro('');
-    if (!selectedFactura || pagoFechaEditadaManual) return;
-    const hoy = hoyISO();
-    const fechaFactura = fechaEmisionFacturaAIso(selectedFactura.fecha_emision ?? '') ?? hoy;
-    setPagoFecha(m === 'tarjeta' ? fechaFactura : hoy);
+  const handleRegistrarPagoListado = async (payload: RegistrarPagoPayloadFactura) => {
+    if (!selectedFactura) return;
+    setProcesando(true);
+    try {
+      await registrarPagoFacturaApi(selectedFactura.id_factura, payload, {
+        id: user?.id_usuario,
+        nombre: user?.Nombre,
+      });
+      setModalPagar(false);
+      showToast(
+        'Registrado',
+        payload.metodo_pago === 'compensacion'
+          ? 'Compensación registrada correctamente'
+          : 'Pago registrado correctamente',
+        'success',
+      );
+      fetchFacturas();
+      setSelectedId(null);
+    } catch (e: unknown) {
+      showToast('Error', e instanceof Error ? e.message : 'Error al registrar el pago', 'error');
+    } finally {
+      setProcesando(false);
+    }
   };
 
   const verDocumento = async () => {
@@ -913,47 +931,17 @@ export default function FacturasGastoScreen() {
     }
   };
 
-  const handlePagar = async () => {
-    if (!selectedFactura) return;
-    const importe = parseFloat(pagoImporte.replace(',', '.'));
-    if (!importe || importe <= 0) { showToast('Aviso', 'El importe debe ser mayor que 0', 'warning'); return; }
-    const fechaIso = pagoFecha.trim();
-    if (!fechaIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) { showToast('Aviso', 'Indica una fecha válida', 'warning'); return; }
-    const metodoEnvio = resolveMetodoPagoParaEnvio(pagoMetodo, pagoMetodoOtro);
-    if (metodoEnvio == null) {
-      showToast('Aviso', 'Describe el método de pago si eliges «Otro»', 'warning');
-      return;
-    }
-    setProcesando(true);
-    try {
-      const res = await apiFetch(`/api/facturacion/facturas/${selectedFactura.id_factura}/pagos`, {
-        method: 'POST',
-        body: JSON.stringify({
-          fecha: fechaIso,
-          importe,
-          metodo_pago: metodoEnvio,
-          referencia: pagoReferencia.trim() || undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error al registrar pago');
-      setModalPagar(false);
-      fetchFacturas();
-      setSelectedId(null);
-    } catch (e: unknown) {
-      showToast('Error', e instanceof Error ? e.message : 'Error al registrar el pago', 'error');
-    } finally {
-      setProcesando(false);
-    }
-  };
-
   const isBtnDisabled = (btn: ToolbarBtn) => {
     if (procesando) return true;
     if (modoSeleccion && btn.needsSelection) return true;
     if (btn.needsSelection && selectedId == null) return true;
     if (btn.id === 'emitir' && selectedFactura?.estado !== 'borrador') return true;
     if (btn.id === 'validar' && selectedFactura?.estado !== 'pendiente_revision') return true;
-    if (btn.id === 'pagar' && selectedFactura && (selectedFactura.estado === 'anulada' || selectedFactura.estado === 'pagada' || selectedFactura.estado === 'borrador')) return true;
+    if (btn.id === 'pagar' && selectedFactura && (
+      selectedFactura.estado === 'anulada'
+      || selectedFactura.estado === 'pagada'
+      || selectedFactura.estado === 'borrador'
+    )) return true;
     return false;
   };
 
@@ -972,15 +960,10 @@ export default function FacturasGastoScreen() {
     [facturasSeleccionadas],
   );
 
-  const sociedadRemesa = useMemo(() => {
-    const ids = new Set(facturasSeleccionadasRemesa.map((f) => f.emisor_id).filter(Boolean));
-    if (ids.size !== 1) return null;
-    const f0 = facturasSeleccionadasRemesa[0];
-    return {
-      id: String(f0?.emisor_id || ''),
-      nombre: String(f0?.emisor_nombre || ''),
-    };
-  }, [facturasSeleccionadasRemesa]);
+  const gruposRemesaPorSociedad = useMemo(
+    () => agruparFacturasRemesaPorSociedad(facturasSeleccionadasRemesa),
+    [facturasSeleccionadasRemesa],
+  );
 
   const proveedoresNoTransferenciaRemesa = useMemo(
     () => listProveedoresNoTransferenciaRemesa(facturasSeleccionadasRemesa, empresasCatalogo),
@@ -1009,8 +992,13 @@ export default function FacturasGastoScreen() {
       showToast('Aviso', 'Selecciona facturas pendientes de pago, parcialmente pagadas o vencidas', 'warning');
       return;
     }
-    if (!sociedadRemesa) {
-      showToast('Aviso', 'Todas las facturas deben ser de la misma empresa (sociedad ordenante)', 'warning');
+    const sinSociedad = gruposRemesaPorSociedad.filter((g) => !g.sociedadId);
+    if (sinSociedad.length > 0) {
+      showToast(
+        'Aviso',
+        `${sinSociedad.reduce((n, g) => n + g.facturas.length, 0)} factura(s) sin sociedad ordenante (emisor). Complétalas antes de crear la remesa.`,
+        'warning',
+      );
       return;
     }
     const hoy = new Date();
@@ -1021,12 +1009,17 @@ export default function FacturasGastoScreen() {
   };
 
   const crearRemesa = async () => {
-    if (!sociedadRemesa || facturasSeleccionadasRemesa.length === 0) return;
-    const nombre = remesaNombre.trim();
-    if (!nombre) {
+    if (gruposRemesaPorSociedad.length === 0 || facturasSeleccionadasRemesa.length === 0) return;
+    const nombreBase = remesaNombre.trim();
+    if (!nombreBase) {
       showToast('Aviso', 'Indica un nombre para la remesa', 'warning');
       return;
     }
+
+    const variasSociedades = gruposRemesaPorSociedad.length > 1;
+    const confirmarLabel = variasSociedades
+      ? `Crear ${gruposRemesaPorSociedad.length} remesas`
+      : 'Crear remesa';
 
     if (proveedoresNoTransferenciaRemesa.length > 0) {
       const lista = proveedoresNoTransferenciaRemesa
@@ -1039,33 +1032,70 @@ export default function FacturasGastoScreen() {
       const ok = await confirmar(
         'Tipo de recibo distinto de transferencia',
         `${proveedoresNoTransferenciaRemesa.length} proveedor${proveedoresNoTransferenciaRemesa.length !== 1 ? 'es' : ''} no tienen «Transferencia» en su ficha:\n\n${lista}${extra}\n\nPuedes crear la remesa igualmente. ¿Continuar?`,
-        { confirmarLabel: 'Crear remesa' },
+        { confirmarLabel },
       );
       if (!ok) return;
     }
 
     setProcesando(true);
     try {
-      const res = await apiFetch('/api/remesas', {
-        method: 'POST',
-        body: JSON.stringify({
-          nombre,
-          sociedadId: sociedadRemesa.id,
-          facturaIds: facturasSeleccionadasRemesa.map((f) => f.id_factura),
-          fechaEjecucion: remesaFechaEjecucion || undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error al crear remesa');
+      const creadas: { remesaId: string; nombre: string; excluidas: number }[] = [];
+      let totalExcluidas = 0;
+
+      for (const grupo of gruposRemesaPorSociedad) {
+        const nombre = variasSociedades
+          ? `${nombreBase} — ${grupo.sociedadNombre}`
+          : nombreBase;
+        const res = await apiFetch('/api/remesas', {
+          method: 'POST',
+          body: JSON.stringify({
+            nombre,
+            sociedadId: grupo.sociedadId,
+            facturaIds: grupo.facturas.map((f) => f.id_factura),
+            fechaEjecucion: remesaFechaEjecucion || undefined,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(
+            data.error
+              ? `${grupo.sociedadNombre}: ${data.error}`
+              : `Error al crear remesa de ${grupo.sociedadNombre}`,
+          );
+        }
+        const excl = Array.isArray(data.excluidas) ? data.excluidas.length : 0;
+        totalExcluidas += excl;
+        creadas.push({
+          remesaId: data.remesa.remesaId,
+          nombre: data.remesa.nombre || nombre,
+          excluidas: excl,
+        });
+      }
+
       setModalRemesa(false);
       setModoSeleccion(false);
       setSelectedMultiIds(new Set());
-      if (data.excluidas?.length) {
-        showToast('Remesa creada', `${data.excluidas.length} factura(s) excluida(s)`, 'warning');
-      } else {
-        showToast('Remesa creada', 'Redirigiendo al detalle…', 'success');
+
+      if (creadas.length === 1) {
+        const msg = totalExcluidas > 0
+          ? `${totalExcluidas} factura(s) excluida(s)`
+          : 'Redirigiendo al detalle…';
+        showToast('Remesa creada', msg, totalExcluidas > 0 ? 'warning' : 'success');
+        router.push(`/facturacion/remesas/${creadas[0].remesaId}` as never);
+        return;
       }
-      router.push(`/facturacion/remesas/${data.remesa.remesaId}` as never);
+
+      const resumen = creadas
+        .map((r) => `${r.nombre}${r.excluidas ? ` (${r.excluidas} excl.)` : ''}`)
+        .join('\n');
+      showToast(
+        `${creadas.length} remesas creadas`,
+        totalExcluidas > 0
+          ? `${resumen}\n\n${totalExcluidas} factura(s) excluida(s) en total.`
+          : resumen,
+        totalExcluidas > 0 ? 'warning' : 'success',
+      );
+      router.push('/facturacion/remesas' as never);
     } catch (e: unknown) {
       showToast('Error', e instanceof Error ? e.message : 'No se pudo crear la remesa', 'error');
     } finally {
@@ -1690,8 +1720,20 @@ export default function FacturasGastoScreen() {
           <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.modalTitle}>Crear remesa de pago</Text>
             <Text style={styles.modalLabel}>
-              {facturasSeleccionadasRemesa.length} factura(s) · Sociedad: {sociedadRemesa?.nombre || '—'}
+              {facturasSeleccionadasRemesa.length} factura(s)
+              {gruposRemesaPorSociedad.length === 1
+                ? ` · Sociedad: ${gruposRemesaPorSociedad[0]?.sociedadNombre || '—'}`
+                : ` · ${gruposRemesaPorSociedad.length} remesas (una por sociedad ordenante)`}
             </Text>
+            {gruposRemesaPorSociedad.length > 1 ? (
+              <View style={styles.modalGruposRemesa}>
+                {gruposRemesaPorSociedad.map((g) => (
+                  <Text key={g.sociedadId || g.sociedadNombre} style={styles.modalGrupoRemesaLinea}>
+                    · {g.sociedadNombre}: {g.facturas.length} factura{g.facturas.length !== 1 ? 's' : ''}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
             {proveedoresNoTransferenciaRemesa.length > 0 ? (
               <View style={styles.modalAvisoTipoRecibo}>
                 <MaterialIcons name="warning-amber" size={18} color="#b45309" />
@@ -1737,7 +1779,11 @@ export default function FacturasGastoScreen() {
                 {procesando ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text style={styles.modalBtnConfirmText}>Crear remesa</Text>
+                  <Text style={styles.modalBtnConfirmText}>
+                    {gruposRemesaPorSociedad.length > 1
+                      ? `Crear ${gruposRemesaPorSociedad.length} remesas`
+                      : 'Crear remesa'}
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -1782,25 +1828,24 @@ export default function FacturasGastoScreen() {
       </Modal>
 
       {/* Modal Pagar */}
-      <Modal visible={modalPagar} transparent animationType="fade" onRequestClose={() => setModalPagar(false)}>
-        <Pressable style={styles.modalOverlay} onPress={() => !procesando && setModalPagar(false)}>
-          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Registrar pago</Text>
-            {selectedFactura?.emisor_nombre ? (
-              <View style={styles.modalEmpresaChipRow}>
-                <Text style={styles.modalEmpresaChipLabel}>Empresa</Text>
-                <View style={styles.modalEmpresaChip}>
-                  <Text style={styles.modalEmpresaChipText} numberOfLines={1}>
-                    {selectedFactura.emisor_nombre}
-                  </Text>
-                </View>
-              </View>
-            ) : null}
-            <Text style={styles.modalLabel}>Factura: {selectedFactura?.id_factura} — Saldo: {selectedFactura ? formatMoneda(Number(selectedFactura.saldo_pendiente) || 0) : ''}</Text>
-
-            <DatosParaPago
-              datosPago={selectedFactura ? (() => {
-                const { iban, ibanAlternativo } = resolverIbanBeneficiarioFactura(selectedFactura, empresasCatalogo);
+      <RegistrarPagoModal
+        visible={modalPagar}
+        onClose={() => !procesando && setModalPagar(false)}
+        modo="factura"
+        variant="pago"
+        initial={pagoRegistrarInitial}
+        fechaReferenciaTarjeta={
+          selectedFactura
+            ? fechaEmisionFacturaAIso(selectedFactura.fecha_emision ?? '') ?? undefined
+            : undefined
+        }
+        datosPago={
+          selectedFactura
+            ? (() => {
+                const { iban, ibanAlternativo } = resolverIbanBeneficiarioFactura(
+                  selectedFactura,
+                  empresasCatalogo,
+                );
                 return {
                   beneficiario: selectedFactura.empresa_nombre ?? '',
                   iban,
@@ -1812,80 +1857,16 @@ export default function FacturasGastoScreen() {
                     observaciones: selectedFactura.observaciones,
                   }),
                 };
-              })() : undefined}
-            />
-
-            <View style={[styles.modalPagoFechaMetodoRow, shouldStackToolbar && styles.modalPagoFechaMetodoRowStacked]}>
-              <View style={styles.modalPagoFechaCell}>
-                <Text style={styles.modalFieldLabelInline}>Fecha del pago *</Text>
-                <InputFecha
-                  compact
-                  valueIso={pagoFecha}
-                  onChangeIso={(v) => {
-                    setPagoFecha(v);
-                    setPagoFechaEditadaManual(true);
-                  }}
-                  placeholder="dd/mm/aaaa"
-                  style={styles.dateFilterInput}
-                />
-              </View>
-              <View style={styles.modalPagoMetodoCell}>
-                <Text style={styles.modalFieldLabelInline}>Método de pago</Text>
-                <SelectorDesplegable
-                  compact
-                  icono="payments"
-                  tituloLista="Método de pago"
-                  iconoLista="payments"
-                  valorId={pagoMetodo}
-                  opciones={FORMAS_PAGO.map((m) => ({ id: m, titulo: labelFormaPago(m), icono: 'payments' as const }))}
-                  onSeleccionar={(id) => onCambiarMetodoPago(id)}
-                />
-              </View>
-            </View>
-
-            <Text style={styles.modalFieldLabel}>Importe</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={pagoImporte}
-              onChangeText={setPagoImporte}
-              placeholder="0,00"
-              placeholderTextColor="#94a3b8"
-              keyboardType="decimal-pad"
-            />
-
-            {pagoMetodo === 'otro' && (
-              <>
-                <Text style={styles.modalFieldLabel}>Describe el método *</Text>
-                <TextInput
-                  style={styles.modalInput}
-                  value={pagoMetodoOtro}
-                  onChangeText={setPagoMetodoOtro}
-                  placeholder="Ej. Cheque, PayPal…"
-                  placeholderTextColor="#94a3b8"
-                />
-              </>
-            )}
-
-            <Text style={styles.modalFieldLabel}>Referencia (opcional)</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={pagoReferencia}
-              onChangeText={setPagoReferencia}
-              placeholder="Nº transferencia, cheque…"
-              placeholderTextColor="#94a3b8"
-            />
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setModalPagar(false)} disabled={procesando}>
-                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalBtnConfirm, procesando && styles.modalBtnDisabled]} onPress={handlePagar} disabled={procesando}>
-                {procesando ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.modalBtnConfirmText}>Pagar</Text>}
-              </TouchableOpacity>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+              })()
+            : undefined
+        }
+        habilitarCompensacion
+        facturaId={selectedFactura?.id_factura}
+        saldoOrigen={Number(selectedFactura?.saldo_pendiente ?? 0)}
+        submitting={procesando}
+        onValidationError={(titulo, mensaje) => showToast(titulo, mensaje, 'warning')}
+        onSubmit={handleRegistrarPagoListado}
+      />
 
       <Modal visible={modalDetallePagosVisible} transparent animationType="fade" onRequestClose={cerrarModalDetallePagos}>
         <Pressable style={styles.modalOverlay} onPress={cerrarModalDetallePagos}>
@@ -2358,6 +2339,17 @@ const styles = StyleSheet.create({
     color: '#0369a1',
   },
   modalWarningTitle: { fontSize: 13, fontWeight: '700', color: '#b45309', marginBottom: 8 },
+  modalGruposRemesa: {
+    marginBottom: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    gap: 2,
+  },
+  modalGrupoRemesaLinea: { fontSize: 11, color: '#475569', lineHeight: 16 },
   modalAvisoTipoRecibo: {
     flexDirection: 'row',
     alignItems: 'flex-start',

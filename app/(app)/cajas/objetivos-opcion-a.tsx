@@ -140,11 +140,11 @@ const CHIP_TAB_PASTEL = {
   medias: { bg: '#f8fafc', bgSel: '#fef3c7', border: '#e2e8f0', borderSel: '#fcd34d', text: '#475569', textSel: '#92400e' },
 } as const;
 
-function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
+function KpiCard({ label, value, color, compact }: { label: string; value: string; color?: string; compact?: boolean }) {
   return (
-    <View style={styles.kpiCard}>
+    <View style={[styles.kpiCard, compact && styles.kpiCardCompact]}>
       <Text style={styles.kpiLabel} numberOfLines={1}>{label}</Text>
-      <Text style={[styles.kpiValue, color ? { color } : null]} numberOfLines={1}>{value}</Text>
+      <Text style={[styles.kpiValue, compact && styles.kpiValueCompact, color ? { color } : null]} numberOfLines={1}>{value}</Text>
     </View>
   );
 }
@@ -1318,6 +1318,13 @@ export default function ObjetivosOpcionAScreen() {
         </View>
       </View>
 
+      <ScrollView
+        style={styles.mainScroll}
+        contentContainerStyle={styles.mainScrollContent}
+        showsVerticalScrollIndicator
+        keyboardShouldPersistTaps="handled"
+        {...(Platform.OS === 'web' ? ({ scrollbarGutter: 'stable' } as object) : {})}
+      >
       <View style={[styles.toolbar, descargasMenuOpen && styles.toolbarOnTop, { paddingLeft: Math.max(12, insets.left), paddingRight: Math.max(12, insets.right) }]}>
         <View style={[styles.filaPeriodo, shouldStackToolbar && styles.filaPeriodoStack]}>
           <SelectorRangoSemana
@@ -1346,83 +1353,95 @@ export default function ObjetivosOpcionAScreen() {
           </View>
         </View>
 
-        <View style={[styles.filaFechas, shouldStackToolbar && styles.filaFechasStack]}>
-          <View style={styles.formGroup}>
-            <Text style={styles.formLabel}>Desde</Text>
-            <InputFecha valueIso={fechaInicio} onChangeIso={setFechaInicio} placeholder="dd/mm/aaaa" style={styles.formInput} />
+        <View style={[styles.toolbarFilaUnica, shouldStackToolbar && styles.toolbarFilaUnicaStack]}>
+          <View style={[styles.toolbarFiltros, shouldStackToolbar && styles.toolbarFiltrosStack]}>
+            <View style={[styles.formGroup, !shouldStackToolbar && styles.formGroupCompact]}>
+              <Text style={styles.formLabel}>Desde</Text>
+              <InputFecha valueIso={fechaInicio} onChangeIso={setFechaInicio} placeholder="dd/mm/aaaa" style={styles.formInput} />
+            </View>
+            <View style={[styles.formGroup, !shouldStackToolbar && styles.formGroupCompact]}>
+              <Text style={styles.formLabel}>Hasta</Text>
+              <InputFecha valueIso={fechaFin} onChangeIso={setFechaFin} placeholder="dd/mm/aaaa" style={styles.formInput} />
+            </View>
+            <View style={[styles.formGroup, styles.formGroupWide, !shouldStackToolbar && styles.formGroupLocalCompact]}>
+              <SelectorDesplegable
+                label="Local"
+                icono="store"
+                placeholder="Selecciona un local"
+                tituloLista="Selecciona un local"
+                iconoLista="store"
+                loading={loadingLocales}
+                vacioTexto="No hay locales con AgoraCode."
+                valorId={localSeleccionadoKey || null}
+                opciones={localesDropdownOrdenados.map((loc) => {
+                  const code = (loc.agoraCode ?? loc.AgoraCode ?? '').toString().trim();
+                  const nom = (loc.nombre ?? loc.Nombre ?? code).toString().trim();
+                  return {
+                    id: String(loc.id_Locales ?? code),
+                    titulo: nom || code || '—',
+                    subtitulo: code ? `Código ${code}` : undefined,
+                    icono: 'store' as const,
+                  };
+                })}
+                onSeleccionar={(id) => {
+                  const loc = localesDropdownOrdenados.find(
+                    (l) => String(l.id_Locales ?? (l.agoraCode ?? l.AgoraCode ?? '').toString().trim()) === id,
+                  );
+                  if (loc) seleccionarLocalLista(loc);
+                }}
+              />
+            </View>
+            <TouchableOpacity
+              style={[
+                shouldStackToolbar ? styles.btnFiltrar : styles.btnFiltrarIcon,
+                (generando || !localSeleccionado) && styles.btnFiltrarDisabled,
+              ]}
+              onPress={generar}
+              disabled={generando || !localSeleccionado}
+              accessibilityLabel="Recalcular"
+            >
+              {generando ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <MaterialIcons name="refresh" size={16} color="#fff" />
+                  {shouldStackToolbar ? <Text style={styles.btnFiltrarText}>Recalcular</Text> : null}
+                </>
+              )}
+            </TouchableOpacity>
           </View>
-          <View style={styles.formGroup}>
-            <Text style={styles.formLabel}>Hasta</Text>
-            <InputFecha valueIso={fechaFin} onChangeIso={setFechaFin} placeholder="dd/mm/aaaa" style={styles.formInput} />
-          </View>
-          <View style={[styles.formGroup, styles.formGroupWide]}>
-            <SelectorDesplegable
-              label="Local"
-              icono="store"
-              placeholder="Selecciona un local"
-              tituloLista="Selecciona un local"
-              iconoLista="store"
-              loading={loadingLocales}
-              vacioTexto="No hay locales con AgoraCode."
-              valorId={localSeleccionadoKey || null}
-              opciones={localesDropdownOrdenados.map((loc) => {
-                const code = (loc.agoraCode ?? loc.AgoraCode ?? '').toString().trim();
-                const nom = (loc.nombre ?? loc.Nombre ?? code).toString().trim();
-                return {
-                  id: String(loc.id_Locales ?? code),
-                  titulo: nom || code || '—',
-                  subtitulo: code ? `Código ${code}` : undefined,
-                  icono: 'store' as const,
-                };
-              })}
-              onSeleccionar={(id) => {
-                const loc = localesDropdownOrdenados.find(
-                  (l) => String(l.id_Locales ?? (l.agoraCode ?? l.AgoraCode ?? '').toString().trim()) === id,
-                );
-                if (loc) seleccionarLocalLista(loc);
-              }}
-            />
-          </View>
-          <TouchableOpacity
-            style={[styles.btnFiltrar, (generando || !localSeleccionado) && styles.btnFiltrarDisabled]}
-            onPress={generar}
-            disabled={generando || !localSeleccionado}
-            accessibilityLabel="Recalcular"
-          >
-            {generando ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <MaterialIcons name="refresh" size={16} color="#fff" />
-                <Text style={styles.btnFiltrarText}>Recalcular</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
 
-        {registros.length > 0 && localSeleccionado ? (
-          <View style={styles.kpiRow}>
-            <KpiCard
-              label="Facturado"
-              value={formatMoneda(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumRealHoy : sumReal)}
-            />
-            <KpiCard
-              label="Comparativa"
-              value={formatMoneda(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumCompHoy : sumComp)}
-              color="#64748b"
-            />
-            <KpiCard
-              label="Desvío"
-              value={formatMoneda(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumDesvioHoy : sumDesvio)}
-              color={colorDesvio(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumDesvioHoy : sumDesvio).color}
-            />
-            <KpiCard
-              label="% vs comp."
-              value={formatPctTicker(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? desvioPctHoy : desvioPctTotal)}
-              color={(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? tickerEstiloHoy : tickerEstilo).color}
-            />
-          </View>
-        ) : null}
+          {registros.length > 0 && localSeleccionado ? (
+            <>
+              {!shouldStackToolbar ? <View style={styles.toolbarDivider} /> : null}
+              <View style={[styles.kpiRow, !shouldStackToolbar && styles.kpiRowInline]}>
+                <KpiCard
+                  compact={!shouldStackToolbar}
+                  label="Facturado"
+                  value={formatMoneda(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumRealHoy : sumReal)}
+                />
+                <KpiCard
+                  compact={!shouldStackToolbar}
+                  label="Comparativa"
+                  value={formatMoneda(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumCompHoy : sumComp)}
+                  color="#64748b"
+                />
+                <KpiCard
+                  compact={!shouldStackToolbar}
+                  label="Desvío"
+                  value={formatMoneda(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumDesvioHoy : sumDesvio)}
+                  color={colorDesvio(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumDesvioHoy : sumDesvio).color}
+                />
+                <KpiCard
+                  compact={!shouldStackToolbar}
+                  label="% vs comp."
+                  value={formatPctTicker(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? desvioPctHoy : desvioPctTotal)}
+                  color={(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? tickerEstiloHoy : tickerEstilo).color}
+                />
+              </View>
+            </>
+          ) : null}
+        </View>
 
         <Text style={styles.toolbarHint}>
           Periodo {formatFechaCorta(fechaInicio)} → {formatFechaCorta(fechaFin)} · {tituloWidgetPeriodo}
@@ -1438,152 +1457,6 @@ export default function ObjetivosOpcionAScreen() {
           <Text style={styles.errorBarText}>{error}</Text>
         </View>
       ) : null}
-
-      <Modal visible={descargasMenuOpen} transparent animationType="fade" onRequestClose={() => setDescargasMenuOpen(false)}>
-        <Pressable style={styles.shareOverlay} onPress={() => setDescargasMenuOpen(false)}>
-          <Pressable onPress={() => {}}>
-            <View style={styles.shareMenu}>
-              <Text style={styles.exportMenuTitle}>Descargas</Text>
-              <TouchableOpacity
-                style={styles.shareMenuItem}
-                disabled={localesObjetivos.length === 0 || capturing}
-                onPress={handleShareResumenWhatsApp}
-              >
-                <MaterialIcons name="insights" size={16} color="#25d366" />
-                <View style={styles.shareMenuItemTextCol}>
-                  <Text style={styles.shareMenuText}>Resumen WhatsApp</Text>
-                  <Text style={styles.shareMenuHint}>KPIs, tops y consecución por local</Text>
-                </View>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.shareMenuItem}
-                disabled={localesObjetivos.length === 0 || capturing}
-                onPress={handleShareListadoWhatsApp}
-              >
-                <MaterialIcons name="picture-as-pdf" size={16} color="#25d366" />
-                <View style={styles.shareMenuItemTextCol}>
-                  <Text style={styles.shareMenuText}>Listado WhatsApp (PDF)</Text>
-                  <Text style={styles.shareMenuHint}>Informe visual con barras por zona</Text>
-                </View>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.shareMenuItem}
-                disabled={localesObjetivos.length === 0 || capturing}
-                onPress={handleCopiarResumenTexto}
-              >
-                <MaterialIcons name="content-copy" size={16} color="#64748b" />
-                <View style={styles.shareMenuItemTextCol}>
-                  <Text style={styles.shareMenuText}>Copiar resumen texto</Text>
-                  <Text style={styles.shareMenuHint}>Pegar directamente en WhatsApp</Text>
-                </View>
-              </TouchableOpacity>
-              <View style={styles.shareMenuDivider} />
-              <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); handleShareJPG(); }}>
-                <MaterialIcons name="image" size={16} color="#0ea5e9" />
-                <Text style={styles.shareMenuText}>Captura pantalla (JPG)</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); handleSharePDF(); }}>
-                <MaterialIcons name="picture-as-pdf" size={16} color="#dc2626" />
-                <Text style={styles.shareMenuText}>Captura pantalla (PDF)</Text>
-              </TouchableOpacity>
-              {registros.length > 0 && (
-                <>
-                  <View style={styles.shareMenuDivider} />
-                  <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); exportarTablaObjetivosExcel(); }}>
-                    <MaterialIcons name="table-chart" size={16} color="#16a34a" />
-                    <Text style={styles.shareMenuText}>Detalle Excel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); exportarTablaObjetivosPDF(); }}>
-                    <MaterialIcons name="picture-as-pdf" size={16} color="#dc2626" />
-                    <Text style={styles.shareMenuText}>Detalle PDF</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); handleOpenMassDownload(); }}>
-                    <MaterialIcons name="download-for-offline" size={16} color="#7c3aed" />
-                    <Text style={styles.shareMenuText}>Descarga masiva PDF</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <AgrupacionesObjetivosModal
-        visible={agrupModalOpen}
-        onClose={() => setAgrupModalOpen(false)}
-        locales={locales}
-        agrupaciones={agrupaciones}
-        onGuardar={guardarAgrupacion}
-        onBorrar={borrarAgrupacion}
-      />
-
-      <Modal visible={showMassDownload} transparent animationType="fade" onRequestClose={() => !massDownloading && setShowMassDownload(false)}>
-        <Pressable style={styles.shareOverlay} onPress={() => !massDownloading && setShowMassDownload(false)}>
-          <Pressable onPress={() => {}} style={styles.massModal}>
-            <Text style={styles.massTitle}>Descarga masiva de PDF</Text>
-            <Text style={styles.massSubtitle}>
-              Periodo: {formatFechaCorta(fechaInicio)} → {formatFechaCorta(fechaFin)} · {tituloWidgetPeriodo}
-            </Text>
-            <View style={styles.massSelectAllRow}>
-              <TouchableOpacity style={styles.massCheckRow} onPress={toggleMassAll} disabled={massDownloading}>
-                <MaterialIcons
-                  name={massSelectedLocals.size === localesDropdownOrdenados.length ? 'check-box' : 'check-box-outline-blank'}
-                  size={20}
-                  color={massSelectedLocals.size === localesDropdownOrdenados.length ? '#0ea5e9' : '#94a3b8'}
-                />
-                <Text style={styles.massSelectAllText}>Seleccionar todos</Text>
-              </TouchableOpacity>
-              <Text style={styles.massCountText}>
-                {massSelectedLocals.size} de {localesDropdownOrdenados.length}
-              </Text>
-            </View>
-            <ScrollView style={styles.massListScroll} nestedScrollEnabled>
-              {localesDropdownOrdenados.map((loc) => {
-                const code = (loc.agoraCode ?? loc.AgoraCode ?? '').toString().trim();
-                const nombre = String(loc.nombre ?? loc.Nombre ?? code);
-                const checked = massSelectedLocals.has(code);
-                return (
-                  <TouchableOpacity key={code} style={styles.massCheckRow} onPress={() => toggleMassLocal(code)} disabled={massDownloading}>
-                    <MaterialIcons name={checked ? 'check-box' : 'check-box-outline-blank'} size={20} color={checked ? '#0ea5e9' : '#cbd5e1'} />
-                    <Text style={[styles.massLocalName, checked && styles.massLocalNameSelected]}>{nombre}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-            {massDownloading && (
-              <View style={styles.massProgressWrap}>
-                <View style={styles.massProgressBarBg}>
-                  <View style={[styles.massProgressBarFill, { width: `${massProgress.total > 0 ? Math.round((massProgress.current / massProgress.total) * 100) : 0}%` }]} />
-                </View>
-                <Text style={styles.massProgressText}>
-                  {massProgress.current} / {massProgress.total}{massProgress.localName ? ` — ${massProgress.localName}` : ''}
-                </Text>
-              </View>
-            )}
-            <View style={styles.massActions}>
-              <TouchableOpacity style={styles.massCancelBtn} onPress={() => !massDownloading && setShowMassDownload(false)} disabled={massDownloading}>
-                <Text style={styles.massCancelText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.massDownloadBtn, (massSelectedLocals.size === 0 || massDownloading) && styles.massDownloadBtnDisabled]}
-                onPress={handleMassDownload}
-                disabled={massSelectedLocals.size === 0 || massDownloading}
-              >
-                {massDownloading ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <>
-                    <MaterialIcons name="download" size={16} color="#fff" />
-                    <Text style={styles.massDownloadText}>
-                      Descargar {massSelectedLocals.size > 0 ? `(${massSelectedLocals.size})` : ''}
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
 
       <View style={[styles.split, shouldStackPanels && styles.splitStack]}>
         <View style={[styles.panelLista, !shouldStackPanels && styles.panelListaBorder]}>
@@ -1611,7 +1484,7 @@ export default function ObjetivosOpcionAScreen() {
               loadingLocalesObjetivos ? (
                 <View style={styles.center}><ActivityIndicator size="small" color="#64748b" /></View>
               ) : (
-                <ScrollView style={styles.list} contentContainerStyle={styles.listContent} nestedScrollEnabled showsVerticalScrollIndicator>
+                <View style={styles.listContent}>
                   {agrupacionesCalculadas.map((grupo) => {
                     const ag = grupo.agrupacion;
                     const sumDesvioHastaAyer = grupo.sumRealHastaAyer - grupo.sumCompHastaAyer;
@@ -1722,7 +1595,7 @@ export default function ObjetivosOpcionAScreen() {
                       <Text style={styles.emptyText}>No hay datos de locales para este periodo.</Text>
                     </View>
                   ) : null}
-                </ScrollView>
+                </View>
               )
             ) : null}
           </View>
@@ -1888,15 +1761,7 @@ export default function ObjetivosOpcionAScreen() {
                 </View>
               </View>
             </View>
-            <ScrollView
-              style={[
-                styles.tableBodyScroll,
-                Platform.OS === 'web' && ({ maxHeight: 'min(72vh, 640px)' } as Record<string, unknown>),
-              ]}
-              contentContainerStyle={styles.tableBodyScrollContent}
-              nestedScrollEnabled
-              showsVerticalScrollIndicator
-            >
+            <View style={styles.tableBodyScrollContent}>
             {registros.map((r, idx) => (
                 <View
                   key={idx}
@@ -1934,7 +1799,7 @@ export default function ObjetivosOpcionAScreen() {
                   <Text style={[styles.cell, styles.cellPct, styles.cellBold, colorDesvio(r.DesvioPct)]}>{formatPct(r.DesvioPct)}</Text>
               </View>
             ))}
-        </ScrollView>
+            </View>
           </View>
           </View>
         </View>
@@ -1943,6 +1808,154 @@ export default function ObjetivosOpcionAScreen() {
           )}
         </View>
       </View>
+
+      </ScrollView>
+
+      <Modal visible={descargasMenuOpen} transparent animationType="fade" onRequestClose={() => setDescargasMenuOpen(false)}>
+        <Pressable style={styles.shareOverlay} onPress={() => setDescargasMenuOpen(false)}>
+          <Pressable onPress={() => {}}>
+            <View style={styles.shareMenu}>
+              <Text style={styles.exportMenuTitle}>Descargas</Text>
+              <TouchableOpacity
+                style={styles.shareMenuItem}
+                disabled={localesObjetivos.length === 0 || capturing}
+                onPress={handleShareResumenWhatsApp}
+              >
+                <MaterialIcons name="insights" size={16} color="#25d366" />
+                <View style={styles.shareMenuItemTextCol}>
+                  <Text style={styles.shareMenuText}>Resumen WhatsApp</Text>
+                  <Text style={styles.shareMenuHint}>KPIs, tops y consecución por local</Text>
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.shareMenuItem}
+                disabled={localesObjetivos.length === 0 || capturing}
+                onPress={handleShareListadoWhatsApp}
+              >
+                <MaterialIcons name="picture-as-pdf" size={16} color="#25d366" />
+                <View style={styles.shareMenuItemTextCol}>
+                  <Text style={styles.shareMenuText}>Listado WhatsApp (PDF)</Text>
+                  <Text style={styles.shareMenuHint}>Informe visual con barras por zona</Text>
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.shareMenuItem}
+                disabled={localesObjetivos.length === 0 || capturing}
+                onPress={handleCopiarResumenTexto}
+              >
+                <MaterialIcons name="content-copy" size={16} color="#64748b" />
+                <View style={styles.shareMenuItemTextCol}>
+                  <Text style={styles.shareMenuText}>Copiar resumen texto</Text>
+                  <Text style={styles.shareMenuHint}>Pegar directamente en WhatsApp</Text>
+                </View>
+              </TouchableOpacity>
+              <View style={styles.shareMenuDivider} />
+              <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); handleShareJPG(); }}>
+                <MaterialIcons name="image" size={16} color="#0ea5e9" />
+                <Text style={styles.shareMenuText}>Captura pantalla (JPG)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); handleSharePDF(); }}>
+                <MaterialIcons name="picture-as-pdf" size={16} color="#dc2626" />
+                <Text style={styles.shareMenuText}>Captura pantalla (PDF)</Text>
+              </TouchableOpacity>
+              {registros.length > 0 && (
+                <>
+                  <View style={styles.shareMenuDivider} />
+                  <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); exportarTablaObjetivosExcel(); }}>
+                    <MaterialIcons name="table-chart" size={16} color="#16a34a" />
+                    <Text style={styles.shareMenuText}>Detalle Excel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); exportarTablaObjetivosPDF(); }}>
+                    <MaterialIcons name="picture-as-pdf" size={16} color="#dc2626" />
+                    <Text style={styles.shareMenuText}>Detalle PDF</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); handleOpenMassDownload(); }}>
+                    <MaterialIcons name="download-for-offline" size={16} color="#7c3aed" />
+                    <Text style={styles.shareMenuText}>Descarga masiva PDF</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <AgrupacionesObjetivosModal
+        visible={agrupModalOpen}
+        onClose={() => setAgrupModalOpen(false)}
+        locales={locales}
+        agrupaciones={agrupaciones}
+        onGuardar={guardarAgrupacion}
+        onBorrar={borrarAgrupacion}
+      />
+
+      <Modal visible={showMassDownload} transparent animationType="fade" onRequestClose={() => !massDownloading && setShowMassDownload(false)}>
+        <Pressable style={styles.shareOverlay} onPress={() => !massDownloading && setShowMassDownload(false)}>
+          <Pressable onPress={() => {}} style={styles.massModal}>
+            <Text style={styles.massTitle}>Descarga masiva de PDF</Text>
+            <Text style={styles.massSubtitle}>
+              Periodo: {formatFechaCorta(fechaInicio)} → {formatFechaCorta(fechaFin)} · {tituloWidgetPeriodo}
+            </Text>
+            <View style={styles.massSelectAllRow}>
+              <TouchableOpacity style={styles.massCheckRow} onPress={toggleMassAll} disabled={massDownloading}>
+                <MaterialIcons
+                  name={massSelectedLocals.size === localesDropdownOrdenados.length ? 'check-box' : 'check-box-outline-blank'}
+                  size={20}
+                  color={massSelectedLocals.size === localesDropdownOrdenados.length ? '#0ea5e9' : '#94a3b8'}
+                />
+                <Text style={styles.massSelectAllText}>Seleccionar todos</Text>
+              </TouchableOpacity>
+              <Text style={styles.massCountText}>
+                {massSelectedLocals.size} de {localesDropdownOrdenados.length}
+              </Text>
+            </View>
+            <ScrollView style={styles.massListScroll} nestedScrollEnabled>
+              {localesDropdownOrdenados.map((loc) => {
+                const code = (loc.agoraCode ?? loc.AgoraCode ?? '').toString().trim();
+                const nombre = String(loc.nombre ?? loc.Nombre ?? code);
+                const checked = massSelectedLocals.has(code);
+                return (
+                  <TouchableOpacity key={code} style={styles.massCheckRow} onPress={() => toggleMassLocal(code)} disabled={massDownloading}>
+                    <MaterialIcons name={checked ? 'check-box' : 'check-box-outline-blank'} size={20} color={checked ? '#0ea5e9' : '#cbd5e1'} />
+                    <Text style={[styles.massLocalName, checked && styles.massLocalNameSelected]}>{nombre}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            {massDownloading && (
+              <View style={styles.massProgressWrap}>
+                <View style={styles.massProgressBarBg}>
+                  <View style={[styles.massProgressBarFill, { width: `${massProgress.total > 0 ? Math.round((massProgress.current / massProgress.total) * 100) : 0}%` }]} />
+                </View>
+                <Text style={styles.massProgressText}>
+                  {massProgress.current} / {massProgress.total}{massProgress.localName ? ` — ${massProgress.localName}` : ''}
+                </Text>
+              </View>
+            )}
+            <View style={styles.massActions}>
+              <TouchableOpacity style={styles.massCancelBtn} onPress={() => !massDownloading && setShowMassDownload(false)} disabled={massDownloading}>
+                <Text style={styles.massCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.massDownloadBtn, (massSelectedLocals.size === 0 || massDownloading) && styles.massDownloadBtnDisabled]}
+                onPress={handleMassDownload}
+                disabled={massSelectedLocals.size === 0 || massDownloading}
+              >
+                {massDownloading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <MaterialIcons name="download" size={16} color="#fff" />
+                    <Text style={styles.massDownloadText}>
+                      Descargar {massSelectedLocals.size > 0 ? `(${massSelectedLocals.size})` : ''}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal visible={horasModalOpen} transparent animationType="fade" onRequestClose={() => setHorasModalOpen(false)}>
         <Pressable style={styles.shareOverlay} onPress={() => setHorasModalOpen(false)}>
@@ -2101,6 +2114,46 @@ const styles = StyleSheet.create({
   filaPeriodoStack: { flexDirection: 'column', alignItems: 'stretch' },
   filaFechas: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' },
   filaFechasStack: { flexDirection: 'column', alignItems: 'stretch' },
+  toolbarFilaUnica: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+    flexWrap: 'nowrap',
+  },
+  toolbarFilaUnicaStack: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 8,
+  },
+  toolbarFiltros: {
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    gap: 8,
+    alignItems: 'flex-end',
+    flexShrink: 0,
+  },
+  toolbarFiltrosStack: {
+    flexWrap: 'wrap',
+    alignItems: 'stretch',
+  },
+  toolbarDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    backgroundColor: '#e2e8f0',
+    marginVertical: 2,
+    flexShrink: 0,
+  },
+  formGroupCompact: { flex: 0, minWidth: 108, maxWidth: 118 },
+  formGroupLocalCompact: { flex: 1, minWidth: 140, maxWidth: 220 },
+  btnFiltrarIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0ea5e9',
+    flexShrink: 0,
+  },
   formGroupWide: { flex: 2, minWidth: 180 },
   btnFiltrar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -2125,17 +2178,16 @@ const styles = StyleSheet.create({
   },
   errorBarText: { fontSize: 12, color: '#dc2626' },
 
-  split: { flex: 1, flexDirection: 'row', minHeight: 0 },
+  split: { flexDirection: 'row', alignSelf: 'stretch' },
   splitStack: { flexDirection: 'column' },
-  panelLista: { flex: 1, minWidth: 0 },
+  panelLista: { flex: 1, minWidth: 0, alignSelf: 'stretch' },
   panelListaBorder: { borderRightWidth: 1, borderRightColor: '#e2e8f0', maxWidth: 480 },
-  panelListaInner: { flex: 1, minHeight: 0 },
+  panelListaInner: { alignSelf: 'stretch' },
   panelDetalle: {
-    flex: 1.2, minWidth: 320, backgroundColor: '#fff', padding: 14, minHeight: 0,
+    flex: 1.2, minWidth: 320, backgroundColor: '#fff', padding: 14, alignSelf: 'stretch',
   },
   panelDetalleStack: { flex: 1, minWidth: 0, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
 
-  list: { flex: 1 },
   listContent: { padding: 12, gap: 10, paddingBottom: 24 },
 
   visionGlobalHeader: {
@@ -2165,7 +2217,7 @@ const styles = StyleSheet.create({
   cardFieldMuted: { color: '#64748b' },
 
   mainScroll: { flex: 1 },
-  mainScrollContent: { flexGrow: 1, paddingBottom: 20 },
+  mainScrollContent: { flexGrow: 1, paddingBottom: 24 },
   mainRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', width: '100%' },
   mainRowNarrow: { flexDirection: 'column' },
   /** Panel formulario + widget mes (~40% del ancho; más ancho que antes) */
@@ -2259,13 +2311,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd',
   },
   kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  kpiRowInline: { flex: 1, flexWrap: 'nowrap', gap: 4, minWidth: 0 },
   kpiCard: {
     flex: 1, minWidth: 88, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0',
     borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6,
   },
+  kpiCardCompact: {
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    borderRadius: 0,
+    paddingHorizontal: 4,
+    paddingVertical: 0,
+    minWidth: 0,
+  },
   kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
   kpiValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 2 },
-  detailSection: { flex: 1, alignSelf: 'stretch', minHeight: 0 },
+  kpiValueCompact: { fontSize: 13, fontWeight: '800', marginTop: 1 },
+  detailSection: { alignSelf: 'stretch' },
   detailHeader: { marginBottom: 8 },
   detailTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 8 },
   detailTabsRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },

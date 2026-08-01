@@ -12,10 +12,12 @@ import {
   Switch,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useNavigation } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatMoneda, round2 } from '../../utils/facturacion';
 import { useLocalToast, detectToastType } from '../../components/Toast';
+import { useConfirmar } from '../../hooks/useConfirmar';
 import { apiFetch, errorMessage } from '../../utils/api';
 import { calcularProximoIdEmpresa } from '../../lib/empresaId';
 import type {
@@ -26,12 +28,18 @@ import type {
 import {
   calcularDuplicadosDeLote,
   derivarPctDesdeImportes,
+  empresasCatalogoProveedor,
   esDesgloseMulti,
   fingerprintCheckDuplicados,
   identidadDuplicados,
+  limpiarProveedorSiCoincideSociedad,
+  mergeReconciliacion,
   metodoExtraccionLabel,
+  MENSAJE_PROVEEDOR_IGUAL_SOCIEDAD,
+  proveedorCoincideConSociedad,
   recalcImportesDesdePct,
 } from '../../lib/registroMasivo';
+import { esEmpresaSedeGrupoParipe } from '../../utils/facturacion';
 import { fechaEmisionFacturaAIso } from '../../utils/formatFecha';
 import { FieldRow } from '../../components/registroMasivo/FieldRow';
 import { FieldRowZona } from '../../components/registroMasivo/FieldRowZona';
@@ -46,7 +54,6 @@ import {
 import { useCrearEmpresaModal } from '../../hooks/useCrearEmpresaModal';
 import { EmpresaGrupoSelector } from '../../components/registroMasivo/EmpresaGrupoSelector';
 import { useEmpresasGrupo } from '../../hooks/useEmpresasGrupo';
-import { mergeReconciliacion } from '../../lib/registroMasivo';
 import { useZonaOCR } from '../../hooks/useZonaOCR';
 import { ZonaOCRPreview } from '../../components/registroMasivo/ZonaOCRPreview';
 import { DesgloseFiscalEditor } from '../../components/registroMasivo/DesgloseFiscalEditor';
@@ -147,6 +154,7 @@ function previewPaneWebStyle(active: boolean): React.CSSProperties {
 
 export default function RegistroMasivoScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const { user, hasPermiso } = useAuth();
   const { width } = useWindowDimensions();
   const isWide = width >= 900;
@@ -180,12 +188,64 @@ export default function RegistroMasivoScreen() {
   const [confirmDupModalOpen, setConfirmDupModalOpen] = useState(false);
   const [confirmDupCantidad, setConfirmDupCantidad] = useState(0);
   const confirmarDupAckRef = useRef(false);
+  const permitirSalidaRef = useRef(false);
   /** Precarga Tesseract al montar; bloquea subida mientras carga (soft fail → permite subir con aviso). */
   const [ocrPrewarm, setOcrPrewarm] = useState<OcrPrewarmEstado>(
     Platform.OS === 'web' ? 'loading' : 'ready',
   );
 
   const puedeRegistrarPago = hasPermiso('facturacion.cobrar_pagar');
+
+  const { confirmar: confirmarSalida, ConfirmarView: ConfirmarSalidaView } = useConfirmar();
+  const hayPendientesSinDescartar = useMemo(
+    () => borradores.some((b) => !b.descartado),
+    [borradores],
+  );
+
+  const navegarSalida = useCallback(() => {
+    permitirSalidaRef.current = true;
+    router.push('/facturacion/facturas-gasto' as never);
+  }, [router]);
+
+  const solicitarSalida = useCallback(async () => {
+    if (procesando || guardando) return;
+    if (!hayPendientesSinDescartar) {
+      navegarSalida();
+      return;
+    }
+    const n = borradoresRef.current.filter((b) => !b.descartado).length;
+    const ok = await confirmarSalida(
+      '¿Salir del registro masivo?',
+      n === 1
+        ? 'Queda 1 factura pendiente de revisar o confirmar. Si sales ahora, se perderá el progreso del lote.'
+        : `Quedan ${n} facturas pendientes de revisar o confirmar. Si sales ahora, se perderá el progreso del lote.`,
+      { confirmarLabel: 'Salir sin confirmar', cancelarLabel: 'Quedarme', variant: 'danger' },
+    );
+    if (ok) navegarSalida();
+  }, [procesando, guardando, hayPendientesSinDescartar, confirmarSalida, navegarSalida]);
+
+  useEffect(() => {
+    const sub = navigation.addListener('beforeRemove', (e) => {
+      if (permitirSalidaRef.current || !hayPendientesSinDescartar || procesando || guardando) return;
+      e.preventDefault();
+      const action = e.data.action;
+      void (async () => {
+        const n = borradoresRef.current.filter((b) => !b.descartado).length;
+        const ok = await confirmarSalida(
+          '¿Salir del registro masivo?',
+          n === 1
+            ? 'Queda 1 factura pendiente de revisar o confirmar. Si sales ahora, se perderá el progreso del lote.'
+            : `Quedan ${n} facturas pendientes de revisar o confirmar. Si sales ahora, se perderá el progreso del lote.`,
+          { confirmarLabel: 'Salir sin confirmar', cancelarLabel: 'Quedarme', variant: 'danger' },
+        );
+        if (ok) {
+          permitirSalidaRef.current = true;
+          navigation.dispatch(action);
+        }
+      })();
+    });
+    return sub;
+  }, [navigation, hayPendientesSinDescartar, procesando, guardando, confirmarSalida]);
 
   const selectedBorrador = selectedIdx !== null ? borradores.find((b) => b.idx === selectedIdx) : null;
 
@@ -322,21 +382,24 @@ export default function RegistroMasivoScreen() {
     selectedIdx,
     onSociedadAsignada: (idx, sociedad) => {
       setBorradores((prev) =>
-        prev.map((b) =>
-          b.idx === idx
-            ? {
-                ...b,
-                sociedad_grupo_id: sociedad.id,
-                sociedad_grupo_nombre: sociedad.nombre,
-                sociedad_grupo_cif: sociedad.cif,
-              }
-            : b,
-        ),
+        prev.map((b) => {
+          if (b.idx !== idx) return b;
+          return limpiarProveedorSiCoincideSociedad({
+            ...b,
+            sociedad_grupo_id: sociedad.id,
+            sociedad_grupo_nombre: sociedad.nombre,
+            sociedad_grupo_cif: sociedad.cif,
+          });
+        }),
       );
     },
     onReconciliacion: (idx, datos) => {
       setBorradores((prev) =>
-        prev.map((row) => (row.idx === idx ? mergeReconciliacion(row, datos) : row)),
+        prev.map((row) =>
+          row.idx === idx
+            ? limpiarProveedorSiCoincideSociedad(mergeReconciliacion(row, datos))
+            : row,
+        ),
       );
       programarCheckDuplicados(idx);
     },
@@ -348,21 +411,25 @@ export default function RegistroMasivoScreen() {
     [empresasCatalogo],
   );
 
+  const empresasProveedor = useMemo(
+    () => empresasCatalogoProveedor(empresasCatalogo),
+    [empresasCatalogo],
+  );
+
   const crearEmpresaModal = useCrearEmpresaModal({
     onCreated: (idx, emp, nombre) => {
       setBorradores((prev) =>
-        prev.map((b) =>
-          b.idx === idx
-            ? {
-                ...b,
-                proveedor_nombre: emp?.Nombre != null ? String(emp.Nombre) : nombre,
-                empresa_id: emp?.id_empresa != null ? String(emp.id_empresa) : '',
-                proveedor_en_maestros: true,
-                nombre_sugerido_ocr: '',
-                confianza: { ...b.confianza, proveedor_nombre: 'alta' },
-              }
-            : b,
-        ),
+        prev.map((b) => {
+          if (b.idx !== idx) return b;
+          return limpiarProveedorSiCoincideSociedad({
+            ...b,
+            proveedor_nombre: emp?.Nombre != null ? String(emp.Nombre) : nombre,
+            empresa_id: emp?.id_empresa != null ? String(emp.id_empresa) : '',
+            proveedor_en_maestros: true,
+            nombre_sugerido_ocr: '',
+            confianza: { ...b.confianza, proveedor_nombre: 'alta' },
+          });
+        }),
       );
       // Alta local para que el siguiente id y el dropdown de proveedor estén al día sin recargar.
       const idCreada = emp?.id_empresa != null ? String(emp.id_empresa) : '';
@@ -728,6 +795,35 @@ export default function RegistroMasivoScreen() {
         });
 
         if (match) {
+          const candidato = {
+            ...b,
+            proveedor_cif: cifRaw,
+            proveedor_nombre: String(match.Nombre || '').trim(),
+            empresa_id: match.id_empresa != null ? String(match.id_empresa) : '',
+          };
+          if (esEmpresaSedeGrupoParipe(match) || proveedorCoincideConSociedad(candidato)) {
+            const sugOcr =
+              (b.nombre_sugerido_ocr || '').trim() || (b.proveedor_nombre || '').trim();
+            return prev.map((x) => {
+              if (x.idx !== idx) return x;
+              const limpiado = limpiarProveedorSiCoincideSociedad({
+                ...x,
+                proveedor_cif: cifRaw,
+                proveedor_nombre: String(match.Nombre || '').trim(),
+                empresa_id: match.id_empresa != null ? String(match.id_empresa) : '',
+              });
+              if (proveedorCoincideConSociedad(candidato)) return limpiado;
+              return {
+                ...limpiado,
+                proveedor_cif: '',
+                proveedor_nombre: '',
+                empresa_id: '',
+                proveedor_en_maestros: false,
+                nombre_sugerido_ocr: sugOcr,
+              };
+            });
+          }
+
           return prev.map((x) =>
             x.idx === idx
               ? {
@@ -841,6 +937,11 @@ export default function RegistroMasivoScreen() {
       );
       return;
     }
+    const proveedorIgualSociedad = activosActualizados.find((b) => proveedorCoincideConSociedad(b));
+    if (proveedorIgualSociedad) {
+      alertMsg('Proveedor inválido', MENSAJE_PROVEEDOR_IGUAL_SOCIEDAD);
+      return;
+    }
     const pagoSinDatos = activosActualizados.find((b) => b.pago_al_confirmar && !b.pago_datos);
     if (pagoSinDatos) {
       alertMsg(
@@ -940,6 +1041,7 @@ export default function RegistroMasivoScreen() {
           'warning',
         );
       }
+      permitirSalidaRef.current = true;
       router.push('/facturacion/facturas-gasto' as any);
     } catch (e: unknown) {
       alertMsg('Error', errorMessage(e));
@@ -1104,7 +1206,7 @@ export default function RegistroMasivoScreen() {
       {/* HEADER */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <TouchableOpacity onPress={() => router.push('/facturacion/facturas-gasto' as any)} style={styles.backBtn}>
+          <TouchableOpacity onPress={() => void solicitarSalida()} style={styles.backBtn}>
             <MaterialIcons name="arrow-back" size={20} color="#334155" />
           </TouchableOpacity>
           <View>
@@ -1401,7 +1503,14 @@ export default function RegistroMasivoScreen() {
                 </View>
               )}
 
-              {selectedBorrador.proveedor_cif && !selectedBorrador.proveedor_en_maestros && (
+              {proveedorCoincideConSociedad(selectedBorrador) && (
+                <View style={styles.provSocWarn}>
+                  <MaterialIcons name="warning-amber" size={16} color="#b45309" />
+                  <Text style={styles.provSocWarnText}>{MENSAJE_PROVEEDOR_IGUAL_SOCIEDAD}</Text>
+                </View>
+              )}
+
+              {selectedBorrador.proveedor_cif && !selectedBorrador.proveedor_en_maestros && !proveedorCoincideConSociedad(selectedBorrador) && (
                 <View style={styles.maestroWarn}>
                   <MaterialIcons name="store" size={16} color="#c2410c" />
                   <View style={styles.maestroWarnBody}>
@@ -1458,18 +1567,32 @@ export default function RegistroMasivoScreen() {
                 <FieldRowZona label="CIF Proveedor" value={selectedBorrador.proveedor_cif} conf={selectedBorrador.confianza.proveedor_cif} onChange={(v) => usuarioEditaCampo(selectedBorrador.idx, 'proveedor_cif', v)} onBlur={() => { lookupCifEnMaestro(selectedBorrador.idx); checkDuplicadosInmediato(selectedBorrador.idx); }} onZona={() => zona.activar('proveedor_cif')} zonaActiva={zona.activa?.field === 'proveedor_cif'} focusFieldId="proveedor_cif" />
                 <ProveedorDropdownField
                   borrador={selectedBorrador}
-                  empresas={empresasCatalogo}
+                  empresas={empresasProveedor}
                   proveedorEnMaestros={selectedBorrador.proveedor_en_maestros}
                   nombreSugeridoOcr={selectedBorrador.nombre_sugerido_ocr}
                   onSelect={(emp) => {
+                    if (esEmpresaSedeGrupoParipe(emp)) {
+                      alertMsg('Proveedor inválido', MENSAJE_PROVEEDOR_IGUAL_SOCIEDAD);
+                      return;
+                    }
+                    const candidato = {
+                      ...selectedBorrador,
+                      proveedor_nombre: String(emp.Nombre || '').trim(),
+                      proveedor_cif: String(emp.Cif || '').trim(),
+                      empresa_id: emp.id_empresa != null ? String(emp.id_empresa) : '',
+                    };
+                    if (proveedorCoincideConSociedad(candidato)) {
+                      alertMsg('Proveedor inválido', MENSAJE_PROVEEDOR_IGUAL_SOCIEDAD);
+                      return;
+                    }
                     setBorradores((prev) =>
                       prev.map((b) =>
                         b.idx === selectedBorrador.idx
                           ? {
                               ...b,
-                              proveedor_nombre: String(emp.Nombre || '').trim(),
-                              proveedor_cif: String(emp.Cif || '').trim(),
-                              empresa_id: emp.id_empresa != null ? String(emp.id_empresa) : '',
+                              proveedor_nombre: candidato.proveedor_nombre,
+                              proveedor_cif: candidato.proveedor_cif,
+                              empresa_id: candidato.empresa_id,
                               proveedor_en_maestros: true,
                               nombre_sugerido_ocr: '',
                               campos_manuales: { ...b.campos_manuales, proveedor_nombre: true, proveedor_cif: true },
@@ -1671,6 +1794,7 @@ export default function RegistroMasivoScreen() {
       />
 
       {ToastView}
+      {ConfirmarSalidaView}
     </View>
   );
 }
@@ -1973,6 +2097,19 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   reconWarnText: { fontSize: 10, color: '#0c4a6e', flex: 1, lineHeight: 14 },
+
+  provSocWarn: {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-start' as const,
+    gap: 8,
+    padding: 10,
+    marginBottom: 8,
+    borderRadius: 8,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+  },
+  provSocWarnText: { fontSize: 10, color: '#92400e', flex: 1, lineHeight: 14 },
 
   maestroWarn: {
     flexDirection: 'row',

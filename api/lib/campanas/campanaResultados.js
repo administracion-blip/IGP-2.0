@@ -315,6 +315,16 @@ export async function calcularResultadosCampana(docClient, campana) {
     { unidadesCampana: 0, costeIncentivo: 0 },
   );
 
+  // Campañas individuales: el incentivo se calcula por empleado; agregar al local.
+  if (destinatario === 'individual') {
+    for (const emp of empleadoAgg.values()) {
+      const loc = localAgg.get(emp.localId);
+      if (loc) {
+        loc.incentivoDevengado = round2(loc.incentivoDevengado + emp.incentivoDevengado);
+      }
+    }
+  }
+
   const porEmpleado = destinatario === 'individual'
     ? [...empleadoAgg.values()].sort((a, b) => b.incentivoDevengado - a.incentivoDevengado)
     : [];

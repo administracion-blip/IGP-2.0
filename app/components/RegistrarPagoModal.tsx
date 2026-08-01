@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,12 @@ import {
 } from '../utils/facturacion';
 import { hoyISO } from '../utils/facturaFormLogic';
 import { copyToClipboard } from '../utils/clipboard';
+import { apiFetch, errorMessage } from '../utils/api';
+import { SelectorDesplegableMulti } from './SelectorDesplegableMulti';
+import {
+  type FacturaCompensableRow,
+  maxImporteCompensacion,
+} from '../lib/compensacionFactura';
 
 export type RegistrarPagoInitial = {
   fecha?: string;
@@ -36,6 +42,8 @@ export type RegistrarPagoPayloadFactura = {
   metodo_pago: string;
   referencia: string;
   observaciones: string;
+  /** Obligatorio si metodo_pago === 'compensacion' */
+  facturas_compensar?: string[];
 };
 
 export type RegistrarPagoPayloadRemesa = {
@@ -70,6 +78,10 @@ type FacturaProps = BaseProps & {
   variant: 'pago' | 'cobro';
   fechaReferenciaTarjeta?: string;
   datosPago?: DatosPagoInfo;
+  /** Gasto IN: permite forma de pago «Compensación». */
+  habilitarCompensacion?: boolean;
+  facturaId?: string;
+  saldoOrigen?: number;
   onSubmit: (payload: RegistrarPagoPayloadFactura) => void;
 };
 
@@ -196,6 +208,10 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
   const fechaReferenciaTarjeta =
     props.modo === 'factura' ? props.fechaReferenciaTarjeta : undefined;
   const datosPago = props.modo === 'factura' ? props.datosPago : undefined;
+  const habilitarCompensacion =
+    props.modo === 'factura' && props.variant === 'pago' && !!props.habilitarCompensacion;
+  const facturaId = props.modo === 'factura' ? props.facturaId : undefined;
+  const saldoOrigen = props.modo === 'factura' ? props.saldoOrigen : undefined;
   const resumen = props.modo === 'remesa' ? props.resumen : undefined;
 
   const [fecha, setFecha] = useState(hoyISO());
@@ -205,6 +221,24 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
   const [fechaEditadaManual, setFechaEditadaManual] = useState(false);
   const [referencia, setReferencia] = useState('');
   const [observaciones, setObservaciones] = useState('');
+  const [compensables, setCompensables] = useState<FacturaCompensableRow[]>([]);
+  const [compensablesLoading, setCompensablesLoading] = useState(false);
+  const [compensablesError, setCompensablesError] = useState('');
+  const [facturasCompensar, setFacturasCompensar] = useState<string[]>([]);
+
+  const esCompensacion = metodo === 'compensacion';
+
+  const formasDisponibles = useMemo(() => {
+    if (!habilitarCompensacion) {
+      return FORMAS_PAGO.filter((f) => f !== 'compensacion');
+    }
+    return FORMAS_PAGO;
+  }, [habilitarCompensacion]);
+
+  const maxComp = useMemo(
+    () => maxImporteCompensacion(Number(saldoOrigen) || 0, compensables, facturasCompensar),
+    [saldoOrigen, compensables, facturasCompensar],
+  );
 
   const openedRef = useRef(false);
 
@@ -225,7 +259,46 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
     if (modo === 'factura') {
       setImporte(initial?.importe ?? '');
     }
+    setFacturasCompensar([]);
+    setCompensables([]);
+    setCompensablesError('');
   }, [visible, initial, modo]);
+
+  useEffect(() => {
+    if (!visible || !esCompensacion || !habilitarCompensacion || !facturaId) {
+      return;
+    }
+    let cancel = false;
+    setCompensablesLoading(true);
+    setCompensablesError('');
+    void (async () => {
+      try {
+        const r = await apiFetch(`/api/facturacion/facturas/${facturaId}/compensables`);
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'No se pudieron cargar facturas');
+        if (!cancel) {
+          setCompensables(Array.isArray(data.facturas) ? data.facturas : []);
+        }
+      } catch (e) {
+        if (!cancel) {
+          setCompensables([]);
+          setCompensablesError(errorMessage(e, 'Error al cargar compensables'));
+        }
+      } finally {
+        if (!cancel) setCompensablesLoading(false);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [visible, esCompensacion, habilitarCompensacion, facturaId]);
+
+  useEffect(() => {
+    if (!esCompensacion || facturasCompensar.length === 0) return;
+    if (maxComp > 0) {
+      setImporte(String(maxComp));
+    }
+  }, [esCompensacion, facturasCompensar, maxComp]);
 
   const fechaParaMetodoTarjeta = () => {
     if (modo === 'remesa') return hoyISO();
@@ -237,6 +310,9 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
   const onSeleccionarMetodo = (fp: string) => {
     setMetodo(fp);
     if (fp !== 'otro') setMetodoOtro('');
+    if (fp !== 'compensacion') {
+      setFacturasCompensar([]);
+    }
     if (fechaEditadaManual) return;
     setFecha(fp === 'tarjeta' ? fechaParaMetodoTarjeta() : hoyISO());
   };
@@ -259,17 +335,39 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
     }
 
     if (modo === 'factura') {
-      const importeNum = parseFloat(importe);
+      const importeNum = parseFloat(String(importe).replace(',', '.'));
       if (isNaN(importeNum) || importeNum <= 0) {
         mostrarError('Error', 'Indica fecha e importe válidos');
         return;
+      }
+      if (metodoEnvio === 'compensacion') {
+        if (!habilitarCompensacion || !facturaId) {
+          mostrarError('Error', 'Compensación no disponible en este contexto');
+          return;
+        }
+        if (facturasCompensar.length === 0) {
+          mostrarError('Error', 'Selecciona al menos una factura a compensar');
+          return;
+        }
+        if (maxComp <= 0) {
+          mostrarError(
+            'Error',
+            'No hay importe compensable con las facturas seleccionadas (deben tener saldo de signo opuesto)',
+          );
+          return;
+        }
+        if (maxComp > 0 && importeNum > maxComp + 0.001) {
+          mostrarError('Error', `El importe no puede superar ${maxComp.toFixed(2)} €`);
+          return;
+        }
       }
       props.onSubmit({
         fecha: fechaIso,
         importe: importeNum,
         metodo_pago: metodoEnvio,
-        referencia,
+        referencia: esCompensacion ? '' : referencia,
         observaciones,
+        ...(metodoEnvio === 'compensacion' ? { facturas_compensar: facturasCompensar } : {}),
       });
       return;
     }
@@ -321,7 +419,7 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
             contentContainerStyle={styles.modalScrollContent}
             showsVerticalScrollIndicator={false}
           >
-          <DatosParaPago datosPago={datosPago} />
+          <DatosParaPago datosPago={esCompensacion ? undefined : datosPago} />
 
           <View style={styles.field}>
             <Text style={styles.label}>Fecha</Text>
@@ -335,6 +433,67 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
               style={styles.input}
             />
           </View>
+
+          <View style={styles.field}>
+            <Text style={styles.label}>Método de pago</Text>
+            <View style={styles.pickerWrap}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {formasDisponibles.map((fp) => (
+                  <TouchableOpacity
+                    key={fp}
+                    style={[styles.chip, metodo === fp && styles.chipActive]}
+                    onPress={() => onSeleccionarMetodo(fp)}
+                  >
+                    <Text style={[styles.chipText, metodo === fp && styles.chipTextActive]}>
+                      {labelFormaPago(fp)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+
+          {modo === 'factura' && esCompensacion ? (
+            <View style={styles.field}>
+              <SelectorDesplegableMulti
+                label="Facturas a compensar *"
+                placeholder="Buscar factura del mismo proveedor y sociedad…"
+                icono="receipt-long"
+                buscador
+                buscadorPlaceholder="Nº factura, proveedor…"
+                loading={compensablesLoading}
+                opciones={compensables.map((f) => ({
+                  id: f.id_factura,
+                  titulo: f.etiqueta || f.numero_factura_proveedor || f.id_factura,
+                  subtitulo: [
+                    f.fecha_emision ? f.fecha_emision.slice(0, 10) : '',
+                    f.saldo_pendiente != null
+                      ? `Saldo ${formatMoneda(f.saldo_pendiente)}`
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · '),
+                  icono: 'description' as const,
+                }))}
+                valorIds={facturasCompensar}
+                onChange={setFacturasCompensar}
+                vacioTexto={
+                  compensablesError ||
+                  (compensablesLoading
+                    ? 'Cargando…'
+                    : 'No hay otras facturas compensables (misma sociedad y proveedor, saldo de signo opuesto).')
+                }
+              />
+              {facturasCompensar.length > 0 && maxComp > 0 ? (
+                <Text style={styles.compHint}>
+                  Importe máximo compensable: {formatMoneda(maxComp)}
+                </Text>
+              ) : null}
+              {compensablesError ? (
+                <Text style={styles.errorExterno}>{compensablesError}</Text>
+              ) : null}
+            </View>
+          ) : null}
 
           {modo === 'factura' ? (
             <View style={styles.field}>
@@ -350,25 +509,6 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
             </View>
           ) : null}
 
-          <View style={styles.field}>
-            <Text style={styles.label}>Método de pago</Text>
-            <View style={styles.pickerWrap}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {FORMAS_PAGO.map((fp) => (
-                  <TouchableOpacity
-                    key={fp}
-                    style={[styles.chip, metodo === fp && styles.chipActive]}
-                    onPress={() => onSeleccionarMetodo(fp)}
-                  >
-                    <Text style={[styles.chipText, metodo === fp && styles.chipTextActive]}>
-                      {labelFormaPago(fp)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          </View>
-
           {metodo === 'otro' ? (
             <View style={styles.field}>
               <Text style={styles.label}>Describe el método *</Text>
@@ -382,6 +522,7 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
             </View>
           ) : null}
 
+          {!esCompensacion ? (
           <View style={styles.field}>
             <Text style={styles.label}>Referencia</Text>
             <TextInput
@@ -392,6 +533,7 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
               placeholderTextColor="#94a3b8"
             />
           </View>
+          ) : null}
 
           <View style={styles.field}>
             <Text style={styles.label}>Observaciones</Text>
@@ -615,6 +757,11 @@ const styles = StyleSheet.create({
     color: '#dc2626',
     fontSize: 12,
     marginTop: 8,
+  },
+  compHint: {
+    fontSize: 11,
+    color: '#0369a1',
+    marginTop: 6,
   },
   btnPrimary: {
     flexDirection: 'row',

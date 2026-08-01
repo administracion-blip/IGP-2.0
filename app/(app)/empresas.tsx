@@ -66,6 +66,10 @@ const INITIAL_FORM = Object.fromEntries(
   CAMPOS_FORM.map((c) => [c.key, c.key === 'Etiqueta' ? ([] as string[]) : ''])
 ) as Record<(typeof ATRIBUTOS_TABLA_EMPRESAS)[number], string | string[]>;
 
+function trimValorCampoEmpresa(val: unknown): string {
+  return typeof val === 'string' ? val.trim() : '';
+}
+
 const CAMPOS_FICHA: { key: (typeof ATRIBUTOS_TABLA_EMPRESAS)[number]; label: string }[] = [
   { key: 'Nombre', label: 'Nombre' },
   { key: 'Cif', label: 'CIF' },
@@ -108,6 +112,7 @@ export default function EmpresasScreen() {
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [modalNuevoVisible, setModalNuevoVisible] = useState(false);
   const [editingEmpresaId, setEditingEmpresaId] = useState<string | null>(null);
+  const [editingCifOriginal, setEditingCifOriginal] = useState('');
   const [formNuevo, setFormNuevo] = useState<Record<string, string | string[]>>(INITIAL_FORM);
   const [guardando, setGuardando] = useState(false);
   const [errorForm, setErrorForm] = useState<string | null>(null);
@@ -138,6 +143,7 @@ export default function EmpresasScreen() {
 
   const abrirModalNuevo = () => {
     setEditingEmpresaId(null);
+    setEditingCifOriginal('');
     setFormNuevo(INITIAL_FORM);
     setCifExists(false);
     setCifCheckError(null);
@@ -169,7 +175,9 @@ export default function EmpresasScreen() {
     }
     setFormNuevo(form);
     const idVal = valorEnLocal(empresa, 'id_empresa');
-    setEditingEmpresaId(idVal != null ? String(idVal) : null);
+    const idEdit = idVal != null ? formatId6(idVal) : null;
+    setEditingEmpresaId(idEdit);
+    setEditingCifOriginal(String(form.Cif ?? '').trim());
     setCifExists(false);
     setCifCheckError(null);
     setModalNuevoVisible(true);
@@ -179,6 +187,7 @@ export default function EmpresasScreen() {
     setModalNuevoVisible(false);
     setFormNuevo(INITIAL_FORM);
     setEditingEmpresaId(null);
+    setEditingCifOriginal('');
     setCifExists(false);
     setCifCheckError(null);
     setErrorForm(null);
@@ -196,7 +205,7 @@ export default function EmpresasScreen() {
         setCifChecking(true);
         try {
           const params = new URLSearchParams({ cif });
-          if (editingEmpresaId) params.set('excludeId', editingEmpresaId);
+          if (editingEmpresaId) params.set('excludeId', formatId6(editingEmpresaId));
           const res = await apiFetch(`/api/empresas/check-cif?${params.toString()}`);
           const data = await res.json();
           if (!res.ok) {
@@ -243,8 +252,17 @@ export default function EmpresasScreen() {
 
   const handleCpBlur = useCallback(() => {
     const cp = formNuevo.Cp;
-    fetchCpAndFill(typeof cp === 'string' ? cp : '');
+    fetchCpAndFill(typeof cp === 'string' ? cp.trim() : '');
   }, [formNuevo.Cp, fetchCpAndFill]);
+
+  const trimCampoForm = useCallback((key: string) => {
+    setFormNuevo((prev) => {
+      const val = prev[key];
+      if (typeof val !== 'string') return prev;
+      const trimmed = val.trim();
+      return trimmed === val ? prev : { ...prev, [key]: trimmed };
+    });
+  }, []);
 
   const handleCpChange = useCallback(
     (t: string) => {
@@ -408,7 +426,9 @@ export default function EmpresasScreen() {
         return;
       }
     }
-    if (cifExists) {
+    const cifActual = trimValorCampoEmpresa(formNuevo.Cif);
+    const cifCambio = !isEdit || cifActual.toUpperCase() !== editingCifOriginal.trim().toUpperCase();
+    if (cifExists && cifCambio) {
       setErrorForm('CIF ya existe');
       return;
     }
@@ -417,9 +437,9 @@ export default function EmpresasScreen() {
     try {
       const body: Record<string, string | number | string[]> = {};
       for (const key of ATRIBUTOS_TABLA_EMPRESAS) {
-        if (key === 'id_empresa') body[key] = isEdit ? editingEmpresaId! : próximoId;
+        if (key === 'id_empresa') body[key] = isEdit ? formatId6(editingEmpresaId!) : próximoId;
         else if (key === 'Etiqueta') body[key] = Array.isArray(formNuevo.Etiqueta) ? formNuevo.Etiqueta : [];
-        else body[key] = (formNuevo[key] ?? '') as string;
+        else body[key] = trimValorCampoEmpresa(formNuevo[key]);
       }
       const res = await apiFetch('/api/empresas', {
         method: isEdit ? 'PUT' : 'POST',
@@ -670,7 +690,7 @@ export default function EmpresasScreen() {
         }
         if (!changed) continue;
 
-        const body: Record<string, string | string[]> = { id_empresa: id };
+        const body: Record<string, string | string[]> = { id_empresa: formatId6(id) };
         for (const col of ATRIBUTOS_TABLA_EMPRESAS) {
           if (col === 'id_empresa') continue;
           if (col === 'Etiqueta') {
@@ -1085,9 +1105,9 @@ export default function EmpresasScreen() {
       </ScrollView>
 
       <Modal visible={modalNuevoVisible} transparent animationType="fade" onRequestClose={cerrarModalNuevo}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => {}}>
+        <View style={styles.modalOverlay}>
           <KeyboardAvoidingView style={styles.modalContentWrap} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalCardTouch}>
+            <View style={styles.modalCardTouch}>
               <View style={styles.modalCard}>
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>{editingEmpresaId != null ? 'Editar registro' : 'Nuevo registro'}</Text>
@@ -1135,7 +1155,10 @@ export default function EmpresasScreen() {
                                   ? handleCifChange
                                   : (t) => setFormNuevo((prev) => ({ ...prev, [campo.key]: t }))
                             }
-                            onBlur={campo.key === 'Cp' ? handleCpBlur : undefined}
+                            onBlur={() => {
+                              trimCampoForm(campo.key);
+                              if (campo.key === 'Cp') handleCpBlur();
+                            }}
                             placeholder={`${campo.label}…`}
                             placeholderTextColor="#94a3b8"
                             autoCapitalize={campo.key === 'Iban' || campo.key === 'IbanAlternativo' ? 'none' : 'words'}
@@ -1163,9 +1186,9 @@ export default function EmpresasScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
-            </TouchableOpacity>
+            </View>
           </KeyboardAvoidingView>
-        </TouchableOpacity>
+        </View>
       </Modal>
 
       <Modal visible={modalImportVisible} transparent animationType="fade" onRequestClose={cerrarModalImport}>

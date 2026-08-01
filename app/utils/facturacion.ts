@@ -21,6 +21,7 @@ export const FORMAS_PAGO = [
   'bizum',
   'remesa',
   'domiciliacion',
+  'compensacion',
   'otro',
 ] as const;
 
@@ -283,6 +284,7 @@ export function labelFormaPago(fp: string): string {
     bizum: 'Bizum',
     remesa: 'Remesa',
     domiciliacion: 'Domiciliación',
+    compensacion: 'Compensación',
     otro: 'Otro',
   };
   return map[fp] || fp;

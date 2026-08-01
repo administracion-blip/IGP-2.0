@@ -8,9 +8,10 @@
  * mantiene ya estas funciones.
  */
 
-import { round2 } from '../utils/facturacion';
+import { round2, esEmpresaSedeGrupoParipe } from '../utils/facturacion';
+import { claveNombreEmpresa } from './empresaId';
 import { fechaEmisionFacturaAIso } from '../utils/formatFecha';
-import type { Borrador, DuplicadoLote, LineaDesglose } from '../types/registroMasivo';
+import type { Borrador, DuplicadoLote, EmpresaCatalogo, LineaDesglose } from '../types/registroMasivo';
 
 const normDoc = (s: string | null | undefined) => String(s ?? '').toUpperCase().replace(/[\s\-/.]/g, '');
 const normCif = (s: string | null | undefined) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -385,4 +386,55 @@ export function calcularTotalesDesdeDesglose(lineas: LineaDesglose[]): DesgloseT
 export function recalcTotalesDesdeDesglose(b: Borrador): Borrador {
   const lineas = Array.isArray(b.desglose_impuestos) ? b.desglose_impuestos : [];
   return { ...b, ...calcularTotalesDesdeDesglose(lineas) };
+}
+
+/** Catálogo para el dropdown de proveedor: excluye sociedades GRUPO PARIPE. */
+export function empresasCatalogoProveedor(empresas: EmpresaCatalogo[]): EmpresaCatalogo[] {
+  return empresas.filter((e) => !esEmpresaSedeGrupoParipe(e));
+}
+
+export type RefSociedadProveedor = Pick<
+  Borrador,
+  | 'sociedad_grupo_id'
+  | 'sociedad_grupo_nombre'
+  | 'sociedad_grupo_cif'
+  | 'proveedor_cif'
+  | 'proveedor_nombre'
+  | 'empresa_id'
+>;
+
+/**
+ * La sociedad receptora (GRUPO PARIPE) y el proveedor externo no pueden ser la misma entidad.
+ * Compara CIF normalizado, nombre normalizado e id de maestro.
+ */
+export function proveedorCoincideConSociedad(ref: RefSociedadProveedor): boolean {
+  const socCif = normCif(ref.sociedad_grupo_cif);
+  const provCif = normCif(ref.proveedor_cif);
+  if (socCif.length >= 6 && provCif.length >= 6 && socCif === provCif) return true;
+
+  const socNom = claveNombreEmpresa(ref.sociedad_grupo_nombre);
+  const provNom = claveNombreEmpresa(ref.proveedor_nombre);
+  if (socNom && provNom && socNom === provNom) return true;
+
+  const socId = String(ref.sociedad_grupo_id || '').trim();
+  const empId = String(ref.empresa_id || '').trim();
+  if (socId && empId && socId === empId) return true;
+
+  return false;
+}
+
+export const MENSAJE_PROVEEDOR_IGUAL_SOCIEDAD =
+  'El proveedor no puede ser la misma empresa que la sociedad del grupo (GRUPO PARIPE). Corrige el CIF o el nombre del proveedor.';
+
+/** Vacía datos de proveedor si coinciden con la sociedad ya seleccionada. */
+export function limpiarProveedorSiCoincideSociedad(b: Borrador): Borrador {
+  if (!proveedorCoincideConSociedad(b)) return b;
+  return {
+    ...b,
+    proveedor_cif: '',
+    proveedor_nombre: '',
+    empresa_id: '',
+    proveedor_en_maestros: false,
+    nombre_sugerido_ocr: '',
+  };
 }

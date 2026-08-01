@@ -75,12 +75,14 @@ const ESTADO_LABEL: Record<string, string> = {
   borrador: 'Borrador',
   confirmada: 'Confirmada',
   facturada: 'Facturada',
+  pagada: 'Pagada',
 };
 
 const ESTADO_COLOR: Record<string, string> = {
   borrador: '#64748b',
   confirmada: '#16a34a',
   facturada: '#0ea5e9',
+  pagada: '#7c3aed',
 };
 
 const CHIP_ESTADO_PASTEL: Record<string, { bg: string; bgSel: string; border: string; borderSel: string; text: string }> = {
@@ -88,9 +90,10 @@ const CHIP_ESTADO_PASTEL: Record<string, { bg: string; bgSel: string; border: st
   borrador: { bg: '#f1f5f9', bgSel: '#e2e8f0', border: '#e2e8f0', borderSel: '#cbd5e1', text: '#475569' },
   confirmada: { bg: '#dcfce7', bgSel: '#bbf7d0', border: '#bbf7d0', borderSel: '#86efac', text: '#166534' },
   facturada: { bg: '#e0f2fe', bgSel: '#bae6fd', border: '#bae6fd', borderSel: '#7dd3fc', text: '#075985' },
+  pagada: { bg: '#ede9fe', bgSel: '#ddd6fe', border: '#ddd6fe', borderSel: '#c4b5fd', text: '#5b21b6' },
 };
 
-const ESTADOS_CHIP = ['', 'borrador', 'confirmada', 'facturada'];
+const ESTADOS_CHIP = ['', 'borrador', 'confirmada', 'facturada', 'pagada'];
 const MESES_CORTO = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const MESES_INICIAL = ['E', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 
@@ -315,7 +318,7 @@ export default function MayoristaIndexScreen() {
       if (hasta && f > hasta) return false;
       return true;
     });
-    const counts: Record<string, number> = { '': base.length, borrador: 0, confirmada: 0, facturada: 0 };
+    const counts: Record<string, number> = { '': base.length, borrador: 0, confirmada: 0, facturada: 0, pagada: 0 };
     for (const n of base) {
       const e = String(n.estado || 'borrador');
       counts[e] = (counts[e] || 0) + 1;
@@ -389,6 +392,25 @@ export default function MayoristaIndexScreen() {
     }
   };
 
+  const pedirPagar = async (n: Negociacion) => {
+    if (n.estado !== 'facturada' || !puedeEditar) return;
+    const ok = await confirmarDialog(
+      'Marcar como pagada',
+      `¿Marcar «${n.nombre || n.id}» como pagada?`,
+      { confirmLabel: 'Marcar pagada' },
+    );
+    if (!ok) return;
+    try {
+      const r = await apiFetch(`/api/mayorista/negociaciones/${n.id}/pagar`, { method: 'POST', body: '{}' });
+      const d = await r.json();
+      if (!r.ok) { aviso(d.error || 'No se pudo marcar como pagada'); return; }
+      showToast('Pagada', 'Operación marcada como pagada.', 'success');
+      refrescarTodo();
+    } catch (e) {
+      aviso(e instanceof Error ? e.message : 'Error de conexión');
+    }
+  };
+
   if (!puedeVer) {
     return (
       <View style={styles.center}>
@@ -444,6 +466,21 @@ export default function MayoristaIndexScreen() {
                         accessibilityLabel="Marcar como facturada"
                       >
                         <MaterialIcons name="receipt-long" size={18} color="#0ea5e9" />
+                      </TouchableOpacity>
+                    ) : null}
+                    {puedeEditar && n.estado === 'facturada' ? (
+                      <TouchableOpacity
+                        onPress={(e) => {
+                          if (Platform.OS === 'web' && e && 'stopPropagation' in e) {
+                            (e as unknown as { stopPropagation: () => void }).stopPropagation();
+                          }
+                          void pedirPagar(n);
+                        }}
+                        style={styles.cardActionBtn}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        accessibilityLabel="Marcar como pagada"
+                      >
+                        <MaterialIcons name="payments" size={18} color="#7c3aed" />
                       </TouchableOpacity>
                     ) : null}
                     {puedeBorrar && n.estado === 'borrador' ? (
