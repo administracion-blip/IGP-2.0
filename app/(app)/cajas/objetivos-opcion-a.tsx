@@ -143,7 +143,7 @@ const CHIP_TAB_PASTEL = {
 function KpiCard({ label, value, color, compact }: { label: string; value: string; color?: string; compact?: boolean }) {
   return (
     <View style={[styles.kpiCard, compact && styles.kpiCardCompact]}>
-      <Text style={styles.kpiLabel} numberOfLines={1}>{label}</Text>
+      <Text style={[styles.kpiLabel, compact && styles.kpiLabelCompact]} numberOfLines={1}>{label}</Text>
       <Text style={[styles.kpiValue, compact && styles.kpiValueCompact, color ? { color } : null]} numberOfLines={1}>{value}</Text>
     </View>
   );
@@ -1357,11 +1357,23 @@ export default function ObjetivosOpcionAScreen() {
           <View style={[styles.toolbarFiltros, shouldStackToolbar && styles.toolbarFiltrosStack]}>
             <View style={[styles.formGroup, !shouldStackToolbar && styles.formGroupCompact]}>
               <Text style={styles.formLabel}>Desde</Text>
-              <InputFecha valueIso={fechaInicio} onChangeIso={setFechaInicio} placeholder="dd/mm/aaaa" style={styles.formInput} />
+              <InputFecha
+                compact={!shouldStackToolbar}
+                valueIso={fechaInicio}
+                onChangeIso={setFechaInicio}
+                placeholder="dd/mm/aaaa"
+                style={shouldStackToolbar ? styles.formInput : styles.inputFechaToolbar}
+              />
             </View>
             <View style={[styles.formGroup, !shouldStackToolbar && styles.formGroupCompact]}>
               <Text style={styles.formLabel}>Hasta</Text>
-              <InputFecha valueIso={fechaFin} onChangeIso={setFechaFin} placeholder="dd/mm/aaaa" style={styles.formInput} />
+              <InputFecha
+                compact={!shouldStackToolbar}
+                valueIso={fechaFin}
+                onChangeIso={setFechaFin}
+                placeholder="dd/mm/aaaa"
+                style={shouldStackToolbar ? styles.formInput : styles.inputFechaToolbar}
+              />
             </View>
             <View style={[styles.formGroup, styles.formGroupWide, !shouldStackToolbar && styles.formGroupLocalCompact]}>
               <SelectorDesplegable
@@ -2117,8 +2129,8 @@ const styles = StyleSheet.create({
   toolbarFilaUnica: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 10,
-    flexWrap: 'nowrap',
+    gap: 6,
+    flexWrap: 'wrap',
   },
   toolbarFilaUnicaStack: {
     flexDirection: 'column',
@@ -2130,7 +2142,8 @@ const styles = StyleSheet.create({
     flexWrap: 'nowrap',
     gap: 8,
     alignItems: 'flex-end',
-    flexShrink: 0,
+    flexShrink: 1,
+    minWidth: 0,
   },
   toolbarFiltrosStack: {
     flexWrap: 'wrap',
@@ -2141,10 +2154,11 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     backgroundColor: '#e2e8f0',
     marginVertical: 2,
+    marginHorizontal: 4,
     flexShrink: 0,
   },
-  formGroupCompact: { flex: 0, minWidth: 108, maxWidth: 118 },
-  formGroupLocalCompact: { flex: 1, minWidth: 140, maxWidth: 220 },
+  formGroupCompact: { flex: 0, minWidth: 136, maxWidth: 148 },
+  formGroupLocalCompact: { flex: 1, minWidth: 130, maxWidth: 200 },
   btnFiltrarIcon: {
     width: 40,
     height: 40,
@@ -2268,6 +2282,17 @@ const styles = StyleSheet.create({
     color: '#334155',
     minHeight: 40,
   },
+  inputFechaToolbar: {
+    width: 136,
+    minWidth: 136,
+    height: 40,
+    minHeight: 40,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 6,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
   formInputDisabled: { backgroundColor: '#f1f5f9', color: '#94a3b8' },
   btnGenerar: {
     flexDirection: 'row',
@@ -2311,22 +2336,36 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd',
   },
   kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  kpiRowInline: { flex: 1, flexWrap: 'nowrap', gap: 4, minWidth: 0 },
+  kpiRowInline: {
+    flexGrow: 1,
+    flexShrink: 0,
+    flexBasis: 'auto',
+    flexWrap: 'nowrap',
+    gap: 12,
+    minWidth: 280,
+    justifyContent: 'flex-end',
+    alignItems: 'flex-end',
+    ...(Platform.OS === 'web' ? ({ marginLeft: 'auto' } as object) : {}),
+  },
   kpiCard: {
     flex: 1, minWidth: 88, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0',
     borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6,
   },
   kpiCardCompact: {
+    flex: 0,
+    flexShrink: 0,
     backgroundColor: 'transparent',
     borderWidth: 0,
     borderRadius: 0,
-    paddingHorizontal: 4,
+    paddingHorizontal: 0,
     paddingVertical: 0,
-    minWidth: 0,
+    minWidth: 72,
+    alignItems: 'flex-end',
   },
   kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
+  kpiLabelCompact: { textAlign: 'right' as const },
   kpiValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 2 },
-  kpiValueCompact: { fontSize: 13, fontWeight: '800', marginTop: 1 },
+  kpiValueCompact: { fontSize: 12, fontWeight: '800', marginTop: 1, textAlign: 'right' as const },
   detailSection: { alignSelf: 'stretch' },
   detailHeader: { marginBottom: 8 },
   detailTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 8 },

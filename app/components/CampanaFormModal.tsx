@@ -42,11 +42,20 @@ type AgoraProduct = {
   FamilyName?: string;
 };
 
+type FilaPreviewIncentivo = {
+  productId: string;
+  productName: string;
+  precioCompra: number | null;
+  incentivo: number | null;
+};
+
 type Props = {
   visible: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (info?: { campanaId?: string; creada?: boolean }) => void;
   campana?: Campana | null;
+  /** Si true, abre como alta nueva con datos de `campana` (todos editables). */
+  duplicar?: boolean;
   puedeGestionar: boolean;
 };
 
@@ -78,16 +87,36 @@ function campanaAForm(c: Campana): CampanaFormValues {
   };
 }
 
+/** Plantilla para duplicar: copia reglas, limpia fechas y marca el nombre. */
+function campanaAPlantillaDuplicado(c: Campana): CampanaFormValues {
+  const base = campanaAForm(c);
+  const nombreBase = (base.nombre || 'Campaña').replace(/\s*\(copia\)\s*$/i, '').trim();
+  return {
+    ...base,
+    nombre: `${nombreBase} (copia)`,
+    fechaInicio: '',
+    fechaFin: '',
+  };
+}
+
 function productoFamilyId(p: AgoraProduct): string {
   return String(p.FamilyId ?? '').trim();
 }
 
-export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGestionar }: Props) {
+export function CampanaFormModal({
+  visible,
+  onClose,
+  onSaved,
+  campana,
+  duplicar = false,
+  puedeGestionar,
+}: Props) {
   const { width: windowWidth } = useWindowDimensions();
   const formWide = windowWidth >= 900;
 
-  const esEdicion = !!campana?.campanaId;
-  const estadoCampana = campana ? estadoEfectivoCampana(campana) : null;
+  const esDuplicar = Boolean(duplicar && campana?.campanaId);
+  const esEdicion = Boolean(campana?.campanaId) && !esDuplicar;
+  const estadoCampana = esEdicion && campana ? estadoEfectivoCampana(campana) : null;
   const inmutable = esEdicion && estadoCampana === 'Activa';
 
   const [form, setForm] = useState<CampanaFormValues>(EMPTY_FORM);
@@ -99,15 +128,25 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
   const [avisos, setAvisos] = useState<string[]>([]);
   const [productoIdsSel, setProductoIdsSel] = useState<string[]>([]);
   const [familiaIdsSel, setFamiliaIdsSel] = useState<string[]>([]);
+  const [previewIncentivoOpen, setPreviewIncentivoOpen] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
-    setForm(campana ? campanaAForm(campana) : EMPTY_FORM);
-    setProductoIdsSel(campana?.productos?.map((p) => p.productId) ?? []);
+    if (esDuplicar && campana) {
+      setForm(campanaAPlantillaDuplicado(campana));
+      setProductoIdsSel(campana.productos?.map((p) => p.productId) ?? []);
+    } else if (campana && !esDuplicar) {
+      setForm(campanaAForm(campana));
+      setProductoIdsSel(campana.productos?.map((p) => p.productId) ?? []);
+    } else {
+      setForm(EMPTY_FORM);
+      setProductoIdsSel([]);
+    }
     setFamiliaIdsSel([]);
     setError(null);
     setAvisos([]);
-  }, [visible, campana]);
+    setPreviewIncentivoOpen(false);
+  }, [visible, campana, esDuplicar]);
 
   useEffect(() => {
     if (!visible) return;
@@ -196,30 +235,28 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
     [form.productos],
   );
 
-  // Previsualización del incentivo por producto según el tipo seleccionado.
-  const incentivoPreview = useMemo(() => {
+  const filasPreviewIncentivo = useMemo((): FilaPreviewIncentivo[] => {
     const valorRaw = parseValorIncentivoInput(form.valorIncentivo);
     const valor = normalizarValorIncentivo(form.tipoIncentivo, valorRaw);
-    if (!(valor > 0) || form.productos.length === 0) return '';
-    if (form.tipoIncentivo === 'eur_por_unidad') {
-      return `El trabajador recibe ${valor.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € por cada unidad vendida.`;
-    }
-    if (form.tipoIncentivo === 'pct_coste') {
-      const pct = Math.round(valor * 1000) / 10;
-      const ejemplos = form.productos
-        .map((p) => {
-          const prod = productosMap.get(p.productId);
-          const coste = Number(prod?.CostPrice) || 0;
-          if (!coste) return null;
-          const inc = Math.round(coste * valor * 100) / 100;
-          return `${String(p.productName || p.productId)}: ${inc.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €/ud`;
-        })
-        .filter(Boolean)
-        .slice(0, 4);
-      const cola = ejemplos.length > 0 ? ` — ${ejemplos.join(', ')}` : ' (falta coste en almacén de los productos)';
-      return `${pct} % del precio de compra${cola}`;
-    }
-    return '';
+    return form.productos.map((p) => {
+      const prod = productosMap.get(p.productId);
+      const coste = Number(prod?.CostPrice);
+      const precioCompra = Number.isFinite(coste) && coste > 0 ? coste : null;
+      let incentivo: number | null = null;
+      if (valor > 0) {
+        if (form.tipoIncentivo === 'eur_por_unidad') {
+          incentivo = Math.round(valor * 100) / 100;
+        } else if (form.tipoIncentivo === 'pct_coste' && precioCompra != null) {
+          incentivo = Math.round(precioCompra * valor * 100) / 100;
+        }
+      }
+      return {
+        productId: p.productId,
+        productName: String(p.productName || p.productId),
+        precioCompra,
+        incentivo,
+      };
+    });
   }, [form.valorIncentivo, form.tipoIncentivo, form.productos, productosMap]);
 
   const aplicarProductosIds = useCallback(
@@ -315,7 +352,12 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
       if (Array.isArray(data.warnings) && data.warnings.length > 0) {
         setAvisos(data.warnings);
       }
-      onSaved();
+      onSaved({
+        campanaId: esEdicion
+          ? String(campana?.campanaId || data.campanaId || '')
+          : String(data.campanaId || ''),
+        creada: !esEdicion,
+      });
       onClose();
     } catch (e) {
       setError((e as Error).message || 'Error al guardar');
@@ -365,6 +407,9 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
     </>
   );
 
+  const formatEuroUd = (n: number) =>
+    `${n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+
   const bloqueIncentivo = (
     <>
       <View style={styles.filaIncentivo}>
@@ -389,20 +434,77 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
           <Text style={styles.label}>
             {form.tipoIncentivo === 'eur_por_unidad' ? '€ / ud.' : '% (escribe 10 para 10 %)'}
           </Text>
-          <TextInput
-            style={[styles.input, styles.inputValor]}
-            value={form.valorIncentivo}
-            onChangeText={(t) => setForm((f) => ({ ...f, valorIncentivo: t }))}
-            keyboardType="decimal-pad"
-            placeholder={form.tipoIncentivo === 'eur_por_unidad' ? '0,80' : '10'}
-            editable={puedeGestionar && !inmutable}
-          />
+          <View style={styles.valorConPreview}>
+            <TouchableOpacity
+              style={styles.previewEyeBtn}
+              onPress={() => setPreviewIncentivoOpen((v) => !v)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Vista previa del incentivo por producto"
+            >
+              <MaterialIcons
+                name="visibility"
+                size={18}
+                color={previewIncentivoOpen ? '#0ea5e9' : '#64748b'}
+              />
+            </TouchableOpacity>
+            <TextInput
+              style={[styles.input, styles.inputValor]}
+              value={form.valorIncentivo}
+              onChangeText={(t) => setForm((f) => ({ ...f, valorIncentivo: t }))}
+              keyboardType="decimal-pad"
+              placeholder={form.tipoIncentivo === 'eur_por_unidad' ? '0,80' : '10'}
+              editable={puedeGestionar && !inmutable}
+            />
+            {previewIncentivoOpen ? (
+              <Modal
+                visible
+                transparent
+                animationType="fade"
+                onRequestClose={() => setPreviewIncentivoOpen(false)}
+              >
+                <Pressable style={styles.previewModalOverlay} onPress={() => setPreviewIncentivoOpen(false)}>
+                  <Pressable style={styles.previewPanel} onPress={(e) => e.stopPropagation()}>
+                    <View style={styles.previewHeader}>
+                      <Text style={styles.previewTitulo}>Incentivo por producto</Text>
+                      <TouchableOpacity
+                        onPress={() => setPreviewIncentivoOpen(false)}
+                        hitSlop={10}
+                        accessibilityLabel="Cerrar vista previa"
+                      >
+                        <MaterialIcons name="close" size={18} color="#64748b" />
+                      </TouchableOpacity>
+                    </View>
+                    {filasPreviewIncentivo.length === 0 ? (
+                      <Text style={styles.previewVacio}>Selecciona productos para ver la previsualización.</Text>
+                    ) : (
+                      <ScrollView style={styles.previewTableScroll} nestedScrollEnabled>
+                        <View style={styles.previewTableHead}>
+                          <Text style={[styles.previewTh, styles.previewColProducto]}>Producto</Text>
+                          <Text style={[styles.previewTh, styles.previewColNum]}>Pr. compra</Text>
+                          <Text style={[styles.previewTh, styles.previewColNum]}>Incentivo</Text>
+                        </View>
+                        {filasPreviewIncentivo.map((fila) => (
+                          <View key={fila.productId} style={styles.previewTableRow}>
+                            <Text style={[styles.previewTd, styles.previewColProducto]} numberOfLines={2}>
+                              {fila.productName}
+                            </Text>
+                            <Text style={[styles.previewTd, styles.previewColNum]}>
+                              {fila.precioCompra != null ? formatEuroUd(fila.precioCompra) : '—'}
+                            </Text>
+                            <Text style={[styles.previewTd, styles.previewColNum, styles.previewIncentivo]}>
+                              {fila.incentivo != null ? `${formatEuroUd(fila.incentivo)}/ud` : '—'}
+                            </Text>
+                          </View>
+                        ))}
+                      </ScrollView>
+                    )}
+                  </Pressable>
+                </Pressable>
+              </Modal>
+            ) : null}
+          </View>
         </View>
       </View>
-
-      {incentivoPreview ? (
-        <Text style={styles.incentivoPreview}>{incentivoPreview}</Text>
-      ) : null}
 
       <Text style={styles.label}>Destinatario</Text>
       <View style={styles.chipsRow}>
@@ -464,7 +566,11 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
         >
           <View style={styles.header}>
             <Text style={styles.titulo}>
-              {esEdicion ? 'Editar campaña' : 'Nueva campaña de incentivo'}
+              {esDuplicar
+                ? 'Duplicar campaña'
+                : esEdicion
+                  ? 'Editar campaña'
+                  : 'Nueva campaña de incentivo'}
             </Text>
             <TouchableOpacity onPress={onClose} hitSlop={12}>
               <MaterialIcons name="close" size={20} color="#64748b" />
@@ -476,6 +582,14 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
             contentContainerStyle={formWide ? styles.scrollContentWide : undefined}
             keyboardShouldPersistTaps="handled"
           >
+            {esDuplicar ? (
+              <View style={[styles.avisoBox, styles.avisoBoxInfo]}>
+                <MaterialIcons name="content-copy" size={16} color="#0ea5e9" />
+                <Text style={[styles.avisoText, styles.avisoTextInfo]}>
+                  Copia de «{campana?.nombre}». Revisa las fechas; el resto es editable.
+                </Text>
+              </View>
+            ) : null}
             {inmutable ? (
               <View style={styles.avisoBox}>
                 <MaterialIcons name="info-outline" size={16} color="#d97706" />
@@ -561,7 +675,9 @@ export function CampanaFormModal({ visible, onClose, onSaved, campana, puedeGest
                 {guardando ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <Text style={styles.btnPriText}>{esEdicion ? 'Guardar' : 'Crear'}</Text>
+                  <Text style={styles.btnPriText}>
+                    {esEdicion ? 'Guardar' : esDuplicar ? 'Crear copia' : 'Crear'}
+                  </Text>
                 )}
               </TouchableOpacity>
             ) : null}
@@ -621,12 +737,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 14,
   },
-  incentivoPreview: {
-    fontSize: 11,
-    color: '#0369a1',
-    marginTop: 6,
-    lineHeight: 15,
-  },
   label: {
     fontSize: 11,
     fontWeight: '600',
@@ -675,8 +785,82 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   incentivoTipoCol: { flex: 1, minWidth: 160 },
-  incentivoValorCol: { width: 96, flexShrink: 0 },
-  inputValor: { textAlign: 'right' as const },
+  incentivoValorCol: { width: 128, flexShrink: 0 },
+  valorConPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  previewEyeBtn: {
+    padding: 4,
+    borderRadius: 6,
+    minWidth: 28,
+    minHeight: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inputValor: { flex: 1, textAlign: 'right' as const, minWidth: 64 },
+  previewModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  previewPanel: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    width: '100%',
+    maxWidth: 440,
+    maxHeight: 360,
+    padding: 12,
+    ...(Platform.OS === 'web'
+      ? { boxShadow: '0 12px 32px rgba(0,0,0,0.18)' }
+      : {
+          elevation: 12,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.16,
+          shadowRadius: 12,
+        }),
+  },
+  previewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    gap: 8,
+  },
+  previewTitulo: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
+    flex: 1,
+  },
+  previewVacio: { fontSize: 12, color: '#94a3b8', lineHeight: 16 },
+  previewTableScroll: { maxHeight: 280 },
+  previewTableHead: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    marginBottom: 4,
+  },
+  previewTableRow: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingVertical: 5,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f1f5f9',
+  },
+  previewTh: { fontSize: 10, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
+  previewTd: { fontSize: 11, color: '#334155' },
+  previewColProducto: { flex: 1, minWidth: 0 },
+  previewColNum: { width: 78, textAlign: 'right' as const },
+  previewIncentivo: { fontWeight: '700', color: '#166534' },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 2 },
   chip: {
     paddingHorizontal: 10,
@@ -710,7 +894,11 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     alignItems: 'flex-start',
   },
+  avisoBoxInfo: {
+    backgroundColor: '#f0f9ff',
+  },
   avisoText: { flex: 1, fontSize: 11, color: '#92400e' },
+  avisoTextInfo: { color: '#0369a1' },
   avisoInline: { fontSize: 10, color: '#d97706', marginTop: 4 },
   error: { fontSize: 11, color: '#dc2626', marginTop: 6 },
   footer: {

@@ -48,6 +48,12 @@ export function estadoEfectivo(campana, hoy = hoyIso()) {
   return 'Borrador';
 }
 
+/** Estados en los que se permite borrar la campaña (no Bonificada: archivar antes). */
+export function campanaSePuedeBorrar(campana, hoy = hoyIso()) {
+  const estado = estadoEfectivo(campana, hoy);
+  return ['Borrador', 'Activa', 'Finalizada', 'Archivada'].includes(estado);
+}
+
 export function campanaEnriquecida(campana, hoy = hoyIso()) {
   if (!campana || typeof campana !== 'object') return campana;
   return {

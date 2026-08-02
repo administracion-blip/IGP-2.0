@@ -150,7 +150,7 @@ const GRUPOS_PERMISOS: { titulo: string; codigos: string[] }[] = [
   { titulo: 'Rrpp', codigos: ['rrpp.ver'] },
   {
     titulo: 'Recursos Humanos',
-    codigos: ['recursos_humanos.ver', 'personal.ver', 'rrhh.horas', 'incentivos_producto.ver', 'incentivos_producto.gestionar', 'incentivos_producto.exportar'],
+    codigos: ['recursos_humanos.ver', 'personal.ver', 'rrhh.horas', 'incentivos_producto.ver', 'incentivos_producto.gestionar', 'incentivos_producto.editar', 'incentivos_producto.borrar', 'incentivos_producto.exportar'],
   },
   {
     titulo: 'Marketing',
@@ -330,7 +330,9 @@ const PERMISOS_LABELS: Record<string, string> = {
   'marketing.gestionar': 'Marketing · Gestionar',
   'activaciones.ver': 'Activaciones · Ver / marcar realizada',
   'incentivos_producto.ver': 'RRHH · Incentivos producto · Ver',
-  'incentivos_producto.gestionar': 'RRHH · Incentivos producto · Gestionar',
+  'incentivos_producto.gestionar': 'RRHH · Incentivos producto · Crear, cerrar RRHH y archivar',
+  'incentivos_producto.editar': 'RRHH · Incentivos producto · Editar',
+  'incentivos_producto.borrar': 'RRHH · Incentivos producto · Borrar',
   'incentivos_producto.exportar': 'RRHH · Incentivos producto · Exportar',
   'remesas.ver': 'Remesas de pago · Ver',
   'remesas.gestionar': 'Remesas de pago · Gestionar',

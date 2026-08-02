@@ -6,8 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Platform,
-  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -23,7 +21,8 @@ import {
   CHIP_ESTADO_CAMPANA_PASTEL,
   FILTROS_ESTADO_CAMPANA,
 } from '../../../lib/incentivosProducto';
-import { estadoEfectivoCampana } from '../../../lib/campanaEstado';
+import { estadoEfectivoCampana, campanaSePuedeBorrar } from '../../../lib/campanaEstado';
+import { useConfirmar } from '../../../hooks/useConfirmar';
 import type { Campana, EstadoCampana, ResultadosCampana } from '../../../types/incentivosProducto';
 
 type CampanaConResultado = Campana & {
@@ -45,7 +44,9 @@ export default function IncentivosProductoIndexScreen() {
   const { hasPermiso, localPermitido } = useAuth();
   const { shouldStackPanels } = useBreakpoint();
   const puedeGestionar = hasPermiso('incentivos_producto.gestionar');
+  const puedeBorrar = hasPermiso('incentivos_producto.borrar');
   const puedeVer = hasPermiso('incentivos_producto.ver');
+  const { confirmar, ConfirmarView } = useConfirmar();
 
   const [items, setItems] = useState<CampanaConResultado[]>([]);
   const [localesMap, setLocalesMap] = useState<Record<string, string>>({});
@@ -54,6 +55,7 @@ export default function IncentivosProductoIndexScreen() {
   const [filtroEstado, setFiltroEstado] = useState<EstadoCampana | 'todos'>('Activa');
   const [modalAbierto, setModalAbierto] = useState(false);
   const [editarCampana, setEditarCampana] = useState<Campana | null>(null);
+  const [modoDuplicar, setModoDuplicar] = useState(false);
 
   const cargarResultado = useCallback(async (campanaId: string): Promise<number | null> => {
     try {
@@ -165,27 +167,30 @@ export default function IncentivosProductoIndexScreen() {
 
   const abrirNueva = () => {
     setEditarCampana(null);
+    setModoDuplicar(false);
     setModalAbierto(true);
   };
 
-  const confirmarBorrar = (c: Campana) => {
-    const run = async () => {
-      try {
-        const res = await apiFetch(`/api/campanas/${c.campanaId}`, { method: 'DELETE' });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'No se pudo borrar');
-        refetch();
-      } catch (e) {
-        setError((e as Error).message);
-      }
-    };
-    if (Platform.OS === 'web') {
-      if (window.confirm(`¿Borrar la campaña «${c.nombre}»?`)) run();
-    } else {
-      Alert.alert('Borrar campaña', `¿Seguro que quieres borrar «${c.nombre}»?`, [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Borrar', style: 'destructive', onPress: run },
-      ]);
+  const abrirDuplicar = (c: Campana) => {
+    setEditarCampana(c);
+    setModoDuplicar(true);
+    setModalAbierto(true);
+  };
+
+  const confirmarBorrar = async (c: Campana) => {
+    const ok = await confirmar(
+      'Borrar campaña',
+      `¿Seguro que quieres borrar «${c.nombre}»?`,
+      { confirmarLabel: 'Borrar', variant: 'danger' },
+    );
+    if (!ok) return;
+    try {
+      const res = await apiFetch(`/api/campanas/${c.campanaId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo borrar');
+      refetch();
+    } catch (e) {
+      setError((e as Error).message);
     }
   };
 
@@ -218,15 +223,26 @@ export default function IncentivosProductoIndexScreen() {
                   cargandoResultado={c.cargandoResultado}
                   onPress={() => router.push(`/recursos-humanos/incentivos-producto/${c.campanaId}`)}
                 />
-                {puedeGestionar && (estadoEfectivoCampana(c) === 'Borrador' || estadoEfectivoCampana(c) === 'Archivada') ? (
-                  <TouchableOpacity
-                    onPress={() => confirmarBorrar(c)}
-                    style={styles.cardDeleteBtn}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
-                  </TouchableOpacity>
-                ) : null}
+                <View style={styles.cardActions}>
+                  {puedeGestionar ? (
+                    <TouchableOpacity
+                      onPress={() => abrirDuplicar(c)}
+                      style={styles.cardActionBtn}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <MaterialIcons name="content-copy" size={18} color="#0ea5e9" />
+                    </TouchableOpacity>
+                  ) : null}
+                  {puedeBorrar && campanaSePuedeBorrar(c) ? (
+                    <TouchableOpacity
+                      onPress={() => confirmarBorrar(c)}
+                      style={styles.cardActionBtn}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
               </View>
             ))}
         </ScrollView>
@@ -319,11 +335,21 @@ export default function IncentivosProductoIndexScreen() {
 
       <CampanaFormModal
         visible={modalAbierto}
-        onClose={() => setModalAbierto(false)}
-        onSaved={refetch}
+        onClose={() => {
+          setModalAbierto(false);
+          setModoDuplicar(false);
+          setEditarCampana(null);
+        }}
+        onSaved={() => {
+          setModoDuplicar(false);
+          setEditarCampana(null);
+          refetch();
+        }}
         campana={editarCampana}
+        duplicar={modoDuplicar}
         puedeGestionar={puedeGestionar}
       />
+      {ConfirmarView}
     </View>
   );
 }
@@ -412,11 +438,15 @@ const styles = StyleSheet.create({
   listContent: { padding: 12, gap: 10, paddingBottom: 24 },
 
   cardWrap: { position: 'relative' },
-  cardDeleteBtn: {
+  cardActions: {
     position: 'absolute',
     top: 6,
     right: 6,
     zIndex: 2,
+    flexDirection: 'row',
+    gap: 4,
+  },
+  cardActionBtn: {
     padding: 6,
     backgroundColor: 'rgba(255,255,255,0.92)',
     borderRadius: 8,

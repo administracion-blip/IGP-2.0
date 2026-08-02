@@ -432,8 +432,13 @@ router.put('/facturacion/facturas/:id', async (req, res) => {
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
 
     const factura = existing.Item;
+    const esGasto = factura.tipo === 'IN';
+    const estadoOriginal = factura.estado;
 
-    if (!['borrador', 'pendiente_revision'].includes(factura.estado)) {
+    if (estadoOriginal === 'anulada') {
+      return res.status(400).json({ error: 'No se pueden editar facturas anuladas' });
+    }
+    if (!esGasto && !['borrador', 'pendiente_revision'].includes(estadoOriginal)) {
       return res.status(400).json({ error: 'Solo se pueden editar facturas en estado borrador o pendiente de revisión' });
     }
 
@@ -446,7 +451,7 @@ router.put('/facturacion/facturas/:id', async (req, res) => {
       'empresa_iban', 'empresa_iban_alternativo',
       'fecha_emision', 'fecha_operacion', 'fecha_vencimiento',
       'condiciones_pago', 'forma_pago', 'observaciones', 'local_id',
-      'numero_factura_proveedor', 'fecha_contabilizacion', 'estado',
+      'numero_factura_proveedor', 'fecha_contabilizacion',
     ];
 
     const changes = {};
@@ -455,6 +460,16 @@ router.put('/facturacion/facturas/:id', async (req, res) => {
         changes[field] = body[field];
         factura[field] = body[field];
       }
+    }
+
+    // Solo en borrador/revisión se acepta body.estado. En IN ya validada se ignora
+    // para que no pueda saltarse el recálculo de pago (p. ej. forzar 'borrador').
+    if (
+      body.estado !== undefined &&
+      ['borrador', 'pendiente_revision'].includes(estadoOriginal)
+    ) {
+      changes.estado = body.estado;
+      factura.estado = body.estado;
     }
 
     // `es_abono` va aparte de la lista genérica porque es una bandera que decide
@@ -538,6 +553,23 @@ router.put('/facturacion/facturas/:id', async (req, res) => {
       factura.total_factura = round2(base_imponible + total_iva - total_retencion);
       factura.saldo_pendiente = round2(factura.total_factura - (factura.total_cobrado || 0));
       factura.impuestos_resumen = buildImpuestosResumenFromLineas(body.lineas);
+
+      // Gasto (IN) ya validado: al cambiar totales, recalcular estado de pago.
+      // Usa estadoOriginal (no factura.estado) para no depender de body.estado.
+      if (
+        esGasto &&
+        !['borrador', 'pendiente_revision', 'anulada'].includes(estadoOriginal)
+      ) {
+        const saldo = factura.saldo_pendiente;
+        factura.saldo_pendiente = Math.max(0, saldo);
+        if (saldo <= 0) {
+          factura.estado = 'pagada';
+        } else if ((factura.total_cobrado || 0) > 0) {
+          factura.estado = 'parcialmente_pagada';
+        } else {
+          factura.estado = 'pendiente_pago';
+        }
+      }
     }
 
     factura.modificado_por = body.usuario_id || factura.modificado_por;

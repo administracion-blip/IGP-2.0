@@ -39,6 +39,12 @@ export function estadoEfectivoCampana(campana: Campana, hoy = hoyIso()): EstadoC
   return 'Borrador';
 }
 
+/** Estados en los que se permite borrar (no Bonificada: archivar antes). */
+export function campanaSePuedeBorrar(campana: Campana, hoy = hoyIso()): boolean {
+  const estado = estadoEfectivoCampana(campana, hoy);
+  return estado === 'Borrador' || estado === 'Activa' || estado === 'Finalizada' || estado === 'Archivada';
+}
+
 export function campanaPendienteRevisionRrhh(campana: Campana, hoy = hoyIso()): boolean {
   return estadoEfectivoCampana(campana, hoy) === 'Finalizada';
 }

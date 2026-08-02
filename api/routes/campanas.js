@@ -3,7 +3,9 @@
  *
  * Permisos:
  *  - incentivos_producto.ver — listar y ver resultados
- *  - incentivos_producto.gestionar — crear, editar, activar, archivar
+ *  - incentivos_producto.gestionar — crear, cerrar RRHH, archivar
+ *  - incentivos_producto.editar — editar campaña (gestionar también vale)
+ *  - incentivos_producto.borrar — borrar campaña (gestionar también vale)
  *  - incentivos_producto.exportar — exportar informes (UI)
  */
 import { Router } from 'express';
@@ -16,13 +18,13 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
-import { requirePermission } from '../middleware/auth.js';
+import { requirePermission, hasPermission } from '../middleware/auth.js';
 import {
   calcularResultadosCampana,
   resolverMargenesProductos,
   round2,
 } from '../lib/campanas/campanaResultados.js';
-import { campanaEnriquecida, estadoEfectivo } from '../lib/campanas/campanaEstado.js';
+import { campanaEnriquecida, campanaSePuedeBorrar, estadoEfectivo } from '../lib/campanas/campanaEstado.js';
 import { daysBetweenInclusive, queryVentasPorLocalRango, getLastSalesLinesSync } from '../lib/dynamo/ventasProducto.js';
 
 const router = Router();
@@ -258,7 +260,7 @@ router.post('/campanas', requirePermission('incentivos_producto.gestionar'), asy
   }
 });
 
-router.patch('/campanas/:campanaId', requirePermission('incentivos_producto.gestionar'), async (req, res) => {
+router.patch('/campanas/:campanaId', requirePermission('incentivos_producto.editar'), async (req, res) => {
   try {
     const campanaId = String(req.params.campanaId).trim();
     const body = req.body || {};
@@ -273,6 +275,12 @@ router.patch('/campanas/:campanaId', requirePermission('incentivos_producto.gest
       return res.status(400).json({
         error: 'El estado se calcula automáticamente según las fechas. Use archivar: true para archivar manualmente.',
       });
+    }
+
+    if (body.archivar === true || body.bonificar === true) {
+      if (!(await hasPermission(req.user, 'incentivos_producto.gestionar'))) {
+        return res.status(403).json({ error: 'Permiso insuficiente para cerrar o archivar campañas' });
+      }
     }
 
     if (body.archivar === true) {
@@ -400,7 +408,7 @@ router.patch('/campanas/:campanaId', requirePermission('incentivos_producto.gest
   }
 });
 
-router.delete('/campanas/:campanaId', requirePermission('incentivos_producto.gestionar'), async (req, res) => {
+router.delete('/campanas/:campanaId', requirePermission('incentivos_producto.borrar'), async (req, res) => {
   try {
     const campanaId = String(req.params.campanaId).trim();
     const existing = await docClient.send(new GetCommand({
@@ -409,10 +417,9 @@ router.delete('/campanas/:campanaId', requirePermission('incentivos_producto.ges
     }));
     if (!existing.Item) return res.status(404).json({ error: 'Campaña no encontrada' });
 
-    const estado = estadoEfectivo(existing.Item);
-    if (!['Borrador', 'Archivada'].includes(estado)) {
+    if (!campanaSePuedeBorrar(existing.Item)) {
       return res.status(400).json({
-        error: 'Solo se pueden borrar campañas programadas (Borrador) o archivadas',
+        error: 'No se puede borrar una campaña cerrada por RRHH (Bonificada). Archívela primero.',
       });
     }
 

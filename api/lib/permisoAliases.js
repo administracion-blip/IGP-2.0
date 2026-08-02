@@ -4,6 +4,8 @@
  */
 export const PERMISO_ALIASES = {
   'marketing.proponer': ['rrss.ver'],
+  'incentivos_producto.editar': ['incentivos_producto.gestionar'],
+  'incentivos_producto.borrar': ['incentivos_producto.gestionar'],
 };
 
 /** Códigos a comprobar en DynamoDB (canónico + alias). */

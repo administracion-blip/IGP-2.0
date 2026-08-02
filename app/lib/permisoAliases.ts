@@ -4,6 +4,8 @@
  */
 export const PERMISO_ALIASES: Record<string, readonly string[]> = {
   'marketing.proponer': ['rrss.ver'],
+  'incentivos_producto.editar': ['incentivos_producto.gestionar'],
+  'incentivos_producto.borrar': ['incentivos_producto.gestionar'],
 };
 
 export function permisoConcedido(permisos: string[], codigo: string): boolean {

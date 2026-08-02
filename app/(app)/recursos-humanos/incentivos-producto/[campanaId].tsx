@@ -32,7 +32,8 @@ import {
   etiquetaWarning,
   formatValorIncentivoDisplay,
 } from '../../../lib/incentivosProducto';
-import { estadoEfectivoCampana, etiquetaEstadoAutomatico } from '../../../lib/campanaEstado';
+import { campanaSePuedeBorrar, estadoEfectivoCampana, etiquetaEstadoAutomatico } from '../../../lib/campanaEstado';
+import { useConfirmar } from '../../../hooks/useConfirmar';
 import { generarPdfIncentivosCampana, pdfIncentivosCampanaFileSlug } from '../../../lib/incentivosProductoPdf';
 import type { Campana, ResultadosCampana, TipoIncentivo } from '../../../types/incentivosProducto';
 import type { DetalleVentasCampana, FiltroVentasCampana } from '../../../types/ventasCampana';
@@ -264,8 +265,11 @@ export default function CampanaDetalleScreen() {
   const { hasPermiso } = useAuth();
   const { shouldStackPanels } = useBreakpoint();
   const puedeGestionar = hasPermiso('incentivos_producto.gestionar');
+  const puedeEditar = hasPermiso('incentivos_producto.editar');
+  const puedeBorrar = hasPermiso('incentivos_producto.borrar');
   const puedeExportar = hasPermiso('incentivos_producto.exportar');
   const puedeVer = hasPermiso('incentivos_producto.ver');
+  const { confirmar, ConfirmarView } = useConfirmar();
 
   const [campana, setCampana] = useState<Campana | null>(null);
   const [resultados, setResultados] = useState<ResultadosCampana | null>(null);
@@ -277,11 +281,12 @@ export default function CampanaDetalleScreen() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>('producto');
   const [selId, setSelId] = useState<string | null>(null);
-  const [modalEditar, setModalEditar] = useState(false);
+  const [modalForm, setModalForm] = useState<'editar' | 'duplicar' | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exportando, setExportando] = useState(false);
   const [archivando, setArchivando] = useState(false);
   const [bonificando, setBonificando] = useState(false);
+  const [borrando, setBorrando] = useState(false);
   const [ventasProductoModal, setVentasProductoModal] = useState<DeckRowItem | null>(null);
 
   const cargar = useCallback(async () => {
@@ -541,6 +546,28 @@ export default function CampanaDetalleScreen() {
     }
   };
 
+  const borrarCampana = async () => {
+    if (!campana || !puedeBorrar || !campanaSePuedeBorrar(campana)) return;
+    const ok = await confirmar(
+      'Borrar campaña',
+      `¿Borrar definitivamente la campaña «${campana.nombre}»? Esta acción no se puede deshacer.`,
+      { confirmarLabel: 'Borrar', variant: 'danger' },
+    );
+    if (!ok) return;
+    setBorrando(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/campanas/${campana.campanaId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo borrar');
+      router.replace('/recursos-humanos/incentivos-producto');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBorrando(false);
+    }
+  };
+
   if (!puedeVer) {
     return (
       <View style={styles.center}>
@@ -613,8 +640,26 @@ export default function CampanaDetalleScreen() {
             </TouchableOpacity>
           ) : null}
           {puedeGestionar && campana ? (
-            <TouchableOpacity style={styles.btnIcon} onPress={() => setModalEditar(true)}>
+            <TouchableOpacity style={styles.btnIcon} onPress={() => setModalForm('duplicar')}>
+              <MaterialIcons name="content-copy" size={20} color="#0ea5e9" />
+            </TouchableOpacity>
+          ) : null}
+          {puedeEditar && campana ? (
+            <TouchableOpacity style={styles.btnIcon} onPress={() => setModalForm('editar')}>
               <MaterialIcons name="edit" size={20} color="#64748b" />
+            </TouchableOpacity>
+          ) : null}
+          {puedeBorrar && campana && campanaSePuedeBorrar(campana) ? (
+            <TouchableOpacity
+              style={styles.btnIcon}
+              onPress={borrarCampana}
+              disabled={borrando}
+            >
+              {borrando ? (
+                <ActivityIndicator size="small" color="#ef4444" />
+              ) : (
+                <MaterialIcons name="delete-outline" size={20} color="#ef4444" />
+              )}
             </TouchableOpacity>
           ) : null}
           {puedeExportar ? (
@@ -777,12 +822,21 @@ export default function CampanaDetalleScreen() {
       />
 
       <CampanaFormModal
-        visible={modalEditar}
-        onClose={() => setModalEditar(false)}
-        onSaved={cargar}
+        visible={modalForm != null}
+        onClose={() => setModalForm(null)}
+        onSaved={(info) => {
+          setModalForm(null);
+          if (info?.creada && info.campanaId) {
+            router.replace(`/recursos-humanos/incentivos-producto/${info.campanaId}`);
+            return;
+          }
+          cargar();
+        }}
         campana={campana}
-        puedeGestionar={puedeGestionar}
+        duplicar={modalForm === 'duplicar'}
+        puedeGestionar={modalForm === 'duplicar' ? puedeGestionar : puedeEditar}
       />
+      {ConfirmarView}
     </View>
   );
 }

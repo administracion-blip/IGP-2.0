@@ -170,7 +170,9 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `activaciones.ver` | Activaciones de marca · Ver las del día en Planning Diario y lista en solo lectura; marcar realizada/cancelada y añadir incidencias (personal de barra) |
 | `activaciones.gestionar` | Activaciones de marca · Crear, editar y archivar campañas; programar, cancelar y eliminar sesiones (administración) |
 | `incentivos_producto.ver` | Incentivos por producto · Ver campañas y resultados |
-| `incentivos_producto.gestionar` | Incentivos por producto · Crear, editar, activar y archivar campañas |
+| `incentivos_producto.gestionar` | Incentivos por producto · Crear campañas, cerrar RRHH y archivar |
+| `incentivos_producto.editar` | Incentivos por producto · Editar campaña |
+| `incentivos_producto.borrar` | Incentivos por producto · Borrar campaña |
 | `incentivos_producto.exportar` | Incentivos por producto · Exportar informe Excel/PDF |
 | `remesas.ver` | Remesas de pago · Ver |
 | `remesas.gestionar` | Remesas de pago · Crear, generar fichero BBVA, ejecutar y anular |

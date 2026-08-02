@@ -244,7 +244,8 @@ export default function FacturaDetalleScreen() {
       });
   }, [serie, emisorId, fechaEmision, series, modo, esVenta]);
 
-  const esEditable = estado === 'borrador' || (tipo === 'IN' && estado === 'pendiente_revision');
+  const esEditable =
+    estado !== 'anulada' && (estado === 'borrador' || tipo === 'IN');
   const esValidacionRevisionIn = tipo === 'IN' && estado === 'pendiente_revision';
   const puedeEmitir = estado === 'borrador' || esValidacionRevisionIn;
   /** El correlativo de venta se reserva al emitir: en borrador no hay número que mostrar. */
@@ -621,7 +622,9 @@ export default function FacturaDetalleScreen() {
     const tituloAccion = esValidacionRevisionIn ? 'Validar revisión' : 'Emitir factura';
     const textoAccion = esValidacionRevisionIn
       ? '¿Confirmas que los datos OCR son correctos? La factura pasará a pendiente de pago.'
-      : '¿Seguro que deseas emitir esta factura? No podrá editarse después.';
+      : tipo === 'IN'
+        ? '¿Seguro que deseas emitir esta factura? Pasará a pendiente de pago.'
+        : '¿Seguro que deseas emitir esta factura? No podrá editarse después.';
     const ok = await confirmar(tituloAccion, textoAccion, {
       confirmarLabel: esValidacionRevisionIn ? 'Validar revisión' : 'Emitir',
     });
@@ -1026,7 +1029,9 @@ export default function FacturaDetalleScreen() {
             {saving ? <ActivityIndicator size="small" color="#fff" /> : (
               <>
                 <MaterialIcons name="save" size={16} color="#fff" />
-                <Text style={styles.btnPrimaryText}>Guardar borrador</Text>
+                <Text style={styles.btnPrimaryText}>
+                  {tipo === 'IN' && estado !== 'borrador' ? 'Guardar' : 'Guardar borrador'}
+                </Text>
               </>
             )}
           </TouchableOpacity>
