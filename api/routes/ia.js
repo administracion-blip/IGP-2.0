@@ -9,6 +9,8 @@
  * - Cada fuente exige además su propio permiso, validado dentro del handler.
  * - Cada fuente filtra los locales del usuario en su generador (no se confía en
  *   el cliente): manipular `parametros.localId` no da acceso a locales ajenos.
+ * - Historial/detalle filtran por `alcanceLocales` del informe (o `generadoPor`
+ *   en informes legacy sin ese campo). Admin / Locales vacío ven todos.
  */
 import { Router } from 'express';
 import { requirePermission, hasPermission } from '../middleware/auth.js';
@@ -37,6 +39,7 @@ import {
   listarInformes,
   getInformeById,
   permitirEjecucion,
+  usuarioPuedeVerInforme,
 } from '../lib/ia/store.js';
 import {
   getAjustesIa,
@@ -172,7 +175,14 @@ router.delete('/ia/prompts/:promptId', requirePermission('ia.prompts_gestionar')
   }
 });
 
-/** GET /api/ia/informes?fuente=&limit= — historial de una fuente. */
+/** Filtro ACL de historial/detalle: alcance de locales (B) o autor (A, legacy). */
+function filtroAclInformes(user) {
+  const alcance = alcanceLocalesUsuario(user);
+  const uk = userKey(user);
+  return (informe) => usuarioPuedeVerInforme(user, informe, alcance, uk);
+}
+
+/** GET /api/ia/informes?fuente=&limit= — historial de una fuente (solo alcance del usuario). */
 router.get('/ia/informes', requirePermission('ia.informes'), async (req, res) => {
   const fuenteClave = String(req.query.fuente || '');
   const fuente = getFuente(fuenteClave);
@@ -181,7 +191,7 @@ router.get('/ia/informes', requirePermission('ia.informes'), async (req, res) =>
     return res.status(403).json({ error: 'Permiso insuficiente para esta fuente' });
   }
   try {
-    const informes = await listarInformes(fuenteClave, req.query.limit);
+    const informes = await listarInformes(fuenteClave, req.query.limit, filtroAclInformes(req.user));
     return res.json({ informes });
   } catch (err) {
     console.error('[ia/informes:list]', err.message || err);
@@ -189,7 +199,7 @@ router.get('/ia/informes', requirePermission('ia.informes'), async (req, res) =>
   }
 });
 
-/** GET /api/ia/informes/:informeId?fuente= — detalle con datosJson. */
+/** GET /api/ia/informes/:informeId?fuente= — detalle con datosJson (404 si fuera de alcance). */
 router.get('/ia/informes/:informeId', requirePermission('ia.informes'), async (req, res) => {
   const fuenteClave = String(req.query.fuente || '');
   const fuente = getFuente(fuenteClave);
@@ -198,7 +208,11 @@ router.get('/ia/informes/:informeId', requirePermission('ia.informes'), async (r
     return res.status(403).json({ error: 'Permiso insuficiente para esta fuente' });
   }
   try {
-    const informe = await getInformeById(fuenteClave, String(req.params.informeId));
+    const informe = await getInformeById(
+      fuenteClave,
+      String(req.params.informeId),
+      filtroAclInformes(req.user),
+    );
     if (!informe) return res.status(404).json({ error: 'Informe no encontrado' });
     return res.json({ informe });
   } catch (err) {
@@ -225,11 +239,13 @@ router.post('/ia/informes', requirePermission('ia.informes'), async (req, res) =
   const promptId = plantilla.promptId;
 
   // La versión de la plantilla entra en la firma: editar el texto invalida la cache.
+  // Persistir alcanceLocales permite filtrar historial/detalle por ACL (opción B).
+  const alcanceLocales = alcanceLocalesUsuario(req.user);
   const firmaCache = calcularFirmaCache({
     fuente: fuente.clave,
     parametros,
     promptId: `${promptId}@${plantilla.actualizadoEn || 'code'}`,
-    alcanceLocales: alcanceLocalesUsuario(req.user),
+    alcanceLocales,
   });
 
   try {
@@ -275,6 +291,7 @@ router.post('/ia/informes', requirePermission('ia.informes'), async (req, res) =
       promptId,
       promptNombre: plantilla.nombre || '',
       firmaCache,
+      alcanceLocales,
       datosJson,
       resumen,
       modelo: modelo || (iaDisponible() ? ajustes.modelo : null),

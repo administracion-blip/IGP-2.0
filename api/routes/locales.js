@@ -2,6 +2,7 @@ import express from 'express';
 import { ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 import { formatId6 } from '../lib/usuarioLocales.js';
+import { esSedeGrupoParipeLocal } from '../lib/locales/sede.js';
 
 const router = express.Router();
 
@@ -69,12 +70,6 @@ function bodyLocalesVal(body, key) {
   return body[alt];
 }
 
-/** Locales cuya sede pertenece al grupo (misma lógica que facturación: texto contiene PARIPE). */
-function localGrupoParipe(loc) {
-  const s = String(loc?.sede ?? loc?.Sede ?? '').toUpperCase();
-  return s.includes('PARIPE');
-}
-
 router.get('/locales', async (req, res) => {
   const minimal = req.query.minimal === '1' || req.query.minimal === 'true';
   const grupoParipe = req.query.grupoParipe === '1' || req.query.grupoParipe === 'true';
@@ -95,7 +90,7 @@ router.get('/locales', async (req, res) => {
   } while (lastKey);
   let locales = items.map((item) => (item ? { ...item } : {}));
   if (grupoParipe) {
-    locales = locales.filter(localGrupoParipe);
+    locales = locales.filter(esSedeGrupoParipeLocal);
   }
   if (minimal && !grupoParipe) {
     cachedLocalesMinimal = locales;
@@ -182,6 +177,17 @@ router.put('/locales', async (req, res) => {
         item[key] = Array.isArray(existing.estilo_visual_imagen_keys)
           ? existing.estilo_visual_imagen_keys
           : [];
+      }
+    } else if (key === 'sede') {
+      // Permitir vaciar sede: si el body trae la clave (aunque ''), persistir '';
+      // si no viene, conservar existing (bodyLocalesVal ignora cadenas vacías).
+      const clavePresente = Object.prototype.hasOwnProperty.call(body, 'sede')
+        || Object.prototype.hasOwnProperty.call(body, 'Sede');
+      if (clavePresente) {
+        const raw = body.sede !== undefined ? body.sede : body.Sede;
+        item[key] = raw != null ? String(raw) : '';
+      } else {
+        item[key] = String(existing[key] ?? '');
       }
     } else {
       const v = bodyLocalesVal(body, key);

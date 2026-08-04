@@ -58,6 +58,7 @@ export async function buildTopCamarerosFromVentasProducto(ddb, localId, fechaDes
       rank: i + 1,
       userId: u.userId,
       userName: u.userName,
+      amount: Math.round((Number(u.amount) || 0) * 100) / 100,
     }));
 }
 

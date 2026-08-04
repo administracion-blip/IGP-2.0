@@ -25,6 +25,7 @@ import {
 import { validarIban } from '../lib/remesas/iban.js';
 import { truncarNombreFit } from '../lib/remesas/concepto.js';
 import { generarFicheroRemesa } from '../lib/remesas/index.js';
+import { facturaEnRemesaActiva } from '../lib/remesas/facturaEnRemesa.js';
 import { registrarPagoFactura } from '../lib/facturacion/registrarPago.js';
 import { normalizeCif, getCifFromEmpresaItem, getNombreFromEmpresaItem } from '../lib/empresaCif.js';
 
@@ -32,7 +33,6 @@ const router = Router();
 const TABLE = tables.remesas;
 
 const ESTADOS = ['Borrador', 'Generada', 'Ejecutada', 'Anulada'];
-const ESTADOS_ACTIVOS = new Set(['Borrador', 'Generada']);
 const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
 function uuid() {
@@ -91,18 +91,6 @@ async function getRemesa(remesaId) {
 
 function sumaLineas(lineas) {
   return round2((lineas || []).reduce((s, l) => s + (Number(l.importe) || 0), 0));
-}
-
-function facturaEnRemesaActiva(remesas, facturaId, excludeRemesaId = null) {
-  for (const rem of remesas) {
-    if (excludeRemesaId && rem.remesaId === excludeRemesaId) continue;
-    if (!ESTADOS_ACTIVOS.has(rem.estado)) continue;
-    const lineas = rem.lineas || [];
-    if (lineas.some((l) => l.id_factura === facturaId)) {
-      return rem;
-    }
-  }
-  return null;
 }
 
 async function cargarFactura(id) {
@@ -268,6 +256,14 @@ router.patch('/remesas/:remesaId', requirePermission('remesas.gestionar'), async
       remesa.actualizadoEn = now();
       await docClient.send(new PutCommand({ TableName: TABLE, Item: remesa }));
       return res.json({ remesa });
+    }
+
+    // Quitar facturas desde Generada: reabrir a Borrador en la misma operación
+    const quitarFacturaIds =
+      Array.isArray(b.quitarFacturaIds) && b.quitarFacturaIds.length > 0 ? b.quitarFacturaIds : null;
+    if (quitarFacturaIds && remesa.estado === 'Generada') {
+      remesa.estado = 'Borrador';
+      remesa.generadaEn = null;
     }
 
     if (remesa.estado !== 'Borrador') {

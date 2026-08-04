@@ -15,6 +15,7 @@
  */
 
 import type { Factura } from '../utils/facturacion';
+import type { RemesaActivaFactura } from './remesas';
 
 export type {
   Factura,
@@ -31,6 +32,8 @@ export type {
   PagoFactura,
   AuditoriaFactura,
 } from '../utils/facturacion';
+
+export type { RemesaActivaFactura } from './remesas';
 
 /**
  * Vista parcial de Factura tal como llega en endpoints de listado
@@ -49,7 +52,11 @@ export type {
  * sincroniza automáticamente — y si eliminamos el campo, TypeScript
  * fallará aquí indicándonos que hay que actualizar el listado.
  */
-export type FacturaListado = { id_factura: string } & Partial<Pick<Factura,
+export type FacturaListado = {
+  id_factura: string;
+  /** Presente si la factura IN está en una remesa Borrador/Generada */
+  remesaActiva?: RemesaActivaFactura | null;
+} & Partial<Pick<Factura,
   | 'estado'
   | 'fecha_emision'
   | 'numero_factura'

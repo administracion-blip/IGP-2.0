@@ -22,6 +22,21 @@ export const colors = {
   /** Fondo ítem sidebar al pulsar */
   navPressed: '#e2e8f0',
   overlay: 'rgba(15, 23, 42, 0.35)',
+  /** Cursor/caret en TextInput (visible sobre fondo claro). */
+  inputCursor: '#7c3aed',
+  /** Fondo al seleccionar texto en inputs. */
+  inputSelection: '#ede9fe',
+} as const;
+
+/** Props globales de cursor/selección para TextInput (nativo). */
+export const inputCursorProps = {
+  cursorColor: colors.inputCursor,
+  selectionColor: colors.inputSelection,
+} as const;
+
+/** Estilo web: caret-color en StyleSheet de inputs. */
+export const inputCursorStyle = {
+  caretColor: colors.inputCursor,
 } as const;
 
 /** Mapa de estados semánticos (badges, alertas). Texto tono oscuro del mismo matiz. */

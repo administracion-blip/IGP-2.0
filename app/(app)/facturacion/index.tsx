@@ -62,6 +62,7 @@ const OPCIONES: {
   { id: 'pagos-cobros', label: 'Pagos y cobros', icon: 'account-balance-wallet', descripcion: 'Movimientos de pago y cobro', permiso: 'facturacion.cobrar_pagar' },
   { id: 'cuadro-mando', label: 'Cuadro de mando', icon: 'analytics', descripcion: 'Análisis financiero, IVA, aging', permiso: 'facturacion.ver' },
   { id: 'series', label: 'Series', icon: 'format-list-numbered', descripcion: 'Configuración de series de facturación', permiso: 'facturacion.series' },
+  { id: 'refacturacion', label: 'REFACTURACIONES', icon: 'sync', descripcion: 'Escanear tickets, pendientes y emitir entre sociedades', permiso: 'refacturacion.ver' },
 ];
 
 const MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -148,21 +149,24 @@ export default function FacturacionIndexScreen() {
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Facturación</Text>
           <View style={styles.navRow}>
-            {OPCIONES.filter((o) => hasPermiso(o.permiso)).map((opcion) => (
-              <TouchableOpacity
-                key={opcion.id}
-                style={styles.navBtn}
-                onPress={() => router.push(`/facturacion/${opcion.id}` as any)}
-                activeOpacity={0.7}
-              >
-                <MaterialIcons name={opcion.icon} size={14} color="#0ea5e9" />
-                <Text style={styles.navBtnText}>{opcion.label}</Text>
-                <EstrellaFavorito
-                  favorito={{ route: `/facturacion/${opcion.id}`, label: opcion.label, icon: opcion.icon, permiso: opcion.permiso }}
-                  size={14}
-                />
-              </TouchableOpacity>
-            ))}
+            {OPCIONES.filter((o) => hasPermiso(o.permiso)).map((opcion) => {
+              const esRefact = opcion.id === 'refacturacion';
+              return (
+                <TouchableOpacity
+                  key={opcion.id}
+                  style={[styles.navBtn, esRefact && styles.navBtnRefact]}
+                  onPress={() => router.push(`/facturacion/${opcion.id}` as any)}
+                  activeOpacity={0.7}
+                >
+                  <MaterialIcons name={opcion.icon} size={14} color={esRefact ? '#6d28d9' : '#0ea5e9'} />
+                  <Text style={[styles.navBtnText, esRefact && styles.navBtnTextRefact]}>{opcion.label}</Text>
+                  <EstrellaFavorito
+                    favorito={{ route: `/facturacion/${opcion.id}`, label: opcion.label, icon: opcion.icon, permiso: opcion.permiso }}
+                    size={14}
+                  />
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={fetchMetricas}>
@@ -389,6 +393,11 @@ const styles = StyleSheet.create({
     borderColor: '#bae6fd',
   },
   navBtnText: { fontSize: 11, fontWeight: '500', color: '#0369a1' },
+  navBtnRefact: {
+    backgroundColor: '#ede9fe',
+    borderColor: '#c4b5fd',
+  },
+  navBtnTextRefact: { color: '#6d28d9', fontWeight: '600' },
 
   empresaSelector: { flex: 1, minWidth: 160 },
   periodoSelector: { minWidth: 120 },

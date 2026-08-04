@@ -63,6 +63,8 @@ export async function enriquecerFacturaOcrConOpenAI(datos, textoExtraido) {
       retencion: datos.retencion ?? 0,
       total_factura: datos.total_factura ?? 0,
       importes_coherentes: datos.importes_coherentes,
+      pista_lineas:
+        'Prioriza líneas de producto con cantidad y precio unitario. En facturas proveedor el precio suele ser sin IVA.',
     },
     texto_factura: text,
   };
@@ -88,6 +90,19 @@ DESGLOSE FISCAL (opcional, si hay varios tramos)
 - R.E. siempre tipo recargo_equivalencia, nunca retencion.
 - Si no ves líneas fiables, devuelve [] y no inventes.
 - recargo_equivalencia_total: número (suma cuotas R.E.) si aplica, si no 0.
+
+LÍNEAS DE ARTÍCULO (OBLIGATORIO intentar; para refacturación)
+- lineas_articulos: array de { "descripcion": string, "cantidad": number, "precio_unitario": number, "tipo_iva": number, "descuento_pct": number }.
+- En facturas B2B / albaranes de proveedor (columnas Cantidad, Precio, Base, % IVA, Importe): el "Precio" o "P.Unit" es ya BASE SIN IVA. Cópialo TAL CUAL a precio_unitario. NO dividas por (1+IVA). Ejemplo: 10 uds × 6,95 € + IVA 10% → precio_unitario=6.95, cantidad=10, tipo_iva=10.
+- Solo convierte PVP→base (pvp/(1+iva/100)) en TICKETS de consumo/TPV donde el precio mostrado incluye IVA y NO hay columna de base.
+- tipo_iva: 0, 4, 10 o 21 según la línea o el documento; hostelería/alimentacion a menudo 10.
+- descuento_pct: 0 si no hay.
+- Extrae TODAS las líneas de producto. Ignora totales, subtotales, formas de pago, IBAN, pie fiscal.
+- OCR ruidoso: reconstruye descripciones incompletas si el contexto es claro (ej. "GYOZA POLL VEGETAL" / "gyoza poll vegetal").
+- Si cantidad × precio_unitario ≈ base de esa línea (tolerancia 0,05 €), es buena señal.
+- Si no hay detalle de artículos pero sí totales: UNA línea con descripcion=proveedor o "Documento", cantidad=1, precio_unitario=base_imponible, tipo_iva del doc.
+- Si no puedes fundamentar ninguna línea: [].
+- No inventes productos ausentes del texto.
 
 CONFIANZA
 - confianza_campos: 0..1 por campo. Baja confianza si hay ambigüedad o datos ausentes.
@@ -151,6 +166,68 @@ function numOrZero(v) {
   return Number.isFinite(n) ? round2(n) : 0;
 }
 
+function numPrecioDesdeAliases(item, cantidad = 1) {
+  for (const key of ['precio_unitario', 'precio', 'precio_base', 'base_unitaria']) {
+    const n = Number(item[key]);
+    if (Number.isFinite(n) && n > 0) return round2(n);
+  }
+  // importe_unitario solo si no hay otro precio y cantidad===1 (evita confusión con importe de línea).
+  if (cantidad === 1) {
+    const n = Number(item.importe_unitario);
+    if (Number.isFinite(n) && n > 0) return round2(n);
+  }
+  return 0;
+}
+
+const TOL_LINEA_BASE = 0.05;
+
+/**
+ * Corrige precio_unitario si la IA metió el importe de línea/total como unitario.
+ * Con varias líneas: solo valida suma vs base; no fuerza correcciones.
+ */
+export function corregirLineasArticulosConBase(lineas, baseImponible) {
+  if (!Array.isArray(lineas) || lineas.length === 0) return Array.isArray(lineas) ? lineas : [];
+  const baseDoc = Number(baseImponible);
+  if (!Number.isFinite(baseDoc) || baseDoc <= 0) return lineas;
+
+  if (lineas.length === 1) {
+    const l = { ...lineas[0] };
+    const prod = round2(l.cantidad * l.precio_unitario);
+    if (Math.abs(prod - baseDoc) <= TOL_LINEA_BASE) return [l];
+    if (Math.abs(round2(l.precio_unitario) - baseDoc) <= TOL_LINEA_BASE && l.cantidad > 1) {
+      l.precio_unitario = round2(baseDoc / l.cantidad);
+      return [l];
+    }
+    if (l.cantidad === 1) {
+      l.precio_unitario = round2(baseDoc);
+      return [l];
+    }
+    return [l];
+  }
+
+  // Varias líneas: si suma de bases ≈ base_imponible OK; si no, no forzar (dejar IA).
+  return lineas;
+}
+
+export function normalizarLineasArticulos(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const descripcion =
+        item.descripcion != null ? String(item.descripcion).trim().slice(0, 500) : '';
+      const cantidadRaw = Number(item.cantidad);
+      const cantidad = Number.isFinite(cantidadRaw) && cantidadRaw > 0 ? cantidadRaw : 1;
+      const precio_unitario = numPrecioDesdeAliases(item, cantidad);
+      const ivaRaw = Number(item.tipo_iva);
+      const tipo_iva = Number.isFinite(ivaRaw) ? round2(ivaRaw) : 21;
+      const descRaw = Number(item.descuento_pct);
+      const descuento_pct = Number.isFinite(descRaw) ? round2(descRaw) || 0 : 0;
+      return { descripcion, cantidad, precio_unitario, tipo_iva, descuento_pct };
+    })
+    .filter((l) => l && l.descripcion && l.precio_unitario > 0);
+}
+
 function normalizeIaResponse(raw) {
   const cc = raw.confianza_campos && typeof raw.confianza_campos === 'object' ? raw.confianza_campos : {};
   const getf = (k, def = 0.5) => {
@@ -159,6 +236,11 @@ function normalizeIaResponse(raw) {
   };
 
   const desglose_ia = normalizarLineasDesgloseDesdeInput(raw.desglose_impuestos);
+  const baseIa = numOrZero(raw.base_imponible);
+  const lineas_articulos = corregirLineasArticulosConBase(
+    normalizarLineasArticulos(raw.lineas_articulos),
+    baseIa,
+  );
 
   return {
     proveedor_cif: raw.proveedor_cif != null ? String(raw.proveedor_cif).trim() : '',
@@ -166,12 +248,13 @@ function normalizeIaResponse(raw) {
     numero_factura_proveedor:
       raw.numero_factura_proveedor != null ? String(raw.numero_factura_proveedor).trim() : '',
     fecha_emision: raw.fecha_emision != null ? String(raw.fecha_emision).trim() : '',
-    base_imponible: numOrZero(raw.base_imponible),
+    base_imponible: baseIa,
     total_iva: numOrZero(raw.total_iva),
     retencion: numOrZero(raw.retencion),
     total_factura: numOrZero(raw.total_factura),
     recargo_equivalencia_total: numOrZero(raw.recargo_equivalencia_total),
     desglose_impuestos: desglose_ia,
+    lineas_articulos,
     confianza_campos: {
       proveedor_cif: getf('proveedor_cif'),
       proveedor_nombre: getf('proveedor_nombre'),
@@ -370,6 +453,20 @@ export function mergeExtraccionConIa(datosOriginales, ia) {
 
   const lineasPost = normalizarLineasDesgloseDesdeInput(base.desglose_impuestos || []);
 
+  const baseRefLineas =
+    (Number(base.base_imponible) > 0 && Number(base.base_imponible)) ||
+    (Number(ia.base_imponible) > 0 && Number(ia.base_imponible)) ||
+    (Number(datosOriginales.base_imponible) > 0 && Number(datosOriginales.base_imponible)) ||
+    0;
+
+  if (Array.isArray(ia.lineas_articulos) && ia.lineas_articulos.length > 0) {
+    base.lineas_articulos = corregirLineasArticulosConBase(ia.lineas_articulos, baseRefLineas);
+  } else if (Array.isArray(datosOriginales.lineas_articulos)) {
+    base.lineas_articulos = datosOriginales.lineas_articulos;
+  } else {
+    base.lineas_articulos = [];
+  }
+
   base.ia_meta = {
     aplicada: true,
     modelo: DEFAULT_MODEL,
@@ -378,6 +475,7 @@ export function mergeExtraccionConIa(datosOriginales, ia) {
     tiene_desglose_multiple: debeUsarAgregadosDesglose(lineasPost),
     desglose_aceptado_desde: iaDesgloseAceptable ? 'ia' : origDes.length ? 'ocr' : undefined,
     desglose_conflicto_ocr_ia: Boolean(desgloseConflict),
+    lineas_articulos_count: Array.isArray(base.lineas_articulos) ? base.lineas_articulos.length : 0,
     revision_sugerida:
       !valPost.importes_coherentes ||
       (ia.motivos_revision && ia.motivos_revision.length > 0) ||

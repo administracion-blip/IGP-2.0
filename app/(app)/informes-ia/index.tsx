@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -15,8 +16,13 @@ import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { InputFecha } from '../../components/InputFecha';
 import { CollapsibleSection } from '../../components/CollapsibleSection';
+import { VistaDiaADia, type DatosDiaADia } from '../../components/informes-ia/VistaDiaADia';
+import { InformeResumenRico } from '../../components/informes-ia/InformeResumenRico';
 import { apiFetch, errorMessage } from '../../utils/api';
 import { formatId6 } from '../../utils/idFormat';
+import { fechaInformeDiaAnteriorIso } from '../../lib/jornadaNegocio';
+import { descargarPdfInformeIa } from '../../lib/informesIaPdf';
+import { descargarPdfDesdeNodo } from '../../lib/informesIaPdfCapture';
 
 type OpcionParam = { valor: string; etiqueta: string };
 
@@ -61,6 +67,49 @@ type Plantilla = {
 
 type LocalItem = { id_Locales?: string | number; nombre?: string; Nombre?: string };
 
+const FUENTE_LABELS_PDF: Record<string, string> = {
+  dia_a_dia: 'Día a día',
+  objetivos_mes: 'Objetivos del mes',
+  ventas_hora: 'Ventas por hora',
+  compras_variaciones: 'Variaciones de compras',
+};
+
+function etiquetaFuentePdf(clave?: string): string {
+  if (!clave) return 'Informe';
+  return FUENTE_LABELS_PDF[clave] || clave.replace(/_/g, ' ');
+}
+
+function fechaParametroInforme(informe: Informe): string {
+  const params = informe.parametros || {};
+  const fechaParam = params.fecha;
+  if (typeof fechaParam === 'string' && /^\d{4}-\d{2}-\d{2}/.test(fechaParam)) {
+    const [y, m, d] = fechaParam.slice(0, 10).split('-');
+    return `${d}/${m}/${y}`;
+  }
+  const dj = informe.datosJson as { fecha?: string } | undefined;
+  if (dj?.fecha && /^\d{4}-\d{2}-\d{2}/.test(dj.fecha)) {
+    const [y, m, d] = dj.fecha.slice(0, 10).split('-');
+    return `${d}/${m}/${y}`;
+  }
+  if (informe.generadoEn) {
+    try {
+      return new Date(informe.generadoEn).toLocaleDateString('es-ES');
+    } catch {
+      /* ignore */
+    }
+  }
+  return new Date().toLocaleDateString('es-ES');
+}
+
+function slugPdfCaptura(informe: Informe): string {
+  const fuente = String(informe.fuente || 'informe')
+    .replace(/\s+/g, '_')
+    .replace(/[^\w\-]/g, '')
+    .slice(0, 24);
+  const id = String(informe.informeId || '').slice(0, 8) || 'sinid';
+  return `informe_ia_${fuente}_${id}`;
+}
+
 function fechaHora(iso?: string): string {
   if (!iso) return '—';
   try {
@@ -92,9 +141,11 @@ export default function InformesIaScreen() {
 
   const [loadingFuentes, setLoadingFuentes] = useState(true);
   const [generando, setGenerando] = useState(false);
+  const [exportandoPdf, setExportandoPdf] = useState(false);
   const [informe, setInforme] = useState<Informe | null>(null);
   const [historial, setHistorial] = useState<Informe[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const capturaPdfRef = useRef<View>(null);
 
   const puedeVer = hasPermiso('ia.informes');
   const puedeGestionar = hasPermiso('ia.prompts_gestionar');
@@ -170,7 +221,11 @@ export default function InformesIaScreen() {
     const defs = fuentes.find((f) => f.clave === fuenteClave)?.parametros || [];
     const inicial: Record<string, string> = {};
     for (const p of defs) {
-      if (p.defecto != null) inicial[p.nombre] = String(p.defecto);
+      if (p.defecto != null) {
+        inicial[p.nombre] = String(p.defecto);
+      } else if (p.tipo === 'fecha') {
+        inicial[p.nombre] = fechaInformeDiaAnteriorIso();
+      }
     }
     setParams(inicial);
     if (fuenteClave) {
@@ -224,6 +279,31 @@ export default function InformesIaScreen() {
       setInforme(d.informe as Informe);
     } catch (e) {
       setError(errorMessage(e, 'Error al abrir el informe'));
+    }
+  }
+
+  async function descargarPdf() {
+    if (!informe || exportandoPdf) return;
+    setExportandoPdf(true);
+    setError(null);
+    try {
+      if (Platform.OS === 'web' && capturaPdfRef.current) {
+        // modoPdf=true re-renderiza todas las gráficas; esperar paint
+        const esperaMs = informe.fuente === 'dia_a_dia' ? 400 : 150;
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            setTimeout(resolve, esperaMs);
+          });
+        });
+        const node = capturaPdfRef.current as unknown as HTMLElement;
+        await descargarPdfDesdeNodo(node, slugPdfCaptura(informe));
+      } else {
+        await descargarPdfInformeIa(informe);
+      }
+    } catch (e) {
+      setError(errorMessage(e, 'No se pudo generar el PDF'));
+    } finally {
+      setExportandoPdf(false);
     }
   }
 
@@ -420,21 +500,82 @@ export default function InformesIaScreen() {
               <View style={styles.resultHead}>
                 <MaterialIcons name="description" size={18} color="#0369a1" />
                 <Text style={styles.resultTitle}>Informe</Text>
+                <TouchableOpacity
+                  onPress={descargarPdf}
+                  disabled={exportandoPdf || !informe}
+                  style={[styles.regenerarBtn, (exportandoPdf || !informe) && styles.btnDisabled]}
+                >
+                  {exportandoPdf ? (
+                    <ActivityIndicator size="small" color="#0369a1" />
+                  ) : (
+                    <MaterialIcons name="picture-as-pdf" size={16} color="#0369a1" />
+                  )}
+                  <Text style={styles.regenerarText}>{exportandoPdf ? 'PDF…' : 'Descargar PDF'}</Text>
+                </TouchableOpacity>
                 <TouchableOpacity onPress={() => generar(true)} disabled={generando} style={styles.regenerarBtn}>
                   <MaterialIcons name="refresh" size={16} color="#0369a1" />
                   <Text style={styles.regenerarText}>Regenerar</Text>
                 </TouchableOpacity>
               </View>
 
-              {informe.resumen ? (
-                <Text style={styles.resumen}>{informe.resumen}</Text>
-              ) : (
-                <Text style={styles.hint}>
-                  Sin redacción (IA no configurada). Consulta los datos abajo.
-                </Text>
-              )}
+              <View
+                ref={capturaPdfRef}
+                collapsable={false}
+                style={styles.capturaPdf}
+              >
+                {informe.fuente === 'dia_a_dia' ? (
+                  <>
+                    <View
+                      {...(Platform.OS === 'web'
+                        ? ({ dataSet: { pdfSection: 'titulo-informe' } } as object)
+                        : {})}
+                    >
+                      <Text style={styles.capturaTitulo}>
+                        Informes IA · {etiquetaFuentePdf(informe.fuente)} · {fechaParametroInforme(informe)}
+                      </Text>
+                    </View>
+                    {informe.datosJson ? (
+                      <VistaDiaADia
+                        datos={informe.datosJson as DatosDiaADia}
+                        modoPdf={exportandoPdf}
+                      />
+                    ) : null}
+                    <View
+                      style={styles.resumenDiaBox}
+                      {...(Platform.OS === 'web'
+                        ? ({ dataSet: { pdfSection: 'resumen-ia' } } as object)
+                        : {})}
+                    >
+                      <Text style={styles.resumenDiaTitulo}>Acciones y foco del día</Text>
+                      {informe.resumen ? (
+                        <InformeResumenRico texto={informe.resumen} />
+                      ) : (
+                        <Text style={styles.hint}>
+                          Sin redacción (IA no configurada). Consulta los datos arriba.
+                        </Text>
+                      )}
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.capturaTitulo}>
+                      Informes IA · {etiquetaFuentePdf(informe.fuente)} · {fechaParametroInforme(informe)}
+                    </Text>
+                    {informe.resumen ? (
+                      <InformeResumenRico texto={informe.resumen} />
+                    ) : (
+                      <Text style={styles.hint}>
+                        Sin redacción (IA no configurada). Consulta los datos abajo.
+                      </Text>
+                    )}
+                  </>
+                )}
+              </View>
 
-              <CollapsibleSection title="Ver datos" defaultOpen={!informe.resumen}>
+              <CollapsibleSection
+                title="Ver datos (JSON)"
+                defaultOpen={!informe.resumen && !(informe.fuente === 'dia_a_dia' && informe.datosJson)}
+              >
                 <Text style={styles.jsonText}>{JSON.stringify(informe.datosJson ?? {}, null, 2)}</Text>
               </CollapsibleSection>
 
@@ -549,7 +690,34 @@ const styles = StyleSheet.create({
   resultTitle: { flex: 1, fontSize: 14, fontWeight: '700', color: '#334155' },
   regenerarBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   regenerarText: { fontSize: 12, color: '#0369a1', fontWeight: '600' },
-  resumen: { fontSize: 14, color: '#1e293b', lineHeight: 21, marginBottom: 10 },
+  btnDisabled: { opacity: 0.5 },
+  capturaPdf: {
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 8,
+    overflow: 'visible',
+  },
+  capturaTitulo: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+    marginBottom: 10,
+  },
+  resumenDiaBox: {
+    marginTop: 8,
+    backgroundColor: '#fef9c3',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    borderRadius: 12,
+    padding: 14,
+    gap: 8,
+  },
+  resumenDiaTitulo: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#854d0e',
+    marginBottom: 2,
+  },
   jsonText: {
     fontSize: 11,
     color: '#334155',

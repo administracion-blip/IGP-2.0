@@ -74,23 +74,69 @@ export async function guardarInforme(informe) {
   return limpiarItem(historial);
 }
 
+/**
+ * ¿Puede el usuario ver este informe?
+ * - Admin o Locales vacío → todos.
+ * - Si el informe tiene `alcanceLocales`:
+ *   - 'ALL' → solo usuarios con alcance total (ya cubierto arriba).
+ *   - array → el alcance del informe debe estar contenido en el del usuario
+ *     (evita filtrar por mera intersección y filtrar datos de locales ajenos).
+ * - Sin `alcanceLocales` (informes antiguos): solo el autor (`generadoPor`).
+ *
+ * @param {object} user
+ * @param {object} informe
+ * @param {string|string[]} alcanceUsuario - resultado de alcanceLocalesUsuario
+ * @param {string} userKeyActual
+ */
+export function usuarioPuedeVerInforme(user, informe, alcanceUsuario, userKeyActual) {
+  if (!informe) return false;
+  if (user?.rol === 'Administrador') return true;
+  if (alcanceUsuario === 'ALL') return true;
+
+  const alcanceInf = informe.alcanceLocales;
+  if (alcanceInf == null || alcanceInf === undefined || alcanceInf === '') {
+    return String(informe.generadoPor || '') === String(userKeyActual || '');
+  }
+  if (alcanceInf === 'ALL') return false;
+
+  const localesUser = Array.isArray(alcanceUsuario)
+    ? alcanceUsuario.map((l) => String(l).toLowerCase())
+    : [];
+  const localesInf = Array.isArray(alcanceInf)
+    ? alcanceInf.map((l) => String(l).toLowerCase())
+    : [];
+  if (localesInf.length === 0) {
+    return String(informe.generadoPor || '') === String(userKeyActual || '');
+  }
+  // Informe ⊆ usuario: todos los locales del informe están en el alcance del lector.
+  return localesInf.every((l) => localesUser.includes(l));
+}
+
 /** Historial de una fuente (más recientes primero). Sin datosJson por defecto. */
-export async function listarInformes(fuente, limit = 30) {
+export async function listarInformes(fuente, limit = 30, filtroAcl = null) {
+  const lim = Math.min(Number(limit) || 30, 100);
+  // Si hay ACL, leemos un poco más para compensar los omitidos (cap duro 100).
+  const fetchLimit = filtroAcl ? 100 : lim;
   const r = await docClient.send(new QueryCommand({
     TableName: tables.informesIa,
     KeyConditionExpression: 'PK = :pk AND begins_with(SK, :ts)',
     ExpressionAttributeValues: { ':pk': pkFuente(fuente), ':ts': 'TS#' },
     ScanIndexForward: false,
-    Limit: Math.min(Number(limit) || 30, 100),
+    Limit: fetchLimit,
   }));
-  return (r.Items || []).map((it) => {
-    const { datosJson, ...resto } = limpiarItem(it);
-    return resto;
-  });
+  const out = [];
+  for (const it of r.Items || []) {
+    const limpio = limpiarItem(it);
+    if (filtroAcl && !filtroAcl(limpio)) continue;
+    const { datosJson, ...resto } = limpio;
+    out.push(resto);
+    if (out.length >= lim) break;
+  }
+  return out;
 }
 
 /** Detalle de un informe por id (busca en el historial de la fuente). */
-export async function getInformeById(fuente, informeId) {
+export async function getInformeById(fuente, informeId, filtroAcl = null) {
   const r = await docClient.send(new QueryCommand({
     TableName: tables.informesIa,
     KeyConditionExpression: 'PK = :pk AND begins_with(SK, :ts)',
@@ -99,7 +145,10 @@ export async function getInformeById(fuente, informeId) {
     Limit: 100,
   }));
   const item = (r.Items || []).find((it) => it.informeId === informeId);
-  return item ? limpiarItem(item) : null;
+  if (!item) return null;
+  const limpio = limpiarItem(item);
+  if (filtroAcl && !filtroAcl(limpio)) return null;
+  return limpio;
 }
 
 function limpiarItem(item) {

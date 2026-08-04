@@ -108,6 +108,12 @@ export const tables = {
    * PK = negociacionId (UUID), SK = META | LINEA#<uuid>.
    */
   negociaciones: process.env.DDB_NEGOCIACIONES_TABLE || 'Igp_Negociaciones',
+  /**
+   * Líneas de refacturación entre sociedades.
+   * PK = SOCIEDAD#<empresa_destino_id>, SK = LINEA#<creado_en_iso>#<uuid>.
+   * Sin GSI: listado global = Scan filtrado (volumen bajo).
+   */
+  refacturaciones: process.env.DDB_REFACTURACIONES || 'Igp_Refacturaciones',
 };
 
 /**

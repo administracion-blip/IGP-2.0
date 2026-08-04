@@ -178,7 +178,10 @@ export default function LocalesScreen() {
     setErrorForm(null);
   };
   const sedeOpciones = useMemo(
-    () => [...SEDE_OPCIONES].sort((a, b) => a.localeCompare(b)).map((s) => ({ id: s, titulo: s })),
+    () => [
+      { id: '', titulo: '(sin sede)' },
+      ...[...SEDE_OPCIONES].sort((a, b) => a.localeCompare(b)).map((s) => ({ id: s, titulo: s })),
+    ],
     [],
   );
   const cerrarModalNuevo = () => {
@@ -471,6 +474,7 @@ export default function LocalesScreen() {
         // El id es el vínculo fiable: cuando casa con el maestro se resincroniza el nombre,
         // que es lo que siguen cruzando abonos, rappel y compras.
         else if (key === 'Empresa') body[key] = nombreEmpresaMaestro || (formNuevo.Empresa ?? '');
+        else if (key === 'Sede') body[key] = formNuevo.Sede || '';
         else body[key] = formNuevo[key] ?? '';
       }
       const res = await apiFetch('/api/locales', {

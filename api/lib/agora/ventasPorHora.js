@@ -13,7 +13,7 @@
  */
 import { ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
-import { usuarioPuedeAccederLocal } from '../usuarioLocales.js';
+import { usuarioPuedeAccederLocal, jornadaNegocioInformeDefaultIso } from '../usuarioLocales.js';
 import { exportInvoices } from './client.js';
 
 /** Tramos horarios fijos para ayudar a la narración (hostelería). */
@@ -32,12 +32,6 @@ function round2(n) {
 function toNum(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
-}
-
-function ayerIso() {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return d.toISOString().slice(0, 10);
 }
 
 /** Extrae la hora (0-23) de una fecha/hora de Ágora (ISO o "YYYY-MM-DD HH:MM:SS"). */
@@ -78,6 +72,42 @@ async function scanLocales() {
   return items;
 }
 
+/**
+ * Eje horario de jornada hostelera (10→23, 0→9).
+ * Dado el conjunto de horas con actividad, emite la secuencia densa
+ * desde la primera hasta la última según el orden de jornada.
+ *
+ * claveOrden(h) = h >= 10 ? h - 10 : h + 14
+ *
+ * @param {number[]} horasConActividad — horas 0–23 con venta
+ * @returns {number[]}
+ */
+export function ejeHorasJornada(horasConActividad) {
+  const horas = [...new Set(
+    (Array.isArray(horasConActividad) ? horasConActividad : [])
+      .map((h) => Number(h))
+      .filter((h) => Number.isInteger(h) && h >= 0 && h <= 23),
+  )];
+  if (horas.length === 0) return [];
+
+  const claveOrden = (h) => (h >= 10 ? h - 10 : h + 14);
+  const deClave = (k) => (k <= 13 ? k + 10 : k - 14);
+
+  let primera = Infinity;
+  let ultima = -Infinity;
+  for (const h of horas) {
+    const k = claveOrden(h);
+    if (k < primera) primera = k;
+    if (k > ultima) ultima = k;
+  }
+
+  const out = [];
+  for (let k = primera; k <= ultima; k += 1) {
+    out.push(deClave(k));
+  }
+  return out;
+}
+
 /** Convierte un array de 24 horas en objeto compacto {hora: importe} (solo con ventas). */
 function horasCompactas(arr) {
   const out = {};
@@ -109,11 +139,25 @@ function resumenFranjas(arr) {
 
 /**
  * @param {object} user
- * @param {{ localId?: string, fecha?: string }} [params]
+ * @param {{ localId?: string, fecha?: string, localIds?: string[] }} [params]
  */
 export async function buildVentasPorHora(user, params = {}) {
-  const fecha = /^\d{4}-\d{2}-\d{2}$/.test(String(params?.fecha || '')) ? String(params.fecha) : ayerIso();
+  const fecha = /^\d{4}-\d{2}-\d{2}$/.test(String(params?.fecha || ''))
+    ? String(params.fecha)
+    : jornadaNegocioInformeDefaultIso();
   const filtroLocalId = params?.localId ? String(params.localId) : '';
+  const localIdsSet = Array.isArray(params?.localIds)
+    ? new Set(params.localIds.map((x) => String(x)))
+    : null;
+
+  if (localIdsSet && localIdsSet.size === 0) {
+    return {
+      fecha,
+      numLocales: 0,
+      total: { importe: 0, nFacturas: 0, horaPunta: null, porHora: {}, franjas: [] },
+      locales: [],
+    };
+  }
 
   const todos = await scanLocales();
   const visibles = [];
@@ -121,6 +165,7 @@ export async function buildVentasPorHora(user, params = {}) {
     const id = loc.id_Locales ?? loc.id_locales;
     if (!id) continue;
     if (filtroLocalId && String(id) !== filtroLocalId) continue;
+    if (localIdsSet && !localIdsSet.has(String(id))) continue;
     // eslint-disable-next-line no-await-in-loop
     const ok = await usuarioPuedeAccederLocal(user, id);
     if (!ok) continue;

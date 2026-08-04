@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   TextInput,
   Platform,
+  Linking,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -25,6 +26,7 @@ import {
 } from '../../../components/RegistrarPagoModal';
 import { useLocalToast, detectToastType } from '../../../components/Toast';
 import { useConfirmar } from '../../../hooks/useConfirmar';
+import { descargarAdjuntoFacturaRecibida } from '../../../lib/descargarAdjuntoFactura';
 import { colorEstadoRemesa, labelEstadoRemesa, slugNombreArchivoRemesa } from '../../../lib/remesas';
 import type { LineaRemesa, Remesa } from '../../../types/remesas';
 import { hoyISO } from '../../../utils/facturaFormLogic';
@@ -63,6 +65,8 @@ export default function RemesaDetalleScreen() {
   const [modalPagoRemesa, setModalPagoRemesa] = useState(false);
   const [errorEjecutar, setErrorEjecutar] = useState<string | null>(null);
   const [lineasEdit, setLineasEdit] = useState<LineaRemesa[]>([]);
+  const [viendoDocId, setViendoDocId] = useState<string | null>(null);
+  const [quitandoId, setQuitandoId] = useState<string | null>(null);
 
   const { show: showToast, ToastView } = useLocalToast();
   const { confirmar, ConfirmarView } = useConfirmar();
@@ -258,6 +262,145 @@ export default function RemesaDetalleScreen() {
     }
   };
 
+  const verDocumento = async (idFactura: string) => {
+    setViendoDocId(idFactura);
+    let win: Window | null = null;
+    if (Platform.OS === 'web') {
+      try {
+        win = window.open('about:blank', '_blank');
+      } catch {
+        win = null;
+      }
+    }
+    try {
+      const res = await apiFetch(`/api/facturacion/facturas/${encodeURIComponent(idFactura)}/adjuntos`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al cargar adjuntos');
+      const adjuntos = data.adjuntos ?? [];
+      if (adjuntos.length === 0) {
+        if (win) win.close();
+        showToast('Sin documento', 'Esta factura no tiene documento adjunto', 'warning');
+        return;
+      }
+      const adj = adjuntos[0] as { id: string; url?: string };
+      if (win && adj.url) {
+        win.location.href = adj.url;
+        return;
+      }
+      if (adj.url && Platform.OS !== 'web') {
+        await Linking.openURL(adj.url);
+        return;
+      }
+      if (win) win.close();
+      await descargarAdjuntoFacturaRecibida(idFactura, adj.id);
+    } catch (e) {
+      if (win) win.close();
+      showToast('Error', (e as Error).message || 'No se pudo abrir el documento', 'error');
+    } finally {
+      setViendoDocId(null);
+    }
+  };
+
+  const quitarFactura = async (idFactura: string) => {
+    if (!remesa || !puedeGestionar) return;
+    if (!['Borrador', 'Generada'].includes(remesa.estado)) return;
+
+    if (lineasEdit.length === 1) {
+      const okAnular = await confirmar(
+        'Última factura',
+        'Es la última factura. ¿Anular toda la remesa? La factura no se borra del sistema.',
+        { confirmarLabel: 'Anular remesa', variant: 'danger' },
+      );
+      if (!okAnular) return;
+      setQuitandoId(idFactura);
+      setAccionando(true);
+      try {
+        const res = await apiFetch(`/api/remesas/${remesa.remesaId}/anular`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error al anular');
+        setRemesa(data.remesa);
+        setLineasEdit(data.remesa.lineas || []);
+        showToast('Anulada', 'Remesa anulada correctamente', 'success');
+      } catch (e) {
+        showToast('Error', (e as Error).message, 'error');
+      } finally {
+        setQuitandoId(null);
+        setAccionando(false);
+      }
+      return;
+    }
+
+    const esGenerada = remesa.estado === 'Generada';
+    const ok = await confirmar(
+      'Quitar factura',
+      esGenerada
+        ? '¿Sacar esta factura de la remesa? Se reabrirá la remesa a Borrador. La factura no se borra del sistema.'
+        : '¿Sacar esta factura de la remesa? La factura no se borra del sistema.',
+      { confirmarLabel: 'Quitar', variant: 'danger' },
+    );
+    if (!ok) return;
+
+    setQuitandoId(idFactura);
+    setAccionando(true);
+    let reabrioOk = false;
+    try {
+      if (esGenerada) {
+        const resReabrir = await apiFetch(`/api/remesas/${remesa.remesaId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ accion: 'reabrir' }),
+        });
+        const dataReabrir = await resReabrir.json();
+        if (resReabrir.ok) {
+          reabrioOk = true;
+          setRemesa(dataReabrir.remesa);
+          setLineasEdit(dataReabrir.remesa.lineas || []);
+        } else {
+          const msgReabrir = String(dataReabrir.error || '').toLowerCase();
+          const pareceNoReabrable =
+            msgReabrir.includes('solo se puede reabrir') ||
+            msgReabrir.includes('no se puede reabrir') ||
+            (msgReabrir.includes('reabrir') && msgReabrir.includes('generada'));
+
+          const resCheck = await apiFetch(`/api/remesas/${remesa.remesaId}`);
+          const dataCheck = await resCheck.json().catch(() => ({} as { remesa?: Remesa }));
+          if (dataCheck.remesa) {
+            setRemesa(dataCheck.remesa);
+            setLineasEdit(dataCheck.remesa.lineas || []);
+          }
+          // Ya en Borrador u error de “no se puede reabrir” → intentar quitar igual
+          if (dataCheck.remesa?.estado !== 'Borrador' && !pareceNoReabrable) {
+            throw new Error(dataReabrir.error || 'Error al reabrir');
+          }
+        }
+      }
+
+      const res = await apiFetch(`/api/remesas/${remesa.remesaId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ quitarFacturaIds: [idFactura] }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (reabrioOk) {
+          showToast(
+            'Atención',
+            'La remesa se reabrió pero no se pudo quitar la factura. Puedes quitarla ahora en borrador.',
+            'warning',
+          );
+          return;
+        }
+        throw new Error(data.error || 'Error al quitar la factura');
+      }
+      setRemesa(data.remesa);
+      setLineasEdit(data.remesa.lineas || []);
+      showToast('Hecho', 'Factura quitada de la remesa', 'success');
+    } catch (e) {
+      showToast('Error', (e as Error).message, 'error');
+    } finally {
+      setQuitandoId(null);
+      setAccionando(false);
+    }
+  };
+
   const updateLinea = (id: string, patch: Partial<LineaRemesa>) => {
     setLineasEdit((prev) => prev.map((l) => (l.id_factura === id ? { ...l, ...patch } : l)));
   };
@@ -317,6 +460,7 @@ export default function RemesaDetalleScreen() {
 
   const col = colorEstadoRemesa(remesa.estado);
   const editable = remesa.estado === 'Borrador' && puedeGestionar;
+  const puedeQuitarLinea = puedeGestionar && ['Borrador', 'Generada'].includes(remesa.estado);
   const envioLabel = remesa.fechaEjecucion
     ? formatFecha(remesa.fechaEjecucion)
     : 'Ahora';
@@ -398,9 +542,39 @@ export default function RemesaDetalleScreen() {
                     </View>
                     <View style={[styles.dotSem, { backgroundColor: semColor }]} />
                   </View>
-                  <Text style={[styles.cardImporte, { color: semColor }]}>
-                    {formatMoneda(pendiente)}
-                  </Text>
+                  <View style={styles.cardActions}>
+                    <TouchableOpacity
+                      style={styles.cardActionBtn}
+                      onPress={() => verDocumento(l.id_factura)}
+                      disabled={viendoDocId === l.id_factura}
+                      accessibilityLabel="Ver documento"
+                    >
+                      {viendoDocId === l.id_factura ? (
+                        <ActivityIndicator size="small" color="#475569" />
+                      ) : (
+                        <MaterialIcons name="visibility" size={18} color="#475569" />
+                      )}
+                      <Text style={styles.cardActionText}>Ver</Text>
+                    </TouchableOpacity>
+                    {puedeQuitarLinea ? (
+                      <TouchableOpacity
+                        style={[styles.cardActionBtn, styles.cardActionBtnDanger]}
+                        onPress={() => quitarFactura(l.id_factura)}
+                        disabled={accionando || quitandoId === l.id_factura}
+                        accessibilityLabel="Quitar de la remesa"
+                      >
+                        {quitandoId === l.id_factura ? (
+                          <ActivityIndicator size="small" color="#dc2626" />
+                        ) : (
+                          <MaterialIcons name="remove-circle-outline" size={18} color="#dc2626" />
+                        )}
+                        <Text style={[styles.cardActionText, styles.cardActionTextDanger]}>Quitar</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    <Text style={[styles.cardImporte, { color: semColor }]}>
+                      {formatMoneda(pendiente)}
+                    </Text>
+                  </View>
                 </View>
 
                 <View style={styles.cardBody}>
@@ -618,6 +792,25 @@ const styles = StyleSheet.create({
   badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
   badgeText: { fontSize: 11, fontWeight: '600' },
   dotSem: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  cardActions: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 },
+  cardActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+    minHeight: 30,
+  },
+  cardActionBtnDanger: {
+    borderColor: '#fecaca',
+    backgroundColor: '#fef2f2',
+  },
+  cardActionText: { fontSize: 11, fontWeight: '600', color: '#475569' },
+  cardActionTextDanger: { color: '#dc2626' },
   cardImporte: { fontSize: 13, fontWeight: '700' },
   cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: 8 },
   cardField: { minWidth: 84, marginRight: 8 },

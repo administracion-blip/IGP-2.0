@@ -1,6 +1,9 @@
 import { View, StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { setupInputCursor } from './lib/setupInputCursor';
+
+setupInputCursor();
 
 export default function RootLayout() {
   return (

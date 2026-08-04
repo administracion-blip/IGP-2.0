@@ -43,6 +43,7 @@ import {
   VENCIMIENTOS_INTERVAL_MS,
 } from './lib/jobs/scheduledTasks.js';
 import facturacionRouter from './routes/facturacion.js';
+import refacturacionRouter from './routes/refacturacion.js';
 import artistasActuacionesRouter from './routes/artistasActuaciones.js';
 import arqueosRealesRouter from './routes/arqueosReales.js';
 import movimientosCajaRouter from './routes/movimientosCaja.js';
@@ -199,6 +200,7 @@ app.use('/api', comprasFacturacionRouter);
 app.use('/api', mantenimientoRouter);
 app.use('/api', limpiezaRouter);
 app.use('/api', facturacionRouter);
+app.use('/api', refacturacionRouter);
 app.use('/api', artistasActuacionesRouter);
 app.use('/api', arqueosRealesRouter);
 app.use('/api', movimientosCajaRouter);

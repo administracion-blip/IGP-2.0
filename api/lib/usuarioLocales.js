@@ -47,6 +47,14 @@ export async function usuarioPuedeAccederLocal(user, idLocal) {
   }
 }
 
+/** Formatea Date local como YYYY-MM-DD (sin UTC). */
+function fechaLocalIso(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 /** Jornada de negocio actual (misma regla 09:30 que app/lib/jornadaNegocio.ts). */
 export function jornadaNegocioHoyIso() {
   const now = new Date();
@@ -54,8 +62,17 @@ export function jornadaNegocioHoyIso() {
   const cutoff = 9 * 60 + 30;
   const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (minutesOfDay <= cutoff) d.setDate(d.getDate() - 1);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return fechaLocalIso(d);
+}
+
+/**
+ * Día por defecto para briefings «día anterior»: siempre jornada de negocio − 1 día.
+ * Ejemplo: 04/08 00:43 → jornada 03/08 → default 02/08.
+ */
+export function jornadaNegocioInformeDefaultIso() {
+  const jornada = jornadaNegocioHoyIso();
+  const [y, m, d] = jornada.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() - 1);
+  return fechaLocalIso(date);
 }

@@ -11,7 +11,7 @@ import {
   useWindowDimensions,
   Switch,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useNavigation } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
@@ -41,6 +41,7 @@ import {
 } from '../../lib/registroMasivo';
 import { esEmpresaSedeGrupoParipe } from '../../utils/facturacion';
 import { fechaEmisionFacturaAIso } from '../../utils/formatFecha';
+import { limpiarHandoffOcr, peekHandoffOcr, purgarHandoffOcr, returnToValido } from '../../lib/refacturacion';
 import { FieldRow } from '../../components/registroMasivo/FieldRow';
 import { FieldRowZona } from '../../components/registroMasivo/FieldRowZona';
 import { FieldRowZonaFecha } from '../../components/registroMasivo/FieldRowZonaFecha';
@@ -152,9 +153,102 @@ function previewPaneWebStyle(active: boolean): React.CSSProperties {
   };
 }
 
+/** Construye un borrador de review a partir de datos OCR + archivo (handoff refacturación). */
+function borradorDesdeOcrHandoff(
+  idx: number,
+  archivo: Borrador['archivo'],
+  d: Record<string, unknown>,
+): Borrador {
+  const base0 = Number(d.base_imponible) || 0;
+  const iva0 = Number(d.total_iva) || 0;
+  const ret0 = typeof d.retencion === 'number' ? d.retencion : 0;
+  const pct0 = derivarPctDesdeImportes(base0, iva0, ret0, d as never);
+  const confianza = (d.confianza && typeof d.confianza === 'object'
+    ? d.confianza
+    : {}) as Borrador['confianza'];
+  const extSnap = {
+    ...(d.extraction_snapshot && typeof d.extraction_snapshot === 'object'
+      ? (d.extraction_snapshot as Borrador['extraction_snapshot'])
+      : {
+          proveedor_cif: String(d.proveedor_cif || ''),
+          numero_factura_proveedor: String(d.numero_factura_proveedor || ''),
+          fecha_emision: String(d.fecha_emision || ''),
+          base_imponible: base0,
+          total_iva: iva0,
+          retencion: ret0,
+          total_factura: Number(d.total_factura) || 0,
+          confianza,
+          base_imponible_total: Number(d.base_imponible_total) || base0,
+          recargo_equivalencia_total: Number(d.recargo_equivalencia_total) || 0,
+        }),
+    desglose_impuestos: [],
+  };
+  return {
+    idx,
+    archivo: {
+      fileKey: archivo.fileKey,
+      nombre: archivo.nombre || 'documento',
+      tipo: archivo.tipo || '',
+      size: archivo.size || 0,
+      previewUrl: archivo.previewUrl || '',
+    },
+    sociedad_grupo_id: '',
+    sociedad_grupo_nombre: '',
+    sociedad_grupo_cif: '',
+    proveedor_cif: String(d.proveedor_cif || ''),
+    proveedor_provisional_cif: String(d.proveedor_cif || ''),
+    proveedor_nombre: String(d.proveedor_nombre || ''),
+    empresa_id: d.empresa_id ? String(d.empresa_id) : '',
+    proveedor_en_maestros: Boolean(d.proveedor_en_maestros),
+    nombre_sugerido_ocr: String(d.nombre_sugerido_ocr || ''),
+    numero_factura_proveedor: String(d.numero_factura_proveedor || ''),
+    fecha_emision: d.fecha_emision
+      ? (fechaEmisionFacturaAIso(String(d.fecha_emision)) ?? '')
+      : '',
+    base_imponible: base0,
+    base_imponible_total: typeof d.base_imponible_total === 'number' ? d.base_imponible_total : base0,
+    tipo_iva_pct: pct0.tipo_iva_pct,
+    retencion_pct: pct0.retencion_pct,
+    total_iva: iva0,
+    retencion: ret0,
+    recargo_equivalencia_total: typeof d.recargo_equivalencia_total === 'number'
+      ? d.recargo_equivalencia_total
+      : 0,
+    desglose_impuestos: [],
+    total_factura: Number(d.total_factura) || 0,
+    observaciones: '',
+    confianza,
+    campos_manuales: {},
+    entidades_candidatas: Array.isArray(d.entidades_candidatas)
+      ? (d.entidades_candidatas as Borrador['entidades_candidatas'])
+      : [],
+    texto_extraido: typeof d.texto_extraido === 'string' ? d.texto_extraido : '',
+    extraction_snapshot: extSnap as Borrador['extraction_snapshot'],
+    reconciliacion_warning: '',
+    metodo_extraccion: typeof d.metodo_extraccion === 'string' ? d.metodo_extraccion : undefined,
+    ocr_confianza_global: typeof d.ocr_confianza_global === 'number' ? d.ocr_confianza_global : undefined,
+    ia_meta: d.ia_meta && typeof d.ia_meta === 'object' ? (d.ia_meta as Borrador['ia_meta']) : undefined,
+    ocr_pipeline_meta:
+      d.ocr_pipeline_meta && typeof d.ocr_pipeline_meta === 'object'
+        ? (d.ocr_pipeline_meta as Borrador['ocr_pipeline_meta'])
+        : undefined,
+    descartado: false,
+    duplicados: [],
+    checkingDup: false,
+    duplicado_modal_visto: false,
+    duplicado_continuar: false,
+    duplicado_ack_confirmacion: false,
+  };
+}
+
 export default function RegistroMasivoScreen() {
   const router = useRouter();
   const navigation = useNavigation();
+  const searchParams = useLocalSearchParams<{ returnTo?: string; docS3Key?: string }>();
+  const returnToParam = returnToValido(searchParams.returnTo);
+  const docS3KeyParam = (
+    Array.isArray(searchParams.docS3Key) ? searchParams.docS3Key[0] : searchParams.docS3Key
+  )?.trim() || '';
   const { user, hasPermiso } = useAuth();
   const { width } = useWindowDimensions();
   const isWide = width >= 900;
@@ -168,6 +262,7 @@ export default function RegistroMasivoScreen() {
   borradoresCountRef.current = borradores.length;
   const borradoresRef = useRef(borradores);
   borradoresRef.current = borradores;
+  const handoffCargadoRef = useRef(false);
   const ultimoDupCheckRef = useRef<Map<number, string>>(new Map());
   const dupCheckTimerRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const dupCheckGenRef = useRef<Map<number, number>>(new Map());
@@ -202,10 +297,54 @@ export default function RegistroMasivoScreen() {
     [borradores],
   );
 
+  /** Precarga handoff desde refacturación (sessionStorage / docS3Key). Solo una vez. */
+  useEffect(() => {
+    if (handoffCargadoRef.current) return;
+    // Sin params de retorno/documento: no tocar sessionStorage (flujo normal intacto).
+    if (!returnToParam && !docS3KeyParam) return;
+
+    const handoff = peekHandoffOcr();
+    const archivo = handoff?.archivo;
+    const datos = (handoff?.datos && typeof handoff.datos === 'object'
+      ? handoff.datos
+      : {}) as Record<string, unknown>;
+    const fileKey = archivo?.fileKey || docS3KeyParam;
+    if (!fileKey) return;
+    handoffCargadoRef.current = true;
+
+    const borrador = borradorDesdeOcrHandoff(
+      0,
+      {
+        fileKey,
+        nombre: archivo?.nombre || 'documento',
+        tipo: archivo?.tipo || '',
+        size: archivo?.size || 0,
+        previewUrl: archivo?.previewUrl || '',
+      },
+      datos,
+    );
+    setBorradores([borrador]);
+    setStep('review');
+    setSelectedIdx(0);
+    setOcrFocusTick((t) => t + 1);
+    // Tras aplicar: quitar sessionStorage; memoria queda por si Strict Mode remonta.
+    limpiarHandoffOcr();
+    showToast(
+      'Documento precargado',
+      'Revisa los datos y confirma el registro como factura recibida.',
+      'info',
+    );
+  }, [docS3KeyParam, returnToParam, showToast]);
+
   const navegarSalida = useCallback(() => {
     permitirSalidaRef.current = true;
+    purgarHandoffOcr();
+    if (returnToParam) {
+      router.replace(returnToParam as never);
+      return;
+    }
     router.push('/facturacion/facturas-gasto' as never);
-  }, [router]);
+  }, [router, returnToParam]);
 
   const solicitarSalida = useCallback(async () => {
     if (procesando || guardando) return;
@@ -1042,7 +1181,15 @@ export default function RegistroMasivoScreen() {
         );
       }
       permitirSalidaRef.current = true;
-      router.push('/facturacion/facturas-gasto' as any);
+      purgarHandoffOcr();
+      if (returnToParam) {
+        router.replace({
+          pathname: returnToParam as never,
+          params: { facturaRegistrada: '1' },
+        } as never);
+      } else {
+        router.push('/facturacion/facturas-gasto' as never);
+      }
     } catch (e: unknown) {
       alertMsg('Error', errorMessage(e));
     } finally {

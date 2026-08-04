@@ -4,7 +4,11 @@
  */
 import { QueryCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
-import { usuarioPuedeAccederLocal, jornadaNegocioHoyIso } from '../usuarioLocales.js';
+import {
+  usuarioPuedeAccederLocal,
+  jornadaNegocioHoyIso,
+  jornadaNegocioInformeDefaultIso,
+} from '../usuarioLocales.js';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const cardCache = new Map();
@@ -36,6 +40,32 @@ function mesEnCurso() {
     inicio: `${y}-${mStr}-01`,
     fin: `${y}-${mStr}-${String(ultimoDia).padStart(2, '0')}`,
   };
+}
+
+/** Mes natural de una fecha ISO YYYY-MM-DD. */
+function mesDeFecha(fecha) {
+  const y = Number(String(fecha).slice(0, 4));
+  const m = Number(String(fecha).slice(5, 7));
+  const mStr = String(m).padStart(2, '0');
+  const ultimoDia = new Date(y, m, 0).getDate();
+  return {
+    mes: `${y}-${mStr}`,
+    inicio: `${y}-${mStr}-01`,
+    fin: `${y}-${mStr}-${String(ultimoDia).padStart(2, '0')}`,
+  };
+}
+
+/**
+ * Hasta-fecha MTD: min(fechaAncla, ayer), clamp al mes.
+ * Sin ancla (= card / mes en curso) se comporta como hasta ayer.
+ */
+function resolverHastaFechaMtd(fechaInicioMes, fechaFinMes, fechaAncla = '') {
+  const ayer = ayerIso();
+  const ancla = RE_FECHA.test(String(fechaAncla || '')) ? String(fechaAncla).slice(0, 10) : '';
+  const candidato = ancla ? (ancla < ayer ? ancla : ayer) : ayer;
+  if (candidato < fechaInicioMes) return fechaInicioMes;
+  if (candidato > fechaFinMes) return fechaFinMes;
+  return candidato;
 }
 
 /** Días naturales desde la jornada de hoy hasta fin de mes (ambos inclusive). */
@@ -130,15 +160,35 @@ function buildFechaToComp(fechaInicio, fechaFin, festivosByFecha) {
   while (d <= end) {
     const fecha = d.toISOString().slice(0, 10);
     const festivo = festivosByFecha.get(fecha);
-    const fc = festivo?.FechaComparativa && /^\d{4}-\d{2}-\d{2}$/.test(String(festivo.FechaComparativa).slice(0, 10))
-      ? String(festivo.FechaComparativa).slice(0, 10)
-      : fechaComparacion(fecha);
+    const fcRaw = festivo?.FechaComparativa != null ? String(festivo.FechaComparativa).slice(0, 10) : '';
+    const fc = RE_FECHA.test(fcRaw) ? fcRaw : fechaComparacion(fecha);
     fechaToComp[fecha] = fc;
     if (!minComp || fc < minComp) minComp = fc;
     if (!maxComp || fc > maxComp) maxComp = fc;
     d.setDate(d.getDate() + 1);
   }
   return { fechaToComp, minComp, maxComp };
+}
+
+/**
+ * Día comparable para YoY: `FechaComparativa` del festivo si existe y es válida;
+ * si no, mismo día −1 año. Misma regla que `buildFechaToComp`.
+ *
+ * @param {string} fecha YYYY-MM-DD
+ * @returns {Promise<{ fechaComparativa: string, origen: 'festivo'|'yoy_calendario' }>}
+ */
+export async function resolverFechaComparativa(fecha) {
+  const f = String(fecha || '').slice(0, 10);
+  if (!RE_FECHA.test(f)) {
+    throw new Error('fecha debe tener formato YYYY-MM-DD');
+  }
+  const festivosByFecha = await loadFestivosByFecha();
+  const festivo = festivosByFecha.get(f);
+  const fcRaw = festivo?.FechaComparativa != null ? String(festivo.FechaComparativa).slice(0, 10) : '';
+  if (RE_FECHA.test(fcRaw)) {
+    return { fechaComparativa: fcRaw, origen: 'festivo' };
+  }
+  return { fechaComparativa: fechaComparacion(f), origen: 'yoy_calendario' };
 }
 
 /**
@@ -313,27 +363,43 @@ export async function buildObjetivoMensualCard(user) {
  * del usuario. NO modifica `buildObjetivoMensualCard` (que sigue sin importes).
  *
  * @param {object} user
- * @param {{ localId?: string }} [params] - filtro opcional a un local visible.
+ * @param {{ localId?: string, fecha?: string, localIds?: string[] }} [params]
+ *   - localId: filtro opcional a un local visible.
+ *   - localIds: whitelist opcional (p. ej. universo Sede Grupo Paripe del briefing).
+ *   - fecha: ancla el MTD al mes de esa fecha; hastaFecha = min(fecha, ayer) clamp al mes.
  */
 export async function buildObjetivoMensualConImportes(user, params = {}) {
-  const { mes, inicio: fechaInicioMes, fin: fechaFinMes } = mesEnCurso();
-  const fechaHastaAyerStr = ayerIso();
-  const hastaFecha =
-    fechaHastaAyerStr < fechaInicioMes
-      ? fechaInicioMes
-      : fechaFinMes < fechaHastaAyerStr
-        ? fechaFinMes
-        : fechaHastaAyerStr;
+  const fechaAncla = RE_FECHA.test(String(params?.fecha || ''))
+    ? String(params.fecha).slice(0, 10)
+    : '';
+  const { mes, inicio: fechaInicioMes, fin: fechaFinMes } = fechaAncla
+    ? mesDeFecha(fechaAncla)
+    : mesEnCurso();
+  const hastaFecha = resolverHastaFechaMtd(fechaInicioMes, fechaFinMes, fechaAncla);
 
   const festivosByFecha = await loadFestivosByFecha();
   const todosLocales = await scanLocales();
   const filtroLocalId = params.localId ? String(params.localId) : '';
+  const localIdsSet = Array.isArray(params.localIds)
+    ? new Set(params.localIds.map((x) => String(x)))
+    : null;
+
+  if (localIdsSet && localIdsSet.size === 0) {
+    return {
+      mes,
+      hastaFecha,
+      nota: `Consecución MTD del mes del día analizado hasta ${hastaFecha}`,
+      total: { importeRealHastaAyer: 0, importeCompHastaAyer: 0, pctConsecucion: null },
+      locales: [],
+    };
+  }
 
   const visibles = [];
   for (const loc of todosLocales) {
     const id = loc.id_Locales ?? loc.id_locales;
     if (!id) continue;
     if (filtroLocalId && String(id) !== filtroLocalId) continue;
+    if (localIdsSet && !localIdsSet.has(String(id))) continue;
     // eslint-disable-next-line no-await-in-loop
     const ok = await usuarioPuedeAccederLocal(user, id);
     if (!ok) continue;
@@ -374,10 +440,110 @@ export async function buildObjetivoMensualConImportes(user, params = {}) {
   return {
     mes,
     hastaFecha,
+    nota: `Consecución MTD del mes del día analizado hasta ${hastaFecha}`,
     total: {
       importeRealHastaAyer: totalReal,
       importeCompHastaAyer: totalComp,
       pctConsecucion: pctGrupo,
+    },
+    locales,
+  };
+}
+
+/**
+ * Facturación YoY de un solo día (closeouts), misma suma y día comparable que objetivos.
+ * No modifica los contratos del card ni del MTD.
+ *
+ * @param {object} user
+ * @param {{ fecha?: string, localId?: string, localIds?: string[] }} [params]
+ */
+export async function buildFacturacionDiaYoY(user, params = {}) {
+  const fecha = RE_FECHA.test(String(params?.fecha || ''))
+    ? String(params.fecha).slice(0, 10)
+    : jornadaNegocioInformeDefaultIso();
+  const { fechaComparativa, origen } = await resolverFechaComparativa(fecha);
+  const filtroLocalId = params.localId ? String(params.localId) : '';
+  const localIdsSet = Array.isArray(params.localIds)
+    ? new Set(params.localIds.map((x) => String(x)))
+    : null;
+
+  if (localIdsSet && localIdsSet.size === 0) {
+    return {
+      fecha,
+      fechaComparativa,
+      origenComparativa: origen,
+      total: { real: 0, comparativa: 0, delta: 0, pctVsComp: null },
+      locales: [],
+    };
+  }
+
+  const todosLocales = await scanLocales();
+  const visibles = [];
+  for (const loc of todosLocales) {
+    const id = loc.id_Locales ?? loc.id_locales;
+    if (!id) continue;
+    if (filtroLocalId && String(id) !== filtroLocalId) continue;
+    if (localIdsSet && !localIdsSet.has(String(id))) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const ok = await usuarioPuedeAccederLocal(user, id);
+    if (!ok) continue;
+    visibles.push(loc);
+  }
+
+  visibles.sort((a, b) =>
+    String(a.nombre ?? a.Nombre ?? '').localeCompare(String(b.nombre ?? b.Nombre ?? ''), 'es', { sensitivity: 'base' }),
+  );
+
+  const locales = await Promise.all(
+    visibles.map(async (loc) => {
+      const localId = String(loc.id_Locales ?? loc.id_locales ?? '');
+      const nombre = String(loc.nombre ?? loc.Nombre ?? localId).trim();
+      const workplaceId = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
+      if (!workplaceId) {
+        return {
+          localId,
+          nombre,
+          real: 0,
+          comparativa: 0,
+          delta: 0,
+          pctVsComp: null,
+          sinDatos: true,
+        };
+      }
+      const [totalsReal, totalsComp] = await Promise.all([
+        queryTotalsByDay(workplaceId, fecha, fecha),
+        queryTotalsByDay(workplaceId, fechaComparativa, fechaComparativa),
+      ]);
+      const real = Math.round((totalsReal[fecha] ?? 0) * 100) / 100;
+      const comparativa = Math.round((totalsComp[fechaComparativa] ?? 0) * 100) / 100;
+      const delta = Math.round((real - comparativa) * 100) / 100;
+      const pctVsComp = comparativa > 0 ? round1((real / comparativa) * 100) : null;
+      return {
+        localId,
+        nombre,
+        real,
+        comparativa,
+        delta,
+        pctVsComp,
+        sinDatos: real === 0 && comparativa === 0,
+      };
+    }),
+  );
+
+  const totalReal = Math.round(locales.reduce((s, l) => s + (l.real || 0), 0) * 100) / 100;
+  const totalComp = Math.round(locales.reduce((s, l) => s + (l.comparativa || 0), 0) * 100) / 100;
+  const totalDelta = Math.round((totalReal - totalComp) * 100) / 100;
+  const totalPct = totalComp > 0 ? round1((totalReal / totalComp) * 100) : null;
+
+  return {
+    fecha,
+    fechaComparativa,
+    origenComparativa: origen,
+    total: {
+      real: totalReal,
+      comparativa: totalComp,
+      delta: totalDelta,
+      pctVsComp: totalPct,
     },
     locales,
   };

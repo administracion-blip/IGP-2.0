@@ -16,6 +16,7 @@ import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { BadgeEstado } from '../../components/BadgeEstado';
+import { BadgeEnRemesa } from '../../components/BadgeEnRemesa';
 import { InputFecha } from '../../components/InputFecha';
 import { RegistrarPagoModal, type RegistrarPagoInitial, type RegistrarPagoPayloadFactura } from '../../components/RegistrarPagoModal';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
@@ -28,6 +29,7 @@ import {
   mapTipoReciboToFormaPago,
 } from '../../utils/facturacion';
 import type { FacturaListado } from '../../types/factura';
+import type { RemesaActivaFactura } from '../../types/remesas';
 import {
   formatFecha,
   fechaEmisionFacturaAIso,
@@ -232,7 +234,7 @@ const DEFAULT_WIDTHS: Record<string, number> = {
   total_iva: 68,
   total_retencion: 80,
   total_factura: 88,
-  estado: 100,
+  estado: 148,
   pagado: 108,
   saldo_pendiente: 88,
 };
@@ -708,17 +710,40 @@ export default function FacturasGastoScreen() {
     }
   }, [detallePagosFactura?.id_factura, fetchFacturas]);
 
+  const avisarFacturaEnRemesa = useCallback(async (remesa: RemesaActivaFactura) => {
+    showToast(
+      'En remesa',
+      `Incluida en «${remesa.nombre}» (${remesa.estado}). No se pueden registrar, editar ni eliminar pagos manualmente.`,
+      'warning',
+    );
+    if (!hasPermiso('remesas.ver')) return;
+    const ir = await confirmar(
+      'Factura en remesa',
+      `¿Abrir la remesa «${remesa.nombre}»?`,
+      { confirmarLabel: 'Ir a remesa' },
+    );
+    if (ir) router.push(`/facturacion/remesas/${remesa.remesaId}` as never);
+  }, [showToast, hasPermiso, confirmar, router]);
+
   const handleEditarPagoDetalle = useCallback((pago: PagoDetalleRow) => {
+    if (detallePagosFactura?.remesaActiva) {
+      void avisarFacturaEnRemesa(detallePagosFactura.remesaActiva);
+      return;
+    }
     if (esMetodoCompensacion(pago.metodo_pago)) {
       showToast('No editable', 'Los pagos por compensación no se pueden editar', 'warning');
       return;
     }
     setPagoDetalleEditando(pago);
     setModalEditarPagoDetalle(true);
-  }, [showToast]);
+  }, [detallePagosFactura?.remesaActiva, avisarFacturaEnRemesa, showToast]);
 
   const handleBorrarPagoDetalle = useCallback(async (pago: PagoDetalleRow) => {
     if (!detallePagosFactura?.id_factura || !pago.id_pago) return;
+    if (detallePagosFactura.remesaActiva) {
+      void avisarFacturaEnRemesa(detallePagosFactura.remesaActiva);
+      return;
+    }
     const importeTxt = formatMoneda(Number(pago.importe ?? 0));
     const ok = await confirmar(
       'Eliminar pago',
@@ -743,6 +768,8 @@ export default function FacturasGastoScreen() {
     }
   }, [
     detallePagosFactura?.id_factura,
+    detallePagosFactura?.remesaActiva,
+    avisarFacturaEnRemesa,
     confirmar,
     user?.id_usuario,
     user?.Nombre,
@@ -753,6 +780,10 @@ export default function FacturasGastoScreen() {
 
   const guardarEdicionPagoDetalle = useCallback(async (payload: RegistrarPagoPayloadFactura) => {
     if (!detallePagosFactura?.id_factura || !pagoDetalleEditando?.id_pago) return;
+    if (detallePagosFactura.remesaActiva) {
+      void avisarFacturaEnRemesa(detallePagosFactura.remesaActiva);
+      return;
+    }
     setGuardandoPagoDetalle(true);
     try {
       const { factura } = await actualizarPagoFactura(
@@ -773,6 +804,8 @@ export default function FacturasGastoScreen() {
     }
   }, [
     detallePagosFactura?.id_factura,
+    detallePagosFactura?.remesaActiva,
+    avisarFacturaEnRemesa,
     pagoDetalleEditando?.id_pago,
     user?.id_usuario,
     user?.Nombre,
@@ -783,6 +816,10 @@ export default function FacturasGastoScreen() {
 
   const abrirModalPagar = () => {
     if (!selectedFactura) return;
+    if (selectedFactura.remesaActiva) {
+      void avisarFacturaEnRemesa(selectedFactura.remesaActiva);
+      return;
+    }
     const saldo = Number(selectedFactura.saldo_pendiente ?? 0);
     const tipoRecibo = getTipoReciboFromEmpresasList(empresasCatalogo, selectedFactura.empresa_id);
     const { clave, otroTexto } = mapTipoReciboToFormaPago(tipoRecibo);
@@ -971,12 +1008,23 @@ export default function FacturasGastoScreen() {
   );
 
   const toggleSeleccionMulti = (id: string) => {
+    const yaSeleccionada = selectedMultiIds.has(id);
     setSelectedMultiIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+    if (!yaSeleccionada) {
+      const f = facturas.find((x) => x.id_factura === id);
+      if (f?.remesaActiva) {
+        showToast(
+          'Ya en remesa',
+          `Esta factura ya está en «${f.remesaActiva.nombre}». Al crear remesa el backend la excluirá.`,
+          'warning',
+        );
+      }
+    }
   };
 
   const entrarModoSeleccionConFactura = (id: string, estado?: string | null) => {
@@ -984,6 +1032,14 @@ export default function FacturasGastoScreen() {
     setModoSeleccion(true);
     if (esFacturaSeleccionableEnListado(estado)) {
       setSelectedMultiIds((prev) => new Set(prev).add(id));
+      const f = facturas.find((x) => x.id_factura === id);
+      if (f?.remesaActiva) {
+        showToast(
+          'Ya en remesa',
+          `Esta factura ya está en «${f.remesaActiva.nombre}». Al crear remesa el backend la excluirá.`,
+          'warning',
+        );
+      }
     }
   };
 
@@ -1000,6 +1056,14 @@ export default function FacturasGastoScreen() {
         'warning',
       );
       return;
+    }
+    const yaEnRemesa = facturasSeleccionadasRemesa.filter((f) => f.remesaActiva);
+    if (yaEnRemesa.length > 0) {
+      showToast(
+        'Aviso',
+        `${yaEnRemesa.length} factura(s) ya están en otra remesa; el backend las excluirá al crear.`,
+        'warning',
+      );
     }
     const hoy = new Date();
     const defNombre = `Pagos proveedores ${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}`;
@@ -1642,7 +1706,10 @@ export default function FacturasGastoScreen() {
                       if (col === 'estado') {
                         return (
                           <View key={col} style={[styles.cell, { width: getColWidth(col) }]}>
-                            <BadgeEstado estado={f.estado ?? ''} compact />
+                            <View style={styles.estadoBadgesRow}>
+                              <BadgeEstado estado={f.estado ?? ''} compact />
+                              {f.remesaActiva ? <BadgeEnRemesa compact /> : null}
+                            </View>
                           </View>
                         );
                       }
@@ -1888,6 +1955,37 @@ export default function FacturasGastoScreen() {
               </TouchableOpacity>
             </View>
 
+            {detallePagosFactura?.remesaActiva ? (
+              <View style={styles.remesaActivaBanner}>
+                <MaterialIcons name="account-balance" size={18} color="#1d4ed8" />
+                <View style={styles.remesaActivaBannerBody}>
+                  <Text style={styles.remesaActivaBannerText}>
+                    Incluida en remesa{' '}
+                    <Text style={styles.remesaActivaNombre}>
+                      {detallePagosFactura.remesaActiva.nombre || detallePagosFactura.remesaActiva.remesaId}
+                    </Text>
+                    {' '}({detallePagosFactura.remesaActiva.estado})
+                  </Text>
+                  <Text style={styles.remesaActivaBannerHint}>
+                    No se pueden registrar, editar ni eliminar pagos mientras figure en esta remesa.
+                  </Text>
+                  {hasPermiso('remesas.ver') ? (
+                    <TouchableOpacity
+                      onPress={() =>
+                        router.push(
+                          `/facturacion/remesas/${detallePagosFactura.remesaActiva!.remesaId}` as never,
+                        )
+                      }
+                      hitSlop={6}
+                      style={styles.remesaActivaLinkBtn}
+                    >
+                      <Text style={styles.remesaActivaLink}>Ir a la remesa</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
+
             <ModalDetallePagosTabla
               loading={detallePagosLoading}
               loadingText="Cargando pagos…"
@@ -1895,10 +1993,18 @@ export default function FacturasGastoScreen() {
               emptyText="No hay pagos registrados"
               pagos={detallePagosLista}
               totalLabel="Total pagado"
-              puedeGestionar={puedeGestionarPagos}
+              puedeGestionar={puedeGestionarPagos && !detallePagosFactura?.remesaActiva}
               procesandoPagoId={procesandoPagoDetalleId}
-              onEditar={puedeGestionarPagos ? handleEditarPagoDetalle : undefined}
-              onBorrar={puedeGestionarPagos ? handleBorrarPagoDetalle : undefined}
+              onEditar={
+                puedeGestionarPagos && !detallePagosFactura?.remesaActiva
+                  ? handleEditarPagoDetalle
+                  : undefined
+              }
+              onBorrar={
+                puedeGestionarPagos && !detallePagosFactura?.remesaActiva
+                  ? handleBorrarPagoDetalle
+                  : undefined
+              }
             />
           </Pressable>
         </Pressable>
@@ -2432,8 +2538,32 @@ const styles = StyleSheet.create({
   modalDetalleTitle: { fontSize: 16, fontWeight: '700', color: '#334155', marginBottom: 4 },
   modalDetalleSubtitle: { fontSize: 12, color: '#64748b', lineHeight: 18 },
   modalDetalleClose: { padding: 4, marginTop: -4 },
+  remesaActivaBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  remesaActivaBannerBody: { flex: 1, gap: 2 },
+  remesaActivaBannerText: { fontSize: 13, color: '#1e3a8a', fontWeight: '600', lineHeight: 18 },
+  remesaActivaNombre: { fontWeight: '700', color: '#1e40af' },
+  remesaActivaBannerHint: { fontSize: 12, color: '#64748b', lineHeight: 16 },
+  remesaActivaLinkBtn: { alignSelf: 'flex-start', marginTop: 2 },
+  remesaActivaLink: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2563eb',
+    textDecorationLine: 'underline',
+  },
 
   cellPagadoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0, justifyContent: 'flex-end' },
   cellTextFlex: { flex: 1, minWidth: 0 },
   cellPagadoIconBtn: { padding: 2 },
+  estadoBadgesRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
 });

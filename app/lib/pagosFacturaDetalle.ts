@@ -3,6 +3,7 @@ import { mapTipoReciboToFormaPago } from '../utils/facturacion';
 import { esMetodoCompensacion } from './compensacionFactura';
 import type { RegistrarPagoInitial, RegistrarPagoPayloadFactura } from '../components/RegistrarPagoModal';
 import type { FacturaListado } from '../types/factura';
+import type { RemesaActivaFactura } from '../types/remesas';
 
 export type PagoDetalleRow = {
   id_pago?: string;
@@ -12,6 +13,23 @@ export type PagoDetalleRow = {
   referencia?: string;
   observaciones?: string;
 };
+
+type ErrorPagoBody = {
+  error?: string;
+  code?: string;
+  remesaActiva?: RemesaActivaFactura | null;
+};
+
+function mensajeErrorPago(status: number, data: ErrorPagoBody, fallback: string): string {
+  if (status === 409 && data?.code === 'FACTURA_EN_REMESA') {
+    const nombre = String(data.remesaActiva?.nombre ?? '').trim();
+    if (data.error) return String(data.error);
+    return nombre
+      ? `Esta factura está incluida en la remesa «${nombre}». No se pueden registrar, editar ni eliminar pagos manualmente.`
+      : 'Esta factura está incluida en una remesa activa. No se pueden registrar, editar ni eliminar pagos manualmente.';
+  }
+  return data?.error || fallback;
+}
 
 export function pagoRecordToInitial(p: PagoDetalleRow): RegistrarPagoInitial {
   const metodo = String(p.metodo_pago ?? '');
@@ -67,8 +85,8 @@ export async function registrarPagoFacturaApi(
         facturas_compensar: payload.facturas_compensar ?? [],
       }),
     });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'Error al registrar compensación');
+    const data = (await r.json()) as ErrorPagoBody & { pago?: PagoDetalleRow; factura?: FacturaListado };
+    if (!r.ok) throw new Error(mensajeErrorPago(r.status, data, 'Error al registrar compensación'));
     return { pago: data.pago, factura: (data.factura as FacturaListado | undefined) ?? null };
   }
 
@@ -80,8 +98,8 @@ export async function registrarPagoFacturaApi(
       referencia: payload.referencia,
     }),
   });
-  const data = await r.json();
-  if (!r.ok) throw new Error(data.error || 'Error al registrar pago');
+  const data = (await r.json()) as ErrorPagoBody & { pago?: PagoDetalleRow; factura?: FacturaListado };
+  if (!r.ok) throw new Error(mensajeErrorPago(r.status, data, 'Error al registrar pago'));
   return { pago: data.pago, factura: (data.factura as FacturaListado | undefined) ?? null };
 }
 
@@ -101,8 +119,8 @@ export async function eliminarPagoFactura(
       usuario_nombre: usuario.nombre ?? '',
     }),
   });
-  const data = await r.json();
-  if (!r.ok) throw new Error(data.error || 'Error al eliminar el pago');
+  const data = (await r.json()) as ErrorPagoBody & { factura?: FacturaListado };
+  if (!r.ok) throw new Error(mensajeErrorPago(r.status, data, 'Error al eliminar el pago'));
   return (data.factura as FacturaListado | undefined) ?? null;
 }
 
@@ -123,8 +141,8 @@ export async function actualizarPagoFactura(
       usuario_nombre: usuario.nombre ?? '',
     }),
   });
-  const data = await r.json();
-  if (!r.ok) throw new Error(data.error || 'Error al actualizar el pago');
+  const data = (await r.json()) as ErrorPagoBody & { pago?: PagoDetalleRow; factura?: FacturaListado };
+  if (!r.ok) throw new Error(mensajeErrorPago(r.status, data, 'Error al actualizar el pago'));
   return {
     pago: (data.pago as PagoDetalleRow) ?? {},
     factura: (data.factura as FacturaListado | undefined) ?? null,

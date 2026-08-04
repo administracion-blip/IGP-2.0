@@ -22,6 +22,7 @@ import {
 } from '../../components/RegistrarPagoModal';
 import { registrarPagoFacturaApi } from '../../lib/pagosFacturaDetalle';
 import { BadgeEstado } from '../../components/BadgeEstado';
+import { BadgeEnRemesa } from '../../components/BadgeEnRemesa';
 import { BadgeAbono } from '../../components/BadgeAbono';
 import { CampoIdDocumentoFacturaRecibida } from '../../components/CampoIdDocumentoFacturaRecibida';
 import { CampoIdFactura } from '../../components/CampoIdFactura';
@@ -65,6 +66,7 @@ import { apiFetch, errorMessage } from '../../utils/api';
 import { resolverIbanBeneficiarioFactura } from '../../lib/resolverIbanFactura';
 import { buildConceptoRemesaFacturaRecibida } from '../../lib/conceptoRemesa';
 import type { EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
+import type { RemesaActivaFactura } from '../../types/remesas';
 
 /**
  * Crear/duplicar/rectificar responden `{ ok, factura, ... }` con el id en
@@ -197,6 +199,10 @@ export default function FacturaDetalleScreen() {
   const [fechaReferenciaTarjetaPago, setFechaReferenciaTarjetaPago] = useState<string | undefined>();
   const [savingPago, setSavingPago] = useState(false);
 
+  /** Remesa Borrador/Generada que incluye esta factura IN (campo hermano del GET detalle) */
+  const [remesaActiva, setRemesaActiva] = useState<RemesaActivaFactura | null>(null);
+  const [quitandoRemesa, setQuitandoRemesa] = useState(false);
+
   // ── Email modal ──
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailDestinatario, setEmailDestinatario] = useState('');
@@ -255,7 +261,8 @@ export default function FacturaDetalleScreen() {
   const puedeRegistrarPago =
     modo === 'editar' &&
     hasPermiso('facturacion.cobrar_pagar') &&
-    ['emitida', 'parcialmente_cobrada', 'pendiente_pago', 'parcialmente_pagada', 'pendiente_revision'].includes(estado);
+    ['emitida', 'parcialmente_cobrada', 'pendiente_pago', 'parcialmente_pagada', 'pendiente_revision'].includes(estado) &&
+    !(tipo === 'IN' && !!remesaActiva);
   const puedeDuplicar = modo === 'editar';
   const puedeRectificar =
     modo === 'editar' &&
@@ -387,6 +394,16 @@ export default function FacturaDetalleScreen() {
       const data = await res.json();
       const f: Factura = data.factura ?? data;
       markHydrationFromApi();
+      const remesaRaw = data.remesaActiva ?? null;
+      setRemesaActiva(
+        remesaRaw && remesaRaw.remesaId
+          ? {
+              remesaId: String(remesaRaw.remesaId),
+              nombre: String(remesaRaw.nombre ?? ''),
+              estado: remesaRaw.estado === 'Generada' ? 'Generada' : 'Borrador',
+            }
+          : null,
+      );
       setEstado(f.estado);
       setSaldoPendiente(Number(f.saldo_pendiente ?? f.total_factura ?? 0));
       setNumeroFactura(f.numero_factura ?? '');
@@ -800,6 +817,34 @@ export default function FacturaDetalleScreen() {
     }
   };
 
+  const quitarDeRemesa = async () => {
+    if (!remesaActiva || !facturaId || tipo !== 'IN') return;
+    const esGenerada = remesaActiva.estado === 'Generada';
+    const ok = await confirmar(
+      'Quitar de la remesa',
+      esGenerada
+        ? `¿Sacar esta factura de «${remesaActiva.nombre}»? La remesa pasará a Borrador.`
+        : `¿Sacar esta factura de «${remesaActiva.nombre}»?`,
+      { confirmarLabel: 'Quitar' },
+    );
+    if (!ok) return;
+    setQuitandoRemesa(true);
+    try {
+      const res = await apiFetch(`/api/remesas/${remesaActiva.remesaId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ quitarFacturaIds: [facturaId] }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo quitar de la remesa');
+      showToast('Hecho', 'Factura quitada de la remesa', 'success');
+      await fetchFactura();
+    } catch (e: unknown) {
+      alertMsg('Error', errorMessage(e, 'No se pudo quitar de la remesa'));
+    } finally {
+      setQuitandoRemesa(false);
+    }
+  };
+
   // ── PDF helpers ──
   const buildPdfParams = () => {
     const emisorData = {
@@ -1018,9 +1063,55 @@ export default function FacturaDetalleScreen() {
         <View style={styles.headerTitleWrap}>
           <Text style={styles.title}>{titulo}</Text>
           {modo === 'editar' && <BadgeEstado estado={estado} />}
+          {tipo === 'IN' && remesaActiva ? <BadgeEnRemesa /> : null}
           {esVenta && esAbono ? <BadgeAbono /> : null}
         </View>
       </View>
+
+      {tipo === 'IN' && modo === 'editar' && remesaActiva ? (
+        <View style={styles.remesaActivaBanner}>
+          <MaterialIcons name="account-balance" size={18} color="#1d4ed8" />
+          <View style={styles.remesaActivaBannerBody}>
+            <View style={styles.remesaActivaBannerLine}>
+              <Text style={styles.remesaActivaBannerText}>Incluida en remesa </Text>
+              {hasPermiso('remesas.ver') ? (
+                <TouchableOpacity
+                  onPress={() => router.push(`/facturacion/remesas/${remesaActiva.remesaId}` as never)}
+                  hitSlop={6}
+                >
+                  <Text style={styles.remesaActivaLink}>
+                    {remesaActiva.nombre || remesaActiva.remesaId}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={styles.remesaActivaNombre}>
+                  {remesaActiva.nombre || remesaActiva.remesaId}
+                </Text>
+              )}
+              <Text style={styles.remesaActivaBannerText}> ({remesaActiva.estado})</Text>
+            </View>
+            <Text style={styles.remesaActivaBannerHint}>
+              No se pueden registrar, editar ni eliminar pagos mientras figure en esta remesa.
+            </Text>
+          </View>
+          {hasPermiso('remesas.gestionar') ? (
+            <TouchableOpacity
+              style={styles.btnQuitarRemesa}
+              onPress={quitarDeRemesa}
+              disabled={quitandoRemesa}
+            >
+              {quitandoRemesa ? (
+                <ActivityIndicator size="small" color="#1d4ed8" />
+              ) : (
+                <>
+                  <MaterialIcons name="remove-circle-outline" size={16} color="#1d4ed8" />
+                  <Text style={styles.btnQuitarRemesaText}>Quitar de la remesa</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
 
       {/* ── ACTION BUTTONS ── */}
       <View style={styles.actionsRow}>
@@ -1559,16 +1650,18 @@ export default function FacturaDetalleScreen() {
       </View>
 
       {/* ── PAGOS ── */}
-      {puedeRegistrarPago && (
+      {(puedeRegistrarPago || (modo === 'editar' && pagos.length > 0)) && (
         <View style={styles.section}>
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>
               {esVenta ? 'Cobros' : 'Pagos'}
             </Text>
-            <TouchableOpacity style={styles.btnSmall} onPress={abrirModalPago}>
-              <MaterialIcons name="add" size={16} color="#0ea5e9" />
-              <Text style={styles.btnSmallText}>Registrar {esVenta ? 'cobro' : 'pago'}</Text>
-            </TouchableOpacity>
+            {puedeRegistrarPago ? (
+              <TouchableOpacity style={styles.btnSmall} onPress={abrirModalPago}>
+                <MaterialIcons name="add" size={16} color="#0ea5e9" />
+                <Text style={styles.btnSmallText}>Registrar {esVenta ? 'cobro' : 'pago'}</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           {pagos.length === 0 ? (
@@ -1833,11 +1926,70 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     flex: 1,
+    flexWrap: 'wrap',
   },
   title: {
     fontSize: 20,
     fontWeight: '700',
     color: '#334155',
+  },
+  remesaActivaBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flexWrap: 'wrap',
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  remesaActivaBannerBody: {
+    flex: 1,
+    minWidth: 180,
+    gap: 2,
+  },
+  remesaActivaBannerLine: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+  },
+  remesaActivaBannerText: {
+    fontSize: 13,
+    color: '#1e3a8a',
+    fontWeight: '600',
+  },
+  remesaActivaNombre: {
+    fontWeight: '700',
+    color: '#1e40af',
+  },
+  remesaActivaLink: {
+    fontWeight: '700',
+    color: '#2563eb',
+    textDecorationLine: 'underline',
+  },
+  remesaActivaBannerHint: {
+    fontSize: 12,
+    color: '#64748b',
+  },
+  btnQuitarRemesa: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#93c5fd',
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    minHeight: MIN_TOUCH,
+  },
+  btnQuitarRemesaText: {
+    color: '#1d4ed8',
+    fontSize: 12,
+    fontWeight: '600',
   },
 
   // Actions

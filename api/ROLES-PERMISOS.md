@@ -76,6 +76,7 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `reservas.ver` | Ver menú Reservas |
 | `acuerdos.ver` | Ver menú Acuerdos |
 | `facturacion.ver` | Ver menú Facturación |
+| `refacturacion.ver` | Ver hub Facturación → REFACTURACIONES y listado de líneas |
 | `planning_dia.ver` | Ver menú Planning del Día |
 | `ia.informes` | Ver menú Informes IA (y operar con la IA) |
 
@@ -135,6 +136,7 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `ia.informe_objetivos` | Informes IA · Fuente Objetivos (expone importes por local) |
 | `ia.informe_compras` | Informes IA · Fuente Compras (variaciones de gasto por proveedor/familia/producto) |
 | `ia.informe_ventas_hora` | Informes IA · Fuente Ventas por hora (distribución horaria y por franjas) |
+| `ia.informe_dia_a_dia` | Informes IA · Fuente Día a día (briefing matutino; incluye nombres de ejecutores Factorial en fichajes sospechosos) |
 | `ia.prompts_gestionar` | Informes IA · Crear/editar/borrar plantillas de prompt |
 | `ia.ajustes` | Informes IA · Modificar ajustes de la IA (modelo, temperatura, límites) |
 | `formas_pago.editar` | Formas de pago · Editar maestro (Base de datos) |
@@ -187,6 +189,8 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `actuaciones.borrar` | Actuaciones · Borrar actuaciones |
 | `actuaciones.firma` | Actuaciones · Firmar actuación |
 | `actuaciones.facturacion` | Actuaciones · Asociar facturas de gasto |
+| `refacturacion.ver` | Refacturación · Ver hub Facturación → REFACTURACIONES, pendientes y detalle de líneas |
+| `refacturacion.gestionar` | Refacturación · Crear/editar/descartar líneas y emitir borrador OUT |
 
 ## Comportamiento
 

@@ -1,5 +1,12 @@
 export type EstadoRemesa = 'Borrador' | 'Generada' | 'Ejecutada' | 'Anulada';
 
+/** Remesa Borrador/Generada en la que está incluida una factura IN (campo `remesaActiva`). */
+export type RemesaActivaFactura = {
+  remesaId: string;
+  nombre: string;
+  estado: 'Borrador' | 'Generada';
+};
+
 export type LineaRemesa = {
   id_factura: string;
   numero_factura?: string;

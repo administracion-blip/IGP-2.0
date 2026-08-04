@@ -40,6 +40,10 @@ import {
 import { aplicarPostProcesadoPipeline } from '../lib/ocrFacturaValidacion.js';
 import { registrarPagoFactura } from '../lib/facturacion/registrarPago.js';
 import {
+  indexRemesasActivasPorFactura,
+  findRemesaActivaDeFactura,
+} from '../lib/remesas/facturaEnRemesa.js';
+import {
   filtrarFacturasCompensables,
   registrarPagoCompensacion,
   METODO_PAGO_COMPENSACION,
@@ -336,6 +340,14 @@ router.get('/facturacion/facturas', async (req, res) => {
       items = await scanAll(tables.facturas);
     }
     items.sort((a, b) => (b.fecha_emision || '').localeCompare(a.fecha_emision || ''));
+
+    const remesas = await scanAll(tables.remesas);
+    const idxRemesas = indexRemesasActivasPorFactura(remesas);
+    items = items.map((f) => {
+      if (f.tipo === 'OUT') return { ...f, remesaActiva: null };
+      return { ...f, remesaActiva: idxRemesas.get(f.id_factura) || null };
+    });
+
     res.json({ facturas: items });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -354,7 +366,10 @@ router.get('/facturacion/facturas/:id', async (req, res) => {
     pagos.sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
     const auditoria = await queryAuditoriaByFactura(req.params.id);
     auditoria.sort((a, b) => (b.timestamp_accion || '').localeCompare(a.timestamp_accion || ''));
-    res.json({ factura: result.Item, lineas, pagos, auditoria });
+    const remesaActiva = result.Item.tipo === 'OUT'
+      ? null
+      : await findRemesaActivaDeFactura(req.params.id);
+    res.json({ factura: result.Item, lineas, pagos, auditoria, remesaActiva });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -967,6 +982,29 @@ router.post('/facturacion/facturas/:id/pagos/compensacion', requirePermission('f
   const b = req.body || {};
   const { usuario_id, usuario_nombre } = usuarioAuditoria(req);
   try {
+    const remesaActiva = await findRemesaActivaDeFactura(req.params.id);
+    if (remesaActiva) {
+      return res.status(409).json({
+        error: `Esta factura está en la remesa «${remesaActiva.nombre || remesaActiva.remesaId}»`,
+        code: 'FACTURA_EN_REMESA',
+        remesaActiva,
+      });
+    }
+    const idsDestino = [...new Set(
+      (Array.isArray(b.facturas_compensar) ? b.facturas_compensar : [])
+        .map((x) => String(x).trim())
+        .filter(Boolean),
+    )];
+    for (const idDestino of idsDestino) {
+      const remesaDestino = await findRemesaActivaDeFactura(idDestino);
+      if (remesaDestino) {
+        return res.status(409).json({
+          error: `La factura destino está en la remesa «${remesaDestino.nombre || remesaDestino.remesaId}»`,
+          code: 'FACTURA_EN_REMESA',
+          remesaActiva: remesaDestino,
+        });
+      }
+    }
     const result = await registrarPagoCompensacion({
       id_factura_origen: req.params.id,
       facturas_compensar: b.facturas_compensar,
@@ -1021,6 +1059,15 @@ router.post('/facturacion/facturas/:id/pagos', maybeUploadReciboPago, async (req
   }
 
   try {
+    const remesaActiva = await findRemesaActivaDeFactura(id_factura);
+    if (remesaActiva) {
+      return res.status(409).json({
+        error: `Esta factura está en la remesa «${remesaActiva.nombre || remesaActiva.remesaId}»`,
+        code: 'FACTURA_EN_REMESA',
+        remesaActiva,
+      });
+    }
+
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const factura = existing.Item;
@@ -1111,6 +1158,15 @@ router.put('/facturacion/pagos/:id_factura/:id_pago', async (req, res) => {
   }
 
   try {
+    const remesaActiva = await findRemesaActivaDeFactura(id_factura);
+    if (remesaActiva) {
+      return res.status(409).json({
+        error: `Esta factura está en la remesa «${remesaActiva.nombre || remesaActiva.remesaId}»`,
+        code: 'FACTURA_EN_REMESA',
+        remesaActiva,
+      });
+    }
+
     const pagoResult = await docClient.send(
       new GetCommand({ TableName: tables.facturasPagos, Key: { id_factura, id_pago } }),
     );
@@ -1185,6 +1241,15 @@ router.delete('/facturacion/pagos/:id_factura/:id_pago', async (req, res) => {
   const { usuario_id, usuario_nombre } = req.body || {};
 
   try {
+    const remesaActiva = await findRemesaActivaDeFactura(id_factura);
+    if (remesaActiva) {
+      return res.status(409).json({
+        error: `Esta factura está en la remesa «${remesaActiva.nombre || remesaActiva.remesaId}»`,
+        code: 'FACTURA_EN_REMESA',
+        remesaActiva,
+      });
+    }
+
     const pagoResult = await docClient.send(
       new GetCommand({ TableName: tables.facturasPagos, Key: { id_factura, id_pago } })
     );
@@ -1884,13 +1949,16 @@ router.post('/facturacion/ocr/enriquecer-ia', async (req, res) => {
     }
 
     aplicarPostProcesadoPipeline(merged, texto);
-    /** Mismo criterio que extraer: desglose solo manual en UI. */
+    /** Mismo criterio que extraer: desglose solo manual en UI. No tocar lineas_articulos. */
     merged.desglose_impuestos = [];
     if (merged.extraction_snapshot && typeof merged.extraction_snapshot === 'object') {
       merged.extraction_snapshot = {
         ...merged.extraction_snapshot,
         desglose_impuestos: [],
       };
+    }
+    if (!Array.isArray(merged.lineas_articulos)) {
+      merged.lineas_articulos = [];
     }
 
     res.json({ ok: true, datos: merged });
@@ -2423,11 +2491,21 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
             const parseoOcr = parsearTextoFactura(ocrText);
             const scoreOcr = scoreParseo(parseoOcr);
             console.log(`[OCR] Score texto embebido=${scoreTxt}, score OCR imagen=${scoreOcr}`);
+            const textoEmbebidoCorto = text.trim().length < MIN_TEXT_THRESHOLD;
+            const ocrMasLargo =
+              ocrText.length >= MIN_TEXT_THRESHOLD && ocrText.length > text.trim().length;
             if (scoreOcr > scoreTxt) {
               text = ocrText;
               parseo = parseoOcr;
               metodo_extraccion = 'pdf_ocr_fallback';
-              console.log('[OCR] Usando resultado OCR (mejor que texto embebido)');
+              console.log('[OCR] Usando resultado OCR (mejor score que texto embebido)');
+            } else if (textoEmbebidoCorto && ocrMasLargo) {
+              // Texto largo para la IA; se conserva el parseo embebido (score OCR no mejora).
+              text = ocrText;
+              metodo_extraccion = 'pdf_ocr_fallback';
+              console.log(
+                '[OCR] Usando texto OCR (PDF escaneado: embebido corto, OCR más largo); parseo embebido conservado',
+              );
             } else {
               console.log('[OCR] Texto embebido igual o mejor que OCR, manteniendo texto embebido');
             }
@@ -2528,6 +2606,7 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
     retencion,
     recargo_equivalencia_total: recargo_equivalencia_total ?? 0,
     desglose_impuestos: Array.isArray(desglose_impuestos) ? desglose_impuestos : [],
+    lineas_articulos: [],
     desglose_parse_meta:
       desglose_parse_meta && typeof desglose_parse_meta === 'object' ? desglose_parse_meta : undefined,
     confianza,

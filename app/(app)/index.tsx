@@ -1,8 +1,24 @@
 import { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Platform, Animated, ScrollView, useWindowDimensions } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ActivityIndicator,
+  Platform,
+  Animated,
+  ScrollView,
+  useWindowDimensions,
+  TouchableOpacity,
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { MaterialIcons } from '@expo/vector-icons';
 import WeatherWidget from '../components/WeatherWidget';
+import { SoftPulseBorderWrap } from '../components/ui/SoftPulseBorderWrap';
 import { useAuth } from '../contexts/AuthContext';
+import { useBreakpoint } from '../hooks/useBreakpoint';
 import { apiFetch } from '../utils/api';
+import { MIN_TOUCH } from '../constants/layout';
+import { radius } from '../constants/theme';
 
 /** Ancho máximo del contenido en tablet / web ancha (márgenes laterales automáticos). */
 const HOME_CONTENT_MAX_WIDTH = 1120;
@@ -80,11 +96,14 @@ function TickerMarquee({ totals, formatMoneda }: { totals: TotalByLocal[]; forma
 
 export default function AppHome() {
   const { width: windowWidth } = useWindowDimensions();
-  const { localPermitido } = useAuth();
+  const { isPhone } = useBreakpoint();
+  const router = useRouter();
+  const { localPermitido, hasPermiso } = useAuth();
   const [totals, setTotals] = useState<TotalByLocal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const yesterday = getYesterdayYYYYMMDD();
+  const puedeInformeDiaADia = hasPermiso('ia.informes') && hasPermiso('ia.informe_dia_a_dia');
 
   useEffect(() => {
     let cancelled = false;
@@ -124,10 +143,40 @@ export default function AppHome() {
     <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
       <View style={homeInnerStyle}>
         <View style={styles.welcome}>
-          <Text style={styles.title}>Bienvenido</Text>
-          <Text style={styles.subtitle}>
-            Usa el menú lateral para acceder a Base de Datos y más opciones.
-          </Text>
+          <View style={[styles.welcomeTop, isPhone && styles.welcomeTopStack]}>
+            <View style={[styles.welcomeTextBlock, isPhone && styles.welcomeTextBlockStack]}>
+              <Text style={styles.title}>Bienvenido</Text>
+              <Text style={styles.subtitle}>
+                Usa el menú lateral para acceder a Base de Datos y más opciones.
+              </Text>
+            </View>
+            {puedeInformeDiaADia ? (
+              <SoftPulseBorderWrap
+                preset="ia"
+                borderRadius={radius.md}
+                style={[styles.ctaDiaADiaWrap, isPhone && styles.ctaDiaADiaWrapStack]}
+              >
+                <TouchableOpacity
+                  style={styles.ctaDiaADia}
+                  onPress={() => router.push('/informes-ia?fuente=dia_a_dia' as never)}
+                  activeOpacity={0.85}
+                  accessibilityLabel="Informe día a día"
+                  accessibilityRole="button"
+                >
+                  <View style={styles.ctaDiaADiaIcon}>
+                    <MaterialIcons name="auto-awesome" size={20} color="#92400e" />
+                  </View>
+                  <View style={styles.ctaDiaADiaTextBlock}>
+                    <Text style={styles.ctaDiaADiaTitle}>Informe día a día</Text>
+                    <Text style={styles.ctaDiaADiaSub} numberOfLines={1}>
+                      Briefing del día anterior
+                    </Text>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={20} color="#b45309" />
+                </TouchableOpacity>
+              </SoftPulseBorderWrap>
+            ) : null}
+          </View>
         </View>
 
         <WeatherWidget />
@@ -262,6 +311,25 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     justifyContent: 'center',
   },
+  welcomeTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    flexWrap: 'wrap',
+  },
+  welcomeTopStack: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+  },
+  welcomeTextBlock: {
+    flex: 1,
+    minWidth: 200,
+  },
+  welcomeTextBlockStack: {
+    minWidth: 0,
+    width: '100%',
+  },
   title: {
     fontSize: 20,
     fontWeight: '700',
@@ -272,5 +340,47 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#64748b',
     lineHeight: 20,
+  },
+  ctaDiaADiaWrap: {
+    flexShrink: 0,
+    maxWidth: 320,
+  },
+  ctaDiaADiaWrapStack: {
+    maxWidth: '100%',
+    width: '100%',
+    alignSelf: 'stretch',
+  },
+  ctaDiaADia: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#fef3c7',
+    borderRadius: radius.md - 2,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: MIN_TOUCH,
+  },
+  ctaDiaADiaIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#fde68a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ctaDiaADiaTextBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  ctaDiaADiaTitle: {
+    color: '#92400e',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  ctaDiaADiaSub: {
+    color: '#b45309',
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 1,
   },
 });

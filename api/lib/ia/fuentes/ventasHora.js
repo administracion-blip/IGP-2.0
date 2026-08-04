@@ -14,7 +14,7 @@ export const ventasHora = {
   descripcion: 'Distribución de la facturación de un día por hora y por franja horaria, con total del grupo y desglose por local. Útil para detectar horas punta y valle.',
   permiso: 'ia.informe_ventas_hora',
   parametros: [
-    { nombre: 'fecha', tipo: 'fecha', requerido: false, etiqueta: 'Día (por defecto, ayer)' },
+    { nombre: 'fecha', tipo: 'fecha', requerido: false, etiqueta: 'Día (por defecto: ayer según jornada 09:30)' },
     { nombre: 'localId', tipo: 'local', requerido: false, etiqueta: 'Local (opcional)' },
   ],
   async generarDatos(params, user) {

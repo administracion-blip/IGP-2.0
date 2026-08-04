@@ -1035,74 +1035,91 @@ export default function EmpresasScreen() {
         )}
       </View>
 
-      <ScrollView horizontal style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.table}>
-          <View style={styles.rowHeader}>
-            {columnas.map((col) => (
-              <View key={col} style={[styles.cellHeader, { width: getColWidth(col) }]}>
-                <Text style={styles.cellHeaderText} numberOfLines={1} ellipsizeMode="tail">
-                  {col}
-                </Text>
-                {Platform.OS === 'web' && (
-                  <View
-                    style={styles.resizeHandle}
-                    {...({
-                      onMouseDown: (e: { nativeEvent?: { clientX: number }; clientX?: number }) =>
-                        handleResizeStart(col, e),
-                    } as object)}
-                  />
-                )}
-              </View>
-            ))}
-          </View>
-          {empresasPagina.map((empresa, idx) => (
-            <TouchableOpacity
-              key={idx}
-              style={[styles.row, selectedRowIndex === idx && styles.rowSelected]}
-              onPress={() => seleccionarFila(idx)}
-              activeOpacity={0.8}
+      <View style={styles.tableWrapper}>
+        <ScrollView horizontal style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+          <View style={styles.table}>
+            <View style={styles.rowHeader}>
+              {columnas.map((col) => (
+                <View key={col} style={[styles.cellHeader, { width: getColWidth(col) }]}>
+                  <Text style={styles.cellHeaderText} numberOfLines={1} ellipsizeMode="tail">
+                    {col}
+                  </Text>
+                  {Platform.OS === 'web' && (
+                    <View
+                      style={styles.resizeHandle}
+                      {...({
+                        onMouseDown: (e: { nativeEvent?: { clientX: number }; clientX?: number }) =>
+                          handleResizeStart(col, e),
+                      } as object)}
+                    />
+                  )}
+                </View>
+              ))}
+            </View>
+            <ScrollView
+              style={styles.tableBodyScroll}
+              contentContainerStyle={styles.tableBodyContent}
+              showsVerticalScrollIndicator
+              nestedScrollEnabled
             >
-              {columnas.map((col) => {
-                const empresaId = String(valorEnLocal(empresa, 'id_empresa') ?? '');
-                if (edicionRapidaMode && col !== 'id_empresa') {
-                  const editVal = editValues[empresaId]?.[col] ?? '';
-                  const v = valorEnLocal(empresa, col);
-                  const original =
-                    col === 'Etiqueta'
-                      ? (Array.isArray(v) ? v.join(', ') : v != null ? String(v) : '')
-                      : (v != null ? String(v) : '');
-                  const isModified = editVal !== original;
-                  return (
-                    <View key={col} style={[styles.cell, { width: getColWidth(col) }, styles.cellEditing, isModified && styles.cellModified]}>
-                      <TextInput
-                        style={styles.cellEditInput}
-                        value={editVal}
-                        onChangeText={(t) => {
-                          setEditValues((prev) => ({
-                            ...prev,
-                            [empresaId]: { ...(prev[empresaId] || {}), [col]: t },
-                          }));
-                        }}
-                        placeholder={col}
-                        placeholderTextColor="#cbd5e1"
-                      />
-                    </View>
-                  );
-                }
-                const raw = valorCelda(empresa, col);
-                const text = col === 'Nombre' ? raw : raw.length > MAX_TEXT_LENGTH ? truncar(raw) : raw;
-                return (
-                  <View key={col} style={[styles.cell, { width: getColWidth(col) }]}>
-                    <Text style={styles.cellText} numberOfLines={1} ellipsizeMode="tail">
-                      {text}
-                    </Text>
+              {empresasPagina.length === 0 ? (
+                <View style={styles.row}>
+                  <View style={styles.cellEmpty}>
+                    <Text style={styles.cellEmptyText}>Sin resultados</Text>
                   </View>
-                );
-              })}
-            </TouchableOpacity>
-          ))}
-        </View>
-      </ScrollView>
+                </View>
+              ) : (
+                empresasPagina.map((empresa, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={[styles.row, selectedRowIndex === idx && styles.rowSelected]}
+                    onPress={() => seleccionarFila(idx)}
+                    activeOpacity={0.8}
+                  >
+                    {columnas.map((col) => {
+                      const empresaId = String(valorEnLocal(empresa, 'id_empresa') ?? '');
+                      if (edicionRapidaMode && col !== 'id_empresa') {
+                        const editVal = editValues[empresaId]?.[col] ?? '';
+                        const v = valorEnLocal(empresa, col);
+                        const original =
+                          col === 'Etiqueta'
+                            ? (Array.isArray(v) ? v.join(', ') : v != null ? String(v) : '')
+                            : (v != null ? String(v) : '');
+                        const isModified = editVal !== original;
+                        return (
+                          <View key={col} style={[styles.cell, { width: getColWidth(col) }, styles.cellEditing, isModified && styles.cellModified]}>
+                            <TextInput
+                              style={styles.cellEditInput}
+                              value={editVal}
+                              onChangeText={(t) => {
+                                setEditValues((prev) => ({
+                                  ...prev,
+                                  [empresaId]: { ...(prev[empresaId] || {}), [col]: t },
+                                }));
+                              }}
+                              placeholder={col}
+                              placeholderTextColor="#cbd5e1"
+                            />
+                          </View>
+                        );
+                      }
+                      const raw = valorCelda(empresa, col);
+                      const text = col === 'Nombre' ? raw : raw.length > MAX_TEXT_LENGTH ? truncar(raw) : raw;
+                      return (
+                        <View key={col} style={[styles.cell, { width: getColWidth(col) }]}>
+                          <Text style={styles.cellText} numberOfLines={1} ellipsizeMode="tail">
+                            {text}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </ScrollView>
+      </View>
 
       <Modal visible={modalNuevoVisible} transparent animationType="fade" onRequestClose={cerrarModalNuevo}>
         <View style={styles.modalOverlay}>
@@ -1378,9 +1395,19 @@ const styles = StyleSheet.create({
   pageBtn: { padding: 4 },
   pageBtnDisabled: { opacity: 0.5 },
   pageText: { fontSize: 11, color: '#64748b', marginHorizontal: 4 },
-  scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 20 },
-  table: { minWidth: '100%', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff' },
+  tableWrapper: { flex: 1, minHeight: 0 },
+  scroll: { flex: 1, minHeight: 0 },
+  scrollContent: { flexGrow: 1, minWidth: '100%' as unknown as number },
+  table: {
+    flex: 1,
+    minWidth: '100%',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+  },
+  tableBodyScroll: { flex: 1, minHeight: 0 },
+  tableBodyContent: { paddingBottom: 24 },
   rowHeader: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
   cellHeader: { minWidth: MIN_COL_WIDTH, paddingVertical: 6, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#cbd5e1', position: 'relative' },
   cellHeaderText: { fontSize: 11, fontWeight: '600', color: '#334155' },
@@ -1396,6 +1423,8 @@ const styles = StyleSheet.create({
   rowSelected: { backgroundColor: '#e0f2fe' },
   cell: { minWidth: MIN_COL_WIDTH, paddingVertical: 4, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#e2e8f0' },
   cellText: { fontSize: 11, color: '#475569' },
+  cellEmpty: { flex: 1, paddingVertical: 16, paddingHorizontal: 12, alignItems: 'center' },
+  cellEmptyText: { fontSize: 12, color: '#94a3b8' },
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
   modalContentWrap: { width: '100%', maxWidth: 420, padding: 24, alignItems: 'center' },
   modalCardTouch: { width: '100%' },
