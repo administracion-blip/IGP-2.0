@@ -72,6 +72,12 @@ Rama: `security/remediacion-2026-08`
 - Script ops: `api/scripts/audit-plaintext-passwords.js` (lista id+email, nunca Password).
 - Tests: `api/tests/authPassword.test.mjs`.
 
+### S-09 · SecureStore (JWT cliente)
+- `app/utils/authToken.ts`: iOS/Android → `expo-secure-store`; web → AsyncStorage.
+- Migración one-shot desde AsyncStorage sin perder sesión; fallback si SecureStore falla.
+- `erp_user` sigue en AsyncStorage (fuera de alcance).
+- Riesgo residual web (XSS / localStorage) documentado; sin sessionStorage.
+
 ## Commits
 1. `[S-01]` facturación permisos  
 2. `[S-04]` remesa atómica  
@@ -88,16 +94,20 @@ Rama: `security/remediacion-2026-08`
 13. `[S-14]` npm audit fix api  
 14. `[S-11]` CSP report-only Helmet  
 15. `[S-10]` passwords helper + rehash Update + audit  
+16. `[S-09]` SecureStore JWT nativo  
 
 ## Verificación
 - `cd api && npm test` → **172 pass / 0 fail**.
-- Smoke manual recomendado: facturas con usuario Locales acotados vs Admin; remesas; OCR; CORS prod; header CSP-Report-Only; login usuario legacy (si queda alguno) y comprobar rehash.
+- Smoke manual recomendado: facturas Locales acotados vs Admin; remesas; OCR; CORS prod; CSP-Report-Only; login legacy + rehash; nativo login/reabrir app; web F5 mantiene sesión.
 
-## Pendiente
+## Pendiente / follow-ups
 
 | ID | Qué | Nota |
 |----|-----|------|
-| S-09 | SecureStore vs AsyncStorage | Plan cliente (`app/utils/authToken.ts`) |
+| — | Quitar fallback plaintext | Tras `node api/scripts/audit-plaintext-passwords.js` ≈ 0 |
+| — | CSP documento Expo | Hosting/CDN tras `expo export` (fuera del API) |
+| — | npm audit raíz | Resolver ERESOLVE peers sin Expo major |
+| — | Roles Dynamo | Alinear códigos con menú; DELETE empresas = Admin |
 
 ## Roles a revisar
 1. DELETE empresas = solo Admin (no hay `empresas.borrar`).
