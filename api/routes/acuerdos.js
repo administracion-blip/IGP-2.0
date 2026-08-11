@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
+import path from 'node:path';
 import {
   ScanCommand,
   QueryCommand,
@@ -13,6 +14,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { docClient, tables } from '../lib/db.js';
 import { queryComprasPorProductos } from '../lib/dynamo/comprasProveedor.js';
 import { buildInformeCompras } from '../lib/acuerdos/informeCompras.js';
+import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
 
 const router = Router();
 const region = process.env.AWS_REGION || 'eu-west-3';
@@ -21,6 +23,25 @@ const tableAcuerdosDetalles = tables.acuerdosDetalles;
 const tableAcuerdosImagen = tables.acuerdosImagen;
 const S3_BUCKET = process.env.S3_BUCKET || 'igp-2.0-files';
 const s3 = new S3Client({ region });
+
+const PRESIGN_CONTENT_TYPES = new Set([
+  'application/pdf',
+  'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+]);
+
+function sanitizarNombreArchivoPresign(fileName) {
+  const base = path.basename(String(fileName || '')).replace(/[^\w.\-()+ ]+/g, '_').slice(0, 120);
+  return base || 'archivo';
+}
+
+function idAcuerdoValido(id) {
+  const s = String(id || '');
+  return s.length > 0 && !s.includes('..') && !s.includes('/');
+}
 
 const ESTADO_FACTURACION_DEFAULT = 'sin_factura';
 const FACTURACION_ORIGEN_DEFAULT = 'manual';
@@ -65,7 +86,8 @@ function metaFacturacionDesdeBody(body, { esCreacion = false } = {}) {
 // Acuerdos con Marcas (Rappel)
 // ──────────────────────────────────────────
 
-router.get('/acuerdos', async (req, res) => {
+// [SEC S-03]
+router.get('/acuerdos', requirePermission('acuerdos.ver'), async (req, res) => {
   try {
     const items = [];
     let lastKey = null;
@@ -91,7 +113,8 @@ router.get('/acuerdos', async (req, res) => {
 });
 
 /** Todas las líneas de producto de acuerdos en estado Activo y vigentes por fecha fin. */
-router.get('/acuerdos/productos-activos', async (req, res) => {
+// [SEC S-03]
+router.get('/acuerdos/productos-activos', requirePermission('acuerdos.ver'), async (req, res) => {
   try {
     const hoy = new Date().toISOString().slice(0, 10);
     const acuerdosItems = [];
@@ -187,7 +210,8 @@ router.get('/acuerdos/productos-activos', async (req, res) => {
 });
 
 /** Informe: compras y aportación volumen generada por acuerdo en un rango de fechas (solo lectura). */
-router.get('/acuerdos/informe-compras', async (req, res) => {
+// [SEC S-03]
+router.get('/acuerdos/informe-compras', requireAnyPermission('acuerdos.ver', 'acuerdos.exportar'), async (req, res) => {
   try {
     const data = await buildInformeCompras({
       fechaDesde: req.query.fechaDesde,
@@ -207,7 +231,8 @@ router.get('/acuerdos/informe-compras', async (req, res) => {
   }
 });
 
-router.get('/acuerdos/totales', async (req, res) => {
+// [SEC S-03]
+router.get('/acuerdos/totales', requirePermission('acuerdos.ver'), async (req, res) => {
   try {
     const acuerdosItems = [];
     let aKey = null;
@@ -273,7 +298,8 @@ router.get('/acuerdos/totales', async (req, res) => {
     return res.status(500).json({ error: err.message || 'Error al obtener totales' });
   }
 });
-router.get('/acuerdos/:id', async (req, res) => {
+// [SEC S-03]
+router.get('/acuerdos/:id', requirePermission('acuerdos.ver'), async (req, res) => {
   try {
     const got = await docClient.send(new GetCommand({
       TableName: tableAcuerdos,
@@ -288,7 +314,8 @@ router.get('/acuerdos/:id', async (req, res) => {
   }
 });
 
-router.post('/acuerdos', async (req, res) => {
+// [SEC S-03]
+router.post('/acuerdos', requirePermission('acuerdos.crear'), async (req, res) => {
   const body = req.body || {};
   const pk = body.PK || crypto.randomUUID();
   const now = new Date().toISOString();
@@ -321,7 +348,8 @@ router.post('/acuerdos', async (req, res) => {
   }
 });
 
-router.patch('/acuerdos/:id', async (req, res) => {
+// [SEC S-03]
+router.patch('/acuerdos/:id', requirePermission('acuerdos.editar'), async (req, res) => {
   const pk = req.params.id;
   const body = req.body || {};
   const FIELDS = [
@@ -371,7 +399,8 @@ router.patch('/acuerdos/:id', async (req, res) => {
   }
 });
 
-router.delete('/acuerdos/:id', async (req, res) => {
+// [SEC S-03]
+router.delete('/acuerdos/:id', requirePermission('acuerdos.borrar'), async (req, res) => {
   try {
     await docClient.send(new DeleteCommand({ TableName: tableAcuerdos, Key: { PK: req.params.id, SK: 'META' } }));
     return res.json({ ok: true });
@@ -383,7 +412,8 @@ router.delete('/acuerdos/:id', async (req, res) => {
 
 // Detalles de acuerdo (productos asignados)
 
-router.get('/acuerdos/:id/detalles', async (req, res) => {
+// [SEC S-03]
+router.get('/acuerdos/:id/detalles', requirePermission('acuerdos.ver'), async (req, res) => {
   try {
     const items = [];
     let lastKey = null;
@@ -406,7 +436,8 @@ router.get('/acuerdos/:id/detalles', async (req, res) => {
   }
 });
 
-router.get('/acuerdos/:id/detalles-con-compras', async (req, res) => {
+// [SEC S-03]
+router.get('/acuerdos/:id/detalles-con-compras', requirePermission('acuerdos.ver'), async (req, res) => {
   const acuerdoId = req.params.id;
   try {
     const acuerdoRes = await docClient.send(new GetCommand({ TableName: tableAcuerdos, Key: { PK: acuerdoId, SK: 'META' } }));
@@ -463,7 +494,8 @@ router.get('/acuerdos/:id/detalles-con-compras', async (req, res) => {
   }
 });
 
-router.post('/acuerdos/:id/detalles', async (req, res) => {
+// [SEC S-03]
+router.post('/acuerdos/:id/detalles', requirePermission('acuerdos.editar'), async (req, res) => {
   const pk = req.params.id;
   const body = req.body || {};
   const productId = (body.ProductId || '').trim();
@@ -494,7 +526,8 @@ router.post('/acuerdos/:id/detalles', async (req, res) => {
   }
 });
 
-router.patch('/acuerdos/:id/detalles/:productId', async (req, res) => {
+// [SEC S-03]
+router.patch('/acuerdos/:id/detalles/:productId', requirePermission('acuerdos.editar'), async (req, res) => {
   const body = req.body || {};
   const updates = [];
   const values = {};
@@ -519,7 +552,8 @@ router.patch('/acuerdos/:id/detalles/:productId', async (req, res) => {
   }
 });
 
-router.delete('/acuerdos/:id/detalles/:productId', async (req, res) => {
+// [SEC S-03]
+router.delete('/acuerdos/:id/detalles/:productId', requirePermission('acuerdos.editar'), async (req, res) => {
   try {
     await docClient.send(new DeleteCommand({
       TableName: tableAcuerdosDetalles,
@@ -532,7 +566,8 @@ router.delete('/acuerdos/:id/detalles/:productId', async (req, res) => {
   }
 });
 
-router.get('/acuerdos/:id/seguimiento', async (req, res) => {
+// [SEC S-03]
+router.get('/acuerdos/:id/seguimiento', requirePermission('acuerdos.ver'), async (req, res) => {
   const id = req.params.id;
   try {
     const getRes = await docClient.send(new GetCommand({ TableName: tableAcuerdos, Key: { PK: id, SK: 'META' } }));
@@ -624,7 +659,8 @@ function sanitizeJustificantes(arr) {
     .filter(Boolean);
 }
 
-router.get('/acuerdos/:id/imagen', async (req, res) => {
+// [SEC S-03]
+router.get('/acuerdos/:id/imagen', requirePermission('acuerdos.ver'), async (req, res) => {
   try {
     const items = [];
     let lastKey = null;
@@ -667,7 +703,8 @@ router.get('/acuerdos/:id/imagen', async (req, res) => {
   }
 });
 
-router.post('/acuerdos/:id/imagen', async (req, res) => {
+// [SEC S-03]
+router.post('/acuerdos/:id/imagen', requirePermission('acuerdos.editar'), async (req, res) => {
   const body = req.body || {};
   const sk = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -692,7 +729,8 @@ router.post('/acuerdos/:id/imagen', async (req, res) => {
   }
 });
 
-router.patch('/acuerdos/:id/imagen/:sk', async (req, res) => {
+// [SEC S-03]
+router.patch('/acuerdos/:id/imagen/:sk', requirePermission('acuerdos.editar'), async (req, res) => {
   const body = req.body || {};
   const updates = [];
   const values = {};
@@ -736,7 +774,8 @@ router.patch('/acuerdos/:id/imagen/:sk', async (req, res) => {
   }
 });
 
-router.delete('/acuerdos/:id/imagen/:sk', async (req, res) => {
+// [SEC S-03]
+router.delete('/acuerdos/:id/imagen/:sk', requirePermission('acuerdos.editar'), async (req, res) => {
   try {
     // Borra de S3 los justificantes asociados antes de eliminar el registro.
     const getRes = await docClient.send(new GetCommand({
@@ -763,7 +802,8 @@ router.delete('/acuerdos/:id/imagen/:sk', async (req, res) => {
  * (p. ej. el usuario lo adjuntó y luego canceló / lo quitó del modal). Valida
  * que la clave pertenezca a la subcarpeta de justificantes de este acuerdo.
  */
-router.delete('/acuerdos/:id/imagen/objeto/:encodedKey', async (req, res) => {
+// [SEC S-03]
+router.delete('/acuerdos/:id/imagen/objeto/:encodedKey', requirePermission('acuerdos.editar'), async (req, res) => {
   try {
     const { id, encodedKey } = req.params;
     const fileKey = decodeURIComponent(encodedKey);
@@ -780,17 +820,23 @@ router.delete('/acuerdos/:id/imagen/objeto/:encodedKey', async (req, res) => {
 });
 
 /** Presign de subida para justificantes de pago por imagen (subcarpeta propia). */
-router.post('/acuerdos/:id/imagen/presign-upload', async (req, res) => {
+// [SEC S-03]
+router.post('/acuerdos/:id/imagen/presign-upload', requirePermission('acuerdos.editar'), async (req, res) => {
   try {
     const { id } = req.params;
+    if (!idAcuerdoValido(id)) return res.status(400).json({ error: 'id no válido' });
     const { fileName, contentType } = req.body || {};
     if (!fileName || !contentType) return res.status(400).json({ error: 'fileName y contentType requeridos' });
-
-    const fileKey = `acuerdos/${id}/justificantes/${Date.now()}_${fileName}`;
+    const ct = String(contentType).toLowerCase();
+    if (!PRESIGN_CONTENT_TYPES.has(ct)) {
+      return res.status(400).json({ error: 'contentType no permitido' });
+    }
+    const safeName = sanitizarNombreArchivoPresign(fileName);
+    const fileKey = `acuerdos/${id}/justificantes/${Date.now()}_${safeName}`;
     const command = new PutObjectCommand({
       Bucket: S3_BUCKET,
       Key: fileKey,
-      ContentType: contentType,
+      ContentType: ct,
     });
     const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
     res.json({ uploadUrl, fileKey });
@@ -805,17 +851,23 @@ router.post('/acuerdos/:id/imagen/presign-upload', async (req, res) => {
 // Archivos de Acuerdos  (S3 + metadata en DynamoDB)
 // ──────────────────────────────────────────
 
-router.post('/acuerdos/:id/files/presign-upload', async (req, res) => {
+// [SEC S-03]
+router.post('/acuerdos/:id/files/presign-upload', requirePermission('acuerdos.editar'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { fileName, contentType } = req.body;
+    if (!idAcuerdoValido(id)) return res.status(400).json({ error: 'id no válido' });
+    const { fileName, contentType } = req.body || {};
     if (!fileName || !contentType) return res.status(400).json({ error: 'fileName y contentType requeridos' });
-
-    const fileKey = `acuerdos/${id}/${Date.now()}_${fileName}`;
+    const ct = String(contentType).toLowerCase();
+    if (!PRESIGN_CONTENT_TYPES.has(ct)) {
+      return res.status(400).json({ error: 'contentType no permitido' });
+    }
+    const safeName = sanitizarNombreArchivoPresign(fileName);
+    const fileKey = `acuerdos/${id}/${Date.now()}_${safeName}`;
     const command = new PutObjectCommand({
       Bucket: S3_BUCKET,
       Key: fileKey,
-      ContentType: contentType,
+      ContentType: ct,
     });
     const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
     res.json({ uploadUrl, fileKey });
@@ -825,7 +877,8 @@ router.post('/acuerdos/:id/files/presign-upload', async (req, res) => {
   }
 });
 
-router.post('/acuerdos/:id/files', async (req, res) => {
+// [SEC S-03]
+router.post('/acuerdos/:id/files', requirePermission('acuerdos.editar'), async (req, res) => {
   try {
     const { id } = req.params;
     const { fileKey, fileName, contentType, size } = req.body;
@@ -855,7 +908,8 @@ router.post('/acuerdos/:id/files', async (req, res) => {
   }
 });
 
-router.get('/acuerdos/:id/files', async (req, res) => {
+// [SEC S-03]
+router.get('/acuerdos/:id/files', requirePermission('acuerdos.ver'), async (req, res) => {
   try {
     const { id } = req.params;
     const acuerdoRes = await docClient.send(new GetCommand({
@@ -877,7 +931,8 @@ router.get('/acuerdos/:id/files', async (req, res) => {
   }
 });
 
-router.delete('/acuerdos/:id/files/:encodedKey', async (req, res) => {
+// [SEC S-03]
+router.delete('/acuerdos/:id/files/:encodedKey', requirePermission('acuerdos.editar'), async (req, res) => {
   try {
     const { id, encodedKey } = req.params;
     const fileKey = decodeURIComponent(encodedKey);
