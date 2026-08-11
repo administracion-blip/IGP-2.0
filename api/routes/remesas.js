@@ -12,6 +12,7 @@ import {
   ScanCommand,
   GetCommand,
   PutCommand,
+  UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables, keyForFacturaPrincipalId } from '../lib/db.js';
 import { requirePermission, hasPermission } from '../middleware/auth.js';
@@ -449,7 +450,32 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
       }
     }
 
-    // Fase 2: registrar pagos
+    // [SEC S-04] Reclamar remesa atómicamente antes de pagar
+    const tsEjecucion = now();
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: TABLE,
+        Key: { remesaId: remesa.remesaId },
+        UpdateExpression: 'SET estado = :ejecutada, ejecutadaEn = :ts, actualizadoEn = :ts',
+        ConditionExpression: 'estado = :generada OR estado = :borrador',
+        ExpressionAttributeValues: {
+          ':ejecutada': 'Ejecutada',
+          ':generada': 'Generada',
+          ':borrador': 'Borrador',
+          ':ts': tsEjecucion,
+        },
+      }));
+    } catch (claimErr) {
+      if (claimErr?.name === 'ConditionalCheckFailedException') {
+        return res.status(409).json({ error: 'La remesa ya está ejecutada o no se puede ejecutar' });
+      }
+      throw claimErr;
+    }
+    remesa.estado = 'Ejecutada';
+    remesa.ejecutadaEn = tsEjecucion;
+    remesa.actualizadoEn = tsEjecucion;
+
+    // Fase 2: registrar pagos (idempotentes por línea)
     const pagosCreados = [];
     for (const linea of remesa.lineas) {
       const factura = await cargarFactura(linea.id_factura);
@@ -464,14 +490,10 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
         usuario_id: usuario.id_usuario || usuario.sub || '',
         usuario_nombre: usuario.Nombre || usuario.email || '',
         importeMaximo: pendiente,
+        idempotencyKey: `remesa:${remesa.remesaId}:${linea.id_factura}`,
       });
       pagosCreados.push(result.pago);
     }
-
-    remesa.estado = 'Ejecutada';
-    remesa.ejecutadaEn = now();
-    remesa.actualizadoEn = now();
-    await docClient.send(new PutCommand({ TableName: TABLE, Item: remesa }));
 
     res.json({ ok: true, remesa, pagos: pagosCreados });
   } catch (err) {

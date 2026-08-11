@@ -61,6 +61,7 @@ async function registrarAuditoria(id_factura, accion, usuario_id, usuario_nombre
  * @param {string} [opts.usuario_id]
  * @param {string} [opts.usuario_nombre]
  * @param {number} [opts.importeMaximo] — tope opcional (p. ej. saldo pendiente en remesa)
+ * @param {string} [opts.idempotencyKey] — si ya existe un pago con la misma clave, no duplica
  */
 export async function registrarPagoFactura(opts) {
   const {
@@ -73,6 +74,7 @@ export async function registrarPagoFactura(opts) {
     usuario_id = '',
     usuario_nombre = '',
     importeMaximo,
+    idempotencyKey,
   } = opts;
 
   const fechaIso = fechaToIsoGuardada(fecha);
@@ -99,6 +101,15 @@ export async function registrarPagoFactura(opts) {
     throw Object.assign(new Error('Factura no encontrada'), { status: 404 });
   }
   const factura = existing.Item;
+
+  // Idempotencia: si ya hay un pago con la misma clave, no crear otro
+  if (idempotencyKey) {
+    const pagosExistentes = await queryPagosByFactura(id_factura);
+    const previo = pagosExistentes.find((p) => p.idempotency_key === idempotencyKey);
+    if (previo) {
+      return { ok: true, pago: previo, factura, idempotent: true };
+    }
+  }
 
   const saldo = round2(
     factura.saldo_pendiente != null && factura.saldo_pendiente !== ''
@@ -132,6 +143,7 @@ export async function registrarPagoFactura(opts) {
     recibo_nombre: '',
     creado_por: usuario_id || '',
     creado_en: now(),
+    idempotency_key: idempotencyKey || '',
   };
 
   await docClient.send(new PutCommand({ TableName: tables.facturasPagos, Item: pago }));
