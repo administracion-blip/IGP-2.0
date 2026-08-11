@@ -75,6 +75,11 @@ import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
 import crypto from 'crypto';
 import { enviarEmail } from '../lib/email.js';
 import multer from 'multer';
+import {
+  multerFacturaFileFilter,
+  assertBufferMimeAllowed,
+  sanitizeUploadFileName,
+} from '../lib/uploadAllowlist.js';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const Tesseract = require('tesseract.js');
@@ -83,7 +88,11 @@ const router = Router();
 
 const S3_BUCKET = process.env.S3_BUCKET || 'igp-2.0-files';
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'eu-west-3' });
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: multerFacturaFileFilter, // [SEC S-06]
+});
 
 // ─── Helpers ───
 
@@ -1099,17 +1108,19 @@ router.post('/facturacion/facturas/:id/pagos', requirePermission('facturacion.co
     let recibo_file_key = '';
     let recibo_nombre = '';
     if (req.file && req.file.buffer) {
-      const ext = (req.file.originalname || 'file').split('.').pop() || 'bin';
+      const detectedMime = assertBufferMimeAllowed(req.file.buffer, req.file.mimetype); // [SEC S-06]
+      const safeName = sanitizeUploadFileName(req.file.originalname); // [SEC S-06]
+      const ext = safeName.includes('.') ? safeName.split('.').pop() : 'bin';
       recibo_file_key = `facturas/${id_factura}/recibos/${Date.now()}_${uuid().slice(0, 8)}.${ext}`;
       await s3.send(
         new PutObjectCommand({
           Bucket: S3_BUCKET,
           Key: recibo_file_key,
           Body: req.file.buffer,
-          ContentType: req.file.mimetype || 'application/octet-stream',
+          ContentType: detectedMime || req.file.mimetype || 'application/octet-stream',
         })
       );
-      recibo_nombre = req.file.originalname || '';
+      recibo_nombre = safeName;
     }
 
     const pago = {
@@ -1152,7 +1163,7 @@ router.post('/facturacion/facturas/:id/pagos', requirePermission('facturacion.co
 
     res.json({ ok: true, pago, factura });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -1712,25 +1723,28 @@ router.post('/facturacion/facturas/:id/adjuntos', requirePermission('facturacion
   if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
 
   try {
+    const detectedMime = assertBufferMimeAllowed(req.file.buffer, req.file.mimetype); // [SEC S-06]
+    const safeName = sanitizeUploadFileName(req.file.originalname); // [SEC S-06]
+
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
 
-    const ext = (req.file.originalname || 'file').split('.').pop();
+    const ext = safeName.includes('.') ? safeName.split('.').pop() : 'bin';
     const fileKey = `facturas/${id}/${Date.now()}_${uuid().slice(0, 8)}.${ext}`;
 
     await s3.send(new PutObjectCommand({
       Bucket: S3_BUCKET,
       Key: fileKey,
       Body: req.file.buffer,
-      ContentType: req.file.mimetype,
+      ContentType: detectedMime || req.file.mimetype,
     }));
 
     const adjuntos = existing.Item.adjuntos || [];
     adjuntos.push({
       id: uuid(),
       fileKey,
-      nombre: req.file.originalname,
-      tipo: req.file.mimetype,
+      nombre: safeName,
+      tipo: detectedMime || req.file.mimetype,
       size: req.file.size,
       subido_en: now(),
       subido_por: req.body.usuario_nombre || '',
@@ -1744,13 +1758,13 @@ router.post('/facturacion/facturas/:id/adjuntos', requirePermission('facturacion
     }));
 
     await registrarAuditoria(id, 'adjunto_subido', req.body.usuario_id, req.body.usuario_nombre, {
-      nombre: req.file.originalname,
+      nombre: safeName,
       fileKey,
     });
 
     res.json({ ok: true, adjuntos });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -1887,14 +1901,17 @@ router.post('/facturacion/ocr/extraer', requirePermission('facturacion.crear'), 
   if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
 
   try {
-    const extracted = await extraerDatosBasicos(req.file.buffer, req.file.mimetype, req.file.originalname);
+    const detectedMime = assertBufferMimeAllowed(req.file.buffer, req.file.mimetype); // [SEC S-06]
+    const safeName = sanitizeUploadFileName(req.file.originalname); // [SEC S-06]
 
-    const fileKey = `facturas/ocr-temp/${Date.now()}_${uuid().slice(0, 8)}_${req.file.originalname}`;
+    const extracted = await extraerDatosBasicos(req.file.buffer, detectedMime || req.file.mimetype, safeName);
+
+    const fileKey = `facturas/ocr-temp/${Date.now()}_${uuid().slice(0, 8)}_${safeName}`;
     await s3.send(new PutObjectCommand({
       Bucket: S3_BUCKET,
       Key: fileKey,
       Body: req.file.buffer,
-      ContentType: req.file.mimetype,
+      ContentType: detectedMime || req.file.mimetype,
     }));
 
     const cmd = new GetObjectCommand({ Bucket: S3_BUCKET, Key: fileKey });
@@ -1905,14 +1922,14 @@ router.post('/facturacion/ocr/extraer', requirePermission('facturacion.crear'), 
       datos: extracted,
       archivo: {
         fileKey,
-        nombre: req.file.originalname,
-        tipo: req.file.mimetype,
+        nombre: safeName,
+        tipo: detectedMime || req.file.mimetype,
         size: req.file.size,
         previewUrl,
       },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
