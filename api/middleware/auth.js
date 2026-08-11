@@ -5,6 +5,9 @@ import { INTERNAL_SYNC_POST_PATHS, normalizeApiPathname } from '../lib/internalS
 import { codigosPermisoEfectivos } from '../lib/permisoAliases.js';
 
 export function requireAuth(req, res, next) {
+  // Bypass interno (scheduler/scripts) vía x-internal-secret.
+  // El secreto debe ser largo y rotatorio. INTERNAL_SYNC_IP_ALLOWLIST es opcional:
+  // vacía/ausente = solo secret (localhost OK); definida = IP debe estar en la lista.
   const internalSecret = process.env.INTERNAL_SYNC_SECRET;
   if (internalSecret && req.method === 'POST') {
     const pathname = normalizeApiPathname(req);
@@ -12,6 +15,16 @@ export function requireAuth(req, res, next) {
       INTERNAL_SYNC_POST_PATHS.has(pathname) &&
       req.headers['x-internal-secret'] === internalSecret
     ) {
+      // [SEC S-13] Allowlist IP opcional para el bypass x-internal-secret
+      const allowlistRaw = (process.env.INTERNAL_SYNC_IP_ALLOWLIST || '').trim();
+      if (allowlistRaw) {
+        const allowlist = allowlistRaw.split(',').map((ip) => ip.trim()).filter(Boolean);
+        const rawIp = req.ip || req.socket?.remoteAddress || '';
+        const clientIp = String(rawIp).replace(/^::ffff:/i, '');
+        if (!allowlist.includes(clientIp)) {
+          return res.status(401).json({ error: 'IP no autorizada para sync interno' });
+        }
+      }
       // Llamada de confianza (scheduler/scripts): salta auth y permisos.
       req.isInternal = true;
       return next();
