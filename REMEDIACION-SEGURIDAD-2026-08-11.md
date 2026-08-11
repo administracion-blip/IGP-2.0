@@ -39,6 +39,24 @@ Rama: `security/remediacion-2026-08`
 - Sin `CORS_ALLOWED_ORIGINS` en prod → aborta arranque.
 - Dev: localhost + env opcional.
 
+### S-08 · Filtro por empresas/Locales en facturación
+- `empresasPermitidasDelUsuario` + `facturaEmisorPermitido` en `api/lib/usuarioLocales.js`.
+- JWT no lleva Locales: se recargan de DB por email.
+- Filtro por **`emisor_id`** (sociedad del grupo), no por `empresa_id` del tercero.
+- Admin o `Locales: []` → sin restricción (contabilidad/tesorería).
+- Usuario con Locales acotados → solo facturas cuyo emisor esté ligado a esos locales.
+- Tests: `api/tests/usuarioLocalesEmpresas.test.mjs`.
+
+### S-13 · Allowlist IP opcional (internal-secret)
+- Env `INTERNAL_SYNC_IP_ALLOWLIST` (CSV de IPs).
+- Vacía/ausente → solo secret (comportamiento anterior).
+- Definida → además la IP del cliente debe estar en la lista (`req.ip`, strip `::ffff:`).
+
+### S-14 · npm audit fix (api/)
+- `npm audit fix` sin `--force` en `api/`: 15 → 3 vulnerabilidades.
+- Detalle: `api/AUDIT-SEC-S14.md`.
+- Raíz: no aplicado (ERESOLVE peers); no `--force`.
+
 ## Commits
 1. `[S-01]` facturación permisos  
 2. `[S-04]` remesa atómica  
@@ -50,26 +68,27 @@ Rama: `security/remediacion-2026-08`
 8. `[S-06]` uploads  
 9. `[S-12]` errorHandler  
 10. `[S-15]` CORS prod  
+11. `[S-08]` filtro emisor/Locales facturación  
+12. `[S-13]` IP allowlist internal-secret  
+13. `[S-14]` npm audit fix api  
 
 ## Verificación
-- `cd api && npm test` → **160 pass / 0 fail**.
-- Smoke manual recomendado: ver sección anterior + OCR registro-masivo (PDF/JPG reales) + acuerdos subir justificante.
+- `cd api && npm test` → **165 pass / 0 fail**.
+- Smoke manual recomendado: facturas con usuario Locales acotados vs Admin; remesas; OCR registro-masivo; CORS prod con `CORS_ALLOWED_ORIGINS`.
 
 ## Pendiente
 
 | ID | Qué | Nota |
 |----|-----|------|
-| S-08 | Filtro Locales en facturación | Confirmar: `Locales` vacío = acceso global |
 | S-09 | SecureStore vs AsyncStorage | Plan cliente |
 | S-10 | Passwords plaintext | Migración gradual |
 | S-11 | Helmet CSP report-only | Validar web Expo |
-| S-13 | IP allowlist internal-secret | Env opcional |
-| S-14 | npm audit fix no rupturista | Revisar majors a mano |
 
 ## Roles a revisar
 1. DELETE empresas = solo Admin (no hay `empresas.borrar`).
 2. Usuarios: mutaciones por permiso (no solo Admin) — alineado al front.
 3. Roles de facturación/acuerdos deben tener en Dynamo los mismos códigos que ya usa el menú.
+4. Contabilidad/tesorería: `Locales: []` o Administrador (S-08).
 
 ## No-rotura
-- `isInternal` intacto; contratos de respuesta estables; Administrador bypassa permisos.
+- `isInternal` intacto (allowlist IP solo si se define env); contratos de respuesta estables; Administrador bypassa permisos y filtro de empresas.
