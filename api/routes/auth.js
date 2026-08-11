@@ -1,23 +1,21 @@
 import express from 'express';
 import crypto from 'crypto';
-import bcrypt from 'bcrypt';
-import { PutCommand, GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 import { findUsuarioByEmail } from '../lib/dynamo/usuarios.js';
 import { signToken } from '../lib/jwt.js';
 import { requireAuth } from '../middleware/auth.js';
 import { normalizeLocalesUsuario } from '../lib/usuarioLocales.js';
 import { enviarEmail, smtpConfigurado } from '../lib/email.js';
+import {
+  MIN_PASSWORD_LENGTH,
+  hashPassword,
+  verifyPassword,
+} from '../lib/password.js';
 
 const router = express.Router();
-const BCRYPT_ROUNDS = 10;
-const MIN_PASSWORD_LENGTH = 8;
 /** Validez del enlace de recuperación de contraseña. */
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 60 min
-
-function isBcryptHash(str) {
-  return typeof str === 'string' && /^\$2[aby]\$\d{2}\$/.test(str);
-}
 
 /** Hash del token de recuperación (nunca guardamos el token en claro). */
 function hashResetToken(token) {
@@ -35,6 +33,7 @@ function buildResetUrl(req, token, emailNorm) {
   return base ? `${base}/reset-password?${qs}` : `/reset-password?${qs}`;
 }
 
+// [SEC S-10]
 router.post('/login', async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) {
@@ -54,38 +53,28 @@ router.post('/login', async (req, res) => {
 
   const user = items[0];
   const storedPassword = user.Password ?? '';
-  let passwordValid = false;
+  const { ok: passwordValid, legacy } = await verifyPassword(
+    String(password),
+    typeof storedPassword === 'string' ? storedPassword : ''
+  );
 
-  if (isBcryptHash(storedPassword)) {
-    passwordValid = await bcrypt.compare(password, storedPassword);
-  } else {
-    let match = false;
+  // Migración gradual: si login legacy OK, rehash a bcrypt (solo SET Password).
+  if (passwordValid && legacy) {
     try {
-      match = crypto.timingSafeEqual(
-        Buffer.from(storedPassword),
-        Buffer.from(password)
+      const hashed = await hashPassword(password);
+      await docClient.send(new UpdateCommand({
+        TableName: tables.usuarios,
+        Key: { id_usuario: user.id_usuario },
+        UpdateExpression: 'SET #Password = :p',
+        ExpressionAttributeNames: { '#Password': 'Password' },
+        ExpressionAttributeValues: { ':p': hashed },
+      }));
+    } catch (migrationErr) {
+      // Best-effort: el login sigue OK; no loguear nunca la password.
+      req.log.warn(
+        { err: migrationErr, id_usuario: user.id_usuario },
+        '[SEC S-10] Error migrando password a bcrypt'
       );
-    } catch {
-      match = false;
-    }
-    passwordValid = match;
-    if (passwordValid && storedPassword) {
-      try {
-        const hashed = await bcrypt.hash(password, BCRYPT_ROUNDS);
-        const getCmd = new GetCommand({
-          TableName: tables.usuarios,
-          Key: { id_usuario: user.id_usuario },
-        });
-        const full = await docClient.send(getCmd);
-        const fullItem = full.Item || user;
-        await docClient.send(new PutCommand({
-          TableName: tables.usuarios,
-          Item: { ...fullItem, Password: hashed },
-        }));
-      } catch (migrationErr) {
-        // Migración a bcrypt es best-effort: si falla, seguimos validando con la contraseña actual.
-        req.log.warn({ err: migrationErr }, '[auth] Error migrando password a bcrypt');
-      }
     }
   }
 
@@ -259,7 +248,8 @@ router.post('/reset-password', async (req, res) => {
     return res.status(400).json(invalido);
   }
 
-  const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  // [SEC S-10]
+  const hash = await hashPassword(password);
   await docClient.send(new UpdateCommand({
     TableName: tables.usuarios,
     Key: { id_usuario: user.id_usuario },

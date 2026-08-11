@@ -1,12 +1,11 @@
 import express from 'express';
-import bcrypt from 'bcrypt';
 import { ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 import { requirePermission } from '../middleware/auth.js';
 import { validarRolUsuario } from '../lib/roles.js';
+import { hashPassword } from '../lib/password.js';
 
 const router = express.Router();
-const BCRYPT_ROUNDS = 10;
 
 // Formato mínimo 6 dígitos para campos id_ (000001, 000002, ...).
 function formatId6(val) {
@@ -67,7 +66,8 @@ router.post('/usuarios', requirePermission('usuarios.crear'), async (req, res) =
     } else if (key === 'Email') {
       item[key] = String(body.Email ?? '').trim().toLowerCase();
     } else if (key === 'Password') {
-      item[key] = await bcrypt.hash(String(body.Password ?? ''), BCRYPT_ROUNDS);
+      // [SEC S-10]
+      item[key] = await hashPassword(String(body.Password ?? ''));
     } else if (key === 'Local') {
       item[key] = normalizeLocal(body.Local);
     } else {
@@ -118,9 +118,10 @@ router.put('/usuarios', requirePermission('usuarios.editar'), async (req, res) =
     } else if (key === 'Email') {
       item[key] = String(body.Email ?? '').trim().toLowerCase();
     } else if (key === 'Password') {
+      // [SEC S-10]
       const rawPass = body.Password != null ? String(body.Password).trim() : '';
       if (rawPass) {
-        item[key] = await bcrypt.hash(rawPass, BCRYPT_ROUNDS);
+        item[key] = await hashPassword(rawPass);
       } else {
         item[key] = existing.Password ?? '';
       }
