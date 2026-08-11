@@ -100,13 +100,21 @@ const envOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())
   .filter(Boolean);
-const allowedOrigins = new Set([...DEFAULT_DEV_ORIGINS, ...envOrigins]);
+const isProd = process.env.NODE_ENV === 'production';
 
-if (process.env.NODE_ENV === 'production' && envOrigins.length === 0) {
-  logger.warn(
-    '[CORS] NODE_ENV=production pero CORS_ALLOWED_ORIGINS está vacío. Solo se aceptarán los orígenes de desarrollo (localhost). Define la variable en .env si la app está accesible desde un dominio público.',
+// [SEC S-15] En producción exige lista blanca explícita; sin fallback a *
+if (isProd && envOrigins.length === 0) {
+  logger.error(
+    '[CORS] NODE_ENV=production pero CORS_ALLOWED_ORIGINS está vacío. Abortando arranque.',
+  );
+  throw new Error(
+    'CORS_ALLOWED_ORIGINS es obligatorio en producción (lista de orígenes separados por coma)',
   );
 }
+
+const allowedOrigins = new Set(
+  isProd ? envOrigins : [...DEFAULT_DEV_ORIGINS, ...envOrigins],
+);
 
 app.use(cors({
   origin(origin, cb) {
