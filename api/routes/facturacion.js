@@ -72,6 +72,11 @@ import {
 } from '../lib/facturacion/validarProveedorSociedad.js';
 import { limpiarMarcasFacturacionPeriodica } from '../lib/facturacion/marcasPeriodicas.js';
 import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
+import {
+  empresasPermitidasDelUsuario,
+  facturaEmisorPermitido,
+  formatId6,
+} from '../lib/usuarioLocales.js';
 import crypto from 'crypto';
 import { enviarEmail } from '../lib/email.js';
 import multer from 'multer';
@@ -85,6 +90,16 @@ const require = createRequire(import.meta.url);
 const Tesseract = require('tesseract.js');
 
 const router = Router();
+
+/** [SEC S-08] 404 si el usuario no puede acceder a la factura por emisor (sociedad del grupo). */
+async function rejectFacturaEmisorNoPermitido(req, factura, res) {
+  const empresasOk = await empresasPermitidasDelUsuario(req.user);
+  if (!facturaEmisorPermitido(factura, empresasOk)) {
+    res.status(404).json({ error: 'Factura no encontrada' });
+    return true;
+  }
+  return false;
+}
 
 const S3_BUCKET = process.env.S3_BUCKET || 'igp-2.0-files';
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'eu-west-3' });
@@ -363,6 +378,10 @@ router.get('/facturacion/facturas', requirePermission('facturacion.ver'), async 
       return { ...f, remesaActiva: idxRemesas.get(f.id_factura) || null };
     });
 
+    // [SEC S-08]
+    const empresasOk = await empresasPermitidasDelUsuario(req.user);
+    items = items.filter((f) => facturaEmisorPermitido(f, empresasOk));
+
     res.json({ facturas: items });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -376,6 +395,8 @@ router.get('/facturacion/facturas/:id', requirePermission('facturacion.ver'), as
       new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(req.params.id) })
     );
     if (!result.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, result.Item, res)) return;
     const lineas = await queryLineasByFactura(req.params.id);
     lineas.sort((a, b) => (a.id_linea || '').localeCompare(b.id_linea || ''));
     const pagos = await queryPagosByFactura(req.params.id);
@@ -405,6 +426,15 @@ router.post('/facturacion/facturas', requirePermission('facturacion.crear'), asy
   if (!empresa_nombre && !empresa_cif) return res.status(400).json({ error: 'Datos de empresa son obligatorios' });
 
   try {
+    // [SEC S-08]
+    const empresasOk = await empresasPermitidasDelUsuario(req.user);
+    if (empresasOk != null) {
+      const emisorId = formatId6(body.emisor_id);
+      if (!emisorId || emisorId === '000000' || !empresasOk.has(emisorId)) {
+        return res.status(403).json({ error: 'No tienes permiso para crear facturas con esta sociedad emisora' });
+      }
+    }
+
     const serieConfig = await getSerieConfig(serie);
     if (!serieConfig) return res.status(404).json({ error: `Serie "${serie}" no encontrada` });
     const errorTipoSerie = errorSerieTipoIncompatible(serieConfig, tipo);
@@ -465,6 +495,8 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
 
     const factura = existing.Item;
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, factura, res)) return;
     const esGasto = factura.tipo === 'IN';
     const estadoOriginal = factura.estado;
 
@@ -666,6 +698,13 @@ router.post('/facturacion/facturas/:id/emitir', requirePermission('facturacion.e
   const { usuario_id, usuario_nombre } = usuarioAuditoria(req);
 
   try {
+    const existing = await docClient.send(
+      new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }),
+    );
+    if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, existing.Item, res)) return;
+
     const result = await emitirOValidarFacturaPorId(id, { usuario_id, usuario_nombre });
     if (!result.ok) {
       return res.status(result.status).json({
@@ -690,6 +729,8 @@ router.post('/facturacion/facturas/:id/anular', requirePermission('facturacion.a
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const factura = existing.Item;
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, factura, res)) return;
 
     if (factura.estado === 'anulada') return res.status(400).json({ error: 'La factura ya está anulada' });
     if (factura.estado === 'borrador') {
@@ -731,6 +772,8 @@ router.delete('/facturacion/facturas/:id', requirePermission('facturacion.editar
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const factura = existing.Item;
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, factura, res)) return;
 
     if (factura.tipo !== 'IN') {
       return res.status(403).json({
@@ -781,6 +824,8 @@ router.post('/facturacion/facturas/:id/duplicar', requirePermission('facturacion
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const original = existing.Item;
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, original, res)) return;
 
     const targetSerie = serie || original.serie;
     const nuevaFechaEmision = now().slice(0, 10);
@@ -867,6 +912,8 @@ router.post('/facturacion/facturas/:id/rectificar', requirePermission('facturaci
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const original = existing.Item;
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, original, res)) return;
 
     if (original.estado === 'borrador' || original.estado === 'anulada') {
       return res.status(400).json({ error: 'No se puede rectificar una factura en borrador o anulada' });
@@ -963,6 +1010,13 @@ router.get('/facturacion/pagos', requirePermission('facturacion.cobrar_pagar'), 
 // [SEC S-01]
 router.get('/facturacion/facturas/:id/pagos', requirePermission('facturacion.ver'), async (req, res) => {
   try {
+    const existing = await docClient.send(
+      new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(req.params.id) }),
+    );
+    if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, existing.Item, res)) return;
+
     const pagos = await queryPagosByFactura(req.params.id);
     pagos.sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
     res.json({ pagos });
@@ -981,6 +1035,8 @@ router.get('/facturacion/facturas/:id/compensables', requirePermission('facturac
     );
     if (!origenResult.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const origen = origenResult.Item;
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, origen, res)) return;
     if (origen.tipo !== 'IN') {
       return res.status(400).json({ error: 'La compensación solo aplica a facturas de gasto' });
     }
@@ -1010,6 +1066,13 @@ router.post('/facturacion/facturas/:id/pagos/compensacion', requirePermission('f
   const b = req.body || {};
   const { usuario_id, usuario_nombre } = usuarioAuditoria(req);
   try {
+    const origenResult = await docClient.send(
+      new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(req.params.id) }),
+    );
+    if (!origenResult.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, origenResult.Item, res)) return;
+
     const remesaActiva = await findRemesaActivaDeFactura(req.params.id);
     if (remesaActiva) {
       return res.status(409).json({
@@ -1100,6 +1163,8 @@ router.post('/facturacion/facturas/:id/pagos', requirePermission('facturacion.co
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const factura = existing.Item;
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, factura, res)) return;
 
     const pagos = await queryPagosByFactura(id_factura);
     const nextIdx = pagos.length + 1;
@@ -1219,6 +1284,8 @@ router.put('/facturacion/pagos/:id_factura/:id_pago', requirePermission('factura
     );
     if (!facResult.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const factura = facResult.Item;
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, factura, res)) return;
 
     const importeAnterior = round2(Number(pagoResult.Item.importe) || 0);
     const delta = round2(importeNum - importeAnterior);
@@ -1274,6 +1341,13 @@ router.delete('/facturacion/pagos/:id_factura/:id_pago', requirePermission('fact
   const { usuario_id, usuario_nombre } = req.body || {};
 
   try {
+    const facResult = await docClient.send(
+      new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura) }),
+    );
+    if (!facResult.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, facResult.Item, res)) return;
+
     const remesaActiva = await findRemesaActivaDeFactura(id_factura);
     if (remesaActiva) {
       return res.status(409).json({
@@ -1295,31 +1369,25 @@ router.delete('/facturacion/pagos/:id_factura/:id_pago', requirePermission('fact
 
     await docClient.send(new DeleteCommand({ TableName: tables.facturasPagos, Key: { id_factura, id_pago } }));
 
-    const facResult = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura) }));
-    if (facResult.Item) {
-      const factura = facResult.Item;
-      const nuevoTotalCobrado = round2(Math.max(0, (factura.total_cobrado || 0) - pagoResult.Item.importe));
-      const nuevoSaldo = round2(factura.total_factura - nuevoTotalCobrado);
+    const factura = facResult.Item;
+    const nuevoTotalCobrado = round2(Math.max(0, (factura.total_cobrado || 0) - pagoResult.Item.importe));
+    const nuevoSaldo = round2(factura.total_factura - nuevoTotalCobrado);
 
-      let nuevoEstado = factura.estado;
-      if (nuevoTotalCobrado <= 0 && factura.estado !== 'anulada') {
-        nuevoEstado = factura.tipo === 'OUT' ? 'emitida' : 'pendiente_pago';
-      } else if (nuevoTotalCobrado > 0 && nuevoSaldo > 0) {
-        nuevoEstado = factura.tipo === 'OUT' ? 'parcialmente_cobrada' : 'parcialmente_pagada';
-      }
-
-      factura.total_cobrado = nuevoTotalCobrado;
-      factura.saldo_pendiente = Math.max(0, nuevoSaldo);
-      factura.estado = nuevoEstado;
-      factura.modificado_en = now();
-
-      await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
-      await registrarAuditoria(id_factura, 'eliminar_pago', usuario_id, usuario_nombre, { id_pago, importe: pagoResult.Item.importe });
-      res.json({ ok: true, factura });
-      return;
+    let nuevoEstado = factura.estado;
+    if (nuevoTotalCobrado <= 0 && factura.estado !== 'anulada') {
+      nuevoEstado = factura.tipo === 'OUT' ? 'emitida' : 'pendiente_pago';
+    } else if (nuevoTotalCobrado > 0 && nuevoSaldo > 0) {
+      nuevoEstado = factura.tipo === 'OUT' ? 'parcialmente_cobrada' : 'parcialmente_pagada';
     }
 
-    res.json({ ok: true });
+    factura.total_cobrado = nuevoTotalCobrado;
+    factura.saldo_pendiente = Math.max(0, nuevoSaldo);
+    factura.estado = nuevoEstado;
+    factura.modificado_en = now();
+
+    await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
+    await registrarAuditoria(id_factura, 'eliminar_pago', usuario_id, usuario_nombre, { id_pago, importe: pagoResult.Item.importe });
+    res.json({ ok: true, factura });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1340,7 +1408,10 @@ router.get('/facturacion/metricas', requirePermission('facturacion.ver'), async 
       : null;
     const prefijoAnio = (!tieneFiltroMes && tieneAnio) ? `${anioQ}-` : null;
 
-    const facturas = await scanAll(tables.facturas);
+    let facturas = await scanAll(tables.facturas);
+    // [SEC S-08]
+    const empresasOk = await empresasPermitidasDelUsuario(req.user);
+    facturas = facturas.filter((f) => facturaEmisorPermitido(f, empresasOk));
 
     let out = facturas.filter((f) => f.tipo === 'OUT');
     let inF = facturas.filter((f) => f.tipo === 'IN');
@@ -1482,6 +1553,8 @@ router.post('/facturacion/facturas/:id/enviar-email', requirePermission('factura
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
     const factura = existing.Item;
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, factura, res)) return;
 
     const mailOptions = {
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
@@ -1520,7 +1593,11 @@ router.post('/facturacion/facturas/:id/enviar-email', requirePermission('factura
 // [SEC S-01]
 router.get('/facturacion/metricas-avanzadas', requirePermission('facturacion.ver'), async (req, res) => {
   try {
-    const facturas = await scanAll(tables.facturas);
+    let facturas = await scanAll(tables.facturas);
+    // [SEC S-08]
+    const empresasOk = await empresasPermitidasDelUsuario(req.user);
+    facturas = facturas.filter((f) => facturaEmisorPermitido(f, empresasOk));
+
     const pagos = await scanAll(tables.facturasPagos);
     const hoy = new Date();
     const anioActual = hoy.getFullYear();
@@ -1728,6 +1805,8 @@ router.post('/facturacion/facturas/:id/adjuntos', requirePermission('facturacion
 
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, existing.Item, res)) return;
 
     const ext = safeName.includes('.') ? safeName.split('.').pop() : 'bin';
     const fileKey = `facturas/${id}/${Date.now()}_${uuid().slice(0, 8)}.${ext}`;
@@ -1774,6 +1853,8 @@ router.get('/facturacion/facturas/:id/adjuntos', requirePermission('facturacion.
   try {
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, existing.Item, res)) return;
 
     let adjuntos = Array.isArray(existing.Item.adjuntos) ? [...existing.Item.adjuntos] : [];
     if (adjuntos.length === 0 && existing.Item.documento_file_key) {
@@ -1809,6 +1890,8 @@ router.delete('/facturacion/facturas/:id/adjuntos/:adjId', requirePermission('fa
   try {
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, existing.Item, res)) return;
 
     const adjuntos = existing.Item.adjuntos || [];
     const adj = adjuntos.find((a) => a.id === adjId);
@@ -1854,6 +1937,8 @@ router.get('/facturacion/facturas/:id/adjuntos/:adjId/descargar', requirePermiss
   try {
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, existing.Item, res)) return;
 
     const adjuntos = adjuntosDeFacturaItem(existing.Item);
     const indice = adjuntos.findIndex((a) => a.id === adjId);
@@ -2745,6 +2830,9 @@ router.post('/facturacion/ocr/confirmar', requirePermission('facturacion.crear')
   }
 
   try {
+    // [SEC S-08]
+    const empresasOk = await empresasPermitidasDelUsuario(req.user);
+
     const activos = borradores.filter((b) => !b.descartado);
     for (const b of activos) {
       const emisorId = b.sociedad_grupo_id || b.emisor_id || '';
@@ -2753,6 +2841,12 @@ router.post('/facturacion/ocr/confirmar', requirePermission('facturacion.crear')
         return res.status(400).json({
           error: 'Falta la empresa del grupo (GRUPO PARIPE) en uno o más borradores. Selecciónala antes de confirmar.',
         });
+      }
+      if (empresasOk != null) {
+        const emisorFmt = formatId6(emisorId);
+        if (!emisorFmt || emisorFmt === '000000' || !empresasOk.has(emisorFmt)) {
+          return res.status(403).json({ error: 'No tienes permiso para crear facturas con esta sociedad emisora' });
+        }
       }
       if (proveedorCoincideConSociedad(b)) {
         return res.status(400).json({ error: ERROR_PROVEEDOR_IGUAL_SOCIEDAD });

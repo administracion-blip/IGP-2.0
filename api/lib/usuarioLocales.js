@@ -1,4 +1,4 @@
-import { GetCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from './db.js';
 import { findUsuarioByEmail } from './dynamo/usuarios.js';
 
@@ -45,6 +45,55 @@ export async function usuarioPuedeAccederLocal(user, idLocal) {
     console.error('[usuarioPuedeAccederLocal]', err.message || err);
     return false;
   }
+}
+
+// [SEC S-08]
+/**
+ * Empresas (id_empresa formatId6) permitidas para el usuario según sus Locales.
+ * JWT no lleva Locales: se recargan desde DB por email (igual que usuarioPuedeAccederLocal).
+ * @returns {Promise<null|Set<string>>} null = sin restricción; Set = solo esos emisor_id
+ */
+export async function empresasPermitidasDelUsuario(user) {
+  if (!user) return new Set();
+  if (user.rol === 'Administrador') return null;
+  try {
+    const usuarios = await findUsuarioByEmail(String(user.email || '').trim().toLowerCase());
+    const locales = normalizeLocalesUsuario(usuarios[0]);
+    if (locales.length === 0) return null;
+
+    const localesNorm = new Set(locales.map((l) => String(l).trim().toLowerCase()));
+    const empresas = new Set();
+    let lastKey = null;
+    do {
+      const result = await docClient.send(
+        new ScanCommand({
+          TableName: tables.locales,
+          ...(lastKey && { ExclusiveStartKey: lastKey }),
+        }),
+      );
+      for (const loc of result.Items || []) {
+        const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim().toLowerCase();
+        if (!nombre || !localesNorm.has(nombre)) continue;
+        if (loc.id_empresa == null || loc.id_empresa === '') continue;
+        const idEmp = formatId6(loc.id_empresa);
+        if (idEmp && idEmp !== '000000') empresas.add(idEmp);
+      }
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+    return empresas;
+  } catch (err) {
+    console.error('[empresasPermitidasDelUsuario]', err.message || err);
+    return new Set();
+  }
+}
+
+// [SEC S-08]
+/** ¿Puede el usuario ver/mutar esta factura según emisor_id (sociedad del grupo)? */
+export function facturaEmisorPermitido(factura, empresasPermitidas /* null|Set */) {
+  if (empresasPermitidas == null) return true;
+  const id = formatId6(factura?.emisor_id);
+  if (!id || id === '000000') return false;
+  return empresasPermitidas.has(id);
 }
 
 /** Formatea Date local como YYYY-MM-DD (sin UTC). */
