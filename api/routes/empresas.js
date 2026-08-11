@@ -186,8 +186,11 @@ router.put('/empresas', async (req, res) => {
       } else if (key === 'Cif') {
         item[key] = cifValue;
       } else {
-        const v = body[key];
-        item[key] = v != null && v !== '' ? trimCampoString(v) : trimCampoString(existing[key] ?? '');
+        // Si el campo viene en el body (aunque sea ''), se persiste; si no viene, se conserva el existente.
+        item[key] =
+          body[key] !== undefined
+            ? trimCampoString(body[key])
+            : trimCampoString(existing[key] ?? '');
       }
     }
     await docClient.send(new PutCommand({

@@ -19,6 +19,10 @@ import { BadgeEstado } from '../../components/BadgeEstado';
 import { BadgeEnRemesa } from '../../components/BadgeEnRemesa';
 import { InputFecha } from '../../components/InputFecha';
 import { RegistrarPagoModal, type RegistrarPagoInitial, type RegistrarPagoPayloadFactura } from '../../components/RegistrarPagoModal';
+import {
+  MultipagoFacturasModal,
+  esFacturaPagableGasto,
+} from '../../components/MultipagoFacturasModal';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { SelectorDesplegableMulti } from '../../components/SelectorDesplegableMulti';
 import {
@@ -289,6 +293,7 @@ export default function FacturasGastoScreen() {
   const [etiquetasProveedorFiltro, setEtiquetasProveedorFiltro] = useState<string[]>([]);
   const [anioFiltro, setAnioFiltro] = useState(() => String(new Date().getFullYear()));
   const [filtroColaPago, setFiltroColaPago] = useState<FiltroColaPago>('todos');
+  const [soloDuplicadosProveedor, setSoloDuplicadosProveedor] = useState(false);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalFacturaId, setModalFacturaId] = useState<string | null>(null);
@@ -306,6 +311,8 @@ export default function FacturasGastoScreen() {
 
   const [modalBorrar, setModalBorrar] = useState(false);
   const [modalPagar, setModalPagar] = useState(false);
+  const [modalMultipago, setModalMultipago] = useState(false);
+  const [multipagoFacturas, setMultipagoFacturas] = useState<FacturaListado[]>([]);
   const [pagoRegistrarInitial, setPagoRegistrarInitial] = useState<RegistrarPagoInitial>({});
   const [empresasCatalogo, setEmpresasCatalogo] = useState<EmpresaConTipoRecibo[]>([]);
 
@@ -469,6 +476,16 @@ export default function FacturasGastoScreen() {
       .map((y) => ({ id: String(y), titulo: String(y), icono: 'calendar-today' as const }));
   }, [facturas]);
 
+  /** Duplicados CIF + nº factura proveedor + año (todo el listado cargado). */
+  const idsDuplicadosProveedor = useMemo(
+    () => idsFacturasProveedorDuplicadas(facturas),
+    [facturas],
+  );
+  const resumenDupGlobal = useMemo(
+    () => resumenDuplicadosProveedor(facturas),
+    [facturas],
+  );
+
   const facturasBaseFiltradas = useMemo(() => {
     let list = facturas;
     if (anioFiltro) {
@@ -515,8 +532,23 @@ export default function FacturasGastoScreen() {
         );
       });
     }
+    // Set global del listado cargado (no recalcular sobre ya filtradas).
+    if (soloDuplicadosProveedor) {
+      list = list.filter((f) => idsDuplicadosProveedor.has(f.id_factura));
+    }
     return list;
-  }, [facturas, anioFiltro, empresasFiltroIds, etiquetasProveedorFiltro, empresasCatalogo, fechaDesde, fechaHasta, busqueda]);
+  }, [
+    facturas,
+    anioFiltro,
+    empresasFiltroIds,
+    etiquetasProveedorFiltro,
+    empresasCatalogo,
+    fechaDesde,
+    fechaHasta,
+    busqueda,
+    soloDuplicadosProveedor,
+    idsDuplicadosProveedor,
+  ]);
 
   const conteosPorTab = useMemo(() => {
     const counts = Object.fromEntries(TABS.map((t) => [t.key, 0])) as Record<TabEstado, number>;
@@ -587,23 +619,29 @@ export default function FacturasGastoScreen() {
         else cmp = String(va).localeCompare(String(vb), 'es', { sensitivity: 'base' });
         return sortDir === 'desc' ? -cmp : cmp;
       });
+    } else if (soloDuplicadosProveedor) {
+      // Agrupa pares por CIF emisor + nº proveedor + fecha (solo sin sort de usuario).
+      list = [...list].sort((a, b) => {
+        const cif = String(a.emisor_cif || '').localeCompare(String(b.emisor_cif || ''), 'es', {
+          sensitivity: 'base',
+        });
+        if (cif !== 0) return cif;
+        const num = String(a.numero_factura_proveedor || '').localeCompare(
+          String(b.numero_factura_proveedor || ''),
+          'es',
+          { sensitivity: 'base' },
+        );
+        if (num !== 0) return num;
+        return fechaEmisionComparable(a.fecha_emision).localeCompare(fechaEmisionComparable(b.fecha_emision));
+      });
     }
     return list;
-  }, [facturasBaseFiltradas, tabActivo, filtroColaPago, empresasCatalogo, sortCol, sortDir]);
+  }, [facturasBaseFiltradas, tabActivo, filtroColaPago, empresasCatalogo, sortCol, sortDir, soloDuplicadosProveedor]);
 
   const totalPages = Math.max(1, Math.ceil(filtradas.length / PAGE_SIZE));
   const pageClamped = Math.min(Math.max(0, pageIndex), totalPages - 1);
   const paginadas = filtradas.slice(pageClamped * PAGE_SIZE, (pageClamped + 1) * PAGE_SIZE);
 
-  /** Duplicados CIF + nº factura proveedor + año (todo el listado cargado). */
-  const idsDuplicadosProveedor = useMemo(
-    () => idsFacturasProveedorDuplicadas(facturas),
-    [facturas],
-  );
-  const resumenDupGlobal = useMemo(
-    () => resumenDuplicadosProveedor(facturas),
-    [facturas],
-  );
   const dupVisiblesEnFiltro = useMemo(
     () => filtradas.filter((f) => idsDuplicadosProveedor.has(f.id_factura)).length,
     [filtradas, idsDuplicadosProveedor],
@@ -612,12 +650,44 @@ export default function FacturasGastoScreen() {
   useEffect(() => {
     setPageIndex(0);
     setSelectedId(null);
-  }, [tabActivo, busqueda, fechaDesde, fechaHasta, empresasFiltroIds, etiquetasProveedorFiltro, anioFiltro, filtroColaPago]);
+  }, [
+    tabActivo,
+    busqueda,
+    fechaDesde,
+    fechaHasta,
+    empresasFiltroIds,
+    etiquetasProveedorFiltro,
+    anioFiltro,
+    filtroColaPago,
+    soloDuplicadosProveedor,
+  ]);
+
+  // Si ya no hay duplicados en el listado, apaga el filtro (banner desaparece).
+  useEffect(() => {
+    if (resumenDupGlobal.grupos === 0 && soloDuplicadosProveedor) {
+      setSoloDuplicadosProveedor(false);
+    }
+  }, [resumenDupGlobal.grupos, soloDuplicadosProveedor]);
 
   const selectedFactura: FacturaListado | null = useMemo(
     () => (selectedId ? filtradas.find((f) => f.id_factura === selectedId) ?? null : null),
     [selectedId, filtradas],
   );
+
+  /** Facturas pagables según selección actual (fila o multiselección). */
+  const facturasPagablesSeleccionadas = useMemo(() => {
+    if (modoSeleccion) {
+      return filtradas.filter(
+        (f) => selectedMultiIds.has(f.id_factura) && esFacturaPagableGasto(f),
+      );
+    }
+    if (selectedFactura && esFacturaPagableGasto(selectedFactura)) {
+      return [selectedFactura];
+    }
+    return [];
+  }, [modoSeleccion, filtradas, selectedMultiIds, selectedFactura]);
+
+  const esModoMultipagoToolbar = facturasPagablesSeleccionadas.length >= 2;
 
   const getColWidth = useCallback((col: string) => columnWidths[col] ?? DEFAULT_WIDTHS[col] ?? 90, [columnWidths]);
 
@@ -814,17 +884,19 @@ export default function FacturasGastoScreen() {
     recargarDetallePagos,
   ]);
 
-  const abrirModalPagar = () => {
-    if (!selectedFactura) return;
-    if (selectedFactura.remesaActiva) {
-      void avisarFacturaEnRemesa(selectedFactura.remesaActiva);
+  const abrirModalPagar = (factura?: FacturaListado | null) => {
+    const f = factura ?? selectedFactura;
+    if (!f) return;
+    if (f.remesaActiva) {
+      void avisarFacturaEnRemesa(f.remesaActiva);
       return;
     }
-    const saldo = Number(selectedFactura.saldo_pendiente ?? 0);
-    const tipoRecibo = getTipoReciboFromEmpresasList(empresasCatalogo, selectedFactura.empresa_id);
+    setSelectedId(f.id_factura);
+    const saldo = Number(f.saldo_pendiente ?? 0);
+    const tipoRecibo = getTipoReciboFromEmpresasList(empresasCatalogo, f.empresa_id);
     const { clave, otroTexto } = mapTipoReciboToFormaPago(tipoRecibo);
     const hoy = hoyISO();
-    const fechaFactura = fechaEmisionFacturaAIso(selectedFactura.fecha_emision ?? '') ?? hoy;
+    const fechaFactura = fechaEmisionFacturaAIso(f.fecha_emision ?? '') ?? hoy;
     setPagoRegistrarInitial({
       importe: String(Math.abs(saldo) || ''),
       metodo: clave,
@@ -832,6 +904,34 @@ export default function FacturasGastoScreen() {
       fecha: clave === 'tarjeta' ? fechaFactura : hoy,
     });
     setModalPagar(true);
+  };
+
+  const abrirModalMultipago = (lote: FacturaListado[]) => {
+    if (lote.length < 2) return;
+    const conRemesa = lote.find((f) => f.remesaActiva);
+    if (conRemesa?.remesaActiva) {
+      void avisarFacturaEnRemesa(conRemesa.remesaActiva);
+      return;
+    }
+    const claves = [...new Set(lote.map((f) => empresaFiltroKey(f)))];
+    if (claves.some((k) => !k)) {
+      showToast(
+        'Aviso',
+        'Completa la empresa pagadora en todas las facturas seleccionadas',
+        'warning',
+      );
+      return;
+    }
+    if (claves.length > 1) {
+      showToast(
+        'Aviso',
+        'Selecciona facturas de la misma empresa pagadora',
+        'warning',
+      );
+      return;
+    }
+    setMultipagoFacturas(lote);
+    setModalMultipago(true);
   };
 
   const handleRegistrarPagoListado = async (payload: RegistrarPagoPayloadFactura) => {
@@ -852,8 +952,63 @@ export default function FacturasGastoScreen() {
       );
       fetchFacturas();
       setSelectedId(null);
+      setSelectedMultiIds(new Set());
     } catch (e: unknown) {
       showToast('Error', e instanceof Error ? e.message : 'Error al registrar el pago', 'error');
+    } finally {
+      setProcesando(false);
+    }
+  };
+
+  const handleConfirmarMultipago = async (
+    items: Array<{ id_factura: string; payload: RegistrarPagoPayloadFactura }>,
+  ) => {
+    if (items.length === 0 || procesando) return;
+    setProcesando(true);
+    let ok = 0;
+    const errores: string[] = [];
+    try {
+      for (const item of items) {
+        const f = multipagoFacturas.find((x) => x.id_factura === item.id_factura);
+        const etiqueta =
+          f?.numero_factura_proveedor?.trim() ||
+          f?.numero_factura?.trim() ||
+          item.id_factura;
+        try {
+          await registrarPagoFacturaApi(item.id_factura, item.payload, {
+            id: user?.id_usuario,
+            nombre: user?.Nombre,
+          });
+          ok += 1;
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : 'Error al registrar el pago';
+          errores.push(`${etiqueta}: ${msg}`);
+        }
+      }
+      setModalMultipago(false);
+      setMultipagoFacturas([]);
+      setSelectedMultiIds(new Set());
+      setSelectedId(null);
+      fetchFacturas();
+      if (errores.length === 0) {
+        showToast(
+          'Multipago registrado',
+          `${ok} pago${ok === 1 ? '' : 's'} registrado${ok === 1 ? '' : 's'} correctamente`,
+          'success',
+        );
+      } else if (ok === 0) {
+        showToast(
+          'Multipago fallido',
+          errores.slice(0, 3).join(' · ') + (errores.length > 3 ? '…' : ''),
+          'error',
+        );
+      } else {
+        showToast(
+          'Multipago parcial',
+          `${ok} ok · ${errores.length} error${errores.length === 1 ? '' : 'es'}: ${errores.slice(0, 2).join(' · ')}${errores.length > 2 ? '…' : ''}`,
+          'warning',
+        );
+      }
     } finally {
       setProcesando(false);
     }
@@ -880,6 +1035,18 @@ export default function FacturasGastoScreen() {
     if (id === 'refresh') { fetchFacturas(); return; }
     if (id === 'crear') { router.push('/facturacion/factura-detalle?tipo=IN&modo=crear' as never); return; }
     if (id === 'ver_doc') { verDocumento(); return; }
+    if (id === 'pagar') {
+      const pagables = facturasPagablesSeleccionadas;
+      if (pagables.length >= 2) {
+        abrirModalMultipago(pagables);
+        return;
+      }
+      if (pagables.length === 1) {
+        abrirModalPagar(pagables[0]);
+        return;
+      }
+      return;
+    }
     if (!selectedFactura) return;
     if (id === 'editar') {
       router.push(`/facturacion/factura-detalle?id=${selectedFactura.id_factura}&modo=editar&tipo=IN` as never);
@@ -887,10 +1054,6 @@ export default function FacturasGastoScreen() {
     }
     if (id === 'emitir') { handleEmitir(); return; }
     if (id === 'validar') { handleValidarRevision(); return; }
-    if (id === 'pagar') {
-      abrirModalPagar();
-      return;
-    }
     if (id === 'borrar') { setModalBorrar(true); return; }
   };
 
@@ -970,15 +1133,14 @@ export default function FacturasGastoScreen() {
 
   const isBtnDisabled = (btn: ToolbarBtn) => {
     if (procesando) return true;
+    if (btn.id === 'pagar') {
+      // Excepción: en multiselección Pagar/Multipago sigue activo según pagables.
+      return facturasPagablesSeleccionadas.length === 0;
+    }
     if (modoSeleccion && btn.needsSelection) return true;
     if (btn.needsSelection && selectedId == null) return true;
     if (btn.id === 'emitir' && selectedFactura?.estado !== 'borrador') return true;
     if (btn.id === 'validar' && selectedFactura?.estado !== 'pendiente_revision') return true;
-    if (btn.id === 'pagar' && selectedFactura && (
-      selectedFactura.estado === 'anulada'
-      || selectedFactura.estado === 'pagada'
-      || selectedFactura.estado === 'borrador'
-    )) return true;
     return false;
   };
 
@@ -1376,6 +1538,7 @@ export default function FacturasGastoScreen() {
           {TOOLBAR_BUTTONS.filter((b) => hasPermiso(b.permiso)).map((btn) => {
             const disabled = isBtnDisabled(btn);
             const esPagar = btn.id === 'pagar';
+            const labelPagar = esModoMultipagoToolbar ? 'Multipago' : 'Pagar';
             return (
               <View
                 key={btn.id}
@@ -1391,18 +1554,23 @@ export default function FacturasGastoScreen() {
                 ) : null}
                 <TouchableOpacity
                   style={[
-                    esPagar ? styles.toolbarBtnPagar : styles.toolbarBtn,
+                    esPagar
+                      ? (esModoMultipagoToolbar ? styles.toolbarBtnMultipago : styles.toolbarBtnPagar)
+                      : styles.toolbarBtn,
                     disabled && styles.toolbarBtnDisabled,
                   ]}
                   onPress={() => handleToolbar(btn.id)}
                   disabled={disabled}
+                  accessibilityLabel={esPagar ? labelPagar : btn.label}
                 >
                   <MaterialIcons
-                    name={btn.icon}
+                    name={esPagar && esModoMultipagoToolbar ? 'account-balance-wallet' : btn.icon}
                     size={18}
                     color={disabled ? '#94a3b8' : esPagar ? '#fff' : '#0ea5e9'}
                   />
-                  {esPagar ? <Text style={styles.toolbarBtnPagarText}>Pagar</Text> : null}
+                  {esPagar ? (
+                    <Text style={styles.toolbarBtnPagarText}>{labelPagar}</Text>
+                  ) : null}
                 </TouchableOpacity>
               </View>
             );
@@ -1568,17 +1736,44 @@ export default function FacturasGastoScreen() {
       <View style={[styles.tableSplitWrap, layoutSplit ? styles.tableSplitRow : styles.tableSplitCol]}>
         <View style={styles.tableOuter}>
           {resumenDupGlobal.grupos > 0 ? (
-            <View style={styles.dupBannerTabla} accessibilityRole="summary">
+            <TouchableOpacity
+              style={[styles.dupBannerTabla, soloDuplicadosProveedor && styles.dupBannerTablaActivo]}
+              onPress={() => setSoloDuplicadosProveedor((v) => !v)}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityState={{ selected: soloDuplicadosProveedor }}
+              accessibilityLabel={
+                soloDuplicadosProveedor
+                  ? 'Mostrando solo facturas duplicadas. Pulsar para quitar el filtro'
+                  : `${resumenDupGlobal.grupos} grupos, ${resumenDupGlobal.facturas} facturas con mismo CIF, número de proveedor y año. Pulsar para ver solo duplicadas`
+              }
+            >
               <MaterialIcons name="content-copy" size={16} color="#c2410c" />
               <Text style={styles.dupBannerTablaText}>
-                {resumenDupGlobal.grupos} grupo{resumenDupGlobal.grupos !== 1 ? 's' : ''} ·{' '}
-                {resumenDupGlobal.facturas} factura{resumenDupGlobal.facturas !== 1 ? 's' : ''} con mismo CIF, nº
-                proveedor y año
-                {dupVisiblesEnFiltro < resumenDupGlobal.facturas
-                  ? ` · ${dupVisiblesEnFiltro} visible${dupVisiblesEnFiltro !== 1 ? 's' : ''} con filtros actuales`
-                  : ''}
+                {soloDuplicadosProveedor ? (
+                  <>
+                    Mostrando solo duplicadas ·{' '}
+                    <Text style={styles.dupBannerTablaCta}>Quitar filtro</Text>
+                  </>
+                ) : (
+                  <>
+                    {resumenDupGlobal.grupos} grupo{resumenDupGlobal.grupos !== 1 ? 's' : ''} ·{' '}
+                    {resumenDupGlobal.facturas} factura{resumenDupGlobal.facturas !== 1 ? 's' : ''} con mismo CIF, nº
+                    proveedor y año
+                    {dupVisiblesEnFiltro < resumenDupGlobal.facturas
+                      ? ` · ${dupVisiblesEnFiltro} visible${dupVisiblesEnFiltro !== 1 ? 's' : ''} con filtros actuales`
+                      : ''}
+                    {' · '}
+                    <Text style={styles.dupBannerTablaCta}>Ver duplicadas</Text>
+                  </>
+                )}
               </Text>
-            </View>
+              <MaterialIcons
+                name={soloDuplicadosProveedor ? 'filter-alt-off' : 'chevron-right'}
+                size={18}
+                color="#c2410c"
+              />
+            </TouchableOpacity>
           ) : null}
           <View style={styles.tableWrapper}>
         <ScrollView
@@ -1901,6 +2096,7 @@ export default function FacturasGastoScreen() {
         modo="factura"
         variant="pago"
         initial={pagoRegistrarInitial}
+        empresaPagadoraNombre={selectedFactura?.emisor_nombre ?? ''}
         fechaReferenciaTarjeta={
           selectedFactura
             ? fechaEmisionFacturaAIso(selectedFactura.fecha_emision ?? '') ?? undefined
@@ -1933,6 +2129,21 @@ export default function FacturasGastoScreen() {
         submitting={procesando}
         onValidationError={(titulo, mensaje) => showToast(titulo, mensaje, 'warning')}
         onSubmit={handleRegistrarPagoListado}
+      />
+
+      <MultipagoFacturasModal
+        visible={modalMultipago}
+        facturas={multipagoFacturas}
+        empresasCatalogo={empresasCatalogo}
+        empresaPagadoraNombre={multipagoFacturas[0]?.emisor_nombre ?? ''}
+        submitting={procesando}
+        onClose={() => {
+          if (procesando) return;
+          setModalMultipago(false);
+          setMultipagoFacturas([]);
+        }}
+        onValidationError={(titulo, mensaje) => showToast(titulo, mensaje, 'warning')}
+        onConfirm={handleConfirmarMultipago}
       />
 
       <Modal visible={modalDetallePagosVisible} transparent animationType="fade" onRequestClose={cerrarModalDetallePagos}>
@@ -2171,6 +2382,19 @@ const styles = StyleSheet.create({
   },
   toolbarBtnDisabled: { opacity: 0.5 },
   toolbarBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
+  toolbarBtnMultipago: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minWidth: 88,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#15803d',
+    borderRadius: 10,
+    backgroundColor: '#16a34a',
+  },
   toolbarBtnPagar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2355,8 +2579,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff7ed',
     borderBottomWidth: 1,
     borderBottomColor: '#fed7aa',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null),
+  },
+  dupBannerTablaActivo: {
+    backgroundColor: '#ffedd5',
+    borderBottomColor: '#fdba74',
+    borderLeftWidth: 3,
+    borderLeftColor: '#ea580c',
   },
   dupBannerTablaText: { flex: 1, fontSize: 12, color: '#9a3412', fontWeight: '600', lineHeight: 16 },
+  dupBannerTablaCta: {
+    fontSize: 12,
+    color: '#9a3412',
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+  },
   actionHeaderCell: { width: 40, flexShrink: 0 },
   actionCell: { width: 40, flexShrink: 0, alignItems: 'center', justifyContent: 'center', paddingVertical: 2 },
   actionBtn: {

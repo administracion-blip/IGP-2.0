@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ComponentProps } from 'react';
 import {
   View,
   Text,
@@ -15,18 +15,31 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useProductosCache } from '../../contexts/ProductosCache';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
+import { MIN_TOUCH, SPACING } from '../../constants/layout';
 import { apiFetch } from '../../utils/api';
 import { valorEnLocal } from '../../utils/valorEnLocal';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { SelectorDesplegableMulti } from '../../components/SelectorDesplegableMulti';
 import type { Activacion, ActivacionAdjunto, EstadoActivacion } from '../../types/activaciones';
+import { codigoVirtualActivacion } from '../../lib/activaciones';
 
 type EmpresaApi = {
   id_empresa?: string;
   Nombre?: string;
   Cif?: string;
 };
+
+type IconName = ComponentProps<typeof MaterialIcons>['name'];
+
+function SeccionTitulo({ icono, titulo }: { icono: IconName; titulo: string }) {
+  return (
+    <View style={styles.secTitleRow}>
+      <MaterialIcons name={icono} size={18} color="#0ea5e9" />
+      <Text style={styles.secTitle}>{titulo}</Text>
+    </View>
+  );
+}
 
 export default function ActivacionNuevaScreen() {
   const router = useRouter();
@@ -55,7 +68,6 @@ export default function ActivacionNuevaScreen() {
   const [promotorNombre, setPromotorNombre] = useState('');
   const [promotorTelefono, setPromotorTelefono] = useState('');
 
-  const [codigo, setCodigo] = useState('');
   const [marca, setMarca] = useState('');
   const [productoIds, setProductoIds] = useState<string[]>([]);
   const [productoLegacy, setProductoLegacy] = useState('');
@@ -74,6 +86,17 @@ export default function ActivacionNuevaScreen() {
   const [pagoObservaciones, setPagoObservaciones] = useState('');
   const [adjuntos, setAdjuntos] = useState<ActivacionAdjunto[]>([]);
   const [subiendoAdjunto, setSubiendoAdjunto] = useState(false);
+
+  const codigoVirtual = useMemo(
+    () =>
+      codigoVirtualActivacion({
+        empresaNombre,
+        marca,
+        vigenciaInicio,
+        tipoActivacion,
+      }),
+    [empresaNombre, marca, vigenciaInicio, tipoActivacion],
+  );
 
   useEffect(() => {
     if (!editId) return;
@@ -196,7 +219,6 @@ export default function ActivacionNuevaScreen() {
       setEmpresaCif(a.empresa_cif ?? '');
       setPromotorNombre(a.promotor_nombre ?? '');
       setPromotorTelefono(a.promotor_telefono ?? '');
-      setCodigo(a.codigo ?? '');
       setMarca(a.marca ?? '');
       setProductoIds(Array.isArray(a.productos_ids) ? a.productos_ids.filter(Boolean) : []);
       setProductoLegacy(a.producto ?? '');
@@ -260,8 +282,12 @@ export default function ActivacionNuevaScreen() {
   const guardar = useCallback(
     async (estado: EstadoActivacion) => {
       setError(null);
-      if (!codigo.trim()) return setError('El código es obligatorio.');
       if (!marca.trim()) return setError('La marca es obligatoria.');
+      if (!codigoVirtual.trim()) {
+        return setError(
+          'Indica al menos marca (y preferible empresa, fecha inicio y tipo) para generar el código.',
+        );
+      }
       if (productoIds.length === 0) return setError('Selecciona al menos un producto.');
       if (estado === 'activa') {
         if (!idEmpresa && !empresaNombre.trim()) return setError('Selecciona la empresa para activar la campaña.');
@@ -269,7 +295,7 @@ export default function ActivacionNuevaScreen() {
       }
 
       const payload = {
-        codigo: codigo.trim(),
+        codigo: codigoVirtual.trim(),
         marca: marca.trim(),
         producto: productoTexto,
         productos_ids: productoIds,
@@ -309,7 +335,7 @@ export default function ActivacionNuevaScreen() {
       }
     },
     [
-      codigo, marca, productoIds, productoTexto, tipoActivacion, vigenciaInicio, vigenciaFin, duracionHoras,
+      codigoVirtual, marca, productoIds, productoTexto, tipoActivacion, vigenciaInicio, vigenciaFin, duracionHoras,
       ocasion, targetDescripcion, mecanica, equipoDescripcion, materiales, pagoObservaciones,
       idEmpresa, empresaNombre, empresaCif, promotorNombre, promotorTelefono, editId, router,
     ],
@@ -324,6 +350,33 @@ export default function ActivacionNuevaScreen() {
     );
   }
 
+  const acciones = (
+    <View style={[styles.accionesRow, shouldStackPanels && styles.accionesStack]}>
+      <TouchableOpacity
+        style={[styles.btnSecundario, saving && styles.btnDisabled, shouldStackPanels && styles.btnFull]}
+        onPress={() => guardar('borrador')}
+        disabled={saving}
+      >
+        <MaterialIcons name="save" size={16} color="#334155" />
+        <Text style={styles.btnSecundarioText}>Guardar borrador</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.btnPrimario, saving && styles.btnDisabled, shouldStackPanels && styles.btnFull]}
+        onPress={() => guardar('activa')}
+        disabled={saving}
+      >
+        {saving ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <MaterialIcons name="check-circle" size={16} color="#fff" />
+        )}
+        <Text style={styles.btnPrimarioText}>
+          {estadoActual === 'activa' ? 'Guardar' : 'Activar'}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   return (
     <View style={styles.container}>
       {loading ? (
@@ -331,337 +384,449 @@ export default function ActivacionNuevaScreen() {
           <ActivityIndicator size="large" color="#0ea5e9" />
         </View>
       ) : (
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={styles.formWrap}>
-            <View style={styles.headerRow}>
-              <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <>
+          <View style={[styles.headerBar, shouldStackPanels && styles.headerBarStack]}>
+            <View style={styles.headerLeft}>
+              <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} accessibilityLabel="Volver">
                 <MaterialIcons name="arrow-back" size={22} color="#334155" />
               </TouchableOpacity>
-              <Text style={styles.title}>{editId ? 'Editar activación' : 'Nueva activación'}</Text>
+              <Text style={styles.title} numberOfLines={1}>
+                {editId ? 'Editar activación' : 'Nueva activación'}
+              </Text>
             </View>
-
-          <Text style={styles.secTitle}>Empresa y promotor</Text>
-          <Text style={styles.label}>Empresa (marca)</Text>
-          <SelectorDesplegable
-            icono="business"
-            tituloLista="Empresa"
-            iconoLista="business"
-            placeholder="Selecciona la empresa…"
-            opciones={opcionesEmpresa}
-            valorId={valorEmpresaId}
-            onSeleccionar={seleccionarEmpresa}
-            buscador
-            buscadorPlaceholder="Buscar por nombre o CIF…"
-          />
-          {empresaCif ? <Text style={styles.cifAux}>CIF: {empresaCif}</Text> : null}
-
-          <View style={[styles.row2, shouldStackPanels && styles.rowStack]}>
-            <View style={[styles.colPromotor, shouldStackPanels && styles.colStackFull]}>
-              <Text style={styles.label}>Nombre del promotor</Text>
-              <TextInput
-                style={styles.input}
-                value={promotorNombre}
-                onChangeText={setPromotorNombre}
-                placeholder="Persona de contacto de la marca"
-                placeholderTextColor="#94a3b8"
-              />
-            </View>
-            <View style={[styles.colTelefono, shouldStackPanels && styles.colStackFull]}>
-              <Text style={styles.label}>Teléfono del promotor</Text>
-              <TextInput
-                style={styles.input}
-                value={promotorTelefono}
-                onChangeText={setPromotorTelefono}
-                keyboardType="phone-pad"
-                placeholder="+34 612 345 678"
-                placeholderTextColor="#94a3b8"
-              />
-            </View>
+            {!shouldStackPanels ? acciones : null}
           </View>
-
-          <Text style={styles.secTitle}>Identificación</Text>
-          <Text style={styles.label}>Código *</Text>
-          <TextInput
-            style={[styles.input, styles.inputCodigo]}
-            value={codigo}
-            onChangeText={setCodigo}
-            autoCapitalize="characters"
-            placeholder="LARIOSPOMELO_RULETA_26HD"
-            placeholderTextColor="#94a3b8"
-          />
-          <Text style={styles.label}>Marca *</Text>
-          <TextInput
-            style={[styles.input, styles.inputMedio]}
-            value={marca}
-            onChangeText={setMarca}
-            placeholder="Larios"
-            placeholderTextColor="#94a3b8"
-          />
-          <Text style={styles.label}>Producto(s) *</Text>
-          <SelectorDesplegableMulti
-            placeholder="Buscar producto IGP…"
-            icono="inventory-2"
-            tituloLista="Productos IGP"
-            iconoLista="inventory-2"
-            loading={loadingProductos}
-            buscador
-            buscadorPlaceholder="Buscar por nombre o ID…"
-            valorIds={productoIds}
-            opciones={opcionesProducto}
-            onChange={setProductoIds}
-            vacioTexto="No hay productos IGP en el catálogo."
-          />
-          {productoIds.length > 0 ? (
-            <View style={styles.productosChips}>
-              {productoIds.map((id) => {
-                const titulo = opcionesProducto.find((o) => o.id === id)?.titulo ?? id;
-                return (
-                  <View key={id} style={styles.materialChip}>
-                    <Text style={styles.materialText} numberOfLines={1}>{titulo}</Text>
-                    <TouchableOpacity
-                      onPress={() => setProductoIds((prev) => prev.filter((x) => x !== id))}
-                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                    >
-                      <MaterialIcons name="close" size={14} color="#64748b" />
-                    </TouchableOpacity>
-                  </View>
-                );
-              })}
-            </View>
-          ) : null}
-          <Text style={styles.label}>Tipo de activación</Text>
-          <TextInput
-            style={[styles.input, styles.inputMedio]}
-            value={tipoActivacion}
-            onChangeText={setTipoActivacion}
-            placeholder="Ruleta, Degustación, Showcooking…"
-            placeholderTextColor="#94a3b8"
-          />
-
-          <Text style={styles.secTitle}>Vigencia y sesión</Text>
-          <View style={styles.row2}>
-            <View style={styles.col}>
-              <Text style={styles.label}>Fecha inicio</Text>
-              <InputFecha valueIso={vigenciaInicio} onChangeIso={setVigenciaInicio} style={styles.input} />
-            </View>
-            <View style={styles.col}>
-              <Text style={styles.label}>Fecha fin</Text>
-              <InputFecha valueIso={vigenciaFin} onChangeIso={setVigenciaFin} style={styles.input} />
-            </View>
-          </View>
-          <View style={[styles.row2, shouldStackPanels && styles.rowStack]}>
-            <View style={[styles.colDuracion, shouldStackPanels && styles.colStackFull]}>
-              <Text style={styles.label}>Duración por sesión (horas)</Text>
-              <TextInput
-                style={styles.input}
-                value={duracionHoras}
-                onChangeText={setDuracionHoras}
-                keyboardType="decimal-pad"
-                placeholder="2"
-                placeholderTextColor="#94a3b8"
-              />
-            </View>
-            <View style={styles.col}>
-              <Text style={styles.label}>Ocasión</Text>
-              <TextInput style={styles.input} value={ocasion} onChangeText={setOcasion} placeholder="Tardeo largo / 1ª copa" placeholderTextColor="#94a3b8" />
-            </View>
-          </View>
-          <Text style={styles.label}>Target de consumidor</Text>
-          <TextInput
-            style={[styles.input, styles.inputMedio]}
-            value={targetDescripcion}
-            onChangeText={setTargetDescripcion}
-            placeholder="+35 años"
-            placeholderTextColor="#94a3b8"
-          />
-
-          <Text style={styles.secTitle}>Mecánica</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            value={mecanica}
-            onChangeText={setMecanica}
-            multiline
-            placeholder="Descripción de cómo funciona la activación…"
-            placeholderTextColor="#94a3b8"
-          />
-
-          <Text style={styles.secTitle}>Equipo</Text>
-          <TextInput
-            style={[styles.input, styles.inputMedio]}
-            value={equipoDescripcion}
-            onChangeText={setEquipoDescripcion}
-            placeholder="Azafato + Azafato + Coordinador"
-            placeholderTextColor="#94a3b8"
-          />
-
-          <Text style={styles.secTitle}>Materiales</Text>
-          <View style={styles.materialesWrap}>
-            {materiales.map((m, idx) => (
-              <View key={`${m}-${idx}`} style={styles.materialChip}>
-                <Text style={styles.materialText}>{m}</Text>
-                <TouchableOpacity
-                  onPress={() => setMateriales((prev) => prev.filter((_, i) => i !== idx))}
-                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                >
-                  <MaterialIcons name="close" size={14} color="#64748b" />
-                </TouchableOpacity>
-              </View>
-            ))}
-          </View>
-          <View style={styles.addMaterialRow}>
-            <TextInput
-              style={[styles.input, { flex: 1, marginBottom: 0 }]}
-              value={nuevoMaterial}
-              onChangeText={setNuevoMaterial}
-              placeholder="Ruleta x2, Totebags…"
-              placeholderTextColor="#94a3b8"
-              onSubmitEditing={agregarMaterial}
-            />
-            <TouchableOpacity style={styles.addMaterialBtn} onPress={agregarMaterial}>
-              <MaterialIcons name="add" size={18} color="#fff" />
-              <Text style={styles.addMaterialBtnText}>Añadir material</Text>
-            </TouchableOpacity>
-          </View>
-
-          <Text style={styles.secTitle}>Observaciones de pago</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            value={pagoObservaciones}
-            onChangeText={setPagoObservaciones}
-            multiline
-            placeholder="El PDV debe guardar todos los tickets para liquidación…"
-            placeholderTextColor="#94a3b8"
-          />
-
-          <Text style={styles.secTitle}>Documentos e imágenes</Text>
-          {!editId ? (
-            <Text style={styles.adjHint}>Guarda la activación para poder adjuntar archivos.</Text>
-          ) : (
-            <>
-              {adjuntos.map((adj) => (
-                <View key={adj.id} style={styles.adjRow}>
-                  <MaterialIcons name="attach-file" size={18} color="#0ea5e9" />
-                  <TouchableOpacity
-                    style={{ flex: 1 }}
-                    onPress={() => adj.url && Linking.openURL(adj.url).catch(() => {})}
-                  >
-                    <Text style={styles.adjNombre} numberOfLines={1}>{adj.nombre}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => eliminarAdjunto(adj.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <MaterialIcons name="delete-outline" size={18} color="#dc2626" />
-                  </TouchableOpacity>
-                </View>
-              ))}
-              <TouchableOpacity
-                style={[styles.addMaterialBtn, subiendoAdjunto && styles.btnDisabled]}
-                onPress={subirAdjunto}
-                disabled={subiendoAdjunto}
-              >
-                {subiendoAdjunto ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <MaterialIcons name="cloud-upload" size={18} color="#fff" />
-                )}
-                <Text style={styles.addMaterialBtnText}>
-                  {Platform.OS === 'web' ? 'Subir archivo o imagen' : 'Subida disponible en web'}
-                </Text>
-              </TouchableOpacity>
-            </>
-          )}
 
           {error ? (
-            <View style={styles.errorBanner}>
+            <View style={styles.errorBannerTop}>
               <MaterialIcons name="error-outline" size={16} color="#b91c1c" />
               <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : null}
 
-          <View style={styles.footerRow}>
-            <TouchableOpacity
-              style={[styles.btnSecundario, saving && styles.btnDisabled]}
-              onPress={() => guardar('borrador')}
-              disabled={saving}
-            >
-              <MaterialIcons name="save" size={16} color="#334155" />
-              <Text style={styles.btnSecundarioText}>Guardar como borrador</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.btnPrimario, saving && styles.btnDisabled]}
-              onPress={() => guardar('activa')}
-              disabled={saving}
-            >
-              {saving ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <MaterialIcons name="check-circle" size={16} color="#fff" />
-              )}
-              <Text style={styles.btnPrimarioText}>
-                {estadoActual === 'activa' ? 'Guardar' : 'Activar'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-          </View>
-        </ScrollView>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={[
+              styles.scrollContent,
+              shouldStackPanels && styles.scrollContentCompact,
+            ]}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Identificación | Vigencia */}
+            <View style={[styles.grid2, shouldStackPanels && styles.gridStack]}>
+              <View style={[styles.card, !shouldStackPanels && styles.cardCol, styles.cardZ3]}>
+                <SeccionTitulo icono="badge" titulo="Identificación" />
+                <Text style={styles.label}>Código</Text>
+                <View style={styles.codigoReadonly}>
+                  <Text
+                    style={[styles.codigoReadonlyText, !codigoVirtual && styles.codigoReadonlyHint]}
+                    selectable
+                  >
+                    {codigoVirtual || 'Se genera con empresa, marca, fecha inicio y tipo'}
+                  </Text>
+                </View>
+                <Text style={styles.label}>Marca *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={marca}
+                  onChangeText={setMarca}
+                  placeholder="Larios"
+                  placeholderTextColor="#94a3b8"
+                />
+                <Text style={styles.label}>Producto(s) *</Text>
+                <SelectorDesplegableMulti
+                  placeholder="Buscar producto IGP…"
+                  icono="inventory-2"
+                  tituloLista="Productos IGP"
+                  iconoLista="inventory-2"
+                  loading={loadingProductos}
+                  buscador
+                  buscadorPlaceholder="Buscar por nombre o ID…"
+                  valorIds={productoIds}
+                  opciones={opcionesProducto}
+                  onChange={setProductoIds}
+                  vacioTexto="No hay productos IGP en el catálogo."
+                />
+                {productoIds.length > 0 ? (
+                  <View style={styles.productosChips}>
+                    {productoIds.map((id) => {
+                      const titulo = opcionesProducto.find((o) => o.id === id)?.titulo ?? id;
+                      return (
+                        <View key={id} style={styles.materialChip}>
+                          <Text style={styles.materialText} numberOfLines={1}>{titulo}</Text>
+                          <TouchableOpacity
+                            onPress={() => setProductoIds((prev) => prev.filter((x) => x !== id))}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          >
+                            <MaterialIcons name="close" size={14} color="#64748b" />
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : null}
+                <Text style={[styles.label, { marginTop: SPACING.sm }]}>Tipo de activación</Text>
+                <TextInput
+                  style={styles.input}
+                  value={tipoActivacion}
+                  onChangeText={setTipoActivacion}
+                  placeholder="Ruleta, Degustación, Showcooking…"
+                  placeholderTextColor="#94a3b8"
+                />
+              </View>
+
+              <View style={[styles.card, !shouldStackPanels && styles.cardCol, styles.cardZ2]}>
+                <SeccionTitulo icono="event" titulo="Vigencia y sesión" />
+                <View style={[styles.row2, shouldStackPanels && styles.rowStack]}>
+                  <View style={[styles.col, shouldStackPanels && styles.colStackFull]}>
+                    <Text style={styles.label}>Fecha inicio</Text>
+                    <InputFecha valueIso={vigenciaInicio} onChangeIso={setVigenciaInicio} style={styles.input} />
+                  </View>
+                  <View style={[styles.col, shouldStackPanels && styles.colStackFull]}>
+                    <Text style={styles.label}>Fecha fin</Text>
+                    <InputFecha valueIso={vigenciaFin} onChangeIso={setVigenciaFin} style={styles.input} />
+                  </View>
+                </View>
+                <View style={[styles.row2, shouldStackPanels && styles.rowStack]}>
+                  <View style={[styles.col, shouldStackPanels && styles.colStackFull]}>
+                    <Text style={styles.label}>Duración por sesión (horas)</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={duracionHoras}
+                      onChangeText={setDuracionHoras}
+                      keyboardType="decimal-pad"
+                      placeholder="2"
+                      placeholderTextColor="#94a3b8"
+                    />
+                  </View>
+                  <View style={[styles.col, shouldStackPanels && styles.colStackFull]}>
+                    <Text style={styles.label}>Ocasión</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={ocasion}
+                      onChangeText={setOcasion}
+                      placeholder="Tardeo largo / 1ª copa"
+                      placeholderTextColor="#94a3b8"
+                    />
+                  </View>
+                </View>
+                <Text style={styles.label}>Target de consumidor</Text>
+                <TextInput
+                  style={styles.input}
+                  value={targetDescripcion}
+                  onChangeText={setTargetDescripcion}
+                  placeholder="+35 años"
+                  placeholderTextColor="#94a3b8"
+                />
+              </View>
+            </View>
+
+            {/* Empresa y promotor */}
+            <View style={[styles.card, styles.cardZ1]}>
+              <SeccionTitulo icono="business" titulo="Empresa y promotor" />
+              <Text style={styles.label}>Empresa (marca)</Text>
+              <SelectorDesplegable
+                icono="business"
+                tituloLista="Empresa"
+                iconoLista="business"
+                placeholder="Selecciona la empresa…"
+                opciones={opcionesEmpresa}
+                valorId={valorEmpresaId}
+                onSeleccionar={seleccionarEmpresa}
+                buscador
+                buscadorPlaceholder="Buscar por nombre o CIF…"
+              />
+              {empresaCif ? <Text style={styles.cifAux}>CIF: {empresaCif}</Text> : null}
+
+              <View style={[styles.row2, shouldStackPanels && styles.rowStack]}>
+                <View style={[styles.col, shouldStackPanels && styles.colStackFull]}>
+                  <Text style={styles.label}>Nombre del promotor</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={promotorNombre}
+                    onChangeText={setPromotorNombre}
+                    placeholder="Persona de contacto de la marca"
+                    placeholderTextColor="#94a3b8"
+                  />
+                </View>
+                <View style={[styles.col, shouldStackPanels && styles.colStackFull]}>
+                  <Text style={styles.label}>Teléfono del promotor</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={promotorTelefono}
+                    onChangeText={setPromotorTelefono}
+                    keyboardType="phone-pad"
+                    placeholder="+34 612 345 678"
+                    placeholderTextColor="#94a3b8"
+                  />
+                </View>
+              </View>
+            </View>
+
+            {/* Mecánica */}
+            <View style={styles.card}>
+              <SeccionTitulo icono="tune" titulo="Mecánica" />
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                value={mecanica}
+                onChangeText={setMecanica}
+                multiline
+                placeholder="Descripción de cómo funciona la activación…"
+                placeholderTextColor="#94a3b8"
+              />
+            </View>
+
+            {/* Equipo y materiales | Observaciones + Documentos */}
+            <View style={[styles.grid2, shouldStackPanels && styles.gridStack]}>
+              <View style={[styles.card, !shouldStackPanels && styles.cardCol]}>
+                <SeccionTitulo icono="groups" titulo="Equipo y materiales" />
+                <Text style={styles.label}>Equipo</Text>
+                <TextInput
+                  style={styles.input}
+                  value={equipoDescripcion}
+                  onChangeText={setEquipoDescripcion}
+                  placeholder="Azafato + Azafato + Coordinador"
+                  placeholderTextColor="#94a3b8"
+                />
+                <Text style={styles.label}>Materiales</Text>
+                <View style={styles.materialesWrap}>
+                  {materiales.map((m, idx) => (
+                    <View key={`${m}-${idx}`} style={styles.materialChip}>
+                      <Text style={styles.materialText}>{m}</Text>
+                      <TouchableOpacity
+                        onPress={() => setMateriales((prev) => prev.filter((_, i) => i !== idx))}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      >
+                        <MaterialIcons name="close" size={14} color="#64748b" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+                <View style={[styles.addMaterialRow, shouldStackPanels && styles.addMaterialStack]}>
+                  <TextInput
+                    style={[styles.input, styles.addMaterialInput]}
+                    value={nuevoMaterial}
+                    onChangeText={setNuevoMaterial}
+                    placeholder="Ruleta x2, Totebags…"
+                    placeholderTextColor="#94a3b8"
+                    onSubmitEditing={agregarMaterial}
+                  />
+                  <TouchableOpacity
+                    style={[styles.addMaterialBtn, shouldStackPanels && styles.btnFull]}
+                    onPress={agregarMaterial}
+                  >
+                    <MaterialIcons name="add" size={18} color="#fff" />
+                    <Text style={styles.addMaterialBtnText}>Añadir material</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={[styles.card, !shouldStackPanels && styles.cardCol]}>
+                <SeccionTitulo icono="payments" titulo="Observaciones de pago" />
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  value={pagoObservaciones}
+                  onChangeText={setPagoObservaciones}
+                  multiline
+                  placeholder="El PDV debe guardar todos los tickets para liquidación…"
+                  placeholderTextColor="#94a3b8"
+                />
+
+                <View style={styles.docsBlock}>
+                  <SeccionTitulo icono="attach-file" titulo="Documentos" />
+                  {!editId ? (
+                    <Text style={styles.adjHint}>Guarda la activación para poder adjuntar archivos.</Text>
+                  ) : (
+                    <>
+                      {adjuntos.map((adj) => (
+                        <View key={adj.id} style={styles.adjRow}>
+                          <MaterialIcons name="attach-file" size={18} color="#0ea5e9" />
+                          <TouchableOpacity
+                            style={{ flex: 1 }}
+                            onPress={() => adj.url && Linking.openURL(adj.url).catch(() => {})}
+                          >
+                            <Text style={styles.adjNombre} numberOfLines={1}>{adj.nombre}</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => eliminarAdjunto(adj.id)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <MaterialIcons name="delete-outline" size={18} color="#dc2626" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                      <TouchableOpacity
+                        style={[styles.addMaterialBtn, subiendoAdjunto && styles.btnDisabled]}
+                        onPress={subirAdjunto}
+                        disabled={subiendoAdjunto}
+                      >
+                        {subiendoAdjunto ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <MaterialIcons name="cloud-upload" size={18} color="#fff" />
+                        )}
+                        <Text style={styles.addMaterialBtnText}>
+                          {Platform.OS === 'web' ? 'Subir archivo o imagen' : 'Subida disponible en web'}
+                        </Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
+              </View>
+            </View>
+
+            <Text style={styles.hintLocales}>
+              Los locales se programan después en Sesiones (por fecha y hora).
+            </Text>
+
+            {shouldStackPanels ? <View style={styles.footerMovil}>{acciones}</View> : null}
+          </ScrollView>
+        </>
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10, backgroundColor: '#f8fafc' },
-  scrollContent: { paddingBottom: 32, alignItems: 'center' },
-  formWrap: { width: '100%', maxWidth: 680 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 10 },
+  container: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+  },
+  headerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.md,
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+    zIndex: 40,
+    elevation: 2,
+  },
+  headerBarStack: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    paddingHorizontal: SPACING.lg,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    flex: 1,
+    minWidth: 0,
+  },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    width: MIN_TOUCH,
+    height: MIN_TOUCH,
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#334155' },
-  centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  emptyText: { fontSize: 13, color: '#64748b', textAlign: 'center' },
+  title: { fontSize: 20, fontWeight: '700', color: '#0f172a', flexShrink: 1 },
+  scroll: {
+    flex: 1,
+    position: 'relative',
+    zIndex: 0,
+  },
+  scrollContent: {
+    paddingHorizontal: SPACING.xl,
+    paddingTop: SPACING.lg,
+    paddingBottom: 40,
+    gap: SPACING.lg,
+    width: '100%',
+  },
+  scrollContentCompact: {
+    paddingHorizontal: SPACING.lg,
+  },
+  grid2: {
+    flexDirection: 'row',
+    gap: SPACING.lg,
+    alignItems: 'stretch',
+    width: '100%',
+  },
+  gridStack: {
+    flexDirection: 'column',
+  },
+  card: {
+    width: '100%',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: SPACING.lg,
+    overflow: 'visible',
+    position: 'relative',
+    zIndex: 1,
+  },
+  cardCol: {
+    flex: 1,
+    minWidth: 0,
+    width: undefined,
+  },
+  cardZ3: { zIndex: 30, elevation: 6 },
+  cardZ2: { zIndex: 20, elevation: 4 },
+  cardZ1: { zIndex: 10, elevation: 2 },
+  secTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    marginBottom: SPACING.md,
+  },
   secTitle: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '700',
     color: '#0f172a',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginTop: 18,
-    marginBottom: 8,
   },
-  label: { fontSize: 12, fontWeight: '600', color: '#0f172a', marginBottom: 4 },
+  centerBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
+  emptyText: { fontSize: 13, color: '#64748b', textAlign: 'center' },
+  label: { fontSize: 12, fontWeight: '600', color: '#334155', marginBottom: 4 },
   input: {
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     fontSize: 14,
     color: '#0f172a',
     marginBottom: 10,
+    width: '100%',
   },
-  textArea: { minHeight: 80, textAlignVertical: 'top' },
+  codigoReadonly: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+    width: '100%',
+    minHeight: 42,
+    justifyContent: 'center',
+  },
+  codigoReadonlyText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0f172a',
+    fontFamily: Platform.OS === 'web' ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : undefined,
+  },
+  codigoReadonlyHint: {
+    fontWeight: '400',
+    color: '#94a3b8',
+    fontFamily: undefined,
+  },
+  textArea: { minHeight: 96, textAlignVertical: 'top' },
   cifAux: { fontSize: 12, color: '#64748b', marginTop: 4, marginBottom: 10 },
-  row2: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+  row2: { flexDirection: 'row', gap: SPACING.md, alignItems: 'flex-start' },
   rowStack: { flexDirection: 'column' },
   col: { flex: 1, minWidth: 0 },
-  colPromotor: { flex: 1, minWidth: 0, maxWidth: 360 },
-  colTelefono: { width: 200, maxWidth: 220, flexShrink: 0 },
-  colDuracion: { width: 120, maxWidth: 140, flexShrink: 0 },
-  colStackFull: { width: '100%', maxWidth: '100%' },
-  inputCodigo: { maxWidth: 480, alignSelf: 'flex-start' },
-  inputMedio: { maxWidth: 420, alignSelf: 'flex-start' },
-  productosChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  colStackFull: { width: '100%' },
+  productosChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8, marginBottom: 4 },
   adjHint: { fontSize: 12, color: '#64748b', fontStyle: 'italic', marginBottom: 8 },
   adjRow: {
     flexDirection: 'row',
@@ -677,38 +842,63 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#f1f5f9',
+    backgroundColor: '#f8fafc',
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 14,
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  materialText: { fontSize: 12, color: '#334155' },
+  materialText: { fontSize: 12, color: '#334155', maxWidth: 220 },
   addMaterialRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  addMaterialStack: { flexDirection: 'column', alignItems: 'stretch' },
+  addMaterialInput: { flex: 1, marginBottom: 0 },
   addMaterialBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 4,
     backgroundColor: '#0ea5e9',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    minHeight: MIN_TOUCH,
   },
   addMaterialBtnText: { fontSize: 12, fontWeight: '600', color: '#fff' },
-  errorBanner: {
+  docsBlock: { marginTop: SPACING.md },
+  hintLocales: {
+    fontSize: 12,
+    color: '#64748b',
+    lineHeight: 18,
+  },
+  errorBannerTop: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     backgroundColor: '#fef2f2',
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    borderRadius: 8,
-    padding: 10,
-    marginTop: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#fecaca',
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
   },
   errorText: { flex: 1, fontSize: 12, color: '#b91c1c' },
-  footerRow: { flexDirection: 'row', gap: 10, marginTop: 18, flexWrap: 'wrap' },
+  accionesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    flexShrink: 0,
+  },
+  accionesStack: {
+    flexDirection: 'column',
+    width: '100%',
+  },
+  footerMovil: {
+    marginTop: SPACING.sm,
+    paddingTop: SPACING.md,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  btnFull: { width: '100%', justifyContent: 'center' },
   btnSecundario: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -719,6 +909,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 16,
     paddingVertical: 11,
+    minHeight: MIN_TOUCH,
   },
   btnSecundarioText: { fontSize: 13, fontWeight: '600', color: '#334155' },
   btnPrimario: {
@@ -729,6 +920,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 16,
     paddingVertical: 11,
+    minHeight: MIN_TOUCH,
   },
   btnPrimarioText: { fontSize: 13, fontWeight: '700', color: '#fff' },
   btnDisabled: { opacity: 0.6 },

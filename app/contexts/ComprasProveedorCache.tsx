@@ -20,13 +20,19 @@ export type RecargarComprasOpts = {
   all?: boolean;
 };
 
+export type RecargarComprasResult = {
+  ok: boolean;
+  /** true si había otra carga en curso y esta petición se encoló / se omitió al inicio */
+  skipped?: boolean;
+};
+
 type ComprasProveedorCacheValue = {
   compras: CompraLinea[];
   loading: boolean;
   error: string | null;
   lastFetch: number | null;
   rangoCargado: ComprasProveedorRango | null;
-  recargar: (opts?: RecargarComprasOpts) => Promise<void>;
+  recargar: (opts?: RecargarComprasOpts) => Promise<RecargarComprasResult>;
 };
 
 const Ctx = createContext<ComprasProveedorCacheValue | null>(null);
@@ -60,6 +66,7 @@ export function ComprasProveedorCacheProvider({ children }: { children: React.Re
   const [rangoCargado, setRangoCargado] = useState<ComprasProveedorRango | null>(null);
 
   const fetchingRef = useRef(false);
+  const pendingOptsRef = useRef<RecargarComprasOpts | null>(null);
   const comprasRef = useRef(compras);
   comprasRef.current = compras;
   const lastFetchRef = useRef(lastFetch);
@@ -67,8 +74,12 @@ export function ComprasProveedorCacheProvider({ children }: { children: React.Re
   const rangoRef = useRef(rangoCargado);
   rangoRef.current = rangoCargado;
 
-  const recargar = useCallback(async (opts?: RecargarComprasOpts) => {
-    if (fetchingRef.current) return;
+  const recargar = useCallback(async (opts?: RecargarComprasOpts): Promise<RecargarComprasResult> => {
+    if (fetchingRef.current) {
+      // Encolar la última petición (p. ej. filtro de fechas mientras carga el default).
+      pendingOptsRef.current = { ...(opts || {}), force: true };
+      return { ok: false, skipped: true };
+    }
     const force = opts?.force === true;
     const rango = resolveRango(opts, rangoRef.current);
     const mismoRango = rangoRef.current && rangoKey(rangoRef.current) === rangoKey(rango);
@@ -80,12 +91,13 @@ export function ComprasProveedorCacheProvider({ children }: { children: React.Re
       (Date.now() - lastFetchRef.current) < STALE_MS &&
       comprasRef.current.length > 0
     ) {
-      return;
+      return { ok: true };
     }
 
     fetchingRef.current = true;
     setLoading(true);
     setError(null);
+    let ok = false;
     try {
       const path = buildPurchasesQuery({
         refresh: force,
@@ -104,6 +116,7 @@ export function ComprasProveedorCacheProvider({ children }: { children: React.Re
         setCompras(data.items || []);
         setLastFetch(Date.now());
         setRangoCargado(rango);
+        ok = true;
       }
     } catch (e) {
       const raw = e instanceof Error ? e.message : 'Error de conexión';
@@ -116,6 +129,13 @@ export function ComprasProveedorCacheProvider({ children }: { children: React.Re
       setLoading(false);
       fetchingRef.current = false;
     }
+
+    const pending = pendingOptsRef.current;
+    if (pending) {
+      pendingOptsRef.current = null;
+      return recargar(pending);
+    }
+    return { ok };
   }, []);
 
   return (

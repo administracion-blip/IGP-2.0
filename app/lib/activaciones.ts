@@ -1,6 +1,45 @@
 import type { Activacion } from '../types/activaciones';
 
 /**
+ * Slug de un segmento de código de activación:
+ * trim → NFD sin diacríticos → mayúsculas → no alfanumérico a `_` → colapsar `_` → trim `_`.
+ */
+export function slugParteCodigoActivacion(texto: string | null | undefined): string {
+  return String(texto ?? '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
+/**
+ * Código virtual de activación: empresa + marca + fecha inicio (YYYYMMDD) + tipo.
+ * Solo une segmentos no vacíos con `_`. Si la fecha no es `YYYY-MM-DD`, se omite.
+ */
+export function codigoVirtualActivacion(parts: {
+  empresaNombre?: string | null;
+  marca?: string | null;
+  vigenciaInicio?: string | null;
+  tipoActivacion?: string | null;
+}): string {
+  const fechaIso = String(parts.vigenciaInicio ?? '').trim();
+  const fechaSeg =
+    /^\d{4}-\d{2}-\d{2}$/.test(fechaIso) ? fechaIso.replace(/-/g, '') : '';
+
+  return [
+    slugParteCodigoActivacion(parts.empresaNombre),
+    slugParteCodigoActivacion(parts.marca),
+    fechaSeg,
+    slugParteCodigoActivacion(parts.tipoActivacion),
+  ]
+    .filter(Boolean)
+    .join('_');
+}
+
+/**
  * Normaliza un teléfono para wa.me: quita espacios, guiones y paréntesis;
  * si no empieza por prefijo internacional asume +34 (España).
  */

@@ -24,7 +24,7 @@
  * La diferencia se calcula siempre con importes finales (albaranes con IVA
  * contra total factura); la base imponible se muestra como dato informativo.
  */
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -64,6 +64,13 @@ import {
   TOOLBAR_ICON_SIZE,
   ComprasToolbarIconBtn,
 } from './comprasProveedorShared';
+import { generarPdfsConciliacionDiferenciasPorEmpresa } from '../../lib/conciliacionDiferenciasPdf';
+
+/**
+ * Umbral absoluto (€) para considerar que albaranes y facturas «cuadran».
+ * Por debajo o igual → cuadra (y puede promoverse a validada).
+ */
+const UMBRAL_CUADRA_EUR = 5;
 
 /** Normaliza CIF/NIF para comparar (solo A–Z0–9, mayúsculas). Igual que en resumen. */
 function normalizeCif(val: unknown): string {
@@ -153,12 +160,16 @@ type FacturaResumen = {
   vinculada: boolean;
 };
 
-type EstadoConciliacion = 'cuadra' | 'leve' | 'descuadre' | 'sin_factura' | 'sin_albaran';
+type EstadoConciliacion = 'cuadra' | 'validada' | 'leve' | 'descuadre' | 'sin_factura' | 'sin_albaran';
 
 type NodoProveedor = {
   key: string;
   nombre: string;
   cif: string;
+  /** Empresa del grupo predominante (CIF normalizado; '' si no resuelve). */
+  empresaCif: string;
+  /** Nombre de la empresa del grupo (o «Sin empresa»). */
+  empresaNombre: string;
   albaranes: AlbaranResumen[];
   facturas: FacturaResumen[];
   /** Suma de albaranes sin IVA (base). */
@@ -172,21 +183,41 @@ type NodoProveedor = {
   estado: EstadoConciliacion;
 };
 
-const ESTADO_META: Record<EstadoConciliacion, { label: string; bg: string; text: string; orden: number }> = {
+type EstadoMeta = {
+  label: string;
+  bg: string;
+  text: string;
+  orden: number;
+  borderColor?: string;
+  borderWidth?: number;
+  boxShadow?: string;
+};
+
+const ESTADO_META: Record<EstadoConciliacion, EstadoMeta> = {
   descuadre: { label: 'Descuadre', bg: '#fee2e2', text: '#b91c1c', orden: 0 },
   sin_factura: { label: 'Sin factura', bg: '#ffedd5', text: '#c2410c', orden: 1 },
   sin_albaran: { label: 'Sin albarán', bg: '#e2e8f0', text: '#475569', orden: 2 },
   leve: { label: 'Dif. leve', bg: '#fef3c7', text: '#b45309', orden: 3 },
   cuadra: { label: 'Cuadra', bg: '#d1fae5', text: '#047857', orden: 4 },
+  validada: {
+    label: 'Validada',
+    bg: '#065f46',
+    text: '#ecfdf5',
+    orden: 5,
+    borderColor: '#34d399',
+    borderWidth: 2,
+    boxShadow: '0 0 0 1px #34d399, 0 0 8px rgba(52, 211, 153, 0.65)',
+  },
 };
 
-type FiltroEstado = 'todos' | 'diferencias' | 'sin_factura' | 'sin_albaran' | 'cuadra';
+type FiltroEstado = 'todos' | 'diferencias' | 'sin_factura' | 'sin_albaran' | 'cuadra' | 'validada';
 const FILTROS_ESTADO: { id: FiltroEstado; label: string }[] = [
   { id: 'todos', label: 'Todos' },
   { id: 'diferencias', label: 'Con diferencias' },
   { id: 'sin_factura', label: 'Sin factura' },
   { id: 'sin_albaran', label: 'Sin albarán' },
   { id: 'cuadra', label: 'Cuadran' },
+  { id: 'validada', label: 'Validadas' },
 ];
 
 type Almacen = Record<string, string | number | undefined>;
@@ -240,6 +271,8 @@ export default function ConciliacionFacturasScreen() {
   const [compPreviewUrl, setCompPreviewUrl] = useState<string | null>(null);
   const [compPreviewLoading, setCompPreviewLoading] = useState(false);
   const [compPreviewError, setCompPreviewError] = useState<string | null>(null);
+  const [exportandoPdf, setExportandoPdf] = useState(false);
+  const exportandoPdfRef = useRef(false);
 
   const abrirComparador = useCallback((p: NodoProveedor) => {
     setComparador(p);
@@ -450,6 +483,8 @@ export default function ConciliacionFacturasScreen() {
       cif: string;
       albMap: Map<string, AcumAlbaran>;
       facturas: FacturaResumen[];
+      /** Contador de CIF de empresa del grupo ('' = sin resolver) para elegir la predominante. */
+      empresaCifCount: Map<string, number>;
     };
     const provMap = new Map<string, Acum>();
 
@@ -463,7 +498,7 @@ export default function ConciliacionFacturasScreen() {
     const getAcum = (key: string, nombre: string, cif: string): Acum => {
       let acum = provMap.get(key);
       if (!acum) {
-        acum = { nombre, cif, albMap: new Map(), facturas: [] };
+        acum = { nombre, cif, albMap: new Map(), facturas: [], empresaCifCount: new Map() };
         provMap.set(key, acum);
       }
       if (!acum.nombre && nombre) acum.nombre = nombre;
@@ -471,13 +506,19 @@ export default function ConciliacionFacturasScreen() {
       return acum;
     };
 
+    const contarEmpresa = (acum: Acum, empCif: string) => {
+      acum.empresaCifCount.set(empCif, (acum.empresaCifCount.get(empCif) || 0) + 1);
+    };
+
     compras.forEach((it: CompraLinea) => {
       const fecha = fechaLineaISO(it);
       if (!enRango(fecha)) return;
-      if (!pasaEmpresa(resolverEmpresaGrupo.cifDeCompra(it))) return;
+      const empCifCompra = resolverEmpresaGrupo.cifDeCompra(it);
+      if (!pasaEmpresa(empCifCompra)) return;
       const nombre = String(it.SupplierName ?? '').trim();
       const key = claveProveedor(it.SupplierCif ?? '', nombre);
       const acum = getAcum(key, nombre, String(it.SupplierCif ?? '').trim());
+      contarEmpresa(acum, empCifCompra);
       const aKey = albaranKey(it);
       let alb = acum.albMap.get(aKey);
       if (!alb) {
@@ -515,11 +556,13 @@ export default function ConciliacionFacturasScreen() {
       if (f.estado === 'anulada') return;
       const fecha = String(f.fecha_emision ?? '').slice(0, 10);
       if (!enRango(fecha)) return;
-      if (!pasaEmpresa(resolverEmpresaGrupo.cifDeFactura(f))) return;
+      const empCifFactura = resolverEmpresaGrupo.cifDeFactura(f);
+      if (!pasaEmpresa(empCifFactura)) return;
       // En facturas IN el proveedor va en empresa_* (emisor_* es la sociedad del grupo).
       const nombre = String(f.empresa_nombre ?? '').trim();
       const key = claveProveedor(f.empresa_cif ?? '', nombre);
       const acum = getAcum(key, nombre, String(f.empresa_cif ?? '').trim());
+      contarEmpresa(acum, empCifFactura);
       acum.facturas.push({
         id: f.id_factura,
         numero: String(f.numero_factura ?? '—'),
@@ -568,18 +611,52 @@ export default function ConciliacionFacturasScreen() {
       // La diferencia se calcula siempre con importes finales: albaranes con
       // IVA contra total factura (la base se muestra solo como información).
       const dif = totalAlbaranesConIva - totalFacturasTotal;
+      const abs = Math.abs(dif);
 
       let estado: EstadoConciliacion;
       if (facturasProv.length === 0) estado = 'sin_factura';
       else if (albaranes.length === 0) estado = 'sin_albaran';
-      else if (Math.abs(dif) <= 0.01) estado = 'cuadra';
-      else if (Math.abs(dif) <= Math.max(totalAlbaranesConIva, totalFacturasTotal) * 0.01) estado = 'leve';
+      else if (abs <= UMBRAL_CUADRA_EUR) estado = 'cuadra';
+      else if (abs <= Math.max(totalAlbaranesConIva, totalFacturasTotal) * 0.01) estado = 'leve';
       else estado = 'descuadre';
+
+      // Cuadra + facturas y ninguna en pte. revisión → validada (derivado, sin API).
+      if (
+        estado === 'cuadra' &&
+        facturasProv.length >= 1 &&
+        !facturasProv.some((f) => f.estado === 'pendiente_revision')
+      ) {
+        estado = 'validada';
+      }
+
+      // Empresa del grupo: si hay filtro concreto, esa; si no, la predominante por conteo.
+      let empresaCif = '';
+      if (cifFiltro) {
+        empresaCif = cifFiltro;
+      } else if (empresaFiltro === EMPRESA_SIN) {
+        empresaCif = '';
+      } else {
+        let bestCif = '';
+        let bestN = -1;
+        acum.empresaCifCount.forEach((n, c) => {
+          // Preferir CIF resuelto ante empate con «sin empresa».
+          if (n > bestN || (n === bestN && c !== '' && bestCif === '')) {
+            bestCif = c;
+            bestN = n;
+          }
+        });
+        empresaCif = bestCif;
+      }
+      const empresaNombre = empresaCif
+        ? resolverEmpresaGrupo.empresaPorCif.get(empresaCif) || empresaCif
+        : 'Sin empresa';
 
       nodos.push({
         key,
         nombre: acum.nombre || acum.cif || 'Proveedor sin identificar',
         cif: acum.cif,
+        empresaCif,
+        empresaNombre,
         albaranes,
         facturas: facturasProv,
         totalAlbaranesBase,
@@ -607,6 +684,7 @@ export default function ConciliacionFacturasScreen() {
       if (filtroEstado === 'sin_factura' && p.estado !== 'sin_factura') return false;
       if (filtroEstado === 'sin_albaran' && p.estado !== 'sin_albaran') return false;
       if (filtroEstado === 'cuadra' && p.estado !== 'cuadra') return false;
+      if (filtroEstado === 'validada' && p.estado !== 'validada') return false;
       if (q && !normNombre(p.nombre).includes(q) && !normalizeCif(p.cif).includes(normalizeCif(busqueda))) return false;
       return true;
     });
@@ -704,9 +782,10 @@ export default function ConciliacionFacturasScreen() {
   }, [seleccionRevision, facturaAProveedor, confirmar, showToast, user, cargarFacturas]);
 
   const resumen = useMemo(() => {
-    const r = { cuadran: 0, diferencias: 0, sinFactura: 0, sinAlbaran: 0, totalAlb: 0, totalFact: 0 };
+    const r = { cuadran: 0, validadas: 0, diferencias: 0, sinFactura: 0, sinAlbaran: 0, totalAlb: 0, totalFact: 0 };
     proveedores.forEach((p) => {
       if (p.estado === 'cuadra') r.cuadran += 1;
+      else if (p.estado === 'validada') r.validadas += 1;
       else if (p.estado === 'sin_factura') r.sinFactura += 1;
       else if (p.estado === 'sin_albaran') r.sinAlbaran += 1;
       else r.diferencias += 1;
@@ -789,6 +868,107 @@ export default function ConciliacionFacturasScreen() {
     }
   }, [visibles]);
 
+  /**
+   * Nodos con diferencias (descuadre/leve) según periodo, empresa y búsqueda —
+   * independiente del chip de estado de la lista (para no omitir incidencias).
+   */
+  const nodosDiferenciasPdf = useMemo(() => {
+    const q = normNombre(busqueda);
+    return proveedores.filter((p) => {
+      if (p.estado !== 'descuadre' && p.estado !== 'leve') return false;
+      if (q && !normNombre(p.nombre).includes(q) && !normalizeCif(p.cif).includes(normalizeCif(busqueda))) {
+        return false;
+      }
+      return true;
+    });
+  }, [proveedores, busqueda]);
+
+  const exportarPdfDiferencias = useCallback(async () => {
+    if (exportandoPdfRef.current) return;
+    if (nodosDiferenciasPdf.length === 0) {
+      showToast('Sin diferencias', 'No hay proveedores con descuadre o diferencia leve para este periodo y filtros.', 'warning');
+      return;
+    }
+    exportandoPdfRef.current = true;
+    setExportandoPdf(true);
+    try {
+      const partesCtx: string[] = [];
+      if (empresaFiltro === EMPRESA_SIN) partesCtx.push('Empresa: sin empresa');
+      else if (empresaFiltro !== EMPRESA_TODAS) {
+        const op = empresaOpciones.find((o) => o.id === empresaFiltro);
+        partesCtx.push(`Empresa: ${op?.label || empresaFiltro}`);
+      }
+      if (busqueda.trim()) {
+        const q = busqueda.trim();
+        const n = nodosDiferenciasPdf.length;
+        if (n === 1) {
+          const p = nodosDiferenciasPdf[0];
+          const nombre = (p.nombre || '').trim() || 'Proveedor';
+          const cif = (p.cif || '').trim();
+          partesCtx.push(cif ? `Proveedor: ${nombre} · CIF ${cif}` : `Proveedor: ${nombre}`);
+        } else {
+          partesCtx.push(`Proveedores filtrados por «${q}» (${n})`);
+        }
+      }
+      const pdfs = await generarPdfsConciliacionDiferenciasPorEmpresa({
+        fechaDesde,
+        fechaHasta,
+        contextoFiltro: partesCtx.length ? partesCtx.join(' · ') : undefined,
+        nodos: nodosDiferenciasPdf.map((p) => ({
+          nombre: p.nombre,
+          cif: p.cif,
+          empresaCif: p.empresaCif,
+          empresaNombre: p.empresaNombre,
+          estado: p.estado as 'descuadre' | 'leve',
+          estadoLabel: ESTADO_META[p.estado].label,
+          dif: p.dif,
+          totalAlbaranesBase: p.totalAlbaranesBase,
+          totalAlbaranesConIva: p.totalAlbaranesConIva,
+          totalFacturasBase: p.totalFacturasBase,
+          totalFacturasTotal: p.totalFacturasTotal,
+          albaranes: p.albaranes,
+          facturas: p.facturas,
+        })),
+      });
+      if (pdfs.length === 0) {
+        showToast('Sin diferencias', 'No hay datos para exportar por empresa.', 'warning');
+        return;
+      }
+      if (Platform.OS === 'web') {
+        for (let i = 0; i < pdfs.length; i += 1) {
+          pdfs[i].doc.save(pdfs[i].filename);
+          if (i < pdfs.length - 1) {
+            await new Promise<void>((r) => setTimeout(r, 350));
+          }
+        }
+      } else {
+        const cacheDir = FileSystemLegacy.cacheDirectory ?? '';
+        for (const { doc, filename } of pdfs) {
+          const dataUri = doc.output('datauristring');
+          const base64 = dataUri.split(',')[1] || '';
+          const fileUri = `${cacheDir}${filename}`;
+          await FileSystemLegacy.writeAsStringAsync(fileUri, base64, {
+            encoding: FileSystemLegacy.EncodingType.Base64,
+          });
+          await Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: filename });
+        }
+      }
+      const n = pdfs.length;
+      showToast(
+        'PDF generado',
+        n === 1
+          ? 'Se ha generado 1 PDF'
+          : `Se han generado ${n} PDFs (uno por empresa)`,
+        'success',
+      );
+    } catch (e: unknown) {
+      showToast('Error', e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error');
+    } finally {
+      exportandoPdfRef.current = false;
+      setExportandoPdf(false);
+    }
+  }, [nodosDiferenciasPdf, fechaDesde, fechaHasta, empresaFiltro, empresaOpciones, busqueda, showToast]);
+
   const cargando = (loadingCompras && compras.length === 0) || loadingFacturas;
 
   return (
@@ -812,6 +992,23 @@ export default function ConciliacionFacturasScreen() {
           variant="outline"
         >
           <MaterialIcons name="table-chart" size={TOOLBAR_ICON_SIZE} color={visibles.length === 0 ? '#cbd5e1' : '#0ea5e9'} />
+        </ComprasToolbarIconBtn>
+        <ComprasToolbarIconBtn
+          tooltip="PDF diferencias (economato)"
+          onPress={exportarPdfDiferencias}
+          disabled={exportandoPdf || nodosDiferenciasPdf.length === 0}
+          accessibilityLabel="PDF diferencias economato"
+          variant="outline"
+        >
+          {exportandoPdf ? (
+            <ActivityIndicator size="small" color="#dc2626" />
+          ) : (
+            <MaterialIcons
+              name="picture-as-pdf"
+              size={TOOLBAR_ICON_SIZE}
+              color={nodosDiferenciasPdf.length === 0 ? '#cbd5e1' : '#dc2626'}
+            />
+          )}
         </ComprasToolbarIconBtn>
         <ComprasToolbarIconBtn
           tooltip="Recargar albaranes y facturas"
@@ -915,6 +1112,8 @@ export default function ConciliacionFacturasScreen() {
           {'  ·  '}
           <Text style={{ color: '#047857' }}>{resumen.cuadran} cuadran</Text>
           {' · '}
+          <Text style={{ color: '#065f46' }}>{resumen.validadas} validadas</Text>
+          {' · '}
           <Text style={{ color: '#b91c1c' }}>{resumen.diferencias} con diferencias</Text>
           {' · '}
           <Text style={{ color: '#c2410c' }}>{resumen.sinFactura} sin factura</Text>
@@ -977,7 +1176,7 @@ export default function ConciliacionFacturasScreen() {
           {visibles.map((p) => {
             const abierto = abiertos.has(p.key);
             const meta = ESTADO_META[p.estado];
-            const difColor = Math.abs(p.dif) <= 0.01 ? '#047857' : p.dif > 0 ? '#b91c1c' : '#b45309';
+            const difColor = Math.abs(p.dif) <= UMBRAL_CUADRA_EUR ? '#047857' : p.dif > 0 ? '#b91c1c' : '#b45309';
             return (
               <View key={p.key} style={local.provBlock}>
                 <TouchableOpacity style={local.provHeader} onPress={() => toggleAbierto(p.key)} activeOpacity={0.7}>
@@ -1014,7 +1213,26 @@ export default function ConciliacionFacturasScreen() {
                       Dif: {formatMoneda(p.dif)}
                     </Text>
                   </View>
-                  <View style={[local.badge, { backgroundColor: meta.bg }]}>
+                  <View
+                    style={[
+                      local.badge,
+                      { backgroundColor: meta.bg },
+                      meta.borderColor
+                        ? {
+                            borderWidth: meta.borderWidth ?? 2,
+                            borderColor: meta.borderColor,
+                            ...(Platform.OS === 'web'
+                              ? { boxShadow: meta.boxShadow }
+                              : {
+                                  shadowColor: meta.borderColor,
+                                  shadowOpacity: 0.65,
+                                  shadowRadius: 8,
+                                  shadowOffset: { width: 0, height: 0 },
+                                }),
+                          }
+                        : null,
+                    ]}
+                  >
                     <Text style={[local.badgeText, { color: meta.text }]}>{meta.label}</Text>
                   </View>
                 </TouchableOpacity>

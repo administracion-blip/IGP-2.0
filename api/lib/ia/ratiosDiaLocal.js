@@ -1,6 +1,7 @@
 /**
  * Ratios del día por local para el briefing IA «día a día».
- * Personal (Factorial), mercadería (pedidos Completado) y músicos (actuaciones).
+ * Personal: minutos reales Factorial × €/h RRHH (no salarios).
+ * Mercadería (pedidos Completado) y músicos (actuaciones).
  * Denominador: facturación real del día (closeouts).
  */
 import { ScanCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
@@ -9,6 +10,7 @@ import {
   obtenerCuadrantePorLocales,
   CuadranteServicioError,
 } from '../personal/cuadranteServicio.js';
+import { cargarCosteHoraPorLocal } from './costeHoraRrhh.js';
 
 function round1(n) {
   return Math.round((Number(n) || 0) * 10) / 10;
@@ -66,12 +68,18 @@ async function scanAll(tableName) {
 }
 
 /**
- * Gasto personal por local: coste_empresa_cents / 100.
- * Soft-fail si falta Factorial o la API falla.
+ * Gasto personal por local: (minutos_reales / 60) × €/h RRHH.
+ * No usa salarios Factorial (coste_empresa / coste_bruto) ni minutos planificados.
+ * Soft-fail si falta Factorial, €/h o la API falla.
  *
  * @param {Array<{ localId: string, factorial_location_id?: string|null }>} locales
  * @param {string} fecha
- * @returns {Promise<Map<string, { gasto: number|null, aviso?: string }>>}
+ * @returns {Promise<Map<string, {
+ *   gasto: number|null,
+ *   minutosReales?: number,
+ *   costeHora?: number|null,
+ *   aviso?: string,
+ * }>>}
  */
 async function gastoPersonalPorLocal(locales, fecha) {
   const out = new Map();
@@ -88,6 +96,8 @@ async function gastoPersonalPorLocal(locales, fecha) {
 
   if (conFactorial.length === 0) return out;
 
+  const costeHoraMap = await cargarCosteHoraPorLocal(conFactorial);
+
   try {
     const cu = await obtenerCuadrantePorLocales({
       localIds: conFactorial,
@@ -96,11 +106,37 @@ async function gastoPersonalPorLocal(locales, fecha) {
     });
     for (const pl of cu.por_local || []) {
       const id = String(pl.local_id || '');
-      const cents = Number(pl?.totales?.coste_empresa_cents) || 0;
-      out.set(id, { gasto: round2(cents / 100) });
+      const minutosReales = Math.max(0, Number(pl?.totales?.minutos_reales) || 0);
+      const costeHora = costeHoraMap.get(id) ?? null;
+      if (costeHora == null) {
+        out.set(id, {
+          gasto: null,
+          minutosReales,
+          costeHora: null,
+          aviso: 'Sin importe €/h configurado (Ajustes → Importe por hora RRHH)',
+        });
+        continue;
+      }
+      const horas = minutosReales / 60;
+      out.set(id, {
+        gasto: round2(horas * costeHora),
+        minutosReales,
+        costeHora,
+      });
     }
     for (const id of conFactorial) {
-      if (!out.has(id)) out.set(id, { gasto: 0 });
+      if (out.has(id)) continue;
+      const costeHora = costeHoraMap.get(id) ?? null;
+      if (costeHora == null) {
+        out.set(id, {
+          gasto: null,
+          minutosReales: 0,
+          costeHora: null,
+          aviso: 'Sin importe €/h configurado (Ajustes → Importe por hora RRHH)',
+        });
+      } else {
+        out.set(id, { gasto: 0, minutosReales: 0, costeHora });
+      }
     }
   } catch (err) {
     const msg = err instanceof CuadranteServicioError
@@ -241,6 +277,8 @@ export async function buildRatiosDiaLocal({ fecha, locales }) {
       ratioMercaderia: ratioPct(gastoMercaderia, facturacionReal),
       ratioMusicos: ratioPct(gastoMusicos, facturacionReal),
       sinFacturacion: !(facturacionReal > 0),
+      ...(pers.minutosReales != null ? { minutosRealesPersonal: pers.minutosReales } : {}),
+      ...(pers.costeHora !== undefined ? { costeHoraPersonal: pers.costeHora } : {}),
       ...(avisos.length ? { avisos } : {}),
     };
   });

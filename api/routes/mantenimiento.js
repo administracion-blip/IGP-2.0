@@ -933,26 +933,26 @@ router.patch('/mantenimiento/incidencias', async (req, res) => {
     // calculadas), pero deja el cronómetro consistente para la facturación.
     const cierre = cerrarTramoAbierto(item, fechaCompletada);
     const actualizacionParte = {
-      TableName: tables.mantenimiento,
-      Key: { PK: pk, SK: sk },
-      UpdateExpression:
-        'SET FechaCompletada = :fc, fecha_valoracion = :fv, EstadoValoracion = :ev, #est = :est, valoracion_lineas = :ln, valoracion_base = :vb, valoracion_iva = :vi, valoracion_total = :vt' +
+        TableName: tables.mantenimiento,
+        Key: { PK: pk, SK: sk },
+        UpdateExpression:
+          'SET FechaCompletada = :fc, fecha_valoracion = :fv, EstadoValoracion = :ev, #est = :est, valoracion_lineas = :ln, valoracion_base = :vb, valoracion_iva = :vi, valoracion_total = :vt' +
         (cierre ? ', trabajo_tramos = :tr, trabajo_segundos = :seg' : '') +
         SUFIJO_ESCRITURA_VALORACION,
-      ExpressionAttributeNames: { '#est': 'estado' },
+        ExpressionAttributeNames: { '#est': 'estado' },
       // Sin este cierre, dos valoraciones que se solapan escriben cada una su
       // reparto sobre la lectura vieja de la otra y el viaje se cobra dos veces.
       ConditionExpression: condicionParte.expresion,
-      ExpressionAttributeValues: {
-        ':fc': fechaCompletada,
-        ':fv': fechaCompletada,
-        ':ev': 'Valorado',
-        ':est': 'Reparacion',
+        ExpressionAttributeValues: {
+          ':fc': fechaCompletada,
+          ':fv': fechaCompletada,
+          ':ev': 'Valorado',
+          ':est': 'Reparacion',
         ':ln': lineasFinales,
         ':vb': baseFinal,
         ':vi': ivaFinal,
         ':vt': totalFinal,
-        ...(cierre && { ':tr': cierre.tramos, ':seg': cierre.segundos }),
+          ...(cierre && { ':tr': cierre.tramos, ':seg': cierre.segundos }),
         ...VALORES_ESCRITURA_VALORACION,
         ...condicionParte.valores,
       },
@@ -1010,18 +1010,18 @@ router.patch('/mantenimiento/incidencias', async (req, res) => {
     // se cierra aquí en la misma escritura.
     const cierre = cerrarTramoAbierto(item, fechaCompletada);
     const actualizacionReparado = {
-      TableName: tables.mantenimiento,
-      Key: { PK: pk, SK: sk },
-      UpdateExpression:
-        'SET FechaCompletada = :fc, EstadoValoracion = :ev, #est = :est' +
-        (cierre ? ', trabajo_tramos = :tr, trabajo_segundos = :seg' : ''),
-      ExpressionAttributeNames: { '#est': 'estado' },
-      ExpressionAttributeValues: {
-        ':fc': fechaCompletada,
-        ':ev': 'Reparado',
-        ':est': 'Reparacion',
-        ...(cierre && { ':tr': cierre.tramos, ':seg': cierre.segundos }),
-      },
+        TableName: tables.mantenimiento,
+        Key: { PK: pk, SK: sk },
+        UpdateExpression:
+          'SET FechaCompletada = :fc, EstadoValoracion = :ev, #est = :est' +
+          (cierre ? ', trabajo_tramos = :tr, trabajo_segundos = :seg' : ''),
+        ExpressionAttributeNames: { '#est': 'estado' },
+        ExpressionAttributeValues: {
+          ':fc': fechaCompletada,
+          ':ev': 'Reparado',
+          ':est': 'Reparacion',
+          ...(cierre && { ':tr': cierre.tramos, ':seg': cierre.segundos }),
+        },
     };
 
     if (cambio && cambio.operaciones.length > 0) {
@@ -1157,11 +1157,11 @@ router.patch('/mantenimiento/incidencias', async (req, res) => {
     if (subirRev) parts.push(CLAUSULA_ADD_REV);
 
     const actualizacion = {
-      TableName: tables.mantenimiento,
-      Key: { PK: pk, SK: sk },
-      UpdateExpression: parts.join(' '),
-      ...(Object.keys(names).length > 0 && { ExpressionAttributeNames: names }),
-      ...(Object.keys(values).length > 0 && { ExpressionAttributeValues: values }),
+        TableName: tables.mantenimiento,
+        Key: { PK: pk, SK: sk },
+        UpdateExpression: parts.join(' '),
+        ...(Object.keys(names).length > 0 && { ExpressionAttributeNames: names }),
+        ...(Object.keys(values).length > 0 && { ExpressionAttributeValues: values }),
       ...(condicionParte && { ConditionExpression: condicionParte.expresion }),
     };
     if (condicionParte) {
@@ -1226,11 +1226,11 @@ router.patch('/mantenimiento/incidencias', async (req, res) => {
   }
   const condicionProgramar = cambioDia ? condicionValoracionIntacta(itemActual) : null;
   const actualizacionProgramar = {
-    TableName: tables.mantenimiento,
-    Key: { PK: pk, SK: sk },
+      TableName: tables.mantenimiento,
+      Key: { PK: pk, SK: sk },
     UpdateExpression:
       `SET ${setsProgramar.join(', ')}` + (cambioDia?.lineas ? SUFIJO_ESCRITURA_VALORACION : ''),
-    ExpressionAttributeNames: { '#est': 'estado' },
+      ExpressionAttributeNames: { '#est': 'estado' },
     ExpressionAttributeValues: { ...valuesProgramar, ...(condicionProgramar?.valores ?? {}) },
     ...(condicionProgramar && { ConditionExpression: condicionProgramar.expresion }),
   };

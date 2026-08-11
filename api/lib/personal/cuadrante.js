@@ -8,8 +8,13 @@
  *    3. Si ninguno, el empleado aparece sin coste (sin_contrato=true).
  *  - Tasa horaria = mensual_cents / HORAS_MES_ESTANDAR (173,33 h ≈ 40 h/sem).
  *  - Coste empresa = bruto × 1.31 (cuota empresarial SS y otros).
- *  - Día asignado = fecha local en Europe/Madrid del inicio del turno.
+ *  - Día asignado = jornada de negocio IGP del inicio del turno/fichaje
+ *    (Europe/Madrid; ≤09:30 → día anterior). Ver fechaJornadaNegocioDesdeIso.
  */
+
+import { fechaJornadaNegocioDesdeIso } from '../jornadaNegocio.js';
+
+export { fechaJornadaNegocioDesdeIso };
 
 const HORAS_MES_ESTANDAR = 173.33;
 const COSTE_EMPRESA_FACTOR = 1.31;
@@ -17,20 +22,6 @@ const TARDE_UMBRAL_MIN = 15;
 const SALIDA_ANTICIPADA_UMBRAL_MIN = 15;
 
 const TZ_MADRID = 'Europe/Madrid';
-const _fechaFormatter = new Intl.DateTimeFormat('en-CA', {
-  timeZone: TZ_MADRID,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
-
-/** Devuelve la fecha local Europe/Madrid en formato YYYY-MM-DD para un ISO datetime. */
-function fechaLocalMadrid(iso) {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return _fechaFormatter.format(d);
-}
 
 /** Devuelve el timestamp en ms (epoch) de un ISO. Devuelve null si inválido. */
 function tsMs(iso) {
@@ -69,14 +60,31 @@ function madridOffsetMs(date) {
   return asUTC - date.getTime();
 }
 
-/** ¿El valor es solo una hora "HH:mm" (sin fecha)? */
+/** ¿El valor es solo una hora "HH:mm" / "HH:mm:ss" (sin fecha)? */
 function esHoraSola(v) {
-  return typeof v === 'string' && /^\d{1,2}:\d{2}/.test(v) && !/\d{4}-\d{2}-\d{2}/.test(v);
+  return typeof v === 'string' && /^\d{1,2}:\d{2}(:\d{2})?/.test(v.trim()) && !/\d{4}-\d{2}-\d{2}/.test(v);
 }
 
-/** Minutos del día de una hora "HH:mm". null si no parsea. */
+/** ¿Parece un datetime ISO (con T o espacio entre fecha y hora)? */
+function esIsoDateTime(v) {
+  if (typeof v !== 'string') return false;
+  const s = v.trim();
+  if (!/^\d{4}-\d{2}-\d{2}[T ]\d{1,2}:\d{2}/.test(s)) return false;
+  const d = new Date(s);
+  return !Number.isNaN(d.getTime());
+}
+
+/** Fecha de negocio del fichaje: `date` o, si falta, `reference_date` (Factorial). */
+function attDateOf(s) {
+  const raw = s?.date || s?.reference_date || null;
+  if (raw == null || raw === '') return null;
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(raw).trim());
+  return m ? m[1] : null;
+}
+
+/** Minutos del día de una hora "HH:mm" / "HH:mm:ss". null si no parsea. */
 function horaAMin(t) {
-  const m = /^(\d{1,2}):(\d{2})/.exec(String(t || ''));
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(String(t || '').trim());
   if (!m) return null;
   return Number(m[1]) * 60 + Number(m[2]);
 }
@@ -90,14 +98,38 @@ function sumarUnDia(dateStr) {
   return dt.toISOString().slice(0, 10);
 }
 
-/** Convierte fecha YYYY-MM-DD + hora HH:mm (hora local Madrid) a ISO UTC. null si inválido. */
+/** Convierte fecha YYYY-MM-DD + hora HH:mm[/ss] (hora local Madrid) a ISO UTC. null si inválido. */
 function madridWallClockToIso(dateStr, timeStr) {
   const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ''));
-  const tm = /^(\d{1,2}):(\d{2})/.exec(String(timeStr || ''));
+  const tm = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(String(timeStr || '').trim());
   if (!dm || !tm) return null;
-  const guess = Date.UTC(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]), Number(tm[1]), Number(tm[2]));
+  const sec = tm[3] != null ? Number(tm[3]) : 0;
+  const guess = Date.UTC(
+    Number(dm[1]),
+    Number(dm[2]) - 1,
+    Number(dm[3]),
+    Number(tm[1]),
+    Number(tm[2]),
+    sec,
+  );
   const offset = madridOffsetMs(new Date(guess));
   return new Date(guess - offset).toISOString();
+}
+
+/**
+ * Convierte un valor de reloj Factorial a ISO UTC.
+ * Acepta ISO datetime completo, o HH:mm[/ss] + fecha de referencia (Madrid).
+ */
+function clockValorAIso(clockVal, dateStr) {
+  if (clockVal == null || clockVal === '') return null;
+  if (esIsoDateTime(clockVal)) return new Date(String(clockVal).trim()).toISOString();
+  if (dateStr && esHoraSola(clockVal)) return madridWallClockToIso(dateStr, clockVal);
+  // Último recurso: Date() sobre el string (p. ej. ISO sin T estricto).
+  if (typeof clockVal === 'string' && /\d{4}-\d{2}-\d{2}/.test(clockVal)) {
+    const d = new Date(clockVal.trim());
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
+  }
+  return null;
 }
 
 /**
@@ -203,44 +235,64 @@ function planStartOf(s) { return s?.start_at || s?.starts_at || s?.start_on || n
 function planEndOf(s) { return s?.end_at || s?.ends_at || s?.end_on || null; }
 
 /**
- * Inicio del fichaje como ISO. Factorial (attendance/shifts) devuelve `date` (YYYY-MM-DD)
- * + `clock_in` como hora local "HH:mm". Si vienen así, se compone el instante en Madrid;
- * si no, se usan campos datetime de versiones anteriores.
+ * Inicio del fichaje como ISO.
+ * Factorial suele devolver `date`/`reference_date` + `clock_in` ("HH:mm", "HH:mm:ss" o ISO).
+ * Turno abierto (sin clock_out) sigue indexándose si hay inicio.
  */
+function attClockInRaw(s) {
+  return s?.clock_in ?? s?.clock_in_at ?? s?.start_at ?? s?.starts_at ?? null;
+}
+
+function attClockOutRaw(s) {
+  return s?.clock_out ?? s?.clock_out_at ?? s?.end_at ?? s?.ends_at ?? null;
+}
+
 function attStartOf(s) {
-  if (s?.date && esHoraSola(s?.clock_in)) return madridWallClockToIso(s.date, s.clock_in);
-  return s?.clock_in || s?.start_at || s?.starts_at || null;
+  const dateStr = attDateOf(s);
+  const iso = clockValorAIso(attClockInRaw(s), dateStr);
+  if (iso) return iso;
+  // Si solo hay fecha + minutes (sin hora), no inventamos instante; sin start no se indexa.
+  return null;
 }
 
 /**
  * Fin del fichaje como ISO. Maneja turnos que cruzan medianoche: si la hora de salida es
  * anterior a la de entrada, la salida pertenece al día siguiente.
+ * Ausencia de clock_out (turno abierto) → null; no invalida el fichaje.
  */
 function attEndOf(s) {
-  if (s?.date && esHoraSola(s?.clock_out)) {
-    let endDate = s.date;
-    const inMin = horaAMin(s?.clock_in);
-    const outMin = horaAMin(s?.clock_out);
-    if (inMin != null && outMin != null && outMin < inMin) endDate = sumarUnDia(s.date);
-    return madridWallClockToIso(endDate, s.clock_out);
+  const dateStr = attDateOf(s);
+  const clockOut = attClockOutRaw(s);
+  if (clockOut == null || clockOut === '') return null;
+
+  if (dateStr && esHoraSola(clockOut)) {
+    let endDate = dateStr;
+    const inMin = horaAMin(attClockInRaw(s));
+    const outMin = horaAMin(clockOut);
+    if (inMin != null && outMin != null && outMin < inMin) endDate = sumarUnDia(dateStr);
+    return madridWallClockToIso(endDate, clockOut);
   }
-  return s?.clock_out || s?.end_at || s?.ends_at || null;
+  return clockValorAIso(clockOut, dateStr);
 }
 
-/** Minutos reales del fichaje: usa `minutes` de Factorial si está; si no, calcula por diferencia. */
+/**
+ * Minutos reales del fichaje: usa `minutes` de Factorial si está (también con turno abierto);
+ * si no, calcula por diferencia cuando hay fin.
+ */
 function attMinutesOf(s, startIso, endIso) {
   if (typeof s?.minutes === 'number' && Number.isFinite(s.minutes) && s.minutes >= 0) return s.minutes;
+  if (!endIso) return 0;
   return diffMin(startIso, endIso);
 }
 
-/** Construye un Map<employee_id_string + '__' + dia, Array<shift>> agrupado por día local Madrid. */
+/** Construye un Map<employee_id_string + '__' + dia, Array<shift>> agrupado por jornada de negocio. */
 function indexarPorEmpleadoYDia(items, getStart) {
   const out = new Map();
   for (const it of items || []) {
     const empId = it.employee_id != null ? String(it.employee_id) : null;
     if (!empId) continue;
     const startIso = getStart(it);
-    const dia = fechaLocalMadrid(startIso);
+    const dia = fechaJornadaNegocioDesdeIso(startIso);
     if (!dia) continue;
     const key = `${empId}__${dia}`;
     const arr = out.get(key) || [];
@@ -377,24 +429,30 @@ export function construirCuadrante({ planned, attendance, contratoPorEmp, emplea
 }
 
 /**
- * ¿Incluir este fichaje en el cuadrante del local `factorialLocStr`?
- * - Con plan en el local: se incluye; si el fichaje trae ubicación, debe coincidir cuando el local es numérico válido.
- * - Sin plan: ubicación del fichaje = local, o sin ubicación en fichaje pero sede del empleado (Factorial) = local.
+ * ¿Incluir este fichaje en el cuadrante del local?
+ * - Si hay plan del mismo empleado en este local en la **misma jornada** del fichaje → sí
+ *   (aunque location_id del fichaje no coincida; evita doble conteo entre locales).
+ * - Si no: ubicación del fichaje = local, o sede del empleado = local.
  */
-function fichajePerteneceAlLocal(a, empSet, factorialLocStr, empleadoLocationPorEmp) {
+function fichajePerteneceAlLocal(a, plannedL, factorialLocStr, empleadoLocationPorEmp) {
   if (a.employee_id == null) return false;
   const empStr = String(a.employee_id);
-  const locNum = Number.parseInt(String(factorialLocStr || '').trim(), 10);
-  const locOk = Number.isFinite(locNum);
-  const attLoc = attendanceShiftLocationId(a);
+  const attDia = fechaJornadaNegocioDesdeIso(attStartOf(a));
 
-  if (empSet.has(empStr)) {
-    if (!locOk) return true;
-    if (attLoc == null || !Number.isFinite(attLoc)) return true;
-    return attLoc === locNum;
+  if (attDia) {
+    const tienePlanEsaJornada = (plannedL || []).some((p) => {
+      if (p.employee_id == null || String(p.employee_id) !== empStr) return false;
+      const planDia = fechaJornadaNegocioDesdeIso(planStartOf(p));
+      return planDia === attDia;
+    });
+    if (tienePlanEsaJornada) return true;
   }
 
+  const locNum = Number.parseInt(String(factorialLocStr || '').trim(), 10);
+  const locOk = Number.isFinite(locNum);
   if (!locOk) return false;
+
+  const attLoc = attendanceShiftLocationId(a);
   if (Number.isFinite(attLoc)) return attLoc === locNum;
   const home = empleadoLocationPorEmp.get(empStr);
   return Number.isFinite(home) && home === locNum;
@@ -402,7 +460,8 @@ function fichajePerteneceAlLocal(a, empSet, factorialLocStr, empleadoLocationPor
 
 /**
  * Un cuadrante por local IGP: turnos deben llevar `__igp_local_id` (string).
- * Fichajes: empleados con plan en ese local; además fichajes sin plan si ubicación del fichaje o sede del empleado coincide con el local (Factorial).
+ * Fichajes: plan misma jornada en el local (sin exigir location del fichaje);
+ * además fichajes sin plan si ubicación del fichaje o sede del empleado coincide.
  *
  * @param {{ plannedTagged: Array, attendance: Array, contratoPorEmp: Map, empleadoNombre: Map, empleadoLocationPorEmp?: Map<string, number|null>, from: string, to: string, localesOrden: Array<{ local_id: string, nombre: string, factorial_location_id: string }> }} args
  * @returns {{ totales: object, por_local: Array<{ local_id, nombre, factorial_location_id, totales, dias }> }}
@@ -428,13 +487,8 @@ export function construirCuadrantePorLocales({
   for (const loc of localesOrden || []) {
     const lid = String(loc.local_id);
     const plannedL = (plannedTagged || []).filter((s) => String(s.__igp_local_id) === lid);
-    const empSet = new Set(
-      plannedL
-        .map((s) => (s.employee_id != null ? String(s.employee_id) : null))
-        .filter(Boolean),
-    );
     const attendanceL = (attendance || []).filter((a) =>
-      fichajePerteneceAlLocal(a, empSet, loc.factorial_location_id, empleadoLocationPorEmp),
+      fichajePerteneceAlLocal(a, plannedL, loc.factorial_location_id, empleadoLocationPorEmp),
     );
 
     const cu = construirCuadrante({

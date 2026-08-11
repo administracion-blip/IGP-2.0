@@ -64,6 +64,8 @@ type BaseProps = {
   tituloPersonalizado?: string;
   /** Sustituye el texto del botón principal. */
   textoBotonPersonalizado?: string;
+  /** Sociedad del grupo que paga (solo lectura, bajo el título). */
+  empresaPagadoraNombre?: string;
 };
 
 export type DatosPagoInfo = {
@@ -201,6 +203,7 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
     onValidationError,
     tituloPersonalizado,
     textoBotonPersonalizado,
+    empresaPagadoraNombre,
     modo,
   } = props;
 
@@ -397,7 +400,14 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
       <Pressable style={styles.modalOverlay} onPress={() => !submitting && onClose()}>
         <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{titulo}</Text>
+            <View style={styles.modalHeaderText}>
+              <Text style={styles.modalTitle}>{titulo}</Text>
+              {empresaPagadoraNombre !== undefined ? (
+                <Text style={styles.empresaPagadora}>
+                  Empresa pagadora: {empresaPagadoraNombre.trim() || '—'}
+                </Text>
+              ) : null}
+            </View>
             <TouchableOpacity onPress={onClose} disabled={submitting}>
               <MaterialIcons name="close" size={22} color="#334155" />
             </TouchableOpacity>
@@ -602,13 +612,24 @@ const styles = StyleSheet.create({
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    gap: 8,
     marginBottom: 12,
+  },
+  modalHeaderText: {
+    flex: 1,
+    paddingRight: 4,
   },
   modalTitle: {
     fontSize: 16,
     fontWeight: '700',
     color: '#334155',
+  },
+  empresaPagadora: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0369a1',
   },
   resumenBox: {
     backgroundColor: '#f0f9ff',

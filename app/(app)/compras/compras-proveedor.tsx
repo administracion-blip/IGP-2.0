@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -40,7 +40,11 @@ import {
 import { apiFetch } from '../../utils/api';
 import { useGruposFamilias } from '../../hooks/useGruposFamilias';
 import { useAuth } from '../../contexts/AuthContext';
-import { DIAS_CARGA_COMPRAS, rangoComprasDefault } from '../../lib/comprasProveedorRango';
+import {
+  DIAS_CARGA_COMPRAS,
+  rangoApiDesdeFiltroFechas,
+  rangoComprasDefault,
+} from '../../lib/comprasProveedorRango';
 
 type SyncOpcion = number | 'completo';
 
@@ -75,6 +79,27 @@ export default function ComprasProveedorScreen() {
   const { hasPermiso } = useAuth();
   const puedeInformeIa = hasPermiso('ia.informes') && hasPermiso('ia.informe_compras');
 
+  /** Clave del filtro de fechas ya pedido a la API (evita refetch al cerrar el modal sin cambios). */
+  const filtroFechasApiKeyRef = useRef('|');
+
+  const aplicarCargaPorFiltroFechas = useCallback(
+    async (desde: string, hasta: string) => {
+      const key = `${(desde || '').trim()}|${(hasta || '').trim()}`;
+      if (filtroFechasApiKeyRef.current === key) return;
+      const { dateFrom, dateTo } = rangoApiDesdeFiltroFechas(desde, hasta);
+      const result = await recargar({ dateFrom, dateTo, force: true });
+      // ok = cargado; skipped = encolado tras la carga en curso (el cache lo ejecuta al terminar).
+      if (result.ok || result.skipped) filtroFechasApiKeyRef.current = key;
+    },
+    [recargar],
+  );
+
+  const cerrarModalFiltros = useCallback(() => {
+    setModalFiltrosVisible(false);
+    setFiltroDropdownId(null);
+    void aplicarCargaPorFiltroFechas(fechaDesde, fechaHasta);
+  }, [aplicarCargaPorFiltroFechas, fechaDesde, fechaHasta]);
+
   const sincronizar = useCallback(async (opcion: SyncOpcion) => {
     setMenuSyncVisible(false);
     setSyncing(true);
@@ -99,13 +124,15 @@ export default function ComprasProveedorScreen() {
         `Sincronizado: ${data.totalUpserted ?? 0} líneas (${data.dateFrom} → ${data.dateTo}, ${data.daysProcessed ?? 0} días)` +
         (data.errors?.length ? ` · ${data.errors.length} errores` : '')
       );
-      await recargar({ force: true });
+      const { dateFrom, dateTo } = rangoApiDesdeFiltroFechas(fechaDesde, fechaHasta);
+      filtroFechasApiKeyRef.current = `${fechaDesde.trim()}|${fechaHasta.trim()}`;
+      await recargar({ dateFrom, dateTo, force: true });
     } catch (err: any) {
       setSyncResult(`Error: ${err.message}`);
     } finally {
       setSyncing(false);
     }
-  }, [recargar]);
+  }, [recargar, fechaDesde, fechaHasta]);
 
   useEffect(() => {
     const { dateFrom, dateTo } = rangoComprasDefault(DIAS_CARGA_COMPRAS);
@@ -234,7 +261,8 @@ export default function ComprasProveedorScreen() {
     setSelFamilias([]);
     setSelAlmacenes([]);
     setFiltroDropdownId(null);
-  }, []);
+    aplicarCargaPorFiltroFechas('', '');
+  }, [aplicarCargaPorFiltroFechas]);
 
   const PAGE_SIZE = 100;
   const [page, setPage] = useState(0);
@@ -388,7 +416,10 @@ export default function ComprasProveedorScreen() {
           </ComprasToolbarIconBtn>
           <ComprasToolbarIconBtn
             tooltip={loading ? 'Cargando datos del servidor…' : 'Recargar datos desde el servidor'}
-            onPress={() => recargar({ force: true })}
+            onPress={() => {
+              const { dateFrom, dateTo } = rangoApiDesdeFiltroFechas(fechaDesde, fechaHasta);
+              recargar({ dateFrom, dateTo, force: true });
+            }}
             disabled={loading}
             accessibilityLabel="Recargar"
             variant="outline"
@@ -438,13 +469,13 @@ export default function ComprasProveedorScreen() {
         </View>
       ) : null}
 
-      <Modal visible={modalFiltrosVisible} transparent animationType="fade" onRequestClose={() => setModalFiltrosVisible(false)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalFiltrosVisible(false)}>
+      <Modal visible={modalFiltrosVisible} transparent animationType="fade" onRequestClose={cerrarModalFiltros}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={cerrarModalFiltros}>
           <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalFiltrosWrap}>
             <View style={styles.modalFiltrosCard}>
               <View style={styles.modalFiltrosHeader}>
                 <Text style={styles.modalFiltrosTitle}>Filtros</Text>
-                <TouchableOpacity onPress={() => setModalFiltrosVisible(false)} hitSlop={8}>
+                <TouchableOpacity onPress={cerrarModalFiltros} hitSlop={8}>
                   <MaterialIcons name="close" size={22} color="#64748b" />
                 </TouchableOpacity>
               </View>
@@ -456,7 +487,7 @@ export default function ComprasProveedorScreen() {
               >
                 <Text style={styles.modalFiltrosSectionTitle}>Rango de fechas (albarán)</Text>
                 <Text style={styles.modalFiltrosHint}>
-                  Formato dd/mm/aaaa. Deja vacío un extremo para no acotar por ese lado. Solo se filtra si la fecha introducida es válida; las líneas sin fecha de albarán quedan excluidas del rango.
+                  Formato dd/mm/aaaa. Al pulsar Listo se cargan del servidor las compras de ese rango (no solo los últimos 90 días). Deja vacío un extremo para no acotar por ese lado; las líneas sin fecha de albarán quedan excluidas del rango.
                 </Text>
                 <View style={styles.modalFiltrosFechasRow}>
                   <View style={styles.modalFiltrosFechaField}>
@@ -514,7 +545,7 @@ export default function ComprasProveedorScreen() {
                 <TouchableOpacity style={styles.modalFiltrosLimpiar} onPress={limpiarFiltrosAvanzados}>
                   <Text style={styles.modalFiltrosLimpiarText}>Limpiar filtros</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.modalFiltrosCerrar} onPress={() => setModalFiltrosVisible(false)}>
+                <TouchableOpacity style={styles.modalFiltrosCerrar} onPress={cerrarModalFiltros}>
                   <Text style={styles.modalFiltrosCerrarText}>Listo</Text>
                 </TouchableOpacity>
               </View>

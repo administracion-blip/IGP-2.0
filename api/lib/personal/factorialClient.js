@@ -194,38 +194,85 @@ export async function fetchPlannedShifts({ locationId, from, to }) {
   return items;
 }
 
-/**
- * Fichajes reales (attendance/shifts).
- * Nota: este endpoint NO acepta filtro por location; hay que pasarle los employee_ids.
- * @param {{ employeeIds: Array<string|number>, from: string, to: string }} args
- */
 const ATTENDANCE_EMPLOYEE_CHUNK = 55;
 
-export async function fetchAttendanceShifts({ employeeIds, from, to }) {
-  if (!Array.isArray(employeeIds) || employeeIds.length === 0) return [];
-  const ids = [...new Set(
-    employeeIds
-      .map((id) => {
-        const n = typeof id === 'number' && Number.isFinite(id) ? id : Number.parseInt(String(id).trim(), 10);
-        return Number.isFinite(n) ? n : null;
-      })
-      .filter((id) => id != null),
-  )];
-  if (ids.length === 0) return [];
+/** Sample de diagnóstico (sin PII): keys + campos de reloj/ubicación. */
+function sampleAttendanceDiag(items) {
+  return (items || []).slice(0, 2).map((it) => {
+    const o = it && typeof it === 'object' ? it : {};
+    return {
+      keys: Object.keys(o),
+      employee_id: o.employee_id ?? null,
+      date: o.date ?? null,
+      reference_date: o.reference_date ?? null,
+      clock_in: o.clock_in ?? null,
+      clock_out: o.clock_out ?? null,
+      minutes: o.minutes ?? null,
+      location_id: o.location_id ?? null,
+      workplace_id: o.workplace_id ?? null,
+      reference_contract_location_id: o.reference_contract_location_id ?? null,
+    };
+  });
+}
 
-  console.log(`[factorial] Descargando fichajes (${ids.length} empleados, ${from}→${to})…`);
-  const all = [];
-  for (let i = 0; i < ids.length; i += ATTENDANCE_EMPLOYEE_CHUNK) {
-    const slice = ids.slice(i, i + ATTENDANCE_EMPLOYEE_CHUNK);
-    const qs = buildQuery({
-      employee_ids: slice,
-      start_on: from,
-      end_on: to,
-    });
-    const items = await getAll(`/resources/attendance/shifts${qs}`);
-    all.push(...items);
+/**
+ * Fichajes reales (attendance/shifts).
+ * - Sin `employeeIds` (o []): por rango de fechas (todos los accesibles). Preferible en cuadrante.
+ * - Con `employeeIds`: chunked. `end_on` se amplía +2 días en modo fecha para cierres post-medianoche.
+ */
+export async function fetchAttendanceShifts({ employeeIds, from, to } = {}) {
+  const ids = [];
+  const seen = new Set();
+  for (const id of employeeIds || []) {
+    const n = typeof id === 'number' && Number.isFinite(id) ? id : Number.parseInt(String(id).trim(), 10);
+    if (!Number.isFinite(n) || seen.has(n)) continue;
+    seen.add(n);
+    ids.push(n);
   }
-  console.log(`[factorial] ${all.length} fichajes`);
+
+  const byDateOnly = ids.length === 0;
+  console.log(
+    byDateOnly
+      ? `[factorial] Descargando fichajes (todos, ${from}→${to})…`
+      : `[factorial] Descargando fichajes (${ids.length} empleados, ${from}→${to})…`,
+  );
+
+  async function pull(params) {
+    const qs = buildQuery(params);
+    return getAll(`/resources/attendance/shifts${qs}`);
+  }
+
+  const shiftDateIso = (nDays) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(to || ''));
+    if (!m) return to;
+    const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+    dt.setUTCDate(dt.getUTCDate() + nDays);
+    return dt.toISOString().slice(0, 10);
+  };
+
+  let all = [];
+  if (byDateOnly) {
+    // end_on amplio (+2): turnos que cruzan medianoche / cierran al día siguiente.
+    all = await pull({ start_on: from, end_on: shiftDateIso(2) });
+  } else {
+    const endOn = shiftDateIso(2);
+    for (let i = 0; i < ids.length; i += ATTENDANCE_EMPLOYEE_CHUNK) {
+      const slice = ids.slice(i, i + ATTENDANCE_EMPLOYEE_CHUNK);
+      // eslint-disable-next-line no-await-in-loop
+      const items = await pull({
+        employee_ids: slice,
+        start_on: from,
+        end_on: endOn,
+      });
+      all.push(...items);
+    }
+  }
+
+  const sample = sampleAttendanceDiag(all);
+  console.log(
+    `[factorial] ${all.length} fichajes`,
+    sample.length ? `| sample=${JSON.stringify(sample)}` : '',
+  );
   return all;
 }
 

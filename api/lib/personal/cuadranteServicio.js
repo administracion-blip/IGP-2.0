@@ -20,6 +20,15 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const FLAGS_SOSPECHOSOS = ['sin_planificado', 'sin_real', 'tarde', 'salida_anticipada'];
 
+/** Suma/resta días a YYYY-MM-DD (calendario UTC sobre la parte fecha). */
+function desplazarFechaIso(dateStr, deltaDays) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ''));
+  if (!m) return dateStr;
+  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  dt.setUTCDate(dt.getUTCDate() + deltaDays);
+  return dt.toISOString().slice(0, 10);
+}
+
 /** Error con status HTTP para mapear en la ruta. */
 export class CuadranteServicioError extends Error {
   constructor(status, message) {
@@ -103,13 +112,18 @@ export async function obtenerCuadrantePorLocales({ localIds, from, to }) {
 
   const empleadosLocales = await getAllEmployees(docClient, tables.empleados).catch(() => []);
 
+  // Ampliar fetch ±1 día: madrugadas del to+1 (p.ej. 00:02) y bordes from−1
+  // se reclasifican a jornada de negocio; el resultado usa from/to del cliente.
+  const fetchFrom = desplazarFechaIso(fromStr, -1);
+  const fetchTo = desplazarFechaIso(toStr, 1);
+
   let planned = [];
   for (const r of resolved) {
     // eslint-disable-next-line no-await-in-loop
     const chunk = await fetchPlannedShifts({
       locationId: r.factorial_location_id,
-      from: fromStr,
-      to: toStr,
+      from: fetchFrom,
+      to: fetchTo,
     });
     for (const s of chunk) {
       planned.push({
@@ -120,18 +134,62 @@ export async function obtenerCuadrantePorLocales({ localIds, from, to }) {
     }
   }
 
-  const idsPlan = planned.map((s) => s.employee_id).filter((v) => v != null);
+  // Empleados con plan van primero: nunca deben quedar fuera del fetch de fichajes.
+  const idsPlan = [];
+  const seenPlan = new Set();
+  for (const s of planned) {
+    if (s.employee_id == null) continue;
+    const k = String(s.employee_id);
+    if (seenPlan.has(k)) continue;
+    seenPlan.add(k);
+    idsPlan.push(s.employee_id);
+  }
   const idsDb = (empleadosLocales || [])
     .map((e) => e.employee_id)
-    .filter((v) => v != null && String(v).trim() !== '');
-  const employeeIds = [...new Set([...idsPlan, ...idsDb])];
+    .filter((v) => v != null && String(v).trim() !== '' && !seenPlan.has(String(v)));
+  const employeeIds = [...idsPlan, ...idsDb];
 
   const empleadoLocationPorEmp = mapEmpleadoLocationPorEmp(empleadosLocales);
 
-  const [attendance, contracts] = await Promise.all([
-    fetchAttendanceShifts({ employeeIds, from: fromStr, to: toStr }),
+  // Attendance por rango de fechas (sin employee_ids): evita sub-fetch del filtro por empleado.
+  // Si aún faltan fichajes de gente con plan, complemento con fetch solo de idsPlan.
+  const [attendanceByDate, contracts] = await Promise.all([
+    fetchAttendanceShifts({ from: fetchFrom, to: fetchTo }),
     fetchContractVersions({ employeeIds }),
   ]);
+
+  let attendance = attendanceByDate || [];
+  const attIds = new Set(
+    attendance.map((a) => (a?.id != null ? `id:${a.id}` : null)).filter(Boolean),
+  );
+  const planSinFichaje = idsPlan.filter((id) => {
+    const k = String(id);
+    return !attendance.some((a) => a.employee_id != null && String(a.employee_id) === k);
+  });
+  // Reintento siempre en chunks (sin tope que cancele): empleados con plan aún sin fichaje.
+  if (planSinFichaje.length > 0) {
+    const extra = await fetchAttendanceShifts({
+      employeeIds: planSinFichaje,
+      from: fetchFrom,
+      to: fetchTo,
+    });
+    for (const a of extra || []) {
+      const key = a?.id != null ? `id:${a.id}` : null;
+      if (key && attIds.has(key)) continue;
+      if (key) attIds.add(key);
+      attendance.push(a);
+    }
+  }
+
+  const attDePlan = attendance.filter(
+    (a) => a.employee_id != null && seenPlan.has(String(a.employee_id)),
+  );
+  console.log(
+    `[cuadrante] planificados=${planned.length} empleados_plan=${idsPlan.length}`
+    + ` fichajes_api=${attendance.length} fichajes_empleados_con_plan=${attDePlan.length}`
+    + ` plan_sin_fichaje_reintento=${planSinFichaje.length}`
+    + ` rango_fetch=${fetchFrom}→${fetchTo}`,
+  );
 
   const contratoPorEmp = ultimoContratoPorEmpleado(contracts);
 
