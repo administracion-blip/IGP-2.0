@@ -2,7 +2,7 @@ import express from 'express';
 import bcrypt from 'bcrypt';
 import { ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requirePermission } from '../middleware/auth.js';
 import { validarRolUsuario } from '../lib/roles.js';
 
 const router = express.Router();
@@ -19,7 +19,8 @@ function formatId6(val) {
 const TABLE_USUARIOS_ATTRS = ['id_usuario', 'Nombre', 'Apellidos', 'Email', 'Password', 'Telefono', 'Rol', 'Local'];
 
 // Listar usuarios (campos de la tabla, sin Password)
-router.get('/usuarios', async (req, res) => {
+// [SEC S-05]
+router.get('/usuarios', requirePermission('usuarios.ver'), async (req, res) => {
   const cmd = new ScanCommand({
     TableName: tables.usuarios,
   });
@@ -47,7 +48,8 @@ function normalizeLocal(val) {
 }
 
 // Crear usuario (guardar en DynamoDB). Solo se escriben atributos de TABLE_USUARIOS_ATTRS.
-router.post('/usuarios', requireAuth, requireRole('Administrador'), async (req, res) => {
+// [SEC S-05]
+router.post('/usuarios', requirePermission('usuarios.crear'), async (req, res) => {
   const body = req.body || {};
   if (!body.Email || !body.Password) {
     return res.status(400).json({ error: 'Email y Password son obligatorios' });
@@ -85,7 +87,8 @@ router.post('/usuarios', requireAuth, requireRole('Administrador'), async (req, 
 });
 
 // Actualizar usuario (por id_usuario). Si Password viene vacío, se mantiene el actual.
-router.put('/usuarios', requireAuth, requireRole('Administrador'), async (req, res) => {
+// [SEC S-05]
+router.put('/usuarios', requirePermission('usuarios.editar'), async (req, res) => {
   const body = req.body || {};
   const idUsuario = body.id_usuario != null ? String(body.id_usuario) : '';
   if (!idUsuario) {
@@ -138,7 +141,8 @@ router.put('/usuarios', requireAuth, requireRole('Administrador'), async (req, r
 });
 
 // Borrar usuario por id_usuario (clave de la tabla).
-router.delete('/usuarios', requireAuth, requireRole('Administrador'), async (req, res) => {
+// [SEC S-05]
+router.delete('/usuarios', requirePermission('usuarios.borrar'), async (req, res) => {
   const idUsuario = req.body?.id_usuario != null ? String(req.body.id_usuario) : req.query?.id_usuario != null ? String(req.query.id_usuario) : '';
   if (!idUsuario) {
     return res.status(400).json({ error: 'id_usuario es obligatorio para borrar' });
