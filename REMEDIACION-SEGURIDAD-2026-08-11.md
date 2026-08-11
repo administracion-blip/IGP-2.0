@@ -64,6 +64,14 @@ Rama: `security/remediacion-2026-08`
 - Sin `report-uri` en esta pasada.
 - Tests: `api/tests/helmetCsp.test.mjs`.
 
+### S-10 · Passwords (migración gradual)
+- Helper `api/lib/password.js`: `hashPassword` / `verifyPassword` (bcrypt + legacy timing-safe).
+- Login: bcrypt o plaintext legacy; si legacy OK → rehash on-login con `UpdateCommand` (best-effort).
+- Create/update usuarios y reset: siempre bcrypt.
+- **Sin** deadline que rechace plaintext (quitar fallback solo tras audit ~0 residuales).
+- Script ops: `api/scripts/audit-plaintext-passwords.js` (lista id+email, nunca Password).
+- Tests: `api/tests/authPassword.test.mjs`.
+
 ## Commits
 1. `[S-01]` facturación permisos  
 2. `[S-04]` remesa atómica  
@@ -79,17 +87,17 @@ Rama: `security/remediacion-2026-08`
 12. `[S-13]` IP allowlist internal-secret  
 13. `[S-14]` npm audit fix api  
 14. `[S-11]` CSP report-only Helmet  
+15. `[S-10]` passwords helper + rehash Update + audit  
 
 ## Verificación
-- `cd api && npm test` → **166 pass / 0 fail**.
-- Smoke manual recomendado: facturas con usuario Locales acotados vs Admin; remesas; OCR registro-masivo; CORS prod con `CORS_ALLOWED_ORIGINS`; cabecera `Content-Security-Policy-Report-Only` en `/api/health`.
+- `cd api && npm test` → **172 pass / 0 fail**.
+- Smoke manual recomendado: facturas con usuario Locales acotados vs Admin; remesas; OCR; CORS prod; header CSP-Report-Only; login usuario legacy (si queda alguno) y comprobar rehash.
 
 ## Pendiente
 
 | ID | Qué | Nota |
 |----|-----|------|
 | S-09 | SecureStore vs AsyncStorage | Plan cliente (`app/utils/authToken.ts`) |
-| S-10 | Passwords plaintext | Migración gradual (prioridad siguiente) |
 
 ## Roles a revisar
 1. DELETE empresas = solo Admin (no hay `empresas.borrar`).
