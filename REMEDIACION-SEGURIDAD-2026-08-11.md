@@ -57,6 +57,13 @@ Rama: `security/remediacion-2026-08`
 - Detalle: `api/AUDIT-SEC-S14.md`.
 - Raíz: no aplicado (ERESOLVE peers); no `--force`.
 
+### S-11 · Helmet CSP report-only
+- `api/lib/helmetOptions.js`: CSP API JSON restrictiva en **Report-Only** (`default-src`/`frame-ancestors`/`base-uri`/`form-action` `'none'`).
+- Sin CSP enforcing; COEP sigue `false`.
+- No aplica al documento Expo web (otro origen); CSP del front = follow-up de hosting.
+- Sin `report-uri` en esta pasada.
+- Tests: `api/tests/helmetCsp.test.mjs`.
+
 ## Commits
 1. `[S-01]` facturación permisos  
 2. `[S-04]` remesa atómica  
@@ -71,18 +78,18 @@ Rama: `security/remediacion-2026-08`
 11. `[S-08]` filtro emisor/Locales facturación  
 12. `[S-13]` IP allowlist internal-secret  
 13. `[S-14]` npm audit fix api  
+14. `[S-11]` CSP report-only Helmet  
 
 ## Verificación
-- `cd api && npm test` → **165 pass / 0 fail**.
-- Smoke manual recomendado: facturas con usuario Locales acotados vs Admin; remesas; OCR registro-masivo; CORS prod con `CORS_ALLOWED_ORIGINS`.
+- `cd api && npm test` → **166 pass / 0 fail**.
+- Smoke manual recomendado: facturas con usuario Locales acotados vs Admin; remesas; OCR registro-masivo; CORS prod con `CORS_ALLOWED_ORIGINS`; cabecera `Content-Security-Policy-Report-Only` en `/api/health`.
 
 ## Pendiente
 
 | ID | Qué | Nota |
 |----|-----|------|
-| S-09 | SecureStore vs AsyncStorage | Plan cliente |
-| S-10 | Passwords plaintext | Migración gradual |
-| S-11 | Helmet CSP report-only | Validar web Expo |
+| S-09 | SecureStore vs AsyncStorage | Plan cliente (`app/utils/authToken.ts`) |
+| S-10 | Passwords plaintext | Migración gradual (prioridad siguiente) |
 
 ## Roles a revisar
 1. DELETE empresas = solo Admin (no hay `empresas.borrar`).
