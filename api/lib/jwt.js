@@ -7,9 +7,11 @@ if (!JWT_SECRET || JWT_SECRET.length < 32) {
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '8h';
 
 export function signToken(payload) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  // [SEC S-07]
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN, algorithm: 'HS256' });
 }
 
 export function verifyToken(token) {
-  return jwt.verify(token, JWT_SECRET);
+  // [SEC S-07]
+  return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
 }
