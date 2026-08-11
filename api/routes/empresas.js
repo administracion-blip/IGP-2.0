@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { ScanCommand, GetCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 import { normalizeCif, getCifFromEmpresaItem, getIdEmpresaFromItem } from '../lib/empresaCif.js';
+import { requirePermission, requireAnyPermission, requireRole } from '../middleware/auth.js';
 
 const router = Router();
 const tableEmpresasName = tables.empresas;
@@ -29,7 +30,8 @@ function trimCampoString(val) {
 
 const TABLE_EMPRESAS_ATTRS = ['id_empresa', 'Nombre', 'Cif', 'Iban', 'IbanAlternativo', 'Direccion', 'Cp', 'Municipio', 'Provincia', 'Email', 'Telefono', 'Tipo de recibo', 'Vencimiento', 'Etiqueta', 'Cuenta contable', 'Administrador', 'Sede', 'CCC'];
 
-router.get('/empresas', async (req, res) => {
+// [SEC S-02]
+router.get('/empresas', requirePermission('empresas.ver'), async (req, res) => {
   try {
     const items = [];
     let lastKey = null;
@@ -56,7 +58,8 @@ router.get('/empresas', async (req, res) => {
   }
 });
 
-router.get('/empresas/check-cif', async (req, res) => {
+// [SEC S-02]
+router.get('/empresas/check-cif', requireAnyPermission('empresas.ver', 'empresas.crear', 'empresas.editar'), async (req, res) => {
   const cif = normalizeCif(req.query?.cif);
   const excludeId = req.query?.excludeId != null ? formatId6(req.query.excludeId) : '';
   if (!cif) return res.status(400).json({ error: 'cif es obligatorio' });
@@ -83,7 +86,8 @@ router.get('/empresas/check-cif', async (req, res) => {
   }
 });
 
-router.post('/empresas', async (req, res) => {
+// [SEC S-02]
+router.post('/empresas', requirePermission('empresas.crear'), async (req, res) => {
   const body = req.body || {};
   if (!body.Nombre || !String(body.Nombre).trim()) {
     return res.status(400).json({ error: 'Nombre es obligatorio' });
@@ -143,7 +147,8 @@ router.post('/empresas', async (req, res) => {
   }
 });
 
-router.put('/empresas', async (req, res) => {
+// [SEC S-02]
+router.put('/empresas', requirePermission('empresas.editar'), async (req, res) => {
   const body = req.body || {};
   const idSolicitado = body.id_empresa != null ? formatId6(body.id_empresa) : '';
   if (!idSolicitado || idSolicitado === '000000') {
@@ -204,7 +209,8 @@ router.put('/empresas', async (req, res) => {
   }
 });
 
-router.delete('/empresas', async (req, res) => {
+// [SEC S-02]
+router.delete('/empresas', requireRole('Administrador'), async (req, res) => {
   const idEmpresa = req.body?.id_empresa != null ? String(req.body.id_empresa) : req.query?.id_empresa != null ? String(req.query.id_empresa) : '';
   if (!idEmpresa) return res.status(400).json({ error: 'id_empresa es obligatorio para borrar' });
   try {
