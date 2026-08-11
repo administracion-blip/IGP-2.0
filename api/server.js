@@ -16,6 +16,7 @@ import rateLimit from 'express-rate-limit';
 import pinoHttp from 'pino-http';
 import { logger } from './lib/logger.js';
 import { validateEnv } from './lib/validateEnv.js';
+import { helmetOptions } from './lib/helmetOptions.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { tables } from './lib/db.js';
 import { requireAuth } from './middleware/auth.js';
@@ -87,7 +88,8 @@ const app = express();
 app.use(pinoHttp({ logger }));
 
 // --- Helmet: headers de seguridad HTTP ---
-app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+// [SEC S-11] CSP report-only para API JSON (no enforcing; no aplica al documento Expo web)
+app.use(helmet(helmetOptions));
 
 // --- CORS: restringido por entorno ---
 const DEFAULT_DEV_ORIGINS = [
