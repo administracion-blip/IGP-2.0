@@ -71,7 +71,7 @@ import {
   proveedorCoincideConSociedad,
 } from '../lib/facturacion/validarProveedorSociedad.js';
 import { limpiarMarcasFacturacionPeriodica } from '../lib/facturacion/marcasPeriodicas.js';
-import { requirePermission } from '../middleware/auth.js';
+import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
 import crypto from 'crypto';
 import { enviarEmail } from '../lib/email.js';
 import multer from 'multer';
@@ -242,7 +242,8 @@ function usuarioAuditoria(req) {
 
 // ─── SERIES ───
 
-router.get('/facturacion/series', async (_req, res) => {
+// [SEC S-01]
+router.get('/facturacion/series', requirePermission('facturacion.series'), async (_req, res) => {
   try {
     const items = await scanAll(tables.facturasSeries);
     const configOnly = items.filter((s) => !(s.serie || '').includes('#'));
@@ -252,7 +253,8 @@ router.get('/facturacion/series', async (_req, res) => {
   }
 });
 
-router.get('/facturacion/series/next-number', async (req, res) => {
+// [SEC S-01]
+router.get('/facturacion/series/next-number', requireAnyPermission('facturacion.series', 'facturacion.crear', 'facturacion.emitir'), async (req, res) => {
   const { serie, emisor_id, emisor_cif, fecha_emision } = req.query;
   if (!serie) return res.status(400).json({ error: 'serie es obligatorio' });
   try {
@@ -268,7 +270,8 @@ router.get('/facturacion/series/next-number', async (req, res) => {
   }
 });
 
-router.post('/facturacion/series', async (req, res) => {
+// [SEC S-01]
+router.post('/facturacion/series', requirePermission('facturacion.series'), async (req, res) => {
   const { serie, descripcion, tipo, prefijo_formato, activa, notas, reinicio_anual, num_digitos } = req.body || {};
   if (!serie || !tipo) return res.status(400).json({ error: 'serie y tipo son obligatorios' });
   // El carácter "#" está reservado para los ítems contador de correlativo.
@@ -295,7 +298,8 @@ router.post('/facturacion/series', async (req, res) => {
   }
 });
 
-router.put('/facturacion/series', async (req, res) => {
+// [SEC S-01]
+router.put('/facturacion/series', requirePermission('facturacion.series'), async (req, res) => {
   const { serie, descripcion, prefijo_formato, activa, notas, reinicio_anual, num_digitos } = req.body || {};
   if (!serie) return res.status(400).json({ error: 'serie es obligatorio' });
   try {
@@ -315,7 +319,8 @@ router.put('/facturacion/series', async (req, res) => {
   }
 });
 
-router.delete('/facturacion/series', async (req, res) => {
+// [SEC S-01]
+router.delete('/facturacion/series', requirePermission('facturacion.series'), async (req, res) => {
   const { serie } = req.body || {};
   if (!serie) return res.status(400).json({ error: 'serie es obligatorio' });
   // Los ítems contador de correlativo llevan "#": no son series borrables.
@@ -330,7 +335,8 @@ router.delete('/facturacion/series', async (req, res) => {
 
 // ─── FACTURAS ───
 
-router.get('/facturacion/facturas', async (req, res) => {
+// [SEC S-01]
+router.get('/facturacion/facturas', requirePermission('facturacion.ver'), async (req, res) => {
   try {
     const { tipo } = req.query;
     let items;
@@ -354,7 +360,8 @@ router.get('/facturacion/facturas', async (req, res) => {
   }
 });
 
-router.get('/facturacion/facturas/:id', async (req, res) => {
+// [SEC S-01]
+router.get('/facturacion/facturas/:id', requirePermission('facturacion.ver'), async (req, res) => {
   try {
     const result = await docClient.send(
       new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(req.params.id) })
@@ -375,7 +382,8 @@ router.get('/facturacion/facturas/:id', async (req, res) => {
   }
 });
 
-router.post('/facturacion/facturas', async (req, res) => {
+// [SEC S-01]
+router.post('/facturacion/facturas', requirePermission('facturacion.crear'), async (req, res) => {
   const body = req.body || {};
   // El resto de campos del cuerpo los normaliza `construirFacturaConLineas`.
   const {
@@ -438,7 +446,8 @@ router.post('/facturacion/facturas', async (req, res) => {
   }
 });
 
-router.put('/facturacion/facturas/:id', async (req, res) => {
+// [SEC S-01]
+router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'), async (req, res) => {
   const id = req.params.id;
   const body = req.body || {};
 
@@ -603,6 +612,7 @@ router.put('/facturacion/facturas/:id', async (req, res) => {
 // ─── EMITIR factura (cambia estado + genera hash VERI*FACTU) ───
 
 /** Validación masiva de facturas IN en pendiente_revision (p. ej. tras OCR). */
+// [SEC S-01]
 router.post('/facturacion/facturas/validar-revision', requirePermission('facturacion.emitir'), async (req, res) => {
   const { facturaIds } = req.body || {};
   const { usuario_id, usuario_nombre } = usuarioAuditoria(req);
@@ -641,6 +651,7 @@ router.post('/facturacion/facturas/validar-revision', requirePermission('factura
   }
 });
 
+// [SEC S-01]
 router.post('/facturacion/facturas/:id/emitir', requirePermission('facturacion.emitir'), async (req, res) => {
   const id = req.params.id;
   const { usuario_id, usuario_nombre } = usuarioAuditoria(req);
@@ -661,7 +672,8 @@ router.post('/facturacion/facturas/:id/emitir', requirePermission('facturacion.e
 
 // ─── ANULAR factura ───
 
-router.post('/facturacion/facturas/:id/anular', async (req, res) => {
+// [SEC S-01]
+router.post('/facturacion/facturas/:id/anular', requirePermission('facturacion.anular'), async (req, res) => {
   const id = req.params.id;
   const { motivo, usuario_id, usuario_nombre } = req.body || {};
 
@@ -701,7 +713,8 @@ router.post('/facturacion/facturas/:id/anular', async (req, res) => {
 });
 
 /** Eliminación física solo para facturas de gasto (IN): pagos, líneas, auditoría y registro. */
-router.delete('/facturacion/facturas/:id', async (req, res) => {
+// [SEC S-01]
+router.delete('/facturacion/facturas/:id', requirePermission('facturacion.editar'), async (req, res) => {
   const id = req.params.id;
   const { usuario_id, usuario_nombre } = req.body || {};
 
@@ -750,7 +763,8 @@ router.delete('/facturacion/facturas/:id', async (req, res) => {
 
 // ─── DUPLICAR factura ───
 
-router.post('/facturacion/facturas/:id/duplicar', async (req, res) => {
+// [SEC S-01]
+router.post('/facturacion/facturas/:id/duplicar', requirePermission('facturacion.crear'), async (req, res) => {
   const id = req.params.id;
   const { serie, usuario_id, usuario_nombre } = req.body || {};
 
@@ -835,7 +849,8 @@ router.post('/facturacion/facturas/:id/duplicar', async (req, res) => {
 
 // ─── RECTIFICATIVA ───
 
-router.post('/facturacion/facturas/:id/rectificar', async (req, res) => {
+// [SEC S-01]
+router.post('/facturacion/facturas/:id/rectificar', requirePermission('facturacion.emitir'), async (req, res) => {
   const id = req.params.id;
   const { serie_rectificativa, motivo, usuario_id, usuario_nombre } = req.body || {};
 
@@ -925,7 +940,8 @@ router.post('/facturacion/facturas/:id/rectificar', async (req, res) => {
 
 // ─── PAGOS / COBROS ───
 
-router.get('/facturacion/pagos', async (_req, res) => {
+// [SEC S-01]
+router.get('/facturacion/pagos', requirePermission('facturacion.cobrar_pagar'), async (_req, res) => {
   try {
     const items = await scanAll(tables.facturasPagos);
     items.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
@@ -935,7 +951,8 @@ router.get('/facturacion/pagos', async (_req, res) => {
   }
 });
 
-router.get('/facturacion/facturas/:id/pagos', async (req, res) => {
+// [SEC S-01]
+router.get('/facturacion/facturas/:id/pagos', requirePermission('facturacion.ver'), async (req, res) => {
   try {
     const pagos = await queryPagosByFactura(req.params.id);
     pagos.sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
@@ -946,6 +963,7 @@ router.get('/facturacion/facturas/:id/pagos', async (req, res) => {
 });
 
 /** Facturas IN compensables con la origen (misma sociedad + proveedor, saldo ≠ 0). */
+// [SEC S-01]
 router.get('/facturacion/facturas/:id/compensables', requirePermission('facturacion.cobrar_pagar'), async (req, res) => {
   try {
     const id = String(req.params.id);
@@ -978,6 +996,7 @@ router.get('/facturacion/facturas/:id/compensables', requirePermission('facturac
   }
 });
 
+// [SEC S-01]
 router.post('/facturacion/facturas/:id/pagos/compensacion', requirePermission('facturacion.cobrar_pagar'), async (req, res) => {
   const b = req.body || {};
   const { usuario_id, usuario_nombre } = usuarioAuditoria(req);
@@ -1030,7 +1049,8 @@ function maybeUploadReciboPago(req, res, next) {
   next();
 }
 
-router.post('/facturacion/facturas/:id/pagos', maybeUploadReciboPago, async (req, res) => {
+// [SEC S-01]
+router.post('/facturacion/facturas/:id/pagos', requirePermission('facturacion.cobrar_pagar'), maybeUploadReciboPago, async (req, res) => {
   const id_factura = req.params.id;
   const b = req.body || {};
   const fechaRaw = b.fecha;
@@ -1136,7 +1156,8 @@ router.post('/facturacion/facturas/:id/pagos', maybeUploadReciboPago, async (req
   }
 });
 
-router.put('/facturacion/pagos/:id_factura/:id_pago', async (req, res) => {
+// [SEC S-01]
+router.put('/facturacion/pagos/:id_factura/:id_pago', requirePermission('facturacion.cobrar_pagar'), async (req, res) => {
   const { id_factura, id_pago } = req.params;
   const b = req.body || {};
   const fechaRaw = b.fecha;
@@ -1236,7 +1257,8 @@ router.put('/facturacion/pagos/:id_factura/:id_pago', async (req, res) => {
   }
 });
 
-router.delete('/facturacion/pagos/:id_factura/:id_pago', async (req, res) => {
+// [SEC S-01]
+router.delete('/facturacion/pagos/:id_factura/:id_pago', requirePermission('facturacion.cobrar_pagar'), async (req, res) => {
   const { id_factura, id_pago } = req.params;
   const { usuario_id, usuario_nombre } = req.body || {};
 
@@ -1294,7 +1316,8 @@ router.delete('/facturacion/pagos/:id_factura/:id_pago', async (req, res) => {
 
 // ─── MÉTRICAS / RESUMEN ───
 
-router.get('/facturacion/metricas', async (req, res) => {
+// [SEC S-01]
+router.get('/facturacion/metricas', requirePermission('facturacion.ver'), async (req, res) => {
   try {
     const empresaIdFiltro = String(req.query.empresaId || '').trim();
     const anioQ = parseInt(String(req.query.anio || ''), 10);
@@ -1436,7 +1459,8 @@ router.get('/facturacion/metricas', async (req, res) => {
 
 // ─── ENVÍO EMAIL CON PDF ───
 
-router.post('/facturacion/facturas/:id/enviar-email', async (req, res) => {
+// [SEC S-01]
+router.post('/facturacion/facturas/:id/enviar-email', requirePermission('facturacion.editar'), async (req, res) => {
   const id = req.params.id;
   const { destinatario, asunto, cuerpo, pdf_base64, usuario_id, usuario_nombre } = req.body || {};
 
@@ -1482,7 +1506,8 @@ router.post('/facturacion/facturas/:id/enviar-email', async (req, res) => {
 
 // ─── MÉTRICAS AVANZADAS (cuadro de mando) ───
 
-router.get('/facturacion/metricas-avanzadas', async (req, res) => {
+// [SEC S-01]
+router.get('/facturacion/metricas-avanzadas', requirePermission('facturacion.ver'), async (req, res) => {
   try {
     const facturas = await scanAll(tables.facturas);
     const pagos = await scanAll(tables.facturasPagos);
@@ -1643,7 +1668,8 @@ router.get('/facturacion/metricas-avanzadas', async (req, res) => {
 
 // ─── Automatización: marcar facturas vencidas ───
 
-router.post('/facturacion/check-vencimientos', async (req, res) => {
+// [SEC S-01]
+router.post('/facturacion/check-vencimientos', requirePermission('facturacion.editar'), async (req, res) => {
   try {
     const hoy = now().slice(0, 10);
     const facturas = await scanAll(tables.facturas);
@@ -1680,7 +1706,8 @@ router.post('/facturacion/check-vencimientos', async (req, res) => {
 
 // ─── ADJUNTOS (S3) ───
 
-router.post('/facturacion/facturas/:id/adjuntos', upload.single('file'), async (req, res) => {
+// [SEC S-01]
+router.post('/facturacion/facturas/:id/adjuntos', requirePermission('facturacion.editar'), upload.single('file'), async (req, res) => {
   const id = req.params.id;
   if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
 
@@ -1727,7 +1754,8 @@ router.post('/facturacion/facturas/:id/adjuntos', upload.single('file'), async (
   }
 });
 
-router.get('/facturacion/facturas/:id/adjuntos', async (req, res) => {
+// [SEC S-01]
+router.get('/facturacion/facturas/:id/adjuntos', requirePermission('facturacion.ver'), async (req, res) => {
   const id = req.params.id;
   try {
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
@@ -1759,7 +1787,8 @@ router.get('/facturacion/facturas/:id/adjuntos', async (req, res) => {
   }
 });
 
-router.delete('/facturacion/facturas/:id/adjuntos/:adjId', async (req, res) => {
+// [SEC S-01]
+router.delete('/facturacion/facturas/:id/adjuntos/:adjId', requirePermission('facturacion.editar'), async (req, res) => {
   const { id, adjId } = req.params;
   const { usuario_id, usuario_nombre } = req.body || {};
 
@@ -1805,7 +1834,8 @@ function adjuntosDeFacturaItem(item) {
   return adjuntos;
 }
 
-router.get('/facturacion/facturas/:id/adjuntos/:adjId/descargar', async (req, res) => {
+// [SEC S-01]
+router.get('/facturacion/facturas/:id/adjuntos/:adjId/descargar', requirePermission('facturacion.ver'), async (req, res) => {
   const { id, adjId } = req.params;
   try {
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
@@ -1837,11 +1867,13 @@ router.get('/facturacion/facturas/:id/adjuntos/:adjId/descargar', async (req, re
 
 // ─── OCR / REGISTRO MASIVO ───
 
-router.get('/facturacion/ocr/status', (_req, res) => {
+// [SEC S-01]
+router.get('/facturacion/ocr/status', requirePermission('facturacion.crear'), (_req, res) => {
   res.json({ ready: isTesseractWorkerReady() });
 });
 
-router.post('/facturacion/ocr/prewarm', async (_req, res) => {
+// [SEC S-01]
+router.post('/facturacion/ocr/prewarm', requirePermission('facturacion.crear'), async (_req, res) => {
   try {
     await prewarmTesseractWorker();
     res.json({ ok: true, ready: isTesseractWorkerReady() });
@@ -1850,7 +1882,8 @@ router.post('/facturacion/ocr/prewarm', async (_req, res) => {
   }
 });
 
-router.post('/facturacion/ocr/extraer', upload.single('file'), async (req, res) => {
+// [SEC S-01]
+router.post('/facturacion/ocr/extraer', requirePermission('facturacion.crear'), upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
 
   try {
@@ -1884,7 +1917,8 @@ router.post('/facturacion/ocr/extraer', upload.single('file'), async (req, res) 
 });
 
 /** Tras elegir sociedad receptora: separar proveedor y opcionalmente ajustar importes (respeta campos_manuales). */
-router.post('/facturacion/ocr/reconciliar', async (req, res) => {
+// [SEC S-01]
+router.post('/facturacion/ocr/reconciliar', requirePermission('facturacion.crear'), async (req, res) => {
   try {
     const datos = await ejecutarReconciliarFacturaOcr(req.body || {});
     res.json({ ok: true, datos });
@@ -1897,7 +1931,8 @@ router.post('/facturacion/ocr/reconciliar', async (req, res) => {
  * Capa IA opcional: normaliza y valida datos ya extraídos (requiere OPENAI_API_KEY en el servidor).
  * POST body: { datos: object, texto_extraido?: string }
  */
-router.post('/facturacion/ocr/enriquecer-ia', async (req, res) => {
+// [SEC S-01]
+router.post('/facturacion/ocr/enriquecer-ia', requirePermission('facturacion.crear'), async (req, res) => {
   try {
     const { datos, texto_extraido } = req.body || {};
     if (!datos || typeof datos !== 'object') {
@@ -1970,7 +2005,8 @@ router.post('/facturacion/ocr/enriquecer-ia', async (req, res) => {
 
 // ─── OCR POR ZONA (selección manual tipo a3) ───
 
-router.post('/facturacion/ocr/extraer-zona', async (req, res) => {
+// [SEC S-01]
+router.post('/facturacion/ocr/extraer-zona', requirePermission('facturacion.crear'), async (req, res) => {
   const { fileKey, x, y, width, height, pageWidth, pageHeight } = req.body || {};
   if (!fileKey || width == null || height == null) {
     return res.status(400).json({ error: 'Faltan parámetros (fileKey, x, y, width, height)' });
@@ -2044,7 +2080,8 @@ router.post('/facturacion/ocr/extraer-zona', async (req, res) => {
 });
 
 /** Vista previa PNG página 1 (PDF) o imagen normalizada — para modo selección de zona en el cliente (<img> no puede mostrar PDF). */
-router.get('/facturacion/ocr/preview-png', async (req, res) => {
+// [SEC S-01]
+router.get('/facturacion/ocr/preview-png', requirePermission('facturacion.crear'), async (req, res) => {
   const fileKey = req.query.fileKey;
   if (!fileKey || typeof fileKey !== 'string' || !fileKey.startsWith('facturas/') || fileKey.includes('..')) {
     return res.status(400).json({ error: 'fileKey inválido' });
@@ -2683,7 +2720,8 @@ function extractTextFromPdfBufferFallback(buffer) {
   return texts.join(' ').replace(/\s+/g, ' ').trim();
 }
 
-router.post('/facturacion/ocr/confirmar', async (req, res) => {
+// [SEC S-01]
+router.post('/facturacion/ocr/confirmar', requirePermission('facturacion.crear'), async (req, res) => {
   const { borradores, usuario_id, usuario_nombre } = req.body || {};
   if (!Array.isArray(borradores) || borradores.length === 0) {
     return res.status(400).json({ error: 'No se recibieron borradores' });
@@ -2849,7 +2887,8 @@ router.post('/facturacion/ocr/confirmar', async (req, res) => {
 
 // ─── RECORDATORIOS COBRO ───
 
-router.post('/facturacion/enviar-recordatorios', async (req, res) => {
+// [SEC S-01]
+router.post('/facturacion/enviar-recordatorios', requirePermission('facturacion.editar'), async (req, res) => {
   if (!process.env.SMTP_USER) return res.status(500).json({ error: 'SMTP no configurado' });
 
   try {
@@ -2903,7 +2942,8 @@ router.post('/facturacion/enviar-recordatorios', async (req, res) => {
 
 // ─── DETECCIÓN DUPLICADOS ───
 
-router.post('/facturacion/check-duplicados', async (req, res) => {
+// [SEC S-01]
+router.post('/facturacion/check-duplicados', requirePermission('facturacion.crear'), async (req, res) => {
   const { proveedor_cif, numero_factura_proveedor, fecha_emision } = req.body || {};
   try {
     const ref = { proveedor_cif, numero_factura_proveedor, fecha_emision };
