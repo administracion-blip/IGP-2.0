@@ -42,7 +42,7 @@ function calcPrecioMedioSinIva(rows, agoraProduct, warnings) {
   return precioConIva / (1 + rate);
 }
 
-function resolveMargenUnitario(productoCampana, campanaRows, agoraProduct, warnings) {
+export function resolveMargenUnitario(productoCampana, campanaRows, agoraProduct, warnings) {
   if (productoCampana.margenUnitario != null && productoCampana.margenUnitario !== '') {
     const fijo = toNumberSafe(productoCampana.margenUnitario);
     if (fijo !== 0) return fijo;
@@ -59,7 +59,7 @@ function resolveMargenUnitario(productoCampana, campanaRows, agoraProduct, warni
  * - pct_coste / pct_margen: usan unidades reales (ajenos al descuento por unidad;
  *   pct_margen ya refleja el descuento vía el precio medio real).
  */
-function calcIncentivoProducto(unidades, unidadesBonificables, margenUnitario, costeUnitario, tipoIncentivo, valorIncentivo) {
+export function calcIncentivoProducto(unidades, unidadesBonificables, margenUnitario, costeUnitario, tipoIncentivo, valorIncentivo) {
   const uds = toNumberSafe(unidades);
   const udsBonif = toNumberSafe(unidadesBonificables);
   const valor = toNumberSafe(valorIncentivo);
@@ -85,7 +85,7 @@ function calcBonificacionUnitaria(margenUnitario, costeUnitario, tipoIncentivo, 
   return 0;
 }
 
-async function loadAgoraProductsMap(docClient, productIds) {
+export async function loadAgoraProductsMap(docClient, productIds) {
   const map = new Map();
   const ids = [...productIds];
   for (let i = 0; i < ids.length; i += 100) {
@@ -104,7 +104,7 @@ async function loadAgoraProductsMap(docClient, productIds) {
   return map;
 }
 
-function filterRows(rows, productId, fechaDesde, fechaHasta) {
+export function filterRows(rows, productId, fechaDesde, fechaHasta) {
   return rows.filter((r) => {
     if (String(r.ProductId) !== String(productId)) return false;
     const f = String(r.Fecha || '');
@@ -112,18 +112,18 @@ function filterRows(rows, productId, fechaDesde, fechaHasta) {
   });
 }
 
-function sumUnidades(rows) {
+export function sumUnidades(rows) {
   return rows.reduce((acc, r) => acc + toNumberSafe(r.Unidades), 0);
 }
 
 /** Unidades bonificables de una fila (fallback a Unidades si el agregado es previo al campo). */
-function udsBonificablesRow(r) {
+export function udsBonificablesRow(r) {
   return r?.UnidadesBonificables != null
     ? toNumberSafe(r.UnidadesBonificables)
     : toNumberSafe(r.Unidades);
 }
 
-function sumUnidadesBonificables(rows) {
+export function sumUnidadesBonificables(rows) {
   return rows.reduce((acc, r) => acc + udsBonificablesRow(r), 0);
 }
 

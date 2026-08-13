@@ -258,10 +258,10 @@ export default function RegistroMasivoScreen() {
   }, [showToast]);
 
   const [borradores, setBorradores] = useState<Borrador[]>([]);
-  const borradoresCountRef = useRef(0);
-  borradoresCountRef.current = borradores.length;
   const borradoresRef = useRef(borradores);
   borradoresRef.current = borradores;
+  /** Siguiente idx libre (monótono). No usar length: fallos OCR o descartes dejan huecos y chocan idxs. */
+  const nextIdxRef = useRef(0);
   const handoffCargadoRef = useRef(false);
   const ultimoDupCheckRef = useRef<Map<number, string>>(new Map());
   const dupCheckTimerRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
@@ -323,6 +323,7 @@ export default function RegistroMasivoScreen() {
       },
       datos,
     );
+    nextIdxRef.current = 1;
     setBorradores([borrador]);
     setStep('review');
     setSelectedIdx(0);
@@ -649,7 +650,14 @@ export default function RegistroMasivoScreen() {
 
       setProcesando(true);
       const nuevos: Borrador[] = [];
-      const baseIdx = borradoresCountRef.current;
+      // Alinear contador con el máximo existente (por si hubo handoff u otra carga).
+      const maxExistente = borradoresRef.current.reduce(
+        (m, b) => (typeof b.idx === 'number' && b.idx > m ? b.idx : m),
+        -1,
+      );
+      if (nextIdxRef.current <= maxExistente) {
+        nextIdxRef.current = maxExistente + 1;
+      }
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -704,8 +712,10 @@ export default function RegistroMasivoScreen() {
           const iva0 = d.total_iva || 0;
           const ret0 = typeof d.retencion === 'number' ? d.retencion : 0;
           const pct0 = derivarPctDesdeImportes(base0, iva0, ret0, d);
+          const idxNuevo = nextIdxRef.current;
+          nextIdxRef.current += 1;
           nuevos.push({
-            idx: baseIdx + i,
+            idx: idxNuevo,
             archivo: data.archivo,
             sociedad_grupo_id: '',
             sociedad_grupo_nombre: '',

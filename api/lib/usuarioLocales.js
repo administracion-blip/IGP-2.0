@@ -25,6 +25,15 @@ export function normalizeLocalesUsuario(record) {
 }
 
 /**
+ * Alcance global puro (sin Dynamo): Admin o Locales vacío/ausente = todos.
+ * Útil para tests y para decidir tras cargar Locales del usuario.
+ */
+export function tieneAlcanceGlobalLocales(rol, locales) {
+  if (String(rol || '') === 'Administrador') return true;
+  return !Array.isArray(locales) || locales.length === 0;
+}
+
+/**
  * ¿Puede el usuario del token acceder a este local?
  * Administrador o Locales vacío = todos.
  */
@@ -34,7 +43,7 @@ export async function usuarioPuedeAccederLocal(user, idLocal) {
   try {
     const usuarios = await findUsuarioByEmail(String(user.email || '').trim().toLowerCase());
     const locales = normalizeLocalesUsuario(usuarios[0]);
-    if (locales.length === 0) return true;
+    if (tieneAlcanceGlobalLocales(user.rol, locales)) return true;
     const loc = await docClient.send(
       new GetCommand({ TableName: tables.locales, Key: { id_Locales: formatId6(idLocal) } }),
     );
@@ -43,6 +52,23 @@ export async function usuarioPuedeAccederLocal(user, idLocal) {
     return locales.some((l) => String(l).trim().toLowerCase() === nombre);
   } catch (err) {
     console.error('[usuarioPuedeAccederLocal]', err.message || err);
+    return false;
+  }
+}
+
+/**
+ * ¿Tiene el usuario alcance a todos los locales del grupo?
+ * (Admin o Locales vacío en igp_usuarios).
+ */
+export async function usuarioTieneAlcanceGlobal(user) {
+  if (!user) return false;
+  if (user.rol === 'Administrador') return true;
+  try {
+    const usuarios = await findUsuarioByEmail(String(user.email || '').trim().toLowerCase());
+    const locales = normalizeLocalesUsuario(usuarios[0]);
+    return tieneAlcanceGlobalLocales(user.rol, locales);
+  } catch (err) {
+    console.error('[usuarioTieneAlcanceGlobal]', err.message || err);
     return false;
   }
 }

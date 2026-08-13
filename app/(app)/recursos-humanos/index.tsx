@@ -51,9 +51,17 @@ const TARJETAS: Tarjeta[] = [
     permiso: 'incentivos_producto.ver',
   },
   {
+    id: 'bonus',
+    label: 'Bonus',
+    descripcion: 'Desviación mensual, incentivos de campaña y fondo común por local',
+    icon: 'emoji-events',
+    ruta: '/recursos-humanos/bonus',
+    permiso: 'rrhh.bonus.ver',
+  },
+  {
     id: 'rrpp',
     label: 'RRPP',
-    descripcion: 'Relaciones públicas y promoción',
+    descripcion: 'Entradas online, sync Ágora y herramientas de promoción',
     icon: 'people',
     ruta: '/rrpp',
     permiso: 'rrpp.ver',

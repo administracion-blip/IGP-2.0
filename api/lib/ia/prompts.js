@@ -82,6 +82,8 @@ Estructura:
 ## ✅ Acciones para hoy
 - 2–3 acciones concretas y operativas a partir de desviaciones, ratios con avisos u outliers claros.
 - Menciona topVentasPorLocal o mantenimientoDia SOLO si aportan una acción (p. ej. reforzar un local con top flojo, o seguimiento de partes/limpiezas críticas). No listes tablas.
+### 🎯 Qué tenemos que facturar hoy
+- NO redactes este subapartado ni listes objetivos/importes del día foco: la interfaz lo muestra en un recuadro aparte con \`objetivoFacturacionHoy\`. Omítelo por completo del markdown.
 PROHIBIDO: narrar curvas horarias (ventasHoraComparativa); enumerar invitaciones/descuentos o listar excepcionesSospechosas (van en tablas aparte); inventar datos ausentes.`,
   },
 };

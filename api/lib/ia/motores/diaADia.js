@@ -45,6 +45,24 @@ function formatFechaEs(iso) {
   return `${d}/${m}/${y}`;
 }
 
+/**
+ * Día siguiente en calendario local (sin UTC shift).
+ * Input inválido → null.
+ * @param {string} fechaIso YYYY-MM-DD
+ * @returns {string|null}
+ */
+export function fechaSiguienteIso(fechaIso) {
+  const s = String(fechaIso || '').slice(0, 10);
+  if (!RE_FECHA.test(s)) return null;
+  const [y, m, d] = s.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + 1);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
 function formatEuros(n) {
   return `${Number(n || 0).toLocaleString('es-ES', {
     minimumFractionDigits: 2,
@@ -495,6 +513,9 @@ export async function buildDiaADia(user, params = {}) {
     localIds,
   };
 
+  // Objetivo del día foco (fecha informe + 1) para subapartado del resumen IA
+  const fechaFoco = fechaSiguienteIso(fecha);
+
   const [
     facturacionRaw,
     objetivosRaw,
@@ -504,6 +525,7 @@ export async function buildDiaADia(user, params = {}) {
     agrupacionesDef,
     topVentasPorLocal,
     mantenimientoDia,
+    facturacionFocoRaw,
   ] = await Promise.all([
     buildFacturacionDiaYoY(user, paramsBuilders),
     buildObjetivoMensualConImportes(user, paramsBuilders),
@@ -513,6 +535,7 @@ export async function buildDiaADia(user, params = {}) {
     loadAgrupacionesObjetivos(),
     buildTopVentasPorLocal(universo, fecha),
     buildMantenimientoDia(universo, fecha),
+    buildFacturacionDiaYoY(user, { ...paramsBuilders, fecha: fechaFoco }),
   ]);
 
   const factLocales = (facturacionRaw.locales || []).map(enriquecerFacturacionItem);
@@ -547,6 +570,34 @@ export async function buildDiaADia(user, params = {}) {
 
   const ratiosPorLocal = await buildRatiosDiaLocal({ fecha, locales: ratiosLocales });
 
+  const focoTotalComp = Number(facturacionFocoRaw?.total?.comparativa) || 0;
+  const objetivoFacturacionHoy = {
+    fecha: fechaFoco,
+    fechaLabel: formatFechaEs(fechaFoco),
+    fechaComparativa: facturacionFocoRaw?.fechaComparativa ?? null,
+    comparativaLabel: buildComparativaLabel(
+      facturacionFocoRaw?.origenComparativa,
+      facturacionFocoRaw?.fechaComparativa,
+    ),
+    nota: 'Objetivo = facturación del día comparable (mismo criterio YoY/festivos que el resto del briefing). No es lo facturado del día analizado.',
+    total: {
+      objetivo: focoTotalComp,
+      objetivoLabel: `Objetivo grupo: ${formatEuros(focoTotalComp)}`,
+    },
+    locales: (facturacionFocoRaw?.locales || [])
+      .filter((l) => !l.sinDatos && (Number(l.comparativa) || 0) > 0)
+      .map((l) => {
+        const objetivo = Number(l.comparativa) || 0;
+        return {
+          localId: l.localId,
+          nombre: l.nombre,
+          objetivo,
+          objetivoLabel: `Objetivo ${l.nombre}: ${formatEuros(objetivo)}`,
+        };
+      })
+      .sort((a, b) => b.objetivo - a.objetivo),
+  };
+
   return {
     fecha,
     fechaComparativa,
@@ -576,6 +627,7 @@ export async function buildDiaADia(user, params = {}) {
     excepcionesSospechosas,
     topVentasPorLocal,
     mantenimientoDia,
+    objetivoFacturacionHoy,
   };
 }
 

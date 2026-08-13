@@ -11,6 +11,7 @@ export default function RecursosHumanosLayout() {
       <Stack.Screen name="index" />
       <Stack.Screen name="horas-facturacion" />
       <Stack.Screen name="incentivos-producto" />
+      <Stack.Screen name="bonus" />
     </Stack>
   );
 }

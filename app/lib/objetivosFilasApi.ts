@@ -41,6 +41,16 @@ export async function obtenerFilasObjetivos(
     ),
     apiFetch('/api/gestion-festivos'),
   ]);
+  if (!totalsRealRes.ok) {
+    const errBody = await totalsRealRes.json().catch(() => ({}));
+    throw new Error(
+      (errBody as { error?: string }).error ||
+        `No se pudieron cargar totales reales (${totalsRealRes.status})`,
+    );
+  }
+  if (!festivosRes.ok) {
+    throw new Error(`No se pudieron cargar festivos (${festivosRes.status})`);
+  }
   const totalsRealData = await totalsRealRes.json();
   const festivosData = await festivosRes.json();
   const totalsReal: Record<string, number> = totalsRealData.totals ?? {};
@@ -72,6 +82,13 @@ export async function obtenerFilasObjetivos(
   const totalsCompRes = await apiFetch(
     `/api/agora/closeouts/totals-by-local-range?workplaceId=${encodeURIComponent(workplaceId)}&dateFrom=${minComp}&dateTo=${maxComp}`,
   );
+  if (!totalsCompRes.ok) {
+    const errBody = await totalsCompRes.json().catch(() => ({}));
+    throw new Error(
+      (errBody as { error?: string }).error ||
+        `No se pudieron cargar totales comparativa (${totalsCompRes.status})`,
+    );
+  }
   const totalsCompData = await totalsCompRes.json();
   const totalsComp: Record<string, number> = totalsCompData.totals ?? {};
 

@@ -41,6 +41,7 @@ import {
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useLocalToast } from '../../components/Toast';
 import { useConfirmar } from '../../hooks/useConfirmar';
 import * as XLSX from 'xlsx';
@@ -102,6 +103,39 @@ function formatFechaCorta(iso: string): string {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
 }
 
+/** Paleta pastel estable para chips de empresa del grupo. */
+const EMPRESA_CHIP_PASTEL: ReadonlyArray<{ bg: string; text: string }> = [
+  { bg: '#e0f2fe', text: '#0369a1' }, // sky
+  { bg: '#dcfce7', text: '#15803d' }, // green
+  { bg: '#fef3c7', text: '#b45309' }, // amber
+  { bg: '#fce7f3', text: '#be185d' }, // pink
+  { bg: '#ede9fe', text: '#6d28d9' }, // violet
+  { bg: '#ffedd5', text: '#c2410c' }, // orange
+  { bg: '#ccfbf1', text: '#0f766e' }, // teal
+  { bg: '#e0e7ff', text: '#3730a3' }, // indigo
+  { bg: '#f3e8ff', text: '#7e22ce' }, // purple
+  { bg: '#ecfccb', text: '#4d7c0f' }, // lime
+];
+
+const EMPRESA_CHIP_SIN = { bg: '#f1f5f9', text: '#64748b' };
+
+/**
+ * Color pastel determinista. Clave = nombre normalizado (prioridad) para que
+ * el mismo rótulo en albaranes y facturas comparta color aunque el CIF
+ * resuelto difiera (almacén vs emisor).
+ */
+function colorChipEmpresa(empresaCif: string, empresaNombre: string): { bg: string; text: string } {
+  const nombre = (empresaNombre || '').trim();
+  if (!nombre || nombre === 'Sin empresa') return EMPRESA_CHIP_SIN;
+  const key = normNombre(nombre) || normalizeCif(empresaCif);
+  if (!key) return EMPRESA_CHIP_SIN;
+  let h = 0;
+  for (let i = 0; i < key.length; i += 1) {
+    h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  }
+  return EMPRESA_CHIP_PASTEL[h % EMPRESA_CHIP_PASTEL.length];
+}
+
 function isoLocal(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -139,6 +173,10 @@ type AlbaranResumen = {
   label: string;
   fechaIso: string;
   numDoc: string;
+  /** CIF empresa del grupo ('' si no resuelve). */
+  empresaCif: string;
+  /** Nombre empresa del grupo (o «Sin empresa»). */
+  empresaNombre: string;
   /** Base imponible del albarán (sin IVA). */
   total: number;
   /** Total del albarán con IVA (GrossAmount del documento o estimado por líneas). */
@@ -154,6 +192,10 @@ type FacturaResumen = {
   numero: string;
   numeroProveedor: string;
   fechaIso: string;
+  /** CIF empresa del grupo ('' si no resuelve). */
+  empresaCif: string;
+  /** Nombre empresa del grupo (o «Sin empresa»). */
+  empresaNombre: string;
   estado: string;
   base: number;
   total: number;
@@ -236,6 +278,7 @@ function absorberClickFila(e: { stopPropagation?: () => void; nativeEvent?: { st
 export default function ConciliacionFacturasScreen() {
   const router = useRouter();
   const { hasPermiso, user } = useAuth();
+  const { shouldStackPanels } = useBreakpoint();
   const { show: showToast, ToastView } = useLocalToast();
   const { confirmar, ConfirmarView } = useConfirmar();
   const { compras, loading: loadingCompras, recargar } = useComprasProveedorCache();
@@ -464,10 +507,33 @@ export default function ConciliacionFacturasScreen() {
       return cifResuelto === cifFiltro;
     };
 
+    const nombreEmpresaGrupo = (cif: string): string =>
+      cif ? resolverEmpresaGrupo.empresaPorCif.get(cif) || cif : 'Sin empresa';
+
+    /** Orden: empresa (Sin empresa al final) → fecha asc → desempate estable. */
+    const cmpEmpresaFecha = (
+      a: { fechaIso: string; empresaNombre: string },
+      b: { fechaIso: string; empresaNombre: string },
+      desempate: () => number,
+    ): number => {
+      const aSin = !a.empresaNombre || a.empresaNombre === 'Sin empresa';
+      const bSin = !b.empresaNombre || b.empresaNombre === 'Sin empresa';
+      if (aSin !== bSin) return aSin ? 1 : -1;
+      if (!aSin) {
+        const ce = a.empresaNombre.localeCompare(b.empresaNombre, 'es');
+        if (ce !== 0) return ce;
+      }
+      const cf = a.fechaIso.localeCompare(b.fechaIso);
+      if (cf !== 0) return cf;
+      return desempate();
+    };
+
     type AcumAlbaran = {
       label: string;
       fechaIso: string;
       numDoc: string;
+      empresaCif: string;
+      empresaNombre: string;
       /** Suma de TotalAmount de líneas (sin IVA). */
       sumLineas: number;
       /** Suma de líneas con IVA estimado (TotalAmount × (1 + IVA + recargo)). */
@@ -526,6 +592,8 @@ export default function ConciliacionFacturasScreen() {
           label: albaranLabel(it),
           fechaIso: fecha,
           numDoc: String(it.SupplierDocumentNumber ?? '').trim(),
+          empresaCif: empCifCompra,
+          empresaNombre: nombreEmpresaGrupo(empCifCompra),
           sumLineas: 0,
           sumLineasConIva: 0,
           netDoc: null,
@@ -568,6 +636,8 @@ export default function ConciliacionFacturasScreen() {
         numero: String(f.numero_factura ?? '—'),
         numeroProveedor: String(f.numero_factura_proveedor ?? '').trim(),
         fechaIso: fecha,
+        empresaCif: empCifFactura,
+        empresaNombre: nombreEmpresaGrupo(empCifFactura),
         estado: String(f.estado ?? ''),
         base: Number(f.base_imponible) || 0,
         total: Number(f.total_factura) || 0,
@@ -588,6 +658,8 @@ export default function ConciliacionFacturasScreen() {
           label: a.label,
           fechaIso: a.fechaIso,
           numDoc: a.numDoc,
+          empresaCif: a.empresaCif,
+          empresaNombre: a.empresaNombre,
           // Preferir los totales del documento (incluyen descuentos a pie); si no, líneas.
           total: a.netDoc ?? a.sumLineas,
           totalConIva: a.grossDoc ?? a.sumLineasConIva,
@@ -596,12 +668,16 @@ export default function ConciliacionFacturasScreen() {
           lineas: a.lineas,
         };
       });
-      albaranes.sort((a, b) => a.fechaIso.localeCompare(b.fechaIso));
+      albaranes.sort((a, b) =>
+        cmpEmpresaFecha(a, b, () => a.label.localeCompare(b.label, 'es')),
+      );
       const facturasProv = acum.facturas.map((f) => ({
         ...f,
         vinculada: normDoc(f.numeroProveedor) !== '' && docsAlbaranes.has(normDoc(f.numeroProveedor)),
       }));
-      facturasProv.sort((a, b) => a.fechaIso.localeCompare(b.fechaIso));
+      facturasProv.sort((a, b) =>
+        cmpEmpresaFecha(a, b, () => a.numero.localeCompare(b.numero, 'es')),
+      );
 
       const totalAlbaranesBase = albaranes.reduce((s, a) => s + a.total, 0);
       const totalAlbaranesConIva = albaranes.reduce((s, a) => s + a.totalConIva, 0);
@@ -1239,97 +1315,156 @@ export default function ConciliacionFacturasScreen() {
 
                 {abierto ? (
                   <View style={local.detalle}>
-                    <Text style={local.detalleTitulo}>Albaranes ({p.albaranes.length})</Text>
-                    {p.albaranes.length === 0 ? (
-                      <Text style={local.detalleVacio}>Sin albaranes en el periodo.</Text>
-                    ) : p.albaranes.map((a) => (
-                      <TouchableOpacity
-                        key={a.key}
-                        style={local.detalleRow}
-                        onPress={() => setAlbaranModal(a)}
-                        activeOpacity={0.6}
-                      >
-                        <Text style={local.detalleFecha}>{formatFechaCorta(a.fechaIso)}</Text>
-                        <MaterialIcons name="receipt" size={14} color="#94a3b8" />
-                        <Text style={local.detalleDoc} numberOfLines={1}>
-                          {a.label}{a.numDoc ? `  ·  Nº doc: ${a.numDoc}` : ''}
-                        </Text>
-                        {a.vinculado ? (
-                          <MaterialIcons name="link" size={15} color="#047857" />
+                    <View style={[local.detalleCols, shouldStackPanels && local.detalleColsStack]}>
+                      {/* Albaranes */}
+                      <View style={[local.detalleCol, !shouldStackPanels && local.detalleColSide]}>
+                        <Text style={local.detalleTitulo}>Albaranes ({p.albaranes.length})</Text>
+                        {(() => {
+                          const listaAlb = p.albaranes.length === 0 ? (
+                            <Text style={local.detalleVacio}>Sin albaranes en el periodo.</Text>
+                          ) : p.albaranes.map((a) => (
+                            <TouchableOpacity
+                              key={a.key}
+                              style={local.detalleRow}
+                              onPress={() => setAlbaranModal(a)}
+                              activeOpacity={0.6}
+                            >
+                              <Text style={local.detalleFecha}>{formatFechaCorta(a.fechaIso)}</Text>
+                              <MaterialIcons name="receipt" size={14} color="#94a3b8" />
+                              <Text style={local.detalleDoc} numberOfLines={1}>
+                                {a.label}{a.numDoc ? `  ·  Nº doc: ${a.numDoc}` : ''}
+                              </Text>
+                              <View style={local.empresaCol}>
+                                {(() => {
+                                  const chip = colorChipEmpresa(a.empresaCif, a.empresaNombre);
+                                  return (
+                                    <View style={[local.empresaChip, { backgroundColor: chip.bg }]}>
+                                      <Text style={[local.empresaChipText, { color: chip.text }]} numberOfLines={1}>
+                                        {a.empresaNombre || 'Sin empresa'}
+                                      </Text>
+                                    </View>
+                                  );
+                                })()}
+                              </View>
+                              <View style={local.detalleRowSpacer} />
+                              {a.vinculado ? (
+                                <MaterialIcons name="link" size={15} color="#047857" />
+                              ) : null}
+                              <Text style={local.detalleImporte}>
+                                {formatMoneda(a.total)} <Text style={local.detalleImporteSec}>/ {formatMoneda(a.totalConIva)}</Text>
+                              </Text>
+                            </TouchableOpacity>
+                          ));
+                          if (p.albaranes.length === 0) return listaAlb;
+                          return shouldStackPanels ? (
+                            <View style={local.detalleGrid}>{listaAlb}</View>
+                          ) : (
+                            <ScrollView style={[local.detalleColScroll, local.detalleGrid]} nestedScrollEnabled>
+                              {listaAlb}
+                            </ScrollView>
+                          );
+                        })()}
+                        {p.albaranes.length > 0 ? (
+                          <Text style={local.detalleNota}>Importes de albarán: base sin IVA / total con IVA. Toca un albarán para ver sus productos.</Text>
                         ) : null}
-                        <Text style={local.detalleImporte}>
-                          {formatMoneda(a.total)} <Text style={local.detalleImporteSec}>/ {formatMoneda(a.totalConIva)}</Text>
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                    {p.albaranes.length > 0 ? (
-                      <Text style={local.detalleNota}>Importes de albarán: base sin IVA / total con IVA. Toca un albarán para ver sus productos.</Text>
-                    ) : null}
+                      </View>
 
-                    <Text style={[local.detalleTitulo, { marginTop: 10 }]}>Facturas de gasto ({p.facturas.length})</Text>
-                    {p.facturas.length === 0 ? (
-                      <Text style={local.detalleVacio}>Sin facturas de gasto en el periodo.</Text>
-                    ) : p.facturas.map((f) => {
-                      const c = colorEstado(f.estado);
-                      const esPteRevision = f.estado === 'pendiente_revision';
-                      const seleccionada = seleccionRevision.has(f.id);
-                      return (
-                        <View key={f.id} style={local.detalleRow}>
-                          {puedeValidarRevision ? (
-                            esPteRevision ? (
-                              <TouchableOpacity
-                                style={local.detalleCheckbox}
-                                onPress={(e) => {
-                                  absorberClickFila(e);
-                                  toggleSeleccionFactura(f.id);
-                                }}
-                                hitSlop={6}
-                                accessibilityLabel={seleccionada ? 'Desmarcar factura' : 'Marcar para validar revisión'}
-                              >
-                                <MaterialIcons
-                                  name={seleccionada ? 'check-box' : 'check-box-outline-blank'}
-                                  size={18}
-                                  color={seleccionada ? '#0ea5e9' : '#cbd5e1'}
-                                />
-                              </TouchableOpacity>
-                            ) : (
-                              <View style={local.detalleCheckbox} />
-                            )
-                          ) : null}
-                          <TouchableOpacity
-                            style={local.detalleRowMain}
-                            onPress={() => abrirDocumentoFactura(f.id)}
-                            disabled={abriendoDocId === f.id}
-                            activeOpacity={0.6}
-                          >
-                            <Text style={local.detalleFecha}>{formatFechaCorta(f.fechaIso)}</Text>
-                            {abriendoDocId === f.id ? (
-                              <ActivityIndicator size={14} color="#0ea5e9" />
-                            ) : (
-                              <MaterialIcons name="description" size={14} color="#94a3b8" />
-                            )}
-                            <Text style={local.detalleDoc} numberOfLines={1}>
-                              {f.numero}{f.numeroProveedor ? `  ·  Nº prov: ${f.numeroProveedor}` : ''}
-                            </Text>
-                            {f.vinculada ? (
-                              <MaterialIcons name="link" size={15} color="#047857" />
-                            ) : null}
-                            <View style={[local.badgeMini, { backgroundColor: c.bg }]}>
-                              <Text style={[local.badgeMiniText, { color: c.text }]}>{labelEstado(f.estado)}</Text>
-                            </View>
-                            <Text style={local.detalleImporte}>
-                              {formatMoneda(f.base)} <Text style={local.detalleImporteSec}>/ {formatMoneda(f.total)}</Text>
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      );
-                    })}
-                    {p.facturas.length > 0 ? (
-                      <Text style={local.detalleNota}>
-                        Importes de factura: base imponible / total con IVA. Toca una factura para abrir su documento adjunto.
-                        {puedeValidarRevision ? ' Marca las pendientes de revisión para validarlas desde conciliación.' : ''}
-                      </Text>
-                    ) : null}
+                      {/* Facturas de gasto */}
+                      <View style={[
+                        local.detalleCol,
+                        !shouldStackPanels && local.detalleColSide,
+                        !shouldStackPanels && local.detalleColDivider,
+                        shouldStackPanels && local.detalleColStackGap,
+                      ]}>
+                        <Text style={local.detalleTitulo}>Facturas de gasto ({p.facturas.length})</Text>
+                        {(() => {
+                          const listaFact = p.facturas.length === 0 ? (
+                            <Text style={local.detalleVacio}>Sin facturas de gasto en el periodo.</Text>
+                          ) : p.facturas.map((f) => {
+                            const c = colorEstado(f.estado);
+                            const esPteRevision = f.estado === 'pendiente_revision';
+                            const seleccionada = seleccionRevision.has(f.id);
+                            return (
+                              <View key={f.id} style={local.detalleRow}>
+                                {puedeValidarRevision ? (
+                                  esPteRevision ? (
+                                    <TouchableOpacity
+                                      style={local.detalleCheckbox}
+                                      onPress={(e) => {
+                                        absorberClickFila(e);
+                                        toggleSeleccionFactura(f.id);
+                                      }}
+                                      hitSlop={6}
+                                      accessibilityLabel={seleccionada ? 'Desmarcar factura' : 'Marcar para validar revisión'}
+                                    >
+                                      <MaterialIcons
+                                        name={seleccionada ? 'check-box' : 'check-box-outline-blank'}
+                                        size={18}
+                                        color={seleccionada ? '#0ea5e9' : '#cbd5e1'}
+                                      />
+                                    </TouchableOpacity>
+                                  ) : (
+                                    <View style={local.detalleCheckbox} />
+                                  )
+                                ) : null}
+                                <TouchableOpacity
+                                  style={local.detalleRowMain}
+                                  onPress={() => abrirDocumentoFactura(f.id)}
+                                  disabled={abriendoDocId === f.id}
+                                  activeOpacity={0.6}
+                                >
+                                  <Text style={local.detalleFecha}>{formatFechaCorta(f.fechaIso)}</Text>
+                                  {abriendoDocId === f.id ? (
+                                    <ActivityIndicator size={14} color="#0ea5e9" />
+                                  ) : (
+                                    <MaterialIcons name="description" size={14} color="#94a3b8" />
+                                  )}
+                                  <Text style={local.detalleDoc} numberOfLines={1}>
+                                    {f.numero}{f.numeroProveedor ? `  ·  Nº prov: ${f.numeroProveedor}` : ''}
+                                  </Text>
+                                  <View style={local.empresaCol}>
+                                    {(() => {
+                                      const chip = colorChipEmpresa(f.empresaCif, f.empresaNombre);
+                                      return (
+                                        <View style={[local.empresaChip, { backgroundColor: chip.bg }]}>
+                                          <Text style={[local.empresaChipText, { color: chip.text }]} numberOfLines={1}>
+                                            {f.empresaNombre || 'Sin empresa'}
+                                          </Text>
+                                        </View>
+                                      );
+                                    })()}
+                                  </View>
+                                  <View style={local.detalleRowSpacer} />
+                                  {f.vinculada ? (
+                                    <MaterialIcons name="link" size={15} color="#047857" />
+                                  ) : null}
+                                  <View style={[local.badgeMini, { backgroundColor: c.bg }]}>
+                                    <Text style={[local.badgeMiniText, { color: c.text }]}>{labelEstado(f.estado)}</Text>
+                                  </View>
+                                  <Text style={local.detalleImporte}>
+                                    {formatMoneda(f.base)} <Text style={local.detalleImporteSec}>/ {formatMoneda(f.total)}</Text>
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                            );
+                          });
+                          if (p.facturas.length === 0) return listaFact;
+                          return shouldStackPanels ? (
+                            <View style={local.detalleGrid}>{listaFact}</View>
+                          ) : (
+                            <ScrollView style={[local.detalleColScroll, local.detalleGrid]} nestedScrollEnabled>
+                              {listaFact}
+                            </ScrollView>
+                          );
+                        })()}
+                        {p.facturas.length > 0 ? (
+                          <Text style={local.detalleNota}>
+                            Importes de factura: base imponible / total con IVA. Toca una factura para abrir su documento adjunto.
+                            {puedeValidarRevision ? ' Marca las pendientes de revisión para validarlas desde conciliación.' : ''}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
                   </View>
                 ) : null}
               </View>
@@ -1646,13 +1781,61 @@ const local = StyleSheet.create({
   badgeText: { fontSize: 11, fontWeight: '700' },
 
   detalle: { paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
+  detalleCols: { flexDirection: 'row', alignItems: 'flex-start', gap: 0 },
+  detalleColsStack: { flexDirection: 'column' },
+  detalleCol: { flex: 1, minWidth: 0 },
+  detalleColSide: { paddingHorizontal: 4 },
+  detalleColDivider: { borderLeftWidth: 1, borderLeftColor: '#e2e8f0', paddingLeft: 12 },
+  detalleColStackGap: { marginTop: 10 },
+  /** Scroll independiente por columna en layout 50/50 (no rompe el ScrollView padre). */
+  detalleColScroll: { maxHeight: 280 },
+  /** Contenedor tipo cuadrícula (albaranes y facturas). */
+  detalleGrid: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+  },
   detalleTitulo: { fontSize: 12, fontWeight: '700', color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.3 },
   detalleVacio: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', paddingVertical: 4 },
-  detalleRow: { flexDirection: 'row', alignItems: 'center', gap: 4, borderBottomWidth: 1, borderBottomColor: '#f8fafc' },
-  detalleCheckbox: { width: 28, alignItems: 'center', justifyContent: 'center', paddingVertical: 6 },
-  detalleRowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6 },
+  detalleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+  },
+  detalleCheckbox: { width: 28, alignItems: 'center', justifyContent: 'center' },
+  detalleRowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
   detalleFecha: { fontSize: 12, color: '#64748b', width: 76 },
-  detalleDoc: { flex: 1, fontSize: 12.5, color: '#334155' },
+  detalleDoc: {
+    flexGrow: 0,
+    flexShrink: 1,
+    maxWidth: '30%',
+    fontSize: 12.5,
+    color: '#334155',
+    minWidth: 0,
+  },
+  /** Empuja importes/estado a la derecha tras la columna de empresa. */
+  detalleRowSpacer: { flex: 1, minWidth: 8 },
+  /** Columna fija de empresa (alineación vertical entre filas). */
+  empresaCol: {
+    width: 132,
+    flexShrink: 0,
+    paddingHorizontal: 4,
+    justifyContent: 'center',
+  },
+  empresaChip: {
+    alignSelf: 'stretch',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  empresaChipText: { fontSize: 10, fontWeight: '600' },
   detalleImporte: { fontSize: 12.5, fontWeight: '600', color: '#0f172a', textAlign: 'right' },
   detalleImporteSec: { fontWeight: '400', color: '#94a3b8', fontSize: 11.5 },
   badgeMini: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },

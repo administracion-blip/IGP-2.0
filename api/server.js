@@ -78,6 +78,8 @@ import remesasRouter from './routes/remesas.js';
 import cashflowRouter from './routes/cashflow.js';
 import iaRouter from './routes/ia.js';
 import planningDiaRouter from './routes/planningDia.js';
+import bonusRouter from './routes/bonus.js';
+import entradasRouter from './routes/entradas.js';
 
 // Valida variables críticas al arranque. Si falta alguna REQUIRED, aborta el proceso.
 validateEnv();
@@ -226,6 +228,8 @@ app.use('/api', planningDiaRouter);
 app.use('/api', remesasRouter);
 app.use('/api', cashflowRouter);
 app.use('/api', iaRouter);
+app.use('/api', bonusRouter);
+app.use('/api', entradasRouter);
 
 // --- Middleware central de errores: DEBE ir tras todos los routers ---
 app.use(errorHandler);

@@ -4,6 +4,8 @@ import {
   detectMimeFromMagic,
   sanitizeUploadFileName,
   assertBufferMimeAllowed,
+  stripHttpPreambleIfPdf,
+  normalizeUploadBuffer,
   ALLOWED_FACTURA_MIMES,
 } from '../lib/uploadAllowlist.js';
 
@@ -44,4 +46,32 @@ test('assertBufferMimeAllowed rechaza MIME/magic incongruentes', () => {
     (err) => err.status === 400,
   );
   assert.ok(ALLOWED_FACTURA_MIMES.has('application/pdf'));
+});
+
+test('stripHttpPreambleIfPdf deja PDF limpio intacto', () => {
+  const clean = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\n');
+  const out = stripHttpPreambleIfPdf(clean);
+  assert.ok(out.equals(clean));
+  assert.equal(normalizeUploadBuffer(clean).toString('latin1').slice(0, 4), '%PDF');
+});
+
+test('stripHttpPreambleIfPdf recorta preámbulo HTTP ante %PDF', () => {
+  const wrapped = Buffer.from(
+    'HTTP/1.0 200 OK\r\nContent-Type: application/pdf\r\n\r\n%PDF-1.7\ntrailer\n',
+  );
+  const stripped = stripHttpPreambleIfPdf(wrapped);
+  assert.equal(stripped.toString('latin1').slice(0, 8), '%PDF-1.7');
+  assert.equal(assertBufferMimeAllowed(stripped, 'application/pdf'), 'application/pdf');
+});
+
+test('stripHttpPreambleIfPdf no altera JPEG sin HTTP', () => {
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+  const out = stripHttpPreambleIfPdf(jpeg);
+  assert.ok(out.equals(jpeg));
+});
+
+test('stripHttpPreambleIfPdf no inventa PDF si HTTP sin %PDF en 8KB', () => {
+  const httpOnly = Buffer.from('HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\nhello world');
+  const out = stripHttpPreambleIfPdf(httpOnly);
+  assert.ok(out.equals(httpOnly));
 });

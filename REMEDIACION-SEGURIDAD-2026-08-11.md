@@ -98,7 +98,66 @@ Rama: `security/remediacion-2026-08`
 
 ## Verificación
 - `cd api && npm test` → **172 pass / 0 fail**.
-- Smoke manual recomendado: facturas Locales acotados vs Admin; remesas; OCR; CORS prod; CSP-Report-Only; login legacy + rehash; nativo login/reabrir app; web F5 mantiene sesión.
+
+## Smoke checklist
+
+Marca al probar. Auto = comprobado en máquina de desarrollo (2026-08-11).
+
+### A · Automatizado / cabeceras
+- [x] **A1** `cd api && npm test` → 172 pass / 0 fail
+- [x] **A2** `GET /api/health` lleva `Content-Security-Policy-Report-Only` con `default-src 'none'` (S-11)
+- [x] **A3** Misma respuesta **no** lleva `Content-Security-Policy` enforcing (S-11)
+- [x] **A4** CORS dev: origen `http://localhost:8084` aceptado (visible en logs / OPTIONS 204)
+
+### B · Auth y sesión
+- [ ] **B1** Login Admin → home carga; `/api/me` OK (S-07 JWT)
+- [ ] **B2** Web: F5 tras login → sigue sesión (S-09 AsyncStorage)
+- [ ] **B3** Logout → token limpio; siguiente navegación pide login
+- [ ] **B4** (Nativo) Login → matar app → reabrir con sesión (S-09 SecureStore)
+- [ ] **B5** (Opcional) Usuario con password plaintext legacy → login OK; en Dynamo `Password` pasa a `$2b$…` (S-10)
+- [ ] **B6** (Ops) `node api/scripts/audit-plaintext-passwords.js` → anotar cuántos residuales
+
+### C · Permisos (usuario NO Admin, sin el permiso)
+- [ ] **C1** Sin `facturacion.ver` → API facturas 403; menú oculto (S-01)
+- [ ] **C2** Sin `empresas.editar` → PUT empresa 403 (S-02)
+- [ ] **C3** Sin `usuarios.crear` → POST usuario 403 (S-05)
+- [ ] **C4** Sin `acuerdos.ver` → listado acuerdos 403 (S-03)
+- [ ] **C5** DELETE empresa solo Admin → otro rol 403 aunque tenga editar (S-02)
+
+### D · Facturación / Locales (S-08)
+- [ ] **D1** Admin (o `Locales: []`) → ve facturas de todos los emisores del grupo
+- [ ] **D2** Usuario con Locales de **un** local → solo facturas cuyo `emisor_id` es empresa de ese local
+- [ ] **D3** Mismo usuario → no abre/edita por ID una factura de otro emisor (403/404 según ruta)
+- [ ] **D4** Contabilidad con `Locales: []` → sigue viendo todo (no romper tesorería)
+
+### E · Remesas (S-04)
+- [ ] **E1** Ejecutar remesa una vez → pagos OK, estado coherente
+- [ ] **E2** Re-ejecutar misma remesa → no doble pago (idempotente / 409 carrera)
+- [ ] **E3** Dos clics rápidos → como máximo una ejecución efectiva
+
+### F · Uploads / OCR (S-06)
+- [ ] **F1** Registro masivo: PDF real → OCR extrae OK
+- [ ] **F2** JPG/PNG real → OK
+- [ ] **F3** Fichero no permitido (p. ej. `.exe` / MIME raro) → rechazado
+- [ ] **F4** Preview PNG OCR se ve en pantalla (CORP cross-origin en esa ruta)
+
+### G · Acuerdos (S-03)
+- [ ] **G1** Listar / ver acuerdo con permiso
+- [ ] **G2** Subir justificante (MIME allowlist) OK
+- [ ] **G3** Nombre raro / path traversal en filename → sanitizado, no rompe
+
+### H · Errores y prod (S-12 / S-15) — solo si puedes simular prod
+- [ ] **H1** En prod sin `CORS_ALLOWED_ORIGINS` → API **no arranca**
+- [ ] **H2** En prod con origen permitido → front llama API OK
+- [ ] **H3** Forzar 500 (ruta de prueba o mock) → cliente ve mensaje genérico + `errorId`, no stack
+
+### I · Internal sync (S-13) — opcional
+- [ ] **I1** Sin `INTERNAL_SYNC_IP_ALLOWLIST` → POST interno con secret OK (como antes)
+- [ ] **I2** Con allowlist que **no** incluye tu IP → 401 aunque el secret sea correcto
+
+### Criterio de salida
+- Obligatorios antes de merge: **A** completo + **B1–B3** + **C1** + **D1–D2** + **E1–E2** + **F1**.
+- Resto: recomendado; H en staging/prod.
 
 ## Pendiente / follow-ups
 

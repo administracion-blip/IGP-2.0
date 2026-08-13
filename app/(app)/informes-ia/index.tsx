@@ -18,9 +18,14 @@ import { InputFecha } from '../../components/InputFecha';
 import { CollapsibleSection } from '../../components/CollapsibleSection';
 import { VistaDiaADia, type DatosDiaADia } from '../../components/informes-ia/VistaDiaADia';
 import { InformeResumenRico } from '../../components/informes-ia/InformeResumenRico';
+import {
+  ObjetivoFacturacionHoyBox,
+  tieneObjetivoFacturacionHoyUtil,
+} from '../../components/informes-ia/ObjetivoFacturacionHoyBox';
 import { apiFetch, errorMessage } from '../../utils/api';
 import { formatId6 } from '../../utils/idFormat';
 import { fechaInformeDiaAnteriorIso } from '../../lib/jornadaNegocio';
+import { stripObjetivoFacturacionHoyMarkdown } from '../../lib/stripObjetivoFacturacionHoyMarkdown';
 import { descargarPdfInformeIa } from '../../lib/informesIaPdf';
 import { descargarPdfDesdeNodo } from '../../lib/informesIaPdfCapture';
 
@@ -164,6 +169,20 @@ export default function InformesIaScreen() {
         .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
     [locales, localPermitido],
   );
+
+  const objetivoFacturacionHoyData = useMemo(() => {
+    if (informe?.fuente !== 'dia_a_dia' || !informe.datosJson) return null;
+    return (informe.datosJson as DatosDiaADia).objetivoFacturacionHoy ?? null;
+  }, [informe]);
+
+  const resumenDiaSinObjetivoFacturacion = useMemo(() => {
+    if (informe?.fuente !== 'dia_a_dia') return informe?.resumen || '';
+    // Solo recortar el subapartado IA si vamos a pintar el recuadro (evita perder texto en informes viejos / objetivo 0).
+    if (tieneObjetivoFacturacionHoyUtil(objetivoFacturacionHoyData)) {
+      return stripObjetivoFacturacionHoyMarkdown(informe.resumen);
+    }
+    return informe?.resumen || '';
+  }, [informe, objetivoFacturacionHoyData]);
 
   useEffect(() => {
     setLoadingFuentes(true);
@@ -548,12 +567,17 @@ export default function InformesIaScreen() {
                     >
                       <Text style={styles.resumenDiaTitulo}>Acciones y foco del día</Text>
                       {informe.resumen ? (
-                        <InformeResumenRico texto={informe.resumen} />
+                        resumenDiaSinObjetivoFacturacion ? (
+                          <InformeResumenRico texto={resumenDiaSinObjetivoFacturacion} />
+                        ) : null
                       ) : (
                         <Text style={styles.hint}>
                           Sin redacción (IA no configurada). Consulta los datos arriba.
                         </Text>
                       )}
+                      {tieneObjetivoFacturacionHoyUtil(objetivoFacturacionHoyData) ? (
+                        <ObjetivoFacturacionHoyBox data={objetivoFacturacionHoyData} />
+                      ) : null}
                     </View>
                   </>
                 ) : (

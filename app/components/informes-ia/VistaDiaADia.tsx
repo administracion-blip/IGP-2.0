@@ -110,6 +110,24 @@ type ParteMant = {
   valoracionTotal?: number | null;
 };
 
+export type ObjetivoFacturacionHoy = {
+  fecha?: string;
+  fechaLabel?: string | null;
+  fechaComparativa?: string | null;
+  comparativaLabel?: string | null;
+  nota?: string | null;
+  total?: {
+    objetivo?: number;
+    objetivoLabel?: string | null;
+  };
+  locales?: Array<{
+    localId?: string;
+    nombre?: string;
+    objetivo?: number;
+    objetivoLabel?: string | null;
+  }>;
+};
+
 type LimpiezaMant = {
   id?: string;
   localId?: string;
@@ -179,6 +197,8 @@ export type DatosDiaADia = {
     partes?: ParteMant[];
     limpiezas?: LimpiezaMant[];
   };
+  /** Objetivo de facturación del día foco (comparativa). Informes antiguos pueden no traerlo. */
+  objetivoFacturacionHoy?: ObjetivoFacturacionHoy;
 };
 
 /** Atributo DOM para captura PDF por secciones (solo web / RN-web). */

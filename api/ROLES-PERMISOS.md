@@ -169,6 +169,14 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `marketing.proponer` | Marketing · Crear y editar propuestas propias |
 | `marketing.gestionar` | Marketing · Visión global, aprobar/rechazar, prompts IA, carteles, estilos |
 | `personal.ver` | Personal · Ver empleados (Factorial HR) |
+| `rrhh.bonus.ver` | Bonus RRHH · Ver informe mensual (desviación, incentivos, fondo). Roles sugeridos: RRHH, Dirección, Administrador |
+| `rrhh.bonus.editar` | Bonus RRHH · Guardar % de fondo y cerrar snapshot del mes. Roles sugeridos: RRHH, Dirección, Administrador |
+| `entradas.ver` | Entradas (Coupons Ágora) · Ver tipos, listado y eventos |
+| `entradas.crear` | Entradas · Emitir entrada y sincronizar con Ágora |
+| `entradas.enviar_whatsapp` | Entradas · Generar enlace stub WhatsApp (wa.me) |
+| `entradas.reintentar_agora` | Entradas · Reintentar sincronización con Ágora |
+| `entradas.configurar` | Entradas · Config Ágora del local y CRUD de tipos |
+| `entradas.anular` | Entradas · Anular entrada (soft) |
 | `activaciones.ver` | Activaciones de marca · Ver las del día en Planning Diario y lista en solo lectura; marcar realizada/cancelada y añadir incidencias (personal de barra) |
 | `activaciones.gestionar` | Activaciones de marca · Crear, editar y archivar campañas; programar, cancelar y eliminar sesiones (administración) |
 | `incentivos_producto.ver` | Incentivos por producto · Ver campañas y resultados |

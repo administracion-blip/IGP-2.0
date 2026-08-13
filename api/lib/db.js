@@ -67,6 +67,11 @@ export const tables = {
   ventasProducto: process.env.DDB_VENTAS_PRODUCTO_TABLE || 'Igp_VentasProducto',
   /** Campañas de incentivo por producto. PK = campanaId (UUID). */
   campanas: process.env.DDB_CAMPANAS_TABLE || 'Igp_Campanas',
+  /**
+   * Snapshot mensual Bonus RRHH (desviación + incentivos + fondo).
+   * PK = MES#YYYY-MM, SK = META | LOCAL#<id_Locales>.
+   */
+  bonusMensual: process.env.DDB_BONUS_MENSUAL_TABLE || 'Igp_BonusMensual',
   /** Remesas de pago a proveedores. PK = remesaId (UUID). */
   remesas: process.env.DDB_REMESAS_TABLE || 'Igp_Remesas',
   /** Movimientos cashflow (efectivo fuera TPV). PK LOCAL#id, SK FECHA#date#uuid. */
@@ -114,6 +119,27 @@ export const tables = {
    * Sin GSI: listado global = Scan filtrado (volumen bajo).
    */
   refacturaciones: process.env.DDB_REFACTURACIONES || 'Igp_Refacturaciones',
+  /**
+   * Entradas (Coupons Ágora): config por local.
+   * PK = LOCAL#<localId>, SK = CONFIG.
+   */
+  entradasAgoraConfig: process.env.DDB_ENTRADAS_AGORA_CONFIG_TABLE || 'Igp_EntradasAgoraConfig',
+  /**
+   * Entradas: tipos/plantillas por local.
+   * PK = LOCAL#<localId>, SK = TIPO#<tipoId>.
+   */
+  entradasTipos: process.env.DDB_ENTRADAS_TIPOS_TABLE || 'Igp_EntradasTipos',
+  /**
+   * Entradas emitidas.
+   * PK = LOCAL#<localId>, SK = ENT#<creadoEnISO>#<entradaId>.
+   * GSI: Code-index (code + localId), Sync-index (agoraSyncStatus + creadoEn) si existe.
+   */
+  entradas: process.env.DDB_ENTRADAS_TABLE || 'Igp_Entradas',
+  /**
+   * Eventos de auditoría de una entrada.
+   * PK = ENT#<entradaId>, SK = EVT#<ISO>#<uuid>.
+   */
+  entradasEventos: process.env.DDB_ENTRADAS_EVENTOS_TABLE || 'Igp_EntradasEventos',
 };
 
 /**

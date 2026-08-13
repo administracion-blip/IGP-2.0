@@ -4272,6 +4272,7 @@ router.post('/agora/purchases/sync', async (req, res) => {
   const default60daysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const dateFrom = (body.dateFrom || default60daysAgo).toString().trim();
   const dateTo = (body.dateTo || today).toString().trim();
+  const deleteMissing = body.deleteMissing !== false;
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
     return res.status(400).json({ error: 'dateFrom y dateTo deben ser YYYY-MM-DD' });
@@ -4289,26 +4290,91 @@ router.post('/agora/purchases/sync', async (req, res) => {
       d.setDate(d.getDate() + 1);
     }
 
+    /** @type {Map<string, Array<{ PK: string, SK: string }>>} */
+    const dynamoKeysByFecha = new Map();
+    if (deleteMissing) {
+      let lastKey = null;
+      do {
+        const scanRes = await docClient.send(
+          new ScanCommand({
+            TableName: tableComprasProveedorName,
+            ProjectionExpression: 'PK, SK, AlbaranFecha',
+            ...(lastKey && { ExclusiveStartKey: lastKey }),
+          })
+        );
+        for (const item of scanRes.Items || []) {
+          const fechaRaw = item.AlbaranFecha;
+          const fecha =
+            typeof fechaRaw === 'string' && /^\d{4}-\d{2}-\d{2}/.test(fechaRaw)
+              ? fechaRaw.slice(0, 10)
+              : null;
+          if (!fecha || fecha < dateFrom || fecha > dateTo) continue;
+          const pk = item.PK ?? item.pk;
+          const sk = item.SK ?? item.sk;
+          if (!pk || sk == null || sk === '') continue;
+          if (!dynamoKeysByFecha.has(fecha)) dynamoKeysByFecha.set(fecha, []);
+          dynamoKeysByFecha.get(fecha).push({ PK: String(pk), SK: String(sk) });
+        }
+        lastKey = scanRes.LastEvaluatedKey || null;
+      } while (lastKey);
+      console.log(
+        '[agora/purchases/sync] Índice Dynamo para purge:',
+        [...dynamoKeysByFecha.values()].reduce((n, arr) => n + arr.length, 0),
+        'líneas en rango'
+      );
+    }
+
     let totalFetched = 0;
     let totalUpserted = 0;
+    let totalDeleted = 0;
     const errors = [];
     const purchaseVatMap = new Map();
+
+    /** BatchWrite con reintento de UnprocessedItems; lanza si no vacía tras max intentos. */
+    async function batchWritePurchases(requests) {
+      if (!requests.length) return 0;
+      const maxAttempts = 10;
+      for (let i = 0; i < requests.length; i += 25) {
+        const chunk = requests.slice(i, i + 25);
+        let req = { RequestItems: { [tableComprasProveedorName]: chunk } };
+        let attempt = 0;
+        while (true) {
+          const res = await docClient.send(new BatchWriteCommand(req));
+          const unprocessed = res.UnprocessedItems?.[tableComprasProveedorName];
+          if (!unprocessed?.length) break;
+          attempt++;
+          if (attempt >= maxAttempts) {
+            throw new Error(
+              `BatchWrite UnprocessedItems tras ${maxAttempts} intentos (${unprocessed.length} pendientes)`
+            );
+          }
+          req = { RequestItems: { [tableComprasProveedorName]: unprocessed } };
+          await new Promise((r) => setTimeout(r, 100 * attempt));
+        }
+      }
+      return requests.length;
+    }
 
     for (let i = 0; i < days.length; i++) {
       const businessDay = days[i];
       try {
         const data = await exportIncomingDeliveryNotes(businessDay);
-        const notes =
-          data?.IncomingDeliveryNotes ??
-          data?.incomingDeliveryNotes ??
-          (Array.isArray(data) ? data : []);
-        if (!Array.isArray(notes) || notes.length === 0) continue;
+        const rawNotes = data?.IncomingDeliveryNotes ?? data?.incomingDeliveryNotes;
+        const notesArr = Array.isArray(rawNotes)
+          ? rawNotes
+          : Array.isArray(data)
+            ? data
+            : null;
+        if (notesArr === null) {
+          throw new Error('Respuesta Ágora sin IncomingDeliveryNotes array');
+        }
 
         const flatLines = [];
-        for (const note of notes) {
+        for (const note of notesArr) {
           const serie = note.Serie ?? note.serie ?? '';
           const number = note.Number ?? note.number ?? '';
-          const noteDate = note.Date ?? note.date ?? businessDay;
+          const rawNoteDate = String(note.Date ?? note.date ?? businessDay).slice(0, 10);
+          const noteDate = /^\d{4}-\d{2}-\d{2}$/.test(rawNoteDate) ? rawNoteDate : businessDay;
           const supplierDocNum = note.SupplierDocumentNumber ?? note.supplierDocumentNumber ?? '';
           const confirmed = note.Confirmed ?? note.confirmed ?? false;
           const invoiced = note.Invoiced ?? note.invoiced ?? false;
@@ -4394,24 +4460,53 @@ router.post('/agora/purchases/sync', async (req, res) => {
           }
         }
 
+        // Purge solo tras fetch OK con array válido: claves Dynamo del día no presentes en Ágora.
+        // [] vacío legítimo → purga total del día (con WARN si hay líneas en Dynamo).
+        if (deleteMissing) {
+          const agoraKeys = new Set(flatLines.map((l) => `${l.PK}|${l.SK}`));
+          const dynamoDayKeys = dynamoKeysByFecha.get(businessDay) || [];
+          const keysToDelete = dynamoDayKeys.filter((k) => !agoraKeys.has(`${k.PK}|${k.SK}`));
+          if (notesArr.length === 0 && keysToDelete.length > 0) {
+            console.warn(
+              '[agora/purchases/sync] Día vacío en Ágora; se purgarán',
+              keysToDelete.length,
+              'líneas de',
+              businessDay
+            );
+          }
+          if (keysToDelete.length > 0) {
+            const deleted = await batchWritePurchases(
+              keysToDelete.map((k) => ({
+                DeleteRequest: { Key: { PK: k.PK, SK: k.SK } },
+              }))
+            );
+            totalDeleted += deleted;
+            console.log(
+              '[agora/purchases/sync] Purgadas',
+              deleted,
+              'líneas huérfanas de',
+              businessDay
+            );
+          }
+          dynamoKeysByFecha.set(businessDay, []);
+        }
+
         if (flatLines.length === 0) continue;
         totalFetched += flatLines.length;
 
-        for (let j = 0; j < flatLines.length; j += 25) {
-          const chunk = flatLines.slice(j, j + 25);
-          await docClient.send(
-            new BatchWriteCommand({
-              RequestItems: {
-                [tableComprasProveedorName]: chunk.map((item) => ({
-                  PutRequest: { Item: item },
-                })),
-              },
-            })
-          );
-          totalUpserted += chunk.length;
-        }
+        const upserted = await batchWritePurchases(
+          flatLines.map((item) => ({ PutRequest: { Item: item } }))
+        );
+        totalUpserted += upserted;
       } catch (err) {
+        // Error del día (forma inválida, API, BatchWrite…): no se marca como ok; purge solo corre tras array válido.
         errors.push({ day: businessDay, error: err.message || String(err) });
+        console.warn(
+          '[agora/purchases/sync] Error en',
+          businessDay,
+          ':',
+          err.message || String(err)
+        );
       }
 
       if ((i + 1) % 30 === 0) {
@@ -4431,13 +4526,18 @@ router.post('/agora/purchases/sync', async (req, res) => {
     }
 
     invalidatePurchasesCache();
-    req.log.info({ dateFrom, dateTo, totalFetched, totalUpserted, purchaseVatUpdated, errors: errors.length }, '[agora/purchases/sync] Completado');
+    req.log.info(
+      { dateFrom, dateTo, totalFetched, totalUpserted, totalDeleted, deleteMissing, purchaseVatUpdated, errors: errors.length },
+      '[agora/purchases/sync] Completado'
+    );
     return res.json({
       ok: true,
       dateFrom,
       dateTo,
       totalFetched,
       totalUpserted,
+      totalDeleted,
+      deleteMissing,
       purchaseVatUpdated,
       daysProcessed: days.length,
       errors: errors.length > 0 ? errors : undefined,
