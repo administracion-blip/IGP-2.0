@@ -15,7 +15,7 @@ https://github.com/administracion-blip/IGP-2.0.git
 7) A partir de ahora: cómo subir cambios (lo que usarás siempre)
 Cada vez que cambies cosas:
 git add .
-git commit -m "04.08.2026"
+git commit -m "13.08.2026"
 git push
 
 //ABRIR CON EXPO GO
