@@ -86,6 +86,21 @@ export type LineaFactura = {
   total_linea?: number;
 };
 
+/** Albarán vinculado a una factura IN en conciliación compras. */
+export type AlbaranConciliado = {
+  key: string;
+  serie: string;
+  numero: string;
+  fecha_albaran: string;
+  base: number;
+  id_factura: string;
+  numero_factura: string;
+  fecha_factura: string;
+  asignado_en?: string;
+  asignado_por?: string;
+  asignado_por_id?: string;
+};
+
 export type Factura = {
   id_factura: string;
   tipo: 'OUT' | 'IN';
@@ -94,6 +109,8 @@ export type Factura = {
   /** Nº factura legible (serie + correlativo), p. ej. FV-2024-000001 */
   numero_factura?: string;
   estado: string;
+  /** Albaranes asignados en conciliación (solo IN; opcional). */
+  albaranes_conciliados?: AlbaranConciliado[];
   /** Sociedad del grupo (p. ej. GRUPO PARIPE) en facturas IN; coincide con el selector «Empresa» en OCR */
   emisor_id?: string;
   emisor_nombre?: string;

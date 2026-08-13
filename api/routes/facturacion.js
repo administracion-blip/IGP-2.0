@@ -64,13 +64,20 @@ import {
   construirFacturaConLineas,
   buildImpuestosResumenFromLineas,
 } from '../lib/facturacion/construirFactura.js';
-import { nombreFicheroAdjuntoFacturaRecibida } from '../lib/facturacion/idDocumento.js';
+import {
+  nombreFicheroAdjuntoFacturaRecibida,
+  fechaEmisionFacturaAIso,
+} from '../lib/facturacion/idDocumento.js';
 import { esDuplicadoFacturaProveedor } from '../lib/facturacion/duplicadosProveedor.js';
 import {
   ERROR_PROVEEDOR_IGUAL_SOCIEDAD,
   proveedorCoincideConSociedad,
 } from '../lib/facturacion/validarProveedorSociedad.js';
 import { limpiarMarcasFacturacionPeriodica } from '../lib/facturacion/marcasPeriodicas.js';
+import {
+  sanitizeAlbaranesConciliados,
+  numeroFacturaParaConciliacion,
+} from '../lib/facturacion/albaranesConciliados.js';
 import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
 import {
   empresasPermitidasDelUsuario,
@@ -1789,6 +1796,76 @@ router.post('/facturacion/check-vencimientos', requirePermission('facturacion.ed
     }
 
     res.json({ ok: true, revisadas: facturas.length, actualizadas });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── CONCILIACIÓN ALBARÁN ↔ FACTURA IN ───
+
+/** Reemplaza el array completo `albaranes_conciliados` de una factura IN. */
+// [SEC S-01]
+router.put('/facturacion/facturas/:id/albaranes-conciliados', requirePermission('facturacion.emitir'), async (req, res) => {
+  const id = req.params.id;
+  const body = req.body || {};
+  const { usuario_id, usuario_nombre } = usuarioAuditoria(req);
+
+  try {
+    const existing = await docClient.send(
+      new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }),
+    );
+    if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, existing.Item, res)) return;
+
+    const factura = existing.Item;
+    if (String(factura.tipo || '').toUpperCase() !== 'IN') {
+      return res.status(400).json({ error: 'Solo facturas de tipo IN admiten albaranes conciliados' });
+    }
+    if (String(factura.estado || '').toLowerCase() !== 'pendiente_revision') {
+      return res.status(409).json({
+        error: 'No se pueden modificar albaranes conciliados tras validar la factura',
+      });
+    }
+
+    const fechaFactura =
+      fechaEmisionFacturaAIso(factura.fecha_emision) || fechaToIsoGuardada(factura.fecha_emision) || '';
+    const sanitized = sanitizeAlbaranesConciliados(body.albaranes_conciliados, {
+      id_factura: factura.id_factura || id,
+      numero_factura: numeroFacturaParaConciliacion(factura),
+      fecha_factura: fechaFactura,
+      ahoraIso: now(),
+      asignado_por: usuario_nombre,
+      asignado_por_id: usuario_id,
+    });
+    if (!sanitized.ok) {
+      return res.status(400).json({ error: sanitized.error });
+    }
+
+    const ts = now();
+    await docClient.send(
+      new UpdateCommand({
+        TableName: tables.facturas,
+        Key: await keyForFacturaPrincipalId(id),
+        UpdateExpression: 'SET albaranes_conciliados = :a, actualizado_en = :ts',
+        ExpressionAttributeValues: { ':a': sanitized.items, ':ts': ts },
+      }),
+    );
+
+    await registrarAuditoria(id, 'albaranes_conciliados', usuario_id, usuario_nombre, {
+      count: sanitized.items.length,
+      keys: sanitized.items.map((x) => x.key),
+    });
+
+    res.json({
+      ok: true,
+      albaranes_conciliados: sanitized.items,
+      factura: {
+        id_factura: factura.id_factura || id,
+        albaranes_conciliados: sanitized.items,
+        actualizado_en: ts,
+      },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

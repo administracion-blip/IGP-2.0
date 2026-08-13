@@ -19,6 +19,7 @@ import type { RemesaActivaFactura } from './remesas';
 
 export type {
   Factura,
+  AlbaranConciliado,
   LineaFactura,
   AdjuntoFactura,
   EstadoOut,
@@ -84,4 +85,5 @@ export type FacturaListado = {
   | 'forma_pago'
   | 'observaciones'
   | 'es_abono'
+  | 'albaranes_conciliados'
 >>;

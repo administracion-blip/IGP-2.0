@@ -50,7 +50,7 @@ import * as Sharing from 'expo-sharing';
 import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useComprasProveedorCache } from '../../contexts/ComprasProveedorCache';
-import { DIAS_CARGA_COMPRAS, rangoComprasDefault } from '../../lib/comprasProveedorRango';
+import { DIAS_CARGA_COMPRAS, rangoApiDesdeFiltroFechas, rangoComprasDefault } from '../../lib/comprasProveedorRango';
 import { apiFetch, errorMessage } from '../../utils/api';
 import { formatMoneda } from '../../utils/formatMoneda';
 import { labelEstado, colorEstado } from '../../utils/facturacion';
@@ -64,14 +64,44 @@ import {
   styles,
   TOOLBAR_ICON_SIZE,
   ComprasToolbarIconBtn,
+  ComprasToolbarSyncBtn,
 } from './comprasProveedorShared';
 import { generarPdfsConciliacionDiferenciasPorEmpresa } from '../../lib/conciliacionDiferenciasPdf';
+import {
+  type AsignacionesSesion,
+  type AlbaranDatosConciliacion,
+  type AlbaranConciliado,
+  restoFactura,
+  restoOk,
+  colorRestoBase,
+  albaranKeysDeFactura,
+  hidratarAsignacionesDesdeFacturas,
+  buildAlbaranesConciliadosParaFactura,
+  toneChipFacturaConciliacion,
+  serieNumeroDesdeKey,
+} from '../../lib/conciliacionAsignacion';
 
 /**
  * Umbral absoluto (€) para considerar que albaranes y facturas «cuadran».
- * Por debajo o igual → cuadra (y puede promoverse a validada).
+ * «Validada» es independiente: basta con que ninguna factura esté en pte. revisión.
  */
 const UMBRAL_CUADRA_EUR = 5;
+
+type SyncOpcion = number | 'completo';
+
+/** Mismas opciones que en Compras a proveedor. */
+const OPCIONES_SYNC: {
+  id: SyncOpcion;
+  titulo: string;
+  subtitulo: string;
+  icono: React.ComponentProps<typeof MaterialIcons>['name'];
+}[] = [
+  { id: 20, titulo: 'Últimos 20 días', subtitulo: 'Rápida — uso habitual', icono: 'bolt' },
+  { id: 60, titulo: 'Últimos 60 días', subtitulo: 'Recomendada', icono: 'sync' },
+  { id: 90, titulo: 'Últimos 90 días', subtitulo: 'Trimestre', icono: 'history' },
+  { id: 120, titulo: 'Últimos 120 días', subtitulo: 'Rango amplio (más lenta)', icono: 'date-range' },
+  { id: 'completo', titulo: 'Sincronización completa', subtitulo: 'Desde 2025-01-01 (puede tardar varios minutos)', icono: 'cloud-download' },
+];
 
 /** Normaliza CIF/NIF para comparar (solo A–Z0–9, mayúsculas). Igual que en resumen. */
 function normalizeCif(val: unknown): string {
@@ -303,8 +333,23 @@ export default function ConciliacionFacturasScreen() {
   const [abriendoDocId, setAbriendoDocId] = useState<string | null>(null);
   const [seleccionRevision, setSeleccionRevision] = useState<Set<string>>(new Set());
   const [validandoRevision, setValidandoRevision] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState('');
+  const [menuSyncVisible, setMenuSyncVisible] = useState(false);
+
+  /** Asignaciones en sesión: albaranKey → id_factura (compartido detalle + comparador). */
+  const [asignacionesSesion, setAsignacionesSesion] = useState<AsignacionesSesion>({});
+  const [marcandoPagoId, setMarcandoPagoId] = useState<string | null>(null);
+  const marcandoPagoLockRef = useRef(false);
+  /** Evita toggles concurrentes de asignación mientras hay PUT en vuelo. */
+  const persistAsigLockRef = useRef(false);
+  const asignacionesSesionRef = useRef<AsignacionesSesion>({});
+  asignacionesSesionRef.current = asignacionesSesion;
+  const facturasRef = useRef<FacturaListado[]>([]);
+  facturasRef.current = facturas;
 
   const puedeValidarRevision = hasPermiso('facturacion.emitir');
+  const puedeEmitir = puedeValidarRevision;
 
   // ── Comparador albaranes ↔ factura (modal dividido) ──
   const { width: winW, height: winH } = useWindowDimensions();
@@ -314,6 +359,8 @@ export default function ConciliacionFacturasScreen() {
   const [compPreviewUrl, setCompPreviewUrl] = useState<string | null>(null);
   const [compPreviewLoading, setCompPreviewLoading] = useState(false);
   const [compPreviewError, setCompPreviewError] = useState<string | null>(null);
+  /** Búsqueda local de albaranes en el panel izquierdo del comparador. */
+  const [compBusquedaAlb, setCompBusquedaAlb] = useState('');
   const [exportandoPdf, setExportandoPdf] = useState(false);
   const exportandoPdfRef = useRef(false);
 
@@ -322,6 +369,7 @@ export default function ConciliacionFacturasScreen() {
     // Por defecto, la primera factura vinculada; si no hay, la primera.
     const f = p.facturas.find((x) => x.vinculada) ?? p.facturas[0];
     setCompFacturaId(f ? f.id : null);
+    setCompBusquedaAlb('');
   }, []);
 
   const cerrarComparador = useCallback(() => {
@@ -329,13 +377,15 @@ export default function ConciliacionFacturasScreen() {
     setCompFacturaId(null);
     setCompPreviewUrl(null);
     setCompPreviewError(null);
+    setCompBusquedaAlb('');
   }, []);
 
-  // Carga el adjunto de la factura seleccionada en el comparador.
+  // Solo al cambiar de factura: no rehidratar `comparador` al marcar albaranes (evita reset del PDF).
   useEffect(() => {
-    if (!comparador || !compFacturaId) {
+    if (!compFacturaId) {
       setCompPreviewUrl(null);
       setCompPreviewError(null);
+      setCompPreviewLoading(false);
       return;
     }
     let cancelado = false;
@@ -359,7 +409,7 @@ export default function ConciliacionFacturasScreen() {
     return () => {
       cancelado = true;
     };
-  }, [comparador, compFacturaId]);
+  }, [compFacturaId]);
 
   /**
    * Abre el documento adjunto de la factura (mismo endpoint que "Ver documento"
@@ -481,7 +531,9 @@ export default function ConciliacionFacturasScreen() {
       .then(async (r) => {
         const data = await r.json();
         if (!r.ok || data.error) throw new Error(data.error || `HTTP ${r.status}`);
-        setFacturas(Array.isArray(data.facturas) ? data.facturas : []);
+        const list: FacturaListado[] = Array.isArray(data.facturas) ? data.facturas : [];
+        setFacturas(list);
+        setAsignacionesSesion(hidratarAsignacionesDesdeFacturas(list));
       })
       .catch((e) => setErrorFacturas(errorMessage(e, 'No se pudieron cargar las facturas de gasto')))
       .finally(() => setLoadingFacturas(false));
@@ -490,6 +542,43 @@ export default function ConciliacionFacturasScreen() {
   useEffect(() => {
     cargarFacturas();
   }, [cargarFacturas]);
+
+  const sincronizar = useCallback(async (opcion: SyncOpcion) => {
+    setMenuSyncVisible(false);
+    setSyncing(true);
+    setSyncResult('');
+    try {
+      const bodyPayload: Record<string, string> = {};
+      if (opcion === 'completo') {
+        bodyPayload.dateFrom = '2025-01-01';
+      } else {
+        bodyPayload.dateFrom = new Date(Date.now() - opcion * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10);
+      }
+      const res = await apiFetch('/api/agora/purchases/sync', {
+        method: 'POST',
+        body: JSON.stringify(bodyPayload),
+        timeoutMs: 0,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al sincronizar');
+      const borrados = Number(data.totalDeleted) || 0;
+      setSyncResult(
+        `Sincronizado: ${data.totalUpserted ?? 0} líneas` +
+          (borrados > 0 ? ` · ${borrados} huérfanas eliminadas` : '') +
+          ` (${data.dateFrom} → ${data.dateTo}, ${data.daysProcessed ?? 0} días)` +
+          (data.errors?.length ? ` · ${data.errors.length} errores` : ''),
+      );
+      const { dateFrom, dateTo } = rangoApiDesdeFiltroFechas(fechaDesde, fechaHasta);
+      await recargar({ dateFrom, dateTo, force: true });
+      cargarFacturas();
+    } catch (err: unknown) {
+      setSyncResult(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSyncing(false);
+    }
+  }, [recargar, fechaDesde, fechaHasta, cargarFacturas]);
 
   const proveedores = useMemo<NodoProveedor[]>(() => {
     const isoDesde = /^\d{4}-\d{2}-\d{2}$/.test(fechaDesde.trim()) ? fechaDesde.trim() : null;
@@ -696,10 +785,11 @@ export default function ConciliacionFacturasScreen() {
       else if (abs <= Math.max(totalAlbaranesConIva, totalFacturasTotal) * 0.01) estado = 'leve';
       else estado = 'descuadre';
 
-      // Cuadra + facturas y ninguna en pte. revisión → validada (derivado, sin API).
+      // Todas las facturas fuera de pte. revisión → validada (aunque haya descuadre).
       if (
-        estado === 'cuadra' &&
         facturasProv.length >= 1 &&
+        estado !== 'sin_factura' &&
+        estado !== 'sin_albaran' &&
         !facturasProv.some((f) => f.estado === 'pendiente_revision')
       ) {
         estado = 'validada';
@@ -856,6 +946,342 @@ export default function ConciliacionFacturasScreen() {
       setValidandoRevision(false);
     }
   }, [seleccionRevision, facturaAProveedor, confirmar, showToast, user, cargarFacturas]);
+
+  /**
+   * Al cambiar periodo/filtros: rehidratar desde facturas (persistido), no vaciar.
+   * Así los albaranes compensados/asignados siguen en gris al volver al rango.
+   */
+  useEffect(() => {
+    setAsignacionesSesion(hidratarAsignacionesDesdeFacturas(facturas));
+  }, [fechaDesde, fechaHasta, filtroEstado, empresaFiltro]); // eslint-disable-line react-hooks/exhaustive-deps -- solo filtros
+
+  const basesAlbPorKey = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of proveedores) {
+      for (const a of p.albaranes) map.set(a.key, a.total);
+    }
+    return map;
+  }, [proveedores]);
+
+  /** Datos de albarán para construir el body PUT (serie/número/fecha/base). */
+  const albaranesDatosPorKey = useMemo(() => {
+    const map = new Map<string, AlbaranDatosConciliacion>();
+    for (const p of proveedores) {
+      for (const a of p.albaranes) {
+        const first = a.lineas[0];
+        const sn = first
+          ? {
+              serie: String(first.AlbaranSerie ?? ''),
+              numero: String(first.AlbaranNumero ?? ''),
+            }
+          : serieNumeroDesdeKey(a.key);
+        map.set(a.key, {
+          key: a.key,
+          serie: sn.serie,
+          numero: sn.numero,
+          fecha_albaran: a.fechaIso || '',
+          base: a.total,
+        });
+      }
+    }
+    return map;
+  }, [proveedores]);
+
+  /** Podar keys huérfanas: ni en albaranes del periodo ni persistidas en facturas. */
+  useEffect(() => {
+    const persistidos = new Set<string>();
+    for (const f of facturas) {
+      for (const it of f.albaranes_conciliados ?? []) {
+        if (it?.key) persistidos.add(it.key);
+      }
+    }
+    setAsignacionesSesion((prev) => {
+      const keys = Object.keys(prev);
+      if (keys.length === 0) return prev;
+      let changed = false;
+      const next: AsignacionesSesion = {};
+      for (const k of keys) {
+        if (basesAlbPorKey.has(k) || persistidos.has(k)) next[k] = prev[k];
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [basesAlbPorKey, facturas]);
+
+  /** Rehidratar snapshot del comparador desde proveedores (p. ej. tras validar). */
+  useEffect(() => {
+    if (!comparador) return;
+    const fresco = proveedores.find((p) => p.key === comparador.key);
+    if (!fresco) return;
+    setComparador(fresco);
+  }, [proveedores, comparador?.key]);
+
+  const restoBaseFactura = useCallback(
+    (facturaId: string, base: number) => {
+      const keys = albaranKeysDeFactura(asignacionesSesion, facturaId);
+      const bases = keys.map((k) => basesAlbPorKey.get(k) ?? 0);
+      return restoFactura(base, bases);
+    },
+    [asignacionesSesion, basesAlbPorKey],
+  );
+
+  /** Estado de factura por id (sesión + listado) para bloquear deshacer tras validar. */
+  const estadoFacturaPorId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const f of facturas) {
+      map.set(f.id_factura, String(f.estado ?? ''));
+    }
+    return map;
+  }, [facturas]);
+
+  const facturaListadoPorId = useMemo(() => {
+    const map = new Map<string, FacturaListado>();
+    for (const f of facturas) map.set(f.id_factura, f);
+    return map;
+  }, [facturas]);
+
+  /** Meta de factura en comparador / listado para el body de conciliación. */
+  const metaFacturaConciliacion = useCallback(
+    (facturaId: string, existentesOverride?: AlbaranConciliado[] | null) => {
+      const fList = facturaListadoPorId.get(facturaId);
+      const fComp = comparador?.facturas.find((x) => x.id === facturaId);
+      const numero =
+        (fComp?.numeroProveedor || fComp?.numero)
+        || (fList?.numero_factura_proveedor || fList?.numero_factura)
+        || '';
+      const fecha =
+        fComp?.fechaIso
+        || (typeof fList?.fecha_emision === 'string' ? fList.fecha_emision.slice(0, 10) : '')
+        || '';
+      return {
+        id_factura: facturaId,
+        numero_factura: String(numero || ''),
+        fecha_factura: String(fecha || ''),
+        existentes: existentesOverride ?? fList?.albaranes_conciliados ?? null,
+      };
+    },
+    [facturaListadoPorId, comparador],
+  );
+
+  const persistirAlbaranesFactura = useCallback(
+    async (facturaId: string, items: AlbaranConciliado[]): Promise<AlbaranConciliado[]> => {
+      const res = await apiFetch(`/api/facturacion/facturas/${facturaId}/albaranes-conciliados`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          albaranes_conciliados: items,
+          usuario_id: user?.id_usuario ?? '',
+          usuario_nombre: user?.Nombre ?? '',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Error al guardar asignación (${res.status})`);
+      const saved: AlbaranConciliado[] = Array.isArray(data.albaranes_conciliados)
+        ? data.albaranes_conciliados
+        : items;
+      setFacturas((prev) =>
+        prev.map((f) => (f.id_factura === facturaId ? { ...f, albaranes_conciliados: saved } : f)),
+      );
+      return saved;
+    },
+    [user],
+  );
+
+  /**
+   * Persiste asignaciones. `facturaIdsOrdenados` define el orden de los PUT
+   * (en un movimiento: primero origen A, luego destino B).
+   * Si falla tras haber persistido alguno: compensa restaurando el snapshot de esos ids.
+   */
+  const aplicarAsignacionesYPersistir = useCallback(
+    async (
+      prev: AsignacionesSesion,
+      next: AsignacionesSesion,
+      facturaIdsOrdenados: string[],
+    ) => {
+      setAsignacionesSesion(next);
+      const snapshotFacturas = facturasRef.current;
+      const idsSet = new Set(facturaIdsOrdenados);
+
+      const buildItemsPara = (
+        fid: string,
+        asig: AsignacionesSesion,
+        existentes: AlbaranConciliado[] | null | undefined,
+      ) =>
+        buildAlbaranesConciliadosParaFactura(
+          fid,
+          asig,
+          albaranesDatosPorKey,
+          metaFacturaConciliacion(fid, existentes),
+          { id: user?.id_usuario, nombre: user?.Nombre },
+        );
+
+      // Optimistic UI
+      setFacturas((prevF) =>
+        prevF.map((f) => {
+          if (!idsSet.has(f.id_factura)) return f;
+          return {
+            ...f,
+            albaranes_conciliados: buildItemsPara(f.id_factura, next, f.albaranes_conciliados),
+          };
+        }),
+      );
+
+      const putOk: string[] = [];
+      try {
+        for (const fid of facturaIdsOrdenados) {
+          const fSnap = snapshotFacturas.find((x) => x.id_factura === fid);
+          const items = buildItemsPara(fid, next, fSnap?.albaranes_conciliados);
+          await persistirAlbaranesFactura(fid, items);
+          putOk.push(fid);
+        }
+      } catch (e: unknown) {
+        // Compensar facturas ya persistidas (p. ej. A quitó el albarán y B falló).
+        for (const fid of putOk) {
+          const fSnap = snapshotFacturas.find((x) => x.id_factura === fid);
+          const itemsPrev = Array.isArray(fSnap?.albaranes_conciliados)
+            ? fSnap.albaranes_conciliados
+            : [];
+          try {
+            await persistirAlbaranesFactura(fid, itemsPrev);
+          } catch {
+            // Mejor esfuerzo; la UI vuelve a prev de todas formas.
+          }
+        }
+        setAsignacionesSesion(prev);
+        setFacturas(snapshotFacturas);
+        showToast('Error', e instanceof Error ? e.message : 'No se pudo guardar la asignación', 'error');
+      }
+    },
+    [albaranesDatosPorKey, metaFacturaConciliacion, persistirAlbaranesFactura, showToast, user],
+  );
+
+  const deshacerAsignacion = useCallback(
+    (albKey: string) => {
+      if (!puedeEmitir) {
+        showToast('Sin permiso', 'Necesitas permiso facturacion.emitir para cambiar asignaciones', 'warning');
+        return;
+      }
+      if (persistAsigLockRef.current) return;
+      const prev = asignacionesSesionRef.current;
+      const fid = prev[albKey];
+      if (!fid) return;
+      if ((estadoFacturaPorId.get(fid) ?? '') !== 'pendiente_revision') return;
+      const next = { ...prev };
+      delete next[albKey];
+      persistAsigLockRef.current = true;
+      void aplicarAsignacionesYPersistir(prev, next, [fid]).finally(() => {
+        persistAsigLockRef.current = false;
+      });
+    },
+    [puedeEmitir, showToast, estadoFacturaPorId, aplicarAsignacionesYPersistir],
+  );
+
+  /** Toggle asignación albarán → factura activa del comparador (persiste vía PUT). */
+  const toggleAsignacionComparador = useCallback(
+    (a: AlbaranResumen) => {
+      if (!puedeEmitir) {
+        showToast('Sin permiso', 'Necesitas permiso facturacion.emitir para asignar albaranes', 'warning');
+        return;
+      }
+      if (!compFacturaId) {
+        showToast('Aviso', 'Selecciona una factura en los chips', 'warning');
+        return;
+      }
+      if (persistAsigLockRef.current) return;
+
+      const facturaId = compFacturaId;
+      const estadoActiva = estadoFacturaPorId.get(facturaId) ?? '';
+      const prev = asignacionesSesionRef.current;
+      const actual = prev[a.key];
+
+      if (actual === facturaId) {
+        // Tras validar queda compensado: no desmarcar.
+        if (estadoActiva !== 'pendiente_revision') return;
+        const next = { ...prev };
+        delete next[a.key];
+        persistAsigLockRef.current = true;
+        void aplicarAsignacionesYPersistir(prev, next, [facturaId]).finally(() => {
+          persistAsigLockRef.current = false;
+        });
+        return;
+      }
+
+      if (actual) {
+        const estadoOtra = estadoFacturaPorId.get(actual) ?? '';
+        if (estadoOtra !== 'pendiente_revision') {
+          showToast('Aviso', 'Asignado a otra factura ya validada (bloqueado).', 'warning');
+          return;
+        }
+        if (estadoActiva !== 'pendiente_revision') return;
+        // Mover: 1º quitar de origen (A), 2º añadir en destino (B).
+        const next = { ...prev, [a.key]: facturaId };
+        persistAsigLockRef.current = true;
+        void aplicarAsignacionesYPersistir(prev, next, [actual, facturaId]).finally(() => {
+          persistAsigLockRef.current = false;
+        });
+        return;
+      }
+
+      if (estadoActiva !== 'pendiente_revision') return;
+      const next = { ...prev, [a.key]: facturaId };
+      persistAsigLockRef.current = true;
+      void aplicarAsignacionesYPersistir(prev, next, [facturaId]).finally(() => {
+        persistAsigLockRef.current = false;
+      });
+    },
+    [puedeEmitir, compFacturaId, showToast, estadoFacturaPorId, aplicarAsignacionesYPersistir],
+  );
+
+  const navegarCompFactura = useCallback(
+    (dir: -1 | 1) => {
+      if (!comparador || comparador.facturas.length === 0) return;
+      const list = comparador.facturas;
+      const idx = Math.max(0, list.findIndex((f) => f.id === compFacturaId));
+      const next = list[(idx + dir + list.length) % list.length];
+      if (next) setCompFacturaId(next.id);
+    },
+    [comparador, compFacturaId],
+  );
+
+  const marcarPendientePago = useCallback(
+    async (facturaId: string) => {
+      if (!puedeEmitir || marcandoPagoLockRef.current) return;
+      marcandoPagoLockRef.current = true;
+      setMarcandoPagoId(facturaId);
+      try {
+        const res = await apiFetch('/api/facturacion/facturas/validar-revision', {
+          method: 'POST',
+          body: JSON.stringify({
+            facturaIds: [facturaId],
+            usuario_id: user?.id_usuario ?? '',
+            usuario_nombre: user?.Nombre ?? '',
+          }),
+          timeoutMs: 120_000,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error al validar');
+        if (data.fallidas > 0) {
+          const motivo = data.detalleFallidas?.[0]?.motivo || 'No se pudo validar';
+          showToast('Error', motivo, 'error');
+          return;
+        }
+        // Mantener asignacionesSesion: los albaranes quedan grises/bloqueados (compensados).
+        setSeleccionRevision((prev) => {
+          if (!prev.has(facturaId)) return prev;
+          const next = new Set(prev);
+          next.delete(facturaId);
+          return next;
+        });
+        cargarFacturas();
+        showToast('Validadas', 'Factura marcada como pendiente de pago', 'success');
+      } catch (e: unknown) {
+        showToast('Error', e instanceof Error ? e.message : 'Error al validar revisión', 'error');
+      } finally {
+        setMarcandoPagoId(null);
+        marcandoPagoLockRef.current = false;
+      }
+    },
+    [puedeEmitir, user, showToast, cargarFacturas],
+  );
 
   const resumen = useMemo(() => {
     const r = { cuadran: 0, validadas: 0, diferencias: 0, sinFactura: 0, sinAlbaran: 0, totalAlb: 0, totalFact: 0 };
@@ -1089,7 +1515,7 @@ export default function ConciliacionFacturasScreen() {
         <ComprasToolbarIconBtn
           tooltip="Recargar albaranes y facturas"
           onPress={() => { recargar({ force: true }); cargarFacturas(); }}
-          disabled={cargando}
+          disabled={cargando || syncing}
           accessibilityLabel="Recargar"
           variant="outline"
         >
@@ -1099,7 +1525,28 @@ export default function ConciliacionFacturasScreen() {
             <MaterialIcons name="refresh" size={TOOLBAR_ICON_SIZE} color="#0ea5e9" />
           )}
         </ComprasToolbarIconBtn>
+        <ComprasToolbarSyncBtn
+          syncing={syncing}
+          onPress={() => setMenuSyncVisible(true)}
+          disabled={cargando}
+        />
       </View>
+
+      {syncResult ? (
+        <View style={[styles.syncResultBar, syncResult.startsWith('Error') && styles.syncResultBarError]}>
+          <MaterialIcons
+            name={syncResult.startsWith('Error') ? 'error-outline' : 'check-circle'}
+            size={16}
+            color={syncResult.startsWith('Error') ? '#dc2626' : '#16a34a'}
+          />
+          <Text style={[styles.syncResultText, syncResult.startsWith('Error') && styles.syncResultTextError]}>
+            {syncResult}
+          </Text>
+          <TouchableOpacity onPress={() => setSyncResult('')} hitSlop={8}>
+            <MaterialIcons name="close" size={14} color="#94a3b8" />
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {/* Filtros */}
       <View style={local.filtros}>
@@ -1473,6 +1920,45 @@ export default function ConciliacionFacturasScreen() {
         </ScrollView>
       )}
 
+      <Modal visible={menuSyncVisible} transparent animationType="fade" onRequestClose={() => setMenuSyncVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setMenuSyncVisible(false)}>
+          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.syncMenuWrap}>
+            <View style={styles.syncMenuCard}>
+              <View style={styles.syncMenuHeader}>
+                <MaterialIcons name="sync" size={18} color="#0ea5e9" />
+                <Text style={styles.syncMenuTitle}>Sincronizar compras</Text>
+                <TouchableOpacity onPress={() => setMenuSyncVisible(false)} hitSlop={8}>
+                  <MaterialIcons name="close" size={22} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              {OPCIONES_SYNC.map((op) => (
+                <TouchableOpacity
+                  key={String(op.id)}
+                  style={[styles.syncMenuRow, op.id === 'completo' && styles.syncMenuRowFull]}
+                  onPress={() => void sincronizar(op.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.syncMenuIconBox}>
+                    <MaterialIcons name={op.icono} size={18} color="#0ea5e9" />
+                  </View>
+                  <View style={styles.syncMenuRowTextWrap}>
+                    <Text style={styles.syncMenuRowTitle}>{op.titulo}</Text>
+                    <Text style={styles.syncMenuRowSub}>{op.subtitulo}</Text>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
+                </TouchableOpacity>
+              ))}
+              <View style={styles.syncMenuHint}>
+                <MaterialIcons name="info-outline" size={14} color="#b45309" />
+                <Text style={styles.syncMenuHintText}>
+                  Cuanto mayor sea el rango, más tarda la sincronización con Ágora. Tras sync se recargan albaranes y facturas (incluye purge de huérfanos).
+                </Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Modal detalle albarán (productos, cantidades, formatos y precios) */}
       <Modal visible={albaranModal !== null} transparent animationType="fade" onRequestClose={() => setAlbaranModal(null)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setAlbaranModal(null)}>
@@ -1541,10 +2027,87 @@ export default function ConciliacionFacturasScreen() {
           <TouchableOpacity
             activeOpacity={1}
             onPress={() => {}}
-            style={[local.compWrap, { maxHeight: winH * 0.92 }]}
+            style={[local.compWrap, { maxHeight: winH * 0.97 }]}
           >
             <View style={local.compCard}>
-              {comparador ? (
+              {comparador ? (() => {
+                const compFactura = compFacturaId
+                  ? comparador.facturas.find((f) => f.id === compFacturaId) ?? null
+                  : null;
+                const keysAsigComp = compFacturaId
+                  ? albaranKeysDeFactura(asignacionesSesion, compFacturaId)
+                  : [];
+                const baseAsignadaComp = keysAsigComp.reduce(
+                  (acc, k) => acc + (basesAlbPorKey.get(k) ?? 0),
+                  0,
+                );
+                const restoComp = compFactura
+                  ? restoBaseFactura(compFactura.id, compFactura.base)
+                  : 0;
+                const colorRestoComp = colorRestoBase(restoComp);
+                const puedeValidarComp = !!(
+                  puedeEmitir
+                  && compFactura
+                  && compFactura.estado === 'pendiente_revision'
+                  && keysAsigComp.length > 0
+                  && restoOk(restoComp)
+                );
+                const estadoActiva = compFactura?.estado ?? (compFacturaId ? (estadoFacturaPorId.get(compFacturaId) ?? '') : '');
+                const qAlb = normNombre(compBusquedaAlb);
+                const albaranesCompVisibles = qAlb
+                  ? comparador.albaranes.filter((a) => {
+                      if (normNombre(a.label).includes(qAlb)) return true;
+                      if (normNombre(a.numDoc).includes(qAlb)) return true;
+                      if (normNombre(a.empresaNombre).includes(qAlb)) return true;
+                      if (normNombre(formatFechaCorta(a.fechaIso)).includes(qAlb)) return true;
+                      if (normNombre(a.fechaIso).includes(qAlb)) return true;
+                      return a.lineas.some(
+                        (l) =>
+                          normNombre(l.ProductName).includes(qAlb)
+                          || normNombre(String(l.ProductId ?? '')).includes(qAlb),
+                      );
+                    })
+                  : comparador.albaranes;
+                const tituloAlbComp = qAlb
+                  ? `Albaranes (${albaranesCompVisibles.length}/${comparador.albaranes.length})`
+                  : `Albaranes (${comparador.albaranes.length})`;
+
+                const barraResto = compFactura ? (
+                  <View style={local.compRestoBar}>
+                    <View style={local.compRestoNums}>
+                      <Text style={local.compRestoItem}>
+                        Base fact.: <Text style={local.compRestoStrong}>{formatMoneda(compFactura.base)}</Text>
+                      </Text>
+                      <Text style={local.compRestoItem}>
+                        Asignado: <Text style={local.compRestoStrong}>{formatMoneda(baseAsignadaComp)}</Text>
+                        {keysAsigComp.length > 0 ? ` (${keysAsigComp.length})` : ''}
+                      </Text>
+                      <Text style={[local.compRestoItem, { color: colorRestoComp, fontWeight: '700' }]}>
+                        Resto base: {formatMoneda(restoComp)}
+                      </Text>
+                    </View>
+                    {puedeValidarComp ? (
+                      <TouchableOpacity
+                        style={[local.compValidarBtn, marcandoPagoId === compFactura.id && local.validarBarBtnDisabled]}
+                        onPress={() => void marcarPendientePago(compFactura.id)}
+                        disabled={marcandoPagoId === compFactura.id}
+                      >
+                        {marcandoPagoId === compFactura.id ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <MaterialIcons name="check-circle" size={16} color="#fff" />
+                        )}
+                        <Text style={local.compValidarBtnText}>Validar revisión</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                ) : (
+                  <View style={local.compRestoBar}>
+                    <Text style={local.compRestoHint}>Selecciona una factura para asignar albaranes</Text>
+                  </View>
+                );
+
+                return (
                 <>
                   <View style={local.modalHeader}>
                     <View style={{ flex: 1 }}>
@@ -1562,18 +2125,116 @@ export default function ConciliacionFacturasScreen() {
                   <View style={[local.compBody, comparadorApilado && { flexDirection: 'column' }]}>
                     {/* Izquierda: desglose de productos por albarán */}
                     <View style={[local.compPanel, comparadorApilado && local.compPanelApilado]}>
-                      <Text style={local.compPanelTitle}>Albaranes ({comparador.albaranes.length})</Text>
+                      <Text style={local.compPanelTitle}>{tituloAlbComp}</Text>
+                      <View style={local.compBuscarWrap}>
+                        <MaterialIcons name="search" size={16} color="#94a3b8" />
+                        <TextInput
+                          style={local.compBuscarInput}
+                          placeholder="Buscar albarán, nº doc, producto, empresa…"
+                          placeholderTextColor="#94a3b8"
+                          value={compBusquedaAlb}
+                          onChangeText={setCompBusquedaAlb}
+                        />
+                        {compBusquedaAlb.trim() ? (
+                          <TouchableOpacity onPress={() => setCompBusquedaAlb('')} hitSlop={8} accessibilityLabel="Limpiar búsqueda">
+                            <MaterialIcons name="close" size={16} color="#94a3b8" />
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                      <Text style={local.compAsigHint}>
+                        Toca la cabecera para marcar/desmarcar contra la factura activa
+                      </Text>
                       <ScrollView style={{ flex: 1 }}>
                         {comparador.albaranes.length === 0 ? (
                           <Text style={local.detalleVacio}>Sin albaranes en el periodo.</Text>
-                        ) : comparador.albaranes.map((a) => (
-                          <View key={a.key} style={local.compAlbBlock}>
-                            <View style={local.compAlbHeader}>
-                              <MaterialIcons name="receipt" size={13} color="#0369a1" />
-                              <Text style={local.compAlbTitulo} numberOfLines={1}>
-                                {a.label} · {formatFechaCorta(a.fechaIso)}{a.numDoc ? ` · Nº ${a.numDoc}` : ''}
-                              </Text>
-                              <Text style={local.compAlbTotal}>{formatMoneda(a.totalConIva)}</Text>
+                        ) : albaranesCompVisibles.length === 0 ? (
+                          <Text style={local.detalleVacio}>Ningún albarán coincide con la búsqueda.</Text>
+                        ) : albaranesCompVisibles.map((a) => {
+                          const asigA = asignacionesSesion[a.key];
+                          const marcadoActivo = !!compFacturaId && asigA === compFacturaId;
+                          const marcadoEditable = marcadoActivo && estadoActiva === 'pendiente_revision';
+                          const marcadoCompensado = marcadoActivo && estadoActiva !== 'pendiente_revision';
+                          const bloqueadoOtra = !!asigA && asigA !== compFacturaId;
+                          const estadoOtra = bloqueadoOtra && asigA ? (estadoFacturaPorId.get(asigA) ?? '') : '';
+                          const puedeDeshacerOtra = bloqueadoOtra && estadoOtra === 'pendiente_revision';
+                          const bloqueadoVisual = bloqueadoOtra || marcadoCompensado;
+                          const chipEmp = colorChipEmpresa(a.empresaCif, a.empresaNombre);
+                          return (
+                          <View
+                            key={a.key}
+                            style={[
+                              local.compAlbBlock,
+                              marcadoEditable && local.compAlbBlockMarcado,
+                              bloqueadoVisual && local.compAlbBlockBloqueado,
+                            ]}
+                          >
+                            <View
+                              style={[
+                                local.compAlbHeader,
+                                marcadoEditable && local.compAlbHeaderMarcado,
+                                bloqueadoVisual && local.compAlbHeaderBloqueado,
+                              ]}
+                            >
+                              <TouchableOpacity
+                                style={local.compAlbHeaderMain}
+                                onPress={() => {
+                                  if (marcadoCompensado) return;
+                                  toggleAsignacionComparador(a);
+                                }}
+                                activeOpacity={marcadoCompensado ? 1 : 0.7}
+                                disabled={marcadoCompensado}
+                                accessibilityLabel={
+                                  marcadoCompensado
+                                    ? 'Albarán compensado (factura ya validada)'
+                                    : marcadoEditable
+                                      ? 'Desmarcar albarán de la factura'
+                                      : bloqueadoOtra
+                                        ? 'Albarán asignado a otra factura'
+                                        : 'Marcar albarán contra la factura'
+                                }
+                              >
+                                <MaterialIcons
+                                  name={
+                                    marcadoEditable
+                                      ? 'check-box'
+                                      : bloqueadoVisual
+                                        ? 'indeterminate-check-box'
+                                        : 'check-box-outline-blank'
+                                  }
+                                  size={18}
+                                  color={marcadoEditable ? '#16a34a' : bloqueadoVisual ? '#94a3b8' : '#cbd5e1'}
+                                />
+                                <MaterialIcons name="receipt" size={13} color={bloqueadoVisual ? '#94a3b8' : '#0369a1'} />
+                                <Text
+                                  style={[local.compAlbTitulo, bloqueadoVisual && local.compAlbTextoBloqueado]}
+                                  numberOfLines={1}
+                                >
+                                  {a.label} · {formatFechaCorta(a.fechaIso)}{a.numDoc ? ` · Nº ${a.numDoc}` : ''}
+                                </Text>
+                                <View style={[local.empresaChip, { backgroundColor: chipEmp.bg, maxWidth: 110 }]}>
+                                  <Text style={[local.empresaChipText, { color: chipEmp.text }]} numberOfLines={1}>
+                                    {a.empresaNombre || 'Sin empresa'}
+                                  </Text>
+                                </View>
+                                <Text style={[local.compAlbTotal, bloqueadoVisual && local.compAlbTextoBloqueado]}>
+                                  {formatMoneda(a.total)}
+                                </Text>
+                                {marcadoEditable ? (
+                                  <MaterialIcons name="link" size={15} color="#16a34a" />
+                                ) : marcadoCompensado ? (
+                                  <MaterialIcons name="lock" size={14} color="#94a3b8" />
+                                ) : null}
+                              </TouchableOpacity>
+                              {puedeDeshacerOtra ? (
+                                <TouchableOpacity
+                                  onPress={() => deshacerAsignacion(a.key)}
+                                  hitSlop={8}
+                                  style={local.compAlbLinkOff}
+                                  accessibilityLabel="Deshacer asignación"
+                                >
+                                  <MaterialIcons name="link-off" size={16} color="#64748b" />
+                                </TouchableOpacity>
+                              ) : null}
                             </View>
                             {a.lineas.map((l, i) => (
                               <View key={`${l.PK}-${l.SK}`} style={[local.compLineaRow, i % 2 === 1 && local.modalTrAlt]}>
@@ -1590,32 +2251,74 @@ export default function ConciliacionFacturasScreen() {
                               </View>
                             ))}
                           </View>
-                        ))}
+                          );
+                        })}
                       </ScrollView>
+                      {!comparadorApilado ? barraResto : null}
                       <Text style={local.compPanelPie}>
-                        Líneas a precio sin IVA · Total albaranes c/IVA: {formatMoneda(comparador.totalAlbaranesConIva)}
+                        Líneas a precio sin IVA · Bases al marcar · Total alb. c/IVA: {formatMoneda(comparador.totalAlbaranesConIva)}
                       </Text>
                     </View>
 
                     {/* Derecha: previsualización del documento de la factura */}
                     <View style={[local.compPanel, comparadorApilado && local.compPanelApilado]}>
                       <Text style={local.compPanelTitle}>Factura ({comparador.facturas.length})</Text>
-                      {comparador.facturas.length > 1 ? (
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
-                          <View style={local.compFactChips}>
-                            {comparador.facturas.map((f) => (
-                              <TouchableOpacity
-                                key={f.id}
-                                style={[local.chip, compFacturaId === f.id && local.chipActivo]}
-                                onPress={() => setCompFacturaId(f.id)}
-                              >
-                                <Text style={[local.chipText, compFacturaId === f.id && local.chipTextActivo]} numberOfLines={1}>
-                                  {f.numeroProveedor || f.numero} · {formatMoneda(f.total)}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                        </ScrollView>
+                      {comparador.facturas.length >= 1 ? (
+                        <View style={local.compFactChipsNav}>
+                          <TouchableOpacity
+                            style={local.compFactNavBtn}
+                            onPress={() => navegarCompFactura(-1)}
+                            hitSlop={8}
+                            accessibilityLabel="Factura anterior"
+                          >
+                            <MaterialIcons name="chevron-left" size={22} color="#0369a1" />
+                          </TouchableOpacity>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 1, flexShrink: 1 }}>
+                            <View style={local.compFactChips}>
+                              {comparador.facturas.map((f) => {
+                                const restoChip = restoBaseFactura(f.id, f.base);
+                                const nAsigChip = albaranKeysDeFactura(asignacionesSesion, f.id).length;
+                                const tone = toneChipFacturaConciliacion(f.estado, nAsigChip);
+                                const activo = compFacturaId === f.id;
+                                return (
+                                  <TouchableOpacity
+                                    key={f.id}
+                                    style={[
+                                      local.chip,
+                                      tone === 'validada' && local.chipValidada,
+                                      tone === 'con_asignacion' && local.chipConAsignacion,
+                                      activo && tone === 'normal' && local.chipActivo,
+                                      activo && tone === 'validada' && local.chipActivoValidada,
+                                      activo && tone === 'con_asignacion' && local.chipActivoConAsignacion,
+                                    ]}
+                                    onPress={() => setCompFacturaId(f.id)}
+                                  >
+                                    <Text
+                                      style={[
+                                        local.chipText,
+                                        tone === 'validada' && local.chipTextValidada,
+                                        tone === 'con_asignacion' && local.chipTextConAsignacion,
+                                        activo && tone === 'normal' && local.chipTextActivo,
+                                      ]}
+                                      numberOfLines={1}
+                                    >
+                                      {f.numeroProveedor || f.numero} · {formatMoneda(f.base)}
+                                      {nAsigChip > 0 ? ` · resto ${formatMoneda(restoChip)}` : ''}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+                          </ScrollView>
+                          <TouchableOpacity
+                            style={local.compFactNavBtn}
+                            onPress={() => navegarCompFactura(1)}
+                            hitSlop={8}
+                            accessibilityLabel="Factura siguiente"
+                          >
+                            <MaterialIcons name="chevron-right" size={22} color="#0369a1" />
+                          </TouchableOpacity>
+                        </View>
                       ) : null}
                       <View style={local.compPreviewBox}>
                         {comparador.facturas.length === 0 ? (
@@ -1657,8 +2360,10 @@ export default function ConciliacionFacturasScreen() {
                       </View>
                     </View>
                   </View>
+                  {comparadorApilado ? barraResto : null}
                 </>
-              ) : null}
+                );
+              })() : null}
             </View>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -1681,8 +2386,14 @@ const local = StyleSheet.create({
     borderColor: '#e2e8f0',
   },
   chipActivo: { backgroundColor: '#e0f2fe', borderColor: '#7dd3fc' },
+  chipValidada: { backgroundColor: '#dcfce7', borderColor: '#86efac' },
+  chipConAsignacion: { backgroundColor: '#fef3c7', borderColor: '#fcd34d' },
+  chipActivoValidada: { borderColor: '#16a34a', borderWidth: 2 },
+  chipActivoConAsignacion: { borderColor: '#d97706', borderWidth: 2 },
   chipText: { fontSize: 12, color: '#475569', fontWeight: '500' },
   chipTextActivo: { color: '#0369a1', fontWeight: '700' },
+  chipTextValidada: { color: '#16a34a', fontWeight: '700' },
+  chipTextConAsignacion: { color: '#d97706', fontWeight: '700' },
   fechasRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' },
   fechaField: { gap: 2 },
   fechaLabel: { fontSize: 11, color: '#64748b', fontWeight: '500' },
@@ -1865,27 +2576,95 @@ const local = StyleSheet.create({
     borderColor: '#bae6fd',
   },
 
-  compWrap: { width: '96%', maxWidth: 1200, flex: 1, alignSelf: 'center' },
+  compWrap: { width: '98%', maxWidth: 1680, flex: 1, alignSelf: 'center' },
   compCard: { flex: 1, backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: '#e2e8f0' },
   compBody: { flex: 1, flexDirection: 'row', gap: 0 },
   compPanel: { flex: 1, minWidth: 0, padding: 12, borderRightWidth: 1, borderRightColor: '#e2e8f0' },
   compPanelApilado: { borderRightWidth: 0, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   compPanelTitle: { fontSize: 12, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 6 },
   compPanelPie: { fontSize: 11, color: '#94a3b8', fontStyle: 'italic', marginTop: 6 },
+  compBuscarWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+  },
+  compBuscarInput: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    color: '#0f172a',
+    paddingVertical: 2,
+  },
 
   compAlbBlock: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, marginBottom: 8, overflow: 'hidden' },
-  compAlbHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 7, backgroundColor: '#f0f9ff' },
-  compAlbTitulo: { flex: 1, fontSize: 12, fontWeight: '600', color: '#0f172a' },
+  compAlbBlockMarcado: { borderColor: '#86efac', backgroundColor: '#f0fdf4' },
+  compAlbBlockBloqueado: { borderColor: '#e2e8f0', opacity: 0.72 },
+  compAlbHeader: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 7, backgroundColor: '#f0f9ff' },
+  compAlbHeaderMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
+  compAlbHeaderMarcado: { backgroundColor: '#dcfce7' },
+  compAlbHeaderBloqueado: { backgroundColor: '#f1f5f9' },
+  compAlbLinkOff: { padding: 4 },
+  compAlbTitulo: { flex: 1, fontSize: 12, fontWeight: '600', color: '#0f172a', minWidth: 0 },
   compAlbTotal: { fontSize: 12, fontWeight: '700', color: '#0369a1' },
+  compAlbTextoBloqueado: { color: '#94a3b8' },
+  compAsigHint: { fontSize: 11, color: '#94a3b8', marginBottom: 6, fontStyle: 'italic' },
   compLineaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 5 },
   compLineaProducto: { flex: 1, fontSize: 11.5, color: '#334155' },
   compLineaDato: { fontSize: 11.5, color: '#64748b', width: 70, textAlign: 'right' },
 
-  compFactChips: { flexDirection: 'row', gap: 6, marginBottom: 8 },
+  compFactChipsNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 8,
+  },
+  compFactNavBtn: {
+    padding: 4,
+    borderRadius: 8,
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
+  compFactChips: { flexDirection: 'row', gap: 6, paddingVertical: 2 },
   compPreviewBox: { flex: 1, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#f8fafc' },
   compPreviewCentro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 20 },
   compAbrirBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, backgroundColor: '#0ea5e9' },
   compAbrirBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
+
+  compRestoBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flexWrap: 'wrap',
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+  },
+  compRestoNums: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 10, minWidth: 160 },
+  compRestoItem: { fontSize: 12, color: '#475569' },
+  compRestoStrong: { fontWeight: '700', color: '#0f172a' },
+  compRestoHint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
+  compValidarBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#16a34a',
+  },
+  compValidarBtnText: { fontSize: 12, fontWeight: '700', color: '#fff' },
 
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 40 },
   emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
