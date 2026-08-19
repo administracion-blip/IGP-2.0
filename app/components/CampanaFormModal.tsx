@@ -31,6 +31,7 @@ import type {
   Campana,
   CampanaFormValues,
   DestinatarioCampana,
+  ProductoCampana,
   TipoIncentivo,
 } from '../types/incentivosProducto';
 
@@ -47,6 +48,8 @@ type FilaPreviewIncentivo = {
   productName: string;
   precioCompra: number | null;
   incentivo: number | null;
+  /** Override €/ud del producto, si existe. */
+  valorOverride?: number;
 };
 
 type Props = {
@@ -129,6 +132,8 @@ export function CampanaFormModal({
   const [productoIdsSel, setProductoIdsSel] = useState<string[]>([]);
   const [familiaIdsSel, setFamiliaIdsSel] = useState<string[]>([]);
   const [previewIncentivoOpen, setPreviewIncentivoOpen] = useState(false);
+  /** Borradores de texto del preview €/ud por producto (UX al teclear coma/punto). */
+  const [previewDrafts, setPreviewDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!visible) return;
@@ -146,6 +151,7 @@ export function CampanaFormModal({
     setError(null);
     setAvisos([]);
     setPreviewIncentivoOpen(false);
+    setPreviewDrafts({});
   }, [visible, campana, esDuplicar]);
 
   useEffect(() => {
@@ -210,7 +216,9 @@ export function CampanaFormModal({
           return {
             id,
             titulo: nombre,
-            subtitulo: familia ? `${familia} · ${costeTxt}` : costeTxt,
+            subtitulo: familia
+              ? `ID ${id} · ${familia} · ${costeTxt}`
+              : `ID ${id} · ${costeTxt}`,
           };
         })
         .filter((o) => o.id),
@@ -242,34 +250,97 @@ export function CampanaFormModal({
       const prod = productosMap.get(p.productId);
       const coste = Number(prod?.CostPrice);
       const precioCompra = Number.isFinite(coste) && coste > 0 ? coste : null;
+      const override =
+        p.valorIncentivo != null && Number.isFinite(p.valorIncentivo)
+          ? p.valorIncentivo
+          : undefined;
       let incentivo: number | null = null;
-      if (valor > 0) {
-        if (form.tipoIncentivo === 'eur_por_unidad') {
-          incentivo = Math.round(valor * 100) / 100;
-        } else if (form.tipoIncentivo === 'pct_coste' && precioCompra != null) {
-          incentivo = Math.round(precioCompra * valor * 100) / 100;
-        }
+      if (form.tipoIncentivo === 'eur_por_unidad') {
+        const efectivo =
+          override != null && override > 0 ? override : valor > 0 ? valor : 0;
+        incentivo = efectivo > 0 ? Math.round(efectivo * 100) / 100 : null;
+      } else if (valor > 0 && form.tipoIncentivo === 'pct_coste' && precioCompra != null) {
+        incentivo = Math.round(precioCompra * valor * 100) / 100;
       }
       return {
         productId: p.productId,
         productName: String(p.productName || p.productId),
         precioCompra,
         incentivo,
+        valorOverride: override,
       };
     });
   }, [form.valorIncentivo, form.tipoIncentivo, form.productos, productosMap]);
 
+  const valorGlobalEurUd = useMemo(() => {
+    const n = normalizarValorIncentivo(
+      'eur_por_unidad',
+      parseValorIncentivoInput(form.valorIncentivo),
+    );
+    return n > 0 ? n : 0;
+  }, [form.valorIncentivo]);
+
+  const textoInputPreviewProducto = useCallback(
+    (productId: string, override?: number) => {
+      if (previewDrafts[productId] !== undefined) return previewDrafts[productId];
+      if (override != null && Number.isFinite(override)) {
+        return String(override).replace('.', ',');
+      }
+      return valorGlobalEurUd > 0
+        ? String(valorGlobalEurUd).replace('.', ',')
+        : '';
+    },
+    [previewDrafts, valorGlobalEurUd],
+  );
+
+  const onChangePreviewValorProducto = useCallback(
+    (productId: string, text: string) => {
+      setPreviewDrafts((d) => ({ ...d, [productId]: text }));
+      const trimmed = text.trim();
+      setForm((f) => ({
+        ...f,
+        productos: f.productos.map((p) => {
+          if (p.productId !== productId) return p;
+          if (!trimmed) {
+            if (p.valorIncentivo === undefined) return p;
+            const { valorIncentivo: _omit, ...rest } = p;
+            return rest;
+          }
+          const n = parseValorIncentivoInput(text);
+          if (!(n > 0)) {
+            if (p.valorIncentivo === undefined) return p;
+            const { valorIncentivo: _omit, ...rest } = p;
+            return rest;
+          }
+          return { ...p, valorIncentivo: Math.round(n * 100) / 100 };
+        }),
+      }));
+    },
+    [],
+  );
+
   const aplicarProductosIds = useCallback(
     (ids: string[]) => {
       setProductoIdsSel(ids);
-      const productos = ids.map((id) => {
-        const p = productosMap.get(id);
-        return {
-          productId: id,
-          productName: String(p?.Name ?? id),
-        };
+      setForm((f) => {
+        const prevById = new Map(f.productos.map((p) => [p.productId, p]));
+        const productos: ProductoCampana[] = ids.map((id) => {
+          const p = productosMap.get(id);
+          const prev = prevById.get(id);
+          const next: ProductoCampana = {
+            productId: id,
+            productName: String(p?.Name ?? prev?.productName ?? id),
+          };
+          if (prev?.valorIncentivo != null && Number.isFinite(prev.valorIncentivo)) {
+            next.valorIncentivo = prev.valorIncentivo;
+          }
+          if (prev?.margenUnitario != null) {
+            next.margenUnitario = prev.margenUnitario;
+          }
+          return next;
+        });
+        return { ...f, productos };
       });
-      setForm((f) => ({ ...f, productos }));
     },
     [productosMap],
   );
@@ -420,7 +491,22 @@ export function CampanaFormModal({
               <TouchableOpacity
                 key={t}
                 style={[styles.chip, form.tipoIncentivo === t && styles.chipActivo]}
-                onPress={() => !inmutable && setForm((f) => ({ ...f, tipoIncentivo: t }))}
+                onPress={() => {
+                  if (inmutable) return;
+                  setForm((f) => {
+                    if (t === f.tipoIncentivo) return f;
+                    if (t === 'eur_por_unidad') {
+                      return { ...f, tipoIncentivo: t };
+                    }
+                    const productos = f.productos.map((p) => {
+                      if (p.valorIncentivo === undefined) return p;
+                      const { valorIncentivo: _omit, ...rest } = p;
+                      return rest;
+                    });
+                    return { ...f, tipoIncentivo: t, productos };
+                  });
+                  setPreviewDrafts({});
+                }}
                 disabled={inmutable}
               >
                 <Text style={[styles.chipText, form.tipoIncentivo === t && styles.chipTextActivo]}>
@@ -437,7 +523,12 @@ export function CampanaFormModal({
           <View style={styles.valorConPreview}>
             <TouchableOpacity
               style={styles.previewEyeBtn}
-              onPress={() => setPreviewIncentivoOpen((v) => !v)}
+              onPress={() =>
+                setPreviewIncentivoOpen((v) => {
+                  if (v) setPreviewDrafts({});
+                  return !v;
+                })
+              }
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityLabel="Vista previa del incentivo por producto"
             >
@@ -460,14 +551,23 @@ export function CampanaFormModal({
                 visible
                 transparent
                 animationType="fade"
-                onRequestClose={() => setPreviewIncentivoOpen(false)}
+                onRequestClose={() => {
+                  setPreviewIncentivoOpen(false);
+                  setPreviewDrafts({});
+                }}
               >
-                <Pressable style={styles.previewModalOverlay} onPress={() => setPreviewIncentivoOpen(false)}>
+                <Pressable style={styles.previewModalOverlay} onPress={() => {
+                  setPreviewIncentivoOpen(false);
+                  setPreviewDrafts({});
+                }}>
                   <Pressable style={styles.previewPanel} onPress={(e) => e.stopPropagation()}>
                     <View style={styles.previewHeader}>
                       <Text style={styles.previewTitulo}>Incentivo por producto</Text>
                       <TouchableOpacity
-                        onPress={() => setPreviewIncentivoOpen(false)}
+                        onPress={() => {
+                          setPreviewIncentivoOpen(false);
+                          setPreviewDrafts({});
+                        }}
                         hitSlop={10}
                         accessibilityLabel="Cerrar vista previa"
                       >
@@ -481,7 +581,9 @@ export function CampanaFormModal({
                         <View style={styles.previewTableHead}>
                           <Text style={[styles.previewTh, styles.previewColProducto]}>Producto</Text>
                           <Text style={[styles.previewTh, styles.previewColNum]}>Pr. compra</Text>
-                          <Text style={[styles.previewTh, styles.previewColNum]}>Incentivo</Text>
+                          <Text style={[styles.previewTh, styles.previewColNum]}>
+                            {form.tipoIncentivo === 'eur_por_unidad' ? '€ / ud.' : 'Incentivo'}
+                          </Text>
                         </View>
                         {filasPreviewIncentivo.map((fila) => (
                           <View key={fila.productId} style={styles.previewTableRow}>
@@ -491,9 +593,34 @@ export function CampanaFormModal({
                             <Text style={[styles.previewTd, styles.previewColNum]}>
                               {fila.precioCompra != null ? formatEuroUd(fila.precioCompra) : '—'}
                             </Text>
-                            <Text style={[styles.previewTd, styles.previewColNum, styles.previewIncentivo]}>
-                              {fila.incentivo != null ? `${formatEuroUd(fila.incentivo)}/ud` : '—'}
-                            </Text>
+                            {form.tipoIncentivo === 'eur_por_unidad' ? (
+                              <View style={styles.previewColInput}>
+                                <TextInput
+                                  style={styles.previewInput}
+                                  value={textoInputPreviewProducto(fila.productId, fila.valorOverride)}
+                                  onChangeText={(t) => onChangePreviewValorProducto(fila.productId, t)}
+                                  onBlur={() => {
+                                    setPreviewDrafts((d) => {
+                                      if (d[fila.productId] === undefined) return d;
+                                      const { [fila.productId]: _omit, ...rest } = d;
+                                      return rest;
+                                    });
+                                  }}
+                                  keyboardType="decimal-pad"
+                                  placeholder={
+                                    valorGlobalEurUd > 0
+                                      ? String(valorGlobalEurUd).replace('.', ',')
+                                      : '0,00'
+                                  }
+                                  editable={!inmutable && puedeGestionar}
+                                  selectTextOnFocus
+                                />
+                              </View>
+                            ) : (
+                              <Text style={[styles.previewTd, styles.previewColNum, styles.previewIncentivo]}>
+                                {fila.incentivo != null ? `${formatEuroUd(fila.incentivo)}/ud` : '—'}
+                              </Text>
+                            )}
                           </View>
                         ))}
                       </ScrollView>
@@ -860,6 +987,23 @@ const styles = StyleSheet.create({
   previewTd: { fontSize: 11, color: '#334155' },
   previewColProducto: { flex: 1, minWidth: 0 },
   previewColNum: { width: 78, textAlign: 'right' as const },
+  previewColInput: {
+    width: 78,
+    justifyContent: 'center',
+  },
+  previewInput: {
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#166534',
+    backgroundColor: '#fff',
+    textAlign: 'right' as const,
+    minHeight: 28,
+  },
   previewIncentivo: { fontWeight: '700', color: '#166534' },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 2 },
   chip: {

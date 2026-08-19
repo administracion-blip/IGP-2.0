@@ -18,6 +18,7 @@ export const INTERNAL_SYNC_POST_PATHS = new Set([
   '/api/mantenimiento/facturacion/generar',
   '/api/compras/facturacion/generar',
   '/api/compras/facturacion/rappel/generar',
+  '/api/mia/stocks/sync',
 ]);
 
 export function normalizeApiPathname(req) {

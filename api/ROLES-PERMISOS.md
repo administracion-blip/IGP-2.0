@@ -161,6 +161,13 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `pedidos.borrar` | Pedidos · Borrar |
 | `compras_proveedor.ver` | Compras proveedor · Ver |
 | `compras_proveedor.sincronizar` | Compras proveedor · Sincronizar |
+| `mia.ver` | MIA · Ver config, sync status, mapa locales-almacenes, calendario, agrupaciones de familias e informes |
+| `mia.configurar` | MIA · Configurar productos, calendario de pedidos y agrupaciones de familias |
+| `mia.sincronizar` | MIA · Sincronizar stocks desde Ágora |
+| `mia.calcular` | MIA · Calcular pedido recomendado (`POST /api/mia/calcular`) |
+| `mia.aprobar` | MIA · Aprobar y enviar a Ágora / PDF (reservado Fase 3+) |
+| `escandallos.ver` | Escandallos IGP · Ver recetas (cabecera y líneas) |
+| `escandallos.editar` | Escandallos IGP · Crear, editar y borrar recetas |
 | `acuerdos.ver` | Acuerdos · Ver |
 | `acuerdos.crear` | Acuerdos · Crear |
 | `acuerdos.editar` | Acuerdos · Editar |
@@ -199,6 +206,8 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `actuaciones.facturacion` | Actuaciones · Asociar facturas de gasto |
 | `refacturacion.ver` | Refacturación · Ver hub Facturación → REFACTURACIONES, pendientes y detalle de líneas |
 | `refacturacion.gestionar` | Refacturación · Crear/editar/descartar líneas y emitir borrador OUT |
+
+Propuesta `escandallos.ver` / `escandallos.editar` (solo catálogo; **no asignar a roles en Dynamo** desde este cambio): SuperUser y Administracion. Administrador ya tiene todos los permisos. Local, Socio y Marketing: no.
 
 ## Comportamiento
 

@@ -4,10 +4,15 @@ import { radius } from '../../constants/theme';
 
 export type SoftPulsePreset = 'favoritos' | 'ia';
 
-const PRESETS: Record<
-  SoftPulsePreset,
-  { border: string; pulseFrom: string; pulseTo: string; glow: string; shadow: string }
-> = {
+export type SoftPulseColors = {
+  border: string;
+  pulseFrom: string;
+  pulseTo: string;
+  glow: string;
+  shadow: string;
+};
+
+const PRESETS: Record<SoftPulsePreset, SoftPulseColors> = {
   favoritos: {
     border: '#fbcfe8',
     pulseFrom: 'rgba(251, 207, 232, 0.35)',
@@ -26,7 +31,10 @@ const PRESETS: Record<
 
 type Props = {
   children: ReactNode;
+  /** Preset fijo; se ignora si se pasa `colors`. */
   preset?: SoftPulsePreset;
+  /** Colores personalizados (p. ej. KPI margen por rentabilidad). */
+  colors?: SoftPulseColors;
   borderRadius?: number;
   style?: StyleProp<ViewStyle>;
 };
@@ -35,10 +43,11 @@ type Props = {
 export function SoftPulseBorderWrap({
   children,
   preset = 'favoritos',
+  colors,
   borderRadius = radius.sm,
   style,
 }: Props) {
-  const theme = PRESETS[preset];
+  const theme = colors ?? PRESETS[preset];
   const pulse = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {

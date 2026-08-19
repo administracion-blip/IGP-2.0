@@ -140,6 +140,42 @@ export const tables = {
    * PK = ENT#<entradaId>, SK = EVT#<ISO>#<uuid>.
    */
   entradasEventos: process.env.DDB_ENTRADAS_EVENTOS_TABLE || 'Igp_EntradasEventos',
+  /**
+   * MIA — config + snapshot de stock por almacén/producto.
+   * PK = WAREHOUSE#<id>, SK = PRODUCT#<id>. GSI: ProductId-index.
+   */
+  miaConfigProducto: process.env.DDB_MIA_CONFIG_PRODUCTO_TABLE || 'Igp_MiaConfigProducto',
+  /**
+   * MIA — calendario informativo de días de pedir.
+   * PK = LOCAL#<id>, SK = PROVEEDOR#<id>.
+   */
+  miaCalendarioPedidos: process.env.DDB_MIA_CALENDARIO_PEDIDOS_TABLE || 'Igp_MiaCalendarioPedidos',
+  /**
+   * MIA — cabecera de informes de aprovisionamiento.
+   * PK = INFORME#<uuid>, SK = META. GSI: WarehouseId-CreadoEn-index.
+   */
+  miaInformes: process.env.DDB_MIA_INFORMES_TABLE || 'Igp_MiaInformes',
+  /**
+   * MIA — líneas de informe.
+   * PK = INFORME#<uuid>, SK = LINE#<supplierId>#<productId>.
+   */
+  miaInformeLineas: process.env.DDB_MIA_INFORME_LINEAS_TABLE || 'Igp_MiaInformeLineas',
+  /**
+   * MIA — meta de sincronizaciones (Stocks, etc.).
+   * PK = GLOBAL, SK = STOCKS | STOCKS#<warehouseId> | …
+   */
+  miaSyncMeta: process.env.DDB_MIA_SYNC_META_TABLE || 'Igp_MiaSyncMeta',
+  /**
+   * Claves de API para integraciones externas (solo lectura).
+   * PK = id_clave. GSI GsiKeyHash (HASH = key_hash).
+   */
+  integracionesApi: process.env.DDB_INTEGRACIONES_API || 'Igp_IntegracionesApi',
+  /**
+   * Escandallos IGP (receta de plato de venta).
+   * PK = PRODUCT#<idVenta>, SK = META | ING#<idIngrediente>.
+   * GSI GsiIngrediente: HASH ingredienteId, RANGE PK.
+   */
+  escandallos: process.env.DDB_ESCANDALLOS_TABLE || 'Igp_Escandallos',
 };
 
 /**

@@ -21,6 +21,7 @@ import { docClient, tables } from '../lib/db.js';
 import { requirePermission, hasPermission } from '../middleware/auth.js';
 import {
   calcularResultadosCampana,
+  resolveValorIncentivoProducto,
   resolverMargenesProductos,
   round2,
 } from '../lib/campanas/campanaResultados.js';
@@ -66,6 +67,10 @@ function normalizarProductos(raw) {
       };
       if (p?.margenUnitario != null && p?.margenUnitario !== '') {
         out.margenUnitario = round2(Number(p.margenUnitario));
+      }
+      if (p?.valorIncentivo != null && p?.valorIncentivo !== '') {
+        const v = Number(p.valorIncentivo);
+        if (v > 0) out.valorIncentivo = round2(v);
       }
       return out;
     })
@@ -149,9 +154,10 @@ function toNumber(v) {
 }
 
 function limpiarProductosParaGuardar(productos) {
-  return productos.map(({ productId, productName, margenUnitario }) => {
+  return productos.map(({ productId, productName, margenUnitario, valorIncentivo }) => {
     const out = { productId, productName };
     if (margenUnitario != null) out.margenUnitario = margenUnitario;
+    if (valorIncentivo != null) out.valorIncentivo = valorIncentivo;
     return out;
   });
 }
@@ -469,10 +475,19 @@ router.get('/campanas/:campanaId/ventas-detalle', requirePermission('incentivos_
       costeMap.set(pid, Number(pr.Item?.CostPrice) || 0);
     }
 
-    const incentivoLinea = (uds, costeUnitario) => {
-      if (!(uds > 0) || !(valorIncentivo > 0)) return 0;
-      if (tipoIncentivo === 'eur_por_unidad') return round2(uds * valorIncentivo);
-      if (tipoIncentivo === 'pct_coste') return round2(uds * costeUnitario * valorIncentivo);
+    // €/ud efectivo por producto (override si existe; si no, valor de campaña)
+    const valorPorProducto = new Map();
+    for (const p of productos) {
+      const pid = String(p.productId || '').trim();
+      if (!pid) continue;
+      valorPorProducto.set(pid, resolveValorIncentivoProducto(p, tipoIncentivo, valorIncentivo));
+    }
+
+    const incentivoLinea = (uds, costeUnitario, productId) => {
+      const valor = valorPorProducto.get(String(productId)) ?? valorIncentivo;
+      if (!(uds > 0) || !(valor > 0)) return 0;
+      if (tipoIncentivo === 'eur_por_unidad') return round2(uds * valor);
+      if (tipoIncentivo === 'pct_coste') return round2(uds * costeUnitario * valor);
       return 0; // pct_margen no se detalla por línea (requiere margen medio)
     };
 
@@ -497,8 +512,9 @@ router.get('/campanas/:campanaId/ventas-detalle', requirePermission('incentivos_
         const u = userMap.get(uid);
         const uds = Number(row.Unidades) || 0;
         const importe = Number(row.ImporteBruto) || 0;
-        const coste = costeMap.get(String(row.ProductId)) || 0;
-        const inc = incentivoLinea(uds, coste);
+        const pid = String(row.ProductId);
+        const coste = costeMap.get(pid) || 0;
+        const inc = incentivoLinea(uds, coste, pid);
         u.lineas.push({
           fecha: String(row.Fecha || ''),
           productId: String(row.ProductId || ''),

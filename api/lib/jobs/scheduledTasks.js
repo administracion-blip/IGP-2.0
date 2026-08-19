@@ -64,6 +64,7 @@ const SYNC_ENDPOINTS = {
   ventas_producto: { path: '/api/agora/sales-lines/sync', body: {} },
   almacenes: { path: '/api/agora/warehouses/sync', body: {} },
   formas_pago: { path: '/api/agora/payment-methods/sync', body: {} },
+  mia_stocks: { path: '/api/mia/stocks/sync', body: { force: true } },
 };
 
 const DAY_MAP = { 0: 'sun', 1: 'mon', 2: 'tue', 3: 'wed', 4: 'thu', 5: 'fri', 6: 'sat' };

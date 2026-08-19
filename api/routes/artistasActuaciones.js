@@ -22,6 +22,7 @@ import {
   esActualizacionSeguimiento,
 } from '../lib/permisosModulos.js';
 import { usuarioPuedeAccederLocal, jornadaNegocioHoyIso } from '../lib/usuarioLocales.js';
+import { camposFechaVirtuales } from '../lib/actuacionFechaVirtual.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
@@ -72,6 +73,12 @@ function fechaAIso(fecha) {
     return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
   }
   return s;
+}
+
+/** Campos virtuales derivados de `fecha` (solo respuesta API; no persistir). */
+function enriquecerFechaActuacion(item) {
+  if (!item || typeof item !== 'object') return item;
+  return { ...item, ...camposFechaVirtuales(fechaAIso(item.fecha)) };
 }
 
 async function esFechaFestiva(fechaIso) {
@@ -578,7 +585,7 @@ router.post('/actuaciones/generar-base', requirePermission('actuaciones.crear'),
       })
     );
   }
-  res.json({ ok: true, creadas: creadas.length, actuaciones: creadas });
+  res.json({ ok: true, creadas: creadas.length, actuaciones: creadas.map(enriquecerFechaActuacion) });
 });
 
 /** Comprueba si el artista ya tiene otra actuación misma fecha y hora_inicio. */
@@ -654,7 +661,11 @@ router.post('/actuaciones/mover-artista-aqui', requireAnyPermission('actuaciones
   };
   await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: vaciar }));
   await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: asignar }));
-  res.json({ ok: true, vaciado: vaciar, asignado: asignar });
+  res.json({
+    ok: true,
+    vaciado: enriquecerFechaActuacion(vaciar),
+    asignado: enriquecerFechaActuacion(asignar),
+  });
 });
 
 // ─── ACTUACIONES CRUD (rutas con /item/:id) ───
@@ -705,7 +716,7 @@ router.get('/actuaciones', async (req, res) => {
     if (cf !== 0) return cf;
     return String(a.hora_inicio || '').localeCompare(String(b.hora_inicio || ''));
   });
-  res.json({ actuaciones: items });
+  res.json({ actuaciones: items.map(enriquecerFechaActuacion) });
 });
 
 router.get('/actuaciones/item/:id', async (req, res) => {
@@ -716,7 +727,7 @@ router.get('/actuaciones/item/:id', async (req, res) => {
     new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: req.params.id } })
   );
   if (!(await assertAccesoLocalActuacion(req, res, r.Item))) return;
-  res.json({ actuacion: r.Item });
+  res.json({ actuacion: enriquecerFechaActuacion(r.Item) });
 });
 
 router.post('/actuaciones', async (req, res) => {
@@ -807,7 +818,7 @@ router.post('/actuaciones', async (req, res) => {
     return res.status(403).json({ error: 'No tienes acceso a este local' });
   }
   await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: item }));
-  res.json({ ok: true, actuacion: item });
+  res.json({ ok: true, actuacion: enriquecerFechaActuacion(item) });
 });
 
 router.put('/actuaciones/item/:id', async (req, res) => {
@@ -895,7 +906,7 @@ router.put('/actuaciones/item/:id', async (req, res) => {
       console.error('[actuaciones/valoracion] recompute media', err.message || err);
     }
   }
-  res.json({ ok: true, actuacion: item });
+  res.json({ ok: true, actuacion: enriquecerFechaActuacion(item) });
 });
 
 router.delete('/actuaciones/item/:id', async (req, res) => {
@@ -937,7 +948,7 @@ router.post('/actuaciones/item/:id/firma', upload.single('file'), async (req, re
     updated_at: ts,
   };
   await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: item }));
-  res.json({ ok: true, firma_artista_key: key, actuacion: item });
+  res.json({ ok: true, firma_artista_key: key, actuacion: enriquecerFechaActuacion(item) });
 });
 
 export default router;

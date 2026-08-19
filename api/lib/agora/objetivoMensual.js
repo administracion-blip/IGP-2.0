@@ -17,7 +17,7 @@ function round1(n) {
   return Math.round(n * 10) / 10;
 }
 
-function fechaComparacion(fecha) {
+export function fechaComparacion(fecha) {
   const d = new Date(`${fecha}T12:00:00`);
   d.setFullYear(d.getFullYear() - 1);
   return d.toISOString().slice(0, 10);
@@ -95,7 +95,7 @@ function sumCloseoutItemAmount(item) {
   return total;
 }
 
-async function queryTotalsByDay(workplaceId, dateFrom, dateTo) {
+export async function queryTotalsByDay(workplaceId, dateFrom, dateTo) {
   const items = [];
   let lastKey = null;
   do {
@@ -127,7 +127,7 @@ async function queryTotalsByDay(workplaceId, dateFrom, dateTo) {
   return totalsByDay;
 }
 
-async function loadFestivosByFecha() {
+export async function loadFestivosByFecha() {
   const map = new Map();
   try {
     const items = [];
@@ -151,7 +151,7 @@ async function loadFestivosByFecha() {
   return map;
 }
 
-function buildFechaToComp(fechaInicio, fechaFin, festivosByFecha) {
+export function buildFechaToComp(fechaInicio, fechaFin, festivosByFecha) {
   const fechaToComp = {};
   let minComp = '';
   let maxComp = '';

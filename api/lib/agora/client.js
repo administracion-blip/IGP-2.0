@@ -244,6 +244,58 @@ export async function exportWarehouses() {
 }
 
 /**
+ * Exporta stocks actuales desde Ágora (export-master filter=Stocks).
+ * Guía 8.9.3: where-stock-warehouse-id (opcional), where-product-category-id (opcional).
+ * @param {{ warehouseId?: string|number, categoryId?: string|number }} [opts]
+ * @returns {Promise<Array>}
+ */
+export async function exportStocks(opts = {}) {
+  const baseUrl = (process.env.AGORA_BASE_URL || process.env.AGORA_API_BASE_URL || '').replace(/\/$/, '');
+  const token = process.env.AGORA_API_TOKEN || '';
+  if (!baseUrl || !token) throw new Error('AGORA_BASE_URL y AGORA_API_TOKEN son obligatorios');
+
+  const params = new URLSearchParams();
+  params.set('filter', 'Stocks');
+  const warehouseId = opts?.warehouseId;
+  if (warehouseId != null && String(warehouseId).trim() !== '') {
+    // Ágora espera el id numérico del almacén (sin padding).
+    const n = parseInt(String(warehouseId).replace(/^0+/, '') || '0', 10);
+    if (Number.isFinite(n) && n > 0) params.set('where-stock-warehouse-id', String(n));
+  }
+  const categoryId = opts?.categoryId;
+  if (categoryId != null && String(categoryId).trim() !== '') {
+    const n = parseInt(String(categoryId).replace(/^0+/, '') || '0', 10);
+    if (Number.isFinite(n) && n > 0) params.set('where-product-category-id', String(n));
+  }
+
+  const url = `${baseUrl}/api/export-master/?${params.toString()}`;
+  let lastError;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        console.log(`[agora] Reintento ${attempt}/${MAX_RETRIES} Stocks warehouseId=${warehouseId ?? 'all'}`);
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 2000));
+      }
+      const res = await fetchWithTimeout(url, {
+        method: 'GET',
+        headers: { 'Api-Token': token },
+      });
+      if (res.status >= 500) throw new Error(`Ágora respondió ${res.status}`);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Ágora ${res.status}: ${text.slice(0, 200)}`);
+      }
+      const data = await res.json();
+      const list = data.Stocks || data.stocks || [];
+      return Array.isArray(list) ? list : [];
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
+/**
  * Exporta maestros de usuarios desde Ágora (export-master filter=Users). Guía 8.9.3, sección Usuarios.
  * Filtra las cuentas borradas (DeletionDate != null) y, por seguridad, las contraseñas.
  */

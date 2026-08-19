@@ -54,6 +54,19 @@ export function resolveMargenUnitario(productoCampana, campanaRows, agoraProduct
 }
 
 /**
+ * Valor de incentivo efectivo por producto.
+ * Solo en eur_por_unidad admite override en producto.valorIncentivo (> 0);
+ * en el resto (o sin override) usa el valor de campaña ya normalizado.
+ */
+export function resolveValorIncentivoProducto(productoCampana, tipoIncentivo, valorCampana) {
+  if (tipoIncentivo === 'eur_por_unidad') {
+    const override = toNumberSafe(productoCampana?.valorIncentivo);
+    if (override > 0) return override;
+  }
+  return toNumberSafe(valorCampana);
+}
+
+/**
  * Incentivo devengado.
  * - eur_por_unidad: usa unidades bonificables (descuento > umbral reduce proporcional).
  * - pct_coste / pct_margen: usan unidades reales (ajenos al descuento por unidad;
@@ -223,6 +236,7 @@ export async function calcularResultadosCampana(docClient, campana) {
     }
 
     const costeUnitario = toNumberSafe(agoraProduct?.CostPrice);
+    const valorIncentivoProd = resolveValorIncentivoProducto(prod, tipoIncentivo, valorIncentivo);
 
     const margenUnitario = tipoIncentivo === 'pct_margen'
       ? resolveMargenUnitario(prod, campanaRowsAll, agoraProduct, warnings)
@@ -234,14 +248,14 @@ export async function calcularResultadosCampana(docClient, campana) {
       margenUnitario,
       costeUnitario,
       tipoIncentivo,
-      valorIncentivo,
+      valorIncentivoProd,
     );
 
     const bonificacionUnitaria = calcBonificacionUnitaria(
       margenUnitario,
       costeUnitario,
       tipoIncentivo,
-      valorIncentivo,
+      valorIncentivoProd,
     );
 
     const udsCampanaPorDia = diasCampana > 0 ? udsCampanaTotal / diasCampana : 0;
@@ -273,7 +287,7 @@ export async function calcularResultadosCampana(docClient, campana) {
           if (!emp) continue;
           emp.incentivoDevengado = round2(
             emp.incentivoDevengado +
-            calcIncentivoProducto(uds, udsBonif, margenUnitario, costeUnitario, tipoIncentivo, valorIncentivo),
+            calcIncentivoProducto(uds, udsBonif, margenUnitario, costeUnitario, tipoIncentivo, valorIncentivoProd),
           );
         }
       }
@@ -286,7 +300,7 @@ export async function calcularResultadosCampana(docClient, campana) {
         if (loc) {
           loc.incentivoDevengado = round2(
             loc.incentivoDevengado +
-            calcIncentivoProducto(udsLocal, udsBonifLocal, margenUnitario, costeUnitario, tipoIncentivo, valorIncentivo),
+            calcIncentivoProducto(udsLocal, udsBonifLocal, margenUnitario, costeUnitario, tipoIncentivo, valorIncentivoProd),
           );
         }
       }
@@ -366,6 +380,8 @@ export async function resolverMargenesProductos(docClient, productos) {
       out._productName = String(r.Item?.Name || out.productName).trim();
       if (out._productName) out.productName = out._productName;
     }
+    const valorOverride = toNumberSafe(p.valorIncentivo);
+    if (valorOverride > 0) out.valorIncentivo = round2(valorOverride);
     resolved.push(out);
   }
   return { productos: resolved, warnings };

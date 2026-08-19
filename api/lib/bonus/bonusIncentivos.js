@@ -13,6 +13,7 @@ import {
   filterRows,
   loadAgoraProductsMap,
   resolveMargenUnitario,
+  resolveValorIncentivoProducto,
   round2,
   sumUnidades,
   sumUnidadesBonificables,
@@ -133,6 +134,7 @@ export async function agregarIncentivosMes(docClient, { inicioMes, hastaFecha, l
       const margenUnitario = tipoIncentivo === 'pct_margen'
         ? resolveMargenUnitario(prod, rowsAllForMargen, agoraProduct, warnings)
         : 0;
+      const valorIncentivoProd = resolveValorIncentivoProducto(prod, tipoIncentivo, valorIncentivo);
 
       for (const localId of localesCampana) {
         const bucket = result.get(localId);
@@ -169,7 +171,7 @@ export async function agregarIncentivosMes(docClient, { inicioMes, hastaFecha, l
               margenUnitario,
               costeUnitario,
               tipoIncentivo,
-              valorIncentivo,
+              valorIncentivoProd,
             );
             if (incentivoEur === 0 && row.uds === 0) continue;
             bucket.totalIncentivo = round2(bucket.totalIncentivo + incentivoEur);
@@ -194,7 +196,7 @@ export async function agregarIncentivosMes(docClient, { inicioMes, hastaFecha, l
             margenUnitario,
             costeUnitario,
             tipoIncentivo,
-            valorIncentivo,
+            valorIncentivoProd,
           );
           if (incentivoEur === 0 && uds === 0) continue;
           bucket.totalIncentivo = round2(bucket.totalIncentivo + incentivoEur);

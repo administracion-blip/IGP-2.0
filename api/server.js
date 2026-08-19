@@ -53,6 +53,7 @@ import personalRouter from './routes/personal.js';
 import cuadranteRouter from './routes/cuadrante.js';
 import authRouter from './routes/auth.js';
 import publicRouter from './routes/public.js';
+import integracionesRouter from './routes/integraciones.js';
 import usuariosRouter from './routes/usuarios.js';
 import productosRouter from './routes/productos.js';
 import almacenesRouter from './routes/almacenes.js';
@@ -80,6 +81,8 @@ import iaRouter from './routes/ia.js';
 import planningDiaRouter from './routes/planningDia.js';
 import bonusRouter from './routes/bonus.js';
 import entradasRouter from './routes/entradas.js';
+import miaRouter from './routes/mia.js';
+import escandallosRouter from './routes/escandallos.js';
 
 // Valida variables críticas al arranque. Si falta alguna REQUIRED, aborta el proceso.
 validateEnv();
@@ -186,6 +189,8 @@ app.get('/api/health', (_req, res) => {
 //     y /me con su propio requireAuth de ruta. /api/health ya está arriba. ---
 app.use('/api', authRouter);
 app.use('/api', publicRouter);
+// Integraciones externas (API key, solo lectura): ANTES de requireAuth.
+app.use('/api', integracionesRouter);
 
 // --- A partir de aquí, TODO /api requiere token Bearer válido. ---
 app.use('/api', requireAuth);
@@ -230,6 +235,8 @@ app.use('/api', cashflowRouter);
 app.use('/api', iaRouter);
 app.use('/api', bonusRouter);
 app.use('/api', entradasRouter);
+app.use('/api', miaRouter);
+app.use('/api', escandallosRouter);
 
 // --- Middleware central de errores: DEBE ir tras todos los routers ---
 app.use(errorHandler);

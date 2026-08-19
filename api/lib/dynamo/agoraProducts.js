@@ -12,7 +12,7 @@ const BATCH_SIZE = 25;
 const META_SK = '__meta__';
 
 /** Campos permitidos: solo estos se guardan en DynamoDB y se devuelven por API */
-const ALLOWED_FIELDS = ['Id', 'IGP', 'Name', 'CostPrice', 'CostPrices', 'BaseSaleFormatId', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'ultimo_iva_compra', 'Active', 'IsSoldByWeight'];
+const ALLOWED_FIELDS = ['Id', 'IGP', 'Name', 'CostPrice', 'CostPrices', 'Prices', 'BaseSaleFormatId', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'ultimo_iva_compra', 'Active', 'IsSoldByWeight'];
 
 /**
  * Extrae solo los campos permitidos de un producto (sin IGP, que se gestiona aparte).
@@ -27,6 +27,8 @@ export function pickAllowedFields(p) {
     if (key === 'ultimo_iva_compra') continue;
     if (key === 'Active') continue;
     if (key === 'IsSoldByWeight') continue;
+    if (key === 'CostPrices') continue;
+    if (key === 'Prices') continue;
     const val = p[key] ?? p[key.toLowerCase()];
     if (val !== undefined && val !== null) out[key] = val;
   }
@@ -40,6 +42,26 @@ export function pickAllowedFields(p) {
       WarehouseId: cp.WarehouseId ?? cp.warehouseId ?? cp.warehouseid,
       CostPrice: cp.CostPrice ?? cp.costPrice ?? cp.costprice ?? 0,
     })).filter(cp => cp.WarehouseId != null);
+  }
+  const prices = p.Prices ?? p.prices ?? null;
+  if (Array.isArray(prices) && prices.length > 0) {
+    out.Prices = prices
+      .map((pr) => {
+        if (!pr || typeof pr !== 'object') return null;
+        const PriceListId = pr.PriceListId ?? pr.priceListId ?? pr.pricelistid;
+        const MainPrice = pr.MainPrice ?? pr.mainPrice ?? pr.mainprice;
+        if (PriceListId == null || MainPrice == null) return null;
+        const row = { PriceListId, MainPrice };
+        const addin = pr.AddinPrice ?? pr.addinPrice ?? pr.addinprice;
+        if (addin != null) row.AddinPrice = addin;
+        const menuItem = pr.MenuItemPrice ?? pr.menuItemPrice ?? pr.menuitemprice;
+        if (menuItem != null) row.MenuItemPrice = menuItem;
+        const saleCenter = pr.SaleCenterId ?? pr.saleCenterId ?? pr.salecenterid;
+        if (saleCenter != null) row.SaleCenterId = saleCenter;
+        return row;
+      })
+      .filter(Boolean);
+    if (!out.Prices.length) delete out.Prices;
   }
   return out;
 }

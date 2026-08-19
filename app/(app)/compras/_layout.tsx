@@ -16,6 +16,8 @@ export default function ComprasLayout() {
       <Stack.Screen name="ventas-empresa" />
       <Stack.Screen name="traspasos-agora" />
       <Stack.Screen name="facturacion" />
+      <Stack.Screen name="mia" />
+      <Stack.Screen name="escandallos" />
     </Stack>
   );
 }

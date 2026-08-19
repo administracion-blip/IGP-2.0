@@ -16,6 +16,9 @@ export type ProductoCampana = {
 
   margenUnitario?: number;
 
+  /** Override €/ud por producto; si falta, usa el valor global de la campaña. */
+  valorIncentivo?: number;
+
 };
 
 

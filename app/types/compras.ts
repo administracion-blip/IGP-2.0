@@ -42,6 +42,8 @@ export type CompraLinea = {
   VatRate: number;
   SurchargeRate: number;
   PurchaseUnitName: string;
+  /** Id de unidad de compra Ágora; vacío en filas sync antiguas. */
+  PurchaseUnitId?: string;
   FamilyId: string;
   FamilyName: string;
   LotNumber: string;

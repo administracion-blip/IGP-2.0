@@ -81,6 +81,16 @@ import {
   isConsumoCustomerEntry,
   toNumberSafe,
 } from '../lib/agora/excepcionesInvoice.js';
+import {
+  syncCentrosVentaFromAgora,
+  listSaleCenters,
+  listCentrosVenta,
+  listLocalesTarifa,
+  getCentroVentaById,
+  putLocalTarifa,
+  deleteLocalTarifa,
+  pickPriceListId,
+} from '../lib/dynamo/saleCenters.js';
 
 const router = Router();
 const env = () => ({
@@ -2957,20 +2967,9 @@ router.patch('/agora/products/:id', async (req, res) => {
   }
 });
 
+/** Puntos de venta / TPV (PK='GLOBAL'). Las tarifas viven en los centros de venta. */
 router.get('/agora/sale-centers', async (req, res) => {
-  const items = [];
-  let lastKey = null;
-  do {
-    const cmd = new QueryCommand({
-      TableName: tableSaleCentersName,
-      KeyConditionExpression: 'PK = :pk',
-      ExpressionAttributeValues: { ':pk': 'GLOBAL' },
-      ...(lastKey && { ExclusiveStartKey: lastKey }),
-    });
-    const result = await docClient.send(cmd);
-    items.push(...(result.Items || []));
-    lastKey = result.LastEvaluatedKey || null;
-  } while (lastKey);
+  const items = await listSaleCenters(docClient, tableSaleCentersName);
   items.sort((a, b) => String(a.SK ?? '').localeCompare(String(b.SK ?? '')));
   const saleCenters = items.map((i) => ({
     Id: i.Id,
@@ -2978,6 +2977,7 @@ router.get('/agora/sale-centers', async (req, res) => {
     Tipo: i.Tipo,
     Local: i.Local,
     Grupo: i.Grupo,
+    WorkplaceId: i.WorkplaceId != null ? String(i.WorkplaceId) : null,
     Activo: i.Activo !== false,
   }));
   res.json({ saleCenters });
@@ -3015,6 +3015,18 @@ router.patch('/agora/sale-centers', async (req, res) => {
   }
 });
 
+/**
+ * Sync puntos de venta + centros de venta.
+ * 1) WorkplacesSummary → PK='GLOBAL': Tipo/Local/Grupo/Nombre/WorkplaceId
+ * 2) SaleCenters → PK='SALECENTER': Nombre + PriceListId / CurrentPriceListId
+ *    (si falla, warn y no tumba el sync)
+ * 3) Los SK de PK='GLOBAL' que ya no llegan en WorkplacesSummary se marcan
+ *    Activo=false (sin borrar) → contador `desactivados`.
+ *
+ * Son entidades distintas con numeración propia: se guardan en particiones
+ * separadas. La tarifa de un local se resuelve por el mapa manual LOCAL_TARIFA
+ * (PUT /agora/locales-tarifa), que es lo que consume escandallos/almacen-contexto.
+ */
 router.post('/agora/sale-centers/sync', async (req, res) => {
   const { AGORA_API_BASE_URL, AGORA_API_TOKEN } = env();
   const baseUrl = (AGORA_API_BASE_URL || '').trim().replace(/\/+$/, '');
@@ -3061,6 +3073,11 @@ router.post('/agora/sale-centers/sync', async (req, res) => {
     const items = [];
     for (const workplace of rawList) {
       const localName = String(workplace.Name ?? workplace.name ?? '').trim();
+      const workplaceIdRaw = workplace.Id ?? workplace.id;
+      const workplaceId =
+        workplaceIdRaw != null && String(workplaceIdRaw).trim() !== ''
+          ? String(workplaceIdRaw).trim()
+          : null;
       const posGroups = workplace.PosGroups ?? workplace.posGroups ?? [];
       const groups = Array.isArray(posGroups) ? posGroups : [];
       for (const posGroup of groups) {
@@ -3081,6 +3098,7 @@ router.post('/agora/sale-centers/sync', async (req, res) => {
             Tipo: tipo,
             Local: localName,
             Grupo: grupoName,
+            ...(workplaceId ? { WorkplaceId: workplaceId } : {}),
           });
         }
       }
@@ -3088,27 +3106,182 @@ router.post('/agora/sale-centers/sync', async (req, res) => {
 
     let upserted = 0;
     for (const it of items) {
+      const values = {
+        ':id': it.Id,
+        ':nombre': it.Nombre,
+        ':tipo': it.Tipo,
+        ':local': it.Local,
+        ':grupo': it.Grupo,
+        ':true': true,
+      };
+      let updateExpr =
+        'SET Id = :id, Nombre = :nombre, Tipo = :tipo, #loc = :local, Grupo = :grupo, Activo = if_not_exists(Activo, :true)';
+      if (it.WorkplaceId) {
+        updateExpr += ', WorkplaceId = :wid';
+        values[':wid'] = it.WorkplaceId;
+      }
+      // Limpia tarifas que el sync antiguo de centros de venta escribió sobre el TPV.
+      updateExpr += ' REMOVE PriceListId, CurrentPriceListId';
       await docClient.send(
         new UpdateCommand({
           TableName: tableSaleCentersName,
           Key: { PK: 'GLOBAL', SK: it.SK },
-          UpdateExpression:
-            'SET Id = :id, Nombre = :nombre, Tipo = :tipo, #loc = :local, Grupo = :grupo, Activo = if_not_exists(Activo, :true)',
+          UpdateExpression: updateExpr,
           ExpressionAttributeNames: { '#loc': 'Local' },
-          ExpressionAttributeValues: {
-            ':id': it.Id,
-            ':nombre': it.Nombre,
-            ':tipo': it.Tipo,
-            ':local': it.Local,
-            ':grupo': it.Grupo,
-            ':true': true,
-          },
+          ExpressionAttributeValues: values,
         })
       );
       upserted++;
     }
-    return res.json({ ok: true, fetched: items.length, upserted });
+
+    // El sync antiguo metía centros de venta en PK='GLOBAL', dejando SK que no
+    // corresponden a ningún TPV real y que seguían apareciendo en los selectores.
+    // Se desactivan en vez de borrarlos: los cierres históricos resuelven el
+    // PosName por id y perderían el nombre.
+    let desactivados = 0;
+    // Con lista vacía no se barre nada: un export fallido dejaría todos los TPV inactivos.
+    if (items.length) {
+      const sincronizados = new Set(items.map((it) => it.SK));
+      const existentes = await listSaleCenters(docClient, tableSaleCentersName);
+      for (const row of existentes) {
+        const sk = row.SK != null ? String(row.SK) : '';
+        if (!sk || sincronizados.has(sk)) continue;
+        if (row.Activo === false && row.PriceListId == null && row.CurrentPriceListId == null) {
+          continue;
+        }
+        await docClient.send(
+          new UpdateCommand({
+            TableName: tableSaleCentersName,
+            Key: { PK: 'GLOBAL', SK: sk },
+            UpdateExpression: 'SET Activo = :false REMOVE PriceListId, CurrentPriceListId',
+            ExpressionAttributeValues: { ':false': false },
+          })
+        );
+        desactivados++;
+      }
+    }
+
+    /** @type {{ fetched: number, upserted: number }|null} */
+    let priceLists = null;
+    /** @type {string|null} */
+    let priceListsWarning = null;
+    try {
+      priceLists = await syncCentrosVentaFromAgora(docClient, tableSaleCentersName, {
+        baseUrl,
+        token,
+      });
+    } catch (err) {
+      priceListsWarning = err?.message || 'Error al sincronizar centros de venta';
+      console.warn('[agora/sale-centers/sync] centros de venta:', priceListsWarning);
+    }
+
+    return res.json({
+      ok: true,
+      fetched: items.length,
+      upserted,
+      desactivados,
+      priceLists,
+      ...(priceListsWarning ? { priceListsWarning } : {}),
+    });
   }
+});
+
+/**
+ * Centros de venta de Ágora (PK='SALECENTER') con su tarifa.
+ * Entidad distinta de los puntos de venta: el export no trae local ni workplace,
+ * por eso hace falta el mapa manual local → centro de venta.
+ */
+router.get('/agora/centros-venta', async (_req, res) => {
+  const items = await listCentrosVenta(docClient, tableSaleCentersName);
+  const centros = items
+    .map((i) => ({
+      id: String(i.SK ?? i.Id ?? '').trim(),
+      nombre: String(i.Nombre ?? i.nombre ?? '').trim(),
+      priceListId: pickPriceListId(i),
+    }))
+    .filter((c) => c.id);
+  centros.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
+  return res.json({ centros });
+});
+
+/** Asignaciones manuales local → centro de venta (de aquí sale la tarifa de venta). */
+router.get('/agora/locales-tarifa', async (_req, res) => {
+  const [asignaciones, centros] = await Promise.all([
+    listLocalesTarifa(docClient, tableSaleCentersName),
+    listCentrosVenta(docClient, tableSaleCentersName),
+  ]);
+  const nombrePorId = new Map(
+    centros.map((c) => [
+      String(c.SK ?? c.Id ?? '').trim(),
+      String(c.Nombre ?? c.nombre ?? '').trim(),
+    ]),
+  );
+  const items = asignaciones
+    .map((a) => {
+      const localId = String(a.localId ?? a.SK ?? '').trim();
+      const saleCenterId =
+        a.saleCenterId != null && String(a.saleCenterId).trim() !== ''
+          ? String(a.saleCenterId).trim()
+          : null;
+      const priceListId =
+        a.priceListId != null && String(a.priceListId).trim() !== ''
+          ? String(a.priceListId)
+          : null;
+      return {
+        localId,
+        saleCenterId,
+        priceListId,
+        saleCenterNombre: (saleCenterId && nombrePorId.get(saleCenterId)) || '',
+      };
+    })
+    .filter((i) => i.localId);
+  items.sort((a, b) => a.localId.localeCompare(b.localId));
+  return res.json({ items });
+});
+
+/**
+ * Asigna (o borra, si saleCenterId viene vacío) el centro de venta de un local.
+ * La tarifa se resuelve del centro en el momento de guardar.
+ * Cambia el precio de venta de los escandallos, así que exige permiso de edición.
+ */
+router.put('/agora/locales-tarifa', requirePermission('puntos_venta.editar'), async (req, res) => {
+  const body = req.body || {};
+  const localRaw = body.localId != null ? String(body.localId).trim() : '';
+  if (!localRaw) {
+    return res.status(400).json({ error: 'Falta localId en el body' });
+  }
+  const localId = formatId6(localRaw);
+  if (localId === '000000') {
+    return res.status(400).json({ error: 'localId inválido' });
+  }
+
+  const saleCenterId = body.saleCenterId != null ? String(body.saleCenterId).trim() : '';
+  if (!saleCenterId) {
+    // El borrado no valida el local: así se pueden limpiar asignaciones huérfanas
+    // de locales que ya no existen.
+    await deleteLocalTarifa(docClient, tableSaleCentersName, localId);
+    return res.json({ ok: true, localId, saleCenterId: null, priceListId: null });
+  }
+
+  const local = await docClient.send(
+    new GetCommand({ TableName: tableLocalesName, Key: { id_Locales: localId } }),
+  );
+  if (!local.Item) {
+    return res.status(404).json({ error: `Local ${localId} no encontrado` });
+  }
+
+  const centro = await getCentroVentaById(docClient, tableSaleCentersName, saleCenterId);
+  if (!centro) {
+    return res.status(404).json({ error: `Centro de venta ${saleCenterId} no encontrado` });
+  }
+  const centroId = String(centro.SK ?? centro.Id ?? saleCenterId).trim();
+  const priceListId = pickPriceListId(centro);
+  await putLocalTarifa(docClient, tableSaleCentersName, {
+    localId,
+    saleCenterId: centroId,
+    priceListId,
+  });
+  return res.json({ ok: true, localId, saleCenterId: centroId, priceListId });
 });
 
 // ---------------------------------------------------------------------------
@@ -4406,6 +4579,7 @@ router.post('/agora/purchases/sync', async (req, res) => {
             const vatRate = line.VatRate ?? line.vatRate ?? 0;
             const surchargeRate = line.SurchargeRate ?? line.surchargeRate ?? 0;
             const purchaseUnitName = line.PurchaseUnitName ?? line.purchaseUnitName ?? '';
+            const purchaseUnitId = line.PurchaseUnitId ?? line.purchaseUnitId ?? '';
             const familyId = line.FamilyId ?? line.familyId ?? '';
             const familyName = line.FamilyName ?? line.familyName ?? '';
             const lotNumber = line.LotNumber ?? line.lotNumber ?? '';
@@ -4448,6 +4622,7 @@ router.post('/agora/purchases/sync', async (req, res) => {
               VatRate: typeof vatRate === 'number' ? vatRate : parseFloat(String(vatRate)) || 0,
               SurchargeRate: typeof surchargeRate === 'number' ? surchargeRate : parseFloat(String(surchargeRate)) || 0,
               PurchaseUnitName: purchaseUnitName,
+              PurchaseUnitId: purchaseUnitId !== '' && purchaseUnitId != null ? String(purchaseUnitId) : '',
               FamilyId: String(familyId),
               FamilyName: familyName,
               LotNumber: lotNumber,

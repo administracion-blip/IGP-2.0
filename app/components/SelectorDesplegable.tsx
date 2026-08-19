@@ -54,6 +54,21 @@ type Props = {
   /** Muestra un campo de búsqueda en la cabecera de la lista (filtra por título y subtítulo). */
   buscador?: boolean;
   buscadorPlaceholder?: string;
+  /**
+   * Tras filtrar, limita filas renderizadas. Si hay más, muestra pie
+   * «Escribe para acotar (mostrando N de M)».
+   */
+  limiteResultados?: number;
+  /**
+   * Con buscador: si el filtro tiene menos de N caracteres, no lista el catálogo
+   * completo (evita pintar miles de filas). Muestra mensaje o solo la opción
+   * seleccionada si hay `valorId`.
+   */
+  minCharsBusqueda?: number;
+  /**
+   * Id para cadena Tab en web (`data-esc-campo`). El trigger queda focusable.
+   */
+  webCampoId?: string;
 };
 
 /**
@@ -81,19 +96,58 @@ export function SelectorDesplegable({
   triggerTextStyle,
   buscador,
   buscadorPlaceholder = 'Buscar…',
+  limiteResultados,
+  minCharsBusqueda,
+  webCampoId,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [filtro, setFiltro] = useState('');
   const seleccionada = opciones.find((o) => o.id === valorId) ?? null;
 
-  const opcionesFiltradas = useMemo(() => {
-    if (!buscador) return opciones;
-    const q = filtro.trim().toLowerCase();
-    if (!q) return opciones;
-    return opciones.filter((o) =>
-      `${o.titulo} ${o.subtitulo ?? ''}`.toLowerCase().includes(q),
-    );
-  }, [buscador, filtro, opciones]);
+  const { opcionesVisibles, pendienteMinChars, mensajePie } = useMemo(() => {
+    const q = filtro.trim();
+    const qLower = q.toLowerCase();
+    const minChars = buscador && minCharsBusqueda != null && minCharsBusqueda > 0
+      ? minCharsBusqueda
+      : 0;
+    const necesitaMinChars = minChars > 0 && q.length < minChars;
+
+    if (necesitaMinChars) {
+      const soloSel =
+        valorId && seleccionada
+          ? [seleccionada]
+          : valorId
+            ? opciones.filter((o) => o.id === valorId).slice(0, 1)
+            : [];
+      return {
+        opcionesVisibles: soloSel,
+        pendienteMinChars: true as const,
+        mensajePie: null as string | null,
+      };
+    }
+
+    let filtradas = opciones;
+    if (buscador && qLower) {
+      filtradas = opciones.filter((o) =>
+        `${o.titulo} ${o.subtitulo ?? ''}`.toLowerCase().includes(qLower),
+      );
+    }
+
+    const total = filtradas.length;
+    const limite =
+      limiteResultados != null && limiteResultados > 0 ? limiteResultados : null;
+    const visibles = limite != null ? filtradas.slice(0, limite) : filtradas;
+    const pie =
+      limite != null && total > visibles.length
+        ? `Escribe para acotar (mostrando ${visibles.length} de ${total})`
+        : null;
+
+    return {
+      opcionesVisibles: visibles,
+      pendienteMinChars: false as const,
+      mensajePie: pie,
+    };
+  }, [buscador, filtro, opciones, limiteResultados, minCharsBusqueda, valorId, seleccionada]);
 
   const cerrar = () => {
     setOpen(false);
@@ -115,6 +169,13 @@ export function SelectorDesplegable({
         onPress={() => !disabled && setOpen(true)}
         activeOpacity={0.7}
         disabled={disabled}
+        {...(Platform.OS === 'web' && webCampoId
+          ? ({
+              dataSet: { escCampo: webCampoId },
+              tabIndex: disabled ? -1 : 0,
+              focusable: !disabled,
+            } as object)
+          : {})}
       >
         {icono && !sinIconoTrigger ? (
           <MaterialIcons name={icono} size={compact ? 14 : 16} color={seleccionada ? '#0ea5e9' : '#94a3b8'} />
@@ -171,9 +232,21 @@ export function SelectorDesplegable({
               ) : null}
               {loading ? (
                 <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 24 }} />
-              ) : opcionesFiltradas.length > 0 ? (
+              ) : pendienteMinChars && opcionesVisibles.length === 0 ? (
+                <View style={styles.empty}>
+                  <MaterialIcons name="keyboard" size={28} color="#cbd5e1" />
+                  <Text style={styles.emptyText}>
+                    {`Escribe al menos ${minCharsBusqueda} caracteres para buscar…`}
+                  </Text>
+                </View>
+              ) : opcionesVisibles.length > 0 ? (
                 <ScrollView style={styles.scroll} nestedScrollEnabled showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
-                  {opcionesFiltradas.map((o) => {
+                  {pendienteMinChars ? (
+                    <Text style={styles.hintMinChars}>
+                      {`Escribe al menos ${minCharsBusqueda} caracteres para buscar más…`}
+                    </Text>
+                  ) : null}
+                  {opcionesVisibles.map((o) => {
                     const sel = o.id === valorId;
                     return (
                       <TouchableOpacity
@@ -203,6 +276,9 @@ export function SelectorDesplegable({
                       </TouchableOpacity>
                     );
                   })}
+                  {mensajePie ? (
+                    <Text style={styles.pieLimite}>{mensajePie}</Text>
+                  ) : null}
                 </ScrollView>
               ) : opciones.length > 0 ? (
                 <View style={styles.empty}>
@@ -383,6 +459,22 @@ const styles = StyleSheet.create({
   iconBoxSelected: { backgroundColor: '#e0f2fe' },
   empty: { alignItems: 'center', gap: 8, paddingVertical: 28, paddingHorizontal: 16 },
   emptyText: { fontSize: 12, color: '#94a3b8', textAlign: 'center' },
+  hintMinChars: {
+    fontSize: 11,
+    color: '#94a3b8',
+    textAlign: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  pieLimite: {
+    fontSize: 11,
+    color: '#64748b',
+    textAlign: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
   emptyBtn: {
     flexDirection: 'row',
     alignItems: 'center',

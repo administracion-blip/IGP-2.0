@@ -25,6 +25,8 @@ const OPCIONES: {
   { id: 'abonos-rappel', label: 'Abonos por Rappel', icon: 'savings', descripcion: 'Abono al local por rappels, por mes y año', permiso: 'pedidos.ver' },
   { id: 'facturacion', label: 'Facturación Mensual', icon: 'request-quote', descripcion: 'Facturas de ventas internas y abonos de rappel entre sociedades del grupo', permiso: 'compras.facturar' },
   { id: 'ventas-empresa', label: 'Ventas por Empresa', icon: 'point-of-sale', descripcion: 'Total a cobrar a cada sociedad (pedidos completados)', permiso: 'pedidos.ver' },
+  { id: 'mia', label: 'MIA — Aprovisionamiento', icon: 'psychology', descripcion: 'Motor inteligente: calcula pedidos sugeridos por almacén', permiso: 'mia.ver' },
+  { id: 'escandallos', label: 'Escandallos', icon: 'restaurant-menu', descripcion: 'Recetas de platos: ingredientes para MIA', permiso: 'escandallos.ver' },
   { id: 'acuerdos', label: 'Acuerdos', icon: 'handshake', descripcion: 'Acuerdos comerciales con proveedores', permiso: 'acuerdos.ver' },
 ];
 
@@ -52,6 +54,8 @@ export default function ComprasIndexScreen() {
     if (id === 'abonos-rappel') router.push('/compras/abonos-rappel');
     if (id === 'facturacion') router.push('/compras/facturacion');
     if (id === 'ventas-empresa') router.push('/compras/ventas-empresa');
+    if (id === 'mia') router.push('/compras/mia');
+    if (id === 'escandallos') router.push('/compras/escandallos');
     if (id === 'acuerdos') router.push('/acuerdos');
   }
 
