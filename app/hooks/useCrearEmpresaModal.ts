@@ -1,6 +1,8 @@
 import { useCallback, useState } from 'react';
-import { errorMessage } from '../utils/api';
+import { apiFetch, errorMessage } from '../utils/api';
 import { crearEmpresaConIdLibre, type EmpresaMaestro } from '../lib/empresaId';
+import { limpiarIban } from '../lib/iban';
+import { formatearIbanLegible } from '../components/CuentasBancariasEmpresa';
 import type { Borrador } from '../types/registroMasivo';
 import type { DocumentoPreviewArchivo } from '../components/PreviewDocumentoArchivo';
 
@@ -9,14 +11,19 @@ import type { DocumentoPreviewArchivo } from '../components/PreviewDocumentoArch
  *
  * Responsabilidades:
  * - Estado UI (visibilidad, formulario editable, flag guardando, error inline).
- * - Formulario con TODOS los atributos de `igp_Empresas`, de modo que el alta
- *   desde OCR deje la ficha completa sin tener que ir después al maestro.
- * - Prefill al abrir: nombre e id sugeridos, CIF del borrador (solo lectura) y
+ * - Formulario con los atributos editables de `igp_Empresas`, de modo que el
+ *   alta desde OCR deje la ficha completa sin tener que ir después al maestro.
+ * - Prefill al abrir: nombre e id sugeridos, CIF del borrador (solo lectura),
  *   dirección de la entidad candidata que casa con ese CIF (se sanea y se
- *   intenta partir en Direccion / Cp / Municipio).
+ *   intenta partir en Direccion / Cp / Municipio) e IBAN del emisor leído por
+ *   el OCR.
  * - Alta vía `crearEmpresaConIdLibre` (`app/lib/empresaId.ts`), que reintenta
  *   con un id nuevo si el calculado estaba ocupado, y propagación del resultado
  *   al padre vía callbacks `onCreated`, `onSuccess`, `onError`.
+ * - Alta de la cuenta bancaria con el IBAN del formulario en un segundo paso
+ *   (`POST /api/empresas/:id/cuentas`), porque en el modelo de N cuentas por
+ *   empresa el campo `Iban` del maestro lo escribe el backend a partir de la
+ *   cuenta predeterminada.
  *
  * El padre es responsable de mutar el array de `borradores` en respuesta
  * al éxito (vía `onCreated(idx, emp, nombre)`); el hook nunca muta estado
@@ -30,15 +37,15 @@ import type { DocumentoPreviewArchivo } from '../components/PreviewDocumentoArch
  */
 
 /**
- * Atributos exactos de la tabla `igp_Empresas` en AWS (mismo orden que
- * `ATRIBUTOS_TABLA_EMPRESAS` en `app/(app)/empresas.tsx`).
+ * Atributos de `igp_Empresas` que se editan en este modal (mismo orden que
+ * `ATRIBUTOS_TABLA_EMPRESAS` en `app/(app)/empresas.tsx`). `IbanAlternativo`
+ * no está: en el modelo de N cuentas por empresa no hay cuenta alternativa.
  */
 export const ATRIBUTOS_TABLA_EMPRESAS = [
   'id_empresa',
   'Nombre',
   'Cif',
   'Iban',
-  'IbanAlternativo',
   'Direccion',
   'Cp',
   'Municipio',
@@ -55,6 +62,14 @@ export const ATRIBUTOS_TABLA_EMPRESAS = [
 ] as const;
 
 export type CampoEmpresa = (typeof ATRIBUTOS_TABLA_EMPRESAS)[number];
+
+/**
+ * Campos de IBAN del maestro. Los escribe el backend a partir de la cuenta
+ * predeterminada (`POST /api/empresas/:id/cuentas`), así que nunca se envían en
+ * el body del alta: mandarlos dejaría el campo viejo y la tabla de cuentas
+ * divergiendo y las remesas pagarían a la cuenta equivocada.
+ */
+const CAMPOS_CUENTA_BANCARIA = new Set<string>(['Iban', 'IbanAlternativo']);
 
 /**
  * Formulario del modal. Campos de texto salvo `etiquetas`, gestionadas aparte.
@@ -99,6 +114,28 @@ function partirDireccion(texto: string): { Direccion: string; Cp: string; Munici
 /** Empresa devuelta por el backend tras el alta (`{ ok, empresa }`). */
 export type EmpresaCreada = EmpresaMaestro;
 
+/**
+ * Alta de la cuenta bancaria de la empresa recién creada. No lanza: la empresa
+ * ya existe cuando se llama, y un fallo aquí no puede invalidar ese alta.
+ */
+async function crearCuentaBancaria(
+  idEmpresa: string,
+  iban: string,
+): Promise<{ ok: true } | { ok: false; motivo: string }> {
+  const fallback = 'No se pudo dar de alta la cuenta bancaria.';
+  try {
+    const res = await apiFetch(`/api/empresas/${encodeURIComponent(idEmpresa)}/cuentas`, {
+      method: 'POST',
+      body: JSON.stringify({ iban }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) return { ok: false, motivo: data.error || fallback };
+    return { ok: true };
+  } catch (e: unknown) {
+    return { ok: false, motivo: errorMessage(e, fallback) };
+  }
+}
+
 export type UseCrearEmpresaModalReturn = {
   visible: boolean;
   /** CIF del borrador para el que se está creando la empresa (solo lectura). */
@@ -112,6 +149,8 @@ export type UseCrearEmpresaModalReturn = {
   error: string | null;
   /** True si la dirección se prellenó desde la entidad candidata del OCR. */
   direccionDesdeOcr: boolean;
+  /** True si el IBAN se prellenó con el que el OCR leyó en el documento. */
+  ibanDesdeOcr: boolean;
   /** Documento OCR del borrador para previsualizar mientras se da de alta la empresa. */
   documentoPreview: DocumentoPreviewArchivo | null;
   abrir: (b: Borrador, proximoId: string) => void;
@@ -126,6 +165,11 @@ export function useCrearEmpresaModal(opts: {
   onError?: (msg: string) => void;
   /** Mensaje de éxito (UX, p. ej. toast). */
   onSuccess?: (msg: string) => void;
+  /**
+   * La empresa se creó pero su cuenta bancaria no. El alta NO es un fallo: hay
+   * que avisar aparte para que el usuario no crea que debe repetirla.
+   */
+  onCuentaError?: (msg: string) => void;
 }): UseCrearEmpresaModalReturn {
   const [idx, setIdx] = useState<number | null>(null);
   const [form, setForm] = useState<FormEmpresa>(FORM_VACIO);
@@ -133,6 +177,7 @@ export function useCrearEmpresaModal(opts: {
   const [guardando, setGuardando] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [direccionDesdeOcr, setDireccionDesdeOcr] = useState<boolean>(false);
+  const [ibanDesdeOcr, setIbanDesdeOcr] = useState<boolean>(false);
   const [documentoPreview, setDocumentoPreview] = useState<DocumentoPreviewArchivo | null>(null);
 
   const fallar = useCallback(
@@ -150,10 +195,15 @@ export function useCrearEmpresaModal(opts: {
       (e) => (e.cif || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase() === cifNorm,
     );
     const direccion = partirDireccion(candidata?.direccion_candidata || '');
+    // El IBAN de la raíz del borrador puede venir de la capa IA, que no llega a
+    // `entidades_candidatas`: manda sobre el de la candidata del mismo CIF.
+    const ibanOcr =
+      limpiarIban(b.proveedor_iban || '') || limpiarIban(candidata?.iban_candidato || '');
     setIdx(b.idx);
     setError(null);
     setEtiquetas([]);
     setDireccionDesdeOcr(Boolean(direccion.Direccion));
+    setIbanDesdeOcr(Boolean(ibanOcr));
     setDocumentoPreview(
       b.archivo?.previewUrl
         ? {
@@ -168,6 +218,7 @@ export function useCrearEmpresaModal(opts: {
       id_empresa: proximoId,
       Nombre: (b.nombre_sugerido_ocr || '').trim(),
       Cif: cifBorrador,
+      Iban: ibanOcr ? formatearIbanLegible(ibanOcr) : '',
       ...direccion,
     });
   }, []);
@@ -179,6 +230,7 @@ export function useCrearEmpresaModal(opts: {
     setGuardando(false);
     setError(null);
     setDireccionDesdeOcr(false);
+    setIbanDesdeOcr(false);
     setDocumentoPreview(null);
   }, []);
 
@@ -202,6 +254,7 @@ export function useCrearEmpresaModal(opts: {
     try {
       const body: Record<string, string | string[]> = {};
       for (const key of ATRIBUTOS_TABLA_EMPRESAS) {
+        if (CAMPOS_CUENTA_BANCARIA.has(key)) continue;
         if (key === 'Etiqueta') {
           body[key] = etiquetas.map((s) => s.trim()).filter(Boolean);
         } else if (key === 'Nombre') {
@@ -213,12 +266,36 @@ export function useCrearEmpresaModal(opts: {
       const { empresa, idUsado } = await crearEmpresaConIdLibre(body);
       // `idUsado` puede diferir del calculado al abrir el modal si hubo colisión.
       const emp: EmpresaCreada = { ...empresa, id_empresa: empresa.id_empresa || idUsado };
+
+      // La empresa ya existe: a partir de aquí ningún fallo puede propagarse
+      // como error del alta o el usuario la crearía otra vez.
+      const iban = limpiarIban(form.Iban);
+      const idEmpresaCreada = String(emp.id_empresa || '').trim();
+      let avisoCuenta = '';
+      if (iban) {
+        const resultado = idEmpresaCreada
+          ? await crearCuentaBancaria(idEmpresaCreada, iban)
+          : ({ ok: false, motivo: 'El alta no devolvió el id de la empresa.' } as const);
+        if (!resultado.ok) {
+          const motivo = resultado.motivo.trim();
+          avisoCuenta =
+            `${nombreLimpio} se ha creado, pero su cuenta bancaria no: ` +
+            `${/[.!?]$/.test(motivo) ? motivo : `${motivo}.`} ` +
+            'Puedes añadirla desde la ficha de la empresa, en Empresas.';
+        }
+      }
+
       opts.onCreated(idx, emp, nombreLimpio);
-      opts.onSuccess?.(`${nombreLimpio} vinculada al CIF ${form.Cif}`);
+      if (avisoCuenta) {
+        (opts.onCuentaError ?? opts.onError)?.(avisoCuenta);
+      } else {
+        opts.onSuccess?.(`${nombreLimpio} vinculada al CIF ${form.Cif}`);
+      }
       setIdx(null);
       setForm(FORM_VACIO);
       setEtiquetas([]);
       setDireccionDesdeOcr(false);
+      setIbanDesdeOcr(false);
       setDocumentoPreview(null);
     } catch (e: unknown) {
       fallar(errorMessage(e, 'Error al crear empresa'));
@@ -237,6 +314,7 @@ export function useCrearEmpresaModal(opts: {
     guardando,
     error,
     direccionDesdeOcr,
+    ibanDesdeOcr,
     documentoPreview,
     abrir,
     cerrar,

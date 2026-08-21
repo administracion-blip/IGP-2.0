@@ -225,6 +225,10 @@ const GRUPOS_PERMISOS: { titulo: string; codigos: string[] }[] = [
     ],
   },
   {
+    titulo: 'Banca',
+    codigos: ['banca.ver', 'banca.importar'],
+  },
+  {
     titulo: 'Planning del Día',
     codigos: [
       'planning_dia.ver',
@@ -360,6 +364,7 @@ const PERMISOS_LABELS: Record<string, string> = {
   'facturacion.exportar': 'Facturación · Exportar',
   'refacturacion.ver': 'Refacturación · Ver',
   'refacturacion.gestionar': 'Refacturación · Gestionar',
+  'banca.importar': 'Banca · Importar extractos bancarios',
   'ajustes.ver': 'Ajustes (menú)',
   'ajustes.sincronizaciones.agora_productos': 'Ajustes · Sync Productos Agora',
   'ajustes.sincronizaciones.agora_usuarios': 'Ajustes · Sync Usuarios Agora',

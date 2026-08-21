@@ -11,7 +11,6 @@ type DatosEmisor = {
   email: string;
   telefono?: string;
   iban?: string;
-  ibanAlternativo?: string;
 };
 
 type DatosFactura = {
@@ -157,7 +156,6 @@ function dibujarBandaDatosPago(
   const lineY = pageH - 15;
   const bandH = 18;
   const bandY = lineY - bandH - 1;
-  const colW = contentWidth / 4;
 
   doc.setFillColor(...COLORS.bg);
   doc.rect(margin, bandY, contentWidth, bandH, 'F');
@@ -165,9 +163,9 @@ function dibujarBandaDatosPago(
   const campos = [
     { label: 'Beneficiario', value: emisor.nombre || '—' },
     { label: 'IBAN', value: emisor.iban?.trim() || '—' },
-    { label: 'IBAN alternativo', value: emisor.ibanAlternativo?.trim() || '—' },
     { label: 'Concepto', value: idFactura || '—' },
   ];
+  const colW = contentWidth / campos.length;
 
   campos.forEach((campo, i) => {
     const cx = margin + colW * i + 3;

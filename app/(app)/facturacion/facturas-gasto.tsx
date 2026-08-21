@@ -81,6 +81,12 @@ import {
   idsFacturasProveedorDuplicadas,
   resumenDuplicadosProveedor,
 } from '../../lib/registroMasivo';
+import IconoSugerenciaConciliacion from '../../components/conciliacion/IconoSugerenciaConciliacion';
+import ConciliarMovimientoModal, {
+  type ResultadoConciliacion,
+} from '../../components/conciliacion/ConciliarMovimientoModal';
+import { indicePorFactura, queryConciliacionSugerencias } from '../../lib/conciliacion';
+import type { RespuestaSugerencias, SugerenciasDeFactura } from '../../types/conciliacion';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 const PAGE_SIZE = 50;
@@ -276,7 +282,7 @@ export default function FacturasGastoScreen() {
   const searchParams = useLocalSearchParams<{ modalFactura?: string; maestroActualizado?: string }>();
   const { hasPermiso, user } = useAuth();
   const { width: winW } = useWindowDimensions();
-  const { shouldStackToolbar } = useBreakpoint();
+  const { shouldStackToolbar, shouldUseComfortableTable } = useBreakpoint();
   const layoutSplit = Platform.OS === 'web' && winW >= 1024;
   const { show: showToast, ToastView } = useLocalToast();
   const { confirmar, ConfirmarView } = useConfirmar();
@@ -294,6 +300,7 @@ export default function FacturasGastoScreen() {
   const [anioFiltro, setAnioFiltro] = useState(() => String(new Date().getFullYear()));
   const [filtroColaPago, setFiltroColaPago] = useState<FiltroColaPago>('todos');
   const [soloDuplicadosProveedor, setSoloDuplicadosProveedor] = useState(false);
+  const [soloPendientesConciliacion, setSoloPendientesConciliacion] = useState(false);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalFacturaId, setModalFacturaId] = useState<string | null>(null);
@@ -352,6 +359,64 @@ export default function FacturasGastoScreen() {
   }, []);
 
   useEffect(() => { fetchFacturas(); }, [fetchFacturas]);
+
+  const puedeVerConciliacion = hasPermiso('banca.ver');
+  const [sugerenciasPorFactura, setSugerenciasPorFactura] = useState<Map<string, SugerenciasDeFactura>>(
+    () => new Map(),
+  );
+  const [conciliarEntrada, setConciliarEntrada] = useState<SugerenciasDeFactura | null>(null);
+  /** Solo la última carga escribe: al refrescar tras conciliar se solapan dos. */
+  const sugerenciasSeqRef = useRef(0);
+
+  /**
+   * Movimientos bancarios candidatos por factura. Es una ayuda del listado: si
+   * falla, no se pintan iconos y la pantalla sigue funcionando igual.
+   */
+  const cargarSugerencias = useCallback(() => {
+    if (!puedeVerConciliacion) {
+      setSugerenciasPorFactura(new Map());
+      return;
+    }
+    const secuencia = ++sugerenciasSeqRef.current;
+    apiFetch(queryConciliacionSugerencias({ tipo: 'IN' }))
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Error ${r.status}`))))
+      .then((data: RespuestaSugerencias) => {
+        if (secuencia !== sugerenciasSeqRef.current) return;
+        setSugerenciasPorFactura(indicePorFactura(data.porFactura));
+      })
+      .catch(() => {
+        if (secuencia !== sugerenciasSeqRef.current) return;
+        setSugerenciasPorFactura(new Map());
+      });
+  }, [puedeVerConciliacion]);
+
+  useEffect(() => { cargarSugerencias(); }, [cargarSugerencias]);
+
+  const onConciliacionAplicada = useCallback(
+    (resultado: ResultadoConciliacion) => {
+      setConciliarEntrada(null);
+      const total = resultado.aplicadas.reduce((acc, a) => acc + Number(a.importe || 0), 0);
+      const aviso = resultado.avisos[0]?.mensaje;
+      showToast(
+        resultado.parcial ? 'Conciliación parcial' : 'Pago registrado',
+        `${resultado.aplicadas.length} factura${resultado.aplicadas.length === 1 ? '' : 's'} · ${formatMoneda(total)}${aviso ? ` · ${aviso}` : ''}`,
+        resultado.parcial ? 'warning' : 'success',
+      );
+      // El saldo pendiente ha cambiado: las sugerencias viejas ya no valen.
+      fetchFacturas();
+      cargarSugerencias();
+    },
+    [showToast, fetchFacturas, cargarSugerencias],
+  );
+
+  const onSugerenciaDescartada = useCallback(
+    (mensaje: string) => {
+      setConciliarEntrada(null);
+      showToast('Sugerencia descartada', mensaje, 'info');
+      cargarSugerencias();
+    },
+    [showToast, cargarSugerencias],
+  );
 
   // Refrescar al volver de la ficha completa: sin esto el listado mostraba
   // datos antiguos tras guardar y parecía que el cambio no se había guardado.
@@ -418,6 +483,8 @@ export default function FacturasGastoScreen() {
             return {
               id_empresa: e.id_empresa != null ? String(e.id_empresa) : '',
               Cif: e.Cif != null ? String(e.Cif).trim() : e.cif != null ? String(e.cif).trim() : '',
+              IbanPredeterminado:
+                e.IbanPredeterminado != null ? String(e.IbanPredeterminado).trim() : '',
               Iban: e.Iban != null ? String(e.Iban).trim() : e.iban != null ? String(e.iban).trim() : '',
               IbanAlternativo:
                 e.IbanAlternativo != null
@@ -536,6 +603,9 @@ export default function FacturasGastoScreen() {
     if (soloDuplicadosProveedor) {
       list = list.filter((f) => idsDuplicadosProveedor.has(f.id_factura));
     }
+    if (soloPendientesConciliacion) {
+      list = list.filter((f) => sugerenciasPorFactura.has(f.id_factura));
+    }
     return list;
   }, [
     facturas,
@@ -548,6 +618,8 @@ export default function FacturasGastoScreen() {
     busqueda,
     soloDuplicadosProveedor,
     idsDuplicadosProveedor,
+    soloPendientesConciliacion,
+    sugerenciasPorFactura,
   ]);
 
   const conteosPorTab = useMemo(() => {
@@ -647,6 +719,20 @@ export default function FacturasGastoScreen() {
     [filtradas, idsDuplicadosProveedor],
   );
 
+  /** Facturas del listado cargado que tienen sugerencia media/alta. */
+  const totalPendientesConciliacion = useMemo(() => {
+    let n = 0;
+    for (const f of facturas) {
+      if (sugerenciasPorFactura.has(f.id_factura)) n += 1;
+    }
+    return n;
+  }, [facturas, sugerenciasPorFactura]);
+
+  const conciliacionVisiblesEnFiltro = useMemo(
+    () => filtradas.filter((f) => sugerenciasPorFactura.has(f.id_factura)).length,
+    [filtradas, sugerenciasPorFactura],
+  );
+
   useEffect(() => {
     setPageIndex(0);
     setSelectedId(null);
@@ -660,6 +746,7 @@ export default function FacturasGastoScreen() {
     anioFiltro,
     filtroColaPago,
     soloDuplicadosProveedor,
+    soloPendientesConciliacion,
   ]);
 
   // Si ya no hay duplicados en el listado, apaga el filtro (banner desaparece).
@@ -668,6 +755,13 @@ export default function FacturasGastoScreen() {
       setSoloDuplicadosProveedor(false);
     }
   }, [resumenDupGlobal.grupos, soloDuplicadosProveedor]);
+
+  // Si ya no quedan sugerencias, apaga el filtro de conciliación.
+  useEffect(() => {
+    if (totalPendientesConciliacion === 0 && soloPendientesConciliacion) {
+      setSoloPendientesConciliacion(false);
+    }
+  }, [totalPendientesConciliacion, soloPendientesConciliacion]);
 
   const selectedFactura: FacturaListado | null = useMemo(
     () => (selectedId ? filtradas.find((f) => f.id_factura === selectedId) ?? null : null),
@@ -1775,6 +1869,49 @@ export default function FacturasGastoScreen() {
               />
             </TouchableOpacity>
           ) : null}
+          {puedeVerConciliacion && totalPendientesConciliacion > 0 ? (
+            <TouchableOpacity
+              style={[
+                styles.conciliacionBannerTabla,
+                soloPendientesConciliacion && styles.conciliacionBannerTablaActivo,
+              ]}
+              onPress={() => setSoloPendientesConciliacion((v) => !v)}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityState={{ selected: soloPendientesConciliacion }}
+              accessibilityLabel={
+                soloPendientesConciliacion
+                  ? 'Mostrando solo facturas con sugerencia de conciliación. Pulsar para quitar el filtro'
+                  : `${totalPendientesConciliacion} facturas pendientes de conciliar. Pulsar para verlas`
+              }
+            >
+              <MaterialIcons name="account-balance" size={16} color="#0369a1" />
+              <Text style={styles.conciliacionBannerTablaText}>
+                {soloPendientesConciliacion ? (
+                  <>
+                    Mostrando solo pendientes de conciliar ·{' '}
+                    <Text style={styles.conciliacionBannerTablaCta}>Quitar filtro</Text>
+                  </>
+                ) : (
+                  <>
+                    Hay {totalPendientesConciliacion} factura
+                    {totalPendientesConciliacion !== 1 ? 's' : ''} pendiente
+                    {totalPendientesConciliacion !== 1 ? 's' : ''} de conciliar
+                    {conciliacionVisiblesEnFiltro < totalPendientesConciliacion
+                      ? ` · ${conciliacionVisiblesEnFiltro} visible${conciliacionVisiblesEnFiltro !== 1 ? 's' : ''} con filtros actuales`
+                      : ''}
+                    {' · '}
+                    <Text style={styles.conciliacionBannerTablaCta}>Ver pendientes</Text>
+                  </>
+                )}
+              </Text>
+              <MaterialIcons
+                name={soloPendientesConciliacion ? 'filter-alt-off' : 'chevron-right'}
+                size={18}
+                color="#0369a1"
+              />
+            </TouchableOpacity>
+          ) : null}
           <View style={styles.tableWrapper}>
         <ScrollView
           horizontal
@@ -1785,7 +1922,9 @@ export default function FacturasGastoScreen() {
           <View style={styles.table}>
             {/* Header row */}
             <View style={styles.rowHeader}>
-              <View style={styles.actionHeaderCell} />
+              <View
+                style={[styles.actionHeaderCell, puedeVerConciliacion && styles.actionHeaderCellAncha]}
+              />
               {COLUMNAS.map((col) => (
                 <TouchableOpacity
                   key={col}
@@ -1848,7 +1987,7 @@ export default function FacturasGastoScreen() {
                     onLongPress={() => entrarModoSeleccionConFactura(f.id_factura, f.estado)}
                     delayLongPress={450}
                   >
-                    <View style={styles.actionCell}>
+                    <View style={[styles.actionCell, puedeVerConciliacion && styles.actionCellAncha]}>
                       {modoSeleccion ? (
                         <Pressable
                           hitSlop={8}
@@ -1878,6 +2017,16 @@ export default function FacturasGastoScreen() {
                         <MaterialIcons name="vertical-split" size={16} color="#0369a1" />
                       </Pressable>
                       )}
+                      {!modoSeleccion && puedeVerConciliacion ? (
+                        <IconoSugerenciaConciliacion
+                          entrada={sugerenciasPorFactura.get(f.id_factura)}
+                          comodo={shouldUseComfortableTable}
+                          onPress={(entrada, e) => {
+                            absorberClickFila(e);
+                            setConciliarEntrada(entrada);
+                          }}
+                        />
+                      ) : null}
                     </View>
                     {COLUMNAS.map((col) => {
                       if (col === 'trimestre') {
@@ -1959,6 +2108,17 @@ export default function FacturasGastoScreen() {
           </View>
         </View>
       </View>
+
+      {/* Conciliación bancaria de la factura de la fila */}
+      <ConciliarMovimientoModal
+        visible={conciliarEntrada !== null}
+        entrada={conciliarEntrada}
+        tipo="IN"
+        puedeConciliar={puedeGestionarPagos}
+        onClose={() => setConciliarEntrada(null)}
+        onConciliado={onConciliacionAplicada}
+        onDescartada={onSugerenciaDescartada}
+      />
 
       {/* Modal detalle + previsualización del documento */}
       <FacturaDetalleModal
@@ -2104,23 +2264,16 @@ export default function FacturasGastoScreen() {
         }
         datosPago={
           selectedFactura
-            ? (() => {
-                const { iban, ibanAlternativo } = resolverIbanBeneficiarioFactura(
-                  selectedFactura,
-                  empresasCatalogo,
-                );
-                return {
-                  beneficiario: selectedFactura.empresa_nombre ?? '',
-                  iban,
-                  ibanAlternativo,
-                  concepto: buildConceptoRemesaFacturaRecibida({
-                    numeroFacturaProveedor: selectedFactura.numero_factura_proveedor,
-                    numeroFactura: selectedFactura.numero_factura,
-                    proveedorNombre: selectedFactura.empresa_nombre,
-                    observaciones: selectedFactura.observaciones,
-                  }),
-                };
-              })()
+            ? {
+                beneficiario: selectedFactura.empresa_nombre ?? '',
+                iban: resolverIbanBeneficiarioFactura(selectedFactura, empresasCatalogo),
+                concepto: buildConceptoRemesaFacturaRecibida({
+                  numeroFacturaProveedor: selectedFactura.numero_factura_proveedor,
+                  numeroFactura: selectedFactura.numero_factura,
+                  proveedorNombre: selectedFactura.empresa_nombre,
+                  observaciones: selectedFactura.observaciones,
+                }),
+              }
             : undefined
         }
         habilitarCompensacion
@@ -2594,8 +2747,41 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textDecorationLine: 'underline',
   },
+  conciliacionBannerTabla: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#f0f9ff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#bae6fd',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : null),
+  },
+  conciliacionBannerTablaActivo: {
+    backgroundColor: '#e0f2fe',
+    borderBottomColor: '#7dd3fc',
+    borderLeftWidth: 3,
+    borderLeftColor: '#0284c7',
+  },
+  conciliacionBannerTablaText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#0c4a6e',
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  conciliacionBannerTablaCta: {
+    fontSize: 12,
+    color: '#0369a1',
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+  },
   actionHeaderCell: { width: 40, flexShrink: 0 },
   actionCell: { width: 40, flexShrink: 0, alignItems: 'center', justifyContent: 'center', paddingVertical: 2 },
+  /** Con conciliación la celda hospeda dos iconos: detalle + movimientos candidatos. */
+  actionHeaderCellAncha: { width: 70 },
+  actionCellAncha: { width: 70, flexDirection: 'row', gap: 4 },
   actionBtn: {
     padding: 5,
     borderRadius: 6,

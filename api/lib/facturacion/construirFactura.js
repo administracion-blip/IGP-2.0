@@ -109,10 +109,10 @@ export function construirFacturaConLineas({ id_factura, numero = 0, numero_factu
     tipo, serie,
     emisor_id, emisor_nombre, emisor_cif, emisor_direccion,
     emisor_cp, emisor_municipio, emisor_provincia, emisor_email,
-    emisor_iban, emisor_iban_alternativo,
+    emisor_iban,
     empresa_id, empresa_nombre, empresa_cif, empresa_direccion,
     empresa_cp, empresa_municipio, empresa_provincia, empresa_email,
-    empresa_iban, empresa_iban_alternativo,
+    empresa_iban,
     fecha_emision, fecha_operacion, fecha_vencimiento,
     condiciones_pago, forma_pago, observaciones, local_id,
     es_rectificativa, factura_rectificada_id, motivo_rectificacion, rectificativa_tipo,
@@ -140,7 +140,11 @@ export function construirFacturaConLineas({ id_factura, numero = 0, numero_factu
     emisor_provincia: emisor_provincia || '',
     emisor_email: emisor_email || '',
     emisor_iban: emisor_iban || '',
-    emisor_iban_alternativo: emisor_iban_alternativo || '',
+    // Los IBAN alternativos ya no se congelan: la cuenta buena es la
+    // predeterminada del maestro. El campo se mantiene —vacío— porque las
+    // facturas ya emitidas lo tienen guardado y hay que poder reimprimirlas y
+    // remesarlas.
+    emisor_iban_alternativo: '',
     empresa_id: empresa_id || '',
     empresa_nombre: empresa_nombre || '',
     empresa_cif: empresa_cif || '',
@@ -150,7 +154,7 @@ export function construirFacturaConLineas({ id_factura, numero = 0, numero_factu
     empresa_provincia: empresa_provincia || '',
     empresa_email: empresa_email || '',
     empresa_iban: empresa_iban || '',
-    empresa_iban_alternativo: empresa_iban_alternativo || '',
+    empresa_iban_alternativo: '',
     fecha_emision: fecha_emision || now().slice(0, 10),
     fecha_operacion: fecha_operacion || '',
     fecha_vencimiento: fecha_vencimiento || '',

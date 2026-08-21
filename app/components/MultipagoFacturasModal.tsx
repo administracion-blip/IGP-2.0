@@ -146,11 +146,9 @@ export function MultipagoFacturasModal({
 
   const datosPagoActiva = useMemo(() => {
     if (!activa) return undefined;
-    const { iban, ibanAlternativo } = resolverIbanBeneficiarioFactura(activa, empresasCatalogo);
     return {
       beneficiario: activa.empresa_nombre ?? '',
-      iban,
-      ibanAlternativo,
+      iban: resolverIbanBeneficiarioFactura(activa, empresasCatalogo),
       concepto: buildConceptoRemesaFacturaRecibida({
         numeroFacturaProveedor: activa.numero_factura_proveedor,
         numeroFactura: activa.numero_factura,

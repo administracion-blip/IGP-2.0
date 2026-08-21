@@ -10,6 +10,8 @@ export type EmpresaConTipoRecibo = {
   Etiqueta?: string[];
   tipoRecibo?: string;
   'Tipo de recibo'?: string;
+  /** Puntero a la cuenta bancaria predeterminada de la empresa. */
+  IbanPredeterminado?: string;
   Iban?: string;
   iban?: string;
   IbanAlternativo?: string;

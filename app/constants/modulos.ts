@@ -16,6 +16,7 @@ export const MODULOS: ModuloMenu[] = [
   { route: '/mystery-guest', label: 'Mystery Guest', icon: 'visibility', permiso: 'mystery_guest.ver' },
   { route: '/reservas', label: 'Reservas', icon: 'event-available', permiso: 'reservas.ver' },
   { route: '/facturacion', label: 'Facturación', icon: 'receipt', permiso: 'facturacion.ver' },
+  { route: '/banca', label: 'Banca', icon: 'account-balance', permiso: 'banca.ver' },
   { route: '/planning-dia', label: 'Planning del Día', icon: 'today', permiso: 'planning_dia.ver' },
   { route: '/informes-ia', label: 'Informes IA', icon: 'auto-awesome', permiso: 'ia.informes' },
 ];

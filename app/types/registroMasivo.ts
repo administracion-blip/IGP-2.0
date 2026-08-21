@@ -30,6 +30,8 @@ export type EntidadCandidata = {
   cif: string;
   nombre_candidato?: string;
   direccion_candidata?: string;
+  /** IBAN detectado junto a esa entidad, ya normalizado y validado (o ''). */
+  iban_candidato?: string;
   contexto?: string;
   score_emisor?: number;
   score_receptor?: number;
@@ -121,6 +123,8 @@ export type Borrador = {
   proveedor_en_maestros?: boolean;
   /** Sugerencia OCR del nombre si el CIF no está en maestro (para alta rápida) */
   nombre_sugerido_ocr?: string;
+  /** IBAN del emisor leído del documento si el CIF no está en maestro (para alta rápida) */
+  proveedor_iban?: string;
   numero_factura_proveedor: string;
   fecha_emision: string;
   base_imponible: number;

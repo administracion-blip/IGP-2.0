@@ -295,6 +295,7 @@ export default function FacturaDetalleScreen() {
       empresas.map((e) => ({
         id_empresa: e.id_empresa,
         Cif: e.cif,
+        IbanPredeterminado: e.ibanPredeterminado,
         Iban: e.iban,
         IbanAlternativo: e.ibanAlternativo,
         tipoRecibo: e.tipoRecibo,
@@ -316,11 +317,9 @@ export default function FacturaDetalleScreen() {
           empresa_id: empresaId,
           empresa_cif: empresaCif,
         };
-    const { iban, ibanAlternativo } = resolverIbanBeneficiarioFactura(refIban, empresasCatalogoPago);
     return {
       beneficiario: esVenta ? emisorNombre : empresaNombre,
-      iban,
-      ibanAlternativo,
+      iban: resolverIbanBeneficiarioFactura(refIban, empresasCatalogoPago),
       concepto: buildConceptoRemesaFacturaRecibida({
         numeroFacturaProveedor: numFacturaProveedor,
         numeroFactura,
@@ -372,6 +371,7 @@ export default function FacturaDetalleScreen() {
           municipio: str(e.Municipio ?? e.municipio),
           provincia: str(e.Provincia ?? e.provincia),
           email: str(e.Email ?? e.email),
+          ibanPredeterminado: str(e.IbanPredeterminado),
           iban: str(e.Iban ?? e.iban),
           ibanAlternativo: str(e.IbanAlternativo ?? e.ibanAlternativo),
           sede: str(e.Sede ?? e.sede),
@@ -470,8 +470,9 @@ export default function FacturaDetalleScreen() {
     setEmisorMunicipio(e.municipio);
     setEmisorProvincia(e.provincia);
     setEmisorEmail(e.email);
-    setEmisorIban(e.iban);
-    setEmisorIbanAlt(e.ibanAlternativo);
+    // Solo la cuenta predeterminada: el alternativo ya no se congela en la factura.
+    setEmisorIban(e.ibanPredeterminado || e.iban);
+    setEmisorIbanAlt('');
     setEmisorSearch('');
     setShowEmisorDropdown(false);
   };
@@ -486,8 +487,9 @@ export default function FacturaDetalleScreen() {
     setEmpresaMunicipio(e.municipio);
     setEmpresaProvincia(e.provincia);
     setEmpresaEmail(e.email);
-    setEmpresaIban(e.iban);
-    setEmpresaIbanAlt(e.ibanAlternativo);
+    // Solo la cuenta predeterminada: el alternativo ya no se congela en la factura.
+    setEmpresaIban(e.ibanPredeterminado || e.iban);
+    setEmpresaIbanAlt('');
     setEmpresaSearch('');
     setShowEmpresaDropdown(false);
   };
@@ -528,6 +530,11 @@ export default function FacturaDetalleScreen() {
   };
 
   // ── Build payload ──
+  /**
+   * Los `*_iban_alternativo` no viajan a propósito: ya no se emiten, pero las
+   * facturas antiguas los llevan congelados y son el último recurso de la
+   * cascada de pago. Si se enviaran, editar una factura ya emitida los borraría.
+   */
   const buildPayload = () => ({
     tipo,
     serie,
@@ -541,7 +548,6 @@ export default function FacturaDetalleScreen() {
     emisor_provincia: emisorProvincia,
     emisor_email: emisorEmail,
     emisor_iban: emisorIban,
-    emisor_iban_alternativo: emisorIbanAlt,
     empresa_id: empresaId,
     empresa_nombre: empresaNombre,
     empresa_cif: empresaCif,
@@ -551,7 +557,6 @@ export default function FacturaDetalleScreen() {
     empresa_provincia: empresaProvincia,
     empresa_email: empresaEmail,
     empresa_iban: empresaIban,
-    empresa_iban_alternativo: empresaIbanAlt,
     fecha_emision: fechaEmision,
     fecha_operacion: fechaOperacion || null,
     fecha_vencimiento: fechaVencimiento,
@@ -851,7 +856,7 @@ export default function FacturaDetalleScreen() {
       nombre: emisorNombre, cif: emisorCif, direccion: emisorDireccion,
       cp: emisorCp, municipio: emisorMunicipio, provincia: emisorProvincia,
       email: emisorEmail, telefono: DATOS_EMISOR.telefono,
-      iban: emisorIban, ibanAlternativo: emisorIbanAlt,
+      iban: emisorIban,
     };
     const clienteData = {
       nombre: empresaNombre, cif: empresaCif, direccion: empresaDireccion,
@@ -1000,7 +1005,7 @@ export default function FacturaDetalleScreen() {
           nombre: emisorNombre, cif: emisorCif, direccion: emisorDireccion,
           cp: emisorCp, municipio: emisorMunicipio, provincia: emisorProvincia,
           email: emisorEmail, telefono: DATOS_EMISOR.telefono,
-          iban: emisorIban, ibanAlternativo: emisorIbanAlt,
+          iban: emisorIban,
         };
         const doc = await generarPDFFactura(
           emisorData,
@@ -1217,7 +1222,6 @@ export default function FacturaDetalleScreen() {
               <Text style={styles.empresaInfoText}>{emisorCp} {emisorMunicipio}, {emisorProvincia}</Text>
               {emisorEmail ? <Text style={styles.empresaInfoText}>{emisorEmail}</Text> : null}
               {emisorIban ? <Text style={styles.empresaInfoText}>IBAN: {emisorIban}</Text> : null}
-              {emisorIbanAlt ? <Text style={styles.empresaInfoText}>IBAN Alt: {emisorIbanAlt}</Text> : null}
             </View>
           ) : null}
         </View>
@@ -1267,7 +1271,6 @@ export default function FacturaDetalleScreen() {
               <Text style={styles.empresaInfoText}>{empresaCp} {empresaMunicipio}, {empresaProvincia}</Text>
               {empresaEmail ? <Text style={styles.empresaInfoText}>{empresaEmail}</Text> : null}
               {empresaIban ? <Text style={styles.empresaInfoText}>IBAN: {empresaIban}</Text> : null}
-              {empresaIbanAlt ? <Text style={styles.empresaInfoText}>IBAN Alt: {empresaIbanAlt}</Text> : null}
             </View>
           ) : null}
         </View>

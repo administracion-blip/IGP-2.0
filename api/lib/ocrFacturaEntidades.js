@@ -4,6 +4,7 @@
  */
 
 import { normalizeCif, cifDigitsOnly } from './empresaCif.js';
+import { limpiarIban, validarIban } from './remesas/iban.js';
 import {
   parseDesgloseFiscalFromText,
   agregarResumenDesdeDesglose,
@@ -157,6 +158,103 @@ function inferDireccionNearCif(text, cif, pos) {
   return m2 ? m2[0].trim().slice(0, 200) : '';
 }
 
+const IBAN_MIN_LEN = 15;
+const IBAN_MAX_LEN = 34;
+/** Arranque de IBAN: país + dígitos de control, con prefijo «IBAN» opcional. */
+const IBAN_INICIO_REGEX = /\b(?:IBAN\s*[:.\-]?\s*)?[A-Z]{2}[ \t.\-]{0,2}\d{2}/gi;
+/** Separador entre grupos: espacios, guiones, puntos y como mucho un salto de línea. */
+const IBAN_SEPARADOR_REGEX = /^[ \t.\-]{0,4}\r?\n?[ \t.\-]{0,4}/;
+const IBAN_GRUPO_REGEX = /^[A-Za-z0-9]{1,30}/;
+
+/**
+ * Posiciones del texto donde termina cada grupo del posible IBAN que arranca en `desde`.
+ * Sirven como puntos de corte: el OCR pega detrás del número el nombre del banco,
+ * el BIC o el titular, y solo uno de los cortes supera el módulo 97.
+ */
+function cortesGruposIban(text, desde) {
+  const cortes = [];
+  let cursor = desde;
+  let largo = 4; // país + dígitos de control
+  while (largo < IBAN_MAX_LEN) {
+    const ventana = text.slice(cursor, cursor + 96);
+    const sep = ventana.match(IBAN_SEPARADOR_REGEX)[0];
+    const grupoMatch = ventana.slice(sep.length).match(IBAN_GRUPO_REGEX);
+    if (!grupoMatch) break;
+    const grupo = grupoMatch[0];
+    const soloLetras = !/\d/.test(grupo);
+    if (soloLetras && (largo >= IBAN_MIN_LEN || grupo.length >= 5)) break;
+    if (largo + grupo.length > IBAN_MAX_LEN) break;
+    cursor += sep.length + grupo.length;
+    largo += grupo.length;
+    cortes.push(cursor);
+  }
+  return cortes;
+}
+
+/**
+ * IBAN válidos (módulo 97) presentes en un texto OCR, únicos y normalizados.
+ * Tolera espacios, guiones, saltos de línea y el prefijo «IBAN:».
+ * La validación descarta cuentas enmascaradas y ruido que solo se parece a un IBAN.
+ * @param {string} text
+ * @returns {{ iban: string, pos: number }[]}
+ */
+export function extraerIbansDeTexto(text) {
+  const t = String(text ?? '');
+  if (!t.trim()) return [];
+  const encontrados = [];
+  const vistos = new Set();
+  IBAN_INICIO_REGEX.lastIndex = 0;
+  let m;
+  while ((m = IBAN_INICIO_REGEX.exec(t)) !== null) {
+    const cortes = cortesGruposIban(t, m.index + m[0].length);
+    for (let i = cortes.length - 1; i >= 0; i--) {
+      const { valido, iban } = validarIban(limpiarIban(t.slice(m.index, cortes[i])));
+      if (!valido) continue;
+      if (!vistos.has(iban)) {
+        vistos.add(iban);
+        encontrados.push({ iban, pos: m.index });
+      }
+      break;
+    }
+  }
+  return encontrados;
+}
+
+/** IBAN normalizado si supera el módulo 97; cadena vacía en cualquier otro caso. */
+export function ibanValidoONada(raw) {
+  if (!raw) return '';
+  const { valido, iban } = validarIban(limpiarIban(raw));
+  return valido ? iban : '';
+}
+
+/**
+ * Un único IBAN en el documento es el del emisor: va a la entidad con mejor score
+ * de emisor y a ninguna otra. Con varios, a cada entidad el más cercano en el texto.
+ */
+function asignarIbansAEntidades(entidades, ibans) {
+  const asignados = entidades.map(() => '');
+  if (!entidades.length || !ibans.length) return asignados;
+
+  if (ibans.length === 1) {
+    let mejor = 0;
+    for (let i = 1; i < entidades.length; i++) {
+      if (netEmisorScore(entidades[i]) > netEmisorScore(entidades[mejor])) mejor = i;
+    }
+    asignados[mejor] = ibans[0].iban;
+    return asignados;
+  }
+
+  entidades.forEach((e, i) => {
+    let mejor = null;
+    for (const cand of ibans) {
+      const dist = Math.abs(cand.pos - (e.pos ?? 0));
+      if (!mejor || dist < mejor.dist) mejor = { dist, iban: cand.iban };
+    }
+    asignados[i] = mejor ? mejor.iban : '';
+  });
+  return asignados;
+}
+
 /**
  * Entidades candidatas (CIF únicos con mejor score neto emisor/receptor).
  */
@@ -187,6 +285,7 @@ export function extraerEntidadesCandidatas(text) {
     }
   }
   const arr = Array.from(seen.values());
+  const ibansAsignados = asignarIbansAEntidades(arr, extraerIbansDeTexto(text));
   return arr.map((e, i) => {
     const net = netEmisorScore(e);
     let rol_provisional = 'desconocido';
@@ -198,6 +297,7 @@ export function extraerEntidadesCandidatas(text) {
       cif: cifCanon,
       nombre_candidato: e.nombre_candidato || '',
       direccion_candidata: e.direccion_candidata || '',
+      iban_candidato: ibansAsignados[i] || '',
       contexto: e.contexto || '',
       score_emisor: round2(e.score_emisor),
       score_receptor: round2(e.score_receptor),
@@ -286,6 +386,7 @@ export function parseTextoFacturaCompleto(text) {
   let m;
 
   const entidades_candidatas = extraerEntidadesCandidatas(text);
+  const ibans = extraerIbansDeTexto(text).map((x) => x.iban);
 
   const cifs = [];
   const cifRegex = /\b([A-Z]\d{7}[A-Z0-9]|\d{8}[A-Z])\b/gi;
@@ -502,6 +603,7 @@ export function parseTextoFacturaCompleto(text) {
 
   return {
     cifs,
+    ibans,
     entidades_candidatas,
     proveedor_cif,
     ambiguedad_proveedor,
@@ -686,6 +788,7 @@ export async function reconciliarFacturaOcr(body, deps) {
     empresa_id: '',
     proveedor_en_maestros: false,
     nombre_sugerido_ocr: '',
+    proveedor_iban: '',
     numero_factura_proveedor: snap.numero_factura_proveedor || '',
     fecha_emision: snap.fecha_emision || '',
     base_imponible: round2(Number(snap.base_imponible) || 0),
@@ -752,11 +855,18 @@ export async function reconciliarFacturaOcr(body, deps) {
         out.empresa_id = getIdEmpresaFromItem(emp);
         out.proveedor_en_maestros = true;
         out.nombre_sugerido_ocr = '';
-      } else if (!campos_manuales.proveedor_nombre) {
-        out.proveedor_nombre = best.nombre_candidato || '';
-        out.nombre_sugerido_ocr = best.nombre_candidato || '';
-        out.proveedor_en_maestros = false;
-        out.empresa_id = '';
+        /* Si ya está en maestros manda la cuenta registrada, no la de la factura. */
+        out.proveedor_iban = '';
+      } else {
+        if (!campos_manuales.proveedor_nombre) {
+          out.proveedor_nombre = best.nombre_candidato || '';
+          out.nombre_sugerido_ocr = best.nombre_candidato || '';
+          out.proveedor_en_maestros = false;
+          out.empresa_id = '';
+        }
+        if (!campos_manuales.proveedor_iban) {
+          out.proveedor_iban = ibanValidoONada(best.iban_candidato);
+        }
       }
     } catch {
       /* */

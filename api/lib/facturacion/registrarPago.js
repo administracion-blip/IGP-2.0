@@ -31,6 +31,43 @@ function fechaToIsoGuardada(val) {
   return s;
 }
 
+/**
+ * Siguiente `id_pago` de una factura: el correlativo sale del **máximo** ya
+ * usado, no del número de pagos.
+ *
+ * Con la longitud, borrar un pago intermedio hace que el siguiente reutilice un
+ * id vivo y su `PutCommand` pise el pago existente: la factura sigue sumando los
+ * dos importes en `total_cobrado` pero en `Igp_FacturasPagos` solo queda uno.
+ *
+ * Los ids que no siguen el formato `Pnnn` se ignoran: no pueden colisionar con
+ * `P{max+1}`, así que basta con no dejar que rompan el cálculo.
+ *
+ * @param {Array<{ id_pago?: string }>} pagos
+ * @returns {string}
+ */
+export function siguienteIdPago(pagos) {
+  return `P${String(ordinalMaximoIdPago(pagos) + 1).padStart(3, '0')}`;
+}
+
+/**
+ * Mayor correlativo usado en los `id_pago` de una factura, o 0 si no hay ninguno
+ * reconocible. Lo necesita quien reparte varios ids de golpe (la compensación
+ * entre facturas), que no puede llamar a `siguienteIdPago` una vez por pago
+ * porque los anteriores todavía no están escritos.
+ *
+ * @param {Array<{ id_pago?: string }>} pagos
+ * @returns {number}
+ */
+export function ordinalMaximoIdPago(pagos) {
+  let maximo = 0;
+  for (const pago of pagos || []) {
+    const encaja = /^P(\d+)$/.exec(String(pago?.id_pago || '').trim());
+    const numero = encaja ? Number(encaja[1]) : 0;
+    if (Number.isFinite(numero) && numero > maximo) maximo = numero;
+  }
+  return maximo;
+}
+
 async function registrarAuditoria(id_factura, accion, usuario_id, usuario_nombre, detalle) {
   const id_entrada = `AUD-${id_factura}-${Date.now()}`;
   await docClient.send(
@@ -62,6 +99,8 @@ async function registrarAuditoria(id_factura, accion, usuario_id, usuario_nombre
  * @param {string} [opts.usuario_nombre]
  * @param {number} [opts.importeMaximo] — tope opcional (p. ej. saldo pendiente en remesa)
  * @param {string} [opts.idempotencyKey] — si ya existe un pago con la misma clave, no duplica
+ * @param {string} [opts.banca_movement_hash] — movimiento bancario del que sale el pago
+ * @param {string} [opts.banca_cuenta_ref] — cuenta (IBAN) de ese movimiento
  */
 export async function registrarPagoFactura(opts) {
   const {
@@ -75,6 +114,8 @@ export async function registrarPagoFactura(opts) {
     usuario_nombre = '',
     importeMaximo,
     idempotencyKey,
+    banca_movement_hash = '',
+    banca_cuenta_ref = '',
   } = opts;
 
   const fechaIso = fechaToIsoGuardada(fecha);
@@ -116,7 +157,12 @@ export async function registrarPagoFactura(opts) {
       ? Number(factura.saldo_pendiente)
       : (Number(factura.total_factura) || 0) - (Number(factura.total_cobrado) || 0),
   );
-  const tope = importeMaximo != null ? round2(Number(importeMaximo)) : saldo;
+  // El tope es el más restrictivo de los dos, nunca el que pasa quien llama: ese
+  // se calculó sobre una lectura anterior de la factura y quedarse con él anula
+  // la defensa contra el sobrepago justo cuando hace falta (dos conciliaciones
+  // del mismo cargo, dos claves de idempotencia, el saldo ya consumido por la
+  // primera). El clamp de `saldo_pendiente` de más abajo deja el exceso invisible.
+  const tope = importeMaximo != null ? Math.min(saldo, round2(Number(importeMaximo))) : saldo;
   if (importeNum > tope + 0.001) {
     throw Object.assign(
       new Error(`Importe ${importeNum} supera el pendiente (${tope})`),
@@ -125,8 +171,7 @@ export async function registrarPagoFactura(opts) {
   }
 
   const pagos = await queryPagosByFactura(id_factura);
-  const nextIdx = pagos.length + 1;
-  const id_pago = `P${String(nextIdx).padStart(3, '0')}`;
+  const id_pago = siguienteIdPago(pagos);
 
   const pago = {
     id_entrada: `${id_factura}#${id_pago}`,
@@ -144,6 +189,16 @@ export async function registrarPagoFactura(opts) {
     creado_por: usuario_id || '',
     creado_en: now(),
     idempotency_key: idempotencyKey || '',
+    // Trazabilidad inversa de la conciliación bancaria: desde el pago se llega
+    // al apunte del extracto que lo originó. Los atributos solo se escriben
+    // cuando vienen, para que los pagos de remesas y los manuales queden
+    // exactamente igual que antes.
+    ...(String(banca_movement_hash || '').trim() && {
+      banca_movement_hash: String(banca_movement_hash).trim(),
+    }),
+    ...(String(banca_cuenta_ref || '').trim() && {
+      banca_cuenta_ref: String(banca_cuenta_ref).trim(),
+    }),
   };
 
   await docClient.send(new PutCommand({ TableName: tables.facturasPagos, Item: pago }));
@@ -158,6 +213,17 @@ export async function registrarPagoFactura(opts) {
     nuevoEstado = factura.tipo === 'OUT' ? 'parcialmente_cobrada' : 'parcialmente_pagada';
   }
 
+  // El saldo se guarda clampado a 0 —una factura no debe quedar con pendiente
+  // negativo— pero un saldo negativo es un descuadre real: se ha cobrado más que
+  // el total. Sin dejar rastro, el clamp lo borra y nadie se entera nunca.
+  const descuadre = nuevoSaldo < 0 ? round2(-nuevoSaldo) : 0;
+  if (descuadre > 0) {
+    console.warn(
+      `[registrarPagoFactura] Sobrepago en ${id_factura}: cobrado ${nuevoTotalCobrado} `
+      + `sobre un total de ${factura.total_factura} (exceso ${descuadre})`,
+    );
+  }
+
   factura.total_cobrado = nuevoTotalCobrado;
   factura.saldo_pendiente = Math.max(0, nuevoSaldo);
   factura.estado = nuevoEstado;
@@ -170,6 +236,7 @@ export async function registrarPagoFactura(opts) {
     metodo_pago,
     referencia,
     nuevo_estado: nuevoEstado,
+    ...(descuadre > 0 && { sobrepago: descuadre }),
   });
 
   return { ok: true, pago, factura };

@@ -281,6 +281,7 @@ function AppLayoutContent() {
             <Stack.Screen name="mayorista/index" />
             <Stack.Screen name="mayorista/[id]" />
             <Stack.Screen name="facturacion" />
+            <Stack.Screen name="banca" />
             <Stack.Screen name="ajustes" />
             <Stack.Screen name="planning-dia" />
             <Stack.Screen name="favoritos" />

@@ -28,16 +28,36 @@ import {
 } from '../lib/navegacionEmpresas';
 import { CampoTipoReciboEmpresa } from '../components/CampoTipoReciboEmpresa';
 import { CampoEtiquetasEmpresa } from '../components/CampoEtiquetasEmpresa';
+import { CuentasBancariasEmpresa } from '../components/CuentasBancariasEmpresa';
+import { useBreakpoint } from '../hooks/useBreakpoint';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
 const MAX_TEXT_LENGTH = 30;
 const PAGE_SIZE = 50;
 
-// Atributos exactos de la tabla igp_Empresas en AWS (clave de partición id_empresa; mismo orden que api/server.js TABLE_EMPRESAS_ATTRS).
-const ATRIBUTOS_TABLA_EMPRESAS = ['id_empresa', 'Nombre', 'Cif', 'Iban', 'IbanAlternativo', 'Direccion', 'Cp', 'Municipio', 'Provincia', 'Email', 'Telefono', 'Tipo de recibo', 'Vencimiento', 'Etiqueta', 'Cuenta contable', 'Administrador', 'Sede', 'CCC'] as const;
+// Atributos de igp_Empresas que se muestran/editan en esta pantalla (clave de
+// partición id_empresa). `IbanAlternativo` ya no aparece: las cuentas bancarias
+// se gestionan en el bloque de cuentas de la ficha, que solo expone la
+// predeterminada al resto de la app.
+const ATRIBUTOS_TABLA_EMPRESAS = ['id_empresa', 'Nombre', 'Cif', 'Iban', 'Direccion', 'Cp', 'Municipio', 'Provincia', 'Email', 'Telefono', 'Tipo de recibo', 'Vencimiento', 'Etiqueta', 'Cuenta contable', 'Administrador', 'Sede', 'CCC'] as const;
 
 const ORDEN_COLUMNAS = [...ATRIBUTOS_TABLA_EMPRESAS];
+
+/**
+ * Campos de IBAN del maestro. Los gestiona el bloque `CuentasBancariasEmpresa`
+ * a través de los endpoints de cuentas: el backend reescribe `Iban` con el de
+ * la cuenta predeterminada. No se envían nunca en el body de POST/PUT de
+ * empresas (si no vienen, el backend conserva el valor existente); editarlos a
+ * mano haría que el campo viejo y la tabla de cuentas divergieran y las remesas
+ * pagarían a la cuenta equivocada.
+ */
+const CAMPOS_CUENTA_BANCARIA = new Set<string>(['Iban', 'IbanAlternativo']);
+
+/** Etiqueta visible de la columna cuando el nombre del atributo no se explica solo. */
+const ETIQUETAS_COLUMNAS: Record<string, string> = {
+  Iban: 'Iban (predeterminada)',
+};
 
 /** Campos obligatorios: se validan al guardar y el label muestra asterisco (*) */
 const CAMPOS_OBLIGATORIOS = ['Nombre', 'Cif'] as const;
@@ -45,8 +65,6 @@ const CAMPOS_OBLIGATORIOS = ['Nombre', 'Cif'] as const;
 const CAMPOS_FORM: { key: (typeof ATRIBUTOS_TABLA_EMPRESAS)[number]; label: string; required?: boolean }[] = [
   { key: 'Nombre', label: 'Nombre', required: true },
   { key: 'Cif', label: 'CIF', required: true },
-  { key: 'Iban', label: 'IBAN' },
-  { key: 'IbanAlternativo', label: 'IBAN alternativo' },
   { key: 'Direccion', label: 'Dirección' },
   { key: 'Cp', label: 'CP' },
   { key: 'Municipio', label: 'Municipio' },
@@ -74,7 +92,6 @@ const CAMPOS_FICHA: { key: (typeof ATRIBUTOS_TABLA_EMPRESAS)[number]; label: str
   { key: 'Nombre', label: 'Nombre' },
   { key: 'Cif', label: 'CIF' },
   { key: 'Iban', label: 'IBAN' },
-  { key: 'IbanAlternativo', label: 'IBAN alternativo' },
   { key: 'Direccion', label: 'Dirección' },
   { key: 'Cp', label: 'Código Postal' },
   { key: 'Municipio', label: 'Municipio' },
@@ -92,6 +109,7 @@ function truncar(val: string): string {
 
 export default function EmpresasScreen() {
   const router = useRouter();
+  const { height: altoViewport } = useBreakpoint();
   const searchParams = useLocalSearchParams<{
     id_empresa?: string;
     editar?: string;
@@ -106,7 +124,7 @@ export default function EmpresasScreen() {
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ Nombre: 220 });
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ Nombre: 220, Iban: 190 });
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
@@ -134,6 +152,11 @@ export default function EmpresasScreen() {
   const [edicionRapidaMode, setEdicionRapidaMode] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, Record<string, string>>>({});
   const [guardandoRapido, setGuardandoRapido] = useState(false);
+
+  // Al editar, el cuerpo del modal incluye el bloque de cuentas bancarias y
+  // necesita más alto que el formulario a secas.
+  const alturaCuerpoModal =
+    editingEmpresaId != null ? Math.max(320, Math.min(560, altoViewport - 240)) : 400;
 
   const valorEnLocal = useCallback((local: Empresa, key: string) => {
     if (local[key] !== undefined && local[key] !== null) return local[key];
@@ -283,15 +306,29 @@ export default function EmpresasScreen() {
     });
   }, [valorEnLocal]);
 
-  const refetchEmpresas = useCallback(() => {
+  /**
+   * `silencioso`: no escribe en el `error` global de la pantalla. Necesario para
+   * los refrescos lanzados con el modal de edición abierto (bloque de cuentas
+   * bancarias): ese estado sustituye toda la pantalla por el aviso de error y se
+   * perdería el formulario a medio rellenar. Preferimos un listado desfasado.
+   */
+  const refetchEmpresas = useCallback((opciones?: { silencioso?: boolean }) => {
+    const silencioso = opciones?.silencioso === true;
     apiFetch('/api/empresas')
       .then((res) => res.json())
       .then((data) => {
-        if (data.error) setError(data.error);
-        else setEmpresas(ordenarPorId(data.empresas || []));
+        if (data.error) {
+          if (!silencioso) setError(data.error);
+        } else setEmpresas(ordenarPorId(data.empresas || []));
       })
-      .catch((e) => setError(e.message || 'Error de conexión'));
+      .catch((e) => {
+        if (!silencioso) setError(e.message || 'Error de conexión');
+      });
   }, [ordenarPorId]);
+
+  const refetchEmpresasSilencioso = useCallback(() => {
+    refetchEmpresas({ silencioso: true });
+  }, [refetchEmpresas]);
 
   const descargarModeloExcel = useCallback(() => {
     const headers = [...ORDEN_COLUMNAS];
@@ -375,6 +412,7 @@ export default function EmpresasScreen() {
       for (const row of dataRows) {
         const body: Record<string, string | string[]> = {};
         expected.forEach((col, i) => {
+          if (CAMPOS_CUENTA_BANCARIA.has(col)) return;
           const rawVal = row[i] != null ? String(row[i]).trim() : '';
           if (col === 'Etiqueta') {
             body[col] = rawVal ? rawVal.split(',').map((s) => s.trim()).filter(Boolean) : [];
@@ -437,6 +475,7 @@ export default function EmpresasScreen() {
     try {
       const body: Record<string, string | number | string[]> = {};
       for (const key of ATRIBUTOS_TABLA_EMPRESAS) {
+        if (CAMPOS_CUENTA_BANCARIA.has(key)) continue;
         if (key === 'id_empresa') body[key] = isEdit ? formatId6(editingEmpresaId!) : próximoId;
         else if (key === 'Etiqueta') body[key] = Array.isArray(formNuevo.Etiqueta) ? formNuevo.Etiqueta : [];
         else body[key] = trimValorCampoEmpresa(formNuevo[key]);
@@ -648,7 +687,7 @@ export default function EmpresasScreen() {
       if (!id) return;
       const rowValues: Record<string, string> = {};
       for (const col of ATRIBUTOS_TABLA_EMPRESAS) {
-        if (col === 'id_empresa') continue;
+        if (col === 'id_empresa' || CAMPOS_CUENTA_BANCARIA.has(col)) continue;
         const v = valorEnLocal(empresa, col);
         if (col === 'Etiqueta') {
           rowValues[col] = Array.isArray(v) ? v.join(', ') : v != null ? String(v) : '';
@@ -677,7 +716,7 @@ export default function EmpresasScreen() {
 
         let changed = false;
         for (const col of ATRIBUTOS_TABLA_EMPRESAS) {
-          if (col === 'id_empresa') continue;
+          if (col === 'id_empresa' || CAMPOS_CUENTA_BANCARIA.has(col)) continue;
           const v = valorEnLocal(empresa, col);
           const original =
             col === 'Etiqueta'
@@ -692,7 +731,7 @@ export default function EmpresasScreen() {
 
         const body: Record<string, string | string[]> = { id_empresa: formatId6(id) };
         for (const col of ATRIBUTOS_TABLA_EMPRESAS) {
-          if (col === 'id_empresa') continue;
+          if (col === 'id_empresa' || CAMPOS_CUENTA_BANCARIA.has(col)) continue;
           if (col === 'Etiqueta') {
             const v = editValues[id][col] ?? '';
             body[col] = v ? v.split(',').map((s) => s.trim()).filter(Boolean) : [];
@@ -1042,7 +1081,7 @@ export default function EmpresasScreen() {
               {columnas.map((col) => (
                 <View key={col} style={[styles.cellHeader, { width: getColWidth(col) }]}>
                   <Text style={styles.cellHeaderText} numberOfLines={1} ellipsizeMode="tail">
-                    {col}
+                    {ETIQUETAS_COLUMNAS[col] ?? col}
                   </Text>
                   {Platform.OS === 'web' && (
                     <View
@@ -1078,6 +1117,19 @@ export default function EmpresasScreen() {
                   >
                     {columnas.map((col) => {
                       const empresaId = String(valorEnLocal(empresa, 'id_empresa') ?? '');
+                      // El IBAN solo se cambia desde el bloque de cuentas bancarias de la ficha.
+                      if (edicionRapidaMode && CAMPOS_CUENTA_BANCARIA.has(col)) {
+                        return (
+                          <View key={col} style={[styles.cell, { width: getColWidth(col) }, styles.cellBloqueada]}>
+                            <View style={styles.cellBloqueadaRow}>
+                              <MaterialIcons name="lock-outline" size={11} color="#94a3b8" />
+                              <Text style={styles.cellBloqueadaText} numberOfLines={1} ellipsizeMode="tail">
+                                {valorCelda(empresa, col)}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      }
                       if (edicionRapidaMode && col !== 'id_empresa') {
                         const editVal = editValues[empresaId]?.[col] ?? '';
                         const v = valorEnLocal(empresa, col);
@@ -1123,7 +1175,10 @@ export default function EmpresasScreen() {
 
       <Modal visible={modalNuevoVisible} transparent animationType="fade" onRequestClose={cerrarModalNuevo}>
         <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView style={styles.modalContentWrap} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <KeyboardAvoidingView
+            style={[styles.modalContentWrap, editingEmpresaId != null && styles.modalContentWrapAncho]}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
             <View style={styles.modalCardTouch}>
               <View style={styles.modalCard}>
                 <View style={styles.modalHeader}>
@@ -1137,7 +1192,10 @@ export default function EmpresasScreen() {
                     <Text style={styles.modalIdLabel}>ID</Text>
                     <Text style={styles.modalIdValue}>{formatId6(editingEmpresaId ?? próximoId)}</Text>
                   </View>
-                  <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
+                  <ScrollView
+                    style={[styles.modalBody, { maxHeight: alturaCuerpoModal }]}
+                    keyboardShouldPersistTaps="handled"
+                  >
                     {CAMPOS_FORM.map((campo) =>
                       campo.key === 'Etiqueta' ? (
                         <View key={campo.key} style={styles.formGroup}>
@@ -1178,7 +1236,7 @@ export default function EmpresasScreen() {
                             }}
                             placeholder={`${campo.label}…`}
                             placeholderTextColor="#94a3b8"
-                            autoCapitalize={campo.key === 'Iban' || campo.key === 'IbanAlternativo' ? 'none' : 'words'}
+                            autoCapitalize="words"
                           />
                           {campo.key === 'Cif' && (
                             <View style={styles.formHelpWrap}>
@@ -1193,6 +1251,19 @@ export default function EmpresasScreen() {
                           )}
                         </View>
                       )
+                    )}
+                    {editingEmpresaId != null ? (
+                      <CuentasBancariasEmpresa
+                        idEmpresa={formatId6(editingEmpresaId)}
+                        onPredeterminadaChange={refetchEmpresasSilencioso}
+                      />
+                    ) : (
+                      <View style={styles.cuentasNota}>
+                        <MaterialIcons name="account-balance" size={16} color="#0369a1" />
+                        <Text style={styles.cuentasNotaTexto}>
+                          Guarda la empresa para poder añadir sus cuentas bancarias.
+                        </Text>
+                      </View>
                     )}
                   </ScrollView>
                 </View>
@@ -1220,7 +1291,7 @@ export default function EmpresasScreen() {
               </View>
               <View style={styles.modalBody}>
                 <Text style={styles.importHelpText}>
-                  Descargue el archivo modelo con la estructura y datos actuales, o importe un Excel con las mismas columnas y en el mismo orden para evitar errores.
+                  Descargue el archivo modelo con la estructura y datos actuales, o importe un Excel con las mismas columnas y en el mismo orden para evitar errores. La columna Iban es informativa: las cuentas bancarias se dan de alta desde la ficha de cada empresa.
                 </Text>
                 <View style={styles.importButtonsRow}>
                   <TouchableOpacity
@@ -1427,6 +1498,7 @@ const styles = StyleSheet.create({
   cellEmptyText: { fontSize: 12, color: '#94a3b8' },
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
   modalContentWrap: { width: '100%', maxWidth: 420, padding: 24, alignItems: 'center' },
+  modalContentWrapAncho: { maxWidth: 760 },
   modalCardTouch: { width: '100%' },
   modalCard: { width: '100%', backgroundColor: 'rgba(255, 255, 255, 0.9)', borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
@@ -1440,6 +1512,19 @@ const styles = StyleSheet.create({
   formGroup: { marginBottom: 8 },
   formLabel: { fontSize: 10, fontWeight: '500', color: '#475569', marginBottom: 2 },
   formInput: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, fontSize: 13, color: '#334155' },
+  cuentasNota: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#f0f9ff',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+  },
+  cuentasNotaTexto: { flex: 1, fontSize: 12, color: '#0369a1', lineHeight: 17 },
   formHelpWrap: { marginTop: 4 },
   formHelpText: { fontSize: 10, color: '#64748b' },
   formErrorText: { fontSize: 10, color: '#f87171' },
@@ -1505,6 +1590,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fef9c3',
     borderBottomColor: '#facc15',
   },
+  cellBloqueada: { backgroundColor: '#f1f5f9', justifyContent: 'center' },
+  cellBloqueadaRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  cellBloqueadaText: { flex: 1, fontSize: 11, color: '#94a3b8', fontStyle: 'italic' },
   cellEditInput: {
     flex: 1,
     fontSize: 11,

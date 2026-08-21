@@ -265,6 +265,7 @@ export type ReconciliacionDatos = {
   empresa_id?: string;
   proveedor_en_maestros?: boolean;
   nombre_sugerido_ocr?: string;
+  proveedor_iban?: string;
   numero_factura_proveedor?: string;
   fecha_emision?: string;
   base_imponible?: number;
@@ -299,6 +300,9 @@ export function mergeReconciliacion(row: Borrador, d: ReconciliacionDatos): Borr
     next.proveedor_en_maestros = d.proveedor_en_maestros;
   }
   if (!m.proveedor_nombre && d.nombre_sugerido_ocr != null) next.nombre_sugerido_ocr = String(d.nombre_sugerido_ocr);
+  // El IBAN no viaja en `extraction_snapshot`: si lo encontró la capa IA, la
+  // reconciliación no lo ve y devuelve cadena vacía. Solo se aplica si trae valor.
+  if (d.proveedor_iban) next.proveedor_iban = String(d.proveedor_iban);
   if (!m.numero_factura_proveedor && d.numero_factura_proveedor != null) {
     next.numero_factura_proveedor = String(d.numero_factura_proveedor);
   }
@@ -436,5 +440,6 @@ export function limpiarProveedorSiCoincideSociedad(b: Borrador): Borrador {
     empresa_id: '',
     proveedor_en_maestros: false,
     nombre_sugerido_ocr: '',
+    proveedor_iban: '',
   };
 }

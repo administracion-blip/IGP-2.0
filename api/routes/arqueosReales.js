@@ -25,6 +25,7 @@ import {
   GRUPO_PREPAGO,
 } from '../lib/cajas/movimientos.js';
 import { formatId6 } from '../lib/usuarioLocales.js';
+import { ibanPredeterminadoDeEmpresa } from '../lib/empresaIban.js';
 import { queryMovimientosLocalRango, agregarCashflowPorLocal } from '../lib/cashflow/store.js';
 
 /** Grupo canónico de tarjeta (para banderas de boletas en la revisión). */
@@ -930,7 +931,7 @@ router.get('/cajas/efectivo-ingresar', async (req, res) => {
     const empresaById = new Map();
     for (const e of empresasItems) {
       const nombre = String(e.Nombre ?? '').trim();
-      const iban = String(e.Iban ?? e.IBAN ?? '').trim();
+      const iban = ibanPredeterminadoDeEmpresa(e);
       const id = String(e.id_empresa ?? '').trim();
       if (nombre) empresaByNombre.set(normNombreEmpresa(nombre), { nombre, iban });
       if (id) empresaById.set(id, { nombre, iban });

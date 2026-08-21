@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   Pressable,
   useWindowDimensions,
+  type GestureResponderEvent,
 } from 'react-native';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -52,6 +53,12 @@ import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { apiFetch } from '../../utils/api';
 import { buildEmpresasDesdeFacturasHref } from '../../lib/navegacionEmpresas';
+import IconoSugerenciaConciliacion from '../../components/conciliacion/IconoSugerenciaConciliacion';
+import ConciliarMovimientoModal, {
+  type ResultadoConciliacion,
+} from '../../components/conciliacion/ConciliarMovimientoModal';
+import { indicePorFactura, queryConciliacionSugerencias } from '../../lib/conciliacion';
+import type { RespuestaSugerencias, SugerenciasDeFactura } from '../../types/conciliacion';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3002';
 
@@ -65,9 +72,10 @@ function fechaEmisionCelda(raw: string | undefined): string {
 }
 
 /** Evita que el click del icono dispare la selección de fila (p. ej. en web). */
-function absorberClickFila(e: { stopPropagation?: () => void; nativeEvent?: { stopPropagation?: () => void } }) {
-  if (typeof e.stopPropagation === 'function') e.stopPropagation();
-  const ne = e.nativeEvent;
+function absorberClickFila(e: GestureResponderEvent) {
+  const ev = e as unknown as { stopPropagation?: () => void; nativeEvent?: { stopPropagation?: () => void } };
+  if (typeof ev.stopPropagation === 'function') ev.stopPropagation();
+  const ne = ev.nativeEvent;
   if (ne && typeof ne.stopPropagation === 'function') ne.stopPropagation();
 }
 
@@ -161,7 +169,7 @@ export default function FacturasVentaScreen() {
   const searchParams = useLocalSearchParams<{ modalFactura?: string; maestroActualizado?: string }>();
   const { hasPermiso, user } = useAuth();
   const { width: winW } = useWindowDimensions();
-  const { shouldStackToolbar } = useBreakpoint();
+  const { shouldStackToolbar, shouldUseComfortableTable } = useBreakpoint();
   const layoutSplit = Platform.OS === 'web' && winW >= 1024;
 
   const [facturas, setFacturas] = useState<FacturaListado[]>([]);
@@ -237,6 +245,8 @@ export default function FacturasVentaScreen() {
             return {
               id_empresa: e.id_empresa != null ? String(e.id_empresa) : '',
               Cif: e.Cif != null ? String(e.Cif).trim() : e.cif != null ? String(e.cif).trim() : '',
+              IbanPredeterminado:
+                e.IbanPredeterminado != null ? String(e.IbanPredeterminado).trim() : '',
               Iban: e.Iban != null ? String(e.Iban).trim() : e.iban != null ? String(e.iban).trim() : '',
               IbanAlternativo:
                 e.IbanAlternativo != null
@@ -267,6 +277,64 @@ export default function FacturasVentaScreen() {
   }, []);
 
   useEffect(() => { refetch(); }, [refetch]);
+
+  const puedeVerConciliacion = hasPermiso('banca.ver');
+  const [sugerenciasPorFactura, setSugerenciasPorFactura] = useState<Map<string, SugerenciasDeFactura>>(
+    () => new Map(),
+  );
+  const [conciliarEntrada, setConciliarEntrada] = useState<SugerenciasDeFactura | null>(null);
+  /** Solo la última carga escribe: al refrescar tras conciliar se solapan dos. */
+  const sugerenciasSeqRef = useRef(0);
+
+  /**
+   * Movimientos bancarios candidatos por factura. Es una ayuda del listado: si
+   * falla, no se pintan iconos y la pantalla sigue funcionando igual.
+   */
+  const cargarSugerencias = useCallback(() => {
+    if (!puedeVerConciliacion) {
+      setSugerenciasPorFactura(new Map());
+      return;
+    }
+    const secuencia = ++sugerenciasSeqRef.current;
+    apiFetch(queryConciliacionSugerencias({ tipo: 'OUT' }))
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Error ${r.status}`))))
+      .then((data: RespuestaSugerencias) => {
+        if (secuencia !== sugerenciasSeqRef.current) return;
+        setSugerenciasPorFactura(indicePorFactura(data.porFactura));
+      })
+      .catch(() => {
+        if (secuencia !== sugerenciasSeqRef.current) return;
+        setSugerenciasPorFactura(new Map());
+      });
+  }, [puedeVerConciliacion]);
+
+  useEffect(() => { cargarSugerencias(); }, [cargarSugerencias]);
+
+  const onConciliacionAplicada = useCallback(
+    (resultado: ResultadoConciliacion) => {
+      setConciliarEntrada(null);
+      const total = resultado.aplicadas.reduce((acc, a) => acc + Number(a.importe || 0), 0);
+      const aviso = resultado.avisos[0]?.mensaje;
+      showToast(
+        resultado.parcial ? 'Conciliación parcial' : 'Cobro registrado',
+        `${resultado.aplicadas.length} factura${resultado.aplicadas.length === 1 ? '' : 's'} · ${formatMoneda(total)}${aviso ? ` · ${aviso}` : ''}`,
+        resultado.parcial ? 'warning' : 'success',
+      );
+      // El saldo pendiente ha cambiado: las sugerencias viejas ya no valen.
+      refetch();
+      cargarSugerencias();
+    },
+    [showToast, refetch, cargarSugerencias],
+  );
+
+  const onSugerenciaDescartada = useCallback(
+    (mensaje: string) => {
+      setConciliarEntrada(null);
+      showToast('Sugerencia descartada', mensaje, 'info');
+      cargarSugerencias();
+    },
+    [showToast, cargarSugerencias],
+  );
 
   // Refrescar al volver de la ficha completa: sin esto el listado mostraba
   // datos antiguos tras guardar y parecía que el cambio no se había guardado.
@@ -1052,7 +1120,9 @@ export default function FacturasVentaScreen() {
         >
           <View style={styles.table}>
             <View style={styles.rowHeader}>
-              <View style={styles.actionHeaderCell} />
+              <View
+                style={[styles.actionHeaderCell, puedeVerConciliacion && styles.actionHeaderCellAncha]}
+              />
               {COLUMNAS.map((col) => (
                 <TouchableOpacity
                   key={col.key}
@@ -1094,12 +1164,12 @@ export default function FacturasVentaScreen() {
                   style={[styles.row, selectedId === item.id_factura && styles.rowSelected]}
                   onPress={() => setSelectedId(selectedId === item.id_factura ? null : item.id_factura)}
                 >
-                  <View style={styles.actionCell}>
+                  <View style={[styles.actionCell, puedeVerConciliacion && styles.actionCellAncha]}>
                     <Pressable
                       hitSlop={8}
                       accessibilityLabel="Ver detalle y documento"
                       onPress={(e) => {
-                        absorberClickFila(e as { stopPropagation?: () => void; nativeEvent?: { stopPropagation?: () => void } });
+                        absorberClickFila(e);
                         setSelectedId(item.id_factura);
                         setModalFacturaId(item.id_factura);
                       }}
@@ -1107,6 +1177,16 @@ export default function FacturasVentaScreen() {
                     >
                       <MaterialIcons name="vertical-split" size={16} color="#0369a1" />
                     </Pressable>
+                    {puedeVerConciliacion ? (
+                      <IconoSugerenciaConciliacion
+                        entrada={sugerenciasPorFactura.get(item.id_factura)}
+                        comodo={shouldUseComfortableTable}
+                        onPress={(entrada, e) => {
+                          absorberClickFila(e);
+                          setConciliarEntrada(entrada);
+                        }}
+                      />
+                    ) : null}
                   </View>
                   {COLUMNAS.map((col) => (
                     <View key={col.key} style={[styles.cell, { width: getColWidth(col.key) }]}>
@@ -1129,7 +1209,7 @@ export default function FacturasVentaScreen() {
                             hitSlop={8}
                             accessibilityLabel="Ver detalle de cobros"
                             onPress={(e) => {
-                              absorberClickFila(e as { stopPropagation?: () => void; nativeEvent?: { stopPropagation?: () => void } });
+                              absorberClickFila(e);
                               abrirModalDetallePagos(item);
                             }}
                             style={styles.cellPagadoIconBtn}
@@ -1150,6 +1230,17 @@ export default function FacturasVentaScreen() {
           </View>
         </ScrollView>
       </View>
+
+      {/* Conciliación bancaria de la factura de la fila */}
+      <ConciliarMovimientoModal
+        visible={conciliarEntrada !== null}
+        entrada={conciliarEntrada}
+        tipo="OUT"
+        puedeConciliar={puedeGestionarPagos}
+        onClose={() => setConciliarEntrada(null)}
+        onConciliado={onConciliacionAplicada}
+        onDescartada={onSugerenciaDescartada}
+      />
 
       {/* Modal detalle + previsualización del documento */}
       <FacturaDetalleModal
@@ -1234,8 +1325,9 @@ export default function FacturasVentaScreen() {
             </Text>
 
             <DatosParaPago
-              datosPago={selectedFactura ? (() => {
-                const { iban, ibanAlternativo } = resolverIbanBeneficiarioFactura(
+              datosPago={selectedFactura ? {
+                beneficiario: selectedFactura.emisor_nombre ?? '',
+                iban: resolverIbanBeneficiarioFactura(
                   {
                     empresa_iban: selectedFactura.emisor_iban,
                     empresa_iban_alternativo: selectedFactura.emisor_iban_alternativo,
@@ -1243,18 +1335,13 @@ export default function FacturasVentaScreen() {
                     empresa_cif: selectedFactura.emisor_cif,
                   },
                   empresasCatalogo,
-                );
-                return {
-                  beneficiario: selectedFactura.emisor_nombre ?? '',
-                  iban,
-                  ibanAlternativo,
-                  concepto: buildConceptoRemesaFacturaRecibida({
-                    numeroFactura: selectedFactura.numero_factura,
-                    proveedorNombre: selectedFactura.empresa_nombre,
-                    observaciones: selectedFactura.observaciones,
-                  }),
-                };
-              })() : undefined}
+                ),
+                concepto: buildConceptoRemesaFacturaRecibida({
+                  numeroFactura: selectedFactura.numero_factura,
+                  proveedorNombre: selectedFactura.empresa_nombre,
+                  observaciones: selectedFactura.observaciones,
+                }),
+              } : undefined}
             />
 
             <View style={[styles.modalPagoFechaMetodoRow, shouldStackToolbar && styles.modalPagoFechaMetodoRowStacked]}>
@@ -1621,6 +1708,9 @@ const styles = StyleSheet.create({
   rowSelected: { backgroundColor: '#e0f2fe' },
   actionHeaderCell: { width: 40, flexShrink: 0 },
   actionCell: { width: 40, flexShrink: 0, alignItems: 'center', justifyContent: 'center', paddingVertical: 2 },
+  /** Con conciliación la celda hospeda dos iconos: detalle + movimientos candidatos. */
+  actionHeaderCellAncha: { width: 70 },
+  actionCellAncha: { width: 70, flexDirection: 'row', gap: 4 },
   actionBtn: {
     padding: 5,
     borderRadius: 6,

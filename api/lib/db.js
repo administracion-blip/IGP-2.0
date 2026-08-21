@@ -171,6 +171,26 @@ export const tables = {
    */
   integracionesApi: process.env.DDB_INTEGRACIONES_API || 'Igp_IntegracionesApi',
   /**
+   * Cuentas bancarias de las empresas (N cuentas por empresa).
+   * PK = ACCOUNT#<iban>, SK = META.
+   * GSI EmpresaId-Iban-index: HASH empresaId, RANGE iban (proyección ALL).
+   */
+  bankAccounts: process.env.DDB_BANK_ACCOUNTS_TABLE || 'Igp_BankAccounts',
+  /**
+   * Movimientos bancarios importados de extractos (Norma 43 y, más adelante,
+   * Excel/CSV de banco).
+   * PK = ACCOUNT#<iban>, SK = TXN#<fechaOperacion>#<movementHash>.
+   * GSI EmpresaId-FechaOperacion-index: HASH empresaId, RANGE fechaOperacion (ALL).
+   * GSI Estado-FechaOperacion-index: HASH estadoConciliacion, RANGE fechaOperacion (ALL).
+   */
+  bankMovements: process.env.DDB_BANK_MOVEMENTS_TABLE || 'Igp_BankMovements',
+  /**
+   * Cargas de extractos bancarios: un ítem por fichero importado, con el
+   * resumen de la ingesta. PK = hashFichero.
+   * Sin GSI: listado de cargas = Scan filtrado (volumen bajo).
+   */
+  bankFiles: process.env.DDB_BANK_FILES_TABLE || 'Igp_BankFiles',
+  /**
    * Escandallos IGP (receta de plato de venta).
    * PK = PRODUCT#<idVenta>, SK = META | ING#<idIngrediente>.
    * GSI GsiIngrediente: HASH ingredienteId, RANGE PK.

@@ -73,6 +73,7 @@ import {
   getNombreFromEmpresaItem,
   getIdEmpresaFromItem,
 } from '../empresaCif.js';
+import { ibanPredeterminadoDeEmpresa } from '../empresaIban.js';
 import { getSerieConfig, errorSerieTipoIncompatible } from './series.js';
 import { validarDatosEmision } from './emitirFactura.js';
 
@@ -586,8 +587,9 @@ export function datosEmpresaFiscal(item) {
     municipio: String(item?.Municipio ?? item?.municipio ?? ''),
     provincia: String(item?.Provincia ?? item?.provincia ?? ''),
     email: String(item?.Email ?? item?.email ?? ''),
-    iban: String(item?.Iban ?? item?.iban ?? '').trim(),
-    iban_alternativo: String(item?.IbanAlternativo ?? '').trim(),
+    // Cuenta predeterminada del maestro en el momento de emitir. El alternativo
+    // ya no se congela en la factura, así que no se expone aquí.
+    iban: ibanPredeterminadoDeEmpresa(item),
   };
 }
 

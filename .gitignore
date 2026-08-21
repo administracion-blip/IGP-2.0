@@ -41,3 +41,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# extractos bancarios de muestra (movimientos reales de las sociedades)
+docs/n43/muestras/

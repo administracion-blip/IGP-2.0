@@ -70,8 +70,8 @@ type BaseProps = {
 
 export type DatosPagoInfo = {
   beneficiario: string;
+  /** Cuenta predeterminada de la empresa en el maestro (ver `resolverIbanFactura`). */
   iban: string;
-  ibanAlternativo?: string;
   concepto: string;
 };
 
@@ -185,8 +185,10 @@ export function DatosParaPago({
       </Text>
       <FilaCopiable compact={compact} label="Beneficiario" valor={datosPago.beneficiario} />
       <FilaCopiable compact={compact} label="IBAN" valor={datosPago.iban} />
-      {datosPago.ibanAlternativo ? (
-        <FilaCopiable compact={compact} label="IBAN alt." valor={datosPago.ibanAlternativo} />
+      {!datosPago.iban.trim() ? (
+        <Text style={styles.datosPagoAviso}>
+          Sin cuenta bancaria válida en la ficha de la empresa: revísala antes de pagar.
+        </Text>
       ) : null}
       <FilaCopiable compact={compact} label="Concepto" valor={datosPago.concepto} multiline />
     </View>
@@ -672,6 +674,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#334155',
     marginBottom: 4,
+  },
+  datosPagoAviso: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: '#b45309',
+    fontStyle: 'italic',
+    marginBottom: 2,
   },
   filaCopiable: {
     flexDirection: 'row',

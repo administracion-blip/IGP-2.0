@@ -87,8 +87,9 @@ type EmpresaCatalogo = {
   Municipio?: string;
   Provincia?: string;
   Email?: string;
+  /** Puntero a la cuenta bancaria predeterminada en el maestro. */
+  IbanPredeterminado?: string;
   Iban?: string;
-  IbanAlternativo?: string;
   Sede?: string;
 };
 
@@ -203,7 +204,6 @@ export function FacturaVentaDetallePanel({
   const [emisorProvincia, setEmisorProvincia] = useState('');
   const [emisorEmail, setEmisorEmail] = useState('');
   const [emisorIban, setEmisorIban] = useState('');
-  const [emisorIbanAlt, setEmisorIbanAlt] = useState('');
   const [empresaDireccion, setEmpresaDireccion] = useState('');
   const [empresaCp, setEmpresaCp] = useState('');
   const [empresaMunicipio, setEmpresaMunicipio] = useState('');
@@ -289,8 +289,7 @@ export function FacturaVentaDetallePanel({
       setEmisorMunicipio(String(e.Municipio ?? ''));
       setEmisorProvincia(String(e.Provincia ?? ''));
       setEmisorEmail(String(e.Email ?? ''));
-      setEmisorIban(String(e.Iban ?? '').trim());
-      setEmisorIbanAlt(String(e.IbanAlternativo ?? '').trim());
+      setEmisorIban(String(e.IbanPredeterminado ?? e.Iban ?? '').trim());
     },
     [buscarEmpresaCatalogo],
   );
@@ -370,8 +369,7 @@ export function FacturaVentaDetallePanel({
             setEmisorMunicipio(String(e.Municipio ?? ''));
             setEmisorProvincia(String(e.Provincia ?? ''));
             setEmisorEmail(String(e.Email ?? ''));
-            setEmisorIban(String(e.Iban ?? '').trim());
-            setEmisorIbanAlt(String(e.IbanAlternativo ?? '').trim());
+            setEmisorIban(String(e.IbanPredeterminado ?? e.Iban ?? '').trim());
           }
         }
         if (empresaId) {
@@ -426,7 +424,6 @@ export function FacturaVentaDetallePanel({
       setEmisorProvincia(f.emisor_provincia ?? '');
       setEmisorEmail(f.emisor_email ?? '');
       setEmisorIban(f.emisor_iban ?? '');
-      setEmisorIbanAlt(f.emisor_iban_alternativo ?? '');
       setEmpresaId(f.empresa_id ?? '');
       setEmpresaNombre(f.empresa_nombre ?? '');
       setEmpresaCif(f.empresa_cif ?? '');
@@ -506,7 +503,6 @@ export function FacturaVentaDetallePanel({
       provincia: emisorProvincia,
       email: emisorEmail,
       iban: emisorIban,
-      ibanAlternativo: emisorIbanAlt,
     };
     const clienteData = {
       nombre: empresaNombre,
@@ -552,7 +548,6 @@ export function FacturaVentaDetallePanel({
     emisorProvincia,
     emisorEmail,
     emisorIban,
-    emisorIbanAlt,
     empresaNombre,
     empresaCif,
     empresaDireccion,

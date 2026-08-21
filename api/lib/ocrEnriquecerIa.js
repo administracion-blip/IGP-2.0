@@ -3,6 +3,7 @@
  * Requiere OPENAI_API_KEY en el entorno del API.
  */
 import { normalizeCif } from './empresaCif.js';
+import { limpiarIban, validarIban } from './remesas/iban.js';
 import {
   validarCoherenciaImportes,
   round2,
@@ -56,6 +57,7 @@ export async function enriquecerFacturaOcrConOpenAI(datos, textoExtraido) {
     extraccion_actual: {
       proveedor_cif: datos.proveedor_cif ?? '',
       proveedor_nombre: datos.proveedor_nombre ?? '',
+      proveedor_iban: datos.proveedor_iban ?? '',
       numero_factura_proveedor: datos.numero_factura_proveedor ?? '',
       fecha_emision: datos.fecha_emision ?? '',
       base_imponible: datos.base_imponible ?? 0,
@@ -75,6 +77,11 @@ Devuelve UN ÚNICO JSON (sin markdown). Reglas estrictas:
 IDENTIDAD
 - proveedor/emisor ≠ cliente/receptor. El CIF y nombre de proveedor deben corresponder al EMISOR/VENDEDOR del documento, NUNCA al bloque "Cliente", "Destinatario", "Datos del cliente", "Receptor".
 - Si no puedes identificar el emisor con claridad, usa proveedor_cif y proveedor_nombre vacíos ("") y baja la confianza.
+
+CUENTA BANCARIA
+- proveedor_iban: IBAN del EMISOR (la cuenta donde quiere cobrar), tal como aparece impreso, sin espacios ni guiones. Si no hay, "".
+- NUNCA devuelvas la cuenta del cliente/receptor (domiciliación, adeudo SEPA) ni cuentas enmascaradas con asteriscos o X.
+- No completes dígitos que no leas: si el número está incompleto o dudoso, "".
 
 NÚMERO DE FACTURA
 - numero_factura_proveedor: SOLO el identificador de factura del emisor (ej. AA976843, F-2026/001). NUNCA códigos de cliente, códigos numéricos cortos sueltos, ni nombres de empresa del cliente.
@@ -97,7 +104,7 @@ LÍNEAS DE ARTÍCULO (OBLIGATORIO intentar; para refacturación)
 - Solo convierte PVP→base (pvp/(1+iva/100)) en TICKETS de consumo/TPV donde el precio mostrado incluye IVA y NO hay columna de base.
 - tipo_iva: 0, 4, 10 o 21 según la línea o el documento; hostelería/alimentacion a menudo 10.
 - descuento_pct: 0 si no hay.
-- Extrae TODAS las líneas de producto. Ignora totales, subtotales, formas de pago, IBAN, pie fiscal.
+- Extrae TODAS las líneas de producto. Ignora totales, subtotales, formas de pago, cuentas bancarias, pie fiscal.
 - OCR ruidoso: reconstruye descripciones incompletas si el contexto es claro (ej. "GYOZA POLL VEGETAL" / "gyoza poll vegetal").
 - Si cantidad × precio_unitario ≈ base de esa línea (tolerancia 0,05 €), es buena señal.
 - Si no hay detalle de artículos pero sí totales: UNA línea con descripcion=proveedor o "Documento", cantidad=1, precio_unitario=base_imponible, tipo_iva del doc.
@@ -158,6 +165,13 @@ No inventes CIFs ni importes que no puedas fundamentar en el texto.`;
   }
 
   return normalizeIaResponse(parsed);
+}
+
+/** IBAN normalizado si supera el módulo 97; cadena vacía en cualquier otro caso. */
+function ibanValidoIa(raw) {
+  if (raw == null || raw === '') return '';
+  const { valido, iban } = validarIban(limpiarIban(String(raw)));
+  return valido ? iban : '';
 }
 
 function numOrZero(v) {
@@ -245,6 +259,8 @@ function normalizeIaResponse(raw) {
   return {
     proveedor_cif: raw.proveedor_cif != null ? String(raw.proveedor_cif).trim() : '',
     proveedor_nombre: raw.proveedor_nombre != null ? String(raw.proveedor_nombre).trim() : '',
+    /* Solo se conserva si supera el módulo 97: un IBAN inventado saldría caro. */
+    proveedor_iban: ibanValidoIa(raw.proveedor_iban),
     numero_factura_proveedor:
       raw.numero_factura_proveedor != null ? String(raw.numero_factura_proveedor).trim() : '',
     fecha_emision: raw.fecha_emision != null ? String(raw.fecha_emision).trim() : '',
@@ -258,6 +274,7 @@ function normalizeIaResponse(raw) {
     confianza_campos: {
       proveedor_cif: getf('proveedor_cif'),
       proveedor_nombre: getf('proveedor_nombre'),
+      proveedor_iban: getf('proveedor_iban'),
       numero_factura_proveedor: getf('numero_factura_proveedor'),
       fecha_emision: getf('fecha_emision'),
       base_imponible: getf('base_imponible'),
@@ -308,6 +325,10 @@ export function mergeExtraccionConIa(datosOriginales, ia) {
   if (ia.proveedor_nombre && p('proveedor_nombre') >= UMBRAL_SUGESTIVO) {
     base.proveedor_nombre = String(ia.proveedor_nombre).trim();
   }
+
+  /* IBAN: manda el de la expresión regular (determinista); la IA solo cubre el hueco
+     y únicamente si valida. No se decide por confianza sino por módulo 97. */
+  base.proveedor_iban = ibanValidoIa(datosOriginales.proveedor_iban) || ia.proveedor_iban || '';
 
   if (ia.numero_factura_proveedor && p('numero_factura_proveedor') >= UMBRAL_CRITICO) {
     const san = sanitizarNumeroFacturaProveedor(String(ia.numero_factura_proveedor));

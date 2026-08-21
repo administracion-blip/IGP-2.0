@@ -47,7 +47,9 @@ type CampoSeccion = Campo | CampoEtiquetas;
 type Seccion = {
   titulo: string;
   campos: CampoSeccion[];
-  avisaPrefillOcr?: boolean;
+  /** Muestra el aviso «datos sugeridos por OCR» según la bandera indicada. */
+  avisaPrefillOcr?: 'direccion' | 'iban';
+  nota?: string;
 };
 
 const SECCIONES: Seccion[] = [
@@ -66,7 +68,7 @@ const SECCIONES: Seccion[] = [
   },
   {
     titulo: 'Dirección',
-    avisaPrefillOcr: true,
+    avisaPrefillOcr: 'direccion',
     campos: [
       { key: 'Direccion', label: 'Dirección', placeholder: 'Calle y número', ancho: 'completo' },
       { key: 'Cp', label: 'Código postal', placeholder: '28001', keyboardType: 'number-pad' },
@@ -83,9 +85,16 @@ const SECCIONES: Seccion[] = [
   },
   {
     titulo: 'Datos bancarios',
+    avisaPrefillOcr: 'iban',
+    nota: 'El IBAN se dará de alta como cuenta bancaria predeterminada de la empresa: la que usarán facturas, remesas y pagos. Si lo dejas vacío, podrás añadirla luego desde su ficha.',
     campos: [
-      { key: 'Iban', label: 'IBAN', placeholder: 'ES00 0000 0000 0000 0000 0000', autoCapitalize: 'characters' },
-      { key: 'IbanAlternativo', label: 'IBAN alternativo', placeholder: 'IBAN secundario', autoCapitalize: 'characters' },
+      {
+        key: 'Iban',
+        label: 'IBAN',
+        placeholder: 'ES00 0000 0000 0000 0000 0000',
+        autoCapitalize: 'characters',
+        ancho: 'completo',
+      },
       { key: 'CCC', label: 'CCC', placeholder: 'Cuenta de cotización', autoCapitalize: 'characters' },
     ],
   },
@@ -180,58 +189,65 @@ export function CrearEmpresaModal({
         contentContainerStyle={styles.modalScrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        {SECCIONES.map((seccion) => (
-          <View key={seccion.titulo} style={styles.seccion}>
-            <Text style={styles.seccionTitulo}>{seccion.titulo}</Text>
-            {seccion.avisaPrefillOcr && modal.direccionDesdeOcr ? (
-              <Text style={styles.seccionNota}>Datos sugeridos por OCR, revísalos.</Text>
-            ) : null}
-            <View style={styles.camposWrap}>
-              {seccion.campos.map((campo) => (
-                <View
-                  key={campo.key}
-                  style={[styles.campo, { width: campo.ancho === 'completo' ? '100%' : anchoCampo }]}
-                >
-                  <Text style={styles.modalFieldLabel}>
-                    {campo.label}
-                    {'required' in campo && campo.required ? ' *' : ''}
-                  </Text>
-                  {campo.key === 'Etiqueta' ? (
-                    <CampoEtiquetasEmpresa
-                      value={modal.etiquetas}
-                      onChange={modal.setEtiquetas}
-                      empresas={empresasMaestro}
-                      compact={isCompact}
-                      inputStyle={[styles.modalInput, isCompact && styles.inputTactil]}
-                    />
-                  ) : campo.key === 'Tipo de recibo' ? (
-                    <CampoTipoReciboEmpresa
-                      value={modal.form[campo.key]}
-                      onChange={(stored) => modal.setCampo(campo.key, stored)}
-                      inputStyle={[styles.modalInput, isCompact && styles.inputTactil]}
-                      otroInputStyle={[styles.modalInput, isCompact && styles.inputTactil]}
-                    />
-                  ) : (
-                    <TextInput
-                      style={[styles.modalInput, isCompact && styles.inputTactil]}
-                      value={modal.form[campo.key]}
-                      onChangeText={(t) => modal.setCampo(campo.key, t)}
-                      onBlur={() => modal.setCampo(campo.key, (modal.form[campo.key] || '').trim())}
-                      placeholder={'placeholder' in campo ? campo.placeholder : undefined}
-                      placeholderTextColor="#94a3b8"
-                      keyboardType={'keyboardType' in campo ? campo.keyboardType : undefined}
-                      autoCapitalize={'autoCapitalize' in campo ? campo.autoCapitalize ?? 'words' : 'words'}
-                      autoFocus={campo.key === 'Nombre' && Platform.OS === 'web'}
-                    />
-                  )}
-                  {'ayuda' in campo && campo.ayuda ? (
-                    <Text style={styles.campoAyuda}>{campo.ayuda}</Text>
-                  ) : null}
-                </View>
-              ))}
+        {SECCIONES.map((seccion) => {
+          const avisoOcr =
+            seccion.avisaPrefillOcr === 'direccion' && modal.direccionDesdeOcr
+              ? 'Datos sugeridos por OCR, revísalos.'
+              : seccion.avisaPrefillOcr === 'iban' && modal.ibanDesdeOcr
+                ? 'IBAN detectado en el documento escaneado, revísalo antes de guardar.'
+                : null;
+          return (
+            <View key={seccion.titulo} style={styles.seccion}>
+              <Text style={styles.seccionTitulo}>{seccion.titulo}</Text>
+              {avisoOcr ? <Text style={styles.seccionNota}>{avisoOcr}</Text> : null}
+              {seccion.nota ? <Text style={styles.seccionAyuda}>{seccion.nota}</Text> : null}
+              <View style={styles.camposWrap}>
+                {seccion.campos.map((campo) => (
+                  <View
+                    key={campo.key}
+                    style={[styles.campo, { width: campo.ancho === 'completo' ? '100%' : anchoCampo }]}
+                  >
+                    <Text style={styles.modalFieldLabel}>
+                      {campo.label}
+                      {'required' in campo && campo.required ? ' *' : ''}
+                    </Text>
+                    {campo.key === 'Etiqueta' ? (
+                      <CampoEtiquetasEmpresa
+                        value={modal.etiquetas}
+                        onChange={modal.setEtiquetas}
+                        empresas={empresasMaestro}
+                        compact={isCompact}
+                        inputStyle={[styles.modalInput, isCompact && styles.inputTactil]}
+                      />
+                    ) : campo.key === 'Tipo de recibo' ? (
+                      <CampoTipoReciboEmpresa
+                        value={modal.form[campo.key]}
+                        onChange={(stored) => modal.setCampo(campo.key, stored)}
+                        inputStyle={[styles.modalInput, isCompact && styles.inputTactil]}
+                        otroInputStyle={[styles.modalInput, isCompact && styles.inputTactil]}
+                      />
+                    ) : (
+                      <TextInput
+                        style={[styles.modalInput, isCompact && styles.inputTactil]}
+                        value={modal.form[campo.key]}
+                        onChangeText={(t) => modal.setCampo(campo.key, t)}
+                        onBlur={() => modal.setCampo(campo.key, (modal.form[campo.key] || '').trim())}
+                        placeholder={'placeholder' in campo ? campo.placeholder : undefined}
+                        placeholderTextColor="#94a3b8"
+                        keyboardType={'keyboardType' in campo ? campo.keyboardType : undefined}
+                        autoCapitalize={'autoCapitalize' in campo ? campo.autoCapitalize ?? 'words' : 'words'}
+                        autoFocus={campo.key === 'Nombre' && Platform.OS === 'web'}
+                      />
+                    )}
+                    {'ayuda' in campo && campo.ayuda ? (
+                      <Text style={styles.campoAyuda}>{campo.ayuda}</Text>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
             </View>
-          </View>
-        ))}
+          );
+        })}
       </ScrollView>
 
       {modal.error ? (
@@ -398,6 +414,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e2e8f0',
   },
   seccionNota: { fontSize: 11, color: '#b45309', marginBottom: 8, lineHeight: 15 },
+  seccionAyuda: { fontSize: 11, color: '#64748b', marginBottom: 8, lineHeight: 15 },
   camposWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   campo: { marginBottom: 2 },
   campoAyuda: { fontSize: 10, color: '#94a3b8', marginTop: 4, lineHeight: 14 },

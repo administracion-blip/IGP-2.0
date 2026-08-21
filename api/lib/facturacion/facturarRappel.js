@@ -318,7 +318,6 @@ function datosAbono({ emisora, receptora, periodo, ajustes, lineas }) {
     emisor_provincia: emisora.provincia,
     emisor_email: emisora.email,
     emisor_iban: emisora.iban,
-    emisor_iban_alternativo: emisora.iban_alternativo,
     empresa_id: receptora.id_empresa,
     empresa_nombre: receptora.nombre,
     empresa_cif: receptora.cif,

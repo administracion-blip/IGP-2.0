@@ -15,6 +15,18 @@ export function normalizarIban(raw) {
 }
 
 /**
+ * Limpieza tolerante para IBAN tecleados a mano: además de espacios, quita
+ * guiones, puntos y demás separadores, y el prefijo "IBAN" pegado delante.
+ * En el maestro de empresas hay cuentas guardadas como "ES62-2100-…" o
+ * "IBANES80…" que son válidas en cuanto se limpian.
+ * @param {string} raw
+ * @returns {string}
+ */
+export function limpiarIban(raw) {
+  return normalizarIban(raw).replace(/[^A-Z0-9]/g, '').replace(/^IBAN(?=[A-Z]{2}\d)/, '');
+}
+
+/**
  * Valida IBAN (ISO 13616, módulo 97).
  * @param {string} raw
  * @returns {{ valido: boolean, iban: string, motivo?: string }}

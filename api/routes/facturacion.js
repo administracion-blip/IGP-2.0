@@ -30,15 +30,25 @@ import {
   getNombreFromEmpresaItem,
   getIdEmpresaFromItem,
 } from '../lib/empresaCif.js';
-import { parseTextoFacturaCompleto, reconciliarFacturaOcr } from '../lib/ocrFacturaEntidades.js';
-import { ibansDeEmpresaItem } from '../lib/remesas/resolverDatos.js';
+import {
+  parseTextoFacturaCompleto,
+  reconciliarFacturaOcr,
+  ibanValidoONada,
+} from '../lib/ocrFacturaEntidades.js';
+import { ibanPredeterminadoDeEmpresa } from '../lib/empresaIban.js';
+import {
+  buscarEmpresaPorIdEmpresa,
+  ibanPredeterminadoPorIdEmpresa,
+  ibansCongeladosDeFactura,
+} from '../lib/facturacion/ibanCongelado.js';
 import {
   enriquecerFacturaOcrConOpenAI,
   mergeExtraccionConIa,
   isIaEnriquecimientoDisponible,
 } from '../lib/ocrEnriquecerIa.js';
 import { aplicarPostProcesadoPipeline } from '../lib/ocrFacturaValidacion.js';
-import { registrarPagoFactura } from '../lib/facturacion/registrarPago.js';
+import { siguienteIdPago } from '../lib/facturacion/registrarPago.js';
+import { eliminarPagoFactura } from '../lib/facturacion/eliminarPago.js';
 import {
   indexRemesasActivasPorFactura,
   findRemesaActivaDeFactura,
@@ -471,11 +481,13 @@ router.post('/facturacion/facturas', requirePermission('facturacion.crear'), asy
 
     const id_entrada = uuid();
 
+    // El IBAN de emisor y receptor se congela desde el maestro, no desde el
+    // cuerpo: este solo vale de respaldo si la empresa no tiene ninguna cuenta.
     const { factura, lineas: lineasToSave } = construirFacturaConLineas({
       id_factura: id_entrada,
       numero,
       numero_factura,
-      datos: body,
+      datos: { ...body, ...(await ibansCongeladosDeFactura(body)) },
     });
     const total_factura = factura.total_factura;
 
@@ -515,13 +527,19 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
       return res.status(400).json({ error: 'Solo se pueden editar facturas en estado borrador o pendiente de revisión' });
     }
 
+    /**
+     * `emisor_iban_alternativo` y `empresa_iban_alternativo` quedan fuera a
+     * propósito: ya no se emiten, pero las facturas antiguas los llevan
+     * congelados y son el último recurso al resolver a qué cuenta se paga.
+     * Editar una factura ya emitida no debe poder borrarlos.
+     */
     const editableFields = [
       'emisor_id', 'emisor_nombre', 'emisor_cif', 'emisor_direccion',
       'emisor_cp', 'emisor_municipio', 'emisor_provincia', 'emisor_email',
-      'emisor_iban', 'emisor_iban_alternativo',
+      'emisor_iban',
       'empresa_id', 'empresa_nombre', 'empresa_cif', 'empresa_direccion',
       'empresa_cp', 'empresa_municipio', 'empresa_provincia', 'empresa_email',
-      'empresa_iban', 'empresa_iban_alternativo',
+      'empresa_iban',
       'fecha_emision', 'fecha_operacion', 'fecha_vencimiento',
       'condiciones_pago', 'forma_pago', 'observaciones', 'local_id',
       'numero_factura_proveedor', 'fecha_contabilizacion',
@@ -1175,8 +1193,7 @@ router.post('/facturacion/facturas/:id/pagos', requirePermission('facturacion.co
     if (await rejectFacturaEmisorNoPermitido(req, factura, res)) return;
 
     const pagos = await queryPagosByFactura(id_factura);
-    const nextIdx = pagos.length + 1;
-    const id_pago = `P${String(nextIdx).padStart(3, '0')}`;
+    const id_pago = siguienteIdPago(pagos);
 
     let recibo_file_key = '';
     let recibo_nombre = '';
@@ -1357,48 +1374,22 @@ router.delete('/facturacion/pagos/:id_factura/:id_pago', requirePermission('fact
     // [SEC S-08]
     if (await rejectFacturaEmisorNoPermitido(req, facResult.Item, res)) return;
 
-    const remesaActiva = await findRemesaActivaDeFactura(id_factura);
-    if (remesaActiva) {
-      return res.status(409).json({
-        error: `Esta factura está en la remesa «${remesaActiva.nombre || remesaActiva.remesaId}»`,
-        code: 'FACTURA_EN_REMESA',
-        remesaActiva,
-      });
-    }
-
-    const pagoResult = await docClient.send(
-      new GetCommand({ TableName: tables.facturasPagos, Key: { id_factura, id_pago } })
-    );
-    if (!pagoResult.Item) return res.status(404).json({ error: 'Pago no encontrado' });
-    if (String(pagoResult.Item.metodo_pago || '') === METODO_PAGO_COMPENSACION) {
-      return res.status(400).json({
-        error: 'Los pagos por compensación no se pueden eliminar desde aquí. Contacta con administración si necesitas corregirlos.',
-      });
-    }
-
-    await docClient.send(new DeleteCommand({ TableName: tables.facturasPagos, Key: { id_factura, id_pago } }));
-
-    const factura = facResult.Item;
-    const nuevoTotalCobrado = round2(Math.max(0, (factura.total_cobrado || 0) - pagoResult.Item.importe));
-    const nuevoSaldo = round2(factura.total_factura - nuevoTotalCobrado);
-
-    let nuevoEstado = factura.estado;
-    if (nuevoTotalCobrado <= 0 && factura.estado !== 'anulada') {
-      nuevoEstado = factura.tipo === 'OUT' ? 'emitida' : 'pendiente_pago';
-    } else if (nuevoTotalCobrado > 0 && nuevoSaldo > 0) {
-      nuevoEstado = factura.tipo === 'OUT' ? 'parcialmente_cobrada' : 'parcialmente_pagada';
-    }
-
-    factura.total_cobrado = nuevoTotalCobrado;
-    factura.saldo_pendiente = Math.max(0, nuevoSaldo);
-    factura.estado = nuevoEstado;
-    factura.modificado_en = now();
-
-    await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
-    await registrarAuditoria(id_factura, 'eliminar_pago', usuario_id, usuario_nombre, { id_pago, importe: pagoResult.Item.importe });
+    // El borrado y el recálculo del estado viven en `lib/facturacion/eliminarPago.js`:
+    // los comparte con deshacer una conciliación bancaria.
+    const { factura } = await eliminarPagoFactura({
+      id_factura,
+      id_pago,
+      usuario_id,
+      usuario_nombre,
+      factura: facResult.Item,
+    });
     res.json({ ok: true, factura });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({
+      error: err.message,
+      ...(err.code && { code: err.code }),
+      ...(err.remesaActiva && { remesaActiva: err.remesaActiva }),
+    });
   }
 });
 
@@ -2147,6 +2138,7 @@ router.post('/facturacion/ocr/enriquecer-ia', requirePermission('facturacion.cre
           merged.empresa_id = getIdEmpresaFromItem(emp);
           merged.proveedor_en_maestros = true;
           merged.nombre_sugerido_ocr = '';
+          merged.proveedor_iban = '';
           merged.confianza = {
             ...merged.confianza,
             proveedor_nombre: 'alta',
@@ -2157,6 +2149,7 @@ router.post('/facturacion/ocr/enriquecer-ia', requirePermission('facturacion.cre
           merged.empresa_id = '';
           merged.nombre_sugerido_ocr =
             merged.proveedor_nombre || datos.nombre_sugerido_ocr || inferProveedorNombre(texto, merged.proveedor_cif) || '';
+          merged.proveedor_iban = ibanValidoONada(merged.proveedor_iban || datos.proveedor_iban);
         }
       } catch (e) {
         console.error('[OCR IA] buscarEmpresaPorCif:', e.message);
@@ -2164,6 +2157,7 @@ router.post('/facturacion/ocr/enriquecer-ia', requirePermission('facturacion.cre
     } else {
       merged.proveedor_en_maestros = false;
       merged.empresa_id = '';
+      merged.proveedor_iban = '';
     }
 
     aplicarPostProcesadoPipeline(merged, texto);
@@ -2605,27 +2599,19 @@ async function buscarEmpresaPorCif(cifRaw) {
   return found || null;
 }
 
-/** IBAN del proveedor: borrador OCR o, si falta, maestro por id/CIF. */
-async function ibansProveedorParaFactura(b) {
-  let iban = String(b?.empresa_iban ?? '').trim();
-  let ibanAlternativo = String(b?.empresa_iban_alternativo ?? '').trim();
-  if (iban) return { iban, iban_alternativo: ibanAlternativo };
-
-  let emp = null;
-  const id = String(b?.empresa_id ?? '').trim();
-  if (id) {
-    const r = await docClient.send(new GetCommand({ TableName: tables.empresas, Key: { id_empresa: id } }));
-    emp = r.Item ?? null;
-  }
+/**
+ * IBAN del proveedor que se congela en la factura: manda la cuenta
+ * predeterminada del maestro (por id y, si no, por CIF). Lo que trae el borrador
+ * OCR queda de respaldo para proveedores que todavía no están dados de alta.
+ */
+async function ibanProveedorParaFactura(b) {
+  let emp = await buscarEmpresaPorIdEmpresa(b?.empresa_id);
   if (!emp && b?.proveedor_cif) {
     emp = await buscarEmpresaPorCif(b.proveedor_cif);
   }
-  if (emp) {
-    const delMaestro = ibansDeEmpresaItem(emp);
-    if (!iban && delMaestro.iban) iban = delMaestro.iban;
-    if (!ibanAlternativo && delMaestro.iban_alternativo) ibanAlternativo = delMaestro.iban_alternativo;
-  }
-  return { iban, iban_alternativo: ibanAlternativo };
+  const delMaestro = ibanPredeterminadoDeEmpresa(emp);
+  if (delMaestro) return delMaestro;
+  return String(b?.empresa_iban ?? '').trim();
 }
 
 const IMAGE_MIMES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/tiff', 'image/bmp'];
@@ -2811,12 +2797,20 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
     console.log(`[OCR] CIF normalizado para respuesta: "${proveedor_cif}" → "${proveedorCifCanon}"`);
   }
 
+  /** IBAN de la entidad elegida como proveedor (ya validado en el parseo). */
+  const entidadProveedor = (entidades_candidatas || []).find(
+    (e) => normalizeCif(e.cif || '') === (proveedorCifCanon || normalizeCif(proveedor_cif || '')),
+  );
+  const ibanOcrSugerido = ibanValidoONada(entidadProveedor?.iban_candidato);
+
   const result = {
     proveedor_cif: proveedorCifCanon || proveedor_cif || '',
     proveedor_nombre: proveedor_nombre || '',
     empresa_id: empresa_id || '',
     proveedor_en_maestros,
     nombre_sugerido_ocr: !proveedor_en_maestros && proveedor_cif ? nombreOcrSugerido || '' : '',
+    /** Solo para alta rápida de empresa: si ya está en maestros manda su cuenta registrada. */
+    proveedor_iban: !proveedor_en_maestros && proveedor_cif ? ibanOcrSugerido : '',
     numero_factura_proveedor: numFacturas[0] || '',
     fecha_emision: fecha_emision_probable || fechas[0] || '',
     total_factura: totalFactura,
@@ -2935,6 +2929,7 @@ router.post('/facturacion/ocr/confirmar', requirePermission('facturacion.crear')
     }
 
     const creados = [];
+    const ibanEmisorCache = new Map();
     for (const b of borradores) {
       if (b.descartado) continue;
 
@@ -2996,7 +2991,11 @@ router.post('/facturacion/ocr/confirmar', requirePermission('facturacion.crear')
         ];
       }
 
-      const { iban: empresaIban, iban_alternativo: empresaIbanAlt } = await ibansProveedorParaFactura(b);
+      // Se congela la cuenta predeterminada del maestro en el momento de emitir.
+      // Los IBAN alternativos ya no se congelan (el campo se guarda vacío).
+      const empresaIban = await ibanProveedorParaFactura(b);
+      const emisorIban = await ibanPredeterminadoPorIdEmpresa(emisorId, ibanEmisorCache)
+        || String(b.emisor_iban || '');
 
       const factura = {
         id_entrada: id_factura,
@@ -3016,8 +3015,8 @@ router.post('/facturacion/ocr/confirmar', requirePermission('facturacion.crear')
         emisor_municipio: b.emisor_municipio || '',
         emisor_provincia: b.emisor_provincia || '',
         emisor_email: b.emisor_email || '',
-        emisor_iban: b.emisor_iban || '',
-        emisor_iban_alternativo: b.emisor_iban_alternativo || '',
+        emisor_iban: emisorIban,
+        emisor_iban_alternativo: '',
         empresa_id: b.empresa_id || '',
         empresa_nombre: b.proveedor_nombre || '',
         empresa_cif: b.proveedor_cif || '',
@@ -3027,7 +3026,7 @@ router.post('/facturacion/ocr/confirmar', requirePermission('facturacion.crear')
         empresa_provincia: '',
         empresa_email: '',
         empresa_iban: empresaIban,
-        empresa_iban_alternativo: empresaIbanAlt,
+        empresa_iban_alternativo: '',
         numero_factura_proveedor: b.numero_factura_proveedor || '',
         base_imponible: round2(b.base_imponible || 0),
         base_imponible_total: round2(b.base_imponible_total ?? b.base_imponible ?? 0),

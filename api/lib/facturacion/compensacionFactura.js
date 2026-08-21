@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import { GetCommand, PutCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables, keyForFacturaPrincipalId } from '../db.js';
 import { queryPagosByFactura } from '../dynamo/facturasRelacionadas.js';
+import { ordinalMaximoIdPago } from './registrarPago.js';
 import { normalizeCif } from '../empresaCif.js';
 
 export const METODO_PAGO_COMPENSACION = 'compensacion';
@@ -181,12 +182,17 @@ function allocIdPago(facturaId, conteoPagos) {
   return `P${String(n).padStart(3, '0')}`;
 }
 
+/**
+ * Siembra el asignador con el **máximo** correlativo ya usado por factura, no
+ * con el número de pagos: si se borró un pago intermedio, la longitud reutiliza
+ * un id vivo y el `Put` de la compensación pisaría ese pago.
+ */
 async function cargarConteosPagos(ids) {
   const conteoPagos = new Map();
   await Promise.all(
     ids.map(async (id) => {
       const pagos = await queryPagosByFactura(id);
-      conteoPagos.set(id, pagos.length);
+      conteoPagos.set(id, ordinalMaximoIdPago(pagos));
     }),
   );
   return conteoPagos;

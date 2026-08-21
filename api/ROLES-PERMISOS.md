@@ -206,6 +206,8 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `actuaciones.facturacion` | Actuaciones · Asociar facturas de gasto |
 | `refacturacion.ver` | Refacturación · Ver hub Facturación → REFACTURACIONES, pendientes y detalle de líneas |
 | `refacturacion.gestionar` | Refacturación · Crear/editar/descartar líneas y emitir borrador OUT |
+| `banca.ver` | Banca · Ver movimientos bancarios importados y el historial de cargas de extractos |
+| `banca.importar` | Banca · Subir extractos bancarios (Norma 43) e importar sus movimientos |
 
 Propuesta `escandallos.ver` / `escandallos.editar` (solo catálogo; **no asignar a roles en Dynamo** desde este cambio): SuperUser y Administracion. Administrador ya tiene todos los permisos. Local, Socio y Marketing: no.
 

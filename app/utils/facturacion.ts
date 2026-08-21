@@ -413,6 +413,8 @@ export type EmpresaFactura = {
   municipio: string;
   provincia: string;
   email: string;
+  /** Puntero a la cuenta bancaria predeterminada en el maestro. */
+  ibanPredeterminado?: string;
   iban: string;
   ibanAlternativo: string;
   sede: string;

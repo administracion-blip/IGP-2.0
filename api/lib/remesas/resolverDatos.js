@@ -1,27 +1,15 @@
 import { normalizeCif, getCifFromEmpresaItem, getIdEmpresaFromItem } from '../empresaCif.js';
-import { validarIban, normalizarIban } from './iban.js';
+import { validarIban, limpiarIban } from './iban.js';
+import { ibanPredeterminadoDeEmpresa } from '../empresaIban.js';
 import { buildConceptoRemesa, resumenDescripcionFactura } from './concepto.js';
 
 function round2(n) {
   return Math.round(Number(n) * 100) / 100;
 }
 
-function ibanFromEmpresaItem(item) {
-  if (!item) return '';
-  return normalizarIban(item.Iban ?? item.iban ?? '');
-}
-
 function ibanAltFromEmpresaItem(item) {
   if (!item) return '';
-  return normalizarIban(item.IbanAlternativo ?? item.ibanAlternativo ?? '');
-}
-
-/** IBANs del maestro de empresas (normalizados). */
-export function ibansDeEmpresaItem(item) {
-  return {
-    iban: ibanFromEmpresaItem(item),
-    iban_alternativo: ibanAltFromEmpresaItem(item),
-  };
+  return limpiarIban(item.IbanAlternativo ?? item.ibanAlternativo ?? '');
 }
 
 /**
@@ -40,45 +28,71 @@ export function indexarEmpresas(empresasItems) {
   return { byId, byCif };
 }
 
+/* ── Por qué el maestro manda sobre el IBAN congelado en la factura ──────────
+ *
+ * Parece un bug —lo normal es respetar el dato congelado del documento— pero es
+ * deliberado: el dinero sale a la cuenta que el proveedor tiene HOY, no a la que
+ * tenía el día que se registró la factura. El maestro de empresas es la fuente
+ * de verdad y se mantiene al día; si un proveedor cambia de banco, una factura
+ * de hace seis meses debe pagarse igualmente en la cuenta nueva.
+ *
+ * El valor congelado no se descarta: queda como último recurso para que un hueco
+ * en el maestro no deje sin remesar una factura que hoy se paga sin problemas.
+ *
+ * Orden de preferencia (el primero que valide gana), igual para ordenante y
+ * beneficiario:
+ *   1. cuenta predeterminada actual de la empresa en el maestro,
+ *   2. IBAN congelado en la factura,
+ *   3. IBAN alternativo congelado en la factura,
+ *   4. `IbanAlternativo` del maestro.
+ */
+
 /**
  * IBAN beneficiario (proveedor) — factura IN: campos empresa_*.
  * @param {object} factura
  * @param {{ byId: Map, byCif: Map }} empresasIdx
  */
 export function resolverIbanBeneficiario(factura, empresasIdx) {
-  const candidatos = [
-    factura.empresa_iban,
-    factura.empresa_iban_alternativo,
-  ];
+  // El proveedor se busca por id y, si no aparece, por CIF: hay facturas
+  // antiguas sin `empresa_id`. Solo una ficha entra en la cascada, la misma que
+  // elige la pantalla: si un CIF estuviera duplicado en el maestro, meter las
+  // dos fichas haría que la remesa pagase a una cuenta que el usuario no ha
+  // visto en ningún sitio.
+  let emp = null;
   if (factura.empresa_id && empresasIdx.byId.has(factura.empresa_id)) {
-    const emp = empresasIdx.byId.get(factura.empresa_id);
-    candidatos.push(ibanFromEmpresaItem(emp), ibanAltFromEmpresaItem(emp));
-  }
-  const cif = normalizeCif(factura.empresa_cif);
-  if (cif && empresasIdx.byCif.has(cif)) {
-    const emp = empresasIdx.byCif.get(cif);
-    candidatos.push(ibanFromEmpresaItem(emp), ibanAltFromEmpresaItem(emp));
+    emp = empresasIdx.byId.get(factura.empresa_id);
+  } else {
+    const cif = normalizeCif(factura.empresa_cif);
+    if (cif && empresasIdx.byCif.has(cif)) emp = empresasIdx.byCif.get(cif);
   }
 
+  const candidatos = [
+    ibanPredeterminadoDeEmpresa(emp),
+    factura.empresa_iban,
+    factura.empresa_iban_alternativo,
+    ibanAltFromEmpresaItem(emp),
+  ];
+
   for (const raw of candidatos) {
-    const v = validarIban(raw);
+    const v = validarIban(limpiarIban(raw));
     if (v.valido) return v;
   }
-  const ultimo = validarIban(candidatos.find((c) => String(c || '').trim()) || '');
-  return ultimo.valido ? ultimo : { valido: false, iban: '', motivo: ultimo.motivo || 'Sin IBAN válido del proveedor' };
+  return { valido: false, iban: '', motivo: 'Sin IBAN válido del proveedor' };
 }
 
 /**
  * IBAN cuenta ordenante — factura IN: emisor_* (sociedad GRUPO PARIPE).
  */
 export function resolverIbanOrdenante(emisorId, factura, empresasIdx) {
-  const candidatos = [factura?.emisor_iban, factura?.emisor_iban_alternativo];
-  if (emisorId && empresasIdx.byId.has(emisorId)) {
-    const emp = empresasIdx.byId.get(emisorId);
-    candidatos.push(ibanFromEmpresaItem(emp), ibanAltFromEmpresaItem(emp));
-  }
+  const emp = emisorId && empresasIdx.byId.has(emisorId) ? empresasIdx.byId.get(emisorId) : null;
+  const candidatos = [
+    ibanPredeterminadoDeEmpresa(emp),
+    factura?.emisor_iban,
+    factura?.emisor_iban_alternativo,
+    ibanAltFromEmpresaItem(emp),
+  ];
   for (const raw of candidatos) {
-    const v = validarIban(raw);
+    const v = validarIban(limpiarIban(raw));
     if (v.valido) return v;
   }
   return { valido: false, iban: '', motivo: 'Sin IBAN válido de la sociedad ordenante' };

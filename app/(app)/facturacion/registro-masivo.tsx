@@ -201,6 +201,7 @@ function borradorDesdeOcrHandoff(
     empresa_id: d.empresa_id ? String(d.empresa_id) : '',
     proveedor_en_maestros: Boolean(d.proveedor_en_maestros),
     nombre_sugerido_ocr: String(d.nombre_sugerido_ocr || ''),
+    proveedor_iban: String(d.proveedor_iban || ''),
     numero_factura_proveedor: String(d.numero_factura_proveedor || ''),
     fecha_emision: d.fecha_emision
       ? (fechaEmisionFacturaAIso(String(d.fecha_emision)) ?? '')
@@ -567,6 +568,8 @@ export default function RegistroMasivoScreen() {
             empresa_id: emp?.id_empresa != null ? String(emp.id_empresa) : '',
             proveedor_en_maestros: true,
             nombre_sugerido_ocr: '',
+            // Ya está en el maestro: su cuenta bancaria se gestiona en la ficha.
+            proveedor_iban: '',
             confianza: { ...b.confianza, proveedor_nombre: 'alta' },
           });
         }),
@@ -588,6 +591,7 @@ export default function RegistroMasivoScreen() {
     },
     onSuccess: (msg) => showToast('Empresa creada', msg, 'success'),
     onError: (msg) => alertMsg('Error', msg),
+    onCuentaError: (msg) => showToast('Empresa creada sin cuenta', msg, 'warning'),
   });
 
   useEffect(() => {
@@ -726,6 +730,7 @@ export default function RegistroMasivoScreen() {
             empresa_id: d.empresa_id || '',
             proveedor_en_maestros: Boolean(d.proveedor_en_maestros),
             nombre_sugerido_ocr: d.nombre_sugerido_ocr || '',
+            proveedor_iban: d.proveedor_iban || '',
             numero_factura_proveedor: d.numero_factura_proveedor || '',
             fecha_emision: d.fecha_emision ? (fechaEmisionFacturaAIso(String(d.fecha_emision)) ?? '') : '',
             base_imponible: base0,
@@ -953,6 +958,7 @@ export default function RegistroMasivoScreen() {
           if (esEmpresaSedeGrupoParipe(match) || proveedorCoincideConSociedad(candidato)) {
             const sugOcr =
               (b.nombre_sugerido_ocr || '').trim() || (b.proveedor_nombre || '').trim();
+            const ibanOcr = (b.proveedor_iban || '').trim();
             return prev.map((x) => {
               if (x.idx !== idx) return x;
               const limpiado = limpiarProveedorSiCoincideSociedad({
@@ -969,6 +975,7 @@ export default function RegistroMasivoScreen() {
                 empresa_id: '',
                 proveedor_en_maestros: false,
                 nombre_sugerido_ocr: sugOcr,
+                proveedor_iban: ibanOcr,
               };
             });
           }
@@ -981,6 +988,7 @@ export default function RegistroMasivoScreen() {
                   empresa_id: match.id_empresa != null ? String(match.id_empresa) : '',
                   proveedor_en_maestros: true,
                   nombre_sugerido_ocr: '',
+                  proveedor_iban: '',
                   confianza: {
                     ...x.confianza,
                     proveedor_nombre: 'alta',
@@ -1752,6 +1760,7 @@ export default function RegistroMasivoScreen() {
                               empresa_id: candidato.empresa_id,
                               proveedor_en_maestros: true,
                               nombre_sugerido_ocr: '',
+                              proveedor_iban: '',
                               campos_manuales: { ...b.campos_manuales, proveedor_nombre: true, proveedor_cif: true },
                               confianza: { ...b.confianza, proveedor_nombre: 'alta', proveedor_cif: 'alta' },
                             }
