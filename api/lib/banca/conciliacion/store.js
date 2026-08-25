@@ -29,6 +29,25 @@ const LIMITE_MOVIMIENTOS = 300;
 const LIMITE_MOVIMIENTOS_MAXIMO = 1000;
 
 /**
+ * Antigüedad máxima de movimientos en el barrido de sugerencias cuando el
+ * cliente no manda `desde`. 18 meses: cubre extractos útiles sin recorrer
+ * todo el histórico abierto.
+ */
+export const MESES_BARRIDO_MOVIMIENTOS = 18;
+
+/**
+ * Fecha ISO (yyyy-mm-dd) de hace `MESES_BARRIDO_MOVIMIENTOS` meses (UTC).
+ * @param {Date} [ref]
+ * @returns {string}
+ */
+export function desdeBarridoMovimientosPorDefecto(ref = new Date()) {
+  const y = ref.getUTCFullYear();
+  const m = ref.getUTCMonth();
+  const d = ref.getUTCDate();
+  return new Date(Date.UTC(y, m - MESES_BARRIDO_MOVIMIENTOS, d)).toISOString().slice(0, 10);
+}
+
+/**
  * Alguien escribió el movimiento entre que se leyó y que se guardó. Quien llama
  * decide qué hacer: la conciliación reintenta fundiendo lo que haya.
  */

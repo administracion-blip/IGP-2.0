@@ -17,6 +17,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { BadgeEnRemesa } from '../../components/BadgeEnRemesa';
+import { BadgeExceso } from '../../components/BadgeExceso';
 import { InputFecha } from '../../components/InputFecha';
 import { RegistrarPagoModal, type RegistrarPagoInitial, type RegistrarPagoPayloadFactura } from '../../components/RegistrarPagoModal';
 import {
@@ -28,9 +29,12 @@ import { SelectorDesplegableMulti } from '../../components/SelectorDesplegableMu
 import {
   colorEstado,
   ESTADOS_IN,
+  esMetodoAplicacionExceso,
   formatMoneda,
+  importeExcesoPendiente,
   labelFormaPago,
   mapTipoReciboToFormaPago,
+  tieneExcesoPendiente,
 } from '../../utils/facturacion';
 import type { FacturaListado } from '../../types/factura';
 import type { RemesaActivaFactura } from '../../types/remesas';
@@ -85,6 +89,7 @@ import IconoSugerenciaConciliacion from '../../components/conciliacion/IconoSuge
 import ConciliarMovimientoModal, {
   type ResultadoConciliacion,
 } from '../../components/conciliacion/ConciliarMovimientoModal';
+import { PanelMovimientosFactura } from '../../components/conciliacion/PanelMovimientosFactura';
 import { indicePorFactura, queryConciliacionSugerencias } from '../../lib/conciliacion';
 import type { RespuestaSugerencias, SugerenciasDeFactura } from '../../types/conciliacion';
 
@@ -244,7 +249,7 @@ const DEFAULT_WIDTHS: Record<string, number> = {
   total_iva: 68,
   total_retencion: 80,
   total_factura: 88,
-  estado: 148,
+  estado: 168,
   pagado: 108,
   saldo_pendiente: 88,
 };
@@ -301,6 +306,7 @@ export default function FacturasGastoScreen() {
   const [filtroColaPago, setFiltroColaPago] = useState<FiltroColaPago>('todos');
   const [soloDuplicadosProveedor, setSoloDuplicadosProveedor] = useState(false);
   const [soloPendientesConciliacion, setSoloPendientesConciliacion] = useState(false);
+  const [soloConExceso, setSoloConExceso] = useState(false);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalFacturaId, setModalFacturaId] = useState<string | null>(null);
@@ -318,6 +324,8 @@ export default function FacturasGastoScreen() {
 
   const [modalBorrar, setModalBorrar] = useState(false);
   const [modalPagar, setModalPagar] = useState(false);
+  /** El panel de movimientos tiene una conciliación en vuelo: no se puede pagar a mano ni cerrar. */
+  const [conciliandoEnPanel, setConciliandoEnPanel] = useState(false);
   const [modalMultipago, setModalMultipago] = useState(false);
   const [multipagoFacturas, setMultipagoFacturas] = useState<FacturaListado[]>([]);
   const [pagoRegistrarInitial, setPagoRegistrarInitial] = useState<RegistrarPagoInitial>({});
@@ -392,6 +400,13 @@ export default function FacturasGastoScreen() {
 
   useEffect(() => { cargarSugerencias(); }, [cargarSugerencias]);
 
+  /** El listado y las sugerencias tienen que ir a la vez: si cambia el saldo o el
+   *  estado de una factura, las sugerencias viejas dejan de valer. */
+  const refrescarListadoYSugerencias = useCallback(() => {
+    fetchFacturas();
+    cargarSugerencias();
+  }, [fetchFacturas, cargarSugerencias]);
+
   const onConciliacionAplicada = useCallback(
     (resultado: ResultadoConciliacion) => {
       setConciliarEntrada(null);
@@ -403,10 +418,9 @@ export default function FacturasGastoScreen() {
         resultado.parcial ? 'warning' : 'success',
       );
       // El saldo pendiente ha cambiado: las sugerencias viejas ya no valen.
-      fetchFacturas();
-      cargarSugerencias();
+      refrescarListadoYSugerencias();
     },
-    [showToast, fetchFacturas, cargarSugerencias],
+    [showToast, refrescarListadoYSugerencias],
   );
 
   const onSugerenciaDescartada = useCallback(
@@ -416,6 +430,22 @@ export default function FacturasGastoScreen() {
       cargarSugerencias();
     },
     [showToast, cargarSugerencias],
+  );
+
+  /** Conciliar desde el modal de pago ya registra el pago: se cierra el modal. */
+  const onPagoConciliadoDesdePanel = useCallback(
+    (resumen: { importe: number; mensaje: string; requiereRevision?: boolean }) => {
+      setConciliandoEnPanel(false);
+      setModalPagar(false);
+      showToast(
+        resumen.requiereRevision ? 'Pago registrado · revisa el movimiento' : 'Pago registrado',
+        resumen.mensaje,
+        resumen.requiereRevision ? 'warning' : 'success',
+      );
+      refrescarListadoYSugerencias();
+      setSelectedId(null);
+    },
+    [showToast, refrescarListadoYSugerencias],
   );
 
   // Refrescar al volver de la ficha completa: sin esto el listado mostraba
@@ -458,11 +488,11 @@ export default function FacturasGastoScreen() {
 
       if (primerFocoListado.current) {
         primerFocoListado.current = false;
-        if (modalId || maestroOk) fetchFacturas();
+        if (modalId || maestroOk) refrescarListadoYSugerencias();
         return;
       }
-      fetchFacturas();
-    }, [fetchFacturas, searchParams.modalFactura, searchParams.maestroActualizado, router, showToast]),
+      refrescarListadoYSugerencias();
+    }, [refrescarListadoYSugerencias, searchParams.modalFactura, searchParams.maestroActualizado, router, showToast]),
   );
 
   useEffect(() => {
@@ -606,6 +636,9 @@ export default function FacturasGastoScreen() {
     if (soloPendientesConciliacion) {
       list = list.filter((f) => sugerenciasPorFactura.has(f.id_factura));
     }
+    if (soloConExceso) {
+      list = list.filter((f) => tieneExcesoPendiente(f));
+    }
     return list;
   }, [
     facturas,
@@ -620,6 +653,7 @@ export default function FacturasGastoScreen() {
     idsDuplicadosProveedor,
     soloPendientesConciliacion,
     sugerenciasPorFactura,
+    soloConExceso,
   ]);
 
   const conteosPorTab = useMemo(() => {
@@ -747,6 +781,7 @@ export default function FacturasGastoScreen() {
     filtroColaPago,
     soloDuplicadosProveedor,
     soloPendientesConciliacion,
+    soloConExceso,
   ]);
 
   // Si ya no hay duplicados en el listado, apaga el filtro (banner desaparece).
@@ -763,6 +798,17 @@ export default function FacturasGastoScreen() {
     }
   }, [totalPendientesConciliacion, soloPendientesConciliacion]);
 
+  const totalConExceso = useMemo(
+    () => facturasBaseFiltradas.filter((f) => tieneExcesoPendiente(f)).length,
+    [facturasBaseFiltradas],
+  );
+
+  useEffect(() => {
+    if (totalConExceso === 0 && soloConExceso) {
+      setSoloConExceso(false);
+    }
+  }, [totalConExceso, soloConExceso]);
+
   const selectedFactura: FacturaListado | null = useMemo(
     () => (selectedId ? filtradas.find((f) => f.id_factura === selectedId) ?? null : null),
     [selectedId, filtradas],
@@ -771,11 +817,15 @@ export default function FacturasGastoScreen() {
   /** Facturas pagables según selección actual (fila o multiselección). */
   const facturasPagablesSeleccionadas = useMemo(() => {
     if (modoSeleccion) {
+      // Multipago: nunca incluir `pagada` (exceso solo unitario).
       return filtradas.filter(
         (f) => selectedMultiIds.has(f.id_factura) && esFacturaPagableGasto(f),
       );
     }
-    if (selectedFactura && esFacturaPagableGasto(selectedFactura)) {
+    if (!selectedFactura) return [];
+    if (esFacturaPagableGasto(selectedFactura)) return [selectedFactura];
+    // Unitario: permitir registrar sobrepago en factura ya pagada.
+    if (selectedFactura.estado === 'pagada' && !selectedFactura.remesaActiva) {
       return [selectedFactura];
     }
     return [];
@@ -868,11 +918,11 @@ export default function FacturasGastoScreen() {
   }, []);
 
   const sincronizarFacturaTrasPago = useCallback((facturaActualizada: FacturaListado | null) => {
-    fetchFacturas();
+    refrescarListadoYSugerencias();
     if (facturaActualizada && detallePagosFactura?.id_factura === facturaActualizada.id_factura) {
       setDetallePagosFactura((prev) => (prev ? { ...prev, ...facturaActualizada } : prev));
     }
-  }, [detallePagosFactura?.id_factura, fetchFacturas]);
+  }, [detallePagosFactura?.id_factura, refrescarListadoYSugerencias]);
 
   const avisarFacturaEnRemesa = useCallback(async (remesa: RemesaActivaFactura) => {
     showToast(
@@ -898,6 +948,14 @@ export default function FacturasGastoScreen() {
       showToast('No editable', 'Los pagos por compensación no se pueden editar', 'warning');
       return;
     }
+    if (esMetodoAplicacionExceso(pago.metodo_pago)) {
+      showToast(
+        'No editable',
+        'Las aplicaciones de exceso no se pueden editar ni eliminar desde aquí',
+        'warning',
+      );
+      return;
+    }
     setPagoDetalleEditando(pago);
     setModalEditarPagoDetalle(true);
   }, [detallePagosFactura?.remesaActiva, avisarFacturaEnRemesa, showToast]);
@@ -906,6 +964,18 @@ export default function FacturasGastoScreen() {
     if (!detallePagosFactura?.id_factura || !pago.id_pago) return;
     if (detallePagosFactura.remesaActiva) {
       void avisarFacturaEnRemesa(detallePagosFactura.remesaActiva);
+      return;
+    }
+    if (esMetodoCompensacion(pago.metodo_pago)) {
+      showToast('No eliminable', 'Los pagos por compensación no se pueden eliminar desde aquí', 'warning');
+      return;
+    }
+    if (esMetodoAplicacionExceso(pago.metodo_pago)) {
+      showToast(
+        'No eliminable',
+        'Las aplicaciones de exceso no se pueden editar ni eliminar desde aquí',
+        'warning',
+      );
       return;
     }
     const importeTxt = formatMoneda(Number(pago.importe ?? 0));
@@ -948,6 +1018,18 @@ export default function FacturasGastoScreen() {
       void avisarFacturaEnRemesa(detallePagosFactura.remesaActiva);
       return;
     }
+    if (esMetodoCompensacion(pagoDetalleEditando.metodo_pago)) {
+      showToast('No editable', 'Los pagos por compensación no se pueden editar', 'warning');
+      return;
+    }
+    if (esMetodoAplicacionExceso(pagoDetalleEditando.metodo_pago)) {
+      showToast(
+        'No editable',
+        'Las aplicaciones de exceso no se pueden editar ni eliminar desde aquí',
+        'warning',
+      );
+      return;
+    }
     setGuardandoPagoDetalle(true);
     try {
       const { factura } = await actualizarPagoFactura(
@@ -971,6 +1053,7 @@ export default function FacturasGastoScreen() {
     detallePagosFactura?.remesaActiva,
     avisarFacturaEnRemesa,
     pagoDetalleEditando?.id_pago,
+    pagoDetalleEditando?.metodo_pago,
     user?.id_usuario,
     user?.Nombre,
     showToast,
@@ -997,6 +1080,7 @@ export default function FacturasGastoScreen() {
       metodoOtro: clave === 'otro' ? otroTexto : '',
       fecha: clave === 'tarjeta' ? fechaFactura : hoy,
     });
+    setConciliandoEnPanel(false);
     setModalPagar(true);
   };
 
@@ -1044,7 +1128,7 @@ export default function FacturasGastoScreen() {
           : 'Pago registrado correctamente',
         'success',
       );
-      fetchFacturas();
+      refrescarListadoYSugerencias();
       setSelectedId(null);
       setSelectedMultiIds(new Set());
     } catch (e: unknown) {
@@ -1083,7 +1167,7 @@ export default function FacturasGastoScreen() {
       setMultipagoFacturas([]);
       setSelectedMultiIds(new Set());
       setSelectedId(null);
-      fetchFacturas();
+      refrescarListadoYSugerencias();
       if (errores.length === 0) {
         showToast(
           'Multipago registrado',
@@ -1126,7 +1210,7 @@ export default function FacturasGastoScreen() {
   };
 
   const handleToolbar = (id: string) => {
-    if (id === 'refresh') { fetchFacturas(); return; }
+    if (id === 'refresh') { refrescarListadoYSugerencias(); return; }
     if (id === 'crear') { router.push('/facturacion/factura-detalle?tipo=IN&modo=crear' as never); return; }
     if (id === 'ver_doc') { verDocumento(); return; }
     if (id === 'pagar') {
@@ -1185,7 +1269,7 @@ export default function FacturasGastoScreen() {
         const detalle = Array.isArray(data.errores) ? data.errores.join(' · ') : (data.error || 'Error');
         throw new Error(detalle);
       }
-      fetchFacturas();
+      refrescarListadoYSugerencias();
       setSelectedId(null);
       showToast(
         modo === 'validar' ? 'Validada' : 'Emitida',
@@ -1216,7 +1300,7 @@ export default function FacturasGastoScreen() {
       if (!res.ok) throw new Error(data.error || 'Error al eliminar la factura');
       setModalBorrar(false);
       showToast('Factura eliminada', 'La factura de gasto se ha borrado del sistema.', 'success');
-      fetchFacturas();
+      refrescarListadoYSugerencias();
       setSelectedId(null);
     } catch (e: unknown) {
       showToast('Error', e instanceof Error ? e.message : 'No se pudo eliminar la factura', 'error');
@@ -1442,7 +1526,7 @@ export default function FacturasGastoScreen() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al validar');
-      fetchFacturas();
+      refrescarListadoYSugerencias();
       setSelectedMultiIds(new Set());
       if (data.fallidas > 0) {
         const detalle = (data.detalleFallidas || [])
@@ -1611,6 +1695,29 @@ export default function FacturasGastoScreen() {
               </TouchableOpacity>
             );
           })}
+          {totalConExceso > 0 ? (
+            <TouchableOpacity
+              style={[
+                styles.estadoChip,
+                styles.excesoFiltroChip,
+                soloConExceso && styles.excesoFiltroChipActivo,
+              ]}
+              onPress={() => setSoloConExceso((v) => !v)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityState={{ selected: soloConExceso }}
+              accessibilityLabel="Filtrar facturas con exceso"
+            >
+              <Text style={[styles.estadoChipText, styles.excesoFiltroChipText, soloConExceso && styles.excesoFiltroChipTextActivo]}>
+                Con exceso
+              </Text>
+              <View style={[styles.estadoChipCount, { backgroundColor: soloConExceso ? '#fff' : 'rgba(217, 119, 6, 0.15)' }]}>
+                <Text style={[styles.estadoChipCountText, { color: soloConExceso ? '#d97706' : '#b45309' }]}>
+                  {totalConExceso}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ) : null}
         </ScrollView>
 
         <SelectorDesplegable
@@ -2052,6 +2159,9 @@ export default function FacturasGastoScreen() {
                           <View key={col} style={[styles.cell, { width: getColWidth(col) }]}>
                             <View style={styles.estadoBadgesRow}>
                               <BadgeEstado estado={f.estado ?? ''} compact />
+                              {tieneExcesoPendiente(f) ? (
+                                <BadgeExceso importe={importeExcesoPendiente(f)} compact />
+                              ) : null}
                               {f.remesaActiva ? <BadgeEnRemesa compact /> : null}
                             </View>
                           </View>
@@ -2129,7 +2239,7 @@ export default function FacturasGastoScreen() {
         usuarioId={user?.id_usuario}
         usuarioNombre={user?.Nombre}
         onClose={() => setModalFacturaId(null)}
-        onGuardado={fetchFacturas}
+        onGuardado={refrescarListadoYSugerencias}
         resyncMaestroToken={resyncMaestroToken}
         onAbrirCompleto={(id) =>
           router.push(`/facturacion/factura-detalle?id=${id}&modo=editar&tipo=IN` as never)
@@ -2252,11 +2362,16 @@ export default function FacturasGastoScreen() {
       {/* Modal Pagar */}
       <RegistrarPagoModal
         visible={modalPagar}
-        onClose={() => !procesando && setModalPagar(false)}
+        onClose={() => {
+          if (procesando) return;
+          setConciliandoEnPanel(false);
+          setModalPagar(false);
+        }}
         modo="factura"
         variant="pago"
         initial={pagoRegistrarInitial}
         empresaPagadoraNombre={selectedFactura?.emisor_nombre ?? ''}
+        fechaFactura={selectedFactura?.fecha_emision}
         fechaReferenciaTarjeta={
           selectedFactura
             ? fechaEmisionFacturaAIso(selectedFactura.fecha_emision ?? '') ?? undefined
@@ -2279,6 +2394,42 @@ export default function FacturasGastoScreen() {
         habilitarCompensacion
         facturaId={selectedFactura?.id_factura}
         saldoOrigen={Number(selectedFactura?.saldo_pendiente ?? 0)}
+        avisoSobrepago={selectedFactura?.estado === 'pagada'}
+        habilitarAplicacionExceso={
+          !!selectedFactura
+          && selectedFactura.estado !== 'pagada'
+          && Math.abs(Number(selectedFactura.saldo_pendiente) || 0) > 0.001
+        }
+        onAplicacionExcesoSuccess={() => {
+          setModalPagar(false);
+          showToast('Registrado', 'Exceso aplicado correctamente', 'success');
+          refrescarListadoYSugerencias();
+          setSelectedId(null);
+          setSelectedMultiIds(new Set());
+        }}
+        panelLateral={
+          selectedFactura && String(selectedFactura.emisor_id ?? '').trim() && puedeVerConciliacion
+            ? (
+              <PanelMovimientosFactura
+                idFactura={selectedFactura.id_factura}
+                numeroFactura={
+                  selectedFactura.numero_factura_proveedor?.trim()
+                  || selectedFactura.numero_factura?.trim()
+                  || selectedFactura.id_factura
+                }
+                empresaId={String(selectedFactura.emisor_id ?? '').trim()}
+                tipo="IN"
+                fechaEmision={selectedFactura.fecha_emision}
+                contraparteNombre={selectedFactura.empresa_nombre}
+                saldoPendiente={Math.abs(Number(selectedFactura.saldo_pendiente ?? 0))}
+                puedeConciliar={puedeGestionarPagos}
+                onConciliado={onPagoConciliadoDesdePanel}
+                onOcupadoChange={setConciliandoEnPanel}
+              />
+            )
+            : undefined
+        }
+        bloqueadoPorPanel={conciliandoEnPanel}
         submitting={procesando}
         onValidationError={(titulo, mensaje) => showToast(titulo, mensaje, 'warning')}
         onSubmit={handleRegistrarPagoListado}
@@ -2510,6 +2661,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   estadoChipCountText: { fontSize: 9, fontWeight: '700' },
+  excesoFiltroChip: {
+    backgroundColor: '#fffbeb',
+    borderColor: '#fde68a',
+  },
+  excesoFiltroChipActivo: {
+    backgroundColor: '#d97706',
+    borderColor: '#b45309',
+  },
+  excesoFiltroChipText: {
+    color: '#b45309',
+  },
+  excesoFiltroChipTextActivo: {
+    color: '#fff',
+    fontWeight: '700',
+  },
 
   toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 10, flexWrap: 'wrap' },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },

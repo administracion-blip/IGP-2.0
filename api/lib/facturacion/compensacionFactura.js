@@ -55,7 +55,8 @@ export function capacidadCompensacionFactura(f) {
   return round2(Math.abs(saldoFirmadoFactura(f)));
 }
 
-function mismoParEmisorProveedor(a, b) {
+/** Misma sociedad emisora + mismo proveedor (CIF o ids). Reutilizado por exceso/sobrepago. */
+export function mismoParEmisorProveedor(a, b) {
   const cifEmA = normalizeCif(a.emisor_cif);
   const cifEmB = normalizeCif(b.emisor_cif);
   const cifProvA = normalizeCif(a.empresa_cif);

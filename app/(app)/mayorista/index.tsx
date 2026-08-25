@@ -352,10 +352,13 @@ export default function MayoristaIndexScreen() {
   };
 
   const pedirBorrar = async (n: Negociacion) => {
-    if (n.estado !== 'borrador') return;
+    if (n.estado !== 'borrador' && n.estado !== 'confirmada') return;
+    const esConfirmada = n.estado === 'confirmada';
     const ok = await confirmarDialog(
-      'Borrar borrador',
-      `¿Seguro que quieres eliminar «${n.nombre || n.id}»? Esta acción no se puede deshacer.`,
+      esConfirmada ? 'Borrar operación confirmada' : 'Borrar borrador',
+      esConfirmada
+        ? `¿Seguro que quieres eliminar la operación confirmada «${n.nombre || n.id}»? Esta acción no se puede deshacer.`
+        : `¿Seguro que quieres eliminar «${n.nombre || n.id}»? Esta acción no se puede deshacer.`,
       { confirmLabel: 'Eliminar', destructive: true },
     );
     if (ok) void ejecutarBorrar(n);
@@ -366,7 +369,7 @@ export default function MayoristaIndexScreen() {
       const r = await apiFetch(`/api/mayorista/negociaciones/${n.id}`, { method: 'DELETE' });
       const d = await r.json();
       if (!r.ok) { aviso(d.error || 'No se pudo borrar'); return; }
-      showToast('Eliminada', 'El borrador se ha eliminado.', 'success');
+      showToast('Eliminada', 'La operación se ha eliminado.', 'success');
       refrescarTodo();
     } catch (e) {
       aviso(e instanceof Error ? e.message : 'Error de conexión');
@@ -483,7 +486,7 @@ export default function MayoristaIndexScreen() {
                         <MaterialIcons name="payments" size={18} color="#7c3aed" />
                       </TouchableOpacity>
                     ) : null}
-                    {puedeBorrar && n.estado === 'borrador' ? (
+                    {puedeBorrar && (n.estado === 'borrador' || n.estado === 'confirmada') ? (
                       <TouchableOpacity
                         onPress={(e) => {
                           if (Platform.OS === 'web' && e && 'stopPropagation' in e) {
@@ -493,7 +496,7 @@ export default function MayoristaIndexScreen() {
                         }}
                         style={styles.cardActionBtn}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        accessibilityLabel="Borrar borrador"
+                        accessibilityLabel={n.estado === 'confirmada' ? 'Borrar operación confirmada' : 'Borrar borrador'}
                       >
                         <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
                       </TouchableOpacity>

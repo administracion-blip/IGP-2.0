@@ -139,6 +139,7 @@ const GRUPOS_PERMISOS: { titulo: string; codigos: string[] }[] = [
       'ia.informe_compras',
       'ia.informe_ventas_hora',
       'ia.informe_dia_a_dia',
+      'ia.informe_ventas_articulo',
       'ia.prompts_gestionar',
       'ia.ajustes',
     ],
@@ -411,6 +412,7 @@ const PERMISOS_LABELS: Record<string, string> = {
   'ia.informe_compras': 'Informes IA · Fuente Compras',
   'ia.informe_ventas_hora': 'Informes IA · Fuente Ventas por hora',
   'ia.informe_dia_a_dia': 'Informes IA · Fuente Día a día',
+  'ia.informe_ventas_articulo': 'Informes IA · Fuente Ventas por artículo',
   'ia.prompts_gestionar': 'Informes IA · Gestionar plantillas de prompt',
   'ia.ajustes': 'Informes IA · Modificar ajustes de la IA',
 };

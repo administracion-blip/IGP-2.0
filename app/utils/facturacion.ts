@@ -143,6 +143,11 @@ export type Factura = {
   total_factura: number;
   total_cobrado: number;
   saldo_pendiente: number;
+  /**
+   * Importe cobrado/pagado por encima del total (crédito aplicable a otra factura).
+   * No implica estado `pagada_exceso`: se muestra como badge sobre `pagada`/`cobrada`.
+   */
+  exceso_pendiente?: number;
   observaciones: string;
   /** Clave S3 del documento principal (misma referencia que adjuntos[0] tras OCR) */
   documento_file_key?: string;
@@ -252,6 +257,63 @@ export function labelEstado(estado: string): string {
   return map[estado] || estado;
 }
 
+/** True si el método de pago es aplicación de exceso (no editable/eliminable en UI). */
+export function esMetodoAplicacionExceso(metodo: string | undefined | null): boolean {
+  return String(metodo ?? '').trim().toLowerCase() === 'aplicacion_exceso';
+}
+
+/**
+ * Exceso pendiente efectivo: campo persistido o backfill si falta
+ * (`max(0, total_cobrado - total_factura)`), coherente con el backend.
+ */
+export function importeExcesoPendiente(
+  f: {
+    exceso_pendiente?: number | string | null;
+    total_cobrado?: number | null;
+    total_factura?: number | null;
+  } | null | undefined,
+): number {
+  if (!f) return 0;
+  const raw = f.exceso_pendiente;
+  if (raw != null && raw !== '') {
+    return round2(Math.max(0, Number(raw) || 0));
+  }
+  const cobrado = Number(f.total_cobrado) || 0;
+  const total = Number(f.total_factura) || 0;
+  return round2(Math.max(0, cobrado - total));
+}
+
+/** True si la factura tiene crédito de sobrepago pendiente de aplicar. */
+export function tieneExcesoPendiente(
+  f: {
+    exceso_pendiente?: number | string | null;
+    total_cobrado?: number | null;
+    total_factura?: number | null;
+  } | null | undefined,
+): boolean {
+  return importeExcesoPendiente(f) > 0.001;
+}
+
+/** Texto del badge «Exceso X €». */
+export function formatExcesoBadge(importe: number): string {
+  return `Exceso ${formatMoneda(Number(importe) || 0)}`;
+}
+
+/** Candidata de exceso aplicable a otra factura IN (GET excesos-disponibles). */
+export type FacturaExcesoDisponible = {
+  id_factura: string;
+  numero_factura?: string;
+  numero_factura_proveedor?: string;
+  empresa_nombre?: string;
+  emisor_nombre?: string;
+  fecha_emision?: string;
+  estado?: string;
+  total_factura?: number;
+  total_cobrado?: number;
+  exceso_pendiente: number;
+  etiqueta?: string;
+};
+
 export function colorEstado(estado: string): { bg: string; text: string } {
   const map: Record<string, { bg: string; text: string }> = {
     borrador: { bg: '#f1f5f9', text: '#64748b' },
@@ -302,6 +364,7 @@ export function labelFormaPago(fp: string): string {
     remesa: 'Remesa',
     domiciliacion: 'Domiciliación',
     compensacion: 'Compensación',
+    aplicacion_exceso: 'Aplicación de exceso',
     otro: 'Otro',
   };
   return map[fp] || fp;

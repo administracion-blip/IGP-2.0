@@ -8,8 +8,9 @@ import { objetivosMes } from './objetivosMes.js';
 import { comprasVariaciones } from './comprasVariaciones.js';
 import { ventasHora } from './ventasHora.js';
 import { diaADia } from './diaADia.js';
+import { ventasPorArticulo } from './ventasPorArticulo.js';
 
-const FUENTES = [objetivosMes, comprasVariaciones, ventasHora, diaADia];
+const FUENTES = [objetivosMes, comprasVariaciones, ventasHora, diaADia, ventasPorArticulo];
 
 const FUENTES_POR_CLAVE = new Map(FUENTES.map((f) => [f.clave, f]));
 

@@ -3,6 +3,7 @@
  * para el pipeline OCR / IA (registro masivo).
  */
 
+import { pareceCifNifEspanol } from './empresaCif.js';
 import {
   debeUsarAgregadosDesglose,
   normalizarLineasDesgloseDesdeInput,
@@ -38,12 +39,18 @@ export function sanitizarNumeroFacturaProveedor(raw) {
   const original = String(raw || '').trim();
   if (!original) return { limpio: '', original: '', fue_normalizado: false };
 
+  // Un CIF/NIF nunca es nº de factura (caso típico OCR: confunde B12345674 con el documento).
+  if (pareceCifNifEspanol(original)) {
+    return { limpio: '', original, fue_normalizado: true };
+  }
+
   const collapsed = original.replace(/\s+/g, ' ');
   const tokens = collapsed.split(/\s+/).filter(Boolean);
 
   const tryToken = (token) => {
     const clean = token.replace(/^[^\w\-\/]+|[^\w\-\/]+$/g, '');
     if (clean.length < 4 || clean.length > 36) return null;
+    if (pareceCifNifEspanol(clean)) return null;
     if (/^\d{5,8}$/.test(clean)) return null;
     if (clean.length > 12 && /^[A-Za-zÁÉÍÓÚÑáéíóúñ]+$/i.test(clean)) return null;
     if (/^[A-Za-z]{1,5}\d{3,}[A-Za-z0-9\-\/]*$/i.test(clean) && /\d/.test(clean)) return clean;
@@ -60,6 +67,7 @@ export function sanitizarNumeroFacturaProveedor(raw) {
 
   if (tokens[0]) {
     const t = tokens[0].replace(/[^\w\-\/]/g, '');
+    if (pareceCifNifEspanol(t)) return { limpio: '', original, fue_normalizado: true };
     if (t.length >= 4 && t.length <= 28) return { limpio: t, original, fue_normalizado: t !== original };
   }
 
@@ -171,6 +179,9 @@ export function aplicarPostProcesadoPipeline(datos, textoExtraido) {
 
   if (numeroSan.limpio) {
     datos.numero_factura_proveedor = numeroSan.limpio;
+  } else if (numeroSan.fue_normalizado) {
+    // Rechazado (p. ej. forma de CIF/NIF): no dejar el valor crudo.
+    datos.numero_factura_proveedor = '';
   }
 
   const desgloseLineas = normalizarLineasDesgloseDesdeInput(

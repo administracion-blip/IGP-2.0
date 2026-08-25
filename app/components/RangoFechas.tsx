@@ -37,6 +37,8 @@ type Props = {
   fill?: boolean;
   /** Campos con aspecto de trigger toolbar (coherente con desplegable Local). */
   modoToolbar?: boolean;
+  /** A false bloquea los dos campos (p. ej. mientras hay una operación en vuelo). */
+  editable?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -50,6 +52,7 @@ export function RangoFechas({
   cellWidth = 130,
   fill = false,
   modoToolbar = false,
+  editable = true,
   style,
 }: Props) {
   const cellStyle: StyleProp<ViewStyle> = fill
@@ -61,6 +64,7 @@ export function RangoFechas({
         <InputFecha
           compact
           modoToolbar={modoToolbar}
+          editable={editable}
           valueIso={desdeIso}
           onChangeIso={onChangeDesde}
           placeholder={placeholderDesde}
@@ -71,6 +75,7 @@ export function RangoFechas({
         <InputFecha
           compact
           modoToolbar={modoToolbar}
+          editable={editable}
           valueIso={hastaIso}
           onChangeIso={onChangeHasta}
           placeholder={placeholderHasta}

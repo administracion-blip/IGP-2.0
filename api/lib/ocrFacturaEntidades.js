@@ -3,7 +3,7 @@
  * La lógica fuerte vive aquí; facturacion.js solo conecta I/O (BD, HTTP).
  */
 
-import { normalizeCif, cifDigitsOnly } from './empresaCif.js';
+import { normalizeCif, cifDigitsOnly, pareceCifNifEspanol } from './empresaCif.js';
 import { limpiarIban, validarIban } from './remesas/iban.js';
 import {
   parseDesgloseFiscalFromText,
@@ -378,6 +378,77 @@ export function ambiguedadProveedorDesdeEntidades(entidades) {
   return Math.abs(n0 - n1) < 1.5;
 }
 
+/** Etiqueta fiscal inmediatamente a la izquierda del match (CIF/NIF/VAT…). */
+const LABEL_FISCAL_ANTES =
+  /\b(?:nif|cif|n\.?\s*i\.?\s*f\.?|vat|tax\s*id|identificaci[oó]n\s+fiscal)\b[\s:.\-]*$/i;
+
+function etiquetaFiscalAntes(text, index) {
+  const before = text.slice(Math.max(0, index - 48), index);
+  return LABEL_FISCAL_ANTES.test(before);
+}
+
+function esCandidatoNumeroFactura(val, cifsConocidos) {
+  const compact = String(val || '')
+    .trim()
+    .replace(/\s+/g, '');
+  if (!compact || compact.length < 2) return false;
+  // Un nº de factura casi siempre lleva dígitos; evita capturar "Emisor", "Cliente", etc.
+  if (!/\d/.test(compact)) return false;
+  if (pareceCifNifEspanol(compact)) return false;
+  const norm = normalizeCif(compact);
+  if (norm && cifsConocidos instanceof Set && cifsConocidos.has(norm)) return false;
+  return true;
+}
+
+/**
+ * Candidatos a nº de factura del proveedor, priorizando etiquetas fuertes
+ * (factura/invoice) sobre «nº» genérico, y excluyendo CIF/NIF.
+ * @param {string} text
+ * @param {Set<string>} [cifsConocidos] CIFs ya detectados (normalizados)
+ * @returns {string[]}
+ */
+export function extraerNumerosFacturaCandidatos(text, cifsConocidos = new Set()) {
+  const fuertes = [];
+  const debiles = [];
+  const seen = new Set();
+
+  const push = (arr, raw) => {
+    const val = String(raw || '')
+      .trim()
+      .replace(/\s+/g, ' ');
+    if (!val || !esCandidatoNumeroFactura(val, cifsConocidos)) return;
+    const key = val.toUpperCase().replace(/\s+/g, '');
+    if (seen.has(key)) return;
+    seen.add(key);
+    arr.push(val);
+  };
+
+  // Etiquetas fuertes: factura / fra / invoice / nº factura
+  const strongPatterns = [
+    /(?:factura|fact\.?|fra\.?|invoice|nº\s*fact(?:ura)?|n[uú]m(?:ero)?\.?\s*(?:de\s+)?fact(?:ura)?)[:\s#nº.]*\s*([A-Z0-9][A-Z0-9\-\/. ]*[A-Z0-9])/gi,
+    /(?:invoice\s*(?:no|number|#)?)[:\s]*([A-Z0-9][A-Z0-9\-\/]*)/gi,
+  ];
+  // Etiquetas débiles: nº / número genérico (a menudo junto al CIF)
+  const weakPatterns = [/(?:nº|n\.º|núm\.?|número)[:\s]+([A-Z0-9][A-Z0-9\-\/]*)/gi];
+
+  for (const regex of strongPatterns) {
+    let m;
+    while ((m = regex.exec(text)) !== null) {
+      if (etiquetaFiscalAntes(text, m.index)) continue;
+      push(fuertes, m[1]);
+    }
+  }
+  for (const regex of weakPatterns) {
+    let m;
+    while ((m = regex.exec(text)) !== null) {
+      if (etiquetaFiscalAntes(text, m.index)) continue;
+      push(debiles, m[1]);
+    }
+  }
+
+  return [...fuertes, ...debiles];
+}
+
 /**
  * total_factura = base_imponible + total_iva - retencion (coherencia con redondeo 2 decimales).
  */
@@ -588,18 +659,10 @@ export function parseTextoFacturaCompleto(text) {
     importes_coherentes = true;
   }
 
-  const numFacturas = [];
-  const nfPatterns = [
-    /(?:factura|fact\.?|fra\.?|invoice|nº\s*fact(?:ura)?|n[uú]m(?:ero)?\.?\s*(?:de\s+)?fact(?:ura)?)[:\s#nº.]*\s*([A-Z0-9][A-Z0-9\-\/. ]*[A-Z0-9])/gi,
-    /(?:nº|n\.º|núm\.?|número)[:\s]+([A-Z0-9][A-Z0-9\-\/]*)/gi,
-    /(?:invoice\s*(?:no|number|#)?)[:\s]*([A-Z0-9][A-Z0-9\-\/]*)/gi,
-  ];
-  for (const regex of nfPatterns) {
-    while ((m = regex.exec(text)) !== null) {
-      const val = m[1].trim();
-      if (val.length >= 1 && !numFacturas.includes(val)) numFacturas.push(val);
-    }
-  }
+  const cifsConocidos = new Set(
+    [...cifs, proveedor_cif].filter(Boolean).map((c) => normalizeCif(c)).filter(Boolean),
+  );
+  const numFacturas = extraerNumerosFacturaCandidatos(text, cifsConocidos);
 
   return {
     cifs,

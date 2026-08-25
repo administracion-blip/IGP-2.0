@@ -6,17 +6,74 @@
  * trabaja en euros.
  */
 
+import type { MovimientoBanca } from '../types/banca';
 import type {
+  AvisoConciliacion,
   NivelConfianza,
   SugerenciaConciliacion,
   SugerenciasDeFactura,
   TipoSugerencia,
 } from '../types/conciliacion';
+import { textoBusquedaMovimiento } from './banca';
+
+/**
+ * Misma lista que `PATRONES_EXCLUSION_POR_DEFECTO` en
+ * `api/lib/banca/conciliacion/texto.js`: ruido que no se concilia con facturas.
+ * Mantener alineada al ampliar patrones en el motor.
+ */
+export const PATRONES_EXCLUSION_MOVIMIENTOS = [
+  'COMERCIA GLOBAL PAYMENTS',
+  'MANTENIMIENTO TPV',
+  'LIQUIDACION TARJETA',
+  'TRASPASO',
+  'COMISION',
+  'NOMINA',
+  'SEGURIDAD SOCIAL',
+] as const;
+
+function normalizarParaExclusion(valor: string): string {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** true si el concepto/referencias casan con la lista negra de conciliación. */
+export function movimientoExcluidoPorPatron(
+  movimiento: MovimientoBanca,
+  patrones: readonly string[] = PATRONES_EXCLUSION_MOVIMIENTOS,
+): boolean {
+  const plano = normalizarParaExclusion(textoBusquedaMovimiento(movimiento));
+  if (!plano) return false;
+  for (const patron of patrones) {
+    const p = normalizarParaExclusion(patron);
+    if (p && plano.includes(p)) return true;
+  }
+  return false;
+}
 
 /**
  * URL del barrido de sugerencias. Sigue el patrón de `queryMovimientos` en
  * `app/lib/banca.ts`: aquí se arma la query y el fetch lo hace la pantalla.
+ *
+ * Por defecto acota movimientos a los últimos 18 meses (`desde`), igual que el
+ * backend si no se manda el parámetro.
  */
+export const MESES_BARRIDO_MOVIMIENTOS = 18;
+
+/** Hoy UTC − N meses → yyyy-mm-dd. */
+export function desdeBarridoMovimientosIso(
+  ref: Date = new Date(),
+  meses: number = MESES_BARRIDO_MOVIMIENTOS,
+): string {
+  const y = ref.getUTCFullYear();
+  const m = ref.getUTCMonth();
+  const d = ref.getUTCDate();
+  return new Date(Date.UTC(y, m - meses, d)).toISOString().slice(0, 10);
+}
+
 export function queryConciliacionSugerencias(filtros: {
   tipo: 'IN' | 'OUT';
   empresaId?: string;
@@ -27,7 +84,8 @@ export function queryConciliacionSugerencias(filtros: {
   const params = new URLSearchParams();
   params.set('tipo', filtros.tipo);
   if (filtros.empresaId?.trim()) params.set('empresaId', filtros.empresaId.trim());
-  if (filtros.desde?.trim()) params.set('desde', filtros.desde.trim());
+  const desde = filtros.desde?.trim() || desdeBarridoMovimientosIso();
+  params.set('desde', desde);
   if (filtros.hasta?.trim()) params.set('hasta', filtros.hasta.trim());
   if (filtros.limite) params.set('limite', String(filtros.limite));
   return `/api/banca/conciliacion/sugerencias?${params.toString()}`;
@@ -41,6 +99,27 @@ export function aEuros(centimos: number | undefined | null): number {
 /** Euros a céntimos enteros, redondeando (0,1 + 0,2 no da 0,3 en coma flotante). */
 export function aCentimos(euros: number | undefined | null): number {
   return Math.round(Number(euros ?? 0) * 100);
+}
+
+/** Texto de un input de importe a número; lo que no se parsea cuenta como 0. */
+export function parseImporte(texto: string | undefined): number {
+  const n = parseFloat(String(texto ?? '').replace(',', '.'));
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Los pagos se han hecho, pero el movimiento no queda a cero limpio: o no pudo
+ * anotarlos, o se le ha repartido de más resolviendo una carrera. En los dos
+ * casos hay que cuadrarlo a mano desde banca, así que no se cierra en verde.
+ *
+ * Reintentar no lo arregla: la factura ya está al corriente.
+ */
+export function necesitaRepaso(
+  respuesta: { code?: string; avisos?: AvisoConciliacion[] } | null | undefined,
+): boolean {
+  if (!respuesta) return false;
+  if (respuesta.code === 'CONFLICTO_MOVIMIENTO') return true;
+  return (respuesta.avisos || []).some((a) => a.code === 'MOVIMIENTO_SOBREASIGNADO');
 }
 
 /** Colores del icono y del badge según lo fiable que sea la sugerencia. */

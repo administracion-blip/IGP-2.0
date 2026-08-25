@@ -19,13 +19,12 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   formatMoneda,
+  importeExcesoPendiente,
   labelEstado,
   colorEstado,
   ESTADOS_OUT,
-  FORMAS_PAGO,
-  labelFormaPago,
   mapTipoReciboToFormaPago,
-  resolveMetodoPagoParaEnvio,
+  tieneExcesoPendiente,
 } from '../../utils/facturacion';
 import type { FacturaListado, SerieFactura } from '../../types/factura';
 import { fechaEmisionFacturaAIso, formatFechaPagoRow } from '../../utils/formatFecha';
@@ -34,8 +33,13 @@ import { getTipoReciboFromEmpresasList, type EmpresaConTipoRecibo } from '../../
 import { resolverIbanBeneficiarioFactura } from '../../lib/resolverIbanFactura';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { BadgeAbono } from '../../components/BadgeAbono';
+import { BadgeExceso } from '../../components/BadgeExceso';
 import { InputFecha } from '../../components/InputFecha';
-import { DatosParaPago, RegistrarPagoModal, type RegistrarPagoPayloadFactura } from '../../components/RegistrarPagoModal';
+import {
+  RegistrarPagoModal,
+  type RegistrarPagoInitial,
+  type RegistrarPagoPayloadFactura,
+} from '../../components/RegistrarPagoModal';
 import { useConfirmar } from '../../hooks/useConfirmar';
 import { buildConceptoRemesaFacturaRecibida } from '../../lib/conceptoRemesa';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
@@ -54,6 +58,7 @@ import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { apiFetch } from '../../utils/api';
 import { buildEmpresasDesdeFacturasHref } from '../../lib/navegacionEmpresas';
 import IconoSugerenciaConciliacion from '../../components/conciliacion/IconoSugerenciaConciliacion';
+import { PanelMovimientosFactura } from '../../components/conciliacion/PanelMovimientosFactura';
 import ConciliarMovimientoModal, {
   type ResultadoConciliacion,
 } from '../../components/conciliacion/ConciliarMovimientoModal';
@@ -194,12 +199,9 @@ export default function FacturasVentaScreen() {
 
   const [modalAnularVisible, setModalAnularVisible] = useState(false);
   const [modalCobrarVisible, setModalCobrarVisible] = useState(false);
-  const [cobroImporte, setCobroImporte] = useState('');
-  const [cobroFecha, setCobroFecha] = useState('');
-  const [cobroMetodo, setCobroMetodo] = useState<string>('transferencia');
-  const [cobroMetodoOtro, setCobroMetodoOtro] = useState('');
-  const [cobroFechaEditadaManual, setCobroFechaEditadaManual] = useState(false);
-  const [cobroReferencia, setCobroReferencia] = useState('');
+  /** El panel de movimientos tiene una conciliación en vuelo: no se puede cobrar a mano ni cerrar. */
+  const [conciliandoEnPanel, setConciliandoEnPanel] = useState(false);
+  const [cobroInitial, setCobroInitial] = useState<RegistrarPagoInitial>({});
   const [errorModal, setErrorModal] = useState<string | null>(null);
   const [haySeries, setHaySeries] = useState(true);
   const [empresasCatalogo, setEmpresasCatalogo] = useState<EmpresaConTipoRecibo[]>([]);
@@ -310,6 +312,13 @@ export default function FacturasVentaScreen() {
 
   useEffect(() => { cargarSugerencias(); }, [cargarSugerencias]);
 
+  /** El listado y las sugerencias tienen que ir a la vez: si cambia el saldo o el
+   *  estado de una factura, las sugerencias viejas dejan de valer. */
+  const refrescarListadoYSugerencias = useCallback(() => {
+    refetch();
+    cargarSugerencias();
+  }, [refetch, cargarSugerencias]);
+
   const onConciliacionAplicada = useCallback(
     (resultado: ResultadoConciliacion) => {
       setConciliarEntrada(null);
@@ -321,10 +330,25 @@ export default function FacturasVentaScreen() {
         resultado.parcial ? 'warning' : 'success',
       );
       // El saldo pendiente ha cambiado: las sugerencias viejas ya no valen.
-      refetch();
-      cargarSugerencias();
+      refrescarListadoYSugerencias();
     },
-    [showToast, refetch, cargarSugerencias],
+    [showToast, refrescarListadoYSugerencias],
+  );
+
+  /** Conciliar desde el modal de cobro ya registra el cobro: se cierra el modal. */
+  const onCobroConciliadoDesdePanel = useCallback(
+    (resumen: { importe: number; mensaje: string; requiereRevision?: boolean }) => {
+      setConciliandoEnPanel(false);
+      setModalCobrarVisible(false);
+      showToast(
+        resumen.requiereRevision ? 'Cobro registrado · revisa el movimiento' : 'Cobro registrado',
+        resumen.mensaje,
+        resumen.requiereRevision ? 'warning' : 'success',
+      );
+      refrescarListadoYSugerencias();
+      setSelectedId(null);
+    },
+    [showToast, refrescarListadoYSugerencias],
   );
 
   const onSugerenciaDescartada = useCallback(
@@ -376,11 +400,11 @@ export default function FacturasVentaScreen() {
 
       if (primerFocoListado.current) {
         primerFocoListado.current = false;
-        if (modalId || maestroOk) refetch();
+        if (modalId || maestroOk) refrescarListadoYSugerencias();
         return;
       }
-      refetch();
-    }, [refetch, searchParams.modalFactura, searchParams.maestroActualizado, router, showToast]),
+      refrescarListadoYSugerencias();
+    }, [refrescarListadoYSugerencias, searchParams.modalFactura, searchParams.maestroActualizado, router, showToast]),
   );
 
   const emisoresOpciones = useMemo(() => {
@@ -575,7 +599,7 @@ export default function FacturasVentaScreen() {
       const res = await apiFetch(`/api/facturacion/facturas/${selectedId}/duplicar`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Error al duplicar'); return; }
-      refetch();
+      refrescarListadoYSugerencias();
       setSelectedId(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error de conexión');
@@ -591,7 +615,7 @@ export default function FacturasVentaScreen() {
       const res = await apiFetch(`/api/facturacion/facturas/${selectedId}/emitir`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Error al emitir'); return; }
-      refetch();
+      refrescarListadoYSugerencias();
       setSelectedId(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error de conexión');
@@ -610,7 +634,7 @@ export default function FacturasVentaScreen() {
       const data = await res.json();
       if (!res.ok) { setErrorModal(data.error || 'Error al anular'); setOperando(false); return; }
       setModalAnularVisible(false);
-      refetch();
+      refrescarListadoYSugerencias();
       setSelectedId(null);
     } catch (e) {
       setErrorModal(e instanceof Error ? e.message : 'Error de conexión');
@@ -622,34 +646,22 @@ export default function FacturasVentaScreen() {
   const abrirModalCobrar = () => {
     if (!selectedFactura) return;
     setErrorModal(null);
-    setCobroFechaEditadaManual(false);
-    setCobroImporte((selectedFactura.saldo_pendiente ?? 0) > 0 ? String(selectedFactura.saldo_pendiente) : '');
-    setCobroReferencia('');
 
     const tipoRecibo = getTipoReciboFromEmpresasList(empresasCatalogo, selectedFactura.empresa_id);
     const { clave, otroTexto } = mapTipoReciboToFormaPago(tipoRecibo);
-    setCobroMetodo(clave);
-    setCobroMetodoOtro(clave === 'otro' ? otroTexto : '');
 
     const hoy = hoyISO();
     const fechaFactura = fechaEmisionFacturaAIso(selectedFactura.fecha_emision ?? '') ?? hoy;
-    setCobroFecha(clave === 'tarjeta' ? fechaFactura : hoy);
 
+    setCobroInitial({
+      fecha: clave === 'tarjeta' ? fechaFactura : hoy,
+      metodo: clave,
+      metodoOtro: clave === 'otro' ? otroTexto : '',
+      referencia: '',
+      importe: (selectedFactura.saldo_pendiente ?? 0) > 0 ? String(selectedFactura.saldo_pendiente) : '',
+    });
+    setConciliandoEnPanel(false);
     setModalCobrarVisible(true);
-  };
-
-  const aplicarFechaSegunMetodo = (metodo: string, fechaFacturaIso: string, hoy: string) => {
-    if (metodo === 'tarjeta') return fechaFacturaIso;
-    return hoy;
-  };
-
-  const onCambiarMetodoCobro = (m: string) => {
-    setCobroMetodo(m);
-    if (m !== 'otro') setCobroMetodoOtro('');
-    if (!selectedFactura || cobroFechaEditadaManual) return;
-    const hoy = hoyISO();
-    const fechaFactura = fechaEmisionFacturaAIso(selectedFactura.fecha_emision ?? '') ?? hoy;
-    setCobroFecha(aplicarFechaSegunMetodo(m, fechaFactura, hoy));
   };
 
   const recargarDetallePagos = useCallback(async (idFactura: string) => {
@@ -684,11 +696,11 @@ export default function FacturasVentaScreen() {
   }, []);
 
   const sincronizarFacturaTrasPago = useCallback((facturaActualizada: FacturaListado | null) => {
-    refetch();
+    refrescarListadoYSugerencias();
     if (facturaActualizada && detallePagosFactura?.id_factura === facturaActualizada.id_factura) {
       setDetallePagosFactura((prev) => (prev ? { ...prev, ...facturaActualizada } : prev));
     }
-  }, [detallePagosFactura?.id_factura, refetch]);
+  }, [detallePagosFactura?.id_factura, refrescarListadoYSugerencias]);
 
   const handleEditarPagoDetalle = useCallback((pago: PagoDetalleRow) => {
     setPagoDetalleEditando(pago);
@@ -709,6 +721,7 @@ export default function FacturasVentaScreen() {
         detallePagosFactura.id_factura,
         String(pago.id_pago),
         { id: user?.id_usuario, nombre: user?.Nombre },
+        pago,
       );
       showToast('Eliminado', 'Cobro eliminado correctamente', 'success');
       sincronizarFacturaTrasPago(factura);
@@ -758,33 +771,29 @@ export default function FacturasVentaScreen() {
     recargarDetallePagos,
   ]);
 
-  const confirmarCobro = async () => {
+  /**
+   * Este cobro no manda `usuario_id` / `usuario_nombre` a propósito: la auditoría
+   * del listado de venta se comporta así desde siempre y unificarlo no entra aquí.
+   */
+  const confirmarCobro = async (payload: RegistrarPagoPayloadFactura) => {
     if (!selectedId) return;
-    const importe = parseFloat(cobroImporte);
-    if (isNaN(importe) || importe <= 0) { setErrorModal('El importe debe ser mayor que 0'); return; }
-    const fechaIso = cobroFecha.trim();
-    if (!fechaIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) { setErrorModal('Indica una fecha válida'); return; }
-    const metodoEnvio = resolveMetodoPagoParaEnvio(cobroMetodo, cobroMetodoOtro);
-    if (metodoEnvio == null) {
-      setErrorModal('Describe el método de pago (campo obligatorio si eliges «Otro»)');
-      return;
-    }
     setOperando(true);
     setErrorModal(null);
     try {
       const res = await apiFetch(`/api/facturacion/facturas/${selectedId}/pagos`, {
         method: 'POST',
         body: JSON.stringify({
-          fecha: fechaIso,
-          importe,
-          metodo_pago: metodoEnvio,
-          referencia: cobroReferencia.trim() || undefined,
+          fecha: payload.fecha,
+          importe: payload.importe,
+          metodo_pago: payload.metodo_pago,
+          referencia: payload.referencia.trim() || undefined,
+          observaciones: payload.observaciones,
         }),
       });
       const data = await res.json();
       if (!res.ok) { setErrorModal(data.error || 'Error al registrar cobro'); setOperando(false); return; }
       setModalCobrarVisible(false);
-      refetch();
+      refrescarListadoYSugerencias();
       setSelectedId(null);
     } catch (e) {
       setErrorModal(e instanceof Error ? e.message : 'Error de conexión');
@@ -1014,7 +1023,7 @@ export default function FacturasVentaScreen() {
           {hoveredBtn === 'refresh' && (
             <View style={styles.tooltip}><Text style={styles.tooltipText}>Actualizar</Text></View>
           )}
-          <TouchableOpacity style={styles.toolbarBtn} onPress={refetch} disabled={loading} accessibilityLabel="Actualizar">
+          <TouchableOpacity style={styles.toolbarBtn} onPress={refrescarListadoYSugerencias} disabled={loading} accessibilityLabel="Actualizar">
             <MaterialIcons name="refresh" size={18} color={loading ? '#94a3b8' : '#0ea5e9'} />
           </TouchableOpacity>
         </View>
@@ -1191,7 +1200,12 @@ export default function FacturasVentaScreen() {
                   {COLUMNAS.map((col) => (
                     <View key={col.key} style={[styles.cell, { width: getColWidth(col.key) }]}>
                       {col.key === 'estado' ? (
-                        <BadgeEstado estado={item.estado ?? ''} compact />
+                        <View style={styles.estadoBadgesRow}>
+                          <BadgeEstado estado={item.estado ?? ''} compact />
+                          {tieneExcesoPendiente(item) ? (
+                            <BadgeExceso importe={importeExcesoPendiente(item)} compact />
+                          ) : null}
+                        </View>
                       ) : col.key === 'numero_factura' && item.es_abono ? (
                         /* Un abono no es una factura: se distingue sin abrir el detalle */
                         <View style={styles.cellAbonoRow}>
@@ -1251,7 +1265,7 @@ export default function FacturasVentaScreen() {
         usuarioId={user?.id_usuario}
         usuarioNombre={user?.Nombre}
         onClose={() => setModalFacturaId(null)}
-        onGuardado={refetch}
+        onGuardado={refrescarListadoYSugerencias}
         resyncMaestroToken={resyncMaestroToken}
         onAbrirCompleto={(id) => router.push(`/facturacion/factura-detalle?id=${id}&modo=editar&tipo=OUT` as any)}
       />
@@ -1304,28 +1318,34 @@ export default function FacturasVentaScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Modal cobrar — mismo diseño que Registrar pago (facturas recibidas) */}
-      <Modal visible={modalCobrarVisible} transparent animationType="fade" onRequestClose={() => setModalCobrarVisible(false)}>
-        <Pressable style={styles.modalDetalleOverlay} onPress={() => !operando && setModalCobrarVisible(false)}>
-          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitleForm}>Registrar cobro</Text>
-            {selectedFactura?.emisor_nombre ? (
-              <View style={styles.modalEmpresaChipRow}>
-                <Text style={styles.modalEmpresaChipLabel}>Empresa</Text>
-                <View style={styles.modalEmpresaChip}>
-                  <Text style={styles.modalEmpresaChipText} numberOfLines={1}>
-                    {selectedFactura.emisor_nombre}
-                  </Text>
-                </View>
-              </View>
-            ) : null}
-            <Text style={styles.modalLabel}>
-              Factura: {selectedFactura?.numero_factura || selectedFactura?.id_factura} — Saldo:{' '}
-              {selectedFactura ? formatMoneda(Number(selectedFactura.saldo_pendiente) || 0) : ''}
-            </Text>
-
-            <DatosParaPago
-              datosPago={selectedFactura ? {
+      {/* Modal cobrar (componente estándar del proyecto, con panel de movimientos) */}
+      <RegistrarPagoModal
+        visible={modalCobrarVisible}
+        onClose={() => {
+          if (operando) return;
+          setConciliandoEnPanel(false);
+          setModalCobrarVisible(false);
+        }}
+        modo="factura"
+        variant="cobro"
+        initial={cobroInitial}
+        tituloPersonalizado={
+          selectedFactura
+            ? `Registrar cobro · Factura ${selectedFactura.numero_factura || selectedFactura.id_factura}`
+              + ` — Saldo ${formatMoneda(Number(selectedFactura.saldo_pendiente) || 0)}`
+            : 'Registrar cobro'
+        }
+        textoBotonPersonalizado="Cobrar"
+        empresaPagadoraNombre={selectedFactura?.emisor_nombre ?? ''}
+        fechaFactura={selectedFactura?.fecha_emision}
+        fechaReferenciaTarjeta={
+          selectedFactura
+            ? fechaEmisionFacturaAIso(selectedFactura.fecha_emision ?? '') ?? undefined
+            : undefined
+        }
+        datosPago={
+          selectedFactura
+            ? {
                 beneficiario: selectedFactura.emisor_nombre ?? '',
                 iban: resolverIbanBeneficiarioFactura(
                   {
@@ -1341,90 +1361,33 @@ export default function FacturasVentaScreen() {
                   proveedorNombre: selectedFactura.empresa_nombre,
                   observaciones: selectedFactura.observaciones,
                 }),
-              } : undefined}
-            />
-
-            <View style={[styles.modalPagoFechaMetodoRow, shouldStackToolbar && styles.modalPagoFechaMetodoRowStacked]}>
-              <View style={styles.modalPagoFechaCell}>
-                <Text style={styles.modalFieldLabelInline}>Fecha del cobro *</Text>
-                <InputFecha
-                  compact
-                  valueIso={cobroFecha}
-                  onChangeIso={(v) => {
-                    setCobroFecha(v);
-                    setCobroFechaEditadaManual(true);
-                  }}
-                  placeholder="dd/mm/aaaa"
-                  style={styles.modalDateFilterInput}
-                />
-              </View>
-              <View style={styles.modalPagoMetodoCell}>
-                <Text style={styles.modalFieldLabelInline}>Método de pago</Text>
-                <SelectorDesplegable
-                  compact
-                  icono="payments"
-                  tituloLista="Método de pago"
-                  iconoLista="payments"
-                  valorId={cobroMetodo}
-                  opciones={FORMAS_PAGO.map((m) => ({ id: m, titulo: labelFormaPago(m), icono: 'payments' as const }))}
-                  onSeleccionar={(id) => onCambiarMetodoCobro(id)}
-                />
-              </View>
-            </View>
-
-            <Text style={styles.modalFieldLabel}>Importe</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={cobroImporte}
-              onChangeText={setCobroImporte}
-              placeholder="0,00"
-              placeholderTextColor="#94a3b8"
-              keyboardType="decimal-pad"
-            />
-
-            {cobroMetodo === 'otro' && (
-              <>
-                <Text style={styles.modalFieldLabel}>Describe el método *</Text>
-                <TextInput
-                  style={styles.modalInput}
-                  value={cobroMetodoOtro}
-                  onChangeText={setCobroMetodoOtro}
-                  placeholder="Ej. Cheque, PayPal…"
-                  placeholderTextColor="#94a3b8"
-                />
-              </>
-            )}
-
-            <Text style={styles.modalFieldLabel}>Referencia (opcional)</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={cobroReferencia}
-              onChangeText={setCobroReferencia}
-              placeholder="Nº transferencia, recibo…"
-              placeholderTextColor="#94a3b8"
-            />
-
-            {errorModal ? <Text style={styles.modalErrorInline}>{errorModal}</Text> : null}
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setModalCobrarVisible(false)} disabled={operando}>
-                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalBtnConfirm, operando && styles.modalBtnDisabled]}
-                onPress={confirmarCobro}
-                disabled={operando}
-              >
-                {operando ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.modalBtnConfirmText}>Cobrar</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+              }
+            : undefined
+        }
+        panelLateral={
+          selectedFactura && String(selectedFactura.emisor_id ?? '').trim() && puedeVerConciliacion
+            ? (
+              <PanelMovimientosFactura
+                idFactura={selectedFactura.id_factura}
+                numeroFactura={selectedFactura.numero_factura?.trim() || selectedFactura.id_factura}
+                empresaId={String(selectedFactura.emisor_id ?? '').trim()}
+                tipo="OUT"
+                fechaEmision={selectedFactura.fecha_emision}
+                contraparteNombre={selectedFactura.empresa_nombre}
+                saldoPendiente={Math.abs(Number(selectedFactura.saldo_pendiente ?? 0))}
+                puedeConciliar={puedeGestionarPagos}
+                onConciliado={onCobroConciliadoDesdePanel}
+                onOcupadoChange={setConciliandoEnPanel}
+              />
+            )
+            : undefined
+        }
+        bloqueadoPorPanel={conciliandoEnPanel}
+        submitting={operando}
+        errorExterno={errorModal ?? undefined}
+        onValidationError={(titulo, mensaje) => showToast(titulo, mensaje, 'warning')}
+        onSubmit={confirmarCobro}
+      />
 
       <Modal visible={modalDetallePagosVisible} transparent animationType="fade" onRequestClose={cerrarModalDetallePagos}>
         <Pressable style={styles.modalDetalleOverlay} onPress={cerrarModalDetallePagos}>
@@ -1728,6 +1691,7 @@ const styles = StyleSheet.create({
   },
   cellPagadoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 },
   cellAbonoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 },
+  estadoBadgesRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
   cellTextFlex: { flex: 1, minWidth: 0 },
   cellPagadoIconBtn: { padding: 2 },
   cellText: { fontSize: 9, color: '#475569', lineHeight: 12, ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}) },
@@ -1782,103 +1746,11 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e2e8f0',
   },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#334155', marginBottom: 4 },
-  modalTitleForm: { fontSize: 16, fontWeight: '700', color: '#334155', marginBottom: 8 },
-  modalLabel: { fontSize: 12, color: '#64748b', marginBottom: 12, lineHeight: 18 },
-  modalFieldLabel: { fontSize: 11, fontWeight: '600', color: '#334155', marginBottom: 4, marginTop: 8 },
-  modalFieldLabelInline: { fontSize: 11, fontWeight: '600', color: '#334155', marginBottom: 4 },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 13,
-    color: '#334155',
-    backgroundColor: '#f8fafc',
-  },
-  modalErrorInline: { fontSize: 12, color: '#dc2626', marginTop: 8 },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
-    marginTop: 16,
-  },
-  modalBtnCancel: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
-  },
-  modalBtnCancelText: { fontSize: 13, color: '#64748b', fontWeight: '500' },
-  modalBtnConfirm: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#0ea5e9',
-  },
-  modalBtnConfirmText: { fontSize: 13, color: '#fff', fontWeight: '600' },
-  modalBtnDisabled: { opacity: 0.6 },
-  modalEmpresaChipRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 6,
-    marginTop: 2,
-    flexWrap: 'wrap',
-  },
-  modalEmpresaChipLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#64748b',
-  },
-  modalEmpresaChip: {
-    backgroundColor: '#e0f2fe',
-    borderWidth: 1,
-    borderColor: '#bae6fd',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    maxWidth: '100%',
-  },
-  modalEmpresaChipText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#0369a1',
-  },
   modalSubtitle: { fontSize: 13, color: '#64748b', lineHeight: 18 },
   modalClose: { padding: 4, marginTop: -4 },
   modalBody: { paddingHorizontal: 24, paddingVertical: 20, gap: 12 },
   formLabel: { fontSize: 12, fontWeight: '600', color: '#334155', marginBottom: 4 },
   formLabelInline: { fontSize: 12, fontWeight: '600', color: '#334155', marginBottom: 4 },
-  modalPagoFechaMetodoRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
-    marginTop: 8,
-  },
-  modalPagoFechaMetodoRowStacked: {
-    flexDirection: 'column',
-    alignItems: 'stretch',
-  },
-  modalPagoFechaCell: {
-    width: 130,
-  },
-  modalPagoMetodoCell: {
-    flex: 1,
-    minWidth: 0,
-  },
-  modalDateFilterInput: {
-    width: '100%',
-    height: 32,
-    minHeight: 32,
-    fontSize: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
-  },
   formInput: {
     fontSize: 13,
     color: '#334155',

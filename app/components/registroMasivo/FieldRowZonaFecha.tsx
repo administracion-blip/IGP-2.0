@@ -33,6 +33,8 @@ export function FieldRowZonaFecha({
   onZona,
   zonaActiva,
   focusFieldId,
+  maxIso,
+  minIso,
 }: {
   label: string;
   valueIso: string;
@@ -42,6 +44,8 @@ export function FieldRowZonaFecha({
   onZona: () => void;
   zonaActiva?: boolean;
   focusFieldId?: string;
+  maxIso?: string;
+  minIso?: string;
 }) {
   const iso = normalizarIsoFecha(valueIso);
   const focus = useRegistroMasivoField(focusFieldId);
@@ -62,6 +66,8 @@ export function FieldRowZonaFecha({
           inputRef={focus.ref}
           onFocus={focus.onFocus}
           onKeyDown={focus.onKeyDown as never}
+          maxIso={maxIso}
+          minIso={minIso}
         />
       </View>
       <TouchableOpacity

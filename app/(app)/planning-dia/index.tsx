@@ -90,6 +90,14 @@ const TARJETAS_INTERNAS: TarjetaInterna[] = [
     ruta: '/mantenimiento/limpieza/registros',
     permiso: 'limpieza.ver',
   },
+  {
+    id: 'reportar-incidencia',
+    label: 'Reportar incidencia',
+    descripcion: 'Avisar de una avería o incidencia en el local',
+    icon: 'report-problem',
+    ruta: '/mantenimiento/reportar',
+    permiso: 'mantenimiento.crear',
+  },
 ];
 
 function aviso(msg: string) {

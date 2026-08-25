@@ -20,10 +20,12 @@ import {
   type RegistrarPagoInitial,
   type RegistrarPagoPayloadFactura,
 } from '../../components/RegistrarPagoModal';
+import { PanelMovimientosFactura } from '../../components/conciliacion/PanelMovimientosFactura';
 import { registrarPagoFacturaApi } from '../../lib/pagosFacturaDetalle';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { BadgeEnRemesa } from '../../components/BadgeEnRemesa';
 import { BadgeAbono } from '../../components/BadgeAbono';
+import { BadgeExceso } from '../../components/BadgeExceso';
 import { CampoIdDocumentoFacturaRecibida } from '../../components/CampoIdDocumentoFacturaRecibida';
 import { CampoIdFactura } from '../../components/CampoIdFactura';
 import { CampoConceptoRemesaFacturaRecibida } from '../../components/CampoConceptoRemesaFacturaRecibida';
@@ -38,9 +40,11 @@ import {
   CONDICIONES_PAGO,
   calcularLinea,
   formatMoneda,
+  importeExcesoPendiente,
   labelFormaPago,
   avisoSignoAbono,
   mapTipoReciboToFormaPago,
+  tieneExcesoPendiente,
   type LineaFactura,
   type Factura,
   type EmpresaFactura,
@@ -58,6 +62,10 @@ import {
 } from '../../utils/facturaFormLogic';
 import { useFacturaFormLogic } from '../../hooks/useFacturaFormLogic';
 import { fechaEmisionFacturaAIso, formatCreadoEn, formatFechaPagoRow, textoFechaContabilizacionGasto } from '../../utils/formatFecha';
+import {
+  errorFechaEmisionDemasiadoFutura,
+  fechaEmisionMaximaPermitidaIso,
+} from '../../lib/fechaEmisionLimite';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalToast, detectToastType } from '../../components/Toast';
 import { MIN_TOUCH } from '../../constants/layout';
@@ -135,6 +143,8 @@ export default function FacturaDetalleScreen() {
 
   const [estado, setEstado] = useState('borrador');
   const [saldoPendiente, setSaldoPendiente] = useState(0);
+  const [totalCobrado, setTotalCobrado] = useState(0);
+  const [excesoPendiente, setExcesoPendiente] = useState(0);
   const [numeroFactura, setNumeroFactura] = useState('');
   const [serie, setSerie] = useState('');
   const [fechaOperacion, setFechaOperacion] = useState('');
@@ -198,6 +208,8 @@ export default function FacturaDetalleScreen() {
   const [pagoInitial, setPagoInitial] = useState<RegistrarPagoInitial>({});
   const [fechaReferenciaTarjetaPago, setFechaReferenciaTarjetaPago] = useState<string | undefined>();
   const [savingPago, setSavingPago] = useState(false);
+  /** El panel de movimientos tiene una conciliación en vuelo: no se puede pagar a mano ni cerrar. */
+  const [conciliandoEnPanel, setConciliandoEnPanel] = useState(false);
 
   /** Remesa Borrador/Generada que incluye esta factura IN (campo hermano del GET detalle) */
   const [remesaActiva, setRemesaActiva] = useState<RemesaActivaFactura | null>(null);
@@ -261,8 +273,13 @@ export default function FacturaDetalleScreen() {
   const puedeRegistrarPago =
     modo === 'editar' &&
     hasPermiso('facturacion.cobrar_pagar') &&
-    ['emitida', 'parcialmente_cobrada', 'pendiente_pago', 'parcialmente_pagada', 'pendiente_revision'].includes(estado) &&
+    (
+      ['emitida', 'parcialmente_cobrada', 'pendiente_pago', 'parcialmente_pagada', 'pendiente_revision'].includes(estado)
+      || (tipo === 'IN' && estado === 'pagada')
+    ) &&
     !(tipo === 'IN' && !!remesaActiva);
+  /** El listado de movimientos del panel de conciliación es del módulo Banca. */
+  const puedeVerConciliacion = hasPermiso('banca.ver');
   const puedeDuplicar = modo === 'editar';
   const puedeRectificar =
     modo === 'editar' &&
@@ -406,6 +423,8 @@ export default function FacturaDetalleScreen() {
       );
       setEstado(f.estado);
       setSaldoPendiente(Number(f.saldo_pendiente ?? f.total_factura ?? 0));
+      setTotalCobrado(Number(f.total_cobrado ?? 0));
+      setExcesoPendiente(importeExcesoPendiente(f));
       setNumeroFactura(f.numero_factura ?? '');
       setSerie(f.serie);
       setFechaEmision(fechaEmisionFacturaAIso(f.fecha_emision ?? '') ?? '');
@@ -605,6 +624,10 @@ export default function FacturaDetalleScreen() {
       return;
     }
     if (!fechaEmision) { alertMsg('Error', 'Indica la fecha de emisión'); return; }
+    if (modo === 'crear') {
+      const errFecha = errorFechaEmisionDemasiadoFutura(fechaEmision);
+      if (errFecha) { alertMsg('Fecha inválida', errFecha); return; }
+    }
     setSaving(true);
     setError('');
     try {
@@ -656,6 +679,8 @@ export default function FacturaDetalleScreen() {
     try {
       if (modo === 'crear') {
         if (!emisorNombre || !empresaId || !serie || !fechaEmision) { alertMsg('Error', 'Completa los campos obligatorios (emisor, receptor, serie, fecha)'); setSaving(false); return; }
+        const errFecha = errorFechaEmisionDemasiadoFutura(fechaEmision);
+        if (errFecha) { alertMsg('Fecha inválida', errFecha); setSaving(false); return; }
         const createRes = await apiFetch('/api/facturacion/facturas', {
           method: 'POST',
           body: JSON.stringify(buildPayload()),
@@ -796,6 +821,7 @@ export default function FacturaDetalleScreen() {
       observaciones: '',
       importe: '',
     });
+    setConciliandoEnPanel(false);
     setShowPagoModal(true);
   };
 
@@ -821,6 +847,22 @@ export default function FacturaDetalleScreen() {
       setSavingPago(false);
     }
   };
+
+  /** Conciliar desde el panel ya registra el pago: se cierra el modal y se recarga la ficha. */
+  const onPagoConciliadoDesdePanel = useCallback(
+    (resumen: { importe: number; mensaje: string; requiereRevision?: boolean }) => {
+      setConciliandoEnPanel(false);
+      setShowPagoModal(false);
+      const base = esVenta ? 'Cobro registrado' : 'Pago registrado';
+      showToast(
+        resumen.requiereRevision ? `${base} · revisa el movimiento` : base,
+        resumen.mensaje,
+        resumen.requiereRevision ? 'warning' : 'success',
+      );
+      fetchFactura();
+    },
+    [esVenta, showToast, fetchFactura],
+  );
 
   const quitarDeRemesa = async () => {
     if (!remesaActiva || !facturaId || tipo !== 'IN') return;
@@ -1068,6 +1110,9 @@ export default function FacturaDetalleScreen() {
         <View style={styles.headerTitleWrap}>
           <Text style={styles.title}>{titulo}</Text>
           {modo === 'editar' && <BadgeEstado estado={estado} />}
+          {modo === 'editar' && tieneExcesoPendiente({ exceso_pendiente: excesoPendiente }) ? (
+            <BadgeExceso importe={excesoPendiente} />
+          ) : null}
           {tipo === 'IN' && remesaActiva ? <BadgeEnRemesa /> : null}
           {esVenta && esAbono ? <BadgeAbono /> : null}
         </View>
@@ -1335,7 +1380,13 @@ export default function FacturaDetalleScreen() {
           {/* Fecha emisión */}
           <View style={styles.field}>
             <Text style={styles.label}>Fecha emisión *</Text>
-            <InputFecha valueIso={fechaEmision} onChangeIso={setFechaEmision} placeholder="dd/mm/aaaa" editable={esEditable} />
+            <InputFecha
+              valueIso={fechaEmision}
+              onChangeIso={setFechaEmision}
+              placeholder="dd/mm/aaaa"
+              editable={esEditable}
+              maxIso={modo === 'crear' ? fechaEmisionMaximaPermitidaIso() : undefined}
+            />
           </View>
 
           {/* Fecha operación */}
@@ -1648,6 +1699,9 @@ export default function FacturaDetalleScreen() {
             total_factura={totales.total_factura}
             desglose_iva={totales.desglose_iva}
             desglose_retencion={totales.desglose_retencion}
+            total_cobrado={modo === 'editar' ? totalCobrado : undefined}
+            saldo_pendiente={modo === 'editar' && saldoPendiente > 0 ? saldoPendiente : undefined}
+            exceso_pendiente={modo === 'editar' ? excesoPendiente : undefined}
           />
         </View>
       </View>
@@ -1811,15 +1865,53 @@ export default function FacturaDetalleScreen() {
 
       <RegistrarPagoModal
         visible={showPagoModal}
-        onClose={() => setShowPagoModal(false)}
+        onClose={() => {
+          setConciliandoEnPanel(false);
+          setShowPagoModal(false);
+        }}
         modo="factura"
         variant={esVenta ? 'cobro' : 'pago'}
         initial={pagoInitial}
+        empresaPagadoraNombre={emisorNombre}
+        fechaFactura={fechaEmision}
         fechaReferenciaTarjeta={fechaReferenciaTarjetaPago}
         datosPago={datosPagoModal}
         habilitarCompensacion={!esVenta}
         facturaId={facturaId}
         saldoOrigen={saldoPendiente}
+        avisoSobrepago={tipo === 'IN' && estado === 'pagada'}
+        habilitarAplicacionExceso={
+          tipo === 'IN'
+          && estado !== 'pagada'
+          && Math.abs(Number(saldoPendiente) || 0) > 0.001
+        }
+        onAplicacionExcesoSuccess={() => {
+          setShowPagoModal(false);
+          alertMsg('Registrado', 'Exceso aplicado correctamente');
+          fetchFactura();
+        }}
+        panelLateral={
+          modo === 'editar' && facturaId && String(emisorId ?? '').trim() && puedeVerConciliacion
+            ? (
+              <PanelMovimientosFactura
+                idFactura={facturaId}
+                numeroFactura={
+                  numFacturaProveedor?.trim() || numeroFactura?.trim() || facturaId
+                }
+                empresaId={String(emisorId ?? '').trim()}
+                tipo={esVenta ? 'OUT' : 'IN'}
+                fechaEmision={fechaEmision}
+                fechaVencimiento={fechaVencimiento}
+                contraparteNombre={empresaNombre}
+                saldoPendiente={Math.abs(Number(saldoPendiente ?? 0))}
+                puedeConciliar={hasPermiso('facturacion.cobrar_pagar')}
+                onConciliado={onPagoConciliadoDesdePanel}
+                onOcupadoChange={setConciliandoEnPanel}
+              />
+            )
+            : undefined
+        }
+        bloqueadoPorPanel={conciliandoEnPanel}
         submitting={savingPago}
         onValidationError={alertMsg}
         onSubmit={registrarPago}

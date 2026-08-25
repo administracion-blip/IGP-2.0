@@ -33,6 +33,7 @@ import {
   listarFacturasElegibles,
   listarMovimientosAbiertos,
   normalizarLimiteBarrido,
+  desdeBarridoMovimientosPorDefecto,
 } from '../lib/banca/conciliacion/store.js';
 import {
   HTTP_POR_CODIGO,
@@ -145,17 +146,21 @@ function movimientoToApi(entrada) {
  * Barre los movimientos abiertos del rango contra las facturas conciliables y
  * devuelve las sugerencias agrupadas por factura (que es como las consume el
  * listado de facturas) y por movimiento (como las consume la pantalla de banca).
+ *
+ * Sin `desde`, se aplica por defecto los últimos 18 meses de `fechaOperacion`
+ * para no recorrer todo el histórico abierto.
  */
 router.get('/banca/conciliacion/sugerencias', requirePermission('banca.ver'), async (req, res) => {
   const tipo = String(req.query.tipo || 'IN').trim().toUpperCase();
   if (!TIPOS.has(tipo)) {
     return res.status(400).json({ error: 'tipo debe ser IN (gasto) u OUT (venta)' });
   }
-  const desde = fechaOpcional(req.query.desde);
+  const desdeQuery = fechaOpcional(req.query.desde);
   const hasta = fechaOpcional(req.query.hasta);
-  if (req.query.desde && !desde) return res.status(400).json({ error: 'desde debe ser YYYY-MM-DD' });
+  if (req.query.desde && !desdeQuery) return res.status(400).json({ error: 'desde debe ser YYYY-MM-DD' });
   if (req.query.hasta && !hasta) return res.status(400).json({ error: 'hasta debe ser YYYY-MM-DD' });
 
+  const desde = desdeQuery || desdeBarridoMovimientosPorDefecto();
   const empresaId = String(req.query.empresaId || '').trim();
   const limite = normalizarLimiteBarrido(req.query.limite ?? req.query.limit);
 

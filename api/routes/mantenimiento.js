@@ -8,6 +8,7 @@ import {
   generarFacturacionMantenimiento,
   CAMPOS_CIERRE_SIN_FACTURA,
 } from '../lib/facturacion/facturarMantenimiento.js';
+import { rankearSimilares } from '../lib/mantenimiento/similaresIncidencia.js';
 
 const router = express.Router();
 
@@ -642,6 +643,47 @@ router.post('/mantenimiento/incidencias', async (req, res) => {
     throwSiTablaMantenimientoFalta(err);
   }
   return res.json({ ok: true, incidencia: item });
+});
+
+/**
+ * Anti-duplicados: incidencias Nuevo/Programado del mismo local con texto similar.
+ * Misma protección que POST /incidencias (sin requirePermission en ruta).
+ */
+router.post('/mantenimiento/incidencias/similares', async (req, res) => {
+  const body = req.body || {};
+  const localId = (body.local_id ?? body.id_Locales ?? '').toString().trim();
+  const titulo = (body.titulo ?? '').toString().trim();
+  const descripcion = (body.descripcion ?? '').toString().trim();
+  const zona = (body.zona ?? '').toString().trim().toLowerCase();
+
+  if (!localId) return res.status(400).json({ error: 'local_id es obligatorio' });
+  if (!titulo) return res.status(400).json({ error: 'titulo es obligatorio' });
+
+  let items = [];
+  try {
+    let lastKey = null;
+    do {
+      const cmd = new QueryCommand({
+        TableName: tables.mantenimiento,
+        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+        ExpressionAttributeValues: { ':pk': `LOCAL#${localId}`, ':sk': 'INC#' },
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      });
+      const result = await docClient.send(cmd);
+      items.push(...(result.Items || []));
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+  } catch (err) {
+    throwSiTablaMantenimientoFalta(err);
+  }
+
+  const similares = rankearSimilares({
+    titulo,
+    descripcion,
+    zona,
+    candidatos: items,
+  });
+  return res.json({ ok: true, similares });
 });
 
 router.get('/mantenimiento/incidencias', async (req, res) => {

@@ -37,38 +37,61 @@ function dmyToSort(dmy: string): number {
   return year * 10000 + month * 100 + day;
 }
 
-/** Parsea el campo `Notas` en líneas individuales. */
+/**
+ * Parsea el campo `Notas` en bloques de nota.
+ * Una nota empieza en línea con fecha `dd/mm/aaaa - …`; las líneas siguientes
+ * sin fecha se concatenan a esa nota (evita trocear un mismo texto en tarjetas).
+ * Líneas iniciales sin fecha forman un bloque «Sin fecha».
+ */
 export function parseNotas(plain: string): NotaLinea[] {
   if (!plain?.trim()) return [];
   const lines = plain.split('\n');
   const out: NotaLinea[] = [];
   let idx = 0;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const m = trimmed.match(NOTAS_LINEA_FECHA);
-    if (m) {
-      out.push({
-        id: `n-${idx}`,
-        fecha: m[1],
-        texto: (m[2] || '').trim(),
-        raw: trimmed,
-        fechaSort: dmyToSort(m[1]),
-        ordenOriginal: idx,
-      });
-    } else {
-      out.push({
-        id: `n-${idx}`,
-        fecha: null,
-        texto: trimmed,
-        raw: trimmed,
-        fechaSort: 0,
-        ordenOriginal: idx,
-      });
-    }
+
+  const pushNueva = (fecha: string | null, primeraLineaTexto: string, rawLine: string) => {
+    out.push({
+      id: `n-${idx}`,
+      fecha,
+      texto: primeraLineaTexto,
+      raw: rawLine,
+      fechaSort: fecha ? dmyToSort(fecha) : 0,
+      ordenOriginal: idx,
+    });
     idx += 1;
+  };
+
+  const appendAUltima = (rawLine: string) => {
+    const last = out[out.length - 1];
+    if (!last) {
+      pushNueva(null, rawLine, rawLine);
+      return;
+    }
+    last.texto = last.texto ? `${last.texto}\n${rawLine}` : rawLine;
+    last.raw = last.raw ? `${last.raw}\n${rawLine}` : rawLine;
+  };
+
+  for (const line of lines) {
+    // Conservamos líneas en blanco dentro de un bloque ya abierto (separadores).
+    if (!line.trim()) {
+      if (out.length > 0) appendAUltima('');
+      continue;
+    }
+    const trimmed = line.trimEnd();
+    const m = trimmed.trim().match(NOTAS_LINEA_FECHA);
+    if (m) {
+      pushNueva(m[1], (m[2] || '').trim(), trimmed.trim());
+    } else {
+      appendAUltima(trimmed.trim());
+    }
   }
-  return out;
+
+  // Quitar saltos finales vacíos acumulados
+  for (const n of out) {
+    n.texto = n.texto.replace(/\n+$/g, '').trimEnd();
+    n.raw = n.raw.replace(/\n+$/g, '').trimEnd();
+  }
+  return out.filter((n) => n.texto.trim() || n.fecha);
 }
 
 /** Orden timeline: más reciente arriba; mismo día respeta prepend (índice menor = más nuevo). */
@@ -86,6 +109,15 @@ export function prependNota(existentes: string, texto: string): string {
   const line = `${fechaHoyDmy()} - ${t}`;
   const base = existentes.trim();
   return base ? `${line}\n${base}` : line;
+}
+
+/**
+ * Elimina una nota por su `ordenOriginal` (índice de bloque tras el parseo).
+ * Reconstruye el campo plano con el resto de bloques (`raw` puede ser multilínea).
+ */
+export function eliminarNotaPorOrden(existentes: string, ordenOriginal: number): string {
+  const kept = parseNotas(existentes).filter((n) => n.ordenOriginal !== ordenOriginal);
+  return kept.map((n) => n.raw).join('\n');
 }
 
 export function resumenNotas(plain: string): {

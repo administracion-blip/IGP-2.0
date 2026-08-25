@@ -41,6 +41,11 @@ import {
 } from '../../lib/registroMasivo';
 import { esEmpresaSedeGrupoParipe } from '../../utils/facturacion';
 import { fechaEmisionFacturaAIso } from '../../utils/formatFecha';
+import {
+  errorFechaEmisionDemasiadoFutura,
+  fechaEmisionMaximaPermitidaIso,
+  MSG_FECHA_EMISION_FUTURA,
+} from '../../lib/fechaEmisionLimite';
 import { limpiarHandoffOcr, peekHandoffOcr, purgarHandoffOcr, returnToValido } from '../../lib/refacturacion';
 import { FieldRow } from '../../components/registroMasivo/FieldRow';
 import { FieldRowZona } from '../../components/registroMasivo/FieldRowZona';
@@ -1112,6 +1117,15 @@ export default function RegistroMasivoScreen() {
       alertMsg('Sin permiso', 'No tienes permiso para registrar pagos al confirmar.');
       return;
     }
+    const fechaFutura = activosActualizados.find((b) => errorFechaEmisionDemasiadoFutura(b.fecha_emision));
+    if (fechaFutura) {
+      const ref =
+        String(fechaFutura.numero_factura_proveedor || '').trim() ||
+        fechaFutura.archivo?.nombre ||
+        `#${fechaFutura.idx + 1}`;
+      alertMsg('Fecha inválida', `${MSG_FECHA_EMISION_FUTURA} (factura «${ref}»).`);
+      return;
+    }
     setGuardando(true);
     try {
       const res = await apiFetch(`/api/facturacion/ocr/confirmar`, {
@@ -1783,6 +1797,7 @@ export default function RegistroMasivoScreen() {
                   onZona={() => zona.activar('fecha_emision')}
                   zonaActiva={zona.activa?.field === 'fecha_emision'}
                   focusFieldId="fecha_emision"
+                  maxIso={fechaEmisionMaximaPermitidaIso()}
                 />
                 <CampoIdDocumentoFacturaRecibida
                   empresaNombre={selectedBorrador.sociedad_grupo_nombre}

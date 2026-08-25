@@ -69,6 +69,14 @@ type RespuestaAsignar = {
   error?: string;
 };
 
+/** Igual que la importación: el alta de cuenta también toca todos los movimientos. */
+const TIMEOUT_ASIGNAR_MS = 300_000;
+
+/** El abort del timeout llega como DOMException sin mensaje útil para el usuario. */
+function esAborto(e: unknown): boolean {
+  return Boolean(e && typeof e === 'object' && (e as { name?: unknown }).name === 'AbortError');
+}
+
 function abrirUrl(url: string) {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -260,8 +268,11 @@ function CuentaCargada({
     setEnviando(true);
     setErrorForm(null);
     try {
+      // El alta recorre y actualiza todos los movimientos huérfanos de la cuenta:
+      // con extractos grandes pasa del timeout por defecto de `apiFetch`.
       const res = await apiFetch(urlAsignarCuentaCarga(hash), {
         method: 'POST',
+        timeoutMs: TIMEOUT_ASIGNAR_MS,
         body: JSON.stringify({
           empresaId: empresaId.trim(),
           iban,
@@ -285,7 +296,11 @@ function CuentaCargada({
       setFormAbierto(false);
     } catch (e) {
       if (secuencia !== secuenciaRef.current) return;
-      setErrorForm(errorMessage(e, 'No se ha podido asignar la cuenta'));
+      setErrorForm(
+        esAborto(e)
+          ? 'La asignación está tardando más de lo esperado. Puede que haya terminado en el servidor: recarga las cargas antes de reintentar.'
+          : errorMessage(e, 'No se ha podido asignar la cuenta'),
+      );
     } finally {
       enviandoRef.current = false;
       if (secuencia === secuenciaRef.current) setEnviando(false);

@@ -13,7 +13,7 @@
  *   en informes legacy sin ese campo). Admin / Locales vacío ven todos.
  */
 import { Router } from 'express';
-import { requirePermission, hasPermission } from '../middleware/auth.js';
+import { requirePermission, requireAnyPermission, hasPermission } from '../middleware/auth.js';
 import { getFuente, listarFuentes, fuenteMeta } from '../lib/ia/fuentes/index.js';
 import {
   chatCompletion,
@@ -46,6 +46,12 @@ import {
   guardarAjustesIa,
   MODELOS_SUGERIDOS,
 } from '../lib/ia/ajustes.js';
+import {
+  listFamiliasIa,
+  listGruposFamiliasIa,
+  upsertGrupoFamiliasIa,
+  deleteGrupoFamiliasIa,
+} from '../lib/ia/gruposFamilias.js';
 
 const router = Router();
 
@@ -76,6 +82,76 @@ router.get('/ia/fuentes', requirePermission('ia.informes'), async (req, res) => 
     return res.status(500).json({ error: 'No se pudieron cargar las fuentes' });
   }
 });
+
+/** GET /api/ia/familias — familias Ágora para filtros (ventas por artículo). */
+router.get(
+  '/ia/familias',
+  requireAnyPermission('ia.informes', 'ia.informe_ventas_articulo'),
+  async (req, res) => {
+    try {
+      const result = await listFamiliasIa();
+      return res.json(result);
+    } catch (err) {
+      console.error('[ia/familias]', err.message || err);
+      return res.status(502).json({
+        error: err?.message || 'Error listando familias',
+        familias: [],
+        source: 'dynamo',
+      });
+    }
+  },
+);
+
+/** GET /api/ia/grupos-familias — grupos de familias IA. */
+router.get(
+  '/ia/grupos-familias',
+  requireAnyPermission('ia.informes', 'ia.informe_ventas_articulo'),
+  async (req, res) => {
+    try {
+      const todos =
+        req.query.todos === '1' ||
+        req.query.todos === 'true' ||
+        req.query.todos === 'all';
+      const grupos = await listGruposFamiliasIa({ todos });
+      return res.json({ grupos, total: grupos.length, todos });
+    } catch (err) {
+      console.error('[ia/grupos-familias]', err.message || err);
+      return res.status(500).json({ error: err?.message || 'Error listando grupos' });
+    }
+  },
+);
+
+/** PUT /api/ia/grupos-familias — crear/actualizar grupo. */
+router.put(
+  '/ia/grupos-familias',
+  requirePermission('ia.informe_ventas_articulo'),
+  async (req, res) => {
+    try {
+      const item = await upsertGrupoFamiliasIa(req.body || {});
+      return res.json({ ok: true, item });
+    } catch (err) {
+      const status = err?.status || 400;
+      return res.status(status).json({ error: err?.message || 'Datos inválidos' });
+    }
+  },
+);
+
+/** DELETE /api/ia/grupos-familias/:id */
+router.delete(
+  '/ia/grupos-familias/:id',
+  requirePermission('ia.informe_ventas_articulo'),
+  async (req, res) => {
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'id es obligatorio' });
+    try {
+      const result = await deleteGrupoFamiliasIa(id);
+      return res.json(result);
+    } catch (err) {
+      const status = err?.status || 400;
+      return res.status(status).json({ error: err?.message || 'No se pudo eliminar' });
+    }
+  },
+);
 
 /**
  * Resuelve la fuente de la request y valida el permiso de fuente.
@@ -261,18 +337,21 @@ router.post('/ia/informes', requirePermission('ia.informes'), async (req, res) =
     }
 
     const datosJson = await fuente.generarDatos(parametros, req.user);
+    const datosParaLlm = typeof fuente.datosParaPrompt === 'function'
+      ? fuente.datosParaPrompt(datosJson)
+      : datosJson;
 
     let resumen = null;
     let modelo = null;
     let costeTokens = { prompt: 0, completion: 0 };
 
     if (iaDisponible()) {
-      const datosStr = JSON.stringify(datosJson);
+      const datosStr = JSON.stringify(datosParaLlm);
       if (datosStr.length > ajustes.maxDatosJsonChars) {
         return res.status(413).json({ error: 'El conjunto de datos es demasiado grande para generar el informe.' });
       }
       const system = componerSystemPrompt(plantilla.instrucciones);
-      const user = componerUserPrompt(datosJson);
+      const user = componerUserPrompt(datosParaLlm);
       const salida = await chatCompletion({
         system,
         user,
@@ -305,7 +384,8 @@ router.post('/ia/informes', requirePermission('ia.informes'), async (req, res) =
     return res.json({ informe: guardado, cache: false });
   } catch (err) {
     console.error('[ia/informes:post]', err.message || err);
-    return res.status(500).json({ error: err.message || 'No se pudo generar el informe' });
+    const status = err?.status || err?.statusCode || 500;
+    return res.status(status).json({ error: err.message || 'No se pudo generar el informe' });
   }
 });
 

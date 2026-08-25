@@ -13,10 +13,17 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
+import { useIaGruposFamilias } from '../../hooks/useIaGruposFamilias';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { InputFecha } from '../../components/InputFecha';
+import { RangoFechas } from '../../components/RangoFechas';
 import { CollapsibleSection } from '../../components/CollapsibleSection';
 import { VistaDiaADia, type DatosDiaADia } from '../../components/informes-ia/VistaDiaADia';
+import {
+  VistaVentasPorArticulo,
+  type DatosVentasPorArticulo,
+} from '../../components/informes-ia/VistaVentasPorArticulo';
+import { IaGruposFamiliasModal } from '../../components/informes-ia/IaGruposFamiliasModal';
 import { InformeResumenRico } from '../../components/informes-ia/InformeResumenRico';
 import {
   ObjetivoFacturacionHoyBox,
@@ -28,17 +35,66 @@ import { fechaInformeDiaAnteriorIso } from '../../lib/jornadaNegocio';
 import { stripObjetivoFacturacionHoyMarkdown } from '../../lib/stripObjetivoFacturacionHoyMarkdown';
 import { descargarPdfInformeIa } from '../../lib/informesIaPdf';
 import { descargarPdfDesdeNodo } from '../../lib/informesIaPdfCapture';
+import { MIN_TOUCH } from '../../constants/layout';
 
 type OpcionParam = { valor: string; etiqueta: string };
 
+type ParametroTipo =
+  | 'fecha'
+  | 'local'
+  | 'texto'
+  | 'numero'
+  | 'opcion'
+  | 'locales'
+  | 'familias'
+  | 'grupos_familias';
+
 type ParametroDef = {
   nombre: string;
-  tipo: 'fecha' | 'local' | 'texto' | 'numero' | 'opcion';
+  tipo: ParametroTipo;
   requerido?: boolean;
   etiqueta?: string;
   defecto?: string | number;
   opciones?: OpcionParam[];
 };
+
+const PARAMS_ESPECIALES_VENTAS = new Set<ParametroTipo>(['locales', 'familias', 'grupos_familias']);
+
+type VentasArticuloParams = {
+  fechaDesde: string;
+  fechaHasta: string;
+  localIds: string[];
+  familiaIds: string[];
+  grupoIds: string[];
+  agruparPorLocal: boolean;
+};
+
+function hoyIsoLocal(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function inicioAnoIsoLocal(): string {
+  return `${new Date().getFullYear()}-01-01`;
+}
+
+function ventasParamsDefault(): VentasArticuloParams {
+  return {
+    fechaDesde: inicioAnoIsoLocal(),
+    fechaHasta: hoyIsoLocal(),
+    localIds: [],
+    familiaIds: [],
+    grupoIds: [],
+    agruparPorLocal: false,
+  };
+}
+
+function esSeleccionTodos(ids: string[], totalDisponibles: number): boolean {
+  return ids.length === 0 || (totalDisponibles > 0 && ids.length === totalDisponibles);
+}
 
 type Fuente = {
   clave: string;
@@ -70,13 +126,25 @@ type Plantilla = {
   deCodigo?: boolean;
 };
 
-type LocalItem = { id_Locales?: string | number; nombre?: string; Nombre?: string };
+type LocalItem = {
+  id_Locales?: string | number;
+  nombre?: string;
+  Nombre?: string;
+  sede?: string;
+  Sede?: string;
+};
+
+function esLocalSedeGrupoParipe(loc: LocalItem): boolean {
+  const s = String(loc.sede ?? loc.Sede ?? '').toUpperCase();
+  return s.includes('PARIPE');
+}
 
 const FUENTE_LABELS_PDF: Record<string, string> = {
   dia_a_dia: 'Día a día',
   objetivos_mes: 'Objetivos del mes',
   ventas_hora: 'Ventas por hora',
   compras_variaciones: 'Variaciones de compras',
+  ventas_por_articulo: 'Ventas por artículo',
 };
 
 function etiquetaFuentePdf(clave?: string): string {
@@ -91,10 +159,27 @@ function fechaParametroInforme(informe: Informe): string {
     const [y, m, d] = fechaParam.slice(0, 10).split('-');
     return `${d}/${m}/${y}`;
   }
-  const dj = informe.datosJson as { fecha?: string } | undefined;
+  const desde = params.fechaDesde;
+  const hasta = params.fechaHasta;
+  if (
+    typeof desde === 'string' &&
+    /^\d{4}-\d{2}-\d{2}/.test(desde) &&
+    typeof hasta === 'string' &&
+    /^\d{4}-\d{2}-\d{2}/.test(hasta)
+  ) {
+    const [y1, m1, d1] = desde.slice(0, 10).split('-');
+    const [y2, m2, d2] = hasta.slice(0, 10).split('-');
+    return `${d1}/${m1}/${y1} – ${d2}/${m2}/${y2}`;
+  }
+  const dj = informe.datosJson as { fecha?: string; meta?: { fechaDesde?: string; fechaHasta?: string } } | undefined;
   if (dj?.fecha && /^\d{4}-\d{2}-\d{2}/.test(dj.fecha)) {
     const [y, m, d] = dj.fecha.slice(0, 10).split('-');
     return `${d}/${m}/${y}`;
+  }
+  if (dj?.meta?.fechaDesde && dj?.meta?.fechaHasta) {
+    const [y1, m1, d1] = String(dj.meta.fechaDesde).slice(0, 10).split('-');
+    const [y2, m2, d2] = String(dj.meta.fechaHasta).slice(0, 10).split('-');
+    return `${d1}/${m1}/${y1} – ${d2}/${m2}/${y2}`;
   }
   if (informe.generadoEn) {
     try {
@@ -135,12 +220,26 @@ export default function InformesIaScreen() {
   const { fuente: fuenteParam } = useLocalSearchParams<{ fuente?: string }>();
   const { hasPermiso, localPermitido } = useAuth();
   const { shouldStackPanels } = useBreakpoint();
+  const {
+    grupos: iaGrupos,
+    familias: iaFamilias,
+    loadingGrupos: loadingIaGrupos,
+    loadingFamilias: loadingIaFamilias,
+    cargarGrupos: cargarIaGrupos,
+    cargarFamilias: cargarIaFamilias,
+    guardarGrupo: guardarIaGrupo,
+    borrarGrupo: borrarIaGrupo,
+  } = useIaGruposFamilias();
 
   const [fuentes, setFuentes] = useState<Fuente[]>([]);
   const [iaDisponible, setIaDisponible] = useState(true);
   const [fuenteClave, setFuenteClave] = useState('');
   const [locales, setLocales] = useState<LocalItem[]>([]);
   const [params, setParams] = useState<Record<string, string>>({});
+  const [ventasParams, setVentasParams] = useState<VentasArticuloParams>(ventasParamsDefault);
+  const [busquedaLocales, setBusquedaLocales] = useState('');
+  const [busquedaFamilias, setBusquedaFamilias] = useState('');
+  const [modalGruposOpen, setModalGruposOpen] = useState(false);
   const [plantillas, setPlantillas] = useState<Plantilla[]>([]);
   const [promptId, setPromptId] = useState('default');
 
@@ -155,6 +254,7 @@ export default function InformesIaScreen() {
   const puedeVer = hasPermiso('ia.informes');
   const puedeGestionar = hasPermiso('ia.prompts_gestionar');
   const puedeAjustes = hasPermiso('ia.ajustes');
+  const esVentasArticulo = fuenteClave === 'ventas_por_articulo';
 
   const fuente = useMemo(
     () => fuentes.find((f) => f.clave === fuenteClave) || null,
@@ -169,6 +269,34 @@ export default function InformesIaScreen() {
         .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
     [locales, localPermitido],
   );
+
+  /** Universo ventas por artículo: solo sede Grupo Paripe ∩ locales del usuario. */
+  const localesGrupoParipe = useMemo(
+    () =>
+      locales
+        .filter(esLocalSedeGrupoParipe)
+        .map((l) => ({ id: formatId6(l.id_Locales), nombre: String(l.nombre ?? l.Nombre ?? '').trim() }))
+        .filter((l) => l.nombre && localPermitido(l.nombre))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
+    [locales, localPermitido],
+  );
+
+  const localesFiltrados = useMemo(() => {
+    const base = fuenteClave === 'ventas_por_articulo' ? localesGrupoParipe : localesPermitidos;
+    const q = busquedaLocales.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter(
+      (l) => l.nombre.toLowerCase().includes(q) || l.id.toLowerCase().includes(q),
+    );
+  }, [fuenteClave, localesGrupoParipe, localesPermitidos, busquedaLocales]);
+
+  const familiasFiltradas = useMemo(() => {
+    const q = busquedaFamilias.trim().toLowerCase();
+    if (!q) return iaFamilias;
+    return iaFamilias.filter(
+      (f) => f.nombre.toLowerCase().includes(q) || f.id.toLowerCase().includes(q),
+    );
+  }, [iaFamilias, busquedaFamilias]);
 
   const objetivoFacturacionHoyData = useMemo(() => {
     if (informe?.fuente !== 'dia_a_dia' || !informe.datosJson) return null;
@@ -237,16 +365,29 @@ export default function InformesIaScreen() {
   useEffect(() => {
     setInforme(null);
     setError(null);
-    const defs = fuentes.find((f) => f.clave === fuenteClave)?.parametros || [];
-    const inicial: Record<string, string> = {};
-    for (const p of defs) {
-      if (p.defecto != null) {
-        inicial[p.nombre] = String(p.defecto);
-      } else if (p.tipo === 'fecha') {
-        inicial[p.nombre] = fechaInformeDiaAnteriorIso();
+    setBusquedaLocales('');
+    setBusquedaFamilias('');
+    setModalGruposOpen(false);
+
+    if (fuenteClave === 'ventas_por_articulo') {
+      setVentasParams(ventasParamsDefault());
+      setParams({});
+      void cargarIaFamilias();
+      void cargarIaGrupos();
+    } else {
+      const defs = fuentes.find((f) => f.clave === fuenteClave)?.parametros || [];
+      const inicial: Record<string, string> = {};
+      for (const p of defs) {
+        if (PARAMS_ESPECIALES_VENTAS.has(p.tipo)) continue;
+        if (p.defecto != null) {
+          inicial[p.nombre] = String(p.defecto);
+        } else if (p.tipo === 'fecha') {
+          inicial[p.nombre] = fechaInformeDiaAnteriorIso();
+        }
       }
+      setParams(inicial);
     }
-    setParams(inicial);
+
     if (fuenteClave) {
       cargarHistorial(fuenteClave);
       cargarPlantillas(fuenteClave);
@@ -255,26 +396,90 @@ export default function InformesIaScreen() {
       setPlantillas([]);
       setPromptId('default');
     }
-  }, [fuenteClave, fuentes, cargarHistorial, cargarPlantillas]);
+  }, [fuenteClave, fuentes, cargarHistorial, cargarPlantillas, cargarIaFamilias, cargarIaGrupos]);
+
+  function toggleIdInList(
+    key: 'localIds' | 'familiaIds',
+    id: string,
+    opts?: { totalDisponibles?: number },
+  ) {
+    setVentasParams((prev) => {
+      const list = prev[key];
+      const enModoTodos = list.length === 0;
+      if (enModoTodos) {
+        // Salir de «todos» y quedarse solo con este id
+        return { ...prev, [key]: [id] };
+      }
+      const next = list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+      // Si se desmarcan todos los individuales → volver a «todos» (vacío)
+      if (next.length === 0) return { ...prev, [key]: [] };
+      const total = opts?.totalDisponibles ?? 0;
+      if (total > 0 && next.length >= total) return { ...prev, [key]: [] };
+      return { ...prev, [key]: next };
+    });
+  }
+
+  function marcarTodosLocales() {
+    setVentasParams((prev) => ({ ...prev, localIds: [] }));
+  }
+
+  function marcarTodasFamilias() {
+    setVentasParams((prev) => ({
+      ...prev,
+      familiaIds: [],
+      grupoIds: [],
+    }));
+  }
+
+  function toggleGrupo(grupoId: string, _familiaIdsGrupo: string[]) {
+    setVentasParams((prev) => {
+      const activo = prev.grupoIds.includes(grupoId);
+      return {
+        ...prev,
+        grupoIds: activo
+          ? prev.grupoIds.filter((x) => x !== grupoId)
+          : [...prev.grupoIds, grupoId],
+      };
+    });
+  }
 
   async function generar(force = false) {
     if (!fuente) {
       setError('Selecciona una fuente');
       return;
     }
-    for (const p of fuente.parametros) {
-      if (p.requerido && !params[p.nombre]) {
-        setError(`Falta el parámetro: ${p.etiqueta || p.nombre}`);
+
+    let parametros: Record<string, unknown> = params;
+    if (fuente.clave === 'ventas_por_articulo') {
+      if (!ventasParams.fechaDesde || !ventasParams.fechaHasta) {
+        setError('Indica un rango de fechas válido');
         return;
       }
+      parametros = {
+        fechaDesde: ventasParams.fechaDesde,
+        fechaHasta: ventasParams.fechaHasta,
+        localIds: ventasParams.localIds,
+        familiaIds: ventasParams.familiaIds,
+        grupoIds: ventasParams.grupoIds,
+        agruparPorLocal: ventasParams.agruparPorLocal,
+      };
+    } else {
+      for (const p of fuente.parametros) {
+        if (PARAMS_ESPECIALES_VENTAS.has(p.tipo)) continue;
+        if (p.requerido && !params[p.nombre]) {
+          setError(`Falta el parámetro: ${p.etiqueta || p.nombre}`);
+          return;
+        }
+      }
     }
+
     setGenerando(true);
     setError(null);
     try {
       const r = await apiFetch('/api/ia/informes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fuente: fuente.clave, parametros: params, promptId, force }),
+        body: JSON.stringify({ fuente: fuente.clave, parametros, promptId, force }),
         timeoutMs: 120_000,
       });
       const d = await r.json();
@@ -308,7 +513,8 @@ export default function InformesIaScreen() {
     try {
       if (Platform.OS === 'web' && capturaPdfRef.current) {
         // modoPdf=true re-renderiza todas las gráficas; esperar paint
-        const esperaMs = informe.fuente === 'dia_a_dia' ? 400 : 150;
+        const esperaMs =
+          informe.fuente === 'dia_a_dia' || informe.fuente === 'ventas_por_articulo' ? 400 : 150;
         await new Promise<void>((resolve) => {
           requestAnimationFrame(() => {
             setTimeout(resolve, esperaMs);
@@ -324,6 +530,26 @@ export default function InformesIaScreen() {
     } finally {
       setExportandoPdf(false);
     }
+  }
+
+  async function onGuardarGrupoIa(input: {
+    id?: string;
+    nombre: string;
+    familiaIds: string[];
+    orden?: number;
+    activo?: boolean;
+  }) {
+    await guardarIaGrupo(input);
+    await cargarIaGrupos();
+  }
+
+  async function onBorrarGrupoIa(id: string) {
+    await borrarIaGrupo(id);
+    setVentasParams((prev) => ({
+      ...prev,
+      grupoIds: prev.grupoIds.filter((x) => x !== id),
+    }));
+    await cargarIaGrupos();
   }
 
   if (!puedeVer) {
@@ -382,7 +608,7 @@ export default function InformesIaScreen() {
           ) : (
             <>
               <View style={[styles.panelRow, shouldStackPanels && styles.panelCol]}>
-                <View style={styles.field}>
+                <View style={[styles.field, styles.fieldWide]}>
                   <Text style={styles.label}>Fuente</Text>
                   <SelectorDesplegable
                     icono="insights"
@@ -393,81 +619,353 @@ export default function InformesIaScreen() {
                     opciones={fuentes.map((f) => ({
                       id: f.clave,
                       titulo: f.nombre,
-                      subtitulo: f.descripcion,
                       icono: 'insights' as const,
                     }))}
                     onSeleccionar={setFuenteClave}
                   />
+                  {fuente?.descripcion ? (
+                    <Text style={styles.fuenteDesc}>{fuente.descripcion}</Text>
+                  ) : null}
                 </View>
 
-                {fuente?.parametros.map((p) => (
-                  <View key={p.nombre} style={styles.field}>
-                    <Text style={styles.label}>
-                      {p.etiqueta || p.nombre}
-                      {p.requerido ? ' *' : ''}
-                    </Text>
-                    {p.tipo === 'local' ? (
-                      <SelectorDesplegable
-                        icono="store"
-                        iconoLista="store"
-                        tituloLista="Local"
-                        placeholder="Todos mis locales"
-                        buscador
-                        buscadorPlaceholder="Buscar local…"
-                        valorId={params[p.nombre] || ''}
-                        opciones={[
-                          { id: '', titulo: 'Todos mis locales', icono: 'apps' as const },
-                          ...localesPermitidos.map((l) => ({
-                            id: l.id,
-                            titulo: l.nombre,
-                            subtitulo: `ID ${l.id}`,
-                            icono: 'store' as const,
-                          })),
-                        ]}
-                        onSeleccionar={(id) => setParams((prev) => ({ ...prev, [p.nombre]: id }))}
-                      />
-                    ) : p.tipo === 'fecha' ? (
-                      <InputFecha
-                        valueIso={params[p.nombre] || ''}
-                        onChangeIso={(iso) => setParams((prev) => ({ ...prev, [p.nombre]: iso }))}
-                        placeholder="dd/mm/aaaa"
-                      />
-                    ) : p.tipo === 'opcion' ? (
-                      <SelectorDesplegable
-                        icono="tune"
-                        iconoLista="tune"
-                        tituloLista={p.etiqueta || p.nombre}
-                        placeholder="Selecciona una opción"
-                        valorId={params[p.nombre] || ''}
-                        opciones={(p.opciones || []).map((o) => ({
-                          id: o.valor,
-                          titulo: o.etiqueta,
-                          icono: 'tune' as const,
-                        }))}
-                        onSeleccionar={(id) => setParams((prev) => ({ ...prev, [p.nombre]: id }))}
-                      />
-                    ) : p.tipo === 'numero' ? (
-                      <TextInput
-                        style={styles.numInput}
-                        value={params[p.nombre] || ''}
-                        onChangeText={(t) =>
-                          setParams((prev) => ({ ...prev, [p.nombre]: t.replace(/[^0-9]/g, '') }))
+                {esVentasArticulo ? (
+                  <>
+                    <View style={[styles.field, styles.fieldWide]}>
+                      <Text style={styles.label}>Periodo</Text>
+                      <RangoFechas
+                        desdeIso={ventasParams.fechaDesde}
+                        hastaIso={ventasParams.fechaHasta}
+                        onChangeDesde={(iso) =>
+                          setVentasParams((prev) => ({ ...prev, fechaDesde: iso }))
                         }
-                        keyboardType="number-pad"
-                        placeholder={p.defecto != null ? String(p.defecto) : ''}
-                        placeholderTextColor="#94a3b8"
+                        onChangeHasta={(iso) =>
+                          setVentasParams((prev) => ({ ...prev, fechaHasta: iso }))
+                        }
+                        fill
                       />
-                    ) : (
+                    </View>
+
+                    <View style={[styles.field, styles.fieldWide, styles.multiField]}>
+                      <View style={styles.multiHead}>
+                        <Text style={styles.label}>
+                          Locales
+                          {esSeleccionTodos(ventasParams.localIds, localesGrupoParipe.length)
+                            ? ' · todos'
+                            : ` (${ventasParams.localIds.length})`}
+                        </Text>
+                        <TouchableOpacity onPress={marcarTodosLocales} style={styles.chipTodos}>
+                          <Text style={styles.chipTodosText}>Todos</Text>
+                        </TouchableOpacity>
+                      </View>
                       <TextInput
-                        style={styles.numInput}
-                        value={params[p.nombre] || ''}
-                        onChangeText={(t) => setParams((prev) => ({ ...prev, [p.nombre]: t }))}
-                        placeholder={p.etiqueta || p.nombre}
+                        style={styles.searchInput}
+                        value={busquedaLocales}
+                        onChangeText={setBusquedaLocales}
+                        placeholder="Buscar local…"
                         placeholderTextColor="#94a3b8"
                       />
-                    )}
-                  </View>
-                ))}
+                      <ScrollView
+                        style={styles.multiList}
+                        nestedScrollEnabled
+                        keyboardShouldPersistTaps="handled"
+                      >
+                        {(() => {
+                          const todosLoc = esSeleccionTodos(
+                            ventasParams.localIds,
+                            localesGrupoParipe.length,
+                          );
+                          return (
+                            <>
+                              <TouchableOpacity
+                                style={[styles.checkRow, todosLoc && styles.checkRowSel]}
+                                onPress={marcarTodosLocales}
+                              >
+                                <MaterialIcons
+                                  name={todosLoc ? 'check-box' : 'check-box-outline-blank'}
+                                  size={18}
+                                  color={todosLoc ? '#0ea5e9' : '#94a3b8'}
+                                />
+                                <Text
+                                  style={[styles.checkText, todosLoc && styles.checkTextSel]}
+                                  numberOfLines={1}
+                                >
+                                  Todos mis locales (Grupo Paripe)
+                                </Text>
+                              </TouchableOpacity>
+                              {localesFiltrados.map((l) => {
+                                const sel = todosLoc || ventasParams.localIds.includes(l.id);
+                                return (
+                                  <TouchableOpacity
+                                    key={l.id}
+                                    style={[styles.checkRow, sel && styles.checkRowSel]}
+                                    onPress={() =>
+                                      toggleIdInList('localIds', l.id, {
+                                        totalDisponibles: localesGrupoParipe.length,
+                                      })
+                                    }
+                                  >
+                                    <MaterialIcons
+                                      name={sel ? 'check-box' : 'check-box-outline-blank'}
+                                      size={18}
+                                      color={sel ? '#0ea5e9' : '#94a3b8'}
+                                    />
+                                    <Text
+                                      style={[styles.checkText, sel && styles.checkTextSel]}
+                                      numberOfLines={1}
+                                    >
+                                      {l.nombre}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </>
+                          );
+                        })()}
+                      </ScrollView>
+                    </View>
+
+                    <View style={[styles.field, styles.fieldWide, styles.multiField]}>
+                      <View style={styles.multiHead}>
+                        <Text style={styles.label}>
+                          Familias
+                          {esSeleccionTodos(ventasParams.familiaIds, iaFamilias.length) &&
+                          ventasParams.grupoIds.length === 0
+                            ? ' · todas'
+                            : ventasParams.familiaIds.length > 0 || ventasParams.grupoIds.length > 0
+                              ? ` (${ventasParams.familiaIds.length}${ventasParams.grupoIds.length ? ` +${ventasParams.grupoIds.length} grup.` : ''})`
+                              : ' · todas'}
+                        </Text>
+                        <TouchableOpacity onPress={marcarTodasFamilias} style={styles.chipTodos}>
+                          <Text style={styles.chipTodosText}>Todas</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <TextInput
+                        style={styles.searchInput}
+                        value={busquedaFamilias}
+                        onChangeText={setBusquedaFamilias}
+                        placeholder="Buscar familia…"
+                        placeholderTextColor="#94a3b8"
+                      />
+                      {loadingIaFamilias ? (
+                        <ActivityIndicator color="#0ea5e9" style={{ marginVertical: 8 }} />
+                      ) : (
+                        <ScrollView
+                          style={styles.multiList}
+                          nestedScrollEnabled
+                          keyboardShouldPersistTaps="handled"
+                        >
+                          {(() => {
+                            const todasFam =
+                              ventasParams.grupoIds.length === 0 &&
+                              esSeleccionTodos(ventasParams.familiaIds, iaFamilias.length);
+                            return (
+                              <>
+                                <TouchableOpacity
+                                  style={[styles.checkRow, todasFam && styles.checkRowSel]}
+                                  onPress={marcarTodasFamilias}
+                                >
+                                  <MaterialIcons
+                                    name={todasFam ? 'check-box' : 'check-box-outline-blank'}
+                                    size={18}
+                                    color={todasFam ? '#0ea5e9' : '#94a3b8'}
+                                  />
+                                  <Text
+                                    style={[styles.checkText, todasFam && styles.checkTextSel]}
+                                    numberOfLines={1}
+                                  >
+                                    Todas las familias
+                                  </Text>
+                                </TouchableOpacity>
+                                {familiasFiltradas.map((f) => {
+                                  const sel = todasFam || ventasParams.familiaIds.includes(f.id);
+                                  return (
+                                    <TouchableOpacity
+                                      key={f.id}
+                                      style={[styles.checkRow, sel && styles.checkRowSel]}
+                                      onPress={() =>
+                                        toggleIdInList('familiaIds', f.id, {
+                                          totalDisponibles: iaFamilias.length,
+                                        })
+                                      }
+                                    >
+                                      <MaterialIcons
+                                        name={sel ? 'check-box' : 'check-box-outline-blank'}
+                                        size={18}
+                                        color={sel ? '#0ea5e9' : '#94a3b8'}
+                                      />
+                                      <Text
+                                        style={[styles.checkText, sel && styles.checkTextSel]}
+                                        numberOfLines={1}
+                                      >
+                                        {f.nombre}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                              </>
+                            );
+                          })()}
+                        </ScrollView>
+                      )}
+                    </View>
+
+                    <View style={[styles.field, styles.fieldWide]}>
+                      <TouchableOpacity
+                        style={[
+                          styles.checkRow,
+                          ventasParams.agruparPorLocal && styles.checkRowSel,
+                          { borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
+                        ]}
+                        onPress={() =>
+                          setVentasParams((prev) => ({
+                            ...prev,
+                            agruparPorLocal: !prev.agruparPorLocal,
+                          }))
+                        }
+                      >
+                        <MaterialIcons
+                          name={
+                            ventasParams.agruparPorLocal
+                              ? 'check-box'
+                              : 'check-box-outline-blank'
+                          }
+                          size={18}
+                          color={ventasParams.agruparPorLocal ? '#0ea5e9' : '#94a3b8'}
+                        />
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[
+                              styles.checkText,
+                              ventasParams.agruparPorLocal && styles.checkTextSel,
+                            ]}
+                          >
+                            Agrupar resumen por local
+                          </Text>
+                          <Text style={styles.hintInline}>
+                            El resumen IA y las tablas se desglosan por local (ranking en
+                            unidades).
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={[styles.field, styles.fieldWide]}>
+                      <View style={styles.multiHead}>
+                        <Text style={styles.label}>Agrupaciones</Text>
+                        <TouchableOpacity
+                          style={styles.gestionarBtn}
+                          onPress={() => setModalGruposOpen(true)}
+                        >
+                          <MaterialIcons name="folder-special" size={14} color="#0369a1" />
+                          <Text style={styles.gestionarText}>Gestionar agrupaciones</Text>
+                        </TouchableOpacity>
+                      </View>
+                      {loadingIaGrupos ? (
+                        <ActivityIndicator color="#0ea5e9" style={{ marginVertical: 6 }} />
+                      ) : iaGrupos.length === 0 ? (
+                        <Text style={styles.hintInline}>
+                          Sin agrupaciones. Crea una desde «Gestionar agrupaciones».
+                        </Text>
+                      ) : (
+                        <View style={styles.chipsRow}>
+                          {iaGrupos.map((g) => {
+                            const activo = ventasParams.grupoIds.includes(g.id);
+                            return (
+                              <TouchableOpacity
+                                key={g.id}
+                                style={[styles.grupoChip, activo && styles.grupoChipOn]}
+                                onPress={() => toggleGrupo(g.id, g.familiaIds)}
+                              >
+                                <MaterialIcons
+                                  name={activo ? 'check-circle' : 'radio-button-unchecked'}
+                                  size={14}
+                                  color={activo ? '#0369a1' : '#94a3b8'}
+                                />
+                                <Text
+                                  style={[styles.grupoChipText, activo && styles.grupoChipTextOn]}
+                                  numberOfLines={1}
+                                >
+                                  {g.nombre}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                  </>
+                ) : (
+                  (fuente?.parametros || [])
+                    .filter((p) => !PARAMS_ESPECIALES_VENTAS.has(p.tipo))
+                    .map((p) => (
+                      <View key={p.nombre} style={styles.field}>
+                        <Text style={styles.label}>
+                          {p.etiqueta || p.nombre}
+                          {p.requerido ? ' *' : ''}
+                        </Text>
+                        {p.tipo === 'local' ? (
+                          <SelectorDesplegable
+                            icono="store"
+                            iconoLista="store"
+                            tituloLista="Local"
+                            placeholder="Todos mis locales"
+                            buscador
+                            buscadorPlaceholder="Buscar local…"
+                            valorId={params[p.nombre] || ''}
+                            opciones={[
+                              { id: '', titulo: 'Todos mis locales', icono: 'apps' as const },
+                              ...localesPermitidos.map((l) => ({
+                                id: l.id,
+                                titulo: l.nombre,
+                                subtitulo: `ID ${l.id}`,
+                                icono: 'store' as const,
+                              })),
+                            ]}
+                            onSeleccionar={(id) => setParams((prev) => ({ ...prev, [p.nombre]: id }))}
+                          />
+                        ) : p.tipo === 'fecha' ? (
+                          <InputFecha
+                            valueIso={params[p.nombre] || ''}
+                            onChangeIso={(iso) => setParams((prev) => ({ ...prev, [p.nombre]: iso }))}
+                            placeholder="dd/mm/aaaa"
+                          />
+                        ) : p.tipo === 'opcion' ? (
+                          <SelectorDesplegable
+                            icono="tune"
+                            iconoLista="tune"
+                            tituloLista={p.etiqueta || p.nombre}
+                            placeholder="Selecciona una opción"
+                            valorId={params[p.nombre] || ''}
+                            opciones={(p.opciones || []).map((o) => ({
+                              id: o.valor,
+                              titulo: o.etiqueta,
+                              icono: 'tune' as const,
+                            }))}
+                            onSeleccionar={(id) => setParams((prev) => ({ ...prev, [p.nombre]: id }))}
+                          />
+                        ) : p.tipo === 'numero' ? (
+                          <TextInput
+                            style={styles.numInput}
+                            value={params[p.nombre] || ''}
+                            onChangeText={(t) =>
+                              setParams((prev) => ({ ...prev, [p.nombre]: t.replace(/[^0-9]/g, '') }))
+                            }
+                            keyboardType="number-pad"
+                            placeholder={p.defecto != null ? String(p.defecto) : ''}
+                            placeholderTextColor="#94a3b8"
+                          />
+                        ) : (
+                          <TextInput
+                            style={styles.numInput}
+                            value={params[p.nombre] || ''}
+                            onChangeText={(t) => setParams((prev) => ({ ...prev, [p.nombre]: t }))}
+                            placeholder={p.etiqueta || p.nombre}
+                            placeholderTextColor="#94a3b8"
+                          />
+                        )}
+                      </View>
+                    ))
+                )}
 
                 {fuente ? (
                   <View style={styles.field}>
@@ -580,6 +1078,17 @@ export default function InformesIaScreen() {
                       ) : null}
                     </View>
                   </>
+                ) : informe.fuente === 'ventas_por_articulo' && informe.datosJson ? (
+                  <>
+                    <Text style={styles.capturaTitulo}>
+                      Informes IA · {etiquetaFuentePdf(informe.fuente)} · {fechaParametroInforme(informe)}
+                    </Text>
+                    <VistaVentasPorArticulo
+                      datos={informe.datosJson as DatosVentasPorArticulo}
+                      resumen={informe.resumen}
+                      modoPdf={exportandoPdf}
+                    />
+                  </>
                 ) : (
                   <>
                     <Text style={styles.capturaTitulo}>
@@ -598,7 +1107,13 @@ export default function InformesIaScreen() {
 
               <CollapsibleSection
                 title="Ver datos (JSON)"
-                defaultOpen={!informe.resumen && !(informe.fuente === 'dia_a_dia' && informe.datosJson)}
+                defaultOpen={
+                  !informe.resumen &&
+                  !(
+                    (informe.fuente === 'dia_a_dia' || informe.fuente === 'ventas_por_articulo') &&
+                    !!informe.datosJson
+                  )
+                }
               >
                 <Text style={styles.jsonText}>{JSON.stringify(informe.datosJson ?? {}, null, 2)}</Text>
               </CollapsibleSection>
@@ -632,6 +1147,17 @@ export default function InformesIaScreen() {
           <View style={{ height: 32 }} />
         </View>
       </ScrollView>
+
+      <IaGruposFamiliasModal
+        visible={modalGruposOpen}
+        onClose={() => setModalGruposOpen(false)}
+        grupos={iaGrupos}
+        familias={iaFamilias}
+        familiaIdsIniciales={ventasParams.familiaIds}
+        loading={loadingIaGrupos || loadingIaFamilias}
+        onGuardar={onGuardarGrupoIa}
+        onBorrar={onBorrarGrupoIa}
+      />
     </View>
   );
 }
@@ -676,6 +1202,88 @@ const styles = StyleSheet.create({
   panelRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 12 },
   panelCol: { flexDirection: 'column' },
   field: { flexGrow: 1, minWidth: 200, marginBottom: 4 },
+  fieldWide: { flexBasis: '100%', minWidth: '100%' },
+  fuenteDesc: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#64748b',
+    flexShrink: 1,
+    width: '100%',
+    maxWidth: '100%',
+    ...(Platform.OS === 'web' ? ({ wordBreak: 'break-word' } as object) : null),
+  },
+  multiField: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    padding: 10,
+  },
+  multiHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 6,
+  },
+  searchInput: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: '#1e293b',
+    marginBottom: 6,
+  },
+  multiList: { maxHeight: 160 },
+  checkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    minHeight: MIN_TOUCH,
+    borderRadius: 6,
+  },
+  checkRowSel: { backgroundColor: '#f0f9ff' },
+  checkText: { flex: 1, fontSize: 13, color: '#475569' },
+  checkTextSel: { color: '#0369a1', fontWeight: '600' },
+  chipTodos: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#e0f2fe',
+  },
+  chipTodosText: { fontSize: 11, fontWeight: '700', color: '#0369a1' },
+  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  grupoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+    maxWidth: '100%',
+    minHeight: MIN_TOUCH,
+  },
+  grupoChipOn: { borderColor: '#7dd3fc', backgroundColor: '#e0f2fe' },
+  grupoChipText: { fontSize: 12, color: '#64748b', fontWeight: '600', maxWidth: 180 },
+  grupoChipTextOn: { color: '#0369a1' },
+  gestionarBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  gestionarText: { fontSize: 11, color: '#0369a1', fontWeight: '700' },
+  hintInline: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
   label: { fontSize: 10, fontWeight: '600', color: '#64748b', marginBottom: 4, textTransform: 'uppercase' },
   numInput: {
     backgroundColor: '#fff',

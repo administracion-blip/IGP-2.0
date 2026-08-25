@@ -60,6 +60,16 @@ export function normalizarLimite(valor) {
   return Math.min(Math.trunc(n), LIMITE_PAGINA_MAXIMO);
 }
 
+/**
+ * Orden de la consulta por fecha. Por defecto 'desc' (lo más reciente primero),
+ * que es lo que espera la pantalla de Banca. El panel de conciliación de una
+ * factura pide 'asc': su rango arranca en la fecha de emisión y el pago suele
+ * caer al principio, así que con 'desc' el corte por `Limit` se lo dejaba fuera.
+ */
+export function normalizarOrden(valor) {
+  return String(valor || '').trim().toLowerCase() === 'asc' ? 'asc' : 'desc';
+}
+
 /** Cursor de paginación: la clave de continuación de DynamoDB en base64. */
 export function codificarCursor(lastKey) {
   if (!lastKey) return null;
@@ -86,7 +96,7 @@ function rangoSk(desde, hasta) {
 /**
  * Movimientos de una cuenta por clave principal.
  * @param {string} cuentaRef
- * @param {{ desde?: string, hasta?: string, estado?: string, limite?: number, cursor?: string }} opciones
+ * @param {{ desde?: string, hasta?: string, estado?: string, limite?: number, cursor?: string, orden?: 'asc'|'desc' }} opciones
  * @returns {Promise<{ movimientos: Array<Record<string, any>>, cursor: string|null }>}
  */
 export async function queryMovimientosCuenta(cuentaRef, {
@@ -95,6 +105,7 @@ export async function queryMovimientosCuenta(cuentaRef, {
   estado,
   limite,
   cursor,
+  orden,
 } = {}) {
   const { lo, hi } = rangoSk(desde, hasta);
   const result = await docClient.send(
@@ -111,7 +122,7 @@ export async function queryMovimientosCuenta(cuentaRef, {
         ...(estado && { ':estado': String(estado) }),
       },
       Limit: normalizarLimite(limite),
-      ScanIndexForward: false,
+      ScanIndexForward: normalizarOrden(orden) === 'asc',
       ...(cursor && { ExclusiveStartKey: decodificarCursor(cursor) || undefined }),
     }),
   );
@@ -147,6 +158,7 @@ async function queryPorIndice(indexName, claveNombre, claveValor, {
   estado,
   limite,
   cursor,
+  orden,
 } = {}) {
   const condiciones = [`${claveNombre} = :clave`];
   const values = { ':clave': String(claveValor) };
@@ -171,7 +183,7 @@ async function queryPorIndice(indexName, claveNombre, claveValor, {
       ...(estado && { FilterExpression: 'estadoConciliacion = :estado' }),
       ExpressionAttributeValues: values,
       Limit: normalizarLimite(limite),
-      ScanIndexForward: false,
+      ScanIndexForward: normalizarOrden(orden) === 'asc',
       ...(cursor && { ExclusiveStartKey: decodificarCursor(cursor) || undefined }),
     }),
   );
@@ -218,6 +230,34 @@ export async function putMovimientoSiNuevo(item) {
 }
 
 /**
+ * Recorre una lista con un pool de trabajadores sobre un índice compartido. Un
+ * extracto trae cientos o miles de apuntes: en serie son otros tantos
+ * round-trips a Dynamo y la petición se come el timeout del cliente.
+ *
+ * Si `tarea` lanza, el `Promise.all` propaga el error igual que un bucle
+ * secuencial (el resto de trabajadores ya está cubierto por el mismo `all`, así
+ * que no quedan rechazos sin gestionar).
+ * @template T
+ * @param {Array<T>} lista
+ * @param {(item: T) => Promise<void>} tarea
+ * @param {{ concurrencia?: number }} [opciones]
+ */
+async function recorrerConConcurrencia(lista, tarea, { concurrencia } = {}) {
+  const ancho = Math.max(1, Number(concurrencia) || CONCURRENCIA_ESCRITURA);
+  let indice = 0;
+
+  async function trabajador() {
+    while (indice < lista.length) {
+      const propio = indice;
+      indice += 1;
+      await tarea(lista[propio]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(ancho, lista.length) }, trabajador));
+}
+
+/**
  * Escribe una lista de movimientos con concurrencia limitada.
  * @param {Array<Record<string, any>>} items
  * @param {{ concurrencia?: number }} opciones
@@ -225,22 +265,19 @@ export async function putMovimientoSiNuevo(item) {
  */
 export async function escribirMovimientos(items, { concurrencia } = {}) {
   const lista = items || [];
-  const ancho = Math.max(1, Number(concurrencia) || CONCURRENCIA_ESCRITURA);
-  let indice = 0;
   let nuevos = 0;
   let duplicados = 0;
 
-  async function trabajador() {
-    while (indice < lista.length) {
-      const propio = indice;
-      indice += 1;
-      const resultado = await putMovimientoSiNuevo(lista[propio]);
+  await recorrerConConcurrencia(
+    lista,
+    async (item) => {
+      const resultado = await putMovimientoSiNuevo(item);
       if (resultado === 'nuevo') nuevos += 1;
       else duplicados += 1;
-    }
-  }
+    },
+    { concurrencia },
+  );
 
-  await Promise.all(Array.from({ length: Math.min(ancho, lista.length) }, trabajador));
   return { nuevos, duplicados };
 }
 
@@ -497,7 +534,8 @@ export async function asignarEmpresaAMovimientos(cuentaRef, empresaId, { empresa
   const pendientes = (await movimientosEnRango(cuentaRef)).filter((m) => !m.empresaId);
   const ahora = new Date().toISOString();
   let actualizados = 0;
-  for (const mov of pendientes) {
+
+  await recorrerConConcurrencia(pendientes, async (mov) => {
     try {
       await docClient.send(
         new UpdateCommand({
@@ -517,6 +555,7 @@ export async function asignarEmpresaAMovimientos(cuentaRef, empresaId, { empresa
       // Otro proceso pudo asignarle empresa entre la lectura y el Update.
       if (err?.name !== 'ConditionalCheckFailedException') throw err;
     }
-  }
+  });
+
   return { actualizados };
 }

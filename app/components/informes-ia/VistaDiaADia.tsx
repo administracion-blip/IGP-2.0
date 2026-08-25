@@ -56,6 +56,9 @@ type RatioLocal = {
   ratioPersonal?: number | null;
   ratioMercaderia?: number | null;
   ratioMusicos?: number | null;
+  objetivoPersonal?: number | null;
+  objetivoMercaderia?: number | null;
+  objetivoMusicos?: number | null;
   sinFacturacion?: boolean;
   avisos?: string[];
 };
@@ -246,15 +249,13 @@ const C = {
 } as const;
 
 /**
- * Semáforo de ratios (heurística suave, sin cruzar maestros ratio_*):
- * - null / sin dato → gris
- * - ≤ 40 % → verde (ratio contenido)
- * - > 40 % y ≤ 55 % → ámbar
- * - > 55 % → rojo
+ * Semáforo de ratios vs objetivo del local (ratio_personal / ratio_mercaderia / ratio_musicos),
+ * misma lógica que actuaciones (colorPctGasto):
+ * - sin ratio o sin objetivo → gris
+ * - valor ≤ objetivo → verde
+ * - valor ≤ objetivo + 1 → ámbar
+ * - valor > objetivo + 1 → rojo
  */
-const RATIO_AMBRA_UMBRAL = 40;
-const RATIO_ROJO_UMBRAL = 55;
-
 function formatPct(n: number | null | undefined): string {
   if (n == null || Number.isNaN(Number(n))) return '—';
   return `${Number(n).toLocaleString('es-ES', { maximumFractionDigits: 1 })} %`;
@@ -306,14 +307,21 @@ function badgeVariacionGrupo(kpiVar: number | null): { label: string; bg: string
   return { label: 'Por debajo', bg: C.dangerBg, fg: '#b91c1c' };
 }
 
-function semaforoRatio(ratio: number | null | undefined): { bg: string; fg: string } {
+function semaforoRatio(
+  ratio: number | null | undefined,
+  objetivo: number | null | undefined,
+): { bg: string; fg: string } {
   if (ratio == null || Number.isNaN(Number(ratio))) {
     return { bg: '#f1f5f9', fg: C.muted };
   }
+  if (objetivo == null || Number.isNaN(Number(objetivo))) {
+    return { bg: '#f1f5f9', fg: C.muted };
+  }
   const v = Number(ratio);
-  if (v > RATIO_ROJO_UMBRAL) return { bg: C.dangerBg, fg: C.danger };
-  if (v > RATIO_AMBRA_UMBRAL) return { bg: C.warningBg, fg: C.warning };
-  return { bg: C.successBg, fg: C.success };
+  const obj = Number(objetivo);
+  if (v <= obj) return { bg: C.successBg, fg: C.success };
+  if (v <= obj + 1) return { bg: C.warningBg, fg: C.warning };
+  return { bg: C.dangerBg, fg: C.danger };
 }
 
 function fallbackComparativaLabel(datos: DatosDiaADia): string {
@@ -427,9 +435,17 @@ function VariacionBadge({ pct, text }: { pct: number | null; text: string }) {
   );
 }
 
-function RatioBadge({ value, sinFacturacion }: { value: number | null | undefined; sinFacturacion?: boolean }) {
+function RatioBadge({
+  value,
+  objetivo,
+  sinFacturacion,
+}: {
+  value: number | null | undefined;
+  objetivo?: number | null;
+  sinFacturacion?: boolean;
+}) {
   const ratio = sinFacturacion ? null : value;
-  const sem = semaforoRatio(ratio);
+  const sem = semaforoRatio(ratio, objetivo);
   return (
     <View style={[styles.ratioBadge, { backgroundColor: sem.bg }]}>
       <Text style={[styles.ratioBadgeText, { color: sem.fg }]}>
@@ -1271,13 +1287,13 @@ export function VistaDiaADia({ datos, modoPdf = false }: Props) {
                   <View style={styles.tr}>
                     <Text style={[styles.td, styles.colLocal]} numberOfLines={1}>{r.nombre}</Text>
                     <View style={[styles.colRatio, styles.badgeCell]}>
-                      <RatioBadge value={r.ratioPersonal} sinFacturacion={r.sinFacturacion} />
+                      <RatioBadge value={r.ratioPersonal} objetivo={r.objetivoPersonal} sinFacturacion={r.sinFacturacion} />
                     </View>
                     <View style={[styles.colRatio, styles.badgeCell]}>
-                      <RatioBadge value={r.ratioMercaderia} sinFacturacion={r.sinFacturacion} />
+                      <RatioBadge value={r.ratioMercaderia} objetivo={r.objetivoMercaderia} sinFacturacion={r.sinFacturacion} />
                     </View>
                     <View style={[styles.colRatio, styles.badgeCell]}>
-                      <RatioBadge value={r.ratioMusicos} sinFacturacion={r.sinFacturacion} />
+                      <RatioBadge value={r.ratioMusicos} objetivo={r.objetivoMusicos} sinFacturacion={r.sinFacturacion} />
                     </View>
                   </View>
                   {mostrarGastosRatio ? (

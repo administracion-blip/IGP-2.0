@@ -46,6 +46,8 @@ import {
   estiloNivel,
   etiquetaNivel,
   etiquetaTipoSugerencia,
+  necesitaRepaso,
+  parseImporte,
   validarReparto,
 } from '../../lib/conciliacion';
 import type {
@@ -83,12 +85,6 @@ type Props = {
   onDescartada?: (mensaje: string) => void;
 };
 
-/** Texto del input a número; lo que no se parsea cuenta como 0. */
-function parseImporte(texto: string | undefined): number {
-  const n = parseFloat(String(texto ?? '').replace(',', '.'));
-  return Number.isFinite(n) ? n : 0;
-}
-
 /** Reintentar repite facturas ya aplicadas: la última respuesta manda. */
 function mezclarAplicadas(
   previas: AsignacionAplicada[],
@@ -98,17 +94,6 @@ function mezclarAplicadas(
   for (const a of previas) mapa.set(a.id_factura, a);
   for (const a of nuevas) mapa.set(a.id_factura, a);
   return [...mapa.values()];
-}
-
-/**
- * Los pagos se han hecho, pero el movimiento no queda a cero limpio: o no pudo
- * anotarlos, o se le ha repartido de más resolviendo una carrera. En los dos
- * casos hay que cuadrarlo a mano desde banca, así que no se cierra en verde.
- */
-function necesitaRepaso(data: RespuestaAplicar | null): boolean {
-  if (!data) return false;
-  if (data.code === 'CONFLICTO_MOVIMIENTO') return true;
-  return (data.avisos || []).some((a) => a.code === 'MOVIMIENTO_SOBREASIGNADO');
 }
 
 export default function ConciliarMovimientoModal({

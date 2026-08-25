@@ -458,6 +458,26 @@ export function crearDynamoMemoria({ paginaTam = 0 } = {}) {
     async enviar(cmd) {
       const tipo = cmd?.constructor?.name;
       const e = cmd.input;
+
+      if (tipo === 'TransactWriteCommand') {
+        operaciones.push({ tipo, tabla: null });
+        await dispararGatillos(tipo, e);
+        // Secuencial: el doble no simula atomicidad real, pero sí los Puts/Deletes
+        // que usan compensación y aplicación de exceso en las pruebas.
+        for (const item of e.TransactItems || []) {
+          if (item.Put) {
+            await api.enviar({ constructor: { name: 'PutCommand' }, input: item.Put });
+          } else if (item.Delete) {
+            await api.enviar({ constructor: { name: 'DeleteCommand' }, input: item.Delete });
+          } else if (item.Update) {
+            await api.enviar({ constructor: { name: 'UpdateCommand' }, input: item.Update });
+          } else {
+            throw new Error('El doble solo soporta Put/Delete/Update en TransactWrite');
+          }
+        }
+        return {};
+      }
+
       operaciones.push({ tipo, tabla: e.TableName });
       await dispararGatillos(tipo, e);
       const t = tabla(e.TableName);

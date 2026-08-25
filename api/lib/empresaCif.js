@@ -55,6 +55,16 @@ export function cifDigitsOnly(normalizedCif) {
   return String(normalizedCif ?? '').replace(/\D/g, '');
 }
 
+/**
+ * ¿Parece un CIF/NIF español (letra+7 dígitos+control, o 8 dígitos+letra)?
+ * Sirve para no confundir identificadores fiscales con nº de factura.
+ */
+export function pareceCifNifEspanol(val) {
+  const n = normalizeCif(val);
+  if (!n) return false;
+  return /^([A-Z]\d{7}[A-Z0-9]|\d{8}[A-Z])$/.test(n);
+}
+
 export function getCifFromEmpresaItem(item) {
   if (!item || typeof item !== 'object') return '';
   const direct = ['Cif', 'cif', 'NIF', 'nif', 'Nif'];

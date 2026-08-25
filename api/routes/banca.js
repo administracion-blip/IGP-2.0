@@ -26,6 +26,7 @@ import {
   queryMovimientosEmpresa,
   queryMovimientosEstado,
   marcarCuentaAsignadaEnFichero,
+  normalizarOrden,
   ESTADO_FICHERO_EN_CURSO,
 } from '../lib/banca/store.js';
 import { getNombreFromEmpresaItem } from '../lib/empresaCif.js';
@@ -218,17 +219,18 @@ router.get('/banca/movimientos', requirePermission('banca.ver'), async (req, res
   const hasta = fechaOpcional(req.query.hasta);
   const limite = req.query.limite ?? req.query.limit;
   const cursor = String(req.query.cursor || '').trim();
+  const orden = normalizarOrden(req.query.orden);
 
   if (req.query.desde && !desde) return res.status(400).json({ error: 'desde debe ser YYYY-MM-DD' });
   if (req.query.hasta && !hasta) return res.status(400).json({ error: 'hasta debe ser YYYY-MM-DD' });
 
   let salida;
   if (iban) {
-    salida = await queryMovimientosCuenta(iban, { desde, hasta, estado, limite, cursor });
+    salida = await queryMovimientosCuenta(iban, { desde, hasta, estado, limite, cursor, orden });
   } else if (empresaId) {
-    salida = await queryMovimientosEmpresa(empresaId, { desde, hasta, estado, limite, cursor });
+    salida = await queryMovimientosEmpresa(empresaId, { desde, hasta, estado, limite, cursor, orden });
   } else if (estado) {
-    salida = await queryMovimientosEstado(estado, { desde, hasta, limite, cursor });
+    salida = await queryMovimientosEstado(estado, { desde, hasta, limite, cursor, orden });
   } else {
     return res.status(400).json({
       error: 'Indica al menos iban, empresaId o estado para consultar movimientos',
@@ -239,7 +241,7 @@ router.get('/banca/movimientos', requirePermission('banca.ver'), async (req, res
     ok: true,
     movimientos: salida.movimientos.map(movimientoToApi),
     cursor: salida.cursor,
-    filtros: { iban, empresaId, estado: estado || '', desde, hasta },
+    filtros: { iban, empresaId, estado: estado || '', desde, hasta, orden },
   });
 });
 

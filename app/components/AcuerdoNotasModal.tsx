@@ -15,6 +15,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import type { Acuerdo } from '../types/acuerdo';
 import type { UseAcuerdoNotasReturn } from '../hooks/useAcuerdoNotas';
 import { useBreakpoint } from '../hooks/useBreakpoint';
+import { useConfirmar } from '../hooks/useConfirmar';
 import { NotasTimeline } from './NotasTimeline';
 
 type Props = {
@@ -29,6 +30,7 @@ type Props = {
 export function AcuerdoNotasModal({ notas, seleccionado, puedeEditar = true }: Props) {
   const { shouldStackPanels } = useBreakpoint();
   const { height: winH } = useWindowDimensions();
+  const { confirmar, ConfirmarView } = useConfirmar();
   const {
     visible,
     nuevaNota,
@@ -38,11 +40,23 @@ export function AcuerdoNotasModal({ notas, seleccionado, puedeEditar = true }: P
     lineas,
     cerrar,
     añadirNota,
+    eliminarNota,
   } = notas;
 
   const fullScreen = shouldStackPanels;
 
+  const pedirEliminarNota = async (ordenOriginal: number) => {
+    const ok = await confirmar(
+      'Eliminar nota',
+      '¿Eliminar esta nota? Esta acción no se puede deshacer.',
+      { confirmarLabel: 'Eliminar', variant: 'danger' },
+    );
+    if (!ok) return;
+    await eliminarNota(ordenOriginal);
+  };
+
   return (
+    <>
     <Modal visible={visible} transparent={!fullScreen} animationType="fade" onRequestClose={cerrar}>
       <Pressable
         style={[styles.overlay, fullScreen && styles.overlayFull]}
@@ -54,7 +68,9 @@ export function AcuerdoNotasModal({ notas, seleccionado, puedeEditar = true }: P
           style={[
             styles.card,
             fullScreen && styles.cardFull,
-            !fullScreen && { maxHeight: Platform.OS === 'web' ? ('85vh' as unknown as number) : winH * 0.85 },
+            !fullScreen && Platform.OS !== 'web'
+              ? { maxHeight: winH * 0.85, minHeight: Math.min(320, winH * 0.5) }
+              : null,
           ]}
         >
           <View style={styles.header}>
@@ -76,7 +92,11 @@ export function AcuerdoNotasModal({ notas, seleccionado, puedeEditar = true }: P
             contentContainerStyle={styles.timelineContent}
             keyboardShouldPersistTaps="handled"
           >
-            <NotasTimeline items={lineas} />
+            <NotasTimeline
+              items={lineas}
+              onEliminar={puedeEditar ? pedirEliminarNota : undefined}
+              eliminando={guardando}
+            />
           </ScrollView>
 
           {puedeEditar ? (
@@ -123,6 +143,8 @@ export function AcuerdoNotasModal({ notas, seleccionado, puedeEditar = true }: P
         </View>
       </Pressable>
     </Modal>
+    {ConfirmarView}
+    </>
   );
 }
 
@@ -145,10 +167,16 @@ const styles = StyleSheet.create({
     maxWidth: 520,
     overflow: 'hidden',
     flexDirection: 'column',
+    // Altura acotada para que el ScrollView del timeline pueda hacer scroll.
+    flexShrink: 1,
+    ...(Platform.OS === 'web'
+      ? ({ maxHeight: '85vh', minHeight: 320 } as object)
+      : { maxHeight: undefined }),
   },
   cardFull: {
     maxWidth: '100%',
     maxHeight: '100%',
+    minHeight: 0,
     flex: 1,
     borderRadius: 0,
   },
@@ -160,18 +188,25 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
+    flexShrink: 0,
   },
   closeBtn: { padding: 4 },
   title: { fontSize: 16, fontWeight: '700', color: '#1e293b' },
   subtitle: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  timelineScroll: { flexGrow: 1, flexShrink: 1 },
-  timelineContent: { paddingHorizontal: 20, paddingVertical: 12 },
+  timelineScroll: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minHeight: 0,
+    ...(Platform.OS === 'web' ? ({ flex: 1, overflowY: 'auto' } as object) : { flex: 1 }),
+  },
+  timelineContent: { paddingHorizontal: 20, paddingVertical: 12, paddingBottom: 20 },
   footer: {
     borderTopWidth: 1,
     borderTopColor: '#e2e8f0',
     paddingHorizontal: 20,
     paddingVertical: 14,
     backgroundColor: '#f8fafc',
+    flexShrink: 0,
   },
   input: {
     borderWidth: 1,

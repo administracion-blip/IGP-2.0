@@ -180,7 +180,15 @@ async function scanLocales() {
 
 /**
  * Universo del briefing: Sede Grupo Paripe ∩ locales del usuario ∩ filtro opcional.
- * @returns {Promise<Array<{ localId: string, nombre: string, workplaceId: string, factorial_location_id: string|null }>>}
+ * @returns {Promise<Array<{
+ *   localId: string,
+ *   nombre: string,
+ *   workplaceId: string,
+ *   factorial_location_id: string|null,
+ *   ratio_personal: unknown,
+ *   ratio_mercaderia: unknown,
+ *   ratio_musicos: unknown,
+ * }>>}
  */
 async function localesUniversoDiaADia(user, filtroLocalId = '') {
   const todos = await scanLocales();
@@ -200,6 +208,9 @@ async function localesUniversoDiaADia(user, filtroLocalId = '') {
       nombre: String(loc.nombre ?? loc.Nombre ?? id).trim(),
       workplaceId,
       factorial_location_id: fid || null,
+      ratio_personal: loc.ratio_personal,
+      ratio_mercaderia: loc.ratio_mercaderia,
+      ratio_musicos: loc.ratio_musicos,
     });
   }
   visibles.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
@@ -566,6 +577,9 @@ export async function buildDiaADia(user, params = {}) {
     nombre: u.nombre,
     facturacionReal: Number(factByLocal.get(u.localId)?.real) || 0,
     factorial_location_id: u.factorial_location_id,
+    ratio_personal: u.ratio_personal,
+    ratio_mercaderia: u.ratio_mercaderia,
+    ratio_musicos: u.ratio_musicos,
   }));
 
   const ratiosPorLocal = await buildRatiosDiaLocal({ fecha, locales: ratiosLocales });

@@ -911,8 +911,10 @@ router.delete('/mayorista/negociaciones/:id', requirePermission('mayorista.borra
     const id = String(req.params.id);
     const actual = await cargarNegociacion(id);
     if (!actual) return res.status(404).json({ error: 'Negociación no encontrada' });
-    if (actual.meta.estado !== 'borrador') {
-      return res.status(400).json({ error: 'Solo se pueden borrar borradores' });
+    if (actual.meta.estado !== 'borrador' && actual.meta.estado !== 'confirmada') {
+      return res.status(400).json({
+        error: 'Solo se pueden borrar operaciones en borrador o confirmada (no facturadas ni pagadas)',
+      });
     }
     const items = await queryAll({
       TableName: tNeg,

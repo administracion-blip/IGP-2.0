@@ -1,5 +1,5 @@
 import { apiFetch } from '../utils/api';
-import { mapTipoReciboToFormaPago } from '../utils/facturacion';
+import { esMetodoAplicacionExceso, mapTipoReciboToFormaPago } from '../utils/facturacion';
 import { esMetodoCompensacion } from './compensacionFactura';
 import type { RegistrarPagoInitial, RegistrarPagoPayloadFactura } from '../components/RegistrarPagoModal';
 import type { FacturaListado } from '../types/factura';
@@ -112,6 +112,9 @@ export async function eliminarPagoFactura(
   if (pago && esMetodoCompensacion(pago.metodo_pago)) {
     throw new Error('Los pagos por compensación no se pueden eliminar desde aquí');
   }
+  if (pago && esMetodoAplicacionExceso(pago.metodo_pago)) {
+    throw new Error('Las aplicaciones de exceso no se pueden eliminar desde aquí');
+  }
   const r = await apiFetch(`/api/facturacion/pagos/${idFactura}/${idPago}`, {
     method: 'DELETE',
     body: JSON.stringify({
@@ -132,6 +135,9 @@ export async function actualizarPagoFactura(
 ): Promise<{ pago: PagoDetalleRow; factura: FacturaListado | null }> {
   if (esMetodoCompensacion(payload.metodo_pago)) {
     throw new Error('Los pagos por compensación no se pueden editar');
+  }
+  if (esMetodoAplicacionExceso(payload.metodo_pago)) {
+    throw new Error('Las aplicaciones de exceso no se pueden editar desde aquí');
   }
   const r = await apiFetch(`/api/facturacion/pagos/${idFactura}/${idPago}`, {
     method: 'PUT',

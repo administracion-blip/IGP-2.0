@@ -16,6 +16,11 @@ import { DeleteCommand, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables, keyForFacturaPrincipalId } from '../db.js';
 import { findRemesaActivaDeFactura } from '../remesas/facturaEnRemesa.js';
 import { METODO_PAGO_COMPENSACION } from './compensacionFactura.js';
+import {
+  METODO_PAGO_APLICACION_EXCESO,
+  assertSinAplicacionesExcesoEnFactura,
+  recalcularExcesoPendiente,
+} from './excesoPago.js';
 
 function now() {
   return new Date().toISOString();
@@ -115,6 +120,16 @@ export async function eliminarPagoFactura({
       'PAGO_COMPENSACION',
     );
   }
+  if (String(pago.metodo_pago || '') === METODO_PAGO_APLICACION_EXCESO) {
+    throw error(
+      400,
+      'Los pagos por aplicación de exceso no se pueden eliminar desde aquí. Contacta con administración si necesitas corregirlos.',
+      'PAGO_APLICACION_EXCESO',
+    );
+  }
+  // Si la factura ya tiene aplicaciones de exceso (como origen o destino),
+  // borrar otro pago dejaría crédito/cobro huérfano en la contraparte.
+  await assertSinAplicacionesExcesoEnFactura(idFactura);
 
   await docClient.send(
     new DeleteCommand({ TableName: tables.facturasPagos, Key: { id_factura: idFactura, id_pago: idPago } }),
@@ -126,6 +141,7 @@ export async function eliminarPagoFactura({
   factura.total_cobrado = nuevoTotalCobrado;
   factura.saldo_pendiente = Math.max(0, nuevoSaldo);
   factura.estado = estadoTrasQuitarPago(factura, nuevoTotalCobrado, nuevoSaldo);
+  recalcularExcesoPendiente(factura);
   factura.modificado_en = now();
 
   await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));

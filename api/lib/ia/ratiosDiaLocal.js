@@ -26,6 +26,13 @@ function ratioPct(gasto, facturacionReal) {
   return round1(((Number(gasto) || 0) / den) * 100);
 }
 
+/** Objetivo de ratio del maestro Locales (%, o null si no configurado). */
+function parseRatioObjetivo(raw) {
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 function fechaPedidoToIso(fecha) {
   const s = String(fecha ?? '').trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
@@ -243,6 +250,9 @@ async function gastoMusicosPorLocal(localIdsSet, fecha) {
  *     nombre: string,
  *     facturacionReal: number,
  *     factorial_location_id?: string|null,
+ *     ratio_personal?: unknown,
+ *     ratio_mercaderia?: unknown,
+ *     ratio_musicos?: unknown,
  *   }>,
  * }} args
  */
@@ -276,6 +286,9 @@ export async function buildRatiosDiaLocal({ fecha, locales }) {
       ratioPersonal: gastoPersonal == null ? null : ratioPct(gastoPersonal, facturacionReal),
       ratioMercaderia: ratioPct(gastoMercaderia, facturacionReal),
       ratioMusicos: ratioPct(gastoMusicos, facturacionReal),
+      objetivoPersonal: parseRatioObjetivo(loc.ratio_personal),
+      objetivoMercaderia: parseRatioObjetivo(loc.ratio_mercaderia),
+      objetivoMusicos: parseRatioObjetivo(loc.ratio_musicos),
       sinFacturacion: !(facturacionReal > 0),
       ...(pers.minutosReales != null ? { minutosRealesPersonal: pers.minutosReales } : {}),
       ...(pers.costeHora !== undefined ? { costeHoraPersonal: pers.costeHora } : {}),

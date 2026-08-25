@@ -204,14 +204,26 @@ export function hayFiltroMovimientos(filtros: Pick<FiltrosMovimientos, 'iban' | 
   return Boolean(filtros.iban.trim() || filtros.empresaId.trim() || filtros.estado.trim());
 }
 
+/** Orden de la página de movimientos por fecha de operación. */
+export type OrdenMovimientos = 'asc' | 'desc';
+
 /**
  * Query de `/api/banca/movimientos`.
  *
  * El backend resuelve por cuenta, por empresa o por estado en ese orden, así que
  * con una cuenta elegida no se manda `empresaId`: se ignoraría y solo
  * confundiría al leer los filtros que devuelve la respuesta.
+ *
+ * `orden` es opcional a propósito: si no se indica no se manda el parámetro y el
+ * backend aplica su `desc` de siempre (lo más reciente primero). Solo el panel
+ * de conciliación desde la factura pide `asc`, porque el apunte que busca está
+ * al principio del rango.
  */
-export function queryMovimientos(filtros: FiltrosMovimientos, cursor = ''): string {
+export function queryMovimientos(
+  filtros: FiltrosMovimientos,
+  cursor = '',
+  opciones: { orden?: OrdenMovimientos } = {},
+): string {
   const params = new URLSearchParams();
   const iban = filtros.iban.trim();
   const empresaId = filtros.empresaId.trim();
@@ -222,6 +234,7 @@ export function queryMovimientos(filtros: FiltrosMovimientos, cursor = ''): stri
   if (filtros.hasta) params.set('hasta', filtros.hasta);
   params.set('limite', String(LIMITE_MOVIMIENTOS));
   if (cursor) params.set('cursor', cursor);
+  if (opciones.orden) params.set('orden', opciones.orden);
   return `/api/banca/movimientos?${params.toString()}`;
 }
 

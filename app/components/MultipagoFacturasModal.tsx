@@ -27,7 +27,7 @@ import {
   resolveMetodoPagoParaEnvio,
 } from '../utils/facturacion';
 import { hoyISO } from '../utils/facturaFormLogic';
-import { fechaEmisionFacturaAIso } from '../utils/formatFecha';
+import { fechaEmisionFacturaAIso, formatFechaPagoRow } from '../utils/formatFecha';
 import {
   getTipoReciboFromEmpresasList,
   type EmpresaConTipoRecibo,
@@ -356,9 +356,18 @@ export function MultipagoFacturasModal({
               {/* Derecha: detalle */}
               <View style={[styles.panelDetalle, shouldStackPanels && styles.panelApilado]}>
                 <Text style={styles.panelTitulo}>Detalle del pago</Text>
-                <Text style={styles.empresaPagadora}>
-                  Empresa pagadora: {empresaPagadoraNombre.trim() || '—'}
-                </Text>
+                <View style={styles.metaCabecera}>
+                  <Text style={styles.empresaPagadora}>
+                    Empresa pagadora: {empresaPagadoraNombre.trim() || '—'}
+                  </Text>
+                  {activa ? (
+                    <View style={styles.fechaFacturaBadge}>
+                      <Text style={styles.fechaFacturaCabecera}>
+                        Fecha factura: {formatFechaPagoRow(activa.fecha_emision)}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
 
                 {activa && borradorActivo ? (
                   <ScrollView
@@ -575,11 +584,32 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     marginBottom: 8,
   },
+  metaCabecera: {
+    marginBottom: 10,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+  },
   empresaPagadora: {
     fontSize: 13,
     fontWeight: '600',
     color: '#0369a1',
-    marginBottom: 10,
+    flexShrink: 1,
+  },
+  fechaFacturaBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#fbcfe8',
+    backgroundColor: '#fdf2f8',
+    alignSelf: 'flex-start',
+  },
+  fechaFacturaCabecera: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#9d174d',
   },
 
   listaScroll: { flex: 1 },

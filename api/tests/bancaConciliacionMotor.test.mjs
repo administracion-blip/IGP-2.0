@@ -219,12 +219,15 @@ test('solo entran facturas con saldo y en estado conciliable', () => {
 });
 
 test('una factura emitida después del movimiento queda fuera de la ventana', () => {
+  // Movimiento de referencia: 2026-07-14. Ventana: hasta 365 días atrás y 5 adelante.
   const futura = gasto({ id: 'F-FUTURA', fecha_emision: '2026-08-20' });
   const antigua = gasto({ id: 'F-ANTIGUA', fecha_emision: '2024-01-10', fecha_vencimiento: '2024-02-10' });
+  // ~200 días antes: con 180 quedaba fuera; con 365 entra.
+  const hace200 = gasto({ id: 'F-200', fecha_emision: '2025-12-26' });
   const dentro = gasto({ id: 'F-DENTRO' });
 
-  const salida = sugerir(movimiento(), [futura, antigua, dentro]);
-  assert.deepEqual([...new Set(salida.flatMap(ids))], ['F-DENTRO']);
+  const salida = sugerir(movimiento(), [futura, antigua, hace200, dentro]);
+  assert.deepEqual([...new Set(salida.flatMap(ids))].sort(), ['F-200', 'F-DENTRO']);
 });
 
 // ─── Tipos de sugerencia ───

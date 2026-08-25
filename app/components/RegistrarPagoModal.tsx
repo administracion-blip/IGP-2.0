@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -9,16 +9,20 @@ import {
   Modal,
   Pressable,
   StyleSheet,
+  useWindowDimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from './InputFecha';
+import { useBreakpoint } from '../hooks/useBreakpoint';
 import {
   FORMAS_PAGO,
   formatMoneda,
   labelFormaPago,
   resolveMetodoPagoParaEnvio,
+  type FacturaExcesoDisponible,
 } from '../utils/facturacion';
 import { hoyISO } from '../utils/facturaFormLogic';
+import { formatFechaPagoRow } from '../utils/formatFecha';
 import { copyToClipboard } from '../utils/clipboard';
 import { apiFetch, errorMessage } from '../utils/api';
 import { SelectorDesplegableMulti } from './SelectorDesplegableMulti';
@@ -66,6 +70,8 @@ type BaseProps = {
   textoBotonPersonalizado?: string;
   /** Sociedad del grupo que paga (solo lectura, bajo el título). */
   empresaPagadoraNombre?: string;
+  /** Fecha de emisión de la factura (solo lectura, junto a la empresa pagadora). */
+  fechaFactura?: string;
 };
 
 export type DatosPagoInfo = {
@@ -84,6 +90,25 @@ type FacturaProps = BaseProps & {
   habilitarCompensacion?: boolean;
   facturaId?: string;
   saldoOrigen?: number;
+  /** Panel a la derecha del formulario (ver PanelMovimientosFactura). Al llegar, el modal se ensancha a dos columnas. */
+  panelLateral?: ReactNode;
+  /**
+   * El panel lateral tiene una conciliación en vuelo. Conciliar ya registra el
+   * pago, así que mientras dure no se puede enviar el formulario (duplicaría el
+   * pago) ni cerrar el modal (desmontaría el panel y se perdería la respuesta).
+   */
+  bloqueadoPorPanel?: boolean;
+  /**
+   * Factura IN ya `pagada`: el importe se registrará como exceso.
+   * No muestra banner de aplicar excesos de otras facturas.
+   */
+  avisoSobrepago?: boolean;
+  /**
+   * Destino IN con saldo: al abrir, GET excesos-disponibles y banner para aplicar.
+   */
+  habilitarAplicacionExceso?: boolean;
+  /** Tras POST aplicacion-exceso con éxito (padre recarga / cierra). */
+  onAplicacionExcesoSuccess?: () => void;
   onSubmit: (payload: RegistrarPagoPayloadFactura) => void;
 };
 
@@ -206,6 +231,7 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
     tituloPersonalizado,
     textoBotonPersonalizado,
     empresaPagadoraNombre,
+    fechaFactura,
     modo,
   } = props;
 
@@ -218,6 +244,22 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
   const facturaId = props.modo === 'factura' ? props.facturaId : undefined;
   const saldoOrigen = props.modo === 'factura' ? props.saldoOrigen : undefined;
   const resumen = props.modo === 'remesa' ? props.resumen : undefined;
+  const panelLateral = props.modo === 'factura' ? props.panelLateral : undefined;
+  const bloqueadoPorPanel = props.modo === 'factura' && !!props.bloqueadoPorPanel;
+  const avisoSobrepago = props.modo === 'factura' && !!props.avisoSobrepago;
+  const habilitarAplicacionExceso =
+    props.modo === 'factura'
+    && props.variant === 'pago'
+    && !!props.habilitarAplicacionExceso
+    && !avisoSobrepago;
+  const onAplicacionExcesoSuccess =
+    props.modo === 'factura' ? props.onAplicacionExcesoSuccess : undefined;
+
+  const { height: winH } = useWindowDimensions();
+  const { shouldStackPanels } = useBreakpoint();
+  /** Sin panel el modal se queda exactamente como estaba (520 px, una columna). */
+  const conPanel = modo === 'factura' && !!panelLateral;
+  const apilado = conPanel && shouldStackPanels;
 
   const [fecha, setFecha] = useState(hoyISO());
   const [importe, setImporte] = useState('');
@@ -230,15 +272,38 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
   const [compensablesLoading, setCompensablesLoading] = useState(false);
   const [compensablesError, setCompensablesError] = useState('');
   const [facturasCompensar, setFacturasCompensar] = useState<string[]>([]);
+  const [excesosDisponibles, setExcesosDisponibles] = useState<FacturaExcesoDisponible[]>([]);
+  const [excesosLoading, setExcesosLoading] = useState(false);
+  const [excesoSeleccionadoId, setExcesoSeleccionadoId] = useState<string | null>(null);
+  const [excesoBannerIgnorado, setExcesoBannerIgnorado] = useState(false);
+  const [aplicandoExceso, setAplicandoExceso] = useState(false);
+  const [excesoError, setExcesoError] = useState('');
 
   const esCompensacion = metodo === 'compensacion';
+  const saldoDestino = Math.abs(Number(saldoOrigen) || 0);
+  const excesoSeleccionado = useMemo(
+    () => excesosDisponibles.find((e) => e.id_factura === excesoSeleccionadoId) ?? null,
+    [excesosDisponibles, excesoSeleccionadoId],
+  );
+  const importeAplicarExceso = useMemo(() => {
+    if (!excesoSeleccionado) return 0;
+    const exceso = Number(excesoSeleccionado.exceso_pendiente) || 0;
+    return Math.round(Math.min(exceso, saldoDestino) * 100) / 100;
+  }, [excesoSeleccionado, saldoDestino]);
+  const mostrarBannerExceso =
+    habilitarAplicacionExceso
+    && !excesoBannerIgnorado
+    && !esCompensacion
+    && saldoDestino > 0.001
+    && (excesosLoading || excesosDisponibles.length > 0);
 
   const formasDisponibles = useMemo(() => {
-    if (!habilitarCompensacion) {
-      return FORMAS_PAGO.filter((f) => f !== 'compensacion');
+    let formas = FORMAS_PAGO as readonly string[];
+    if (!habilitarCompensacion || avisoSobrepago) {
+      formas = formas.filter((f) => f !== 'compensacion');
     }
-    return FORMAS_PAGO;
-  }, [habilitarCompensacion]);
+    return formas;
+  }, [habilitarCompensacion, avisoSobrepago]);
 
   const maxComp = useMemo(
     () => maxImporteCompensacion(Number(saldoOrigen) || 0, compensables, facturasCompensar),
@@ -267,7 +332,43 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
     setFacturasCompensar([]);
     setCompensables([]);
     setCompensablesError('');
+    setExcesosDisponibles([]);
+    setExcesoSeleccionadoId(null);
+    setExcesoBannerIgnorado(false);
+    setExcesoError('');
+    setAplicandoExceso(false);
   }, [visible, initial, modo]);
+
+  useEffect(() => {
+    if (!visible || !habilitarAplicacionExceso || !facturaId || saldoDestino <= 0.001) {
+      return;
+    }
+    let cancel = false;
+    setExcesosLoading(true);
+    setExcesoError('');
+    void (async () => {
+      try {
+        const r = await apiFetch(`/api/facturacion/facturas/${facturaId}/excesos-disponibles`);
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'No se pudieron cargar excesos');
+        if (cancel) return;
+        const list: FacturaExcesoDisponible[] = Array.isArray(data.facturas) ? data.facturas : [];
+        setExcesosDisponibles(list);
+        setExcesoSeleccionadoId(list[0]?.id_factura ?? null);
+      } catch (e) {
+        if (!cancel) {
+          setExcesosDisponibles([]);
+          setExcesoSeleccionadoId(null);
+          setExcesoError(errorMessage(e, 'Error al cargar excesos'));
+        }
+      } finally {
+        if (!cancel) setExcesosLoading(false);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [visible, habilitarAplicacionExceso, facturaId, saldoDestino]);
 
   useEffect(() => {
     if (!visible || !esCompensacion || !habilitarCompensacion || !facturaId) {
@@ -326,7 +427,44 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
     if (onValidationError) onValidationError(titulo, mensaje);
   };
 
+  const handleAplicarExceso = async () => {
+    if (!facturaId || !excesoSeleccionado || importeAplicarExceso <= 0) return;
+    if (bloqueadoPorPanel || aplicandoExceso || submitting) return;
+    const fechaIso = fecha.trim();
+    if (!fechaIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
+      mostrarError('Error', 'Indica una fecha válida');
+      return;
+    }
+    setAplicandoExceso(true);
+    setExcesoError('');
+    try {
+      const r = await apiFetch(`/api/facturacion/facturas/${facturaId}/pagos/aplicacion-exceso`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id_factura_exceso: excesoSeleccionado.id_factura,
+          importe: importeAplicarExceso,
+          fecha: fechaIso,
+          observaciones: observaciones.trim() || undefined,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'No se pudo aplicar el exceso');
+      onAplicacionExcesoSuccess?.();
+    } catch (e) {
+      const msg = errorMessage(e, 'Error al aplicar el exceso');
+      setExcesoError(msg);
+      mostrarError('Error', msg);
+    } finally {
+      setAplicandoExceso(false);
+    }
+  };
+
   const handleSubmit = () => {
+    // La conciliación del panel registra el pago por su cuenta: enviar también
+    // esto lo duplicaría, y la idempotencia del backend no cubre ese caso.
+    if (bloqueadoPorPanel) return;
+
     const fechaIso = fecha.trim();
     if (!fechaIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
       mostrarError('Error', 'Indica una fecha válida');
@@ -397,20 +535,281 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
       ? 'Confirmar pagos'
       : `Guardar ${variant === 'cobro' ? 'cobro' : 'pago'}`);
 
+  const formulario = (
+    <ScrollView
+      keyboardShouldPersistTaps="handled"
+      style={[styles.modalScroll, conPanel && styles.modalScrollPanel]}
+      contentContainerStyle={styles.modalScrollContent}
+      showsVerticalScrollIndicator={false}
+    >
+      <DatosParaPago datosPago={esCompensacion ? undefined : datosPago} />
+
+      {avisoSobrepago ? (
+        <View style={styles.avisoSobrepagoBox}>
+          <MaterialIcons name="info-outline" size={16} color="#b45309" />
+          <Text style={styles.avisoSobrepagoText}>
+            Esta factura ya está pagada; el importe se registrará como exceso
+          </Text>
+        </View>
+      ) : null}
+
+      {mostrarBannerExceso ? (
+        <View style={styles.excesoBanner}>
+          {excesosLoading ? (
+            <View style={styles.excesoBannerLoading}>
+              <ActivityIndicator size="small" color="#b45309" />
+              <Text style={styles.excesoBannerText}>Buscando excesos aplicables…</Text>
+            </View>
+          ) : excesoSeleccionado ? (
+            <>
+              <Text style={styles.excesoBannerText}>
+                Hay {formatMoneda(Number(excesoSeleccionado.exceso_pendiente) || 0)} de exceso en factura{' '}
+                {excesoSeleccionado.etiqueta
+                  || excesoSeleccionado.numero_factura_proveedor
+                  || excesoSeleccionado.numero_factura
+                  || excesoSeleccionado.id_factura}
+                . ¿Descontar de este pago?
+              </Text>
+              {excesosDisponibles.length > 1 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.excesoSelector}>
+                  {excesosDisponibles.map((ex) => {
+                    const activo = ex.id_factura === excesoSeleccionadoId;
+                    return (
+                      <TouchableOpacity
+                        key={ex.id_factura}
+                        style={[styles.excesoChip, activo && styles.excesoChipActive]}
+                        onPress={() => setExcesoSeleccionadoId(ex.id_factura)}
+                      >
+                        <Text style={[styles.excesoChipText, activo && styles.excesoChipTextActive]} numberOfLines={1}>
+                          {(ex.etiqueta || ex.numero_factura_proveedor || ex.id_factura).slice(0, 28)}
+                          {' · '}
+                          {formatMoneda(Number(ex.exceso_pendiente) || 0)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              ) : null}
+              <View style={styles.excesoBannerActions}>
+                <TouchableOpacity
+                  style={[styles.excesoBtnAplicar, (aplicandoExceso || importeAplicarExceso <= 0) && styles.btnPrimaryDisabled]}
+                  onPress={() => void handleAplicarExceso()}
+                  disabled={aplicandoExceso || submitting || bloqueadoPorPanel || importeAplicarExceso <= 0}
+                >
+                  {aplicandoExceso ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.excesoBtnAplicarText}>
+                      Aplicar {formatMoneda(importeAplicarExceso)}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.excesoBtnIgnorar}
+                  onPress={() => setExcesoBannerIgnorado(true)}
+                  disabled={aplicandoExceso}
+                >
+                  <Text style={styles.excesoBtnIgnorarText}>Ignorar</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : null}
+          {excesoError ? <Text style={styles.errorExterno}>{excesoError}</Text> : null}
+        </View>
+      ) : null}
+
+      <View style={styles.field}>
+        <Text style={styles.label}>Fecha</Text>
+        <InputFecha
+          valueIso={fecha}
+          onChangeIso={(v) => {
+            setFecha(v);
+            setFechaEditadaManual(true);
+          }}
+          placeholder="dd/mm/aaaa"
+          style={styles.input}
+        />
+      </View>
+
+      <View style={styles.field}>
+        <Text style={styles.label}>Método de pago</Text>
+        <View style={styles.pickerWrap}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {formasDisponibles.map((fp) => (
+              <TouchableOpacity
+                key={fp}
+                style={[styles.chip, metodo === fp && styles.chipActive]}
+                onPress={() => onSeleccionarMetodo(fp)}
+              >
+                <Text style={[styles.chipText, metodo === fp && styles.chipTextActive]}>
+                  {labelFormaPago(fp)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+
+      {modo === 'factura' && esCompensacion ? (
+        <View style={styles.field}>
+          <SelectorDesplegableMulti
+            label="Facturas a compensar *"
+            placeholder="Buscar factura del mismo proveedor y sociedad…"
+            icono="receipt-long"
+            buscador
+            buscadorPlaceholder="Nº factura, proveedor…"
+            loading={compensablesLoading}
+            opciones={compensables.map((f) => ({
+              id: f.id_factura,
+              titulo: f.etiqueta || f.numero_factura_proveedor || f.id_factura,
+              subtitulo: [
+                f.fecha_emision ? f.fecha_emision.slice(0, 10) : '',
+                f.saldo_pendiente != null
+                  ? `Saldo ${formatMoneda(f.saldo_pendiente)}`
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' · '),
+              icono: 'description' as const,
+            }))}
+            valorIds={facturasCompensar}
+            onChange={setFacturasCompensar}
+            vacioTexto={
+              compensablesError ||
+              (compensablesLoading
+                ? 'Cargando…'
+                : 'No hay otras facturas compensables (misma sociedad y proveedor, saldo de signo opuesto).')
+            }
+          />
+          {facturasCompensar.length > 0 && maxComp > 0 ? (
+            <Text style={styles.compHint}>
+              Importe máximo compensable: {formatMoneda(maxComp)}
+            </Text>
+          ) : null}
+          {compensablesError ? (
+            <Text style={styles.errorExterno}>{compensablesError}</Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {modo === 'factura' ? (
+        <View style={styles.field}>
+          <Text style={styles.label}>Importe (€)</Text>
+          <TextInput
+            style={styles.input}
+            value={importe}
+            onChangeText={setImporte}
+            keyboardType="decimal-pad"
+            placeholder="0.00"
+            placeholderTextColor="#94a3b8"
+          />
+        </View>
+      ) : null}
+
+      {metodo === 'otro' ? (
+        <View style={styles.field}>
+          <Text style={styles.label}>Describe el método *</Text>
+          <TextInput
+            style={styles.input}
+            value={metodoOtro}
+            onChangeText={setMetodoOtro}
+            placeholder="Ej. Cheque, PayPal…"
+            placeholderTextColor="#94a3b8"
+          />
+        </View>
+      ) : null}
+
+      {!esCompensacion ? (
+        <View style={styles.field}>
+          <Text style={styles.label}>Referencia</Text>
+          <TextInput
+            style={styles.input}
+            value={referencia}
+            onChangeText={setReferencia}
+            placeholder="Nº transferencia, cheque…"
+            placeholderTextColor="#94a3b8"
+          />
+        </View>
+      ) : null}
+
+      <View style={styles.field}>
+        <Text style={styles.label}>Observaciones</Text>
+        <TextInput
+          style={[styles.input, styles.inputMultiline]}
+          value={observaciones}
+          onChangeText={setObservaciones}
+          placeholder="Notas opcionales…"
+          placeholderTextColor="#94a3b8"
+          multiline
+          numberOfLines={2}
+        />
+      </View>
+
+      {errorExterno ? (
+        <Text style={styles.errorExterno}>{errorExterno}</Text>
+      ) : null}
+
+      <TouchableOpacity
+        style={[styles.btnPrimary, { marginTop: 8 }, (bloqueadoPorPanel || aplicandoExceso) && styles.btnPrimaryDisabled]}
+        onPress={handleSubmit}
+        disabled={submitting || bloqueadoPorPanel || aplicandoExceso}
+      >
+        {submitting ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <Text style={styles.btnPrimaryText}>{textoBoton}</Text>
+        )}
+      </TouchableOpacity>
+
+      {modo === 'remesa' ? (
+        <Text style={styles.avisoRemesa}>
+          Esta acción crea los pagos en todas las facturas y no se puede deshacer desde aquí.
+        </Text>
+      ) : null}
+    </ScrollView>
+  );
+
+  const cerrar = () => {
+    if (bloqueadoPorPanel) return;
+    onClose();
+  };
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.modalOverlay} onPress={() => !submitting && onClose()}>
-        <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={cerrar}>
+      <Pressable
+        style={[styles.modalOverlay, apilado && styles.overlayFull]}
+        onPress={() => !submitting && !bloqueadoPorPanel && onClose()}
+      >
+        <Pressable
+          style={[
+            styles.modalContent,
+            conPanel && styles.contentPanel,
+            conPanel && !apilado ? { maxHeight: winH * 0.94 } : null,
+            apilado && styles.contentFull,
+          ]}
+          onPress={(e) => e.stopPropagation()}
+        >
           <View style={styles.modalHeader}>
             <View style={styles.modalHeaderText}>
               <Text style={styles.modalTitle}>{titulo}</Text>
-              {empresaPagadoraNombre !== undefined ? (
-                <Text style={styles.empresaPagadora}>
-                  Empresa pagadora: {empresaPagadoraNombre.trim() || '—'}
-                </Text>
+              {empresaPagadoraNombre !== undefined || fechaFactura !== undefined ? (
+                <View style={styles.metaCabecera}>
+                  {empresaPagadoraNombre !== undefined ? (
+                    <Text style={styles.empresaPagadora}>
+                      Empresa pagadora: {empresaPagadoraNombre.trim() || '—'}
+                    </Text>
+                  ) : null}
+                  {fechaFactura !== undefined ? (
+                    <View style={styles.fechaFacturaBadge}>
+                      <Text style={styles.fechaFacturaCabecera}>
+                        Fecha factura: {formatFechaPagoRow(fechaFactura)}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
               ) : null}
             </View>
-            <TouchableOpacity onPress={onClose} disabled={submitting}>
+            <TouchableOpacity onPress={cerrar} disabled={submitting || bloqueadoPorPanel}>
               <MaterialIcons name="close" size={22} color="#334155" />
             </TouchableOpacity>
           </View>
@@ -425,163 +824,41 @@ export function RegistrarPagoModal(props: RegistrarPagoModalProps) {
             </View>
           ) : null}
 
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            style={styles.modalScroll}
-            contentContainerStyle={styles.modalScrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-          <DatosParaPago datosPago={esCompensacion ? undefined : datosPago} />
-
-          <View style={styles.field}>
-            <Text style={styles.label}>Fecha</Text>
-            <InputFecha
-              valueIso={fecha}
-              onChangeIso={(v) => {
-                setFecha(v);
-                setFechaEditadaManual(true);
-              }}
-              placeholder="dd/mm/aaaa"
-              style={styles.input}
-            />
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>Método de pago</Text>
-            <View style={styles.pickerWrap}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {formasDisponibles.map((fp) => (
-                  <TouchableOpacity
-                    key={fp}
-                    style={[styles.chip, metodo === fp && styles.chipActive]}
-                    onPress={() => onSeleccionarMetodo(fp)}
-                  >
-                    <Text style={[styles.chipText, metodo === fp && styles.chipTextActive]}>
-                      {labelFormaPago(fp)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          </View>
-
-          {modo === 'factura' && esCompensacion ? (
-            <View style={styles.field}>
-              <SelectorDesplegableMulti
-                label="Facturas a compensar *"
-                placeholder="Buscar factura del mismo proveedor y sociedad…"
-                icono="receipt-long"
-                buscador
-                buscadorPlaceholder="Nº factura, proveedor…"
-                loading={compensablesLoading}
-                opciones={compensables.map((f) => ({
-                  id: f.id_factura,
-                  titulo: f.etiqueta || f.numero_factura_proveedor || f.id_factura,
-                  subtitulo: [
-                    f.fecha_emision ? f.fecha_emision.slice(0, 10) : '',
-                    f.saldo_pendiente != null
-                      ? `Saldo ${formatMoneda(f.saldo_pendiente)}`
-                      : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' · '),
-                  icono: 'description' as const,
-                }))}
-                valorIds={facturasCompensar}
-                onChange={setFacturasCompensar}
-                vacioTexto={
-                  compensablesError ||
-                  (compensablesLoading
-                    ? 'Cargando…'
-                    : 'No hay otras facturas compensables (misma sociedad y proveedor, saldo de signo opuesto).')
-                }
-              />
-              {facturasCompensar.length > 0 && maxComp > 0 ? (
-                <Text style={styles.compHint}>
-                  Importe máximo compensable: {formatMoneda(maxComp)}
+          {conPanel ? (
+            <View style={[styles.dosColumnas, apilado && styles.dosColumnasApilado]}>
+              <View style={[styles.columnaForm, apilado && styles.columnaFormApilada]}>
+                <Text style={styles.columnaTitulo}>
+                  Registrar el {variant === 'cobro' ? 'cobro' : 'pago'} a mano
                 </Text>
-              ) : null}
-              {compensablesError ? (
-                <Text style={styles.errorExterno}>{compensablesError}</Text>
-              ) : null}
+                <Text style={styles.columnaAyuda}>
+                  Si el {variant === 'cobro' ? 'cobro' : 'pago'} no está en el banco: efectivo,
+                  compensación, extracto sin importar o {variant === 'cobro' ? 'cobro' : 'pago'} aún
+                  por hacer.
+                </Text>
+                {bloqueadoPorPanel ? (
+                  <View style={styles.bloqueoAviso}>
+                    <ActivityIndicator size="small" color="#b45309" />
+                    <Text style={styles.bloqueoAvisoText}>
+                      Conciliando el movimiento bancario. El{' '}
+                      {variant === 'cobro' ? 'cobro' : 'pago'} se registra solo: espera a que
+                      termine y no lo registres a mano.
+                    </Text>
+                  </View>
+                ) : null}
+                {formulario}
+              </View>
+              <View style={[styles.columnaPanel, apilado && styles.columnaPanelApilada]}>
+                <Text style={styles.columnaTitulo}>¿Ya está en el banco?</Text>
+                <Text style={styles.columnaAyuda}>
+                  Concilia el movimiento y el {variant === 'cobro' ? 'cobro' : 'pago'} se registra
+                  solo: no rellenes también el formulario.
+                </Text>
+                {panelLateral}
+              </View>
             </View>
-          ) : null}
-
-          {modo === 'factura' ? (
-            <View style={styles.field}>
-              <Text style={styles.label}>Importe (€)</Text>
-              <TextInput
-                style={styles.input}
-                value={importe}
-                onChangeText={setImporte}
-                keyboardType="decimal-pad"
-                placeholder="0.00"
-                placeholderTextColor="#94a3b8"
-              />
-            </View>
-          ) : null}
-
-          {metodo === 'otro' ? (
-            <View style={styles.field}>
-              <Text style={styles.label}>Describe el método *</Text>
-              <TextInput
-                style={styles.input}
-                value={metodoOtro}
-                onChangeText={setMetodoOtro}
-                placeholder="Ej. Cheque, PayPal…"
-                placeholderTextColor="#94a3b8"
-              />
-            </View>
-          ) : null}
-
-          {!esCompensacion ? (
-          <View style={styles.field}>
-            <Text style={styles.label}>Referencia</Text>
-            <TextInput
-              style={styles.input}
-              value={referencia}
-              onChangeText={setReferencia}
-              placeholder="Nº transferencia, cheque…"
-              placeholderTextColor="#94a3b8"
-            />
-          </View>
-          ) : null}
-
-          <View style={styles.field}>
-            <Text style={styles.label}>Observaciones</Text>
-            <TextInput
-              style={[styles.input, styles.inputMultiline]}
-              value={observaciones}
-              onChangeText={setObservaciones}
-              placeholder="Notas opcionales…"
-              placeholderTextColor="#94a3b8"
-              multiline
-              numberOfLines={2}
-            />
-          </View>
-
-          {errorExterno ? (
-            <Text style={styles.errorExterno}>{errorExterno}</Text>
-          ) : null}
-
-          <TouchableOpacity
-            style={[styles.btnPrimary, { marginTop: 8 }]}
-            onPress={handleSubmit}
-            disabled={submitting}
-          >
-            {submitting ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={styles.btnPrimaryText}>{textoBoton}</Text>
-            )}
-          </TouchableOpacity>
-
-          {modo === 'remesa' ? (
-            <Text style={styles.avisoRemesa}>
-              Esta acción crea los pagos en todas las facturas y no se puede deshacer desde aquí.
-            </Text>
-          ) : null}
-          </ScrollView>
+          ) : (
+            formulario
+          )}
         </Pressable>
       </Pressable>
     </Modal>
@@ -604,9 +881,65 @@ const styles = StyleSheet.create({
     maxWidth: 520,
     maxHeight: '85%',
   },
+  contentPanel: {
+    width: '96%',
+    maxWidth: 1100,
+    maxHeight: undefined,
+    flex: 1,
+  },
+  contentFull: {
+    width: '100%',
+    maxWidth: undefined,
+    maxHeight: undefined,
+    flex: 1,
+    borderRadius: 0,
+  },
+  overlayFull: { padding: 0 },
+  dosColumnas: { flex: 1, flexDirection: 'row', minHeight: 0, gap: 4 },
+  dosColumnasApilado: { flexDirection: 'column', gap: 8 },
+  columnaForm: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 0,
+    paddingRight: 12,
+    borderRightWidth: 1,
+    borderRightColor: '#e2e8f0',
+  },
+  columnaFormApilada: { paddingRight: 0, borderRightWidth: 0 },
+  columnaPanel: { flex: 1, minWidth: 0, minHeight: 0, paddingLeft: 12 },
+  columnaPanelApilada: {
+    paddingLeft: 0,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  columnaTitulo: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  columnaAyuda: { marginTop: 2, marginBottom: 8, fontSize: 11, lineHeight: 15, color: '#64748b' },
+  bloqueoAviso: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    borderRadius: 8,
+    padding: 8,
+  },
+  bloqueoAvisoText: { flex: 1, fontSize: 11, lineHeight: 16, color: '#92400e', fontWeight: '600' },
   modalScroll: {
     flexGrow: 0,
     flexShrink: 1,
+  },
+  modalScrollPanel: {
+    flex: 1,
+    flexGrow: 1,
   },
   modalScrollContent: {
     paddingBottom: 4,
@@ -628,10 +961,32 @@ const styles = StyleSheet.create({
     color: '#334155',
   },
   empresaPagadora: {
-    marginTop: 4,
+    marginTop: 0,
     fontSize: 12,
     fontWeight: '600',
     color: '#0369a1',
+    flexShrink: 1,
+  },
+  metaCabecera: {
+    marginTop: 4,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 12,
+  },
+  fechaFacturaBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#fbcfe8',
+    backgroundColor: '#fdf2f8',
+    alignSelf: 'flex-start',
+  },
+  fechaFacturaCabecera: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#9d174d',
   },
   resumenBox: {
     backgroundColor: '#f0f9ff',
@@ -803,6 +1158,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 6,
   },
+  btnPrimaryDisabled: {
+    opacity: 0.5,
+  },
   btnPrimaryText: {
     color: '#fff',
     fontSize: 13,
@@ -814,5 +1172,101 @@ const styles = StyleSheet.create({
     marginTop: 10,
     lineHeight: 16,
     textAlign: 'center',
+  },
+  avisoSobrepagoBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 10,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    borderRadius: 8,
+    padding: 10,
+  },
+  avisoSobrepagoText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#92400e',
+    fontWeight: '600',
+  },
+  excesoBanner: {
+    marginBottom: 10,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fbbf24',
+    borderRadius: 8,
+    padding: 10,
+    gap: 8,
+  },
+  excesoBannerLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  excesoBannerText: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#92400e',
+    fontWeight: '600',
+  },
+  excesoSelector: {
+    marginTop: 2,
+  },
+  excesoChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    backgroundColor: '#fff',
+    marginRight: 6,
+    maxWidth: 260,
+  },
+  excesoChipActive: {
+    backgroundColor: '#d97706',
+    borderColor: '#d97706',
+  },
+  excesoChipText: {
+    fontSize: 11,
+    color: '#92400e',
+    fontWeight: '500',
+  },
+  excesoChipTextActive: {
+    color: '#fff',
+  },
+  excesoBannerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 2,
+  },
+  excesoBtnAplicar: {
+    backgroundColor: '#d97706',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 6,
+    minHeight: 32,
+    justifyContent: 'center',
+  },
+  excesoBtnAplicarText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  excesoBtnIgnorar: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+  },
+  excesoBtnIgnorarText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
   },
 });

@@ -85,6 +85,7 @@ CUENTA BANCARIA
 
 NÚMERO DE FACTURA
 - numero_factura_proveedor: SOLO el identificador de factura del emisor (ej. AA976843, F-2026/001). NUNCA códigos de cliente, códigos numéricos cortos sueltos, ni nombres de empresa del cliente.
+- NUNCA uses el CIF/NIF del emisor ni del cliente como número de factura (ej. B12345674, 12345678A). Si el OCR devolvió un CIF ahí, corrígelo o déjalo vacío ("").
 - Si el OCR mezcló tokens, devuelve solo el token que encaja con el patrón de factura del proveedor.
 
 IMPORTES (simples)
@@ -332,7 +333,9 @@ export function mergeExtraccionConIa(datosOriginales, ia) {
 
   if (ia.numero_factura_proveedor && p('numero_factura_proveedor') >= UMBRAL_CRITICO) {
     const san = sanitizarNumeroFacturaProveedor(String(ia.numero_factura_proveedor));
-    base.numero_factura_proveedor = san.limpio || String(ia.numero_factura_proveedor).trim();
+    // Si el saneado vació el valor (p. ej. era un CIF), no reinyectar el crudo.
+    if (san.limpio) base.numero_factura_proveedor = san.limpio;
+    else if (!san.fue_normalizado) base.numero_factura_proveedor = String(ia.numero_factura_proveedor).trim();
   } else if (ia.numero_factura_proveedor && p('numero_factura_proveedor') >= UMBRAL_CORREGIBLE) {
     const san = sanitizarNumeroFacturaProveedor(String(ia.numero_factura_proveedor));
     if (san.limpio && san.limpio.length <= 36) base.numero_factura_proveedor = san.limpio;

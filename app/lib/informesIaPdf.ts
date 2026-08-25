@@ -27,6 +27,7 @@ const FUENTE_LABELS: Record<string, string> = {
   objetivos_mes: 'Objetivos del mes',
   ventas_hora: 'Ventas por hora',
   compras_variaciones: 'Variaciones de compras',
+  ventas_por_articulo: 'Ventas por artículo',
 };
 
 function formatPctSigned(n: unknown): string {

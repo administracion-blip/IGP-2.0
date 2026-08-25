@@ -86,6 +86,24 @@ Estructura:
 - NO redactes este subapartado ni listes objetivos/importes del día foco: la interfaz lo muestra en un recuadro aparte con \`objetivoFacturacionHoy\`. Omítelo por completo del markdown.
 PROHIBIDO: narrar curvas horarias (ventasHoraComparativa); enumerar invitaciones/descuentos o listar excepcionesSospechosas (van en tablas aparte); inventar datos ausentes.`,
   },
+  ventas_por_articulo: {
+    nombre: 'Resumen de ventas por artículo',
+    instrucciones: `Eres el analista de producto de un grupo de hostelería. Redacta un resumen ejecutivo breve en español sobre las ventas por artículo del periodo del JSON.
+Usa el formato markdown del guardarraíl (## secciones, **negritas** en cifras/nombres, listas "- ", 2–6 emojis de sección).
+IMPORTANTE: el JSON solo incluye el top N de artículos (meta.topPrompt / recorte por local); no asumas el ranking completo más allá de esa lista. El ranking viene ordenado por **unidades** (no por importe).
+## 📊 Totales del periodo
+- Empieza por totales: unidades, importe, número de artículos y de familias (si vienen en totales/porFamilia).
+## 🏆 Top artículos
+- Destaca los artículos con mayor **volumen (unidades)** citando nombre, unidades e importe del JSON.
+## 📦 Por local (solo si existe porLocal)
+- Si el JSON trae \`porLocal\` (agruparPorLocal activo), estructura el resumen **por local**: para cada local menciona totales y 2–4 artículos top en unidades. No inventes locales ausentes.
+- Si no hay porLocal, omite esta sección.
+## 📦 Concentración por familia
+- Resume cómo se concentra la venta por familia (porFamilia o familia de los top), sin inventar familias ausentes.
+## ✅ Acciones
+- Cierra con 2-3 observaciones accionables (foco de carta, surplus, familias a revisar). Tono directo y profesional.
+Menciona avisos del JSON solo si son relevantes (sync antiguo, truncado, sin familia).`,
+  },
 };
 
 /**

@@ -40,6 +40,10 @@ type InputFechaStyleProps = {
   compact?: boolean;
   /** Trigger tipo toolbar (texto + chevron, sin icono calendario ni divisor). */
   modoToolbar?: boolean;
+  /** ISO yyyy-mm-dd: límite máximo del calendario (web `max` / nativo `maximumDate`). */
+  maxIso?: string;
+  /** ISO yyyy-mm-dd: límite mínimo del calendario (web `min` / nativo `minimumDate`). */
+  minIso?: string;
 };
 
 /** API preferida: estado del padre en ISO yyyy-mm-dd. */
@@ -94,10 +98,15 @@ export function InputFecha(props: InputFechaProps) {
     showCalendar = true,
     compact = false,
     modoToolbar = false,
+    maxIso,
+    minIso,
     onFocus,
     onKeyDown,
     ...textInputRest
   } = props;
+
+  const maximumDate = maxIso && /^\d{4}-\d{2}-\d{2}$/.test(maxIso) ? isoADate(maxIso) : undefined;
+  const minimumDate = minIso && /^\d{4}-\d{2}-\d{2}$/.test(minIso) ? isoADate(minIso) : undefined;
 
   const inputRef = 'inputRef' in props ? props.inputRef : undefined;
 
@@ -359,6 +368,8 @@ export function InputFecha(props: InputFechaProps) {
             value={valueIso}
             onChange={handleWebCalendarChange}
             disabled={!editable}
+            max={maxIso || undefined}
+            min={minIso || undefined}
             style={styles.webDateInputToolbarHidden as React.CSSProperties}
             tabIndex={-1}
             aria-hidden
@@ -394,6 +405,8 @@ export function InputFecha(props: InputFechaProps) {
             value={valueIso}
             onChange={handleWebCalendarChange}
             disabled={!editable}
+            max={maxIso || undefined}
+            min={minIso || undefined}
             style={webInputStyle}
             title={modoEdicion ? undefined : 'Seleccionar fecha (doble clic para escribir)'}
             onDoubleClick={modoEdicion ? undefined : handleWebInputDoubleClick}
@@ -449,6 +462,8 @@ export function InputFecha(props: InputFechaProps) {
           mode="date"
           display="default"
           onChange={handleSelect}
+          {...(maximumDate ? { maximumDate } : {})}
+          {...(minimumDate ? { minimumDate } : {})}
         />
       )}
       {showPicker && Platform.OS === 'ios' && (
@@ -460,6 +475,8 @@ export function InputFecha(props: InputFechaProps) {
                 mode="date"
                 display="spinner"
                 onChange={handleSelect}
+                {...(maximumDate ? { maximumDate } : {})}
+                {...(minimumDate ? { minimumDate } : {})}
               />
               <TouchableOpacity style={styles.closeBtn} onPress={() => setShowPicker(false)}>
                 <MaterialIcons name="check" size={24} color="#0ea5e9" />

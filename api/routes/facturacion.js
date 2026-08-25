@@ -47,7 +47,7 @@ import {
   isIaEnriquecimientoDisponible,
 } from '../lib/ocrEnriquecerIa.js';
 import { aplicarPostProcesadoPipeline } from '../lib/ocrFacturaValidacion.js';
-import { siguienteIdPago } from '../lib/facturacion/registrarPago.js';
+import { registrarPagoFactura } from '../lib/facturacion/registrarPago.js';
 import { eliminarPagoFactura } from '../lib/facturacion/eliminarPago.js';
 import {
   indexRemesasActivasPorFactura,
@@ -60,6 +60,15 @@ import {
   etiquetaFacturaCompensable,
   saldoFirmadoFactura,
 } from '../lib/facturacion/compensacionFactura.js';
+import {
+  filtrarFacturasConExceso,
+  aplicarExcesoPago,
+  etiquetaFacturaExceso,
+  excesoPendienteEfectivo,
+  recalcularExcesoPendiente,
+  assertSinAplicacionesExcesoEnFactura,
+  METODO_PAGO_APLICACION_EXCESO,
+} from '../lib/facturacion/excesoPago.js';
 import { emitirOValidarFacturaPorId } from '../lib/facturacion/emitirFactura.js';
 import {
   getSerieConfig,
@@ -79,6 +88,7 @@ import {
   fechaEmisionFacturaAIso,
 } from '../lib/facturacion/idDocumento.js';
 import { esDuplicadoFacturaProveedor } from '../lib/facturacion/duplicadosProveedor.js';
+import { errorFechaEmisionDemasiadoFutura } from '../lib/facturacion/fechaEmisionLimite.js';
 import {
   ERROR_PROVEEDOR_IGUAL_SOCIEDAD,
   proveedorCoincideConSociedad,
@@ -392,8 +402,11 @@ router.get('/facturacion/facturas', requirePermission('facturacion.ver'), async 
     const remesas = await scanAll(tables.remesas);
     const idxRemesas = indexRemesasActivasPorFactura(remesas);
     items = items.map((f) => {
-      if (f.tipo === 'OUT') return { ...f, remesaActiva: null };
-      return { ...f, remesaActiva: idxRemesas.get(f.id_factura) || null };
+      const conRemesa = f.tipo === 'OUT'
+        ? { ...f, remesaActiva: null }
+        : { ...f, remesaActiva: idxRemesas.get(f.id_factura) || null };
+      // Backfill: facturas antiguas sin campo / campo stale → exceso efectivo.
+      return { ...conRemesa, exceso_pendiente: excesoPendienteEfectivo(conRemesa) };
     });
 
     // [SEC S-08]
@@ -424,7 +437,10 @@ router.get('/facturacion/facturas/:id', requirePermission('facturacion.ver'), as
     const remesaActiva = result.Item.tipo === 'OUT'
       ? null
       : await findRemesaActivaDeFactura(req.params.id);
-    res.json({ factura: result.Item, lineas, pagos, auditoria, remesaActiva });
+    const factura = { ...result.Item };
+    // Backfill / coherencia: exponer exceso efectivo (no ocultar crédito con campo stale).
+    factura.exceso_pendiente = excesoPendienteEfectivo(factura);
+    res.json({ factura, lineas, pagos, auditoria, remesaActiva });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -442,6 +458,9 @@ router.post('/facturacion/facturas', requirePermission('facturacion.crear'), asy
   if (!tipo || !serie) return res.status(400).json({ error: 'tipo y serie son obligatorios' });
   if (!emisor_nombre && !emisor_cif) return res.status(400).json({ error: 'Datos del emisor son obligatorios' });
   if (!empresa_nombre && !empresa_cif) return res.status(400).json({ error: 'Datos de empresa son obligatorios' });
+
+  const errorFechaFutura = errorFechaEmisionDemasiadoFutura(fecha_emision);
+  if (errorFechaFutura) return res.status(400).json({ error: errorFechaFutura });
 
   try {
     // [SEC S-08]
@@ -661,6 +680,7 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
           factura.estado = 'pendiente_pago';
         }
       }
+      recalcularExcesoPendiente(factura);
     }
 
     factura.modificado_por = body.usuario_id || factura.modificado_por;
@@ -1087,6 +1107,43 @@ router.get('/facturacion/facturas/:id/compensables', requirePermission('facturac
   }
 });
 
+/** Facturas IN con exceso pendiente (misma sociedad + proveedor) aplicables a la destino. */
+// [SEC S-01]
+router.get('/facturacion/facturas/:id/excesos-disponibles', requirePermission('facturacion.cobrar_pagar'), async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const destinoResult = await docClient.send(
+      new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }),
+    );
+    if (!destinoResult.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    const destino = destinoResult.Item;
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, destino, res)) return;
+    if (destino.tipo !== 'IN') {
+      return res.status(400).json({ error: 'La aplicación de exceso solo aplica a facturas de gasto' });
+    }
+
+    const todas = await scanAll(tables.facturas, '#t = :t', { ':t': 'IN' }, { '#t': 'tipo' });
+    const candidatas = filtrarFacturasConExceso(destino, todas).map((f) => ({
+      id_factura: f.id_factura,
+      numero_factura: f.numero_factura || '',
+      numero_factura_proveedor: f.numero_factura_proveedor || '',
+      empresa_nombre: f.empresa_nombre || '',
+      emisor_nombre: f.emisor_nombre || '',
+      fecha_emision: f.fecha_emision || '',
+      estado: f.estado || '',
+      total_factura: f.total_factura,
+      total_cobrado: f.total_cobrado,
+      exceso_pendiente: excesoPendienteEfectivo(f),
+      etiqueta: etiquetaFacturaExceso(f),
+    }));
+    candidatas.sort((a, b) => String(b.fecha_emision || '').localeCompare(String(a.fecha_emision || '')));
+    res.json({ ok: true, facturas: candidatas });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Error al listar excesos disponibles' });
+  }
+});
+
 // [SEC S-01]
 router.post('/facturacion/facturas/:id/pagos/compensacion', requirePermission('facturacion.cobrar_pagar'), async (req, res) => {
   const b = req.body || {};
@@ -1138,6 +1195,54 @@ router.post('/facturacion/facturas/:id/pagos/compensacion', requirePermission('f
   }
 });
 
+// [SEC S-01]
+router.post('/facturacion/facturas/:id/pagos/aplicacion-exceso', requirePermission('facturacion.cobrar_pagar'), async (req, res) => {
+  const b = req.body || {};
+  const { usuario_id, usuario_nombre } = usuarioAuditoria(req);
+  try {
+    const destinoResult = await docClient.send(
+      new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(req.params.id) }),
+    );
+    if (!destinoResult.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, destinoResult.Item, res)) return;
+
+    const remesaDestino = await findRemesaActivaDeFactura(req.params.id);
+    if (remesaDestino) {
+      return res.status(409).json({
+        error: `Esta factura está en la remesa «${remesaDestino.nombre || remesaDestino.remesaId}»`,
+        code: 'FACTURA_EN_REMESA',
+        remesaActiva: remesaDestino,
+      });
+    }
+    const idExceso = String(b.id_factura_exceso || '').trim();
+    if (idExceso) {
+      const remesaOrigen = await findRemesaActivaDeFactura(idExceso);
+      if (remesaOrigen) {
+        return res.status(409).json({
+          error: `La factura con exceso está en la remesa «${remesaOrigen.nombre || remesaOrigen.remesaId}»`,
+          code: 'FACTURA_EN_REMESA',
+          remesaActiva: remesaOrigen,
+        });
+      }
+    }
+
+    const result = await aplicarExcesoPago({
+      id_factura: req.params.id,
+      id_factura_exceso: b.id_factura_exceso,
+      importe: b.importe,
+      fecha: b.fecha,
+      observaciones: b.observaciones,
+      usuario_id,
+      usuario_nombre,
+    });
+    res.json(result);
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message || 'Error al aplicar exceso' });
+  }
+});
+
 /** Acepta JSON o multipart/form-data (campo archivo `recibo`). */
 function maybeUploadReciboPago(req, res, next) {
   const ct = req.headers['content-type'] || '';
@@ -1157,24 +1262,7 @@ router.post('/facturacion/facturas/:id/pagos', requirePermission('facturacion.co
   const cuenta_caja = b.cuenta_caja;
   const referencia = b.referencia;
   const observaciones = b.observaciones;
-  const usuario_id = b.usuario_id;
-  const usuario_nombre = b.usuario_nombre;
-
-  const fechaIso = fechaToIsoGuardada(fechaRaw);
-  if (!fechaIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
-    return res.status(400).json({ error: 'La fecha es obligatoria (AAAA-MM-DD o dd/mm/aaaa)' });
-  }
-
-  const importeNum = round2(Number(importe));
-  if (!importe || Number.isNaN(importeNum) || importeNum <= 0) {
-    return res.status(400).json({ error: 'Importe debe ser mayor que 0' });
-  }
-
-  if (String(metodo_pago || '').trim().toLowerCase() === METODO_PAGO_COMPENSACION) {
-    return res.status(400).json({
-      error: 'La compensación entre facturas debe registrarse desde el flujo dedicado de compensación',
-    });
-  }
+  const { usuario_id, usuario_nombre } = usuarioAuditoria(req);
 
   try {
     const remesaActiva = await findRemesaActivaDeFactura(id_factura);
@@ -1188,12 +1276,8 @@ router.post('/facturacion/facturas/:id/pagos', requirePermission('facturacion.co
 
     const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura) }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
-    const factura = existing.Item;
     // [SEC S-08]
-    if (await rejectFacturaEmisorNoPermitido(req, factura, res)) return;
-
-    const pagos = await queryPagosByFactura(id_factura);
-    const id_pago = siguienteIdPago(pagos);
+    if (await rejectFacturaEmisorNoPermitido(req, existing.Item, res)) return;
 
     let recibo_file_key = '';
     let recibo_nombre = '';
@@ -1214,45 +1298,21 @@ router.post('/facturacion/facturas/:id/pagos', requirePermission('facturacion.co
       recibo_nombre = safeName;
     }
 
-    const pago = {
-      id_entrada: `${id_factura}#${id_pago}`,
+    const result = await registrarPagoFactura({
       id_factura,
-      id_pago,
-      fecha: fechaIso,
-      importe: importeNum,
-      metodo_pago: metodo_pago || '',
-      cuenta_caja: cuenta_caja || '',
-      referencia: referencia || '',
-      observaciones: observaciones || '',
-      justificante: '',
-      recibo_file_key: recibo_file_key || '',
-      recibo_nombre: recibo_nombre || '',
-      creado_por: usuario_id || '',
-      creado_en: now(),
-    };
-
-    await docClient.send(new PutCommand({ TableName: tables.facturasPagos, Item: pago }));
-
-    const nuevoTotalCobrado = round2((factura.total_cobrado || 0) + importeNum);
-    const nuevoSaldo = round2(factura.total_factura - nuevoTotalCobrado);
-
-    let nuevoEstado = factura.estado;
-    if (nuevoSaldo <= 0) {
-      nuevoEstado = factura.tipo === 'OUT' ? 'cobrada' : 'pagada';
-    } else if (nuevoTotalCobrado > 0) {
-      nuevoEstado = factura.tipo === 'OUT' ? 'parcialmente_cobrada' : 'parcialmente_pagada';
-    }
-
-    factura.total_cobrado = nuevoTotalCobrado;
-    factura.saldo_pendiente = Math.max(0, nuevoSaldo);
-    factura.estado = nuevoEstado;
-    factura.modificado_por = usuario_id || '';
-    factura.modificado_en = now();
-
-    await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
-    await registrarAuditoria(id_factura, 'pago', usuario_id, usuario_nombre, { importe: importeNum, metodo_pago, nuevo_estado: nuevoEstado });
-
-    res.json({ ok: true, pago, factura });
+      fecha: fechaRaw,
+      importe,
+      metodo_pago,
+      cuenta_caja,
+      referencia,
+      observaciones,
+      usuario_id,
+      usuario_nombre,
+      permitirSobrepago: true,
+      recibo_file_key,
+      recibo_nombre,
+    });
+    res.json(result);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -1299,9 +1359,21 @@ router.put('/facturacion/pagos/:id_factura/:id_pago', requirePermission('factura
         error: 'Los pagos por compensación no se pueden editar. Contacta con administración si necesitas corregirlos.',
       });
     }
-    if (String(metodo_pago || '').trim().toLowerCase() === METODO_PAGO_COMPENSACION) {
+    if (String(pagoResult.Item.metodo_pago || '') === METODO_PAGO_APLICACION_EXCESO) {
+      return res.status(400).json({
+        error: 'Los pagos por aplicación de exceso no se pueden editar. Contacta con administración si necesitas corregirlos.',
+      });
+    }
+    await assertSinAplicacionesExcesoEnFactura(id_factura);
+    const metodoNorm = String(metodo_pago || '').trim().toLowerCase();
+    if (metodoNorm === METODO_PAGO_COMPENSACION) {
       return res.status(400).json({
         error: 'La compensación entre facturas debe registrarse desde el flujo dedicado de compensación',
+      });
+    }
+    if (metodoNorm === METODO_PAGO_APLICACION_EXCESO) {
+      return res.status(400).json({
+        error: 'La aplicación de exceso debe registrarse desde el flujo dedicado de aplicación de exceso',
       });
     }
 
@@ -1343,6 +1415,7 @@ router.put('/facturacion/pagos/:id_factura/:id_pago', requirePermission('factura
     factura.total_cobrado = nuevoTotalCobrado;
     factura.saldo_pendiente = Math.max(0, nuevoSaldo);
     factura.estado = nuevoEstado;
+    recalcularExcesoPendiente(factura);
     factura.modificado_por = usuario_id || '';
     factura.modificado_en = now();
 
@@ -1357,7 +1430,10 @@ router.put('/facturacion/pagos/:id_factura/:id_pago', requirePermission('factura
 
     res.json({ ok: true, pago: pagoActualizado, factura });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({
+      error: err.message,
+      ...(err.code && { code: err.code }),
+    });
   }
 });
 
@@ -2925,6 +3001,14 @@ router.post('/facturacion/ocr/confirmar', requirePermission('facturacion.crear')
       }
       if (proveedorCoincideConSociedad(b)) {
         return res.status(400).json({ error: ERROR_PROVEEDOR_IGUAL_SOCIEDAD });
+      }
+      const fechaEmisionNorm = fechaToIsoGuardada(b.fecha_emision) || b.fecha_emision;
+      const errorFechaFutura = errorFechaEmisionDemasiadoFutura(fechaEmisionNorm);
+      if (errorFechaFutura) {
+        const ref =
+          String(b.proveedor_nombre || b.numero_factura_proveedor || '').trim() ||
+          `índice ${borradores.indexOf(b) + 1}`;
+        return res.status(400).json({ error: `${errorFechaFutura} (${ref})` });
       }
     }
 

@@ -13,6 +13,7 @@ type Props = {
   desglose_retencion?: DesgloseRet[];
   total_cobrado?: number;
   saldo_pendiente?: number;
+  exceso_pendiente?: number;
   compact?: boolean;
 };
 
@@ -25,8 +26,10 @@ export function ResumenTotales({
   desglose_retencion,
   total_cobrado,
   saldo_pendiente,
+  exceso_pendiente,
   compact,
 }: Props) {
+  const exceso = Number(exceso_pendiente) || 0;
   return (
     <View style={[styles.wrap, compact && styles.wrapCompact]}>
       <Row label="Base imponible" value={base_imponible} />
@@ -48,6 +51,7 @@ export function ResumenTotales({
       <Row label="TOTAL" value={total_factura} bold />
       {total_cobrado != null && total_cobrado > 0 && <Row label="Cobrado" value={total_cobrado} positive />}
       {saldo_pendiente != null && saldo_pendiente > 0 && <Row label="Pendiente" value={saldo_pendiente} warning />}
+      {exceso > 0.001 && <Row label="Exceso pendiente" value={exceso} warning />}
     </View>
   );
 }

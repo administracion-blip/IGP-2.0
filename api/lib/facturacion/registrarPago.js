@@ -3,6 +3,10 @@ import { PutCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables, keyForFacturaPrincipalId } from '../db.js';
 import { queryPagosByFactura } from '../dynamo/facturasRelacionadas.js';
 import { METODO_PAGO_COMPENSACION } from './compensacionFactura.js';
+import {
+  METODO_PAGO_APLICACION_EXCESO,
+  recalcularExcesoPendiente,
+} from './excesoPago.js';
 
 function uuid() {
   return crypto.randomUUID();
@@ -101,6 +105,10 @@ async function registrarAuditoria(id_factura, accion, usuario_id, usuario_nombre
  * @param {string} [opts.idempotencyKey] — si ya existe un pago con la misma clave, no duplica
  * @param {string} [opts.banca_movement_hash] — movimiento bancario del que sale el pago
  * @param {string} [opts.banca_cuenta_ref] — cuenta (IBAN) de ese movimiento
+ * @param {boolean} [opts.permitirSobrepago] — solo flujo manual; remesas/banca dejan false
+ * @param {string} [opts.cuenta_caja]
+ * @param {string} [opts.recibo_file_key]
+ * @param {string} [opts.recibo_nombre]
  */
 export async function registrarPagoFactura(opts) {
   const {
@@ -116,6 +124,10 @@ export async function registrarPagoFactura(opts) {
     idempotencyKey,
     banca_movement_hash = '',
     banca_cuenta_ref = '',
+    permitirSobrepago = false,
+    cuenta_caja = '',
+    recibo_file_key = '',
+    recibo_nombre = '',
   } = opts;
 
   const fechaIso = fechaToIsoGuardada(fecha);
@@ -128,9 +140,16 @@ export async function registrarPagoFactura(opts) {
     throw Object.assign(new Error('Importe debe ser mayor que 0'), { status: 400 });
   }
 
-  if (String(metodo_pago || '').trim().toLowerCase() === METODO_PAGO_COMPENSACION) {
+  const metodoNorm = String(metodo_pago || '').trim().toLowerCase();
+  if (metodoNorm === METODO_PAGO_COMPENSACION) {
     throw Object.assign(
       new Error('La compensación entre facturas debe registrarse desde el flujo dedicado de compensación'),
+      { status: 400 },
+    );
+  }
+  if (metodoNorm === METODO_PAGO_APLICACION_EXCESO) {
+    throw Object.assign(
+      new Error('La aplicación de exceso debe registrarse desde el flujo dedicado de aplicación de exceso'),
       { status: 400 },
     );
   }
@@ -162,10 +181,18 @@ export async function registrarPagoFactura(opts) {
   // la defensa contra el sobrepago justo cuando hace falta (dos conciliaciones
   // del mismo cargo, dos claves de idempotencia, el saldo ya consumido por la
   // primera). El clamp de `saldo_pendiente` de más abajo deja el exceso invisible.
-  const tope = importeMaximo != null ? Math.min(saldo, round2(Number(importeMaximo))) : saldo;
-  if (importeNum > tope + 0.001) {
+  // `permitirSobrepago` (solo POST manual) permite importe > saldo; remesas/banca no.
+  if (!permitirSobrepago) {
+    const tope = importeMaximo != null ? Math.min(saldo, round2(Number(importeMaximo))) : saldo;
+    if (importeNum > tope + 0.001) {
+      throw Object.assign(
+        new Error(`Importe ${importeNum} supera el pendiente (${tope})`),
+        { status: 400 },
+      );
+    }
+  } else if (importeMaximo != null && importeNum > round2(Number(importeMaximo)) + 0.001) {
     throw Object.assign(
-      new Error(`Importe ${importeNum} supera el pendiente (${tope})`),
+      new Error(`Importe ${importeNum} supera el máximo permitido (${round2(Number(importeMaximo))})`),
       { status: 400 },
     );
   }
@@ -180,12 +207,12 @@ export async function registrarPagoFactura(opts) {
     fecha: fechaIso,
     importe: importeNum,
     metodo_pago: metodo_pago || '',
-    cuenta_caja: '',
+    cuenta_caja: cuenta_caja || '',
     referencia: referencia || '',
     observaciones: observaciones || '',
     justificante: '',
-    recibo_file_key: '',
-    recibo_nombre: '',
+    recibo_file_key: recibo_file_key || '',
+    recibo_nombre: recibo_nombre || '',
     creado_por: usuario_id || '',
     creado_en: now(),
     idempotency_key: idempotencyKey || '',
@@ -227,6 +254,7 @@ export async function registrarPagoFactura(opts) {
   factura.total_cobrado = nuevoTotalCobrado;
   factura.saldo_pendiente = Math.max(0, nuevoSaldo);
   factura.estado = nuevoEstado;
+  const exceso = recalcularExcesoPendiente(factura);
   factura.modificado_por = usuario_id || '';
   factura.modificado_en = now();
 
@@ -236,7 +264,7 @@ export async function registrarPagoFactura(opts) {
     metodo_pago,
     referencia,
     nuevo_estado: nuevoEstado,
-    ...(descuadre > 0 && { sobrepago: descuadre }),
+    ...(exceso > 0 && { sobrepago: exceso }),
   });
 
   return { ok: true, pago, factura };

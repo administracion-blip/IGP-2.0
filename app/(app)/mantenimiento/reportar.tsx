@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   useWindowDimensions,
+  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -20,12 +21,30 @@ import { Image } from 'react-native';
 import { useMantenimientoLocales, valorEnLocal } from './LocalesContext';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { apiFetch } from '../../utils/api';
+import { formatCreadoEn } from '../../utils/formatFecha';
 
 const AUTH_KEY = 'erp_user';
 
 const ZONAS = ['barra', 'cocina', 'baños', 'almacén', 'sala', 'terraza', 'otros'] as const;
 const PRIORIDADES = ['baja', 'media', 'alta', 'urgente'] as const;
 const MAX_FOTOS = 3;
+const DESC_MAX = 120;
+
+type SimilarIncidencia = {
+  id_incidencia?: string;
+  titulo?: string;
+  descripcion?: string;
+  zona?: string;
+  estado?: string;
+  fecha_creacion?: string | null;
+  fotos?: string[];
+};
+
+function truncar(texto: string, max = DESC_MAX): string {
+  const t = (texto ?? '').trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max).trimEnd()}…`;
+}
 
 export default function ReportarIncidenciaScreen() {
   const router = useRouter();
@@ -44,14 +63,27 @@ export default function ReportarIncidenciaScreen() {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [similares, setSimilares] = useState<SimilarIncidencia[]>([]);
+  const [modalDuplicadosVisible, setModalDuplicadosVisible] = useState(false);
+
+  const localesOpciones = useMemo(
+    () =>
+      locales
+        .map((loc) => {
+          const id = valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'id_locales') ?? '';
+          const nombre = valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? id;
+          return { id, titulo: nombre || id || '—', icono: 'store' as const };
+        })
+        .filter((o) => o.id)
+        .sort((a, b) => a.titulo.localeCompare(b.titulo, 'es', { sensitivity: 'base' })),
+    [locales],
+  );
 
   useEffect(() => {
-    if (locales.length > 0 && !localId) {
-      const first = locales[0];
-      const id = valorEnLocal(first, 'id_Locales') ?? valorEnLocal(first, 'id_locales') ?? '';
-      if (id) setLocalId(id);
+    if (localesOpciones.length > 0 && !localId) {
+      setLocalId(localesOpciones[0].id);
     }
-  }, [locales, localId]);
+  }, [localesOpciones, localId]);
 
   useEffect(() => {
     const d = new Date();
@@ -120,21 +152,9 @@ export default function ReportarIncidenciaScreen() {
     setFotos((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleEnviar = () => {
+  const crearIncidencia = () => {
     const locId = localId.trim();
     const t = titulo.trim();
-    if (!locId) {
-      setError('Selecciona un local');
-      return;
-    }
-    if (!t) {
-      setError('El título es obligatorio');
-      return;
-    }
-    if (!zona) {
-      setError('Selecciona una zona');
-      return;
-    }
     setError(null);
     setEnviando(true);
     apiFetch('/api/mantenimiento/incidencias', {
@@ -161,6 +181,62 @@ export default function ReportarIncidenciaScreen() {
       })
       .catch((e) => setError(e.message ?? 'Error de conexión'))
       .finally(() => setEnviando(false));
+  };
+
+  const handleEnviar = async () => {
+    const locId = localId.trim();
+    const t = titulo.trim();
+    if (!locId) {
+      setError('Selecciona un local');
+      return;
+    }
+    if (!t) {
+      setError('El título es obligatorio');
+      return;
+    }
+    if (!zona) {
+      setError('Selecciona una zona');
+      return;
+    }
+    setError(null);
+    setEnviando(true);
+
+    try {
+      const res = await apiFetch('/api/mantenimiento/incidencias/similares', {
+        method: 'POST',
+        body: JSON.stringify({
+          local_id: locId,
+          titulo: t,
+          descripcion: descripcion.trim(),
+          zona,
+        }),
+      });
+      const data = (await res.json()) as { ok?: boolean; similares?: SimilarIncidencia[]; error?: string };
+      if (res.ok && data.ok && Array.isArray(data.similares) && data.similares.length > 0) {
+        setSimilares(data.similares);
+        setModalDuplicadosVisible(true);
+        setEnviando(false);
+        return;
+      }
+    } catch (e) {
+      console.warn('[reportar] comprobación de similares falló; se crea igual', e);
+    }
+
+    crearIncidencia();
+  };
+
+  const cerrarModalDuplicados = () => {
+    setModalDuplicadosVisible(false);
+  };
+
+  const seguirCreando = () => {
+    setModalDuplicadosVisible(false);
+    crearIncidencia();
+  };
+
+  const verAbiertas = () => {
+    setModalDuplicadosVisible(false);
+    router.push('/mantenimiento/abiertas');
   };
 
   return (
@@ -207,11 +283,9 @@ export default function ReportarIncidenciaScreen() {
                 placeholder="Selecciona un local"
                 vacioTexto="No hay locales. Carga datos en Base de Datos."
                 valorId={localId}
-                opciones={locales.map((loc) => {
-                  const id = valorEnLocal(loc, 'id_Locales') ?? valorEnLocal(loc, 'id_locales') ?? '';
-                  const nombre = valorEnLocal(loc, 'nombre') ?? valorEnLocal(loc, 'Nombre') ?? id;
-                  return { id, titulo: nombre || id || '—', icono: 'store' as const };
-                })}
+                opciones={localesOpciones}
+                buscador
+                buscadorPlaceholder="Buscar local…"
                 onSeleccionar={setLocalId}
               />
             </View>
@@ -336,6 +410,63 @@ export default function ReportarIncidenciaScreen() {
           </View>
         )}
       </ScrollView>
+
+      <Modal
+        visible={modalDuplicadosVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={cerrarModalDuplicados}
+      >
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={cerrarModalDuplicados}>
+          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalContentWrap}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Posible incidencia duplicada</Text>
+                <TouchableOpacity onPress={cerrarModalDuplicados} style={styles.modalClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <MaterialIcons name="close" size={22} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.modalMessage}>
+                Ya hay una incidencia abierta parecida en el mismo local. Revisa antes de crear otra.
+              </Text>
+              <ScrollView style={styles.similaresScroll} contentContainerStyle={styles.similaresScrollContent}>
+                {similares.map((s, idx) => {
+                  const fotosSim = Array.isArray(s.fotos) ? s.fotos.filter(Boolean).slice(0, 3) : [];
+                  return (
+                    <View key={s.id_incidencia ?? `sim-${idx}`} style={styles.similarCard}>
+                      <Text style={styles.similarTitulo}>{s.titulo?.trim() || 'Sin título'}</Text>
+                      <Text style={styles.similarMeta}>
+                        {[s.estado, s.zona, formatCreadoEn(s.fecha_creacion)].filter(Boolean).join(' · ')}
+                      </Text>
+                      {s.descripcion?.trim() ? (
+                        <Text style={styles.similarDesc}>{truncar(s.descripcion)}</Text>
+                      ) : null}
+                      {fotosSim.length > 0 ? (
+                        <View style={styles.similarFotosRow}>
+                          {fotosSim.map((uri, fi) => (
+                            <Image key={`${s.id_incidencia}-f${fi}`} source={{ uri }} style={styles.similarFoto} resizeMode="cover" />
+                          ))}
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+              <View style={styles.modalFooter}>
+                <TouchableOpacity style={styles.modalBtnSecondary} onPress={cerrarModalDuplicados}>
+                  <Text style={styles.modalBtnSecondaryText}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.modalBtnOutline} onPress={verAbiertas}>
+                  <Text style={styles.modalBtnOutlineText}>Ver abiertas</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.modalBtnPrimary} onPress={seguirCreando} disabled={enviando}>
+                  <Text style={styles.modalBtnPrimaryText}>Seguir creando</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -424,4 +555,82 @@ const styles = StyleSheet.create({
   submitBtnPrimary: { flex: 3, backgroundColor: '#0ea5e9' },
   submitBtnDisabled: { opacity: 0.7 },
   submitBtnText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+  },
+  modalContentWrap: {
+    width: '100%',
+    maxWidth: 520,
+    padding: 24,
+    alignItems: 'center',
+    maxHeight: '92%',
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    gap: 8,
+  },
+  modalTitle: { flex: 1, fontSize: 16, fontWeight: '700', color: '#0f172a' },
+  modalClose: { padding: 2 },
+  modalMessage: { fontSize: 13, color: '#475569', marginBottom: 12, lineHeight: 18 },
+  similaresScroll: { maxHeight: 320 },
+  similaresScrollContent: { gap: 10, paddingBottom: 4 },
+  similarCard: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    padding: 12,
+  },
+  similarTitulo: { fontSize: 14, fontWeight: '600', color: '#334155', marginBottom: 4 },
+  similarMeta: { fontSize: 11, color: '#64748b', marginBottom: 6 },
+  similarDesc: { fontSize: 12, color: '#475569', lineHeight: 16 },
+  similarFotosRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  similarFoto: { width: 48, height: 48, borderRadius: 6, backgroundColor: '#e2e8f0' },
+  modalFooter: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 14,
+    justifyContent: 'flex-end',
+  },
+  modalBtnSecondary: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: '#f1f5f9',
+  },
+  modalBtnSecondaryText: { fontSize: 13, fontWeight: '600', color: '#475569' },
+  modalBtnOutline: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#0ea5e9',
+    backgroundColor: '#fff',
+  },
+  modalBtnOutlineText: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
+  modalBtnPrimary: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: '#0ea5e9',
+  },
+  modalBtnPrimaryText: { fontSize: 13, fontWeight: '600', color: '#fff' },
 });

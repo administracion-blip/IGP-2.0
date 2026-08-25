@@ -78,6 +78,7 @@ export type FacturaListado = {
   | 'total_factura'
   | 'total_cobrado'
   | 'saldo_pendiente'
+  | 'exceso_pendiente'
   | 'fecha_contabilizacion'
   | 'contabilizado_por'
   | 'creado_en'

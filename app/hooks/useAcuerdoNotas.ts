@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Acuerdo } from '../types/acuerdo';
 import { apiFetch, errorMessage } from '../utils/api';
 import {
+  eliminarNotaPorOrden,
   notasTimelineOrdenadas,
   prependNota,
   resumenNotas,
@@ -18,7 +19,8 @@ export type UseAcuerdoNotasReturn = ReturnType<typeof useAcuerdoNotas>;
 
 /**
  * Lógica del modal timeline de notas de un acuerdo.
- * Añade notas con fecha automática (prepend) y mantiene el campo `Notas` en backend.
+ * Añade / elimina notas y mantiene el campo `Notas` en backend.
+ * La confirmación de borrado la hace la UI con `useConfirmar` (modal in-app).
  */
 export function useAcuerdoNotas({ seleccionado, onSaved }: Args) {
   const [visible, setVisible] = useState(false);
@@ -78,6 +80,30 @@ export function useAcuerdoNotas({ seleccionado, onSaved }: Args) {
     }
   }, [seleccionado, nuevaNota, onSaved]);
 
+  /** Elimina sin diálogo: la confirmación in-app la hace el modal con `useConfirmar`. */
+  const eliminarNota = useCallback(
+    async (ordenOriginal: number) => {
+      if (!seleccionado) return;
+      setGuardando(true);
+      setError('');
+      const siguiente = eliminarNotaPorOrden(seleccionado.Notas || '', ordenOriginal);
+      try {
+        const res = await apiFetch(`/api/acuerdos/${encodeURIComponent(seleccionado.PK)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ Notas: siguiente }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error al eliminar');
+        await onSaved();
+      } catch (e: unknown) {
+        setError(errorMessage(e, 'Error al eliminar'));
+      } finally {
+        setGuardando(false);
+      }
+    },
+    [seleccionado, onSaved],
+  );
+
   return {
     visible,
     nuevaNota,
@@ -89,5 +115,6 @@ export function useAcuerdoNotas({ seleccionado, onSaved }: Args) {
     abrir,
     cerrar,
     añadirNota,
+    eliminarNota,
   };
 }

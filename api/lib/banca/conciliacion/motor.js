@@ -79,7 +79,7 @@ export const PESOS = {
 
 export const OPCIONES_POR_DEFECTO = {
   /** Antigüedad máxima de la factura respecto al movimiento. */
-  diasAtras: 180,
+  diasAtras: 365,
   /** Margen por si la factura se emite unos días después del cobro/pago. */
   diasMargenPosterior: 5,
   /** A partir de esta distancia en días, la señal de fecha ya no aporta. */

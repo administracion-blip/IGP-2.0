@@ -137,6 +137,7 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `ia.informe_compras` | Informes IA · Fuente Compras (variaciones de gasto por proveedor/familia/producto) |
 | `ia.informe_ventas_hora` | Informes IA · Fuente Ventas por hora (distribución horaria y por franjas) |
 | `ia.informe_dia_a_dia` | Informes IA · Fuente Día a día (briefing matutino; incluye nombres de ejecutores Factorial en fichajes sospechosos) |
+| `ia.informe_ventas_articulo` | Informes IA · Fuente Ventas por artículo (ranking unidades/importe; filtro familias/grupos IA) |
 | `ia.prompts_gestionar` | Informes IA · Crear/editar/borrar plantillas de prompt |
 | `ia.ajustes` | Informes IA · Modificar ajustes de la IA (modelo, temperatura, límites) |
 | `formas_pago.editar` | Formas de pago · Editar maestro (Base de datos) |
