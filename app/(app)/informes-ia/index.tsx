@@ -22,6 +22,8 @@ import { VistaDiaADia, type DatosDiaADia } from '../../components/informes-ia/Vi
 import {
   VistaVentasPorArticulo,
   type DatosVentasPorArticulo,
+  localVentasTieneDatos,
+  slugPdfVentasArticuloLocal,
 } from '../../components/informes-ia/VistaVentasPorArticulo';
 import { IaGruposFamiliasModal } from '../../components/informes-ia/IaGruposFamiliasModal';
 import { InformeResumenRico } from '../../components/informes-ia/InformeResumenRico';
@@ -521,7 +523,47 @@ export default function InformesIaScreen() {
           });
         });
         const node = capturaPdfRef.current as unknown as HTMLElement;
-        await descargarPdfDesdeNodo(node, slugPdfCaptura(informe));
+
+        const datosVentas =
+          informe.fuente === 'ventas_por_articulo' &&
+          informe.datosJson &&
+          typeof informe.datosJson === 'object'
+            ? (informe.datosJson as DatosVentasPorArticulo)
+            : null;
+        const localesConDatos = (datosVentas?.porLocal || []).filter(localVentasTieneDatos);
+        const bloquesLocal = Array.from(
+          node.querySelectorAll('[data-pdf-local]'),
+        ) as HTMLElement[];
+
+        if (datosVentas?.meta?.agruparPorLocal && bloquesLocal.length > 0) {
+          if (localesConDatos.length === 0) {
+            throw new Error('Ningún local tiene datos para exportar.');
+          }
+          const desde = datosVentas.meta?.fechaDesde;
+          const hasta = datosVentas.meta?.fechaHasta;
+          for (let i = 0; i < localesConDatos.length; i += 1) {
+            const loc = localesConDatos[i];
+            const lid = String(loc.localId || loc.nombre || '');
+            const el =
+              bloquesLocal.find((n) => n.getAttribute('data-pdf-local') === lid) ||
+              bloquesLocal[i];
+            if (!el) continue;
+            const nombre =
+              el.getAttribute('data-pdf-local-nombre') || loc.nombre || lid || `local_${i + 1}`;
+            // eslint-disable-next-line no-await-in-loop
+            await descargarPdfDesdeNodo(el, slugPdfVentasArticuloLocal(nombre, desde, hasta), {
+              anadirFechaHoy: false,
+            });
+            if (i < localesConDatos.length - 1) {
+              // eslint-disable-next-line no-await-in-loop
+              await new Promise<void>((resolve) => {
+                setTimeout(resolve, 350);
+              });
+            }
+          }
+        } else {
+          await descargarPdfDesdeNodo(node, slugPdfCaptura(informe));
+        }
       } else {
         await descargarPdfInformeIa(informe);
       }

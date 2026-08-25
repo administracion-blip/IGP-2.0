@@ -20,12 +20,13 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   });
 }
 
-function slugFile(fileBase: string): string {
+function slugFile(fileBase: string, opts?: { anadirFechaHoy?: boolean }): string {
   const fecha = new Date().toISOString().slice(0, 10);
   const slug = String(fileBase || 'informe_ia')
     .replace(/\s+/g, '_')
     .replace(/[^\w\-]/g, '')
-    .slice(0, 48) || 'informe_ia';
+    .slice(0, 80) || 'informe_ia';
+  if (opts?.anadirFechaHoy === false) return `${slug}.pdf`;
   return `${slug}_${fecha}.pdf`;
 }
 
@@ -108,6 +109,7 @@ async function descargarPdfPorSlices(
   node: HTMLElement,
   fileBase: string,
   JsPDF: typeof import('jspdf').jsPDF,
+  opts?: { anadirFechaHoy?: boolean },
 ): Promise<void> {
   const dataUrl = await toPng(node, { cacheBust: true, pixelRatio: PIXEL_RATIO });
   const img = await loadImage(dataUrl);
@@ -150,13 +152,14 @@ async function descargarPdfPorSlices(
     pageIndex += 1;
   }
 
-  doc.save(slugFile(fileBase));
+  doc.save(slugFile(fileBase, opts));
 }
 
 async function descargarPdfPorSecciones(
   secciones: HTMLElement[],
   fileBase: string,
   JsPDF: typeof import('jspdf').jsPDF,
+  opts?: { anadirFechaHoy?: boolean },
 ): Promise<void> {
   const captures: CapturaSeccion[] = [];
   for (const el of secciones) {
@@ -223,7 +226,7 @@ async function descargarPdfPorSecciones(
     await colocarCaptura(cap);
   }
 
-  doc.save(slugFile(fileBase));
+  doc.save(slugFile(fileBase, opts));
 }
 
 /**
@@ -231,7 +234,11 @@ async function descargarPdfPorSecciones(
  * Usa `[data-pdf-section]` en orden DOM (secciones enteras). Sin secciones → slice vertical.
  * RN Web: dataSet.pdfSection → atributo data-pdf-section.
  */
-export async function descargarPdfDesdeNodo(node: HTMLElement, fileBase: string): Promise<void> {
+export async function descargarPdfDesdeNodo(
+  node: HTMLElement,
+  fileBase: string,
+  opts?: { anadirFechaHoy?: boolean },
+): Promise<void> {
   if (Platform.OS !== 'web') {
     throw new Error('Disponible en web');
   }
@@ -245,9 +252,9 @@ export async function descargarPdfDesdeNodo(node: HTMLElement, fileBase: string)
   ) as HTMLElement[];
 
   if (secciones.length === 0) {
-    await descargarPdfPorSlices(node, fileBase, JsPDF);
+    await descargarPdfPorSlices(node, fileBase, JsPDF, opts);
     return;
   }
 
-  await descargarPdfPorSecciones(secciones, fileBase, JsPDF);
+  await descargarPdfPorSecciones(secciones, fileBase, JsPDF, opts);
 }

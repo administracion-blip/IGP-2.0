@@ -1,0 +1,109 @@
+---
+description: Módulo de dirección (proyectos, tareas y reuniones). Reglas de trabajo y contrato compartido.
+globs: api/routes/proyectos.js, api/routes/reuniones.js, api/lib/tasks/**, app/(app)/proyectos/**, app/(app)/reuniones/**, app/types/tasks.ts, app/lib/tasks*
+---
+
+# Módulo de dirección — proyectos, tareas y reuniones
+
+Gestión de proyectos internos transversales (RRHH, marketing, I+D, nuevos
+negocios, obras, operaciones, finanzas), sus tareas y las reuniones donde se
+deciden.
+
+**El contrato completo vive en `docs/tasks/`.** Esta regla solo contiene lo que
+un agente debe respetar sin excepción. Antes de escribir código, leer el
+documento de la fase en la que estás:
+
+| Necesitas | Lee |
+|---|---|
+| Entender el alcance y qué NO entra | `docs/tasks/01-vision-alcance.md` |
+| Tocar tablas, claves o campos | `docs/tasks/02-modelo-datos.md` |
+| Crear o cambiar un endpoint | `docs/tasks/03-contrato-api.md` |
+| Cualquier decisión de acceso | `docs/tasks/04-permisos-y-acceso.md` |
+| Audio, transcripción, acta | `docs/tasks/05-pipeline-reuniones.md` |
+| Saber qué toca implementar ya | `docs/tasks/06-fases-y-dependencias.md` |
+| Decisiones abiertas | `docs/tasks/08-decisiones.md` |
+
+## Reglas no negociables
+
+1. **La IA propone, el humano decide.** Ninguna tarea, acuerdo ni asignación se
+   crea sin confirmación explícita de una persona. Lo que propone la IA nace
+   como *propuesta* y solo pasa a tarea al validarla alguien.
+2. **Toda propuesta de la IA lleva la cita literal** del fragmento de
+   transcripción que la justifica. Sin cita, no se muestra.
+3. **Un solo responsable por tarea.** No hay campo de responsables múltiples.
+   Para implicar a más gente: menciones o subtareas con su propio responsable.
+4. **El acceso se resuelve en un único punto**: `api/lib/tasks/acceso.js`. No
+   escribir comprobaciones de visibilidad sueltas en los handlers ni, jamás,
+   filtrar en el cliente.
+5. **Sin `Scan` en DynamoDB.** Toda consulta por índice y con paginación. Si una
+   consulta que necesitas no tiene índice, párate y plantéalo: no la resuelvas
+   con un Scan «temporal».
+6. **No cambiar el esquema de datos ni el contrato de API por tu cuenta.** Si
+   detectas que hace falta, párate y plantéalo.
+7. **Las tablas las crea el responsable del proyecto a mano.** Pide los datos
+   mínimos de una en una (nombre, PK, SK, GSIs) y espera confirmación de que
+   está creada antes de escribir código que la use.
+8. **La tabla `igp_usuarios` es crítica** (sostiene el login). Cualquier cambio
+   se propone antes, se aprueba y es **aditivo**.
+9. **Cada fase deja el sistema funcional y desplegable.** Nada de estados
+   intermedios que rompan lo anterior.
+10. **Implementa solo lo de tu fase**, aunque el esquema esté diseñado completo.
+
+## Alcance de la funcionalidad nueva
+
+Cuando aparezca funcionalidad nueva, la respuesta por defecto es **incorporarla
+al esquema de datos y aplazar su implementación a la fase que le corresponda**.
+Si crees que algo debe adelantarse o retrasarse, razónalo antes de escribir nada.
+
+## Fronteras con otros módulos
+
+- **Mantenimiento**: una incidencia **nunca** se convierte en tarea de proyecto.
+  Se referencia mediante vínculo, nada más.
+- **Planning del día**: es la vista operativa del local. Las tareas de proyecto
+  aparecen ahí como tarjeta de resumen, no como gestión completa.
+- **Departamentos**: son etiqueta organizativa, **no** control de acceso.
+  Alguien de Contabilidad puede tener asignada una tarea de un proyecto de
+  Marketing sin pertenecer a ese departamento.
+
+## Reutilizar (no reinventar)
+
+| Necesidad | Usa lo que ya existe |
+|---|---|
+| Cliente DynamoDB y nombres de tabla | `docClient` y `tables` de `api/lib/db.js` |
+| Permiso global | `requirePermission` / `hasPermission` de `api/middleware/auth.js` |
+| Trabajo diferido y cerrojo | `crearCerrojo()` de `api/lib/facturacion/facturacionPeriodica.js` y el patrón de `api/lib/jobs/scheduledTasks.js` |
+| Llamada interna del cron | `internalSyncFetchHeaders()` + alta del path en `INTERNAL_SYNC_POST_PATHS` (`api/lib/internalSync.js`) |
+| Resumen con IA | `chatCompletion()` de `api/lib/ia/openaiClient.js` |
+| Prompt editable sin desplegar | `Igp_IaPrompts` (`api/lib/ia/promptsStore.js`) |
+| Subida de ficheros | Presigned PUT como `api/routes/acuerdos.js`. **Nunca** base64 dentro del ítem |
+| Email | `enviarEmail()` de `api/lib/email.js` |
+| Tests con DynamoDB | `api/tests/dynamoMemoria.mjs` |
+| Entrada del menú | `app/constants/modulos.ts` (fuente de verdad del sidebar) |
+| Hub del módulo | `HubNavCard` / `HubNavGrid` + `useHubNavGrid()` |
+| Listados CRUD | `TablaBasica` |
+| Fechas | `InputFecha` / `RangoFechas` (ver `campo-fecha.mdc`) |
+| Llamadas al API | `apiFetch` de `app/utils/api.ts` |
+| IDs visibles | `formatId6()` de `app/utils/idFormat.ts` |
+
+## Trabajo con varios agentes
+
+- Con el contrato **no aprobado**, un solo agente. Paralelizar antes cuesta más
+  de lo que ahorra.
+- Reparto **solo por superficies disjuntas**: backend y frontend, o pipeline e
+  interfaz. Nunca dos agentes sobre los mismos ficheros.
+- Los ficheros comunes (`app/types/tasks.ts`, `api/lib/tasks/tipos.js`,
+  `api/lib/tasks/acceso.js`, `api/lib/db.js`, constantes) los toca **un único
+  agente integrador**. El resto los consume.
+- Cada agente en su rama; el integrador consolida y verifica al cerrar la fase
+  que backend y frontend siguen coherentes con el contrato.
+
+## Contención de coste
+
+- Trabaja sobre una lista acotada de ficheros y dila antes de empezar. No releas
+  el repositorio entero en cada paso.
+- No refactorices lo que no es de tu alcance.
+- Pregunta antes de añadir cualquier dependencia.
+- Tests solo donde el riesgo lo justifica: **capa de acceso** y **pipeline de
+  reuniones**. No busques cobertura amplia.
+- Transcripción y resumen: **una sola vez por reunión**, con idempotencia.
+  Reprocesar no debe volver a pagar.

@@ -21,6 +21,7 @@ convenciones en `Notas.md`, comentarios sueltos u otros documentos.
 | `campo-fecha.mdc` | `app/**/*.tsx` | Campo de fecha (`InputFecha`): formato ISO vs dd/mm/aaaa, calendario, jornada. |
 | `desplegables-zindex.mdc` | `app/**/*.tsx` | Desplegables / menús flotantes por encima de tablas (z-index / stacking). |
 | `tabla-basica.mdc` | `app/(app)/**/*.tsx` | Uso de `TablaBasica` en pantallas CRUD. |
+| `modulo-tasks.mdc` | ficheros del módulo de dirección | Proyectos, tareas y reuniones: reglas de trabajo y punteros al contrato de `docs/tasks/`. |
 
 ## Cómo elegir dónde va una regla nueva
 
@@ -32,5 +33,7 @@ convenciones en `Notas.md`, comentarios sueltos u otros documentos.
 ## No son reglas (documentación)
 
 - `docs/BACKLOG-UX.md` — roadmap de mejoras UX (qué falta), no convenciones.
+- `docs/tasks/` — contrato del módulo de dirección (proyectos, tareas y reuniones):
+  esquema de datos, API, fases y coste. La regla `modulo-tasks.mdc` remite aquí.
 - `README.md` (raíz) — instalación y ejecución del proyecto.
 - `Notas.md` — chuleta de comandos personales.

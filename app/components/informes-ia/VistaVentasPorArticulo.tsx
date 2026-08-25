@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { formatMoneda } from '../../utils/formatMoneda';
@@ -22,7 +22,18 @@ const C = {
 } as const;
 
 const PAGE_SIZE = 50;
-const PAGE_SIZE_PDF = 500;
+/** Filas por bloque de captura: 500 en un canvas petaba (Cocina / YTD). */
+const PAGE_SIZE_PDF = 40;
+
+function pdfAttrs(section: string): object {
+  if (Platform.OS !== 'web') return {};
+  return { dataSet: { pdfSection: section } } as object;
+}
+
+function pdfLocalAttrs(localId: string, localNombre: string): object {
+  if (Platform.OS !== 'web') return {};
+  return { dataSet: { pdfLocal: localId, pdfLocalNombre: localNombre } } as object;
+}
 
 export type ArticuloVentas = {
   productId?: string;
@@ -82,6 +93,40 @@ type Props = {
   modoPdf?: boolean;
 };
 
+export type LocalVentasPorArticulo = NonNullable<DatosVentasPorArticulo['porLocal']>[number];
+
+function slugParte(valor: string, max: number): string {
+  const s = String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, '_')
+    .replace(/[^\w-]/g, '')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+  return (s || 'local').slice(0, max);
+}
+
+export function localVentasTieneDatos(loc: LocalVentasPorArticulo | null | undefined): boolean {
+  if (!loc) return false;
+  if ((loc.articulos || []).length > 0) return true;
+  const u = Number(loc.totales?.unidades);
+  const imp = Number(loc.totales?.importe);
+  return (Number.isFinite(u) && u > 0) || (Number.isFinite(imp) && Math.abs(imp) > 0.001);
+}
+
+/** `{local}_Ventas_por_articulo_{desde}_{hasta}` */
+export function slugPdfVentasArticuloLocal(
+  localNombre: string,
+  fechaDesde?: string,
+  fechaHasta?: string,
+): string {
+  const local = slugParte(localNombre, 32);
+  const d1 = String(fechaDesde || '').slice(0, 10);
+  const d2 = String(fechaHasta || '').slice(0, 10);
+  const rango = [d1, d2].filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)).join('_');
+  return [local, 'Ventas_por_articulo', rango].filter(Boolean).join('_');
+}
+
 function nombreArticulo(a: ArticuloVentas): string {
   return String(a.nombre || a.productName || a.productId || '—').trim() || '—';
 }
@@ -103,7 +148,8 @@ export function VistaVentasPorArticulo({ datos, resumen, modoPdf = false }: Prop
 
   const articulos = datos.articulos || [];
   const porFamilia = datos.porFamilia || [];
-  const porLocal = Array.isArray(datos.porLocal) ? datos.porLocal : [];
+  const porLocalRaw = Array.isArray(datos.porLocal) ? datos.porLocal : [];
+  const porLocal = modoPdf ? porLocalRaw.filter(localVentasTieneDatos) : porLocalRaw;
   const agruparPorLocal = Boolean(datos.meta?.agruparPorLocal && porLocal.length > 0);
   const totales = datos.totales;
   const avisos = [
@@ -120,51 +166,138 @@ export function VistaVentasPorArticulo({ datos, resumen, modoPdf = false }: Prop
       ? `${meta.fechaDesde ? formatFecha(meta.fechaDesde) : '—'} → ${meta.fechaHasta ? formatFecha(meta.fechaHasta) : '—'}`
       : null;
 
+  const renderCabecera = (tituloExtra?: string) => (
+    <View style={styles.cabecera} {...pdfAttrs(tituloExtra ? `cabecera-${tituloExtra}` : 'cabecera')}>
+      <View style={styles.cabeceraIcon}>
+        <MaterialIcons name="inventory-2" size={22} color="#0369a1" />
+      </View>
+      <View style={{ flex: 1, gap: 6 }}>
+        <Text style={styles.cabeceraTitulo}>
+          Ventas por artículo{tituloExtra ? ` · ${tituloExtra}` : ''}
+        </Text>
+        <View style={styles.cabeceraChips}>
+          {rangoFechas ? (
+            <View style={styles.metaChip}>
+              <MaterialIcons name="date-range" size={13} color="#0369a1" />
+              <Text style={styles.metaChipText}>{rangoFechas}</Text>
+            </View>
+          ) : null}
+          {meta?.locales?.length && !tituloExtra ? (
+            <View style={[styles.metaChip, styles.metaChipMuted]}>
+              <MaterialIcons name="store" size={13} color={C.slate} />
+              <Text style={styles.metaChipTextMuted}>
+                {meta.locales.length === 1
+                  ? meta.locales[0].nombre || '1 local'
+                  : `${meta.locales.length} locales`}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </View>
+  );
+
+  const renderKpis = (
+    t: DatosVentasPorArticulo['totales'] | undefined,
+    listaArts: ArticuloVentas[],
+    sectionId: string,
+  ) => {
+    if (!t) return null;
+    return (
+      <View
+        style={[styles.kpiRow, shouldStackPanels && styles.kpiRowStack]}
+        {...pdfAttrs(sectionId)}
+      >
+        <View style={[styles.kpiCard, shouldStackPanels && styles.kpiCardStack]}>
+          <Text style={styles.kpiLabel}>Artículos</Text>
+          <Text style={styles.kpiValor}>
+            {(t.numArticulos ?? listaArts.length).toLocaleString('es-ES')}
+          </Text>
+          {t.numFamilias != null ? (
+            <Text style={styles.kpiSub}>
+              {t.numFamilias.toLocaleString('es-ES')} familias
+            </Text>
+          ) : null}
+        </View>
+        <View style={[styles.kpiCard, shouldStackPanels && styles.kpiCardStack]}>
+          <Text style={styles.kpiLabel}>Unidades</Text>
+          <Text style={styles.kpiValor}>{formatUnidades(t.unidades)}</Text>
+        </View>
+        <View style={[styles.kpiCard, shouldStackPanels && styles.kpiCardStack]}>
+          <Text style={styles.kpiLabel}>Importe</Text>
+          <Text style={styles.kpiValorGrande}>{formatMoneda(t.importe)}</Text>
+        </View>
+      </View>
+    );
+  };
+
+  const renderFilasArticulos = (lista: ArticuloVentas[], keyPrefix: string) => (
+    <>
+      <View style={styles.tablaHead}>
+        <Text style={[styles.th, styles.colNombre]}>Artículo</Text>
+        <Text style={[styles.th, styles.colFamArt]}>Familia</Text>
+        <Text style={[styles.th, styles.colNum]}>Unid.</Text>
+        <Text style={[styles.th, styles.colNum]}>Importe</Text>
+        <Text style={[styles.th, styles.colPct]}>% unid.</Text>
+        <Text style={[styles.th, styles.colPct]}>% imp.</Text>
+      </View>
+      {lista.map((a, i) => (
+        <View
+          key={`${keyPrefix}-${a.productId || i}`}
+          style={[styles.tablaRow, i % 2 === 1 && styles.tablaRowAlt]}
+        >
+          <Text style={[styles.td, styles.colNombre]} numberOfLines={2}>
+            {nombreArticulo(a)}
+          </Text>
+          <Text style={[styles.td, styles.colFamArt]} numberOfLines={1}>
+            {a.familyName || 'Sin familia'}
+          </Text>
+          <Text style={[styles.td, styles.colNum]}>{formatUnidades(a.unidades)}</Text>
+          <Text style={[styles.td, styles.colNum]}>{formatMoneda(a.importe)}</Text>
+          <Text style={[styles.td, styles.colPct]}>{formatPct(a.pctUnidades)}</Text>
+          <Text style={[styles.td, styles.colPct]}>{formatPct(a.pctImporte)}</Text>
+        </View>
+      ))}
+    </>
+  );
+
   const renderTablaArticulos = (
     lista: ArticuloVentas[],
-    opts?: { keyPrefix?: string; pageKey?: string },
+    opts?: { keyPrefix?: string; pageKey?: string; pdfSectionBase?: string },
   ) => {
     const keyPrefix = opts?.keyPrefix || 'art';
     const pageKey = opts?.pageKey;
     const curPage = pageKey ? pageLocal[pageKey] || 0 : pageSafe;
     const pages = Math.max(1, Math.ceil(lista.length / pageSize));
     const safe = modoPdf ? 0 : Math.min(curPage, pages - 1);
-    const rows = modoPdf
-      ? lista.slice(0, pageSize)
-      : lista.slice(safe * pageSize, safe * pageSize + pageSize);
+    const sectionBase = opts?.pdfSectionBase || keyPrefix;
 
     if (lista.length === 0) {
       return <Text style={styles.vacio}>No hay artículos en el periodo seleccionado.</Text>;
     }
 
+    if (modoPdf) {
+      const chunks: ArticuloVentas[][] = [];
+      for (let i = 0; i < lista.length; i += PAGE_SIZE_PDF) {
+        chunks.push(lista.slice(i, i + PAGE_SIZE_PDF));
+      }
+      return (
+        <>
+          {chunks.map((chunk, ci) => (
+            <View key={`${keyPrefix}-pdf-${ci}`} {...pdfAttrs(`${sectionBase}-${ci + 1}`)}>
+              {renderFilasArticulos(chunk, `${keyPrefix}-${ci}`)}
+            </View>
+          ))}
+        </>
+      );
+    }
+
+    const rows = lista.slice(safe * pageSize, safe * pageSize + pageSize);
+
     return (
       <>
-        <View style={styles.tablaHead}>
-          <Text style={[styles.th, styles.colNombre]}>Artículo</Text>
-          <Text style={[styles.th, styles.colFamArt]}>Familia</Text>
-          <Text style={[styles.th, styles.colNum]}>Unid.</Text>
-          <Text style={[styles.th, styles.colNum]}>Importe</Text>
-          <Text style={[styles.th, styles.colPct]}>% unid.</Text>
-          <Text style={[styles.th, styles.colPct]}>% imp.</Text>
-        </View>
-        {rows.map((a, i) => (
-          <View
-            key={`${keyPrefix}-${a.productId || i}`}
-            style={[styles.tablaRow, i % 2 === 1 && styles.tablaRowAlt]}
-          >
-            <Text style={[styles.td, styles.colNombre]} numberOfLines={2}>
-              {nombreArticulo(a)}
-            </Text>
-            <Text style={[styles.td, styles.colFamArt]} numberOfLines={1}>
-              {a.familyName || 'Sin familia'}
-            </Text>
-            <Text style={[styles.td, styles.colNum]}>{formatUnidades(a.unidades)}</Text>
-            <Text style={[styles.td, styles.colNum]}>{formatMoneda(a.importe)}</Text>
-            <Text style={[styles.td, styles.colPct]}>{formatPct(a.pctUnidades)}</Text>
-            <Text style={[styles.td, styles.colPct]}>{formatPct(a.pctImporte)}</Text>
-          </View>
-        ))}
-        {!modoPdf && pages > 1 && pageKey ? (
+        {renderFilasArticulos(rows, keyPrefix)}
+        {pages > 1 && pageKey ? (
           <View style={styles.paginacion}>
             <TouchableOpacity
               style={[styles.pageBtn, safe <= 0 && styles.pageBtnDisabled]}
@@ -198,81 +331,41 @@ export function VistaVentasPorArticulo({ datos, resumen, modoPdf = false }: Prop
     );
   };
 
-  return (
-    <View style={styles.wrap}>
-      <View style={styles.cabecera}>
-        <View style={styles.cabeceraIcon}>
-          <MaterialIcons name="inventory-2" size={22} color="#0369a1" />
-        </View>
-        <View style={{ flex: 1, gap: 6 }}>
-          <Text style={styles.cabeceraTitulo}>Ventas por artículo</Text>
-          <View style={styles.cabeceraChips}>
-            {rangoFechas ? (
-              <View style={styles.metaChip}>
-                <MaterialIcons name="date-range" size={13} color="#0369a1" />
-                <Text style={styles.metaChipText}>{rangoFechas}</Text>
-              </View>
-            ) : null}
-            {meta?.locales?.length ? (
-              <View style={[styles.metaChip, styles.metaChipMuted]}>
-                <MaterialIcons name="store" size={13} color={C.slate} />
-                <Text style={styles.metaChipTextMuted}>
-                  {meta.locales.length === 1
-                    ? meta.locales[0].nombre || '1 local'
-                    : `${meta.locales.length} locales`}
-                </Text>
-              </View>
-            ) : null}
-          </View>
+  const renderAvisos = (sectionId: string) =>
+    avisos.length > 0 ? (
+      <View style={styles.avisosBox} {...pdfAttrs(sectionId)}>
+        <MaterialIcons name="info-outline" size={16} color={C.warning} />
+        <View style={{ flex: 1, gap: 4 }}>
+          {avisos.map((a, i) => (
+            <Text key={`aviso-${i}`} style={styles.avisoText}>
+              {a}
+            </Text>
+          ))}
         </View>
       </View>
+    ) : null;
 
-      {avisos.length > 0 ? (
-        <View style={styles.avisosBox}>
-          <MaterialIcons name="info-outline" size={16} color={C.warning} />
-          <View style={{ flex: 1, gap: 4 }}>
-            {avisos.map((a, i) => (
-              <Text key={`aviso-${i}`} style={styles.avisoText}>
-                {a}
-              </Text>
-            ))}
-          </View>
-        </View>
-      ) : null}
+  const renderResumen = (sectionId: string) =>
+    resumen ? (
+      <View style={styles.resumenBox} {...pdfAttrs(sectionId)}>
+        <Text style={styles.resumenTitulo}>Resumen IA</Text>
+        <InformeResumenRico texto={resumen} />
+      </View>
+    ) : null;
 
-      {resumen ? (
-        <View style={styles.resumenBox}>
-          <Text style={styles.resumenTitulo}>Resumen IA</Text>
-          <InformeResumenRico texto={resumen} />
-        </View>
-      ) : null}
-
-      {totales ? (
-        <View style={[styles.kpiRow, shouldStackPanels && styles.kpiRowStack]}>
-          <View style={[styles.kpiCard, shouldStackPanels && styles.kpiCardStack]}>
-            <Text style={styles.kpiLabel}>Artículos</Text>
-            <Text style={styles.kpiValor}>
-              {(totales.numArticulos ?? articulos.length).toLocaleString('es-ES')}
-            </Text>
-            {totales.numFamilias != null ? (
-              <Text style={styles.kpiSub}>
-                {totales.numFamilias.toLocaleString('es-ES')} familias
-              </Text>
-            ) : null}
-          </View>
-          <View style={[styles.kpiCard, shouldStackPanels && styles.kpiCardStack]}>
-            <Text style={styles.kpiLabel}>Unidades</Text>
-            <Text style={styles.kpiValor}>{formatUnidades(totales.unidades)}</Text>
-          </View>
-          <View style={[styles.kpiCard, shouldStackPanels && styles.kpiCardStack]}>
-            <Text style={styles.kpiLabel}>Importe</Text>
-            <Text style={styles.kpiValorGrande}>{formatMoneda(totales.importe)}</Text>
-          </View>
-        </View>
+  return (
+    <View style={styles.wrap}>
+      {!(modoPdf && agruparPorLocal) ? (
+        <>
+          {renderCabecera()}
+          {renderAvisos('avisos')}
+          {renderResumen('resumen-ia')}
+          {renderKpis(totales, articulos, 'kpis')}
+        </>
       ) : null}
 
       {porFamilia.length > 0 && !agruparPorLocal ? (
-        <View style={styles.bloque}>
+        <View style={styles.bloque} {...pdfAttrs('familias')}>
           <Text style={styles.bloqueTitulo}>Subtotales por familia (orden uds.)</Text>
           <View style={styles.tablaHead}>
             <Text style={[styles.th, styles.colFam]}>Familia</Text>
@@ -303,30 +396,45 @@ export function VistaVentasPorArticulo({ datos, resumen, modoPdf = false }: Prop
       {agruparPorLocal ? (
         porLocal.map((loc) => {
           const lid = String(loc.localId || loc.nombre || 'local');
+          const nombreLoc = String(loc.nombre || lid).trim() || lid;
           return (
-            <View key={lid} style={styles.bloque}>
-              <Text style={styles.bloqueTitulo}>
-                {loc.nombre || lid}
-                {loc.totales?.unidades != null
-                  ? ` · ${formatUnidades(loc.totales.unidades)} uds · ${formatMoneda(loc.totales.importe)}`
-                  : ''}
-              </Text>
+            <View
+              key={lid}
+              style={[styles.bloque, modoPdf && styles.bloquePdfLocal]}
+              {...pdfLocalAttrs(lid, nombreLoc)}
+            >
+              {modoPdf ? (
+                <>
+                  {renderCabecera(nombreLoc)}
+                  {renderAvisos(`avisos-${lid}`)}
+                  {renderResumen(`resumen-ia-${lid}`)}
+                  {renderKpis(loc.totales, loc.articulos || [], `kpis-${lid}`)}
+                </>
+              ) : (
+                <Text style={styles.bloqueTitulo}>
+                  {nombreLoc}
+                  {loc.totales?.unidades != null
+                    ? ` · ${formatUnidades(loc.totales.unidades)} uds · ${formatMoneda(loc.totales.importe)}`
+                    : ''}
+                </Text>
+              )}
               {renderTablaArticulos(loc.articulos || [], {
                 keyPrefix: `loc-${lid}`,
                 pageKey: lid,
+                pdfSectionBase: `articulos-${lid}`,
               })}
             </View>
           );
         })
       ) : (
-        <View style={styles.bloque}>
+        <View style={styles.bloque} {...pdfAttrs('articulos-titulo')}>
           <Text style={styles.bloqueTitulo}>
             Artículos (orden uds.)
             {articulos.length > 0
               ? ` (${articulos.length.toLocaleString('es-ES')})`
               : ''}
           </Text>
-          {renderTablaArticulos(articulos, { pageKey: undefined })}
+          {renderTablaArticulos(articulos, { pageKey: undefined, pdfSectionBase: 'articulos' })}
           {!modoPdf && totalPages > 1 ? (
             <View style={styles.paginacion}>
               <TouchableOpacity
@@ -349,12 +457,6 @@ export function VistaVentasPorArticulo({ datos, resumen, modoPdf = false }: Prop
                 <MaterialIcons name="chevron-right" size={18} color="#0369a1" />
               </TouchableOpacity>
             </View>
-          ) : null}
-          {modoPdf && articulos.length > pageSize ? (
-            <Text style={styles.vacio}>
-              PDF: mostrando {pageSize.toLocaleString('es-ES')} de{' '}
-              {articulos.length.toLocaleString('es-ES')} artículos (por unidades).
-            </Text>
           ) : null}
         </View>
       )}
@@ -449,6 +551,7 @@ const styles = StyleSheet.create({
     padding: 10,
     gap: 6,
   },
+  bloquePdfLocal: { gap: 12, padding: 12 },
   bloqueTitulo: {
     fontSize: 12,
     fontWeight: '800',
