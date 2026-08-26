@@ -209,8 +209,28 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `refacturacion.gestionar` | Refacturación · Crear/editar/descartar líneas y emitir borrador OUT |
 | `banca.ver` | Banca · Ver movimientos bancarios importados y el historial de cargas de extractos |
 | `banca.importar` | Banca · Subir extractos bancarios (Norma 43) e importar sus movimientos |
+| `departamentos.editar` | Departamentos · Crear, editar y dar de baja el maestro. La lectura solo pide sesión |
+| `proyectos.crear` | Proyectos · Crear |
+| `proyectos.editar` | Proyectos · Editar y gestionar miembros |
+| `proyectos.borrar` | Proyectos · Borrar |
+| `tareas.ver_todas` | Proyectos · Ver todas las tareas, sin ser responsable ni miembro |
+| `tareas.editar_todas` | Proyectos · Editar cualquier tarea. **No** alcanza a editar proyectos (D-13) |
+| `proyectos.presupuesto_ver` | Proyectos · Ver presupuesto asignado, comprometido y real |
+| `proyectos.compras_aprobar` | Proyectos · Aprobar o rechazar líneas de compra. Habilita a participar; el escalón sale de la posición, no del permiso (D-14) |
+| `proyectos.plantillas` | Proyectos · Crear y editar plantillas de proyecto |
+| `proyectos.cuadro_mando` | Proyectos · Cuadro de mando de dirección |
+| `reuniones.gestionar` | Reuniones · Convocar, editar el acta y validar propuestas |
+| `reuniones.ver_direccion` | Reuniones · Ver las de `visibilidad = direccion` |
+| `reuniones.borrar_audio` | Reuniones · Borrar el audio conservando transcripción y acta |
 
 Propuesta `escandallos.ver` / `escandallos.editar` (solo catálogo; **no asignar a roles en Dynamo** desde este cambio): SuperUser y Administracion. Administrador ya tiene todos los permisos. Local, Socio y Marketing: no.
+
+Los permisos del módulo de dirección (`proyectos.*`, `tareas.*`, `reuniones.*`) están
+**solo en el catálogo**: no se asignan a ningún rol hasta que la Fase 1A tenga
+pantallas que proteger. Además de ver el módulo, `proyectos.ver` y `reuniones.ver`
+son la puerta de sus rutas. Ver `docs/tasks/04-permisos-y-acceso.md`, que explica
+cómo se combinan con las ACL de fila (un permiso no basta para ver una reunión
+concreta).
 
 ## Comportamiento
 

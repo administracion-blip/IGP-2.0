@@ -19,6 +19,11 @@ import {
   leerAjustesRappel,
   marcarIntentoGeneracion as marcarIntentoGeneracionRappel,
 } from '../facturacion/facturarRappel.js';
+import {
+  enviarAvisosVencimiento,
+  esHoraDeAvisar,
+  leerAjustesAvisos,
+} from '../tasks/avisos.js';
 
 const tableAjustesName = tables.ajustes;
 
@@ -336,6 +341,40 @@ export const checkFacturacionRappel = crearTrabajoFacturacionPeriodica({
   datosLogOk: (data) => ({ pedidos: data.total_pedidos ?? 0 }),
   nombreDocumento: 'abono',
 });
+
+/**
+ * Aviso diario por email de las tareas vencidas o que vencen hoy, a cada
+ * responsable (Fase 1A del módulo de dirección).
+ *
+ * Config en Igp_Ajustes (PK='tareas', SK='avisos_vencimiento'): `Enabled` y
+ * `hora`. Nace **desactivado**.
+ *
+ * A diferencia del informe diario, no pasa por un endpoint interno: la lógica
+ * vive en `api/lib/tasks/avisos.js` y se llama directamente, así no hay que
+ * abrir superficie HTTP para algo que solo dispara el propio servidor.
+ *
+ * Tampoco lleva marca de última ejecución en memoria: el día se reclama con una
+ * escritura condicional en DynamoDB, así que ni un reinicio ni dos instancias
+ * mandan el aviso dos veces. La comprobación de aquí solo evita intentarlo cada
+ * minuto una vez enviado.
+ */
+export async function checkAvisosTareas() {
+  try {
+    const ajustes = await leerAjustesAvisos();
+    if (!esHoraDeAvisar(ajustes)) return;
+
+    const r = await enviarAvisosVencimiento({ origen: 'programado' });
+    if (r.enviados > 0 || r.fallidos > 0) {
+      logger.info(
+        { dia: r.dia, enviados: r.enviados, fallidos: r.fallidos, tareas: r.tareas },
+        `[tareas-avisos] ${r.enviados} aviso(s) enviado(s) sobre ${r.tareas} tarea(s)` +
+          (r.fallidos > 0 ? `, ${r.fallidos} fallido(s)` : ''),
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, '[tareas-avisos] scheduler error');
+  }
+}
 
 export async function checkVencimientosFacturas(port) {
   try {

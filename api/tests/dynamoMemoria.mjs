@@ -370,23 +370,67 @@ export function crearDynamoMemoria({ paginaTam = 0 } = {}) {
     return JSON.stringify(partes);
   }
 
-  function paginar(lista, exclusiveStartKey, t) {
+  /**
+   * Esquema de claves con el que se resuelve una consulta: el de la tabla, o el del
+   * índice secundario si se pide uno.
+   */
+  function esquemaConsulta(t, indexName) {
+    if (!indexName) {
+      return { hashKey: t.esquema.hashKey, rangeKey: t.esquema.rangeKey, proyeccion: 'ALL' };
+    }
+    const idx = (t.esquema.indices || {})[indexName];
+    if (!idx) {
+      throw new Error(
+        `Índice no creado en el doble: ${indexName} (tabla ${t.nombre}). ` +
+          'Decláralo en crearTabla con { indices: { "<nombre>": { hashKey, rangeKey, proyeccion } } }',
+      );
+    }
+    return { hashKey: idx.hashKey, rangeKey: idx.rangeKey, proyeccion: idx.proyeccion || 'ALL' };
+  }
+
+  /**
+   * Un GSI solo contiene los ítems que llevan sus atributos de clave. Es lo que hace
+   * que `Responsable-Vencimiento-index` tenga solo tareas abiertas: el escritor borra
+   * `vencimiento_orden` al cerrarlas y DynamoDB las saca del índice. Sin simular esto,
+   * las pruebas darían por bueno un código que en producción lee tareas cerradas.
+   */
+  function enIndice(item, esq) {
+    if (item[esq.hashKey] === undefined || item[esq.hashKey] === null) return false;
+    if (esq.rangeKey && (item[esq.rangeKey] === undefined || item[esq.rangeKey] === null)) {
+      return false;
+    }
+    return true;
+  }
+
+  /** Como DynamoDB: la clave de continuación de un índice lleva también las de la tabla. */
+  function claveContinuacion(t, esq, item) {
+    const clave = { [t.esquema.hashKey]: item[t.esquema.hashKey] };
+    if (t.esquema.rangeKey) clave[t.esquema.rangeKey] = item[t.esquema.rangeKey];
+    if (esq.hashKey !== t.esquema.hashKey) clave[esq.hashKey] = item[esq.hashKey];
+    if (esq.rangeKey && esq.rangeKey !== t.esquema.rangeKey) {
+      clave[esq.rangeKey] = item[esq.rangeKey];
+    }
+    return clave;
+  }
+
+  /** Proyección `KEYS_ONLY`: claves de la tabla y del índice, nada más. */
+  function soloClaves(t, esq, item) {
+    return claveContinuacion(t, esq, item);
+  }
+
+  function paginar(lista, exclusiveStartKey, t, esq = t.esquema) {
     if (!paginaTam) return { pagina: lista, ultima: null };
     let desde = 0;
     if (exclusiveStartKey) {
+      // La coincidencia va por la clave de la tabla, que es única, aunque la consulta
+      // sea por índice: la clave de continuación siempre la incluye.
       const clave = claveDe(t, exclusiveStartKey);
       desde = lista.findIndex((it) => claveDe(t, it) === clave) + 1;
     }
     const pagina = lista.slice(desde, desde + paginaTam);
     const hayMas = desde + paginaTam < lista.length;
     const ultimo = pagina[pagina.length - 1];
-    const ultima =
-      hayMas && ultimo
-        ? {
-            [t.esquema.hashKey]: ultimo[t.esquema.hashKey],
-            ...(t.esquema.rangeKey && { [t.esquema.rangeKey]: ultimo[t.esquema.rangeKey] }),
-          }
-        : null;
+    const ultima = hayMas && ultimo ? claveContinuacion(t, esq, ultimo) : null;
     return { pagina, ultima };
   }
 
@@ -400,9 +444,26 @@ export function crearDynamoMemoria({ paginaTam = 0 } = {}) {
   }
 
   const api = {
-    /** Da de alta una tabla con su esquema de clave. */
+    /**
+     * Da de alta una tabla con su esquema de clave y, si los tiene, sus índices
+     * secundarios:
+     *
+     * ```js
+     * crearTabla('Igp_Tareas', {
+     *   hashKey: 'PK',
+     *   rangeKey: 'SK',
+     *   indices: {
+     *     'Proyecto-index': { hashKey: 'proyecto_id', rangeKey: 'sk_proyecto' },
+     *     'Vinculo-index': { hashKey: 'vinculo_clave', rangeKey: 'PK', proyeccion: 'KEYS_ONLY' },
+     *   },
+     * });
+     * ```
+     */
     crearTabla(nombre, esquema, items = []) {
       assert.ok(esquema?.hashKey, 'La tabla necesita hashKey');
+      for (const [nombreIdx, idx] of Object.entries(esquema.indices || {})) {
+        assert.ok(idx?.hashKey, `El índice ${nombreIdx} necesita hashKey`);
+      }
       tablas.set(nombre, { nombre, esquema, items: new Map() });
       for (const it of items) api.sembrar(nombre, it);
       return api;
@@ -478,6 +539,58 @@ export function crearDynamoMemoria({ paginaTam = 0 } = {}) {
         return {};
       }
 
+      if (tipo === 'BatchWriteCommand') {
+        const peticiones = Object.entries(e.RequestItems || {});
+        const total = peticiones.reduce((n, [, lista]) => n + (lista || []).length, 0);
+        operaciones.push({ tipo, tabla: null, peticiones: total });
+        await dispararGatillos(tipo, e);
+        for (const [nombreTabla, lista] of peticiones) {
+          for (const p of lista || []) {
+            if (p.PutRequest) {
+              await api.enviar({
+                constructor: { name: 'PutCommand' },
+                input: { TableName: nombreTabla, Item: p.PutRequest.Item },
+              });
+            } else if (p.DeleteRequest) {
+              await api.enviar({
+                constructor: { name: 'DeleteCommand' },
+                input: { TableName: nombreTabla, Key: p.DeleteRequest.Key },
+              });
+            } else {
+              throw new Error('El doble solo soporta Put/Delete en BatchWrite');
+            }
+          }
+        }
+        // El doble nunca deja elementos sin procesar: no simula throttling. Para
+        // ejercitar el reintento, usa `interceptar('BatchWriteCommand', …)`.
+        return { UnprocessedItems: {} };
+      }
+
+      if (tipo === 'BatchGetCommand') {
+        const peticiones = Object.entries(e.RequestItems || {});
+        // `claves` deja afirmar que una resolución en lote es una sola lectura y
+        // no una por fila.
+        const claves = peticiones.reduce((n, [, p]) => n + (p.Keys || []).length, 0);
+        operaciones.push({ tipo, tabla: null, claves });
+        await dispararGatillos(tipo, e);
+        const Responses = {};
+        for (const [nombreTabla, peticion] of peticiones) {
+          const t = tabla(nombreTabla);
+          Responses[nombreTabla] = (peticion.Keys || [])
+            .map((clave) => t.items.get(claveDe(t, clave)))
+            .filter(Boolean)
+            .map((it) =>
+              proyectar(
+                structuredClone(it),
+                peticion.ProjectionExpression,
+                peticion.ExpressionAttributeNames,
+              ),
+            );
+        }
+        // El doble nunca deja claves sin procesar: no simula el throttling real.
+        return { Responses, UnprocessedKeys: {} };
+      }
+
       operaciones.push({ tipo, tabla: e.TableName });
       await dispararGatillos(tipo, e);
       const t = tabla(e.TableName);
@@ -525,21 +638,26 @@ export function crearDynamoMemoria({ paginaTam = 0 } = {}) {
           return { Items: items, ...(ultima && { LastEvaluatedKey: ultima }) };
         }
         case 'QueryCommand': {
-          if (e.IndexName) throw new Error('El doble no soporta índices secundarios');
+          const esq = esquemaConsulta(t, e.IndexName);
           const clave = compilar(e.KeyConditionExpression);
           const coincidentes = [...t.items.values()]
+            .filter((it) => (e.IndexName ? enIndice(it, esq) : true))
             .filter((it) => evaluar(clave, it, { nombres, valores }))
             .sort((a, b) => {
-              const rk = t.esquema.rangeKey;
+              const rk = esq.rangeKey;
               if (!rk) return 0;
               const c = comparar(a[rk], b[rk]);
               return Number.isNaN(c) ? 0 : c;
             });
           const ordenados = e.ScanIndexForward === false ? coincidentes.reverse() : coincidentes;
-          const { pagina, ultima } = paginar(ordenados, e.ExclusiveStartKey, t);
+          const { pagina, ultima } = paginar(ordenados, e.ExclusiveStartKey, t, esq);
           const items = pagina
             .filter((it) => cumple(e.FilterExpression, it, nombres, valores))
-            .map((it) => proyectar(structuredClone(it), e.ProjectionExpression, nombres));
+            .map((it) =>
+              esq.proyeccion === 'KEYS_ONLY'
+                ? soloClaves(t, esq, it)
+                : proyectar(structuredClone(it), e.ProjectionExpression, nombres),
+            );
           return { Items: items, ...(ultima && { LastEvaluatedKey: ultima }) };
         }
         default:

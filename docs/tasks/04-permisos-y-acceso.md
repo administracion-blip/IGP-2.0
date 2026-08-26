@@ -59,17 +59,33 @@ cuenta, y jamás se filtra en el cliente.
 
 Funciones que expone, todas **puras** salvo la carga de contexto:
 
+Firmas tal como están implementadas (Fase 0, con sus pruebas en
+`api/tests/tasksAcceso.test.mjs`):
+
 | Función | Devuelve | Para qué |
 |---|---|---|
-| `cargarContextoAcceso(req)` | `{ user, permisos, locales, departamentos, esAdmin }` | Contexto de la petición, con caché corta |
+| `cargarContextoAcceso(user, { forzar })` | contexto | Recibe `req.user`; caché corta por `id_usuario` |
+| `crearContextoAcceso({ … })` | contexto | Construye uno a mano: pruebas y trabajos programados |
+| `contextoVacio()` | contexto | Sin identidad: deniega todo |
+| `invalidarContextoAcceso(id?)` | — | Sin argumento vacía la caché entera |
+| `tienePermiso(ctx, codigo)` | boolean | Permiso global, con los alias legacy del ERP |
+| `rolEnProyecto(ctx, proyecto, miembros)` | rol \| null | `responsable_id` cuenta como responsable |
 | `puedeVerProyecto(ctx, proyecto, miembros)` | boolean | Detalle y listado de proyectos |
-| `puedeEditarProyecto(ctx, proyecto, miembros)` | boolean | |
-| `puedeVerTarea(ctx, tarea, proyecto?)` | boolean | |
-| `puedeEditarTarea(ctx, tarea, proyecto?)` | boolean | |
-| `puedeVerReunion(ctx, reunion, asistentes)` | boolean | **La función más delicada del módulo** |
-| `puedeGestionarReunion(ctx, reunion)` | boolean | |
-| `nivelAprobacionDe(ctx, proyecto, umbral)` | enum \| null | Hasta qué nivel puede aprobar compras |
-| `filtrarVisibles(ctx, entidades, tipo)` | array | Filtra un listado ya leído |
+| `puedeEditarProyecto(ctx, proyecto, miembros)` | boolean | El observador nunca edita |
+| `puedeVerPresupuesto(ctx)` | boolean | Oculta importes del proyecto |
+| `puedeVerTarea(ctx, tarea, { proyecto, miembros })` | boolean | |
+| `puedeEditarTarea(ctx, tarea, { proyecto, miembros })` | boolean | |
+| `puedeReasignarTarea(ctx, tarea, { proyecto, miembros })` | boolean | Más estrecho que editar |
+| `puedeVerReunion(ctx, reunion, asistentes, aux)` | boolean | **La función más delicada del módulo** |
+| `puedeGestionarReunion(ctx, reunion, asistentes, aux)` | boolean | Exige poder verla |
+| `puedeBorrarAudio(ctx, reunion, asistentes, aux)` | boolean | Irreversible: permiso aparte |
+| `nivelAprobacionDe(ctx, proyecto, miembros, aux)` | nivel \| null | Escalón máximo que puede firmar |
+| `puedeAprobarLinea(ctx, proyecto, linea, miembros, aux)` | boolean | Compara con el nivel de la línea |
+| `filtrarVisibles(ctx, tipo, items, auxDe)` | array | Filtra un listado ya leído |
+
+`aux` transporta lo que la función no puede averiguar sin consultar:
+`esResponsableDepartamento` para las reuniones de departamento y para el escalón
+de aprobación. `auxDe` es una función que devuelve ese contexto por elemento.
 
 Reglas de forma que hacen que esto sea testeable y no se degrade:
 
@@ -99,7 +115,33 @@ el peor caso es que un cambio de permisos tarde hasta un minuto en verse, que es
 aceptable y debe quedar escrito.
 
 `esAdmin` sigue el cortocircuito que ya existe en todo el repositorio:
-`user.Rol === 'Administrador'` lo ve todo.
+`user.Rol === 'Administrador'` lo ve todo. La única excepción es la aprobación de
+compras, más abajo.
+
+**El rol sale solo de la ficha, nunca del token** (D-09). Vaciar el `Rol` de un
+usuario es la forma de cortarle el acceso, y su token sigue vivo hasta ocho horas:
+si el token sirviera de respaldo, la baja no surtiría efecto. Un rol vacío deja el
+contexto sin permisos, que es lo mismo que denegar.
+
+El contexto se devuelve **inmutable**, contenedores incluidos: es el mismo objeto
+que se sirve a todas las peticiones de ese usuario mientras dure la caché, así que
+añadirle un permiso se lo añadiría a todas.
+
+Un fallo de DynamoDB al cargar el contexto **se propaga**, no degrada a «denegar»:
+un 500 no debe confundirse con un 403, o una avería de la tabla de permisos parece
+un problema de permisos del usuario y se diagnostica en el sitio equivocado.
+
+**Cableado (Fase 0):** el alta, la edición y la baja de usuarios
+(`api/routes/usuarios.js`) llaman a `invalidarContextoAcceso(id_usuario)`, y el
+alta y la retirada de permisos de un rol (`api/routes/permisos.js`) llaman a
+`invalidarContextoAcceso()` sin argumento, porque no hay variante por rol.
+
+Toda escritura de filas `PERMISO#` tiene que invalidar, no solo las de ese router:
+`crearRol` con `clonarDe` y `eliminarRol` (`api/lib/roles.js`) también llaman a
+`invalidarContextoAcceso()`. Clonar es el camino peligroso: `listarRolesCatalogo`
+admite roles legacy que solo tienen filas de permiso y ningún `META`, y `crearRol`
+solo comprueba el `META`, así que se puede «crear» un rol que ya usa gente y
+concederle de golpe los permisos de `Administrador`.
 
 ---
 
@@ -108,11 +150,18 @@ aceptable y debe quedar escrito.
 | Puede… | Quién |
 |---|---|
 | Ver un proyecto | Administrador · miembro (cualquier rol de proyecto) · quien tenga `tareas.ver_todas` |
-| Editar un proyecto | Administrador · responsable del proyecto · miembro con `proyectos.editar` |
+| Editar un proyecto | Administrador · responsable del proyecto · miembro con `proyectos.editar`. **No** `tareas.editar_todas` (D-13) |
 | Ver una tarea | Quien vea su proyecto · su responsable · quien esté mencionado · quien tenga `tareas.ver_todas`. Si la tarea no tiene proyecto: su responsable, quien la creó y los mencionados |
-| Editar una tarea | Su responsable · quien pueda editar el proyecto · quien tenga `tareas.editar_todas` |
+| Editar una tarea | Su responsable · quien pueda editar el proyecto · quien tenga `tareas.editar_todas`. Si la tarea no tiene proyecto, también quien la creó |
 | Cambiar su estado | Igual que editar. Cerrarla es siempre acto de una persona |
-| Reasignarla | Quien pueda editar el proyecto. No basta ser el responsable actual: no se puede soltar el marrón sin más |
+| Reasignarla | Quien pueda editar el proyecto. No basta ser el responsable actual: no se puede soltar el marrón sin más. En tareas sueltas, quien la creó |
+
+Estar mencionado da lectura, nunca escritura.
+
+Una tarea con `proyecto_id` **hereda la visibilidad de su proyecto**, y por eso el
+handler tiene que cargar el proyecto antes de comprobar: si no lo pasa, la capa
+deniega. Es deliberado — sin ese dato no se puede decidir, y adivinarlo sería
+filtrar.
 
 Un proyecto **no** tiene campo de visibilidad: se es miembro o no. La
 confidencialidad fuerte vive en las reuniones, que es donde están los datos
@@ -133,10 +182,21 @@ al leer el detalle**, siempre en el servidor.
 | `local` | Quien tenga el local permitido, cruzando con la lógica de locales ya existente · asistentes |
 | `restringida` | Solo quien esté en `usuarios_autorizados` · asistentes · Administrador |
 
+**`Locales` vacío alcanza todos los locales** (D-15), igual que en el resto del ERP.
+Al dar de alta a alguien de oficina sin ningún local en su ficha, hay que saber que
+verá las reuniones de local de todo el grupo. Lo confidencial no se protege con
+`local`, se protege con `restringida`.
+
 Reglas transversales:
 
 - **Un asistente registrado siempre puede ver la reunión a la que asistió**,
-  cualquiera que sea la visibilidad. Estuvo allí.
+  cualquiera que sea la visibilidad. Estuvo allí. Lo mismo para quien la convocó.
+- `empresa`, `departamento` y `local` exigen además `reuniones.ver`: son alcances
+  amplios y quien no puede entrar al módulo no entra por ahí. Ser asistente,
+  convocante o estar autorizado no necesita permiso alguno.
+- La comparación de `local` es **por nombre**, porque `Locales` de `igp_usuarios`
+  guarda nombres. De ahí que la reunión guarde `local_nombre` junto a `local_id`:
+  sin él no habría forma de decidir sin una lectura extra por fila.
 - El valor por defecto al convocar es **`departamento`**, no `empresa`. Si se
   equivocan al convocar, que el error sea hacia lo cerrado.
 - Cambiar `visibilidad` requiere `reuniones.gestionar` y **queda en el registro de
@@ -160,30 +220,50 @@ el código**.
 | Entre el primero y el segundo | Responsable del departamento del proyecto |
 | A partir del segundo | Dirección |
 
-`nivelAprobacionDe(ctx, proyecto, umbral)` devuelve el nivel máximo que esa
-persona puede aprobar en ese proyecto, y el handler compara con el
-`nivel_aprobacion_requerido` que la línea calculó al crearse. Si no llega, `422`
-con un mensaje que diga qué nivel hace falta.
+`nivelAprobacionDe` devuelve el nivel máximo que esa persona puede aprobar en ese
+proyecto, y `puedeAprobarLinea` lo compara con el `nivel_aprobacion_requerido` que
+la línea calculó al crearse. Si no llega, `422` con un mensaje que diga qué nivel
+hace falta.
 
 Reglas:
 
-- **Quien solicita no aprueba**, ni siquiera siendo responsable del proyecto. Si
-  coinciden, sube al nivel siguiente.
+- **Quien solicita no aprueba**, ni siquiera siendo responsable del proyecto, y
+  **tampoco siendo Administrador**. Es la única excepción del módulo al
+  cortocircuito de administrador que hay en todo el ERP, y es deliberada: un
+  control de gasto con puerta trasera para el rol que más gente tiene no controla
+  nada. La línea se queda esperando a otra persona del nivel que toque; no hay
+  escalado automático.
 - El nivel se calcula **al crear la línea** y se guarda. Si luego cambian los
   umbrales, las líneas ya en cola conservan el que tenían: cambiar la
   configuración no debe reabrir aprobaciones ya hechas ni saltarse las pendientes.
+- **Sin umbrales configurados, todo exige `direccion`.** Como el nivel se congela
+  al crear la línea, el lado inseguro no tiene vuelta atrás: una línea de 40.000 €
+  nacida con el escalón bajo seguiría siendo firmable por el responsable del
+  proyecto aunque después se configuren los umbrales. Lo mismo si los umbrales
+  vienen a medias, incoherentes (el primero mayor que el segundo) o el importe no
+  es un número.
 - Toda aprobación escribe en `Igp_Actividad` con autor **e importe**.
 
 ---
 
 ## Frontend
 
-El espejo en frontend es `app/lib/tasksAcceso.ts`, con funciones equivalentes
-sobre `hasPermiso` y el usuario de `useAuth()`, siguiendo el patrón de
-`app/lib/permisosModulos.ts`.
+**El frontend no reimplementa estas reglas.** Se intentó —`app/lib/tasksAcceso.ts`
+nació como espejo de este fichero— y divergió el primer día: exigía
+`proyectos.editar` al responsable del proyecto, que aquí puede editar sin ese
+permiso, así que el dueño de un proyecto no veía sus propios botones. Dos
+implementaciones de la misma regla no se mantienen sincronizadas.
 
-**Solo sirve para ocultar y deshabilitar.** No es seguridad: quien decide es el
-backend. Un botón oculto sin la comprobación equivalente en el servidor es un
+Lo que hay ahora: **las respuestas de proyectos y tareas traen `permisos_fila`**,
+calculado con las funciones de este fichero. La pantalla obedece, no decide. Ver
+`docs/tasks/03-contrato-api.md`, «Nombres y permisos de fila».
+
+De `app/lib/tasksAcceso.ts` solo quedan envoltorios legibles sobre `hasPermiso`
+para los permisos **globales** (`proyectos.crear`, `proyectos.presupuesto_ver`…),
+que no duplican lógica porque no hay ninguna: son un `hasPermiso` con nombre.
+
+Todo esto **solo sirve para ocultar y deshabilitar**. No es seguridad: quien decide
+es el backend. Un botón oculto sin la comprobación equivalente en el servidor es un
 agujero, no una función.
 
 En el sidebar, la entrada del módulo se filtra por `proyectos.ver` desde

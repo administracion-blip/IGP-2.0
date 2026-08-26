@@ -196,6 +196,38 @@ export const tables = {
    * GSI GsiIngrediente: HASH ingredienteId, RANGE PK.
    */
   escandallos: process.env.DDB_ESCANDALLOS_TABLE || 'Igp_Escandallos',
+  /**
+   * Módulo de dirección — proyectos y sus filas hijas.
+   * PK = PROY#<id> | PLANTILLA#<id>, SK = META | MIEMBRO#<id> | COMPRA#<id> | VINC#<tipo>#<id>.
+   * GSIs: Estado-index, Departamento-index, Miembro-index, Vinculo-index, Listado-index.
+   * Ver docs/tasks/02-modelo-datos.md.
+   */
+  proyectos: process.env.DDB_PROYECTOS || 'Igp_Proyectos',
+  /**
+   * Módulo de dirección — tareas.
+   * PK = TAREA#<id>, SK = META | ENLACE#<id> | ADJUNTO#<id> | COMENT#<iso>#<uuid> | VINC#<tipo>#<id>.
+   * GSIs: Responsable-Vencimiento-index (solo abiertas), Proyecto-index, Padre-index,
+   * Reunion-index, Vinculo-index.
+   */
+  tareas: process.env.DDB_TAREAS || 'Igp_Tareas',
+  /**
+   * Módulo de dirección — reuniones.
+   * PK = REU#<id>, SK = META | ASIST#<id> | PUNTO#<nnn> | ACUERDO#<id> | PROPUESTA#<id> | VINC#<tipo>#<id>.
+   * GSIs: Listado-index, Pipeline-index (disperso), Propuesta-Estado-index (disperso),
+   * Proyecto-index, Serie-index. Ver docs/tasks/02-modelo-datos.md.
+   */
+  reuniones: process.env.DDB_REUNIONES || 'Igp_Reuniones',
+  /**
+   * Módulo de dirección — registro de actividad append-only, transversal a
+   * proyectos, tareas, líneas de compra y reuniones.
+   * PK = <TIPO>#<id>, SK = ACT#<iso>#<uuid>.
+   */
+  actividad: process.env.DDB_ACTIVIDAD || 'Igp_Actividad',
+  /**
+   * Módulo de dirección — avisos por usuario (Fase 3).
+   * PK = USER#<id_usuario>, SK = NOTIF#<iso>#<uuid>.
+   */
+  notificaciones: process.env.DDB_NOTIFICACIONES || 'Igp_Notificaciones',
 };
 
 /**

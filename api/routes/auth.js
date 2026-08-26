@@ -6,6 +6,7 @@ import { findUsuarioByEmail } from '../lib/dynamo/usuarios.js';
 import { signToken } from '../lib/jwt.js';
 import { requireAuth } from '../middleware/auth.js';
 import { normalizeLocalesUsuario } from '../lib/usuarioLocales.js';
+import { normalizarIdsDepartamento } from '../lib/tasks/departamentos.js';
 import { enviarEmail, smtpConfigurado } from '../lib/email.js';
 import {
   MIN_PASSWORD_LENGTH,
@@ -90,6 +91,10 @@ router.post('/login', async (req, res) => {
     Nombre: user.Nombre ?? user.Email ?? user.email ?? '',
     Rol: user.Rol ?? '',
     Locales: locales,
+    // Mismo campo que `/api/me`: este payload es el que se guarda en el
+    // almacenamiento local y el que se restaura si la red falla, así que sin él
+    // la sesión degradada se quedaría sin departamentos.
+    Departamentos: normalizarIdsDepartamento(user.Departamentos),
   };
 
   const token = signToken({
@@ -119,6 +124,9 @@ router.get('/me', requireAuth, async (req, res) => {
     Nombre: u.Nombre ?? u.Email ?? '',
     Rol: u.Rol ?? '',
     Locales: locales,
+    // IDs de departamento (D-12). Va aquí para que la sesión los tenga sin una
+    // llamada extra; ausente en la ficha equivale a lista vacía.
+    Departamentos: normalizarIdsDepartamento(u.Departamentos),
   };
 
   let permisos = [];

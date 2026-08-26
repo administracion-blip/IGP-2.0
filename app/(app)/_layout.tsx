@@ -85,9 +85,15 @@ function AppLayoutContent() {
     router.replace('/login');
   }
 
-  const menuItemsVisibles = MENU_ITEMS.filter(
-    (item) => item.route !== '/informes-ia' && (!item.permiso || hasPermiso(item.permiso)),
-  );
+  const menuItemsVisibles = MENU_ITEMS.filter((item) => {
+    if (item.route === '/informes-ia') return false;
+    // Reuniones ya no tiene entrada propia: vive en el hub de Proyectos (D-22).
+    // Quien solo tenga reuniones.ver debe poder abrir ese hub desde el lateral.
+    if (item.route === '/proyectos') {
+      return hasPermiso('proyectos.ver') || hasPermiso('reuniones.ver');
+    }
+    return !item.permiso || hasPermiso(item.permiso);
+  });
 
   const irMenu = useCallback((route: string) => router.push(route as never), [router]);
 
@@ -284,6 +290,8 @@ function AppLayoutContent() {
             <Stack.Screen name="banca" />
             <Stack.Screen name="ajustes" />
             <Stack.Screen name="planning-dia" />
+            <Stack.Screen name="proyectos" />
+            <Stack.Screen name="reuniones" />
             <Stack.Screen name="favoritos" />
           </Stack>
         </View>

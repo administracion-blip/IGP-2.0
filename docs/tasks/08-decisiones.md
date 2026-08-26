@@ -109,20 +109,147 @@ mientras está en vuelo).
 con un solo campo habría estados imposibles. Y al ser disperso, el poller consulta
 un índice minúsculo en lugar de recorrer la tabla.
 
+### D-11 · Rutas `/proyectos` y `/reuniones`, permisos `proyectos.*` y `reuniones.*` — 26/08/2026
+
+Cierra A-01. Lo que ve el usuario va en español, como el resto del menú
+(`/facturacion`, `/mantenimiento`, `/planning-dia`). «Tasks» queda **solo** para
+nombres internos de fichero y carpeta: `api/lib/tasks/`, `app/types/tasks.ts`,
+`docs/tasks/`.
+
+*Motivo:* de la ruta salen los códigos de permiso, que se escriben además en la
+pantalla de permisos, en `api/ROLES-PERMISOS.md`, en el sidebar y en cada router.
+Decidirlo antes de la Fase 1A no cuesta nada; después es un renombrado en cinco
+sitios.
+
+### D-12 · Campo `Departamentos` en `igp_usuarios`, aprobado — 26/08/2026
+
+Consecuencia de D-01, aprobada expresamente por ser la tabla que sostiene el login.
+Lista de **IDs** de departamento, atributo disperso —ausente en quien no tenga
+ninguno— y tratado como lista vacía cuando falta. No se toca ningún otro atributo
+de la tabla: `Email`, `Password`, `Rol` y `Locales` quedan como están.
+
+*Motivo:* el alta la hace el mismo formulario que ya edita el usuario, y tener el
+dato en la ficha evita una tabla de relación y una lectura extra en cada petición.
+
+### D-13 · `tareas.editar_todas` no alcanza a los proyectos — 26/08/2026
+
+El permiso deja editar cualquier tarea, incluidas las de proyectos ajenos, pero
+**no** editar el proyecto en sí.
+
+*Motivo:* editar un proyecto incluye gestionar sus miembros. Si el permiso llegara
+ahí, quien lo tuviera se añadiría como miembro de cualquier proyecto y a partir de
+ese momento lo vería entero por la vía legítima. La escalada la habría concedido la
+capa de acceso, no el router.
+
+### D-14 · El escalón de aprobación sale de la posición, no del permiso — 26/08/2026
+
+`proyectos.compras_aprobar` habilita a participar en aprobaciones —lo comprueba la
+ruta— pero no otorga por sí mismo el nivel `direccion`. El nivel se decide por
+posición: dirección (lista de A-07), responsable del departamento, o responsable
+del proyecto.
+
+*Motivo:* con el permiso equivaliendo a dirección, a quien se le concede para que
+firme compras de 200 € se le estarían dando también las de 40.000 €. Además dejaba
+A-07 cerrada de hecho, y por la vía más laxa, sin haberla decidido.
+
+*Consecuencia:* `nivelAprobacionDe` recibe `aux.esDireccion` del llamante, igual
+que `esResponsableDepartamento`. Mientras A-07 no se cierre, solo Administrador
+alcanza el nivel de dirección.
+
+### D-15 · `Locales` vacío sigue significando «todos los locales» — 26/08/2026
+
+Se mantiene la convención del resto del ERP también en las reuniones con
+`visibilidad = local`.
+
+*Motivo:* hacer una excepción solo aquí obligaría a explicar por qué el mismo
+usuario ve todas las cajas y solo algunas reuniones. Es coherente, pero es la
+puerta más ancha del módulo y hay que tenerlo presente al dar de alta usuarios de
+oficina: sin ningún local en su ficha, ven las reuniones de local de todo el grupo.
+
+*Consecuencia:* lo confidencial no se protege con `local`, se protege con
+`restringida`, que no depende de los locales del usuario.
+
+### D-16 · Lo que no se ve responde `404`, no `403` — 26/08/2026
+
+En proyectos y tareas, no alcanzar una fila da `404`, indistinguible de que no
+exista. El `403` queda para «la veo pero no puedo tocarla».
+
+*Motivo:* un `403` confirma que la fila existe a quien ya ha demostrado que no le
+corresponde saberlo. Y sobre todo: los dos routers tenían que responder igual, o la
+interfaz acabaría tratando cada caso de una forma según el endpoint.
+
+### D-17 · `DELETE /api/proyectos/:id` no cancela — 26/08/2026
+
+Si el proyecto tiene tareas, responde `409` con un mensaje que remite a cancelarlo.
+Si no las tiene, se borra físicamente. Cancelar es `PATCH { estado: 'cancelado' }`.
+
+*Motivo:* el contrato pedía a la vez «pasa a cancelado» y «`409` si tiene tareas»,
+que no puede cumplirse entero. De las dos salidas, la mala era que el mismo verbo
+borrara o archivara según el contenido: el cliente no puede saber qué ha pasado sin
+leer la respuesta, y en un ERP eso acaba en «creí que lo había borrado».
+
+### D-18 · `GET /api/tareas` exige `proyecto` o `responsable` — 26/08/2026
+
+El listado general de tareas no existe sin al menos uno de los dos filtros; sin
+ellos responde `400`. Pedir `responsable` con un estado terminal también se rechaza.
+
+*Motivo:* no hay índice de «todas las tareas», y no lo hay a propósito. La única
+forma de servir ese listado sería un `Scan`, que es justo lo que el modelo de datos
+evita. El índice de responsable contiene solo tareas abiertas, así que el histórico
+de cerradas se consulta por proyecto.
+
+### D-19 · El nombre del autor viaja en el contexto de acceso — 26/08/2026
+
+`cargarContextoAcceso` devuelve también `nombre`, y de ahí lo toman el historial y
+los comentarios.
+
+*Motivo:* el historial no debe mostrar ids crudos a quien no tenga `usuarios.ver`,
+pero resolver el nombre en cada escritura era un `GetItem` por escritura. La ficha
+del usuario ya se lee para el rol y los permisos, y la caché de 60 s la absorbe: el
+nombre sale gratis. Sin esto, cada router lo resolvía a su manera —uno leyendo, otro
+dejándolo vacío— y el historial salía distinto según la entidad.
+
+### D-20 · Cuándo «empieza» la reunión (bloqueo del orden del día) — 26/08/2026
+
+En Fase 1B, el `orden_del_dia` deja de ser editable al pasar a `celebrada` (o
+`acta_borrador` / `acta_validada`). En ese tránsito se copia a
+`orden_del_dia_congelado` si aún no había copia. Un `PATCH` del orden después
+responde `409`.
+
+*Motivo:* el modelo hablaba de congelar «al arrancar la grabación», pero la
+grabación es Fase 2. Hacía falta un disparador usable ya. El estado `celebrada` es
+explícito y no depende del reloj del servidor. En Fase 2, al iniciar la grabación,
+se re-congela si aún no había copia.
+
+### D-21 · Fallo de Calendar al convocar no tumba la reunión — 26/08/2026
+
+Si Google falla o no está configurado, la reunión se crea igual en DynamoDB sin
+`calendar_event_id`, y la respuesta avisa (`calendario_sincronizado: false` o
+equivalente). La UI lo muestra con honestidad.
+
+*Motivo:* la fase tiene que ser desplegable antes de tener la service account, y un
+corte de Google no puede impedir convocar. El mismo criterio aplica a PATCH/DELETE
+del evento: se intenta y se registra el fallo sin revertir el cambio local.
+
+### D-22 · Navegación de reuniones — 26/08/2026
+
+Rutas en `app/(app)/reuniones/**`. **No** tienen entrada propia en el menú lateral:
+se abren desde la tarjeta del hub de `/proyectos`. El ítem «Proyectos» del lateral
+aparece con `proyectos.ver` **o** `reuniones.ver`, para que quien solo gestione
+reuniones no se quede sin puerta. Los permisos de API siguen siendo `reuniones.*`.
+
+*Actualizado el mismo día:* la entrada lateral suelta se retiró para no duplicar
+el módulo (mismo criterio que Acuerdos bajo Compras).
+
+### D-23 · Acuerdos → tareas en un solo camino de servidor — 26/08/2026
+
+Convertir acuerdos en tareas lo hace el servidor (envuelve la creación en lote y
+enlaza `acuerdo.tarea_id`). No se deja a la UI hacer `POST /tareas/lote` + `PATCH`
+por su cuenta: un doble clic a medias dejaría acuerdos sin enlace.
+
 ---
 
 ## Abiertas
-
-### A-01 · Nombre y rutas del módulo
-
-**Recomendación: `/proyectos` y `/reuniones`, en español**, con «Dirección» como
-etiqueta del hub si se quieren agrupar. Reservar «tasks» para nombres internos de
-fichero (que es lo que ya hace este documento).
-
-*Motivo:* todo el menú está en español (`/facturacion`, `/mantenimiento`,
-`/planning-dia`). «Tasks» rompería el patrón en lo primero que ve el usuario.
-Cambiar de idea después de la Fase 1A cuesta un renombrado de rutas y etiquetas;
-antes, no cuesta nada.
 
 ### A-02 · Proveedor de transcripción
 
@@ -188,11 +315,19 @@ Los umbrales están definidos, pero no quién ocupa el nivel más alto.
 quién firma por encima del segundo umbral. Una lista es reversible y no toca el
 sistema de roles.
 
+*Estado del código:* la capa de acceso ya está preparada y **no prejuzga la
+respuesta** (D-14): recibe `aux.esDireccion` de quien la llama. Mientras esto no se
+cierre, solo Administrador alcanza el nivel de dirección.
+
 ### A-08 · Importes de los umbrales
 
 Faltan las dos cifras. Viven en configuración
 (`Igp_Ajustes`, PK `proyectos`, SK `compras`) y **nunca en el código**, así que se
 pueden fijar en la Fase 4 y cambiar luego. No bloquean nada.
+
+*Ojo:* hasta que se configuren, **toda línea de compra exige nivel de dirección**.
+Es deliberado: el nivel se congela al crear la línea, así que el lado inseguro no
+tendría vuelta atrás. Ver `nivelRequeridoParaImporte`.
 
 ### A-09 · ¿Grabación dentro de la app?
 

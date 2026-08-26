@@ -24,6 +24,7 @@ import { useAuth, UserSession } from '../contexts/AuthContext';
 import { SelectorDesplegable } from '../components/SelectorDesplegable';
 import { apiFetch } from '../utils/api';
 import { calcularProximoIdLocal } from '../lib/localId';
+import type { Departamento } from '../types/tasks';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -32,8 +33,18 @@ const MAX_TEXT_LENGTH = 30;
 // Atributos exactos de la tabla igp_usuarios en AWS (mismo orden que api/server.js TABLE_USUARIOS_ATTRS). No añadir campos nuevos.
 const ATRIBUTOS_TABLA_USUARIOS = ['id_usuario', 'Nombre', 'Apellidos', 'Email', 'Password', 'Telefono', 'Rol', 'Local'] as const;
 
-// Columnas de la tabla (todos los atributos menos Password, que no se muestra)
-const ORDEN_COLUMNAS = ATRIBUTOS_TABLA_USUARIOS.filter((k) => k !== 'Password');
+/**
+ * Columnas de la tabla: todos los atributos menos `Password`, que no se muestra,
+ * más `Departamentos`.
+ *
+ * `Departamentos` va aparte y no dentro de `ATRIBUTOS_TABLA_USUARIOS` porque ese
+ * array es también el bucle que construye el cuerpo al guardar, y el campo es
+ * disperso: se escribe por su cuenta. Aquí solo se muestra, resuelto a nombres.
+ */
+const ORDEN_COLUMNAS: string[] = [
+  ...ATRIBUTOS_TABLA_USUARIOS.filter((k) => k !== 'Password'),
+  'Departamentos',
+];
 
 const COL_LABELS: Record<string, string> = {
   id_usuario: 'ID',
@@ -43,6 +54,7 @@ const COL_LABELS: Record<string, string> = {
   Telefono: 'Teléfono',
   Rol: 'Rol',
   Local: 'Local',
+  Departamentos: 'Departamentos',
 };
 
 function labelColumna(col: string): string {
@@ -82,7 +94,8 @@ export default function UsuariosScreen() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ Local: 160 });
+  // Las dos columnas de lista nacen más anchas: llevan varios valores separados por comas.
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ Local: 160, Departamentos: 160 });
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
@@ -97,6 +110,15 @@ export default function UsuariosScreen() {
   // `id_Locales` libre debe calcularse sobre todos para no pisar ninguno.
   const [locales, setLocales] = useState<LocalItem[]>([]);
   const [formLocales, setFormLocales] = useState<string[]>([]);
+  // Maestro completo: el desplegable solo ofrece los activos, pero los inactivos
+  // hacen falta para resolver el nombre de los que un usuario ya tenga grabados.
+  const [departamentos, setDepartamentos] = useState<Departamento[]>([]);
+  // Si el maestro no carga (p. ej. limitador de peticiones), el formulario lo
+  // avisa: los ids ya asignados se conservan, pero no se pueden resolver.
+  const [errorDepartamentos, setErrorDepartamentos] = useState(false);
+  const [formDepartamentos, setFormDepartamentos] = useState<string[]>([]);
+  const [deptoDropdownOpen, setDeptoDropdownOpen] = useState(false);
+  const [deptoSearchFilter, setDeptoSearchFilter] = useState('');
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
   const [modalCrearLocalVisible, setModalCrearLocalVisible] = useState(false);
   const [formCrearLocal, setFormCrearLocal] = useState({ Nombre: '' });
@@ -109,10 +131,13 @@ export default function UsuariosScreen() {
     setEditingUsuarioId(null);
     setFormNuevo(INITIAL_FORM);
     setFormLocales([]);
+    setFormDepartamentos([]);
     setModalNuevoVisible(true);
     setErrorForm(null);
     setLocalDropdownOpen(false);
     setLocalSearchFilter('');
+    setDeptoDropdownOpen(false);
+    setDeptoSearchFilter('');
   };
   const abrirModalEditar = (usuario: Usuario) => {
     const form: Record<string, string> = { ...INITIAL_FORM };
@@ -127,21 +152,34 @@ export default function UsuariosScreen() {
       ? (rawLocal as string[]).filter((l) => l != null && String(l).trim() !== '').map((l) => String(l).trim())
       : (rawLocal != null && String(rawLocal).trim() !== '' ? [String(rawLocal).trim()] : []);
     setFormLocales(locArr);
+    // `Departamentos` es una lista de IDs y es un atributo disperso: ausente en
+    // quien no tenga ninguno, y entonces vale lista vacía.
+    const rawDeptos = usuario.Departamentos;
+    setFormDepartamentos(
+      Array.isArray(rawDeptos)
+        ? (rawDeptos as string[]).map((d) => String(d).trim()).filter(Boolean)
+        : [],
+    );
     setFormNuevo(form);
     setEditingUsuarioId(usuario.id_usuario != null ? String(usuario.id_usuario) : null);
     setModalNuevoVisible(true);
     setErrorForm(null);
     setLocalDropdownOpen(false);
     setLocalSearchFilter('');
+    setDeptoDropdownOpen(false);
+    setDeptoSearchFilter('');
   };
   const cerrarModalNuevo = () => {
     setModalNuevoVisible(false);
     setFormNuevo(INITIAL_FORM);
     setFormLocales([]);
+    setFormDepartamentos([]);
     setEditingUsuarioId(null);
     setErrorForm(null);
     setLocalDropdownOpen(false);
     setLocalSearchFilter('');
+    setDeptoDropdownOpen(false);
+    setDeptoSearchFilter('');
   };
   const abrirModalCrearLocal = () => {
     setFormCrearLocal({ Nombre: '' });
@@ -223,6 +261,49 @@ export default function UsuariosScreen() {
       return na.localeCompare(nb);
     });
   }, [localesGrupoParipe, localSearchFilter]);
+  const nombreDepartamento = useCallback(
+    // Nunca el id crudo: si el maestro no está cargado o el departamento ya no
+    // existe, un texto legible. El id asignado se conserva igualmente.
+    (id: string) => departamentos.find((d) => d.id === id)?.nombre?.trim() || 'Departamento no disponible',
+    [departamentos],
+  );
+  /**
+   * Los departamentos de un usuario, en texto, para la celda de la tabla y para el
+   * buscador.
+   *
+   * El marcador de los que no se pueden resolver va **una sola vez** con su
+   * recuento, en lugar de por cada id: lo que falla es la carga del maestro, y
+   * falla para todos a la vez, así que repetirlo llenaría la celda de ruido.
+   */
+  const textoDepartamentos = useCallback(
+    (valor: unknown): string => {
+      const ids = Array.isArray(valor) ? valor.map((v) => String(v).trim()).filter(Boolean) : [];
+      if (ids.length === 0) return '—';
+      const nombres: string[] = [];
+      let sinResolver = 0;
+      for (const id of ids) {
+        const nombre = departamentos.find((d) => d.id === id)?.nombre?.trim();
+        if (nombre) nombres.push(nombre);
+        else sinResolver += 1;
+      }
+      nombres.sort((a, b) => a.localeCompare(b, 'es'));
+      if (sinResolver > 0) nombres.push(`${sinResolver} sin resolver`);
+      return nombres.join(', ');
+    },
+    [departamentos],
+  );
+  /**
+   * Solo los activos, más los inactivos que el usuario ya tuviera grabados: si
+   * desaparecieran de la lista se le borrarían sin querer al guardar.
+   */
+  const departamentosSeleccionables = useMemo(() => {
+    const yaAsignados = new Set(formDepartamentos);
+    const visibles = departamentos.filter((d) => d.activo || yaAsignados.has(d.id));
+    const q = deptoSearchFilter.trim().toLowerCase();
+    const filtrados = q ? visibles.filter((d) => (d.nombre ?? '').toLowerCase().includes(q)) : visibles;
+    return [...filtrados].sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es'));
+  }, [departamentos, formDepartamentos, deptoSearchFilter]);
+
   const ordenarPorId = useCallback((lista: Usuario[]) => {
     return [...lista].sort((a, b) => {
       const na = typeof a.id_usuario === 'number' ? a.id_usuario : parseInt(String(a.id_usuario ?? 0).replace(/^0+/, ''), 10) || 0;
@@ -285,6 +366,8 @@ export default function UsuariosScreen() {
         else if (key === 'Local') body[key] = formLocales;
         else body[key] = formNuevo[key] ?? '';
       }
+      // Campo aprobado en D-12: lista de IDs de departamento, no de nombres.
+      body.Departamentos = formDepartamentos;
       const url = '/api/usuarios';
       const res = await apiFetch(url, {
         method: isEdit ? 'PUT' : 'POST',
@@ -302,6 +385,7 @@ export default function UsuariosScreen() {
           email: (formNuevo.Email ?? '').trim().toLowerCase() || user!.email,
           Rol: (formNuevo.Rol ?? '').trim() || user!.Rol,
           Locales: formLocales.length > 0 ? formLocales : user!.Locales,
+          Departamentos: formDepartamentos,
         };
         setUser(updatedSession);
       }
@@ -382,17 +466,22 @@ export default function UsuariosScreen() {
       if (Array.isArray(locVal)) return (locVal as string[]).join(', ') || '—';
       return locVal != null && String(locVal).trim() !== '' ? String(locVal) : '—';
     }
+    // `Local` guarda nombres y se pinta tal cual; `Departamentos` guarda IDs y hay
+    // que resolverlos contra el maestro.
+    if (col === 'Departamentos') return textoDepartamentos(usuario[col]);
     const raw = usuario[col];
     if (raw !== undefined && raw !== null && String(raw).trim() !== '') return String(raw);
     return '—';
-  }, []);
+  }, [textoDepartamentos]);
 
   const getColWidth = useCallback((col: string) => columnWidths[col] ?? DEFAULT_COL_WIDTH, [columnWidths]);
 
   const columnas = useMemo(() => {
     if (!usuarios.length) return [];
     const keys = Object.keys(usuarios[0]).filter((k) => k !== 'Password');
-    return ORDEN_COLUMNAS.filter((k) => keys.includes(k));
+    // `Departamentos` es un atributo disperso: si el primer usuario de la lista no
+    // tiene ninguno, no está entre sus claves y la columna desaparecería para todos.
+    return ORDEN_COLUMNAS.filter((k) => k === 'Departamentos' || keys.includes(k));
   }, [usuarios]);
 
   const usuariosFiltrados = useMemo(() => {
@@ -401,11 +490,14 @@ export default function UsuariosScreen() {
     return usuarios.filter((u) => {
       return columnas.some((col) => {
         const val = u[col];
+        // Se busca sobre los nombres, no sobre los IDs guardados: nadie escribe un
+        // UUID en el buscador.
+        if (col === 'Departamentos') return textoDepartamentos(val).toLowerCase().includes(q);
         if (Array.isArray(val)) return val.some((v) => String(v).toLowerCase().includes(q));
         return val != null && String(val).toLowerCase().includes(q);
       });
     });
-  }, [usuarios, filtroBusqueda, columnas]);
+  }, [usuarios, filtroBusqueda, columnas, textoDepartamentos]);
 
   useEffect(() => {
     let cancelled = false;
@@ -432,9 +524,31 @@ export default function UsuariosScreen() {
       .catch(() => setLocales([]));
   }, []);
 
+  const refetchDepartamentos = useCallback(() => {
+    apiFetch('/api/departamentos')
+      .then((res) => res.json())
+      .then((data: { departamentos?: Departamento[]; error?: string }) => {
+        if (data.error || !Array.isArray(data.departamentos)) {
+          setDepartamentos([]);
+          setErrorDepartamentos(true);
+          return;
+        }
+        setDepartamentos(data.departamentos);
+        setErrorDepartamentos(false);
+      })
+      .catch(() => {
+        setDepartamentos([]);
+        setErrorDepartamentos(true);
+      });
+  }, []);
+
   useEffect(() => {
     refetchLocales();
   }, [refetchLocales]);
+
+  useEffect(() => {
+    refetchDepartamentos();
+  }, [refetchDepartamentos]);
 
   useEffect(() => {
     refetchRoles();
@@ -865,6 +979,136 @@ export default function UsuariosScreen() {
                         </View>
                       ),
                     )}
+
+                    <View style={erpTableStyles.formGroup}>
+                      <Text style={erpTableStyles.formLabel}>Departamentos (multi)</Text>
+                      <TouchableOpacity
+                        style={[erpTableStyles.formInput, erpTableStyles.formInputRow]}
+                        onPress={() => setDeptoDropdownOpen((o) => !o)}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[
+                            erpTableStyles.formInputText,
+                            formDepartamentos.length === 0 && erpTableStyles.formInputPlaceholder,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {formDepartamentos.length > 0
+                            ? formDepartamentos.map(nombreDepartamento).join(', ')
+                            : 'Seleccionar departamentos…'}
+                        </Text>
+                        <MaterialIcons
+                          name={deptoDropdownOpen ? 'expand-less' : 'expand-more'}
+                          size={iconSize.chip}
+                          color={colors.textSecondary}
+                          style={{ marginLeft: 4 }}
+                        />
+                      </TouchableOpacity>
+                      <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 4, lineHeight: 16 }}>
+                        Informativo, para agrupar y filtrar. No es un permiso: no restringe a qué proyectos, tareas o
+                        reuniones se puede asignar a esta persona.
+                      </Text>
+                      {errorDepartamentos ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 4 }}>
+                          <MaterialIcons name="info-outline" size={14} color={colors.warning} />
+                          <Text style={{ flex: 1, fontSize: 11, color: colors.warning, lineHeight: 16 }}>
+                            No se ha podido cargar la lista de departamentos. Inténtalo de nuevo en unos segundos; los
+                            que ya tuviera asignados se conservan.
+                          </Text>
+                        </View>
+                      ) : null}
+                      {formDepartamentos.length > 0 ? (
+                        <View style={erpTableStyles.localesChipsWrap}>
+                          {formDepartamentos.map((id) => (
+                            <View key={id} style={erpTableStyles.localChip}>
+                              <Text style={erpTableStyles.localChipText} numberOfLines={1}>
+                                {nombreDepartamento(id)}
+                              </Text>
+                              <TouchableOpacity
+                                onPress={() =>
+                                  setFormDepartamentos((prev) => prev.filter((d) => d !== id))
+                                }
+                                style={erpTableStyles.localChipRemove}
+                                activeOpacity={0.7}
+                              >
+                                <MaterialIcons name="close" size={14} color={colors.textSecondary} />
+                              </TouchableOpacity>
+                            </View>
+                          ))}
+                        </View>
+                      ) : null}
+                      {deptoDropdownOpen ? (
+                        <View style={erpTableStyles.dropdownWrap}>
+                          <TextInput
+                            style={erpTableStyles.dropdownSearch}
+                            value={deptoSearchFilter}
+                            onChangeText={setDeptoSearchFilter}
+                            placeholder="Buscar departamento…"
+                            placeholderTextColor={colors.textMuted}
+                          />
+                          <ScrollView style={erpTableStyles.dropdownScroll} keyboardShouldPersistTaps="handled">
+                            {formDepartamentos.length > 0 ? (
+                              <TouchableOpacity
+                                style={[erpTableStyles.dropdownOption, erpTableStyles.dropdownVaciarOption]}
+                                onPress={() => {
+                                  setFormDepartamentos([]);
+                                  setDeptoSearchFilter('');
+                                }}
+                                activeOpacity={0.7}
+                              >
+                                <MaterialIcons name="clear" size={16} color={colors.textMuted} style={{ marginRight: 6 }} />
+                                <Text style={erpTableStyles.dropdownVaciarText}>Quitar todos</Text>
+                              </TouchableOpacity>
+                            ) : null}
+                            {departamentosSeleccionables.length === 0 ? (
+                              <View style={erpTableStyles.dropdownOption}>
+                                <Text style={erpTableStyles.dropdownOptionText}>
+                                  {departamentos.length === 0
+                                    ? 'Sin departamentos. Créalos en Base de Datos › Departamentos.'
+                                    : 'Ningún departamento coincide con la búsqueda'}
+                                </Text>
+                              </View>
+                            ) : (
+                              departamentosSeleccionables.map((depto) => {
+                                const isSelected = formDepartamentos.includes(depto.id);
+                                return (
+                                  <TouchableOpacity
+                                    key={depto.id}
+                                    style={[
+                                      erpTableStyles.dropdownOption,
+                                      isSelected && erpTableStyles.dropdownOptionSelected,
+                                    ]}
+                                    onPress={() => {
+                                      setFormDepartamentos((prev) =>
+                                        isSelected ? prev.filter((d) => d !== depto.id) : [...prev, depto.id],
+                                      );
+                                    }}
+                                    activeOpacity={0.7}
+                                  >
+                                    <MaterialIcons
+                                      name={isSelected ? 'check-box' : 'check-box-outline-blank'}
+                                      size={18}
+                                      color={isSelected ? colors.accent : colors.textMuted}
+                                      style={{ marginRight: 8 }}
+                                    />
+                                    <Text
+                                      style={[
+                                        erpTableStyles.dropdownOptionText,
+                                        isSelected && { color: colors.accentPressed, fontWeight: '600' },
+                                      ]}
+                                    >
+                                      {depto.nombre || '—'}
+                                      {depto.activo ? '' : ' (inactivo)'}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })
+                            )}
+                          </ScrollView>
+                        </View>
+                      ) : null}
+                    </View>
                   </ScrollView>
                 </View>
                 {errorForm ? <Text style={erpTableStyles.errorForm}>{errorForm}</Text> : null}

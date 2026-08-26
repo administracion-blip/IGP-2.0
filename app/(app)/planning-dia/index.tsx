@@ -91,6 +91,14 @@ const TARJETAS_INTERNAS: TarjetaInterna[] = [
     permiso: 'limpieza.ver',
   },
   {
+    id: 'mis-tareas',
+    label: 'Mis tareas',
+    descripcion: 'Tareas abiertas asignadas a ti',
+    icon: 'assignment',
+    ruta: '/proyectos/mis-tareas',
+    permiso: 'proyectos.ver',
+  },
+  {
     id: 'reportar-incidencia',
     label: 'Reportar incidencia',
     descripcion: 'Avisar de una avería o incidencia en el local',
@@ -116,6 +124,7 @@ export default function PlanningDiaIndexScreen() {
   const [activacionesHoy, setActivacionesHoy] = useState(0);
   const [actuacionesHoy, setActuacionesHoy] = useState(0);
   const [limpiezaHoy, setLimpiezaHoy] = useState(0);
+  const [tareasVencidas, setTareasVencidas] = useState(0);
   const [objetivoLocalIdx, setObjetivoLocalIdx] = useState(0);
   const [objetivoLocales, setObjetivoLocales] = useState<ObjetivoMensualLocal[]>([]);
   const [enlacesExternos, setEnlacesExternos] = useState<EnlacePlanning[]>([]);
@@ -202,6 +211,18 @@ export default function PlanningDiaIndexScreen() {
         setLimpiezaHoy(0);
       }
     }
+
+    if (!hasPermiso('proyectos.ver')) {
+      setTareasVencidas(0);
+    } else {
+      try {
+        const r = await apiFetch('/api/tareas/mias?limite=1');
+        const d = await r.json();
+        setTareasVencidas(r.ok ? Number(d.vencidas) || 0 : 0);
+      } catch {
+        setTareasVencidas(0);
+      }
+    }
   }, [hasPermiso]);
 
   useFocusEffect(
@@ -257,7 +278,10 @@ export default function PlanningDiaIndexScreen() {
       kind: 'internal',
       id: t.id,
       label: t.label,
-      descripcion: t.descripcion,
+      descripcion:
+        t.id === 'mis-tareas' && tareasVencidas > 0
+          ? `Tareas abiertas asignadas a ti · ${tareasVencidas} vencida${tareasVencidas === 1 ? '' : 's'}`
+          : t.descripcion,
       icon: t.icon,
       ruta: t.ruta,
       permiso: t.permiso,
@@ -269,7 +293,9 @@ export default function PlanningDiaIndexScreen() {
             ? actuacionesHoy
             : t.id === 'limpieza'
               ? limpiezaHoy
-              : undefined,
+              : t.id === 'mis-tareas' && tareasVencidas > 0
+                ? tareasVencidas
+                : undefined,
     }));
 
     const externas: Item[] = enlacesVisibles.map((e) => ({
@@ -282,7 +308,7 @@ export default function PlanningDiaIndexScreen() {
     }));
 
     return [...internas, ...externas].sort((a, b) => a.label.localeCompare(b.label, 'es'));
-  }, [tarjetasInternasVisibles, enlacesVisibles, activacionesHoy, actuacionesHoy, limpiezaHoy]);
+  }, [tarjetasInternasVisibles, enlacesVisibles, activacionesHoy, actuacionesHoy, limpiezaHoy, tareasVencidas]);
 
   return (
     <View style={styles.container}>

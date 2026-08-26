@@ -7,7 +7,19 @@ import { permisoConcedido } from '../lib/permisoAliases';
 
 const AUTH_KEY = 'erp_user';
 
-export type UserSession = { id_usuario: string; email: string; Nombre: string; Rol?: string; Locales?: string[] };
+/**
+ * `Locales` son **nombres** de local; `Departamentos` son **IDs** del maestro
+ * (D-01). El departamento es etiqueta organizativa, no control de acceso: no
+ * restringe a qué proyectos o tareas se puede asignar a la persona.
+ */
+export type UserSession = {
+  id_usuario: string;
+  email: string;
+  Nombre: string;
+  Rol?: string;
+  Locales?: string[];
+  Departamentos?: string[];
+};
 export type PermisosStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
 type AuthContextValue = {

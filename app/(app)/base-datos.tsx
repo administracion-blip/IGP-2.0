@@ -27,6 +27,9 @@ const TABLAS: TablaHub[] = [
   { id: 'personal', label: 'Personal', icon: 'badge', descripcion: 'Empleados (Factorial HR)', permiso: 'personal.ver', accentBg: '#d1fae5', accentFg: '#059669' },
   { id: 'usuarios-agora', label: 'Usuarios Ágora', icon: 'person-pin', descripcion: 'Maestro de usuarios de Ágora', permiso: 'usuarios_agora.ver', accentBg: '#dbeafe', accentFg: '#2563eb' },
   { id: 'formas-pago', label: 'Formas de Pago', icon: 'account-balance-wallet', descripcion: 'Formas de pago de Ágora y arqueo', permiso: 'cierres.ver', accentBg: '#ffedd5', accentFg: '#d97706' },
+  // La lectura del maestro solo pide sesión, así que la tarjeta se filtra con el
+  // mismo permiso que da acceso al hub.
+  { id: 'departamentos', label: 'Departamentos', icon: 'account-tree', descripcion: 'Departamentos y sus responsables', permiso: 'base_datos.ver', accentBg: '#fef3c7', accentFg: '#ca8a04' },
 ];
 
 export default function BaseDatosScreen() {
@@ -45,6 +48,7 @@ export default function BaseDatosScreen() {
     if (id === 'personal') router.push('/personal');
     if (id === 'usuarios-agora') router.push('/usuarios-agora');
     if (id === 'formas-pago') router.push('/formas-pago');
+    if (id === 'departamentos') router.push('/departamentos');
   }
 
   const tablasVisibles = useMemo(

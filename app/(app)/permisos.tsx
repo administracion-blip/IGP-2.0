@@ -65,6 +65,7 @@ const GRUPOS_PERMISOS: { titulo: string; codigos: string[] }[] = [
       'empresas.crear',
       'empresas.editar',
       'empresas.importar',
+      'departamentos.editar',
       'productos.ver',
       'productos.editar',
       'productos.sincronizar',
@@ -260,6 +261,30 @@ const GRUPOS_PERMISOS: { titulo: string; codigos: string[] }[] = [
       'limpieza.borrar',
     ],
   },
+  {
+    titulo: 'Proyectos',
+    codigos: [
+      'proyectos.ver',
+      'proyectos.crear',
+      'proyectos.editar',
+      'proyectos.borrar',
+      'tareas.ver_todas',
+      'tareas.editar_todas',
+      'proyectos.presupuesto_ver',
+      'proyectos.compras_aprobar',
+      'proyectos.plantillas',
+      'proyectos.cuadro_mando',
+    ],
+  },
+  {
+    titulo: 'Reuniones',
+    codigos: [
+      'reuniones.ver',
+      'reuniones.gestionar',
+      'reuniones.ver_direccion',
+      'reuniones.borrar_audio',
+    ],
+  },
   { titulo: 'Legacy / obsoleto', codigos: ['rrss.ver'] },
 ];
 
@@ -415,6 +440,23 @@ const PERMISOS_LABELS: Record<string, string> = {
   'ia.informe_ventas_articulo': 'Informes IA · Fuente Ventas por artículo',
   'ia.prompts_gestionar': 'Informes IA · Gestionar plantillas de prompt',
   'ia.ajustes': 'Informes IA · Modificar ajustes de la IA',
+  // `proyectos.ver` y `reuniones.ver` los reescribirá el bucle de MODULOS cuando
+  // la Fase 1A añada las entradas del menú; hasta entonces, etiqueta propia.
+  'proyectos.ver': 'Proyectos · Ver módulo (menú)',
+  'reuniones.ver': 'Reuniones · Ver módulo (hub de Proyectos)',
+  'departamentos.editar': 'Departamentos · Crear, editar y dar de baja el maestro',
+  'proyectos.crear': 'Proyectos · Crear',
+  'proyectos.editar': 'Proyectos · Editar y gestionar miembros',
+  'proyectos.borrar': 'Proyectos · Borrar',
+  'tareas.ver_todas': 'Proyectos · Ver todas las tareas (sin ser responsable ni miembro)',
+  'tareas.editar_todas': 'Proyectos · Editar cualquier tarea',
+  'proyectos.presupuesto_ver': 'Proyectos · Ver presupuesto, comprometido y real',
+  'proyectos.compras_aprobar': 'Proyectos · Aprobar o rechazar líneas de compra',
+  'proyectos.plantillas': 'Proyectos · Crear y editar plantillas',
+  'proyectos.cuadro_mando': 'Proyectos · Cuadro de mando de dirección',
+  'reuniones.gestionar': 'Reuniones · Convocar, editar el acta y validar propuestas',
+  'reuniones.ver_direccion': 'Reuniones · Ver las de dirección',
+  'reuniones.borrar_audio': 'Reuniones · Borrar el audio (conserva transcripción y acta)',
 };
 
 /** Permiso de acceso al módulo en menú lateral (fuente: MODULOS). */

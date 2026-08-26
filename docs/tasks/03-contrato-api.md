@@ -33,28 +33,110 @@ control de acceso.
 
 | Método | Ruta | Fase | Permiso | Notas |
 |---|---|---|---|---|
-| GET | `/api/tasks/departamentos` | 1A | `proyectos.ver` | Lista para desplegables |
-| POST | `/api/tasks/departamentos` | 1A | `base_datos.editar` | `{ nombre, responsable_id }` |
-| PATCH | `/api/tasks/departamentos/:id` | 1A | `base_datos.editar` | |
-| DELETE | `/api/tasks/departamentos/:id` | 1A | `base_datos.editar` | Baja lógica (`activo: false`) si hay proyectos que lo usan |
+| GET | `/api/departamentos` | 0 | solo sesión | Lista para desplegables. `?soloActivos=1` para los formularios. Incluye `responsable_nombre` resuelto |
+| POST | `/api/departamentos` | 0 | `departamentos.editar` | `{ nombre, responsable_id?, orden? }` |
+| PATCH | `/api/departamentos/:id` | 0 | `departamentos.editar` | |
+| DELETE | `/api/departamentos/:id` | 0 | `departamentos.editar` | **Siempre baja lógica** (`activo: false`) |
+
+Tres cosas que cambian respecto al primer borrador de este contrato:
+
+La ruta es `/api/departamentos`, no `/api/tasks/departamentos`, por coherencia con
+`/api/locales` y `/api/empresas` y con D-11: «tasks» se queda en los nombres de
+fichero. Y adelanta a la **Fase 0** porque el campo `Departamentos` de la ficha de
+usuario necesita el maestro para tener algo que elegir.
+
+El permiso de escritura es `departamentos.editar`, el patrón real de los maestros
+(`locales.editar`, `empresas.editar`). `base_datos.editar` no existe en el
+repositorio. Uno solo para las tres escrituras, porque el maestro es diminuto y
+tres permisos para cinco filas es burocracia.
+
+La lectura solo pide sesión: alimenta desplegables de todo el módulo y de la ficha
+de usuario, así que exigir permiso ahí solo consigue formularios con listas vacías.
+No hay nada sensible en una lista de nombres de departamento. Por el mismo motivo
+devuelve `responsable_nombre` ya resuelto: si la pantalla tuviera que cruzarlo con
+`/api/usuarios`, que sí exige `usuarios.ver`, quien no tenga ese permiso vería el ID
+crudo del responsable en la tabla. Vale `null` cuando el usuario ya no existe.
+
+**El borrado es siempre lógico**, no solo cuando hay proyectos que lo usan. Un
+`departamento_id` guardado en tareas, proyectos y fichas de usuario sin integridad
+referencial no se puede quedar apuntando a nada, y comprobar los tres sitios en cada
+borrado cuesta más que dejar la fila con `activo: false`. Los inactivos no salen en
+los desplegables pero siguen resolviendo el nombre de lo ya grabado.
+
+---
+
+## Nombres y permisos de fila
+
+Todo proyecto y toda tarea que salen de la API llevan, además de sus campos
+guardados, lo que la interfaz necesita para pintar la fila **sin cruzar nada y sin
+reimplementar la capa de acceso**. Aplica a listados, fichas y a las respuestas de
+escritura, para que refrescar una fila tras editarla no la deje sin estos campos.
+
+| Campo | Dónde | Valor |
+|---|---|---|
+| `responsable_nombre` | proyecto y tarea | Nombre visible del `responsable_id`. `null` si no hay responsable o el usuario ya no existe |
+| `usuario_nombre` | cada fila de miembro de proyecto | Igual, sobre `usuario_id` |
+| `proyecto_nombre` | tarea | Solo si la tarea tiene `proyecto_id`, igual que ese campo. `null` si el proyecto ya no se puede leer **o si quien pregunta no lo alcanza**: tener una tarea asignada no da acceso al proyecto del que cuelga, ni a su nombre |
+| `permisos_fila` | proyecto: `{ editar, borrar }` · tarea: `{ editar, reasignar, borrar, crear_subtarea }` | Booleanos, sobre esa fila y para quien pregunta |
+
+El nombre visible se compone igual que en el maestro de departamentos: `Nombre` y
+`Apellidos`, y el email como último recurso. **Lo resuelve el servidor** porque las
+pantallas del módulo se abren con `proyectos.ver` y cruzar los ids contra
+`/api/usuarios` exigiría además `usuarios.ver`: quien tuviera el primero y no el
+segundo vería «responsable no disponible» en todas las columnas.
+
+Se resuelve **en lote, una vez por petición**: un listado de cincuenta tareas de
+doce personas son doce claves en un `BatchGet`, nunca cincuenta lecturas. Los ids
+que ya no están en `igp_usuarios` salen a `null`; no hay integridad referencial y
+una persona dada de baja no puede tumbar un listado.
+
+`permisos_fila` sale de `api/lib/tasks/acceso.js`, las mismas funciones que después
+autorizan la escritura. Existe para que la interfaz **no lleve su propia copia de
+las reglas de acceso**: dos implementaciones de la misma decisión divergen, y el
+síntoma es un botón escondido a quien sí puede pulsarlo. Lo que dice `permisos_fila`
+es lo que responde la escritura correspondiente.
+
+`borrar` refleja el permiso global y la visibilidad, que es lo que comprueban
+`borrarProyecto` y `borrarTarea`. **No** anticipa el `409` por tener tareas o
+subtareas abiertas: eso exige contarlas y no merece una lectura por fila. Un
+`borrar: true` puede acabar en `409`, y la interfaz tiene que enseñar ese mensaje.
+
+`crear_subtarea` **no coincide con `editar`**, y ahí está su motivo de existir:
+colgar una subtarea es crear una tarea, y crear decide sobre el proyecto. Quien es
+responsable de una tarea de un proyecto del que no es miembro puede cerrar esa tarea
+y no puede añadir trabajo al proyecto. Sin este campo, la pantalla deducía el
+permiso del de editar y ofrecía un botón que `POST /api/tareas` rechazaba.
+
+`GET /api/proyectos` y `/api/proyectos/mios` **sí** incluyen `permisos_fila`: sale
+del mapa de pertenencia que los dos listados ya leían para filtrar la visibilidad,
+que trae la fila de miembro de quien pregunta —lo único que mira
+`puedeEditarProyecto`—. Ninguna de estas resoluciones añade una lectura por fila.
 
 ---
 
 ## Proyectos
+
+En proyectos y tareas, **una fila que no se alcanza responde `404`**, indistinguible
+de que no exista; el `403` queda para «la veo pero no puedo tocarla» (D-16).
 
 | Método | Ruta | Fase | Permiso | Notas |
 |---|---|---|---|---|
 | GET | `/api/proyectos` | 1A | `proyectos.ver` | Filtros `estado`, `departamento`, `responsable`. Solo los visibles |
 | GET | `/api/proyectos/mios` | 1A | `proyectos.ver` | Vía `Miembro-index` |
 | POST | `/api/proyectos` | 1A | `proyectos.crear` | Quien lo crea queda como miembro `responsable` salvo que indique otro |
-| GET | `/api/proyectos/:id` | 1A | `proyectos.ver` + visibilidad | Una sola Query: `META` + miembros + compras + vínculos. Incluye `gasto_comprometido` y `gasto_real` calculados |
-| PATCH | `/api/proyectos/:id` | 1A | `proyectos.editar` + ser responsable o miembro | |
-| DELETE | `/api/proyectos/:id` | 1A | `proyectos.borrar` | Pasa a `cancelado`. Borrado físico **solo** si no tiene tareas; si las tiene, `409` |
-| POST | `/api/proyectos/:id/miembros` | 1A | `proyectos.editar` | `{ usuario_id, rol_proyecto }` |
-| DELETE | `/api/proyectos/:id/miembros/:usuarioId` | 1A | `proyectos.editar` | `409` si es el único responsable |
+| GET | `/api/proyectos/:id` | 1A | `proyectos.ver` + visibilidad | Una sola Query: `META` + miembros + compras + vínculos. Incluye `gasto_comprometido` y `gasto_real` calculados, y `usuario_nombre` en cada miembro |
+| PATCH | `/api/proyectos/:id` | 1A | ser responsable, o miembro con `proyectos.editar` | |
+| DELETE | `/api/proyectos/:id` | 1A | `proyectos.borrar` | Borrado físico **solo** si no tiene tareas; si las tiene, `409` (D-17). Cancelar es `PATCH { estado: 'cancelado' }` |
+| POST | `/api/proyectos/:id/miembros` | 1A | ser responsable, o miembro con `proyectos.editar` | `{ usuario_id, rol_proyecto }` |
+| DELETE | `/api/proyectos/:id/miembros/:usuarioId` | 1A | ser responsable, o miembro con `proyectos.editar` | `409` si es el único responsable |
 | GET | `/api/proyectos/:id/actividad` | 1A | `proyectos.ver` + visibilidad | Paginado, más reciente primero |
-| POST | `/api/proyectos/:id/vinculos` | 1A | `proyectos.editar` | `{ tipo, id, etiqueta }` |
-| DELETE | `/api/proyectos/:id/vinculos/:tipo/:entidadId` | 1A | `proyectos.editar` | |
+| POST | `/api/proyectos/:id/vinculos` | 1A | ser responsable, o miembro con `proyectos.editar` | `{ tipo, id, etiqueta }` |
+| DELETE | `/api/proyectos/:id/vinculos/:tipo/:entidadId` | 1A | ser responsable, o miembro con `proyectos.editar` | |
+
+**Las escrituras de proyecto no llevan `requirePermission`: decide la ACL de
+fila** (`puedeEditarProyecto`), igual que en el router de tareas. El dueño de un
+proyecto tiene que poder gestionarlo aunque solo tenga `proyectos.ver`; ver
+[04](04-permisos-y-acceso.md) y D-16 para el `404`/`403`.
 
 ### Compras y presupuesto (Fase 4)
 
@@ -92,17 +174,22 @@ con un camino propio.
 
 | Método | Ruta | Fase | Permiso | Notas |
 |---|---|---|---|---|
-| GET | `/api/tareas/mias` | 1A | `proyectos.ver` | **Vista personal.** Solo abiertas, ordenadas por vencimiento, vía `Responsable-Vencimiento-index`. Devuelve además el recuento de vencidas |
-| GET | `/api/tareas` | 1A | `proyectos.ver` | Filtros `proyecto`, `responsable`, `estado`, `departamento`. Ver otra persona exige `tareas.ver_todas` o ser miembro del proyecto |
-| POST | `/api/tareas` | 1A | `proyectos.editar` | |
+| GET | `/api/tareas/mias` | 1A | `proyectos.ver` | **Vista personal.** Solo abiertas, ordenadas por vencimiento, vía `Responsable-Vencimiento-index`. Devuelve además el recuento de vencidas. Incluye `proyecto_nombre`: la pantalla no necesita traerse el listado de proyectos para cruzarlo |
+| GET | `/api/tareas` | 1A | `proyectos.ver` | **Exige `proyecto` o `responsable`** (D-18); además, filtros `estado` y `departamento`. Ver otra persona exige `tareas.ver_todas` o ser miembro del proyecto |
+| POST | `/api/tareas` | 1A | poder editar el proyecto: ser responsable, o miembro con `proyectos.editar`. **Sin proyecto**, `proyectos.editar` | |
 | POST | `/api/tareas/lote` | 1A | `proyectos.editar` | **Creación en lote.** Ver abajo |
 | GET | `/api/tareas/:id` | 1A | `proyectos.ver` + visibilidad | `META` + checklist + enlaces + vínculos en una Query |
 | PATCH | `/api/tareas/:id` | 1A | ser responsable, o miembro del proyecto, o `tareas.editar_todas` | |
 | POST | `/api/tareas/:id/estado` | 1A | igual que PATCH | Transiciones validadas. `bloqueada` exige motivo. Mantiene `vencimiento_orden` y `sk_proyecto` |
-| POST | `/api/tareas/:id/reasignar` | 1A | `proyectos.editar` | Cambia el responsable único y avisa al nuevo |
-| DELETE | `/api/tareas/:id` | 1A | `proyectos.borrar` | `409` si tiene subtareas abiertas |
+| POST | `/api/tareas/:id/reasignar` | 1A | poder editar el proyecto de la tarea; en tarea suelta, haberla creado. **`tareas.editar_todas` no reasigna** (D-13) | Cambia el responsable único y avisa al nuevo |
+| DELETE | `/api/tareas/:id` | 1A | `proyectos.borrar` | `409` si tiene subtareas abiertas. Se lleva la partición entera **y los objetos de S3** de sus enlaces y adjuntos |
 | GET | `/api/tareas/:id/subtareas` | 1A | `proyectos.ver` | Vía `Padre-index` |
 | GET | `/api/tareas/:id/actividad` | 1A | `proyectos.ver` + visibilidad | |
+
+Borrar una tarea borra también los objetos de S3 de sus enlaces y adjuntos, por el
+mismo camino que `DELETE` de un enlace o de un adjunto sueltos. Un fallo de S3 se
+registra y **no impide** el borrado en DynamoDB: si lo impidiera, un objeto
+inaccesible dejaría una tarea que nadie puede borrar nunca.
 
 ### Lista de comprobación
 
@@ -128,6 +215,7 @@ la cierra automáticamente. Cerrarla es una decisión de la persona.
 |---|---|---|---|
 | POST | `/api/tareas/:id/enlaces` | 1A | Crea el enlace en `pendiente` y **responde de inmediato**. La captura va detrás |
 | POST | `/api/tareas/:id/enlaces/:enlaceId/recapturar` | 1A | Manual y explícito. Nunca automático |
+| GET | `/api/tareas/:id/enlaces/:enlaceId/imagen` | 1A | URL firmada de lectura de la captura, 1 hora. `404` si no hay `imagen_s3_key` |
 | DELETE | `/api/tareas/:id/enlaces/:enlaceId` | 1A | Borra también la imagen de S3 |
 
 **Reglas de la descarga. Se hace en el servidor y nunca desde el cliente.**
@@ -185,17 +273,19 @@ cita_origen? } ] }`
 
 | Método | Ruta | Fase | Permiso | Notas |
 |---|---|---|---|---|
-| GET | `/api/reuniones` | 1B | `reuniones.ver` | Filtros `desde`, `hasta`, `proyecto`, `estado`. **Filtrado de visibilidad en servidor** |
-| POST | `/api/reuniones` | 1B | `reuniones.gestionar` | Crea la reunión, el evento en Calendar con el orden del día en la descripción y detecta la sala |
-| GET | `/api/reuniones/:id` | 1B | `reuniones.ver` + visibilidad | `META` + asistentes + acuerdos + puntos + vínculos |
-| PATCH | `/api/reuniones/:id` | 1B | `reuniones.gestionar` | El orden del día solo es editable **antes** de que empiece; después, `409` |
-| DELETE | `/api/reuniones/:id` | 1B | `reuniones.gestionar` | Borra el registro, el evento de Calendar y el audio (derecho de supresión) |
+| GET | `/api/reuniones` | 1B | `reuniones.ver` | Filtros `desde`, `hasta`, `proyecto`, `estado`. **Filtrado de visibilidad en servidor**. Cada ítem lleva `convocado_nombre` y `permisos_fila: { editar, borrar }` |
+| POST | `/api/reuniones` | 1B | `reuniones.gestionar` | Crea la reunión e intenta el evento en Calendar. Si Google no está o falla (**D-21**), la reunión se guarda igual y la respuesta lleva `calendario_sincronizado: false` (más `calendario_error`, `calendar_disponible`) |
+| GET | `/api/reuniones/:id` | 1B | `reuniones.ver` + visibilidad | `META` + asistentes + acuerdos + puntos + vínculos. Incluye `permisos_fila` y nombres resueltos |
+| PATCH | `/api/reuniones/:id` | 1B | `reuniones.gestionar` | El orden del día solo es editable **antes** de `celebrada` / `acta_*` (**D-20**); después, `409`. Al pasar a esos estados se copia a `orden_del_dia_congelado` si no había |
+| DELETE | `/api/reuniones/:id` | 1B | `reuniones.gestionar` | Borra el registro y el evento de Calendar (stub: no tumba si falla) |
 | POST | `/api/reuniones/:id/asistentes` | 1B | `reuniones.gestionar` | |
 | POST | `/api/reuniones/:id/aviso-grabacion` | 1B | `reuniones.gestionar` | Registra informados y quién acepta. **Sin esto no se emite URL de subida de audio** |
 | GET | `/api/reuniones/:id/sugerencia-orden-del-dia` | 1B | `reuniones.gestionar` | Devuelve acuerdos pendientes y temas aplazados de la reunión anterior de la serie, como **texto editable**. En Fase 4 pasa a generarse solo |
 | POST | `/api/reuniones/:id/acuerdos` | 1B | `reuniones.gestionar` | En 1B se escriben a mano |
 | PATCH | `/api/reuniones/:id/acuerdos/:acuerdoId` | 1B | `reuniones.gestionar` | Estado `cumplido` / `incumplido` |
+| POST | `/api/reuniones/:id/acuerdos/crear-tareas` | 1B | `reuniones.gestionar` | **D-23.** Convierte acuerdos abiertos sin `tarea_id` en tareas vía `crearTareasEnLote`, y enlaza `acuerdo.tarea_id`. Cuerpo opcional: `{ acuerdo_ids?: string[] }` (si no viene, todos los candidatos con responsable). Respuesta: `{ creadas, omitidas, enlazados }` |
 | GET | `/api/reuniones/:id/tareas` | 1B | `reuniones.ver` | Qué salió de la reunión, vía `Reunion-index` |
+| GET | `/api/reuniones/:id/actividad` | 1B | `reuniones.ver` + visibilidad | Paginado, más reciente primero |
 
 ### Pipeline de audio (Fase 2)
 

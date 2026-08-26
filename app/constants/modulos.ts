@@ -18,6 +18,7 @@ export const MODULOS: ModuloMenu[] = [
   { route: '/facturacion', label: 'Facturación', icon: 'receipt', permiso: 'facturacion.ver' },
   { route: '/banca', label: 'Banca', icon: 'account-balance', permiso: 'banca.ver' },
   { route: '/planning-dia', label: 'Planning del Día', icon: 'today', permiso: 'planning_dia.ver' },
+  { route: '/proyectos', label: 'Proyectos', icon: 'assignment', permiso: 'proyectos.ver' },
   { route: '/informes-ia', label: 'Informes IA', icon: 'auto-awesome', permiso: 'ia.informes' },
 ];
 
@@ -29,13 +30,17 @@ export const PERMISOS_MENU_LATERAL: string[] = MODULOS.map((m) => m.permiso).fil
 /** Permisos del menú engranaje de cabecera (no están en MODULOS). */
 export const PERMISOS_MENU_CONFIGURACION = ['permisos.ver', 'ajustes.ver'] as const;
 
-/** Primer segmento de ruta → módulo padre (submódulos sin entrada propia en el menú). */
+/**
+ * Primer segmento de ruta → módulo padre (submódulos sin entrada propia en el menú).
+ * Reuniones vive bajo el hub de Proyectos (D-22), no en el lateral.
+ */
 const RUTA_A_MODULO_PADRE: Record<string, string> = {
   cashflow: '/cajas',
   rrpp: '/recursos-humanos',
   acuerdos: '/compras',
   'acuerdos-informe-compras': '/compras',
   'acuerdos-productos-activos': '/compras',
+  reuniones: '/proyectos',
 };
 
 /** Devuelve el módulo (entrada de menú) al que pertenece una ruta de submódulo. */

@@ -44,18 +44,36 @@ esperando a la IA.
 No es solo documentación: tiene código, y es el único momento en que trabaja un
 solo agente sobre todo.
 
-**Entra:**
-- Este conjunto de documentos, aprobado.
-- `app/types/tasks.ts` y `api/lib/tasks/tipos.js` con tipos y constantes de estado.
-- `api/lib/tasks/acceso.js` con sus funciones y **sus tests**, aunque todavía no lo
-  llame nadie.
-- Maestro de departamentos (`Igp_Ajustes`) y su pantalla mínima en `/base-datos`.
-- Campo `Departamentos` en `igp_usuarios`: **propuesto, aprobado y aditivo**.
-- Entradas nuevas en el mapa `tables` de `api/lib/db.js`.
-- Alta de los códigos de permiso en `app/(app)/permisos.tsx` y
-  `api/ROLES-PERMISOS.md`.
+**Entra** — **completa a 26/08/2026**:
+- `[x]` Este conjunto de documentos, con A-01 y el campo en usuarios ya decididos
+  (D-11 y D-12).
+- `[x]` `app/types/tasks.ts` y `api/lib/tasks/tipos.js` con tipos, constantes de
+  estado, transiciones y claves derivadas.
+- `[x]` `api/lib/tasks/acceso.js` con sus funciones y **sus tests**
+  (`api/tests/tasksAcceso.test.mjs`, 73 casos), aunque todavía no lo llame nadie.
+  Tres decisiones de acceso cerradas en la revisión: D-13, D-14 y D-15.
+- `[x]` Maestro de departamentos: `api/routes/departamentos.js`,
+  `api/lib/tasks/departamentos.js`, pantalla `app/(app)/departamentos.tsx` y su
+  tarjeta en `/base-datos`. Sobre `Igp_Ajustes`, sin tabla nueva.
+- `[x]` Campo `Departamentos` en `igp_usuarios` (D-12), aditivo y disperso, con
+  selector múltiple en la ficha. Guarda **IDs**, al contrario que `Locales`.
+- `[x]` Entradas nuevas en el mapa `tables` de `api/lib/db.js`. Las tres de la Fase
+  1A ya existen en AWS; las de reuniones y avisos siguen esperando a su fase.
+- `[x]` Alta de los códigos de permiso en `app/(app)/permisos.tsx` y
+  `api/ROLES-PERMISOS.md`, **solo en el catálogo**: sin asignar a ningún rol.
+- `[x]` Cableada la invalidación de `invalidarContextoAcceso` en las escrituras de
+  usuarios, de permisos de rol y de `api/lib/roles.js`.
 
 **No entra:** ninguna pantalla del módulo, ningún endpoint de negocio.
+
+**Deuda que se lleva la Fase 1A**, detectada al revisar:
+- El `id_usuario` que se crea en `POST /api/usuarios` lo sigue proponiendo el
+  cliente. La colisión ya falla con un `409` en vez de machacar la ficha existente,
+  pero generarlo en el servidor sigue pendiente.
+- No hay forma de dejar un usuario sin `Rol` desde la interfaz, que es el mecanismo
+  de corte de acceso que describe D-09. Hoy es una operación manual en DynamoDB.
+- ~~La lista de usuarios no tiene columna de departamentos.~~ Resuelto: la columna
+  muestra los nombres resueltos y el buscador los encuentra.
 
 **Cierra cuando:** los tests de la capa de acceso pasan, el contrato está aprobado
 y el árbol de trabajo del repositorio está limpio de cambios ajenos a medias.
@@ -66,34 +84,70 @@ y el árbol de trabajo del repositorio está limpio de cambios ajenos a medias.
 
 El objetivo real de esta fase **no es la funcionalidad, es el hábito**.
 
-**Entra:**
-- Tablas `Igp_Proyectos`, `Igp_Tareas`, `Igp_Actividad`.
-- CRUD de proyectos, miembros y vínculos.
-- CRUD de tareas: estados, subtareas, lista de comprobación, comentarios con
-  menciones (guardadas, sin avisar todavía).
-- Enlaces externos con captura en servidor e imagen en S3.
-- Adjuntos por URL prefirmada.
-- **Vista personal** (`/proyectos/mis-tareas`): tareas abiertas por vencimiento,
-  con recuento de vencidas. Funcional en móvil.
-- Tarjeta de resumen en el hub de `planning-dia` que lleva a la vista personal.
-- Registro de actividad en las cuatro entidades.
-- Aviso por email de tareas que vencen (adelantado de la Fase 3).
-- Entrada en el menú (`app/constants/modulos.ts`) y hub del módulo.
-- **Esquema** de compras y presupuesto, sin endpoints.
+**Entra** — completa en código a 26/08/2026:
+- `[x]` Tablas `Igp_Proyectos`, `Igp_Tareas`, `Igp_Actividad`, **creadas en AWS** con
+  sus índices.
+- `[x]` Piezas compartidas: `api/lib/tasks/actividad.js` (registro append-only de las
+  cuatro entidades), `paginacion.js` (cursor opaco) y `proyectoLectura.js` (lectura
+  de la partición de proyecto y del `Miembro-index`, para no leer un proyecto por
+  tarea al filtrar un listado).
+- `[x]` Índices secundarios y escritura por lotes en el doble de DynamoDB de las
+  pruebas, incluida su naturaleza dispersa. Sin esto no se podía probar nada de esta
+  fase sin tocar AWS.
+- `[x]` CRUD de proyectos, miembros y vínculos: `api/routes/proyectos.js` y
+  `api/lib/tasks/proyectos.js`.
+- `[x]` CRUD de tareas —estados, subtareas, lista de comprobación, comentarios con
+  menciones guardadas sin avisar, creación en lote idempotente—:
+  `api/routes/tareas.js` y `api/lib/tasks/tareas.js`.
+- `[x]` Registro de actividad en proyectos y tareas.
+- `[x]` **Vista personal** en backend: `GET /api/tareas/mias`, con recuento de
+  vencidas y sin filtrar en memoria (el índice solo contiene abiertas).
+- `[x]` Enlaces externos con captura en servidor e imagen en S3, con la URL validada
+  en cada salto de redirección contra el rango privado (`api/lib/tasks/enlaces.js`).
+  La ficha pinta las tarjetas y pide la miniatura con
+  `GET /api/tareas/:id/enlaces/:enlaceId/imagen`.
+- `[x]` Adjuntos por URL prefirmada (`api/lib/tasks/adjuntos.js`). La limpieza de
+  subidas sin confirmar es una regla de ciclo de vida del bucket, no código. La
+  ficha sube con el patrón de acuerdos (presign → PUT a S3 → confirmar).
+- `[x]` Pantallas: entrada en el menú, hub del módulo, listado y ficha de proyecto,
+  ficha de tarea (con enlaces y adjuntos) y la vista personal funcional en móvil.
+- `[x]` Tarjeta de resumen en el hub de `planning-dia` que lleva a la vista personal
+  (`Mis tareas`), con el recuento de vencidas cuando hay.
+- `[x]` Aviso por email de tareas que vencen (adelantado de la Fase 3), idempotente
+  por cerrojo condicional y cableado en `api/server.js`.
+- `[x]` **Esquema** de compras y presupuesto, sin endpoints: la ficha ya suma
+  `gasto_comprometido` y `gasto_real` de las líneas `COMPRA#`.
+
+Cuatro decisiones cerradas al integrar los dos routers: D-16 (`404` en lugar de
+`403`), D-17 (`DELETE` de proyecto), D-18 (`GET /api/tareas` exige filtro) y D-19
+(el nombre del autor en el contexto de acceso).
+
+**Una regla que salió de la revisión y vale para todo el módulo:** la interfaz no
+lleva copia de las reglas de acceso. Todo lo que se puede hacer con una fila viaja en
+`permisos_fila`, calculado con las mismas funciones que autorizan la escritura. Las
+dos veces que la pantalla lo dedujo por su cuenta —editar un proyecto siendo su
+responsable, colgar una subtarea— ofreció un botón que el servidor rechazaba. Lo
+mismo con los nombres visibles: los resuelve el servidor en lote, porque cruzarlos en
+el cliente exigía un permiso (`usuarios.ver`) que estas pantallas no piden.
 
 **No entra:** nada de IA, nada de Google, nada de reuniones, ni tableros, ni
 dependencias entre tareas, ni cuadro de mando.
 
 **Cierra cuando:**
-- [ ] Se crea un proyecto, se le asignan miembros y tareas, y cada persona ve las
+- [x] Se crea un proyecto, se le asignan miembros y tareas, y cada persona ve las
       suyas en su vista personal.
-- [ ] Una tarea tiene un único responsable, y reasignarla queda registrado.
-- [ ] Un enlace pegado aparece como tarjeta con imagen y precio, y sigue igual
-      cuando el destino cambia.
-- [ ] Ninguna consulta usa `Scan`.
-- [ ] Un usuario sin `tareas.ver_todas` no ve tareas de proyectos ajenos, ni
-      listando ni por ID directo.
-- [ ] La vista personal se usa con una mano en un móvil.
+- [x] Una tarea tiene un único responsable, y reasignarla queda registrado.
+- [x] Un enlace pegado aparece como tarjeta con imagen y precio, y sigue igual
+      cuando el destino cambia. Recapturar es manual y explícito.
+- [x] Ninguna consulta usa `Scan`, **con una excepción consciente**: el aviso diario
+      recorre el maestro de usuarios porque no hay índice de «todos los usuarios» y
+      son decenas de filas, igual que el informe diario que ya existía. La tabla de
+      tareas nunca se recorre entera.
+- [x] Un usuario sin `tareas.ver_todas` no ve tareas de proyectos ajenos, ni
+      listando ni por ID directo, ni el nombre del proyecto en la vista personal ni
+      en el correo.
+- [ ] La vista personal se usa con una mano en un móvil. Está construida para eso,
+      pero esto lo cierra una persona probándolo, no una prueba automática.
 
 **Reparto:** merece la pena. Superficies disjuntas: `api/routes/proyectos.js` +
 `api/lib/tasks/**` frente a `app/(app)/proyectos/**`. Los ficheros comunes solo el
@@ -105,20 +159,21 @@ integrador.
 
 Primer contacto con Google. Sin IA todavía.
 
-**Entra:**
-- Tabla `Igp_Reuniones`.
-- Convocar reunión: título, fecha, asistentes, visibilidad, **orden del día en
-  texto libre**.
-- Creación del evento en Calendar con el orden del día en la descripción.
-- Detección de sala mediante recursos, y `modalidad` derivada.
-- Acta **manual**: resumen escrito a mano y acuerdos con responsable y fecha.
-- Convertir acuerdos en tareas mediante la **creación en lote** ya existente.
-- Aviso de grabación con registro de informados (aunque aún no se grabe).
-- Copia congelada del orden del día (el campo funciona; el análisis no llega hasta
-  la 2).
-- Sugerencia editable de orden del día con pendientes y aplazados de la reunión
-  anterior de la serie.
-- Filtrado de visibilidad en servidor, con sus tests.
+**Entra** — en curso (tabla creada 26/08/2026; Calendar aún en stub):
+- `[x]` Tabla `Igp_Reuniones` **creada en AWS** con sus índices.
+- `[x]` Convocar reunión: título, fecha, asistentes, visibilidad, **orden del día en
+  texto libre** (API + pantallas).
+- `[ ]` Creación del evento en Google Calendar (stub listo; falta service account).
+- `[ ]` Detección de sala mediante recursos, y `modalidad` derivada (mismo adaptador).
+- `[x]` Acta **manual**: resumen escrito a mano y acuerdos con responsable y fecha.
+- `[x]` Convertir acuerdos en tareas mediante la **creación en lote** ya existente
+  (`POST …/acuerdos/crear-tareas`, D-23).
+- `[x]` Aviso de grabación con registro de informados (aunque aún no se grabe).
+- `[x]` Copia congelada del orden del día al pasar a `celebrada` (D-20).
+- `[x]` Sugerencia editable de orden del día con pendientes de la reunión anterior
+  de la serie.
+- `[x]` Filtrado de visibilidad en servidor, con sus tests.
+- `[x]` Pantallas: menú, listado, convocar, ficha (acta, acuerdos, tareas, historial).
 
 **No entra:** audio, transcripción, IA, actas en PDF.
 

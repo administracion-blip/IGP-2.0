@@ -4,6 +4,11 @@ import { docClient, tables } from '../lib/db.js';
 import { requirePermission } from '../middleware/auth.js';
 import { validarRolUsuario } from '../lib/roles.js';
 import { hashPassword } from '../lib/password.js';
+import { invalidarContextoAcceso } from '../lib/tasks/acceso.js';
+import {
+  filtrarDepartamentosExistentes,
+  normalizarIdsDepartamento,
+} from '../lib/tasks/departamentos.js';
 
 const router = express.Router();
 
@@ -15,7 +20,24 @@ function formatId6(val) {
 }
 
 // Estructura exacta de la tabla igp_usuarios en AWS: solo estos atributos. No crear otros.
+// `Departamentos` queda fuera a propósito: es un atributo **disperso** (D-12), ausente en
+// quien no tenga ninguno, y este bucle escribe siempre todo lo que enumera. Se resuelve
+// aparte, con `departamentosDelCuerpo`.
 const TABLE_USUARIOS_ATTRS = ['id_usuario', 'Nombre', 'Apellidos', 'Email', 'Password', 'Telefono', 'Rol', 'Local'];
+
+/**
+ * `Departamentos` es una lista de **IDs** de departamento, al contrario que
+ * `Locales`, que guarda nombres (D-12).
+ *
+ * Los ids que no existan en el maestro se descartan en silencio: no hay
+ * integridad referencial y un id fantasma —de un departamento borrado, o de un
+ * formulario desfasado— no puede tumbar el alta de un usuario. Los inactivos sí
+ * se conservan: siguen siendo una referencia válida de lo ya grabado.
+ */
+async function departamentosDelCuerpo(valor, existente) {
+  if (valor === undefined) return normalizarIdsDepartamento(existente);
+  return filtrarDepartamentosExistentes(valor);
+}
 
 // Listar usuarios (campos de la tabla, sin Password)
 // [SEC S-05]
@@ -34,6 +56,10 @@ router.get('/usuarios', requirePermission('usuarios.ver'), async (req, res) => {
         continue;
       }
       if (item[key] !== undefined) out[key] = item[key];
+    }
+    // Fuera del bucle por ser disperso: la ficha necesita leerlo para poder editarlo.
+    if (item.Departamentos !== undefined) {
+      out.Departamentos = normalizarIdsDepartamento(item.Departamentos);
     }
     return out;
   });
@@ -76,12 +102,32 @@ router.post('/usuarios', requirePermission('usuarios.crear'), async (req, res) =
     }
   }
 
+  const departamentos = await departamentosDelCuerpo(body.Departamentos);
+  if (departamentos.length > 0) item.Departamentos = departamentos;
+
+  // El `id_usuario` lo propone el cliente contando la lista que tiene cargada,
+  // así que dos altas hechas sobre la misma lista proponen el mismo id. Sin esta
+  // condición el segundo `Put` machacaría la ficha entera del primero —email,
+  // password, rol, locales y departamentos incluidos— y dejaría a alguien sin
+  // poder entrar y sin rastro de por qué.
   const cmd = new PutCommand({
     TableName: tables.usuarios,
     Item: item,
+    ConditionExpression: 'attribute_not_exists(id_usuario)',
   });
 
-  await docClient.send(cmd);
+  try {
+    await docClient.send(cmd);
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') {
+      return res.status(409).json({
+        error: `Ya existe un usuario con el id ${item.id_usuario}. Recarga la lista de usuarios y vuelve a crearlo.`,
+      });
+    }
+    throw err;
+  }
+  // El contexto de acceso cachea rol, locales y departamentos del usuario.
+  invalidarContextoAcceso(item.id_usuario);
   const { Password: _, ...safeItem } = item;
   res.json({ ok: true, usuario: safeItem });
 });
@@ -133,10 +179,16 @@ router.put('/usuarios', requirePermission('usuarios.editar'), async (req, res) =
     }
   }
 
+  // El PUT reconstruye el ítem entero: sin esto, editar el teléfono de alguien
+  // le borraría sus departamentos.
+  const departamentos = await departamentosDelCuerpo(body.Departamentos, existing.Departamentos);
+  if (departamentos.length > 0) item.Departamentos = departamentos;
+
   await docClient.send(new PutCommand({
     TableName: tables.usuarios,
     Item: item,
   }));
+  invalidarContextoAcceso(idUsuario);
   const { Password: _, ...safeItem } = item;
   res.json({ ok: true, usuario: safeItem });
 });
@@ -153,6 +205,7 @@ router.delete('/usuarios', requirePermission('usuarios.borrar'), async (req, res
     TableName: tables.usuarios,
     Key: { id_usuario: idUsuario },
   }));
+  invalidarContextoAcceso(idUsuario);
   res.json({ ok: true });
 });
 

@@ -148,7 +148,7 @@ tarea puede existir sin proyecto (tarea suelta nacida de una reunión) y porque 
 volumen es un orden de magnitud mayor.
 
 - **PK**: `TAREA#<id_tarea>`
-- **SK**: `META` | `ENLACE#<id_enlace>` | `COMENT#<iso>#<uuid>` | `VINC#<tipo>#<id>`
+- **SK**: `META` | `ENLACE#<id_enlace>` | `ADJUNTO#<id_adjunto>` | `COMENT#<iso>#<uuid>` | `VINC#<tipo>#<id>`
 
 ### Ítem `META`
 
@@ -209,10 +209,37 @@ quedara rota en seis meses, justo cuando la prueba importa.
 Reglas de la descarga en servidor (**nunca desde el cliente**) en
 [03 · Contrato de API](03-contrato-api.md).
 
+### Ítem `ADJUNTO#<id_adjunto>`
+
+`nombre`, `s3_key`, `content_type`, `tamano`, `subido_por`, `subido_en`. El fichero
+va a S3 bajo el prefijo de adjuntos de tarea; aquí solo queda el puntero y los
+metadatos que hacen falta para listarlo sin ir al bucket.
+
 ### Ítem `COMENT#<iso>#<uuid>`
 
 `texto`, `autor_id`, `autor_nombre`, `menciones`, `creado_en`. No es un chat: es
 el hilo de seguimiento de la tarea.
+
+### Transiciones de estado
+
+No toda combinación vale, y la restricción es de negocio, no técnica: una tarea
+**bloqueada no pasa directa a `hecha`** —hay que desbloquearla, para que quede
+constancia de que el bloqueo se resolvió— y `cancelada` o `hecha` solo se pueden
+**reabrir a `pendiente`**. Reabrir está permitido a propósito: en la práctica se
+cierran cosas por error, y prohibirlo obliga a duplicar la tarea, que es peor
+porque pierde el historial.
+
+| Desde | Puede pasar a |
+|---|---|
+| `pendiente` | `en_curso` · `bloqueada` · `hecha` · `cancelada` |
+| `en_curso` | `pendiente` · `bloqueada` · `hecha` · `cancelada` |
+| `bloqueada` | `pendiente` · `en_curso` · `cancelada` |
+| `hecha` | `pendiente` |
+| `cancelada` | `pendiente` |
+
+La tabla vive en `TRANSICIONES_TAREA` (`api/lib/tasks/tipos.js`) y la valida
+`transicionTareaPermitida`. La UI debe ofrecer solo los destinos válidos en lugar
+de dejar que el backend responda `422`.
 
 ### Índices
 
@@ -248,6 +275,7 @@ barata y para no indexar datos que nadie mira a diario.
 | `usuarios_autorizados` | lista | 1B | Solo si `visibilidad = restringida` |
 | `departamento_id` | string | 1B | Ámbito si `visibilidad = departamento` |
 | `local_id` | string | 1B | Ámbito si `visibilidad = local` |
+| `local_nombre` | string | 1B | Nombre al convocar. `Locales` del usuario son nombres: sin esto, comprobar el acceso costaría una lectura por fila |
 | `empresa_id` | string | 1B | |
 | `proyecto_id` | string | 1B | Opcional. Clave del `Proyecto-index` |
 | `serie_id` | string | 1B | Comité recurrente. Clave del `Serie-index` |
@@ -292,6 +320,9 @@ importante falla al guardar. En S3 no hay techo, cuesta menos y el acta —que e
 que se consulta a diario— sí queda en el ítem.
 
 ### Ítem `PUNTO#<orden>` — cobertura del orden del día (Fase 2)
+
+El orden va **relleno a tres dígitos** (`PUNTO#007`), para que la Query devuelva
+los puntos en su orden real y no en orden alfabético, donde el 10 iría antes del 2.
 
 `texto_punto`, `origen` (`previsto` · `emergente`), `cobertura`
 (`tratado` · `parcial` · `no_tratado`), `cita`, `aplazado` (bool),
@@ -390,15 +421,30 @@ cerradas y pequeñas, y así hay una tabla menos que crear y mantener.
 |---|---|---|---|
 | `departamentos` | `DEP#<id>` | `{ nombre, responsable_id, activo, orden }` | 1A |
 | `proyectos` | `compras` | `{ umbral_responsable, umbral_departamento, moneda }` | 1A (campo) / 4 (uso) |
-| `proyectos` | `enlaces` | `{ timeout_ms, max_bytes, esquemas_permitidos }` | 1A |
+| `proyectos` | `enlaces` | `{ timeout_ms, max_bytes, max_bytes_imagen, max_redirecciones, esquemas_permitidos }` | 1A |
 | `reuniones` | `retencion_audio` | `{ Enabled, RetencionDias }` | 2 |
 | `reuniones` | `pipeline` | `{ Enabled, proveedor_transcripcion, modelo_resumen, max_intentos }` | 2 |
 | `reuniones` | `cerrojo_pipeline` | Ítem de cerrojo de `crearCerrojo()` | 2 |
-| `proyectos` | `avisos` | `{ Enabled, Days, Times }` del job de vencimientos | 3 |
+| `tareas` | `avisos_vencimiento` | `{ Enabled, hora }` del job de vencimientos, más su rastro (ver abajo) | 1A |
+| `tareas` | `avisos_vencimiento_cerrojo` | Ítem de cerrojo de `crearCerrojo()` de la tanda de avisos | 1A |
 
 **Los umbrales de aprobación viven en configuración, nunca en el código.** Por
 debajo del primer umbral aprueba el responsable del proyecto; por encima, el
 responsable de departamento; a partir del segundo, dirección.
+
+**Los enlaces recortan, no amplían.** `esquemas_permitidos` y `max_redirecciones`
+solo pueden estrechar lo que fija el código (`http:`/`https:`, dos saltos): quien
+escriba en `Igp_Ajustes` no debe poder convertir la captura en un lector del disco
+del servidor. `timeout_ms` y `max_bytes` arrancan de
+`TASKS_ENLACE_TIMEOUT_MS` / `TASKS_ENLACE_MAX_BYTES`.
+
+**El aviso diario nace desactivado** (`Enabled` ausente = desactivado: desplegar
+no debe empezar a mandar correos) y `hora` es hora local de Madrid `HH:MM`, por
+defecto `08:30`. El mismo ítem guarda el rastro de la tanda, escrito por el job y
+no a mano: `ultimo_dia_enviado` —el reclamo atómico que garantiza «una vez al
+día»—, `ultimo_envio_en` y `ultimo_envio_resumen`. Por eso la configuración vive
+aquí y no en `proyectos`/`avisos`: el cerrojo y el reclamo del día ya están en
+esta clave, y activarlo en otro ítem no envía nada **ni deja rastro**.
 
 ---
 

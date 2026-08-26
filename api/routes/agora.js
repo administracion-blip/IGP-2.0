@@ -31,6 +31,7 @@ import {
   pickAllowedFields,
   updatePurchaseVatRates,
 } from '../lib/dynamo/agoraProducts.js';
+import { refrescarNombresEscandallosDesdeAgora } from '../lib/escandallos/refrescarNombresDesdeAgora.js';
 import {
   syncUsers as syncAgoraUsers,
   getLastSync as getLastUsersSync,
@@ -2729,6 +2730,14 @@ async function runProductsSync() {
   );
 
   await setLastSync(docClient, tableAgoraProductsName);
+
+  // El Name de Ágora vive en Igp_AgoraProducts; las recetas guardan un snapshot.
+  // Tras el sync, realinear META/ING# para que el listado de escandallos no se quede viejo.
+  try {
+    await refrescarNombresEscandallosDesdeAgora(rawList);
+  } catch (e) {
+    console.warn('[agora/products/sync] nombres de escandallos:', e?.message || e);
+  }
 
   return { fetched: rawList.length, added, updated, unchanged };
 }

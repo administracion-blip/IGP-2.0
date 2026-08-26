@@ -407,3 +407,27 @@ export async function deleteReceta(productoId) {
   );
   return { ok: true, productoId: id, deleted: items.length };
 }
+
+/**
+ * Actualiza solo el nombre (plato META o línea ING#). No toca cantidades ni activo.
+ * @param {string} productoId
+ * @param {string} sk `META` o `ING#…`
+ * @param {string} nombre
+ */
+export async function updateNombreCampo(productoId, sk, nombre) {
+  const id = normalizeProductId(productoId);
+  const SK = String(sk || '').trim();
+  const n = nombre != null ? String(nombre).trim() : '';
+  if (!id || !SK || !n) return { ok: false };
+  const PK = pkProducto(id);
+  await docClient.send(
+    new UpdateCommand({
+      TableName: tableName(),
+      Key: { PK, SK },
+      UpdateExpression: 'SET nombre = :n, updatedAt = :u',
+      ConditionExpression: 'attribute_exists(PK)',
+      ExpressionAttributeValues: { ':n': n, ':u': new Date().toISOString() },
+    }),
+  );
+  return { ok: true };
+}

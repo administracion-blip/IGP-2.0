@@ -33,6 +33,7 @@ import {
   checkFacturacionVentasInternas,
   checkFacturacionRappel,
   checkVencimientosFacturas,
+  checkAvisosTareas,
   SYNC_CLOSEOUTS_ENABLED,
   SYNC_CLOSEOUTS_INTERVAL_MS,
   SYNC_CLOSEOUTS_RECENT_DAYS,
@@ -85,6 +86,10 @@ import bonusRouter from './routes/bonus.js';
 import entradasRouter from './routes/entradas.js';
 import miaRouter from './routes/mia.js';
 import escandallosRouter from './routes/escandallos.js';
+import departamentosRouter from './routes/departamentos.js';
+import proyectosRouter from './routes/proyectos.js';
+import tareasRouter from './routes/tareas.js';
+import reunionesRouter from './routes/reuniones.js';
 
 // Valida variables críticas al arranque. Si falta alguna REQUIRED, aborta el proceso.
 validateEnv();
@@ -241,6 +246,10 @@ app.use('/api', bonusRouter);
 app.use('/api', entradasRouter);
 app.use('/api', miaRouter);
 app.use('/api', escandallosRouter);
+app.use('/api', departamentosRouter);
+app.use('/api', proyectosRouter);
+app.use('/api', tareasRouter);
+app.use('/api', reunionesRouter);
 
 // --- Middleware central de errores: DEBE ir tras todos los routers ---
 app.use(errorHandler);
@@ -317,6 +326,16 @@ app.listen(port, host, () => {
   logger.info(
     { intervalSec: SYNC_SCHEDULER_INTERVAL_MS / 1000 },
     '[facturacion-rappel] Scheduler activo — genera el periodo pendiente si está activada en Ajustes',
+  );
+
+  // Aviso a cada responsable de sus tareas vencidas. No recibe `port`: no se llama
+  // a sí mismo por HTTP. Desfasado del resto para no juntar su recorrido del
+  // maestro de usuarios con las tandas de facturación.
+  setTimeout(() => checkAvisosTareas(), 33000);
+  setInterval(() => checkAvisosTareas(), SYNC_SCHEDULER_INTERVAL_MS);
+  logger.info(
+    { intervalSec: SYNC_SCHEDULER_INTERVAL_MS / 1000 },
+    '[tareas-avisos] Scheduler activo — avisa a cada responsable si está activado en Ajustes',
   );
 
   if (SYNC_SALES_LINES_ENABLED) {

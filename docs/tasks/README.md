@@ -4,9 +4,10 @@ Documento maestro del módulo. Es la **referencia compartida** por todas las fas
 y por todos los agentes que trabajen en él. Si el código y este documento
 discrepan, discrepa el código.
 
-Estado: **borrador pendiente de aprobación**. Redactado el 25/08/2026 contra el
-estado real del repositorio (Expo SDK 54 + Express ESM en `api/`, DynamoDB
-`eu-west-3`).
+Estado: **Fase 1A completa en código** (26/08/2026). Redactado el 25/08/2026 contra el estado
+real del repositorio (Expo SDK 54 + Express ESM en `api/`, DynamoDB `eu-west-3`).
+Rutas y permisos decididos el 26/08/2026 (D-11): `/proyectos` y `/reuniones`, con
+`proyectos.*` y `reuniones.*`.
 
 ## Índice
 
@@ -29,9 +30,9 @@ Las reglas de trabajo que el agente debe respetar sin leerse todo esto están en
 
 | Fase | Contenido | Estado |
 |---|---|---|
-| **0** | Contrato aprobado, capa de acceso, maestro de departamentos | Contrato en borrador |
-| **1A** | Proyectos, departamentos, tareas, permisos, vista personal | No iniciada |
-| **1B** | Reuniones con acta manual, evento en Calendar, detección de sala | No iniciada |
+| **0** | Contrato aprobado, capa de acceso, maestro de departamentos | **Completa.** Tipos, capa de acceso (73 pruebas), maestro de departamentos con su pantalla, campo en la ficha de usuario y permisos en el catálogo |
+| **1A** | Proyectos, departamentos, tareas, permisos, vista personal | **Completa en código** (26/08/2026). Servidor, pantallas, enlaces/adjuntos en ficha y tarjeta en `planning-dia`. Queda probar a mano la vista personal en móvil |
+| **1B** | Reuniones con acta manual, evento en Calendar, detección de sala | **En curso.** Tabla AWS creada. API + pantallas operativas con Calendar en stub. Falta service account Google para evento real y modalidad |
 | **2** | Captura de audio, transcripción, resumen, cola de validación | No iniciada |
 | **3** | Vencimientos en calendario, sincronización de usuarios, avisos | No iniciada |
 | **4** | Plantillas, orden del día automático, cuadro de mando, actas PDF, compras | No iniciada |

@@ -6,6 +6,7 @@ import {
   BatchWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from './db.js';
+import { invalidarContextoAcceso } from './tasks/acceso.js';
 
 export const ROL_META_SK = 'META';
 export const ROL_SISTEMA = 'Administrador';
@@ -238,6 +239,12 @@ export async function crearRol({ nombre, descripcion = '', clonarDe = '', orden 
         })
       );
     }
+    // `listarRolesCatalogo` admite roles legacy que solo tienen filas PERMISO# y
+    // ningún META, y aquí arriba solo se comprueba el META: se puede "crear" un
+    // rol que ya está en uso y clonarle los permisos de otro. Eso concede
+    // permisos a usuarios con sesión activa, y el contexto cacheado no se
+    // enteraría hasta un minuto después. No hay invalidación por rol.
+    if (permisos.length > 0) invalidarContextoAcceso();
   }
 
   return obtenerRolMeta(norm.nombre);
@@ -306,6 +313,10 @@ export async function eliminarRol(nombre) {
 
   const keys = items.map((i) => ({ PK: i.PK, SK: i.SK }));
   if (keys.length > 0) await batchDeleteItems(keys);
+
+  // Se han borrado las filas PERMISO# del rol: retirar permisos tiene que surtir
+  // efecto ya, no cuando caduque la caché.
+  invalidarContextoAcceso();
 
   return { ok: true };
 }

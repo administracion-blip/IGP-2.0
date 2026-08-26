@@ -2,6 +2,7 @@ import express from 'express';
 import { QueryCommand, ScanCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { invalidarContextoAcceso } from '../lib/tasks/acceso.js';
 
 const router = express.Router();
 
@@ -93,6 +94,9 @@ router.post('/permisos', requireAuth, requireRole('Administrador'), async (req, 
       Item: { PK: pk, SK: sk },
     })
   );
+  // El contexto de acceso cachea los permisos por usuario y no hay invalidación
+  // por rol: conceder un permiso obliga a vaciar la caché entera.
+  invalidarContextoAcceso();
   return res.json({ ok: true });
 });
 
@@ -110,6 +114,8 @@ router.delete('/permisos', requireAuth, requireRole('Administrador'), async (req
       Key: { PK: pk, SK: sk },
     })
   );
+  // Retirar un permiso tiene que surtir efecto ya, no cuando caduque la caché.
+  invalidarContextoAcceso();
   return res.json({ ok: true });
 });
 
