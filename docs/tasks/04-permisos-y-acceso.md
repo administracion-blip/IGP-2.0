@@ -32,7 +32,7 @@ router. **El backend no tiene lista blanca de códigos**, así que no hay que to
 | `proyectos.ver` | Entrar al módulo. **Es el permiso del menú** (`app/constants/modulos.ts`) | 1A |
 | `proyectos.crear` | Crear proyectos | 1A |
 | `proyectos.editar` | Editar proyectos, gestionar miembros, crear y editar tareas | 1A |
-| `proyectos.borrar` | Cancelar o borrar proyectos y tareas | 1A |
+| `proyectos.borrar` | Borrar proyectos (con sus tareas) y tareas sueltas. Cancelar es editar el estado | 1A |
 | `tareas.ver_todas` | Ver tareas de personas y proyectos de los que no se es miembro | 1A |
 | `tareas.editar_todas` | Editar cualquier tarea, sin ser responsable ni miembro | 1A |
 | `reuniones.ver` | Entrar al módulo de reuniones | 1B |

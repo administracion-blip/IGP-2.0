@@ -1371,18 +1371,29 @@ export async function borrarTarea({ ctx, idTarea } = {}) {
     };
   }
 
+  await borrarParticionTarea({
+    ctx,
+    idTarea: id,
+    titulo: texto(acceso.meta.titulo),
+    proyectoId: texto(acceso.meta.proyecto_id) || null,
+  });
+  return { ok: true };
+}
+
+/**
+ * Partición de la tarea + objetos de S3, sin el `409` de subtareas abiertas.
+ * Lo usa el borrado suelto (tras ese chequeo) y la cascada al borrar un proyecto.
+ */
+async function borrarParticionTarea({ ctx, idTarea, titulo, proyectoId, origen }) {
+  const id = texto(idTarea);
   const filas = await consultarTodo({
     TableName: tables.tareas,
     KeyConditionExpression: 'PK = :pk',
     ExpressionAttributeValues: { ':pk': PK.tarea(id) },
-    // Las dos claves de S3 viajan con las de DynamoDB: sin ellas habría que
-    // volver a leer la partición para saber qué objetos hay que borrar.
     ProjectionExpression: 'PK, SK, s3_key, imagen_s3_key',
   });
+  if (filas.length === 0) return false;
 
-  // Antes de tirar las filas, que es el orden que siguen `borrarAdjunto` y
-  // `borrarEnlace`: si se borrara primero DynamoDB, un corte a mitad dejaría los
-  // objetos en el bucket sin nada que los apunte.
   await borrarObjetosDeS3(filas);
 
   for (let i = 0; i < filas.length; i += MAX_LOTE_ESCRITURA) {
@@ -1395,6 +1406,9 @@ export async function borrarTarea({ ctx, idTarea } = {}) {
       );
       pendientes = res?.UnprocessedItems?.[tables.tareas] || [];
     }
+    if (pendientes.length > 0) {
+      throw new Error('DynamoDB no aceptó parte del lote de borrado de tareas');
+    }
   }
 
   await registrarActividad({
@@ -1402,10 +1416,46 @@ export async function borrarTarea({ ctx, idTarea } = {}) {
     entidadId: id,
     accion: ACCIONES.borrada,
     usuario: autorDe(ctx),
-    detalle: { titulo: texto(acceso.meta.titulo), proyecto_id: texto(acceso.meta.proyecto_id) || null },
+    detalle: {
+      titulo: texto(titulo),
+      proyecto_id: texto(proyectoId) || null,
+      ...(origen ? { origen } : {}),
+    },
   });
+  return true;
+}
 
-  return { ok: true };
+/**
+ * Todas las tareas del proyecto, vía `Proyecto-index` (sin `Scan`). No relee
+ * visibilidad por fila: quien ya pudo borrar el proyecto se lleva su trabajo.
+ *
+ * @returns {Promise<{ ok: true, borradas: number }>}
+ */
+export async function borrarTareasDeProyecto({ ctx, idProyecto } = {}) {
+  const id = texto(idProyecto);
+  const metas = await consultarTodo({
+    TableName: tables.tareas,
+    IndexName: IDX_PROYECTO,
+    KeyConditionExpression: 'proyecto_id = :p',
+    ExpressionAttributeValues: { ':p': id },
+    ProjectionExpression: 'id_tarea, titulo, proyecto_id',
+  });
+  const vistos = new Set();
+  let borradas = 0;
+  for (const meta of metas) {
+    const idTarea = texto(meta.id_tarea);
+    if (!idTarea || vistos.has(idTarea)) continue;
+    vistos.add(idTarea);
+    const ok = await borrarParticionTarea({
+      ctx,
+      idTarea,
+      titulo: meta.titulo,
+      proyectoId: texto(meta.proyecto_id) || id,
+      origen: 'cascada_proyecto',
+    });
+    if (ok) borradas += 1;
+  }
+  return { ok: true, borradas };
 }
 
 // ─── Lista de comprobación ───

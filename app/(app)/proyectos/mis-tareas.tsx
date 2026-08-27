@@ -1,13 +1,13 @@
 /**
  * Vista personal de tareas: la pantalla que la gente abre cada día.
  *
- * El backend ya devuelve **solo las abiertas y ordenadas por vencimiento**, así
- * que aquí no se reordena ni se filtra: únicamente se reparten en grupos
- * legibles conservando el orden que llegó. Las acciones (marcar hecha, empezar,
- * bloquear) se resuelven sin entrar en la ficha, y en pantalla estrecha todo son
- * tarjetas con zonas táctiles de `MIN_TOUCH` para poder usarla con una mano.
+ * El backend ya devuelve **solo las abiertas y ordenadas por vencimiento**. La
+ * vista Tarjetas las reparte en grupos sin reordenar. Semana y Mes usan la
+ * misma lista anclada en `fecha_limite`. Las acciones rápidas siguen en las
+ * tarjetas; en el calendario el cuerpo abre la tarea y ↗ el vistazo del
+ * proyecto.
  */
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -32,20 +32,40 @@ import {
   TONO_GRUPO_VENCIMIENTO,
   agruparPorVencimiento,
   grupoVencimiento,
+  hoyIso,
+  proyectoDeTareaAlcanzable,
 } from '../../lib/tasksUi';
+import {
+  addDaysIso,
+  addMonthsIso,
+  etiquetaMes,
+  etiquetaSemana,
+  inicioMesIso,
+  lunesDeSemanaIso,
+} from '../../lib/tasksCalendario';
 import { TarjetaTarea } from '../../components/tasks/TarjetaTarea';
 import { ModalMotivoBloqueo } from '../../components/tasks/ModalMotivoBloqueo';
 import { ModalFormularioTarea } from '../../components/tasks/ModalFormularioTarea';
+import {
+  CalendarioMisTareas,
+  LeyendaDepartamentos,
+} from '../../components/tasks/CalendarioMisTareas';
+import { ModalVistazoProyecto } from '../../components/tasks/ModalVistazoProyecto';
 import { useCambioEstadoTarea } from '../../hooks/useCambioEstadoTarea';
 import { apiFetch, errorMessage } from '../../utils/api';
 import type { Tarea } from '../../types/tasks';
 
+type VistaMisTareas = 'tarjetas' | 'semana' | 'mes';
+
 const LIMITE = 50;
+/** Páginas extra al abrir Semana/Mes para no dejar huecos en el calendario. */
+const MAX_PAGINAS_CALENDARIO = 10;
 
 export default function MisTareasScreen() {
   const router = useRouter();
   const acceso = useAccesoTasks();
-  const { isCompact } = useBreakpoint();
+  const { isCompact, shouldStackToolbar } = useBreakpoint();
+  const departamentos = useDepartamentos();
 
   const [tareas, setTareas] = useState<Tarea[]>([]);
   const [vencidas, setVencidas] = useState(0);
@@ -56,6 +76,9 @@ export default function MisTareasScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const [crearVisible, setCrearVisible] = useState(false);
+  const [vista, setVista] = useState<VistaMisTareas>('tarjetas');
+  const [anclaCalendario, setAnclaCalendario] = useState(hoyIso);
+  const [vistazoId, setVistazoId] = useState<string | null>(null);
 
   const puedeVer = puedeVerProyectos(acceso);
   const puedeCrear = puedeEditarProyectos(acceso);
@@ -130,6 +153,35 @@ export default function MisTareasScreen() {
 
   const cambio = useCambioEstadoTarea({ onCambiada, onNoDisponible });
 
+  const abrirTarea = useCallback(
+    (tarea: Tarea) => {
+      router.push(`/proyectos/tarea/${encodeURIComponent(tarea.id_tarea)}` as never);
+    },
+    [router],
+  );
+
+  const abrirVistazo = useCallback((tarea: Tarea) => {
+    if (!proyectoDeTareaAlcanzable(tarea)) return;
+    setVistazoId(tarea.proyecto_id ?? null);
+  }, []);
+
+  const tareasDelVistazo = useMemo(
+    () => (vistazoId ? tareas.filter((t) => t.proyecto_id === vistazoId) : []),
+    [tareas, vistazoId],
+  );
+
+  const paginasCalendario = useRef(0);
+  useEffect(() => {
+    if (vista === 'tarjetas') {
+      paginasCalendario.current = 0;
+      return;
+    }
+    if (!cursor || cargando || cargandoMas) return;
+    if (paginasCalendario.current >= MAX_PAGINAS_CALENDARIO) return;
+    paginasCalendario.current += 1;
+    void cargar('mas', cursor);
+  }, [vista, cursor, cargando, cargandoMas, cargar]);
+
   if (acceso.permisosCargando) {
     return (
       <View style={styles.centro}>
@@ -174,21 +226,96 @@ export default function MisTareasScreen() {
         ) : null}
       </View>
 
-      <View style={styles.resumen}>
-        <View style={[styles.stat, vencidas > 0 && styles.statAlerta]}>
-          <Text style={[styles.statNumero, vencidas > 0 && styles.statNumeroAlerta]}>{vencidas}</Text>
-          <Text style={[styles.statEtiqueta, vencidas > 0 && styles.statEtiquetaAlerta]}>
-            {vencidas === 1 ? 'vencida' : 'vencidas'}
-          </Text>
+      <View style={[styles.toolbar, shouldStackToolbar && styles.toolbarWrap]}>
+        <View style={styles.kpis}>
+          <View style={[styles.stat, vencidas > 0 && styles.statAlerta]}>
+            <Text style={[styles.statNumero, vencidas > 0 && styles.statNumeroAlerta]}>{vencidas}</Text>
+            <Text style={[styles.statEtiqueta, vencidas > 0 && styles.statEtiquetaAlerta]}>
+              {vencidas === 1 ? 'vencida' : 'vencidas'}
+            </Text>
+          </View>
+          <View style={styles.stat}>
+            <Text style={styles.statNumero}>
+              {tareas.length}
+              {cursor ? '+' : ''}
+            </Text>
+            <Text style={styles.statEtiqueta}>{tareas.length === 1 ? 'abierta' : 'abiertas'}</Text>
+          </View>
         </View>
-        <View style={styles.stat}>
-          <Text style={styles.statNumero}>
-            {tareas.length}
-            {cursor ? '+' : ''}
-          </Text>
-          <Text style={styles.statEtiqueta}>{tareas.length === 1 ? 'abierta' : 'abiertas'}</Text>
+
+        {vista !== 'tarjetas' ? (
+          <View style={styles.rango}>
+            <TouchableOpacity
+              style={styles.rangoBtn}
+              onPress={() =>
+                setAnclaCalendario((prev) =>
+                  vista === 'semana'
+                    ? addDaysIso(lunesDeSemanaIso(prev), -7)
+                    : addMonthsIso(inicioMesIso(prev), -1),
+                )
+              }
+              accessibilityLabel={vista === 'semana' ? 'Semana anterior' : 'Mes anterior'}
+            >
+              <MaterialIcons name="chevron-left" size={22} color="#334155" />
+            </TouchableOpacity>
+            <Text style={styles.rangoTexto} numberOfLines={1}>
+              {vista === 'semana'
+                ? etiquetaSemana(lunesDeSemanaIso(anclaCalendario))
+                : etiquetaMes(anclaCalendario)}
+            </Text>
+            <TouchableOpacity
+              style={styles.rangoBtn}
+              onPress={() =>
+                setAnclaCalendario((prev) =>
+                  vista === 'semana'
+                    ? addDaysIso(lunesDeSemanaIso(prev), 7)
+                    : addMonthsIso(inicioMesIso(prev), 1),
+                )
+              }
+              accessibilityLabel={vista === 'semana' ? 'Semana siguiente' : 'Mes siguiente'}
+            >
+              <MaterialIcons name="chevron-right" size={22} color="#334155" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.hoyBtn}
+              onPress={() => setAnclaCalendario(hoyIso())}
+              accessibilityLabel="Ir a hoy"
+            >
+              <Text style={styles.hoyTexto}>Hoy</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.rangoHueco} />
+        )}
+
+        <View style={styles.viewModeWrap}>
+          {(
+            [
+              ['tarjetas', 'view-list', 'Tarjetas'],
+              ['semana', 'calendar-view-week', 'Semana'],
+              ['mes', 'calendar-month', 'Mes'],
+            ] as const
+          ).map(([id, icono, etiqueta]) => {
+            const activo = vista === id;
+            return (
+              <TouchableOpacity
+                key={id}
+                style={[styles.viewModeBtn, activo && styles.viewModeBtnActive, isCompact && styles.viewModeBtnTactil]}
+                onPress={() => setVista(id)}
+                accessibilityLabel={`Vista ${etiqueta}`}
+                accessibilityState={{ selected: activo }}
+              >
+                <MaterialIcons name={icono} size={20} color={activo ? '#0ea5e9' : '#94a3b8'} />
+                <Text style={[styles.viewModeTexto, activo && styles.viewModeTextoActivo]}>{etiqueta}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
+
+      {tareas.length > 0 ? (
+        <LeyendaDepartamentos tareas={tareas} nombreDepartamento={departamentos.nombrePorId} />
+      ) : null}
 
       {cambio.error ? (
         <TouchableOpacity style={styles.avisoAccion} onPress={cambio.descartarError}>
@@ -213,6 +340,7 @@ export default function MisTareasScreen() {
           </TouchableOpacity>
         </View>
       ) : (
+        vista === 'tarjetas' ? (
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
@@ -252,9 +380,7 @@ export default function MisTareasScreen() {
                         key={tarea.id_tarea}
                         tarea={tarea}
                         mostrarProyecto
-                        onAbrir={() =>
-                          router.push(`/proyectos/tarea/${encodeURIComponent(tarea.id_tarea)}` as never)
-                        }
+                        onAbrir={() => abrirTarea(tarea)}
                         onCambiarEstado={
                           tarea.permisos_fila?.editar
                             ? (destino) => cambio.pedirCambio(tarea, destino)
@@ -272,25 +398,49 @@ export default function MisTareasScreen() {
             })
           )}
 
-          {cursor ? (
-            <TouchableOpacity
-              style={[styles.masBtn, isCompact && styles.masBtnTactil]}
-              onPress={() => void cargar('mas', cursor)}
-              disabled={cargandoMas}
-            >
-              {cargandoMas ? (
-                <ActivityIndicator size="small" color="#0ea5e9" />
-              ) : (
-                <>
-                  <MaterialIcons name="expand-more" size={18} color="#0ea5e9" />
-                  <Text style={styles.masTexto}>Cargar más tareas</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          ) : null}
+          <BotonCargarMas
+            cursor={cursor}
+            cargandoMas={cargandoMas}
+            isCompact={isCompact}
+            onMas={() => void cargar('mas', cursor)}
+          />
 
           {error && tareas.length > 0 ? <Text style={styles.errorPie}>{error}</Text> : null}
         </ScrollView>
+      ) : (
+        <View style={styles.calendarioWrap}>
+          {tareas.length === 0 ? (
+            <View style={styles.vacio}>
+              <MaterialIcons name="event-available" size={40} color="#16a34a" />
+              <Text style={styles.vacioTitulo}>No tienes nada pendiente</Text>
+              <Text style={styles.vacioTexto}>
+                Cuando alguien te asigne una tarea aparecerá en el calendario, en su fecha límite.
+              </Text>
+            </View>
+          ) : (
+            <CalendarioMisTareas
+              modo={vista}
+              ancla={anclaCalendario}
+              tareas={tareas}
+              nombreDepartamento={departamentos.nombrePorId}
+              onAbrirTarea={abrirTarea}
+              onAbrirProyecto={abrirVistazo}
+            />
+          )}
+          {cursor && !cargandoMas ? (
+            <Text style={styles.avisoCalendario}>
+              Hay más tareas fuera de esta lista. Cárgalas para verlas en el calendario.
+            </Text>
+          ) : null}
+          <BotonCargarMas
+            cursor={cursor}
+            cargandoMas={cargandoMas}
+            isCompact={isCompact}
+            onMas={() => void cargar('mas', cursor)}
+          />
+          {error && tareas.length > 0 ? <Text style={styles.errorPie}>{error}</Text> : null}
+        </View>
+        )
       )}
 
       <ModalMotivoBloqueo
@@ -304,6 +454,7 @@ export default function MisTareasScreen() {
       {crearVisible ? (
         <ModalNuevaTareaPersonal
           responsablePorDefecto={acceso.usuarioId}
+          departamentos={departamentos}
           onCerrar={() => setCrearVisible(false)}
           onCreada={() => {
             setCrearVisible(false);
@@ -311,26 +462,42 @@ export default function MisTareasScreen() {
           }}
         />
       ) : null}
+
+      <ModalVistazoProyecto
+        visible={vistazoId != null}
+        proyectoId={vistazoId}
+        tareasMias={tareasDelVistazo}
+        nombreDepartamento={departamentos.nombrePorId}
+        onCerrar={() => setVistazoId(null)}
+        onVerCompleto={(id) => {
+          setVistazoId(null);
+          router.push(`/proyectos/${encodeURIComponent(id)}` as never);
+        }}
+        onAbrirTarea={(tarea) => {
+          setVistazoId(null);
+          abrirTarea(tarea);
+        }}
+      />
     </View>
   );
 }
 
 /**
- * Envoltorio del alta para que los maestros de usuarios y departamentos solo se
- * pidan cuando alguien abre el formulario: esta pantalla se abre muchas veces al
- * día y no debe arrastrar dos lecturas que casi nunca se usan.
+ * El alta sigue pidiendo usuarios solo al abrir el formulario. Los departamentos
+ * ya están en la pantalla (leyenda del calendario) y se reutilizan.
  */
 function ModalNuevaTareaPersonal({
   responsablePorDefecto,
+  departamentos,
   onCerrar,
   onCreada,
 }: {
   responsablePorDefecto: string;
+  departamentos: ReturnType<typeof useDepartamentos>;
   onCerrar: () => void;
   onCreada: () => void;
 }) {
   const usuarios = useNombresUsuarios();
-  const departamentos = useDepartamentos();
   return (
     <ModalFormularioTarea
       visible
@@ -344,8 +511,38 @@ function ModalNuevaTareaPersonal({
   );
 }
 
+function BotonCargarMas({
+  cursor,
+  cargandoMas,
+  isCompact,
+  onMas,
+}: {
+  cursor: string | null;
+  cargandoMas: boolean;
+  isCompact: boolean;
+  onMas: () => void;
+}) {
+  if (!cursor) return null;
+  return (
+    <TouchableOpacity
+      style={[styles.masBtn, isCompact && styles.masBtnTactil]}
+      onPress={onMas}
+      disabled={cargandoMas}
+    >
+      {cargandoMas ? (
+        <ActivityIndicator size="small" color="#0ea5e9" />
+      ) : (
+        <>
+          <MaterialIcons name="expand-more" size={18} color="#0ea5e9" />
+          <Text style={styles.masTexto}>Cargar más tareas</Text>
+        </>
+      )}
+    </TouchableOpacity>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#e2e8f0' },
+  container: { flex: 1, padding: 16, backgroundColor: '#f8fafc' },
   centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
   centroTexto: { fontSize: 13, color: '#64748b', textAlign: 'center' },
   centroError: { fontSize: 13, color: '#ef4444', textAlign: 'center' },
@@ -378,7 +575,45 @@ const styles = StyleSheet.create({
   nuevaBtnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 14 },
   nuevaTexto: { fontSize: 13, fontWeight: '700', color: '#ffffff' },
 
-  resumen: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  toolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+  },
+  toolbarWrap: { flexWrap: 'wrap' },
+  kpis: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  rango: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minWidth: 220,
+  },
+  rangoHueco: { flex: 1, minWidth: 0 },
+  rangoBtn: {
+    width: MIN_TOUCH,
+    height: MIN_TOUCH,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rangoTexto: { fontSize: 14, fontWeight: '700', color: '#0f172a', minWidth: 120, textAlign: 'center' },
+  hoyBtn: {
+    minHeight: MIN_TOUCH,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hoyTexto: { fontSize: 13, fontWeight: '700', color: '#0369a1' },
   stat: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -410,6 +645,30 @@ const styles = StyleSheet.create({
     minHeight: MIN_TOUCH,
   },
   avisoAccionTexto: { flex: 1, fontSize: 12, color: '#b91c1c', lineHeight: 17 },
+
+  viewModeWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  viewModeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#ffffff',
+  },
+  viewModeBtnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 14 },
+  viewModeBtnActive: { backgroundColor: '#e0f2fe' },
+  viewModeTexto: { fontSize: 13, fontWeight: '500', color: '#94a3b8' },
+  viewModeTextoActivo: { color: '#0ea5e9', fontWeight: '700' },
+
+  calendarioWrap: { flex: 1, minHeight: 0, gap: 10 },
+  avisoCalendario: { fontSize: 12, color: '#d97706', textAlign: 'center' },
 
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 24, gap: 16 },

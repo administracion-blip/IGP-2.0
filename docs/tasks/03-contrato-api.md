@@ -97,9 +97,10 @@ síntoma es un botón escondido a quien sí puede pulsarlo. Lo que dice `permiso
 es lo que responde la escritura correspondiente.
 
 `borrar` refleja el permiso global y la visibilidad, que es lo que comprueban
-`borrarProyecto` y `borrarTarea`. **No** anticipa el `409` por tener tareas o
-subtareas abiertas: eso exige contarlas y no merece una lectura por fila. Un
-`borrar: true` puede acabar en `409`, y la interfaz tiene que enseñar ese mensaje.
+`borrarProyecto` y `borrarTarea`. En un **proyecto**, borrar se lleva también
+las tareas. En una **tarea**, `borrar: true` puede acabar en `409` si tiene
+subtareas abiertas: eso exige contarlas y no merece una lectura por fila. La
+interfaz tiene que enseñar ese mensaje.
 
 `crear_subtarea` **no coincide con `editar`**, y ahí está su motivo de existir:
 colgar una subtarea es crear una tarea, y crear decide sobre el proyecto. Quien es
@@ -126,7 +127,7 @@ de que no exista; el `403` queda para «la veo pero no puedo tocarla» (D-16).
 | POST | `/api/proyectos` | 1A | `proyectos.crear` | Quien lo crea queda como miembro `responsable` salvo que indique otro |
 | GET | `/api/proyectos/:id` | 1A | `proyectos.ver` + visibilidad | Una sola Query: `META` + miembros + compras + vínculos. Incluye `gasto_comprometido` y `gasto_real` calculados, y `usuario_nombre` en cada miembro |
 | PATCH | `/api/proyectos/:id` | 1A | ser responsable, o miembro con `proyectos.editar` | |
-| DELETE | `/api/proyectos/:id` | 1A | `proyectos.borrar` | Borrado físico **solo** si no tiene tareas; si las tiene, `409` (D-17). Cancelar es `PATCH { estado: 'cancelado' }` |
+| DELETE | `/api/proyectos/:id` | 1A | `proyectos.borrar` | Borrado físico del proyecto **y de sus tareas** (D-17). Cancelar sin borrar es `PATCH { estado: 'cancelado' }` |
 | POST | `/api/proyectos/:id/miembros` | 1A | ser responsable, o miembro con `proyectos.editar` | `{ usuario_id, rol_proyecto }` |
 | DELETE | `/api/proyectos/:id/miembros/:usuarioId` | 1A | ser responsable, o miembro con `proyectos.editar` | `409` si es el único responsable |
 | GET | `/api/proyectos/:id/actividad` | 1A | `proyectos.ver` + visibilidad | Paginado, más reciente primero |

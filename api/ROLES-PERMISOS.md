@@ -212,7 +212,7 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `departamentos.editar` | Departamentos · Crear, editar y dar de baja el maestro. La lectura solo pide sesión |
 | `proyectos.crear` | Proyectos · Crear |
 | `proyectos.editar` | Proyectos · Editar y gestionar miembros |
-| `proyectos.borrar` | Proyectos · Borrar |
+| `proyectos.borrar` | Proyectos · Borrar proyectos y sus tareas |
 | `tareas.ver_todas` | Proyectos · Ver todas las tareas, sin ser responsable ni miembro |
 | `tareas.editar_todas` | Proyectos · Editar cualquier tarea. **No** alcanza a editar proyectos (D-13) |
 | `proyectos.presupuesto_ver` | Proyectos · Ver presupuesto asignado, comprometido y real |

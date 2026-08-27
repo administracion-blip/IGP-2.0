@@ -68,8 +68,6 @@ import { ACCIONES, listarActividad, registrarActividad } from './actividad.js';
 import { codificarCursor, decodificarCursor, limiteValido } from './paginacion.js';
 
 const IDX_LISTADO = 'Listado-index';
-/** Índice de `Igp_Tareas`: se consulta para saber si un proyecto tiene tareas. */
-const IDX_PROYECTO_TAREAS = 'Proyecto-index';
 /** Tipo de entidad, para el registro de actividad y para `filtrarVisibles`. */
 const ENTIDAD = 'proyecto';
 
@@ -257,8 +255,7 @@ export function nombreDe(nombres, id) {
  * escondido a quien sí puede pulsarlo.
  *
  * `borrar` refleja el permiso global y la visibilidad, que es lo que comprueba
- * `borrarProyecto`. **No** dice si el borrado acabará en `409` por tener tareas:
- * eso exige contarlas y no merece una lectura por fila.
+ * `borrarProyecto`. Si el proyecto tiene tareas, el borrado las lleva consigo.
  */
 function permisosFilaProyecto(ctx, proyecto, miembros = []) {
   return {
@@ -505,24 +502,6 @@ async function clavesDeParticion(idProyecto) {
     desde = res.LastEvaluatedKey || null;
   } while (desde);
   return claves;
-}
-
-/**
- * ¿Cuelga alguna tarea de este proyecto? Vía `Proyecto-index` de `Igp_Tareas`,
- * pidiendo una sola fila: la pregunta es «hay» o «no hay».
- */
-async function tieneTareas(idProyecto) {
-  const res = await docClient.send(
-    new QueryCommand({
-      TableName: tables.tareas,
-      IndexName: IDX_PROYECTO_TAREAS,
-      KeyConditionExpression: 'proyecto_id = :p',
-      ExpressionAttributeValues: { ':p': texto(idProyecto) },
-      ProjectionExpression: 'PK',
-      Limit: 1,
-    }),
-  );
-  return (res.Items || []).length > 0;
 }
 
 // ─── Listado ───
@@ -922,22 +901,21 @@ export async function actualizarProyecto(ctx, idProyecto, body = {}) {
 // ─── Borrado ───
 
 /**
- * Borrado físico del proyecto y de sus filas hijas.
+ * Borrado físico del proyecto, de sus filas hijas y de las tareas que cuelgan
+ * de él (`Proyecto-index`, sin `Scan`). El historial de `Igp_Actividad` **no**
+ * se borra: es append-only y sobrevive a la entidad.
  *
- * Solo si no tiene tareas: con tareas se responde `409` y la vía es cambiarlo a
- * `cancelado`, porque `Igp_Tareas` guarda `proyecto_id` sin integridad
- * referencial y borrar la cabecera dejaría las tareas apuntando a nada. El
- * historial de `Igp_Actividad` **no** se borra: es append-only y sobrevive a la
- * entidad.
+ * Cancelar (`PATCH { estado: 'cancelado' }`) sigue siendo la vía para
+ * retirarlo sin perder las tareas.
  */
 export async function borrarProyecto(ctx, idProyecto) {
   const leido = await leerProyectoCompleto(idProyecto);
   if (!leido) return rechazar(404, 'El proyecto no existe');
   const denegado = comprobarAcceso(ctx, leido);
   if (denegado) return denegado;
-  if (await tieneTareas(idProyecto)) {
-    return rechazar(409, 'El proyecto tiene tareas: pásalo a «cancelado» en lugar de borrarlo');
-  }
+
+  const { borrarTareasDeProyecto } = await import('./tareas.js');
+  const cascada = await borrarTareasDeProyecto({ ctx, idProyecto });
 
   const claves = await clavesDeParticion(idProyecto);
   await escribirLote(claves.map((Key) => ({ DeleteRequest: { Key } })));
@@ -947,10 +925,14 @@ export async function borrarProyecto(ctx, idProyecto) {
     entidadId: texto(idProyecto),
     accion: ACCIONES.borrada,
     usuario: autorDe(ctx),
-    detalle: { nombre: leido.proyecto.nombre, estado: leido.proyecto.estado },
+    detalle: {
+      nombre: leido.proyecto.nombre,
+      estado: leido.proyecto.estado,
+      tareas_borradas: cascada.borradas,
+    },
   });
 
-  return { ok: true };
+  return { ok: true, tareas_borradas: cascada.borradas };
 }
 
 // ─── Miembros ───

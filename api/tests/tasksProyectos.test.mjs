@@ -13,7 +13,7 @@
  * - **Comprometido y real se calculan** sumando las líneas `COMPRA#`. No hay
  *   contador guardado que pueda desincronizarse.
  * - **Un proyecto no se queda sin responsable** ni sin cabecera: quitar al único
- *   responsable y borrar un proyecto con tareas responden `409`.
+ *   responsable responde `409`. Borrar el proyecto se lleva sus tareas.
  * - **`gsi_listado` solo va en el `META`**, que es lo que mantiene el índice de
  *   listado con un ítem por proyecto.
  */
@@ -643,22 +643,37 @@ test('un tipo de vínculo que no está en la lista se rechaza con 400', async ()
 
 // ─── Borrado ───
 
-test('borrar un proyecto con tareas responde 409 y no toca nada', async () => {
+test('borrar un proyecto con tareas se lleva también esas tareas', async () => {
   const db = montar();
   sembrarProyecto(db, { id: 'p1' });
   db.sembrar(tables.tareas, {
     PK: 'TAREA#t1',
     SK: 'META',
     id_tarea: 't1',
+    titulo: 'Cartel',
     proyecto_id: 'p1',
     sk_proyecto: 'abierta#2026-09-01#t1',
     estado: 'pendiente',
   });
+  db.sembrar(tables.tareas, {
+    PK: 'TAREA#t1',
+    SK: 'ADJ#a1',
+    s3_key: 'tareas/t1/a1.pdf',
+  });
+  db.sembrar(tables.tareas, {
+    PK: 'TAREA#t9',
+    SK: 'META',
+    id_tarea: 't9',
+    proyecto_id: 'otro',
+    sk_proyecto: 'abierta#2026-09-01#t9',
+  });
 
   const r = await api('DELETE', '/api/proyectos/p1', undefined, ANA);
-  assert.equal(r.status, 409);
-  assert.match(r.body.error, /cancelado/);
-  assert.ok(meta(db, 'p1'), 'las tareas quedarían apuntando a nada');
+  assert.equal(r.status, 200);
+  assert.equal(r.body.tareas_borradas, 1);
+  assert.deepEqual(filasDe(db, 'p1'), []);
+  assert.equal(db.listar(tables.tareas).filter((t) => t.PK === 'TAREA#t1').length, 0);
+  assert.ok(db.listar(tables.tareas).some((t) => t.PK === 'TAREA#t9'), 'la de otro proyecto no se toca');
 });
 
 test('borrar un proyecto sin tareas se lleva la partición entera', async () => {

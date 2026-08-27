@@ -848,7 +848,7 @@ function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#e2e8f0' },
+  container: { flex: 1, backgroundColor: '#f8fafc' },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 32, gap: 12 },
 

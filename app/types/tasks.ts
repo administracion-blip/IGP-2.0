@@ -161,7 +161,7 @@ export type CodigoPermisoTasks = (typeof PERMISOS)[keyof typeof PERMISOS];
  * deniega: el valor por defecto de todo el módulo es no poder.
  */
 
-/** `borrar` puede ser `true` y acabar en `409` si el proyecto tiene tareas. */
+/** En proyecto, `borrar` autoriza también la cascada de sus tareas. */
 export type PermisosFilaProyecto = {
   editar: boolean;
   borrar: boolean;

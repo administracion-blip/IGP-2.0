@@ -178,15 +178,17 @@ exista. El `403` queda para «la veo pero no puedo tocarla».
 corresponde saberlo. Y sobre todo: los dos routers tenían que responder igual, o la
 interfaz acabaría tratando cada caso de una forma según el endpoint.
 
-### D-17 · `DELETE /api/proyectos/:id` no cancela — 26/08/2026
+### D-17 · `DELETE /api/proyectos/:id` borra también las tareas — 27/08/2026
 
-Si el proyecto tiene tareas, responde `409` con un mensaje que remite a cancelarlo.
-Si no las tiene, se borra físicamente. Cancelar es `PATCH { estado: 'cancelado' }`.
+`DELETE` es siempre borrado físico: el proyecto y las tareas que cuelgan de él
+(vía `Proyecto-index`, sin `Scan`). Las tareas de otros proyectos no se tocan.
+El historial (`Igp_Actividad`) se conserva. Cancelar sin borrar sigue siendo
+`PATCH { estado: 'cancelado' }`.
 
-*Motivo:* el contrato pedía a la vez «pasa a cancelado» y «`409` si tiene tareas»,
-que no puede cumplirse entero. De las dos salidas, la mala era que el mismo verbo
-borrara o archivara según el contenido: el cliente no puede saber qué ha pasado sin
-leer la respuesta, y en un ERP eso acaba en «creí que lo había borrado».
+La versión anterior (26/08/2026) respondía `409` si había tareas y remitía a
+cancelar, para no dejar `proyecto_id` huérfano. Quien tiene `proyectos.borrar`
+necesita poder vaciar un proyecto equivocado; la cascada evita el huérfano y
+el `409`. El cliente no cambia de verbo: `DELETE` borra, `PATCH` cancela.
 
 ### D-18 · `GET /api/tareas` exige `proyecto` o `responsable` — 26/08/2026
 

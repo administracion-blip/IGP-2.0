@@ -102,13 +102,13 @@ router.patch('/proyectos/:id', async (req, res) => {
   return res.json({ ok: true, proyecto: r.proyecto });
 });
 
-// Borrado físico solo sin tareas; con tareas, 409 y la vía es pasarlo a
-// `cancelado` con el PATCH de estado.
+// Borrado físico del proyecto y de las tareas que cuelgan de él. Cancelar
+// sin borrar es `PATCH { estado: 'cancelado' }`.
 router.delete('/proyectos/:id', requirePermission(PERMISOS.proyectosBorrar), async (req, res) => {
   const ctx = await cargarContextoAcceso(req.user);
   const r = await borrarProyecto(ctx, req.params.id);
   if (!r.ok) return fallo(res, r);
-  return res.json({ ok: true });
+  return res.json({ ok: true, tareas_borradas: r.tareas_borradas ?? 0 });
 });
 
 // Gestionar miembros es editar el proyecto: misma decisión, mismo sitio.

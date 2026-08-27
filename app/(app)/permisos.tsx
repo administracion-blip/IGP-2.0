@@ -447,7 +447,7 @@ const PERMISOS_LABELS: Record<string, string> = {
   'departamentos.editar': 'Departamentos · Crear, editar y dar de baja el maestro',
   'proyectos.crear': 'Proyectos · Crear',
   'proyectos.editar': 'Proyectos · Editar y gestionar miembros',
-  'proyectos.borrar': 'Proyectos · Borrar',
+  'proyectos.borrar': 'Proyectos · Borrar proyectos y sus tareas',
   'tareas.ver_todas': 'Proyectos · Ver todas las tareas (sin ser responsable ni miembro)',
   'tareas.editar_todas': 'Proyectos · Editar cualquier tarea',
   'proyectos.presupuesto_ver': 'Proyectos · Ver presupuesto, comprometido y real',

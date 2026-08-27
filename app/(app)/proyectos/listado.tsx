@@ -67,7 +67,6 @@ export default function ListadoProyectosScreen() {
   const [proyectoEdicion, setProyectoEdicion] = useState<Proyecto | null>(null);
   const [proyectoBaja, setProyectoBaja] = useState<Proyecto | null>(null);
   const [errorBaja, setErrorBaja] = useState<string | null>(null);
-  const [ofreceCancelar, setOfreceCancelar] = useState(false);
 
   const puedeVer = puedeVerProyectos(acceso);
   const puedeCrear = puedeCrearProyectos(acceso);
@@ -188,7 +187,6 @@ export default function ListadoProyectosScreen() {
     }
     setProyectoBaja(item);
     setErrorBaja(null);
-    setOfreceCancelar(false);
   }, []);
 
   const confirmarBaja = useCallback(async () => {
@@ -202,9 +200,6 @@ export default function ListadoProyectosScreen() {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
         setErrorBaja(data.error || 'No se pudo borrar el proyecto');
-        // Con tareas dentro no hay borrado físico y el `409` no se puede
-        // anticipar: la vía es cancelarlo, y eso sí exige poder editarlo.
-        if (res.status === 409) setOfreceCancelar(proyectoBaja.permisos_fila?.editar === true);
         return;
       }
       setProyectoBaja(null);
@@ -212,31 +207,6 @@ export default function ListadoProyectosScreen() {
       void cargar();
     } catch (e) {
       console.error('[tasks] fallo al borrar el proyecto', e);
-      setErrorBaja(errorMessage(e, 'No se pudo conectar con el servidor'));
-    } finally {
-      setGuardando(false);
-    }
-  }, [proyectoBaja, cargar]);
-
-  const cancelarProyecto = useCallback(async () => {
-    if (!proyectoBaja) return;
-    setGuardando(true);
-    setErrorBaja(null);
-    try {
-      const res = await apiFetch(`/api/proyectos/${encodeURIComponent(proyectoBaja.id_proyecto)}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ estado: 'cancelado' }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        setErrorBaja(data.error || 'No se pudo cancelar el proyecto');
-        return;
-      }
-      setProyectoBaja(null);
-      setFilaSeleccionada(null);
-      void cargar();
-    } catch (e) {
-      console.error('[tasks] fallo al cancelar el proyecto', e);
       setErrorBaja(errorMessage(e, 'No se pudo conectar con el servidor'));
     } finally {
       setGuardando(false);
@@ -412,8 +382,8 @@ export default function ListadoProyectosScreen() {
             <Text style={modal.confirmTitle}>Borrar el proyecto</Text>
             <Text style={modal.confirmText}>
               <Text style={modal.confirmDestacado}>{proyectoBaja?.nombre}</Text> se borrará
-              definitivamente. Solo es posible si no tiene ninguna tarea: si las tiene, lo que procede es
-              cancelarlo para conservar el historial.
+              definitivamente, junto con sus tareas asignadas. El historial se conserva. Si
+              prefieres retirarlo sin borrar el trabajo, cámbialo a «Cancelado» desde Editar.
             </Text>
             {errorBaja ? <Text style={styles.errorBaja}>{errorBaja}</Text> : null}
             <View style={modal.confirmBotones}>
@@ -422,33 +392,19 @@ export default function ListadoProyectosScreen() {
                 onPress={() => setProyectoBaja(null)}
                 disabled={guardando}
               >
-                <Text style={modal.btnText}>Cancelar</Text>
+                <Text style={modal.btnText}>Cerrar</Text>
               </TouchableOpacity>
-              {ofreceCancelar ? (
-                <TouchableOpacity
-                  style={[modal.btn, modal.btnPeligro, isCompact && modal.btnTactil]}
-                  onPress={() => void cancelarProyecto()}
-                  disabled={guardando}
-                >
-                  {guardando ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
-                  ) : (
-                    <Text style={modal.btnTextPeligro}>Cancelar el proyecto</Text>
-                  )}
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={[modal.btn, modal.btnPeligro, isCompact && modal.btnTactil]}
-                  onPress={() => void confirmarBaja()}
-                  disabled={guardando}
-                >
-                  {guardando ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
-                  ) : (
-                    <Text style={modal.btnTextPeligro}>Borrar</Text>
-                  )}
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity
+                style={[modal.btn, modal.btnPeligro, isCompact && modal.btnTactil]}
+                onPress={() => void confirmarBaja()}
+                disabled={guardando}
+              >
+                {guardando ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={modal.btnTextPeligro}>Borrar</Text>
+                )}
+              </TouchableOpacity>
             </View>
           </Pressable>
         </Pressable>
