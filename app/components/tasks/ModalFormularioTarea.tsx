@@ -194,7 +194,9 @@ export function ModalFormularioTarea({
           style={modal.center}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <Pressable style={[modal.cardWrap, shouldStackPanels && modal.cardWrapAncho]}>
+          <Pressable
+            style={[modal.cardWrap, (shouldStackPanels || isCompact) && modal.cardWrapAncho]}
+          >
             <View style={modal.card}>
               <View style={modal.header}>
                 <Text style={modal.title}>{tituloModal}</Text>
@@ -225,49 +227,74 @@ export function ModalFormularioTarea({
                     placeholder="Detalle, contexto, con @nombre para mencionar a alguien"
                     placeholderTextColor="#94a3b8"
                     multiline
+                    numberOfLines={4}
                     editable={!guardando}
                   />
                 </View>
 
-                {modo === 'crear' ? (
-                  <View style={form.group}>
-                    <SelectorDesplegable
-                      label="Responsable *"
-                      icono="person"
-                      placeholder="Sin responsable"
-                      tituloLista="Selecciona el responsable"
-                      iconoLista="person"
-                      buscador
-                      buscadorPlaceholder="Buscar usuario…"
-                      valorId={datos.responsable_id}
-                      opciones={opcionesResponsable}
-                      vacioTexto="No hay usuarios disponibles"
-                      disabled={guardando || usuarios.noDisponibles}
-                      loading={usuarios.cargando}
-                      onSeleccionar={(id) => setDatos((p) => ({ ...p, responsable_id: id }))}
-                    />
-                    {usuarios.noDisponibles ? (
-                      <View style={form.aviso}>
-                        <MaterialIcons name="info-outline" size={14} color="#d97706" />
-                        <Text style={form.avisoTexto}>
-                          No se puede elegir responsable sin el permiso de usuarios. Pide a alguien con ese
-                          permiso que cree la tarea.
+                <View style={[form.group, form.gridDos, shouldStackPanels && form.gridDosApilado]}>
+                  <View style={form.col}>
+                    {modo === 'crear' ? (
+                      <>
+                        <SelectorDesplegable
+                          label="Responsable *"
+                          icono="person"
+                          placeholder="Sin responsable"
+                          tituloLista="Selecciona el responsable"
+                          iconoLista="person"
+                          buscador
+                          buscadorPlaceholder="Buscar usuario…"
+                          valorId={datos.responsable_id}
+                          opciones={opcionesResponsable}
+                          vacioTexto="No hay usuarios disponibles"
+                          disabled={guardando || usuarios.noDisponibles}
+                          loading={usuarios.cargando}
+                          onSeleccionar={(id) => setDatos((p) => ({ ...p, responsable_id: id }))}
+                        />
+                        {usuarios.noDisponibles ? (
+                          <View style={form.aviso}>
+                            <MaterialIcons name="info-outline" size={14} color="#d97706" />
+                            <Text style={form.avisoTexto}>
+                              No se puede elegir responsable sin el permiso de usuarios. Pide a
+                              alguien con ese permiso que cree la tarea.
+                            </Text>
+                          </View>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        <Text style={form.label}>Responsable</Text>
+                        <Text style={styles.soloLectura}>
+                          {usuarios.nombrePorId(datos.responsable_id)}
                         </Text>
-                      </View>
-                    ) : null}
+                        <Text style={form.help}>
+                          El responsable se cambia desde «Reasignar» en la ficha de la tarea.
+                        </Text>
+                      </>
+                    )}
                   </View>
-                ) : (
-                  <View style={form.group}>
-                    <Text style={form.label}>Responsable</Text>
-                    <Text style={styles.soloLectura}>{usuarios.nombrePorId(datos.responsable_id)}</Text>
+                  <View style={form.col}>
+                    <SelectorDesplegable
+                      label="Departamento"
+                      icono="account-tree"
+                      placeholder="Sin departamento"
+                      tituloLista="Selecciona un departamento"
+                      iconoLista="account-tree"
+                      valorId={datos.departamento_id}
+                      opciones={opcionesDepartamento}
+                      vacioTexto="No hay departamentos activos"
+                      disabled={guardando}
+                      loading={departamentos.cargando}
+                      onSeleccionar={(id) => setDatos((p) => ({ ...p, departamento_id: id }))}
+                    />
                     <Text style={form.help}>
-                      El responsable se cambia desde «Reasignar» en la ficha de la tarea.
+                      Es etiqueta organizativa: no limita a quién se le puede asignar la tarea.
                     </Text>
                   </View>
-                )}
+                </View>
 
-                <View style={[form.group, form.groupFila]}>
-                  <View style={form.groupMitad}>
+                <View style={[form.group, form.gridDos, shouldStackPanels && form.gridDosApilado]}>
+                  <View style={form.col}>
                     <Text style={form.label}>Fecha límite</Text>
                     <InputFecha
                       compact
@@ -277,7 +304,7 @@ export function ModalFormularioTarea({
                       style={estiloCampoFechaCompacto}
                     />
                   </View>
-                  <View style={form.groupMitad}>
+                  <View style={form.col}>
                     <Text style={form.label}>Prioridad</Text>
                     <View style={form.chipsRow}>
                       {PRIORIDADES.map((p) => (
@@ -300,25 +327,6 @@ export function ModalFormularioTarea({
                       ))}
                     </View>
                   </View>
-                </View>
-
-                <View style={form.group}>
-                  <SelectorDesplegable
-                    label="Departamento"
-                    icono="account-tree"
-                    placeholder="Sin departamento"
-                    tituloLista="Selecciona un departamento"
-                    iconoLista="account-tree"
-                    valorId={datos.departamento_id}
-                    opciones={opcionesDepartamento}
-                    vacioTexto="No hay departamentos activos"
-                    disabled={guardando}
-                    loading={departamentos.cargando}
-                    onSeleccionar={(id) => setDatos((p) => ({ ...p, departamento_id: id }))}
-                  />
-                  <Text style={form.help}>
-                    Es etiqueta organizativa: no limita a quién se le puede asignar la tarea.
-                  </Text>
                 </View>
               </ScrollView>
 

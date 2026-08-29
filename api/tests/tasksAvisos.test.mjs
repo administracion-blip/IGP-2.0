@@ -79,6 +79,17 @@ function montar({
   db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.ajustes, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.notificaciones, {
+    hashKey: 'PK',
+    rangeKey: 'SK',
+    indices: {
+      'NoLeidas-index': {
+        hashKey: 'usuario_no_leida',
+        rangeKey: 'creado_en',
+        proyeccion: 'KEYS_ONLY',
+      },
+    },
+  });
   db.instalar(docClient);
 
   // El contexto de acceso se cachea un minuto por usuario: entre pruebas se tira.
@@ -343,8 +354,8 @@ test('la tanda no recorre la tabla de tareas: una Query por persona al índice',
   );
   assert.equal(
     db.operaciones.filter((o) => o.tipo === 'QueryCommand' && o.tabla === tables.tareas).length,
-    2,
-    'una Query por persona con email, y solo por ellas',
+    3,
+    'una Query por persona del maestro (también sin email: la campana lo necesita)',
   );
 });
 
@@ -442,7 +453,7 @@ test('desactivado en configuración no manda nada aunque haya tareas vencidas', 
 
 test('un usuario sin email no rompe la tanda y un envío que falla no impide los demás', async () => {
   // Bea va antes que Ana en el maestro: si el fallo cortara la tanda, Ana no
-  // recibiría nada.
+  // recibiría nada. Carlos no tiene email: no correo, sí campana.
   const db = montar({ personas: [BEA, ANA, CARLOS] });
   sembrarTarea(db, {
     id_tarea: 'de-bea',
@@ -475,4 +486,13 @@ test('un usuario sin email no rompe la tanda y un envío que falla no impide los
     [ANA.Email],
     'a quien no tiene email no se le escribe, y se salta sin ruido',
   );
+
+  const { listarNotificaciones } = await import('../lib/tasks/notificaciones.js');
+  const campanaCarlos = await listarNotificaciones({ usuarioId: CARLOS.id_usuario });
+  assert.equal(
+    campanaCarlos.notificaciones.filter((n) => n.tipo === 'vencimiento').length,
+    1,
+    'sin email también recibe la campana de vencimiento',
+  );
+  assert.ok(r.notificaciones >= 3);
 });

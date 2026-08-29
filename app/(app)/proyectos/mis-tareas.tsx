@@ -51,6 +51,7 @@ import {
   LeyendaDepartamentos,
 } from '../../components/tasks/CalendarioMisTareas';
 import { ModalVistazoProyecto } from '../../components/tasks/ModalVistazoProyecto';
+import { SuscripcionVencimientosIcs } from '../../components/tasks/SuscripcionVencimientosIcs';
 import { useCambioEstadoTarea } from '../../hooks/useCambioEstadoTarea';
 import { apiFetch, errorMessage } from '../../utils/api';
 import type { Tarea } from '../../types/tasks';
@@ -214,16 +215,19 @@ export default function MisTareasScreen() {
           <Text style={styles.title}>Mis tareas</Text>
           <Text style={styles.subtitle}>Abiertas y ordenadas por vencimiento</Text>
         </View>
-        {puedeCrear ? (
-          <TouchableOpacity
-            style={[styles.nuevaBtn, isCompact && styles.nuevaBtnTactil]}
-            onPress={() => setCrearVisible(true)}
-            accessibilityLabel="Nueva tarea"
-          >
-            <MaterialIcons name="add" size={18} color="#ffffff" />
-            <Text style={styles.nuevaTexto}>Nueva</Text>
-          </TouchableOpacity>
-        ) : null}
+        <View style={[styles.headerAcciones, shouldStackToolbar && styles.headerAccionesWrap]}>
+          <SuscripcionVencimientosIcs compacto={isCompact} />
+          {puedeCrear ? (
+            <TouchableOpacity
+              style={[styles.nuevaBtn, isCompact && styles.nuevaBtnTactil]}
+              onPress={() => setCrearVisible(true)}
+              accessibilityLabel="Nueva tarea"
+            >
+              <MaterialIcons name="add" size={18} color="#ffffff" />
+              <Text style={styles.nuevaTexto}>Nueva</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
 
       <View style={[styles.toolbar, shouldStackToolbar && styles.toolbarWrap]}>
@@ -549,8 +553,14 @@ const styles = StyleSheet.create({
   reintentar: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: MIN_TOUCH },
   reintentarTexto: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
 
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-  headerTexto: { flex: 1, minWidth: 0 },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+    flexWrap: 'wrap',
+  },
+  headerTexto: { flex: 1, minWidth: 140 },
   backBtn: {
     width: MIN_TOUCH,
     height: MIN_TOUCH,
@@ -563,6 +573,8 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
   subtitle: { fontSize: 13, color: '#64748b', marginTop: 2 },
+  headerAcciones: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
+  headerAccionesWrap: { flexWrap: 'wrap', justifyContent: 'flex-end' },
   nuevaBtn: {
     flexDirection: 'row',
     alignItems: 'center',

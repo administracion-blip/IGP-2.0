@@ -4,8 +4,12 @@
  * extraen aquí para que las fichas de proyecto y de tarea no los repitan y no
  * se desincronicen.
  */
-import { Platform, StyleSheet } from 'react-native';
+import { Platform, StyleSheet, type ViewStyle } from 'react-native';
 import { MIN_TOUCH } from '../../constants/layout';
+
+/** Cuerpo scrolleable: deja hueco para padding del overlay + header + footer. */
+const maxAltoCuerpo: ViewStyle['maxHeight'] =
+  Platform.OS === 'web' ? ('calc(100vh - 180px)' as ViewStyle['maxHeight']) : 420;
 
 export const estilosModalTasks = StyleSheet.create({
   overlay: {
@@ -15,8 +19,10 @@ export const estilosModalTasks = StyleSheet.create({
     backgroundColor: 'rgba(15, 23, 42, 0.45)',
   },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%', padding: 20 },
-  cardWrap: { width: '100%', maxWidth: 480 },
+  cardWrap: { width: '100%', maxWidth: 920 },
   cardWrapAncho: { maxWidth: '100%' },
+  /** Confirmaciones y vistazos que no deben heredar el ancho de formulario. */
+  cardWrapEstrecho: { maxWidth: 480 },
   card: {
     width: '100%',
     backgroundColor: '#ffffff',
@@ -39,7 +45,7 @@ export const estilosModalTasks = StyleSheet.create({
   },
   title: { fontSize: 18, fontWeight: '600', color: '#334155' },
   close: { padding: 4, minWidth: 32, minHeight: 32, alignItems: 'center', justifyContent: 'center' },
-  body: { paddingHorizontal: 20, paddingVertical: 16, maxHeight: 440 },
+  body: { paddingHorizontal: 20, paddingVertical: 16, maxHeight: maxAltoCuerpo },
   error: { fontSize: 12, color: '#ef4444', paddingHorizontal: 20, paddingBottom: 4 },
   footer: {
     flexDirection: 'row',
@@ -91,6 +97,9 @@ export const estilosFormTasks = StyleSheet.create({
   groupRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   groupFila: { flexDirection: 'row', gap: 10 },
   groupMitad: { flex: 1, minWidth: 0 },
+  gridDos: { flexDirection: 'row', gap: 12, alignItems: 'stretch' },
+  gridDosApilado: { flexDirection: 'column' },
+  col: { flex: 1, minWidth: 0 },
   label: { fontSize: 11, fontWeight: '500', color: '#475569', marginBottom: 4 },
   input: {
     fontSize: 13,
@@ -104,6 +113,8 @@ export const estilosFormTasks = StyleSheet.create({
     ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}),
   },
   inputMultilinea: { minHeight: 80, textAlignVertical: 'top' },
+  inputMultilineaMedia: { minHeight: 110, textAlignVertical: 'top' },
+  inputMultilineaLarga: { minHeight: 140, textAlignVertical: 'top' },
   help: { fontSize: 11, color: '#94a3b8', marginTop: 4, lineHeight: 16 },
   aviso: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 6 },
   avisoTexto: { flex: 1, fontSize: 11, color: '#d97706', lineHeight: 16 },

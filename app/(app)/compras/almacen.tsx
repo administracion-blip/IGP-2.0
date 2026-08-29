@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -20,9 +20,30 @@ import { apiFetch } from '../../utils/api';
 import { valorEnLocal } from '../../utils/valorEnLocal';
 import { formatMoneda } from '../../utils/formatMoneda';
 import { formatFecha } from '../../utils/formatFecha';
+import {
+  CronometroEsperaPedido,
+  horaEnvioLocal,
+  parseIsoMs,
+} from '../../components/compras/CronometroEsperaPedido';
+import { SoftPulseBorderWrap, type SoftPulseColors } from '../../components/ui/SoftPulseBorderWrap';
 import NuevoPedidoModal from './NuevoPedidoModal';
 
+const PULSO_PEDIDO_NUEVO: SoftPulseColors = {
+  border: '#fdba74',
+  pulseFrom: 'rgba(249, 115, 22, 0.35)',
+  pulseTo: 'rgba(234, 88, 12, 0.95)',
+  glow: 'rgba(249, 115, 22, 0.65)',
+  shadow: '#f97316',
+};
+
 type Registro = Record<string, string | number | boolean | undefined | null>;
+
+/** Clave de espera: EnviadoEn ISO si es válido; si no, Fecha. */
+function claveOrdenEspera(p: Registro): string {
+  const enviado = String(valorEnLocal(p, 'EnviadoEn') ?? '').trim();
+  if (enviado && parseIsoMs(enviado) != null) return enviado;
+  return String(valorEnLocal(p, 'Fecha') ?? '').trim();
+}
 
 /** Estados relevantes para almacén (el Borrador del bar nunca se muestra aquí). */
 const ESTADOS_ALMACEN = ['Enviado', 'Pendiente', 'Completado'] as const;
@@ -63,37 +84,74 @@ export default function PedidosAlmacenScreen() {
   const [busqueda, setBusqueda] = useState('');
   const [nuevoPedidoVisible, setNuevoPedidoVisible] = useState(false);
 
+  const [vistos, setVistos] = useState<Record<string, true>>({});
   const [pedidoSel, setPedidoSel] = useState<Registro | null>(null);
   const [lineas, setLineas] = useState<Registro[]>([]);
   const [loadingLineas, setLoadingLineas] = useState(false);
   const [guardandoLinea, setGuardandoLinea] = useState<string | null>(null);
   const [prepararTodoEnCurso, setPrepararTodoEnCurso] = useState(false);
+  const enCursoRef = useRef(false);
+  const ocupadoRef = useRef(false);
+  ocupadoRef.current = Boolean(guardandoLinea || prepararTodoEnCurso);
 
-  const refetch = useCallback(() => {
-    setError(null);
-    setLoading(true);
-    Promise.all([
-      apiFetch('/api/pedidos').then((r) => r.json()),
-      apiFetch('/api/locales').then((r) => r.json()),
-    ])
-      .then(([dataPedidos, dataLocales]) => {
-        if (dataPedidos.error) setError(dataPedidos.error);
-        else setPedidos(Array.isArray(dataPedidos.pedidos) ? dataPedidos.pedidos : []);
-        const all: Registro[] = dataLocales.locales || [];
-        setLocales(
-          all.filter((l) =>
-            localPermitido(String(valorEnLocal(l, 'nombre') ?? valorEnLocal(l, 'Nombre') ?? '').trim()),
-          ),
-        );
-      })
-      .catch((e) => setError((e as Error).message || 'Error de conexión'))
-      .finally(() => setLoading(false));
-  }, [localPermitido]);
+  const aplicarLocales = useCallback(
+    (dataLocales: { locales?: Registro[] }) => {
+      const all: Registro[] = dataLocales.locales || [];
+      setLocales(
+        all.filter((l) =>
+          localPermitido(String(valorEnLocal(l, 'nombre') ?? valorEnLocal(l, 'Nombre') ?? '').trim()),
+        ),
+      );
+    },
+    [localPermitido],
+  );
+
+  const cargar = useCallback(
+    (opts?: { silencioso?: boolean }) => {
+      const silencioso = opts?.silencioso === true;
+      if (silencioso && (ocupadoRef.current || enCursoRef.current)) return;
+      enCursoRef.current = true;
+      if (!silencioso) {
+        setError(null);
+        setLoading(true);
+      }
+      const peticion = silencioso
+        ? apiFetch('/api/pedidos')
+            .then((r) => r.json())
+            .then((dataPedidos: { pedidos?: Registro[]; error?: string }) => {
+              if (dataPedidos.error) throw new Error(dataPedidos.error);
+              setPedidos(Array.isArray(dataPedidos.pedidos) ? dataPedidos.pedidos : []);
+              setError(null);
+            })
+        : Promise.all([
+            apiFetch('/api/pedidos').then((r) => r.json()),
+            apiFetch('/api/locales').then((r) => r.json()),
+          ]).then(([dataPedidos, dataLocales]) => {
+            if (dataPedidos.error) setError(dataPedidos.error);
+            else setPedidos(Array.isArray(dataPedidos.pedidos) ? dataPedidos.pedidos : []);
+            aplicarLocales(dataLocales);
+          });
+
+      peticion
+        .catch((e) => {
+          if (!silencioso) setError((e as Error).message || 'Error de conexión');
+        })
+        .finally(() => {
+          enCursoRef.current = false;
+          if (!silencioso) setLoading(false);
+        });
+    },
+    [aplicarLocales],
+  );
+
+  const refetch = useCallback(() => cargar({ silencioso: false }), [cargar]);
 
   useFocusEffect(
     useCallback(() => {
-      refetch();
-    }, [refetch]),
+      cargar({ silencioso: false });
+      const id = setInterval(() => cargar({ silencioso: true }), 12_000);
+      return () => clearInterval(id);
+    }, [cargar]),
   );
 
   const nombresPorLocalId = useMemo(() => {
@@ -158,10 +216,9 @@ export default function PedidosAlmacenScreen() {
         })
       : base;
     return [...filtrados].sort((a, b) => {
-      // Por fecha ascendente (lo más antiguo primero: lo que lleva más esperando).
-      const fa = String(valorEnLocal(a, 'Fecha') ?? '').trim();
-      const fb = String(valorEnLocal(b, 'Fecha') ?? '').trim();
-      return fa.localeCompare(fb);
+      const cmp = claveOrdenEspera(a).localeCompare(claveOrdenEspera(b));
+      if (cmp !== 0) return cmp;
+      return String(valorEnLocal(a, 'Id') ?? '').localeCompare(String(valorEnLocal(b, 'Id') ?? ''));
     });
   }, [pedidosAlmacen, filtroEstado, busqueda, nombreLocal]);
 
@@ -180,9 +237,13 @@ export default function PedidosAlmacenScreen() {
 
   const abrirPedido = useCallback(
     (p: Registro) => {
+      const id = String(valorEnLocal(p, 'Id') ?? '');
+      if (id) {
+        setVistos((prev) => (prev[id] ? prev : { ...prev, [id]: true }));
+      }
       setPedidoSel(p);
       setLineas([]);
-      fetchLineas(String(valorEnLocal(p, 'Id') ?? ''));
+      fetchLineas(id);
     },
     [fetchLineas],
   );
@@ -394,10 +455,17 @@ export default function PedidosAlmacenScreen() {
             const { total, prep } = progresoPedido(p);
             const pct = total > 0 ? Math.round((prep / total) * 100) : 0;
             const seleccionado = pedidoSel != null && String(valorEnLocal(pedidoSel, 'Id') ?? '') === id;
-            return (
+            const enviadoEn = String(valorEnLocal(p, 'EnviadoEn') ?? '').trim();
+            const completadoEn = String(valorEnLocal(p, 'CompletadoEn') ?? '').trim();
+            const horaEnvio = horaEnvioLocal(enviadoEn);
+            const textoFecha = horaEnvio
+              ? `${formatFecha(valorEnLocal(p, 'Fecha'))} · ${horaEnvio}`
+              : formatFecha(valorEnLocal(p, 'Fecha'));
+            const noRevisado =
+              !vistos[id] && (estado === 'Enviado' || estado === 'Pendiente');
+            const card = (
               <TouchableOpacity
-                key={id}
-                style={[styles.card, seleccionado && styles.cardSel]}
+                style={[styles.card, seleccionado && styles.cardSel, noRevisado && styles.cardEnPulso]}
                 onPress={() => abrirPedido(p)}
                 activeOpacity={0.7}
               >
@@ -419,7 +487,18 @@ export default function PedidosAlmacenScreen() {
                   {nombreLocal(p)}
                 </Text>
                 <View style={styles.cardBottomRow}>
-                  <Text style={styles.cardFecha}>{formatFecha(valorEnLocal(p, 'Fecha'))}</Text>
+                  <View style={styles.cardFechaBloque}>
+                    <Text style={styles.cardFecha} numberOfLines={1}>
+                      {textoFecha}
+                    </Text>
+                    {horaEnvio ? (
+                      <CronometroEsperaPedido
+                        enviadoEn={enviadoEn}
+                        completadoEn={completadoEn}
+                        estado={estado}
+                      />
+                    ) : null}
+                  </View>
                   <Text style={styles.cardTotal}>{formatMoneda(valorEnLocal(p, 'TotalAlbaran'))}</Text>
                 </View>
                 <View style={styles.progresoRow}>
@@ -431,6 +510,18 @@ export default function PedidosAlmacenScreen() {
                   </Text>
                 </View>
               </TouchableOpacity>
+            );
+            return noRevisado ? (
+              <SoftPulseBorderWrap
+                key={id}
+                colors={PULSO_PEDIDO_NUEVO}
+                borderRadius={12}
+                style={styles.cardPulsoWrap}
+              >
+                {card}
+              </SoftPulseBorderWrap>
+            ) : (
+              <View key={id}>{card}</View>
             );
           })}
         </ScrollView>
@@ -664,6 +755,8 @@ const styles = StyleSheet.create({
 
   card: { backgroundColor: '#fff', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0', gap: 6 },
   cardSel: { borderColor: '#0ea5e9', borderWidth: 2 },
+  cardEnPulso: { borderColor: 'transparent' },
+  cardPulsoWrap: { alignSelf: 'stretch' },
   cardTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cardId: { fontSize: 15, fontWeight: '700', color: '#334155' },
   estadoBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
@@ -672,9 +765,10 @@ const styles = StyleSheet.create({
   devBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: '#b45309' },
   detalleTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   cardLocal: { fontSize: 15, color: '#0f172a', fontWeight: '600' },
-  cardBottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  cardFecha: { fontSize: 13, color: '#64748b' },
-  cardTotal: { fontSize: 13, color: '#334155', fontWeight: '700' },
+  cardBottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  cardFechaBloque: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 },
+  cardFecha: { fontSize: 13, color: '#64748b', flexShrink: 1 },
+  cardTotal: { fontSize: 13, color: '#334155', fontWeight: '700', flexShrink: 0 },
   progresoRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
   progresoBarBg: { flex: 1, height: 8, borderRadius: 999, backgroundColor: '#e2e8f0', overflow: 'hidden' },
   progresoBarFill: { height: 8, borderRadius: 999 },

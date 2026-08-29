@@ -249,6 +249,35 @@ Convertir acuerdos en tareas lo hace el servidor (envuelve la creación en lote 
 enlaza `acuerdo.tarea_id`). No se deja a la UI hacer `POST /tareas/lote` + `PATCH`
 por su cuenta: un doble clic a medias dejaría acuerdos sin enlace.
 
+### D-24 · Vencimientos por feed ICS, no por API de Calendar — 27/08/2026
+
+Cierra A-06. Cada usuario genera un token y se suscribe a
+`GET /api/tasks/vencimientos.ics?token=…`. No se escriben eventos en su calendario
+por API.
+
+*Motivo:* menos superficie, funciona en Google/Outlook/Apple, y no puede corromper
+el calendario de nadie. El feed solo lleva título y fecha de tareas abiertas.
+
+### D-25 · El token ICS vive en `Igp_Ajustes`, no en `igp_usuarios` — 27/08/2026
+
+`PK=tareas`, `SK=ics_token#<id_usuario>`: se guarda el **hash** del token y la
+fecha de creación. Rotar sustituye el hash y deja inválida la URL anterior.
+
+*Motivo:* no tocar la tabla de login. El token es un secreto de lectura de
+vencimientos; no debe viajar en claro en Dynamo.
+
+### D-26 · Directory solo escribe campos de la lista blanca — 27/08/2026
+
+En Fase 3 la sync solo puede escribir `google_directory_id` (y, si más adelante se
+aprueba, campos cosméticos explícitos). **Nunca** `Email`, `Nombre`, `Apellidos`,
+`Password`, `Rol`, `Locales`, `Departamentos`. Match por email. Ausente en Directory
+≠ baja en IGP (D-09).
+
+### D-27 · `compra_pendiente` y `acta_lista` existen sin emisor — 27/08/2026
+
+El helper de notificaciones admite esos tipos; ningún código de Fase 3 los emite.
+Los emisores llegan con compras (4) y acta validada (2).
+
 ---
 
 ## Abiertas
@@ -296,16 +325,9 @@ más importaba.
 
 ### A-06 · Vencimientos: feed de calendario o escribir eventos por API
 
-**Recomendación: feed ICS firmado por usuario** (`GET /api/tasks/vencimientos.ics`),
-en lugar de escribir eventos en un calendario secundario de cada persona.
+**Cerrada en D-24 (27/08/2026): feed ICS.** Ver decisiones cerradas.
 
-*Motivo:* es una fracción del trabajo, se actualiza solo, no puede corromper el
-calendario de nadie y funciona igual en Google, Outlook y Apple. Escribir por API
-solo aporta si hace falta que la persona modifique el evento desde su calendario, y
-para un vencimiento de tarea eso es más riesgo que función.
-
-*Si se elige la API:* hay que resolver qué pasa cuando alguien borra el evento a
-mano, y eso es una fuente de incidencias permanente.
+~~**Recomendación: feed ICS firmado por usuario**~~
 
 ### A-07 · Quién es «dirección» para aprobar compras
 

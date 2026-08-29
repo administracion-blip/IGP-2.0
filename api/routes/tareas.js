@@ -45,6 +45,7 @@ import {
   presignarAdjunto,
   urlDeAdjunto,
 } from '../lib/tasks/adjuntos.js';
+import { rotarTokenIcs, urlFeedVencimientos } from '../lib/tasks/vencimientosIcs.js';
 
 const router = Router();
 
@@ -67,6 +68,22 @@ function fallo(res, resultado) {
 function contexto(req) {
   return cargarContextoAcceso(req.user);
 }
+
+// ─── Feed ICS de vencimientos (token; el .ics público vive en publicRouter) ───
+
+router.post('/tasks/vencimientos/token', requirePermission(PERMISOS.proyectosVer), async (req, res) => {
+  const usuarioId = String(req.user?.id_usuario || req.user?.id || '').trim();
+  if (!usuarioId) return res.status(401).json({ error: 'No autenticado' });
+  const r = await rotarTokenIcs({ usuarioId });
+  if (!r.ok) return res.status(400).json({ error: r.error });
+  const url = urlFeedVencimientos(r.token);
+  return res.json({
+    ok: true,
+    token: r.token,
+    creado_en: r.creado_en,
+    ...(url ? { url } : {}),
+  });
+});
 
 // ─── Vista personal ───
 
@@ -252,7 +269,7 @@ router.get('/tareas/:id/comentarios', requirePermission(PERMISOS.proyectosVer), 
   return res.json({ comentarios: r.comentarios, cursor: r.cursor });
 });
 
-// Las `@menciones` se extraen y se guardan; en Fase 1A no se avisa a nadie.
+// Las `@menciones` se extraen, se guardan y generan aviso `mencion` (Fase 3).
 router.post('/tareas/:id/comentarios', async (req, res) => {
   const r = await crearComentario({
     ctx: await contexto(req),

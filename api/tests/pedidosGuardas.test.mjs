@@ -204,7 +204,10 @@ test('una edición normal escribe exactamente los mismos campos que antes', asyn
 
 test('sacar el pedido de completado le sigue quitando la fecha de completado', async () => {
   const db = escenario();
-  db.sembrar(tables.pedidos, pedido('PED-1', { CompletadoPor: 'almacen@grupo.test' }));
+  db.sembrar(tables.pedidos, pedido('PED-1', {
+    CompletadoPor: 'almacen@grupo.test',
+    EnviadoEn: '2026-06-10T09:00:00.000Z',
+  }));
 
   const r = await api('PUT', '/api/pedidos', { Id: 'PED-1', Estado: 'Pendiente' });
   assert.equal(r.status, 200);
@@ -212,6 +215,24 @@ test('sacar el pedido de completado le sigue quitando la fecha de completado', a
   assert.equal(guardado.Estado, 'Pendiente');
   assert.equal(guardado.CompletadoEn, undefined);
   assert.equal(guardado.CompletadoPor, undefined);
+  assert.equal(guardado.EnviadoEn, '2026-06-10T09:00:00.000Z', 'el primer envío no se borra');
+});
+
+test('pasar a Enviado sella EnviadoEn solo la primera vez', async () => {
+  const db = escenario();
+  db.sembrar(tables.pedidos, pedido('PED-1', { Estado: 'Borrador', CompletadoEn: undefined }));
+
+  const r = await api('PUT', '/api/pedidos', { Id: 'PED-1', Estado: 'Enviado' });
+  assert.equal(r.status, 200);
+  const guardado = db.obtener(tables.pedidos, { Id: 'PED-1' });
+  assert.equal(guardado.Estado, 'Enviado');
+  assert.ok(guardado.EnviadoEn, 'se fecha al enviar');
+  const primerSello = guardado.EnviadoEn;
+
+  await api('PUT', '/api/pedidos', { Id: 'PED-1', Estado: 'Enviado', Notas: 'reenviado' });
+  const otra = db.obtener(tables.pedidos, { Id: 'PED-1' });
+  assert.equal(otra.EnviadoEn, primerSello, 'un segundo envío no pisa la hora');
+  assert.equal(otra.Notas, 'reenviado');
 });
 
 test('completar desde el PUT congela la sociedad del local y conserva la fecha existente', async () => {
@@ -431,6 +452,28 @@ test('preparar todas las líneas completa el pedido y congela la sociedad del lo
   const guardado = db.obtener(tables.pedidos, { Id: 'PED-1' });
   assert.equal(guardado.factura_id_empresa_local, EMPRESA_NORTE);
   assert.ok(guardado.CompletadoEn);
+});
+
+test('despreparar todas las líneas vuelve a Enviado y sella EnviadoEn si faltaba', async () => {
+  const db = escenario();
+  db.sembrar(tables.pedidos, pedido('PED-1', { Estado: 'Completado' }));
+  db.sembrar(tables.pedidosLineas, lineaPedido('PED-1', '0', { Preparada: true }));
+
+  const r = await api('PUT', '/api/pedidos/PED-1/lineas', { LineaIndex: '0', Preparada: false });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.estadoPedido, 'Enviado');
+  const guardado = db.obtener(tables.pedidos, { Id: 'PED-1' });
+  assert.ok(guardado.EnviadoEn, 'se sella al quedar otra vez Enviado sin hora previa');
+  assert.equal(guardado.CompletadoEn, undefined);
+  const primerSello = guardado.EnviadoEn;
+
+  await api('PUT', '/api/pedidos/PED-1/lineas', { LineaIndex: '0', Preparada: true });
+  await api('PUT', '/api/pedidos/PED-1/lineas', { LineaIndex: '0', Preparada: false });
+  assert.equal(
+    db.obtener(tables.pedidos, { Id: 'PED-1' }).EnviadoEn,
+    primerSello,
+    'volver a Enviado no pisa el sello',
+  );
 });
 
 test('con el pedido ya facturado, las guardas rechazan sin llegar a escribir', async () => {

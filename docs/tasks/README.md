@@ -34,7 +34,7 @@ Las reglas de trabajo que el agente debe respetar sin leerse todo esto están en
 | **1A** | Proyectos, departamentos, tareas, permisos, vista personal | **Completa en código** (26/08/2026). Servidor, pantallas, enlaces/adjuntos en ficha y tarjeta en `planning-dia`. Queda probar a mano la vista personal en móvil |
 | **1B** | Reuniones con acta manual, evento en Calendar, detección de sala | **En curso.** Tabla AWS creada. API + pantallas operativas con Calendar en stub. Falta service account Google para evento real y modalidad |
 | **2** | Captura de audio, transcripción, resumen, cola de validación | No iniciada |
-| **3** | Vencimientos en calendario, sincronización de usuarios, avisos | No iniciada |
+| **3** | Vencimientos en calendario, sincronización de usuarios, avisos | **En curso.** Campana + ICS + emisores en código (stub Directory). Falta crear `Igp_Notificaciones` en AWS y Directory real cuando haya credencial |
 | **4** | Plantillas, orden del día automático, cuadro de mando, actas PDF, compras | No iniciada |
 
 Mantener esta tabla al día es responsabilidad del agente integrador al cerrar

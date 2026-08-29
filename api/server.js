@@ -14,6 +14,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import pinoHttp from 'pino-http';
+import pino from 'pino';
 import { logger } from './lib/logger.js';
 import { validateEnv } from './lib/validateEnv.js';
 import { helmetOptions } from './lib/helmetOptions.js';
@@ -90,6 +91,7 @@ import departamentosRouter from './routes/departamentos.js';
 import proyectosRouter from './routes/proyectos.js';
 import tareasRouter from './routes/tareas.js';
 import reunionesRouter from './routes/reuniones.js';
+import notificacionesRouter from './routes/notificaciones.js';
 
 // Valida variables críticas al arranque. Si falta alguna REQUIRED, aborta el proceso.
 validateEnv();
@@ -97,7 +99,31 @@ validateEnv();
 const app = express();
 
 // --- Logging HTTP estructurado (req.log disponible en cada handler). ---
-app.use(pinoHttp({ logger }));
+// Redacta `?token=` del access log: el feed ICS lleva el secreto en la URL.
+function redactarTokenEnUrl(url) {
+  if (typeof url !== 'string' || !/[?&]token=/i.test(url)) return url;
+  return url.replace(/([?&]token=)[^&]*/gi, '$1[Redacted]');
+}
+
+app.use(
+  pinoHttp({
+    logger,
+    serializers: {
+      req(req) {
+        // pino-http pasa un wrapper con `url` / `raw`; no asumir IncomingMessage puro.
+        const base =
+          req.raw && typeof req.raw === 'object'
+            ? pino.stdSerializers.req(req.raw)
+            : { method: req.method, url: req.url };
+        return {
+          ...base,
+          id: req.id,
+          url: redactarTokenEnUrl(base.url || req.url || ''),
+        };
+      },
+    },
+  }),
+);
 
 // --- Helmet: headers de seguridad HTTP ---
 // [SEC S-11] CSP report-only para API JSON (no enforcing; no aplica al documento Expo web)
@@ -250,6 +276,7 @@ app.use('/api', departamentosRouter);
 app.use('/api', proyectosRouter);
 app.use('/api', tareasRouter);
 app.use('/api', reunionesRouter);
+app.use('/api', notificacionesRouter);
 
 // --- Middleware central de errores: DEBE ir tras todos los routers ---
 app.use(errorHandler);

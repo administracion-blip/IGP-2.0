@@ -75,6 +75,7 @@ const PROYECCION_CABECERA = [
   'Fecha',
   'LocalId',
   'CompletadoEn',
+  'EnviadoEn',
   'factura_id_empresa_local',
   ...MARCAS_FACTURACION.flatMap((m) => [m.id, m.numero, m.periodo]),
 ].join(', ');
@@ -452,12 +453,21 @@ async function recomputarEstadoPorPreparacion(pedidoId, usuarioEmail = '') {
         },
       }));
     } else {
+      // EnviadoEn se sella la primera vez que el pedido queda Enviado (0 líneas
+      // preparadas). No se borra al descompletar: el cronómetro de preparación
+      // cuenta desde el primer envío.
+      const sellarEnviado = nuevoEstado === 'Enviado' && !cabecera.EnviadoEn;
       await docClient.send(new UpdateCommand({
         TableName: tables.pedidos,
         Key: { Id: pedidoId },
-        UpdateExpression: 'SET Estado = :e REMOVE CompletadoEn, CompletadoPor',
+        UpdateExpression: sellarEnviado
+          ? 'SET Estado = :e, EnviadoEn = :env REMOVE CompletadoEn, CompletadoPor'
+          : 'SET Estado = :e REMOVE CompletadoEn, CompletadoPor',
         ConditionExpression: sinFacturar,
-        ExpressionAttributeValues: { ':e': nuevoEstado },
+        ExpressionAttributeValues: {
+          ':e': nuevoEstado,
+          ...(sellarEnviado && { ':env': new Date().toISOString() }),
+        },
       }));
     }
   } catch (err) {
@@ -834,6 +844,9 @@ router.post('/pedidos', async (req, res) => {
       CreadoPor: String(body.CreadoPor ?? req.user?.email ?? '').trim(),
       Notas: String(body.Notas ?? '').trim(),
     };
+    if (baseItem.Estado === 'Enviado') {
+      baseItem.EnviadoEn = ahora;
+    }
 
     const bloqueoOrigen = await errorPermisoOrigenEntreLocales(req, {
       tipo: baseItem.Tipo,
@@ -978,6 +991,9 @@ router.put('/pedidos', async (req, res) => {
     } else {
       // Sacar el pedido de completado le quita la fecha, como hasta ahora.
       borrar.push('CompletadoEn', 'CompletadoPor');
+    }
+    if (nuevoEstado === 'Enviado' && !existing.EnviadoEn) {
+      fijar.EnviadoEn = new Date().toISOString();
     }
     // Cambiar de local cambia la sociedad que recibe la mercancía, así que la que
     // se congeló al completar deja de valer: se rehace para el local nuevo y, si

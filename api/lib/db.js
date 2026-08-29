@@ -226,6 +226,7 @@ export const tables = {
   /**
    * Módulo de dirección — avisos por usuario (Fase 3).
    * PK = USER#<id_usuario>, SK = NOTIF#<iso>#<uuid>.
+   * GSI NoLeidas-index (disperso KEYS_ONLY): HASH usuario_no_leida, RANGE creado_en.
    */
   notificaciones: process.env.DDB_NOTIFICACIONES || 'Igp_Notificaciones',
 };

@@ -1,9 +1,10 @@
 /**
- * Aviso por email de tareas que vencen (Fase 1A del módulo de dirección).
+ * Aviso por email y campana de tareas que vencen (Fase 1A email + Fase 3 notifs).
  *
  * Adelantado de la Fase 3 porque es el refuerzo que sostiene el hábito: una
- * lista de tareas que no avisa se convierte en una lista que nadie mira. En 1A
- * basta el email; la campana y el feed de calendario siguen en la Fase 3.
+ * lista de tareas que no avisa se convierte en una lista que nadie mira. El
+ * email nació en 1A; la campana (`tipo: vencimiento`, idempotente por
+ * entidad_ref+día) se emite en la misma tanda.
  *
  * Tres decisiones que conviene no deshacer sin leer esto:
  *
@@ -39,6 +40,7 @@ import { logger } from '../logger.js';
 import { crearCerrojo } from '../facturacion/facturacionPeriodica.js';
 import { cargarContextoAcceso, puedeVerProyecto } from './acceso.js';
 import { leerProyectosParaAcceso } from './proyectoLectura.js';
+import { crearNotificacion } from './notificaciones.js';
 
 export const AVISOS_AJUSTE_PK = 'tareas';
 export const AVISOS_AJUSTE_SK = 'avisos_vencimiento';
@@ -214,14 +216,17 @@ async function anotarResumen(resumen) {
 // ─── A quién avisar y de qué ───
 
 /**
- * Personas con email, desde el maestro de usuarios.
+ * Personas del maestro de usuarios a las que puede tocar avisar.
  *
  * Es la única lectura completa de una tabla que hace este módulo, y es la del
  * maestro de usuarios (decenas de filas, sin índice de «todos los usuarios»),
  * igual que hace el informe diario. La tabla que **no** se recorre entera es la
  * de tareas: para eso está la Query por responsable.
+ *
+ * Quien no tiene email igual entra en la lista: la campana no necesita buzón.
+ * El correo se salta después si falta `Email`.
  */
-async function personasConEmail() {
+async function personasParaAvisos() {
   const personas = [];
   let desde = null;
   do {
@@ -235,11 +240,13 @@ async function personasConEmail() {
     );
     for (const u of r.Items || []) {
       const id = texto(u.id_usuario);
+      if (!id) continue;
       const email = texto(u.Email);
-      // Sin email no hay a dónde escribir: se salta sin ruido y sin gastar una
-      // Query en sus tareas.
-      if (!id || !email) continue;
-      personas.push({ id_usuario: id, email, nombre: texto(u.Nombre) || email });
+      personas.push({
+        id_usuario: id,
+        email,
+        nombre: texto(u.Nombre) || email || id,
+      });
     }
     desde = r.LastEvaluatedKey || null;
   } while (desde);
@@ -393,24 +400,32 @@ export function construirAvisoEmail({ persona, tareas, hoy, nombresProyecto = ne
 
 /**
  * Manda a cada responsable **un** correo con sus tareas vencidas o que vencen
- * hoy. Idempotente por día: la segunda ejecución del mismo día no manda nada.
+ * hoy, y crea notificaciones de campana (también sin SMTP y sin email).
+ * Idempotente por día: la segunda ejecución del mismo día no manda nada.
  *
  * @param {{ origen?: string, hoy?: string,
  *           enviar?: (mensaje: object) => Promise<unknown> }} [opciones]
  *   `enviar` existe para las pruebas: por defecto es el SMTP compartido del ERP.
  * @returns {Promise<{ ok: boolean, motivo: string, dia: string, destinatarios: number,
- *                     enviados: number, fallidos: number, tareas: number }>}
+ *                     enviados: number, fallidos: number, tareas: number,
+ *                     notificaciones?: number }>}
  */
 export async function enviarAvisosVencimiento({ origen = 'programado', hoy, enviar } = {}) {
   const dia = texto(hoy) || momentoMadrid().dia;
-  const enviarCorreo = enviar || enviarEmail;
-  const vacio = { ok: true, dia, destinatarios: 0, enviados: 0, fallidos: 0, tareas: 0 };
+  const vacio = { ok: true, dia, destinatarios: 0, enviados: 0, fallidos: 0, tareas: 0, notificaciones: 0 };
 
   const ajustes = await leerAjustesAvisos();
   if (!ajustes.enabled) return { ...vacio, motivo: 'desactivado' };
-  if (enviarCorreo === enviarEmail && !smtpConfigurado()) {
-    logger.warn({}, `[${ETIQUETA}] Aviso activado pero SMTP sin configurar: no se envía nada`);
-    return { ...vacio, motivo: 'sin_smtp' };
+
+  // Sin SMTP no se aborta la tanda: la campana sigue. Solo se omite el correo.
+  // Si el test inyecta `enviar`, se considera que el canal de email está listo.
+  const puedeEmail = typeof enviar === 'function' || smtpConfigurado();
+  const enviarCorreo = typeof enviar === 'function' ? enviar : enviarEmail;
+  if (!puedeEmail) {
+    logger.warn(
+      {},
+      `[${ETIQUETA}] Aviso activado pero SMTP sin configurar: no se envía correo; la campana sí`,
+    );
   }
 
   const ejecucion = crypto.randomUUID();
@@ -420,7 +435,7 @@ export async function enviarAvisosVencimiento({ origen = 'programado', hoy, envi
   try {
     if (!(await reclamarDia(dia))) return { ...vacio, motivo: 'ya_enviado' };
 
-    const personas = await personasConEmail();
+    const personas = await personasParaAvisos();
     const pendientes = [];
     let totalTareas = 0;
     for (const persona of personas) {
@@ -432,7 +447,39 @@ export async function enviarAvisosVencimiento({ origen = 'programado', hoy, envi
 
     let enviados = 0;
     let fallidos = 0;
+    let notificaciones = 0;
     for (const { persona, tareas } of pendientes) {
+      for (const tarea of tareas) {
+        try {
+          const rNotif = await crearNotificacion({
+            usuarioId: persona.id_usuario,
+            tipo: 'vencimiento',
+            titulo:
+              tarea.dias_vencida > 0
+                ? `Vencida: ${tarea.titulo}`
+                : `Vence hoy: ${tarea.titulo}`,
+            cuerpo:
+              tarea.dias_vencida > 0
+                ? `Fecha límite ${fechaEs(tarea.fecha_limite)}`
+                : 'Fecha límite hoy',
+            entidad_ref: {
+              tipo: 'tarea',
+              id: tarea.id_tarea,
+              etiqueta: tarea.titulo,
+            },
+            diaIdempotencia: dia,
+          });
+          if (rNotif.ok && !rNotif.omitida) notificaciones += 1;
+        } catch (err) {
+          logger.warn(
+            { err, id_usuario: persona.id_usuario, id_tarea: tarea.id_tarea },
+            `[${ETIQUETA}] No se pudo crear la notificación de vencimiento`,
+          );
+        }
+      }
+
+      if (!puedeEmail || !persona.email) continue;
+
       const nombresProyecto = await nombresDeProyectoVisibles(
         persona.id_usuario,
         [...new Set(tareas.map((t) => t.proyecto_id).filter(Boolean))],
@@ -458,9 +505,12 @@ export async function enviarAvisosVencimiento({ origen = 'programado', hoy, envi
       enviados,
       fallidos,
       tareas: totalTareas,
+      notificaciones,
     };
     await anotarResumen(resumen);
-    return { ok: true, motivo: 'enviado', ...resumen };
+    // Si no hubo canal de email, el motivo lo dice; la campana ya se creó.
+    const motivo = puedeEmail ? 'enviado' : 'sin_smtp';
+    return { ok: true, motivo, ...resumen };
   } finally {
     await cerrojo.liberar(ejecucion);
   }

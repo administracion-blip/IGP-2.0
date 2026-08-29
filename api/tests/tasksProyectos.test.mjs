@@ -103,6 +103,13 @@ function montar({ paginaTam = 0 } = {}) {
     indices: { 'Proyecto-index': { hashKey: 'proyecto_id', rangeKey: 'sk_proyecto' } },
   });
   db.crearTabla(tables.actividad, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.notificaciones, {
+    hashKey: 'PK',
+    rangeKey: 'SK',
+    indices: {
+      'NoLeidas-index': { hashKey: 'usuario_no_leida', rangeKey: 'creado_en', proyeccion: 'KEYS_ONLY' },
+    },
+  });
   db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
 

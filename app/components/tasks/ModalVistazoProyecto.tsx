@@ -110,7 +110,7 @@ export function ModalVistazoProyecto({
     <Modal visible transparent animationType="fade" onRequestClose={onCerrar}>
       <Pressable style={[modal.overlay, isCompact && styles.overlaySheet]} onPress={onCerrar}>
         <Pressable
-          style={[modal.cardWrap, isCompact && styles.cardWrapMovil]}
+          style={[modal.cardWrap, modal.cardWrapEstrecho, isCompact && styles.cardWrapMovil]}
           onPress={(e) => e.stopPropagation?.()}
         >
           <View style={[modal.card, styles.card, isCompact && styles.cardMovil]}>

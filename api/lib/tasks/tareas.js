@@ -72,6 +72,8 @@ import {
   registrarActividadLote,
 } from './actividad.js';
 import { codificarCursor, decodificarCursor, limiteValido } from './paginacion.js';
+import { crearNotificacion } from './notificaciones.js';
+import { logger } from '../logger.js';
 // Las salidas a S3 se importan de donde ya viven, para que borrar una tarea use
 // el mismo camino que borrar un enlace o un adjunto sueltos. La dependencia es
 // circular —los dos ficheros importan el acceso de aquí— pero solo se resuelve al
@@ -352,6 +354,60 @@ async function auxDeTarea(tarea) {
  */
 function autorDe(ctx) {
   return { id_usuario: texto(ctx?.idUsuario), Nombre: texto(ctx?.nombre) };
+}
+
+/**
+ * Aviso de asignación al nuevo responsable (si no es quien actúa).
+ * Los fallos de notificación no tumban la operación de la tarea.
+ */
+async function notificarAsignacion({ destinatarioId, actorId, tarea }) {
+  const dest = texto(destinatarioId);
+  const actor = texto(actorId);
+  if (!dest || dest === actor) return;
+  const tituloTarea = texto(tarea?.titulo) || 'Tarea';
+  try {
+    await crearNotificacion({
+      usuarioId: dest,
+      tipo: 'asignacion',
+      titulo: `Te han asignado: ${tituloTarea}`,
+      cuerpo: actor ? `Asignada por ${texto(tarea?.asignada_por_nombre) || 'un compañero'}` : '',
+      entidad_ref: {
+        tipo: 'tarea',
+        id: texto(tarea?.id_tarea),
+        etiqueta: tituloTarea,
+      },
+    });
+  } catch (err) {
+    logger.warn({ err, destinatarioId: dest }, '[tareas] No se pudo crear la notificación de asignación');
+  }
+}
+
+/**
+ * Avisos de mención en un comentario (cada mencionado salvo el autor).
+ */
+async function notificarMenciones({ mencionados, autorId, autorNombre, tarea }) {
+  const autor = texto(autorId);
+  const tituloTarea = texto(tarea?.titulo) || 'Tarea';
+  const idTarea = texto(tarea?.id_tarea);
+  for (const raw of mencionados || []) {
+    const dest = texto(raw);
+    if (!dest || dest === autor) continue;
+    try {
+      await crearNotificacion({
+        usuarioId: dest,
+        tipo: 'mencion',
+        titulo: `${texto(autorNombre) || 'Alguien'} te ha mencionado`,
+        cuerpo: tituloTarea,
+        entidad_ref: {
+          tipo: 'tarea',
+          id: idTarea,
+          etiqueta: tituloTarea,
+        },
+      });
+    } catch (err) {
+      logger.warn({ err, destinatarioId: dest }, '[tareas] No se pudo crear la notificación de mención');
+    }
+  }
 }
 
 /**
@@ -658,6 +714,12 @@ export async function crearTarea({ ctx, datos = {} } = {}) {
     },
   });
 
+  await notificarAsignacion({
+    destinatarioId: tarea.responsable_id,
+    actorId: ctx?.idUsuario,
+    tarea: { ...tarea, asignada_por_nombre: texto(ctx?.nombre) },
+  });
+
   const nombres = await nombresDeUsuarios([tarea.responsable_id]);
   return {
     ok: true,
@@ -838,6 +900,14 @@ export async function crearTareasEnLote({ ctx, datos = {} } = {}) {
         },
       })),
     );
+    const nombreActor = texto(ctx?.nombre);
+    for (const tarea of escritas) {
+      await notificarAsignacion({
+        destinatarioId: tarea.responsable_id,
+        actorId: creadoPor,
+        tarea: { ...tarea, asignada_por_nombre: nombreActor },
+      });
+    }
     // Todas las del lote comparten proyecto, así que el contexto de acceso es el
     // mismo y los nombres salen de un solo `BatchGet`. Las de `omitidas` van tal
     // cual: son el eco de idempotencia de tareas que ya existían, y su ficha
@@ -1311,6 +1381,16 @@ export async function reasignarTarea({ ctx, idTarea, responsableId } = {}) {
     detalle: { antes: { responsable_id: anterior || null }, despues: { responsable_id: nuevo } },
   });
 
+  await notificarAsignacion({
+    destinatarioId: nuevo,
+    actorId: ctx?.idUsuario,
+    tarea: {
+      id_tarea: texto(idTarea),
+      titulo: texto(guardado?.titulo) || texto(meta.titulo),
+      asignada_por_nombre: texto(ctx?.nombre),
+    },
+  });
+
   const nombres = await nombresDeUsuarios([nuevo]);
   return { ok: true, tarea: salidaConExtras(guardado, ctx, { aux: acceso.aux, nombres }) };
 }
@@ -1625,7 +1705,8 @@ export async function listarComentarios({ ctx, idTarea, limite, cursor } = {}) {
  *
  * Las menciones se acumulan también en `META`, porque estar mencionado da lectura
  * de la tarea: si solo vivieran en el comentario, mencionar a alguien no le
- * dejaría entrar a leerlo. En Fase 1A **no se avisa a nadie**.
+ * dejaría entrar a leerlo. Cada mención del comentario genera aviso `mencion`
+ * (excepto al propio autor).
  *
  * @returns {Promise<{ ok: true, comentario: object } | Fallo>}
  */
@@ -1668,6 +1749,18 @@ export async function crearComentario({ ctx, idTarea, texto: textoComentario, me
     usuario: autor,
     detalle: { id_comentario: idComentario, menciones: mencionados },
   });
+
+  if (mencionados.length > 0) {
+    await notificarMenciones({
+      mencionados,
+      autorId: autor.id_usuario,
+      autorNombre: autor.Nombre,
+      tarea: {
+        id_tarea: texto(idTarea),
+        titulo: texto(acceso.meta.titulo),
+      },
+    });
+  }
 
   return { ok: true, comentario: salidaFilaHija(item) };
 }

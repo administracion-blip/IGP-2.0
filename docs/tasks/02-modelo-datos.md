@@ -427,6 +427,7 @@ cerradas y pequeñas, y así hay una tabla menos que crear y mantener.
 | `reuniones` | `cerrojo_pipeline` | Ítem de cerrojo de `crearCerrojo()` | 2 |
 | `tareas` | `avisos_vencimiento` | `{ Enabled, hora }` del job de vencimientos, más su rastro (ver abajo) | 1A |
 | `tareas` | `avisos_vencimiento_cerrojo` | Ítem de cerrojo de `crearCerrojo()` de la tanda de avisos | 1A |
+| `tareas` | `ics_token#<id_usuario>` | Hash del token del feed ICS + `creado_en`. Rotar = nuevo hash (revoca el anterior). **Nunca** el token en claro | 3 |
 
 **Los umbrales de aprobación viven en configuración, nunca en el código.** Por
 debajo del primer umbral aprueba el responsable del proyecto; por encima, el

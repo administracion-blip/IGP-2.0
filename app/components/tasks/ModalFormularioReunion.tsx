@@ -26,6 +26,7 @@ import { InputFecha } from '../InputFecha';
 import { estiloCampoFechaCompacto } from '../RangoFechas';
 import { SelectorDesplegable, type OpcionDesplegable } from '../SelectorDesplegable';
 import { SelectorDesplegableMulti } from '../SelectorDesplegableMulti';
+import { InputHora } from './InputHora';
 import {
   ETIQUETA_ESTADO_REUNION,
   ETIQUETA_VISIBILIDAD_REUNION,
@@ -406,7 +407,9 @@ export function ModalFormularioReunion({
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={modal.center}
         >
-          <Pressable style={[modal.cardWrap, shouldStackPanels && modal.cardWrapAncho]}>
+          <Pressable
+            style={[modal.cardWrap, (shouldStackPanels || isCompact) && modal.cardWrapAncho]}
+          >
             <View style={modal.card}>
               <View style={modal.header}>
                 <Text style={modal.title}>{modo === 'crear' ? 'Convocar reunión' : 'Editar reunión'}</Text>
@@ -427,8 +430,8 @@ export function ModalFormularioReunion({
                   />
                 </View>
 
-                <View style={form.groupFila}>
-                  <View style={[form.group, form.groupMitad]}>
+                <View style={[form.group, form.gridDos, shouldStackPanels && form.gridDosApilado]}>
+                  <View style={form.col}>
                     <Text style={form.label}>Fecha</Text>
                     <InputFecha
                       compact
@@ -437,37 +440,36 @@ export function ModalFormularioReunion({
                       style={estiloCampoFechaCompacto}
                     />
                   </View>
-                  <View style={[form.group, form.groupMitad]}>
+                  <View style={form.col}>
                     <Text style={form.label}>Estado</Text>
                     <SelectorDesplegable
+                      compact
                       sinIconoTrigger
                       tituloLista="Estado"
                       valorId={datos.estado}
                       opciones={opcionesEstado}
                       onSeleccionar={(id) => setCampo('estado', id as EstadoReunion)}
+                      disabled={guardando}
                     />
                   </View>
                 </View>
-
-                <View style={form.groupFila}>
-                  <View style={[form.group, form.groupMitad]}>
+                <View style={[form.group, form.gridDos, shouldStackPanels && form.gridDosApilado]}>
+                  <View style={form.col}>
                     <Text style={form.label}>Hora inicio</Text>
-                    <TextInput
-                      style={form.input}
+                    <InputHora
+                      compact
                       value={datos.hora_inicio}
-                      onChangeText={(t) => setCampo('hora_inicio', t)}
-                      placeholder="HH:mm"
-                      placeholderTextColor="#94a3b8"
+                      onChange={(hhmm) => setCampo('hora_inicio', hhmm)}
+                      editable={!guardando}
                     />
                   </View>
-                  <View style={[form.group, form.groupMitad]}>
+                  <View style={form.col}>
                     <Text style={form.label}>Hora fin</Text>
-                    <TextInput
-                      style={form.input}
+                    <InputHora
+                      compact
                       value={datos.hora_fin}
-                      onChangeText={(t) => setCampo('hora_fin', t)}
-                      placeholder="HH:mm"
-                      placeholderTextColor="#94a3b8"
+                      onChange={(hhmm) => setCampo('hora_fin', hhmm)}
+                      editable={!guardando}
                     />
                   </View>
                 </View>
@@ -526,109 +528,113 @@ export function ModalFormularioReunion({
                   </View>
                 ) : null}
 
-                <View style={form.group}>
-                  <Text style={form.label}>Asistentes</Text>
-                  <SelectorDesplegableMulti
-                    compact
-                    buscador
-                    placeholder="Seleccionar asistentes…"
-                    tituloLista="Asistentes"
-                    iconoLista="groups"
-                    opciones={usuarios.opciones}
-                    valorIds={datos.asistente_ids}
-                    onChange={(ids) => setCampo('asistente_ids', ids)}
-                    loading={usuarios.cargando}
-                    vacioTexto={
-                      usuarios.noDisponibles
-                        ? 'No se pudo cargar el listado de usuarios (hace falta usuarios.ver).'
-                        : 'No hay usuarios disponibles.'
-                    }
-                  />
-                </View>
-
-                <View style={form.groupFila}>
-                  <View style={[form.group, form.groupMitad]}>
-                    <Text style={form.label}>Proyecto (opcional)</Text>
-                    <TextInput
-                      style={form.input}
-                      value={datos.proyecto_id}
-                      onChangeText={(t) => setCampo('proyecto_id', t)}
-                      placeholder="id_proyecto"
-                      placeholderTextColor="#94a3b8"
-                      autoCapitalize="none"
+                <View style={[form.group, form.gridDos, shouldStackPanels && form.gridDosApilado]}>
+                  <View style={form.col}>
+                    <Text style={form.label}>Asistentes</Text>
+                    <SelectorDesplegableMulti
+                      compact
+                      buscador
+                      placeholder="Seleccionar asistentes…"
+                      tituloLista="Asistentes"
+                      iconoLista="groups"
+                      opciones={usuarios.opciones}
+                      valorIds={datos.asistente_ids}
+                      onChange={(ids) => setCampo('asistente_ids', ids)}
+                      loading={usuarios.cargando}
+                      vacioTexto={
+                        usuarios.noDisponibles
+                          ? 'No se pudo cargar el listado de usuarios (hace falta usuarios.ver).'
+                          : 'No hay usuarios disponibles.'
+                      }
                     />
                   </View>
-                  <View style={[form.group, form.groupMitad]}>
-                    <Text style={form.label}>Serie (opcional)</Text>
-                    <TextInput
-                      style={form.input}
-                      value={datos.serie_id}
-                      onChangeText={(t) => setCampo('serie_id', t)}
-                      placeholder="id de serie"
-                      placeholderTextColor="#94a3b8"
-                      autoCapitalize="none"
-                    />
-                  </View>
-                </View>
-
-                <View style={form.group}>
-                  <View style={form.groupRow}>
-                    <Text style={form.label}>Orden del día</Text>
-                    {modo === 'editar' && datos.serie_id.trim() && !ordenBloqueado ? (
-                      <TouchableOpacity
-                        style={styles.btnSugerir}
-                        onPress={() => void sugerirOrden()}
-                        disabled={sugiriendo}
-                      >
-                        {sugiriendo ? (
-                          <ActivityIndicator size="small" color="#0ea5e9" />
-                        ) : (
-                          <>
-                            <MaterialIcons name="auto-awesome" size={14} color="#0ea5e9" />
-                            <Text style={styles.btnSugerirTexto}>Sugerir</Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-                  <TextInput
-                    style={[form.input, form.inputMultilinea, styles.ordenDia]}
-                    value={datos.orden_del_dia}
-                    onChangeText={(t) => setCampo('orden_del_dia', t)}
-                    placeholder="Temas a tratar…"
-                    placeholderTextColor="#94a3b8"
-                    multiline
-                    editable={!ordenBloqueado}
-                  />
-                  {ordenBloqueado ? (
-                    <View style={form.aviso}>
-                      <MaterialIcons name="lock-outline" size={14} color="#d97706" />
-                      <Text style={form.avisoTexto}>
-                        El orden del día ya no se puede editar: la reunión ha pasado a celebrada o
-                        tiene acta.
-                      </Text>
+                  <View style={form.col}>
+                    <View style={form.group}>
+                      <Text style={form.label}>Proyecto (opcional)</Text>
+                      <TextInput
+                        style={form.input}
+                        value={datos.proyecto_id}
+                        onChangeText={(t) => setCampo('proyecto_id', t)}
+                        placeholder="id_proyecto"
+                        placeholderTextColor="#94a3b8"
+                        autoCapitalize="none"
+                      />
                     </View>
-                  ) : (
-                    <Text style={form.help}>
-                      Texto libre. Si hay serie, puedes pedir una sugerencia con pendientes de la
-                      anterior.
-                    </Text>
-                  )}
+                    <View>
+                      <Text style={form.label}>Serie (opcional)</Text>
+                      <TextInput
+                        style={form.input}
+                        value={datos.serie_id}
+                        onChangeText={(t) => setCampo('serie_id', t)}
+                        placeholder="id de serie"
+                        placeholderTextColor="#94a3b8"
+                        autoCapitalize="none"
+                      />
+                    </View>
+                  </View>
                 </View>
 
-                {modo === 'editar' ? (
-                  <View style={form.group}>
-                    <Text style={form.label}>Resumen / acta (manual)</Text>
+                <View style={[form.group, form.gridDos, shouldStackPanels && form.gridDosApilado]}>
+                  <View style={form.col}>
+                    <View style={form.groupRow}>
+                      <Text style={form.label}>Orden del día</Text>
+                      {modo === 'editar' && datos.serie_id.trim() && !ordenBloqueado ? (
+                        <TouchableOpacity
+                          style={styles.btnSugerir}
+                          onPress={() => void sugerirOrden()}
+                          disabled={sugiriendo}
+                        >
+                          {sugiriendo ? (
+                            <ActivityIndicator size="small" color="#0ea5e9" />
+                          ) : (
+                            <>
+                              <MaterialIcons name="auto-awesome" size={14} color="#0ea5e9" />
+                              <Text style={styles.btnSugerirTexto}>Sugerir</Text>
+                            </>
+                          )}
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
                     <TextInput
-                      style={[form.input, form.inputMultilinea, styles.ordenDia]}
-                      value={datos.resumen}
-                      onChangeText={(t) => setCampo('resumen', t)}
-                      placeholder="Acta escrita a mano…"
+                      style={[form.input, form.inputMultilineaLarga]}
+                      value={datos.orden_del_dia}
+                      onChangeText={(t) => setCampo('orden_del_dia', t)}
+                      placeholder="Temas a tratar…"
                       placeholderTextColor="#94a3b8"
                       multiline
+                      numberOfLines={6}
+                      editable={!ordenBloqueado}
                     />
+                    {ordenBloqueado ? (
+                      <View style={form.aviso}>
+                        <MaterialIcons name="lock-outline" size={14} color="#d97706" />
+                        <Text style={form.avisoTexto}>
+                          El orden del día ya no se puede editar: la reunión ha pasado a celebrada o
+                          tiene acta.
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text style={form.help}>
+                        Texto libre. Si hay serie, puedes pedir una sugerencia con pendientes de la
+                        anterior.
+                      </Text>
+                    )}
                   </View>
-                ) : null}
+                  {modo === 'editar' ? (
+                    <View style={form.col}>
+                      <Text style={form.label}>Resumen / acta (manual)</Text>
+                      <TextInput
+                        style={[form.input, form.inputMultilineaLarga]}
+                        value={datos.resumen}
+                        onChangeText={(t) => setCampo('resumen', t)}
+                        placeholder="Acta escrita a mano…"
+                        placeholderTextColor="#94a3b8"
+                        multiline
+                        numberOfLines={6}
+                      />
+                    </View>
+                  ) : null}
+                </View>
               </ScrollView>
 
               {error ? <Text style={modal.error}>{error}</Text> : null}
@@ -664,7 +670,6 @@ export function ModalFormularioReunion({
 }
 
 const styles = StyleSheet.create({
-  ordenDia: { minHeight: 120 },
   btnSugerir: {
     flexDirection: 'row',
     alignItems: 'center',

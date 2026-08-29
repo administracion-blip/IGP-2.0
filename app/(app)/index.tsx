@@ -7,21 +7,26 @@ import {
   Platform,
   Animated,
   ScrollView,
-  useWindowDimensions,
-  TouchableOpacity,
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import { MaterialIcons } from '@expo/vector-icons';
 import WeatherWidget from '../components/WeatherWidget';
-import { SoftPulseBorderWrap } from '../components/ui/SoftPulseBorderWrap';
+import { CalendarioInicio } from '../components/CalendarioInicio';
 import { useAuth } from '../contexts/AuthContext';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import { apiFetch } from '../utils/api';
-import { MIN_TOUCH } from '../constants/layout';
-import { radius } from '../constants/theme';
 
 /** Ancho máximo del contenido en tablet / web ancha (márgenes laterales automáticos). */
 const HOME_CONTENT_MAX_WIDTH = 1120;
+
+const CARD_SHADOW =
+  Platform.OS === 'web'
+    ? ({ boxShadow: '0 8px 24px rgba(15,23,42,0.06)' } as object)
+    : {
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.06,
+        shadowRadius: 24,
+        elevation: 2,
+      };
 
 function formatMoneda(value: string | number): string {
   if (value === '' || value === '—' || value == null) return '—';
@@ -45,17 +50,35 @@ function formatBusinessDayToLabel(iso: string): string {
 
 type TotalByLocal = { local: string; total: number; workplaceId: string };
 
-function TickerMarquee({ totals, formatMoneda }: { totals: TotalByLocal[]; formatMoneda: (v: number) => string }) {
+function TickerFacturacion({
+  totals,
+  formatMoneda,
+  isCompact,
+}: {
+  totals: TotalByLocal[];
+  formatMoneda: (v: number) => string;
+  isCompact: boolean;
+}) {
   const translateX = useRef(new Animated.Value(0)).current;
-  const [contentWidth, setContentWidth] = useState(0);
+  const [trackWidth, setTrackWidth] = useState(0);
+  const [clipWidth, setClipWidth] = useState(0);
+  const [segmentWidth, setSegmentWidth] = useState(0);
+
+  const medido = trackWidth > 0 && clipWidth > 0;
+  const cabeEnFila = !isCompact && medido && trackWidth + 24 <= clipWidth;
+  const usarMarquee = isCompact || (medido && !cabeEnFila);
+  const anchoLoop = segmentWidth > 0 ? segmentWidth : trackWidth;
 
   useEffect(() => {
-    if (contentWidth <= 0 || totals.length === 0) return;
+    if (!usarMarquee || anchoLoop <= 0 || totals.length === 0) {
+      translateX.setValue(0);
+      return;
+    }
     translateX.setValue(0);
     const anim = Animated.loop(
       Animated.sequence([
         Animated.timing(translateX, {
-          toValue: -contentWidth,
+          toValue: -anchoLoop,
           duration: 20000,
           useNativeDriver: true,
         }),
@@ -64,15 +87,18 @@ function TickerMarquee({ totals, formatMoneda }: { totals: TotalByLocal[]; forma
           duration: 0,
           useNativeDriver: true,
         }),
-      ])
+      ]),
     );
     anim.start();
     return () => anim.stop();
-  }, [contentWidth, totals.length, translateX]);
+  }, [usarMarquee, anchoLoop, totals.length, translateX]);
 
-  const renderItems = (offset: number) =>
+  const renderItems = (offset: string, fijo?: boolean) =>
     totals.map((item, idx) => (
-      <View key={`${item.workplaceId}-${offset}-${idx}`} style={styles.tickerItem}>
+      <View
+        key={`${item.workplaceId}-${offset}-${idx}`}
+        style={[styles.tickerItem, fijo && styles.tickerItemFijo]}
+      >
         <Text style={styles.tickerItemLocal}>{item.local}</Text>
         <Text style={styles.tickerItemTotal}>{formatMoneda(item.total)}</Text>
       </View>
@@ -80,30 +106,51 @@ function TickerMarquee({ totals, formatMoneda }: { totals: TotalByLocal[]; forma
 
   return (
     <View style={styles.tickerMarqueeWrap}>
-      <View style={styles.tickerMarqueeClip}>
-        <Animated.View style={[styles.tickerMarqueeContent, { transform: [{ translateX }] }]}>
-          <View style={styles.tickerMarqueeSegment} onLayout={(e) => setContentWidth(e.nativeEvent.layout.width)}>
-            {renderItems(0)}
-          </View>
-          <View style={styles.tickerMarqueeSegment}>
-            {renderItems(1)}
-          </View>
-        </Animated.View>
+      <View
+        style={styles.tickerMarqueeClip}
+        onLayout={(e) => {
+          const w = e.nativeEvent.layout.width;
+          if (w > 0) setClipWidth(w);
+        }}
+      >
+        <View
+          pointerEvents="none"
+          style={styles.tickerMedidor}
+          onLayout={(e) => {
+            const w = e.nativeEvent.layout.width;
+            if (w > 0) setTrackWidth(w);
+          }}
+        >
+          {renderItems('m', true)}
+        </View>
+        {usarMarquee ? (
+          <Animated.View style={[styles.tickerMarqueeContent, { transform: [{ translateX }] }]}>
+            <View
+              style={styles.tickerMarqueeSegment}
+              onLayout={(e) => {
+                const w = e.nativeEvent.layout.width;
+                if (w > 0) setSegmentWidth(w);
+              }}
+            >
+              {renderItems('0')}
+            </View>
+            <View style={styles.tickerMarqueeSegment}>{renderItems('1')}</View>
+          </Animated.View>
+        ) : (
+          <View style={styles.tickerFilaFija}>{renderItems('f', true)}</View>
+        )}
       </View>
     </View>
   );
 }
 
 export default function AppHome() {
-  const { width: windowWidth } = useWindowDimensions();
-  const { isPhone } = useBreakpoint();
-  const router = useRouter();
-  const { localPermitido, hasPermiso } = useAuth();
+  const { isPhone, isCompact } = useBreakpoint();
+  const { localPermitido } = useAuth();
   const [totals, setTotals] = useState<TotalByLocal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const yesterday = getYesterdayYYYYMMDD();
-  const puedeInformeDiaADia = hasPermiso('ia.informes') && hasPermiso('ia.informe_dia_a_dia');
 
   useEffect(() => {
     let cancelled = false;
@@ -134,101 +181,73 @@ export default function AppHome() {
     };
   }, [yesterday, localPermitido]);
 
-  const homeInnerStyle =
-    windowWidth >= 768
-      ? [styles.homeInner, { maxWidth: HOME_CONTENT_MAX_WIDTH }]
-      : styles.homeInner;
+  const homeInnerStyle = !isPhone
+    ? [styles.homeInner, { maxWidth: HOME_CONTENT_MAX_WIDTH }]
+    : styles.homeInner;
 
   return (
     <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
       <View style={homeInnerStyle}>
-        <View style={styles.welcome}>
-          <View style={[styles.welcomeTop, isPhone && styles.welcomeTopStack]}>
-            <View style={[styles.welcomeTextBlock, isPhone && styles.welcomeTextBlockStack]}>
-              <Text style={styles.title}>Bienvenido</Text>
-              <Text style={styles.subtitle}>
-                Usa el menú lateral para acceder a Base de Datos y más opciones.
-              </Text>
-            </View>
-            {puedeInformeDiaADia ? (
-              <SoftPulseBorderWrap
-                preset="ia"
-                borderRadius={radius.md}
-                style={[styles.ctaDiaADiaWrap, isPhone && styles.ctaDiaADiaWrapStack]}
-              >
-                <TouchableOpacity
-                  style={styles.ctaDiaADia}
-                  onPress={() => router.push('/informes-ia?fuente=dia_a_dia' as never)}
-                  activeOpacity={0.85}
-                  accessibilityLabel="Informe día a día"
-                  accessibilityRole="button"
-                >
-                  <View style={styles.ctaDiaADiaIcon}>
-                    <MaterialIcons name="auto-awesome" size={20} color="#92400e" />
-                  </View>
-                  <View style={styles.ctaDiaADiaTextBlock}>
-                    <Text style={styles.ctaDiaADiaTitle}>Informe día a día</Text>
-                    <Text style={styles.ctaDiaADiaSub} numberOfLines={1}>
-                      Briefing del día anterior
-                    </Text>
-                  </View>
-                  <MaterialIcons name="chevron-right" size={20} color="#b45309" />
-                </TouchableOpacity>
-              </SoftPulseBorderWrap>
-            ) : null}
-          </View>
-        </View>
-
         <WeatherWidget />
 
-        <View style={styles.tickerBar}>
-          <View style={styles.tickerLabel}>
-            <Text style={styles.tickerLabelText}>Facturación {formatBusinessDayToLabel(yesterday)}</Text>
+        <View style={styles.tickerShell}>
+          <View style={styles.tickerBar}>
+            <View style={styles.tickerLabel}>
+              <Text style={styles.tickerLabelText}>Facturación {formatBusinessDayToLabel(yesterday)}</Text>
+            </View>
+            {loading ? (
+              <View style={styles.tickerContent}>
+                <ActivityIndicator size="small" color="#0ea5e9" />
+              </View>
+            ) : error ? (
+              <View style={styles.tickerContent}>
+                <Text style={styles.tickerError}>{error}</Text>
+              </View>
+            ) : totals.length === 0 ? (
+              <View style={styles.tickerContent}>
+                <Text style={styles.tickerEmpty}>Sin datos del día anterior</Text>
+              </View>
+            ) : (
+              <TickerFacturacion totals={totals} formatMoneda={formatMoneda} isCompact={isCompact} />
+            )}
           </View>
-          {loading ? (
-            <View style={styles.tickerContent}>
-              <ActivityIndicator size="small" color="#86efac" />
-            </View>
-          ) : error ? (
-            <View style={styles.tickerContent}>
-              <Text style={styles.tickerError}>{error}</Text>
-            </View>
-          ) : totals.length === 0 ? (
-            <View style={styles.tickerContent}>
-              <Text style={styles.tickerEmpty}>Sin datos del día anterior</Text>
-            </View>
-          ) : (
-            <TickerMarquee totals={totals} formatMoneda={formatMoneda} />
-          )}
         </View>
+
+        <CalendarioInicio />
       </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollView: { flex: 1, backgroundColor: '#ffffff' },
+  scrollView: { flex: 1, backgroundColor: '#fdf8f9' },
   scrollContent: {
     padding: 12,
     paddingBottom: 32,
     alignItems: 'center',
     flexGrow: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#fdf8f9',
   },
   homeInner: {
     width: '100%',
     alignSelf: 'center',
   },
+  tickerShell: {
+    width: '100%',
+    marginBottom: 16,
+    borderRadius: 16,
+    ...CARD_SHADOW,
+  },
   tickerBar: {
     flexDirection: 'row',
     alignItems: 'stretch',
     justifyContent: 'flex-start',
-    backgroundColor: '#0f172a',
-    borderRadius: 8,
-    marginBottom: 16,
-    overflow: 'hidden',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
     minHeight: 52,
-    ...(Platform.OS === 'web' && { boxShadow: '0 2px 8px rgba(15,23,42,0.3)' } as object),
+    overflow: 'hidden',
   },
   tickerLabel: {
     flexShrink: 0,
@@ -236,17 +255,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
     borderRightWidth: 1,
-    borderRightColor: 'rgba(255,255,255,0.12)',
+    borderRightColor: '#e2e8f0',
     justifyContent: 'center',
     alignItems: 'flex-start',
   },
   tickerLabelText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#94a3b8',
+    color: '#64748b',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
+    ...(Platform.OS === 'web'
+      ? ({ fontFamily: '"Courier New", Courier, monospace' } as object)
+      : { fontFamily: 'monospace' }),
   },
   tickerMarqueeWrap: {
     flex: 1,
@@ -257,12 +278,24 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
     justifyContent: 'center',
+    alignItems: 'flex-start',
+    position: 'relative',
+  },
+  tickerMedidor: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    opacity: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    flexWrap: 'nowrap',
   },
   tickerMarqueeContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
+    alignSelf: 'flex-start',
+    justifyContent: 'flex-start',
   },
   tickerMarqueeSegment: {
     flexDirection: 'row',
@@ -270,6 +303,14 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     flexWrap: 'nowrap',
     paddingRight: 8,
+  },
+  tickerFilaFija: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-evenly',
+    flexWrap: 'nowrap',
+    paddingHorizontal: 12,
   },
   tickerContent: {
     flex: 1,
@@ -282,105 +323,33 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     marginRight: 24,
   },
+  tickerItemFijo: {
+    marginRight: 0,
+  },
   tickerItemLocal: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#f8fafc',
+    color: '#334155',
     marginRight: 10,
     flexShrink: 0,
-    ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
+    ...(Platform.OS === 'web'
+      ? ({ fontFamily: '"Courier New", Courier, monospace' } as object)
+      : { fontFamily: 'monospace' }),
     letterSpacing: 0.8,
   },
   tickerItemTotal: {
     fontSize: 15,
-    fontWeight: '700',
-    color: '#86efac',
-    ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
-    letterSpacing: 0.8,
+    fontWeight: '800',
+    color: '#16a34a',
+    letterSpacing: 0.3,
   },
   tickerError: {
     fontSize: 14,
-    color: '#fca5a5',
+    color: '#ef4444',
   },
   tickerEmpty: {
     fontSize: 14,
     color: '#94a3b8',
     fontStyle: 'italic',
-  },
-  welcome: {
-    paddingBottom: 12,
-    justifyContent: 'center',
-  },
-  welcomeTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    flexWrap: 'wrap',
-  },
-  welcomeTopStack: {
-    flexDirection: 'column',
-    alignItems: 'stretch',
-  },
-  welcomeTextBlock: {
-    flex: 1,
-    minWidth: 200,
-  },
-  welcomeTextBlockStack: {
-    minWidth: 0,
-    width: '100%',
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#334155',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#64748b',
-    lineHeight: 20,
-  },
-  ctaDiaADiaWrap: {
-    flexShrink: 0,
-    maxWidth: 320,
-  },
-  ctaDiaADiaWrapStack: {
-    maxWidth: '100%',
-    width: '100%',
-    alignSelf: 'stretch',
-  },
-  ctaDiaADia: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#fef3c7',
-    borderRadius: radius.md - 2,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    minHeight: MIN_TOUCH,
-  },
-  ctaDiaADiaIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#fde68a',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ctaDiaADiaTextBlock: {
-    flex: 1,
-    minWidth: 0,
-  },
-  ctaDiaADiaTitle: {
-    color: '#92400e',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  ctaDiaADiaSub: {
-    color: '#b45309',
-    fontSize: 11,
-    fontWeight: '500',
-    marginTop: 1,
   },
 });

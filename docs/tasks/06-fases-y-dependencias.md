@@ -221,13 +221,18 @@ de validación (frontend). Nunca dos agentes en el adaptador de captura.
 
 Las tres piezas son independientes entre sí.
 
-**Entra:**
-- Feed ICS de vencimientos por usuario, con token propio revocable, montado antes
-  del `requireAuth` global.
-- Tabla `Igp_Notificaciones`, campana en la interfaz y avisos de mención,
-  asignación, vencimiento, compra pendiente y acta lista.
-- Sincronización de usuarios desde Directory: **solo enriquece** campos concretos,
-  **nunca crea usuarios ni asigna permisos**.
+**Entra** — en curso (27/08/2026; Directory en stub):
+- `[x]` Feed ICS de vencimientos por usuario, con token propio revocable, montado antes
+  del `requireAuth` global (`GET …/vencimientos.ics`, `POST …/vencimientos/token`).
+- `[x]` Tabla `Igp_Notificaciones` en código + API + campana en cabecera. Emisores:
+  mención, asignación, vencimiento (junto al email 1A). Tipos `compra_pendiente` /
+  `acta_lista` reservados sin emisor (D-27).
+- `[ ]` Tabla **creada en AWS** (pendiente de confirmación).
+- `[ ]` Sincronización de usuarios desde Directory (stub listo; falta credencial /
+  delegación con scope Directory).
+
+Decisiones cerradas al arrancar: D-24 (ICS), D-25 (token en Ajustes), D-26
+(Directory lista blanca), D-27 (tipos sin emisor).
 
 **Cierra cuando:**
 - [ ] Un usuario se suscribe al feed y ve sus vencimientos en su calendario.
@@ -236,6 +241,7 @@ Las tres piezas son independientes entre sí.
 - [ ] Una mención genera aviso y la campana lo cuenta sin `Scan`.
 - [ ] La sincronización con Directory no altera roles, permisos ni contraseñas, y
       un usuario que ya no está en Directory **no** se borra automáticamente.
+- [x] (código) Campana + ICS + emisores con tests.
 
 ---
 

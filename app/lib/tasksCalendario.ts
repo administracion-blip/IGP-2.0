@@ -20,6 +20,105 @@ export function addDaysIso(iso: string, days: number): string {
   return toIso(d);
 }
 
+/** Días enteros entre dos ISO locales (`hasta - desde`). Negativo si `hasta` es anterior. */
+export function diasEntreIso(desde: string, hasta: string): number {
+  const a = new Date(`${desde}T12:00:00`).getTime();
+  const b = new Date(`${hasta}T12:00:00`).getTime();
+  return Math.round((b - a) / 86400000);
+}
+
+/**
+ * Tramo inclusive de un proyecto. Sin fechas válidas → `null`.
+ * Si hay inicio y fin y el inicio es posterior, un solo día (el vencimiento).
+ */
+export function tramoProyecto(
+  inicio?: string | null,
+  fin?: string | null,
+): { desde: string; hasta: string } | null {
+  const ini = fechaLimiteCalendario(inicio);
+  const fn = fechaLimiteCalendario(fin);
+  if (ini && fn) {
+    if (ini > fn) return { desde: fn, hasta: fn };
+    return { desde: ini, hasta: fn };
+  }
+  if (fn) return { desde: fn, hasta: fn };
+  if (ini) return { desde: ini, hasta: ini };
+  return null;
+}
+
+export function itemCubreDia(
+  item: { fecha: string; fechaFin?: string },
+  iso: string,
+): boolean {
+  const dia = fechaLimiteCalendario(iso);
+  const desde = fechaLimiteCalendario(item.fecha);
+  if (!dia || !desde) return false;
+  const hasta = fechaLimiteCalendario(item.fechaFin) ?? desde;
+  return dia >= desde && dia <= hasta;
+}
+
+export function recortarTramoARango(
+  desde: string,
+  hasta: string,
+  rangoDesde: string,
+  rangoHasta: string,
+): { desde: string; hasta: string; continuaIzq: boolean; continuaDer: boolean } | null {
+  const d = fechaLimiteCalendario(desde);
+  const h = fechaLimiteCalendario(hasta);
+  const r0 = fechaLimiteCalendario(rangoDesde);
+  const r1 = fechaLimiteCalendario(rangoHasta);
+  if (!d || !h || !r0 || !r1 || h < r0 || d > r1) return null;
+  return {
+    desde: d < r0 ? r0 : d,
+    hasta: h > r1 ? r1 : h,
+    continuaIzq: d < r0,
+    continuaDer: h > r1,
+  };
+}
+
+export type TramoFechas = {
+  desde: string;
+  hasta: string;
+};
+
+/** Empaqueta tramos en carriles sin solaparse. Orden: inicio, luego duración desc. */
+export function asignarCarriles<T extends TramoFechas>(
+  tramos: T[],
+  tope = 3,
+): { asignados: Array<T & { carril: number }>; overflow: number } {
+  const ordenados = [...tramos].sort((a, b) => {
+    if (a.desde !== b.desde) return a.desde < b.desde ? -1 : 1;
+    return diasEntreIso(b.desde, b.hasta) - diasEntreIso(a.desde, a.hasta);
+  });
+
+  const finCarril: string[] = [];
+  const asignados: Array<T & { carril: number }> = [];
+  let overflow = 0;
+
+  for (const t of ordenados) {
+    let puesto = -1;
+    for (let i = 0; i < finCarril.length; i += 1) {
+      if (finCarril[i] < t.desde) {
+        puesto = i;
+        break;
+      }
+    }
+    if (puesto === -1) {
+      if (finCarril.length >= tope) {
+        overflow += 1;
+        continue;
+      }
+      puesto = finCarril.length;
+      finCarril.push(t.hasta);
+    } else {
+      finCarril[puesto] = t.hasta;
+    }
+    asignados.push({ ...t, carril: puesto });
+  }
+
+  return { asignados, overflow };
+}
+
 /** Lunes de la semana ISO que contiene `fechaIso`. */
 export function lunesDeSemanaIso(fechaIso: string): string {
   const d = new Date(`${fechaIso}T12:00:00`);
@@ -57,6 +156,19 @@ export function celdasCalendarioMes(anclaIso: string): { iso: string; delMes: bo
     cur = addDaysIso(cur, 1);
   }
   return dias;
+}
+
+/** Agrupa ítems de agenda por día ISO. */
+export function agruparPorDia<T extends { fecha: string }>(items: T[]): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const f = fechaLimiteCalendario(item.fecha);
+    if (!f) continue;
+    const arr = map.get(f) ?? [];
+    arr.push(item);
+    map.set(f, arr);
+  }
+  return map;
 }
 
 export function agruparPorFechaLimite(tareas: Tarea[]): Map<string, Tarea[]> {

@@ -10,8 +10,10 @@
  *   `timeoutMs: 0`, o coordinar con un `signal` externo (se respeta el primero
  *   que aborte).
  * - Cuando el backend responde 401 emite `authEvents.emitUnauthorized()` para
- *   que el AuthContext limpie el token y redirija a login. La respuesta sigue
- *   propagándose al caller para que decida cómo mostrar el error.
+ *   que el AuthContext limpie el token y redirija a login, **salvo** que la
+ *   llamada pase `skipUnauthorizedEmit: true` (p. ej. la campana: un fallo
+ *   puntual del contador no debe tumbar toda la sesión).
+ *   La respuesta sigue propagándose al caller para que decida cómo mostrar el error.
  */
 import { API_BASE_URL } from './apiBaseUrl';
 import { getToken } from './authToken';
@@ -25,6 +27,11 @@ export type ApiFetchInit = RequestInit & {
    * Pasa `0` para desactivarlo (útil para descargas largas o long polling).
    */
   timeoutMs?: number;
+  /**
+   * Si es true, un 401 no dispara el logout global. Úsalo solo en lecturas
+   * auxiliares (campana, badges) donde el fallo no implica sesión inválida.
+   */
+  skipUnauthorizedEmit?: boolean;
 };
 
 export async function apiFetch(
@@ -41,7 +48,12 @@ export async function apiFetch(
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
-  const { timeoutMs = DEFAULT_TIMEOUT_MS, signal: externalSignal, ...rest } = init;
+  const {
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    signal: externalSignal,
+    skipUnauthorizedEmit = false,
+    ...rest
+  } = init;
 
   const controller =
     timeoutMs > 0 || externalSignal ? new AbortController() : null;
@@ -69,7 +81,7 @@ export async function apiFetch(
       ...(controller ? { signal: controller.signal } : {}),
     });
 
-    if (res.status === 401) {
+    if (res.status === 401 && !skipUnauthorizedEmit) {
       authEvents.emitUnauthorized();
     }
 

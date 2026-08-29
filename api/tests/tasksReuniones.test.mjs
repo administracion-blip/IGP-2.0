@@ -95,6 +95,13 @@ function montar() {
   db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.ajustes, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.notificaciones, {
+    hashKey: 'PK',
+    rangeKey: 'SK',
+    indices: {
+      'NoLeidas-index': { hashKey: 'usuario_no_leida', rangeKey: 'creado_en', proyeccion: 'KEYS_ONLY' },
+    },
+  });
   db.crearTabla(tables.proyectos, {
     hashKey: 'PK',
     rangeKey: 'SK',

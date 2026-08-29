@@ -235,7 +235,9 @@ export function ModalFormularioProyecto({
           style={modal.center}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <Pressable style={[modal.cardWrap, shouldStackPanels && modal.cardWrapAncho]}>
+          <Pressable
+            style={[modal.cardWrap, (shouldStackPanels || isCompact) && modal.cardWrapAncho]}
+          >
             <View style={modal.card}>
               <View style={modal.header}>
                 <Text style={modal.title}>
@@ -259,152 +261,171 @@ export function ModalFormularioProyecto({
                   />
                 </View>
 
-                <View style={form.group}>
-                  <Text style={form.label}>Descripción</Text>
-                  <TextInput
-                    style={[form.input, form.inputMultilinea]}
-                    value={datos.descripcion}
-                    onChangeText={(t) => setDatos((p) => ({ ...p, descripcion: t }))}
-                    placeholder="Objetivo del proyecto y alcance"
-                    placeholderTextColor="#94a3b8"
-                    multiline
-                    editable={!guardando}
-                  />
-                </View>
-
-                <View style={form.group}>
-                  <Text style={form.label}>Estado</Text>
-                  <View style={form.chipsRow}>
-                    {ESTADOS_PROYECTO.map((e) => (
-                      <TouchableOpacity
-                        key={e}
-                        style={[form.chip, isCompact && form.chipTactil, datos.estado === e && form.chipActivo]}
-                        onPress={() => setDatos((p) => ({ ...p, estado: e }))}
-                        disabled={guardando}
-                      >
-                        <Text style={[form.chipTexto, datos.estado === e && form.chipTextoActivo]}>
-                          {ETIQUETA_ESTADO_PROYECTO[e]}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-
-                <View style={form.group}>
-                  <Text style={form.label}>Prioridad</Text>
-                  <View style={form.chipsRow}>
-                    {PRIORIDADES.map((p) => (
-                      <TouchableOpacity
-                        key={p}
-                        style={[form.chip, isCompact && form.chipTactil, datos.prioridad === p && form.chipActivo]}
-                        onPress={() => setDatos((prev) => ({ ...prev, prioridad: p }))}
-                        disabled={guardando}
-                      >
-                        <Text style={[form.chipTexto, datos.prioridad === p && form.chipTextoActivo]}>
-                          {ETIQUETA_PRIORIDAD[p]}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-
-                <View style={form.group}>
-                  <SelectorDesplegable
-                    label="Departamento"
-                    icono="account-tree"
-                    placeholder="Sin departamento"
-                    tituloLista="Selecciona un departamento"
-                    iconoLista="account-tree"
-                    valorId={datos.departamento_id}
-                    opciones={opcionesDepartamento}
-                    vacioTexto="No hay departamentos activos"
-                    disabled={guardando}
-                    loading={departamentos.cargando}
-                    onSeleccionar={(id) => setDatos((p) => ({ ...p, departamento_id: id }))}
-                  />
-                </View>
-
-                <View style={form.group}>
-                  <SelectorDesplegable
-                    label="Responsable"
-                    icono="person"
-                    placeholder={modo === 'crear' ? 'Yo' : 'Sin responsable'}
-                    tituloLista="Selecciona el responsable"
-                    iconoLista="person"
-                    buscador
-                    buscadorPlaceholder="Buscar usuario…"
-                    valorId={datos.responsable_id}
-                    opciones={opcionesResponsable}
-                    vacioTexto="No hay usuarios disponibles"
-                    disabled={guardando || usuarios.noDisponibles}
-                    loading={usuarios.cargando}
-                    onSeleccionar={(id) => setDatos((p) => ({ ...p, responsable_id: id }))}
-                  />
-                  {usuarios.noDisponibles ? (
-                    <View style={form.aviso}>
-                      <MaterialIcons name="info-outline" size={14} color="#d97706" />
-                      <Text style={form.avisoTexto}>
-                        No se puede elegir responsable sin el permiso de usuarios. Se conserva el que ya
-                        tuviera el proyecto.
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-
-                <View style={[form.group, form.groupFila]}>
-                  <View style={form.groupMitad}>
-                    <Text style={form.label}>Inicio</Text>
-                    <InputFecha
-                      compact
-                      valueIso={datos.fecha_inicio}
-                      onChangeIso={(iso) => setDatos((p) => ({ ...p, fecha_inicio: iso }))}
-                      editable={!guardando}
-                      style={estiloCampoFechaCompacto}
-                    />
-                  </View>
-                  <View style={form.groupMitad}>
-                    <Text style={form.label}>Fin previsto</Text>
-                    <InputFecha
-                      compact
-                      valueIso={datos.fecha_fin_prevista}
-                      onChangeIso={(iso) => setDatos((p) => ({ ...p, fecha_fin_prevista: iso }))}
-                      editable={!guardando}
-                      style={estiloCampoFechaCompacto}
-                    />
-                  </View>
-                </View>
-
-                {modo === 'editar' && (datos.estado === 'cerrado' || datos.fecha_cierre) ? (
-                  <View style={form.group}>
-                    <Text style={form.label}>Fecha de cierre</Text>
-                    <InputFecha
-                      compact
-                      valueIso={datos.fecha_cierre}
-                      onChangeIso={(iso) => setDatos((p) => ({ ...p, fecha_cierre: iso }))}
-                      editable={!guardando}
-                      style={estiloCampoFechaCompacto}
-                    />
-                  </View>
-                ) : null}
-
-                {puedeVerPresupuesto ? (
-                  <View style={form.group}>
-                    <Text style={form.label}>Presupuesto asignado (€)</Text>
+                <View style={[form.group, form.gridDos, shouldStackPanels && form.gridDosApilado]}>
+                  <View style={form.col}>
+                    <Text style={form.label}>Descripción</Text>
                     <TextInput
-                      style={form.input}
-                      value={datos.presupuesto_asignado}
-                      onChangeText={(t) => setDatos((p) => ({ ...p, presupuesto_asignado: t }))}
-                      placeholder="Ej.: 12000"
+                      style={[
+                        form.input,
+                        form.inputMultilineaMedia,
+                        !shouldStackPanels && { flex: 1 },
+                      ]}
+                      value={datos.descripcion}
+                      onChangeText={(t) => setDatos((p) => ({ ...p, descripcion: t }))}
+                      placeholder="Objetivo del proyecto y alcance"
                       placeholderTextColor="#94a3b8"
-                      keyboardType="decimal-pad"
+                      multiline
+                      numberOfLines={5}
                       editable={!guardando}
                     />
-                    <Text style={form.help}>
-                      Déjalo vacío si el proyecto no tiene presupuesto asignado. El gasto comprometido y el
-                      real se calculan solos a partir de las líneas de compra.
-                    </Text>
                   </View>
-                ) : null}
+
+                  <View style={form.col}>
+                    <View style={form.group}>
+                      <Text style={form.label}>Estado</Text>
+                      <View style={form.chipsRow}>
+                        {ESTADOS_PROYECTO.map((e) => (
+                          <TouchableOpacity
+                            key={e}
+                            style={[
+                              form.chip,
+                              isCompact && form.chipTactil,
+                              datos.estado === e && form.chipActivo,
+                            ]}
+                            onPress={() => setDatos((p) => ({ ...p, estado: e }))}
+                            disabled={guardando}
+                          >
+                            <Text style={[form.chipTexto, datos.estado === e && form.chipTextoActivo]}>
+                              {ETIQUETA_ESTADO_PROYECTO[e]}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+
+                    <View style={form.group}>
+                      <Text style={form.label}>Prioridad</Text>
+                      <View style={form.chipsRow}>
+                        {PRIORIDADES.map((p) => (
+                          <TouchableOpacity
+                            key={p}
+                            style={[
+                              form.chip,
+                              isCompact && form.chipTactil,
+                              datos.prioridad === p && form.chipActivo,
+                            ]}
+                            onPress={() => setDatos((prev) => ({ ...prev, prioridad: p }))}
+                            disabled={guardando}
+                          >
+                            <Text
+                              style={[form.chipTexto, datos.prioridad === p && form.chipTextoActivo]}
+                            >
+                              {ETIQUETA_PRIORIDAD[p]}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+
+                    <View style={form.group}>
+                      <SelectorDesplegable
+                        label="Departamento"
+                        icono="account-tree"
+                        placeholder="Sin departamento"
+                        tituloLista="Selecciona un departamento"
+                        iconoLista="account-tree"
+                        valorId={datos.departamento_id}
+                        opciones={opcionesDepartamento}
+                        vacioTexto="No hay departamentos activos"
+                        disabled={guardando}
+                        loading={departamentos.cargando}
+                        onSeleccionar={(id) => setDatos((p) => ({ ...p, departamento_id: id }))}
+                      />
+                    </View>
+
+                    <View style={form.group}>
+                      <SelectorDesplegable
+                        label="Responsable"
+                        icono="person"
+                        placeholder={modo === 'crear' ? 'Yo' : 'Sin responsable'}
+                        tituloLista="Selecciona el responsable"
+                        iconoLista="person"
+                        buscador
+                        buscadorPlaceholder="Buscar usuario…"
+                        valorId={datos.responsable_id}
+                        opciones={opcionesResponsable}
+                        vacioTexto="No hay usuarios disponibles"
+                        disabled={guardando || usuarios.noDisponibles}
+                        loading={usuarios.cargando}
+                        onSeleccionar={(id) => setDatos((p) => ({ ...p, responsable_id: id }))}
+                      />
+                      {usuarios.noDisponibles ? (
+                        <View style={form.aviso}>
+                          <MaterialIcons name="info-outline" size={14} color="#d97706" />
+                          <Text style={form.avisoTexto}>
+                            No se puede elegir responsable sin el permiso de usuarios. Se conserva el
+                            que ya tuviera el proyecto.
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+
+                    <View style={[form.group, form.gridDos, shouldStackPanels && form.gridDosApilado]}>
+                      <View style={form.col}>
+                        <Text style={form.label}>Inicio</Text>
+                        <InputFecha
+                          compact
+                          valueIso={datos.fecha_inicio}
+                          onChangeIso={(iso) => setDatos((p) => ({ ...p, fecha_inicio: iso }))}
+                          editable={!guardando}
+                          style={estiloCampoFechaCompacto}
+                        />
+                      </View>
+                      <View style={form.col}>
+                        <Text style={form.label}>Fin previsto</Text>
+                        <InputFecha
+                          compact
+                          valueIso={datos.fecha_fin_prevista}
+                          onChangeIso={(iso) => setDatos((p) => ({ ...p, fecha_fin_prevista: iso }))}
+                          editable={!guardando}
+                          style={estiloCampoFechaCompacto}
+                        />
+                      </View>
+                    </View>
+
+                    {puedeVerPresupuesto ? (
+                      <View style={form.group}>
+                        <Text style={form.label}>Presupuesto asignado (€)</Text>
+                        <TextInput
+                          style={form.input}
+                          value={datos.presupuesto_asignado}
+                          onChangeText={(t) => setDatos((p) => ({ ...p, presupuesto_asignado: t }))}
+                          placeholder="Ej.: 12000"
+                          placeholderTextColor="#94a3b8"
+                          keyboardType="decimal-pad"
+                          editable={!guardando}
+                        />
+                        <Text style={form.help}>
+                          Déjalo vacío si el proyecto no tiene presupuesto asignado. El gasto
+                          comprometido y el real se calculan solos a partir de las líneas de compra.
+                        </Text>
+                      </View>
+                    ) : null}
+
+                    {modo === 'editar' && (datos.estado === 'cerrado' || datos.fecha_cierre) ? (
+                      <View style={form.group}>
+                        <Text style={form.label}>Fecha de cierre</Text>
+                        <InputFecha
+                          compact
+                          valueIso={datos.fecha_cierre}
+                          onChangeIso={(iso) => setDatos((p) => ({ ...p, fecha_cierre: iso }))}
+                          editable={!guardando}
+                          style={estiloCampoFechaCompacto}
+                        />
+                      </View>
+                    ) : null}
+                  </View>
+                </View>
               </ScrollView>
 
               {error ? <Text style={modal.error}>{error}</Text> : null}

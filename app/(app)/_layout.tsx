@@ -24,6 +24,7 @@ import { colors, iconSize, radius, shadowCard, sidebar, SPACING, typography } fr
 import { SidebarNavItem } from '../components/ui/SidebarNavItem';
 import { SidebarApiStatus } from '../components/ui/SidebarApiStatus';
 import { SoftPulseBorderWrap } from '../components/ui/SoftPulseBorderWrap';
+import { CampanaNotificaciones } from '../components/tasks/CampanaNotificaciones';
 
 function normalizarPath(pathname: string): string {
   const p = pathname.replace(/\/$/, '');
@@ -148,6 +149,7 @@ function AppLayoutContent() {
             </TouchableOpacity>
           </SoftPulseBorderWrap>
         ) : null}
+        {hasPermiso('proyectos.ver') ? <CampanaNotificaciones /> : null}
         <View
           style={styles.headerConfigWrap}
           onMouseEnter={Platform.OS === 'web' ? () => setConfigLabelVisible(true) : undefined}
