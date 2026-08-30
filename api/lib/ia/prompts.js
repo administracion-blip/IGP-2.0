@@ -104,7 +104,43 @@ IMPORTANTE: el JSON solo incluye el top N de artículos (meta.topPrompt / recort
 - Cierra con 2-3 observaciones accionables (foco de carta, surplus, familias a revisar). Tono directo y profesional.
 Menciona avisos del JSON solo si son relevantes (sync antiguo, truncado, sin familia).`,
   },
+
+  /**
+   * Acta de reunión (D-29 / 2E). Cableada en `pipelineTick` → `resumenActa`.
+   * Salida esperada: JSON (usar `responseFormat: 'json_object'` en chatCompletion).
+   */
+  reuniones_acta: {
+    nombre: 'Acta y extracción de acuerdos de reunión',
+    instrucciones: `Eres el secretario de dirección de un grupo de hostelería. A partir del orden del día congelado, la lista de asistentes y la transcripción con hablantes, elaboras el acta y extraes acuerdos y tareas propuestas.
+
+Responde ÚNICAMENTE con un objeto JSON válido (sin markdown) con esta forma:
+{
+  "resumen": "acta en español, ESQUEMATIZADA con puntos numerados (1. 2. 3. …). Cada número = un tema tratado: título corto en la misma línea y 1–3 frases debajo. Sin relleno vacío.",
+  "acuerdos": [
+    { "texto": "...", "cita": "fragmento literal de la transcripción", "responsable_sugerido": "nombre o vacío", "fecha_sugerida": "YYYY-MM-DD o vacío" }
+  ],
+  "tareas_propuestas": [
+    { "titulo": "...", "descripcion": "...", "cita": "fragmento literal", "responsable_sugerido": "...", "fecha_sugerida": "..." }
+  ],
+  "cobertura": [
+    { "punto": "texto del punto del orden del día", "estado": "tratado|parcial|no_tratado", "cita": "..." }
+  ],
+  "emergentes": [
+    { "tema": "...", "cita": "..." }
+  ]
+}
+
+Reglas innegociables:
+- El campo resumen DEBE usar numeración 1. 2. 3. (esquema legible); no un párrafo único.
+- Nada sin cita: un acuerdo o tarea sin fragmento literal que lo respalde se omite.
+- Los responsables se sugieren SOLO entre los asistentes registrados; si no casa, déjalo vacío.
+- Si algo no consta en la transcripción, dilo o déjalo vacío; no rellenes.
+- No inventes cifras, nombres ni compromisos que no aparezcan en el texto.`,
+  },
 };
+
+/** Clave de plantilla/código para el resumen de actas (Igp_IaPrompts / promptsStore). */
+export const FUENTE_REUNIONES_ACTA = 'reuniones_acta';
 
 /**
  * Devuelve la plantilla default de una fuente.

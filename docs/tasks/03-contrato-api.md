@@ -279,7 +279,7 @@ cita_origen? } ] }`
 | GET | `/api/reuniones/:id` | 1B | `reuniones.ver` + visibilidad | `META` + asistentes + acuerdos + puntos + vínculos. Incluye `permisos_fila` y nombres resueltos |
 | PATCH | `/api/reuniones/:id` | 1B | `reuniones.gestionar` | El orden del día solo es editable **antes** de `celebrada` / `acta_*` (**D-20**); después, `409`. Al pasar a esos estados se copia a `orden_del_dia_congelado` si no había |
 | DELETE | `/api/reuniones/:id` | 1B | `reuniones.gestionar` | Borra el registro y el evento de Calendar (stub: no tumba si falla) |
-| POST | `/api/reuniones/:id/asistentes` | 1B | `reuniones.gestionar` | |
+| POST | `/api/reuniones/:id/asistentes` | 1B | `reuniones.gestionar` | Tras guardar ASIST#, si hay `calendar_event_id` sincroniza attendees (emails del ítem o de `igp_usuarios`). Fallo de Calendar (**D-21**): alta OK + `calendario_sincronizado: false` opcional |
 | POST | `/api/reuniones/:id/aviso-grabacion` | 1B | `reuniones.gestionar` | Registra informados y quién acepta. **Sin esto no se emite URL de subida de audio** |
 | GET | `/api/reuniones/:id/sugerencia-orden-del-dia` | 1B | `reuniones.gestionar` | Devuelve acuerdos pendientes y temas aplazados de la reunión anterior de la serie, como **texto editable**. En Fase 4 pasa a generarse solo |
 | POST | `/api/reuniones/:id/acuerdos` | 1B | `reuniones.gestionar` | En 1B se escriben a mano |

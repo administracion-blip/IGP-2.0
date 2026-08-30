@@ -227,7 +227,10 @@ se re-congela si aún no había copia.
 
 Si Google falla o no está configurado, la reunión se crea igual en DynamoDB sin
 `calendar_event_id`, y la respuesta avisa (`calendario_sincronizado: false` o
-equivalente). La UI lo muestra con honestidad.
+equivalente). La UI lo muestra con honestidad. Lo mismo al sincronizar asistentes
+en `POST …/asistentes` (actualiza attendees del evento si hay `calendar_event_id`;
+si Calendar falla, el alta de ASIST# sigue OK y la respuesta lleva
+`calendario_sincronizado: false`).
 
 *Motivo:* la fase tiene que ser desplegable antes de tener la service account, y un
 corte de Google no puede impedir convocar. El mismo criterio aplica a PATCH/DELETE
@@ -278,50 +281,79 @@ aprueba, campos cosméticos explícitos). **Nunca** `Email`, `Nombre`, `Apellido
 El helper de notificaciones admite esos tipos; ningún código de Fase 3 los emite.
 Los emisores llegan con compras (4) y acta validada (2).
 
+### D-28 · Organizador de Calendar = buzón fijo (opción A) — 29/08/2026
+
+Los eventos de reunión los crea la service account **impersonando**
+`GOOGLE_CALENDAR_IMPERSONATE` (ej. `reuniones@grupoparipe.com`), no el email del
+convocante. Dominio allowlist: `GOOGLE_CALENDAR_DOMINIOS_PERMITIDOS`. Calendario:
+`GOOGLE_CALENDAR_ID` (por defecto `primary`). Sin recursos de sala por ahora.
+
+*Motivo:* un único buzón organizador simplifica delegación, permisos y soporte;
+los asistentes se añaden como attendees cuando haya emails del dominio.
+
+### D-29 · Modelo de acta = `chatCompletion` con modelo bueno — 29/08/2026
+
+Cierra A-03. El resumen de acta reutiliza `chatCompletion()` del proveedor ya en
+producción y el **modelo bueno**, no el barato. Sin proveedor nuevo solo para actas.
+
+### D-30 · Retención de audio 30 días, solo con acta validada — 29/08/2026
+
+Cierra A-04. Configurable en `Igp_Ajustes` (`reuniones` / `retencion_audio`).
+Borrado automático solo cuando el acta está validada.
+
+### D-31 · Audio en `error`: aviso + decisión manual — 29/08/2026
+
+Cierra A-05 (opción 2). No usar lifecycle S3 que borre audios no transcritos; choca
+con reintentos. Aviso si supera X días y decisión humana.
+
+### D-32 · Audio en prefijo `tasks/` del bucket existente — 29/08/2026
+
+Cierra A-10. Prefijo `tasks/reuniones/…`, cifrado default del bucket, CORS `PUT`
+como adjuntos. Sin bucket dedicado.
+
+### D-33 · Proveedor STT provisional: Amazon Transcribe — 30/08/2026
+
+Cierra **A-02 de forma provisional**. Primer adaptador real:
+`api/lib/tasks/reuniones/transcripcionAws.js`, cableado cuando
+`TRANSCRIPCION_PROVEEDOR` (o `proveedor_transcripcion` en Ajustes) es `aws`,
+`transcribe`, `amazon` o `aws_transcribe`.
+
+Misma cuenta AWS del ERP (`AWS_REGION`, credenciales del `docClient`/S3). Idioma
+por defecto `es-ES` (`TRANSCRIPCION_IDIOMA`). Diarización con
+`ShowSpeakerLabels`. Vocabulario custom de Transcribe **no** se crea al vuelo en
+v1; opcional `TRANSCRIBE_VOCABULARY_NAME` si ya existe en la cuenta. El tick sí
+extrae términos del orden del día congelado y los guarda en
+`vocabulario_esperado`.
+
+*Motivo:* desbloquea el pipeline 2D sin añadir proveedor externo. La puerta de
+decisión (comparar con un especializado en diarización/español) sigue abierta:
+si la prueba con audio real del grupo no convence, se sustituye el adaptador
+manteniendo la interfaz `iniciar` / `consultar`.
+
+*Consecuencia:* `resolverProveedorStt` deja de devolver `null` para esos alias.
+Sin proveedor configurado el comportamiento 2B se mantiene (omite
+`audio_pendiente`).
+
 ---
 
 ## Abiertas
 
 ### A-02 · Proveedor de transcripción
 
-**Recomendación: decidir con la transcripción delante, no con la tabla de
-precios.** En la puerta de decisión de la Fase 2, probar el mismo audio real con
-dos candidatos: el servicio genérico de AWS (no añade proveedor ni saca el dato de
-la cuenta) frente a un especializado en diarización (suele costar un orden de
-magnitud menos y acertar más en español coloquial).
-
-*Impacto:* es el único factor con efecto real en el coste variable, hasta 6× de
-diferencia. Ver [07](07-coste.md).
+**Cerrada de forma provisional en D-33 (30/08/2026):** Amazon Transcribe hasta
+prueba comparativa con audio real. Reabrir solo si la calidad/coste no cumplen.
 
 ### A-03 · Modelo de lenguaje para el acta
 
-**Recomendación: reutilizar `chatCompletion()` con el proveedor que ya está en
-producción, y usar el modelo bueno, no el barato.**
-
-*Motivo:* el coste del resumen es de céntimos frente a la transcripción, y es la
-pieza que decide si el acta sirve. Introducir un proveedor nuevo añadiría clave,
-cliente y modo de fallo por un ahorro irrelevante.
+**Cerrada en D-29 (29/08/2026).**
 
 ### A-04 · Plazo de retención del audio
 
-**Recomendación: 30 días, configurable, y borrado solo con acta validada.**
-
-*Motivo:* menos margen (el plazo de 7 días del diseño archivado) no deja reprocesar
-cuando en la reunión siguiente alguien descubre que el acta se comió un acuerdo. El
-coste de almacenar es despreciable, así que aquí no se ahorra nada recortando.
+**Cerrada en D-30 (29/08/2026).**
 
 ### A-05 · Qué hacer con el audio de reuniones en error
 
-El job de retención no los toca, porque borrarlos impide reintentar, así que se
-acumulan. Dos caminos incompatibles:
-
-1. Regla de ciclo de vida en S3 como red de seguridad, **aceptando** que borrará
-   también audios no transcritos.
-2. Aviso cuando un audio en error supera X días, y decisión manual.
-
-**Recomendación: la 2.** Una regla de ciclo de vida y un job con reglas distintas
-sobre el mismo objeto acaban contradiciéndose, y el caso perdido siempre es el que
-más importaba.
+**Cerrada en D-31 (29/08/2026).**
 
 ### A-06 · Vencimientos: feed de calendario o escribir eventos por API
 
@@ -364,14 +396,7 @@ Con Meet grabando y la subida manual como respaldo, no aporta.
 
 ### A-10 · Bucket dedicado para el audio o prefijo en el bucket actual
 
-**Recomendación: prefijo `tasks/` en el bucket existente**, con cifrado explícito y
-CORS para `PUT`.
-
-*Motivo:* un bucket aparte solo se justifica si el audio necesita una política de
-ciclo de vida o de acceso incompatible con el resto, y con la recomendación de A-05
-no la necesita. Si se elige la opción 1 de A-05, entonces sí conviene bucket
-dedicado, porque una regla de ciclo de vida a nivel de bucket afectaría a facturas
-y adjuntos.
+**Cerrada en D-32 (29/08/2026).**
 
 ### A-11 · Enriquecer el vocabulario con datos del ERP
 

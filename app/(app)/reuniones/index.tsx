@@ -38,11 +38,12 @@ import {
 } from '../../lib/tasksUi';
 import { apiFetch, errorMessage } from '../../utils/api';
 import { formatFecha } from '../../utils/formatFecha';
-import { ESTADOS_REUNION, type Reunion } from '../../types/tasks';
+import { ESTADOS_REUNION, type PropuestaReunion, type Reunion } from '../../types/tasks';
 
 const COLUMNAS = ['Título', 'Fecha', 'Hora', 'Estado', 'Visibilidad', 'Modalidad'];
 const LIMITE = 100;
 const TODOS = '';
+const MAX_PREVIEW_PENDIENTES = 8;
 
 /**
  * Si el backend aún no manda `permisos_fila` en reuniones, las escrituras se
@@ -72,6 +73,8 @@ export default function ListadoReunionesScreen() {
   const [error, setError] = useState<string | null>(null);
   const [avisoCalendario, setAvisoCalendario] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+  const [pendientesCola, setPendientesCola] = useState<PropuestaReunion[]>([]);
+  const [colaAbierta, setColaAbierta] = useState(false);
 
   const [filtroDesde, setFiltroDesde] = useState('');
   const [filtroHasta, setFiltroHasta] = useState('');
@@ -86,6 +89,29 @@ export default function ListadoReunionesScreen() {
 
   const puedeVer = puedeVerReuniones(acceso);
   const puedeGestionar = puedeGestionarReuniones(acceso);
+
+  const cargarPendientes = useCallback(async () => {
+    if (!puedeGestionar) {
+      setPendientesCola([]);
+      return;
+    }
+    try {
+      const res = await apiFetch('/api/reuniones/propuestas/pendientes');
+      const data = (await res.json().catch(() => ({}))) as {
+        propuestas?: PropuestaReunion[];
+        items?: PropuestaReunion[];
+      };
+      if (!res.ok) return;
+      const lista = Array.isArray(data.propuestas)
+        ? data.propuestas
+        : Array.isArray(data.items)
+          ? data.items
+          : [];
+      setPendientesCola(lista.filter((p) => !!(p.cita ?? '').trim()));
+    } catch (e) {
+      console.error('[reuniones] fallo al listar propuestas pendientes', e);
+    }
+  }, [puedeGestionar]);
 
   const cargar = useCallback(
     async (desde?: string | null) => {
@@ -134,6 +160,10 @@ export default function ListadoReunionesScreen() {
     setFilaSeleccionada(null);
     void cargar();
   }, [cargar]);
+
+  useEffect(() => {
+    void cargarPendientes();
+  }, [cargarPendientes]);
 
   const opcionesEstado = useMemo<OpcionDesplegable[]>(
     () => [
@@ -260,6 +290,61 @@ export default function ListadoReunionesScreen() {
           <TouchableOpacity onPress={() => setAvisoCalendario(null)} accessibilityLabel="Cerrar aviso">
             <MaterialIcons name="close" size={18} color="#b45309" />
           </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {puedeGestionar && pendientesCola.length > 0 ? (
+        <View style={styles.bannerPendientes}>
+          <TouchableOpacity
+            style={styles.bannerPendientesCabecera}
+            onPress={() => setColaAbierta((v) => !v)}
+            accessibilityLabel="Ver propuestas pendientes de la IA"
+          >
+            <MaterialIcons name="auto-awesome" size={18} color="#b45309" />
+            <Text style={styles.bannerPendientesTexto}>
+              {pendientesCola.length} propuesta
+              {pendientesCola.length === 1 ? '' : 's'} pendiente
+              {pendientesCola.length === 1 ? '' : 's'} de validar
+            </Text>
+            <MaterialIcons
+              name={colaAbierta ? 'expand-less' : 'expand-more'}
+              size={20}
+              color="#b45309"
+            />
+          </TouchableOpacity>
+          {colaAbierta ? (
+            <View style={styles.colaLista}>
+              {pendientesCola.slice(0, MAX_PREVIEW_PENDIENTES).map((p) => {
+                const idReu = (p.id_reunion ?? '').trim();
+                return (
+                  <TouchableOpacity
+                    key={p.id_propuesta}
+                    style={[styles.colaItem, isCompact && styles.colaItemTactil]}
+                    onPress={() => {
+                      if (!idReu) return;
+                      router.push(`/reuniones/${encodeURIComponent(idReu)}` as never);
+                    }}
+                    disabled={!idReu}
+                  >
+                    <Text style={styles.colaItemTitulo} numberOfLines={1}>
+                      {p.titulo || 'Sin título'}
+                    </Text>
+                    <Text style={styles.colaItemMeta} numberOfLines={1}>
+                      {(p.reunion_titulo ?? '').trim() || 'Reunión'}
+                      {p.tipo === 'acuerdo' ? ' · Acuerdo' : ' · Tarea'}
+                    </Text>
+                    <MaterialIcons name="chevron-right" size={18} color="#b45309" />
+                  </TouchableOpacity>
+                );
+              })}
+              {pendientesCola.length > MAX_PREVIEW_PENDIENTES ? (
+                <Text style={styles.colaMas}>
+                  Y {pendientesCola.length - MAX_PREVIEW_PENDIENTES} más… Abre la ficha de cada
+                  reunión para validarlas.
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -456,6 +541,46 @@ const styles = StyleSheet.create({
     borderColor: '#fde68a',
   },
   bannerCalendarioTexto: { flex: 1, fontSize: 12, color: '#92400e', lineHeight: 17 },
+
+  bannerPendientes: {
+    marginHorizontal: 10,
+    marginTop: 10,
+    borderRadius: 8,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    overflow: 'hidden',
+  },
+  bannerPendientesCabecera: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  bannerPendientesTexto: { flex: 1, fontSize: 13, fontWeight: '600', color: '#92400e' },
+  colaLista: {
+    borderTopWidth: 1,
+    borderTopColor: '#fde68a',
+    paddingVertical: 4,
+  },
+  colaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  colaItemTactil: { minHeight: MIN_TOUCH },
+  colaItemTitulo: { flex: 1, fontSize: 13, fontWeight: '600', color: '#78350f' },
+  colaItemMeta: { fontSize: 11, color: '#a16207', maxWidth: '40%' },
+  colaMas: {
+    fontSize: 11,
+    color: '#a16207',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    lineHeight: 16,
+  },
 
   filaCerrada: { backgroundColor: '#f8fafc', opacity: 0.75 },
 

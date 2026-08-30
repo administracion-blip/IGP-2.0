@@ -10,7 +10,7 @@ sistema en estado funcional y desplegable.
 |---|---|---|---|
 | **0** · Contrato, capa de acceso, departamentos | — | Todo | **No.** Un solo agente |
 | **1A** · Proyectos, tareas, vista personal | 0 | 1B, 2, 3, 4 | Sí, tras cerrar la API: backend y frontend |
-| **1B** · Reuniones con acta manual, Calendar, sala | 1A · credencial de Google | 2, 3 | Parcial: acta manual (frontend) y Google (backend) |
+| **1B** · Reuniones con acta manual, Calendar, sala | 1A · credencial de Google | 2, 3 | **Completa** (29/08/2026): acta + Calendar smoke + tests |
 | **2** · Audio, transcripción, acta, validación | 1B · **puerta de decisión** · edición de Workspace | 4 | Sí: pipeline e interfaz de validación |
 | **3** · Vencimientos en calendario, Directory, avisos | 1A. **No depende de la 2** | — | Sí: las tres piezas son independientes |
 | **4** · Plantillas, orden del día automático, cuadro de mando, PDF, compras | 1A · 2 · 3 | — | Sí: cinco entregas casi independientes |
@@ -159,12 +159,16 @@ integrador.
 
 Primer contacto con Google. Sin IA todavía.
 
-**Entra** — en curso (tabla creada 26/08/2026; Calendar aún en stub):
+**Entra** — **completa** (29/08/2026):
 - `[x]` Tabla `Igp_Reuniones` **creada en AWS** con sus índices.
 - `[x]` Convocar reunión: título, fecha, asistentes, visibilidad, **orden del día en
   texto libre** (API + pantallas).
-- `[ ]` Creación del evento en Google Calendar (stub listo; falta service account).
-- `[ ]` Detección de sala mediante recursos, y `modalidad` derivada (mismo adaptador).
+- `[x]` Creación del evento en Google Calendar (`api/lib/google/calendarClient.js`:
+  SA + Domain-Wide Delegation, organizador = buzón fijo D-28). Smoke OK 29/08/2026.
+  Asistentes: se sincronizan al `POST …/asistentes` (attendees + `sendUpdates: all`);
+  si Calendar falla, D-21 (alta local OK).
+- `[x]` Detección de modalidad vía Meet (remota) y recurso de sala (presencial /
+  mixta) en el adaptador (cuando el evento los traiga).
 - `[x]` Acta **manual**: resumen escrito a mano y acuerdos con responsable y fecha.
 - `[x]` Convertir acuerdos en tareas mediante la **creación en lote** ya existente
   (`POST …/acuerdos/crear-tareas`, D-23).
@@ -178,12 +182,17 @@ Primer contacto con Google. Sin IA todavía.
 **No entra:** audio, transcripción, IA, actas en PDF.
 
 **Cierra cuando:**
-- [ ] Se convoca una reunión y el evento aparece en Calendar con el orden del día.
-- [ ] La modalidad se detecta bien en un caso presencial y en uno remoto.
-- [ ] Un acuerdo escrito a mano se convierte en tarea con responsable y fecha, y la
-      tarea apunta a su reunión.
-- [ ] Una reunión de dirección **no** la ve quien no debe, ni listando ni por ID.
-- [ ] El orden del día no se puede editar una vez empezada la reunión.
+- [x] Se convoca una reunión y el evento aparece en Calendar con el orden del día
+      (smoke 29/08/2026; SA + buzón fijo D-28).
+- [x] Modalidad derivada en adaptador (Meet → remota; recurso de sala → presencial /
+      mixta). Sin recursos de sala en Workspace por ahora: presencial queda pendiente
+      de prueba real cuando haya salas.
+- [x] Un acuerdo escrito a mano se convierte en tarea con responsable y fecha, y la
+      tarea apunta a su reunión (`tasksReuniones`: crear-tareas / D-23).
+- [x] Una reunión de dirección **no** la ve quien no debe, ni listando ni por ID
+      (`tasksReuniones` + `tasksAcceso`).
+- [x] El orden del día no se puede editar una vez empezada la reunión (congelado en
+      `celebrada` → 409; D-20).
 
 **Reparto:** parcial. El adaptador de Google es una superficie muy acoplada; el
 resto (acta manual, pantallas) es disjunto.
@@ -191,6 +200,11 @@ resto (acta manual, pantallas) es disjunto.
 ---
 
 ## Fase 2 — Pipeline asíncrono
+
+**En curso** (30/08/2026): entregas **2A** (subida) + **2B** (poller
+`POST …/pipeline/tick`) + **2C** (`chatCompletion` aditivo + prompt
+`reuniones_acta`) + **2D** (Amazon Transcribe, D-33 / A-02 provisional). Falta
+resumen→propuestas (**2E**) y la cola de validación en UI.
 
 **Entra:** todo lo descrito en [05 · Pipeline de reuniones](05-pipeline-reuniones.md),
 más la interfaz de validación de propuestas.
@@ -227,7 +241,9 @@ Las tres piezas son independientes entre sí.
 - `[x]` Tabla `Igp_Notificaciones` en código + API + campana en cabecera. Emisores:
   mención, asignación, vencimiento (junto al email 1A). Tipos `compra_pendiente` /
   `acta_lista` reservados sin emisor (D-27).
-- `[ ]` Tabla **creada en AWS** (pendiente de confirmación).
+- `[x]` Tabla **creada en AWS** (confirmado 29/08/2026; script
+  `api/scripts/create-notificaciones-table.js`). TTL en atributo `ttl`
+  **activado** el 29/08/2026.
 - `[ ]` Sincronización de usuarios desde Directory (stub listo; falta credencial /
   delegación con scope Directory).
 

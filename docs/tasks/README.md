@@ -32,9 +32,9 @@ Las reglas de trabajo que el agente debe respetar sin leerse todo esto están en
 |---|---|---|
 | **0** | Contrato aprobado, capa de acceso, maestro de departamentos | **Completa.** Tipos, capa de acceso (73 pruebas), maestro de departamentos con su pantalla, campo en la ficha de usuario y permisos en el catálogo |
 | **1A** | Proyectos, departamentos, tareas, permisos, vista personal | **Completa en código** (26/08/2026). Servidor, pantallas, enlaces/adjuntos en ficha y tarjeta en `planning-dia`. Queda probar a mano la vista personal en móvil |
-| **1B** | Reuniones con acta manual, evento en Calendar, detección de sala | **En curso.** Tabla AWS creada. API + pantallas operativas con Calendar en stub. Falta service account Google para evento real y modalidad |
-| **2** | Captura de audio, transcripción, resumen, cola de validación | No iniciada |
-| **3** | Vencimientos en calendario, sincronización de usuarios, avisos | **En curso.** Campana + ICS + emisores en código (stub Directory). Falta crear `Igp_Notificaciones` en AWS y Directory real cuando haya credencial |
+| **1B** | Reuniones con acta manual, evento en Calendar, detección de sala | **Completa en código + smoke Calendar** (29/08/2026). Tests de visibilidad, orden congelado y acuerdos→tareas OK |
+| **2** | Captura de audio, transcripción, resumen, cola de validación | **En curso.** 2A–2F OK (subida→Transcribe→acta→validar propuestas). Activar envs; smoke E2E con audio real pendiente |
+| **3** | Vencimientos en calendario, sincronización de usuarios, avisos | **En curso.** Campana + ICS + tabla AWS + TTL OK. Falta Directory real |
 | **4** | Plantillas, orden del día automático, cuadro de mando, actas PDF, compras | No iniciada |
 
 Mantener esta tabla al día es responsabilidad del agente integrador al cerrar

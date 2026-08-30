@@ -8,6 +8,7 @@ import {
   Animated,
   ScrollView,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import WeatherWidget from '../components/WeatherWidget';
 import { CalendarioInicio } from '../components/CalendarioInicio';
 import { useAuth } from '../contexts/AuthContext';
@@ -186,47 +187,55 @@ export default function AppHome() {
     : styles.homeInner;
 
   return (
-    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
-      <View style={homeInnerStyle}>
-        <WeatherWidget />
+    <LinearGradient
+      colors={['#fce7f3', '#ffffff']}
+      start={{ x: 0, y: 1 }}
+      end={{ x: 1, y: 0 }}
+      style={styles.fondo}
+    >
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
+        <View style={homeInnerStyle}>
+          <WeatherWidget />
 
-        <View style={styles.tickerShell}>
-          <View style={styles.tickerBar}>
-            <View style={styles.tickerLabel}>
-              <Text style={styles.tickerLabelText}>Facturación {formatBusinessDayToLabel(yesterday)}</Text>
+          <View style={styles.tickerShell}>
+            <View style={styles.tickerBar}>
+              <View style={styles.tickerLabel}>
+                <Text style={styles.tickerLabelText}>Facturación {formatBusinessDayToLabel(yesterday)}</Text>
+              </View>
+              {loading ? (
+                <View style={styles.tickerContent}>
+                  <ActivityIndicator size="small" color="#0ea5e9" />
+                </View>
+              ) : error ? (
+                <View style={styles.tickerContent}>
+                  <Text style={styles.tickerError}>{error}</Text>
+                </View>
+              ) : totals.length === 0 ? (
+                <View style={styles.tickerContent}>
+                  <Text style={styles.tickerEmpty}>Sin datos del día anterior</Text>
+                </View>
+              ) : (
+                <TickerFacturacion totals={totals} formatMoneda={formatMoneda} isCompact={isCompact} />
+              )}
             </View>
-            {loading ? (
-              <View style={styles.tickerContent}>
-                <ActivityIndicator size="small" color="#0ea5e9" />
-              </View>
-            ) : error ? (
-              <View style={styles.tickerContent}>
-                <Text style={styles.tickerError}>{error}</Text>
-              </View>
-            ) : totals.length === 0 ? (
-              <View style={styles.tickerContent}>
-                <Text style={styles.tickerEmpty}>Sin datos del día anterior</Text>
-              </View>
-            ) : (
-              <TickerFacturacion totals={totals} formatMoneda={formatMoneda} isCompact={isCompact} />
-            )}
           </View>
-        </View>
 
-        <CalendarioInicio />
-      </View>
-    </ScrollView>
+          <CalendarioInicio />
+        </View>
+      </ScrollView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollView: { flex: 1, backgroundColor: '#fdf8f9' },
+  fondo: { flex: 1 },
+  scrollView: { flex: 1, backgroundColor: 'transparent' },
   scrollContent: {
     padding: 12,
     paddingBottom: 32,
     alignItems: 'center',
     flexGrow: 1,
-    backgroundColor: '#fdf8f9',
+    backgroundColor: 'transparent',
   },
   homeInner: {
     width: '100%',

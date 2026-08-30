@@ -35,10 +35,12 @@ import {
   checkFacturacionRappel,
   checkVencimientosFacturas,
   checkAvisosTareas,
+  checkPipelineReuniones,
   SYNC_CLOSEOUTS_ENABLED,
   SYNC_CLOSEOUTS_INTERVAL_MS,
   SYNC_CLOSEOUTS_RECENT_DAYS,
   SYNC_SCHEDULER_INTERVAL_MS,
+  PIPELINE_REUNIONES_INTERVAL_MS,
   SYNC_SALES_LINES_ENABLED,
   SYNC_SALES_LINES_WEEKLY_ENABLED,
   SYNC_SALES_LINES_WEEKLY_HOUR,
@@ -363,6 +365,15 @@ app.listen(port, host, () => {
   logger.info(
     { intervalSec: SYNC_SCHEDULER_INTERVAL_MS / 1000 },
     '[tareas-avisos] Scheduler activo — avisa a cada responsable si está activado en Ajustes',
+  );
+
+  // Pipeline de reuniones (STT/acta). Desfasado del resto (~39 s) para no
+  // solapar Queries con avisos/facturación. Nace desactivado (Ajustes o env).
+  setTimeout(() => checkPipelineReuniones(port), 39000);
+  setInterval(() => checkPipelineReuniones(port), PIPELINE_REUNIONES_INTERVAL_MS);
+  logger.info(
+    { intervalSec: PIPELINE_REUNIONES_INTERVAL_MS / 1000 },
+    '[reuniones-pipeline] Scheduler activo — avanza audio/transcripción si Enabled en Ajustes',
   );
 
   if (SYNC_SALES_LINES_ENABLED) {

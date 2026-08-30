@@ -1,11 +1,13 @@
 /**
- * Reuniones del módulo de dirección (Fase 1B): listado, ficha, asistentes,
- * acuerdos, aviso de grabación y conversión de acuerdos a tareas.
+ * Reuniones del módulo de dirección (Fase 1B + 2A): listado, ficha, asistentes,
+ * acuerdos, aviso de grabación, conversión de acuerdos a tareas, y captura de
+ * audio por subida (presign / marcar pipeline). El STT y el poller son 2B/2D.
  *
  * Decisiones que conviene tener presentes:
  *
  * 1. **D-16 / D-20 / D-21 / D-23.** Lo no visible → `404`. El orden del día se
- *    congela al pasar a `celebrada` (o superior no cancelada). Calendar stub no
+ *    congela al pasar a `celebrada` (o superior no cancelada) y también al
+ *    pedir la URL de subida de audio si aún no había copia. Calendar stub no
  *    tumba la reunión. Acuerdos → tareas lo hace el servidor vía lote.
  * 2. **El acceso no se decide aquí.** `puedeVerReunion` / `puedeGestionarReunion`
  *    de `acceso.js`; esto solo traduce a 403/404.
@@ -53,7 +55,7 @@ import {
 } from './acceso.js';
 import { ACCIONES, listarActividad, registrarActividad } from './actividad.js';
 import { responsableDeDepartamento } from './departamentos.js';
-import { nombreDe, nombresDeUsuarios } from './proyectos.js';
+import { emailsDeUsuarios, nombreDe, nombresDeUsuarios } from './proyectos.js';
 import { crearTareasEnLote, IDX_REUNION } from './tareas.js';
 import { codificarCursor, decodificarCursor, limiteValido } from './paginacion.js';
 
@@ -210,7 +212,8 @@ function comprobarAcceso(ctx, leido, { gestionar = false } = {}) {
   return null;
 }
 
-async function cargarParaVer(ctx, idReunion) {
+/** Expuesto para propuestas (Fase 2F): misma ACL de lectura que la ficha. */
+export async function cargarParaVer(ctx, idReunion) {
   const leido = await leerParticion(idReunion);
   if (!leido) return { ok: false, fallo: rechazar(404, 'La reunión no existe') };
   const auxExtra = await auxDeReunion(leido.reunion, leido.asistentes);
@@ -220,7 +223,8 @@ async function cargarParaVer(ctx, idReunion) {
   return { ok: true, ...conAux, aux: auxConCtx(ctx, auxExtra) };
 }
 
-async function cargarParaGestionar(ctx, idReunion) {
+/** Expuesto para audio/pipeline (Fase 2): misma ACL que el resto de escrituras. */
+export async function cargarParaGestionar(ctx, idReunion) {
   const leido = await leerParticion(idReunion);
   if (!leido) return { ok: false, fallo: rechazar(404, 'La reunión no existe') };
   const auxExtra = await auxDeReunion(leido.reunion, leido.asistentes);
@@ -247,9 +251,32 @@ function salidaReunion(item) {
   return resto;
 }
 
-function reunionConExtras(item, ctx, { asistentes = [], aux = {}, nombres } = {}) {
+/**
+ * Campos de audio/pipeline en la ficha (Fase 2A) sin romper 1B: siempre
+ * presentes, con valores nulos o `ausente` cuando aún no hay captura.
+ */
+function camposAudioPipeline(item = {}) {
   return {
-    ...salidaReunion(item),
+    origen_audio: item.origen_audio ?? null,
+    audio_estado: item.audio_estado || 'ausente',
+    audio_s3_key: item.audio_s3_key ?? null,
+    audio_tamano: item.audio_tamano ?? null,
+    audio_borrado_en: item.audio_borrado_en ?? null,
+    duracion_seg: item.duracion_seg ?? null,
+    aviso_grabacion: item.aviso_grabacion ?? null,
+    pipeline_estado: item.pipeline_estado ?? null,
+    pipeline_desde: item.pipeline_desde ?? null,
+    pipeline_error: item.pipeline_error ?? null,
+    pipeline_error_fase: item.pipeline_error_fase ?? null,
+    transcripcion_job_id: item.transcripcion_job_id ?? null,
+  };
+}
+
+function reunionConExtras(item, ctx, { asistentes = [], aux = {}, nombres } = {}) {
+  const base = salidaReunion(item);
+  return {
+    ...base,
+    ...camposAudioPipeline(base),
     convocado_nombre: nombreDe(nombres, item?.convocada_por),
     permisos_fila: permisosFilaReunion(ctx, item, asistentes, aux),
   };
@@ -288,6 +315,34 @@ function syncCalendarDe(resultado) {
     meet_code: resultado?.meetCode ?? null,
     calendario_error: resultado?.ok ? null : texto(resultado?.error) || null,
   };
+}
+
+/**
+ * Emails de invitados para Calendar: `email` del ASIST#; si falta y hay
+ * `usuario_id`, se resuelve desde `igp_usuarios`. Deduplica y descarta inválidos.
+ */
+async function emailsDeAsistentes(asistentes = []) {
+  const directos = [];
+  const idsSinEmail = [];
+  for (const a of asistentes) {
+    const email = texto(a?.email).toLowerCase();
+    if (email && email.includes('@')) {
+      directos.push(email);
+      continue;
+    }
+    const uid = texto(a?.usuario_id);
+    if (uid) idsSinEmail.push(uid);
+  }
+  const mapa = idsSinEmail.length > 0 ? await emailsDeUsuarios(idsSinEmail) : new Map();
+  const vistos = new Set();
+  const out = [];
+  for (const email of [...directos, ...mapa.values()]) {
+    const e = texto(email).toLowerCase();
+    if (!e || !e.includes('@') || vistos.has(e)) continue;
+    vistos.add(e);
+    out.push(e);
+  }
+  return out;
 }
 
 // ─── Validación ───
@@ -993,6 +1048,35 @@ export async function anadirAsistentes(ctx, idReunion, body = {}) {
     detalle: { asistentes_anadidos: salida.length },
   });
 
+  // D-21: sincronizar attendees en Calendar no tumba el alta local.
+  let sync = null;
+  const eventId = texto(cargado.reunion.calendar_event_id);
+  if (eventId && calendarDisponible()) {
+    const porSk = new Map();
+    for (const a of cargado.asistentes) porSk.set(texto(a.SK), a);
+    for (const a of items) porSk.set(texto(a.SK), a);
+    const asistentesEmails = await emailsDeAsistentes([...porSk.values()]);
+    try {
+      const cal = await calendarActualizar(eventId, {
+        titulo: cargado.reunion.titulo,
+        fecha: cargado.reunion.fecha,
+        horaInicio: cargado.reunion.hora_inicio,
+        horaFin: cargado.reunion.hora_fin,
+        descripcion: cargado.reunion.orden_del_dia,
+        asistentesEmails,
+      });
+      sync = {
+        calendario_sincronizado: !!cal.ok,
+        calendario_error: cal.ok ? null : texto(cal.error) || 'No se pudo sincronizar asistentes con Calendar',
+      };
+    } catch (err) {
+      sync = {
+        calendario_sincronizado: false,
+        calendario_error: err?.message || 'Error al sincronizar asistentes con Calendar',
+      };
+    }
+  }
+
   const nombres = await nombresDeUsuarios(salida.map((a) => a.usuario_id));
   return {
     ok: true,
@@ -1000,6 +1084,7 @@ export async function anadirAsistentes(ctx, idReunion, body = {}) {
       ...a,
       usuario_nombre: a.es_externo ? texto(a.nombre) || null : nombreDe(nombres, a.usuario_id),
     })),
+    ...(sync || {}),
   };
 }
 

@@ -244,6 +244,42 @@ export function nombreDe(nombres, id) {
   return nombres?.get(clave) ?? null;
 }
 
+/**
+ * Emails de usuarios por id, en lote (mismo patrón que `nombresDeUsuarios`).
+ * Solo entra en el mapa quien tenga `Email` no vacío.
+ *
+ * @param {Array<string|undefined>} ids
+ * @returns {Promise<Map<string, string>>}
+ */
+export async function emailsDeUsuarios(ids) {
+  const unicos = [...new Set((Array.isArray(ids) ? ids : [ids]).map(texto).filter(Boolean))];
+  const emails = new Map();
+
+  for (let i = 0; i < unicos.length; i += MAX_CLAVES_BATCH_GET) {
+    let claves = unicos.slice(i, i + MAX_CLAVES_BATCH_GET).map((id) => ({ id_usuario: id }));
+    for (let intento = 0; intento < MAX_INTENTOS_BATCH_GET && claves.length > 0; intento += 1) {
+      const res = await docClient.send(
+        new BatchGetCommand({
+          RequestItems: {
+            [tables.usuarios]: {
+              Keys: claves,
+              ProjectionExpression: 'id_usuario, Email',
+            },
+          },
+        }),
+      );
+      for (const item of res?.Responses?.[tables.usuarios] || []) {
+        const email = texto(item.Email).toLowerCase();
+        if (email && email.includes('@')) {
+          emails.set(texto(item.id_usuario), email);
+        }
+      }
+      claves = res?.UnprocessedKeys?.[tables.usuarios]?.Keys || [];
+    }
+  }
+  return emails;
+}
+
 // ─── Permisos de fila ───
 
 /**

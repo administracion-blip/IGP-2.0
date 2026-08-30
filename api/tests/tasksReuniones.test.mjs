@@ -300,9 +300,16 @@ test('en borrador o convocada el orden del día sí se edita', async () => {
   assert.equal(ok.body.reunion.orden_del_dia_congelado, undefined);
 });
 
-// ─── Calendar stub (D-21) ───
+// ─── Calendar (D-21): sin credenciales no tumba la reunión ───
 
 test('crear reunión sin Google deja calendario_sincronizado false y no tumba', async () => {
+  const prevCal = {
+    GOOGLE_SA_CLIENT_EMAIL: process.env.GOOGLE_SA_CLIENT_EMAIL,
+    GOOGLE_SA_PRIVATE_KEY: process.env.GOOGLE_SA_PRIVATE_KEY,
+  };
+  delete process.env.GOOGLE_SA_CLIENT_EMAIL;
+  delete process.env.GOOGLE_SA_PRIVATE_KEY;
+  try {
   const db = montar();
   const creada = await api('POST', '/api/reuniones', {
     titulo: 'Kickoff',
@@ -324,6 +331,12 @@ test('crear reunión sin Google deja calendario_sincronizado false y no tumba', 
   });
   assert.equal(meta.gsi_listado, 'REU');
   assert.equal(meta.titulo, 'Kickoff');
+  } finally {
+    if (prevCal.GOOGLE_SA_CLIENT_EMAIL === undefined) delete process.env.GOOGLE_SA_CLIENT_EMAIL;
+    else process.env.GOOGLE_SA_CLIENT_EMAIL = prevCal.GOOGLE_SA_CLIENT_EMAIL;
+    if (prevCal.GOOGLE_SA_PRIVATE_KEY === undefined) delete process.env.GOOGLE_SA_PRIVATE_KEY;
+    else process.env.GOOGLE_SA_PRIVATE_KEY = prevCal.GOOGLE_SA_PRIVATE_KEY;
+  }
 });
 
 // ─── Aviso de grabación ───
@@ -465,4 +478,88 @@ test('DELETE borra la partición entera', async () => {
 
   const ficha = await api('GET', '/api/reuniones/r-del');
   assert.equal(ficha.status, 404);
+});
+
+// ─── Asistentes → Calendar (D-21) ───
+
+test('añadir asistentes con calendar_event_id actualiza el evento con emails', async () => {
+  const { configurarClienteCalendar } = await import('../lib/google/calendarClient.js');
+  const db = montar();
+  sembrarReunion(db, { id: 'r-cal-asist' });
+  const meta = db.obtener(tables.reuniones, { PK: 'REU#r-cal-asist', SK: 'META' });
+  db.sembrar(tables.reuniones, { ...meta, calendar_event_id: 'evt-asist-1' });
+
+  const llamadas = [];
+  const restore = configurarClienteCalendar(async () => ({
+    calendarId: 'primary',
+    subject: 'reuniones@grupoparipe.com',
+    calendar: {
+      events: {
+        insert: async () => ({ data: { id: 'x' } }),
+        patch: async (args) => {
+          llamadas.push(args);
+          return { data: { id: args.eventId } };
+        },
+        delete: async () => ({}),
+      },
+    },
+  }));
+
+  try {
+    const r = await api('POST', '/api/reuniones/r-cal-asist/asistentes', {
+      asistentes: [
+        { usuario_id: BEA.sub },
+        { es_externo: true, nombre: 'Proveedor', email: 'proveedor@externo.com' },
+      ],
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.asistentes.length, 2);
+    assert.equal(r.body.calendario_sincronizado, true);
+    assert.equal(r.body.calendario_error, null);
+    assert.equal(llamadas.length, 1);
+    assert.equal(llamadas[0].eventId, 'evt-asist-1');
+    assert.equal(llamadas[0].sendUpdates, 'all');
+    const emails = (llamadas[0].requestBody.attendees || []).map((a) => a.email).sort();
+    assert.deepEqual(emails, ['bea@grupo.test', 'proveedor@externo.com']);
+  } finally {
+    restore();
+  }
+});
+
+test('fallo de Calendar al añadir asistentes no tumba el alta (D-21)', async () => {
+  const { configurarClienteCalendar } = await import('../lib/google/calendarClient.js');
+  const db = montar();
+  sembrarReunion(db, { id: 'r-cal-fail' });
+  const meta = db.obtener(tables.reuniones, { PK: 'REU#r-cal-fail', SK: 'META' });
+  db.sembrar(tables.reuniones, { ...meta, calendar_event_id: 'evt-fail' });
+
+  const restore = configurarClienteCalendar(async () => ({
+    calendarId: 'primary',
+    subject: 'reuniones@grupoparipe.com',
+    calendar: {
+      events: {
+        insert: async () => ({ data: { id: 'x' } }),
+        patch: async () => {
+          throw new Error('Calendar caído');
+        },
+        delete: async () => ({}),
+      },
+    },
+  }));
+
+  try {
+    const r = await api('POST', '/api/reuniones/r-cal-fail/asistentes', {
+      asistentes: [{ usuario_id: BEA.sub }],
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.asistentes.length, 1);
+    assert.equal(r.body.calendario_sincronizado, false);
+    assert.match(r.body.calendario_error || '', /Calendar caído|sincronizar/i);
+
+    const asist = db.obtener(tables.reuniones, { PK: 'REU#r-cal-fail', SK: `ASIST#${BEA.sub}` });
+    assert.ok(asist);
+    assert.equal(asist.usuario_id, BEA.sub);
+  } finally {
+    restore();
+  }
 });

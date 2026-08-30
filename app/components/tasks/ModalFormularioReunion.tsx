@@ -238,7 +238,10 @@ export function ModalFormularioReunion({
     }
   }
 
-  async function guardarAsistentes(idReunion: string, ids: string[]) {
+  async function guardarAsistentes(idReunion: string, ids: string[]): Promise<{
+    calendarioSincronizado: boolean | null;
+    avisoCalendario?: string;
+  }> {
     const asistentes = ids.map((id) => {
       const u = usuarios.usuarios.find((x) => x.id === id);
       return {
@@ -251,10 +254,26 @@ export function ModalFormularioReunion({
       method: 'POST',
       body: JSON.stringify({ asistentes }),
     });
-    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      calendario_sincronizado?: boolean;
+      calendario_error?: string | null;
+    };
     if (!res.ok) {
       throw new Error(data.error || 'No se pudieron guardar los asistentes');
     }
+    if (data.calendario_sincronizado === false) {
+      return {
+        calendarioSincronizado: false,
+        avisoCalendario:
+          data.calendario_error?.trim() ||
+          'Los asistentes se guardaron, pero no se pudo actualizar las invitaciones de Google Calendar.',
+      };
+    }
+    if (data.calendario_sincronizado === true) {
+      return { calendarioSincronizado: true };
+    }
+    return { calendarioSincronizado: null };
   }
 
   async function guardar() {
@@ -373,9 +392,23 @@ export function ModalFormularioReunion({
 
       // Solo tocamos asistentes si conocemos la lista (alta, o edición desde ficha).
       // Editar desde el listado no trae asistentes: no los pisamos con [].
-      if (modo === 'crear' || asistentesIniciales != null) {
+      // Sin ids no llamamos al API: POST /asistentes exige al menos uno (400).
+      // En edición, vaciar la lista tampoco se sincroniza (mismo límite del contrato).
+      if (
+        (modo === 'crear' || asistentesIniciales != null) &&
+        datos.asistente_ids.length > 0
+      ) {
         try {
-          await guardarAsistentes(reunionGuardada.id_reunion, datos.asistente_ids);
+          const syncAsist = await guardarAsistentes(
+            reunionGuardada.id_reunion,
+            datos.asistente_ids,
+          );
+          if (syncAsist.calendarioSincronizado === false) {
+            calendarioSincronizado = false;
+            avisoCalendario = syncAsist.avisoCalendario || avisoCalendario;
+          } else if (syncAsist.calendarioSincronizado === true && calendarioSincronizado !== false) {
+            calendarioSincronizado = true;
+          }
         } catch (e) {
           setError(e instanceof Error ? e.message : 'No se pudieron guardar los asistentes');
           onGuardado({

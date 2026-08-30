@@ -19,6 +19,8 @@ export type AccionSeccion = {
   deshabilitada?: boolean;
 };
 
+export type VarianteSeccionFicha = 'normal' | 'destacada';
+
 export function SeccionFicha({
   titulo,
   icono,
@@ -28,6 +30,7 @@ export function SeccionFicha({
   error = null,
   onReintentar,
   vacio,
+  variante = 'normal',
   children,
 }: {
   titulo: string;
@@ -39,16 +42,19 @@ export function SeccionFicha({
   onReintentar?: () => void;
   /** Texto cuando no hay contenido y no hay error ni carga. */
   vacio?: string;
+  /** `destacada`: título más marcado y acento lateral (fichas densas). */
+  variante?: VarianteSeccionFicha;
   children?: ReactNode;
 }) {
   const { isCompact } = useBreakpoint();
   const sinContenido = children == null || (Array.isArray(children) && children.length === 0);
+  const destacada = variante === 'destacada';
 
   return (
-    <View style={styles.card}>
-      <View style={styles.header}>
+    <View style={[styles.card, destacada && styles.cardDestacada]}>
+      <View style={[styles.header, destacada && styles.headerDestacada]}>
         <MaterialIcons name={icono} size={18} color="#0ea5e9" />
-        <Text style={styles.titulo}>{titulo}</Text>
+        <Text style={[styles.titulo, destacada && styles.tituloDestacada]}>{titulo}</Text>
         {contador != null ? <Text style={styles.contador}>{contador}</Text> : null}
         <View style={styles.headerEspacio} />
         {accion ? (
@@ -98,8 +104,22 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 10,
   },
+  cardDestacada: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#0ea5e9',
+    paddingLeft: 12,
+  },
   header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerDestacada: {
+    marginHorizontal: -6,
+    marginTop: -4,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+  },
   titulo: { fontSize: 14, fontWeight: '700', color: '#334155' },
+  tituloDestacada: { color: '#0f172a', fontWeight: '700' },
   contador: {
     fontSize: 11,
     fontWeight: '700',

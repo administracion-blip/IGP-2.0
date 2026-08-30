@@ -24,6 +24,7 @@ import {
   esHoraDeAvisar,
   leerAjustesAvisos,
 } from '../tasks/avisos.js';
+import { leerAjustesPipeline } from '../tasks/reuniones/pipelineTick.js';
 
 const tableAjustesName = tables.ajustes;
 
@@ -373,6 +374,69 @@ export async function checkAvisosTareas() {
     }
   } catch (err) {
     logger.error({ err }, '[tareas-avisos] scheduler error');
+  }
+}
+
+/**
+ * Poller del pipeline de audio/transcripción de reuniones (Fase 2B).
+ *
+ * Cadencia ~60 s (misma que el scheduler). Config en Igp_Ajustes
+ * (PK `reuniones`, SK `pipeline`, `Enabled`) o env `REUNIONES_PIPELINE_ENABLED=true`.
+ * Nace desactivado. Flag en memoria + cerrojo Dynamo (`cerrojo_pipeline`).
+ */
+export const PIPELINE_REUNIONES_INTERVAL_MS = 60 * 1000;
+
+let pipelineReunionesEnVuelo = false;
+let pipelineSecretoAvisado = false;
+
+export async function checkPipelineReuniones(port) {
+  try {
+    const ajustes = await leerAjustesPipeline();
+    if (!ajustes.enabled) return;
+
+    if (!process.env.INTERNAL_SYNC_SECRET) {
+      if (!pipelineSecretoAvisado) {
+        pipelineSecretoAvisado = true;
+        logger.error(
+          '[reuniones-pipeline] Falta INTERNAL_SYNC_SECRET: el poller no puede autenticarse. Configúralo y reinicia la API.',
+        );
+      }
+      return;
+    }
+
+    if (pipelineReunionesEnVuelo) return;
+    pipelineReunionesEnVuelo = true;
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/reuniones/pipeline/tick`, {
+        method: 'POST',
+        headers: internalSyncFetchHeaders(),
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        logger.error(
+          { status: res.status, error: data.error || res.statusText },
+          '[reuniones-pipeline] Error en tick',
+        );
+        return;
+      }
+      if ((data.procesadas ?? 0) > 0 || (data.errores?.length ?? 0) > 0) {
+        logger.info(
+          {
+            procesadas: data.procesadas ?? 0,
+            omitidas: data.omitidas ?? 0,
+            errores: data.errores?.length ?? 0,
+            motivo: data.motivo,
+          },
+          `[reuniones-pipeline] tick OK: ${data.procesadas ?? 0} procesada(s)`,
+        );
+      }
+    } finally {
+      pipelineReunionesEnVuelo = false;
+    }
+  } catch (err) {
+    pipelineReunionesEnVuelo = false;
+    logger.error({ err }, '[reuniones-pipeline] scheduler error');
   }
 }
 

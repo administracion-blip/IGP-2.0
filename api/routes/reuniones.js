@@ -1,10 +1,19 @@
 /**
- * Reuniones del módulo de dirección — `docs/tasks/03-contrato-api.md`, Fase 1B.
+ * Reuniones del módulo de dirección — `docs/tasks/03-contrato-api.md`.
  *
- * Solo HTTP: la lógica vive en `api/lib/tasks/reuniones.js` y la ACL de fila en
- * `acceso.js`. Auth global; permiso de ruta + visibilidad en el handler.
+ * Fase 1B: CRUD, asistentes, acuerdos, aviso de grabación, sugerencia de orden.
+ * Fase 2A: `POST …/audio/presign` y `POST …/procesar` (subida a S3 + marca
+ * `audio_pendiente`; sin STT ni poller).
+ * Fase 2B: `POST /reuniones/pipeline/tick` (poller interno; stub STT).
+ * Fase 2F: cola de propuestas (`…/propuestas/pendientes`, `…/:id/propuestas`,
+ * `…/:id/propuestas/resolver`).
  *
- * No monta audio, pipeline, propuestas IA ni PDF (Fases 2/4).
+ * Solo HTTP: la lógica vive en `api/lib/tasks/reuniones.js` (+ `reuniones/audio.js`,
+ * `reuniones/pipeline.js`, `reuniones/pipelineTick.js`, `reuniones/propuestas.js`)
+ * y la ACL de fila en `acceso.js`. Auth global; permiso de ruta + visibilidad
+ * en el handler.
+ *
+ * No monta Meet ni PDF.
  */
 
 import { Router } from 'express';
@@ -27,6 +36,14 @@ import {
   registrarAvisoGrabacion,
   sugerenciaOrdenDelDia,
 } from '../lib/tasks/reuniones.js';
+import { presignarAudioReunion } from '../lib/tasks/reuniones/audio.js';
+import { procesarAudioReunion } from '../lib/tasks/reuniones/pipeline.js';
+import { ejecutarTickPipeline } from '../lib/tasks/reuniones/pipelineTick.js';
+import {
+  listarPropuestasDeReunion,
+  listarPropuestasPendientes,
+  resolverPropuestas,
+} from '../lib/tasks/reuniones/propuestas.js';
 
 const router = Router();
 
@@ -74,6 +91,37 @@ router.post('/reuniones', requirePermission(PERMISOS.reunionesGestionar), async 
   });
 });
 
+/**
+ * Poller interno (Fase 2B). Alta en INTERNAL_SYNC_POST_PATHS.
+ * Antes de `/:id` para que «pipeline» no se tome por id.
+ */
+router.post(
+  '/reuniones/pipeline/tick',
+  requirePermission(PERMISOS.reunionesGestionar),
+  async (req, res) => {
+    const origen = req.isInternal ? 'programado' : 'manual';
+    const r = await ejecutarTickPipeline({ origen });
+    return res.json(r);
+  },
+);
+
+/**
+ * Cola global de propuestas pendientes (Fase 2F).
+ * Antes de `/:id` para que «propuestas» no se tome por id.
+ */
+router.get(
+  '/reuniones/propuestas/pendientes',
+  requirePermission(PERMISOS.reunionesGestionar),
+  async (req, res) => {
+    const r = await listarPropuestasPendientes(await contexto(req), {
+      limite: req.query?.limite,
+      cursor: req.query?.cursor,
+    });
+    if (fallo(res, r)) return;
+    return res.json({ propuestas: r.propuestas, cursor: r.cursor });
+  },
+);
+
 // ─── Subrutas de :id (antes del GET genérico donde haga falta el mismo patrón) ───
 
 router.post(
@@ -82,7 +130,14 @@ router.post(
   async (req, res) => {
     const r = await anadirAsistentes(await contexto(req), req.params.id, req.body || {});
     if (fallo(res, r)) return;
-    return res.json({ ok: true, asistentes: r.asistentes });
+    return res.json({
+      ok: true,
+      asistentes: r.asistentes,
+      ...(r.calendario_sincronizado !== undefined && {
+        calendario_sincronizado: r.calendario_sincronizado,
+        calendario_error: r.calendario_error ?? null,
+      }),
+    });
   },
 );
 
@@ -93,6 +148,39 @@ router.post(
     const r = await registrarAvisoGrabacion(await contexto(req), req.params.id, req.body || {});
     if (fallo(res, r)) return;
     return res.json({ ok: true, aviso_grabacion: r.aviso_grabacion });
+  },
+);
+
+router.post(
+  '/reuniones/:id/audio/presign',
+  requirePermission(PERMISOS.reunionesGestionar),
+  async (req, res) => {
+    const body = req.body || {};
+    const r = await presignarAudioReunion({
+      ctx: await contexto(req),
+      idReunion: req.params.id,
+      nombre: body.nombre,
+      contentType: body.contentType ?? body.content_type,
+      tamano: body.tamano ?? body.size,
+    });
+    if (fallo(res, r)) return;
+    return res.json({ ok: true, audio: r.audio });
+  },
+);
+
+router.post(
+  '/reuniones/:id/procesar',
+  requirePermission(PERMISOS.reunionesGestionar),
+  async (req, res) => {
+    const body = req.body || {};
+    const r = await procesarAudioReunion({
+      ctx: await contexto(req),
+      idReunion: req.params.id,
+      s3Key: body.s3_key ?? body.s3Key,
+      duracionSeg: body.duracion_seg ?? body.duracionSeg,
+    });
+    if (fallo(res, r)) return;
+    return res.json({ ok: true, ya_iniciado: r.ya_iniciado, reunion: r.reunion });
   },
 );
 
@@ -151,6 +239,28 @@ router.patch(
     );
     if (fallo(res, r)) return;
     return res.json({ ok: true, acuerdo: r.acuerdo });
+  },
+);
+
+router.get(
+  '/reuniones/:id/propuestas',
+  requirePermission(PERMISOS.reunionesVer),
+  async (req, res) => {
+    const r = await listarPropuestasDeReunion(await contexto(req), req.params.id, {
+      estado: req.query?.estado,
+    });
+    if (fallo(res, r)) return;
+    return res.json({ propuestas: r.propuestas });
+  },
+);
+
+router.post(
+  '/reuniones/:id/propuestas/resolver',
+  requirePermission(PERMISOS.reunionesGestionar),
+  async (req, res) => {
+    const r = await resolverPropuestas(await contexto(req), req.params.id, req.body || {});
+    if (fallo(res, r)) return;
+    return res.json({ ok: true, resueltas: r.resueltas });
   },
 );
 

@@ -479,18 +479,33 @@ export type AcuerdoReunion = {
  */
 export type PropuestaReunion = {
   id_propuesta: string;
+  id_reunion?: string;
   tipo: TipoPropuesta;
   titulo: string;
   descripcion?: string;
   cita: string;
   responsable_sugerido_id?: string;
+  /** Nombre resuelto por el API (cola global / listado). */
+  responsable_sugerido_nombre?: string | null;
   fecha_limite_sugerida?: string;
   confianza?: number;
   propuesta_estado: EstadoPropuesta;
   resuelta_por?: string;
   resuelta_en?: string;
   tarea_id?: string;
+  acuerdo_id?: string;
+  reunion_titulo?: string | null;
   creado_en?: string;
+};
+
+/** Decisión enviada a `POST …/propuestas/resolver`. */
+export type DecisionPropuesta = {
+  id_propuesta: string;
+  accion: 'aceptar' | 'rechazar';
+  titulo?: string;
+  descripcion?: string;
+  responsable_id?: string | null;
+  fecha_limite?: string | null;
 };
 
 export type ReunionDetalle = Reunion & {

@@ -1,11 +1,11 @@
 /**
- * Ficha de una reunión (Fase 1B): datos, asistentes, orden del día, acta manual,
- * acuerdos, aviso de grabación y tareas salidas.
+ * Ficha de una reunión: layout 2 columnas (principal / lateral), acta en modal,
+ * historial en modal, cabecera con duración y progreso de pipeline.
  *
  * Acciones de escritura: `permisos_fila` si llega; si no, `reuniones.gestionar`
  * (TODO: quitar fallback cuando el backend lo mande siempre).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,9 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  Animated,
+  Easing,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -28,12 +31,17 @@ import { useActividadTasks } from '../../hooks/useActividadTasks';
 import { puedeGestionarReuniones, puedeVerReuniones } from '../../lib/tasksAcceso';
 import {
   ETIQUETA_ESTADO_ACUERDO,
+  ETIQUETA_ESTADO_PIPELINE,
   ETIQUETA_MODALIDAD_REUNION,
   ETIQUETA_VISIBILIDAD_REUNION,
+  duracionEntreHoras,
   nombreUsuario,
   ordenDelDiaEditable,
+  pipelineEnVuelo,
 } from '../../lib/tasksUi';
 import { SeccionFicha } from '../../components/tasks/SeccionFicha';
+import { SeccionAudioReunion } from '../../components/tasks/SeccionAudioReunion';
+import { SeccionPropuestasReunion } from '../../components/tasks/SeccionPropuestasReunion';
 import { BadgeEstadoAcuerdo, BadgeEstadoReunion } from '../../components/tasks/BadgesTasks';
 import {
   ModalFormularioReunion,
@@ -41,6 +49,11 @@ import {
 } from '../../components/tasks/ModalFormularioReunion';
 import { TarjetaTarea } from '../../components/tasks/TarjetaTarea';
 import { HistorialActividad } from '../../components/tasks/HistorialActividad';
+import {
+  CabeceraMetaActa,
+  ModalActaReunion,
+  type MetaActaReunion,
+} from '../../components/tasks/ModalActaReunion';
 import { estilosFormTasks as form, estilosModalTasks as modal } from '../../components/tasks/estilosTasks';
 import { InputFecha } from '../../components/InputFecha';
 import { estiloCampoFechaCompacto } from '../../components/RangoFechas';
@@ -61,10 +74,49 @@ type ReunionFicha = Reunion & {
   acuerdos?: AcuerdoReunion[];
 };
 
+const POLL_PIPELINE_MS = 20_000;
+
 function puedeEditarReunion(reunion: Reunion | null, puedeGestionar: boolean): boolean {
   if (!reunion) return false;
   if (reunion.permisos_fila) return reunion.permisos_fila.editar === true;
   return puedeGestionar;
+}
+
+function BarraPipelineIndeterminada({ etiqueta }: { etiqueta: string }) {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(anim, {
+        toValue: 1,
+        duration: 1400,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: false,
+      }),
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+      anim.setValue(0);
+    };
+  }, [anim]);
+
+  const left = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['-35%', '100%'],
+  });
+
+  return (
+    <View style={styles.pipelineBarraWrap} accessibilityLabel={etiqueta}>
+      <View style={styles.pipelineBarraFondo}>
+        <Animated.View style={[styles.pipelineBarraGlow, { left }]} />
+      </View>
+      <View style={styles.pipelineFaseFila}>
+        <ActivityIndicator size="small" color="#0ea5e9" />
+        <Text style={styles.pipelineFaseTexto}>{etiqueta}</Text>
+      </View>
+    </View>
+  );
 }
 
 export default function FichaReunionScreen() {
@@ -106,60 +158,81 @@ export default function FichaReunionScreen() {
   const [errorAviso, setErrorAviso] = useState<string | null>(null);
   const [msgAccion, setMsgAccion] = useState<string | null>(null);
 
+  const [historialVisible, setHistorialVisible] = useState(false);
+  const [actaVisible, setActaVisible] = useState(false);
+
   const puedeVer = puedeVerReuniones(acceso);
   const puedeGestionar = puedeGestionarReuniones(acceso);
   const puedeEditar = puedeEditarReunion(reunion, puedeGestionar);
   const ordenEditable = ordenDelDiaEditable(reunion?.estado);
 
-  const cargarFicha = useCallback(async () => {
-    if (!idReunion || !puedeVer) return;
-    setCargando(true);
-    setError(null);
-    try {
-      const res = await apiFetch(`/api/reuniones/${encodeURIComponent(idReunion)}`);
-      const data = (await res.json().catch(() => ({}))) as {
-        reunion?: ReunionFicha;
-        asistentes?: AsistenteReunion[];
-        acuerdos?: AcuerdoReunion[];
-        error?: string;
-      };
-      if (res.status === 404) {
-        setNoDisponible(true);
-        return;
-      }
-      if (!res.ok || !data.reunion) {
-        setError(data.error || 'No se pudo cargar la reunión');
-        return;
-      }
-      setReunion(data.reunion);
-      setAsistentes(
-        Array.isArray(data.asistentes)
-          ? data.asistentes
-          : Array.isArray(data.reunion.asistentes)
-            ? data.reunion.asistentes
-            : [],
+  const aplicarFicha = useCallback((data: {
+    reunion: ReunionFicha;
+    asistentes?: AsistenteReunion[];
+    acuerdos?: AcuerdoReunion[];
+  }) => {
+    setReunion(data.reunion);
+    setAsistentes(
+      Array.isArray(data.asistentes)
+        ? data.asistentes
+        : Array.isArray(data.reunion.asistentes)
+          ? data.reunion.asistentes
+          : [],
+    );
+    setAcuerdos(
+      Array.isArray(data.acuerdos)
+        ? data.acuerdos
+        : Array.isArray(data.reunion.acuerdos)
+          ? data.reunion.acuerdos
+          : [],
+    );
+    if (!(data.reunion.calendar_event_id ?? '').trim()) {
+      setAvisoCalendario(
+        'Esta reunión no tiene evento en Google Calendar (no se sincronizó al convocar o Calendar no está configurado).',
       );
-      setAcuerdos(
-        Array.isArray(data.acuerdos)
-          ? data.acuerdos
-          : Array.isArray(data.reunion.acuerdos)
-            ? data.reunion.acuerdos
-            : [],
-      );
-      if (!(data.reunion.calendar_event_id ?? '').trim()) {
-        setAvisoCalendario(
-          'Esta reunión no tiene evento en Google Calendar (no se sincronizó al convocar o Calendar no está configurado).',
-        );
-      } else {
-        setAvisoCalendario(null);
-      }
-    } catch (e) {
-      console.error('[reuniones] fallo al leer la ficha', e);
-      setError(errorMessage(e, 'No se pudo conectar con el servidor'));
-    } finally {
-      setCargando(false);
+    } else {
+      setAvisoCalendario(null);
     }
-  }, [idReunion, puedeVer]);
+  }, []);
+
+  const cargarFicha = useCallback(
+    async (opts?: { silencioso?: boolean }) => {
+      if (!idReunion || !puedeVer) return;
+      const silencioso = opts?.silencioso === true;
+      if (!silencioso) {
+        setCargando(true);
+        setError(null);
+      }
+      try {
+        const res = await apiFetch(`/api/reuniones/${encodeURIComponent(idReunion)}`);
+        const data = (await res.json().catch(() => ({}))) as {
+          reunion?: ReunionFicha;
+          asistentes?: AsistenteReunion[];
+          acuerdos?: AcuerdoReunion[];
+          error?: string;
+        };
+        if (res.status === 404) {
+          if (!silencioso) setNoDisponible(true);
+          return;
+        }
+        if (!res.ok || !data.reunion) {
+          if (!silencioso) setError(data.error || 'No se pudo cargar la reunión');
+          return;
+        }
+        aplicarFicha({
+          reunion: data.reunion,
+          asistentes: data.asistentes,
+          acuerdos: data.acuerdos,
+        });
+      } catch (e) {
+        console.error('[reuniones] fallo al leer la ficha', e);
+        if (!silencioso) setError(errorMessage(e, 'No se pudo conectar con el servidor'));
+      } finally {
+        if (!silencioso) setCargando(false);
+      }
+    },
+    [idReunion, puedeVer, aplicarFicha],
+  );
 
   const cargarTareas = useCallback(async () => {
     if (!idReunion || !puedeVer) return;
@@ -193,6 +266,16 @@ export default function FichaReunionScreen() {
     void cargarTareas();
   }, [cargarTareas]);
 
+  const enPipeline = pipelineEnVuelo(reunion?.pipeline_estado);
+
+  useEffect(() => {
+    if (!enPipeline) return;
+    const id = setInterval(() => {
+      void cargarFicha({ silencioso: true });
+    }, POLL_PIPELINE_MS);
+    return () => clearInterval(id);
+  }, [enPipeline, cargarFicha]);
+
   const opcionesResponsable = useMemo<OpcionDesplegable[]>(() => {
     const lista: OpcionDesplegable[] = [{ id: '', titulo: '(sin responsable)' }, ...usuarios.opciones];
     if (acuerdoResponsable && !lista.some((o) => o.id === acuerdoResponsable)) {
@@ -208,6 +291,31 @@ export default function FichaReunionScreen() {
   const acuerdosAbiertos = useMemo(
     () => acuerdos.filter((a) => a.estado === 'abierto' && !(a.tarea_id ?? '').trim()),
     [acuerdos],
+  );
+
+  const nombresAsistentes = useMemo(
+    () =>
+      asistentes
+        .map((a) => (a.nombre || nombreUsuario(a.usuario_id)).trim())
+        .filter(Boolean),
+    [asistentes],
+  );
+
+  const duracion = useMemo(
+    () => duracionEntreHoras(reunion?.hora_inicio, reunion?.hora_fin),
+    [reunion?.hora_inicio, reunion?.hora_fin],
+  );
+
+  const metaActa = useMemo<MetaActaReunion>(
+    () => ({
+      titulo: reunion?.titulo ?? '',
+      fecha: reunion?.fecha,
+      horaInicio: reunion?.hora_inicio,
+      horaFin: reunion?.hora_fin,
+      duracion,
+      asistentes: nombresAsistentes,
+    }),
+    [reunion?.titulo, reunion?.fecha, reunion?.hora_inicio, reunion?.hora_fin, duracion, nombresAsistentes],
   );
 
   async function crearAcuerdo() {
@@ -410,36 +518,350 @@ export default function FichaReunionScreen() {
   const deptNombre = reunion.departamento_id
     ? departamentos.nombrePorId(reunion.departamento_id)
     : '—';
+  const resumenTexto = (reunion.resumen ?? '').trim();
+  const modalidadTxt = reunion.modalidad
+    ? ETIQUETA_MODALIDAD_REUNION[reunion.modalidad] ?? reunion.modalidad
+    : null;
+  const meetTxt = (reunion.meet_code ?? '').trim() || null;
+
+  const metaCabecera = [
+    formatFecha(reunion.fecha),
+    reunion.hora_inicio || reunion.hora_fin
+      ? `${reunion.hora_inicio || '—'}${reunion.hora_fin ? `–${reunion.hora_fin}` : ''}`
+      : null,
+    duracion,
+    modalidadTxt,
+    meetTxt ? `Meet ${meetTxt}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  const etiquetaPipeline = reunion.pipeline_estado
+    ? ETIQUETA_ESTADO_PIPELINE[reunion.pipeline_estado] ?? reunion.pipeline_estado
+    : '';
+
+  const colPrincipal = (
+    <>
+      <SeccionFicha titulo="Orden del día" icono="format-list-bulleted" variante="destacada">
+        {!ordenEditable ? (
+          <View style={styles.avisoBloqueo}>
+            <MaterialIcons name="lock-outline" size={14} color="#d97706" />
+            <Text style={styles.avisoBloqueoTexto}>
+              Bloqueado: la reunión ya está celebrada o tiene acta (D-20).
+            </Text>
+          </View>
+        ) : null}
+        <Text style={styles.textoLargo}>
+          {(reunion.orden_del_dia_congelado || reunion.orden_del_dia || '').trim() ||
+            'Sin orden del día.'}
+        </Text>
+      </SeccionFicha>
+
+      <SeccionFicha titulo="Acta / resumen" icono="description" variante="destacada">
+        {resumenTexto ? (
+          <View style={styles.actaPreview}>
+            <CabeceraMetaActa meta={metaActa} />
+            <Text style={styles.textoLargo} numberOfLines={5}>
+              {resumenTexto}
+            </Text>
+            <View style={styles.actaAcciones}>
+              <TouchableOpacity
+                style={[styles.btnSecundario, isCompact && styles.btnSecundarioTactil]}
+                onPress={() => setActaVisible(true)}
+              >
+                <MaterialIcons name="visibility" size={16} color="#0ea5e9" />
+                <Text style={styles.btnSecundarioTexto}>Ver</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.btnSecundario, isCompact && styles.btnSecundarioTactil]}
+                onPress={() =>
+                  Alert.alert('PDF', 'La descarga en PDF llegará en una fase posterior.')
+                }
+              >
+                <MaterialIcons name="picture-as-pdf" size={16} color="#94a3b8" />
+                <Text style={[styles.btnSecundarioTexto, { color: '#94a3b8' }]}>PDF</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <Text style={styles.vacioSeccion}>
+            Todavía no hay resumen ni acta. Aparecerá cuando el pipeline termine de procesar el
+            audio.
+          </Text>
+        )}
+      </SeccionFicha>
+
+      <SeccionPropuestasReunion
+        idReunion={idReunion}
+        puedeEditar={puedeEditar}
+        usuarios={usuarios}
+        variante="destacada"
+        onResuelto={() => {
+          setMsgAccion('Propuestas actualizadas. Se han refrescado acuerdos y tareas.');
+          void cargarFicha();
+          void cargarTareas();
+          void actividad.recargar();
+        }}
+      />
+
+      <SeccionFicha
+        titulo="Acuerdos"
+        icono="assignment-turned-in"
+        variante="destacada"
+        contador={acuerdos.length}
+        accion={
+          puedeEditar
+            ? {
+                etiqueta: 'Añadir',
+                icono: 'add',
+                onPress: () => {
+                  setErrorAcuerdo(null);
+                  setAcuerdoFormVisible(true);
+                },
+              }
+            : undefined
+        }
+        vacio="No hay acuerdos registrados."
+      >
+        {acuerdos.length > 0 ? (
+          <View style={styles.listaSimple}>
+            {acuerdos.map((a) => (
+              <View key={a.id_acuerdo} style={styles.tarjetaAcuerdo}>
+                <View style={styles.acuerdoCabecera}>
+                  <BadgeEstadoAcuerdo estado={a.estado} />
+                  {a.tarea_id ? (
+                    <TouchableOpacity
+                      onPress={() =>
+                        router.push(
+                          `/proyectos/tarea/${encodeURIComponent(a.tarea_id as string)}` as never,
+                        )
+                      }
+                    >
+                      <Text style={styles.enlaceTarea}>Ver tarea</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+                <Text style={styles.acuerdoTexto}>{a.texto}</Text>
+                <Text style={styles.acuerdoMeta}>
+                  {usuarios.nombrePorId(a.responsable_id)}
+                  {a.fecha_limite ? ` · ${formatFecha(a.fecha_limite)}` : ''}
+                </Text>
+                {puedeEditar && a.estado === 'abierto' ? (
+                  <View style={styles.acuerdoAcciones}>
+                    {ESTADOS_ACUERDO.filter((e) => e !== 'abierto').map((e) => (
+                      <TouchableOpacity
+                        key={e}
+                        style={[styles.chipAccion, isCompact && styles.chipAccionTactil]}
+                        onPress={() => void cambiarEstadoAcuerdo(a, e)}
+                        disabled={guardando}
+                      >
+                        <Text style={styles.chipAccionTexto}>{ETIQUETA_ESTADO_ACUERDO[e]}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        ) : null}
+        {puedeEditar && acuerdosAbiertos.length > 0 ? (
+          <TouchableOpacity
+            style={[styles.btnPrimario, isCompact && styles.btnPrimarioTactil]}
+            onPress={() => void crearTareasDesdeAcuerdos()}
+            disabled={guardando}
+          >
+            {guardando ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <>
+                <MaterialIcons name="playlist-add-check" size={16} color="#ffffff" />
+                <Text style={styles.btnPrimarioTexto}>
+                  Crear tareas desde acuerdos abiertos ({acuerdosAbiertos.length})
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+        ) : null}
+      </SeccionFicha>
+
+      <SeccionFicha
+        titulo="Tareas salidas"
+        icono="task-alt"
+        variante="destacada"
+        contador={tareas.length}
+        cargando={cargandoTareas}
+        error={errorTareas}
+        onReintentar={() => void cargarTareas()}
+        vacio="Ninguna tarea ha salido todavía de esta reunión."
+      >
+        {tareas.length > 0 ? (
+          <View style={styles.listaSimple}>
+            {tareas.map((t) => (
+              <TarjetaTarea
+                key={t.id_tarea}
+                tarea={t}
+                mostrarProyecto
+                onAbrir={() =>
+                  router.push(`/proyectos/tarea/${encodeURIComponent(t.id_tarea)}` as never)
+                }
+              />
+            ))}
+          </View>
+        ) : null}
+      </SeccionFicha>
+    </>
+  );
+
+  const colLateral = (
+    <>
+      <SeccionFicha titulo="Datos" icono="info-outline" variante="destacada">
+        <View style={styles.datosGrid}>
+          <Dato
+            etiqueta="Visibilidad"
+            valor={ETIQUETA_VISIBILIDAD_REUNION[reunion.visibilidad] ?? reunion.visibilidad}
+          />
+          <Dato etiqueta="Modalidad" valor={modalidadTxt || '—'} />
+          <Dato etiqueta="Departamento" valor={deptNombre} />
+          <Dato etiqueta="Local" valor={reunion.local_nombre || '—'} />
+          <Dato etiqueta="Proyecto" valor={reunion.proyecto_id || '—'} />
+          <Dato etiqueta="Serie" valor={reunion.serie_id || '—'} />
+          <Dato etiqueta="Convocada por" valor={usuarios.nombrePorId(reunion.convocada_por)} />
+          <Dato
+            etiqueta="Calendar"
+            valor={reunion.calendar_event_id ? 'Evento creado' : 'Sin evento'}
+          />
+        </View>
+      </SeccionFicha>
+
+      <SeccionFicha
+        titulo="Asistentes"
+        icono="groups"
+        variante="destacada"
+        contador={asistentes.length}
+        vacio="Todavía no hay asistentes registrados."
+      >
+        {asistentes.length > 0 ? (
+          <View style={styles.listaSimple}>
+            {asistentes.map((a, i) => (
+              <View key={`${a.usuario_id ?? a.nombre}-${i}`} style={styles.filaAsistente}>
+                <MaterialIcons
+                  name={a.es_externo ? 'person-outline' : 'person'}
+                  size={16}
+                  color="#64748b"
+                />
+                <Text style={styles.asistenteNombre}>
+                  {(a.nombre || nombreUsuario(a.usuario_id)).trim() || '—'}
+                </Text>
+                {a.asistio === true ? (
+                  <Text style={styles.asistioSi}>Asistió</Text>
+                ) : a.asistio === false ? (
+                  <Text style={styles.asistioNo}>No asistió</Text>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </SeccionFicha>
+
+      <SeccionAudioReunion
+        idReunion={idReunion}
+        reunion={reunion}
+        puedeEditar={puedeEditar}
+        variante="destacada"
+        onPedirAviso={() => {
+          setAvisoInformados(
+            aviso?.informados ??
+              (asistentes.map((a) => a.usuario_id).filter(Boolean) as string[]),
+          );
+          setErrorAviso(null);
+          setAvisoFormVisible(true);
+        }}
+        onProcesado={(actualizada) => {
+          setMsgAccion('Audio subido. El procesado automático está en marcha.');
+          if (actualizada) {
+            setReunion((prev) =>
+              prev ? { ...prev, ...actualizada } : (actualizada as ReunionFicha),
+            );
+          }
+          void actividad.recargar();
+          void cargarFicha({ silencioso: true });
+        }}
+      />
+
+      <SeccionFicha
+        titulo="Aviso de grabación"
+        icono="mic"
+        variante="destacada"
+        accion={
+          puedeEditar
+            ? {
+                etiqueta: aviso?.aceptado_en ? 'Actualizar' : 'Registrar',
+                icono: 'how-to-reg',
+                onPress: () => {
+                  setAvisoInformados(
+                    aviso?.informados ??
+                      (asistentes.map((a) => a.usuario_id).filter(Boolean) as string[]),
+                  );
+                  setErrorAviso(null);
+                  setAvisoFormVisible(true);
+                },
+              }
+            : undefined
+        }
+      >
+        {aviso?.aceptado_en ? (
+          <Text style={styles.textoLargo}>
+            Aceptado el {formatFecha((aviso.aceptado_en ?? '').slice(0, 10))} por{' '}
+            {usuarios.nombrePorId(aviso.aceptado_por)}. Informados:{' '}
+            {(aviso.informados ?? []).length || 0}.
+          </Text>
+        ) : (
+          <Text style={styles.vacioSeccion}>
+            Todavía no hay aviso registrado. Hace falta para subir audio.
+          </Text>
+        )}
+      </SeccionFicha>
+
+      <TouchableOpacity
+        style={[styles.btnHistorial, isCompact && styles.btnHistorialTactil]}
+        onPress={() => setHistorialVisible(true)}
+      >
+        <MaterialIcons name="history" size={18} color="#0ea5e9" />
+        <Text style={styles.btnHistorialTexto}>Ver historial</Text>
+      </TouchableOpacity>
+    </>
+  );
 
   return (
     <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <TouchableOpacity
-          onPress={() => router.push('/reuniones' as never)}
-          style={[styles.backBtn, isCompact && styles.backBtnTactil]}
-        >
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
-        </TouchableOpacity>
-        <View style={styles.headerTexto}>
-          <Text style={styles.title} numberOfLines={2}>
-            {reunion.titulo}
-          </Text>
-          <Text style={styles.subtitle}>
-            {formatFecha(reunion.fecha)}
-            {reunion.hora_inicio ? ` · ${reunion.hora_inicio}` : ''}
-            {reunion.hora_fin ? `–${reunion.hora_fin}` : ''}
-          </Text>
-        </View>
-        <BadgeEstadoReunion estado={reunion.estado} grande />
-        {puedeEditar ? (
+      <View style={styles.headerBlock}>
+        <View style={styles.headerRow}>
           <TouchableOpacity
-            style={[styles.btnEditar, isCompact && styles.btnEditarTactil]}
-            onPress={() => setEditarVisible(true)}
+            onPress={() => router.push('/reuniones' as never)}
+            style={[styles.backBtn, isCompact && styles.backBtnTactil]}
           >
-            <MaterialIcons name="edit" size={16} color="#0ea5e9" />
-            <Text style={styles.btnEditarTexto}>Editar</Text>
+            <MaterialIcons name="arrow-back" size={22} color="#334155" />
           </TouchableOpacity>
-        ) : null}
+          <View style={styles.headerTexto}>
+            <Text style={styles.title} numberOfLines={2}>
+              {reunion.titulo}
+            </Text>
+            <Text style={styles.subtitle} numberOfLines={2}>
+              {metaCabecera}
+            </Text>
+          </View>
+          <BadgeEstadoReunion estado={reunion.estado} grande />
+          {puedeEditar ? (
+            <TouchableOpacity
+              style={[styles.btnEditar, isCompact && styles.btnEditarTactil]}
+              onPress={() => setEditarVisible(true)}
+            >
+              <MaterialIcons name="edit" size={16} color="#0ea5e9" />
+              <Text style={styles.btnEditarTexto}>Editar</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        {enPipeline ? <BarraPipelineIndeterminada etiqueta={etiquetaPipeline} /> : null}
       </View>
 
       <ScrollView
@@ -463,215 +885,14 @@ export default function FichaReunionScreen() {
           </View>
         ) : null}
 
-        <SeccionFicha titulo="Datos" icono="info-outline">
-          <View style={styles.datosGrid}>
-            <Dato etiqueta="Visibilidad" valor={ETIQUETA_VISIBILIDAD_REUNION[reunion.visibilidad] ?? reunion.visibilidad} />
-            <Dato
-              etiqueta="Modalidad"
-              valor={
-                reunion.modalidad
-                  ? ETIQUETA_MODALIDAD_REUNION[reunion.modalidad] ?? reunion.modalidad
-                  : '—'
-              }
-            />
-            <Dato etiqueta="Departamento" valor={deptNombre} />
-            <Dato etiqueta="Local" valor={reunion.local_nombre || '—'} />
-            <Dato etiqueta="Proyecto" valor={reunion.proyecto_id || '—'} />
-            <Dato etiqueta="Serie" valor={reunion.serie_id || '—'} />
-            <Dato
-              etiqueta="Convocada por"
-              valor={usuarios.nombrePorId(reunion.convocada_por)}
-            />
-            <Dato
-              etiqueta="Calendar"
-              valor={reunion.calendar_event_id ? 'Evento creado' : 'Sin evento'}
-            />
+        <View style={[styles.columnas, shouldStackPanels && styles.columnasApiladas]}>
+          <View style={[styles.colPrincipal, shouldStackPanels && styles.colApilada]}>
+            {colPrincipal}
           </View>
-        </SeccionFicha>
-
-        <SeccionFicha
-          titulo="Asistentes"
-          icono="groups"
-          contador={asistentes.length}
-          vacio="Todavía no hay asistentes registrados."
-        >
-          {asistentes.length > 0 ? (
-            <View style={styles.listaSimple}>
-              {asistentes.map((a, i) => (
-                <View key={`${a.usuario_id ?? a.nombre}-${i}`} style={styles.filaAsistente}>
-                  <MaterialIcons
-                    name={a.es_externo ? 'person-outline' : 'person'}
-                    size={16}
-                    color="#64748b"
-                  />
-                  <Text style={styles.asistenteNombre}>
-                    {(a.nombre || nombreUsuario(a.usuario_id)).trim() || '—'}
-                  </Text>
-                  {a.asistio === true ? (
-                    <Text style={styles.asistioSi}>Asistió</Text>
-                  ) : a.asistio === false ? (
-                    <Text style={styles.asistioNo}>No asistió</Text>
-                  ) : null}
-                </View>
-              ))}
-            </View>
-          ) : null}
-        </SeccionFicha>
-
-        <SeccionFicha titulo="Orden del día" icono="format-list-bulleted">
-          {!ordenEditable ? (
-            <View style={styles.avisoBloqueo}>
-              <MaterialIcons name="lock-outline" size={14} color="#d97706" />
-              <Text style={styles.avisoBloqueoTexto}>
-                Bloqueado: la reunión ya está celebrada o tiene acta (D-20).
-              </Text>
-            </View>
-          ) : null}
-          <Text style={styles.textoLargo}>
-            {(reunion.orden_del_dia_congelado || reunion.orden_del_dia || '').trim() ||
-              'Sin orden del día.'}
-          </Text>
-        </SeccionFicha>
-
-        <SeccionFicha titulo="Resumen / acta" icono="description">
-          <Text style={styles.textoLargo}>
-            {(reunion.resumen ?? '').trim() || 'Todavía no hay acta manual.'}
-          </Text>
-        </SeccionFicha>
-
-        <SeccionFicha
-          titulo="Acuerdos"
-          icono="assignment-turned-in"
-          contador={acuerdos.length}
-          accion={
-            puedeEditar
-              ? {
-                  etiqueta: 'Añadir',
-                  icono: 'add',
-                  onPress: () => {
-                    setErrorAcuerdo(null);
-                    setAcuerdoFormVisible(true);
-                  },
-                }
-              : undefined
-          }
-          vacio="No hay acuerdos registrados."
-        >
-          {acuerdos.length > 0 ? (
-            <View style={styles.listaSimple}>
-              {acuerdos.map((a) => (
-                <View key={a.id_acuerdo} style={styles.tarjetaAcuerdo}>
-                  <View style={styles.acuerdoCabecera}>
-                    <BadgeEstadoAcuerdo estado={a.estado} />
-                    {a.tarea_id ? (
-                      <TouchableOpacity
-                        onPress={() =>
-                          router.push(`/proyectos/tarea/${encodeURIComponent(a.tarea_id as string)}` as never)
-                        }
-                      >
-                        <Text style={styles.enlaceTarea}>Ver tarea</Text>
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-                  <Text style={styles.acuerdoTexto}>{a.texto}</Text>
-                  <Text style={styles.acuerdoMeta}>
-                    {usuarios.nombrePorId(a.responsable_id)}
-                    {a.fecha_limite ? ` · ${formatFecha(a.fecha_limite)}` : ''}
-                  </Text>
-                  {puedeEditar && a.estado === 'abierto' ? (
-                    <View style={styles.acuerdoAcciones}>
-                      {ESTADOS_ACUERDO.filter((e) => e !== 'abierto').map((e) => (
-                        <TouchableOpacity
-                          key={e}
-                          style={[styles.chipAccion, isCompact && styles.chipAccionTactil]}
-                          onPress={() => void cambiarEstadoAcuerdo(a, e)}
-                          disabled={guardando}
-                        >
-                          <Text style={styles.chipAccionTexto}>{ETIQUETA_ESTADO_ACUERDO[e]}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  ) : null}
-                </View>
-              ))}
-            </View>
-          ) : null}
-          {puedeEditar && acuerdosAbiertos.length > 0 ? (
-            <TouchableOpacity
-              style={[styles.btnPrimario, isCompact && styles.btnPrimarioTactil]}
-              onPress={() => void crearTareasDesdeAcuerdos()}
-              disabled={guardando}
-            >
-              {guardando ? (
-                <ActivityIndicator size="small" color="#ffffff" />
-              ) : (
-                <>
-                  <MaterialIcons name="playlist-add-check" size={16} color="#ffffff" />
-                  <Text style={styles.btnPrimarioTexto}>
-                    Crear tareas desde acuerdos abiertos ({acuerdosAbiertos.length})
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
-          ) : null}
-        </SeccionFicha>
-
-        <SeccionFicha
-          titulo="Aviso de grabación"
-          icono="mic"
-          accion={
-            puedeEditar
-              ? {
-                  etiqueta: aviso?.aceptado_en ? 'Actualizar' : 'Registrar',
-                  icono: 'how-to-reg',
-                  onPress: () => {
-                    setAvisoInformados(aviso?.informados ?? asistentes.map((a) => a.usuario_id).filter(Boolean) as string[]);
-                    setErrorAviso(null);
-                    setAvisoFormVisible(true);
-                  },
-                }
-              : undefined
-          }
-        >
-          {aviso?.aceptado_en ? (
-            <Text style={styles.textoLargo}>
-              Aceptado el {formatFecha((aviso.aceptado_en ?? '').slice(0, 10))} por{' '}
-              {usuarios.nombrePorId(aviso.aceptado_por)}. Informados:{' '}
-              {(aviso.informados ?? []).length || 0}.
-            </Text>
-          ) : (
-            <Text style={styles.vacioSeccion}>
-              Todavía no hay aviso registrado. En Fase 2 hace falta para subir audio.
-            </Text>
-          )}
-        </SeccionFicha>
-
-        <SeccionFicha
-          titulo="Tareas salidas"
-          icono="task-alt"
-          contador={tareas.length}
-          cargando={cargandoTareas}
-          error={errorTareas}
-          onReintentar={() => void cargarTareas()}
-          vacio="Ninguna tarea ha salido todavía de esta reunión."
-        >
-          {tareas.length > 0 ? (
-            <View style={styles.listaSimple}>
-              {tareas.map((t) => (
-                <TarjetaTarea
-                  key={t.id_tarea}
-                  tarea={t}
-                  mostrarProyecto
-                  onAbrir={() =>
-                    router.push(`/proyectos/tarea/${encodeURIComponent(t.id_tarea)}` as never)
-                  }
-                />
-              ))}
-            </View>
-          ) : null}
-        </SeccionFicha>
-
-        <HistorialActividad actividad={actividad} nombrePorId={usuarios.nombrePorId} />
+          <View style={[styles.colLateral, shouldStackPanels && styles.colApilada]}>
+            {colLateral}
+          </View>
+        </View>
       </ScrollView>
 
       {editarVisible ? (
@@ -687,9 +908,60 @@ export default function FichaReunionScreen() {
         />
       ) : null}
 
-      <Modal visible={acuerdoFormVisible} transparent animationType="fade" onRequestClose={() => setAcuerdoFormVisible(false)}>
+      {actaVisible && resumenTexto ? (
+        <ModalActaReunion
+          visible
+          onCerrar={() => setActaVisible(false)}
+          meta={metaActa}
+          resumen={resumenTexto}
+        />
+      ) : null}
+
+      <Modal
+        visible={historialVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setHistorialVisible(false)}
+      >
+        <Pressable style={modal.overlay} onPress={() => setHistorialVisible(false)}>
+          <Pressable
+            style={[modal.cardWrap, { maxWidth: 560 }, isCompact && modal.cardWrapAncho]}
+            onPress={(e) => e?.stopPropagation?.()}
+          >
+            <View style={modal.card}>
+              <View style={modal.header}>
+                <Text style={modal.title}>Historial</Text>
+                <TouchableOpacity
+                  style={[modal.close, isCompact && { minWidth: MIN_TOUCH, minHeight: MIN_TOUCH }]}
+                  onPress={() => setHistorialVisible(false)}
+                  accessibilityLabel="Cerrar"
+                >
+                  <MaterialIcons name="close" size={22} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={modal.body}>
+                <HistorialActividad
+                  actividad={actividad}
+                  nombrePorId={usuarios.nombrePorId}
+                  modo="embebido"
+                />
+              </ScrollView>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={acuerdoFormVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAcuerdoFormVisible(false)}
+      >
         <Pressable style={modal.overlay} onPress={() => !guardando && setAcuerdoFormVisible(false)}>
-          <Pressable style={[modal.cardWrap, { maxWidth: 440 }]}>
+          <Pressable
+            style={[modal.cardWrap, { maxWidth: 440 }]}
+            onPress={(e) => e?.stopPropagation?.()}
+          >
             <View style={modal.card}>
               <View style={modal.header}>
                 <Text style={modal.title}>Nuevo acuerdo</Text>
@@ -732,7 +1004,11 @@ export default function FichaReunionScreen() {
               </View>
               {errorAcuerdo ? <Text style={modal.error}>{errorAcuerdo}</Text> : null}
               <View style={modal.footer}>
-                <TouchableOpacity style={modal.btn} onPress={() => setAcuerdoFormVisible(false)} disabled={guardando}>
+                <TouchableOpacity
+                  style={modal.btn}
+                  onPress={() => setAcuerdoFormVisible(false)}
+                  disabled={guardando}
+                >
                   <Text style={modal.btnText}>Cancelar</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -752,14 +1028,19 @@ export default function FichaReunionScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={avisoFormVisible} transparent animationType="fade" onRequestClose={() => setAvisoFormVisible(false)}>
+      <Modal
+        visible={avisoFormVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAvisoFormVisible(false)}
+      >
         <Pressable style={modal.overlay} onPress={() => !guardando && setAvisoFormVisible(false)}>
-          <Pressable style={modal.confirmCard}>
+          <Pressable style={modal.confirmCard} onPress={(e) => e?.stopPropagation?.()}>
             <MaterialIcons name="mic" size={36} color="#0ea5e9" style={modal.confirmIcono} />
             <Text style={modal.confirmTitle}>Aviso de grabación</Text>
             <Text style={modal.confirmText}>
               Se registrará que los asistentes han sido informados de que la reunión puede
-              grabarse, y que tú aceptas el aviso. En Fase 2 esto será requisito para subir audio.
+              grabarse, y que tú aceptas el aviso. Es requisito para poder subir el audio.
             </Text>
             <Text style={styles.avisoDetalle}>
               Informados: {avisoInformados.length || asistentes.length} persona
@@ -767,7 +1048,11 @@ export default function FichaReunionScreen() {
             </Text>
             {errorAviso ? <Text style={styles.errorTexto}>{errorAviso}</Text> : null}
             <View style={modal.confirmBotones}>
-              <TouchableOpacity style={modal.btn} onPress={() => setAvisoFormVisible(false)} disabled={guardando}>
+              <TouchableOpacity
+                style={modal.btn}
+                onPress={() => setAvisoFormVisible(false)}
+                disabled={guardando}
+              >
                 <Text style={modal.btnText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -814,15 +1099,17 @@ const styles = StyleSheet.create({
   },
   btnVolverTexto: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
 
+  headerBlock: {
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
     flexWrap: 'wrap',
   },
   backBtn: {
@@ -853,9 +1140,34 @@ const styles = StyleSheet.create({
   btnEditarTactil: { minHeight: MIN_TOUCH },
   btnEditarTexto: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
 
+  pipelineBarraWrap: { paddingHorizontal: 16, paddingBottom: 10, gap: 6 },
+  pipelineBarraFondo: {
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: '#e0f2fe',
+    overflow: 'hidden',
+  },
+  pipelineBarraGlow: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: '35%',
+    backgroundColor: '#0ea5e9',
+    borderRadius: 2,
+    opacity: 0.85,
+  },
+  pipelineFaseFila: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  pipelineFaseTexto: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
+
   scroll: { flex: 1 },
   scrollContent: { padding: 16, gap: 12, paddingBottom: 32 },
   scrollContentCompact: { padding: 12 },
+
+  columnas: { flexDirection: 'row', alignItems: 'flex-start', gap: 16 },
+  columnasApiladas: { flexDirection: 'column' },
+  colPrincipal: { flex: 1.55, minWidth: 0, gap: 12 },
+  colLateral: { flex: 1, minWidth: 280, maxWidth: 420, gap: 12 },
+  colApilada: { maxWidth: '100%', width: '100%', minWidth: 0 },
 
   bannerCalendario: {
     flexDirection: 'row',
@@ -883,7 +1195,7 @@ const styles = StyleSheet.create({
   bannerInfoTexto: { flex: 1, fontSize: 12, color: '#0c4a6e', lineHeight: 17 },
 
   datosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  dato: { width: '47%', minWidth: 140, gap: 2 },
+  dato: { width: '47%', minWidth: 120, gap: 2 },
   datoEtiqueta: { fontSize: 11, color: '#94a3b8', fontWeight: '500' },
   datoValor: { fontSize: 13, color: '#334155', fontWeight: '600' },
 
@@ -897,6 +1209,22 @@ const styles = StyleSheet.create({
   avisoBloqueoTexto: { flex: 1, fontSize: 11, color: '#d97706', lineHeight: 16 },
   textoLargo: { fontSize: 13, color: '#334155', lineHeight: 20 },
   vacioSeccion: { fontSize: 12, color: '#94a3b8', lineHeight: 18 },
+
+  actaPreview: { gap: 10 },
+  actaAcciones: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  btnSecundario: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+  },
+  btnSecundarioTactil: { minHeight: MIN_TOUCH },
+  btnSecundarioTexto: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
 
   tarjetaAcuerdo: {
     borderWidth: 1,
@@ -935,6 +1263,21 @@ const styles = StyleSheet.create({
   },
   btnPrimarioTactil: { minHeight: MIN_TOUCH },
   btnPrimarioTexto: { fontSize: 12, fontWeight: '700', color: '#ffffff' },
+
+  btnHistorial: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+  },
+  btnHistorialTactil: { minHeight: MIN_TOUCH },
+  btnHistorialTexto: { fontSize: 13, fontWeight: '700', color: '#0ea5e9' },
 
   avisoDetalle: { fontSize: 12, color: '#64748b', textAlign: 'center' },
 });

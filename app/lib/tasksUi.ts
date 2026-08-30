@@ -12,12 +12,17 @@ import { formatFecha } from '../utils/formatFecha';
 import {
   FECHA_SIN_LIMITE,
   type EstadoAcuerdo,
+  type EstadoAudio,
+  type EstadoPipeline,
   type EstadoProyecto,
   type EstadoReunion,
   type EstadoTarea,
+  type EstadoPropuesta,
   type ModalidadReunion,
+  type OrigenAudio,
   type Prioridad,
   type RolProyecto,
+  type TipoPropuesta,
   type TipoVinculo,
   type VisibilidadReunion,
 } from '../types/tasks';
@@ -163,6 +168,94 @@ export const TONO_ESTADO_ACUERDO: Record<EstadoAcuerdo, Tono> = {
   abierto: { bg: '#e0f2fe', fg: '#0369a1' },
   cumplido: { bg: '#dcfce7', fg: '#16a34a' },
   incumplido: { bg: '#fee2e2', fg: '#b91c1c' },
+};
+
+export const ETIQUETA_ESTADO_AUDIO: Record<EstadoAudio, string> = {
+  ausente: 'Sin audio',
+  presente: 'Audio presente',
+  borrado: 'Audio borrado',
+};
+
+export const ETIQUETA_ORIGEN_AUDIO: Record<OrigenAudio, string> = {
+  meet: 'Google Meet',
+  subida: 'Subida manual',
+  grabacion_app: 'Grabación en app',
+};
+
+export const ETIQUETA_ESTADO_PIPELINE: Record<EstadoPipeline, string> = {
+  audio_pendiente: 'Audio pendiente de transcripción',
+  transcribiendo: 'Transcribiendo',
+  transcrita: 'Transcripción lista',
+  resumiendo: 'Generando resumen',
+  error: 'Error en el procesado',
+};
+
+/** Estados en los que el pipeline sigue trabajando (sin %; UI indeterminada). */
+export const ESTADOS_PIPELINE_EN_VUELO: readonly EstadoPipeline[] = [
+  'audio_pendiente',
+  'transcribiendo',
+  'transcrita',
+  'resumiendo',
+] as const;
+
+export function pipelineEnVuelo(estado?: EstadoPipeline | null): boolean {
+  return !!estado && (ESTADOS_PIPELINE_EN_VUELO as readonly string[]).includes(estado);
+}
+
+/**
+ * Duración legible entre dos horas `HH:MM` / `HH:MM:SS`.
+ * Devuelve p. ej. `45 min`, `1 h`, `1 h 30 min`, o `null` si no se puede calcular.
+ */
+export function duracionEntreHoras(
+  horaInicio?: string | null,
+  horaFin?: string | null,
+): string | null {
+  const aMin = minutosDeHora(horaInicio);
+  const bMin = minutosDeHora(horaFin);
+  if (aMin == null || bMin == null) return null;
+  let diff = bMin - aMin;
+  if (diff < 0) diff += 24 * 60;
+  if (diff === 0) return null;
+  const h = Math.floor(diff / 60);
+  const m = diff % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h} h`;
+  return `${h} h ${m} min`;
+}
+
+function minutosDeHora(hora?: string | null): number | null {
+  const t = (hora ?? '').trim();
+  if (!t) return null;
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(t);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh > 23 || mm > 59) return null;
+  return hh * 60 + mm;
+}
+
+export const ETIQUETA_TIPO_PROPUESTA: Record<TipoPropuesta, string> = {
+  tarea: 'Tarea',
+  acuerdo: 'Acuerdo',
+};
+
+export const ETIQUETA_ESTADO_PROPUESTA: Record<EstadoPropuesta, string> = {
+  pendiente: 'Pendiente',
+  aceptada: 'Aceptada',
+  rechazada: 'Rechazada',
+  editada_y_aceptada: 'Editada y aceptada',
+};
+
+export const TONO_ESTADO_PROPUESTA: Record<EstadoPropuesta, Tono> = {
+  pendiente: { bg: '#fef3c7', fg: '#d97706' },
+  aceptada: { bg: '#dcfce7', fg: '#16a34a' },
+  rechazada: { bg: '#f1f5f9', fg: '#94a3b8' },
+  editada_y_aceptada: { bg: '#dcfce7', fg: '#15803d' },
+};
+
+export const TONO_TIPO_PROPUESTA: Record<TipoPropuesta, Tono> = {
+  tarea: { bg: '#e0f2fe', fg: '#0369a1' },
+  acuerdo: { bg: '#ecfdf5', fg: '#047857' },
 };
 
 /**

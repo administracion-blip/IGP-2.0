@@ -24,20 +24,52 @@ export function modeloInformes() {
 /**
  * Llama a chat/completions y devuelve el texto y el uso de tokens.
  *
+ * Ampliaciones aditivas (D-29 / actas): `responseFormat` y `maxTokens` son
+ * opcionales; si no se pasan, el cuerpo es idéntico al histórico (OCR/informes).
+ * Las actas de reunión pueden subir `timeoutMs` (p. ej. 300_000) porque una
+ * transcripción larga supera los 90 s por defecto.
+ *
  * @param {object} opts
  * @param {string} opts.system - mensaje de sistema.
  * @param {string} opts.user - mensaje de usuario.
  * @param {number} [opts.temperature=0.2]
  * @param {string} [opts.model]
- * @param {number} [opts.timeoutMs=90000]
+ * @param {number} [opts.timeoutMs=90000] — actas: pasar valor alto si hace falta.
+ * @param {string | { type: string } | object} [opts.responseFormat] — p. ej.
+ *   `'json_object'` o `{ type: 'json_object' }` → `response_format` de la API.
+ * @param {number} [opts.maxTokens] — se envía como `max_tokens` si es finito.
  * @returns {Promise<{ text: string, model: string, usage: { prompt: number, completion: number } }>}
  */
-export async function chatCompletion({ system, user, temperature = 0.2, model, timeoutMs = 90000 }) {
+export async function chatCompletion({
+  system,
+  user,
+  temperature = 0.2,
+  model,
+  timeoutMs = 90000,
+  responseFormat,
+  maxTokens,
+} = {}) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey || String(apiKey).trim() === '') {
     throw new Error('OPENAI_API_KEY no configurada');
   }
   const usedModel = model || modeloInformes();
+
+  const body = {
+    model: usedModel,
+    temperature,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+  };
+  if (responseFormat != null) {
+    body.response_format =
+      typeof responseFormat === 'string' ? { type: responseFormat } : responseFormat;
+  }
+  if (maxTokens != null && Number.isFinite(Number(maxTokens))) {
+    body.max_tokens = Number(maxTokens);
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -50,14 +82,7 @@ export async function chatCompletion({ system, user, temperature = 0.2, model, t
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: usedModel,
-        temperature,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
   } finally {
