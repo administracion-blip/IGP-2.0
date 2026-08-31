@@ -11,12 +11,13 @@
  * Config: PK `reuniones` / SK `pipeline` (`Enabled`, `max_intentos`, …).
  */
 
-import crypto, { createHash } from 'node:crypto';
+import crypto from 'node:crypto';
 import { GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../../db.js';
 import { logger } from '../../logger.js';
 import { crearCerrojo } from '../../facturacion/facturacionPeriodica.js';
 import { PK, SK } from '../tipos.js';
+import { hashTexto } from './hashTexto.js';
 import { crearProveedorSttAws } from './transcripcionAws.js';
 import { procesarResumenReunion } from './resumenActa.js';
 
@@ -50,10 +51,6 @@ function texto(valor) {
 
 function instanteIso() {
   return new Date().toISOString();
-}
-
-function hashTexto(s) {
-  return createHash('sha256').update(String(s), 'utf8').digest('hex');
 }
 
 // ─── Proveedor STT (stub 2B; real en 2D) ───

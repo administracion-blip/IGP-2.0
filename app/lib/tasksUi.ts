@@ -158,6 +158,19 @@ export const ETIQUETA_MODALIDAD_REUNION: Record<ModalidadReunion, string> = {
   mixta: 'Mixta',
 };
 
+/**
+ * URL de Google Meet a partir del código guardado (`igt-tgse-rrz`).
+ * Devuelve null si el código está vacío o no es usable.
+ */
+export function urlMeetDesdeCodigo(code?: string | null): string | null {
+  const raw = String(code ?? '').trim();
+  if (!raw) return null;
+  // Código Meet típico: segmentos alfanuméricos separados por guiones
+  const limpio = raw.replace(/^https?:\/\/meet\.google\.com\//i, '').trim();
+  if (!limpio || /\s/.test(limpio) || /[/?#]/.test(limpio)) return null;
+  return `https://meet.google.com/${limpio}`;
+}
+
 export const ETIQUETA_ESTADO_ACUERDO: Record<EstadoAcuerdo, string> = {
   abierto: 'Abierto',
   cumplido: 'Cumplido',
@@ -180,7 +193,27 @@ export const ETIQUETA_ORIGEN_AUDIO: Record<OrigenAudio, string> = {
   meet: 'Google Meet',
   subida: 'Subida manual',
   grabacion_app: 'Grabación en app',
+  transcripcion_importada: 'Transcripción importada',
 };
+
+/**
+ * Espejo de `pipelineYaIniciado` del backend: no re-subir audio ni re-importar
+ * si ya hay captura, job STT, transcripción en S3 o pipeline en vuelo.
+ */
+export function capturaYaIniciada(reunion: {
+  transcripcion_job_id?: string | null;
+  transcripcion_s3_key?: string | null;
+  audio_estado?: string | null;
+  pipeline_estado?: string | null;
+  origen_audio?: string | null;
+}): boolean {
+  if ((reunion.transcripcion_job_id ?? '').trim()) return true;
+  if ((reunion.transcripcion_s3_key ?? '').trim()) return true;
+  if (reunion.origen_audio === 'transcripcion_importada') return true;
+  if (reunion.audio_estado === 'presente') return true;
+  const estado = reunion.pipeline_estado;
+  return !!estado && (ESTADOS_PIPELINE_EN_VUELO as readonly string[]).includes(estado);
+}
 
 export const ETIQUETA_ESTADO_PIPELINE: Record<EstadoPipeline, string> = {
   audio_pendiente: 'Audio pendiente de transcripción',
@@ -265,6 +298,65 @@ export const TONO_TIPO_PROPUESTA: Record<TipoPropuesta, Tono> = {
 export function ordenDelDiaEditable(estado?: EstadoReunion | null): boolean {
   if (!estado || estado === 'cancelada') return true;
   return estado === 'borrador' || estado === 'convocada';
+}
+
+const PREFIJO_PUNTO_ORDEN = /^\d+[.)]\s+/;
+const PREFIJO_VIÑETA_ORDEN = /^[-•*]\s+/;
+const LINEA_NUMERADA_ORDEN = /^\s*(\d+)[.)]\s/;
+
+/**
+ * Convierte texto libre del orden del día en lista `1. 2. 3. …`.
+ * Omite líneas vacías y quita prefijos previos de número o viñeta.
+ */
+export function numerarOrdenDelDia(texto: string): string {
+  const normalizado = String(texto ?? '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+  const lineas = normalizado
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .map((l) => l.replace(PREFIJO_PUNTO_ORDEN, '').replace(PREFIJO_VIÑETA_ORDEN, '').trim())
+    .filter((l) => l.length > 0);
+  if (lineas.length === 0) return '';
+  return lineas.map((l, i) => `${i + 1}. ${l}`).join('\n');
+}
+
+/**
+ * Si el cambio es insertar un solo salto de línea tras una línea `N.` / `N)`,
+ * añade `(N+1). ` en la nueva línea. No reescribe pegados masivos.
+ */
+export function autoNumerarOrdenDelDiaAlEnter(previo: string, nuevo: string): string {
+  const ant = String(previo ?? '');
+  const act = String(nuevo ?? '');
+  const delta = act.length - ant.length;
+  if (delta < 1 || delta > 2) return act;
+
+  let i = 0;
+  const limite = Math.min(ant.length, act.length);
+  while (i < limite && ant[i] === act[i]) i++;
+
+  let salto = '';
+  if (delta === 1 && act[i] === '\n' && act.slice(i + 1) === ant.slice(i)) {
+    salto = '\n';
+  } else if (
+    delta === 2 &&
+    act.slice(i, i + 2) === '\r\n' &&
+    act.slice(i + 2) === ant.slice(i)
+  ) {
+    salto = '\r\n';
+  } else {
+    return act;
+  }
+
+  const antes = ant.slice(0, i);
+  const ultimaLinea = antes.slice(antes.lastIndexOf('\n') + 1);
+  const m = ultimaLinea.match(LINEA_NUMERADA_ORDEN);
+  if (!m) return act;
+
+  const siguiente = Number(m[1]) + 1;
+  if (!Number.isFinite(siguiente) || siguiente < 1) return act;
+  return act.slice(0, i + salto.length) + `${siguiente}. ` + act.slice(i + salto.length);
 }
 
 // ─── Vínculos ───

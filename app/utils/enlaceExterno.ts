@@ -23,19 +23,27 @@ export function normalizarUrlExterna(raw: string): string | null {
 /** @deprecated Usa normalizarUrlExterna */
 export const normalizarUrlHttps = normalizarUrlExterna;
 
-/** Abre una URL http(s) en nueva pestaña (web) o con el navegador del sistema (nativo). */
+/**
+ * Abre URL http(s) en nueva pestaña (web) o con el navegador del sistema (nativo).
+ * En web nunca navega la pestaña actual (`location.assign`): perdería el contexto del ERP.
+ */
 export async function abrirEnlaceExterno(raw: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const url = normalizarUrlExterna(raw);
   if (!url) {
     return { ok: false, error: 'La URL debe ser http:// o https:// válida. Configúrala en Ajustes.' };
   }
   try {
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      const w = window.open(url, '_blank', 'noopener,noreferrer');
-      if (!w) {
-        // Popup bloqueado: fallback
-        window.location.assign(url);
-      }
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      // <a target=_blank> evita el falso positivo de window.open(..., 'noopener') → null
+      // que antes disparaba location.assign y abría la misma pestaña + una nueva.
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       return { ok: true };
     }
     const can = await Linking.canOpenURL(url);

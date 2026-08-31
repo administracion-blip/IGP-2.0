@@ -166,6 +166,7 @@ const PIPELINE_EN_VUELO = Object.freeze([
  */
 export function pipelineYaIniciado(reunion) {
   if (texto(reunion?.transcripcion_job_id)) return true;
+  if (texto(reunion?.transcripcion_s3_key)) return true;
   if (texto(reunion?.audio_estado) === 'presente') return true;
   const estado = texto(reunion?.pipeline_estado);
   return PIPELINE_EN_VUELO.includes(estado);

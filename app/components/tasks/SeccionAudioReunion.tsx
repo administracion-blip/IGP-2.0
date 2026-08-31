@@ -1,15 +1,17 @@
 /**
- * Zona «Audio / procesado» de la ficha de reunión (Fase 2A): estado del aviso,
- * subida por URL prefirmada (presign → PUT a S3 → procesar) y lectura de
- * `audio_*` / `pipeline_*`. Sin polling ni STT todavía.
+ * Zona «Audio / transcripción» de la ficha de reunión: aviso de grabación,
+ * subida por URL prefirmada (presign → PUT a S3 → procesar), importación de
+ * texto (pegar o .txt) y lectura de `audio_*` / `pipeline_*`.
  *
- * En web usa `input type="file" accept="audio/*"`; en nativo, document picker.
+ * Subir audio exige aviso; importar transcripción no.
+ * En web usa `input type="file"`; en nativo, document picker.
  * El PUT a S3 va con `fetch` directo, igual que en adjuntos de tarea.
  */
 import { useCallback, useState } from 'react';
 import {
   View,
   Text,
+  TextInput,
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
@@ -24,7 +26,7 @@ import {
   ETIQUETA_ESTADO_AUDIO,
   ETIQUETA_ESTADO_PIPELINE,
   ETIQUETA_ORIGEN_AUDIO,
-  ESTADOS_PIPELINE_EN_VUELO,
+  capturaYaIniciada,
   pipelineEnVuelo,
 } from '../../lib/tasksUi';
 import { apiFetch, errorMessage } from '../../utils/api';
@@ -39,7 +41,11 @@ import type {
 /** Tope blando alineado con el default de `REUNIONES_MAX_AUDIO_MB` (API). */
 const MAX_BYTES_AUDIO = 500 * 1024 * 1024;
 
+/** Alineado con `MAX_CHARS` del endpoint de importar transcripción. */
+const MAX_CHARS_TRANSCRIPCION = 500_000;
+
 const ACCEPT_WEB = 'audio/*,.mp3,.m4a,.mp4,.wav,.ogg,.opus,.webm,.flac';
+const ACCEPT_TXT_WEB = '.txt,text/plain';
 
 const MIME_NATIVO = [
   'audio/*',
@@ -52,6 +58,8 @@ const MIME_NATIVO = [
   'audio/webm',
   'audio/flac',
 ] as const;
+
+const MIME_TXT_NATIVO = ['text/plain', 'text/*'] as const;
 
 const MIME_POR_EXTENSION: Record<string, string> = {
   '.mp3': 'audio/mpeg',
@@ -76,14 +84,6 @@ function avisoAceptado(reunion: Reunion): boolean {
   return !!(aviso?.aceptado_en && aviso?.aceptado_por);
 }
 
-/** Espejo de `pipelineYaIniciado` del backend: no re-subir si ya hay captura. */
-function capturaYaIniciada(reunion: Reunion): boolean {
-  if ((reunion.transcripcion_job_id ?? '').trim()) return true;
-  if (reunion.audio_estado === 'presente') return true;
-  const estado = reunion.pipeline_estado;
-  return !!estado && (ESTADOS_PIPELINE_EN_VUELO as readonly string[]).includes(estado);
-}
-
 type FicheroAudio = {
   nombre: string;
   contentType: string;
@@ -104,22 +104,27 @@ export function SeccionAudioReunion({
   puedeEditar: boolean;
   /** Abre el modal de aviso de grabación de la ficha. */
   onPedirAviso: () => void;
-  /** Tras `procesar` OK: refrescar la ficha con la reunión actualizada. */
+  /** Tras procesar audio o importar texto: refrescar la ficha. */
   onProcesado: (reunion?: Reunion) => void;
   variante?: VarianteSeccionFicha;
 }) {
   const { isCompact } = useBreakpoint();
   const [subiendo, setSubiendo] = useState(false);
   const [faseSubida, setFaseSubida] = useState<string | null>(null);
+  const [importando, setImportando] = useState(false);
+  const [textoImport, setTextoImport] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const tieneAviso = avisoAceptado(reunion);
   const yaIniciado = capturaYaIniciada(reunion);
+  const ocupado = subiendo || importando;
   const puedeSubir = puedeEditar && tieneAviso && !yaIniciado;
+  const puedeImportar = puedeEditar && !yaIniciado;
 
   const audioEstado = (reunion.audio_estado ?? 'ausente') as EstadoAudio;
   const pipelineEstado = reunion.pipeline_estado as EstadoPipeline | undefined;
   const origen = reunion.origen_audio as OrigenAudio | undefined;
+  const esImportada = origen === 'transcripcion_importada';
 
   const subirAudio = useCallback(
     async (fichero: FicheroAudio) => {
@@ -185,7 +190,7 @@ export function SeccionAudioReunion({
   );
 
   const elegirYSubir = useCallback(async () => {
-    if (!puedeSubir || subiendo) return;
+    if (!puedeSubir || ocupado) return;
     setError(null);
 
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
@@ -243,7 +248,108 @@ export function SeccionAudioReunion({
       setSubiendo(false);
       setFaseSubida(null);
     }
-  }, [puedeSubir, subiendo, subirAudio]);
+  }, [puedeSubir, ocupado, subirAudio]);
+
+  const cargarTextoDesdeArchivo = useCallback(async (texto: string, nombre?: string) => {
+    const limpio = String(texto ?? '');
+    if (!limpio.trim()) {
+      setError('El fichero está vacío.');
+      return;
+    }
+    if (limpio.length > MAX_CHARS_TRANSCRIPCION) {
+      setError(
+        `La transcripción supera el máximo de ${MAX_CHARS_TRANSCRIPCION.toLocaleString('es-ES')} caracteres` +
+          (nombre ? ` (${nombre})` : ''),
+      );
+      return;
+    }
+    setError(null);
+    setTextoImport(limpio);
+  }, []);
+
+  const elegirTxt = useCallback(async () => {
+    if (!puedeImportar || ocupado) return;
+    setError(null);
+
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = ACCEPT_TXT_WEB;
+      input.onchange = () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        void file
+          .text()
+          .then((t) => cargarTextoDesdeArchivo(t, file.name))
+          .catch((e) => {
+            console.error('[reuniones] fallo al leer .txt', e);
+            setError('No se pudo leer el fichero de texto');
+          });
+      };
+      input.click();
+      return;
+    }
+
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [...MIME_TXT_NATIVO],
+        multiple: false,
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      const asset = result.assets[0];
+      const res = await fetch(asset.uri);
+      const texto = await res.text();
+      await cargarTextoDesdeArchivo(texto, asset.name);
+    } catch (e) {
+      console.error('[reuniones] fallo al elegir .txt', e);
+      setError(errorMessage(e, 'No se pudo abrir el selector de texto'));
+    }
+  }, [puedeImportar, ocupado, cargarTextoDesdeArchivo]);
+
+  const importarTranscripcion = useCallback(async () => {
+    if (!puedeImportar || ocupado) return;
+    const texto = textoImport.trim();
+    if (!texto) {
+      setError('Pega o carga el texto de la transcripción.');
+      return;
+    }
+    if (texto.length > MAX_CHARS_TRANSCRIPCION) {
+      setError(
+        `La transcripción supera el máximo de ${MAX_CHARS_TRANSCRIPCION.toLocaleString('es-ES')} caracteres`,
+      );
+      return;
+    }
+
+    setError(null);
+    setImportando(true);
+    try {
+      const res = await apiFetch(
+        `/api/reuniones/${encodeURIComponent(idReunion)}/transcripcion/importar`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ texto }),
+          timeoutMs: 120000,
+        },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        ya_iniciado?: boolean;
+        reunion?: Reunion;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudo importar la transcripción');
+      }
+      setTextoImport('');
+      onProcesado(data.reunion);
+    } catch (e) {
+      console.error('[reuniones] fallo al importar transcripción', e);
+      setError(e instanceof Error ? e.message : 'No se pudo importar la transcripción');
+    } finally {
+      setImportando(false);
+    }
+  }, [puedeImportar, ocupado, textoImport, idReunion, onProcesado]);
 
   const enVuelo = pipelineEnVuelo(pipelineEstado);
   const etiquetaPipeline = pipelineEstado
@@ -252,7 +358,7 @@ export function SeccionAudioReunion({
 
   return (
     <SeccionFicha
-      titulo="Audio"
+      titulo="Audio / transcripción"
       icono="graphic-eq"
       variante={variante}
       accion={
@@ -261,7 +367,7 @@ export function SeccionAudioReunion({
               etiqueta: subiendo ? 'Subiendo…' : 'Subir audio',
               icono: 'upload-file',
               onPress: () => void elegirYSubir(),
-              deshabilitada: subiendo,
+              deshabilitada: ocupado,
             }
           : undefined
       }
@@ -276,11 +382,11 @@ export function SeccionAudioReunion({
           <Text style={styles.textoEstado}>
             {tieneAviso
               ? 'Aviso de grabación aceptado.'
-              : 'Sin aviso de grabación: no se puede subir audio.'}
+              : 'Sin aviso de grabación: no se puede subir audio (sí importar texto).'}
           </Text>
         </View>
 
-        {!tieneAviso && puedeEditar ? (
+        {!tieneAviso && puedeEditar && !yaIniciado ? (
           <TouchableOpacity
             style={[styles.btnSecundario, isCompact && styles.btnTactil]}
             onPress={onPedirAviso}
@@ -297,20 +403,22 @@ export function SeccionAudioReunion({
           </Text>
         ) : null}
 
-        {tieneAviso && enVuelo ? (
+        {enVuelo ? (
           <View style={styles.bannerVivo}>
             <ActivityIndicator size="small" color="#0ea5e9" />
             <Text style={styles.bannerVivoTexto}>
-              {etiquetaPipeline || 'Procesando audio…'}
+              {etiquetaPipeline || 'Procesando…'}
             </Text>
           </View>
         ) : null}
 
-        {tieneAviso && yaIniciado && !enVuelo && pipelineEstado !== 'error' ? (
+        {yaIniciado && !enVuelo && pipelineEstado !== 'error' ? (
           <View style={styles.bannerInfo}>
             <MaterialIcons name="check-circle-outline" size={16} color="#0369a1" />
             <Text style={styles.bannerInfoTexto}>
-              Ya hay audio en esta reunión; no se puede subir otro fichero.
+              {esImportada
+                ? 'Ya hay una transcripción importada; no se puede subir audio ni importar otra.'
+                : 'Ya hay audio o transcripción en esta reunión; no se puede subir otro fichero ni importar texto.'}
             </Text>
           </View>
         ) : null}
@@ -328,7 +436,7 @@ export function SeccionAudioReunion({
           ) : null}
           {pipelineEstado ? (
             <DatoEtiqueta etiqueta="Procesado" valor={etiquetaPipeline || pipelineEstado} />
-          ) : audioEstado === 'ausente' ? (
+          ) : audioEstado === 'ausente' && !yaIniciado ? (
             <DatoEtiqueta etiqueta="Procesado" valor="Sin iniciar" />
           ) : null}
         </View>
@@ -340,7 +448,60 @@ export function SeccionAudioReunion({
               {reunion.pipeline_error_fase
                 ? `Fase «${reunion.pipeline_error_fase}»: `
                 : ''}
-              {reunion.pipeline_error?.trim() || 'Error en el procesado del audio.'}
+              {reunion.pipeline_error?.trim() || 'Error en el procesado.'}
+            </Text>
+          </View>
+        ) : null}
+
+        {puedeImportar ? (
+          <View style={styles.bloqueImport}>
+            <Text style={styles.importTitulo}>Importar transcripción</Text>
+            <Text style={styles.ayuda}>
+              Pega el texto o elige un fichero .txt. No hace falta el aviso de grabación.
+            </Text>
+            <TextInput
+              style={[styles.inputTexto, isCompact && styles.inputTextoCompact]}
+              value={textoImport}
+              onChangeText={setTextoImport}
+              placeholder="Pega aquí la transcripción…"
+              placeholderTextColor="#94a3b8"
+              multiline
+              textAlignVertical="top"
+              editable={!ocupado}
+              accessibilityLabel="Texto de la transcripción"
+            />
+            <View style={[styles.filaAcciones, isCompact && styles.filaAccionesStack]}>
+              <TouchableOpacity
+                style={[styles.btnSecundario, isCompact && styles.btnTactil]}
+                onPress={() => void elegirTxt()}
+                disabled={ocupado}
+                accessibilityLabel="Elegir fichero de texto"
+              >
+                <MaterialIcons name="description" size={16} color="#0ea5e9" />
+                <Text style={styles.btnSecundarioTexto}>Elegir .txt</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.btnPrimario,
+                  isCompact && styles.btnTactil,
+                  (ocupado || !textoImport.trim()) && styles.btnDeshabilitado,
+                ]}
+                onPress={() => void importarTranscripcion()}
+                disabled={ocupado || !textoImport.trim()}
+                accessibilityLabel="Importar transcripción"
+              >
+                {importando ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <MaterialIcons name="upload" size={16} color="#ffffff" />
+                )}
+                <Text style={styles.btnPrimarioTexto}>
+                  {importando ? 'Importando…' : 'Importar'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.privacidad}>
+              Privacidad: el texto se enviará a un proveedor externo para generar el acta.
             </Text>
           </View>
         ) : null}
@@ -354,9 +515,11 @@ export function SeccionAudioReunion({
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <Text style={styles.privacidad}>
-          Privacidad: el audio se envía a un proveedor externo de STT para transcribirlo.
-        </Text>
+        {puedeSubir || (!yaIniciado && tieneAviso) ? (
+          <Text style={styles.privacidad}>
+            Privacidad: el audio se envía a un proveedor externo de STT para transcribirlo.
+          </Text>
+        ) : null}
       </View>
     </SeccionFicha>
   );
@@ -376,6 +539,29 @@ const styles = StyleSheet.create({
   filaEstado: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   textoEstado: { flex: 1, fontSize: 13, color: '#334155', lineHeight: 18 },
   ayuda: { fontSize: 12, color: '#94a3b8', lineHeight: 17 },
+  bloqueImport: {
+    gap: 8,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  importTitulo: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
+  inputTexto: {
+    minHeight: 120,
+    maxHeight: 240,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: '#0f172a',
+    lineHeight: 18,
+  },
+  inputTextoCompact: { minHeight: 140 },
+  filaAcciones: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
+  filaAccionesStack: { flexDirection: 'column', alignItems: 'stretch' },
   btnSecundario: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
@@ -388,8 +574,21 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     backgroundColor: '#f8fafc',
   },
+  btnPrimario: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#0ea5e9',
+  },
+  btnDeshabilitado: { opacity: 0.5 },
   btnTactil: { minHeight: MIN_TOUCH },
   btnSecundarioTexto: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+  btnPrimarioTexto: { fontSize: 12, fontWeight: '700', color: '#ffffff' },
   datos: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   dato: { minWidth: 120, gap: 2 },
   datoEtiqueta: { fontSize: 11, color: '#94a3b8', fontWeight: '500' },

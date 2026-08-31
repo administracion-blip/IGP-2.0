@@ -362,9 +362,14 @@ export default function ListadoProyectosScreen() {
           puedeVerPresupuesto={verPresupuesto}
           departamentos={departamentos}
           onCerrar={() => setFormVisible(false)}
-          onGuardado={() => {
+          onGuardado={(guardado) => {
             setFormVisible(false);
             setFilaSeleccionada(null);
+            // Tras crear, ir a la ficha; tras editar, refrescar el listado.
+            if (!proyectoEdicion && guardado?.id_proyecto) {
+              router.push(`/proyectos/${encodeURIComponent(guardado.id_proyecto)}` as never);
+              return;
+            }
             void cargar();
           }}
         />

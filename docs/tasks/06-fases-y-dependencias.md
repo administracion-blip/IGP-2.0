@@ -201,10 +201,12 @@ resto (acta manual, pantallas) es disjunto.
 
 ## Fase 2 — Pipeline asíncrono
 
-**En curso** (30/08/2026): entregas **2A** (subida) + **2B** (poller
-`POST …/pipeline/tick`) + **2C** (`chatCompletion` aditivo + prompt
-`reuniones_acta`) + **2D** (Amazon Transcribe, D-33 / A-02 provisional). Falta
-resumen→propuestas (**2E**) y la cola de validación en UI.
+**MVP cerrado** (31/08/2026): **2A** subida · **2B** poller · **2C**
+`chatCompletion` / prompt `reuniones_acta` · **2D** Amazon Transcribe (D-33) ·
+**2E** resumen→`acta_borrador` · **2F** propuestas + UI ·
+`POST …/transcripcion/importar`. Smoke producto + tests en
+[09 · Smoke MVP](09-smoke-mvp.md). Camino principal validado: **importar texto**
+(Meet Doc); audio+AWS queda como respaldo/opcional.
 
 **Entra:** todo lo descrito en [05 · Pipeline de reuniones](05-pipeline-reuniones.md),
 más la interfaz de validación de propuestas.
@@ -213,18 +215,19 @@ más la interfaz de validación de propuestas.
 datos de negocio.
 
 **Cierra cuando:**
-- [ ] Con audio real, sin intervención manual, la reunión llega a `acta_borrador`
-      con transcripción, acta y propuestas.
-- [ ] Cada propuesta muestra su cita, y validarla crea la tarea con responsable y
+- [x] Con transcripción (import o audio), la reunión llega a `acta_borrador`
+      con acta y propuestas (smoke 31/08/2026 vía importar texto).
+- [x] Cada propuesta muestra su cita, y validarla crea la tarea con responsable y
       fecha.
-- [ ] Rechazar una propuesta la marca y no la borra.
-- [ ] Un fallo de transcripción o de IA deja la reunión en `error` con fase
-      distinguible, sin perder lo obtenido, y es reintentable.
-- [ ] Reprocesar no duplica tareas ni vuelve a pagar transcripción.
-- [ ] Los puntos no tratados aparecen como aplazados y candidatos a la siguiente.
-- [ ] El audio se borra conservando transcripción y acta.
-- [ ] El poller no ejecuta ningún `Scan`.
-- [ ] `coste_ia` refleja el coste real de la reunión.
+- [x] Rechazar una propuesta la marca y no la borra (código + uso).
+- [x] Un fallo de transcripción o de IA deja la reunión en `error` con fase
+      distinguible, sin perder lo obtenido, y es reintentable (código/tests).
+- [x] Reprocesar / re-import no duplica de forma destructiva (idempotencia).
+- [ ] Los puntos no tratados aparecen como aplazados y candidatos a la siguiente
+      (enganche fuerte con Fase 4 · orden automático).
+- [ ] El audio se borra conservando transcripción y acta (retención; no bloquea MVP).
+- [x] El poller no ejecuta ningún `Scan` (diseño + código).
+- [ ] `coste_ia` refleja el coste real de la reunión (mejora; no bloquea MVP).
 
 **Reparto:** sí. Pipeline (backend, `api/lib/tasks/reuniones/**`) frente a la cola
 de validación (frontend). Nunca dos agentes en el adaptador de captura.
@@ -235,7 +238,7 @@ de validación (frontend). Nunca dos agentes en el adaptador de captura.
 
 Las tres piezas son independientes entre sí.
 
-**Entra** — en curso (27/08/2026; Directory en stub):
+**Entra** — MVP cerrado en campana + ICS (31/08/2026; Directory en stub):
 - `[x]` Feed ICS de vencimientos por usuario, con token propio revocable, montado antes
   del `requireAuth` global (`GET …/vencimientos.ics`, `POST …/vencimientos/token`).
 - `[x]` Tabla `Igp_Notificaciones` en código + API + campana en cabecera. Emisores:
@@ -245,7 +248,7 @@ Las tres piezas son independientes entre sí.
   `api/scripts/create-notificaciones-table.js`). TTL en atributo `ttl`
   **activado** el 29/08/2026.
 - `[ ]` Sincronización de usuarios desde Directory (stub listo; falta credencial /
-  delegación con scope Directory).
+  delegación con scope Directory). **Fuera del MVP.**
 
 Decisiones cerradas al arrancar: D-24 (ICS), D-25 (token en Ajustes), D-26
 (Directory lista blanca), D-27 (tipos sin emisor).
@@ -264,7 +267,8 @@ Decisiones cerradas al arrancar: D-24 (ICS), D-25 (token en Ajustes), D-26
 ## Fase 4 — Madurez
 
 Cinco entregas casi independientes; se pueden priorizar por separado según lo que
-pida el uso real.
+pida el uso real. Hasta que exista la entrega «Cuadro de mando», **no** se muestra
+la tarjeta en el hub de `/proyectos` (evitar placeholder bloqueado).
 
 | Entrega | Contenido |
 |---|---|

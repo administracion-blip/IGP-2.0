@@ -69,7 +69,7 @@ export const VISIBILIDAD_REUNION = Object.freeze({
   restringida: 'restringida',
 });
 export const VISIBILIDADES_REUNION = Object.freeze(Object.values(VISIBILIDAD_REUNION));
-export const ORIGENES_AUDIO = ['meet', 'subida', 'grabacion_app'];
+export const ORIGENES_AUDIO = ['meet', 'subida', 'grabacion_app', 'transcripcion_importada'];
 export const ESTADOS_AUDIO = ['ausente', 'presente', 'borrado'];
 export const MODALIDADES_REUNION = ['presencial', 'remota', 'mixta'];
 export const COBERTURAS_PUNTO = ['tratado', 'parcial', 'no_tratado'];

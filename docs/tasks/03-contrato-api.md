@@ -294,6 +294,7 @@ cita_origen? } ] }`
 |---|---|---|---|
 | POST | `/api/reuniones/:id/audio/presign` | `reuniones.gestionar` | Exige aviso de grabación aceptado. Valida extensión y tamaño declarado |
 | POST | `/api/reuniones/:id/procesar` | `reuniones.gestionar` | Confirma que el objeto está en S3 y arranca. **Idempotente**: si ya hay `transcripcion_job_id`, no relanza |
+| POST | `/api/reuniones/:id/transcripcion/importar` | `reuniones.gestionar` | Importa texto como transcripción (salta STT). Body `{ texto }` o `{ transcript }`. Deja `pipeline_estado = transcrita`. **Idempotente**: si el pipeline ya arrancó, `ya_iniciado: true` sin reescribir S3. No exige aviso de grabación |
 | POST | `/api/reuniones/:id/reintentar` | `reuniones.gestionar` | Solo desde `error`. Respeta el máximo de intentos |
 | GET | `/api/reuniones/:id/transcripcion` | `reuniones.ver` + visibilidad | URL firmada del JSON en S3 |
 | DELETE | `/api/reuniones/:id/audio` | `reuniones.borrar_audio` | Solo con acta validada y audio presente; si no, `409`. Conserva transcripción y acta |

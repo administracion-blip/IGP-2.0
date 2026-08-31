@@ -5,11 +5,13 @@
  * Fase 2A: `POST …/audio/presign` y `POST …/procesar` (subida a S3 + marca
  * `audio_pendiente`; sin STT ni poller).
  * Fase 2B: `POST /reuniones/pipeline/tick` (poller interno; stub STT).
+ * Importación de texto: `POST …/transcripcion/importar` (salta STT → `transcrita`).
  * Fase 2F: cola de propuestas (`…/propuestas/pendientes`, `…/:id/propuestas`,
  * `…/:id/propuestas/resolver`).
  *
  * Solo HTTP: la lógica vive en `api/lib/tasks/reuniones.js` (+ `reuniones/audio.js`,
- * `reuniones/pipeline.js`, `reuniones/pipelineTick.js`, `reuniones/propuestas.js`)
+ * `reuniones/pipeline.js`, `reuniones/pipelineTick.js`, `reuniones/importarTranscripcion.js`,
+ * `reuniones/propuestas.js`)
  * y la ACL de fila en `acceso.js`. Auth global; permiso de ruta + visibilidad
  * en el handler.
  *
@@ -39,6 +41,7 @@ import {
 import { presignarAudioReunion } from '../lib/tasks/reuniones/audio.js';
 import { procesarAudioReunion } from '../lib/tasks/reuniones/pipeline.js';
 import { ejecutarTickPipeline } from '../lib/tasks/reuniones/pipelineTick.js';
+import { importarTranscripcionReunion } from '../lib/tasks/reuniones/importarTranscripcion.js';
 import {
   listarPropuestasDeReunion,
   listarPropuestasPendientes,
@@ -178,6 +181,21 @@ router.post(
       idReunion: req.params.id,
       s3Key: body.s3_key ?? body.s3Key,
       duracionSeg: body.duracion_seg ?? body.duracionSeg,
+    });
+    if (fallo(res, r)) return;
+    return res.json({ ok: true, ya_iniciado: r.ya_iniciado, reunion: r.reunion });
+  },
+);
+
+router.post(
+  '/reuniones/:id/transcripcion/importar',
+  requirePermission(PERMISOS.reunionesGestionar),
+  async (req, res) => {
+    const body = req.body || {};
+    const r = await importarTranscripcionReunion({
+      ctx: await contexto(req),
+      idReunion: req.params.id,
+      texto: body.texto ?? body.transcript,
     });
     if (fallo(res, r)) return;
     return res.json({ ok: true, ya_iniciado: r.ya_iniciado, reunion: r.reunion });

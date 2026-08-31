@@ -30,6 +30,7 @@ usó. Un adaptador con la misma interfaz para los tres:
 | `meet` | Reunión por Meet con licencia que graba | Localiza la grabación (registro de conferencia de Meet), la descarga de Drive y la sube a S3 |
 | `subida` | Reunión presencial, o quien no tenga licencia con grabación | Presigned `PUT` a S3 desde el cliente |
 | `grabacion_app` | Reserva. Solo si algún día se graba dentro de la app | — |
+| `transcripcion_importada` | Ya hay texto (p. ej. acta externa); `POST …/transcripcion/importar` | Escribe `transcripcion.json` en S3 y salta a `pipeline_estado = transcrita` (sin audio ni STT); el tick genera el resumen |
 
 Interfaz común: *dado un `id_reunion`, dejar el audio en
 `tasks/reuniones/<id>/audio.<ext>` y devolver duración y tamaño.* A partir de ahí

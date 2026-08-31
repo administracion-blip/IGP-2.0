@@ -292,7 +292,7 @@ barata y para no indexar datos que nadie mira a diario.
 | `conference_record_id` | string | 2 | Localiza la grabación en Meet |
 | `drive_file_id` | string | 2 | Fichero de la grabación en Drive |
 | **Audio y pipeline** | | | |
-| `origen_audio` | enum | 2 | `meet` · `subida` · `grabacion_app` |
+| `origen_audio` | enum | 2 | `meet` · `subida` · `grabacion_app` · `transcripcion_importada` |
 | `audio_estado` | enum | 2 | `ausente` · `presente` · `borrado` |
 | `audio_s3_key` | string | 2 | |
 | `audio_borrado_en` | string | 2 | |

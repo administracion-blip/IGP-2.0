@@ -14,7 +14,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { HubNavCard, HubNavGrid } from '../../components/ui/HubNavCard';
 import { useHubNavGrid } from '../../hooks/useHubNavGrid';
 import { useAccesoTasks } from '../../hooks/useAccesoTasks';
-import { puedeVerCuadroMando, puedeVerProyectos, puedeVerReuniones } from '../../lib/tasksAcceso';
+import { puedeVerProyectos, puedeVerReuniones } from '../../lib/tasksAcceso';
 import { apiFetch } from '../../utils/api';
 
 export default function ProyectosHubScreen() {
@@ -119,20 +119,6 @@ export default function ProyectosHubScreen() {
               width={cardWidth}
               compact={compact}
               onPress={() => router.push('/reuniones' as never)}
-            />
-          ) : null}
-          {puedeVer && puedeVerCuadroMando(acceso) ? (
-            <HubNavCard
-              label="Cuadro de mando"
-              description="Todavía no disponible: llega en una fase posterior"
-              icon="insights"
-              accentBg="#f1f5f9"
-              accentFg="#94a3b8"
-              width={cardWidth}
-              compact={compact}
-              disabled
-              showChevron={false}
-              onPress={() => {}}
             />
           ) : null}
         </HubNavGrid>

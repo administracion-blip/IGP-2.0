@@ -31,7 +31,7 @@ import { useNombresUsuarios } from '../../hooks/useNombresUsuarios';
 import { useDepartamentos } from '../../hooks/useDepartamentos';
 import { useActividadTasks } from '../../hooks/useActividadTasks';
 import { useCambioEstadoTarea } from '../../hooks/useCambioEstadoTarea';
-import { puedeVerPresupuesto, puedeVerProyectos } from '../../lib/tasksAcceso';
+import { puedeVerPresupuesto, puedeVerProyectos, puedeVerReuniones, puedeGestionarReuniones } from '../../lib/tasksAcceso';
 import {
   ETIQUETA_ROL_PROYECTO,
   ETIQUETA_TIPO_VINCULO,
@@ -41,6 +41,7 @@ import {
 import { SeccionFicha } from '../../components/tasks/SeccionFicha';
 import {
   BadgeEstadoProyecto,
+  BadgeEstadoReunion,
   BadgePrioridad,
   BadgeRolProyecto,
 } from '../../components/tasks/BadgesTasks';
@@ -49,6 +50,10 @@ import { HistorialActividad } from '../../components/tasks/HistorialActividad';
 import { ModalMotivoBloqueo } from '../../components/tasks/ModalMotivoBloqueo';
 import { ModalFormularioProyecto } from '../../components/tasks/ModalFormularioProyecto';
 import { ModalFormularioTarea } from '../../components/tasks/ModalFormularioTarea';
+import {
+  ModalFormularioReunion,
+  type ResultadoGuardadoReunion,
+} from '../../components/tasks/ModalFormularioReunion';
 import { estilosFormTasks as form } from '../../components/tasks/estilosTasks';
 import { SelectorDesplegable, type OpcionDesplegable } from '../../components/SelectorDesplegable';
 import { apiFetch, errorMessage } from '../../utils/api';
@@ -59,6 +64,7 @@ import {
   type Proyecto,
   type ProyectoDetalle,
   type ProyectoMiembro,
+  type Reunion,
   type RolProyecto,
   type Tarea,
   type TipoVinculo,
@@ -70,6 +76,7 @@ type ProyectoFicha = Proyecto & Partial<Pick<ProyectoDetalle, 'gasto_comprometid
 
 const CERRADAS: readonly string[] = ['hecha', 'cancelada'];
 const LIMITE_TAREAS = 100;
+const LIMITE_REUNIONES = 50;
 
 export default function FichaProyectoScreen() {
   const router = useRouter();
@@ -97,6 +104,12 @@ export default function FichaProyectoScreen() {
 
   const [editarVisible, setEditarVisible] = useState(false);
   const [nuevaTareaVisible, setNuevaTareaVisible] = useState(false);
+  const [nuevaReunionVisible, setNuevaReunionVisible] = useState(false);
+  const [avisoCalendario, setAvisoCalendario] = useState<string | null>(null);
+
+  const [reuniones, setReuniones] = useState<Reunion[]>([]);
+  const [cargandoReuniones, setCargandoReuniones] = useState(false);
+  const [errorReuniones, setErrorReuniones] = useState<string | null>(null);
 
   const [miembroNuevo, setMiembroNuevo] = useState('');
   const [rolNuevo, setRolNuevo] = useState<RolProyecto>('miembro');
@@ -119,6 +132,8 @@ export default function FichaProyectoScreen() {
   // Lo que se puede hacer con esta fila lo dice el servidor, no la pantalla.
   const puedeEditar = proyecto?.permisos_fila?.editar === true;
   const puedeBorrar = proyecto?.permisos_fila?.borrar === true;
+  const puedeVerReu = puedeVerReuniones(acceso);
+  const puedeGestionarReu = puedeGestionarReuniones(acceso);
   // Informativo: la fila de miembro de quien mira, si está entre los miembros.
   const miRol = useMemo(
     () => miembros.find((m) => m.usuario_id === acceso.usuarioId)?.rol_proyecto ?? null,
@@ -194,6 +209,33 @@ export default function FichaProyectoScreen() {
     [idProyecto, puedeVer],
   );
 
+  const cargarReuniones = useCallback(async () => {
+    if (!idProyecto || !puedeVer || !puedeVerReu) return;
+    setCargandoReuniones(true);
+    setErrorReuniones(null);
+    try {
+      const query = new URLSearchParams({
+        proyecto: idProyecto,
+        limite: String(LIMITE_REUNIONES),
+      });
+      const res = await apiFetch(`/api/reuniones?${query.toString()}`);
+      const data = (await res.json().catch(() => ({}))) as {
+        reuniones?: Reunion[];
+        error?: string;
+      };
+      if (!res.ok) {
+        setErrorReuniones(data.error || 'No se pudieron cargar las reuniones del proyecto');
+        return;
+      }
+      setReuniones(Array.isArray(data.reuniones) ? data.reuniones : []);
+    } catch (e) {
+      console.error('[tasks] fallo al listar las reuniones del proyecto', e);
+      setErrorReuniones(errorMessage(e, 'No se pudo conectar con el servidor'));
+    } finally {
+      setCargandoReuniones(false);
+    }
+  }, [idProyecto, puedeVer, puedeVerReu]);
+
   useEffect(() => {
     void cargarFicha();
   }, [cargarFicha]);
@@ -201,6 +243,10 @@ export default function FichaProyectoScreen() {
   useEffect(() => {
     void cargarTareas();
   }, [cargarTareas]);
+
+  useEffect(() => {
+    void cargarReuniones();
+  }, [cargarReuniones]);
 
   const onTareaCambiada = useCallback((actualizada: Tarea) => {
     setTareas((previas) =>
@@ -737,6 +783,78 @@ export default function FichaProyectoScreen() {
         ) : null}
       </SeccionFicha>
 
+      {puedeVerReu ? (
+        <SeccionFicha
+          titulo="Reuniones del proyecto"
+          icono="event"
+          contador={reuniones.length}
+          cargando={cargandoReuniones && reuniones.length === 0}
+          error={reuniones.length === 0 ? errorReuniones : null}
+          onReintentar={() => void cargarReuniones()}
+          accion={
+            puedeGestionarReu
+              ? {
+                  etiqueta: 'Nueva reunión',
+                  icono: 'add',
+                  onPress: () => {
+                    setAvisoCalendario(null);
+                    setNuevaReunionVisible(true);
+                  },
+                }
+              : undefined
+          }
+          vacio="Este proyecto no tiene reuniones todavía."
+        >
+          {reuniones.length > 0 ? (
+            <View style={styles.lista}>
+              {avisoCalendario ? (
+                <View style={styles.avisoCalendario}>
+                  <MaterialIcons name="event-busy" size={15} color="#b45309" />
+                  <Text style={styles.avisoCalendarioTexto}>{avisoCalendario}</Text>
+                  <TouchableOpacity
+                    onPress={() => setAvisoCalendario(null)}
+                    accessibilityLabel="Cerrar aviso de calendario"
+                  >
+                    <MaterialIcons name="close" size={16} color="#b45309" />
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+              {reuniones.map((reunion) => (
+                <TouchableOpacity
+                  key={reunion.id_reunion}
+                  style={[styles.filaLista, isCompact && styles.filaReunionTactil]}
+                  onPress={() =>
+                    router.push(`/reuniones/${encodeURIComponent(reunion.id_reunion)}` as never)
+                  }
+                  accessibilityLabel={`Abrir reunión ${reunion.titulo}`}
+                >
+                  <MaterialIcons name="event" size={16} color="#94a3b8" />
+                  <View style={styles.filaTexto}>
+                    <Text style={styles.filaTitulo} numberOfLines={1}>
+                      {reunion.titulo?.trim() || 'Sin título'}
+                    </Text>
+                    <Text style={styles.filaSub}>{formatFecha(reunion.fecha)}</Text>
+                  </View>
+                  <BadgeEstadoReunion estado={reunion.estado} />
+                </TouchableOpacity>
+              ))}
+              {errorReuniones ? <Text style={styles.errorSeccion}>{errorReuniones}</Text> : null}
+            </View>
+          ) : avisoCalendario ? (
+            <View style={styles.avisoCalendario}>
+              <MaterialIcons name="event-busy" size={15} color="#b45309" />
+              <Text style={styles.avisoCalendarioTexto}>{avisoCalendario}</Text>
+              <TouchableOpacity
+                onPress={() => setAvisoCalendario(null)}
+                accessibilityLabel="Cerrar aviso de calendario"
+              >
+                <MaterialIcons name="close" size={16} color="#b45309" />
+              </TouchableOpacity>
+            </View>
+          ) : null}
+        </SeccionFicha>
+      ) : null}
+
       <HistorialActividad actividad={actividad} nombrePorId={usuarios.nombrePorId} />
     </View>
   );
@@ -826,6 +944,28 @@ export default function FichaProyectoScreen() {
           actividad.recargar();
         }}
       />
+
+      {nuevaReunionVisible ? (
+        <ModalFormularioReunion
+          visible
+          modo="crear"
+          proyectoId={idProyecto}
+          usuarios={usuarios}
+          departamentos={departamentos}
+          onCerrar={() => setNuevaReunionVisible(false)}
+          onGuardado={(resultado: ResultadoGuardadoReunion) => {
+            setNuevaReunionVisible(false);
+            if (resultado.avisoCalendario) setAvisoCalendario(resultado.avisoCalendario);
+            else if (resultado.calendarioSincronizado === false) {
+              setAvisoCalendario(
+                'La reunión se guardó, pero no se pudo sincronizar con Google Calendar.',
+              );
+            }
+            void cargarReuniones();
+            actividad.recargar();
+          }}
+        />
+      ) : null}
 
       <ModalMotivoBloqueo
         visible={cambio.tareaBloqueo != null}
@@ -934,6 +1074,19 @@ const styles = StyleSheet.create({
   filaTexto: { flex: 1, minWidth: 0 },
   filaTitulo: { fontSize: 13, fontWeight: '600', color: '#334155' },
   filaSub: { fontSize: 11, color: '#94a3b8', marginTop: 1 },
+  filaReunionTactil: { minHeight: MIN_TOUCH },
+  avisoCalendario: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  avisoCalendarioTexto: { flex: 1, fontSize: 12, color: '#92400e', lineHeight: 17 },
   iconoBtn: {
     padding: 6,
     borderRadius: 8,

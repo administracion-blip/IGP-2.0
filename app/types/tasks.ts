@@ -62,7 +62,7 @@ export type FasePipeline = (typeof FASES_PIPELINE)[number];
 export const VISIBILIDADES_REUNION = ['direccion', 'empresa', 'departamento', 'local', 'restringida'] as const;
 export type VisibilidadReunion = (typeof VISIBILIDADES_REUNION)[number];
 
-export const ORIGENES_AUDIO = ['meet', 'subida', 'grabacion_app'] as const;
+export const ORIGENES_AUDIO = ['meet', 'subida', 'grabacion_app', 'transcripcion_importada'] as const;
 export type OrigenAudio = (typeof ORIGENES_AUDIO)[number];
 
 export const ESTADOS_AUDIO = ['ausente', 'presente', 'borrado'] as const;

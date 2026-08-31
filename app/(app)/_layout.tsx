@@ -261,7 +261,7 @@ function AppLayoutContent() {
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen
               name="index"
-              options={{ contentStyle: { backgroundColor: 'transparent' } }}
+              options={{ contentStyle: { backgroundColor: '#f8fafc' } }}
             />
             <Stack.Screen name="base-datos" />
             <Stack.Screen name="mantenimiento" />

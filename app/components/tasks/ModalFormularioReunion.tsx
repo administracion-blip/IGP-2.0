@@ -28,9 +28,11 @@ import { SelectorDesplegable, type OpcionDesplegable } from '../SelectorDesplega
 import { SelectorDesplegableMulti } from '../SelectorDesplegableMulti';
 import { InputHora } from './InputHora';
 import {
+  autoNumerarOrdenDelDiaAlEnter,
   ETIQUETA_ESTADO_REUNION,
   ETIQUETA_VISIBILIDAD_REUNION,
   hoyIso,
+  numerarOrdenDelDia,
   ordenDelDiaEditable,
 } from '../../lib/tasksUi';
 import {
@@ -100,6 +102,7 @@ export function ModalFormularioReunion({
   modo,
   reunion,
   asistentesIniciales,
+  proyectoId,
   usuarios,
   departamentos,
   onCerrar,
@@ -109,6 +112,8 @@ export function ModalFormularioReunion({
   modo: 'crear' | 'editar';
   reunion?: Reunion | null;
   asistentesIniciales?: AsistenteReunion[];
+  /** Si viene de la ficha de un proyecto, fija `proyecto_id` y oculta el campo libre. */
+  proyectoId?: string;
   usuarios: NombresUsuarios;
   departamentos: MaestroDepartamentos;
   onCerrar: () => void;
@@ -120,6 +125,8 @@ export function ModalFormularioReunion({
   const [guardando, setGuardando] = useState(false);
   const [sugiriendo, setSugiriendo] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const proyectoFijo = (proyectoId ?? '').trim();
 
   const ordenBloqueado =
     modo === 'editar' && reunion != null && !ordenDelDiaEditable(reunion.estado);
@@ -147,9 +154,13 @@ export function ModalFormularioReunion({
           .filter(Boolean),
       });
     } else {
-      setDatos({ ...INICIAL, fecha: hoyIso() });
+      setDatos({
+        ...INICIAL,
+        fecha: hoyIso(),
+        proyecto_id: proyectoFijo || '',
+      });
     }
-  }, [visible, modo, reunion, asistentesIniciales]);
+  }, [visible, modo, reunion, asistentesIniciales, proyectoFijo]);
 
   useEffect(() => {
     if (!visible) return;
@@ -309,7 +320,7 @@ export function ModalFormularioReunion({
       departamento_id: datos.departamento_id.trim() || null,
       local_id: datos.local_id.trim() || null,
       local_nombre: datos.local_nombre.trim() || null,
-      proyecto_id: datos.proyecto_id.trim() || null,
+      proyecto_id: (proyectoFijo || datos.proyecto_id.trim()) || null,
       serie_id: datos.serie_id.trim() || null,
       resumen: datos.resumen.trim() || null,
     };
@@ -582,17 +593,19 @@ export function ModalFormularioReunion({
                     />
                   </View>
                   <View style={form.col}>
-                    <View style={form.group}>
-                      <Text style={form.label}>Proyecto (opcional)</Text>
-                      <TextInput
-                        style={form.input}
-                        value={datos.proyecto_id}
-                        onChangeText={(t) => setCampo('proyecto_id', t)}
-                        placeholder="id_proyecto"
-                        placeholderTextColor="#94a3b8"
-                        autoCapitalize="none"
-                      />
-                    </View>
+                    {!proyectoFijo ? (
+                      <View style={form.group}>
+                        <Text style={form.label}>Proyecto (opcional)</Text>
+                        <TextInput
+                          style={form.input}
+                          value={datos.proyecto_id}
+                          onChangeText={(t) => setCampo('proyecto_id', t)}
+                          placeholder="id_proyecto"
+                          placeholderTextColor="#94a3b8"
+                          autoCapitalize="none"
+                        />
+                      </View>
+                    ) : null}
                     <View>
                       <Text style={form.label}>Serie (opcional)</Text>
                       <TextInput
@@ -611,27 +624,65 @@ export function ModalFormularioReunion({
                   <View style={form.col}>
                     <View style={form.groupRow}>
                       <Text style={form.label}>Orden del día</Text>
-                      {modo === 'editar' && datos.serie_id.trim() && !ordenBloqueado ? (
-                        <TouchableOpacity
-                          style={styles.btnSugerir}
-                          onPress={() => void sugerirOrden()}
-                          disabled={sugiriendo}
-                        >
-                          {sugiriendo ? (
-                            <ActivityIndicator size="small" color="#0ea5e9" />
-                          ) : (
-                            <>
-                              <MaterialIcons name="auto-awesome" size={14} color="#0ea5e9" />
-                              <Text style={styles.btnSugerirTexto}>Sugerir</Text>
-                            </>
-                          )}
-                        </TouchableOpacity>
+                      {!ordenBloqueado ? (
+                        <View style={styles.accionesOrden}>
+                          <TouchableOpacity
+                            style={[
+                              styles.btnSugerir,
+                              (guardando || !datos.orden_del_dia.trim()) && styles.btnSugerirDisabled,
+                            ]}
+                            onPress={() =>
+                              setCampo('orden_del_dia', numerarOrdenDelDia(datos.orden_del_dia))
+                            }
+                            disabled={guardando || !datos.orden_del_dia.trim()}
+                          >
+                            <MaterialIcons
+                              name="format-list-numbered"
+                              size={14}
+                              color={
+                                guardando || !datos.orden_del_dia.trim() ? '#94a3b8' : '#0ea5e9'
+                              }
+                            />
+                            <Text
+                              style={[
+                                styles.btnSugerirTexto,
+                                (guardando || !datos.orden_del_dia.trim()) &&
+                                  styles.btnSugerirTextoDisabled,
+                              ]}
+                            >
+                              Numerar
+                            </Text>
+                          </TouchableOpacity>
+                          {modo === 'editar' && datos.serie_id.trim() ? (
+                            <TouchableOpacity
+                              style={styles.btnSugerir}
+                              onPress={() => void sugerirOrden()}
+                              disabled={sugiriendo || guardando}
+                            >
+                              {sugiriendo ? (
+                                <ActivityIndicator size="small" color="#0ea5e9" />
+                              ) : (
+                                <>
+                                  <MaterialIcons name="auto-awesome" size={14} color="#0ea5e9" />
+                                  <Text style={styles.btnSugerirTexto}>Sugerir</Text>
+                                </>
+                              )}
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
                       ) : null}
                     </View>
                     <TextInput
                       style={[form.input, form.inputMultilineaLarga]}
                       value={datos.orden_del_dia}
-                      onChangeText={(t) => setCampo('orden_del_dia', t)}
+                      onChangeText={(t) =>
+                        setCampo(
+                          'orden_del_dia',
+                          ordenBloqueado
+                            ? t
+                            : autoNumerarOrdenDelDiaAlEnter(datos.orden_del_dia, t),
+                        )
+                      }
                       placeholder="Temas a tratar…"
                       placeholderTextColor="#94a3b8"
                       multiline
@@ -648,8 +699,9 @@ export function ModalFormularioReunion({
                       </View>
                     ) : (
                       <Text style={form.help}>
-                        Texto libre. Si hay serie, puedes pedir una sugerencia con pendientes de la
-                        anterior.
+                        Texto libre. Usa «Numerar» para listar puntos; al pulsar Enter tras un
+                        punto numerado se sugiere el siguiente. Si hay serie, puedes pedir una
+                        sugerencia con pendientes de la anterior.
                       </Text>
                     )}
                   </View>
@@ -703,6 +755,13 @@ export function ModalFormularioReunion({
 }
 
 const styles = StyleSheet.create({
+  accionesOrden: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
   btnSugerir: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -715,5 +774,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
     marginBottom: 4,
   },
+  btnSugerirDisabled: {
+    opacity: 0.55,
+  },
   btnSugerirTexto: { fontSize: 11, fontWeight: '600', color: '#0ea5e9' },
+  btnSugerirTextoDisabled: { color: '#94a3b8' },
 });

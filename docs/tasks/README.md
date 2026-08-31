@@ -4,10 +4,10 @@ Documento maestro del módulo. Es la **referencia compartida** por todas las fas
 y por todos los agentes que trabajen en él. Si el código y este documento
 discrepan, discrepa el código.
 
-Estado: **Fase 1A completa en código** (26/08/2026). Redactado el 25/08/2026 contra el estado
-real del repositorio (Expo SDK 54 + Express ESM en `api/`, DynamoDB `eu-west-3`).
-Rutas y permisos decididos el 26/08/2026 (D-11): `/proyectos` y `/reuniones`, con
-`proyectos.*` y `reuniones.*`.
+Estado (31/08/2026): **MVP cerrado** (smoke producto + tests API). Código de
+1A–1B + 2 (pipeline + importar texto + propuestas) + 3 (campana/ICS) usable.
+Detalle del cierre: [09 · Smoke MVP](09-smoke-mvp.md). **Fase 4 no iniciada**
+(cuadro de mando oculto en el hub hasta implementarla).
 
 ## Índice
 
@@ -21,6 +21,7 @@ Rutas y permisos decididos el 26/08/2026 (D-11): `/proyectos` y `/reuniones`, co
 | [06 · Fases y dependencias](06-fases-y-dependencias.md) | Qué bloquea a qué, qué va en paralelo, criterios de cierre de cada fase |
 | [07 · Coste](07-coste.md) | Coste recurrente por reunión y por usuario, con números |
 | [08 · Decisiones](08-decisiones.md) | Cerradas (con fecha y motivo) y abiertas (con recomendación) |
+| [09 · Smoke MVP](09-smoke-mvp.md) | Cierre MVP (31/08/2026): checklist + resultado del smoke |
 | [legacy/](legacy/) | Diseños anteriores archivados. **No usar como referencia** |
 
 Las reglas de trabajo que el agente debe respetar sin leerse todo esto están en
@@ -33,9 +34,9 @@ Las reglas de trabajo que el agente debe respetar sin leerse todo esto están en
 | **0** | Contrato aprobado, capa de acceso, maestro de departamentos | **Completa.** Tipos, capa de acceso (73 pruebas), maestro de departamentos con su pantalla, campo en la ficha de usuario y permisos en el catálogo |
 | **1A** | Proyectos, departamentos, tareas, permisos, vista personal | **Completa en código** (26/08/2026). Servidor, pantallas, enlaces/adjuntos en ficha y tarjeta en `planning-dia`. Queda probar a mano la vista personal en móvil |
 | **1B** | Reuniones con acta manual, evento en Calendar, detección de sala | **Completa en código + smoke Calendar** (29/08/2026). Tests de visibilidad, orden congelado y acuerdos→tareas OK |
-| **2** | Captura de audio, transcripción, resumen, cola de validación | **En curso.** 2A–2F OK (subida→Transcribe→acta→validar propuestas). Activar envs; smoke E2E con audio real pendiente |
-| **3** | Vencimientos en calendario, sincronización de usuarios, avisos | **En curso.** Campana + ICS + tabla AWS + TTL OK. Falta Directory real |
-| **4** | Plantillas, orden del día automático, cuadro de mando, actas PDF, compras | No iniciada |
+| **2** | Captura de audio, transcripción, resumen, cola de validación | **MVP cerrado** (31/08/2026): 2A–2F + importar texto; smoke producto OK ([09](09-smoke-mvp.md)). Quedan opcionales de fase estricta (purga audio, `coste_ia`, aplazados→serie) |
+| **3** | Vencimientos en calendario, sincronización de usuarios, avisos | **MVP cerrado** en campana + ICS (código + smoke). Directory real sigue stub (fuera de MVP) |
+| **4** | Plantillas, orden del día automático, cuadro de mando, actas PDF, compras | **No iniciada.** Siguiente horizonte de madurez tras el MVP |
 
 Mantener esta tabla al día es responsabilidad del agente integrador al cerrar
 cada fase.

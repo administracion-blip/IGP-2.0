@@ -38,7 +38,10 @@ import {
   nombreUsuario,
   ordenDelDiaEditable,
   pipelineEnVuelo,
+  urlMeetDesdeCodigo,
 } from '../../lib/tasksUi';
+import { abrirEnlaceExterno } from '../../utils/enlaceExterno';
+import { copyToClipboard } from '../../utils/clipboard';
 import { SeccionFicha } from '../../components/tasks/SeccionFicha';
 import { SeccionAudioReunion } from '../../components/tasks/SeccionAudioReunion';
 import { SeccionPropuestasReunion } from '../../components/tasks/SeccionPropuestasReunion';
@@ -522,7 +525,7 @@ export default function FichaReunionScreen() {
   const modalidadTxt = reunion.modalidad
     ? ETIQUETA_MODALIDAD_REUNION[reunion.modalidad] ?? reunion.modalidad
     : null;
-  const meetTxt = (reunion.meet_code ?? '').trim() || null;
+  const urlMeet = urlMeetDesdeCodigo(reunion.meet_code);
 
   const metaCabecera = [
     formatFecha(reunion.fecha),
@@ -531,10 +534,23 @@ export default function FichaReunionScreen() {
       : null,
     duracion,
     modalidadTxt,
-    meetTxt ? `Meet ${meetTxt}` : null,
   ]
     .filter(Boolean)
     .join(' · ');
+
+  const abrirMeet = () => {
+    if (!urlMeet) return;
+    void abrirEnlaceExterno(urlMeet).then((r) => {
+      if (!r.ok) setMsgAccion(r.error);
+    });
+  };
+
+  const copiarMeet = () => {
+    if (!urlMeet) return;
+    void copyToClipboard(urlMeet).then((ok) => {
+      setMsgAccion(ok ? 'Enlace de Meet copiado.' : 'No se pudo copiar el enlace.');
+    });
+  };
 
   const etiquetaPipeline = reunion.pipeline_estado
     ? ETIQUETA_ESTADO_PIPELINE[reunion.pipeline_estado] ?? reunion.pipeline_estado
@@ -777,7 +793,12 @@ export default function FichaReunionScreen() {
           setAvisoFormVisible(true);
         }}
         onProcesado={(actualizada) => {
-          setMsgAccion('Audio subido. El procesado automático está en marcha.');
+          const importada = actualizada?.origen_audio === 'transcripcion_importada';
+          setMsgAccion(
+            importada
+              ? 'Transcripción importada. El resumen automático está en marcha.'
+              : 'Audio subido. El procesado automático está en marcha.',
+          );
           if (actualizada) {
             setReunion((prev) =>
               prev ? { ...prev, ...actualizada } : (actualizada as ReunionFicha),
@@ -843,14 +864,39 @@ export default function FichaReunionScreen() {
             <MaterialIcons name="arrow-back" size={22} color="#334155" />
           </TouchableOpacity>
           <View style={styles.headerTexto}>
-            <Text style={styles.title} numberOfLines={2}>
-              {reunion.titulo}
-            </Text>
+            <View style={styles.titleRow}>
+              <BadgeEstadoReunion estado={reunion.estado} grande />
+              <Text style={styles.title} numberOfLines={2}>
+                {reunion.titulo}
+              </Text>
+            </View>
             <Text style={styles.subtitle} numberOfLines={2}>
               {metaCabecera}
             </Text>
+            {urlMeet ? (
+              <View style={styles.meetRow}>
+                <TouchableOpacity
+                  style={[styles.meetChip, isCompact && styles.meetChipTactil]}
+                  onPress={abrirMeet}
+                  accessibilityRole="button"
+                  accessibilityLabel="Abrir Google Meet"
+                >
+                  <MaterialIcons name="videocam" size={16} color="#92400e" />
+                  <Text style={styles.meetChipTexto} numberOfLines={1}>
+                    Abrir Meet
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.meetCopiar, isCompact && styles.meetChipTactil]}
+                  onPress={copiarMeet}
+                  accessibilityLabel="Copiar enlace de Meet"
+                >
+                  <MaterialIcons name="content-copy" size={15} color="#64748b" />
+                  <Text style={styles.meetCopiarTexto}>Copiar enlace</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
-          <BadgeEstadoReunion estado={reunion.estado} grande />
           {puedeEditar ? (
             <TouchableOpacity
               style={[styles.btnEditar, isCompact && styles.btnEditarTactil]}
@@ -1124,8 +1170,43 @@ const styles = StyleSheet.create({
   },
   backBtnTactil: { width: MIN_TOUCH, height: MIN_TOUCH },
   headerTexto: { flex: 1, minWidth: 140 },
-  title: { fontSize: 18, fontWeight: '700', color: '#0f172a' },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  title: { flex: 1, minWidth: 0, fontSize: 18, fontWeight: '700', color: '#0f172a' },
   subtitle: { fontSize: 13, color: '#64748b', marginTop: 2 },
+  meetRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  meetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#fef3c7',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+  },
+  meetChipTactil: { minHeight: MIN_TOUCH },
+  meetChipTexto: { fontSize: 13, fontWeight: '600', color: '#92400e' },
+  meetCopiar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  meetCopiarTexto: { fontSize: 12, fontWeight: '600', color: '#64748b' },
   btnEditar: {
     flexDirection: 'row',
     alignItems: 'center',
