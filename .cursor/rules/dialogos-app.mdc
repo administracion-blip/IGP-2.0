@@ -1,0 +1,67 @@
+---
+description: Diálogos y confirmaciones in-app (useConfirmar); prohibido window.confirm y Alert.alert directos
+globs: app/**/*.tsx
+alwaysApply: false
+---
+
+# Diálogos y confirmaciones
+
+Todos los avisos y confirmaciones visibles al usuario deben usar **componentes in-app**
+coherentes con IGP (modal con overlay, tarjeta blanca, botones estilizados). No usar
+diálogos del navegador ni alertas del sistema operativo.
+
+## Prohibido en código nuevo
+
+* `window.confirm(...)` — popup del navegador en web.
+* `Alert.alert(...)` directo — alerta nativa iOS/Android (inconsistente en web).
+
+Al tocar pantallas que aún usen estos patrones, migrarlos a `useConfirmar`.
+
+## Confirmaciones (Cancelar / Confirmar)
+
+Usar **`useConfirmar`** desde `app/hooks/useConfirmar.tsx`:
+
+```tsx
+import { useConfirmar } from '../../hooks/useConfirmar';
+
+const { confirmar, ConfirmarView } = useConfirmar();
+
+const onAccion = async () => {
+  const ok = await confirmar(
+    'Título',
+    'Mensaje descriptivo para el usuario.',
+    {
+      confirmarLabel: 'Confirmar', // o 'Borrar', 'Archivar', etc.
+      cancelarLabel: 'Cancelar',   // opcional
+      variant: 'default',          // 'danger' para acciones destructivas
+    },
+  );
+  if (!ok) return;
+  // … ejecutar acción …
+};
+
+return (
+  <>
+    {/* … contenido … */}
+    {ConfirmarView}
+  </>
+);
+```
+
+Reglas:
+
+* Renderizar siempre `{ConfirmarView}` en el JSX del componente (al final, junto a otros modales).
+* Textos visibles en **español**.
+* Acciones destructivas (borrar, anular…): `variant: 'danger'` y etiqueta explícita en `confirmarLabel`.
+* No bifurcar por `Platform.OS` para elegir entre `window.confirm` y `Alert.alert`.
+
+## Avisos informativos (solo Aceptar)
+
+Preferir ampliar `useConfirmar` o unificar `useAppDialog` (`app/components/AppDialog.tsx`) para
+que también en móvil/tablet muestre modal in-app. Hasta entonces, no añadir nuevos `Alert.alert`
+para avisos simples.
+
+## Referencia
+
+Patrón ya adoptado en facturación, compras, RRPP, bonus, conciliación, etc. Seguir el mismo
+estilo visual (primario `#0ea5e9`, danger `#dc2626`).

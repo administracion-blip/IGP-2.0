@@ -17,6 +17,13 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { MIN_TOUCH } from '../../constants/layout';
+import {
+  tasksColor,
+  tasksIcono,
+  tasksRadius,
+  tasksSpace,
+  tasksTipo,
+} from '../../constants/tasksUiTokens';
 import { API_BASE_URL } from '../../utils/apiBaseUrl';
 import { apiFetch, errorMessage } from '../../utils/api';
 import { copyToClipboard } from '../../utils/clipboard';
@@ -118,7 +125,7 @@ export function SuscripcionVencimientosIcs({ compacto }: Props) {
         onPress={abrir}
         accessibilityLabel="Suscribir vencimientos al calendario"
       >
-        <MaterialIcons name="event-available" size={18} color="#0369a1" />
+        <MaterialIcons name="event-available" size={tasksIcono.size} color={tasksColor.acentoTexto} />
         <Text style={styles.triggerTexto} numberOfLines={1}>
           {compacto ? 'Calendario' : 'Suscribir vencimientos'}
         </Text>
@@ -250,16 +257,16 @@ const styles = StyleSheet.create({
   trigger: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    gap: tasksSpace[2],
+    paddingHorizontal: tasksSpace[3],
+    paddingVertical: tasksSpace[2],
+    borderRadius: tasksRadius.control,
     borderWidth: 1,
-    borderColor: '#bae6fd',
-    backgroundColor: '#e0f2fe',
+    borderColor: tasksColor.bordeFuerte,
+    backgroundColor: tasksColor.acentoSuave,
   },
   triggerTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 14 },
-  triggerTexto: { fontSize: 13, fontWeight: '700', color: '#0369a1' },
+  triggerTexto: { ...tasksTipo.etiqueta, color: tasksColor.acentoTexto, fontWeight: '600' },
 
   overlay: {
     flex: 1,

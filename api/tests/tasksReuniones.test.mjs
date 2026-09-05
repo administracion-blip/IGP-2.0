@@ -405,9 +405,9 @@ test('crear-tareas desde acuerdos enlaza tarea_id en un solo paso', async () => 
   assert.equal(operacionesScan(db).length, 0);
 });
 
-// ─── Sugerencia orden del día ───
+// ─── Sugerencia orden del día (Fase 4: auto al POST con serie) ───
 
-test('sugerencia de orden del día trae acuerdos abiertos de la reunión anterior de la serie', async () => {
+test('sugerencia de orden del día trae acuerdos abiertos e incumplidos de la reunión anterior', async () => {
   const db = montar();
   sembrarReunion(db, {
     id: 'r-prev',
@@ -415,6 +415,8 @@ test('sugerencia de orden del día trae acuerdos abiertos de la reunión anterio
     serie: 'serie-comite',
     acuerdos: [
       { id_acuerdo: 'ap1', texto: 'Cerrar presupuesto Q3', responsable_id: ANA.sub, estado: 'abierto' },
+      { id_acuerdo: 'ap2', texto: 'Renovar seguro', responsable_id: BEA.sub, estado: 'incumplido' },
+      { id_acuerdo: 'ap3', texto: 'Ya hecho', responsable_id: ANA.sub, estado: 'cumplido' },
     ],
     puntos: [{ orden: 1, texto_punto: 'Reformas terraza', aplazado: true }],
   });
@@ -428,12 +430,75 @@ test('sugerencia de orden del día trae acuerdos abiertos de la reunión anterio
   const r = await api('GET', '/api/reuniones/r-nueva/sugerencia-orden-del-dia');
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.origen_reunion_id, 'r-prev');
-  assert.ok(r.body.texto.includes('Cerrar presupuesto Q3'));
-  assert.ok(r.body.texto.includes('Reformas terraza'));
+  assert.ok(r.body.texto.includes('Acuerdo pendiente: Cerrar presupuesto Q3'));
+  assert.ok(r.body.texto.includes('Acuerdo incumplido: Renovar seguro'));
+  assert.ok(r.body.texto.includes('Aplazado: Reformas terraza'));
+  assert.ok(!r.body.texto.includes('Ya hecho'));
+  assert.equal(r.body.acuerdos_abiertos, 1);
+  assert.equal(r.body.acuerdos_incumplidos, 1);
 
-  // No auto-aplica: la reunión nueva sigue sin orden.
+  // GET no auto-aplica: la reunión sembrada sigue sin orden.
   const meta = db.obtener(tables.reuniones, { PK: 'REU#r-nueva', SK: 'META' });
   assert.equal(meta.orden_del_dia, '');
+});
+
+test('POST con serie_id y orden vacío persiste la sugerencia de la reunión anterior', async () => {
+  const db = montar();
+  sembrarReunion(db, {
+    id: 'r-serie-prev',
+    fecha: '2026-07-10',
+    serie: 'serie-ops',
+    acuerdos: [
+      { id_acuerdo: 's1', texto: 'Revisar stock', responsable_id: ANA.sub, estado: 'abierto' },
+      { id_acuerdo: 's2', texto: 'Firmar contrato', responsable_id: BEA.sub, estado: 'incumplido' },
+    ],
+    puntos: [{ orden: 2, texto_punto: 'Carta de verano', candidato_siguiente: true }],
+  });
+
+  const creada = await api('POST', '/api/reuniones', {
+    titulo: 'Comité ops agosto',
+    fecha: '2026-08-10',
+    serie_id: 'serie-ops',
+  });
+  assert.equal(creada.status, 200, JSON.stringify(creada.body));
+  const orden = creada.body.reunion.orden_del_dia;
+  assert.ok(orden.includes('Acuerdo pendiente: Revisar stock'));
+  assert.ok(orden.includes('Acuerdo incumplido: Firmar contrato'));
+  assert.ok(orden.includes('Aplazado: Carta de verano'));
+
+  const meta = db.obtener(tables.reuniones, {
+    PK: `REU#${creada.body.reunion.id_reunion}`,
+    SK: 'META',
+  });
+  assert.equal(meta.orden_del_dia, orden);
+});
+
+test('POST con serie_id y orden ya escrito no pisa el texto del cliente', async () => {
+  const db = montar();
+  sembrarReunion(db, {
+    id: 'r-serie-prev2',
+    fecha: '2026-07-10',
+    serie: 'serie-ops-2',
+    acuerdos: [
+      { id_acuerdo: 'z1', texto: 'No debe aparecer', responsable_id: ANA.sub, estado: 'abierto' },
+    ],
+  });
+
+  const creada = await api('POST', '/api/reuniones', {
+    titulo: 'Comité con orden manual',
+    fecha: '2026-08-10',
+    serie_id: 'serie-ops-2',
+    orden_del_dia: '1. Tema propio del convocante',
+  });
+  assert.equal(creada.status, 200, JSON.stringify(creada.body));
+  assert.equal(creada.body.reunion.orden_del_dia, '1. Tema propio del convocante');
+  assert.ok(!creada.body.reunion.orden_del_dia.includes('No debe aparecer'));
+
+  const meta = db.obtener(tables.reuniones, {
+    PK: `REU#${creada.body.reunion.id_reunion}`,
+    SK: 'META',
+  });
+  assert.equal(meta.orden_del_dia, '1. Tema propio del convocante');
 });
 
 // ─── Local + permisos_fila ───

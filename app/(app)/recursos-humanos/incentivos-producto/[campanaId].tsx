@@ -9,7 +9,6 @@ import {
   Pressable,
   Platform,
   Modal,
-  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -482,67 +481,51 @@ export default function CampanaDetalleScreen() {
 
   const cerrarRevisionRrhh = async () => {
     if (!campana || !puedeGestionar) return;
-    const run = async () => {
-      setBonificando(true);
-      setError(null);
-      try {
-        const res = await apiFetch(`/api/campanas/${campana.campanaId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ bonificar: true }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'No se pudo confirmar la revisión');
-        await cargar();
-      } catch (e) {
-        setError((e as Error).message);
-      } finally {
-        setBonificando(false);
-      }
-    };
-    if (Platform.OS === 'web') {
-      if (window.confirm(`¿Confirmar revisión RRHH de «${campana.nombre}»?`)) run();
-    } else {
-      Alert.alert(
-        'Confirmar revisión RRHH',
-        `¿Cerrar «${campana.nombre}» tras revisión de incentivos?`,
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          { text: 'Confirmar', onPress: run },
-        ],
-      );
+    const ok = await confirmar(
+      'Confirmar revisión RRHH',
+      `¿Cerrar «${campana.nombre}» tras revisión de incentivos?`,
+      { confirmarLabel: 'Confirmar' },
+    );
+    if (!ok) return;
+    setBonificando(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/campanas/${campana.campanaId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ bonificar: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo confirmar la revisión');
+      await cargar();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBonificando(false);
     }
   };
 
   const archivarCampana = async () => {
     if (!campana || !puedeGestionar) return;
-    const run = async () => {
-      setArchivando(true);
-      setError(null);
-      try {
-        const res = await apiFetch(`/api/campanas/${campana.campanaId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ archivar: true }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'No se pudo archivar');
-        await cargar();
-      } catch (e) {
-        setError((e as Error).message);
-      } finally {
-        setArchivando(false);
-      }
-    };
-    if (Platform.OS === 'web') {
-      if (window.confirm(`¿Archivar la campaña «${campana.nombre}»?`)) run();
-    } else {
-      Alert.alert(
-        'Archivar campaña',
-        `¿Archivar «${campana.nombre}»? Pasará a histórico.`,
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          { text: 'Archivar', onPress: run },
-        ],
-      );
+    const ok = await confirmar(
+      'Archivar campaña',
+      `¿Archivar «${campana.nombre}»? Pasará a histórico.`,
+      { confirmarLabel: 'Archivar' },
+    );
+    if (!ok) return;
+    setArchivando(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/campanas/${campana.campanaId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ archivar: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo archivar');
+      await cargar();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setArchivando(false);
     }
   };
 

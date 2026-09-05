@@ -34,8 +34,28 @@ function hexToRgb(hex: string): [number, number, number] {
   ];
 }
 
+type Cols = {
+  nameW: number;
+  factW: number;
+  compW: number;
+  desvW: number;
+  barW: number;
+  pctW: number;
+};
+
+function colsTotalW(cols: Cols): number {
+  return cols.nameW + cols.factW + cols.compW + cols.desvW + cols.barW + cols.pctW;
+}
+
 function rgbForVenue(facturado: number, comparativa: number): [number, number, number] {
   return hexToRgb(colorHexForKey(desvioColorKey(facturado, comparativa)));
+}
+
+function formatDesvioEuro(n: number): string {
+  const rounded = Math.round(n);
+  if (rounded === 0) return '0 €';
+  const sign = rounded > 0 ? '+' : '-';
+  return `${sign}${Math.abs(rounded).toLocaleString('es-ES')} €`;
 }
 
 function ensurePage(doc: jsPDF, y: number, need: number, margin: number): number {
@@ -73,45 +93,86 @@ function drawDivergingBar(
   }
 }
 
+function drawMetricCells(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  cols: Cols,
+  facturado: number,
+  comparativa: number,
+  opts?: { drawBar?: boolean; boldFacturado?: boolean },
+) {
+  const pct = pctDesvio(facturado, comparativa);
+  const desvio = desvioEuro(facturado, comparativa);
+  const rgb = rgbForVenue(facturado, comparativa);
+  let cx = x;
+
+  doc.setFont('helvetica', opts?.boldFacturado === false ? 'normal' : 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(...RGB.text);
+  doc.text(formatEuro(facturado), cx + cols.factW - 1, y, { align: 'right' });
+  cx += cols.factW;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...RGB.muted);
+  doc.text(formatEuro(comparativa), cx + cols.compW - 1, y, { align: 'right' });
+  cx += cols.compW;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...rgb);
+  doc.text(formatDesvioEuro(desvio), cx + cols.desvW - 1, y, { align: 'right' });
+  cx += cols.desvW;
+
+  if (opts?.drawBar !== false) {
+    drawDivergingBar(doc, cx + 1, y - 3, cols.barW - 2, 3.5, pct);
+  }
+  cx += cols.barW;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(...rgb);
+  doc.text(formatPctDisplay(pct), cx + cols.pctW - 1, y, { align: 'right' });
+}
+
+function drawColHeaders(doc: jsPDF, x: number, y: number, cols: Cols): number {
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(...RGB.muted);
+  let cx = x;
+  doc.text('Local / agrupación', cx + 1, y);
+  cx += cols.nameW;
+  doc.text('Facturado', cx + cols.factW - 1, y, { align: 'right' });
+  cx += cols.factW;
+  doc.text('Comparativa', cx + cols.compW - 1, y, { align: 'right' });
+  cx += cols.compW;
+  doc.text('Desvío', cx + cols.desvW - 1, y, { align: 'right' });
+  cx += cols.desvW + cols.barW;
+  doc.text('%', cx + cols.pctW - 1, y, { align: 'right' });
+  doc.setDrawColor(...RGB.border);
+  doc.setLineWidth(0.2);
+  doc.line(x, y + 2, x + colsTotalW(cols), y + 2);
+  return y + 6;
+}
+
 function drawVenueRow(
   doc: jsPDF,
   venue: ReporteVenue,
   x: number,
   y: number,
-  cols: { nameW: number; factW: number; compW: number; barW: number; pctW: number },
+  cols: Cols,
   rowH: number,
 ): number {
-  const pct = pctDesvio(venue.facturado, venue.comparativa);
-  const pctRgb = rgbForVenue(venue.facturado, venue.comparativa);
-  let cx = x;
-
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(...RGB.text);
   const nameLines = doc.splitTextToSize(venue.name, cols.nameW - 2);
-  doc.text(nameLines.slice(0, 2), cx + 1, y + 4.5);
-  cx += cols.nameW;
+  doc.text(nameLines.slice(0, 2), x + 1, y + 4.5);
 
-  doc.setFont('helvetica', 'bold');
-  doc.text(formatEuro(venue.facturado), cx + cols.factW - 1, y + 4.5, { align: 'right' });
-  cx += cols.factW;
-
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(...RGB.muted);
-  doc.text(formatEuro(venue.comparativa), cx + cols.compW - 1, y + 4.5, { align: 'right' });
-  cx += cols.compW;
-
-  drawDivergingBar(doc, cx + 1, y + 1.5, cols.barW - 2, 3.5, pct);
-  cx += cols.barW;
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(...pctRgb);
-  doc.text(formatPctDisplay(pct), cx + cols.pctW - 1, y + 4.5, { align: 'right' });
+  drawMetricCells(doc, x + cols.nameW, y + 4.5, cols, venue.facturado, venue.comparativa);
 
   doc.setDrawColor(...RGB.border);
   doc.setLineWidth(0.1);
-  doc.line(x, y + rowH, x + cols.nameW + cols.factW + cols.compW + cols.barW + cols.pctW, y + rowH);
+  doc.line(x, y + rowH, x + colsTotalW(cols), y + rowH);
 
   return y + rowH;
 }
@@ -123,9 +184,10 @@ function drawZoneHeader(
   subComparativa: number,
   x: number,
   y: number,
-  totalW: number,
+  cols: Cols,
   headerH: number,
 ): number {
+  const totalW = colsTotalW(cols);
   doc.setFillColor(...RGB.accentLight);
   doc.rect(x, y, totalW, headerH, 'F');
   doc.setFillColor(...RGB.accent);
@@ -134,16 +196,12 @@ function drawZoneHeader(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   doc.setTextColor(...RGB.text);
-  doc.text(zoneName, x + 4, y + 5.5);
+  const nameLines = doc.splitTextToSize(zoneName, cols.nameW - 5);
+  doc.text(nameLines.slice(0, 1), x + 4, y + 5.5);
 
-  const subPct = pctDesvio(subFacturado, subComparativa);
-  const subRgb = rgbForVenue(subFacturado, subComparativa);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(...RGB.text);
-  doc.text(formatEuro(subFacturado), x + totalW - 38, y + 5.5, { align: 'right' });
-  doc.setTextColor(...subRgb);
-  doc.text(formatPctDisplay(subPct), x + totalW - 2, y + 5.5, { align: 'right' });
+  drawMetricCells(doc, x + cols.nameW, y + 5.5, cols, subFacturado, subComparativa, {
+    drawBar: false,
+  });
 
   return y + headerH + 1;
 }
@@ -156,12 +214,13 @@ export async function generarPdfReporteObjetivos(data: ReporteObjetivosData): Pr
   const contentW = pageW - margin * 2;
   let y = margin;
 
-  const cols = {
-    nameW: contentW * 0.36,
-    factW: contentW * 0.14,
-    compW: contentW * 0.14,
-    barW: contentW * 0.22,
-    pctW: contentW * 0.14,
+  const cols: Cols = {
+    nameW: contentW * 0.28,
+    factW: contentW * 0.16,
+    compW: contentW * 0.16,
+    desvW: contentW * 0.16,
+    barW: contentW * 0.12,
+    pctW: contentW * 0.12,
   };
   const rowH = 8;
   const zoneHeaderH = 8;
@@ -221,6 +280,8 @@ export async function generarPdfReporteObjetivos(data: ReporteObjetivosData): Pr
   });
   y += kpiH + 10;
 
+  y = drawColHeaders(doc, margin, y, cols);
+
   // Zones
   for (const zone of data.zones) {
     const sub = subtotalZone(zone);
@@ -228,7 +289,7 @@ export async function generarPdfReporteObjetivos(data: ReporteObjetivosData): Pr
     y = ensurePage(doc, y, Math.min(blockNeed, 40), margin);
 
     if (zone.hasSubtotal) {
-      y = drawZoneHeader(doc, zone.name, sub.facturado, sub.comparativa, margin, y, contentW, zoneHeaderH);
+      y = drawZoneHeader(doc, zone.name, sub.facturado, sub.comparativa, margin, y, cols, zoneHeaderH);
     } else {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
@@ -256,16 +317,15 @@ export async function generarPdfReporteObjetivos(data: ReporteObjetivosData): Pr
   doc.setTextColor(...RGB.text);
   doc.text('TOTAL', margin + 1, y);
 
-  let tx = margin + cols.nameW;
-  doc.text(formatEuro(data.totales.facturado), tx + cols.factW - 1, y, { align: 'right' });
-  tx += cols.factW;
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(...RGB.muted);
-  doc.text(formatEuro(data.totales.comparativa), tx + cols.compW - 1, y, { align: 'right' });
-  tx += cols.compW + cols.barW;
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...globalRgb);
-  doc.text(formatPctDisplay(pctGlobal), tx + cols.pctW - 1, y, { align: 'right' });
+  drawMetricCells(
+    doc,
+    margin + cols.nameW,
+    y,
+    cols,
+    data.totales.facturado,
+    data.totales.comparativa,
+    { drawBar: false },
+  );
 
   return doc;
 }

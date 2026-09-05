@@ -11,12 +11,12 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { MIN_TOUCH } from '../constants/layout';
+import { tasksUi } from '../constants/tasksUiTokens';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import { useAccesoTasks } from '../hooks/useAccesoTasks';
 import { puedeVerProyectos, puedeVerReuniones } from '../lib/tasksAcceso';
@@ -65,6 +65,12 @@ export const COLOR_AGENDA: Record<TipoAgendaInicio, string> = {
   tarea: '#ca8a04',
   reunion: '#7c3aed',
   proyecto: '#db2777',
+};
+
+const FONDO_AGENDA: Record<TipoAgendaInicio, string> = {
+  tarea: '#fefce8',
+  reunion: '#f5f3ff',
+  proyecto: '#fdf2f8',
 };
 
 const ETIQUETA_TIPO: Record<TipoAgendaInicio, string> = {
@@ -226,7 +232,7 @@ function PastillaAgenda({ item, onAbrir }: { item: ItemAgenda; onAbrir: () => vo
   const color = COLOR_AGENDA[item.tipo];
   return (
     <TouchableOpacity
-      style={styles.pill}
+      style={[styles.pill, { backgroundColor: FONDO_AGENDA[item.tipo] }]}
       onPress={onAbrir}
       activeOpacity={0.75}
       accessibilityLabel={`${ETIQUETA_TIPO[item.tipo]}: ${item.titulo}`}
@@ -575,18 +581,27 @@ export function CalendarioInicio() {
   if (!puedeTareas && !puedeReuniones) return null;
 
   const tituloRango = vista === 'semana' ? etiquetaSemana(lunes) : etiquetaMes(ancla);
+  const esPeriodoActual =
+    vista === 'semana'
+      ? lunesDeSemanaIso(ancla) === lunesDeSemanaIso(hoy)
+      : inicioMesIso(ancla) === inicioMesIso(hoy);
+  const tituloBloque = esPeriodoActual
+    ? vista === 'semana'
+      ? 'Esta semana'
+      : 'Este mes'
+    : 'Agenda';
 
   return (
     <View style={styles.card}>
       <View style={[styles.toolbar, shouldStackToolbar && styles.toolbarWrap]}>
-        <Text style={styles.tituloBloque}>Agenda</Text>
+        <Text style={styles.tituloBloque}>{tituloBloque}</Text>
         <View style={styles.rango}>
           <TouchableOpacity
             style={styles.rangoBtn}
             onPress={() => ir(-1)}
             accessibilityLabel={vista === 'semana' ? 'Semana anterior' : 'Mes anterior'}
           >
-            <MaterialIcons name="chevron-left" size={22} color="#334155" />
+            <MaterialIcons name="chevron-left" size={22} color={tasksUi.color.textoPrimario} />
           </TouchableOpacity>
           <Text style={styles.rangoTexto} numberOfLines={1}>
             {tituloRango}
@@ -596,7 +611,7 @@ export function CalendarioInicio() {
             onPress={() => ir(1)}
             accessibilityLabel={vista === 'semana' ? 'Semana siguiente' : 'Mes siguiente'}
           >
-            <MaterialIcons name="chevron-right" size={22} color="#334155" />
+            <MaterialIcons name="chevron-right" size={22} color={tasksUi.color.textoPrimario} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.hoyBtn} onPress={() => setAncla(hoyIso())} accessibilityLabel="Ir a hoy">
             <Text style={styles.hoyTexto}>Hoy</Text>
@@ -618,7 +633,7 @@ export function CalendarioInicio() {
                 accessibilityLabel={`Vista ${etiqueta}`}
                 accessibilityState={{ selected: activo }}
               >
-                <MaterialIcons name={icono} size={20} color={activo ? '#db2777' : '#94a3b8'} />
+                <MaterialIcons name={icono} size={20} color={activo ? tasksUi.color.acentoTexto : tasksUi.color.textoTerciario} />
                 <Text style={[styles.viewModeTexto, activo && styles.viewModeTextoActivo]}>{etiqueta}</Text>
               </TouchableOpacity>
             );
@@ -818,61 +833,48 @@ export function CalendarioInicio() {
   );
 }
 
-const CARD_SHADOW =
-  Platform.OS === 'web'
-    ? ({ boxShadow: '0 8px 24px rgba(15,23,42,0.06)' } as object)
-    : {
-        shadowColor: '#0f172a',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.06,
-        shadowRadius: 24,
-        elevation: 2,
-      };
-
 const styles = StyleSheet.create({
   card: {
     width: '100%',
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
+    backgroundColor: tasksUi.color.superficie,
+    borderRadius: tasksUi.radius.contenedor,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksUi.color.bordeSutil,
     padding: 12,
-    marginBottom: 16,
     gap: 10,
-    ...CARD_SHADOW,
   },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   toolbarWrap: { flexWrap: 'wrap' },
-  tituloBloque: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
+  tituloBloque: { ...tasksUi.tipo.tituloSeccion },
   rango: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minWidth: 200 },
   rangoBtn: {
     width: MIN_TOUCH,
     height: MIN_TOUCH,
-    borderRadius: 8,
-    backgroundColor: '#ffffff',
+    borderRadius: tasksUi.radius.control,
+    backgroundColor: tasksUi.color.superficie,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksUi.color.bordeSutil,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  rangoTexto: { fontSize: 14, fontWeight: '700', color: '#0f172a', minWidth: 110, textAlign: 'center' },
+  rangoTexto: { ...tasksUi.tipo.dato, minWidth: 110, textAlign: 'center' },
   hoyBtn: {
     minHeight: MIN_TOUCH,
     paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#fce7f3',
+    borderRadius: tasksUi.radius.control,
+    backgroundColor: tasksUi.color.acentoSuave,
     borderWidth: 1,
-    borderColor: '#f9a8d4',
+    borderColor: tasksUi.color.acentoSuave,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  hoyTexto: { fontSize: 13, fontWeight: '700', color: '#be185d' },
+  hoyTexto: { fontSize: 13, fontWeight: '600', color: tasksUi.color.acentoTexto },
   viewModeWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
+    borderColor: tasksUi.color.bordeSutil,
+    borderRadius: tasksUi.radius.control,
     overflow: 'hidden',
   },
   viewModeBtn: {
@@ -881,23 +883,23 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#ffffff',
+    backgroundColor: tasksUi.color.superficie,
   },
   viewModeBtnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 14 },
-  viewModeBtnActive: { backgroundColor: '#fce7f3' },
-  viewModeTexto: { fontSize: 13, fontWeight: '500', color: '#94a3b8' },
-  viewModeTextoActivo: { color: '#db2777', fontWeight: '700' },
+  viewModeBtnActive: { backgroundColor: tasksUi.color.acentoSuave },
+  viewModeTexto: { fontSize: 13, fontWeight: '500', color: tasksUi.color.textoTerciario },
+  viewModeTextoActivo: { color: tasksUi.color.acentoTexto, fontWeight: '600' },
 
   leyenda: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   leyendaItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   leyendaPunto: { width: 8, height: 8, borderRadius: 4 },
-  leyendaTexto: { fontSize: 12, color: '#475569' },
+  leyendaTexto: { ...tasksUi.tipo.etiqueta, color: tasksUi.color.textoSecundario },
 
   aviso: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  avisoTexto: { flex: 1, fontSize: 12, color: '#b91c1c' },
-  avisoAccion: { fontSize: 12, fontWeight: '700', color: '#0ea5e9' },
+  avisoTexto: { flex: 1, ...tasksUi.tipo.etiqueta, color: tasksUi.color.peligro },
+  avisoAccion: { ...tasksUi.tipo.etiqueta, fontWeight: '600', color: tasksUi.color.acento },
   centro: { alignItems: 'center', gap: 8, paddingVertical: 20 },
-  centroTexto: { fontSize: 13, color: '#64748b' },
+  centroTexto: { fontSize: 13, color: tasksUi.color.textoSecundario },
 
   semanaScroll: {},
   semanaCuerpo: { flexDirection: 'column', gap: 6 },
@@ -907,10 +909,10 @@ const styles = StyleSheet.create({
   bandaCarriles: {
     position: 'relative',
     width: '100%',
-    backgroundColor: '#f1f5f9',
-    borderRadius: 10,
+    backgroundColor: tasksUi.color.superficieHundida,
+    borderRadius: tasksUi.radius.contenedor,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksUi.color.bordeSutil,
   },
   bandaCarrilesMes: {
     backgroundColor: 'transparent',
@@ -927,10 +929,10 @@ const styles = StyleSheet.create({
   barraCuerpo: {
     flex: 1,
     minWidth: 0,
-    backgroundColor: '#fce7f3',
+    backgroundColor: FONDO_AGENDA.proyecto,
     borderWidth: 1,
-    borderColor: '#db2777',
-    borderRadius: 6,
+    borderColor: '#f9a8d4',
+    borderRadius: tasksUi.radius.control,
     justifyContent: 'center',
     paddingHorizontal: 6,
     overflow: 'hidden',
@@ -945,27 +947,27 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 0,
     borderRightWidth: 0,
   },
-  barraTitulo: { fontSize: 12, fontWeight: '700', color: '#be185d' },
+  barraTitulo: { ...tasksUi.tipo.etiqueta, fontWeight: '600', color: COLOR_AGENDA.proyecto },
   barraTituloMes: { fontSize: 12, lineHeight: 16 },
   masProyectos: {
     position: 'absolute',
     left: 8,
     right: 8,
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#be185d',
+    ...tasksUi.tipo.micro,
+    fontWeight: '600',
+    color: COLOR_AGENDA.proyecto,
   },
   col: {
     flex: 1,
     minWidth: 0,
-    backgroundColor: '#ffffff',
-    borderRadius: 10,
+    backgroundColor: tasksUi.color.superficie,
+    borderRadius: tasksUi.radius.contenedor,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksUi.color.bordeSutil,
     overflow: 'hidden',
   },
   colMovil: { width: COL_MIN, flex: 0 },
-  colHoy: { borderColor: '#f9a8d4', backgroundColor: '#fdf2f8' },
+  colHoy: { borderColor: tasksUi.color.acentoSuave, backgroundColor: tasksUi.color.acentoSuave },
   colHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -973,30 +975,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: tasksUi.color.bordeSutil,
   },
-  colDia: { fontSize: 11, fontWeight: '800', color: '#64748b', letterSpacing: 0.3 },
-  colDiaHoy: { color: '#be185d' },
-  badgeHoy: { fontSize: 10, fontWeight: '800', color: '#be185d' },
-  colCount: { marginLeft: 'auto', fontSize: 11, fontWeight: '700', color: '#94a3b8' },
+  colDia: { ...tasksUi.tipo.micro, fontWeight: '600', color: tasksUi.color.textoSecundario },
+  colDiaHoy: { color: tasksUi.color.acentoTexto },
+  badgeHoy: { ...tasksUi.tipo.micro, fontWeight: '600', color: tasksUi.color.acentoTexto },
+  colCount: { marginLeft: 'auto', ...tasksUi.tipo.micro, fontWeight: '600', color: tasksUi.color.textoTerciario },
   colLista: { maxHeight: 220 },
   colListaContent: { padding: 6, gap: 6 },
 
   mesWrap: { gap: 8 },
   mesCabecera: { flexDirection: 'row' },
-  mesDow: { flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '800', color: '#94a3b8' },
+  mesDow: { flex: 1, textAlign: 'center', ...tasksUi.tipo.micro, fontWeight: '600', color: tasksUi.color.textoTerciario },
   mesMarco: {
     borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 10,
+    borderColor: tasksUi.color.bordeSutil,
+    borderRadius: tasksUi.radius.contenedor,
     overflow: 'hidden',
-    backgroundColor: '#ffffff',
+    backgroundColor: tasksUi.color.superficie,
   },
   mesFila: {
     position: 'relative',
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: tasksUi.color.bordeSutil,
   },
   mesFilaUltima: { borderBottomWidth: 0 },
   celda: {
@@ -1008,50 +1010,50 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 3,
     borderRightWidth: 1,
-    borderRightColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+    borderRightColor: tasksUi.color.bordeSutil,
+    backgroundColor: tasksUi.color.superficie,
   },
   celdaUltima: { borderRightWidth: 0 },
-  celdaFuera: { backgroundColor: '#f8fafc' },
-  celdaHoy: { backgroundColor: '#fdf2f8' },
-  celdaSel: { backgroundColor: '#fdf2f8' },
-  celdaNum: { fontSize: 13, fontWeight: '700', color: '#334155' },
-  celdaNumHoy: { color: '#be185d' },
-  celdaNumFuera: { color: '#94a3b8' },
+  celdaFuera: { backgroundColor: tasksUi.color.superficieHundida },
+  celdaHoy: { backgroundColor: tasksUi.color.acentoSuave },
+  celdaSel: { backgroundColor: tasksUi.color.acentoSuave },
+  celdaNum: { fontSize: 13, fontWeight: '600', color: tasksUi.color.textoPrimario },
+  celdaNumHoy: { color: tasksUi.color.acentoTexto },
+  celdaNumFuera: { color: tasksUi.color.textoTerciario },
   puntos: { flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 8 },
   punto: { width: 7, height: 7, borderRadius: 4 },
-  masPuntos: { fontSize: 9, fontWeight: '700', color: '#64748b' },
-  celdaCount: { fontSize: 10, fontWeight: '700', color: '#64748b' },
+  masPuntos: { fontSize: 9, fontWeight: '600', color: tasksUi.color.textoSecundario },
+  celdaCount: { ...tasksUi.tipo.micro, color: tasksUi.color.textoSecundario },
   diaPanel: {
-    backgroundColor: '#ffffff',
-    borderRadius: 10,
+    backgroundColor: tasksUi.color.superficie,
+    borderRadius: tasksUi.radius.contenedor,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksUi.color.bordeSutil,
     padding: 10,
     gap: 8,
   },
-  diaPanelTitulo: { fontSize: 13, fontWeight: '800', color: '#0f172a', textTransform: 'uppercase' },
+  diaPanelTitulo: { ...tasksUi.tipo.tituloSeccion },
   diaLista: { gap: 6 },
-  vacioDia: { fontSize: 13, color: '#64748b' },
-  pistaMes: { fontSize: 12, color: '#94a3b8', textAlign: 'center' },
+  vacioDia: { fontSize: 13, color: tasksUi.color.textoSecundario },
+  pistaMes: { ...tasksUi.tipo.etiqueta, textAlign: 'center' },
 
   cajon: { gap: 6 },
-  cajonTitulo: { fontSize: 12, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4 },
+  cajonTitulo: { ...tasksUi.tipo.etiqueta },
   cajonLista: { gap: 8, paddingBottom: 2 },
   cajonItem: { width: 220 },
 
   pill: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    backgroundColor: '#ffffff',
-    borderRadius: 8,
+    backgroundColor: tasksUi.color.superficie,
+    borderRadius: tasksUi.radius.contenedor,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksUi.color.bordeSutil,
     overflow: 'hidden',
     minHeight: 36,
   },
-  pillFranja: { width: 4 },
+  pillFranja: { width: 3 },
   pillCuerpo: { flex: 1, minWidth: 0, paddingHorizontal: 7, paddingVertical: 5, gap: 2 },
-  pillTitulo: { fontSize: 12, fontWeight: '600', color: '#0f172a', lineHeight: 16 },
-  pillMeta: { fontSize: 10, fontWeight: '800' },
+  pillTitulo: { ...tasksUi.tipo.etiqueta, fontWeight: '600', color: tasksUi.color.textoPrimario, lineHeight: 16 },
+  pillMeta: { ...tasksUi.tipo.micro, fontWeight: '500' },
 });

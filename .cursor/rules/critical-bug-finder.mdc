@@ -25,6 +25,9 @@ No abras una PR salvo que tengas alta confianza en que el bug es real y la corre
 Si no encuentras ningún bug crítico, publica un resumen breve de “no se encontraron bugs críticos”. Este será el resultado esperado la mayoría de los días.
 Salida
 
+Si generas un informe escrito (no solo corrección en PR), guárdalo en
+`docs/reviews/reporte-bugs-YYYY-MM-DD.md`. **Nunca en la raíz del repo.**
+
 Si se corrige, incluye:
 
 Bug e impacto

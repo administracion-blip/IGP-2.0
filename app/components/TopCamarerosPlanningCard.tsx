@@ -14,6 +14,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useHubNavGrid } from '../hooks/useHubNavGrid';
 import { MIN_TOUCH } from '../constants/layout';
+import { tasksUi } from '../constants/tasksUiTokens';
 import { rangoMesHastaAyerJornada } from '../lib/jornadaNegocio';
 import {
   fetchTopCamarerosPlanning,
@@ -238,9 +239,9 @@ export function TopCamarerosPlanningCard({
     <View style={[styles.card, compact && styles.cardCompact, { width }, style]}>
       <View style={[styles.iconWrap, compact && styles.iconWrapCompact]}>
         {loading ? (
-          <ActivityIndicator size="small" color="#0ea5e9" />
+          <ActivityIndicator size="small" color={tasksUi.color.acento} />
         ) : (
-          <MaterialIcons name="emoji-events" size={compact ? 22 : 26} color="#0ea5e9" />
+          <MaterialIcons name="emoji-events" size={compact ? 22 : 26} color={tasksUi.color.acento} />
         )}
       </View>
 
@@ -279,27 +280,22 @@ export function TopCamarerosPlanningCard({
 
 const styles = StyleSheet.create({
   card: {
-    flex: 1,
+    flexGrow: 1,
     flexDirection: 'row',
     alignItems: 'stretch',
     gap: 14,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
+    backgroundColor: tasksUi.color.superficie,
+    borderRadius: tasksUi.radius.contenedor,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: tasksUi.color.bordeSutil,
     minHeight: MIN_TOUCH + 24,
     alignSelf: 'stretch',
   },
   cardCompact: {
     gap: 10,
     padding: 12,
-    borderRadius: 10,
+    borderRadius: tasksUi.radius.contenedor,
   },
   iconWrap: {
     width: 48,
@@ -308,7 +304,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
-    backgroundColor: '#e0f2fe',
+    backgroundColor: tasksUi.color.acentoSuave,
   },
   iconWrapCompact: {
     width: 40,
@@ -322,25 +318,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   title: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0f172a',
+    ...tasksUi.tipo.tituloSeccion,
   },
   titleCompact: {
     fontSize: 14,
   },
   desc: {
-    fontSize: 12,
-    color: '#64748b',
-    lineHeight: 16,
+    ...tasksUi.tipo.etiqueta,
   },
   descCompact: {
     fontSize: 11,
     lineHeight: 14,
   },
   hint: {
-    fontSize: 12,
-    color: '#94a3b8',
+    ...tasksUi.tipo.etiqueta,
     marginTop: 4,
   },
   hintCompact: {
@@ -367,8 +358,8 @@ const styles = StyleSheet.create({
   },
   name: {
     flex: 1,
-    fontSize: 12,
-    color: '#334155',
+    ...tasksUi.tipo.etiqueta,
+    color: tasksUi.color.textoSecundario,
     minWidth: 0,
   },
   nameCompact: {

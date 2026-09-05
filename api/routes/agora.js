@@ -1110,6 +1110,9 @@ router.get('/agora/closeouts/dashboard-home', async (req, res) => {
   const prefixLast = `${lastYearNum}-`;
   const useDateToCur = dateTo.startsWith(`${curYear}-`);
   const useDateToLast = dateToLastYear.startsWith(`${lastYearNum}-`);
+  const prevDt = new Date(`${dateTo}T12:00:00`);
+  prevDt.setDate(prevDt.getDate() - 7);
+  const datePrev = `${prevDt.getFullYear()}-${String(prevDt.getMonth() + 1).padStart(2, '0')}-${String(prevDt.getDate()).padStart(2, '0')}`;
 
   const sumInvoicePayments = (item) => {
     const arr = item.InvoicePayments ?? item.invoicePayments;
@@ -1152,6 +1155,7 @@ router.get('/agora/closeouts/dashboard-home', async (req, res) => {
     ]);
 
     const totalsTickerPk = {};
+    const totalsPrevPk = {};
     const ytdCurPk = {};
     const ytdLastPk = {};
     const monthCur = {};
@@ -1166,6 +1170,9 @@ router.get('/agora/closeouts/dashboard-home', async (req, res) => {
 
       if (sk.startsWith(dateTo)) {
         totalsTickerPk[pk] = (totalsTickerPk[pk] || 0) + t;
+      }
+      if (sk.startsWith(datePrev)) {
+        totalsPrevPk[pk] = (totalsPrevPk[pk] || 0) + t;
       }
 
       const datePart = sk.split('#')[0] || '';
@@ -1224,7 +1231,15 @@ router.get('/agora/closeouts/dashboard-home', async (req, res) => {
 
     res.json({
       dateTo,
-      totalsTicker: mapPkToTotals(totalsTickerPk),
+      totalsTicker: Object.entries(totalsTickerPk)
+        .filter(([, total]) => total > 0)
+        .map(([workplaceId, total]) => ({
+          local: pkToNombre[workplaceId] ?? workplaceId,
+          total: Math.round(total * 100) / 100,
+          totalAnterior: Math.round((totalsPrevPk[workplaceId] || 0) * 100) / 100,
+          workplaceId,
+        }))
+        .sort((a, b) => b.total - a.total),
       ytdCurrent: {
         year: curYear,
         dateTo: useDateToCur ? dateTo : null,

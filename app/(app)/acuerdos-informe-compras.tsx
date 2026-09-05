@@ -528,7 +528,8 @@ export default function AcuerdosInformeComprasScreen() {
         </View>
 
         <Text style={styles.toolbarHint}>
-          Periodo informe: {formatFechaIso(fechaDesde)} — {formatFechaIso(fechaHasta)}. Botellas compradas y aportación volumen generada (no modifica los acuerdos).
+          Periodo informe: {formatFechaIso(fechaDesde)} — {formatFechaIso(fechaHasta)}. Las botellas se
+          cuentan solo mientras el acuerdo estaba vigente dentro del periodo (no modifica los acuerdos).
         </Text>
       </View>
 

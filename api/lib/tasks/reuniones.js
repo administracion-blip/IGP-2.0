@@ -1,7 +1,8 @@
 /**
- * Reuniones del módulo de dirección (Fase 1B + 2A): listado, ficha, asistentes,
- * acuerdos, aviso de grabación, conversión de acuerdos a tareas, y captura de
- * audio por subida (presign / marcar pipeline). El STT y el poller son 2B/2D.
+ * Reuniones del módulo de dirección (Fase 1B + 2A + 4 orden automático): listado,
+ * ficha, asistentes, acuerdos, aviso de grabación, conversión de acuerdos a
+ * tareas, captura de audio por subida, y orden del día automático al convocar
+ * con `serie_id`. El STT y el poller son 2B/2D.
  *
  * Decisiones que conviene tener presentes:
  *
@@ -767,6 +768,18 @@ export async function crearReunion(ctx, body = {}) {
 
   const instante = ahora();
   const id = crypto.randomUUID();
+  const serieId = datos.serie_id || '';
+  // Fase 4: con serie y orden vacío/ausente, persistir sugerencia (abiertos +
+  // incumplidos + aplazados) antes de Calendar/Put. Si el cliente ya manda texto, no pisar.
+  let ordenDelDia = datos.orden_del_dia || '';
+  if (!texto(ordenDelDia) && texto(serieId)) {
+    const sug = await calcularSugerenciaOrdenSerie({
+      serieId,
+      fecha: datos.fecha,
+    });
+    ordenDelDia = sug.texto || '';
+  }
+
   const reunion = {
     id_reunion: id,
     titulo: datos.titulo,
@@ -784,8 +797,8 @@ export async function crearReunion(ctx, body = {}) {
     local_nombre: datos.local_nombre || '',
     empresa_id: datos.empresa_id || '',
     proyecto_id: datos.proyecto_id || '',
-    serie_id: datos.serie_id || '',
-    orden_del_dia: datos.orden_del_dia || '',
+    serie_id: serieId,
+    orden_del_dia: ordenDelDia,
     modalidad: datos.modalidad || '',
     sala_recurso_email: datos.sala_recurso_email || '',
     meet_code: datos.meet_code || '',
@@ -1136,65 +1149,98 @@ export async function registrarAvisoGrabacion(ctx, idReunion, body = {}) {
   return { ok: true, aviso_grabacion: aviso };
 }
 
-// ─── Sugerencia de orden del día ───
+// ─── Sugerencia de orden del día (Fase 4) ───
 
-export async function sugerenciaOrdenDelDia(ctx, idReunion) {
-  const cargado = await cargarParaGestionar(ctx, idReunion);
-  if (!cargado.ok) return cargado.fallo;
+/** Estados de acuerdo que arrastran al orden de la siguiente reunión de la serie. */
+const ESTADOS_ACUERDO_SUGERENCIA = Object.freeze(['abierto', 'incumplido']);
 
-  const serieId = texto(cargado.reunion.serie_id);
-  if (!serieId) {
+/**
+ * Construye el texto sugerido a partir de acuerdos abiertos/incumplidos y
+ * puntos aplazados (o candidatos) de la reunión anterior de la serie.
+ * Sin ACL: lo usan `sugerenciaOrdenDelDia` (GET) y `crearReunion` (POST).
+ *
+ * @param {{ serieId: string, fecha?: string, excluirReunionId?: string }} opts
+ */
+async function calcularSugerenciaOrdenSerie({ serieId, fecha, excluirReunionId } = {}) {
+  const serie = texto(serieId);
+  if (!serie) {
     return {
-      ok: true,
       texto: '',
       origen_reunion_id: null,
+      acuerdos_abiertos: 0,
+      acuerdos_incumplidos: 0,
+      puntos_aplazados: 0,
       mensaje: 'Esta reunión no pertenece a una serie; no hay sugerencia automática',
     };
   }
 
-  const fechaActual = texto(cargado.reunion.fecha) || '9999-12-31';
+  const fechaActual = texto(fecha) || '9999-12-31';
   const res = await docClient.send(
     new QueryCommand({
       TableName: tables.reuniones,
       IndexName: IDX_SERIE,
       KeyConditionExpression: 'serie_id = :s AND #f < :f',
       ExpressionAttributeNames: { '#f': 'fecha' },
-      ExpressionAttributeValues: { ':s': serieId, ':f': fechaActual },
+      ExpressionAttributeValues: { ':s': serie, ':f': fechaActual },
       ScanIndexForward: false,
       Limit: 5,
     }),
   );
 
-  const candidatas = (res.Items || []).filter((it) => texto(it.id_reunion) !== texto(idReunion));
+  const excluir = texto(excluirReunionId);
+  const candidatas = (res.Items || []).filter((it) => texto(it.id_reunion) !== excluir);
   const anterior = candidatas[0];
   if (!anterior) {
     return {
-      ok: true,
       texto: '',
       origen_reunion_id: null,
+      acuerdos_abiertos: 0,
+      acuerdos_incumplidos: 0,
+      puntos_aplazados: 0,
       mensaje: 'No hay reunión anterior en la serie',
     };
   }
 
   const part = await leerParticion(anterior.id_reunion);
+  const acuerdos = (part?.acuerdos || []).filter((a) =>
+    ESTADOS_ACUERDO_SUGERENCIA.includes(texto(a.estado)),
+  );
+  const abiertos = acuerdos.filter((a) => texto(a.estado) === 'abierto');
+  const incumplidos = acuerdos.filter((a) => texto(a.estado) === 'incumplido');
+  const aplazados = (part?.puntos || []).filter(
+    (p) => p.aplazado === true || p.candidato_siguiente === true,
+  );
+
   const lineas = [];
-  const acuerdosAbiertos = (part?.acuerdos || []).filter((a) => texto(a.estado) === 'abierto');
-  for (const a of acuerdosAbiertos) {
+  for (const a of abiertos) {
     lineas.push(`· Acuerdo pendiente: ${texto(a.texto)}`);
   }
-  for (const p of part?.puntos || []) {
-    if (p.aplazado === true || p.candidato_siguiente === true) {
-      lineas.push(`· Aplazado: ${texto(p.texto_punto || p.texto)}`);
-    }
+  for (const a of incumplidos) {
+    lineas.push(`· Acuerdo incumplido: ${texto(a.texto)}`);
+  }
+  for (const p of aplazados) {
+    lineas.push(`· Aplazado: ${texto(p.texto_punto || p.texto)}`);
   }
 
   return {
-    ok: true,
     texto: lineas.join('\n'),
     origen_reunion_id: anterior.id_reunion,
-    acuerdos_abiertos: acuerdosAbiertos.length,
-    puntos_aplazados: (part?.puntos || []).filter((p) => p.aplazado || p.candidato_siguiente).length,
+    acuerdos_abiertos: abiertos.length,
+    acuerdos_incumplidos: incumplidos.length,
+    puntos_aplazados: aplazados.length,
   };
+}
+
+export async function sugerenciaOrdenDelDia(ctx, idReunion) {
+  const cargado = await cargarParaGestionar(ctx, idReunion);
+  if (!cargado.ok) return cargado.fallo;
+
+  const sug = await calcularSugerenciaOrdenSerie({
+    serieId: cargado.reunion.serie_id,
+    fecha: cargado.reunion.fecha,
+    excluirReunionId: idReunion,
+  });
+  return { ok: true, ...sug };
 }
 
 // ─── Acuerdos ───

@@ -684,6 +684,11 @@ POST /api/actuaciones/item/:id/firma
 
 * Reutilizar patrones existentes de subida antes de crear uno nuevo.
 
+### Diálogos y confirmaciones
+
+* Confirmaciones y avisos al usuario: modal in-app con `useConfirmar` (`app/hooks/useConfirmar.tsx`).
+* No usar `window.confirm` ni `Alert.alert` directos. Detalle en `.cursor/rules/dialogos-app.mdc`.
+
 ### Estados de carga y errores
 
 * Usar `ActivityIndicator` para cargas.

@@ -12,6 +12,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useHubNavGrid } from '../hooks/useHubNavGrid';
 import { MIN_TOUCH } from '../constants/layout';
+import { tasksUi } from '../constants/tasksUiTokens';
 import { apiFetch } from '../utils/api';
 import { formatMoneda } from '../utils/formatMoneda';
 import {
@@ -99,8 +100,8 @@ export function ObjetivoMensualCard({
   if (loading) {
     return (
       <View style={[styles.card, compact && styles.cardCompact, { width }, style]}>
-        <View style={[styles.iconWrap, compact && styles.iconWrapCompact, { backgroundColor: '#e0f2fe' }]}>
-          <ActivityIndicator size="small" color="#0ea5e9" />
+        <View style={[styles.iconWrap, compact && styles.iconWrapCompact, { backgroundColor: tasksUi.color.acentoSuave }]}>
+          <ActivityIndicator size="small" color={tasksUi.color.acento} />
         </View>
         <View style={styles.body}>
           <Text style={[styles.title, compact && styles.titleCompact]}>Objetivo mensual</Text>
@@ -226,37 +227,32 @@ export function ObjetivoMensualCard({
 
 const styles = StyleSheet.create({
   card: {
-    flex: 1,
+    flexGrow: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
+    backgroundColor: tasksUi.color.superficie,
+    borderRadius: tasksUi.radius.contenedor,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: tasksUi.color.bordeSutil,
     minHeight: MIN_TOUCH + 24,
     alignSelf: 'stretch',
   },
   cardCompact: {
     gap: 10,
     padding: 12,
-    borderRadius: 10,
+    borderRadius: tasksUi.radius.contenedor,
   },
   navBtn: {
     width: 32,
     height: 32,
-    borderRadius: 8,
+    borderRadius: tasksUi.radius.contenedor,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f8fafc',
+    backgroundColor: tasksUi.color.superficieHundida,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksUi.color.bordeSutil,
     flexShrink: 0,
   },
   navBtnCompact: {
@@ -289,9 +285,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   title: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0f172a',
+    ...tasksUi.tipo.tituloSeccion,
     flex: 1,
     minWidth: 0,
   },
@@ -299,9 +293,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   desc: {
-    fontSize: 12,
-    color: '#64748b',
-    lineHeight: 16,
+    ...tasksUi.tipo.etiqueta,
   },
   descCompact: {
     fontSize: 11,
@@ -310,16 +302,14 @@ const styles = StyleSheet.create({
   posBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: '#f1f5f9',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderRadius: tasksUi.radius.pildora,
+    backgroundColor: tasksUi.color.superficieHundida,
     flexShrink: 0,
   },
   posBadgeText: {
-    fontSize: 11,
+    ...tasksUi.tipo.micro,
     fontWeight: '600',
-    color: '#64748b',
+    color: tasksUi.color.textoSecundario,
   },
   progressRow: {
     flexDirection: 'row',
@@ -332,9 +322,9 @@ const styles = StyleSheet.create({
     minWidth: 60,
   },
   track: {
-    height: 8,
-    backgroundColor: '#f1f5f9',
-    borderRadius: 4,
+    height: 5,
+    backgroundColor: tasksUi.color.superficieHundida,
+    borderRadius: tasksUi.radius.pildora,
     overflow: 'hidden',
     position: 'relative',
   },
@@ -342,22 +332,23 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     bottom: 0,
-    width: 2,
-    marginLeft: -1,
-    backgroundColor: '#94a3b8',
+    width: 1,
+    marginLeft: -0.5,
+    backgroundColor: tasksUi.color.textoTerciario,
     zIndex: 2,
   },
   fill: {
     height: '100%',
-    borderRadius: 4,
+    borderRadius: tasksUi.radius.pildora,
   },
   pctText: {
     fontSize: 16,
-    fontWeight: '800',
-    color: '#64748b',
+    fontWeight: '600',
+    color: tasksUi.color.textoSecundario,
     minWidth: 64,
     textAlign: 'right',
     flexShrink: 0,
+    ...tasksUi.tabularNums,
   },
   pctTextCompact: {
     fontSize: 14,
@@ -371,27 +362,25 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   infoObjetivo: {
-    fontSize: 12,
-    color: '#334155',
+    ...tasksUi.tipo.etiqueta,
+    color: tasksUi.color.textoSecundario,
     flexShrink: 1,
   },
   infoObjetivoValor: {
-    fontWeight: '800',
-    color: '#0f172a',
+    fontWeight: '600',
+    color: tasksUi.color.textoPrimario,
   },
   chipDesvio: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: '#fee2e2',
-    borderWidth: 1,
-    borderColor: '#fecaca',
+    borderRadius: tasksUi.radius.pildora,
+    backgroundColor: tasksUi.color.peligroSuave,
     flexShrink: 0,
   },
   chipDesvioText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#dc2626',
+    ...tasksUi.tipo.micro,
+    fontWeight: '600',
+    color: tasksUi.color.peligro,
   },
   chipAlDia: {
     flexDirection: 'row',
@@ -399,20 +388,17 @@ const styles = StyleSheet.create({
     gap: 2,
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: '#dcfce7',
-    borderWidth: 1,
-    borderColor: '#bbf7d0',
+    borderRadius: tasksUi.radius.pildora,
+    backgroundColor: tasksUi.color.exitoSuave,
     flexShrink: 0,
   },
   chipAlDiaText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#059669',
+    ...tasksUi.tipo.micro,
+    fontWeight: '600',
+    color: tasksUi.color.exito,
   },
   infoDias: {
-    fontSize: 12,
-    color: '#94a3b8',
+    ...tasksUi.tipo.etiqueta,
     flexShrink: 0,
   },
 });

@@ -18,7 +18,6 @@ import {
   Pressable,
   Animated,
   Easing,
-  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -40,6 +39,7 @@ import {
   pipelineEnVuelo,
   urlMeetDesdeCodigo,
 } from '../../lib/tasksUi';
+import { descargarActaReunionPdf } from '../../lib/descargarActaReunion';
 import { abrirEnlaceExterno } from '../../utils/enlaceExterno';
 import { copyToClipboard } from '../../utils/clipboard';
 import { SeccionFicha } from '../../components/tasks/SeccionFicha';
@@ -50,6 +50,7 @@ import {
   ModalFormularioReunion,
   type ResultadoGuardadoReunion,
 } from '../../components/tasks/ModalFormularioReunion';
+import { TasksPageHeader } from '../../components/tasks/TasksPageHeader';
 import { TarjetaTarea } from '../../components/tasks/TarjetaTarea';
 import { HistorialActividad } from '../../components/tasks/HistorialActividad';
 import {
@@ -61,6 +62,13 @@ import { estilosFormTasks as form, estilosModalTasks as modal } from '../../comp
 import { InputFecha } from '../../components/InputFecha';
 import { estiloCampoFechaCompacto } from '../../components/RangoFechas';
 import { SelectorDesplegable, type OpcionDesplegable } from '../../components/SelectorDesplegable';
+import {
+  tasksColor,
+  tasksIcono,
+  tasksRadius,
+  tasksSpace,
+  tasksTipo,
+} from '../../constants/tasksUiTokens';
 import { apiFetch, errorMessage } from '../../utils/api';
 import { formatFecha } from '../../utils/formatFecha';
 import {
@@ -163,6 +171,7 @@ export default function FichaReunionScreen() {
 
   const [historialVisible, setHistorialVisible] = useState(false);
   const [actaVisible, setActaVisible] = useState(false);
+  const [descargandoPdf, setDescargandoPdf] = useState(false);
 
   const puedeVer = puedeVerReuniones(acceso);
   const puedeGestionar = puedeGestionarReuniones(acceso);
@@ -476,6 +485,20 @@ export default function FichaReunionScreen() {
     void cargarFicha();
   }
 
+  async function descargarPdfActa() {
+    if (!idReunion || !(reunion?.resumen ?? '').trim() || descargandoPdf) return;
+    setDescargandoPdf(true);
+    setMsgAccion(null);
+    try {
+      await descargarActaReunionPdf(idReunion);
+    } catch (e) {
+      console.error('[reuniones] fallo al descargar PDF del acta', e);
+      setMsgAccion(errorMessage(e, 'No se pudo descargar el PDF del acta'));
+    } finally {
+      setDescargandoPdf(false);
+    }
+  }
+
   if (acceso.permisosCargando || cargando) {
     return (
       <View style={styles.centro}>
@@ -589,13 +612,25 @@ export default function FichaReunionScreen() {
                 <Text style={styles.btnSecundarioTexto}>Ver</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.btnSecundario, isCompact && styles.btnSecundarioTactil]}
-                onPress={() =>
-                  Alert.alert('PDF', 'La descarga en PDF llegará en una fase posterior.')
-                }
+                style={[
+                  styles.btnSecundario,
+                  isCompact && styles.btnSecundarioTactil,
+                  descargandoPdf && styles.btnSecundarioDisabled,
+                ]}
+                onPress={() => void descargarPdfActa()}
+                disabled={descargandoPdf}
+                accessibilityRole="button"
+                accessibilityLabel="Descargar acta en PDF"
+                accessibilityState={{ disabled: descargandoPdf, busy: descargandoPdf }}
               >
-                <MaterialIcons name="picture-as-pdf" size={16} color="#94a3b8" />
-                <Text style={[styles.btnSecundarioTexto, { color: '#94a3b8' }]}>PDF</Text>
+                {descargandoPdf ? (
+                  <ActivityIndicator size="small" color="#0ea5e9" />
+                ) : (
+                  <MaterialIcons name="picture-as-pdf" size={16} color="#0ea5e9" />
+                )}
+                <Text style={styles.btnSecundarioTexto}>
+                  {descargandoPdf ? 'Descargando…' : 'PDF'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -855,65 +890,73 @@ export default function FichaReunionScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.headerBlock}>
-        <View style={styles.headerRow}>
-          <TouchableOpacity
-            onPress={() => router.push('/reuniones' as never)}
-            style={[styles.backBtn, isCompact && styles.backBtnTactil]}
-          >
-            <MaterialIcons name="arrow-back" size={22} color="#334155" />
-          </TouchableOpacity>
-          <View style={styles.headerTexto}>
-            <View style={styles.titleRow}>
-              <BadgeEstadoReunion estado={reunion.estado} grande />
-              <Text style={styles.title} numberOfLines={2}>
-                {reunion.titulo}
-              </Text>
-            </View>
-            <Text style={styles.subtitle} numberOfLines={2}>
-              {metaCabecera}
-            </Text>
-            {urlMeet ? (
-              <View style={styles.meetRow}>
-                <TouchableOpacity
-                  style={[styles.meetChip, isCompact && styles.meetChipTactil]}
-                  onPress={abrirMeet}
-                  accessibilityRole="button"
-                  accessibilityLabel="Abrir Google Meet"
-                >
-                  <MaterialIcons name="videocam" size={16} color="#92400e" />
-                  <Text style={styles.meetChipTexto} numberOfLines={1}>
-                    Abrir Meet
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.meetCopiar, isCompact && styles.meetChipTactil]}
-                  onPress={copiarMeet}
-                  accessibilityLabel="Copiar enlace de Meet"
-                >
-                  <MaterialIcons name="content-copy" size={15} color="#64748b" />
-                  <Text style={styles.meetCopiarTexto}>Copiar enlace</Text>
-                </TouchableOpacity>
-              </View>
-            ) : null}
-          </View>
-          {puedeEditar ? (
-            <TouchableOpacity
-              style={[styles.btnEditar, isCompact && styles.btnEditarTactil]}
-              onPress={() => setEditarVisible(true)}
-            >
-              <MaterialIcons name="edit" size={16} color="#0ea5e9" />
-              <Text style={styles.btnEditarTexto}>Editar</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-        {enPipeline ? <BarraPipelineIndeterminada etiqueta={etiquetaPipeline} /> : null}
-      </View>
-
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, shouldStackPanels && styles.scrollContentCompact]}
       >
+        <TasksPageHeader
+          title={reunion.titulo}
+          onBack={() => router.push('/reuniones' as never)}
+          backAccessibilityLabel="Volver al listado de reuniones"
+          compact={isCompact}
+          actions={
+            puedeEditar ? (
+              <TouchableOpacity
+                style={[styles.editarBtn, isCompact && styles.editarBtnTactil]}
+                onPress={() => setEditarVisible(true)}
+                accessibilityLabel="Editar la reunión"
+              >
+                <MaterialIcons name="edit" size={tasksIcono.sizeSm} color={tasksColor.textoInverso} />
+                <Text style={styles.editarTexto}>Editar</Text>
+              </TouchableOpacity>
+            ) : null
+          }
+          below={
+            <View style={styles.cabeceraMeta}>
+              <View style={styles.cabeceraBadges}>
+                <BadgeEstadoReunion estado={reunion.estado} grande />
+                {metaCabecera ? <Text style={styles.cabeceraFecha}>{metaCabecera}</Text> : null}
+              </View>
+              {urlMeet ? (
+                <View style={styles.meetRow}>
+                  <TouchableOpacity
+                    style={[styles.meetChip, isCompact && styles.meetChipTactil]}
+                    onPress={abrirMeet}
+                    accessibilityRole="button"
+                    accessibilityLabel="Abrir Google Meet"
+                  >
+                    <MaterialIcons name="videocam" size={16} color="#92400e" />
+                    <Text style={styles.meetChipTexto} numberOfLines={1}>
+                      Abrir Meet
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.meetCopiar, isCompact && styles.meetChipTactil]}
+                    onPress={copiarMeet}
+                    accessibilityLabel="Copiar enlace de Meet"
+                  >
+                    <MaterialIcons name="content-copy" size={15} color={tasksColor.textoSecundario} />
+                    <Text style={styles.meetCopiarTexto}>Copiar enlace</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+              {!puedeEditar ? (
+                <View style={styles.avisoSoloLectura}>
+                  <MaterialIcons
+                    name="lock-outline"
+                    size={tasksIcono.sizeSm}
+                    color={tasksColor.textoSecundario}
+                  />
+                  <Text style={styles.avisoSoloLecturaTexto}>
+                    Solo lectura: para cambiar esta reunión hace falta permiso de gestión.
+                  </Text>
+                </View>
+              ) : null}
+              {enPipeline ? <BarraPipelineIndeterminada etiqueta={etiquetaPipeline} /> : null}
+            </View>
+          }
+        />
+
         {avisoCalendario ? (
           <View style={styles.bannerCalendario}>
             <MaterialIcons name="event-busy" size={18} color="#b45309" />
@@ -1130,60 +1173,65 @@ function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  centroTexto: { fontSize: 13, color: '#64748b', textAlign: 'center' },
-  errorTexto: { fontSize: 13, color: '#ef4444', textAlign: 'center' },
+  container: { flex: 1, backgroundColor: tasksColor.fondoApp },
+  centro: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    padding: 24,
+    backgroundColor: tasksColor.fondoApp,
+  },
+  centroTexto: { ...tasksTipo.cuerpo, textAlign: 'center' },
+  errorTexto: { ...tasksTipo.cuerpo, color: tasksColor.peligro, textAlign: 'center' },
   btnVolver: {
     marginTop: 8,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: tasksRadius.contenedor,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+    borderColor: tasksColor.bordeFuerte,
+    backgroundColor: tasksColor.superficie,
   },
-  btnVolverTexto: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
+  btnVolverTexto: { ...tasksTipo.dato, color: tasksColor.textoEnlace, fontWeight: '600' },
 
-  headerBlock: {
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+  cabeceraMeta: { gap: tasksSpace[2] },
+  cabeceraBadges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    alignItems: 'center',
   },
-  headerRow: {
+  cabeceraFecha: { ...tasksTipo.etiqueta, color: tasksColor.textoSecundario },
+  editarBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    flexWrap: 'wrap',
+    gap: 4,
+    backgroundColor: tasksColor.acento,
+    paddingHorizontal: tasksSpace[3],
+    paddingVertical: tasksSpace[2],
+    borderRadius: tasksRadius.control,
   },
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
+  editarBtnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 14 },
+  editarTexto: { ...tasksTipo.dato, color: tasksColor.textoInverso, fontWeight: '600' },
+  avisoSoloLectura: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: tasksSpace[2],
+    borderRadius: tasksRadius.contenedor,
+    backgroundColor: tasksColor.superficie,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksColor.bordeSutil,
   },
-  backBtnTactil: { width: MIN_TOUCH, height: MIN_TOUCH },
-  headerTexto: { flex: 1, minWidth: 140 },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  title: { flex: 1, minWidth: 0, fontSize: 18, fontWeight: '700', color: '#0f172a' },
-  subtitle: { fontSize: 13, color: '#64748b', marginTop: 2 },
+  avisoSoloLecturaTexto: { flex: 1, ...tasksTipo.micro, color: tasksColor.textoSecundario },
+
   meetRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: 8,
-    marginTop: 8,
   },
   meetChip: {
     flexDirection: 'row',
@@ -1191,41 +1239,28 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: tasksRadius.contenedor,
     backgroundColor: '#fef3c7',
     borderWidth: 1,
     borderColor: '#fcd34d',
   },
   meetChipTactil: { minHeight: MIN_TOUCH },
-  meetChipTexto: { fontSize: 13, fontWeight: '600', color: '#92400e' },
+  meetChipTexto: { ...tasksTipo.dato, fontWeight: '600', color: '#92400e' },
   meetCopiar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
     paddingHorizontal: 8,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: tasksRadius.contenedor,
   },
-  meetCopiarTexto: { fontSize: 12, fontWeight: '600', color: '#64748b' },
-  btnEditar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
-  },
-  btnEditarTactil: { minHeight: MIN_TOUCH },
-  btnEditarTexto: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+  meetCopiarTexto: { ...tasksTipo.etiqueta, fontWeight: '600', color: tasksColor.textoSecundario },
 
-  pipelineBarraWrap: { paddingHorizontal: 16, paddingBottom: 10, gap: 6 },
+  pipelineBarraWrap: { gap: 6 },
   pipelineBarraFondo: {
     height: 3,
     borderRadius: 2,
-    backgroundColor: '#e0f2fe',
+    backgroundColor: tasksColor.acentoSuave,
     overflow: 'hidden',
   },
   pipelineBarraGlow: {
@@ -1233,16 +1268,16 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: '35%',
-    backgroundColor: '#0ea5e9',
+    backgroundColor: tasksColor.acento,
     borderRadius: 2,
     opacity: 0.85,
   },
   pipelineFaseFila: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  pipelineFaseTexto: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
+  pipelineFaseTexto: { ...tasksTipo.etiqueta, fontWeight: '600', color: tasksColor.acentoTexto },
 
   scroll: { flex: 1 },
-  scrollContent: { padding: 16, gap: 12, paddingBottom: 32 },
-  scrollContentCompact: { padding: 12 },
+  scrollContent: { padding: tasksSpace[4], gap: tasksSpace[3], paddingBottom: tasksSpace[6] },
+  scrollContentCompact: { padding: tasksSpace[3] },
 
   columnas: { flexDirection: 'row', alignItems: 'flex-start', gap: 16 },
   columnasApiladas: { flexDirection: 'column' },
@@ -1256,40 +1291,40 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: '#fffbeb',
+    borderRadius: tasksRadius.contenedor,
+    backgroundColor: tasksColor.avisoSuave,
     borderWidth: 1,
     borderColor: '#fde68a',
   },
-  bannerCalendarioTexto: { flex: 1, fontSize: 12, color: '#92400e', lineHeight: 17 },
+  bannerCalendarioTexto: { flex: 1, ...tasksTipo.etiqueta, color: '#92400e', lineHeight: 17 },
   bannerInfo: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: '#e0f2fe',
+    borderRadius: tasksRadius.contenedor,
+    backgroundColor: tasksColor.acentoSuave,
     borderWidth: 1,
     borderColor: '#bae6fd',
   },
-  bannerInfoTexto: { flex: 1, fontSize: 12, color: '#0c4a6e', lineHeight: 17 },
+  bannerInfoTexto: { flex: 1, ...tasksTipo.etiqueta, color: '#0c4a6e', lineHeight: 17 },
 
   datosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   dato: { width: '47%', minWidth: 120, gap: 2 },
-  datoEtiqueta: { fontSize: 11, color: '#94a3b8', fontWeight: '500' },
-  datoValor: { fontSize: 13, color: '#334155', fontWeight: '600' },
+  datoEtiqueta: { ...tasksTipo.etiqueta },
+  datoValor: { ...tasksTipo.dato },
 
   listaSimple: { gap: 8 },
   filaAsistente: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  asistenteNombre: { flex: 1, fontSize: 13, color: '#334155' },
-  asistioSi: { fontSize: 11, fontWeight: '600', color: '#16a34a' },
-  asistioNo: { fontSize: 11, fontWeight: '600', color: '#94a3b8' },
+  asistenteNombre: { flex: 1, ...tasksTipo.cuerpo, color: tasksColor.textoPrimario },
+  asistioSi: { ...tasksTipo.micro, fontWeight: '600', color: tasksColor.exito },
+  asistioNo: { ...tasksTipo.micro, fontWeight: '600', color: tasksColor.textoTerciario },
 
   avisoBloqueo: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 6 },
-  avisoBloqueoTexto: { flex: 1, fontSize: 11, color: '#d97706', lineHeight: 16 },
-  textoLargo: { fontSize: 13, color: '#334155', lineHeight: 20 },
-  vacioSeccion: { fontSize: 12, color: '#94a3b8', lineHeight: 18 },
+  avisoBloqueoTexto: { flex: 1, ...tasksTipo.micro, color: tasksColor.aviso, lineHeight: 16 },
+  textoLargo: { ...tasksTipo.cuerpo, color: tasksColor.textoPrimario, lineHeight: 20 },
+  vacioSeccion: { ...tasksTipo.micro, lineHeight: 18 },
 
   actaPreview: { gap: 10 },
   actaAcciones: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -1299,37 +1334,38 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: tasksRadius.contenedor,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: tasksColor.bordeFuerte,
+    backgroundColor: tasksColor.superficieHundida,
   },
   btnSecundarioTactil: { minHeight: MIN_TOUCH },
-  btnSecundarioTexto: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+  btnSecundarioDisabled: { opacity: 0.65 },
+  btnSecundarioTexto: { ...tasksTipo.etiqueta, fontWeight: '600', color: tasksColor.textoEnlace },
 
   tarjetaAcuerdo: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksColor.bordeFuerte,
     borderRadius: 10,
     padding: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: tasksColor.superficieHundida,
     gap: 6,
   },
   acuerdoCabecera: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  acuerdoTexto: { fontSize: 13, color: '#0f172a', lineHeight: 18 },
-  acuerdoMeta: { fontSize: 11, color: '#64748b' },
-  enlaceTarea: { fontSize: 11, fontWeight: '600', color: '#0ea5e9' },
+  acuerdoTexto: { ...tasksTipo.cuerpo, color: tasksColor.textoPrimario, lineHeight: 18 },
+  acuerdoMeta: { ...tasksTipo.micro },
+  enlaceTarea: { ...tasksTipo.micro, fontWeight: '600', color: tasksColor.textoEnlace },
   acuerdoAcciones: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 },
   chipAccion: {
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 999,
+    borderRadius: tasksRadius.pildora,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+    borderColor: tasksColor.bordeFuerte,
+    backgroundColor: tasksColor.superficie,
   },
   chipAccionTactil: { minHeight: MIN_TOUCH, justifyContent: 'center' },
-  chipAccionTexto: { fontSize: 11, fontWeight: '600', color: '#475569' },
+  chipAccionTexto: { ...tasksTipo.micro, fontWeight: '600', color: tasksColor.textoSecundario },
 
   btnPrimario: {
     marginTop: 8,
@@ -1339,11 +1375,11 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#0ea5e9',
+    borderRadius: tasksRadius.contenedor,
+    backgroundColor: tasksColor.acento,
   },
   btnPrimarioTactil: { minHeight: MIN_TOUCH },
-  btnPrimarioTexto: { fontSize: 12, fontWeight: '700', color: '#ffffff' },
+  btnPrimarioTexto: { ...tasksTipo.dato, fontWeight: '700', color: tasksColor.textoInverso },
 
   btnHistorial: {
     flexDirection: 'row',
@@ -1354,11 +1390,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+    borderColor: tasksColor.bordeFuerte,
+    backgroundColor: tasksColor.superficie,
   },
   btnHistorialTactil: { minHeight: MIN_TOUCH },
-  btnHistorialTexto: { fontSize: 13, fontWeight: '700', color: '#0ea5e9' },
+  btnHistorialTexto: { ...tasksTipo.cuerpo, fontWeight: '700', color: tasksColor.textoEnlace },
 
-  avisoDetalle: { fontSize: 12, color: '#64748b', textAlign: 'center' },
+  avisoDetalle: { ...tasksTipo.etiqueta, color: tasksColor.textoSecundario, textAlign: 'center' },
 });

@@ -68,3 +68,8 @@ export function puedeVerReuniones(a: AccesoTasks): boolean {
 export function puedeGestionarReuniones(a: AccesoTasks): boolean {
   return a.hasPermiso(PERMISOS.reunionesGestionar);
 }
+
+/** Crear, editar y borrar plantillas de proyecto (`proyectos.plantillas`). */
+export function puedeGestionarPlantillas(a: AccesoTasks): boolean {
+  return a.hasPermiso(PERMISOS.plantillas);
+}

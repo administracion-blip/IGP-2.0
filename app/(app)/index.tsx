@@ -8,25 +8,21 @@ import {
   Animated,
   ScrollView,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import WeatherWidget from '../components/WeatherWidget';
 import { CalendarioInicio } from '../components/CalendarioInicio';
+import { tasksUi } from '../constants/tasksUiTokens';
+import { SPACING } from '../constants/layout';
 import { useAuth } from '../contexts/AuthContext';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import { apiFetch } from '../utils/api';
+import { fechaLocalIso } from '../lib/jornadaNegocio';
 
-/** Ancho máximo del contenido en tablet / web ancha (márgenes laterales automáticos). */
+const DIAS_SEMANA_ES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'] as const;
+const MESES_CORTO_ES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'] as const;
+
+/** Ancho máximo del contenido en tablet nativa. En web los widgets usan todo el ancho. */
 const HOME_CONTENT_MAX_WIDTH = 1120;
-
-const CARD_SHADOW =
-  Platform.OS === 'web'
-    ? ({ boxShadow: '0 8px 24px rgba(15,23,42,0.06)' } as object)
-    : {
-        shadowColor: '#0f172a',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.06,
-        shadowRadius: 24,
-        elevation: 2,
-      };
 
 function formatMoneda(value: string | number): string {
   if (value === '' || value === '—' || value == null) return '—';
@@ -40,15 +36,76 @@ function formatMoneda(value: string | number): string {
 function getYesterdayYYYYMMDD(): string {
   const d = new Date();
   d.setDate(d.getDate() - 1);
-  return d.toISOString().slice(0, 10);
+  return fechaLocalIso(d);
+}
+
+function weekdayEsFromIso(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  return DIAS_SEMANA_ES[d.getDay()] ?? '';
 }
 
 function formatBusinessDayToLabel(iso: string): string {
-  const [y, m, d] = iso.split('-');
-  return `${d}/${m}/${y}`;
+  const [, m, d] = iso.split('-');
+  const weekday = weekdayEsFromIso(iso);
+  const mes = MESES_CORTO_ES[Number(m) - 1] ?? m;
+  const dia = String(Number(d));
+  return weekday ? `${weekday} ${dia} ${mes}` : `${dia} ${mes}`;
 }
 
-type TotalByLocal = { local: string; total: number; workplaceId: string };
+type TotalByLocal = { local: string; total: number; workplaceId: string; totalAnterior?: number };
+type ComparativaTicker = 'subida' | 'bajada' | 'igual' | null;
+
+function comparativaTicker(total: number, totalAnterior?: number): ComparativaTicker {
+  if (totalAnterior == null || typeof totalAnterior !== 'number' || !Number.isFinite(totalAnterior)) {
+    return null;
+  }
+  const delta = total - totalAnterior;
+  if (Math.abs(delta) < 0.005) return 'igual';
+  return delta > 0 ? 'subida' : 'bajada';
+}
+
+function pctComparativa(total: number, totalAnterior: number): number | null {
+  if (Math.abs(totalAnterior) < 0.005) return null;
+  return ((total - totalAnterior) / totalAnterior) * 100;
+}
+
+function TickerItemComparativa({
+  total,
+  totalAnterior,
+}: {
+  total: number;
+  totalAnterior?: number;
+}) {
+  const tipo = comparativaTicker(total, totalAnterior);
+  if (!tipo || totalAnterior == null) return null;
+  const cfg =
+    tipo === 'subida'
+      ? { bg: tasksUi.color.exitoSuave, fg: tasksUi.color.exito }
+      : tipo === 'bajada'
+        ? { bg: tasksUi.color.peligroSuave, fg: tasksUi.color.peligro }
+        : { bg: tasksUi.color.superficieHundida, fg: tasksUi.color.textoSecundario };
+  const pct = tipo === 'igual' ? null : pctComparativa(total, totalAnterior);
+  const textoPct = pct != null ? `${Math.round(Math.abs(pct))} %` : null;
+
+  return (
+    <View style={[styles.tickerBadge, { backgroundColor: cfg.bg }]}>
+      {tipo === 'igual' ? (
+        <Text style={[styles.tickerBadgeText, { color: cfg.fg }]}>igual</Text>
+      ) : (
+        <>
+          <MaterialIcons
+            name={tipo === 'subida' ? 'arrow-upward' : 'arrow-downward'}
+            size={13}
+            color={cfg.fg}
+          />
+          {textoPct ? (
+            <Text style={[styles.tickerBadgeText, { color: cfg.fg }]}>{textoPct}</Text>
+          ) : null}
+        </>
+      )}
+    </View>
+  );
+}
 
 function TickerFacturacion({
   totals,
@@ -64,9 +121,8 @@ function TickerFacturacion({
   const [clipWidth, setClipWidth] = useState(0);
   const [segmentWidth, setSegmentWidth] = useState(0);
 
-  const medido = trackWidth > 0 && clipWidth > 0;
-  const cabeEnFila = !isCompact && medido && trackWidth + 24 <= clipWidth;
-  const usarMarquee = isCompact || (medido && !cabeEnFila);
+  // Siempre loop (también si caben). isCompact se mantiene en el contrato del ticker.
+  const usarMarquee = true;
   const anchoLoop = segmentWidth > 0 ? segmentWidth : trackWidth;
 
   useEffect(() => {
@@ -100,7 +156,8 @@ function TickerFacturacion({
         style={[styles.tickerItem, fijo && styles.tickerItemFijo]}
       >
         <Text style={styles.tickerItemLocal}>{item.local}</Text>
-        <Text style={styles.tickerItemTotal}>{formatMoneda(item.total)}</Text>
+        <Text style={styles.tickerItemImporte}>{formatMoneda(item.total)}</Text>
+        <TickerItemComparativa total={item.total} totalAnterior={item.totalAnterior} />
       </View>
     ));
 
@@ -181,9 +238,10 @@ export default function AppHome() {
     };
   }, [yesterday, localPermitido]);
 
-  const homeInnerStyle = !isPhone
-    ? [styles.homeInner, { maxWidth: HOME_CONTENT_MAX_WIDTH }]
-    : styles.homeInner;
+  const homeInnerStyle =
+    !isPhone && Platform.OS !== 'web'
+      ? [styles.homeInner, { maxWidth: HOME_CONTENT_MAX_WIDTH }]
+      : styles.homeInner;
 
   return (
     <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
@@ -192,8 +250,15 @@ export default function AppHome() {
 
         <View style={styles.tickerShell}>
           <View style={styles.tickerBar}>
-            <View style={styles.tickerLabel}>
-              <Text style={styles.tickerLabelText}>Facturación {formatBusinessDayToLabel(yesterday)}</Text>
+            <View style={[styles.tickerLabel, isPhone && styles.tickerLabelPhone]}>
+              {isPhone ? (
+                <>
+                  <Text style={styles.tickerLabelText}>Facturación</Text>
+                  <Text style={styles.tickerLabelFecha}>{formatBusinessDayToLabel(yesterday)}</Text>
+                </>
+              ) : (
+                <Text style={styles.tickerLabelText}>Facturación · {formatBusinessDayToLabel(yesterday)}</Text>
+              )}
             </View>
             {loading ? (
               <View style={styles.tickerContent}>
@@ -220,54 +285,53 @@ export default function AppHome() {
 }
 
 const styles = StyleSheet.create({
-  scrollView: { flex: 1, backgroundColor: '#f8fafc' },
+  scrollView: { flex: 1, backgroundColor: tasksUi.color.fondoApp },
   scrollContent: {
-    padding: 12,
-    paddingBottom: 32,
+    padding: SPACING.xl,
+    paddingBottom: tasksUi.space[6],
     alignItems: 'center',
     flexGrow: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: tasksUi.color.fondoApp,
   },
   homeInner: {
     width: '100%',
     alignSelf: 'center',
+    gap: SPACING.xl,
   },
   tickerShell: {
     width: '100%',
-    marginBottom: 16,
-    borderRadius: 16,
-    ...CARD_SHADOW,
+    borderRadius: tasksUi.radius.contenedor,
   },
   tickerBar: {
     flexDirection: 'row',
     alignItems: 'stretch',
     justifyContent: 'flex-start',
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
+    backgroundColor: tasksUi.color.superficie,
+    borderRadius: tasksUi.radius.contenedor,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksUi.color.bordeSutil,
     minHeight: 52,
     overflow: 'hidden',
   },
   tickerLabel: {
     flexShrink: 0,
     maxWidth: '42%',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingHorizontal: tasksUi.space[3],
+    paddingVertical: tasksUi.space[3],
     borderRightWidth: 1,
-    borderRightColor: '#e2e8f0',
+    borderRightColor: tasksUi.color.bordeSutil,
     justifyContent: 'center',
     alignItems: 'flex-start',
   },
+  tickerLabelPhone: {
+    maxWidth: 118,
+  },
   tickerLabelText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#64748b',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    ...(Platform.OS === 'web'
-      ? ({ fontFamily: '"Courier New", Courier, monospace' } as object)
-      : { fontFamily: 'monospace' }),
+    ...tasksUi.tipo.tituloSeccion,
+  },
+  tickerLabelFecha: {
+    ...tasksUi.tipo.etiqueta,
+    marginTop: 2,
   },
   tickerMarqueeWrap: {
     flex: 1,
@@ -302,7 +366,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-start',
     flexWrap: 'nowrap',
-    paddingRight: 8,
+    paddingRight: tasksUi.space[2],
   },
   tickerFilaFija: {
     flex: 1,
@@ -310,7 +374,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-evenly',
     flexWrap: 'nowrap',
-    paddingHorizontal: 12,
+    paddingHorizontal: tasksUi.space[3],
   },
   tickerContent: {
     flex: 1,
@@ -321,35 +385,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexShrink: 0,
-    marginRight: 24,
+    marginRight: SPACING.xl,
   },
   tickerItemFijo: {
     marginRight: 0,
   },
   tickerItemLocal: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#334155',
+    ...tasksUi.tipo.etiqueta,
     marginRight: 10,
     flexShrink: 0,
-    ...(Platform.OS === 'web'
-      ? ({ fontFamily: '"Courier New", Courier, monospace' } as object)
-      : { fontFamily: 'monospace' }),
-    letterSpacing: 0.8,
   },
-  tickerItemTotal: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#16a34a',
-    letterSpacing: 0.3,
+  tickerItemImporte: {
+    fontSize: 18,
+    fontWeight: '600',
+    lineHeight: 24,
+    color: tasksUi.color.textoPrimario,
+    marginRight: 10,
+    flexShrink: 0,
+    ...tasksUi.tabularNums,
+  },
+  tickerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    flexShrink: 0,
+    marginRight: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: tasksUi.radius.pildora,
+  },
+  tickerBadgeText: {
+    ...tasksUi.tipo.etiqueta,
+    fontWeight: '600',
+    color: tasksUi.color.textoSecundario,
+    ...tasksUi.tabularNums,
   },
   tickerError: {
-    fontSize: 14,
-    color: '#ef4444',
+    ...tasksUi.tipo.cuerpo,
+    color: tasksUi.color.peligro,
   },
   tickerEmpty: {
-    fontSize: 14,
-    color: '#94a3b8',
-    fontStyle: 'italic',
+    ...tasksUi.tipo.cuerpo,
+    color: tasksUi.color.textoTerciario,
   },
 });

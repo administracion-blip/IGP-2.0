@@ -169,6 +169,57 @@ importe. Sin excepción.
 `instanciar` crea el proyecto y sus tareas **a través de la creación en lote**, no
 con un camino propio.
 
+### Cuadro de mando (Fase 4)
+
+| Método | Ruta | Fase | Permiso | Notas |
+|---|---|---|---|---|
+| GET | `/api/proyectos/cuadro-mando` | 4 | `proyectos.cuadro_mando` | **No basta** `proyectos.ver`. Antes de `/:id`. Sin `Scan` ni GSI nuevo |
+
+Respuesta orientativa:
+
+```json
+{
+  "generado_en": "ISO",
+  "proyectos": {
+    "por_estado": { "borrador": 0, "activo": N, "en_pausa": 0, "cerrado": 0, "cancelado": 0 },
+    "activos": [
+      {
+        "id_proyecto": "",
+        "nombre": "",
+        "responsable_id": "",
+        "responsable_nombre": "",
+        "departamento_id": "",
+        "estado": "activo"
+      }
+    ]
+  },
+  "acuerdos_incumplidos": [
+    {
+      "id_reunion": "",
+      "reunion_titulo": "",
+      "id_acuerdo": "",
+      "texto": "",
+      "responsable_id": "",
+      "responsable_nombre": "",
+      "fecha_limite": "",
+      "tarea_id": ""
+    }
+  ],
+  "carga_personas": [
+    { "usuario_id": "", "nombre": "", "abiertas": 0, "vencidas": 0, "bloqueadas": 0 }
+  ],
+  "carga_departamentos": [
+    { "departamento_id": "", "nombre": "", "abiertas": 0, "vencidas": 0, "bloqueadas": 0 }
+  ]
+}
+```
+
+Cómo se agrega (servidor):
+
+1. **Proyectos:** pagina el `Listado-index` (`PROY`) y aplica ACL (`puedeVerProyecto`); cuenta por estado; lista los `activo`.
+2. **Carga:** sobre proyectos visibles **no terminales** (`cerrado` / `cancelado` fuera), consulta tareas abiertas por `Proyecto-index` (`begins_with sk_proyecto = abierta#`); agrupa por `responsable_id` y `departamento_id`; resuelve nombres en lote.
+3. **Incumplidos:** solo `estado === 'incumplido'`; recorre reuniones visibles más recientes con tope `MAX_REUNIONES_INCUMPLIDOS` (100). Si el listado sigue, la respuesta lleva `acuerdos_incumplidos_truncado: true` y un aviso.
+
 ---
 
 ## Tareas
@@ -275,13 +326,13 @@ cita_origen? } ] }`
 | Método | Ruta | Fase | Permiso | Notas |
 |---|---|---|---|---|
 | GET | `/api/reuniones` | 1B | `reuniones.ver` | Filtros `desde`, `hasta`, `proyecto`, `estado`. **Filtrado de visibilidad en servidor**. Cada ítem lleva `convocado_nombre` y `permisos_fila: { editar, borrar }` |
-| POST | `/api/reuniones` | 1B | `reuniones.gestionar` | Crea la reunión e intenta el evento en Calendar. Si Google no está o falla (**D-21**), la reunión se guarda igual y la respuesta lleva `calendario_sincronizado: false` (más `calendario_error`, `calendar_disponible`) |
+| POST | `/api/reuniones` | 1B / 4 | `reuniones.gestionar` | Crea la reunión e intenta el evento en Calendar. Si Google no está o falla (**D-21**), la reunión se guarda igual y la respuesta lleva `calendario_sincronizado: false` (más `calendario_error`, `calendar_disponible`). **Fase 4:** si viene `serie_id` y `orden_del_dia` vacío/ausente, el servidor calcula la sugerencia (acuerdos `abierto`/`incumplido` + aplazados de la reunión anterior vía `Serie-index`) y la **persiste** en `orden_del_dia` antes de Calendar/Put. Si el cliente ya manda texto, no se pisa |
 | GET | `/api/reuniones/:id` | 1B | `reuniones.ver` + visibilidad | `META` + asistentes + acuerdos + puntos + vínculos. Incluye `permisos_fila` y nombres resueltos |
 | PATCH | `/api/reuniones/:id` | 1B | `reuniones.gestionar` | El orden del día solo es editable **antes** de `celebrada` / `acta_*` (**D-20**); después, `409`. Al pasar a esos estados se copia a `orden_del_dia_congelado` si no había |
 | DELETE | `/api/reuniones/:id` | 1B | `reuniones.gestionar` | Borra el registro y el evento de Calendar (stub: no tumba si falla) |
 | POST | `/api/reuniones/:id/asistentes` | 1B | `reuniones.gestionar` | Tras guardar ASIST#, si hay `calendar_event_id` sincroniza attendees (emails del ítem o de `igp_usuarios`). Fallo de Calendar (**D-21**): alta OK + `calendario_sincronizado: false` opcional |
 | POST | `/api/reuniones/:id/aviso-grabacion` | 1B | `reuniones.gestionar` | Registra informados y quién acepta. **Sin esto no se emite URL de subida de audio** |
-| GET | `/api/reuniones/:id/sugerencia-orden-del-dia` | 1B | `reuniones.gestionar` | Devuelve acuerdos pendientes y temas aplazados de la reunión anterior de la serie, como **texto editable**. En Fase 4 pasa a generarse solo |
+| GET | `/api/reuniones/:id/sugerencia-orden-del-dia` | 1B / 4 | `reuniones.gestionar` | Lectura: acuerdos `abierto` e `incumplido` (no `cumplido`) y temas aplazados/candidatos de la reunión anterior de la serie, como **texto editable** (`· Acuerdo pendiente:…`, `· Acuerdo incumplido:…`, `· Aplazado:…`). Campos: `texto`, `origen_reunion_id`, `acuerdos_abiertos`, `acuerdos_incumplidos`, `puntos_aplazados`, `mensaje`. **No persiste**; el auto-relleno al convocar es el `POST /api/reuniones` (Fase 4) |
 | POST | `/api/reuniones/:id/acuerdos` | 1B | `reuniones.gestionar` | En 1B se escriben a mano |
 | PATCH | `/api/reuniones/:id/acuerdos/:acuerdoId` | 1B | `reuniones.gestionar` | Estado `cumplido` / `incumplido` |
 | POST | `/api/reuniones/:id/acuerdos/crear-tareas` | 1B | `reuniones.gestionar` | **D-23.** Convierte acuerdos abiertos sin `tarea_id` en tareas vía `crearTareasEnLote`, y enlaza `acuerdo.tarea_id`. Cuerpo opcional: `{ acuerdo_ids?: string[] }` (si no viene, todos los candidatos con responsable). Respuesta: `{ creadas, omitidas, enlazados }` |
@@ -298,7 +349,7 @@ cita_origen? } ] }`
 | POST | `/api/reuniones/:id/reintentar` | `reuniones.gestionar` | Solo desde `error`. Respeta el máximo de intentos |
 | GET | `/api/reuniones/:id/transcripcion` | `reuniones.ver` + visibilidad | URL firmada del JSON en S3 |
 | DELETE | `/api/reuniones/:id/audio` | `reuniones.borrar_audio` | Solo con acta validada y audio presente; si no, `409`. Conserva transcripción y acta |
-| GET | `/api/reuniones/:id/acta.pdf` | `reuniones.ver` + visibilidad | Fase 4 |
+| GET | `/api/reuniones/:id/acta.pdf` | `reuniones.ver` + visibilidad | Fase 4. `200` `application/pdf` (regenera y sobrescribe S3). `409` si no hay `resumen` usable («Aún no hay acta para descargar»). `404` si no existe o no es visible (D-16). Cabecera marca «BORRADOR» si `estado = acta_borrador` |
 
 ### Cola de validación de propuestas (Fase 2)
 

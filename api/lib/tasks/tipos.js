@@ -144,6 +144,8 @@ export const SK = {
   comentario: (iso, uuid) => `COMENT#${iso}#${uuid}`,
   asistente: (idUsuario) => `ASIST#${idUsuario}`,
   punto: (orden) => `PUNTO#${String(orden).padStart(3, '0')}`,
+  /** Tarea dentro de una plantilla de proyecto (`PLANTILLA#…`). Orden padded a 3. */
+  tareaPlantilla: (orden) => `TAREA#${String(orden).padStart(3, '0')}`,
   acuerdo: (idAcuerdo) => `ACUERDO#${idAcuerdo}`,
   propuesta: (idPropuesta) => `PROPUESTA#${idPropuesta}`,
   vinculo: (tipo, id) => `VINC#${tipo}#${id}`,

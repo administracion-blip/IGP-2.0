@@ -7,6 +7,13 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { MIN_TOUCH } from '../../constants/layout';
+import {
+  tasksColor,
+  tasksIcono,
+  tasksRadius,
+  tasksSpace,
+  tasksTipo,
+} from '../../constants/tasksUiTokens';
 import { grupoVencimiento, proyectoDeTareaAlcanzable } from '../../lib/tasksUi';
 import { abreviaturaDepartamento, colorDepartamento } from '../../lib/tasksDepartamentoColor';
 import type { Tarea } from '../../types/tasks';
@@ -56,7 +63,7 @@ export function PastillaTareaCalendario({
           onPress={onAbrirProyecto}
           accessibilityLabel={`Ver el proyecto ${tarea.proyecto_nombre}`}
         >
-          <MaterialIcons name="north-east" size={14} color="#64748b" />
+          <MaterialIcons name="north-east" size={tasksIcono.sizeSm} color={tasksIcono.color} />
         </TouchableOpacity>
       ) : null}
     </View>
@@ -67,20 +74,26 @@ const styles = StyleSheet.create({
   pill: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    backgroundColor: '#ffffff',
-    borderRadius: 8,
+    backgroundColor: tasksColor.superficie,
+    borderRadius: tasksRadius.contenedor,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksColor.bordeSutil,
     overflow: 'hidden',
     minHeight: 36,
   },
-  pillVencida: { backgroundColor: '#fef2f2', borderColor: '#fecaca' },
+  pillVencida: { backgroundColor: tasksColor.peligroSuave },
   franja: { width: 4 },
-  cuerpo: { flex: 1, minWidth: 0, paddingHorizontal: 7, paddingVertical: 5, gap: 2 },
-  titulo: { fontSize: 12, fontWeight: '600', color: '#0f172a', lineHeight: 16 },
-  meta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  abrev: { fontSize: 10, fontWeight: '800', letterSpacing: 0.3 },
-  alerta: { fontSize: 12, fontWeight: '800', color: '#dc2626' },
+  cuerpo: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    gap: 2,
+  },
+  titulo: { ...tasksTipo.etiqueta, color: tasksColor.textoPrimario },
+  meta: { flexDirection: 'row', alignItems: 'center', gap: tasksSpace[1] },
+  abrev: { ...tasksTipo.micro, fontWeight: '700', letterSpacing: 0.3 },
+  alerta: { ...tasksTipo.etiqueta, color: tasksColor.peligro },
   proyectoBtn: {
     width: MIN_TOUCH,
     minHeight: MIN_TOUCH,

@@ -9,6 +9,13 @@ import type { ReactNode } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { MIN_TOUCH } from '../../constants/layout';
+import {
+  tasksColor,
+  tasksIcono,
+  tasksRadius,
+  tasksSpace,
+  tasksTipo,
+} from '../../constants/tasksUiTokens';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import type { NombreIcono } from '../../lib/tasksUi';
 
@@ -53,7 +60,7 @@ export function SeccionFicha({
   return (
     <View style={[styles.card, destacada && styles.cardDestacada]}>
       <View style={[styles.header, destacada && styles.headerDestacada]}>
-        <MaterialIcons name={icono} size={18} color="#0ea5e9" />
+        <MaterialIcons name={icono} size={tasksIcono.size} color={tasksColor.acento} />
         <Text style={[styles.titulo, destacada && styles.tituloDestacada]}>{titulo}</Text>
         {contador != null ? <Text style={styles.contador}>{contador}</Text> : null}
         <View style={styles.headerEspacio} />
@@ -64,7 +71,11 @@ export function SeccionFicha({
             disabled={accion.deshabilitada}
             accessibilityLabel={accion.etiqueta}
           >
-            <MaterialIcons name={accion.icono} size={16} color={accion.deshabilitada ? '#94a3b8' : '#0ea5e9'} />
+            <MaterialIcons
+              name={accion.icono}
+              size={tasksIcono.sizeSm}
+              color={accion.deshabilitada ? tasksColor.textoTerciario : tasksColor.acento}
+            />
             <Text style={[styles.accionTexto, accion.deshabilitada && styles.accionTextoDeshabilitado]}>
               {accion.etiqueta}
             </Text>
@@ -74,14 +85,14 @@ export function SeccionFicha({
 
       {cargando ? (
         <View style={styles.centro}>
-          <ActivityIndicator size="small" color="#0ea5e9" />
+          <ActivityIndicator size="small" color={tasksColor.acento} />
         </View>
       ) : error ? (
         <View style={styles.centro}>
           <Text style={styles.error}>{error}</Text>
           {onReintentar ? (
             <TouchableOpacity style={styles.reintentar} onPress={onReintentar}>
-              <MaterialIcons name="refresh" size={16} color="#0ea5e9" />
+              <MaterialIcons name="refresh" size={tasksIcono.sizeSm} color={tasksColor.acento} />
               <Text style={styles.reintentarTexto}>Reintentar</Text>
             </TouchableOpacity>
           ) : null}
@@ -97,37 +108,36 @@ export function SeccionFicha({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
+    backgroundColor: tasksColor.superficie,
+    borderRadius: tasksRadius.contenedor,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 14,
+    borderColor: tasksColor.bordeSutil,
+    padding: tasksSpace[3] + 2,
     gap: 10,
   },
   cardDestacada: {
     borderLeftWidth: 3,
-    borderLeftColor: '#0ea5e9',
-    paddingLeft: 12,
+    borderLeftColor: tasksColor.acento,
+    paddingLeft: tasksSpace[3],
   },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: tasksSpace[2] },
   headerDestacada: {
     marginHorizontal: -6,
     marginTop: -4,
     paddingHorizontal: 6,
     paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    borderRadius: tasksRadius.contenedor,
+    backgroundColor: tasksColor.superficieHundida,
   },
-  titulo: { fontSize: 14, fontWeight: '700', color: '#334155' },
-  tituloDestacada: { color: '#0f172a', fontWeight: '700' },
+  titulo: { ...tasksTipo.tituloSeccion },
+  tituloDestacada: { color: tasksColor.textoPrimario },
   contador: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#64748b',
-    backgroundColor: '#f1f5f9',
+    ...tasksTipo.micro,
+    color: tasksColor.textoSecundario,
+    backgroundColor: tasksColor.superficieHundida,
     paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 999,
+    borderRadius: tasksRadius.pildora,
     overflow: 'hidden',
   },
   headerEspacio: { flex: 1 },
@@ -137,18 +147,31 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: tasksRadius.control,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: tasksColor.bordeSutil,
+    backgroundColor: tasksColor.superficieHundida,
   },
-  accionTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 12 },
+  accionTactil: { minHeight: MIN_TOUCH, paddingHorizontal: tasksSpace[3] },
   accionDeshabilitada: { opacity: 0.6 },
-  accionTexto: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
-  accionTextoDeshabilitado: { color: '#94a3b8' },
-  centro: { alignItems: 'center', gap: 8, paddingVertical: 16 },
-  error: { fontSize: 12, color: '#ef4444', textAlign: 'center' },
+  accionTexto: {
+    ...tasksTipo.etiqueta,
+    color: tasksColor.acento,
+  },
+  accionTextoDeshabilitado: { color: tasksColor.textoTerciario },
+  centro: { alignItems: 'center', gap: tasksSpace[2], paddingVertical: tasksSpace[4] },
+  error: {
+    ...tasksTipo.etiqueta,
+    color: tasksColor.peligro,
+    textAlign: 'center',
+  },
   reintentar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  reintentarTexto: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
-  vacio: { fontSize: 12, color: '#94a3b8', paddingVertical: 6, lineHeight: 18 },
+  reintentarTexto: {
+    ...tasksTipo.etiqueta,
+    color: tasksColor.acento,
+  },
+  vacio: {
+    ...tasksTipo.micro,
+    paddingVertical: 6,
+  },
 });

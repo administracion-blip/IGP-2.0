@@ -25,8 +25,10 @@ import {
   ModalFormularioReunion,
   type ResultadoGuardadoReunion,
 } from '../../components/tasks/ModalFormularioReunion';
+import { TasksPageHeader } from '../../components/tasks/TasksPageHeader';
 import { estilosModalTasks as modal } from '../../components/tasks/estilosTasks';
 import { MIN_TOUCH } from '../../constants/layout';
+import { tasksColor } from '../../constants/tasksUiTokens';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useAccesoTasks } from '../../hooks/useAccesoTasks';
 import { useNombresUsuarios } from '../../hooks/useNombresUsuarios';
@@ -81,7 +83,7 @@ export default function ListadoReunionesScreen() {
   const [filtroEstado, setFiltroEstado] = useState<string>(TODOS);
   const [filtroProyecto, setFiltroProyecto] = useState('');
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
-  const [filaSeleccionada, setFilaSeleccionada] = useState<number | null>(null);
+  const [idSeleccionado, setIdSeleccionado] = useState<string | null>(null);
 
   const [formVisible, setFormVisible] = useState(false);
   const [reunionBaja, setReunionBaja] = useState<Reunion | null>(null);
@@ -157,7 +159,7 @@ export default function ListadoReunionesScreen() {
   );
 
   useEffect(() => {
-    setFilaSeleccionada(null);
+    setIdSeleccionado(null);
     void cargar();
   }, [cargar]);
 
@@ -233,7 +235,7 @@ export default function ListadoReunionesScreen() {
         return;
       }
       setReunionBaja(null);
-      setFilaSeleccionada(null);
+      setIdSeleccionado(null);
       void cargar();
     } catch (e) {
       console.error('[reuniones] fallo al borrar', e);
@@ -246,7 +248,7 @@ export default function ListadoReunionesScreen() {
   const trasGuardado = useCallback(
     (resultado: ResultadoGuardadoReunion) => {
       setFormVisible(false);
-      setFilaSeleccionada(null);
+      setIdSeleccionado(null);
       if (resultado.avisoCalendario) setAvisoCalendario(resultado.avisoCalendario);
       else if (resultado.calendarioSincronizado === false) {
         setAvisoCalendario(
@@ -260,6 +262,22 @@ export default function ListadoReunionesScreen() {
     },
     [cargar, router],
   );
+
+  const filaSeleccionada = useMemo(() => {
+    if (!idSeleccionado) return null;
+    const idx = filtrados.findIndex((r) => r.id_reunion === idSeleccionado);
+    return idx >= 0 ? idx : null;
+  }, [filtrados, idSeleccionado]);
+
+  const seleccionado = filaSeleccionada != null ? filtrados[filaSeleccionada] : null;
+
+  const abrirCrear = useCallback(() => {
+    if (!puedeGestionar) {
+      setError('No tienes permiso para convocar reuniones.');
+      return;
+    }
+    setFormVisible(true);
+  }, [puedeGestionar]);
 
   if (acceso.permisosCargando) {
     return (
@@ -279,10 +297,18 @@ export default function ListadoReunionesScreen() {
     );
   }
 
-  const seleccionado = filaSeleccionada != null ? filtrados[filaSeleccionada] : null;
-
   return (
     <View style={styles.container}>
+      <View style={styles.pageHeader}>
+        <TasksPageHeader
+          title="Reuniones"
+          subtitle="Convocatorias, actas y propuestas"
+          countLabel={`${filtrados.length} ${filtrados.length === 1 ? 'reunión' : 'reuniones'}`}
+          onBack={() => router.push('/proyectos' as never)}
+          compact={isCompact}
+        />
+      </View>
+
       {avisoCalendario ? (
         <View style={styles.bannerCalendario}>
           <MaterialIcons name="event-busy" size={18} color="#b45309" />
@@ -349,7 +375,9 @@ export default function ListadoReunionesScreen() {
       ) : null}
 
       <TablaBasica<Reunion>
+        variant="tasks"
         title="Reuniones"
+        hideHeader
         onBack={() => router.push('/proyectos' as never)}
         columnas={COLUMNAS}
         datos={filtrados}
@@ -360,14 +388,14 @@ export default function ListadoReunionesScreen() {
         filtroBusqueda={filtroBusqueda}
         onFiltroChange={setFiltroBusqueda}
         selectedRowIndex={filaSeleccionada}
-        onSelectRow={setFilaSeleccionada}
-        onCrear={() => {
-          if (!puedeGestionar) {
-            setError('No tienes permiso para convocar reuniones.');
+        onSelectRow={(idx) => {
+          if (idx == null) {
+            setIdSeleccionado(null);
             return;
           }
-          setFormVisible(true);
+          setIdSeleccionado(filtrados[idx]?.id_reunion ?? null);
         }}
+        onCrear={abrirCrear}
         onEditar={(item) => {
           if (!puedeEditarFila(item, puedeGestionar)) {
             setError('No puedes editar esta reunión.');
@@ -382,6 +410,8 @@ export default function ListadoReunionesScreen() {
         toolbarCrearLabel="Convocar"
         emptyMessage="No hay reuniones que puedas ver con estos filtros"
         emptyFilterMessage="Ninguna reunión coincide con la búsqueda"
+        emptyActionLabel={puedeGestionar ? 'Convocar reunión' : undefined}
+        onEmptyAction={puedeGestionar ? abrirCrear : undefined}
         defaultColWidth={130}
         getRowKey={(item) => item.id_reunion}
         getRowStyle={(item) =>
@@ -523,7 +553,8 @@ function ModalReunionConUsuarios(
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+  container: { flex: 1, backgroundColor: tasksColor.fondoApp },
+  pageHeader: { paddingHorizontal: 10, paddingTop: 10 },
   centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
   centroTexto: { fontSize: 13, color: '#64748b', textAlign: 'center' },
 
@@ -532,7 +563,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 8,
     marginHorizontal: 10,
-    marginTop: 10,
+    marginTop: 0,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 8,

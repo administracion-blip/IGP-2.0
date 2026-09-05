@@ -301,7 +301,7 @@ function AppLayoutContent() {
 
       {/* Footer */}
       <View style={[styles.footer, { paddingBottom: Math.max(6, insets.bottom), paddingLeft: Math.max(10, insets.left), paddingRight: Math.max(10, insets.right) }]}>
-        <Text style={styles.footerText}>ERP Hostelería © {new Date().getFullYear()}</Text>
+        <Text style={styles.footerText}>IGP 2.0 by Tabolize © {new Date().getFullYear()}</Text>
       </View>
     </View>
   );

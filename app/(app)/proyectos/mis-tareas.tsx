@@ -21,6 +21,12 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { MIN_TOUCH } from '../../constants/layout';
+import {
+  tasksColor,
+  tasksRadius,
+  tasksTabularNums,
+  tasksTipo,
+} from '../../constants/tasksUiTokens';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useAccesoTasks } from '../../hooks/useAccesoTasks';
 import { useNombresUsuarios } from '../../hooks/useNombresUsuarios';
@@ -44,6 +50,9 @@ import {
   lunesDeSemanaIso,
 } from '../../lib/tasksCalendario';
 import { TarjetaTarea } from '../../components/tasks/TarjetaTarea';
+import { TasksPageHeader } from '../../components/tasks/TasksPageHeader';
+import { TasksEmptyState } from '../../components/tasks/TasksEmptyState';
+import { TasksCardsSkeleton } from '../../components/tasks/TasksSkeleton';
 import { ModalMotivoBloqueo } from '../../components/tasks/ModalMotivoBloqueo';
 import { ModalFormularioTarea } from '../../components/tasks/ModalFormularioTarea';
 import {
@@ -186,7 +195,7 @@ export default function MisTareasScreen() {
   if (acceso.permisosCargando) {
     return (
       <View style={styles.centro}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={tasksColor.acento} />
         <Text style={styles.centroTexto}>Cargando permisos…</Text>
       </View>
     );
@@ -195,7 +204,7 @@ export default function MisTareasScreen() {
   if (!puedeVer) {
     return (
       <View style={styles.centro}>
-        <MaterialIcons name="lock-outline" size={30} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={30} color={tasksColor.textoTerciario} />
         <Text style={styles.centroTexto}>No tienes permiso para ver tus tareas de proyecto.</Text>
       </View>
     );
@@ -203,32 +212,32 @@ export default function MisTareasScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <TouchableOpacity
-          onPress={() => router.push('/proyectos' as never)}
-          style={styles.backBtn}
-          accessibilityLabel="Volver"
-        >
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
-        </TouchableOpacity>
-        <View style={styles.headerTexto}>
-          <Text style={styles.title}>Mis tareas</Text>
-          <Text style={styles.subtitle}>Abiertas y ordenadas por vencimiento</Text>
-        </View>
-        <View style={[styles.headerAcciones, shouldStackToolbar && styles.headerAccionesWrap]}>
-          <SuscripcionVencimientosIcs compacto={isCompact} />
-          {puedeCrear ? (
-            <TouchableOpacity
-              style={[styles.nuevaBtn, isCompact && styles.nuevaBtnTactil]}
-              onPress={() => setCrearVisible(true)}
-              accessibilityLabel="Nueva tarea"
-            >
-              <MaterialIcons name="add" size={18} color="#ffffff" />
-              <Text style={styles.nuevaTexto}>Nueva</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      </View>
+      <TasksPageHeader
+        title="Mis tareas"
+        subtitle="Abiertas y ordenadas por vencimiento"
+        countLabel={
+          tareas.length > 0
+            ? `${tareas.length}${cursor ? '+' : ''} ${tareas.length === 1 ? 'abierta' : 'abiertas'}`
+            : undefined
+        }
+        onBack={() => router.push('/proyectos' as never)}
+        compact={isCompact}
+        actions={
+          <View style={[styles.headerAcciones, shouldStackToolbar && styles.headerAccionesWrap]}>
+            <SuscripcionVencimientosIcs compacto={isCompact} />
+            {puedeCrear ? (
+              <TouchableOpacity
+                style={[styles.nuevaBtn, isCompact && styles.nuevaBtnTactil]}
+                onPress={() => setCrearVisible(true)}
+                accessibilityLabel="Nueva tarea"
+              >
+                <MaterialIcons name="add" size={18} color={tasksColor.textoInverso} />
+                <Text style={styles.nuevaTexto}>Nueva</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        }
+      />
 
       <View style={[styles.toolbar, shouldStackToolbar && styles.toolbarWrap]}>
         <View style={styles.kpis}>
@@ -260,7 +269,7 @@ export default function MisTareasScreen() {
               }
               accessibilityLabel={vista === 'semana' ? 'Semana anterior' : 'Mes anterior'}
             >
-              <MaterialIcons name="chevron-left" size={22} color="#334155" />
+              <MaterialIcons name="chevron-left" size={22} color={tasksColor.textoSecundario} />
             </TouchableOpacity>
             <Text style={styles.rangoTexto} numberOfLines={1}>
               {vista === 'semana'
@@ -278,7 +287,7 @@ export default function MisTareasScreen() {
               }
               accessibilityLabel={vista === 'semana' ? 'Semana siguiente' : 'Mes siguiente'}
             >
-              <MaterialIcons name="chevron-right" size={22} color="#334155" />
+              <MaterialIcons name="chevron-right" size={22} color={tasksColor.textoSecundario} />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.hoyBtn}
@@ -309,7 +318,11 @@ export default function MisTareasScreen() {
                 accessibilityLabel={`Vista ${etiqueta}`}
                 accessibilityState={{ selected: activo }}
               >
-                <MaterialIcons name={icono} size={20} color={activo ? '#0ea5e9' : '#94a3b8'} />
+                <MaterialIcons
+                  name={icono}
+                  size={20}
+                  color={activo ? tasksColor.acento : tasksColor.textoTerciario}
+                />
                 <Text style={[styles.viewModeTexto, activo && styles.viewModeTextoActivo]}>{etiqueta}</Text>
               </TouchableOpacity>
             );
@@ -323,23 +336,22 @@ export default function MisTareasScreen() {
 
       {cambio.error ? (
         <TouchableOpacity style={styles.avisoAccion} onPress={cambio.descartarError}>
-          <MaterialIcons name="error-outline" size={16} color="#b91c1c" />
+          <MaterialIcons name="error-outline" size={16} color={tasksColor.peligro} />
           <Text style={styles.avisoAccionTexto}>{cambio.error}</Text>
-          <MaterialIcons name="close" size={16} color="#b91c1c" />
+          <MaterialIcons name="close" size={16} color={tasksColor.peligro} />
         </TouchableOpacity>
       ) : null}
 
       {cargando && tareas.length === 0 ? (
-        <View style={styles.centro}>
-          <ActivityIndicator size="large" color="#0ea5e9" />
-          <Text style={styles.centroTexto}>Cargando tus tareas…</Text>
+        <View style={styles.skeletonWrap}>
+          <TasksCardsSkeleton />
         </View>
       ) : error && tareas.length === 0 ? (
         <View style={styles.centro}>
-          <MaterialIcons name="error-outline" size={36} color="#f87171" />
+          <MaterialIcons name="error-outline" size={36} color={tasksColor.peligro} />
           <Text style={styles.centroError}>{error}</Text>
           <TouchableOpacity style={styles.reintentar} onPress={() => void cargar('inicial')}>
-            <MaterialIcons name="refresh" size={18} color="#0ea5e9" />
+            <MaterialIcons name="refresh" size={18} color={tasksColor.acento} />
             <Text style={styles.reintentarTexto}>Reintentar</Text>
           </TouchableOpacity>
         </View>
@@ -352,18 +364,19 @@ export default function MisTareasScreen() {
             <RefreshControl
               refreshing={refrescando}
               onRefresh={() => void cargar('refrescar')}
-              tintColor="#0ea5e9"
+              tintColor={tasksColor.acento}
             />
           }
         >
           {tareas.length === 0 ? (
-            <View style={styles.vacio}>
-              <MaterialIcons name="check-circle-outline" size={40} color="#16a34a" />
-              <Text style={styles.vacioTitulo}>No tienes nada pendiente</Text>
-              <Text style={styles.vacioTexto}>
-                Cuando alguien te asigne una tarea aparecerá aquí, con su fecha límite.
-              </Text>
-            </View>
+            <TasksEmptyState
+              icono="check-circle-outline"
+              colorIcono={tasksColor.exito}
+              titulo="No tienes nada pendiente"
+              descripcion="Cuando alguien te asigne una tarea aparecerá aquí, con su fecha límite."
+              actionLabel={puedeCrear ? 'Nueva tarea' : undefined}
+              onAction={puedeCrear ? () => setCrearVisible(true) : undefined}
+            />
           ) : (
             grupos.map(({ grupo, tareas: delGrupo }) => {
               const tono = TONO_GRUPO_VENCIMIENTO[grupo];
@@ -414,13 +427,14 @@ export default function MisTareasScreen() {
       ) : (
         <View style={styles.calendarioWrap}>
           {tareas.length === 0 ? (
-            <View style={styles.vacio}>
-              <MaterialIcons name="event-available" size={40} color="#16a34a" />
-              <Text style={styles.vacioTitulo}>No tienes nada pendiente</Text>
-              <Text style={styles.vacioTexto}>
-                Cuando alguien te asigne una tarea aparecerá en el calendario, en su fecha límite.
-              </Text>
-            </View>
+            <TasksEmptyState
+              icono="event-available"
+              colorIcono={tasksColor.exito}
+              titulo="No tienes nada pendiente"
+              descripcion="Cuando alguien te asigne una tarea aparecerá en el calendario, en su fecha límite."
+              actionLabel={puedeCrear ? 'Nueva tarea' : undefined}
+              onAction={puedeCrear ? () => setCrearVisible(true) : undefined}
+            />
           ) : (
             <CalendarioMisTareas
               modo={vista}
@@ -534,10 +548,10 @@ function BotonCargarMas({
       disabled={cargandoMas}
     >
       {cargandoMas ? (
-        <ActivityIndicator size="small" color="#0ea5e9" />
+        <ActivityIndicator size="small" color={tasksColor.acento} />
       ) : (
         <>
-          <MaterialIcons name="expand-more" size={18} color="#0ea5e9" />
+          <MaterialIcons name="expand-more" size={18} color={tasksColor.acento} />
           <Text style={styles.masTexto}>Cargar más tareas</Text>
         </>
       )}
@@ -546,46 +560,26 @@ function BotonCargarMas({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f8fafc' },
+  container: { flex: 1, padding: 16, backgroundColor: tasksColor.fondoApp },
   centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  centroTexto: { fontSize: 13, color: '#64748b', textAlign: 'center' },
-  centroError: { fontSize: 13, color: '#ef4444', textAlign: 'center' },
+  centroTexto: { ...tasksTipo.cuerpo, textAlign: 'center' },
+  centroError: { ...tasksTipo.cuerpo, color: tasksColor.peligro, textAlign: 'center' },
   reintentar: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: MIN_TOUCH },
-  reintentarTexto: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
+  reintentarTexto: { ...tasksTipo.dato, color: tasksColor.acento, fontWeight: '600' },
 
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 12,
-    flexWrap: 'wrap',
-  },
-  headerTexto: { flex: 1, minWidth: 140 },
-  backBtn: {
-    width: MIN_TOUCH,
-    height: MIN_TOUCH,
-    borderRadius: 8,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  title: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
-  subtitle: { fontSize: 13, color: '#64748b', marginTop: 2 },
   headerAcciones: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
   headerAccionesWrap: { flexWrap: 'wrap', justifyContent: 'flex-end' },
   nuevaBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#0ea5e9',
+    backgroundColor: tasksColor.acento,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: tasksRadius.control,
   },
   nuevaBtnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 14 },
-  nuevaTexto: { fontSize: 13, fontWeight: '700', color: '#ffffff' },
+  nuevaTexto: { ...tasksTipo.dato, fontWeight: '700', color: tasksColor.textoInverso },
 
   toolbar: {
     flexDirection: 'row',
@@ -607,41 +601,52 @@ const styles = StyleSheet.create({
   rangoBtn: {
     width: MIN_TOUCH,
     height: MIN_TOUCH,
-    borderRadius: 8,
-    backgroundColor: '#ffffff',
+    borderRadius: tasksRadius.control,
+    backgroundColor: tasksColor.superficie,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksColor.bordeFuerte,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  rangoTexto: { fontSize: 14, fontWeight: '700', color: '#0f172a', minWidth: 120, textAlign: 'center' },
+  rangoTexto: {
+    ...tasksTipo.dato,
+    fontWeight: '700',
+    minWidth: 120,
+    textAlign: 'center',
+  },
   hoyBtn: {
     minHeight: MIN_TOUCH,
     paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#e0f2fe',
+    borderRadius: tasksRadius.control,
+    backgroundColor: tasksColor.acentoSuave,
     borderWidth: 1,
-    borderColor: '#bae6fd',
+    borderColor: tasksColor.bordeFuerte,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  hoyTexto: { fontSize: 13, fontWeight: '700', color: '#0369a1' },
+  hoyTexto: { ...tasksTipo.dato, fontWeight: '700', color: tasksColor.acentoTexto },
   stat: {
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 10,
+    borderRadius: tasksRadius.contenedor,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: tasksColor.bordeSutil,
+    backgroundColor: tasksColor.superficie,
   },
-  statAlerta: { borderColor: '#fecaca', backgroundColor: '#fef2f2' },
-  statNumero: { fontSize: 20, fontWeight: '800', color: '#334155' },
-  statNumeroAlerta: { color: '#b91c1c' },
-  statEtiqueta: { fontSize: 12, color: '#64748b' },
-  statEtiquetaAlerta: { color: '#b91c1c', fontWeight: '600' },
+  statAlerta: {
+    borderColor: '#fecaca',
+    backgroundColor: tasksColor.peligroSuave,
+  },
+  statNumero: {
+    ...tasksTipo.tituloPantalla,
+    ...tasksTabularNums,
+  },
+  statNumeroAlerta: { color: tasksColor.peligro },
+  statEtiqueta: { ...tasksTipo.etiqueta },
+  statEtiquetaAlerta: { color: tasksColor.peligro, fontWeight: '600' },
 
   avisoAccion: {
     flexDirection: 'row',
@@ -650,20 +655,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     marginBottom: 10,
-    borderRadius: 8,
+    borderRadius: tasksRadius.contenedor,
     borderWidth: 1,
     borderColor: '#fecaca',
-    backgroundColor: '#fef2f2',
+    backgroundColor: tasksColor.peligroSuave,
     minHeight: MIN_TOUCH,
   },
-  avisoAccionTexto: { flex: 1, fontSize: 12, color: '#b91c1c', lineHeight: 17 },
+  avisoAccionTexto: { flex: 1, ...tasksTipo.etiqueta, color: tasksColor.peligro },
 
   viewModeWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
+    borderColor: tasksColor.bordeFuerte,
+    borderRadius: tasksRadius.contenedor,
     overflow: 'hidden',
   },
   viewModeBtn: {
@@ -672,34 +677,37 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#ffffff',
+    backgroundColor: tasksColor.superficie,
   },
   viewModeBtnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 14 },
-  viewModeBtnActive: { backgroundColor: '#e0f2fe' },
-  viewModeTexto: { fontSize: 13, fontWeight: '500', color: '#94a3b8' },
-  viewModeTextoActivo: { color: '#0ea5e9', fontWeight: '700' },
+  viewModeBtnActive: { backgroundColor: tasksColor.acentoSuave },
+  viewModeTexto: { ...tasksTipo.dato, color: tasksColor.textoTerciario },
+  viewModeTextoActivo: { color: tasksColor.acento, fontWeight: '700' },
 
   calendarioWrap: { flex: 1, minHeight: 0, gap: 10 },
-  avisoCalendario: { fontSize: 12, color: '#d97706', textAlign: 'center' },
+  avisoCalendario: { ...tasksTipo.etiqueta, color: tasksColor.aviso, textAlign: 'center' },
 
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 24, gap: 16 },
+  skeletonWrap: { flex: 1, paddingTop: 4 },
   grupo: { gap: 8 },
   grupoHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  grupoTitulo: { fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+  grupoTitulo: {
+    ...tasksTipo.etiqueta,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
   grupoContador: {
-    fontSize: 11,
-    fontWeight: '800',
+    ...tasksTipo.micro,
+    fontWeight: '700',
+    ...tasksTabularNums,
     paddingHorizontal: 7,
     paddingVertical: 1,
-    borderRadius: 999,
+    borderRadius: tasksRadius.pildora,
     overflow: 'hidden',
   },
   grupoLista: { gap: 8 },
-
-  vacio: { alignItems: 'center', gap: 8, paddingVertical: 48, paddingHorizontal: 24 },
-  vacioTitulo: { fontSize: 15, fontWeight: '700', color: '#334155' },
-  vacioTexto: { fontSize: 13, color: '#64748b', textAlign: 'center', lineHeight: 19 },
 
   masBtn: {
     flexDirection: 'row',
@@ -707,12 +715,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: tasksRadius.contenedor,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: tasksColor.bordeSutil,
+    backgroundColor: tasksColor.superficie,
   },
   masBtnTactil: { minHeight: MIN_TOUCH },
-  masTexto: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
-  errorPie: { fontSize: 12, color: '#ef4444', textAlign: 'center' },
+  masTexto: { ...tasksTipo.dato, fontWeight: '600', color: tasksColor.acento },
+  errorPie: { ...tasksTipo.etiqueta, color: tasksColor.peligro, textAlign: 'center' },
 });

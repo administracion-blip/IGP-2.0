@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Platform, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { tasksUi } from '../constants/tasksUiTokens';
+import { useBreakpoint } from '../hooks/useBreakpoint';
 
 const GRANADA_LAT = 37.1773;
 const GRANADA_LON = -3.5986;
@@ -90,6 +92,7 @@ type WeatherData = {
 };
 
 export default function WeatherWidget() {
+  const { shouldStackPanels } = useBreakpoint();
   const [data, setData] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -126,9 +129,8 @@ export default function WeatherWidget() {
       <View style={styles.widgetShell}>
         <View style={styles.widget}>
           <View style={styles.mainRow}>
-            <Text style={styles.headline}>Tiempo</Text>
-            <ActivityIndicator size="small" color="#0ea5e9" style={styles.loaderInline} />
-            <Text style={styles.loadingHint}>Granada</Text>
+            <Text style={styles.headline}>Tiempo · Granada</Text>
+            <ActivityIndicator size="small" color={tasksUi.color.acento} style={styles.loaderInline} />
           </View>
         </View>
       </View>
@@ -149,41 +151,43 @@ export default function WeatherWidget() {
   }
 
   const { current, daily } = data;
+  const apilar = shouldStackPanels;
 
   return (
     <View style={styles.widgetShell}>
       <View style={styles.widget}>
-        <View style={styles.mainRow}>
-          <View style={styles.headBlock}>
-            <Text style={styles.headline}>Tiempo</Text>
-            <Text style={styles.subHead}>Granada</Text>
+        <View style={[styles.mainRow, apilar && styles.mainRowApilado]}>
+          <View style={styles.actualFila}>
+            <View style={styles.headBlock}>
+              <Text style={styles.headline}>Tiempo · Granada</Text>
+            </View>
+
+            <View style={styles.currentCluster}>
+              <View style={styles.todayIconWrap}>
+                <MaterialIcons
+                  name={getWeatherIcon(current.weather_code)}
+                  size={28}
+                  color={getWeatherIconColor(current.weather_code)}
+                />
+              </View>
+              <View style={styles.currentTexts}>
+                <Text style={styles.todayTemp}>{Math.round(current.temperature_2m)}°</Text>
+                <Text style={styles.todayLabel} numberOfLines={1}>
+                  {getWeatherLabel(current.weather_code)}
+                </Text>
+                {current.precipitation_probability != null && current.precipitation_probability > 0 ? (
+                  <Text style={styles.rainProb}>Lluvia {current.precipitation_probability}%</Text>
+                ) : null}
+              </View>
+            </View>
           </View>
 
-          <View style={styles.currentCluster}>
-            <View style={styles.todayIconWrap}>
-              <MaterialIcons
-                name={getWeatherIcon(current.weather_code)}
-                size={34}
-                color={getWeatherIconColor(current.weather_code)}
-              />
-            </View>
-            <View style={styles.currentTexts}>
-              <Text style={styles.todayTemp}>{Math.round(current.temperature_2m)}°</Text>
-              <Text style={styles.todayLabel} numberOfLines={1}>
-                {getWeatherLabel(current.weather_code)}
-              </Text>
-              {current.precipitation_probability != null && current.precipitation_probability > 0 ? (
-                <Text style={styles.rainProb}>Lluvia {current.precipitation_probability}%</Text>
-              ) : null}
-            </View>
-          </View>
-
-          <View style={styles.verticalRule} />
+          {apilar ? null : <View style={styles.verticalRule} />}
 
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            style={styles.forecastScroll}
+            style={[styles.forecastScroll, apilar && styles.forecastScrollApilado]}
             contentContainerStyle={styles.forecastScrollContent}
           >
             {daily.time.slice(0, 8).map((dateStr, i) => {
@@ -193,7 +197,7 @@ export default function WeatherWidget() {
                   <Text style={styles.dayChipLabel}>{formatDayLabel(dateStr, i)}</Text>
                   <MaterialIcons
                     name={getWeatherIcon(daily.weather_code[i] ?? 0)}
-                    size={22}
+                    size={20}
                     color={getWeatherIconColor(daily.weather_code[i] ?? 0)}
                   />
                   <Text style={styles.dayChipTemp}>
@@ -214,32 +218,19 @@ export default function WeatherWidget() {
   );
 }
 
-const CARD_SHADOW =
-  Platform.OS === 'web'
-    ? ({ boxShadow: '0 8px 24px rgba(15,23,42,0.06)' } as object)
-    : {
-        shadowColor: '#0f172a',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.06,
-        shadowRadius: 24,
-        elevation: 2,
-      };
-
 const styles = StyleSheet.create({
   widgetShell: {
     width: '100%',
     alignSelf: 'stretch',
-    marginBottom: 16,
-    borderRadius: 16,
-    ...CARD_SHADOW,
+    borderRadius: tasksUi.radius.contenedor,
   },
   widget: {
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
+    backgroundColor: tasksUi.color.superficie,
+    borderRadius: tasksUi.radius.contenedor,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksUi.color.bordeSutil,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: tasksUi.space[3],
     width: '100%',
     alignSelf: 'stretch',
     overflow: 'hidden',
@@ -249,35 +240,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minHeight: 52,
   },
+  mainRowApilado: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    minHeight: 0,
+    gap: tasksUi.space[3],
+  },
+  actualFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  forecastScrollApilado: {
+    flex: 0,
+    width: '100%',
+    alignSelf: 'stretch',
+  },
   headBlock: {
     flexShrink: 0,
     marginRight: 10,
     justifyContent: 'center',
   },
   headline: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#64748b',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
-  },
-  subHead: {
-    fontSize: 10,
-    color: '#64748b',
-    marginTop: 2,
-    fontWeight: '600',
+    ...tasksUi.tipo.etiqueta,
   },
   loaderInline: { marginHorizontal: 10 },
-  loadingHint: { fontSize: 12, color: '#64748b' },
   currentCluster: {
     flexDirection: 'row',
     alignItems: 'center',
     flexShrink: 0,
   },
   todayIconWrap: {
-    width: 40,
-    height: 40,
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -287,28 +282,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   todayTemp: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#f59e0b',
-    ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
+    fontSize: 30,
+    fontWeight: '600',
+    lineHeight: 34,
+    color: tasksUi.color.textoPrimario,
+    ...tasksUi.tabularNums,
   },
   todayLabel: {
-    fontSize: 12,
-    color: '#334155',
-    fontWeight: '500',
+    ...tasksUi.tipo.etiqueta,
+    color: tasksUi.color.textoSecundario,
     marginTop: 0,
   },
   rainProb: {
-    fontSize: 10,
-    color: '#38bdf8',
+    ...tasksUi.tipo.micro,
+    color: tasksUi.color.textoEnlace,
     marginTop: 2,
-    fontWeight: '600',
   },
   verticalRule: {
     width: StyleSheet.hairlineWidth,
     alignSelf: 'stretch',
     minHeight: 44,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: tasksUi.color.bordeSutil,
     marginHorizontal: 10,
     flexShrink: 0,
   },
@@ -322,43 +316,34 @@ const styles = StyleSheet.create({
     paddingRight: 4,
   },
   dayChip: {
-    width: 72,
+    width: 64,
     alignItems: 'center',
     paddingVertical: 4,
-    paddingHorizontal: 4,
-    marginRight: 8,
-    borderRadius: 6,
-    backgroundColor: '#f8fafc',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#e2e8f0',
+    paddingHorizontal: 2,
+    marginRight: tasksUi.space[4],
   },
   dayChipLabel: {
-    fontSize: 10,
-    color: '#64748b',
-    fontWeight: '700',
+    ...tasksUi.tipo.etiqueta,
     marginBottom: 4,
   },
   dayChipTemp: {
-    fontSize: 10,
-    color: '#334155',
-    fontWeight: '600',
+    ...tasksUi.tipo.micro,
+    color: tasksUi.color.textoSecundario,
     marginTop: 2,
-    ...(Platform.OS === 'web' ? { fontFamily: '"Courier New", Courier, monospace' } as object : { fontFamily: 'monospace' }),
+    ...tasksUi.tabularNums,
   },
   dayChipRain: {
-    fontSize: 9,
-    color: '#38bdf8',
+    ...tasksUi.tipo.micro,
+    color: tasksUi.color.textoEnlace,
     marginTop: 2,
-    fontWeight: '600',
   },
   dayChipRainEmpty: {
-    fontSize: 9,
-    color: '#64748b',
+    ...tasksUi.tipo.micro,
     marginTop: 2,
   },
   error: {
-    fontSize: 12,
-    color: '#ef4444',
+    ...tasksUi.tipo.etiqueta,
+    color: tasksUi.color.peligro,
     flex: 1,
     marginLeft: 8,
   },

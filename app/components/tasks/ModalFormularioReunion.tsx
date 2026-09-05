@@ -5,7 +5,7 @@
  * `409`, se enseña el mensaje. Tras crear, si Calendar no sincronizó (D-21),
  * `onGuardado` recibe el aviso para que la ficha o el listado lo muestren.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -97,6 +97,30 @@ function horaValida(valor: string): boolean {
   return /^([01]\d|2[0-3]):([0-5]\d)$/.test(t);
 }
 
+/** GET sugerencia-orden-del-dia. Devuelve texto limpio o null si no hay. */
+async function fetchSugerenciaOrden(idReunion: string): Promise<{
+  texto: string | null;
+  errorHttp?: string;
+}> {
+  const res = await apiFetch(
+    `/api/reuniones/${encodeURIComponent(idReunion)}/sugerencia-orden-del-dia`,
+  );
+  const data = (await res.json().catch(() => ({}))) as {
+    texto?: string;
+    sugerencia?: string;
+    orden_del_dia?: string;
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      texto: null,
+      errorHttp: data.error || 'No se pudo obtener la sugerencia de orden del día',
+    };
+  }
+  const texto = (data.texto ?? data.sugerencia ?? data.orden_del_dia ?? '').trim();
+  return { texto: texto || null };
+}
+
 export function ModalFormularioReunion({
   visible,
   modo,
@@ -125,6 +149,10 @@ export function ModalFormularioReunion({
   const [guardando, setGuardando] = useState(false);
   const [sugiriendo, setSugiriendo] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Evita re-disparar la auto-sugerencia en la misma apertura (id + visible). */
+  const autoSugeridoKeyRef = useRef<string | null>(null);
+  /** Solo hidratar al abrir; no en cada refresh de `reunion` con el modal abierto. */
+  const estabaVisibleRef = useRef(false);
 
   const proyectoFijo = (proyectoId ?? '').trim();
 
@@ -132,7 +160,16 @@ export function ModalFormularioReunion({
     modo === 'editar' && reunion != null && !ordenDelDiaEditable(reunion.estado);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      autoSugeridoKeyRef.current = null;
+      estabaVisibleRef.current = false;
+      return;
+    }
+
+    const acabaDeAbrir = !estabaVisibleRef.current;
+    estabaVisibleRef.current = true;
+    if (!acabaDeAbrir) return;
+
     setError(null);
     if (modo === 'editar' && reunion) {
       setDatos({
@@ -222,20 +259,11 @@ export function ModalFormularioReunion({
     setSugiriendo(true);
     setError(null);
     try {
-      const res = await apiFetch(
-        `/api/reuniones/${encodeURIComponent(reunion.id_reunion)}/sugerencia-orden-del-dia`,
-      );
-      const data = (await res.json().catch(() => ({}))) as {
-        texto?: string;
-        sugerencia?: string;
-        orden_del_dia?: string;
-        error?: string;
-      };
-      if (!res.ok) {
-        setError(data.error || 'No se pudo obtener la sugerencia de orden del día');
+      const { texto, errorHttp } = await fetchSugerenciaOrden(reunion.id_reunion);
+      if (errorHttp) {
+        setError(errorHttp);
         return;
       }
-      const texto = (data.texto ?? data.sugerencia ?? data.orden_del_dia ?? '').trim();
       if (!texto) {
         setError('No hay sugerencia disponible para esta serie');
         return;
@@ -248,6 +276,55 @@ export function ModalFormularioReunion({
       setSugiriendo(false);
     }
   }
+
+  // Auto-sugerir orden del día al abrir en editar (serie + vacío + editable), una vez por apertura.
+  useEffect(() => {
+    if (!visible) {
+      autoSugeridoKeyRef.current = null;
+      return;
+    }
+    if (modo !== 'editar' || !reunion?.id_reunion) return;
+    if (ordenBloqueado) return;
+    if (!(reunion.serie_id ?? '').trim()) return;
+    if ((reunion.orden_del_dia ?? '').trim()) return;
+
+    const key = reunion.id_reunion;
+    if (autoSugeridoKeyRef.current === key) return;
+
+    let cancelado = false;
+    setSugiriendo(true);
+    fetchSugerenciaOrden(reunion.id_reunion)
+      .then(({ texto }) => {
+        if (cancelado || !texto) return;
+        // No pisar si el usuario ya escribió mientras llegaba la respuesta.
+        setDatos((prev) => {
+          if (prev.orden_del_dia.trim()) return prev;
+          return { ...prev, orden_del_dia: texto };
+        });
+      })
+      .catch((e) => {
+        if (!cancelado) {
+          console.error('[reuniones] auto-sugerencia de orden del día omitida', e);
+        }
+      })
+      .finally(() => {
+        if (cancelado) return;
+        // Una sola auto-sugerencia por id en esta apertura (también si no hubo texto).
+        autoSugeridoKeyRef.current = key;
+        setSugiriendo(false);
+      });
+
+    return () => {
+      cancelado = true;
+    };
+  }, [
+    visible,
+    modo,
+    reunion?.id_reunion,
+    reunion?.serie_id,
+    reunion?.orden_del_dia,
+    ordenBloqueado,
+  ]);
 
   async function guardarAsistentes(idReunion: string, ids: string[]): Promise<{
     calendarioSincronizado: boolean | null;

@@ -267,16 +267,15 @@ Decisiones cerradas al arrancar: D-24 (ICS), D-25 (token en Ajustes), D-26
 ## Fase 4 — Madurez
 
 Cinco entregas casi independientes; se pueden priorizar por separado según lo que
-pida el uso real. Hasta que exista la entrega «Cuadro de mando», **no** se muestra
-la tarjeta en el hub de `/proyectos` (evitar placeholder bloqueado).
+pida el uso real.
 
-| Entrega | Contenido |
-|---|---|
-| Compras y presupuesto | Endpoints sobre el esquema de 1A, cola de aprobación por umbrales, presupuesto contra comprometido y real |
-| Plantillas de proyecto | Crear e instanciar vía creación en lote |
-| Orden del día automático | Generación completa para el comité recurrente, a partir de aplazados y acuerdos incumplidos |
-| Cuadro de mando de dirección | Estado de proyectos, acuerdos incumplidos, carga por persona y departamento |
-| Actas en PDF | Con el patrón de PDF ya existente en el repositorio |
+| Entrega | Contenido | Estado |
+|---|---|---|
+| Compras y presupuesto | Endpoints sobre el esquema de 1A, cola de aprobación por umbrales, presupuesto contra comprometido y real | Pendiente |
+| Plantillas de proyecto | Crear e instanciar vía creación en lote | **Hecho** (backend 01/09/2026): CRUD + `instanciar` en `api/lib/tasks/plantillas.js` / rutas en `proyectos.js`; tests `tasksPlantillas` |
+| Orden del día automático | Generación completa para el comité recurrente, a partir de aplazados y acuerdos abiertos/incumplidos | **Hecho** (31/08/2026): helper compartido; `POST` con `serie_id` + orden vacío persiste; GET sugerencia sigue en lectura |
+| Cuadro de mando de dirección | Estado de proyectos, acuerdos incumplidos, carga por persona y departamento | **Hecho** (01/09/2026): `GET /api/proyectos/cuadro-mando` + pantalla `/proyectos/cuadro-mando` + tarjeta en hub (`proyectos.cuadro_mando`) |
+| Actas en PDF | `GET /api/reuniones/:id/acta.pdf` + descarga en ficha | **Hecho** (31/08/2026) |
 
 **Cierra cuando:**
 - [ ] Una línea por debajo del primer umbral la aprueba el responsable del
@@ -285,7 +284,7 @@ la tarjeta en el hub de `/proyectos` (evitar placeholder bloqueado).
 - [ ] El proyecto muestra a la vez presupuesto, comprometido y real, y cuadra con
       sus líneas.
 - [ ] Cambiar los umbrales no altera las líneas ya en cola.
-- [ ] La reunión siguiente de una serie propone su orden del día sin escribir nada.
+- [x] La reunión siguiente de una serie propone su orden del día sin escribir nada.
 
 **Fuera, con el esquema ya preparado:** el enganche de líneas de compra con
 conciliación bancaria. El campo existe; la implementación no se hace en esta fase.

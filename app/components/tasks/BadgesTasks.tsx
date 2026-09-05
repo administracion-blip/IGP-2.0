@@ -1,10 +1,13 @@
 /**
- * Etiquetas de estado y prioridad del módulo de dirección. Mismo aspecto que el
- * badge de `app/(app)/departamentos.tsx` para que las pantallas del módulo se
- * vean como el resto del ERP.
+ * Etiquetas de estado y prioridad del módulo de dirección.
+ *
+ * Piloto UI: por defecto punto de color + texto (sin pastilla). Fondo relleno
+ * solo en estados que exigen acción (bloqueada, prioridad alta, acuerdo
+ * incumplido, proyecto en pausa).
  */
 import { View, Text, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { tasksColor, tasksRadius, tasksSpace, tasksTipo } from '../../constants/tasksUiTokens';
 import {
   ETIQUETA_ESTADO_ACUERDO,
   ETIQUETA_ESTADO_PROYECTO,
@@ -30,36 +33,79 @@ import type {
   RolProyecto,
 } from '../../types/tasks';
 
+type VarianteBadge = 'punto' | 'relleno';
+
 export function BadgeTasks({
   etiqueta,
   tono,
   icono,
   grande = false,
+  variante = 'punto',
 }: {
   etiqueta: string;
   tono: Tono;
   icono?: NombreIcono;
   grande?: boolean;
+  /** `punto` = pilota (default). `relleno` = alerta que exige acción. */
+  variante?: VarianteBadge;
 }) {
+  if (variante === 'relleno') {
+    return (
+      <View
+        style={[
+          styles.badgeRelleno,
+          grande && styles.badgeRellenoGrande,
+          { backgroundColor: tono.bg },
+        ]}
+      >
+        {icono ? <MaterialIcons name={icono} size={grande ? 14 : 11} color={tono.fg} /> : null}
+        <Text style={[styles.textoRelleno, grande && styles.textoRellenoGrande, { color: tono.fg }]}>
+          {etiqueta}
+        </Text>
+      </View>
+    );
+  }
+
+  const dot = grande ? 7 : 6;
   return (
-    <View style={[styles.badge, grande && styles.badgeGrande, { backgroundColor: tono.bg }]}>
-      {icono ? <MaterialIcons name={icono} size={grande ? 14 : 11} color={tono.fg} /> : null}
-      <Text style={[styles.texto, grande && styles.textoGrande, { color: tono.fg }]}>{etiqueta}</Text>
+    <View style={[styles.badgePunto, grande && styles.badgePuntoGrande]}>
+      <View
+        style={[
+          styles.punto,
+          { width: dot, height: dot, borderRadius: dot / 2, backgroundColor: tono.fg },
+        ]}
+      />
+      {icono ? (
+        <MaterialIcons name={icono} size={grande ? 14 : 12} color={tasksColor.textoSecundario} />
+      ) : null}
+      <Text style={[styles.textoPunto, grande && styles.textoPuntoGrande]}>{etiqueta}</Text>
     </View>
   );
 }
 
 export function BadgeEstadoProyecto({ estado, grande }: { estado?: EstadoProyecto; grande?: boolean }) {
   if (!estado) return null;
+  const relleno = estado === 'en_pausa';
   return (
-    <BadgeTasks etiqueta={ETIQUETA_ESTADO_PROYECTO[estado] ?? estado} tono={TONO_ESTADO_PROYECTO[estado]} grande={grande} />
+    <BadgeTasks
+      etiqueta={ETIQUETA_ESTADO_PROYECTO[estado] ?? estado}
+      tono={TONO_ESTADO_PROYECTO[estado]}
+      grande={grande}
+      variante={relleno ? 'relleno' : 'punto'}
+    />
   );
 }
 
 export function BadgeEstadoTarea({ estado, grande }: { estado?: EstadoTarea; grande?: boolean }) {
   if (!estado) return null;
+  const relleno = estado === 'bloqueada';
   return (
-    <BadgeTasks etiqueta={ETIQUETA_ESTADO_TAREA[estado] ?? estado} tono={TONO_ESTADO_TAREA[estado]} grande={grande} />
+    <BadgeTasks
+      etiqueta={ETIQUETA_ESTADO_TAREA[estado] ?? estado}
+      tono={TONO_ESTADO_TAREA[estado]}
+      grande={grande}
+      variante={relleno ? 'relleno' : 'punto'}
+    />
   );
 }
 
@@ -74,12 +120,14 @@ export function BadgePrioridad({
   grande?: boolean;
 }) {
   if (!prioridad || (prioridad === 'media' && !siempre)) return null;
+  const relleno = prioridad === 'alta';
   return (
     <BadgeTasks
       etiqueta={ETIQUETA_PRIORIDAD[prioridad] ?? prioridad}
       tono={TONO_PRIORIDAD[prioridad]}
       icono={prioridad === 'alta' ? 'priority-high' : undefined}
       grande={grande}
+      variante={relleno ? 'relleno' : 'punto'}
     />
   );
 }
@@ -87,11 +135,18 @@ export function BadgePrioridad({
 export function BadgeRolProyecto({ rol }: { rol: RolProyecto }) {
   const tono: Tono =
     rol === 'responsable'
-      ? { bg: '#dcfce7', fg: '#15803d' }
+      ? { bg: tasksColor.exitoSuave, fg: '#15803d' }
       : rol === 'miembro'
-        ? { bg: '#e0f2fe', fg: '#0369a1' }
-        : { bg: '#f1f5f9', fg: '#64748b' };
-  return <BadgeTasks etiqueta={ETIQUETA_ROL_PROYECTO[rol] ?? rol} tono={tono} icono={ICONO_ROL_PROYECTO[rol]} />;
+        ? { bg: tasksColor.acentoSuave, fg: tasksColor.acentoTexto }
+        : { bg: tasksColor.bordeFuerte, fg: tasksColor.textoSecundario };
+  return (
+    <BadgeTasks
+      etiqueta={ETIQUETA_ROL_PROYECTO[rol] ?? rol}
+      tono={tono}
+      icono={ICONO_ROL_PROYECTO[rol]}
+      variante="punto"
+    />
+  );
 }
 
 export function BadgeEstadoReunion({ estado, grande }: { estado?: EstadoReunion; grande?: boolean }) {
@@ -101,32 +156,61 @@ export function BadgeEstadoReunion({ estado, grande }: { estado?: EstadoReunion;
       etiqueta={ETIQUETA_ESTADO_REUNION[estado] ?? estado}
       tono={TONO_ESTADO_REUNION[estado]}
       grande={grande}
+      variante="punto"
     />
   );
 }
 
 export function BadgeEstadoAcuerdo({ estado, grande }: { estado?: EstadoAcuerdo; grande?: boolean }) {
   if (!estado) return null;
+  const relleno = estado === 'incumplido';
   return (
     <BadgeTasks
       etiqueta={ETIQUETA_ESTADO_ACUERDO[estado] ?? estado}
       tono={TONO_ESTADO_ACUERDO[estado]}
       grande={grande}
+      variante={relleno ? 'relleno' : 'punto'}
     />
   );
 }
 
 const styles = StyleSheet.create({
-  badge: {
+  badgePunto: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    alignSelf: 'flex-start',
+    paddingVertical: 1,
+  },
+  badgePuntoGrande: { gap: 6, paddingVertical: 2 },
+  punto: { flexShrink: 0 },
+  textoPunto: {
+    ...tasksTipo.etiqueta,
+    fontSize: 12,
+    color: tasksColor.textoPrimario,
+    fontWeight: '500',
+  },
+  textoPuntoGrande: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: tasksColor.textoPrimario,
+  },
+
+  badgeRelleno: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    paddingHorizontal: 8,
+    paddingHorizontal: tasksSpace[2],
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: tasksRadius.control,
     alignSelf: 'flex-start',
   },
-  badgeGrande: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, gap: 4 },
-  texto: { fontSize: 10, fontWeight: '600' },
-  textoGrande: { fontSize: 12, fontWeight: '700' },
+  badgeRellenoGrande: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: tasksRadius.contenedor,
+    gap: 4,
+  },
+  textoRelleno: { fontSize: 10, fontWeight: '600' },
+  textoRellenoGrande: { fontSize: 12, fontWeight: '700' },
 });

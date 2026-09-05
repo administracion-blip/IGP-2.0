@@ -21,9 +21,11 @@ import {
   CompraLinea,
   COLUMNAS,
   getCompraCellValue,
+  isCompraColNegrita,
   fechaLineaISO,
   albaranKey,
-  albaranLabel,
+  albaranLabelConDoc,
+  normDocProveedor,
   idNorm,
   toggleInList,
   toggleGrupoFamilias,
@@ -147,7 +149,7 @@ export default function ComprasProveedorScreen() {
     const almacenes = new Map<string, string>();
     items.forEach((it) => {
       const ak = albaranKey(it);
-      if (!albaranes.has(ak)) albaranes.set(ak, albaranLabel(it));
+      if (!albaranes.has(ak)) albaranes.set(ak, albaranLabelConDoc(it));
       const pid = idNorm(it.ProductId as string);
       const plab = (it.ProductName || it.ProductId || '—').toString();
       if (!productos.has(pid)) productos.set(pid, plab);
@@ -209,6 +211,8 @@ export default function ComprasProveedorScreen() {
     }
     if (!busqueda.trim()) return list;
     const q = busqueda.trim().toLowerCase();
+    // Nº doc. proveedor: sin espacios/guiones y en mayúsculas (datos como `F26 004418`).
+    const qDoc = normDocProveedor(busqueda);
     return list.filter((item) =>
       (item.ProductName || '').toLowerCase().includes(q) ||
       (item.ProductId || '').toLowerCase().includes(q) ||
@@ -216,7 +220,8 @@ export default function ComprasProveedorScreen() {
       (item.AlbaranNumero || '').toLowerCase().includes(q) ||
       (item.FamilyName || '').toLowerCase().includes(q) ||
       (item.WarehouseName || '').toLowerCase().includes(q) ||
-      (item.AlbaranSerie || '').toLowerCase().includes(q)
+      (item.AlbaranSerie || '').toLowerCase().includes(q) ||
+      (qDoc !== '' && normDocProveedor(item.SupplierDocumentNumber).includes(qDoc))
     );
   }, [
     items,
@@ -631,7 +636,12 @@ export default function ComprasProveedorScreen() {
                   {COLUMNAS.map((col) => (
                     <View key={col.key} style={[styles.cell, { width: col.width }]}>
                       <Text
-                        style={[styles.cellText, col.align === 'right' && styles.textRight, col.align === 'center' && styles.textCenter]}
+                        style={[
+                          styles.cellText,
+                          isCompraColNegrita(String(col.key)) && styles.cellTextBold,
+                          col.align === 'right' && styles.textRight,
+                          col.align === 'center' && styles.textCenter,
+                        ]}
                         numberOfLines={1}
                       >
                         {getCompraCellValue(item, col)}

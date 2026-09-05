@@ -14,6 +14,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useHubNavGrid } from '../hooks/useHubNavGrid';
 import { MIN_TOUCH } from '../constants/layout';
+import { tasksUi } from '../constants/tasksUiTokens';
 import { apiFetch } from '../utils/api';
 import { formatFecha } from '../utils/formatFecha';
 import { formatMoneda } from '../utils/formatMoneda';
@@ -182,7 +183,7 @@ export function CampanasActivasPlanningCard({
 
   if (loading) {
     return cardShell(
-      <ActivityIndicator size="small" color="#d97706" />,
+      <ActivityIndicator size="small" color={tasksUi.color.aviso} />,
       'Incentivos activos',
       'Cargando campañas…',
     );
@@ -190,7 +191,7 @@ export function CampanasActivasPlanningCard({
 
   if (filtrarPorLocal && !localId) {
     return cardShell(
-      <MaterialIcons name="emoji-events" size={compact ? 22 : 26} color="#d97706" />,
+      <MaterialIcons name="emoji-events" size={compact ? 22 : 26} color={tasksUi.color.aviso} />,
       'Incentivos activos',
       'Cargando campañas del local…',
     );
@@ -199,7 +200,7 @@ export function CampanasActivasPlanningCard({
   if (!campana) {
     const nombreLocal = localId ? (localesMap[localId] || localId) : null;
     return cardShell(
-      <MaterialIcons name="emoji-events" size={compact ? 22 : 26} color="#94a3b8" />,
+      <MaterialIcons name="emoji-events" size={compact ? 22 : 26} color={tasksUi.color.textoTerciario} />,
       nombreLocal || 'Incentivos activos',
       nombreLocal ? 'Sin campañas activas en este local' : 'Sin campañas activas',
     );
@@ -237,8 +238,8 @@ export function CampanasActivasPlanningCard({
         onPress={abrirDetalle}
         accessibilityLabel={`Campaña ${campana.nombre}`}
       >
-        <View style={[styles.iconWrap, compact && styles.iconWrapCompact, { backgroundColor: '#fef3c7' }]}>
-          <MaterialIcons name="emoji-events" size={compact ? 22 : 26} color="#d97706" />
+        <View style={[styles.iconWrap, compact && styles.iconWrapCompact, { backgroundColor: '#fffbeb' }]}>
+          <MaterialIcons name="emoji-events" size={compact ? 22 : 26} color={tasksUi.color.aviso} />
         </View>
 
         <View style={styles.body}>
@@ -246,7 +247,7 @@ export function CampanasActivasPlanningCard({
             <Text style={[styles.title, compact && styles.titleCompact]} numberOfLines={1}>
               {campana.nombre}
             </Text>
-            <View style={[styles.estadoBadge, { backgroundColor: ec + '18', borderColor: ec }]}>
+            <View style={[styles.estadoBadge, { backgroundColor: `${ec}18` }]}>
               <Text style={[styles.estadoBadgeText, { color: ec }]}>{estado}</Text>
             </View>
             {multi ? (
@@ -290,27 +291,22 @@ export function CampanasActivasPlanningCard({
 
 const styles = StyleSheet.create({
   card: {
-    flex: 1,
+    flexGrow: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
+    backgroundColor: tasksUi.color.superficie,
+    borderRadius: tasksUi.radius.contenedor,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: tasksUi.color.bordeSutil,
     minHeight: MIN_TOUCH + 24,
     alignSelf: 'stretch',
   },
   cardCompact: {
     gap: 10,
     padding: 12,
-    borderRadius: 10,
+    borderRadius: tasksUi.radius.contenedor,
   },
   mainTap: {
     flex: 1,
@@ -322,12 +318,12 @@ const styles = StyleSheet.create({
   navBtn: {
     width: 32,
     height: 32,
-    borderRadius: 8,
+    borderRadius: tasksUi.radius.contenedor,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f8fafc',
+    backgroundColor: tasksUi.color.superficieHundida,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksUi.color.bordeSutil,
     flexShrink: 0,
   },
   navBtnCompact: {
@@ -341,7 +337,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
-    backgroundColor: '#fef3c7',
+    backgroundColor: tasksUi.color.avisoSuave,
   },
   iconWrapCompact: {
     width: 40,
@@ -361,9 +357,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   title: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0f172a',
+    ...tasksUi.tipo.tituloSeccion,
     flex: 1,
     minWidth: 0,
   },
@@ -371,9 +365,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   desc: {
-    fontSize: 12,
-    color: '#64748b',
-    lineHeight: 16,
+    ...tasksUi.tipo.etiqueta,
   },
   descCompact: {
     fontSize: 11,
@@ -382,27 +374,24 @@ const styles = StyleSheet.create({
   estadoBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 10,
-    borderWidth: 1,
+    borderRadius: tasksUi.radius.pildora,
     flexShrink: 0,
   },
   estadoBadgeText: {
-    fontSize: 11,
+    ...tasksUi.tipo.etiqueta,
     fontWeight: '600',
   },
   posBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: '#f1f5f9',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderRadius: tasksUi.radius.pildora,
+    backgroundColor: tasksUi.color.superficieHundida,
     flexShrink: 0,
   },
   posBadgeText: {
-    fontSize: 11,
+    ...tasksUi.tipo.micro,
     fontWeight: '600',
-    color: '#64748b',
+    color: tasksUi.color.textoSecundario,
   },
   metricsRow: {
     flexDirection: 'row',
@@ -420,23 +409,20 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   inlineField: {
-    fontSize: 12,
-    color: '#334155',
+    ...tasksUi.tipo.etiqueta,
+    color: tasksUi.color.textoSecundario,
     flexShrink: 1,
   },
   inlineLabel: {
-    color: '#94a3b8',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    fontSize: 10,
+    ...tasksUi.tipo.etiqueta,
   },
   inlineValue: {
-    color: '#334155',
+    ...tasksUi.tipo.etiqueta,
+    color: tasksUi.color.textoSecundario,
     fontWeight: '600',
-    fontSize: 12,
   },
   inlineValueHighlight: {
-    fontWeight: '800',
-    color: '#0f172a',
+    fontWeight: '600',
+    color: tasksUi.color.textoPrimario,
   },
 });

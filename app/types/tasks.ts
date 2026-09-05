@@ -562,6 +562,39 @@ export type UmbralesCompra = {
   moneda: string;
 };
 
+// ─── Plantillas de proyecto (Fase 4) ───
+
+/**
+ * Elemento de lista de comprobación en una tarea de plantilla.
+ * Solo texto (y orden); al instanciar se generan ids y `hecho`.
+ */
+export type PlantillaChecklistItem = {
+  texto: string;
+  orden?: number;
+};
+
+/** Tarea embebida en una plantilla: no es una fila de `Igp_Tareas`. */
+export type PlantillaTarea = {
+  titulo: string;
+  descripcion?: string;
+  /** Días a sumar a la fecha de inicio del proyecto al instanciar. */
+  dias_desde_inicio?: number | null;
+  rol_responsable_sugerido?: string;
+  checklist?: (string | PlantillaChecklistItem)[];
+  orden?: number;
+};
+
+export type PlantillaProyecto = {
+  id_plantilla: string;
+  nombre: string;
+  descripcion?: string;
+  departamento_id?: string;
+  tareas: PlantillaTarea[];
+  creado_por?: string;
+  creado_en?: string;
+  actualizado_en?: string;
+};
+
 // ─── Respuestas paginadas ───
 
 export type PaginaApi<T> = {

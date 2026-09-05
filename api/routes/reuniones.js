@@ -8,14 +8,15 @@
  * Importación de texto: `POST …/transcripcion/importar` (salta STT → `transcrita`).
  * Fase 2F: cola de propuestas (`…/propuestas/pendientes`, `…/:id/propuestas`,
  * `…/:id/propuestas/resolver`).
+ * Fase 4: `GET …/:id/acta.pdf` (acta regenerada en cada descarga).
  *
  * Solo HTTP: la lógica vive en `api/lib/tasks/reuniones.js` (+ `reuniones/audio.js`,
  * `reuniones/pipeline.js`, `reuniones/pipelineTick.js`, `reuniones/importarTranscripcion.js`,
- * `reuniones/propuestas.js`)
+ * `reuniones/propuestas.js`, `reuniones/pdfActa.js`)
  * y la ACL de fila en `acceso.js`. Auth global; permiso de ruta + visibilidad
  * en el handler.
  *
- * No monta Meet ni PDF.
+ * No monta Meet.
  */
 
 import { Router } from 'express';
@@ -47,6 +48,7 @@ import {
   listarPropuestasPendientes,
   resolverPropuestas,
 } from '../lib/tasks/reuniones/propuestas.js';
+import { obtenerActaPdf } from '../lib/tasks/reuniones/pdfActa.js';
 
 const router = Router();
 
@@ -212,6 +214,7 @@ router.get(
       texto: r.texto,
       origen_reunion_id: r.origen_reunion_id,
       acuerdos_abiertos: r.acuerdos_abiertos,
+      acuerdos_incumplidos: r.acuerdos_incumplidos,
       puntos_aplazados: r.puntos_aplazados,
       mensaje: r.mensaje,
     });
@@ -299,6 +302,22 @@ router.get('/reuniones/:id/actividad', requirePermission(PERMISOS.reunionesVer),
   if (fallo(res, r)) return;
   return res.json({ actividad: r.actividad, cursor: r.cursor });
 });
+
+/**
+ * Acta PDF (Fase 4). Antes del GET genérico `/:id` para no confundir el path.
+ * Regenera y sobrescribe S3 en cada descarga.
+ */
+router.get(
+  '/reuniones/:id/acta.pdf',
+  requirePermission(PERMISOS.reunionesVer),
+  async (req, res) => {
+    const r = await obtenerActaPdf(await contexto(req), req.params.id);
+    if (fallo(res, r)) return;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${r.filename}"`);
+    return res.send(r.buffer);
+  },
+);
 
 // ─── Ficha / PATCH / DELETE ───
 

@@ -44,3 +44,10 @@ yarn-error.*
 
 # extractos bancarios de muestra (movimientos reales de las sociedades)
 docs/n43/muestras/
+
+# informes automáticos de revisión en la raíz (usar docs/reviews/; ver docs/reviews/README.md)
+/reporte-bugs-*.md
+/REPORTE-BUGS-*.md
+
+# prompts de Cursor en la raíz (usar docs/prompts/legacy/; ver docs/prompts/legacy/README.md)
+/cursor-*-prompt.md

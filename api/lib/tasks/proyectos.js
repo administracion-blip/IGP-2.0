@@ -692,8 +692,15 @@ export async function listarActividadProyecto(ctx, idProyecto, { limite, cursor 
  * Los ítems se escriben en un lote. Si el del responsable se quedara por el
  * camino, no perdería el acceso: `responsable_id` de la cabecera ya cuenta como
  * rol de responsable en la capa de acceso.
+ *
+ * `plantillaOrigenId` solo lo pasa `plantillas.instanciarPlantilla` (lib). El
+ * `POST /api/proyectos` público no lo acepta aunque venga en el body.
+ *
+ * @param {object} ctx
+ * @param {object} [body]
+ * @param {{ plantillaOrigenId?: string }} [opciones]
  */
-export async function crearProyecto(ctx, body = {}) {
+export async function crearProyecto(ctx, body = {}, opciones = {}) {
   const { datos, error } = normalizarEntrada(body, { parcial: false });
   if (error) return rechazar(400, error);
   if (datos.presupuesto_asignado != null && !puedeVerPresupuesto(ctx)) {
@@ -722,6 +729,9 @@ export async function crearProyecto(ctx, body = {}) {
   }
   if (datos.presupuesto_asignado != null) meta.presupuesto_asignado = datos.presupuesto_asignado;
   if (meta.estado === ESTADO_CERRADO && !meta.fecha_cierre) meta.fecha_cierre = hoy();
+  // Solo desde lib (instanciar). Nunca desde el body del POST público.
+  const plantillaOrigenId = texto(opciones?.plantillaOrigenId);
+  if (plantillaOrigenId) meta.plantilla_origen_id = plantillaOrigenId;
 
   const autorId = texto(ctx?.idUsuario);
   const miembrosNuevos = [];

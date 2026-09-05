@@ -23,6 +23,7 @@ const IS_WEB = Platform.OS === 'web';
 export const COLUMNAS: { key: keyof CompraLinea | 'AlbaranRef'; label: string; width: number; align?: 'right' | 'center' }[] = [
   { key: 'AlbaranFecha', label: 'Fecha', width: 100 },
   { key: 'AlbaranRef', label: 'Albarán', width: 110 },
+  { key: 'SupplierDocumentNumber', label: 'Nº doc. prov.', width: 130 },
   { key: 'SupplierName', label: 'Proveedor', width: 180 },
   { key: 'ProductName', label: 'Producto', width: 200 },
   { key: 'ProductId', label: 'ID Prod.', width: 80 },
@@ -37,6 +38,12 @@ export const COLUMNAS: { key: keyof CompraLinea | 'AlbaranRef'; label: string; w
   { key: 'Confirmed', label: 'Confirm.', width: 80, align: 'center' },
   { key: 'Invoiced', label: 'Facturado', width: 80, align: 'center' },
 ];
+
+const COLUMNAS_CELDA_NEGRITA = new Set<string>(['SupplierDocumentNumber', 'Quantity']);
+
+export function isCompraColNegrita(key: string): boolean {
+  return COLUMNAS_CELDA_NEGRITA.has(key);
+}
 
 function formatFecha(iso: string): string {
   if (!iso) return '';
@@ -85,6 +92,28 @@ export function albaranLabel(item: CompraLinea): string {
   const n = String(item.AlbaranNumero ?? '').trim();
   if (!s && !n) return '—';
   return `${s}-${n}`;
+}
+
+/**
+ * Normaliza números de documento de proveedor para comparar: deja solo
+ * letras/dígitos en mayúsculas (los datos reales traen espacios y guiones,
+ * p. ej. `F26 004418`). Mismo criterio que en conciliación de facturas.
+ */
+export function normDocProveedor(valor: unknown): string {
+  return String(valor ?? '')
+    .replace(/[^A-Za-z0-9]/g, '')
+    .toUpperCase();
+}
+
+/**
+ * Etiqueta de albarán con el nº de documento del proveedor cuando existe
+ * (`AC-5838 · an16048149`). Solo para desplegables de listado: en conciliación
+ * y resumen el nº de documento ya se pinta aparte.
+ */
+export function albaranLabelConDoc(item: CompraLinea): string {
+  const base = albaranLabel(item);
+  const doc = String(item.SupplierDocumentNumber ?? '').trim();
+  return doc ? `${base} · ${doc}` : base;
 }
 
 export function idNorm(id: string | undefined): string {
@@ -306,6 +335,7 @@ export const styles = StyleSheet.create({
   rowAlt: { backgroundColor: '#fafbfc' },
   cell: { paddingHorizontal: 6, justifyContent: 'center' },
   cellText: { fontSize: 12, color: '#334155' },
+  cellTextBold: { fontWeight: '700' },
   textRight: { textAlign: 'right' },
   textCenter: { textAlign: 'center' },
   emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12 },

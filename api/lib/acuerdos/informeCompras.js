@@ -1,6 +1,8 @@
 /**
  * Informe de compras por acuerdo (solo lectura).
- * Cruza detalles de acuerdo con compras Ágora en un rango de fechas del informe.
+ * Cruza detalles de acuerdo con compras Ágora en el solape entre la vigencia
+ * del acuerdo (FechaInicio–FechaFin) y el periodo del informe (fechaDesde–fechaHasta).
+ * Si no hay solape, el acuerdo se excluye; las compras se consultan solo en el rango efectivo.
  */
 
 import { ScanCommand } from '@aws-sdk/lib-dynamodb';
@@ -19,6 +21,20 @@ function aportacionUnitaria(d) {
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/**
+ * Solape entre vigencia del acuerdo y periodo del informe (YYYY-MM-DD, string-comparable).
+ * Fechas de vigencia vacías no limitan el periodo.
+ * @returns {{ desde: string, hasta: string } | null}
+ */
+export function rangoVigenteEnPeriodo(fechaInicio, fechaFin, periodoDesde, periodoHasta) {
+  const desdeVigencia = String(fechaInicio ?? '').trim() || periodoDesde;
+  const hastaVigencia = String(fechaFin ?? '').trim() || periodoHasta;
+  const desde = desdeVigencia > periodoDesde ? desdeVigencia : periodoDesde;
+  const hasta = hastaVigencia < periodoHasta ? hastaVigencia : periodoHasta;
+  if (desde > hasta) return null;
+  return { desde, hasta };
 }
 
 async function cargarAcuerdosMeta() {
@@ -94,10 +110,18 @@ export async function buildInformeCompras(opts) {
   const resumen = [];
 
   const bloques = await Promise.all(acuerdosFiltrados.map(async (acuerdo) => {
+    const rango = rangoVigenteEnPeriodo(
+      acuerdo.FechaInicio,
+      acuerdo.FechaFin,
+      fechaDesde,
+      fechaHasta,
+    );
+    if (!rango) return null;
+
     const pk = acuerdo.PK;
     const detalles = detallesPorAcuerdo[pk] || [];
     const productIds = new Set(detalles.map((d) => String(d.ProductId || d.SK || '').trim()).filter(Boolean));
-    const comprasPorProd = await queryComprasPorProductos(productIds, fechaDesde, fechaHasta);
+    const comprasPorProd = await queryComprasPorProductos(productIds, rango.desde, rango.hasta);
 
     let totalCompradas = 0;
     let totalAportacionGenerada = 0;

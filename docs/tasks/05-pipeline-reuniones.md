@@ -182,9 +182,10 @@ uno con su cita. Consecuencias automáticas:
 
 - Los puntos `no_tratado` se marcan `aplazado` y `candidato_siguiente`.
 - Los temas tratados sin estar previstos se guardan como `emergentes`.
-- En Fase 4, la siguiente reunión de la serie propone su orden del día con los
-  aplazados y los acuerdos incumplidos; en Fase 1B eso mismo se ofrece como
-  **texto editable** vía `GET /api/reuniones/:id/sugerencia-orden-del-dia`.
+- En Fase 4, al crear la siguiente reunión de la serie con `orden_del_dia`
+  vacío, el servidor **persiste** la sugerencia (aplazados + acuerdos `abierto`
+  e `incumplido`). El mismo texto se ofrece en lectura vía
+  `GET /api/reuniones/:id/sugerencia-orden-del-dia` (no escribe).
 
 Se compara **siempre contra la copia congelada**, nunca contra el orden del día
 editado después de empezar. Si no, alguien podría reescribir el orden del día a

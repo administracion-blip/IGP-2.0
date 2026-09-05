@@ -2,6 +2,7 @@ import type { ComponentProps, ReactNode } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, type StyleProp, type ViewStyle } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { MIN_TOUCH } from '../../constants/layout';
+import { tasksUi } from '../../constants/tasksUiTokens';
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
 
@@ -32,8 +33,8 @@ export function HubNavCard({
   label,
   description,
   icon,
-  accentBg = '#e0f2fe',
-  accentFg = '#0ea5e9',
+  accentBg = tasksUi.color.acentoSuave,
+  accentFg = tasksUi.color.acento,
   variant = 'default',
   width,
   compact = false,
@@ -45,7 +46,7 @@ export function HubNavCard({
   style,
 }: HubNavCardProps) {
   const isAccent = variant === 'accent';
-  const iconBg = isAccent ? '#fed7aa' : accentBg;
+  const iconBg = isAccent ? '#ffedd5' : accentBg;
   const iconFg = isAccent ? '#c2410c' : accentFg;
   const iconSize = compact ? 22 : 26;
 
@@ -104,25 +105,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
+    backgroundColor: tasksUi.color.superficie,
+    borderRadius: tasksUi.radius.contenedor,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: tasksUi.color.bordeSutil,
   },
   cardAccent: {
-    backgroundColor: '#fffbeb',
-    borderColor: '#fdba74',
+    backgroundColor: tasksUi.color.avisoSuave,
+    borderColor: '#fde68a',
   },
   cardCompact: {
     gap: 10,
     padding: 12,
-    borderRadius: 10,
+    borderRadius: tasksUi.radius.contenedor,
   },
   cardDisabled: {
     opacity: 0.45,
@@ -147,9 +143,9 @@ const styles = StyleSheet.create({
     right: -4,
     minWidth: 18,
     height: 18,
-    borderRadius: 9,
-    backgroundColor: '#dc2626',
-    borderWidth: 2,
+    borderRadius: tasksUi.radius.pildora,
+    backgroundColor: '#fee2e2',
+    borderWidth: 1,
     borderColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
@@ -157,17 +153,15 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     fontSize: 10,
-    fontWeight: '800',
-    color: '#fff',
+    fontWeight: '600',
+    color: '#dc2626',
   },
   body: {
     flex: 1,
     minWidth: 0,
   },
   title: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0f172a',
+    ...tasksUi.tipo.tituloSeccion,
     marginBottom: 2,
   },
   titleCompact: {
@@ -175,7 +169,7 @@ const styles = StyleSheet.create({
     marginBottom: 1,
   },
   titleAccent: {
-    color: '#0f172a',
+    color: tasksUi.color.textoPrimario,
   },
   desc: {
     fontSize: 13,
@@ -187,6 +181,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   descAccent: {
-    color: '#78716c',
+    color: '#64748b',
   },
 });

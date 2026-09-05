@@ -39,6 +39,8 @@ import {
   nombreUsuario,
 } from '../../lib/tasksUi';
 import { SeccionFicha } from '../../components/tasks/SeccionFicha';
+import { TasksPageHeader } from '../../components/tasks/TasksPageHeader';
+import { BarraProgresoTareas } from '../../components/tasks/BarraProgresoTareas';
 import {
   BadgeEstadoProyecto,
   BadgeEstadoReunion,
@@ -56,6 +58,14 @@ import {
 } from '../../components/tasks/ModalFormularioReunion';
 import { estilosFormTasks as form } from '../../components/tasks/estilosTasks';
 import { SelectorDesplegable, type OpcionDesplegable } from '../../components/SelectorDesplegable';
+import {
+  tasksColor,
+  tasksIcono,
+  tasksRadius,
+  tasksSpace,
+  tasksTabularNums,
+  tasksTipo,
+} from '../../constants/tasksUiTokens';
 import { apiFetch, errorMessage } from '../../utils/api';
 import { formatFecha } from '../../utils/formatFecha';
 import {
@@ -476,10 +486,10 @@ export default function FichaProyectoScreen() {
             etiqueta="Responsable"
             valor={nombreUsuario(proyecto.responsable_id, proyecto.responsable_nombre)}
           />
-          <Dato etiqueta="Inicio" valor={formatFecha(proyecto.fecha_inicio)} />
-          <Dato etiqueta="Fin previsto" valor={formatFecha(proyecto.fecha_fin_prevista)} />
+          <Dato etiqueta="Inicio" valor={formatFecha(proyecto.fecha_inicio)} tabular />
+          <Dato etiqueta="Fin previsto" valor={formatFecha(proyecto.fecha_fin_prevista)} tabular />
           {proyecto.fecha_cierre ? (
-            <Dato etiqueta="Cierre" valor={formatFecha(proyecto.fecha_cierre)} />
+            <Dato etiqueta="Cierre" valor={formatFecha(proyecto.fecha_cierre)} tabular />
           ) : null}
           <Dato etiqueta="Creado por" valor={usuarios.nombrePorId(proyecto.creado_por)} />
         </View>
@@ -494,13 +504,13 @@ export default function FichaProyectoScreen() {
         <SeccionFicha titulo="Presupuesto" icono="euro">
           <View style={styles.datosGrid}>
             {proyecto.presupuesto_asignado != null ? (
-              <Dato etiqueta="Asignado" valor={formatEuros(proyecto.presupuesto_asignado)} />
+              <Dato etiqueta="Asignado" valor={formatEuros(proyecto.presupuesto_asignado)} tabular />
             ) : null}
             {proyecto.gasto_comprometido != null ? (
-              <Dato etiqueta="Comprometido" valor={formatEuros(proyecto.gasto_comprometido)} />
+              <Dato etiqueta="Comprometido" valor={formatEuros(proyecto.gasto_comprometido)} tabular />
             ) : null}
             {proyecto.gasto_real != null ? (
-              <Dato etiqueta="Gasto real" valor={formatEuros(proyecto.gasto_real)} />
+              <Dato etiqueta="Gasto real" valor={formatEuros(proyecto.gasto_real)} tabular />
             ) : null}
           </View>
           <Text style={styles.notaSeccion}>
@@ -862,49 +872,57 @@ export default function FichaProyectoScreen() {
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.cabecera}>
-          <View style={styles.cabeceraFila}>
-            <TouchableOpacity
-              onPress={() => router.push('/proyectos/listado' as never)}
-              style={styles.backBtn}
-              accessibilityLabel="Volver al listado de proyectos"
-            >
-              <MaterialIcons name="arrow-back" size={22} color="#334155" />
-            </TouchableOpacity>
-            <View style={styles.cabeceraTexto}>
-              <Text style={styles.titulo}>{proyecto.nombre}</Text>
-              <View style={styles.cabeceraBadges}>
-                <BadgeEstadoProyecto estado={proyecto.estado} grande />
-                <BadgePrioridad prioridad={proyecto.prioridad} grande />
-                {miRol ? <BadgeRolProyecto rol={miRol} /> : null}
-              </View>
-            </View>
-            {puedeEditar ? (
+        <TasksPageHeader
+          title={proyecto.nombre}
+          onBack={() => router.push('/proyectos/listado' as never)}
+          backAccessibilityLabel="Volver al listado de proyectos"
+          compact={isCompact}
+          actions={
+            puedeEditar ? (
               <TouchableOpacity
                 style={[styles.editarBtn, isCompact && styles.editarBtnTactil]}
                 onPress={() => setEditarVisible(true)}
                 accessibilityLabel="Editar el proyecto"
               >
-                <MaterialIcons name="edit" size={16} color="#ffffff" />
+                <MaterialIcons name="edit" size={tasksIcono.sizeSm} color={tasksColor.textoInverso} />
                 <Text style={styles.editarTexto}>Editar</Text>
               </TouchableOpacity>
-            ) : null}
-          </View>
-          {!puedeEditar ? (
-            <View style={styles.avisoSoloLectura}>
-              <MaterialIcons name="lock-outline" size={15} color="#64748b" />
-              <Text style={styles.avisoSoloLecturaTexto}>
-                Solo lectura: para cambiar este proyecto hay que ser su responsable o miembro con permiso
-                de edición.
-              </Text>
+            ) : null
+          }
+          below={
+            <View style={styles.cabeceraMeta}>
+              <View style={styles.cabeceraBadges}>
+                <BadgeEstadoProyecto estado={proyecto.estado} grande />
+                <BadgePrioridad prioridad={proyecto.prioridad} grande />
+                {miRol ? <BadgeRolProyecto rol={miRol} /> : null}
+              </View>
+              {!cargandoTareas || tareas.length > 0 ? (
+                <BarraProgresoTareas
+                  tareas={tareas}
+                  incompleto={cursorTareas != null}
+                />
+              ) : null}
+              {!puedeEditar ? (
+                <View style={styles.avisoSoloLectura}>
+                  <MaterialIcons
+                    name="lock-outline"
+                    size={tasksIcono.sizeSm}
+                    color={tasksColor.textoSecundario}
+                  />
+                  <Text style={styles.avisoSoloLecturaTexto}>
+                    Solo lectura: para cambiar este proyecto hay que ser su responsable o miembro con
+                    permiso de edición.
+                  </Text>
+                </View>
+              ) : null}
+              {puedeBorrar && puedeEditar && proyecto.estado !== 'cancelado' ? (
+                <Text style={styles.notaCancelar}>
+                  Para retirar el proyecto sin perder su historial, cámbialo a «Cancelado» desde Editar.
+                </Text>
+              ) : null}
             </View>
-          ) : null}
-          {puedeBorrar && puedeEditar && proyecto.estado !== 'cancelado' ? (
-            <Text style={styles.notaCancelar}>
-              Para retirar el proyecto sin perder su historial, cámbialo a «Cancelado» desde Editar.
-            </Text>
-          ) : null}
-        </View>
+          }
+        />
 
         {error ? <Text style={styles.errorGeneral}>{error}</Text> : null}
 
@@ -978,144 +996,137 @@ export default function FichaProyectoScreen() {
   );
 }
 
-function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
+function Dato({
+  etiqueta,
+  valor,
+  tabular = false,
+}: {
+  etiqueta: string;
+  valor: string;
+  /** Fechas e importes: cifras alineadas. */
+  tabular?: boolean;
+}) {
   return (
     <View style={styles.dato}>
       <Text style={styles.datoEtiqueta}>{etiqueta}</Text>
-      <Text style={styles.datoValor}>{valor}</Text>
+      <Text style={[styles.datoValor, tabular && styles.datoTabular]}>{valor}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+  container: { flex: 1, backgroundColor: tasksColor.fondoApp },
   scroll: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 32, gap: 12 },
+  scrollContent: { padding: tasksSpace[4], paddingBottom: tasksSpace[6], gap: tasksSpace[3] },
 
-  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
-  centroTexto: { fontSize: 13, color: '#64748b', textAlign: 'center', lineHeight: 19 },
-  centroError: { fontSize: 13, color: '#ef4444', textAlign: 'center' },
-  volverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: MIN_TOUCH },
-  volverTexto: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
-
-  cabecera: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 14,
-    gap: 10,
-  },
-  cabeceraFila: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  cabeceraTexto: { flex: 1, minWidth: 0, gap: 6 },
-  cabeceraBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' },
-  backBtn: {
-    width: MIN_TOUCH,
-    height: MIN_TOUCH,
-    borderRadius: 8,
-    backgroundColor: '#ffffff',
+  centro: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    gap: 10,
+    padding: tasksSpace[5],
+    backgroundColor: tasksColor.fondoApp,
   },
-  titulo: { fontSize: 19, fontWeight: '700', color: '#0f172a' },
+  centroTexto: { ...tasksTipo.cuerpo, textAlign: 'center' },
+  centroError: { ...tasksTipo.cuerpo, color: tasksColor.peligro, textAlign: 'center' },
+  volverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: MIN_TOUCH },
+  volverTexto: { ...tasksTipo.dato, color: tasksColor.textoEnlace },
+
+  cabeceraMeta: { gap: tasksSpace[2] },
+  cabeceraBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' },
   editarBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#0ea5e9',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    backgroundColor: tasksColor.acento,
+    paddingHorizontal: tasksSpace[3],
+    paddingVertical: tasksSpace[2],
+    borderRadius: tasksRadius.control,
   },
   editarBtnTactil: { minHeight: MIN_TOUCH, paddingHorizontal: 14 },
-  editarTexto: { fontSize: 13, fontWeight: '700', color: '#ffffff' },
+  editarTexto: { ...tasksTipo.dato, color: tasksColor.textoInverso, fontWeight: '600' },
   avisoSoloLectura: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#f1f5f9',
+    paddingVertical: tasksSpace[2],
+    borderRadius: tasksRadius.contenedor,
+    backgroundColor: tasksColor.superficie,
+    borderWidth: 1,
+    borderColor: tasksColor.bordeSutil,
   },
-  avisoSoloLecturaTexto: { flex: 1, fontSize: 12, color: '#64748b', lineHeight: 17 },
-  notaCancelar: { fontSize: 11, color: '#94a3b8', lineHeight: 16 },
-  errorGeneral: { fontSize: 12, color: '#ef4444' },
+  avisoSoloLecturaTexto: { flex: 1, ...tasksTipo.micro, color: tasksColor.textoSecundario },
+  notaCancelar: { ...tasksTipo.micro },
+  errorGeneral: { ...tasksTipo.etiqueta, color: tasksColor.peligro },
 
-  cuerpo: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  cuerpo: { flexDirection: 'row', gap: tasksSpace[3], alignItems: 'flex-start' },
   cuerpoApilado: { flexDirection: 'column' },
-  columna: { flex: 1, minWidth: 0, gap: 12, width: '100%' },
+  columna: { flex: 1, minWidth: 0, gap: tasksSpace[3], width: '100%' },
 
-  datosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  datosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: tasksSpace[3] },
   dato: { minWidth: 130, gap: 2 },
-  datoEtiqueta: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#94a3b8',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-  },
-  datoValor: { fontSize: 13, fontWeight: '600', color: '#334155' },
-  descripcion: { fontSize: 13, color: '#475569', lineHeight: 19 },
-  sinDescripcion: { fontSize: 12, color: '#94a3b8' },
-  notaSeccion: { fontSize: 11, color: '#94a3b8', lineHeight: 16 },
+  datoEtiqueta: { ...tasksTipo.etiqueta },
+  datoValor: { ...tasksTipo.dato },
+  datoTabular: { ...tasksTabularNums },
+  descripcion: { ...tasksTipo.cuerpo },
+  sinDescripcion: { ...tasksTipo.micro },
+  notaSeccion: { ...tasksTipo.micro },
 
-  lista: { gap: 8 },
+  lista: { gap: tasksSpace[2] },
   filaLista: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: tasksSpace[2],
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: tasksColor.bordeSutil,
   },
   filaTexto: { flex: 1, minWidth: 0 },
-  filaTitulo: { fontSize: 13, fontWeight: '600', color: '#334155' },
-  filaSub: { fontSize: 11, color: '#94a3b8', marginTop: 1 },
+  filaTitulo: { ...tasksTipo.dato },
+  filaSub: { ...tasksTipo.micro, marginTop: 1 },
   filaReunionTactil: { minHeight: MIN_TOUCH },
   avisoCalendario: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#fffbeb',
+    paddingVertical: tasksSpace[2],
+    borderRadius: tasksRadius.contenedor,
+    backgroundColor: tasksColor.avisoSuave,
     borderWidth: 1,
     borderColor: '#fde68a',
   },
-  avisoCalendarioTexto: { flex: 1, fontSize: 12, color: '#92400e', lineHeight: 17 },
+  avisoCalendarioTexto: { flex: 1, ...tasksTipo.etiqueta, color: '#92400e' },
   iconoBtn: {
     padding: 6,
-    borderRadius: 8,
+    borderRadius: tasksRadius.control,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: tasksColor.bordeSutil,
+    backgroundColor: tasksColor.superficieHundida,
   },
   iconoBtnTactil: { minWidth: MIN_TOUCH, minHeight: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
 
   formEmbebido: {
-    gap: 8,
+    gap: tasksSpace[2],
     padding: 10,
-    borderRadius: 10,
+    borderRadius: tasksRadius.contenedor,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: tasksColor.bordeSutil,
+    backgroundColor: tasksColor.superficieHundida,
   },
   primarioBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#0ea5e9',
+    backgroundColor: tasksColor.acento,
     paddingVertical: 9,
-    borderRadius: 8,
+    borderRadius: tasksRadius.control,
   },
   primarioBtnTactil: { minHeight: MIN_TOUCH },
-  primarioTexto: { fontSize: 13, fontWeight: '700', color: '#ffffff' },
-  errorSeccion: { fontSize: 12, color: '#ef4444', lineHeight: 17 },
+  primarioTexto: { ...tasksTipo.dato, color: tasksColor.textoInverso, fontWeight: '600' },
+  errorSeccion: { ...tasksTipo.etiqueta, color: tasksColor.peligro },
 
   toggleCerradas: {
     flexDirection: 'row',
@@ -1125,19 +1136,19 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   toggleCerradasTactil: { minHeight: MIN_TOUCH },
-  toggleCerradasTexto: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+  toggleCerradasTexto: { ...tasksTipo.etiqueta, color: tasksColor.textoEnlace },
 
   masBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: tasksSpace[2],
+    borderRadius: tasksRadius.control,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: tasksColor.bordeSutil,
+    backgroundColor: tasksColor.superficieHundida,
   },
   masBtnTactil: { minHeight: MIN_TOUCH },
-  masTexto: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+  masTexto: { ...tasksTipo.etiqueta, color: tasksColor.textoEnlace },
 });

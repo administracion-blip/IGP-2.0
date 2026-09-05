@@ -20,10 +20,14 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
 import { SelectorDesplegable, type OpcionDesplegable } from '../../components/SelectorDesplegable';
+import { useLocalToast } from '../../components/Toast';
 import { BadgeEstadoProyecto } from '../../components/tasks/BadgesTasks';
 import { ModalFormularioProyecto } from '../../components/tasks/ModalFormularioProyecto';
+import { PeekProyecto } from '../../components/tasks/PeekProyecto';
+import { TasksPageHeader } from '../../components/tasks/TasksPageHeader';
 import { estilosModalTasks as modal } from '../../components/tasks/estilosTasks';
 import { MIN_TOUCH } from '../../constants/layout';
+import { tasksColor } from '../../constants/tasksUiTokens';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useAccesoTasks } from '../../hooks/useAccesoTasks';
 import { useNombresUsuarios } from '../../hooks/useNombresUsuarios';
@@ -47,7 +51,8 @@ const TODOS = '';
 export default function ListadoProyectosScreen() {
   const router = useRouter();
   const acceso = useAccesoTasks();
-  const { isCompact } = useBreakpoint();
+  const { isCompact, shouldStackPanels } = useBreakpoint();
+  const { show: showToast, ToastView } = useLocalToast();
   const departamentos = useDepartamentos();
 
   const [proyectos, setProyectos] = useState<Proyecto[]>([]);
@@ -61,7 +66,7 @@ export default function ListadoProyectosScreen() {
   const [filtroDepartamento, setFiltroDepartamento] = useState<string>(TODOS);
   const [soloMios, setSoloMios] = useState(false);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
-  const [filaSeleccionada, setFilaSeleccionada] = useState<number | null>(null);
+  const [idSeleccionado, setIdSeleccionado] = useState<string | null>(null);
 
   const [formVisible, setFormVisible] = useState(false);
   const [proyectoEdicion, setProyectoEdicion] = useState<Proyecto | null>(null);
@@ -117,7 +122,7 @@ export default function ListadoProyectosScreen() {
   );
 
   useEffect(() => {
-    setFilaSeleccionada(null);
+    setIdSeleccionado(null);
     void cargar();
   }, [cargar]);
 
@@ -178,16 +183,36 @@ export default function ListadoProyectosScreen() {
     [router],
   );
 
+  const abrirEdicion = useCallback(
+    (item: Proyecto) => {
+      if (!item.permisos_fila?.editar) {
+        showToast(
+          'Sin permiso',
+          'No puedes editar este proyecto: hay que ser su responsable o miembro con permiso de edición.',
+          'warning',
+        );
+        return;
+      }
+      setProyectoEdicion(item);
+      setFormVisible(true);
+    },
+    [showToast],
+  );
+
   // Decide `permisos_fila`, no la pantalla: un observador con `proyectos.borrar`
   // puede borrar el proyecto aunque no pueda editarlo.
   const solicitarBaja = useCallback((item: Proyecto) => {
     if (!item.permisos_fila?.borrar) {
-      setError('No puedes borrar este proyecto.');
+      showToast(
+        'Sin permiso',
+        'No tienes permiso para borrar este proyecto. Hace falta «Proyectos · Borrar».',
+        'warning',
+      );
       return;
     }
     setProyectoBaja(item);
     setErrorBaja(null);
-  }, []);
+  }, [showToast]);
 
   const confirmarBaja = useCallback(async () => {
     if (!proyectoBaja) return;
@@ -203,7 +228,7 @@ export default function ListadoProyectosScreen() {
         return;
       }
       setProyectoBaja(null);
-      setFilaSeleccionada(null);
+      setIdSeleccionado(null);
       void cargar();
     } catch (e) {
       console.error('[tasks] fallo al borrar el proyecto', e);
@@ -212,6 +237,15 @@ export default function ListadoProyectosScreen() {
       setGuardando(false);
     }
   }, [proyectoBaja, cargar]);
+
+  const filaSeleccionada = useMemo(() => {
+    if (!idSeleccionado) return null;
+    const idx = filtrados.findIndex((p) => p.id_proyecto === idSeleccionado);
+    return idx >= 0 ? idx : null;
+  }, [filtrados, idSeleccionado]);
+
+  const seleccionado =
+    filaSeleccionada != null ? filtrados[filaSeleccionada] : null;
 
   if (acceso.permisosCargando) {
     return (
@@ -231,120 +265,172 @@ export default function ListadoProyectosScreen() {
     );
   }
 
-  const seleccionado = filaSeleccionada != null ? filtrados[filaSeleccionada] : null;
-
   return (
     <View style={styles.container}>
-      <TablaBasica<Proyecto>
-        title="Proyectos"
-        onBack={() => router.push('/proyectos' as never)}
-        columnas={COLUMNAS}
-        datos={filtrados}
-        getValorCelda={getValorCelda}
-        loading={cargando}
-        error={error}
-        onRetry={() => void cargar()}
-        filtroBusqueda={filtroBusqueda}
-        onFiltroChange={setFiltroBusqueda}
-        selectedRowIndex={filaSeleccionada}
-        onSelectRow={setFilaSeleccionada}
-        onCrear={() => {
-          // La toolbar de `TablaBasica` es un bloque: si alguien puede editar
-          // pero no crear, el botón sigue ahí y hay que frenarlo aquí para no
-          // abrir un formulario que el servidor va a rechazar.
-          if (!puedeCrear) {
-            setError('No tienes permiso para crear proyectos.');
-            return;
-          }
-          setProyectoEdicion(null);
-          setFormVisible(true);
-        }}
-        onEditar={(item) => {
-          if (!item.permisos_fila?.editar) {
-            setError('No puedes editar este proyecto: hay que ser su responsable o miembro.');
-            return;
-          }
-          setProyectoEdicion(item);
-          setFormVisible(true);
-        }}
-        onBorrar={solicitarBaja}
-        guardando={guardando}
-        hideToolbarActions={!puedeCrear && !puedeEditar && !puedeBorrar}
-        toolbarCrearLabel="Crear proyecto"
-        emptyMessage="No hay proyectos que puedas ver con estos filtros"
-        emptyFilterMessage="Ningún proyecto coincide con la búsqueda"
-        defaultColWidth={130}
-        getRowKey={(item) => item.id_proyecto}
-        getRowStyle={(item) =>
-          item.estado === 'cancelado' || item.estado === 'cerrado' ? styles.filaCerrada : undefined
-        }
-        renderCell={(item, col) => {
-          if (col !== 'Estado') return null;
-          return <BadgeEstadoProyecto estado={item.estado} />;
-        }}
-        extraToolbarLeft={
-          <View style={styles.filtros}>
-            <SelectorDesplegable
-              sinIconoTrigger
-              tituloLista="Estado"
-              iconoLista="flag"
-              valorId={filtroEstado}
-              opciones={opcionesEstado}
-              onSeleccionar={setFiltroEstado}
-              style={styles.filtroCampo}
-            />
-            <SelectorDesplegable
-              sinIconoTrigger
-              tituloLista="Departamento"
-              iconoLista="account-tree"
-              valorId={filtroDepartamento}
-              opciones={opcionesDepartamento}
-              loading={departamentos.cargando}
-              onSeleccionar={setFiltroDepartamento}
-              style={styles.filtroCampo}
-            />
-            <TouchableOpacity
-              style={[styles.chip, isCompact && styles.chipTactil, soloMios && styles.chipActivo]}
-              onPress={() => setSoloMios((v) => !v)}
-              accessibilityLabel="Ver solo mis proyectos"
-            >
-              <MaterialIcons name="person" size={14} color={soloMios ? '#0369a1' : '#64748b'} />
-              <Text style={[styles.chipTexto, soloMios && styles.chipTextoActivo]}>Mis proyectos</Text>
-            </TouchableOpacity>
-          </View>
-        }
-        extraToolbarRight={
-          <View style={styles.accionesDerecha}>
-            <TouchableOpacity
-              style={[styles.btnFicha, isCompact && styles.btnFichaTactil, !seleccionado && styles.btnDeshabilitado]}
-              onPress={() => seleccionado && abrirFicha(seleccionado)}
-              disabled={!seleccionado}
-              accessibilityLabel="Abrir la ficha del proyecto seleccionado"
-            >
-              <MaterialIcons name="open-in-new" size={16} color={seleccionado ? '#0ea5e9' : '#94a3b8'} />
-              <Text style={[styles.btnFichaTexto, !seleccionado && styles.btnTextoDeshabilitado]}>
-                Abrir ficha
-              </Text>
-            </TouchableOpacity>
-            {cursor && !soloMios ? (
-              <TouchableOpacity
-                style={[styles.btnFicha, isCompact && styles.btnFichaTactil]}
-                onPress={() => void cargar(cursor)}
-                disabled={cargandoMas}
-              >
-                {cargandoMas ? (
-                  <ActivityIndicator size="small" color="#0ea5e9" />
-                ) : (
-                  <>
-                    <MaterialIcons name="expand-more" size={16} color="#0ea5e9" />
-                    <Text style={styles.btnFichaTexto}>Cargar más</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            ) : null}
-          </View>
-        }
-      />
+      <View style={styles.pageHeader}>
+        <TasksPageHeader
+          title="Proyectos"
+          subtitle="Listado, alta y ficha"
+          countLabel={`${filtrados.length} ${filtrados.length === 1 ? 'proyecto' : 'proyectos'}`}
+          onBack={() => router.push('/proyectos' as never)}
+          compact={isCompact}
+        />
+      </View>
+      <View
+        style={[
+          styles.split,
+          shouldStackPanels ? styles.splitApilado : styles.splitFila,
+        ]}
+      >
+        <View style={styles.splitTabla}>
+          <TablaBasica<Proyecto>
+            variant="tasks"
+            title="Proyectos"
+            hideHeader
+            onBack={() => router.push('/proyectos' as never)}
+            columnas={COLUMNAS}
+            datos={filtrados}
+            getValorCelda={getValorCelda}
+            loading={cargando}
+            error={error}
+            onRetry={() => void cargar()}
+            filtroBusqueda={filtroBusqueda}
+            onFiltroChange={setFiltroBusqueda}
+            selectedRowIndex={filaSeleccionada}
+            onSelectRow={(idx) => {
+              if (idx == null) {
+                setIdSeleccionado(null);
+                return;
+              }
+              setIdSeleccionado(filtrados[idx]?.id_proyecto ?? null);
+            }}
+            onCrear={() => {
+              // La toolbar de `TablaBasica` es un bloque: si alguien puede editar
+              // pero no crear, el botón sigue ahí y hay que frenarlo aquí para no
+              // abrir un formulario que el servidor va a rechazar.
+              if (!puedeCrear) {
+                showToast(
+                  'Sin permiso',
+                  'No tienes permiso para crear proyectos. Hace falta «Proyectos · Crear».',
+                  'warning',
+                );
+                return;
+              }
+              setProyectoEdicion(null);
+              setFormVisible(true);
+            }}
+            onEditar={abrirEdicion}
+            onBorrar={solicitarBaja}
+            guardando={guardando}
+            hideToolbarActions={!puedeCrear && !puedeEditar && !puedeBorrar}
+            toolbarCrearLabel="Crear proyecto"
+            emptyMessage="No hay proyectos"
+            emptyFilterMessage="Ningún proyecto coincide con la búsqueda"
+            emptyActionLabel={puedeCrear ? 'Nuevo proyecto' : undefined}
+            onEmptyAction={
+              puedeCrear
+                ? () => {
+                    setProyectoEdicion(null);
+                    setFormVisible(true);
+                  }
+                : undefined
+            }
+            defaultColWidth={130}
+            getRowKey={(item) => item.id_proyecto}
+            getRowStyle={(item) =>
+              item.estado === 'cancelado' || item.estado === 'cerrado' ? styles.filaCerrada : undefined
+            }
+            renderCell={(item, col) => {
+              if (col !== 'Estado') return null;
+              return <BadgeEstadoProyecto estado={item.estado} />;
+            }}
+            extraToolbarLeft={
+              <View style={styles.filtros}>
+                <SelectorDesplegable
+                  sinIconoTrigger
+                  tituloLista="Estado"
+                  iconoLista="flag"
+                  valorId={filtroEstado}
+                  opciones={opcionesEstado}
+                  onSeleccionar={setFiltroEstado}
+                  style={styles.filtroCampo}
+                />
+                <SelectorDesplegable
+                  sinIconoTrigger
+                  tituloLista="Departamento"
+                  iconoLista="account-tree"
+                  valorId={filtroDepartamento}
+                  opciones={opcionesDepartamento}
+                  loading={departamentos.cargando}
+                  onSeleccionar={setFiltroDepartamento}
+                  style={styles.filtroCampo}
+                />
+                <TouchableOpacity
+                  style={[styles.chip, isCompact && styles.chipTactil, soloMios && styles.chipActivo]}
+                  onPress={() => setSoloMios((v) => !v)}
+                  accessibilityLabel="Ver solo mis proyectos"
+                >
+                  <MaterialIcons name="person" size={14} color={soloMios ? '#0369a1' : '#64748b'} />
+                  <Text style={[styles.chipTexto, soloMios && styles.chipTextoActivo]}>Mis proyectos</Text>
+                </TouchableOpacity>
+              </View>
+            }
+            extraToolbarRight={
+              <View style={styles.accionesDerecha}>
+                <TouchableOpacity
+                  style={[styles.btnFicha, isCompact && styles.btnFichaTactil, !seleccionado && styles.btnDeshabilitado]}
+                  onPress={() => seleccionado && abrirFicha(seleccionado)}
+                  disabled={!seleccionado}
+                  accessibilityLabel="Abrir la ficha del proyecto seleccionado"
+                >
+                  <MaterialIcons name="open-in-new" size={16} color={seleccionado ? '#0ea5e9' : '#94a3b8'} />
+                  <Text style={[styles.btnFichaTexto, !seleccionado && styles.btnTextoDeshabilitado]}>
+                    Abrir ficha
+                  </Text>
+                </TouchableOpacity>
+                {cursor && !soloMios ? (
+                  <TouchableOpacity
+                    style={[styles.btnFicha, isCompact && styles.btnFichaTactil]}
+                    onPress={() => void cargar(cursor)}
+                    disabled={cargandoMas}
+                  >
+                    {cargandoMas ? (
+                      <ActivityIndicator size="small" color="#0ea5e9" />
+                    ) : (
+                      <>
+                        <MaterialIcons name="expand-more" size={16} color="#0ea5e9" />
+                        <Text style={styles.btnFichaTexto}>Cargar más</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            }
+          />
+        </View>
+
+        {!shouldStackPanels ? (
+          <PeekProyecto
+            proyecto={seleccionado}
+            nombreDepartamento={departamentos.nombrePorId}
+            onCerrar={() => setIdSeleccionado(null)}
+            onAbrirFicha={abrirFicha}
+            onEditar={abrirEdicion}
+            width={360}
+            style={styles.peekLateral}
+          />
+        ) : seleccionado ? (
+          <PeekProyecto
+            proyecto={seleccionado}
+            nombreDepartamento={departamentos.nombrePorId}
+            onCerrar={() => setIdSeleccionado(null)}
+            onAbrirFicha={abrirFicha}
+            onEditar={abrirEdicion}
+            stacked
+            style={styles.peekApilado}
+          />
+        ) : null}
+      </View>
 
       {!puedeCrear && !puedeEditar && !puedeBorrar ? (
         <View style={styles.avisoSoloLectura}>
@@ -364,7 +450,7 @@ export default function ListadoProyectosScreen() {
           onCerrar={() => setFormVisible(false)}
           onGuardado={(guardado) => {
             setFormVisible(false);
-            setFilaSeleccionada(null);
+            setIdSeleccionado(null);
             // Tras crear, ir a la ficha; tras editar, refrescar el listado.
             if (!proyectoEdicion && guardado?.id_proyecto) {
               router.push(`/proyectos/${encodeURIComponent(guardado.id_proyecto)}` as never);
@@ -414,6 +500,8 @@ export default function ListadoProyectosScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {ToastView}
     </View>
   );
 }
@@ -432,7 +520,14 @@ function ModalProyectoConUsuarios(
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+  container: { flex: 1, backgroundColor: tasksColor.fondoApp },
+  pageHeader: { paddingHorizontal: 10, paddingTop: 10 },
+  split: { flex: 1, minHeight: 0 },
+  splitFila: { flexDirection: 'row' },
+  splitApilado: { flexDirection: 'column' },
+  splitTabla: { flex: 1, minWidth: 0, minHeight: 0 },
+  peekLateral: { marginRight: 10, marginBottom: 10, alignSelf: 'stretch' },
+  peekApilado: { marginHorizontal: 10, marginBottom: 10 },
   centro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
   centroTexto: { fontSize: 13, color: '#64748b', textAlign: 'center' },
 

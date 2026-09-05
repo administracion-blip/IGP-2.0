@@ -127,6 +127,185 @@ function normDoc(val: unknown): string {
     .toUpperCase();
 }
 
+/** Clave de agrupación proveedor: CIF normalizado o, si no hay, nombre. */
+function claveProveedor(cif: string, nombre: string): string {
+  const c = normalizeCif(cif);
+  if (c) return `cif:${c}`;
+  const n = normNombre(nombre);
+  return n ? `nom:${n}` : '__sin_proveedor__';
+}
+
+function isoLocal(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Extrae `YYYY-MM` de una fecha ISO (`YYYY-MM-DD` o con hora). */
+function mesDeIso(iso: string): string | null {
+  const m = String(iso ?? '').trim().match(/^(\d{4})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}` : null;
+}
+
+/** Primer y último día del mes en calendario local (`YYYY-MM` → ISO fechas). */
+function rangoMes(yyyyMm: string): { desde: string; hasta: string } {
+  const m = yyyyMm.match(/^(\d{4})-(\d{2})$/);
+  if (!m) return { desde: '', hasta: '' };
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  return {
+    desde: isoLocal(new Date(y, mo, 1)),
+    hasta: isoLocal(new Date(y, mo + 1, 0)),
+  };
+}
+
+/** Etiqueta corta en español: `ago 2026`. */
+function labelMesEs(yyyyMm: string): string {
+  const { desde } = rangoMes(yyyyMm);
+  if (!desde) return yyyyMm;
+  const [y, mo, d] = desde.split('-').map(Number);
+  const label = new Date(y, mo - 1, d).toLocaleDateString('es-ES', {
+    month: 'short',
+    year: 'numeric',
+  });
+  return label.replace('.', '').replace(/\s+/g, ' ').trim();
+}
+
+/** Suma/resta meses a un `YYYY-MM`. */
+function shiftMes(yyyyMm: string, delta: number): string {
+  const m = yyyyMm.match(/^(\d{4})-(\d{2})$/);
+  if (!m) return yyyyMm;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** ¿El mes completo está dentro de `rangoCargado`? */
+function mesCubiertoPorRango(
+  yyyyMm: string,
+  rango: { dateFrom: string | null; dateTo: string | null; all: boolean } | null,
+): boolean {
+  if (!rango) return false;
+  if (rango.all) return true;
+  const { desde, hasta } = rangoMes(yyyyMm);
+  if (!desde || !hasta) return false;
+  if (rango.dateFrom && desde < rango.dateFrom) return false;
+  if (rango.dateTo && hasta > rango.dateTo) return false;
+  return true;
+}
+
+type ResolverEmpresaGrupoLite = {
+  cifDeCompra: (it: CompraLinea) => string;
+  empresaPorCif: Map<string, string>;
+};
+
+/**
+ * Agrupa líneas de compra de un proveedor en albaranes (misma lógica que el
+ * listado principal). Opcionalmente filtra por mes `YYYY-MM`.
+ */
+function construirAlbaranesProveedor(params: {
+  compras: CompraLinea[];
+  claveProveedorTarget: string;
+  resolverEmpresaGrupo: ResolverEmpresaGrupoLite;
+  mesYyyyMm?: string | null;
+  docsFacturas?: Set<string>;
+}): AlbaranResumen[] {
+  const { compras, claveProveedorTarget, resolverEmpresaGrupo, mesYyyyMm, docsFacturas } = params;
+  const nombreEmpresaGrupo = (cif: string): string =>
+    cif ? resolverEmpresaGrupo.empresaPorCif.get(cif) || cif : 'Sin empresa';
+
+  type AcumAlbaran = {
+    label: string;
+    fechaIso: string;
+    numDoc: string;
+    empresaCif: string;
+    empresaNombre: string;
+    sumLineas: number;
+    sumLineasConIva: number;
+    netDoc: number | null;
+    grossDoc: number | null;
+    numLineas: number;
+    lineas: CompraLinea[];
+  };
+  const albMap = new Map<string, AcumAlbaran>();
+
+  for (const it of compras) {
+    const nombre = String(it.SupplierName ?? '').trim();
+    const key = claveProveedor(String(it.SupplierCif ?? ''), nombre);
+    if (key !== claveProveedorTarget) continue;
+    const fecha = fechaLineaISO(it);
+    if (mesYyyyMm) {
+      const mes = mesDeIso(fecha);
+      if (mes !== mesYyyyMm) continue;
+    }
+    const empCifCompra = resolverEmpresaGrupo.cifDeCompra(it);
+    const aKey = albaranKey(it);
+    let alb = albMap.get(aKey);
+    if (!alb) {
+      alb = {
+        label: albaranLabel(it),
+        fechaIso: fecha,
+        numDoc: String(it.SupplierDocumentNumber ?? '').trim(),
+        empresaCif: empCifCompra,
+        empresaNombre: nombreEmpresaGrupo(empCifCompra),
+        sumLineas: 0,
+        sumLineasConIva: 0,
+        netDoc: null,
+        grossDoc: null,
+        numLineas: 0,
+        lineas: [],
+      };
+      albMap.set(aKey, alb);
+    }
+    alb.lineas.push(it);
+    const importe = Number(it.TotalAmount);
+    const neto = Number.isNaN(importe) ? 0 : importe;
+    const vat = Number(it.VatRate) || 0;
+    const surcharge = Number(it.SurchargeRate) || 0;
+    alb.sumLineas += neto;
+    alb.sumLineasConIva += neto * (1 + vat + surcharge);
+    if (alb.grossDoc == null && it.AlbaranGrossAmount != null && !Number.isNaN(Number(it.AlbaranGrossAmount))) {
+      alb.grossDoc = Number(it.AlbaranGrossAmount);
+    }
+    if (alb.netDoc == null && it.AlbaranNetAmount != null && !Number.isNaN(Number(it.AlbaranNetAmount))) {
+      alb.netDoc = Number(it.AlbaranNetAmount);
+    }
+    alb.numLineas += 1;
+  }
+
+  const docs = docsFacturas ?? new Set<string>();
+  const albaranes: AlbaranResumen[] = Array.from(albMap.entries()).map(([aKey, a]) => {
+    const nd = normDoc(a.numDoc);
+    return {
+      key: aKey,
+      label: a.label,
+      fechaIso: a.fechaIso,
+      numDoc: a.numDoc,
+      empresaCif: a.empresaCif,
+      empresaNombre: a.empresaNombre,
+      total: a.netDoc ?? a.sumLineas,
+      totalConIva: a.grossDoc ?? a.sumLineasConIva,
+      numLineas: a.numLineas,
+      vinculado: nd !== '' && docs.has(nd),
+      lineas: a.lineas,
+    };
+  });
+
+  albaranes.sort((a, b) => {
+    const aSin = !a.empresaNombre || a.empresaNombre === 'Sin empresa';
+    const bSin = !b.empresaNombre || b.empresaNombre === 'Sin empresa';
+    if (aSin !== bSin) return aSin ? 1 : -1;
+    if (!aSin) {
+      const ce = a.empresaNombre.localeCompare(b.empresaNombre, 'es');
+      if (ce !== 0) return ce;
+    }
+    const cf = a.fechaIso.localeCompare(b.fechaIso);
+    if (cf !== 0) return cf;
+    return a.label.localeCompare(b.label, 'es');
+  });
+  return albaranes;
+}
+
 function formatFechaCorta(iso: string): string {
   if (!iso) return '—';
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -164,13 +343,6 @@ function colorChipEmpresa(empresaCif: string, empresaNombre: string): { bg: stri
     h = (h * 31 + key.charCodeAt(i)) >>> 0;
   }
   return EMPRESA_CHIP_PASTEL[h % EMPRESA_CHIP_PASTEL.length];
-}
-
-function isoLocal(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
 }
 
 type PeriodoChip = { id: string; label: string };
@@ -311,7 +483,7 @@ export default function ConciliacionFacturasScreen() {
   const { shouldStackPanels } = useBreakpoint();
   const { show: showToast, ToastView } = useLocalToast();
   const { confirmar, ConfirmarView } = useConfirmar();
-  const { compras, loading: loadingCompras, recargar } = useComprasProveedorCache();
+  const { compras, loading: loadingCompras, recargar, rangoCargado } = useComprasProveedorCache();
 
   const [facturas, setFacturas] = useState<FacturaListado[]>([]);
   const [loadingFacturas, setLoadingFacturas] = useState(true);
@@ -361,8 +533,51 @@ export default function ConciliacionFacturasScreen() {
   const [compPreviewError, setCompPreviewError] = useState<string | null>(null);
   /** Búsqueda local de albaranes en el panel izquierdo del comparador. */
   const [compBusquedaAlb, setCompBusquedaAlb] = useState('');
+  /** Mes (`YYYY-MM`) cuyos albaranes muestra el panel izquierdo del comparador. */
+  const [compAlbMes, setCompAlbMes] = useState<string | null>(null);
   const [exportandoPdf, setExportandoPdf] = useState(false);
   const exportandoPdfRef = useRef(false);
+  /**
+   * Rango en vuelo / acumulado mientras el comparador está abierto.
+   * Evita perder meses intermedios si se navega ‹ › antes de que termine un `recargar`.
+   */
+  const rangoPedidoCompRef = useRef<{ dateFrom: string; dateTo: string } | null>(null);
+
+  /** Amplía la caché de compras si el mes no está cubierto (unión con cargado + pedido en curso). */
+  const asegurarMesEnCache = useCallback(
+    (yyyyMm: string) => {
+      const mesR = rangoMes(yyyyMm);
+      if (!mesR.desde || !mesR.hasta) return;
+
+      const pending = rangoPedidoCompRef.current;
+      const cubiertoCargado = mesCubiertoPorRango(yyyyMm, rangoCargado);
+      const cubiertoPending = !!(
+        pending
+        && mesR.desde >= pending.dateFrom
+        && mesR.hasta <= pending.dateTo
+      );
+      if (cubiertoCargado || cubiertoPending) return;
+
+      let dateFrom = mesR.desde;
+      let dateTo = mesR.hasta;
+      if (rangoCargado && !rangoCargado.all) {
+        if (rangoCargado.dateFrom && rangoCargado.dateFrom < dateFrom) dateFrom = rangoCargado.dateFrom;
+        if (rangoCargado.dateTo && rangoCargado.dateTo > dateTo) dateTo = rangoCargado.dateTo;
+      } else {
+        const fd = /^\d{4}-\d{2}-\d{2}$/.test(fechaDesde.trim()) ? fechaDesde.trim() : null;
+        const fh = /^\d{4}-\d{2}-\d{2}$/.test(fechaHasta.trim()) ? fechaHasta.trim() : null;
+        if (fd && fd < dateFrom) dateFrom = fd;
+        if (fh && fh > dateTo) dateTo = fh;
+      }
+      if (pending) {
+        if (pending.dateFrom < dateFrom) dateFrom = pending.dateFrom;
+        if (pending.dateTo > dateTo) dateTo = pending.dateTo;
+      }
+      rangoPedidoCompRef.current = { dateFrom, dateTo };
+      void recargar({ dateFrom, dateTo, force: true });
+    },
+    [rangoCargado, fechaDesde, fechaHasta, recargar],
+  );
 
   const abrirComparador = useCallback((p: NodoProveedor) => {
     setComparador(p);
@@ -370,7 +585,13 @@ export default function ConciliacionFacturasScreen() {
     const f = p.facturas.find((x) => x.vinculada) ?? p.facturas[0];
     setCompFacturaId(f ? f.id : null);
     setCompBusquedaAlb('');
-  }, []);
+    const mesFactura = f?.fechaIso ? mesDeIso(f.fechaIso) : null;
+    const mesFiltro = mesDeIso(fechaDesde);
+    const mesHoy = mesDeIso(isoLocal(new Date()));
+    const mesInit = mesFactura || mesFiltro || mesHoy;
+    setCompAlbMes(mesInit);
+    if (mesInit) asegurarMesEnCache(mesInit);
+  }, [fechaDesde, asegurarMesEnCache]);
 
   const cerrarComparador = useCallback(() => {
     setComparador(null);
@@ -378,6 +599,8 @@ export default function ConciliacionFacturasScreen() {
     setCompPreviewUrl(null);
     setCompPreviewError(null);
     setCompBusquedaAlb('');
+    setCompAlbMes(null);
+    rangoPedidoCompRef.current = null;
   }, []);
 
   // Solo al cambiar de factura: no rehidratar `comparador` al marcar albaranes (evita reset del PDF).
@@ -642,13 +865,6 @@ export default function ConciliacionFacturasScreen() {
       empresaCifCount: Map<string, number>;
     };
     const provMap = new Map<string, Acum>();
-
-    const claveProveedor = (cif: string, nombre: string): string => {
-      const c = normalizeCif(cif);
-      if (c) return `cif:${c}`;
-      const n = normNombre(nombre);
-      return n ? `nom:${n}` : '__sin_proveedor__';
-    };
 
     const getAcum = (key: string, nombre: string, cif: string): Acum => {
       let acum = provMap.get(key);
@@ -955,37 +1171,133 @@ export default function ConciliacionFacturasScreen() {
     setAsignacionesSesion(hidratarAsignacionesDesdeFacturas(facturas));
   }, [fechaDesde, fechaHasta, filtroEstado, empresaFiltro]); // eslint-disable-line react-hooks/exhaustive-deps -- solo filtros
 
+  /** Todos los albaranes del proveedor del comparador en caché (sin filtro de mes). */
+  const albaranesProveedorComparadorTodos = useMemo(() => {
+    if (!comparador) return [] as AlbaranResumen[];
+    const docsFacturas = new Set(
+      comparador.facturas.map((f) => normDoc(f.numeroProveedor)).filter(Boolean),
+    );
+    return construirAlbaranesProveedor({
+      compras,
+      claveProveedorTarget: comparador.key,
+      resolverEmpresaGrupo,
+      docsFacturas,
+    });
+  }, [comparador, compras, resolverEmpresaGrupo]);
+
+  /**
+   * Albaranes del mes activo en el comparador + los ya asignados a la factura
+   * activa (aunque sean de otro mes / otra empresa), para no perder el marcado.
+   * Empresa: prioriza la de la factura activa; si no hay, el filtro global.
+   */
+  const albaranesComparadorMes = useMemo(() => {
+    if (!comparador || !compAlbMes) return [] as AlbaranResumen[];
+    const keysAsig = compFacturaId
+      ? albaranKeysDeFactura(asignacionesSesion, compFacturaId)
+      : [];
+    const keysAsigSet = new Set(keysAsig);
+    const factActiva = compFacturaId
+      ? comparador.facturas.find((f) => f.id === compFacturaId) ?? null
+      : null;
+
+    /** ¿El albarán pertenece a la sociedad del grupo que estamos conciliando? */
+    const pasaEmpresaComp = (a: AlbaranResumen): boolean => {
+      if (keysAsigSet.has(a.key)) return true;
+      if (factActiva) {
+        // Misma sociedad receptora que la factura ('' = sin empresa asociada).
+        return a.empresaCif === factActiva.empresaCif;
+      }
+      if (empresaFiltro === EMPRESA_TODAS) return true;
+      if (empresaFiltro === EMPRESA_SIN) return a.empresaCif === '';
+      if (empresaFiltro.startsWith('cif:')) {
+        return a.empresaCif === empresaFiltro.slice(4);
+      }
+      return true;
+    };
+
+    const porKey = new Map<string, AlbaranResumen>();
+    for (const a of albaranesProveedorComparadorTodos) {
+      if (mesDeIso(a.fechaIso) !== compAlbMes) continue;
+      if (!pasaEmpresaComp(a)) continue;
+      porKey.set(a.key, a);
+    }
+    for (const k of keysAsig) {
+      if (porKey.has(k)) continue;
+      const extra = albaranesProveedorComparadorTodos.find((a) => a.key === k)
+        ?? comparador.albaranes.find((a) => a.key === k);
+      if (extra) porKey.set(k, extra);
+    }
+    const list = Array.from(porKey.values());
+    // Asignados fuera de mes/empresa primero; luego el resto por fecha/empresa.
+    list.sort((a, b) => {
+      const aAsig = keysAsigSet.has(a.key);
+      const bAsig = keysAsigSet.has(b.key);
+      const aFuera = aAsig && (
+        mesDeIso(a.fechaIso) !== compAlbMes
+        || (factActiva != null && a.empresaCif !== factActiva.empresaCif)
+      );
+      const bFuera = bAsig && (
+        mesDeIso(b.fechaIso) !== compAlbMes
+        || (factActiva != null && b.empresaCif !== factActiva.empresaCif)
+      );
+      if (aFuera !== bFuera) return aFuera ? -1 : 1;
+      const cf = a.fechaIso.localeCompare(b.fechaIso);
+      if (cf !== 0) return cf;
+      return a.label.localeCompare(b.label, 'es');
+    });
+    return list;
+  }, [
+    comparador,
+    compAlbMes,
+    albaranesProveedorComparadorTodos,
+    asignacionesSesion,
+    compFacturaId,
+    empresaFiltro,
+  ]);
+
+  const totalAlbMesConIva = useMemo(
+    () => albaranesComparadorMes
+      .filter((a) => !compAlbMes || mesDeIso(a.fechaIso) === compAlbMes)
+      .reduce((s, a) => s + a.totalConIva, 0),
+    [albaranesComparadorMes, compAlbMes],
+  );
+
   const basesAlbPorKey = useMemo(() => {
     const map = new Map<string, number>();
     for (const p of proveedores) {
       for (const a of p.albaranes) map.set(a.key, a.total);
     }
+    // Incluir albaranes del proveedor en caché (otros meses del comparador).
+    for (const a of albaranesProveedorComparadorTodos) map.set(a.key, a.total);
     return map;
-  }, [proveedores]);
+  }, [proveedores, albaranesProveedorComparadorTodos]);
 
   /** Datos de albarán para construir el body PUT (serie/número/fecha/base). */
   const albaranesDatosPorKey = useMemo(() => {
     const map = new Map<string, AlbaranDatosConciliacion>();
+    const meter = (a: AlbaranResumen) => {
+      if (map.has(a.key)) return;
+      const first = a.lineas[0];
+      const sn = first
+        ? {
+            serie: String(first.AlbaranSerie ?? ''),
+            numero: String(first.AlbaranNumero ?? ''),
+          }
+        : serieNumeroDesdeKey(a.key);
+      map.set(a.key, {
+        key: a.key,
+        serie: sn.serie,
+        numero: sn.numero,
+        fecha_albaran: a.fechaIso || '',
+        base: a.total,
+      });
+    };
     for (const p of proveedores) {
-      for (const a of p.albaranes) {
-        const first = a.lineas[0];
-        const sn = first
-          ? {
-              serie: String(first.AlbaranSerie ?? ''),
-              numero: String(first.AlbaranNumero ?? ''),
-            }
-          : serieNumeroDesdeKey(a.key);
-        map.set(a.key, {
-          key: a.key,
-          serie: sn.serie,
-          numero: sn.numero,
-          fecha_albaran: a.fechaIso || '',
-          base: a.total,
-        });
-      }
+      for (const a of p.albaranes) meter(a);
     }
+    for (const a of albaranesProveedorComparadorTodos) meter(a);
     return map;
-  }, [proveedores]);
+  }, [proveedores, albaranesProveedorComparadorTodos]);
 
   /** Podar keys huérfanas: ni en albaranes del periodo ni persistidas en facturas. */
   useEffect(() => {
@@ -1240,6 +1552,17 @@ export default function ConciliacionFacturasScreen() {
       if (next) setCompFacturaId(next.id);
     },
     [comparador, compFacturaId],
+  );
+
+  /** Navega el mes de albaranes del panel izquierdo (local al modal). */
+  const navegarCompAlbMes = useCallback(
+    (dir: -1 | 1) => {
+      if (!compAlbMes || loadingCompras) return;
+      const next = shiftMes(compAlbMes, dir);
+      setCompAlbMes(next);
+      asegurarMesEnCache(next);
+    },
+    [compAlbMes, loadingCompras, asegurarMesEnCache],
   );
 
   const marcarPendientePago = useCallback(
@@ -2054,8 +2377,10 @@ export default function ConciliacionFacturasScreen() {
                 );
                 const estadoActiva = compFactura?.estado ?? (compFacturaId ? (estadoFacturaPorId.get(compFacturaId) ?? '') : '');
                 const qAlb = normNombre(compBusquedaAlb);
+                const albMesBase = albaranesComparadorMes;
+                const nAlbMes = albMesBase.filter((a) => !compAlbMes || mesDeIso(a.fechaIso) === compAlbMes).length;
                 const albaranesCompVisibles = qAlb
-                  ? comparador.albaranes.filter((a) => {
+                  ? albMesBase.filter((a) => {
                       if (normNombre(a.label).includes(qAlb)) return true;
                       if (normNombre(a.numDoc).includes(qAlb)) return true;
                       if (normNombre(a.empresaNombre).includes(qAlb)) return true;
@@ -2067,10 +2392,11 @@ export default function ConciliacionFacturasScreen() {
                           || normNombre(String(l.ProductId ?? '')).includes(qAlb),
                       );
                     })
-                  : comparador.albaranes;
+                  : albMesBase;
+                const labelMes = compAlbMes ? labelMesEs(compAlbMes) : '—';
                 const tituloAlbComp = qAlb
-                  ? `Albaranes (${albaranesCompVisibles.length}/${comparador.albaranes.length})`
-                  : `Albaranes (${comparador.albaranes.length})`;
+                  ? `Albaranes · ${labelMes} (${albaranesCompVisibles.length}/${albMesBase.length})`
+                  : `Albaranes · ${labelMes} (${nAlbMes})`;
 
                 const barraResto = compFactura ? (
                   <View style={local.compRestoBar}>
@@ -2125,6 +2451,32 @@ export default function ConciliacionFacturasScreen() {
                   <View style={[local.compBody, comparadorApilado && { flexDirection: 'column' }]}>
                     {/* Izquierda: desglose de productos por albarán */}
                     <View style={[local.compPanel, comparadorApilado && local.compPanelApilado]}>
+                      <View style={local.compFactChipsNav}>
+                        <TouchableOpacity
+                          style={[local.compFactNavBtn, loadingCompras && { opacity: 0.4 }]}
+                          onPress={() => navegarCompAlbMes(-1)}
+                          hitSlop={8}
+                          disabled={loadingCompras}
+                          accessibilityLabel="Mes anterior de albaranes"
+                        >
+                          <MaterialIcons name="chevron-left" size={22} color="#0369a1" />
+                        </TouchableOpacity>
+                        <Text style={local.compAlbMesLabel} numberOfLines={1}>
+                          {labelMes}
+                        </Text>
+                        {loadingCompras ? (
+                          <ActivityIndicator size="small" color="#0369a1" style={{ marginHorizontal: 4 }} />
+                        ) : null}
+                        <TouchableOpacity
+                          style={[local.compFactNavBtn, loadingCompras && { opacity: 0.4 }]}
+                          onPress={() => navegarCompAlbMes(1)}
+                          hitSlop={8}
+                          disabled={loadingCompras}
+                          accessibilityLabel="Mes siguiente de albaranes"
+                        >
+                          <MaterialIcons name="chevron-right" size={22} color="#0369a1" />
+                        </TouchableOpacity>
+                      </View>
                       <Text style={local.compPanelTitle}>{tituloAlbComp}</Text>
                       <View style={local.compBuscarWrap}>
                         <MaterialIcons name="search" size={16} color="#94a3b8" />
@@ -2145,8 +2497,8 @@ export default function ConciliacionFacturasScreen() {
                         Toca la cabecera para marcar/desmarcar contra la factura activa
                       </Text>
                       <ScrollView style={{ flex: 1 }}>
-                        {comparador.albaranes.length === 0 ? (
-                          <Text style={local.detalleVacio}>Sin albaranes en el periodo.</Text>
+                        {albMesBase.length === 0 ? (
+                          <Text style={local.detalleVacio}>Sin albaranes en este mes.</Text>
                         ) : albaranesCompVisibles.length === 0 ? (
                           <Text style={local.detalleVacio}>Ningún albarán coincide con la búsqueda.</Text>
                         ) : albaranesCompVisibles.map((a) => {
@@ -2256,7 +2608,7 @@ export default function ConciliacionFacturasScreen() {
                       </ScrollView>
                       {!comparadorApilado ? barraResto : null}
                       <Text style={local.compPanelPie}>
-                        Líneas a precio sin IVA · Bases al marcar · Total alb. c/IVA: {formatMoneda(comparador.totalAlbaranesConIva)}
+                        Líneas a precio sin IVA · Bases al marcar · Total alb. mes c/IVA: {formatMoneda(totalAlbMesConIva)}
                       </Text>
                     </View>
 
@@ -2631,6 +2983,14 @@ const local = StyleSheet.create({
     backgroundColor: '#e0f2fe',
     borderWidth: 1,
     borderColor: '#bae6fd',
+  },
+  compAlbMesLabel: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0369a1',
+    textTransform: 'capitalize',
   },
   compFactChips: { flexDirection: 'row', gap: 6, paddingVertical: 2 },
   compPreviewBox: { flex: 1, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#f8fafc' },

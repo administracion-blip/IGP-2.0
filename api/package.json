@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node --env-file-if-exists=.env.local --env-file-if-exists=.env server.js",
-    "dev": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --watch server.js",
+    "start": "node --env-file-if-exists=.env.local server.js",
+    "dev": "node --env-file-if-exists=.env.local --watch --watch-path=./server.js --watch-path=./routes --watch-path=./lib --watch-path=./middleware server.js",
     "sync-closeouts": "node scripts/full-sync-closeouts.js",
     "sync-closeouts:interval": "node scripts/sync-closeouts-interval.js",
     "seed-gestion-festivos": "node scripts/seed-gestion-festivos.js",

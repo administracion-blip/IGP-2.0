@@ -43,6 +43,7 @@ import {
   textoVencimiento,
 } from '../../../lib/tasksUi';
 import { SeccionFicha } from '../../../components/tasks/SeccionFicha';
+import { TasksPageHeader } from '../../../components/tasks/TasksPageHeader';
 import { BadgeEstadoTarea, BadgePrioridad } from '../../../components/tasks/BadgesTasks';
 import { AccionesEstadoTarea } from '../../../components/tasks/AccionesEstadoTarea';
 import { TarjetaTarea } from '../../../components/tasks/TarjetaTarea';
@@ -53,6 +54,12 @@ import { SeccionEnlacesTarea } from '../../../components/tasks/SeccionEnlacesTar
 import { SeccionAdjuntosTarea } from '../../../components/tasks/SeccionAdjuntosTarea';
 import { estilosFormTasks as form } from '../../../components/tasks/estilosTasks';
 import { SelectorDesplegable } from '../../../components/SelectorDesplegable';
+import {
+  tasksColor,
+  tasksRadius,
+  tasksTabularNums,
+  tasksTipo,
+} from '../../../constants/tasksUiTokens';
 import { apiFetch, errorMessage } from '../../../utils/api';
 import { formatFecha, formatCreadoEn } from '../../../utils/formatFecha';
 import type { AdjuntoTarea, ComentarioTarea, EnlaceTarea, Tarea, TareaDetalle } from '../../../types/tasks';
@@ -454,12 +461,13 @@ export default function FichaTareaScreen() {
           <Dato
             etiqueta="Fecha límite"
             valor={abierta ? textoVencimiento(tarea.fecha_limite) : formatFecha(tarea.fecha_limite)}
+            tabular
           />
           <Dato etiqueta="Departamento" valor={departamentos.nombrePorId(tarea.departamento_id)} />
           {nombreProyecto ? <Dato etiqueta="Proyecto" valor={nombreProyecto} /> : null}
           <Dato etiqueta="Creada por" valor={usuarios.nombrePorId(tarea.creado_por)} />
           {tarea.cerrada_en ? (
-            <Dato etiqueta="Cerrada" valor={formatCreadoEn(tarea.cerrada_en)} />
+            <Dato etiqueta="Cerrada" valor={formatCreadoEn(tarea.cerrada_en)} tabular />
           ) : null}
         </View>
 
@@ -812,50 +820,46 @@ export default function FichaTareaScreen() {
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.cabecera}>
-          <View style={styles.cabeceraFila}>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={styles.backBtn}
-              accessibilityLabel="Volver"
-            >
-              <MaterialIcons name="arrow-back" size={22} color="#334155" />
-            </TouchableOpacity>
-            <View style={styles.cabeceraTexto}>
-              <Text style={styles.titulo}>{tarea.titulo}</Text>
+        <TasksPageHeader
+          title={tarea.titulo}
+          onBack={() => router.back()}
+          backAccessibilityLabel="Volver"
+          compact={isCompact}
+          below={
+            <View style={styles.cabeceraMeta}>
               <View style={styles.cabeceraBadges}>
                 <BadgeEstadoTarea estado={tarea.estado} grande />
                 <BadgePrioridad prioridad={tarea.prioridad} siempre grande />
                 <Text style={styles.cabeceraFecha}>{textoVencimiento(tarea.fecha_limite)}</Text>
               </View>
-            </View>
-          </View>
 
-          {puedeEditar ? (
-            <AccionesEstadoTarea
-              estado={tarea.estado}
-              onCambiar={(destino) => cambio.pedirCambio(tarea, destino)}
-              ocupado={cambio.enCurso != null}
-              estadoEnCurso={cambio.enCurso?.destino ?? null}
-              tactil={isCompact}
-            />
-          ) : (
-            <View style={styles.avisoSoloLectura}>
-              <MaterialIcons name="lock-outline" size={15} color="#64748b" />
-              <Text style={styles.avisoSoloLecturaTexto}>
-                Solo lectura: esta tarea la cambia su responsable o quien pueda editar su proyecto.
-              </Text>
-            </View>
-          )}
+              {puedeEditar ? (
+                <AccionesEstadoTarea
+                  estado={tarea.estado}
+                  onCambiar={(destino) => cambio.pedirCambio(tarea, destino)}
+                  ocupado={cambio.enCurso != null}
+                  estadoEnCurso={cambio.enCurso?.destino ?? null}
+                  tactil={isCompact}
+                />
+              ) : (
+                <View style={styles.avisoSoloLectura}>
+                  <MaterialIcons name="lock-outline" size={15} color="#64748b" />
+                  <Text style={styles.avisoSoloLecturaTexto}>
+                    Solo lectura: esta tarea la cambia su responsable o quien pueda editar su proyecto.
+                  </Text>
+                </View>
+              )}
 
-          {cambio.error ? (
-            <TouchableOpacity style={styles.avisoError} onPress={cambio.descartarError}>
-              <MaterialIcons name="error-outline" size={16} color="#b91c1c" />
-              <Text style={styles.avisoErrorTexto}>{cambio.error}</Text>
-              <MaterialIcons name="close" size={16} color="#b91c1c" />
-            </TouchableOpacity>
-          ) : null}
-        </View>
+              {cambio.error ? (
+                <TouchableOpacity style={styles.avisoError} onPress={cambio.descartarError}>
+                  <MaterialIcons name="error-outline" size={16} color="#b91c1c" />
+                  <Text style={styles.avisoErrorTexto}>{cambio.error}</Text>
+                  <MaterialIcons name="close" size={16} color="#b91c1c" />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          }
+        />
 
         {error ? <Text style={styles.errorGeneral}>{error}</Text> : null}
 
@@ -915,17 +919,25 @@ export default function FichaTareaScreen() {
   );
 }
 
-function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
+function Dato({
+  etiqueta,
+  valor,
+  tabular = false,
+}: {
+  etiqueta: string;
+  valor: string;
+  tabular?: boolean;
+}) {
   return (
     <View style={styles.dato}>
       <Text style={styles.datoEtiqueta}>{etiqueta}</Text>
-      <Text style={styles.datoValor}>{valor}</Text>
+      <Text style={[styles.datoValor, tabular && styles.datoTabular]}>{valor}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+  container: { flex: 1, backgroundColor: tasksColor.fondoApp },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 32, gap: 12 },
 
@@ -935,51 +947,31 @@ const styles = StyleSheet.create({
   volverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: MIN_TOUCH },
   volverTexto: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
 
-  cabecera: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 14,
-    gap: 10,
-  },
-  cabeceraFila: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  cabeceraTexto: { flex: 1, minWidth: 0, gap: 6 },
+  cabeceraMeta: { gap: 10 },
   cabeceraBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
-  cabeceraFecha: { fontSize: 12, fontWeight: '600', color: '#64748b' },
-  backBtn: {
-    width: MIN_TOUCH,
-    height: MIN_TOUCH,
-    borderRadius: 8,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  titulo: { fontSize: 19, fontWeight: '700', color: '#0f172a', lineHeight: 25 },
+  cabeceraFecha: { ...tasksTipo.etiqueta, color: tasksColor.textoSecundario },
   avisoSoloLectura: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#f1f5f9',
+    borderRadius: tasksRadius.contenedor,
+    backgroundColor: tasksColor.superficieHundida,
   },
-  avisoSoloLecturaTexto: { flex: 1, fontSize: 12, color: '#64748b', lineHeight: 17 },
+  avisoSoloLecturaTexto: { flex: 1, ...tasksTipo.micro, color: tasksColor.textoSecundario },
   avisoError: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#fee2e2',
+    borderRadius: tasksRadius.contenedor,
+    backgroundColor: tasksColor.peligroSuave,
     minHeight: MIN_TOUCH,
   },
-  avisoErrorTexto: { flex: 1, fontSize: 12, color: '#b91c1c', lineHeight: 17 },
-  errorGeneral: { fontSize: 12, color: '#ef4444' },
+  avisoErrorTexto: { flex: 1, ...tasksTipo.etiqueta, color: '#b91c1c' },
+  errorGeneral: { ...tasksTipo.etiqueta, color: tasksColor.peligro },
 
   cuerpo: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
   cuerpoApilado: { flexDirection: 'column' },
@@ -987,81 +979,76 @@ const styles = StyleSheet.create({
 
   datosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   dato: { minWidth: 130, gap: 2 },
-  datoEtiqueta: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#94a3b8',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-  },
-  datoValor: { fontSize: 13, fontWeight: '600', color: '#334155' },
-  descripcion: { fontSize: 13, color: '#475569', lineHeight: 19 },
-  sinDescripcion: { fontSize: 12, color: '#94a3b8' },
+  datoEtiqueta: { ...tasksTipo.etiqueta },
+  datoValor: { ...tasksTipo.dato },
+  datoTabular: { ...tasksTabularNums },
+  descripcion: { ...tasksTipo.cuerpo },
+  sinDescripcion: { ...tasksTipo.micro },
   enlaceProyecto: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start' },
   enlaceProyectoTactil: { minHeight: MIN_TOUCH },
-  enlaceProyectoTexto: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+  enlaceProyectoTexto: { ...tasksTipo.etiqueta, color: tasksColor.textoEnlace },
   bloqueo: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
     padding: 10,
-    borderRadius: 8,
+    borderRadius: tasksRadius.contenedor,
     backgroundColor: '#fef3c7',
   },
-  bloqueoTexto: { flex: 1, fontSize: 12, color: '#b45309', lineHeight: 17 },
+  bloqueoTexto: { flex: 1, ...tasksTipo.etiqueta, color: '#b45309' },
   cita: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
     padding: 10,
-    borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    borderRadius: tasksRadius.contenedor,
+    backgroundColor: tasksColor.superficieHundida,
     borderLeftWidth: 3,
     borderLeftColor: '#cbd5e1',
   },
-  citaTexto: { flex: 1, fontSize: 12, color: '#64748b', fontStyle: 'italic', lineHeight: 17 },
+  citaTexto: { flex: 1, ...tasksTipo.etiqueta, color: tasksColor.textoSecundario, fontStyle: 'italic' },
 
   reasignarWrap: { gap: 8 },
   reasignarBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start' },
   reasignarBtnTactil: { minHeight: MIN_TOUCH },
-  reasignarTexto: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+  reasignarTexto: { ...tasksTipo.etiqueta, color: tasksColor.textoEnlace },
 
   lista: { gap: 8 },
-  progreso: { fontSize: 12, fontWeight: '600', color: '#64748b' },
+  progreso: { ...tasksTipo.etiqueta, color: tasksColor.textoSecundario },
   filaLista: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     paddingVertical: 4,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: tasksColor.bordeSutil,
   },
   filaTexto: { flex: 1, minWidth: 0 },
-  filaTitulo: { fontSize: 13, fontWeight: '600', color: '#334155' },
-  filaSub: { fontSize: 11, color: '#94a3b8', marginTop: 1 },
+  filaTitulo: { ...tasksTipo.dato },
+  filaSub: { ...tasksTipo.micro, marginTop: 1 },
   check: { padding: 2 },
   checkTactil: { minWidth: MIN_TOUCH, minHeight: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
-  itemTexto: { flex: 1, fontSize: 13, color: '#334155', lineHeight: 18 },
-  itemHecho: { color: '#94a3b8', textDecorationLine: 'line-through' },
+  itemTexto: { flex: 1, ...tasksTipo.cuerpo, color: tasksColor.textoPrimario },
+  itemHecho: { color: tasksColor.textoTerciario, textDecorationLine: 'line-through' },
   iconoBtn: {
     padding: 6,
-    borderRadius: 8,
+    borderRadius: tasksRadius.control,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: tasksColor.bordeSutil,
+    backgroundColor: tasksColor.superficieHundida,
   },
   iconoBtnTactil: { minWidth: MIN_TOUCH, minHeight: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
   filaNuevoItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   inputItem: { flex: 1 },
-  vacioSeccion: { fontSize: 12, color: '#94a3b8', lineHeight: 18 },
+  vacioSeccion: { ...tasksTipo.micro },
 
   formEmbebido: {
     gap: 8,
     padding: 10,
-    borderRadius: 10,
+    borderRadius: tasksRadius.contenedor,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: tasksColor.bordeSutil,
+    backgroundColor: tasksColor.superficieHundida,
   },
   formComentario: { gap: 8 },
   primarioBtn: {
@@ -1069,26 +1056,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#0ea5e9',
+    backgroundColor: tasksColor.acento,
     paddingVertical: 9,
     paddingHorizontal: 12,
-    borderRadius: 8,
+    borderRadius: tasksRadius.control,
   },
   primarioBtnCorto: { paddingHorizontal: 14, alignSelf: 'stretch' },
   primarioBtnTactil: { minHeight: MIN_TOUCH },
-  primarioTexto: { fontSize: 13, fontWeight: '700', color: '#ffffff' },
-  errorSeccion: { fontSize: 12, color: '#ef4444', lineHeight: 17 },
+  primarioTexto: { ...tasksTipo.dato, color: tasksColor.textoInverso, fontWeight: '600' },
+  errorSeccion: { ...tasksTipo.etiqueta, color: tasksColor.peligro },
 
   comentario: {
     gap: 3,
     padding: 10,
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    borderRadius: tasksRadius.contenedor,
+    backgroundColor: tasksColor.superficieHundida,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksColor.bordeSutil,
   },
-  comentarioAutor: { fontSize: 11, fontWeight: '600', color: '#94a3b8' },
-  comentarioTexto: { fontSize: 13, color: '#334155', lineHeight: 18 },
+  comentarioAutor: { ...tasksTipo.micro },
+  comentarioTexto: { ...tasksTipo.cuerpo, color: tasksColor.textoPrimario },
 
   masBtn: {
     flexDirection: 'row',
@@ -1096,11 +1083,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 4,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: tasksRadius.control,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: tasksColor.bordeSutil,
+    backgroundColor: tasksColor.superficieHundida,
   },
   masBtnTactil: { minHeight: MIN_TOUCH },
-  masTexto: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+  masTexto: { ...tasksTipo.etiqueta, color: tasksColor.textoEnlace },
 });

@@ -27,6 +27,7 @@ import {
   puedeVerActivacionesPlanning,
   puedeVerArqueoCaja,
 } from '../../lib/permisosModulos';
+import { tasksUi } from '../../constants/tasksUiTokens';
 
 type IconName = React.ComponentProps<typeof MaterialIcons>['name'];
 
@@ -119,8 +120,9 @@ function aviso(msg: string) {
 export default function PlanningDiaIndexScreen() {
   const router = useRouter();
   const { hasPermiso } = useAuth();
-  const { cardWidth, compact, rowSpanWidth } = useHubNavGrid();
-  const { shouldStackPanels } = useBreakpoint();
+  const { cardWidth, compact, rowSpanWidth, gridColumns } = useHubNavGrid();
+  const { isDesktop } = useBreakpoint();
+  const apilarKpis = !isDesktop || gridColumns < 3;
   const [activacionesHoy, setActivacionesHoy] = useState(0);
   const [actuacionesHoy, setActuacionesHoy] = useState(0);
   const [limpiezaHoy, setLimpiezaHoy] = useState(0);
@@ -247,9 +249,9 @@ export default function PlanningDiaIndexScreen() {
   const objetivosThirdStyle = useMemo(
     () => [
       styles.objetivosThird,
-      shouldStackPanels && styles.objetivosThirdStack,
+      apilarKpis && styles.objetivosThirdStack,
     ],
-    [shouldStackPanels],
+    [apilarKpis],
   );
 
   const hubItems = useMemo(() => {
@@ -337,7 +339,7 @@ export default function PlanningDiaIndexScreen() {
                 style={[
                   styles.objetivosRow,
                   { width: rowSpanWidth },
-                  shouldStackPanels && styles.objetivosRowStack,
+                  apilarKpis && styles.objetivosRowStack,
                 ]}
               >
                 {puedeObjetivoCard ? (
@@ -346,6 +348,7 @@ export default function PlanningDiaIndexScreen() {
                       localIndex={objetivoLocalIdx}
                       onLocalIndexChange={setObjetivoLocalIdx}
                       onLocalesLoaded={setObjetivoLocales}
+                      style={apilarKpis ? styles.kpiCardStack : undefined}
                     />
                   </View>
                 ) : null}
@@ -355,6 +358,7 @@ export default function PlanningDiaIndexScreen() {
                       localId={localIdObjetivo}
                       filtrarPorLocal={puedeObjetivoCard}
                       localIndex={objetivoLocalIdx}
+                      style={apilarKpis ? styles.kpiCardStack : undefined}
                     />
                   </View>
                 ) : null}
@@ -364,6 +368,7 @@ export default function PlanningDiaIndexScreen() {
                       localId={localIdObjetivo}
                       filtrarPorLocal={puedeObjetivoCard}
                       localIndex={objetivoLocalIdx}
+                      style={apilarKpis ? styles.kpiCardStack : undefined}
                     />
                   </View>
                 ) : null}
@@ -425,21 +430,21 @@ export default function PlanningDiaIndexScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#ffffff' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 10 },
+  container: { flex: 1, padding: tasksUi.space[5], backgroundColor: tasksUi.color.fondoApp },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: tasksUi.space[4], gap: 10 },
   backBtn: {
     width: 36,
     height: 36,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    borderRadius: tasksUi.radius.contenedor,
+    backgroundColor: tasksUi.color.superficie,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksUi.color.bordeSutil,
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
-  subtitle: { fontSize: 14, color: '#64748b', marginTop: 2 },
-  scrollContent: { paddingBottom: 24 },
+  title: { ...tasksUi.tipo.tituloPantalla },
+  subtitle: { ...tasksUi.tipo.cuerpo, marginTop: 2 },
+  scrollContent: { paddingBottom: tasksUi.space[5] },
   objetivosRow: {
     flexDirection: 'row',
     alignItems: 'stretch',
@@ -448,7 +453,7 @@ const styles = StyleSheet.create({
   },
   sectionDivider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: tasksUi.color.bordeSutil,
     marginTop: 4,
     marginBottom: 16,
     alignSelf: 'flex-start',
@@ -463,10 +468,14 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
   },
   objetivosThirdStack: {
-    flex: undefined,
-    flexBasis: undefined,
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 'auto',
     width: '100%',
   },
+  kpiCardStack: {
+    flexGrow: 0,
+  },
   emptyBox: { alignItems: 'center', gap: 8, paddingVertical: 40 },
-  emptyText: { fontSize: 13, color: '#64748b', textAlign: 'center' },
+  emptyText: { ...tasksUi.tipo.cuerpo, textAlign: 'center' },
 });

@@ -30,10 +30,21 @@ import {
   ERP_LIST_MIN_COL_WIDTH,
   erpListTableStyles,
 } from '../constants/erpListTableStyles';
+import {
+  tasksColor,
+  tasksSpace,
+  tasksTabla,
+  tasksTabularNums,
+} from '../constants/tasksUiTokens';
+import { TasksEmptyState } from './tasks/TasksEmptyState';
+import { TasksTableSkeleton } from './tasks/TasksSkeleton';
 
 const DEFAULT_COL_WIDTH = 90;
 const DENSE_COL_WIDTH = 72;
 const MIN_COL_WIDTH = ERP_LIST_MIN_COL_WIDTH;
+
+/** Variante visual del piloto Proyectos; el resto del ERP usa `default`. */
+export type TablaBasicaVariant = 'default' | 'tasks';
 
 export type PaginacionProps = {
   totalRegistros: number;
@@ -92,6 +103,13 @@ export type TablaBasicaProps<T = Record<string, unknown>> = {
   emptyMessage?: string;
   /** Mensaje cuando el filtro no devuelve resultados */
   emptyFilterMessage?: string;
+  /**
+   * CTA del empty state (solo `variant="tasks"`).
+   * Con búsqueda activa no se muestra.
+   */
+  emptyActionLabel?: string;
+  /** Callback del CTA vacío (solo `variant="tasks"`). */
+  onEmptyAction?: () => void;
   /** Nombres de columnas con formato moneda (alineación derecha) */
   columnasMoneda?: string[];
   /** Ocultar cabecera (botón atrás + título) para usar cabecera personalizada */
@@ -123,6 +141,11 @@ export type TablaBasicaProps<T = Record<string, unknown>> = {
   getRowKey?: (item: T, index: number) => string;
   /** Panel opcional a la derecha de la tabla (misma fila, p. ej. calendario) */
   rightPanel?: React.ReactNode;
+  /**
+   * Variante visual. `tasks` activa el piloto UI de Proyectos (hover, barra de
+   * selección, altura de fila, tabular-nums). Por defecto no cambia nada.
+   */
+  variant?: TablaBasicaVariant;
 };
 
 export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps<T>) {
@@ -153,6 +176,8 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     paginacion,
     emptyMessage = 'No hay registros',
     emptyFilterMessage = 'Ningún resultado con el filtro',
+    emptyActionLabel,
+    onEmptyAction,
     columnasMoneda = [],
     hideHeader = false,
     getRowStyle,
@@ -169,6 +194,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     renderBandRow,
     getRowKey,
     rightPanel,
+    variant = 'default',
   } = props;
 
   // Modo "cómodo": en teléfono o tablet vertical ampliamos filas, tipografía y
@@ -176,11 +202,13 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
   const { shouldUseComfortableTable, shouldStackPanels } = useBreakpoint();
   const comodo = shouldUseComfortableTable && !dense;
   const stackRightPanel = rightPanel != null && shouldStackPanels;
+  const isTasksVariant = variant === 'tasks';
 
   const baseColWidth = defaultColWidth ?? (dense ? DENSE_COL_WIDTH : DEFAULT_COL_WIDTH);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
+  const [hoveredRowIndex, setHoveredRowIndex] = useState<number | null>(null);
   const [importExportOpen, setImportExportOpen] = useState(false);
   const resizeRef = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
 
@@ -252,7 +280,8 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
 
   const totalTableWidth = columnas.reduce((sum, col) => sum + getColWidth(col), 0);
 
-  if (loading && datos.length === 0) {
+  // Variant tasks: skeleton dentro del layout (toolbar visible). Default: spinner full.
+  if (loading && datos.length === 0 && !isTasksVariant) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#0ea5e9" />
@@ -261,10 +290,25 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
     );
   }
 
-  if (error != null && error !== '' && datos.length === 0) {
+  if (error != null && error !== '' && datos.length === 0 && !isTasksVariant) {
     return (
       <View style={styles.center}>
         <MaterialIcons name="error-outline" size={48} color="#f87171" />
+        <Text style={styles.errorText}>{error}</Text>
+        {onRetry && (
+          <TouchableOpacity style={styles.retryBtn} onPress={onRetry}>
+            <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
+            <Text style={styles.retryBtnText}>Reintentar</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }
+
+  if (error != null && error !== '' && datos.length === 0 && isTasksVariant && !loading) {
+    return (
+      <View style={styles.center}>
+        <MaterialIcons name="error-outline" size={40} color="#f87171" />
         <Text style={styles.errorText}>{error}</Text>
         {onRetry && (
           <TouchableOpacity style={styles.retryBtn} onPress={onRetry}>
@@ -540,13 +584,35 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
               nestedScrollEnabled
             >
               {datos.length === 0 ? (
-                <View style={erpListTableStyles.row}>
-                  <View style={erpListTableStyles.cellEmpty}>
-                    <Text style={erpListTableStyles.cellEmptyText}>
-                      {filtroBusqueda.trim() ? emptyFilterMessage : emptyMessage}
-                    </Text>
+                isTasksVariant && loading ? (
+                  <View style={styles.tasksSkeletonWrap}>
+                    <TasksTableSkeleton />
                   </View>
-                </View>
+                ) : isTasksVariant ? (
+                  <View style={styles.tasksEmptyWrap}>
+                    {filtroBusqueda.trim() ? (
+                      <TasksEmptyState
+                        icono="search-off"
+                        titulo={emptyFilterMessage}
+                      />
+                    ) : (
+                      <TasksEmptyState
+                        icono="inbox"
+                        titulo={emptyMessage}
+                        actionLabel={emptyActionLabel}
+                        onAction={onEmptyAction}
+                      />
+                    )}
+                  </View>
+                ) : (
+                  <View style={erpListTableStyles.row}>
+                    <View style={erpListTableStyles.cellEmpty}>
+                      <Text style={erpListTableStyles.cellEmptyText}>
+                        {filtroBusqueda.trim() ? emptyFilterMessage : emptyMessage}
+                      </Text>
+                    </View>
+                  </View>
+                )
               ) : (
                 datos.map((item, idx) => {
                   const rowKey = getRowKey?.(item, idx) ?? String(idx);
@@ -575,11 +641,26 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                         erpListTableStyles.row,
                         dense && styles.rowDense,
                         comodo && styles.rowComodo,
-                        selectedRowIndex === idx && erpListTableStyles.rowSelected,
+                        isTasksVariant && !dense && !comodo && styles.rowTasks,
+                        isTasksVariant && styles.rowTasksBase,
+                        !isTasksVariant && selectedRowIndex === idx && erpListTableStyles.rowSelected,
+                        isTasksVariant && selectedRowIndex === idx && styles.rowTasksSelected,
+                        isTasksVariant &&
+                          Platform.OS === 'web' &&
+                          hoveredRowIndex === idx &&
+                          selectedRowIndex !== idx &&
+                          styles.rowTasksHover,
                         getRowStyle?.(item, idx),
                       ]}
                       onPress={() => seleccionarFila(idx)}
                       activeOpacity={0.8}
+                      {...(isTasksVariant && Platform.OS === 'web'
+                        ? ({
+                            onMouseEnter: () => setHoveredRowIndex(idx),
+                            onMouseLeave: () =>
+                              setHoveredRowIndex((cur) => (cur === idx ? null : cur)),
+                          } as object)
+                        : {})}
                     >
                       {columnas.map((col) => {
                         const text = getValorCelda(item, col);
@@ -589,7 +670,16 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                         return (
                           <View key={col} style={[erpListTableStyles.cell, dense && styles.cellDense, comodo && styles.cellComodo, { width: getColWidth(col) }, isMoneda && styles.cellRight, colStyle?.cell]}>
                             {custom !== null ? custom : (
-                              <Text style={[erpListTableStyles.cellText, dense && styles.cellTextDense, comodo && styles.cellTextComodo, isMoneda && styles.cellTextRight, colStyle?.text]}>
+                              <Text
+                                style={[
+                                  erpListTableStyles.cellText,
+                                  dense && styles.cellTextDense,
+                                  comodo && styles.cellTextComodo,
+                                  isMoneda && styles.cellTextRight,
+                                  isTasksVariant && tasksTabularNums,
+                                  colStyle?.text,
+                                ]}
+                              >
                                 {text}
                               </Text>
                             )}
@@ -626,6 +716,12 @@ const styles = StyleSheet.create({
   },
   container: { flex: 1, padding: 10, minHeight: 0, minWidth: 0, width: '100%', display: 'flex' as const, flexDirection: 'column' as const },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
+  tasksSkeletonWrap: {
+    paddingVertical: tasksSpace[2],
+  },
+  tasksEmptyWrap: {
+    paddingVertical: tasksSpace[2],
+  },
   loadingText: { fontSize: 12, color: '#64748b' },
   errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
   retryBtn: {
@@ -816,6 +912,20 @@ const styles = StyleSheet.create({
   cellHeaderRight: { alignItems: 'flex-end', justifyContent: 'center' },
   rowDense: { minHeight: 18 },
   rowComodo: { minHeight: MIN_TOUCH },
+  /** Piloto Proyectos: altura de fila web cuando no hay dense/cómodo. */
+  rowTasks: { minHeight: tasksTabla.filaMinHeight },
+  /** Reserva la barra izquierda para no desplazar el contenido al seleccionar. */
+  rowTasksBase: {
+    borderLeftWidth: tasksTabla.seleccionBarra,
+    borderLeftColor: 'transparent',
+  },
+  rowTasksSelected: {
+    borderLeftColor: tasksColor.acento,
+    backgroundColor: tasksColor.acentoSuave,
+  },
+  rowTasksHover: {
+    backgroundColor: tasksColor.acentoSuave,
+  },
   cellDense: { paddingVertical: 1, paddingHorizontal: 6 },
   cellComodo: { paddingVertical: 10 },
   cellRight: { alignItems: 'flex-end', justifyContent: 'center' },

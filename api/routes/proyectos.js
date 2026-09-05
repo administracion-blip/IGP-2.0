@@ -18,9 +18,9 @@
  * quien crea un proyecto con `proyectos.crear` sin poder tocarlo. Mismo criterio
  * que las rutas de escritura del router de tareas.
  *
- * Compras y plantillas son de Fase 4 y no se montan aquí, aunque su esquema ya
- * exista: las líneas `COMPRA#` solo se leen para sumar los dos totales de gasto
- * de la ficha.
+ * Las líneas `COMPRA#` solo se leen para sumar los dos totales de gasto de la
+ * ficha (endpoints de compras: otra entrega de Fase 4). Las plantillas y el
+ * cuadro de mando sí están montados aquí, **antes** de `/:id`.
  */
 
 import { Router } from 'express';
@@ -41,11 +41,21 @@ import {
   quitarMiembro,
   quitarVinculo,
 } from '../lib/tasks/proyectos.js';
+import {
+  actualizarPlantilla,
+  borrarPlantilla,
+  crearPlantilla,
+  instanciarPlantilla,
+  listarPlantillas,
+} from '../lib/tasks/plantillas.js';
+import { obtenerCuadroMando } from '../lib/tasks/cuadroMando.js';
 
 const router = Router();
 
 function fallo(res, resultado) {
-  return res.status(resultado.status).json({ error: resultado.error });
+  const cuerpo = { error: resultado.error };
+  if (resultado.fallos) cuerpo.fallos = resultado.fallos;
+  return res.status(resultado.status).json(cuerpo);
 }
 
 // Listar. Los filtros se resuelven en memoria sobre la página del `Listado-index`
@@ -63,7 +73,7 @@ router.get('/proyectos', requirePermission(PERMISOS.proyectosVer), async (req, r
   return res.json({ proyectos: r.proyectos, cursor: r.cursor });
 });
 
-// Antes de `/proyectos/:id`: si no, «mios» entraría como identificador.
+// Antes de `/proyectos/:id`: si no, «mios» / «plantillas» entrarían como id.
 router.get('/proyectos/mios', requirePermission(PERMISOS.proyectosVer), async (req, res) => {
   const ctx = await cargarContextoAcceso(req.user);
   const r = await listarProyectosDelUsuario(ctx);
@@ -73,8 +83,64 @@ router.get('/proyectos/mios', requirePermission(PERMISOS.proyectosVer), async (r
   return res.json({ proyectos: r.proyectos, cursor: null });
 });
 
+// ─── Cuadro de mando (Fase 4) — antes de `/:id` ───
+// Permiso propio: `proyectos.ver` no basta.
+router.get('/proyectos/cuadro-mando', requirePermission(PERMISOS.cuadroMando), async (req, res) => {
+  const ctx = await cargarContextoAcceso(req.user);
+  const r = await obtenerCuadroMando(ctx);
+  if (!r.ok) return fallo(res, r);
+  const { ok: _ok, ...cuerpo } = r;
+  return res.json(cuerpo);
+});
+
+// ─── Plantillas (Fase 4) — antes de `/:id` ───
+
+router.get('/proyectos/plantillas', requirePermission(PERMISOS.proyectosVer), async (req, res) => {
+  const r = await listarPlantillas({
+    limite: req.query?.limite,
+    cursor: req.query?.cursor,
+  });
+  if (!r.ok) return fallo(res, r);
+  return res.json({ plantillas: r.plantillas, cursor: r.cursor });
+});
+
+router.post('/proyectos/plantillas', requirePermission(PERMISOS.plantillas), async (req, res) => {
+  const r = await crearPlantilla(req.body || {});
+  if (!r.ok) return fallo(res, r);
+  return res.json({ ok: true, plantilla: r.plantilla });
+});
+
+router.patch('/proyectos/plantillas/:id', requirePermission(PERMISOS.plantillas), async (req, res) => {
+  const r = await actualizarPlantilla(req.params.id, req.body || {});
+  if (!r.ok) return fallo(res, r);
+  return res.json({ ok: true, plantilla: r.plantilla });
+});
+
+router.delete('/proyectos/plantillas/:id', requirePermission(PERMISOS.plantillas), async (req, res) => {
+  const r = await borrarPlantilla(req.params.id);
+  if (!r.ok) return fallo(res, r);
+  return res.json({ ok: true });
+});
+
+router.post(
+  '/proyectos/plantillas/:id/instanciar',
+  requirePermission(PERMISOS.proyectosCrear),
+  async (req, res) => {
+    const ctx = await cargarContextoAcceso(req.user);
+    const r = await instanciarPlantilla(ctx, req.params.id, req.body || {});
+    if (!r.ok) return fallo(res, r);
+    return res.json({
+      ok: true,
+      proyecto: r.proyecto,
+      creadas: r.creadas,
+      omitidas: r.omitidas,
+    });
+  },
+);
+
 router.post('/proyectos', requirePermission(PERMISOS.proyectosCrear), async (req, res) => {
   const ctx = await cargarContextoAcceso(req.user);
+  // `plantilla_origen_id` no se acepta por este camino público (solo instanciar).
   const r = await crearProyecto(ctx, req.body || {});
   if (!r.ok) return fallo(res, r);
   return res.json({ ok: true, proyecto: r.proyecto });

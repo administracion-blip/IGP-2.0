@@ -6,8 +6,9 @@ discrepan, discrepa el código.
 
 Estado (31/08/2026): **MVP cerrado** (smoke producto + tests API). Código de
 1A–1B + 2 (pipeline + importar texto + propuestas) + 3 (campana/ICS) usable.
-Detalle del cierre: [09 · Smoke MVP](09-smoke-mvp.md). **Fase 4 no iniciada**
-(cuadro de mando oculto en el hub hasta implementarla).
+Detalle del cierre: [09 · Smoke MVP](09-smoke-mvp.md). **Fase 4 en curso**
+(actas PDF + orden del día automático + plantillas backend + cuadro de mando
+backend; tarjeta del hub pendiente de UI).
 
 ## Índice
 
@@ -36,7 +37,7 @@ Las reglas de trabajo que el agente debe respetar sin leerse todo esto están en
 | **1B** | Reuniones con acta manual, evento en Calendar, detección de sala | **Completa en código + smoke Calendar** (29/08/2026). Tests de visibilidad, orden congelado y acuerdos→tareas OK |
 | **2** | Captura de audio, transcripción, resumen, cola de validación | **MVP cerrado** (31/08/2026): 2A–2F + importar texto; smoke producto OK ([09](09-smoke-mvp.md)). Quedan opcionales de fase estricta (purga audio, `coste_ia`, aplazados→serie) |
 | **3** | Vencimientos en calendario, sincronización de usuarios, avisos | **MVP cerrado** en campana + ICS (código + smoke). Directory real sigue stub (fuera de MVP) |
-| **4** | Plantillas, orden del día automático, cuadro de mando, actas PDF, compras | **No iniciada.** Siguiente horizonte de madurez tras el MVP |
+| **4** | Plantillas, orden del día automático, cuadro de mando, actas PDF, compras | **En curso.** Hecho: PDF, orden auto, plantillas, cuadro de mando. **Pendiente: compras/presupuesto** |
 
 Mantener esta tabla al día es responsabilidad del agente integrador al cerrar
 cada fase.
