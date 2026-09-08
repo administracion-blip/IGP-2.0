@@ -23,7 +23,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../constants/icons';
-import { MIN_TOUCH } from '../constants/layout';
+import { MIN_TOUCH, SPACING } from '../constants/layout';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import {
   ERP_LIST_HEADER_TEXT_PROPS,
@@ -32,6 +32,7 @@ import {
 } from '../constants/erpListTableStyles';
 import {
   tasksColor,
+  tasksRadius,
   tasksSpace,
   tasksTabla,
   tasksTabularNums,
@@ -142,8 +143,8 @@ export type TablaBasicaProps<T = Record<string, unknown>> = {
   /** Panel opcional a la derecha de la tabla (misma fila, p. ej. calendario) */
   rightPanel?: React.ReactNode;
   /**
-   * Variante visual. `tasks` activa el piloto UI de Proyectos (hover, barra de
-   * selección, altura de fila, tabular-nums). Por defecto no cambia nada.
+   * Variante visual. `tasks` es el piloto de Proyectos (skeleton, empty state,
+   * hover y fila tasks). `default` usa la piel ERP Home/Planning.
    */
   variant?: TablaBasicaVariant;
 };
@@ -283,22 +284,22 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
   // Variant tasks: skeleton dentro del layout (toolbar visible). Default: spinner full.
   if (loading && datos.length === 0 && !isTasksVariant) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
-        <Text style={styles.loadingText}>Cargando…</Text>
+      <View style={[styles.center, styles.centerDefault]}>
+        <ActivityIndicator size="large" color={tasksColor.acento} />
+        <Text style={[styles.loadingText, styles.loadingTextDefault]}>Cargando…</Text>
       </View>
     );
   }
 
   if (error != null && error !== '' && datos.length === 0 && !isTasksVariant) {
     return (
-      <View style={styles.center}>
+      <View style={[styles.center, styles.centerDefault]}>
         <MaterialIcons name="error-outline" size={48} color="#f87171" />
-        <Text style={styles.errorText}>{error}</Text>
+        <Text style={[styles.errorText, styles.errorTextDefault]}>{error}</Text>
         {onRetry && (
-          <TouchableOpacity style={styles.retryBtn} onPress={onRetry}>
-            <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
-            <Text style={styles.retryBtnText}>Reintentar</Text>
+          <TouchableOpacity style={[styles.retryBtn, styles.retryBtnDefault]} onPress={onRetry}>
+            <MaterialIcons name="refresh" size={20} color={tasksColor.acento} />
+            <Text style={[styles.retryBtnText, styles.retryBtnTextDefault]}>Reintentar</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -321,13 +322,25 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, !isTasksVariant && styles.containerDefault]}>
       {!hideHeader && (
         <View style={styles.headerRow}>
-          <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-            <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <TouchableOpacity
+            onPress={onBack}
+            style={[
+              styles.backBtn,
+              !isTasksVariant && styles.backBtnDefault,
+              !isTasksVariant && comodo && styles.backBtnTactil,
+            ]}
+            accessibilityLabel="Volver"
+          >
+            <MaterialIcons
+              name="arrow-back"
+              size={22}
+              color={isTasksVariant ? '#334155' : tasksColor.textoSecundario}
+            />
           </TouchableOpacity>
-          <Text style={styles.title}>{title}</Text>
+          <Text style={[styles.title, !isTasksVariant && styles.titleDefault]}>{title}</Text>
         </View>
       )}
 
@@ -352,6 +365,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
               <TouchableOpacity
                 style={[
                   styles.toolbarBtn,
+                  !isTasksVariant && styles.toolbarBtnDefault,
                   comodo && styles.toolbarBtnComodo,
                   btn.id === 'editar' && selectedRowIndex == null && styles.toolbarBtnDisabled,
                   btn.id === 'borrar' && deleteDisabled && styles.toolbarBtnDisabled,
@@ -379,8 +393,10 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                   size={ICON_SIZE}
                   color={
                     guardando || (btn.id === 'editar' && editDisabled) || (btn.id === 'borrar' && deleteDisabled)
-                      ? '#94a3b8'
-                      : '#0ea5e9'
+                      ? tasksColor.textoTerciario
+                      : !isTasksVariant && btn.id === 'borrar'
+                        ? tasksColor.peligro
+                        : tasksColor.acento
                   }
                 />
               </TouchableOpacity>
@@ -389,14 +405,19 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
         </View>
         {extraToolbarLeft ? <View style={styles.extraToolbarLeft}>{extraToolbarLeft}</View> : null}
         {!hideSearch ? (
-          <View style={[styles.searchWrap, comodo && styles.searchWrapComodo]}>
-            <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
+          <View style={[styles.searchWrap, !isTasksVariant && styles.searchWrapDefault, comodo && styles.searchWrapComodo]}>
+            <MaterialIcons
+              name="search"
+              size={18}
+              color={isTasksVariant ? '#64748b' : tasksColor.textoTerciario}
+              style={styles.searchIcon}
+            />
             <TextInput
-              style={[styles.searchInput, comodo && styles.searchInputComodo]}
+              style={[styles.searchInput, !isTasksVariant && styles.searchInputDefault, comodo && styles.searchInputComodo]}
               value={filtroBusqueda}
               onChangeText={onFiltroChange}
               placeholder="Buscar en la tabla…"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={tasksColor.textoTerciario}
             />
           </View>
         ) : null}
@@ -417,7 +438,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                 </View>
               )}
               <TouchableOpacity
-                style={[styles.toolbarBtn, comodo && styles.toolbarBtnComodo]}
+                style={[styles.toolbarBtn, !isTasksVariant && styles.toolbarBtnDefault, comodo && styles.toolbarBtnComodo]}
                 onPress={() => setImportExportOpen((v) => !v)}
                 disabled={guardando || importing}
                 accessibilityLabel="Importar / Exportar Excel"
@@ -480,7 +501,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
       </View>
 
       <View style={styles.subtitleRow}>
-        <Text style={styles.subtitle}>{subtitleText}</Text>
+        <Text style={[styles.subtitle, !isTasksVariant && styles.subtitleDefault]}>{subtitleText}</Text>
         {paginacion && totalPages > 1 && (
           <View style={styles.pagination}>
             <TouchableOpacity
@@ -492,10 +513,16 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
               <MaterialIcons
                 name="chevron-left"
                 size={20}
-                color={pageIndexClamped <= 0 ? '#94a3b8' : '#0ea5e9'}
+                color={
+                  pageIndexClamped <= 0
+                    ? tasksColor.textoTerciario
+                    : isTasksVariant
+                      ? tasksColor.acento
+                      : tasksColor.textoTerciario
+                }
               />
             </TouchableOpacity>
-            <Text style={styles.pageText}>
+            <Text style={[styles.pageText, !isTasksVariant && styles.pageTextDefault]}>
               Página {pageIndexClamped + 1} de {totalPages}
             </Text>
             <TouchableOpacity
@@ -507,7 +534,13 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
               <MaterialIcons
                 name="chevron-right"
                 size={20}
-                color={pageIndexClamped >= totalPages - 1 ? '#94a3b8' : '#0ea5e9'}
+                color={
+                  pageIndexClamped >= totalPages - 1
+                    ? tasksColor.textoTerciario
+                    : isTasksVariant
+                      ? tasksColor.acento
+                      : tasksColor.textoTerciario
+                }
               />
             </TouchableOpacity>
           </View>
@@ -520,6 +553,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
             erpListTableStyles.tableOuter,
             styles.tableWrapper,
             rightPanel != null && !stackRightPanel && styles.tableWrapperSplit,
+            !isTasksVariant && rightPanel != null && !stackRightPanel && styles.tableWrapperSplitDefault,
           ]}
         >
           <View
@@ -545,16 +579,17 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
             <View
               style={[
                 erpListTableStyles.table,
+                !isTasksVariant && styles.tableDefault,
                 rightPanel != null && !stackRightPanel && styles.tableFillSplit,
               ]}
             >
-            <View style={[erpListTableStyles.rowHeader, dense && styles.rowHeaderDense]}>
+            <View style={[erpListTableStyles.rowHeader, !isTasksVariant && styles.rowHeaderDefault, dense && styles.rowHeaderDense]}>
               {columnas.map((col) => {
                 const isMoneda = columnasMoneda.some((c) => c.toLowerCase() === col.toLowerCase());
                 const colStyle = getColumnCellStyle?.(col);
                 return (
-                <View key={col} style={[erpListTableStyles.cellHeader, dense && styles.cellHeaderDense, comodo && styles.cellHeaderComodo, { width: getColWidth(col) }, isMoneda && styles.cellHeaderRight, colStyle?.cell]}>
-                  <Text style={[erpListTableStyles.cellHeaderText, dense && styles.cellHeaderTextDense, comodo && styles.cellHeaderTextComodo, isMoneda && styles.cellHeaderTextRight, colStyle?.text]} {...ERP_LIST_HEADER_TEXT_PROPS}>
+                <View key={col} style={[erpListTableStyles.cellHeader, !isTasksVariant && styles.cellHeaderDefault, dense && styles.cellHeaderDense, comodo && styles.cellHeaderComodo, { width: getColWidth(col) }, isMoneda && styles.cellHeaderRight, colStyle?.cell]}>
+                  <Text style={[erpListTableStyles.cellHeaderText, !isTasksVariant && !dense && styles.cellHeaderTextDefault, dense && styles.cellHeaderTextDense, comodo && styles.cellHeaderTextComodo, isMoneda && styles.cellHeaderTextRight, colStyle?.text]} {...ERP_LIST_HEADER_TEXT_PROPS}>
                     {col}
                   </Text>
                   {Platform.OS === 'web' && (
@@ -605,9 +640,9 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                     )}
                   </View>
                 ) : (
-                  <View style={erpListTableStyles.row}>
+                  <View style={[erpListTableStyles.row, !isTasksVariant && styles.rowDefaultChrome]}>
                     <View style={erpListTableStyles.cellEmpty}>
-                      <Text style={erpListTableStyles.cellEmptyText}>
+                      <Text style={[erpListTableStyles.cellEmptyText, !isTasksVariant && styles.emptyTextDefault]}>
                         {filtroBusqueda.trim() ? emptyFilterMessage : emptyMessage}
                       </Text>
                     </View>
@@ -639,12 +674,20 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                       key={rowKey}
                       style={[
                         erpListTableStyles.row,
+                        !isTasksVariant && styles.rowDefaultChrome,
                         dense && styles.rowDense,
                         comodo && styles.rowComodo,
                         isTasksVariant && !dense && !comodo && styles.rowTasks,
                         isTasksVariant && styles.rowTasksBase,
-                        !isTasksVariant && selectedRowIndex === idx && erpListTableStyles.rowSelected,
+                        !isTasksVariant && !dense && !comodo && styles.rowDefault,
+                        !isTasksVariant && styles.rowDefaultBase,
+                        !isTasksVariant && selectedRowIndex === idx && styles.rowDefaultSelected,
                         isTasksVariant && selectedRowIndex === idx && styles.rowTasksSelected,
+                        !isTasksVariant &&
+                          Platform.OS === 'web' &&
+                          hoveredRowIndex === idx &&
+                          selectedRowIndex !== idx &&
+                          styles.rowDefaultHover,
                         isTasksVariant &&
                           Platform.OS === 'web' &&
                           hoveredRowIndex === idx &&
@@ -654,7 +697,7 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                       ]}
                       onPress={() => seleccionarFila(idx)}
                       activeOpacity={0.8}
-                      {...(isTasksVariant && Platform.OS === 'web'
+                      {...(Platform.OS === 'web'
                         ? ({
                             onMouseEnter: () => setHoveredRowIndex(idx),
                             onMouseLeave: () =>
@@ -668,15 +711,17 @@ export function TablaBasica<T = Record<string, unknown>>(props: TablaBasicaProps
                         const colStyle = getColumnCellStyle?.(col);
                         const custom = renderCell?.(item, col, text) ?? null;
                         return (
-                          <View key={col} style={[erpListTableStyles.cell, dense && styles.cellDense, comodo && styles.cellComodo, { width: getColWidth(col) }, isMoneda && styles.cellRight, colStyle?.cell]}>
+                          <View key={col} style={[erpListTableStyles.cell, !isTasksVariant && styles.cellDefault, dense && styles.cellDense, comodo && styles.cellComodo, { width: getColWidth(col) }, isMoneda && styles.cellRight, colStyle?.cell]}>
                             {custom !== null ? custom : (
                               <Text
                                 style={[
                                   erpListTableStyles.cellText,
+                                  !isTasksVariant && !dense && styles.cellTextDefault,
                                   dense && styles.cellTextDense,
                                   comodo && styles.cellTextComodo,
                                   isMoneda && styles.cellTextRight,
                                   isTasksVariant && tasksTabularNums,
+                                  !isTasksVariant && isMoneda && tasksTabularNums,
                                   colStyle?.text,
                                 ]}
                               >
@@ -715,7 +760,12 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
   },
   container: { flex: 1, padding: 10, minHeight: 0, minWidth: 0, width: '100%', display: 'flex' as const, flexDirection: 'column' as const },
+  containerDefault: {
+    padding: SPACING.xl,
+    backgroundColor: tasksColor.fondoApp,
+  },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
+  centerDefault: { backgroundColor: tasksColor.fondoApp, gap: SPACING.md },
   tasksSkeletonWrap: {
     paddingVertical: tasksSpace[2],
   },
@@ -723,7 +773,9 @@ const styles = StyleSheet.create({
     paddingVertical: tasksSpace[2],
   },
   loadingText: { fontSize: 12, color: '#64748b' },
+  loadingTextDefault: { fontSize: 14, color: tasksColor.textoTerciario },
   errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
+  errorTextDefault: { fontSize: 14, color: tasksColor.peligro },
   retryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -735,10 +787,38 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
+  retryBtnDefault: {
+    backgroundColor: tasksColor.superficie,
+    borderColor: tasksColor.bordeSutil,
+    borderRadius: tasksRadius.control,
+    padding: SPACING.sm,
+  },
   retryBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '500' },
+  retryBtnTextDefault: { fontSize: 14, color: tasksColor.acento, fontWeight: '500' },
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
   backBtn: { padding: 4 },
+  backBtnDefault: {
+    width: 36,
+    height: 36,
+    padding: 0,
+    borderRadius: tasksRadius.contenedor,
+    backgroundColor: tasksColor.superficie,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: tasksColor.bordeSutil,
+  },
+  backBtnTactil: {
+    minWidth: MIN_TOUCH,
+    minHeight: MIN_TOUCH,
+  },
   title: { fontSize: 18, fontWeight: '700', color: '#334155' },
+  titleDefault: {
+    fontSize: 20,
+    fontWeight: '600',
+    lineHeight: 26,
+    color: tasksColor.textoPrimario,
+  },
   toolbarRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -761,9 +841,15 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 8,
   },
+  searchWrapDefault: {
+    backgroundColor: tasksColor.superficie,
+    borderColor: tasksColor.bordeSutil,
+    borderRadius: tasksRadius.control,
+  },
   searchWrapComodo: { height: MIN_TOUCH },
   searchIcon: { marginRight: 6 },
   searchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
+  searchInputDefault: { fontSize: 12, color: tasksColor.textoPrimario, fontWeight: '400' },
   searchInputComodo: { fontSize: 15 },
   toolbarBtnWrap: { position: 'relative' },
   extraToolbarLeft: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, flex: 1, minWidth: 0, overflow: 'visible', zIndex: 3 },
@@ -786,6 +872,11 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     borderRadius: 10,
     backgroundColor: '#f8fafc',
+  },
+  toolbarBtnDefault: {
+    borderColor: tasksColor.bordeSutil,
+    borderRadius: tasksRadius.control,
+    backgroundColor: tasksColor.superficie,
   },
   toolbarBtnComodo: {
     minWidth: MIN_TOUCH,
@@ -837,10 +928,12 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   subtitle: { fontSize: 12, color: '#64748b' },
+  subtitleDefault: { fontSize: 12, color: tasksColor.textoTerciario },
   pagination: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   pageBtn: { padding: 4 },
   pageBtnDisabled: { opacity: 0.5 },
   pageText: { fontSize: 11, color: '#64748b', marginHorizontal: 4 },
+  pageTextDefault: { fontSize: 12, color: tasksColor.textoTerciario },
   tableAndRightRow: {
     flex: 1,
     flexDirection: 'row',
@@ -871,6 +964,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: '#fff',
+  },
+  tableWrapperSplitDefault: {
+    borderColor: tasksColor.bordeSutil,
+    borderRadius: tasksRadius.contenedor,
+    backgroundColor: tasksColor.superficie,
   },
   tableWrapperInnerSplit: { flex: 1, height: '100%' as const, minHeight: 0 },
   tableScrollSplit: { flex: 1, height: '100%' as const },
@@ -903,8 +1001,48 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexShrink: 1,
   },
+  tableDefault: {
+    borderColor: tasksColor.bordeSutil,
+    borderRadius: tasksRadius.contenedor,
+    backgroundColor: tasksColor.superficie,
+  },
+  rowHeaderDefault: {
+    backgroundColor: tasksColor.fondoApp,
+    borderBottomColor: tasksColor.bordeSutil,
+    borderLeftWidth: tasksTabla.seleccionBarra,
+    borderLeftColor: 'transparent',
+  },
+  cellHeaderDefault: {
+    borderRightColor: tasksColor.bordeSutil,
+  },
+  cellHeaderTextDefault: {
+    fontSize: 11,
+    fontWeight: '400',
+    lineHeight: 14,
+    letterSpacing: 0.1,
+    color: tasksColor.textoTerciario,
+    textTransform: 'none',
+  },
+  rowDefaultChrome: {
+    borderBottomColor: tasksColor.bordeSutil,
+    backgroundColor: tasksColor.superficie,
+  },
+  cellDefault: {
+    borderRightColor: tasksColor.bordeSutil,
+  },
+  cellTextDefault: {
+    fontSize: 12,
+    fontWeight: '400',
+    lineHeight: 16,
+    color: tasksColor.textoSecundario,
+  },
+  emptyTextDefault: {
+    fontSize: 14,
+    color: tasksColor.textoTerciario,
+    fontStyle: 'normal',
+  },
   rowHeaderDense: { minHeight: 20 },
-  cellHeaderTextDense: { fontSize: 9 },
+  cellHeaderTextDense: { fontSize: 9, lineHeight: 12 },
   cellHeaderTextComodo: { fontSize: 13 },
   cellHeaderDense: { paddingVertical: 2, paddingHorizontal: 6 },
   cellHeaderComodo: { paddingVertical: 10 },
@@ -912,6 +1050,20 @@ const styles = StyleSheet.create({
   cellHeaderRight: { alignItems: 'flex-end', justifyContent: 'center' },
   rowDense: { minHeight: 18 },
   rowComodo: { minHeight: MIN_TOUCH },
+  /** Default ERP: altura de fila web cuando no hay dense/cómodo. */
+  rowDefault: { minHeight: tasksTabla.filaMinHeight },
+  /** Reserva la barra izquierda para no desplazar el contenido al seleccionar. */
+  rowDefaultBase: {
+    borderLeftWidth: tasksTabla.seleccionBarra,
+    borderLeftColor: 'transparent',
+  },
+  rowDefaultSelected: {
+    borderLeftColor: tasksColor.acento,
+    backgroundColor: tasksColor.acentoSuave,
+  },
+  rowDefaultHover: {
+    backgroundColor: tasksColor.fondoApp,
+  },
   /** Piloto Proyectos: altura de fila web cuando no hay dense/cómodo. */
   rowTasks: { minHeight: tasksTabla.filaMinHeight },
   /** Reserva la barra izquierda para no desplazar el contenido al seleccionar. */
@@ -929,7 +1081,7 @@ const styles = StyleSheet.create({
   cellDense: { paddingVertical: 1, paddingHorizontal: 6 },
   cellComodo: { paddingVertical: 10 },
   cellRight: { alignItems: 'flex-end', justifyContent: 'center' },
-  cellTextDense: { fontSize: 9 },
+  cellTextDense: { fontSize: 9, lineHeight: 12 },
   cellTextComodo: { fontSize: 14 },
   cellTextRight: { textAlign: 'right', alignSelf: 'stretch' },
 });

@@ -243,6 +243,22 @@ export function hubTileColumns(width: number, height: number): number {
 
 
 
+/** Columnas para cards de catálogo de activos (más densas que el hub: caben ≥3 filas). */
+
+export function catalogoCardColumns(width: number, height: number): number {
+
+  if (width >= BREAKPOINTS.tablet) return 6;
+
+  if (width >= BREAKPOINTS.phone && isLandscapeViewport(width, height)) return 4;
+
+  if (width >= BREAKPOINTS.phone) return 3;
+
+  return 2;
+
+}
+
+
+
 /** Escala del ancho del tile respecto al ancho de columna (0.49 ≈ −30 % adicional sobre 0.7). */
 
 export const HUB_TILE_SIZE_SCALE = 0.49;

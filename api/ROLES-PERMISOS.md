@@ -65,6 +65,10 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 |--------|-------------|
 | `base_datos.ver` | Ver menú Base de Datos |
 | `mantenimiento.ver` | Ver menú Mantenimiento |
+| `activos.ver` | Activos · Ver inventario, ficha y escáner (submódulo de Mantenimiento) |
+| `activos.crear` | Activos · Dar de alta activos y catálogo |
+| `activos.editar` | Activos · Editar, trasladar, etiquetar y cambiar estado |
+| `activos.borrar` | Activos · Dar de baja (el código no se recicla) |
 | `compras.ver` | Ver menú Compras |
 | `cajas.ver` | Ver menú Cajas |
 | `cashflow.ver` | Ver menú Cashflow |

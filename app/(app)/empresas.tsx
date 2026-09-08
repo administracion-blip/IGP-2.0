@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import * as XLSX from 'xlsx';
 import { ICONS, ICON_SIZE } from '../constants/icons';
 import { formatId6 } from '../utils/idFormat';
 import { apiFetch } from '../utils/api';
+import { copyToClipboard } from '../utils/clipboard';
 import {
   buildReturnFromEmpresasHref,
   parseContextoRetornoEmpresas,
@@ -30,6 +31,7 @@ import { CampoTipoReciboEmpresa } from '../components/CampoTipoReciboEmpresa';
 import { CampoEtiquetasEmpresa } from '../components/CampoEtiquetasEmpresa';
 import { CuentasBancariasEmpresa } from '../components/CuentasBancariasEmpresa';
 import { useBreakpoint } from '../hooks/useBreakpoint';
+import { MIN_TOUCH } from '../constants/layout';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -54,9 +56,25 @@ const ORDEN_COLUMNAS = [...ATRIBUTOS_TABLA_EMPRESAS];
  */
 const CAMPOS_CUENTA_BANCARIA = new Set<string>(['Iban', 'IbanAlternativo']);
 
-/** Etiqueta visible de la columna cuando el nombre del atributo no se explica solo. */
+/** Etiqueta visible de la columna (Title case, sin gritar). */
 const ETIQUETAS_COLUMNAS: Record<string, string> = {
+  id_empresa: 'ID',
+  Nombre: 'Nombre',
+  Cif: 'CIF',
   Iban: 'Iban (predeterminada)',
+  Direccion: 'Dirección',
+  Cp: 'CP',
+  Municipio: 'Municipio',
+  Provincia: 'Provincia',
+  Email: 'Email',
+  Telefono: 'Teléfono',
+  'Tipo de recibo': 'Tipo de recibo',
+  Vencimiento: 'Vencimiento',
+  Etiqueta: 'Etiqueta',
+  'Cuenta contable': 'Cuenta contable',
+  Administrador: 'Administrador',
+  Sede: 'Sede',
+  CCC: 'CCC',
 };
 
 /** Campos obligatorios: se validan al guardar y el label muestra asterisco (*) */
@@ -88,19 +106,268 @@ function trimValorCampoEmpresa(val: unknown): string {
   return typeof val === 'string' ? val.trim() : '';
 }
 
-const CAMPOS_FICHA: { key: (typeof ATRIBUTOS_TABLA_EMPRESAS)[number]; label: string }[] = [
-  { key: 'Nombre', label: 'Nombre' },
-  { key: 'Cif', label: 'CIF' },
-  { key: 'Iban', label: 'IBAN' },
-  { key: 'Direccion', label: 'Dirección' },
-  { key: 'Cp', label: 'Código Postal' },
-  { key: 'Municipio', label: 'Municipio' },
-  { key: 'Provincia', label: 'Provincia' },
-  { key: 'Email', label: 'Email' },
-  { key: 'Telefono', label: 'Teléfono' },
-];
-
 type Empresa = Record<string, string | number | undefined>;
+
+type ValsFichaEmpresa = {
+  Nombre?: string;
+  Cif?: string;
+  Direccion?: string;
+  Cp?: string;
+  Municipio?: string;
+  Provincia?: string;
+  Telefono?: string;
+  Email?: string;
+  Iban?: string;
+};
+
+/** Bloque de valores (sin etiquetas) para copiar / WhatsApp / Telegram. */
+function textoFichaEmpresaParaMensaje(vals: ValsFichaEmpresa): string {
+  const limpio = (v?: string) => (typeof v === 'string' ? v.trim() : '');
+  const lineas: string[] = [];
+  const nombre = limpio(vals.Nombre);
+  const cif = limpio(vals.Cif);
+  const direccion = limpio(vals.Direccion);
+  const ubicacion = [limpio(vals.Cp), limpio(vals.Municipio), limpio(vals.Provincia)]
+    .filter(Boolean)
+    .join(' ');
+  const telefono = limpio(vals.Telefono);
+  const email = limpio(vals.Email);
+  const iban = limpio(vals.Iban);
+  if (nombre) lineas.push(nombre);
+  if (cif) lineas.push(cif);
+  if (direccion) lineas.push(direccion);
+  if (ubicacion) lineas.push(ubicacion);
+  if (telefono) lineas.push(telefono);
+  if (email) lineas.push(email);
+  if (iban) lineas.push(iban);
+  return lineas.join('\n');
+}
+
+function CampoFichaEmpresa({
+  label,
+  value,
+  copiable = false,
+  isPhone,
+}: {
+  label: string;
+  value: string;
+  copiable?: boolean;
+  isPhone: boolean;
+}) {
+  const [copiado, setCopiado] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const vacio = !value.trim();
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  const onCopiar = async () => {
+    if (vacio) return;
+    const ok = await copyToClipboard(value);
+    if (!ok) return;
+    setCopiado(true);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => setCopiado(false), 1500);
+  };
+
+  return (
+    <View style={styles.fichaCampo}>
+      <Text style={styles.fichaLabel}>{label}</Text>
+      <View style={styles.fichaValorRow}>
+        <Text
+          style={[styles.fichaValue, vacio && styles.fichaValueEmpty]}
+          selectable
+        >
+          {vacio ? '—' : value}
+        </Text>
+        {copiable && !vacio ? (
+          <TouchableOpacity
+            onPress={onCopiar}
+            style={[styles.fichaCopyBtn, isPhone && styles.fichaCopyBtnPhone]}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            accessibilityRole="button"
+            accessibilityLabel={`Copiar ${label}`}
+          >
+            <MaterialIcons
+              name={copiado ? 'check' : 'content-copy'}
+              size={15}
+              color={copiado ? '#16a34a' : '#64748b'}
+            />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function FichaEmpresaModal({
+  empresa,
+  valorEnLocal,
+  formDosColumnas,
+  shouldStackToolbar,
+  isPhone,
+  onClose,
+}: {
+  empresa: Empresa;
+  valorEnLocal: (local: Empresa, key: string) => string | number | undefined;
+  formDosColumnas: boolean;
+  shouldStackToolbar: boolean;
+  isPhone: boolean;
+  onClose: () => void;
+}) {
+  const [fichaCopiada, setFichaCopiada] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  const str = (key: string) => {
+    const val = valorEnLocal(empresa, key);
+    return val != null ? String(val).trim() : '';
+  };
+  const vals: ValsFichaEmpresa = {
+    Nombre: str('Nombre'),
+    Cif: str('Cif'),
+    Direccion: str('Direccion'),
+    Cp: str('Cp'),
+    Municipio: str('Municipio'),
+    Provincia: str('Provincia'),
+    Telefono: str('Telefono'),
+    Email: str('Email'),
+    Iban: str('Iban'),
+  };
+  const textoCompartir = textoFichaEmpresaParaMensaje(vals);
+  const sinDatos = !textoCompartir;
+
+  const copiarFicha = async () => {
+    if (sinDatos) return;
+    const ok = await copyToClipboard(textoCompartir);
+    if (!ok) return;
+    setFichaCopiada(true);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => setFichaCopiada(false), 1500);
+  };
+
+  const enviarWhatsApp = () => {
+    if (sinDatos) return;
+    const url = `https://wa.me/?text=${encodeURIComponent(textoCompartir)}`;
+    if (Platform.OS === 'web') window.open(url, '_blank');
+    else Linking.openURL(url);
+  };
+  const enviarTelegram = () => {
+    if (sinDatos) return;
+    const url = `https://t.me/share/url?url=${encodeURIComponent(' ')}&text=${encodeURIComponent(textoCompartir)}`;
+    if (Platform.OS === 'web') window.open(url, '_blank');
+    else Linking.openURL(url);
+  };
+
+  const parCampos = (a: ReactNode, b: ReactNode) => (
+    <View style={formDosColumnas ? styles.fichaRow2 : styles.fichaCol1}>
+      {a}
+      {b}
+    </View>
+  );
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        style={styles.fichaOverlay}
+        onPress={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
+        <View style={[styles.fichaCard, formDosColumnas && styles.fichaCardWide]}>
+          <View style={styles.fichaHeader}>
+            <View style={styles.fichaHeaderTextos}>
+              <Text style={styles.fichaTitle}>Ficha de empresa</Text>
+              {vals.Nombre ? (
+                <Text style={styles.fichaSubtitle} numberOfLines={1}>
+                  {vals.Nombre}
+                </Text>
+              ) : null}
+            </View>
+            <TouchableOpacity
+              onPress={onClose}
+              style={[styles.fichaClose, isPhone && styles.fichaClosePhone]}
+              accessibilityLabel="Cerrar"
+            >
+              <MaterialIcons name="close" size={20} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.fichaBody} contentContainerStyle={styles.fichaBodyContent}>
+            {parCampos(
+              <CampoFichaEmpresa label="Nombre" value={vals.Nombre ?? ''} copiable isPhone={isPhone} />,
+              <CampoFichaEmpresa label="CIF" value={vals.Cif ?? ''} copiable isPhone={isPhone} />,
+            )}
+            {parCampos(
+              <CampoFichaEmpresa label="Dirección" value={vals.Direccion ?? ''} isPhone={isPhone} />,
+              <CampoFichaEmpresa label="Código postal" value={vals.Cp ?? ''} isPhone={isPhone} />,
+            )}
+            {parCampos(
+              <CampoFichaEmpresa label="Municipio" value={vals.Municipio ?? ''} isPhone={isPhone} />,
+              <CampoFichaEmpresa label="Provincia" value={vals.Provincia ?? ''} isPhone={isPhone} />,
+            )}
+            {parCampos(
+              <CampoFichaEmpresa label="Teléfono" value={vals.Telefono ?? ''} isPhone={isPhone} />,
+              <CampoFichaEmpresa label="Email" value={vals.Email ?? ''} isPhone={isPhone} />,
+            )}
+            <CampoFichaEmpresa label="IBAN" value={vals.Iban ?? ''} copiable isPhone={isPhone} />
+          </ScrollView>
+          <View style={[styles.fichaFooter, shouldStackToolbar && styles.fichaFooterStacked]}>
+            <TouchableOpacity
+              style={[styles.fichaBtnOutline, isPhone && styles.fichaBtnPhone, sinDatos && styles.fichaBtnDisabled]}
+              onPress={copiarFicha}
+              disabled={sinDatos}
+              activeOpacity={0.8}
+              accessibilityLabel="Copiar ficha"
+            >
+              <MaterialIcons
+                name={fichaCopiada ? 'check' : 'content-copy'}
+                size={16}
+                color={fichaCopiada ? '#16a34a' : sinDatos ? '#94a3b8' : '#334155'}
+              />
+              <Text
+                style={[
+                  styles.fichaBtnOutlineText,
+                  fichaCopiada && styles.fichaBtnCopiedText,
+                  sinDatos && styles.fichaBtnDisabledText,
+                ]}
+              >
+                {fichaCopiada ? 'Copiado' : 'Copiar ficha'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.fichaBtnChip, isPhone && styles.fichaBtnPhone, sinDatos && styles.fichaBtnDisabled]}
+              onPress={enviarWhatsApp}
+              disabled={sinDatos}
+              activeOpacity={0.8}
+              accessibilityLabel="Enviar por WhatsApp"
+            >
+              <MaterialIcons name="chat" size={16} color={sinDatos ? '#94a3b8' : '#16a34a'} />
+              <Text style={[styles.fichaBtnChipText, sinDatos && styles.fichaBtnDisabledText]}>WhatsApp</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.fichaBtnChip, isPhone && styles.fichaBtnPhone, sinDatos && styles.fichaBtnDisabled]}
+              onPress={enviarTelegram}
+              disabled={sinDatos}
+              activeOpacity={0.8}
+              accessibilityLabel="Enviar por Telegram"
+            >
+              <MaterialIcons name="send" size={16} color={sinDatos ? '#94a3b8' : '#0284c7'} />
+              <Text style={[styles.fichaBtnChipText, sinDatos && styles.fichaBtnDisabledText]}>Telegram</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
 
 function truncar(val: string): string {
   if (val.length <= MAX_TEXT_LENGTH) return val;
@@ -109,7 +376,9 @@ function truncar(val: string): string {
 
 export default function EmpresasScreen() {
   const router = useRouter();
-  const { height: altoViewport } = useBreakpoint();
+  const { isPhone, isDesktop, shouldStackPanels, shouldStackToolbar } = useBreakpoint();
+  const formDosColumnas = !isPhone;
+  const modalCasiFull = isPhone || shouldStackPanels;
   const searchParams = useLocalSearchParams<{
     id_empresa?: string;
     editar?: string;
@@ -152,11 +421,6 @@ export default function EmpresasScreen() {
   const [edicionRapidaMode, setEdicionRapidaMode] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, Record<string, string>>>({});
   const [guardandoRapido, setGuardandoRapido] = useState(false);
-
-  // Al editar, el cuerpo del modal incluye el bloque de cuentas bancarias y
-  // necesita más alto que el formulario a secas.
-  const alturaCuerpoModal =
-    editingEmpresaId != null ? Math.max(320, Math.min(560, altoViewport - 240)) : 400;
 
   const valorEnLocal = useCallback((local: Empresa, key: string) => {
     if (local[key] !== undefined && local[key] !== null) return local[key];
@@ -542,8 +806,7 @@ export default function EmpresasScreen() {
     setSelectedRowIndex((prev) => (prev === idx ? null : idx));
   };
 
-  const toolbarBtns = [
-    { id: 'crear', label: 'Crear registro', icon: ICONS.add },
+  const toolbarSecundarios = [
     { id: 'editar', label: 'Editar', icon: ICONS.edit },
     { id: 'borrar', label: 'Borrar', icon: ICONS.delete },
     { id: 'ficha', label: 'Ficha empresa', icon: 'badge' as const },
@@ -845,6 +1108,76 @@ export default function EmpresasScreen() {
     setResizingCol(col);
   };
 
+  const inputStyle = [styles.formInput, isPhone && styles.formInputPhone];
+
+  const renderCampo = (key: (typeof CAMPOS_FORM)[number]['key'], full = false) => {
+    const campo = CAMPOS_FORM.find((c) => c.key === key);
+    if (!campo) return null;
+    const wrapStyle = [styles.formGroup, full ? styles.formFieldFull : formDosColumnas && styles.formFieldCol];
+    const requiredMark = campo.required ? ' *' : '';
+
+    if (campo.key === 'Etiqueta') {
+      return (
+        <View key={campo.key} style={wrapStyle}>
+          <Text style={styles.formLabel}>{campo.label}{requiredMark}</Text>
+          <CampoEtiquetasEmpresa
+            value={Array.isArray(formNuevo.Etiqueta) ? formNuevo.Etiqueta : []}
+            onChange={(tags) => setFormNuevo((prev) => ({ ...prev, Etiqueta: tags }))}
+            empresas={empresas}
+            inputStyle={inputStyle}
+          />
+        </View>
+      );
+    }
+    if (campo.key === 'Tipo de recibo') {
+      return (
+        <View key={campo.key} style={wrapStyle}>
+          <Text style={styles.formLabel}>{campo.label}{requiredMark}</Text>
+          <CampoTipoReciboEmpresa
+            value={(formNuevo[campo.key] ?? '') as string}
+            onChange={(stored) => setFormNuevo((prev) => ({ ...prev, [campo.key]: stored }))}
+            inputStyle={inputStyle}
+            otroInputStyle={styles.formInput}
+          />
+        </View>
+      );
+    }
+    return (
+      <View key={campo.key} style={wrapStyle}>
+        <Text style={styles.formLabel}>{campo.label}{requiredMark}</Text>
+        <TextInput
+          style={inputStyle}
+          value={(formNuevo[campo.key] ?? '') as string}
+          onChangeText={
+            campo.key === 'Cp'
+              ? handleCpChange
+              : campo.key === 'Cif'
+                ? handleCifChange
+                : (t) => setFormNuevo((prev) => ({ ...prev, [campo.key]: t }))
+          }
+          onBlur={() => {
+            trimCampoForm(campo.key);
+            if (campo.key === 'Cp') handleCpBlur();
+          }}
+          placeholder={`${campo.label}…`}
+          placeholderTextColor="#94a3b8"
+          autoCapitalize="words"
+        />
+        {campo.key === 'Cif' ? (
+          <View style={styles.formHelpWrap}>
+            {cifChecking ? (
+              <Text style={styles.formHelpText}>Comprobando CIF…</Text>
+            ) : cifExists ? (
+              <Text style={styles.formErrorText}>CIF ya existe</Text>
+            ) : cifCheckError ? (
+              <Text style={styles.formErrorText}>{cifCheckError}</Text>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -866,7 +1199,11 @@ export default function EmpresasScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
-        <TouchableOpacity onPress={() => volverTrasFactura(false)} style={styles.backBtn}>
+        <TouchableOpacity
+          onPress={() => volverTrasFactura(false)}
+          style={[styles.backBtn, isPhone && styles.backBtnPhone]}
+          accessibilityLabel="Volver"
+        >
           <MaterialIcons name="arrow-back" size={22} color="#334155" />
         </TouchableOpacity>
         <Text style={styles.title}>Empresas</Text>
@@ -881,44 +1218,136 @@ export default function EmpresasScreen() {
         </View>
       ) : null}
 
-      <View style={styles.toolbarRow}>
+      <View style={[styles.toolbarRow, shouldStackToolbar && styles.toolbarRowStacked]}>
         <View style={styles.toolbar}>
-          {toolbarBtns.map((btn) => (
-            <View
-              key={btn.id}
-              style={styles.toolbarBtnWrap}
-              {...(Platform.OS === 'web'
-                ? ({
-                    onMouseEnter: () => setHoveredBtn(btn.id),
-                    onMouseLeave: () => setHoveredBtn(null),
-                  } as object)
-                : {})}
-            >
-              {hoveredBtn === btn.id && (
-                <View style={styles.tooltip}>
-                  <Text style={styles.tooltipText}>{btn.label}</Text>
-                </View>
-              )}
-              <TouchableOpacity
-                style={[
-                  styles.toolbarBtn,
-                  (btn.id === 'editar' || btn.id === 'borrar' || btn.id === 'ficha') && selectedRowIndex == null && styles.toolbarBtnDisabled,
-                ]}
-                onPress={() => {
-                  if (btn.id === 'crear') abrirModalNuevo();
-                  if (btn.id === 'editar' && selectedRowIndex != null) abrirModalEditar(empresasPagina[selectedRowIndex]);
-                  if (btn.id === 'borrar' && selectedRowIndex != null) borrarSeleccionado();
-                  if (btn.id === 'ficha' && selectedRowIndex != null) setFichaVisible(true);
-                }}
-                disabled={guardando || ((btn.id === 'editar' || btn.id === 'borrar' || btn.id === 'ficha') && selectedRowIndex == null)}
-                accessibilityLabel={btn.label}
+          <TouchableOpacity
+            style={[styles.btnCrear, isPhone && styles.btnCrearPhone]}
+            onPress={abrirModalNuevo}
+            disabled={guardando}
+            accessibilityLabel="Nueva empresa"
+          >
+            <MaterialIcons name={ICONS.add} size={18} color="#ffffff" />
+            <Text style={styles.btnCrearText}>Nueva empresa</Text>
+          </TouchableOpacity>
+          {toolbarSecundarios.map((btn) => {
+            const disabled = guardando || selectedRowIndex == null;
+            return (
+              <View
+                key={btn.id}
+                style={styles.toolbarBtnWrap}
+                {...(Platform.OS === 'web'
+                  ? ({
+                      onMouseEnter: () => setHoveredBtn(btn.id),
+                      onMouseLeave: () => setHoveredBtn(null),
+                    } as object)
+                  : {})}
               >
-                <MaterialIcons name={btn.icon} size={ICON_SIZE} color={guardando || ((btn.id === 'editar' || btn.id === 'borrar' || btn.id === 'ficha') && selectedRowIndex == null) ? '#94a3b8' : '#0ea5e9'} />
-              </TouchableOpacity>
-            </View>
-          ))}
+                {hoveredBtn === btn.id ? (
+                  <View style={styles.tooltip}>
+                    <Text style={styles.tooltipText}>{btn.label}</Text>
+                  </View>
+                ) : null}
+                <TouchableOpacity
+                  style={[
+                    styles.toolbarBtn,
+                    disabled && styles.toolbarBtnDisabled,
+                    isPhone && styles.toolbarBtnPhone,
+                  ]}
+                  onPress={() => {
+                    if (btn.id === 'editar' && selectedRowIndex != null) abrirModalEditar(empresasPagina[selectedRowIndex]);
+                    if (btn.id === 'borrar' && selectedRowIndex != null) borrarSeleccionado();
+                    if (btn.id === 'ficha' && selectedRowIndex != null) setFichaVisible(true);
+                  }}
+                  disabled={disabled}
+                  accessibilityLabel={btn.label}
+                >
+                  <MaterialIcons name={btn.icon} size={ICON_SIZE} color={disabled ? '#94a3b8' : '#64748b'} />
+                </TouchableOpacity>
+              </View>
+            );
+          })}
+          <View
+            style={styles.toolbarBtnWrap}
+            {...(Platform.OS === 'web'
+              ? ({
+                  onMouseEnter: () => setHoveredBtn('importar'),
+                  onMouseLeave: () => setHoveredBtn(null),
+                } as object)
+              : {})}
+          >
+            {hoveredBtn === 'importar' ? (
+              <View style={styles.tooltip}>
+                <Text style={styles.tooltipText}>Importar</Text>
+              </View>
+            ) : null}
+            <TouchableOpacity
+              style={[styles.toolbarBtn, (guardando || importing) && styles.toolbarBtnDisabled, isPhone && styles.toolbarBtnPhone]}
+              onPress={() => {
+                setModalImportVisible(true);
+                setImportError(null);
+                setImportMessage(null);
+              }}
+              disabled={guardando || importing}
+              accessibilityLabel="Importar"
+            >
+              <MaterialIcons name="upload-file" size={ICON_SIZE} color={guardando || importing ? '#94a3b8' : '#64748b'} />
+            </TouchableOpacity>
+          </View>
+          <View
+            style={styles.toolbarBtnWrap}
+            {...(Platform.OS === 'web'
+              ? ({
+                  onMouseEnter: () => setHoveredBtn('exportar'),
+                  onMouseLeave: () => setHoveredBtn(null),
+                } as object)
+              : {})}
+          >
+            {hoveredBtn === 'exportar' ? (
+              <View style={styles.tooltip}>
+                <Text style={styles.tooltipText}>Exportar</Text>
+              </View>
+            ) : null}
+            <TouchableOpacity
+              style={[styles.toolbarBtn, guardando && styles.toolbarBtnDisabled, isPhone && styles.toolbarBtnPhone]}
+              onPress={() => setModalExportarVisible(true)}
+              disabled={guardando}
+              accessibilityLabel="Exportar"
+            >
+              <MaterialIcons name="download" size={ICON_SIZE} color={guardando ? '#94a3b8' : '#64748b'} />
+            </TouchableOpacity>
+          </View>
+          <View
+            style={styles.toolbarBtnWrap}
+            {...(Platform.OS === 'web'
+              ? ({
+                  onMouseEnter: () => setHoveredBtn('edicion-rapida'),
+                  onMouseLeave: () => setHoveredBtn(null),
+                } as object)
+              : {})}
+          >
+            {hoveredBtn === 'edicion-rapida' ? (
+              <View style={styles.tooltip}>
+                <Text style={styles.tooltipText}>{edicionRapidaMode ? 'Salir de edición rápida' : 'Edición rápida'}</Text>
+              </View>
+            ) : null}
+            <TouchableOpacity
+              style={[styles.toolbarBtn, edicionRapidaMode && styles.toolbarBtnActive, isPhone && styles.toolbarBtnPhone]}
+              onPress={() => {
+                if (edicionRapidaMode) cancelarEdicionRapida();
+                else entrarEdicionRapida();
+              }}
+              disabled={guardando || guardandoRapido}
+              accessibilityLabel="Edición rápida"
+            >
+              <MaterialIcons
+                name="speed"
+                size={ICON_SIZE}
+                color={edicionRapidaMode ? '#fff' : '#64748b'}
+              />
+            </TouchableOpacity>
+          </View>
         </View>
-        <View style={styles.searchWrap}>
+        <View style={[styles.searchWrap, shouldStackToolbar && styles.searchWrapStacked]}>
           <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
@@ -927,86 +1356,6 @@ export default function EmpresasScreen() {
             placeholder="Buscar en la tabla…"
             placeholderTextColor="#94a3b8"
           />
-        </View>
-        <View
-          style={styles.toolbarBtnWrap}
-          {...(Platform.OS === 'web'
-            ? ({
-                onMouseEnter: () => setHoveredBtn('importar'),
-                onMouseLeave: () => setHoveredBtn(null),
-              } as object)
-            : {})}
-        >
-          {hoveredBtn === 'importar' && (
-            <View style={styles.tooltip}>
-              <Text style={styles.tooltipText}>Importar</Text>
-            </View>
-          )}
-          <TouchableOpacity
-            style={styles.toolbarBtn}
-            onPress={() => {
-              setModalImportVisible(true);
-              setImportError(null);
-              setImportMessage(null);
-            }}
-            disabled={guardando || importing}
-            accessibilityLabel="Importar"
-          >
-            <MaterialIcons name="upload-file" size={ICON_SIZE} color={guardando || importing ? '#94a3b8' : '#0ea5e9'} />
-          </TouchableOpacity>
-        </View>
-        <View
-          style={styles.toolbarBtnWrap}
-          {...(Platform.OS === 'web'
-            ? ({
-                onMouseEnter: () => setHoveredBtn('exportar'),
-                onMouseLeave: () => setHoveredBtn(null),
-              } as object)
-            : {})}
-        >
-          {hoveredBtn === 'exportar' && (
-            <View style={styles.tooltip}>
-              <Text style={styles.tooltipText}>Exportar</Text>
-            </View>
-          )}
-          <TouchableOpacity
-            style={styles.toolbarBtn}
-            onPress={() => setModalExportarVisible(true)}
-            disabled={guardando}
-            accessibilityLabel="Exportar"
-          >
-            <MaterialIcons name="download" size={ICON_SIZE} color={guardando ? '#94a3b8' : '#0ea5e9'} />
-          </TouchableOpacity>
-        </View>
-        <View
-          style={styles.toolbarBtnWrap}
-          {...(Platform.OS === 'web'
-            ? ({
-                onMouseEnter: () => setHoveredBtn('edicion-rapida'),
-                onMouseLeave: () => setHoveredBtn(null),
-              } as object)
-            : {})}
-        >
-          {hoveredBtn === 'edicion-rapida' && (
-            <View style={styles.tooltip}>
-              <Text style={styles.tooltipText}>{edicionRapidaMode ? 'Salir de edición rápida' : 'Edición rápida'}</Text>
-            </View>
-          )}
-          <TouchableOpacity
-            style={[styles.toolbarBtn, edicionRapidaMode && styles.toolbarBtnActive]}
-            onPress={() => {
-              if (edicionRapidaMode) cancelarEdicionRapida();
-              else entrarEdicionRapida();
-            }}
-            disabled={guardando || guardandoRapido}
-            accessibilityLabel="Edición rápida"
-          >
-            <MaterialIcons
-              name="speed"
-              size={ICON_SIZE}
-              color={edicionRapidaMode ? '#fff' : '#0ea5e9'}
-            />
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -1174,122 +1523,110 @@ export default function EmpresasScreen() {
       </View>
 
       <Modal visible={modalNuevoVisible} transparent animationType="fade" onRequestClose={cerrarModalNuevo}>
-        <View style={styles.modalOverlay}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => {}}>
           <KeyboardAvoidingView
-            style={[styles.modalContentWrap, editingEmpresaId != null && styles.modalContentWrapAncho]}
+            style={[
+              styles.modalWrap,
+              formDosColumnas
+                ? (editingEmpresaId != null || isDesktop ? styles.modalWrapDesktop : styles.modalWrapTablet)
+                : styles.modalWrapPhone,
+              modalCasiFull && styles.modalWrapFull,
+            ]}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           >
-            <View style={styles.modalCardTouch}>
+            <TouchableOpacity activeOpacity={1} onPress={() => {}} style={[styles.modalCardHost, modalCasiFull && styles.modalCardHostFull]}>
               <View style={styles.modalCard}>
                 <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>{editingEmpresaId != null ? 'Editar registro' : 'Nuevo registro'}</Text>
+                  <View style={styles.modalHeaderLeft}>
+                    <Text style={styles.modalTitle} numberOfLines={1}>
+                      {editingEmpresaId != null ? 'Editar empresa' : 'Nueva empresa'}
+                    </Text>
+                    <Text style={styles.modalIdChip} numberOfLines={1}>
+                      ID {formatId6(editingEmpresaId ?? próximoId)}
+                    </Text>
+                  </View>
                   <TouchableOpacity onPress={cerrarModalNuevo} style={styles.modalClose}>
                     <MaterialIcons name="close" size={22} color="#64748b" />
                   </TouchableOpacity>
                 </View>
-                <View style={styles.modalBodyRow}>
-                  <View style={styles.modalIdSide}>
-                    <Text style={styles.modalIdLabel}>ID</Text>
-                    <Text style={styles.modalIdValue}>{formatId6(editingEmpresaId ?? próximoId)}</Text>
+                <ScrollView
+                  style={styles.modalBody}
+                  contentContainerStyle={styles.modalBodyContent}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <View style={formDosColumnas ? styles.formRow2 : styles.formCol1}>
+                    {renderCampo('Nombre')}
+                    {renderCampo('Cif')}
                   </View>
-                  <ScrollView
-                    style={[styles.modalBody, { maxHeight: alturaCuerpoModal }]}
-                    keyboardShouldPersistTaps="handled"
-                  >
-                    {CAMPOS_FORM.map((campo) =>
-                      campo.key === 'Etiqueta' ? (
-                        <View key={campo.key} style={styles.formGroup}>
-                          <Text style={styles.formLabel}>{campo.label}{campo.required ? ' *' : ''}</Text>
-                          <CampoEtiquetasEmpresa
-                            value={Array.isArray(formNuevo.Etiqueta) ? formNuevo.Etiqueta : []}
-                            onChange={(tags) => setFormNuevo((prev) => ({ ...prev, Etiqueta: tags }))}
-                            empresas={empresas}
-                            inputStyle={styles.formInput}
-                          />
-                        </View>
-                      ) : campo.key === 'Tipo de recibo' ? (
-                        <View key={campo.key} style={styles.formGroup}>
-                          <Text style={styles.formLabel}>{campo.label}{campo.required ? ' *' : ''}</Text>
-                          <CampoTipoReciboEmpresa
-                            value={(formNuevo[campo.key] ?? '') as string}
-                            onChange={(stored) => setFormNuevo((prev) => ({ ...prev, [campo.key]: stored }))}
-                            inputStyle={styles.formInput}
-                            otroInputStyle={styles.formInput}
-                          />
-                        </View>
-                      ) : (
-                        <View key={campo.key} style={styles.formGroup}>
-                          <Text style={styles.formLabel}>{campo.label}{campo.required ? ' *' : ''}</Text>
-                          <TextInput
-                            style={styles.formInput}
-                            value={(formNuevo[campo.key] ?? '') as string}
-                            onChangeText={
-                              campo.key === 'Cp'
-                                ? handleCpChange
-                                : campo.key === 'Cif'
-                                  ? handleCifChange
-                                  : (t) => setFormNuevo((prev) => ({ ...prev, [campo.key]: t }))
-                            }
-                            onBlur={() => {
-                              trimCampoForm(campo.key);
-                              if (campo.key === 'Cp') handleCpBlur();
-                            }}
-                            placeholder={`${campo.label}…`}
-                            placeholderTextColor="#94a3b8"
-                            autoCapitalize="words"
-                          />
-                          {campo.key === 'Cif' && (
-                            <View style={styles.formHelpWrap}>
-                              {cifChecking ? (
-                                <Text style={styles.formHelpText}>Comprobando CIF…</Text>
-                              ) : cifExists ? (
-                                <Text style={styles.formErrorText}>CIF ya existe</Text>
-                              ) : cifCheckError ? (
-                                <Text style={styles.formErrorText}>{cifCheckError}</Text>
-                              ) : null}
-                            </View>
-                          )}
-                        </View>
-                      )
-                    )}
-                    {editingEmpresaId != null ? (
-                      <CuentasBancariasEmpresa
-                        idEmpresa={formatId6(editingEmpresaId)}
-                        onPredeterminadaChange={refetchEmpresasSilencioso}
-                      />
-                    ) : (
-                      <View style={styles.cuentasNota}>
-                        <MaterialIcons name="account-balance" size={16} color="#0369a1" />
-                        <Text style={styles.cuentasNotaTexto}>
-                          Guarda la empresa para poder añadir sus cuentas bancarias.
-                        </Text>
-                      </View>
-                    )}
-                  </ScrollView>
-                </View>
+                  {renderCampo('Direccion', true)}
+                  <View style={formDosColumnas ? styles.formRow2 : styles.formCol1}>
+                    {renderCampo('Cp')}
+                    {renderCampo('Municipio')}
+                  </View>
+                  <View style={formDosColumnas ? styles.formRow2 : styles.formCol1}>
+                    {renderCampo('Provincia')}
+                    {renderCampo('Sede')}
+                  </View>
+                  <View style={formDosColumnas ? styles.formRow2 : styles.formCol1}>
+                    {renderCampo('Email')}
+                    {renderCampo('Telefono')}
+                  </View>
+                  <View style={formDosColumnas ? styles.formRow2 : styles.formCol1}>
+                    {renderCampo('Tipo de recibo')}
+                    {renderCampo('Vencimiento')}
+                  </View>
+                  <View style={formDosColumnas ? styles.formRow2 : styles.formCol1}>
+                    {renderCampo('Etiqueta')}
+                    {renderCampo('Cuenta contable')}
+                  </View>
+                  <View style={formDosColumnas ? styles.formRow2 : styles.formCol1}>
+                    {renderCampo('Administrador')}
+                    {renderCampo('CCC')}
+                  </View>
+                  {editingEmpresaId != null ? (
+                    <CuentasBancariasEmpresa
+                      idEmpresa={formatId6(editingEmpresaId)}
+                      onPredeterminadaChange={refetchEmpresasSilencioso}
+                    />
+                  ) : (
+                    <View style={styles.cuentasNota}>
+                      <MaterialIcons name="account-balance" size={16} color="#0369a1" />
+                      <Text style={styles.cuentasNotaTexto}>
+                        Guarda la empresa para poder añadir sus cuentas bancarias.
+                      </Text>
+                    </View>
+                  )}
+                </ScrollView>
                 {errorForm ? <Text style={styles.modalError}>{errorForm}</Text> : null}
                 <View style={styles.modalFooter}>
-                  <TouchableOpacity style={styles.modalFooterBtn} onPress={guardarNuevo} accessibilityLabel={editingEmpresaId != null ? 'Guardar' : 'Añadir'} disabled={guardando}>
-                    {guardando ? <ActivityIndicator size="small" color="#0ea5e9" /> : <MaterialIcons name={editingEmpresaId != null ? 'save' : ICONS.add} size={ICON_SIZE} color="#0ea5e9" />}
+                  <TouchableOpacity style={styles.modalBtnCancel} onPress={cerrarModalNuevo} disabled={guardando}>
+                    <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.modalBtnSave} onPress={guardarNuevo} disabled={guardando} accessibilityLabel="Guardar">
+                    {guardando ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <Text style={styles.modalBtnSaveText}>Guardar</Text>
+                    )}
                   </TouchableOpacity>
                 </View>
               </View>
-            </View>
+            </TouchableOpacity>
           </KeyboardAvoidingView>
-        </View>
+        </TouchableOpacity>
       </Modal>
 
       <Modal visible={modalImportVisible} transparent animationType="fade" onRequestClose={cerrarModalImport}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => {}}>
-          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalContentWrap}>
-            <View style={styles.modalCard}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Importar datos</Text>
+          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.dialogWrap}>
+            <View style={styles.dialogCard}>
+              <View style={styles.dialogHeader}>
+                <Text style={styles.dialogTitle}>Importar datos</Text>
                 <TouchableOpacity onPress={cerrarModalImport} style={styles.modalClose}>
                   <MaterialIcons name="close" size={22} color="#64748b" />
                 </TouchableOpacity>
               </View>
-              <View style={styles.modalBody}>
+              <View style={styles.dialogBody}>
                 <Text style={styles.importHelpText}>
                   Descargue el archivo modelo con la estructura y datos actuales, o importe un Excel con las mismas columnas y en el mismo orden para evitar errores. La columna Iban es informativa: las cuentas bancarias se dan de alta desde la ficha de cada empresa.
                 </Text>
@@ -1327,18 +1664,18 @@ export default function EmpresasScreen() {
 
       <Modal visible={modalExportarVisible} transparent animationType="fade" onRequestClose={() => setModalExportarVisible(false)}>
         <Pressable style={styles.fichaOverlay} onPress={(e) => { if (e.target === e.currentTarget) setModalExportarVisible(false); }}>
-          <View style={styles.fichaCard}>
-            <View style={styles.fichaHeader}>
+          <View style={styles.dialogCard}>
+            <View style={styles.dialogHeader}>
               <View style={styles.fichaHeaderLeft}>
                 <MaterialIcons name="download" size={20} color="#0ea5e9" />
-                <Text style={styles.fichaTitle}>Exportar datos</Text>
+                <Text style={styles.dialogTitle}>Exportar datos</Text>
               </View>
               <TouchableOpacity onPress={() => setModalExportarVisible(false)} style={styles.fichaClose}>
                 <MaterialIcons name="close" size={20} color="#64748b" />
               </TouchableOpacity>
             </View>
-            <View style={{ paddingHorizontal: 20, paddingVertical: 16, gap: 14 }}>
-              <Text style={{ fontSize: 12, color: '#64748b' }}>
+            <View style={styles.dialogBody}>
+              <Text style={styles.exportHintText}>
                 {empresasFiltrados.length} registro{empresasFiltrados.length !== 1 ? 's' : ''} a exportar
                 {filtroBusqueda.trim() ? ' (filtro activo)' : ''}
               </Text>
@@ -1357,74 +1694,23 @@ export default function EmpresasScreen() {
         </Pressable>
       </Modal>
 
-      {/* Modal ficha empresa */}
-      {fichaVisible && selectedRowIndex != null && (() => {
-        const empresa = empresasPagina[selectedRowIndex];
-        if (!empresa) return null;
-        const campos = CAMPOS_FICHA
-          .map(({ key, label }) => {
-            const val = valorEnLocal(empresa, key);
-            const str = val != null ? String(val).trim() : '';
-            return str ? { label, value: str } : null;
-          })
-          .filter(Boolean) as { label: string; value: string }[];
-        const textoCompartir = campos.map((c) => `${c.label}: ${c.value}`).join('\n');
-        const enviarWhatsApp = () => {
-          const url = `https://wa.me/?text=${encodeURIComponent(textoCompartir)}`;
-          if (Platform.OS === 'web') window.open(url, '_blank');
-          else Linking.openURL(url);
-        };
-        const enviarTelegram = () => {
-          const url = `https://t.me/share/url?url=${encodeURIComponent(' ')}&text=${encodeURIComponent(textoCompartir)}`;
-          if (Platform.OS === 'web') window.open(url, '_blank');
-          else Linking.openURL(url);
-        };
-        return (
-          <Modal visible transparent animationType="fade" onRequestClose={() => setFichaVisible(false)}>
-            <Pressable style={styles.fichaOverlay} onPress={(e) => { if (e.target === e.currentTarget) setFichaVisible(false); }}>
-              <View style={styles.fichaCard}>
-                <View style={styles.fichaHeader}>
-                  <View style={styles.fichaHeaderLeft}>
-                    <MaterialIcons name="badge" size={20} color="#0ea5e9" />
-                    <Text style={styles.fichaTitle}>Ficha de empresa</Text>
-                  </View>
-                  <TouchableOpacity onPress={() => setFichaVisible(false)} style={styles.fichaClose}>
-                    <MaterialIcons name="close" size={20} color="#64748b" />
-                  </TouchableOpacity>
-                </View>
-                <ScrollView style={styles.fichaBody}>
-                  {campos.map(({ label, value }, i) => (
-                    <View key={label} style={[styles.fichaRow, i < campos.length - 1 && styles.fichaRowBorder]}>
-                      <Text style={styles.fichaLabel}>{label}</Text>
-                      <Text style={styles.fichaValue} selectable>{value}</Text>
-                    </View>
-                  ))}
-                  {campos.length === 0 && (
-                    <Text style={styles.fichaEmpty}>No hay datos para mostrar</Text>
-                  )}
-                </ScrollView>
-                <View style={styles.fichaFooter}>
-                  <TouchableOpacity style={styles.fichaWhatsApp} onPress={enviarWhatsApp} activeOpacity={0.8}>
-                    <MaterialIcons name="chat" size={18} color="#fff" />
-                    <Text style={styles.fichaShareText}>Enviar por WhatsApp</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.fichaTelegram} onPress={enviarTelegram} activeOpacity={0.8}>
-                    <MaterialIcons name="send" size={18} color="#fff" />
-                    <Text style={styles.fichaShareText}>Enviar por Telegram</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </Pressable>
-          </Modal>
-        );
-      })()}
+      {fichaVisible && selectedRowIndex != null && empresasPagina[selectedRowIndex] ? (
+        <FichaEmpresaModal
+          empresa={empresasPagina[selectedRowIndex]}
+          valorEnLocal={valorEnLocal}
+          formDosColumnas={formDosColumnas}
+          shouldStackToolbar={shouldStackToolbar}
+          isPhone={isPhone}
+          onClose={() => setFichaVisible(false)}
+        />
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
+  container: { flex: 1, padding: 12, backgroundColor: '#f8fafc' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10, backgroundColor: '#f8fafc' },
   loadingText: { fontSize: 12, color: '#64748b' },
   errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8 },
@@ -1440,18 +1726,66 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#bae6fd',
   },
-  returnBannerText: { flex: 1, fontSize: 12, color: '#0369a1', lineHeight: 17 },
-  backBtn: { padding: 4 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12 },
-  toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  searchWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 140, maxWidth: 280, height: 32, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 8 },
+  returnBannerText: { flex: 1, fontSize: 12, fontWeight: '400', color: '#0369a1', lineHeight: 17 },
+  backBtn: {
+    width: 36,
+    height: 36,
+    padding: 0,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#eef1f5',
+  },
+  backBtnPhone: {
+    width: MIN_TOUCH,
+    height: MIN_TOUCH,
+    minWidth: MIN_TOUCH,
+    minHeight: MIN_TOUCH,
+  },
+  title: { fontSize: 20, fontWeight: '600', lineHeight: 26, color: '#0f172a' },
+  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12, flexWrap: 'wrap' },
+  toolbarRowStacked: { flexDirection: 'column', alignItems: 'stretch' },
+  toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  btnCrear: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#0ea5e9',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  btnCrearPhone: { minHeight: MIN_TOUCH },
+  btnCrearText: { fontSize: 12, fontWeight: '600', color: '#ffffff' },
+  searchWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 140,
+    maxWidth: 280,
+    height: 32,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+  },
+  searchWrapStacked: { maxWidth: '100%', width: '100%', flexGrow: 1 },
   searchIcon: { marginRight: 6 },
-  searchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
+  searchInput: { flex: 1, fontSize: 12, fontWeight: '400', color: '#0f172a', paddingVertical: 0 },
   toolbarBtnWrap: { position: 'relative' },
   tooltip: { position: 'absolute', bottom: '100%', alignSelf: 'center', marginBottom: 4, backgroundColor: '#334155', paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4, zIndex: 10 },
   tooltipText: { fontSize: 9, color: '#f8fafc', fontWeight: '400' },
-  toolbarBtn: { padding: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
+  toolbarBtn: {
+    padding: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+  },
+  toolbarBtnPhone: { minHeight: MIN_TOUCH, minWidth: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
   toolbarBtnDisabled: { opacity: 0.6 },
   subtitleRow: {
     flexDirection: 'row',
@@ -1473,15 +1807,36 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: '100%',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#eef1f5',
     borderRadius: 8,
     backgroundColor: '#fff',
   },
   tableBodyScroll: { flex: 1, minHeight: 0 },
   tableBodyContent: { paddingBottom: 24 },
-  rowHeader: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
-  cellHeader: { minWidth: MIN_COL_WIDTH, paddingVertical: 6, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#cbd5e1', position: 'relative' },
-  cellHeaderText: { fontSize: 11, fontWeight: '600', color: '#334155' },
+  rowHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#f8fafc',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef1f5',
+    borderLeftWidth: 2,
+    borderLeftColor: 'transparent',
+  },
+  cellHeader: {
+    minWidth: MIN_COL_WIDTH,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRightWidth: 1,
+    borderRightColor: '#eef1f5',
+    position: 'relative',
+  },
+  cellHeaderText: {
+    fontSize: 11,
+    fontWeight: '400',
+    lineHeight: 14,
+    letterSpacing: 0.1,
+    color: '#94a3b8',
+    textTransform: 'none',
+  },
   resizeHandle: {
     position: 'absolute',
     top: 0,
@@ -1490,28 +1845,81 @@ const styles = StyleSheet.create({
     height: '100%',
     cursor: 'col-resize' as 'pointer',
   },
-  row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#fff' },
-  rowSelected: { backgroundColor: '#e0f2fe' },
-  cell: { minWidth: MIN_COL_WIDTH, paddingVertical: 4, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#e2e8f0' },
-  cellText: { fontSize: 11, color: '#475569' },
+  row: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef1f5',
+    backgroundColor: '#fff',
+    borderLeftWidth: 2,
+    borderLeftColor: 'transparent',
+  },
+  rowSelected: {
+    backgroundColor: '#e0f2fe',
+    borderLeftWidth: 2,
+    borderLeftColor: '#0ea5e9',
+  },
+  cell: {
+    minWidth: MIN_COL_WIDTH,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRightWidth: 1,
+    borderRightColor: '#eef1f5',
+  },
+  cellText: { fontSize: 12, fontWeight: '400', lineHeight: 16, color: '#475569' },
   cellEmpty: { flex: 1, paddingVertical: 16, paddingHorizontal: 12, alignItems: 'center' },
   cellEmptyText: { fontSize: 12, color: '#94a3b8' },
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
-  modalContentWrap: { width: '100%', maxWidth: 420, padding: 24, alignItems: 'center' },
-  modalContentWrapAncho: { maxWidth: 760 },
-  modalCardTouch: { width: '100%' },
-  modalCard: { width: '100%', backgroundColor: 'rgba(255, 255, 255, 0.9)', borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: '#334155' },
+  modalWrap: { flex: 1, maxHeight: '100%', justifyContent: 'center' },
+  modalWrapDesktop: { maxWidth: 720, width: '100%', padding: 24 },
+  modalWrapTablet: { maxWidth: 640, width: '100%', padding: 20 },
+  modalWrapPhone: { maxWidth: '100%', width: '100%', padding: 12 },
+  modalWrapFull: { maxWidth: '100%', paddingHorizontal: 12 },
+  modalCardHost: { width: '100%', height: '88%', maxHeight: '88%' },
+  modalCardHostFull: { height: '92%', maxHeight: '92%' },
+  modalCard: {
+    width: '100%',
+    flex: 1,
+    minHeight: 0,
+    maxHeight: '100%',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef1f5',
+    flexShrink: 0,
+  },
+  modalHeaderLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
+  modalTitle: { fontSize: 16, fontWeight: '600', color: '#0f172a', flexShrink: 1, minWidth: 0 },
+  modalIdChip: { fontSize: 11, fontWeight: '400', color: '#94a3b8', flexShrink: 0 },
   modalClose: { padding: 4 },
-  modalBodyRow: { flexDirection: 'row' },
-  modalIdSide: { width: 56, paddingVertical: 12, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#e2e8f0', alignItems: 'center', justifyContent: 'flex-start' },
-  modalIdLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', marginBottom: 2 },
-  modalIdValue: { fontSize: 14, fontWeight: '600', color: '#334155' },
-  modalBody: { flex: 1, maxHeight: 400, paddingHorizontal: 16, paddingVertical: 12 },
-  formGroup: { marginBottom: 8 },
-  formLabel: { fontSize: 10, fontWeight: '500', color: '#475569', marginBottom: 2 },
-  formInput: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, fontSize: 13, color: '#334155' },
+  modalBody: { flex: 1, minHeight: 0, paddingHorizontal: 16, paddingVertical: 12 },
+  modalBodyContent: { paddingBottom: 4 },
+  formRow2: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  formCol1: { flexDirection: 'column' },
+  formFieldCol: { flex: 1, minWidth: 0 },
+  formFieldFull: { width: '100%' },
+  formGroup: { marginBottom: 10 },
+  formLabel: { fontSize: 11, fontWeight: '400', color: '#64748b', marginBottom: 4 },
+  formInput: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#eef1f5',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#334155',
+    minHeight: 36,
+  },
+  formInputPhone: { minHeight: MIN_TOUCH },
   cuentasNota: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -1528,19 +1936,66 @@ const styles = StyleSheet.create({
   formHelpWrap: { marginTop: 4 },
   formHelpText: { fontSize: 10, color: '#64748b' },
   formErrorText: { fontSize: 10, color: '#f87171' },
-  etiquetasWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, minHeight: 36 },
-  etiquetaChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#e2e8f0', borderRadius: 6, paddingLeft: 8, paddingVertical: 4, maxWidth: 160 },
-  etiquetaChipText: { fontSize: 12, color: '#334155', flex: 1 },
-  etiquetaChipRemove: { padding: 2 },
-  etiquetaInput: { flex: 1, minWidth: 120, fontSize: 13, color: '#334155', paddingVertical: 4, paddingHorizontal: 4 },
-  modalError: { fontSize: 11, color: '#f87171', paddingHorizontal: 20, paddingVertical: 4 },
-  modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: 6, paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
-  modalFooterBtn: { padding: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
-  importHelpText: { fontSize: 12, color: '#475569', marginBottom: 16, lineHeight: 18 },
+  modalError: { fontSize: 12, fontWeight: '400', color: '#f87171', paddingHorizontal: 16, paddingVertical: 4, flexShrink: 0 },
+  modalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#eef1f5',
+    flexShrink: 0,
+  },
+  modalBtnCancel: { paddingVertical: 10, paddingHorizontal: 16 },
+  modalBtnCancelText: { fontSize: 14, color: '#64748b' },
+  modalBtnSave: {
+    backgroundColor: '#0ea5e9',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    minWidth: 100,
+    alignItems: 'center',
+  },
+  modalBtnSaveText: { fontSize: 14, fontWeight: '600', color: '#ffffff' },
+  dialogWrap: { width: '100%', maxWidth: 480, padding: 20 },
+  dialogCard: {
+    width: '94%',
+    maxWidth: 480,
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#eef1f5',
+  },
+  dialogHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef1f5',
+  },
+  dialogTitle: { fontSize: 16, fontWeight: '600', color: '#0f172a' },
+  dialogBody: { paddingHorizontal: 16, paddingVertical: 12 },
+  importHelpText: { fontSize: 12, fontWeight: '400', color: '#475569', marginBottom: 16, lineHeight: 18 },
+  exportHintText: { fontSize: 12, fontWeight: '400', color: '#64748b', marginBottom: 14 },
   importButtonsRow: { flexDirection: 'row', gap: 12, marginBottom: 8 },
-  importOptionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
-  importOptionLabel: { fontSize: 12, color: '#334155', fontWeight: '500' },
-  importSuccessText: { fontSize: 11, color: '#22c55e', paddingHorizontal: 20, paddingVertical: 4 },
+  importOptionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#eef1f5',
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+  },
+  importOptionLabel: { fontSize: 12, fontWeight: '400', color: '#334155' },
+  importSuccessText: { fontSize: 11, fontWeight: '400', color: '#22c55e', paddingHorizontal: 16, paddingVertical: 4 },
   toolbarBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
   quickEditBar: {
     flexDirection: 'row',
@@ -1592,15 +2047,16 @@ const styles = StyleSheet.create({
   },
   cellBloqueada: { backgroundColor: '#f1f5f9', justifyContent: 'center' },
   cellBloqueadaRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  cellBloqueadaText: { flex: 1, fontSize: 11, color: '#94a3b8', fontStyle: 'italic' },
+  cellBloqueadaText: { flex: 1, fontSize: 12, fontWeight: '400', color: '#94a3b8', fontStyle: 'italic' },
   cellEditInput: {
     flex: 1,
-    fontSize: 11,
+    fontSize: 12,
+    fontWeight: '400',
     color: '#334155',
     paddingVertical: 3,
     paddingHorizontal: 4,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#eef1f5',
     borderRadius: 4,
     backgroundColor: '#fff',
     minHeight: 24,
@@ -1615,59 +2071,90 @@ const styles = StyleSheet.create({
     width: '94%',
     maxWidth: 420,
     backgroundColor: '#fff',
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 24,
-    elevation: 12,
-    overflow: 'hidden',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#eef1f5',
   },
+  fichaCardWide: { maxWidth: 640 },
   fichaHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: '#eef1f5',
+    gap: 12,
   },
   fichaHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  fichaTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
-  fichaClose: { padding: 4 },
-  fichaBody: { paddingHorizontal: 20, paddingVertical: 12, maxHeight: 360 },
-  fichaRow: { paddingVertical: 10 },
-  fichaRowBorder: { borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  fichaLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 },
-  fichaValue: { fontSize: 14, color: '#1e293b', fontWeight: '500' },
-  fichaEmpty: { fontSize: 13, color: '#94a3b8', textAlign: 'center', paddingVertical: 24 },
+  fichaHeaderTextos: { flex: 1, minWidth: 0, flexDirection: 'column', gap: 2 },
+  fichaTitle: { fontSize: 16, fontWeight: '600', color: '#0f172a' },
+  fichaSubtitle: { fontSize: 12, fontWeight: '400', color: '#64748b' },
+  fichaClose: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    flexShrink: 0,
+  },
+  fichaClosePhone: { width: MIN_TOUCH, height: MIN_TOUCH, minWidth: MIN_TOUCH, minHeight: MIN_TOUCH },
+  fichaBody: { paddingHorizontal: 16, paddingVertical: 8, maxHeight: 360 },
+  fichaBodyContent: { paddingBottom: 4 },
+  fichaRow2: { flexDirection: 'row', gap: 16 },
+  fichaCol1: { flexDirection: 'column' },
+  fichaCampo: { flex: 1, minWidth: 0, paddingVertical: 8 },
+  fichaLabel: { fontSize: 11, fontWeight: '400', color: '#94a3b8', marginBottom: 2 },
+  fichaValorRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  fichaValue: { flex: 1, fontSize: 13, fontWeight: '400', color: '#1e293b' },
+  fichaValueEmpty: { color: '#94a3b8' },
+  fichaCopyBtn: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  fichaCopyBtnPhone: { width: MIN_TOUCH, height: MIN_TOUCH, minWidth: MIN_TOUCH, minHeight: MIN_TOUCH },
   fichaFooter: {
     flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
+    borderTopColor: '#eef1f5',
   },
-  fichaWhatsApp: {
-    flex: 1,
+  fichaFooterStacked: { flexDirection: 'row', flexWrap: 'wrap' },
+  fichaBtnOutline: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 10,
-    backgroundColor: '#25d366',
-    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
   },
-  fichaTelegram: {
-    flex: 1,
+  fichaBtnChip: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 10,
-    backgroundColor: '#0088cc',
-    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
   },
-  fichaShareText: { fontSize: 12, fontWeight: '600', color: '#fff' },
+  fichaBtnPhone: { minHeight: MIN_TOUCH },
+  fichaBtnDisabled: { opacity: 0.55 },
+  fichaBtnOutlineText: { fontSize: 12, fontWeight: '600', color: '#334155' },
+  fichaBtnCopiedText: { color: '#16a34a' },
+  fichaBtnChipText: { fontSize: 12, fontWeight: '500', color: '#475569' },
+  fichaBtnDisabledText: { color: '#94a3b8' },
 });

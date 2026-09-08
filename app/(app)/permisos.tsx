@@ -262,6 +262,15 @@ const GRUPOS_PERMISOS: { titulo: string; codigos: string[] }[] = [
     ],
   },
   {
+    titulo: 'Activos',
+    codigos: [
+      'activos.ver',
+      'activos.crear',
+      'activos.editar',
+      'activos.borrar',
+    ],
+  },
+  {
     titulo: 'Proyectos',
     codigos: [
       'proyectos.ver',
@@ -350,6 +359,10 @@ const PERMISOS_LABELS: Record<string, string> = {
   'limpieza.catalogo': 'Limpieza · Catálogo de objetos',
   'limpieza.informes': 'Limpieza · Informes e histórico',
   'limpieza.borrar': 'Limpieza · Borrar registros',
+  'activos.ver': 'Activos · Ver inventario, ficha y escáner',
+  'activos.crear': 'Activos · Dar de alta activos y catálogo',
+  'activos.editar': 'Activos · Editar, trasladar, etiquetar y cambiar estado',
+  'activos.borrar': 'Activos · Dar de baja (no se recicla el código)',
   'pedidos.ver': 'Pedidos · Ver',
   'pedidos.ver_completados': 'Pedidos · Ver completados',
   'pedidos.preparar': 'Pedidos · Preparar (almacén)',

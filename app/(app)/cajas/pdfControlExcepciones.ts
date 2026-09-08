@@ -77,6 +77,31 @@ function formatHora(iso: string): string {
   return '—';
 }
 
+/** Márgenes laterales de las tablas apaisadas (coinciden con autoTable `margin`). */
+const PDF_TABLA_MARGIN_X = 10;
+
+/**
+ * Reparte el hueco hasta `usableMm` entre las columnas flexibles para que
+ * la tabla llegue al margen y no deje un recuadro vacío a la derecha.
+ */
+function anchosHastaMargen(usableMm: number, base: number[], flexIdx: number[]): number[] {
+  const fijos = base.reduce((s, w, i) => (flexIdx.includes(i) ? s : s + w), 0);
+  const peso = flexIdx.reduce((s, i) => s + base[i], 0) || flexIdx.length;
+  const bolsa = Math.max(0, usableMm - fijos);
+  const out = base.slice();
+  let asignado = 0;
+  flexIdx.forEach((i, k) => {
+    if (k === flexIdx.length - 1) {
+      out[i] = Math.round((bolsa - asignado) * 10) / 10;
+      return;
+    }
+    const w = Math.round(((base[i] / peso) * bolsa) * 10) / 10;
+    out[i] = w;
+    asignado += w;
+  });
+  return out;
+}
+
 export function pdfExcepcionesFileSlug(nombre: string): string {
   return String(nombre || 'sin-nombre')
     .normalize('NFD')
@@ -119,12 +144,12 @@ export async function generarPdfExcepciones(
     r.PosName ?? (r.PosId != null ? String(r.PosId) : ''),
     r.DocumentType ?? '',
     r.TicketNumber || r.InvoiceNumber || '',
-    String(r.UserName ?? (r.UserId != null ? `#${r.UserId}` : '')).slice(0, 28),
-    String(r.ProductName ?? '').slice(0, 36),
+    String(r.UserName ?? (r.UserId != null ? `#${r.UserId}` : '')).slice(0, 40),
+    String(r.ProductName ?? '').slice(0, 52),
     r.Quantity != null ? String(r.Quantity) : '',
     formatMoneda(Number(r.Amount) || 0),
-    clienteLabel(r).slice(0, 18),
-    motivoConConsumo(r).slice(0, 40),
+    clienteLabel(r).slice(0, 32),
+    motivoConConsumo(r).slice(0, 52),
   ]);
 
   const { jsPDF: JsPDF } = await import('jspdf');
@@ -186,22 +211,29 @@ export async function generarPdfExcepciones(
     theme: 'striped',
     styles: { fontSize: 7, cellPadding: 1.2, overflow: 'linebreak' },
     headStyles: { fillColor: [14, 165, 233], textColor: 255, fontStyle: 'bold' },
-    margin: { left: 10, right: 10 },
-    tableWidth: pageW - 20,
-    columnStyles: {
-      0: { cellWidth: 22, fontStyle: 'bold' },
-      1: { cellWidth: 16 },
-      2: { cellWidth: 11 },
-      3: { cellWidth: 16 },
-      4: { cellWidth: 12 },
-      5: { cellWidth: 16 },
-      6: { cellWidth: 26 },
-      7: { cellWidth: 44 },
-      8: { cellWidth: 11, halign: 'right' },
-      9: { cellWidth: 20, halign: 'right' },
-      10: { cellWidth: 24 },
-      11: { cellWidth: 38 },
-    },
+    margin: { left: PDF_TABLA_MARGIN_X, right: PDF_TABLA_MARGIN_X },
+    tableWidth: pageW - PDF_TABLA_MARGIN_X * 2,
+    columnStyles: (() => {
+      const w = anchosHastaMargen(
+        pageW - PDF_TABLA_MARGIN_X * 2,
+        [22, 16, 11, 28, 12, 16, 32, 50, 11, 20, 30, 42],
+        [3, 6, 7, 10, 11],
+      );
+      return {
+        0: { cellWidth: w[0], fontStyle: 'bold' },
+        1: { cellWidth: w[1] },
+        2: { cellWidth: w[2] },
+        3: { cellWidth: w[3] },
+        4: { cellWidth: w[4] },
+        5: { cellWidth: w[5] },
+        6: { cellWidth: w[6] },
+        7: { cellWidth: w[7] },
+        8: { cellWidth: w[8], halign: 'right' },
+        9: { cellWidth: w[9], halign: 'right' },
+        10: { cellWidth: w[10] },
+        11: { cellWidth: w[11] },
+      };
+    })(),
     didParseCell: (data) => {
       if (data.section === 'body' && data.column.index === 0) {
         const tipo = filas[data.row.index]?.Type;
@@ -457,17 +489,24 @@ export async function generarPdfExcepcionesAgrupado(
         halign: 'center',
       },
       alternateRowStyles: { fillColor: pastelBlueAlt },
-      margin: { left: 10, right: 10 },
-      tableWidth: pageW - 20,
-      columnStyles: {
-        0: { cellWidth: 44, fontStyle: 'bold' },
-        1: { cellWidth: 46, halign: 'right' },
-        2: { cellWidth: 38, halign: 'right' },
-        3: { cellWidth: 38, halign: 'right' },
-        4: { cellWidth: 38, halign: 'right' },
-        5: { cellWidth: 38, halign: 'right' },
-        6: { cellWidth: 28, halign: 'right', fontStyle: 'bold' },
-      },
+      margin: { left: PDF_TABLA_MARGIN_X, right: PDF_TABLA_MARGIN_X },
+      tableWidth: pageW - PDF_TABLA_MARGIN_X * 2,
+      columnStyles: (() => {
+        const w = anchosHastaMargen(
+          pageW - PDF_TABLA_MARGIN_X * 2,
+          [52, 46, 38, 38, 38, 38, 28],
+          [0],
+        );
+        return {
+          0: { cellWidth: w[0], fontStyle: 'bold' },
+          1: { cellWidth: w[1], halign: 'right' },
+          2: { cellWidth: w[2], halign: 'right' },
+          3: { cellWidth: w[3], halign: 'right' },
+          4: { cellWidth: w[4], halign: 'right' },
+          5: { cellWidth: w[5], halign: 'right' },
+          6: { cellWidth: w[6], halign: 'right', fontStyle: 'bold' },
+        };
+      })(),
       didParseCell: (data) => {
         if (data.section === 'body' && data.row.index === totalRowIdx) {
           data.cell.styles.fillColor = pastelBlueTotal;
@@ -495,6 +534,13 @@ export async function generarPdfExcepcionesAgrupado(
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(0);
   }
+
+  const usableTabla = pageW - PDF_TABLA_MARGIN_X * 2;
+  const anchosDetalle = anchosHastaMargen(
+    usableTabla,
+    [22, 16, 11, 26, 28, 12, 16, 48, 11, 18, 30, 40],
+    [3, 4, 7, 10, 11],
+  );
 
   for (const g of grupos) {
     // Salto de página si quedan menos de ~40mm libres antes de la cabecera del grupo
@@ -531,11 +577,11 @@ export async function generarPdfExcepcionesAgrupado(
       r.PosName ?? (r.PosId != null ? String(r.PosId) : ''),
       r.DocumentType ?? '',
       r.TicketNumber || r.InvoiceNumber || '',
-      String(r.ProductName ?? '').slice(0, 40),
+      String(r.ProductName ?? '').slice(0, 52),
       r.Quantity != null ? String(r.Quantity) : '',
       formatMoneda(Number(r.Amount) || 0),
-      clienteLabel(r).slice(0, 16),
-      motivoConConsumo(r).slice(0, 34),
+      clienteLabel(r).slice(0, 32),
+      motivoConConsumo(r).slice(0, 52),
     ]);
 
     autoTable(doc, {
@@ -548,21 +594,21 @@ export async function generarPdfExcepcionesAgrupado(
       theme: 'striped',
       styles: { fontSize: 7, cellPadding: 1, overflow: 'linebreak' },
       headStyles: { fillColor: [203, 213, 225], textColor: 30, fontStyle: 'bold' },
-      margin: { left: 10, right: 10 },
-      tableWidth: pageW - 20,
+      margin: { left: PDF_TABLA_MARGIN_X, right: PDF_TABLA_MARGIN_X },
+      tableWidth: usableTabla,
       columnStyles: {
-        0: { cellWidth: 22, fontStyle: 'bold' },
-        1: { cellWidth: 16 },
-        2: { cellWidth: 11 },
-        3: { cellWidth: 22 },
-        4: { cellWidth: 16 },
-        5: { cellWidth: 12 },
-        6: { cellWidth: 16 },
-        7: { cellWidth: 42 },
-        8: { cellWidth: 11, halign: 'right' },
-        9: { cellWidth: 18, halign: 'right' },
-        10: { cellWidth: 22 },
-        11: { cellWidth: 34 },
+        0: { cellWidth: anchosDetalle[0], fontStyle: 'bold' },
+        1: { cellWidth: anchosDetalle[1] },
+        2: { cellWidth: anchosDetalle[2] },
+        3: { cellWidth: anchosDetalle[3] },
+        4: { cellWidth: anchosDetalle[4] },
+        5: { cellWidth: anchosDetalle[5] },
+        6: { cellWidth: anchosDetalle[6] },
+        7: { cellWidth: anchosDetalle[7] },
+        8: { cellWidth: anchosDetalle[8], halign: 'right' },
+        9: { cellWidth: anchosDetalle[9], halign: 'right' },
+        10: { cellWidth: anchosDetalle[10] },
+        11: { cellWidth: anchosDetalle[11] },
       },
       didParseCell: (data) => {
         if (data.section === 'body' && data.column.index === 0) {

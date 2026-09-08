@@ -34,6 +34,7 @@ import {
 import { campanaSePuedeBorrar, estadoEfectivoCampana, etiquetaEstadoAutomatico } from '../../../lib/campanaEstado';
 import { useConfirmar } from '../../../hooks/useConfirmar';
 import { generarPdfIncentivosCampana, pdfIncentivosCampanaFileSlug } from '../../../lib/incentivosProductoPdf';
+import { tasksColor, tasksRadius, tasksTabla } from '../../../constants/tasksUiTokens';
 import type { Campana, ResultadosCampana, TipoIncentivo } from '../../../types/incentivosProducto';
 import type { DetalleVentasCampana, FiltroVentasCampana } from '../../../types/ventasCampana';
 
@@ -90,7 +91,7 @@ function deckColumns(tab: TabKey): DeckColumn[] {
       { key: 'uds', label: 'Uds.', width: 48 },
       { key: 'precioCoste', label: 'Pr. compra', width: 68 },
       { key: 'bonificacion', label: 'Bonificación', width: 76 },
-      { key: 'incentivo', label: 'Incentivo', width: 72 },
+      { key: 'incentivo', label: 'Incentivo', width: 96 },
     ];
   }
   if (tab === 'empleado') {
@@ -98,14 +99,14 @@ function deckColumns(tab: TabKey): DeckColumn[] {
       { key: 'nombre', label: 'Empleado', flex: 1.6 },
       { key: 'local', label: 'Local', flex: 1.4 },
       { key: 'uds', label: 'Uds.', width: 48 },
-      { key: 'incentivo', label: 'Incentivo', width: 72 },
+      { key: 'incentivo', label: 'Incentivo', width: 96 },
     ];
   }
   if (tab === 'local') {
     return [
       { key: 'nombre', label: 'Local', flex: 2.2 },
       { key: 'uds', label: 'Uds.', width: 48 },
-      { key: 'incentivo', label: 'Incentivo', width: 72 },
+      { key: 'incentivo', label: 'Incentivo', width: 96 },
     ];
   }
   return [
@@ -128,6 +129,8 @@ function DeckTable({
   onVerVentasProducto?: (item: DeckRowItem) => void;
 }) {
   const cols = deckColumns(tab);
+  const colBox = (c: DeckColumn) =>
+    c.flex ? { flex: c.flex, minWidth: 0 } : { width: c.width, flexShrink: 0 as const };
 
   return (
     <View style={styles.deckSection}>
@@ -145,12 +148,17 @@ function DeckTable({
               <View
                 key={c.key}
                 style={[
-                  c.flex ? { flex: c.flex, minWidth: 0 } : { width: c.width, flexShrink: 0 },
-                  (c.key === 'incentivo' || c.key === 'bonificacion' || c.key === 'precioCoste') && styles.colIncentivo,
-                  (c.key === 'uds' || c.key === 'incentivo' || c.key === 'bonificacion' || c.key === 'precioCoste') && styles.colAlignEnd,
+                  colBox(c),
+                  (c.key === 'uds' || c.key === 'incentivo' || c.key === 'bonificacion' || c.key === 'precioCoste') && styles.colAlignCenter,
                 ]}
               >
-                <Text style={styles.detailTableHeaderText} numberOfLines={1}>
+                <Text
+                  style={[
+                    styles.detailTableHeaderText,
+                    (c.key === 'uds' || c.key === 'incentivo' || c.key === 'bonificacion' || c.key === 'precioCoste') && styles.colHeaderTextCenter,
+                  ]}
+                  numberOfLines={1}
+                >
                   {c.label}
                 </Text>
               </View>
@@ -205,14 +213,14 @@ function DeckTable({
                   }
                   if (c.key === 'uds') {
                     return (
-                      <View key={c.key} style={[styles.colNumSm, styles.colAlignEnd]}>
+                      <View key={c.key} style={[colBox(c), styles.colAlignCenter]}>
                         <Text style={styles.calcCellText}>{formatUds(item.uds)}</Text>
                       </View>
                     );
                   }
                   if (c.key === 'precioCoste') {
                     return (
-                      <View key={c.key} style={[styles.colIncentivo, styles.colAlignEnd]}>
+                      <View key={c.key} style={[colBox(c), styles.colAlignCenter]}>
                         <Text style={styles.calcCellText} numberOfLines={1}>
                           {mapPrecioCoste(item.precioCoste)}
                         </Text>
@@ -221,7 +229,7 @@ function DeckTable({
                   }
                   if (c.key === 'bonificacion') {
                     return (
-                      <View key={c.key} style={[styles.colIncentivo, styles.colAlignEnd]}>
+                      <View key={c.key} style={[colBox(c), styles.colAlignCenter]}>
                         {bonificacionTxt ? (
                           <Text style={styles.calcCellText} numberOfLines={1}>{bonificacionTxt}</Text>
                         ) : null}
@@ -230,9 +238,11 @@ function DeckTable({
                   }
                   if (c.key === 'incentivo') {
                     return (
-                      <View key={c.key} style={[styles.colIncentivo, styles.colAlignEnd]}>
+                      <View key={c.key} style={[colBox(c), styles.colAlignCenter]}>
                         {incentivoTxt ? (
-                          <Text style={styles.incentivoCellText} numberOfLines={1}>{incentivoTxt}</Text>
+                          <View style={styles.incentivoBadge}>
+                            <Text style={styles.incentivoBadgeText} numberOfLines={1}>{incentivoTxt}</Text>
+                          </View>
                         ) : null}
                       </View>
                     );
@@ -249,11 +259,11 @@ function DeckTable({
   );
 }
 
-function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
+function KpiCard({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.kpiCard}>
       <Text style={styles.kpiLabel} numberOfLines={1}>{label}</Text>
-      <Text style={[styles.kpiValue, color ? { color } : null]} numberOfLines={1}>{value}</Text>
+      <Text style={styles.kpiValue} numberOfLines={1}>{value}</Text>
     </View>
   );
 }
@@ -586,7 +596,7 @@ export default function CampanaDetalleScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={20} color={tasksColor.textoSecundario} />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={2}>{campana?.nombre || 'Campaña'}</Text>
         <View style={styles.acciones}>
@@ -684,7 +694,7 @@ export default function CampanaDetalleScreen() {
       {campana && resultados && !loading ? (
         <View style={styles.toolbar}>
           <View style={styles.metaRow}>
-            <View style={[styles.badge, { backgroundColor: ec + '18', borderColor: ec }]}>
+            <View style={[styles.badge, { backgroundColor: ec + '18' }]}>
               <Text style={[styles.badgeText, { color: ec }]}>{estadoCampana}</Text>
             </View>
             {estadoCampana ? (
@@ -713,7 +723,6 @@ export default function CampanaDetalleScreen() {
             <KpiCard
               label="Coste incentivo"
               value={formatMoneda(resultados.totales.costeIncentivo)}
-              color="#d97706"
             />
           </View>
 
@@ -825,25 +834,34 @@ export default function CampanaDetalleScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+  container: { flex: 1, backgroundColor: tasksColor.fondoApp },
   center: { padding: 40, alignItems: 'center', gap: 8 },
   emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12 },
-  emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
+  emptyText: { fontSize: 14, fontWeight: '400', color: tasksColor.textoTerciario, textAlign: 'center' },
 
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#fff',
+    backgroundColor: tasksColor.superficie,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: tasksColor.bordeSutil,
     gap: 12,
     position: 'relative',
     zIndex: 30,
   },
-  backBtn: { padding: 4 },
-  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#0f172a', minWidth: 0 },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: tasksRadius.contenedor,
+    borderWidth: 1,
+    borderColor: tasksColor.bordeSutil,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: tasksColor.superficie,
+  },
+  headerTitle: { flex: 1, fontSize: 20, fontWeight: '600', color: tasksColor.textoPrimario, minWidth: 0 },
   acciones: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   btnIcon: { padding: 6 },
   createBtnOutline: {
@@ -852,22 +870,22 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 8,
+    borderRadius: tasksRadius.control,
     borderWidth: 1,
-    borderColor: '#bae6fd',
-    backgroundColor: '#f0f9ff',
+    borderColor: tasksColor.bordeSutil,
+    backgroundColor: tasksColor.superficie,
   },
-  createBtnOutlineText: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+  createBtnOutlineText: { fontSize: 12, fontWeight: '400', color: tasksColor.acento },
   exportAnchor: { position: 'relative', zIndex: 60 },
   exportMenu: {
     position: 'absolute',
     top: '100%',
     right: 0,
     marginTop: 4,
-    backgroundColor: '#fff',
-    borderRadius: 8,
+    backgroundColor: tasksColor.superficie,
+    borderRadius: tasksRadius.contenedor,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: tasksColor.bordeSutil,
     zIndex: 41,
     minWidth: 160,
     overflow: 'hidden',
@@ -882,7 +900,7 @@ const styles = StyleSheet.create({
         }),
   },
   exportItem: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12 },
-  exportItemText: { fontSize: 13, fontWeight: '600', color: '#334155' },
+  exportItemText: { fontSize: 12, fontWeight: '400', color: '#334155' },
   exportOverlay: {
     ...Platform.select({
       web: { position: 'fixed', left: 0, right: 0, top: 0, bottom: 0, zIndex: 39 },
@@ -891,9 +909,9 @@ const styles = StyleSheet.create({
   },
 
   toolbar: {
-    backgroundColor: '#fff',
+    backgroundColor: tasksColor.superficie,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: tasksColor.bordeSutil,
     paddingHorizontal: 12,
     paddingVertical: 8,
     gap: 8,
@@ -901,80 +919,83 @@ const styles = StyleSheet.create({
     zIndex: 0,
   },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'center' },
-  metaText: { fontSize: 12, color: '#64748b' },
-  metaHint: { fontSize: 11, color: '#94a3b8', fontStyle: 'italic' },
-  archivarBtnText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
-  cerrarRrhhBtnText: { fontSize: 12, fontWeight: '600', color: '#d97706' },
-  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
-  badgeText: { fontSize: 11, fontWeight: '600' },
+  metaText: { fontSize: 12, fontWeight: '400', color: '#64748b' },
+  metaHint: { fontSize: 11, fontWeight: '400', color: tasksColor.textoTerciario, fontStyle: 'italic' },
+  archivarBtnText: { fontSize: 12, fontWeight: '400', color: '#64748b' },
+  cerrarRrhhBtnText: { fontSize: 12, fontWeight: '400', color: tasksColor.aviso },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: tasksRadius.pildora,
+    borderWidth: 1,
+    borderColor: tasksColor.bordeSutil,
+  },
+  badgeText: { fontSize: 11, fontWeight: '400' },
   warningsBox: {
-    backgroundColor: '#fffbeb',
+    backgroundColor: tasksColor.avisoSuave,
     padding: 10,
-    borderRadius: 8,
+    borderRadius: tasksRadius.contenedor,
     gap: 4,
     borderWidth: 1,
-    borderColor: '#fde68a',
+    borderColor: tasksColor.bordeSutil,
   },
-  warningText: { fontSize: 12, color: '#92400e' },
+  warningText: { fontSize: 12, fontWeight: '400', color: '#92400e' },
   kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   kpiCard: {
     flex: 1,
     minWidth: 88,
-    backgroundColor: '#f8fafc',
+    backgroundColor: tasksColor.superficie,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    borderColor: tasksColor.bordeSutil,
+    borderRadius: tasksRadius.contenedor,
+    padding: 12,
   },
-  kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
-  kpiValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 2 },
+  kpiLabel: { fontSize: 11, fontWeight: '400', color: '#64748b' },
+  kpiValue: { fontSize: 20, fontWeight: '600', color: tasksColor.textoPrimario, marginTop: 2 },
   chipRowEstado: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   estadoChip: {
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    paddingVertical: 6,
+    borderRadius: tasksRadius.control,
   },
-  estadoChipSel: { backgroundColor: '#e0f2fe', borderColor: '#7dd3fc' },
-  estadoChipText: { fontSize: 11, fontWeight: '600', color: '#475569' },
-  estadoChipTextSel: { color: '#075985', fontWeight: '800' },
+  estadoChipSel: { backgroundColor: tasksColor.acentoSuave },
+  estadoChipText: { fontSize: 12, fontWeight: '400', color: tasksColor.textoSecundario },
+  estadoChipTextSel: { color: tasksColor.acentoTexto, fontWeight: '500' },
 
   errorBar: {
     marginHorizontal: 16,
     marginTop: 8,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 6,
-    backgroundColor: '#fef2f2',
+    borderRadius: tasksRadius.control,
+    backgroundColor: tasksColor.peligroSuave,
     borderWidth: 1,
-    borderColor: '#fecaca',
+    borderColor: tasksColor.bordeSutil,
   },
-  errorText: { fontSize: 12, color: '#dc2626' },
+  errorText: { fontSize: 12, fontWeight: '400', color: tasksColor.peligro },
 
   split: { flex: 1, flexDirection: 'row', minHeight: 0, position: 'relative', zIndex: 0 },
   splitStack: { flexDirection: 'column' },
   panelHalf: { flex: 1, width: '50%', maxWidth: '50%' },
   panelLista: { flex: 1, minWidth: 0, minHeight: 0 },
-  panelListaBorder: { borderRightWidth: 1, borderRightColor: '#e2e8f0' },
-  panelDetalle: { flex: 1, minWidth: 0, minHeight: 0, backgroundColor: '#fff' },
+  panelListaBorder: { borderRightWidth: 1, borderRightColor: tasksColor.bordeSutil },
+  panelDetalle: { flex: 1, minWidth: 0, minHeight: 0, backgroundColor: tasksColor.superficie },
 
   list: { flex: 1, minHeight: 0 },
   listContent: { flexGrow: 1, paddingTop: 8, paddingLeft: 8, paddingBottom: 8, paddingRight: 14 },
 
   deckSection: { flex: 1, gap: 6, alignSelf: 'stretch', minHeight: 0 },
-  deckSectionTitle: { fontSize: 12, fontWeight: '700', color: '#0f172a', paddingHorizontal: 2 },
+  deckSectionTitle: { fontSize: 12, fontWeight: '400', color: '#334155', paddingHorizontal: 2 },
 
   detailTableFrame: {
     flex: 1,
     alignSelf: 'stretch',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: tasksColor.bordeSutil,
+    borderRadius: tasksRadius.contenedor,
     overflow: 'hidden',
     marginBottom: 6,
+    backgroundColor: tasksColor.superficie,
   },
   detailTableScrollH: { flex: 1 },
   detailTableScrollContent: { flexGrow: 1, minHeight: '100%' },
@@ -986,43 +1007,61 @@ const styles = StyleSheet.create({
   detailTableHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    paddingVertical: 4,
+    backgroundColor: tasksColor.superficieHundida,
+    paddingVertical: 6,
     paddingHorizontal: 4,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: tasksColor.bordeSutil,
+    borderLeftWidth: tasksTabla.seleccionBarra,
+    borderLeftColor: 'transparent',
     gap: 4,
   },
-  detailTableHeaderText: { fontSize: 9, fontWeight: '700', color: '#475569', textTransform: 'uppercase' },
+  detailTableHeaderText: { fontSize: 11, fontWeight: '400', color: tasksColor.textoTerciario },
   detailTableRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 4,
+    paddingVertical: 6,
     paddingHorizontal: 4,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: tasksColor.bordeSutil,
+    borderLeftWidth: tasksTabla.seleccionBarra,
+    borderLeftColor: 'transparent',
     gap: 4,
   },
-  detailTableRowSel: { backgroundColor: '#f0f9ff' },
-  colNumSm: { width: 48, flexShrink: 0 },
-  colIncentivo: { width: 72, flexShrink: 0 },
-  colAlignEnd: { alignItems: 'flex-end' },
-  cellName: { fontSize: 11, fontWeight: '600', color: '#0f172a' },
-  cellMeta: { fontSize: 9, color: '#94a3b8', marginTop: 1 },
+  detailTableRowSel: {
+    backgroundColor: tasksColor.acentoSuave,
+    borderLeftColor: tasksColor.acento,
+  },
+  colAlignCenter: { alignItems: 'center', justifyContent: 'center' },
+  colHeaderTextCenter: { textAlign: 'center', alignSelf: 'stretch' },
+  cellName: { fontSize: 12, fontWeight: '400', color: '#334155' },
+  cellMeta: { fontSize: 11, fontWeight: '400', color: tasksColor.textoTerciario, marginTop: 1 },
   colNombre: { flexDirection: 'row', alignItems: 'flex-start', gap: 2, minWidth: 0 },
   colNombreTexto: { flex: 1, minWidth: 0 },
   ventasIconBtn: { paddingTop: 1, paddingRight: 2 },
-  cellSubtitulo: { fontSize: 10, color: '#334155', lineHeight: 13 },
-  calcCellText: { fontSize: 10, color: '#64748b', fontWeight: '600' },
-  incentivoCellText: { fontSize: 10, color: '#0f172a', fontWeight: '800' },
+  cellSubtitulo: { fontSize: 12, fontWeight: '400', color: '#334155', lineHeight: 16 },
+  calcCellText: { fontSize: 12, fontWeight: '400', color: '#334155' },
+  incentivoBadge: {
+    backgroundColor: tasksColor.exitoSuave,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    maxWidth: '100%',
+  },
+  incentivoBadgeText: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: tasksColor.exito,
+    fontVariant: ['tabular-nums'],
+  },
 
   detalleVacio: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8 },
-  detalleVacioText: { fontSize: 14, color: '#94a3b8', textAlign: 'center', fontWeight: '600' },
-  detalleVacioHint: { fontSize: 12, color: '#cbd5e1', textAlign: 'center' },
+  detalleVacioText: { fontSize: 12, fontWeight: '400', color: tasksColor.textoTerciario, textAlign: 'center' },
+  detalleVacioHint: { fontSize: 11, fontWeight: '400', color: tasksColor.textoTerciario, textAlign: 'center' },
 
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.5)',
+    backgroundColor: tasksColor.overlay,
     justifyContent: 'center',
     padding: 16,
     ...(Platform.OS === 'web' ? { zIndex: 9999 } as object : {}),
@@ -1031,8 +1070,8 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: '100%',
     maxWidth: 560,
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: tasksColor.superficie,
+    borderRadius: tasksRadius.contenedor,
     maxHeight: '88%',
     overflow: 'hidden',
     ...(Platform.OS === 'web' ? { boxShadow: '0 16px 48px rgba(0,0,0,0.2)', zIndex: 10000 } as object : { elevation: 12 }),

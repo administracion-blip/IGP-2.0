@@ -25,6 +25,13 @@ export default function MantenimientoLayout() {
         <Stack.Screen name="limpieza/programacion" />
         <Stack.Screen name="limpieza/registros" />
         <Stack.Screen name="limpieza/calendario" />
+        <Stack.Screen name="activos/index" />
+        <Stack.Screen name="activos/listado" />
+        <Stack.Screen name="activos/catalogo" />
+        <Stack.Screen name="activos/custodia" />
+        <Stack.Screen name="activos/plantillas" />
+        <Stack.Screen name="activos/alta" />
+        <Stack.Screen name="activos/[assetId]" />
       </Stack>
     </MantenimientoLocalesProvider>
   );

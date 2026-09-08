@@ -33,6 +33,14 @@ const ACCESOS: AccesoModulo[] = [
     ruta: '/mantenimiento/limpieza',
     permiso: 'limpieza.ver',
   },
+  {
+    id: 'activos',
+    label: 'Activos',
+    descripcion: 'Inventario de dispositivos, maquinaria y material: qué hay, dónde y en qué estado',
+    icon: 'devices',
+    ruta: '/mantenimiento/activos',
+    permiso: 'activos.ver',
+  },
 ];
 
 export default function MantenimientoHubScreen() {
@@ -51,7 +59,7 @@ export default function MantenimientoHubScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Mantenimiento</Text>
-      <Text style={styles.subtitle}>Incidencias y limpieza operativa. Selecciona un área.</Text>
+      <Text style={styles.subtitle}>Incidencias, limpieza e inventario de activos. Selecciona un área.</Text>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator>
         <HubNavGrid>

@@ -4,6 +4,7 @@ import { getToken, removeToken } from '../utils/authToken';
 import { authEvents } from '../utils/authEvents';
 import { apiFetch } from '../utils/api';
 import { permisoConcedido } from '../lib/permisoAliases';
+import { vaciarCestaActivos } from '../lib/activosCesta';
 
 const AUTH_KEY = 'erp_user';
 
@@ -136,6 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUserState(null);
     setPermisos([]);
     setPermisosStatus('idle');
+    vaciarCestaActivos();
   }, []);
 
   // Coordina el logout cuando apiFetch detecta un 401 del backend.

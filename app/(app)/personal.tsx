@@ -7,6 +7,8 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   TextInput,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -14,7 +16,10 @@ import {
   ERP_LIST_HEADER_TEXT_PROPS,
   erpListTableStyles,
 } from '../constants/erpListTableStyles';
+import { useAuth } from '../contexts/AuthContext';
+import { tallaDeActivo, unidadesDeActivo } from '../lib/activos';
 import { apiFetch, errorMessage } from '../utils/api';
+import type { CustodiaEmpleado } from '../types/activos';
 
 type Empleado = {
   pk: string;
@@ -38,6 +43,7 @@ type Empleado = {
 const COLUMNAS: { key: keyof Empleado | string; label: string; width: number }[] = [
   { key: 'employee_id', label: 'ID', width: 70 },
   { key: 'full_name', label: 'Nombre completo', width: 200 },
+  { key: 'prendas', label: 'Prendas', width: 110 },
   { key: 'email', label: 'Email', width: 220 },
   { key: 'phone_number', label: 'Teléfono', width: 130 },
   { key: 'identifier', label: 'DNI / NIF', width: 120 },
@@ -48,6 +54,9 @@ const COLUMNAS: { key: keyof Empleado | string; label: string; width: number }[]
 
 export default function PersonalScreen() {
   const router = useRouter();
+  const { hasPermiso } = useAuth();
+  const puedeVerPrendas = hasPermiso('activos.ver');
+  const puedeDevolver = hasPermiso('activos.editar');
   const [empleados, setEmpleados] = useState<Empleado[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -55,6 +64,29 @@ export default function PersonalScreen() {
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [filtro, setFiltro] = useState('');
   const [soloActivos, setSoloActivos] = useState(true);
+  const [custodias, setCustodias] = useState<Record<string, CustodiaEmpleado>>({});
+  const [desglose, setDesglose] = useState<CustodiaEmpleado | null>(null);
+  const [selDev, setSelDev] = useState<Record<string, boolean>>({});
+  const [cantDev, setCantDev] = useState<Record<string, string>>({});
+  const [devolviendo, setDevolviendo] = useState(false);
+  const [errorDev, setErrorDev] = useState<string | null>(null);
+
+  const cargarCustodias = useCallback(async () => {
+    if (!puedeVerPrendas) {
+      setCustodias({});
+      return;
+    }
+    try {
+      const res = await apiFetch('/api/activos/custodia');
+      const data = (await res.json()) as { custodias?: CustodiaEmpleado[]; error?: string };
+      if (!res.ok) throw new Error(data.error || 'No se pudieron cargar las prendas');
+      const mapa: Record<string, CustodiaEmpleado> = {};
+      for (const c of data.custodias || []) mapa[String(c.employee_id)] = c;
+      setCustodias(mapa);
+    } catch {
+      setCustodias({});
+    }
+  }, [puedeVerPrendas]);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -64,12 +96,13 @@ export default function PersonalScreen() {
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Error al obtener empleados');
       setEmpleados(data.employees ?? []);
+      await cargarCustodias();
     } catch (err: unknown) {
       setError(errorMessage(err, 'Error de conexión'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [cargarCustodias]);
 
   useEffect(() => {
     void cargar();
@@ -91,6 +124,57 @@ export default function PersonalScreen() {
       setSyncing(false);
     }
   }, [cargar]);
+
+  const columnasVisibles = useMemo(
+    () => (puedeVerPrendas ? COLUMNAS : COLUMNAS.filter((c) => c.key !== 'prendas')),
+    [puedeVerPrendas],
+  );
+
+  const abrirDesglose = (emp: Empleado) => {
+    const c = custodias[String(emp.employee_id)];
+    if (!c || c.cantidad < 1) return;
+    const sel: Record<string, boolean> = {};
+    const cant: Record<string, string> = {};
+    for (const a of c.activos) {
+      sel[a.asset_id] = false;
+      cant[a.asset_id] = String(unidadesDeActivo(a));
+    }
+    setSelDev(sel);
+    setCantDev(cant);
+    setErrorDev(null);
+    setDesglose(c);
+  };
+
+  const confirmarDevolucion = async () => {
+    if (!desglose) return;
+    const lineas = desglose.activos
+      .filter((a) => selDev[a.asset_id])
+      .map((a) => ({
+        asset_id: a.asset_id,
+        cantidad: a.granularidad === 'lote' ? parseInt(cantDev[a.asset_id], 10) || 1 : 1,
+      }));
+    if (!lineas.length) {
+      setErrorDev('Marca qué devuelve');
+      return;
+    }
+    setDevolviendo(true);
+    setErrorDev(null);
+    try {
+      const res = await apiFetch('/api/activos/devoluciones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_id: desglose.employee_id, lineas }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || 'No se pudo devolver');
+      setDesglose(null);
+      await cargarCustodias();
+    } catch (err: unknown) {
+      setErrorDev(errorMessage(err, 'No se pudo devolver'));
+    } finally {
+      setDevolviendo(false);
+    }
+  };
 
   const filtrados = useMemo(() => {
     let list = empleados;
@@ -183,7 +267,7 @@ export default function PersonalScreen() {
               >
                 <View style={erpListTableStyles.table}>
                   <View style={erpListTableStyles.rowHeader}>
-                    {COLUMNAS.map((col) => (
+                    {columnasVisibles.map((col) => (
                       <View key={col.key} style={[erpListTableStyles.cellHeader, { width: col.width }]}>
                         <Text style={erpListTableStyles.cellHeaderText} {...ERP_LIST_HEADER_TEXT_PROPS}>
                           {col.label}
@@ -211,7 +295,23 @@ export default function PersonalScreen() {
                     ) : (
                       filtrados.map((emp) => (
                         <View key={emp.employee_id} style={erpListTableStyles.row}>
-                          {COLUMNAS.map((col) => {
+                          {columnasVisibles.map((col) => {
+                            if (col.key === 'prendas') {
+                              const c = custodias[String(emp.employee_id)];
+                              const n = c?.cantidad || 0;
+                              const txt = n === 0 ? '—' : n === 1 ? '1 prenda' : `${n} prendas`;
+                              return (
+                                <View key={col.key} style={[erpListTableStyles.cell, { width: col.width }]}>
+                                  {n > 0 ? (
+                                    <TouchableOpacity onPress={() => abrirDesglose(emp)}>
+                                      <Text style={[erpListTableStyles.cellText, styles.prendasLink]}>{txt}</Text>
+                                    </TouchableOpacity>
+                                  ) : (
+                                    <Text style={erpListTableStyles.cellText}>{txt}</Text>
+                                  )}
+                                </View>
+                              );
+                            }
                             const raw = formatCellValue(String(col.key), emp[col.key as keyof Empleado]);
                             const esActivo = col.key === 'active';
                             const activoStyles =
@@ -250,6 +350,77 @@ export default function PersonalScreen() {
           </View>
         </>
       )}
+
+      <Modal visible={Boolean(desglose)} transparent animationType="fade" onRequestClose={() => setDesglose(null)}>
+        <Pressable style={styles.modalFondo} onPress={() => !devolviendo && setDesglose(null)}>
+          <Pressable style={styles.modalCaja} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitulo}>{desglose?.employee_nombre || 'Prendas'}</Text>
+            <Text style={styles.modalSub}>
+              {desglose?.cantidad === 1 ? '1 prenda asignada' : `${desglose?.cantidad || 0} prendas asignadas`}.
+              {puedeDevolver ? ' Marca lo que devuelve.' : ''}
+            </Text>
+            <ScrollView style={styles.modalLista}>
+              {(desglose?.activos || []).map((a) => {
+                const talla = tallaDeActivo(a);
+                const on = Boolean(selDev[a.asset_id]);
+                return (
+                  <View key={a.asset_id} style={styles.modalFila}>
+                    {puedeDevolver ? (
+                      <TouchableOpacity onPress={() => setSelDev((p) => ({ ...p, [a.asset_id]: !p[a.asset_id] }))}>
+                        <MaterialIcons
+                          name={on ? 'check-box' : 'check-box-outline-blank'}
+                          size={22}
+                          color={on ? '#0ea5e9' : '#94a3b8'}
+                        />
+                      </TouchableOpacity>
+                    ) : null}
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.modalEtiqueta}>{a.etiqueta_legible}</Text>
+                      <Text style={styles.modalMeta} numberOfLines={1}>
+                        {[a.marca, a.nombre_modelo].filter(Boolean).join(' ')}
+                        {talla ? ` · ${talla}` : ''}
+                        {a.granularidad !== 'lote' ? ' · 1 ud.' : ''}
+                      </Text>
+                    </View>
+                    {a.granularidad === 'lote' && puedeDevolver ? (
+                      <TextInput
+                        style={styles.modalCant}
+                        value={cantDev[a.asset_id] || '1'}
+                        onChangeText={(t) => setCantDev((p) => ({ ...p, [a.asset_id]: t.replace(/[^\d]/g, '') }))}
+                        keyboardType="number-pad"
+                        editable={on}
+                      />
+                    ) : (
+                      <Text style={styles.modalUd}>
+                        {a.granularidad === 'lote' ? `${unidadesDeActivo(a)} ud.` : '1 ud.'}
+                      </Text>
+                    )}
+                  </View>
+                );
+              })}
+            </ScrollView>
+            {errorDev ? <Text style={styles.modalError}>{errorDev}</Text> : null}
+            <View style={styles.modalAcciones}>
+              <TouchableOpacity style={styles.modalCancel} onPress={() => setDesglose(null)} disabled={devolviendo}>
+                <Text style={styles.modalCancelTxt}>Cerrar</Text>
+              </TouchableOpacity>
+              {puedeDevolver ? (
+                <TouchableOpacity
+                  style={[styles.modalOk, devolviendo && { opacity: 0.6 }]}
+                  onPress={() => void confirmarDevolucion()}
+                  disabled={devolviendo}
+                >
+                  {devolviendo ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.modalOkTxt}>Devolver marcadas</Text>
+                  )}
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -341,4 +512,65 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
   loadingText: { marginTop: 8, fontSize: 14, color: '#64748b' },
   countText: { fontSize: 12, color: '#64748b', marginBottom: 6 },
+  prendasLink: { color: '#0369a1', fontWeight: '700', textDecorationLine: 'underline' },
+  modalFondo: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  modalCaja: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 16,
+    maxHeight: '88%',
+    maxWidth: 560,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  modalTitulo: { fontSize: 18, fontWeight: '700', color: '#0f172a', marginBottom: 4 },
+  modalSub: { fontSize: 13, color: '#64748b', marginBottom: 12 },
+  modalLista: { maxHeight: 320, marginBottom: 8 },
+  modalFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  modalEtiqueta: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
+  modalMeta: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  modalCant: {
+    width: 52,
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 8,
+    textAlign: 'center',
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  modalUd: { fontSize: 12, fontWeight: '600', color: '#64748b' },
+  modalError: { color: '#dc2626', marginBottom: 8, fontSize: 13 },
+  modalAcciones: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 8 },
+  modalCancel: {
+    minHeight: 44,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCancelTxt: { fontWeight: '700', color: '#64748b' },
+  modalOk: {
+    minHeight: 44,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: '#0ea5e9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalOkTxt: { color: '#fff', fontWeight: '700' },
 });

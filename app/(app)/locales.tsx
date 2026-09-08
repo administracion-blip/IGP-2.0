@@ -21,6 +21,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { ICONS, ICON_SIZE } from '../constants/icons';
 import { formatId6 } from '../utils/idFormat';
 import { useAuth } from '../contexts/AuthContext';
+import { useBreakpoint } from '../hooks/useBreakpoint';
+import { MIN_TOUCH } from '../constants/layout';
 import { SelectorDesplegable } from '../components/SelectorDesplegable';
 import { apiFetch, errorMessage } from '../utils/api';
 import {
@@ -66,13 +68,41 @@ const CAMPOS_FORM: { key: (typeof ATRIBUTOS_TABLA_LOCALES)[number]; label: strin
   { key: 'Sede', label: 'Sede' },
   { key: 'lat', label: 'Lat' },
   { key: 'lng', label: 'Lng' },
-  { key: 'km_desplazamiento', label: 'Km desde sede central (ida)' },
+  { key: 'km_desplazamiento', label: 'Km desde sede central' },
   { key: 'Imagen', label: 'Imagen' },
   { key: 'factorial_location_id', label: 'Factorial location ID' },
   { key: 'ratio_personal', label: 'Ratio personal (%)' },
   { key: 'ratio_musicos', label: 'Ratio músicos (%)' },
   { key: 'ratio_mercaderia', label: 'Ratio mercadería (%)' },
 ];
+
+const COL_LABELS: Record<string, string> = {
+  id_Locales: 'ID',
+  [COL_THUMBNAIL]: 'Foto',
+  Nombre: 'Nombre',
+  AgoraCode: 'AgoraCode',
+  Empresa: 'Empresa',
+  Direccion: 'Dirección',
+  Cp: 'CP',
+  Municipio: 'Municipio',
+  Provincia: 'Provincia',
+  'Almacen origen': 'Almacén origen',
+  Sede: 'Sede',
+  lat: 'Lat',
+  lng: 'Lng',
+  km_desplazamiento: 'Km desplazamiento',
+  Imagen: 'Imagen',
+  factorial_location_id: 'Factorial',
+  ratio_personal: 'Ratio personal',
+  ratio_musicos: 'Ratio músicos',
+  ratio_mercaderia: 'Ratio mercadería',
+};
+
+function labelColumna(col: string): string {
+  return COL_LABELS[col] ?? col;
+}
+
+type CampoFormKey = (typeof CAMPOS_FORM)[number]['key'];
 
 // Claves que viven en el formulario: las visibles más `id_empresa`, que no tiene campo propio
 // porque lo rellena el desplegable de Empresa.
@@ -114,6 +144,9 @@ function truncar(val: string): string {
 export default function LocalesScreen() {
   const router = useRouter();
   const { localPermitido } = useAuth();
+  const { isPhone, isDesktop, shouldStackPanels, shouldStackToolbar } = useBreakpoint();
+  const formDosColumnas = !isPhone;
+  const modalCasiFull = isPhone || shouldStackPanels;
   const [locales, setLocales] = useState<Local[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -586,10 +619,9 @@ export default function LocalesScreen() {
     setSelectedRowIndex((prev) => (prev === idx ? null : idx));
   };
 
-  const toolbarBtns = [
-    { id: 'crear', label: 'Crear registro', icon: ICONS.add },
-    { id: 'editar', label: 'Editar', icon: ICONS.edit },
-    { id: 'borrar', label: 'Borrar', icon: ICONS.delete },
+  const toolbarSecundarios = [
+    { id: 'editar' as const, label: 'Editar', icon: ICONS.edit },
+    { id: 'borrar' as const, label: 'Borrar', icon: ICONS.delete },
   ];
 
   const getColWidth = useCallback(
@@ -708,6 +740,331 @@ export default function LocalesScreen() {
     }
   };
 
+  const inputStyle = [styles.formInput, isPhone && styles.formInputPhone];
+
+  const renderCampo = (key: CampoFormKey, full?: boolean) => {
+    const campo = CAMPOS_FORM.find((c) => c.key === key);
+    if (!campo) return null;
+    const wrapStyle = [
+      styles.formGroup,
+      formDosColumnas && (full ? styles.formFieldFull : styles.formFieldCol),
+    ];
+
+    if (key === 'Direccion') {
+      return (
+        <View
+          key={key}
+          style={[
+            ...wrapStyle,
+            styles.dropdownAnchor,
+            direccionDropdownOpen && styles.dropdownAnchorOnTop,
+          ]}
+        >
+          <Text style={styles.formLabel}>{campo.label}</Text>
+          <View style={styles.direccionInputRow}>
+            <TextInput
+              style={[...inputStyle, { flex: 1 }]}
+              value={formNuevo.Direccion ?? ''}
+              onChangeText={onDireccionChange}
+              onBlur={() => setTimeout(() => setDireccionDropdownOpen(false), 200)}
+              placeholder="Escribe y elige una dirección…"
+              placeholderTextColor="#94a3b8"
+              autoCapitalize="words"
+            />
+            {formNuevo.Direccion ? (
+              <TouchableOpacity
+                style={styles.direccionVaciarBtn}
+                onPress={() => setFormNuevo((prev) => ({ ...prev, Direccion: '', lat: '', lng: '' }))}
+                activeOpacity={0.7}
+              >
+                <MaterialIcons name="clear" size={18} color="#64748b" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          {direccionLoading && (
+            <View style={styles.direccionLoadingWrap}>
+              <ActivityIndicator size="small" color="#0ea5e9" />
+              <Text style={styles.direccionLoadingText}>Buscando…</Text>
+            </View>
+          )}
+          {direccionDropdownOpen && direccionSuggestions.length > 0 && (
+            <View style={styles.direccionDropdown}>
+              <ScrollView style={styles.direccionDropdownScroll} keyboardShouldPersistTaps="handled">
+                {[...direccionSuggestions].sort((a, b) => (a.description || '').localeCompare(b.description || '')).map((p, idx) => (
+                  <TouchableOpacity
+                    key={p.place_id || idx}
+                    style={styles.direccionOption}
+                    onPress={() => onDireccionSelect(p)}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialIcons name="place" size={16} color="#64748b" style={styles.direccionOptionIcon} />
+                    <Text style={styles.direccionOptionText} numberOfLines={2}>
+                      {p.description}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+          {direccionDropdownOpen && direccionSuggestions.length === 0 && !direccionLoading && (
+            <Text style={styles.direccionHint}>
+              {direccionConfigOk === false
+                ? 'No hay sugerencias en este momento. Comprueba la conexión o la configuración del servidor.'
+                : 'No hay resultados para esta búsqueda.'}
+            </Text>
+          )}
+          {direccionConfigOk === false && direccionSuggestions.length > 0 && (
+            <Text style={styles.direccionHint}>
+              Sugerencias con OpenStreetMap. Para usar Google Maps, configura GOOGLE_MAPS_API_KEY en api/.env.local
+            </Text>
+          )}
+        </View>
+      );
+    }
+
+    if (key === 'Empresa') {
+      return (
+        <View key={key} style={wrapStyle}>
+          <Text style={styles.formLabel}>{campo.label}</Text>
+          <SelectorDesplegable
+            compact
+            sinIconoTrigger
+            icono="business"
+            placeholder={`${campo.label}…`}
+            tituloLista="Selecciona una empresa"
+            iconoLista="business"
+            buscador
+            buscadorPlaceholder="Buscar empresa…"
+            valorId={empresaIdVinculado}
+            opciones={empresaOpciones}
+            vacioTexto="Sin empresas"
+            triggerStyle={inputStyle}
+            triggerTextStyle={styles.formInputText}
+            onSeleccionar={(id) => {
+              if (id === CREAR_EMPRESA_OPCION_ID) {
+                abrirModalCrearEmpresa();
+                return;
+              }
+              const emp = empresasGrupoParipe.find((e) => normalizarIdEmpresa(e.id_empresa) === id);
+              const nombre = (emp?.Nombre ?? '').trim();
+              // Sin nombre el local guardaría el id de una empresa y el nombre de la anterior.
+              if (!nombre) return;
+              setFormNuevo((prev) => ({ ...prev, id_empresa: id, Empresa: nombre }));
+            }}
+          />
+          {pistaEmpresa ? (
+            <Text style={[styles.direccionHint, pistaEmpresa.aviso && styles.empresaHintAviso]}>
+              {pistaEmpresa.texto}
+            </Text>
+          ) : null}
+        </View>
+      );
+    }
+
+    if (key === 'Almacen origen') {
+      return (
+        <View
+          key={key}
+          style={[
+            ...wrapStyle,
+            styles.dropdownAnchor,
+            almacenDropdownOpen && styles.dropdownAnchorOnTop,
+          ]}
+        >
+          <Text style={styles.formLabel}>{campo.label}</Text>
+          <View style={styles.almacenChipsWrap}>
+            {parseAlmacenesOrigen(formNuevo['Almacen origen']).map((nombre) => (
+              <View key={nombre} style={styles.almacenChip}>
+                <Text style={styles.almacenChipText} numberOfLines={1}>{nombre}</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    const arr = parseAlmacenesOrigen(formNuevo['Almacen origen']).filter((n) => n !== nombre);
+                    setFormNuevo((prev) => ({ ...prev, 'Almacen origen': joinAlmacenesOrigen(arr) }));
+                  }}
+                  style={styles.almacenChipRemove}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <MaterialIcons name="close" size={14} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+            ))}
+            <TouchableOpacity
+              style={[...inputStyle, styles.formInputRow, styles.almacenAddBtn]}
+              onPress={() => setAlmacenDropdownOpen((o) => !o)}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons name="add" size={18} color="#0ea5e9" style={{ marginRight: 4 }} />
+              <Text style={[styles.formInputText, styles.almacenAddText]}>Añadir almacén</Text>
+              <MaterialIcons name={almacenDropdownOpen ? 'expand-less' : 'expand-more'} size={18} color="#64748b" style={styles.sedeChevron} />
+            </TouchableOpacity>
+          </View>
+          {almacenDropdownOpen && (
+            <View style={styles.empresaDropdownWrap}>
+              <TextInput
+                style={styles.empresaDropdownSearch}
+                value={almacenSearchFilter}
+                onChangeText={setAlmacenSearchFilter}
+                placeholder="Buscar almacén…"
+                placeholderTextColor="#94a3b8"
+              />
+              <ScrollView style={styles.empresaDropdownScroll} keyboardShouldPersistTaps="handled">
+                {parseAlmacenesOrigen(formNuevo['Almacen origen']).length > 0 ? (
+                  <TouchableOpacity
+                    style={[styles.empresaDropdownOption, styles.dropdownVaciarOption]}
+                    onPress={() => {
+                      setFormNuevo((prev) => ({ ...prev, 'Almacen origen': '' }));
+                      setAlmacenDropdownOpen(false);
+                      setAlmacenSearchFilter('');
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialIcons name="clear" size={16} color="#94a3b8" style={{ marginRight: 6 }} />
+                    <Text style={styles.dropdownVaciarText}>Vaciar todos</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {almacenes.length === 0 ? (
+                  <View style={styles.empresaDropdownOption}>
+                    <Text style={styles.empresaDropdownOptionText}>Sin almacenes. Sincroniza desde el módulo Almacenes.</Text>
+                  </View>
+                ) : (() => {
+                  const yaSeleccionados = new Set(parseAlmacenesOrigen(formNuevo['Almacen origen']));
+                  const disponibles = almacenesFiltradosParaDropdown.filter((alm) => !yaSeleccionados.has(alm.Nombre ?? alm.Id ?? ''));
+                  return disponibles.length === 0 ? (
+                    <View style={styles.empresaDropdownOption}>
+                      <Text style={styles.empresaDropdownOptionText}>Todos los almacenes ya están asignados</Text>
+                    </View>
+                  ) : (
+                    disponibles.map((alm) => {
+                      const nombre = alm.Nombre ?? alm.Id ?? '';
+                      return (
+                        <TouchableOpacity
+                          key={alm.Id ?? nombre}
+                          style={styles.empresaDropdownOption}
+                          onPress={() => {
+                            const arr = [...parseAlmacenesOrigen(formNuevo['Almacen origen']), nombre];
+                            setFormNuevo((prev) => ({ ...prev, 'Almacen origen': joinAlmacenesOrigen(arr) }));
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.empresaDropdownOptionText}>{nombre || '—'}</Text>
+                        </TouchableOpacity>
+                      );
+                    })
+                  );
+                })()}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+      );
+    }
+
+    if (key === 'Sede') {
+      return (
+        <View key={key} style={wrapStyle}>
+          <Text style={styles.formLabel}>{campo.label}</Text>
+          <SelectorDesplegable
+            compact
+            sinIconoTrigger
+            icono="location-city"
+            placeholder={`${campo.label}…`}
+            tituloLista="Selecciona una sede"
+            iconoLista="location-city"
+            buscador
+            buscadorPlaceholder="Buscar sede…"
+            valorId={formNuevo.Sede || ''}
+            opciones={sedeOpciones}
+            triggerStyle={inputStyle}
+            triggerTextStyle={styles.formInputText}
+            onSeleccionar={(id) => setFormNuevo((prev) => ({ ...prev, Sede: id }))}
+          />
+        </View>
+      );
+    }
+
+    if (key === 'Imagen') {
+      return (
+        <View key={key} style={wrapStyle}>
+          <Text style={styles.formLabel}>{campo.label}</Text>
+          <TouchableOpacity
+            style={styles.imagenButton}
+            onPress={seleccionarFoto}
+            disabled={imagenLoading}
+            activeOpacity={0.7}
+          >
+            {imagenLoading ? (
+              <ActivityIndicator size="small" color="#0ea5e9" />
+            ) : (
+              <>
+                <MaterialIcons name="add-photo-alternate" size={22} color="#0ea5e9" />
+                <Text style={styles.imagenButtonText}>Seleccionar foto</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          {formNuevo.Imagen ? (
+            <View style={styles.imagenPreviewWrap}>
+              <Image source={{ uri: formNuevo.Imagen }} style={styles.imagenPreview as ImageStyle} resizeMode="cover" />
+              <TouchableOpacity style={styles.imagenQuitarBtn} onPress={quitarFoto} activeOpacity={0.7}>
+                <MaterialIcons name="close" size={18} color="#fff" />
+                <Text style={styles.imagenQuitarText}>Quitar</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+        </View>
+      );
+    }
+
+    if (key === 'km_desplazamiento') {
+      return (
+        <View key={key} style={wrapStyle}>
+          <Text style={styles.formLabel}>{campo.label}</Text>
+          <TextInput
+            style={inputStyle}
+            value={formNuevo.km_desplazamiento ?? ''}
+            onChangeText={(t) => setFormNuevo((prev) => ({ ...prev, km_desplazamiento: t }))}
+            placeholder="Ej. 12,5"
+            placeholderTextColor="#94a3b8"
+            keyboardType="decimal-pad"
+          />
+          <Text style={styles.direccionHint}>
+            Kilómetros de ida desde la sede central hasta este local. Se usan para valorar el desplazamiento del técnico en Mantenimiento.
+          </Text>
+        </View>
+      );
+    }
+
+    if (key === 'Cp') {
+      return (
+        <View key={key} style={wrapStyle}>
+          <Text style={styles.formLabel}>{campo.label}</Text>
+          <TextInput
+            style={inputStyle}
+            value={formNuevo.Cp ?? ''}
+            onChangeText={handleCpChange}
+            onBlur={handleCpBlur}
+            placeholder={`${campo.label}…`}
+            placeholderTextColor="#94a3b8"
+            autoCapitalize="words"
+          />
+        </View>
+      );
+    }
+
+    return (
+      <View key={key} style={wrapStyle}>
+        <Text style={styles.formLabel}>{campo.label}</Text>
+        <TextInput
+          style={inputStyle}
+          value={formNuevo[campo.key] ?? ''}
+          onChangeText={(t) => setFormNuevo((prev) => ({ ...prev, [campo.key]: t }))}
+          placeholder={`${campo.label}…`}
+          placeholderTextColor="#94a3b8"
+          autoCapitalize="words"
+        />
+      </View>
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -729,49 +1086,65 @@ export default function LocalesScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={[styles.backBtn, isPhone && styles.backBtnPhone]}
+          accessibilityLabel="Volver"
+        >
           <MaterialIcons name="arrow-back" size={22} color="#334155" />
         </TouchableOpacity>
         <Text style={styles.title}>Locales</Text>
       </View>
 
-      <View style={styles.toolbarRow}>
+      <View style={[styles.toolbarRow, shouldStackToolbar && styles.toolbarRowStacked]}>
         <View style={styles.toolbar}>
-          {toolbarBtns.map((btn) => (
-            <View
-              key={btn.id}
-              style={styles.toolbarBtnWrap}
-              {...(Platform.OS === 'web'
-                ? ({
-                    onMouseEnter: () => setHoveredBtn(btn.id),
-                    onMouseLeave: () => setHoveredBtn(null),
-                  } as object)
-                : {})}
-            >
-              {hoveredBtn === btn.id && (
-                <View style={styles.tooltip}>
-                  <Text style={styles.tooltipText}>{btn.label}</Text>
-                </View>
-              )}
-              <TouchableOpacity
-                style={[
-                  styles.toolbarBtn,
-                  (btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null && styles.toolbarBtnDisabled,
-                ]}
-                onPress={() => {
-                  if (btn.id === 'crear') abrirModalNuevo();
-                  if (btn.id === 'editar' && selectedRowIndex != null) abrirModalEditar(localesFiltrados[selectedRowIndex]);
-                  if (btn.id === 'borrar' && selectedRowIndex != null) borrarSeleccionado();
-                }}
-                disabled={guardando || ((btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null)}
-                accessibilityLabel={btn.label}
+          <TouchableOpacity
+            style={[styles.btnCrear, isPhone && styles.btnCrearPhone]}
+            onPress={abrirModalNuevo}
+            disabled={guardando}
+            accessibilityLabel="Nuevo local"
+          >
+            <MaterialIcons name={ICONS.add} size={18} color="#ffffff" />
+            <Text style={styles.btnCrearText}>Nuevo local</Text>
+          </TouchableOpacity>
+          {toolbarSecundarios.map((btn) => {
+            const disabled = guardando || selectedRowIndex == null;
+            return (
+              <View
+                key={btn.id}
+                style={styles.toolbarBtnWrap}
+                {...(Platform.OS === 'web'
+                  ? ({
+                      onMouseEnter: () => setHoveredBtn(btn.id),
+                      onMouseLeave: () => setHoveredBtn(null),
+                    } as object)
+                  : {})}
               >
-                <MaterialIcons name={btn.icon} size={ICON_SIZE} color={guardando || ((btn.id === 'editar' || btn.id === 'borrar') && selectedRowIndex == null) ? '#94a3b8' : '#0ea5e9'} />
-              </TouchableOpacity>
-            </View>
-          ))}
+                {hoveredBtn === btn.id ? (
+                  <View style={styles.tooltip}>
+                    <Text style={styles.tooltipText}>{btn.label}</Text>
+                  </View>
+                ) : null}
+                <TouchableOpacity
+                  style={[
+                    styles.toolbarBtn,
+                    disabled && styles.toolbarBtnDisabled,
+                    isPhone && styles.toolbarBtnPhone,
+                  ]}
+                  onPress={() => {
+                    if (btn.id === 'editar' && selectedRowIndex != null) abrirModalEditar(localesFiltrados[selectedRowIndex]);
+                    if (btn.id === 'borrar' && selectedRowIndex != null) borrarSeleccionado();
+                  }}
+                  disabled={disabled}
+                  accessibilityLabel={btn.label}
+                >
+                  <MaterialIcons name={btn.icon} size={ICON_SIZE} color={disabled ? '#94a3b8' : '#64748b'} />
+                </TouchableOpacity>
+              </View>
+            );
+          })}
         </View>
-        <View style={styles.searchWrap}>
+        <View style={[styles.searchWrap, shouldStackToolbar && styles.searchWrapStacked]}>
           <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
@@ -808,7 +1181,7 @@ export default function LocalesScreen() {
               {columnas.map((col) => (
                 <View key={col} style={[styles.cellHeader, { width: getColWidth(col) }]}>
                   <Text style={styles.cellHeaderText} numberOfLines={1} ellipsizeMode="tail">
-                    {col === COL_THUMBNAIL ? 'Foto' : col}
+                    {labelColumna(col)}
                   </Text>
                   {Platform.OS === 'web' && col !== COL_THUMBNAIL && (
                     <View
@@ -849,14 +1222,9 @@ export default function LocalesScreen() {
                 }
                 const raw = valorCelda(local, col);
                 const text = raw.length > MAX_TEXT_LENGTH ? truncar(raw) : raw;
-                const isAgoraCode = col === 'AgoraCode';
                 return (
                   <View key={col} style={[styles.cell, { width: getColWidth(col) }]}>
-                    <Text
-                      style={[styles.cellText, isAgoraCode && { fontSize: 13, fontWeight: '700' }]}
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
-                    >
+                    <Text style={styles.cellText} numberOfLines={1} ellipsizeMode="tail">
                       {text}
                     </Text>
                   </View>
@@ -870,292 +1238,80 @@ export default function LocalesScreen() {
 
       <Modal visible={modalNuevoVisible} transparent animationType="fade" onRequestClose={cerrarModalNuevo}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => {}}>
-          <KeyboardAvoidingView style={styles.modalContentWrap} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalCardTouch}>
+          <KeyboardAvoidingView
+            style={[
+              styles.modalWrap,
+              formDosColumnas ? (isDesktop ? styles.modalWrapDesktop : styles.modalWrapTablet) : styles.modalWrapPhone,
+              modalCasiFull && styles.modalWrapFull,
+            ]}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <TouchableOpacity activeOpacity={1} onPress={() => {}} style={[styles.modalCardHost, modalCasiFull && styles.modalCardHostFull]}>
               <View style={styles.modalCard}>
                 <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>{editingLocalId != null ? 'Editar registro' : 'Nuevo registro'}</Text>
+                  <View style={styles.modalHeaderLeft}>
+                    <Text style={styles.modalTitle} numberOfLines={1}>
+                      {editingLocalId != null ? 'Editar local' : 'Nuevo local'}
+                    </Text>
+                    <Text style={styles.modalIdChip} numberOfLines={1}>
+                      ID {formatId6(editingLocalId ?? próximoId)}
+                    </Text>
+                  </View>
                   <TouchableOpacity onPress={cerrarModalNuevo} style={styles.modalClose}>
                     <MaterialIcons name="close" size={22} color="#64748b" />
                   </TouchableOpacity>
                 </View>
-                <View style={styles.modalBodyRow}>
-                  <View style={styles.modalIdSide}>
-                    <Text style={styles.modalIdLabel}>ID</Text>
-                    <Text style={styles.modalIdValue}>{formatId6(editingLocalId ?? próximoId)}</Text>
+                <ScrollView
+                  style={styles.modalBody}
+                  contentContainerStyle={styles.modalBodyContent}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <View style={formDosColumnas ? styles.formRow2 : styles.formCol1}>
+                    {renderCampo('Nombre')}
+                    {renderCampo('AgoraCode')}
                   </View>
-                  <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
-                    {CAMPOS_FORM.map((campo) =>
-                      campo.key === 'Direccion' ? (
-                        <View key={campo.key} style={styles.formGroup}>
-                          <Text style={styles.formLabel}>{campo.label}</Text>
-                          <View style={styles.direccionInputRow}>
-                            <TextInput
-                              style={[styles.formInput, { flex: 1 }]}
-                              value={formNuevo.Direccion ?? ''}
-                              onChangeText={onDireccionChange}
-                              onBlur={() => setTimeout(() => setDireccionDropdownOpen(false), 200)}
-                              placeholder="Escribe y elige una dirección…"
-                              placeholderTextColor="#94a3b8"
-                              autoCapitalize="words"
-                            />
-                            {formNuevo.Direccion ? (
-                              <TouchableOpacity
-                                style={styles.direccionVaciarBtn}
-                                onPress={() => setFormNuevo((prev) => ({ ...prev, Direccion: '', lat: '', lng: '' }))}
-                                activeOpacity={0.7}
-                              >
-                                <MaterialIcons name="clear" size={18} color="#64748b" />
-                              </TouchableOpacity>
-                            ) : null}
-                          </View>
-                          {direccionLoading && (
-                            <View style={styles.direccionLoadingWrap}>
-                              <ActivityIndicator size="small" color="#0ea5e9" />
-                              <Text style={styles.direccionLoadingText}>Buscando…</Text>
-                            </View>
-                          )}
-                          {direccionDropdownOpen && direccionSuggestions.length > 0 && (
-                            <View style={styles.direccionDropdown}>
-                              <ScrollView style={styles.direccionDropdownScroll} keyboardShouldPersistTaps="handled">
-                                {[...direccionSuggestions].sort((a, b) => (a.description || '').localeCompare(b.description || '')).map((p, idx) => (
-                                  <TouchableOpacity
-                                    key={p.place_id || idx}
-                                    style={styles.direccionOption}
-                                    onPress={() => onDireccionSelect(p)}
-                                    activeOpacity={0.7}
-                                  >
-                                    <MaterialIcons name="place" size={16} color="#64748b" style={styles.direccionOptionIcon} />
-                                    <Text style={styles.direccionOptionText} numberOfLines={2}>
-                                      {p.description}
-                                    </Text>
-                                  </TouchableOpacity>
-                                ))}
-                              </ScrollView>
-                            </View>
-                          )}
-                          {direccionDropdownOpen && direccionSuggestions.length === 0 && !direccionLoading && (
-                            <Text style={styles.direccionHint}>
-                              {direccionConfigOk === false
-                                ? 'No hay sugerencias en este momento. Comprueba la conexión o la configuración del servidor.'
-                                : 'No hay resultados para esta búsqueda.'}
-                            </Text>
-                          )}
-                          {direccionConfigOk === false && direccionSuggestions.length > 0 && (
-                            <Text style={styles.direccionHint}>
-                              Sugerencias con OpenStreetMap. Para usar Google Maps, configura GOOGLE_MAPS_API_KEY en api/.env.local
-                            </Text>
-                          )}
-                        </View>
-                      ) : campo.key === 'Empresa' ? (
-                        <View key={campo.key} style={styles.formGroup}>
-                          <SelectorDesplegable
-                            label={campo.label}
-                            icono="business"
-                            placeholder={`${campo.label}…`}
-                            tituloLista="Selecciona una empresa"
-                            iconoLista="business"
-                            buscador
-                            buscadorPlaceholder="Buscar empresa…"
-                            valorId={empresaIdVinculado}
-                            opciones={empresaOpciones}
-                            vacioTexto="Sin empresas"
-                            onSeleccionar={(id) => {
-                              if (id === CREAR_EMPRESA_OPCION_ID) {
-                                abrirModalCrearEmpresa();
-                                return;
-                              }
-                              const emp = empresasGrupoParipe.find((e) => normalizarIdEmpresa(e.id_empresa) === id);
-                              const nombre = (emp?.Nombre ?? '').trim();
-                              // Sin nombre el local guardaría el id de una empresa y el nombre de la anterior.
-                              if (!nombre) return;
-                              setFormNuevo((prev) => ({ ...prev, id_empresa: id, Empresa: nombre }));
-                            }}
-                          />
-                          {pistaEmpresa ? (
-                            <Text style={[styles.direccionHint, pistaEmpresa.aviso && styles.empresaHintAviso]}>
-                              {pistaEmpresa.texto}
-                            </Text>
-                          ) : null}
-                        </View>
-                      ) : campo.key === 'Almacen origen' ? (
-                        <View key={campo.key} style={styles.formGroup}>
-                          <Text style={styles.formLabel}>{campo.label}</Text>
-                          <View style={styles.almacenChipsWrap}>
-                            {parseAlmacenesOrigen(formNuevo['Almacen origen']).map((nombre) => (
-                              <View key={nombre} style={styles.almacenChip}>
-                                <Text style={styles.almacenChipText} numberOfLines={1}>{nombre}</Text>
-                                <TouchableOpacity
-                                  onPress={() => {
-                                    const arr = parseAlmacenesOrigen(formNuevo['Almacen origen']).filter((n) => n !== nombre);
-                                    setFormNuevo((prev) => ({ ...prev, 'Almacen origen': joinAlmacenesOrigen(arr) }));
-                                  }}
-                                  style={styles.almacenChipRemove}
-                                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                                >
-                                  <MaterialIcons name="close" size={14} color="#64748b" />
-                                </TouchableOpacity>
-                              </View>
-                            ))}
-                            <TouchableOpacity
-                              style={[styles.formInput, styles.formInputRow, styles.almacenAddBtn]}
-                              onPress={() => setAlmacenDropdownOpen((o) => !o)}
-                              activeOpacity={0.7}
-                            >
-                              <MaterialIcons name="add" size={18} color="#0ea5e9" style={{ marginRight: 4 }} />
-                              <Text style={[styles.formInputText, styles.almacenAddText]}>Añadir almacén</Text>
-                              <MaterialIcons name={almacenDropdownOpen ? 'expand-less' : 'expand-more'} size={18} color="#64748b" style={styles.sedeChevron} />
-                            </TouchableOpacity>
-                          </View>
-                          {almacenDropdownOpen && (
-                            <View style={styles.empresaDropdownWrap}>
-                              <TextInput
-                                style={styles.empresaDropdownSearch}
-                                value={almacenSearchFilter}
-                                onChangeText={setAlmacenSearchFilter}
-                                placeholder="Buscar almacén…"
-                                placeholderTextColor="#94a3b8"
-                              />
-                              <ScrollView style={styles.empresaDropdownScroll} keyboardShouldPersistTaps="handled">
-                                {parseAlmacenesOrigen(formNuevo['Almacen origen']).length > 0 ? (
-                                  <TouchableOpacity
-                                    style={[styles.empresaDropdownOption, styles.dropdownVaciarOption]}
-                                    onPress={() => {
-                                      setFormNuevo((prev) => ({ ...prev, 'Almacen origen': '' }));
-                                      setAlmacenDropdownOpen(false);
-                                      setAlmacenSearchFilter('');
-                                    }}
-                                    activeOpacity={0.7}
-                                  >
-                                    <MaterialIcons name="clear" size={16} color="#94a3b8" style={{ marginRight: 6 }} />
-                                    <Text style={styles.dropdownVaciarText}>Vaciar todos</Text>
-                                  </TouchableOpacity>
-                                ) : null}
-                                {almacenes.length === 0 ? (
-                                  <View style={styles.empresaDropdownOption}>
-                                    <Text style={styles.empresaDropdownOptionText}>Sin almacenes. Sincroniza desde el módulo Almacenes.</Text>
-                                  </View>
-                                ) : (() => {
-                                  const yaSeleccionados = new Set(parseAlmacenesOrigen(formNuevo['Almacen origen']));
-                                  const disponibles = almacenesFiltradosParaDropdown.filter((alm) => !yaSeleccionados.has(alm.Nombre ?? alm.Id ?? ''));
-                                  return disponibles.length === 0 ? (
-                                    <View style={styles.empresaDropdownOption}>
-                                      <Text style={styles.empresaDropdownOptionText}>Todos los almacenes ya están asignados</Text>
-                                    </View>
-                                  ) : (
-                                    disponibles.map((alm) => {
-                                      const nombre = alm.Nombre ?? alm.Id ?? '';
-                                      return (
-                                        <TouchableOpacity
-                                          key={alm.Id ?? nombre}
-                                          style={styles.empresaDropdownOption}
-                                          onPress={() => {
-                                            const arr = [...parseAlmacenesOrigen(formNuevo['Almacen origen']), nombre];
-                                            setFormNuevo((prev) => ({ ...prev, 'Almacen origen': joinAlmacenesOrigen(arr) }));
-                                          }}
-                                          activeOpacity={0.7}
-                                        >
-                                          <Text style={styles.empresaDropdownOptionText}>{nombre || '—'}</Text>
-                                        </TouchableOpacity>
-                                      );
-                                    })
-                                  );
-                                })()}
-                              </ScrollView>
-                            </View>
-                          )}
-                        </View>
-                      ) : campo.key === 'Sede' ? (
-                        <View key={campo.key} style={styles.formGroup}>
-                          <SelectorDesplegable
-                            label={campo.label}
-                            icono="location-city"
-                            placeholder={`${campo.label}…`}
-                            tituloLista="Selecciona una sede"
-                            iconoLista="location-city"
-                            buscador
-                            buscadorPlaceholder="Buscar sede…"
-                            valorId={formNuevo.Sede || ''}
-                            opciones={sedeOpciones}
-                            onSeleccionar={(id) => setFormNuevo((prev) => ({ ...prev, Sede: id }))}
-                          />
-                        </View>
-                      ) : campo.key === 'Imagen' ? (
-                        <View key={campo.key} style={styles.formGroup}>
-                          <Text style={styles.formLabel}>{campo.label}</Text>
-                          <TouchableOpacity
-                            style={styles.imagenButton}
-                            onPress={seleccionarFoto}
-                            disabled={imagenLoading}
-                            activeOpacity={0.7}
-                          >
-                            {imagenLoading ? (
-                              <ActivityIndicator size="small" color="#0ea5e9" />
-                            ) : (
-                              <>
-                                <MaterialIcons name="add-photo-alternate" size={22} color="#0ea5e9" />
-                                <Text style={styles.imagenButtonText}>Seleccionar foto</Text>
-                              </>
-                            )}
-                          </TouchableOpacity>
-                          {formNuevo.Imagen ? (
-                            <View style={styles.imagenPreviewWrap}>
-                              <Image source={{ uri: formNuevo.Imagen }} style={styles.imagenPreview as ImageStyle} resizeMode="cover" />
-                              <TouchableOpacity style={styles.imagenQuitarBtn} onPress={quitarFoto} activeOpacity={0.7}>
-                                <MaterialIcons name="close" size={18} color="#fff" />
-                                <Text style={styles.imagenQuitarText}>Quitar</Text>
-                              </TouchableOpacity>
-                            </View>
-                          ) : null}
-                        </View>
-                      ) : campo.key === 'km_desplazamiento' ? (
-                        <View key={campo.key} style={styles.formGroup}>
-                          <Text style={styles.formLabel}>{campo.label}</Text>
-                          <TextInput
-                            style={styles.formInput}
-                            value={formNuevo.km_desplazamiento ?? ''}
-                            onChangeText={(t) => setFormNuevo((prev) => ({ ...prev, km_desplazamiento: t }))}
-                            placeholder="Ej. 12,5"
-                            placeholderTextColor="#94a3b8"
-                            keyboardType="decimal-pad"
-                          />
-                          <Text style={styles.direccionHint}>
-                            Kilómetros de ida desde la sede central hasta este local. Se usan para valorar el desplazamiento del técnico en Mantenimiento.
-                          </Text>
-                        </View>
-                      ) : campo.key === 'Cp' ? (
-                        <View key={campo.key} style={styles.formGroup}>
-                          <Text style={styles.formLabel}>{campo.label}</Text>
-                          <TextInput
-                            style={styles.formInput}
-                            value={formNuevo.Cp ?? ''}
-                            onChangeText={handleCpChange}
-                            onBlur={handleCpBlur}
-                            placeholder={`${campo.label}…`}
-                            placeholderTextColor="#94a3b8"
-                            autoCapitalize="words"
-                          />
-                        </View>
-                      ) : (
-                        <View key={campo.key} style={styles.formGroup}>
-                          <Text style={styles.formLabel}>{campo.label}</Text>
-                          <TextInput
-                            style={styles.formInput}
-                            value={formNuevo[campo.key] ?? ''}
-                            onChangeText={(t) => setFormNuevo((prev) => ({ ...prev, [campo.key]: t }))}
-                            placeholder={`${campo.label}…`}
-                            placeholderTextColor="#94a3b8"
-                            autoCapitalize="words"
-                          />
-                        </View>
-                      )
-                    )}
-                  </ScrollView>
-                </View>
+                  <View style={formDosColumnas ? styles.formRow2 : styles.formCol1}>
+                    {renderCampo('Empresa')}
+                    {renderCampo('Sede')}
+                  </View>
+                  {renderCampo('Direccion', true)}
+                  <View style={formDosColumnas ? styles.formRow2 : styles.formCol1}>
+                    {renderCampo('Cp')}
+                    {renderCampo('Municipio')}
+                  </View>
+                  <View style={formDosColumnas ? styles.formRow2 : styles.formCol1}>
+                    {renderCampo('Provincia')}
+                    {renderCampo('km_desplazamiento')}
+                  </View>
+                  <View style={formDosColumnas ? styles.formRow2 : styles.formCol1}>
+                    {renderCampo('lat')}
+                    {renderCampo('lng')}
+                  </View>
+                  {renderCampo('Almacen origen', true)}
+                  <View style={formDosColumnas ? styles.formRow2 : styles.formCol1}>
+                    {renderCampo('Imagen')}
+                    {renderCampo('factorial_location_id')}
+                  </View>
+                  <View style={formDosColumnas ? styles.formRow2 : styles.formCol1}>
+                    {renderCampo('ratio_personal')}
+                    {renderCampo('ratio_musicos')}
+                  </View>
+                  <View style={formDosColumnas ? styles.formRow2 : styles.formCol1}>
+                    {renderCampo('ratio_mercaderia')}
+                    {formDosColumnas ? <View style={styles.formFieldCol} /> : null}
+                  </View>
+                </ScrollView>
                 {errorForm ? <Text style={styles.modalError}>{errorForm}</Text> : null}
                 <View style={styles.modalFooter}>
-                  <TouchableOpacity style={styles.modalFooterBtn} onPress={guardarNuevo} accessibilityLabel={editingLocalId != null ? 'Guardar' : 'Añadir'} disabled={guardando}>
-                    {guardando ? <ActivityIndicator size="small" color="#0ea5e9" /> : <MaterialIcons name={editingLocalId != null ? 'save' : ICONS.add} size={ICON_SIZE} color="#0ea5e9" />}
+                  <TouchableOpacity style={styles.modalBtnCancel} onPress={cerrarModalNuevo} disabled={guardando}>
+                    <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.modalBtnSave} onPress={guardarNuevo} disabled={guardando} accessibilityLabel="Guardar">
+                    {guardando ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <Text style={styles.modalBtnSaveText}>Guardar</Text>
+                    )}
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1164,63 +1320,71 @@ export default function LocalesScreen() {
         </TouchableOpacity>
       </Modal>
 
+
       <Modal visible={modalCrearEmpresaVisible} transparent animationType="fade" onRequestClose={cerrarModalCrearEmpresa}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => {}}>
-          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalCardTouch}>
-            <View style={[styles.modalCard, { maxWidth: 360 }]}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Crear nueva empresa</Text>
-                <TouchableOpacity onPress={cerrarModalCrearEmpresa} style={styles.modalClose}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
-                </TouchableOpacity>
-              </View>
-              <View style={[styles.modalBody, { maxHeight: 200 }]}>
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Nombre *</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    value={formCrearEmpresa.Nombre}
-                    onChangeText={(t) => setFormCrearEmpresa((prev) => ({ ...prev, Nombre: t }))}
-                    placeholder="Nombre de la empresa"
-                    placeholderTextColor="#94a3b8"
-                    autoCapitalize="words"
-                  />
+          <KeyboardAvoidingView
+            style={[
+              styles.modalWrap,
+              formDosColumnas ? styles.modalWrapEmpresa : styles.modalWrapPhone,
+            ]}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.modalCardHostEmpresa}>
+              <View style={styles.modalCardEmpresa}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Crear nueva empresa</Text>
+                  <TouchableOpacity onPress={cerrarModalCrearEmpresa} style={styles.modalClose}>
+                    <MaterialIcons name="close" size={22} color="#64748b" />
+                  </TouchableOpacity>
                 </View>
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>CIF *</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    value={formCrearEmpresa.Cif}
-                    onChangeText={(t) => setFormCrearEmpresa((prev) => ({ ...prev, Cif: t }))}
-                    placeholder="CIF"
-                    placeholderTextColor="#94a3b8"
-                    autoCapitalize="characters"
-                  />
+                <View style={styles.modalBodyEmpresa}>
+                  <View style={formDosColumnas ? styles.formRow2 : styles.formCol1}>
+                    <View style={[styles.formGroup, formDosColumnas && styles.formFieldCol]}>
+                      <Text style={styles.formLabel}>Nombre *</Text>
+                      <TextInput
+                        style={inputStyle}
+                        value={formCrearEmpresa.Nombre}
+                        onChangeText={(t) => setFormCrearEmpresa((prev) => ({ ...prev, Nombre: t }))}
+                        placeholder="Nombre de la empresa"
+                        placeholderTextColor="#94a3b8"
+                        autoCapitalize="words"
+                      />
+                    </View>
+                    <View style={[styles.formGroup, formDosColumnas && styles.formFieldCol]}>
+                      <Text style={styles.formLabel}>CIF *</Text>
+                      <TextInput
+                        style={inputStyle}
+                        value={formCrearEmpresa.Cif}
+                        onChangeText={(t) => setFormCrearEmpresa((prev) => ({ ...prev, Cif: t }))}
+                        placeholder="CIF"
+                        placeholderTextColor="#94a3b8"
+                        autoCapitalize="characters"
+                      />
+                    </View>
+                  </View>
                 </View>
                 {errorCrearEmpresa ? <Text style={styles.modalError}>{errorCrearEmpresa}</Text> : null}
+                <View style={styles.modalFooter}>
+                  <TouchableOpacity style={styles.modalBtnCancel} onPress={cerrarModalCrearEmpresa} activeOpacity={0.7}>
+                    <Text style={styles.modalBtnCancelText}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.modalBtnSave}
+                    onPress={guardarCrearEmpresa}
+                    disabled={guardandoCrearEmpresa}
+                    activeOpacity={0.7}
+                  >
+                    {guardandoCrearEmpresa ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <Text style={styles.modalBtnSaveText}>Crear</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
               </View>
-              <View style={styles.modalFooter}>
-                <TouchableOpacity style={styles.modalFooterBtn} onPress={cerrarModalCrearEmpresa} activeOpacity={0.7}>
-                  <Text style={{ color: '#64748b', fontSize: 14 }}>Cancelar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.modalFooterBtn, { flexDirection: 'row', alignItems: 'center' }]}
-                  onPress={guardarCrearEmpresa}
-                  disabled={guardandoCrearEmpresa}
-                  activeOpacity={0.7}
-                >
-                  {guardandoCrearEmpresa ? (
-                    <ActivityIndicator size="small" color="#0ea5e9" />
-                  ) : (
-                    <>
-                      <MaterialIcons name="add" size={ICON_SIZE} color="#0ea5e9" />
-                      <Text style={{ color: '#0ea5e9', fontSize: 14, marginLeft: 6 }}>Crear</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </KeyboardAvoidingView>
         </TouchableOpacity>
       </Modal>
     </View>
@@ -1228,32 +1392,111 @@ export default function LocalesScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
+  container: { flex: 1, padding: 12, backgroundColor: '#f8fafc' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10, backgroundColor: '#f8fafc' },
   loadingText: { fontSize: 12, color: '#64748b' },
   errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8 },
-  backBtn: { padding: 4 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12 },
+  backBtn: {
+    width: 36,
+    height: 36,
+    padding: 0,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#eef1f5',
+  },
+  backBtnPhone: {
+    width: MIN_TOUCH,
+    height: MIN_TOUCH,
+    minWidth: MIN_TOUCH,
+    minHeight: MIN_TOUCH,
+  },
+  title: { fontSize: 20, fontWeight: '600', lineHeight: 26, color: '#0f172a' },
+  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12, flexWrap: 'wrap' },
+  toolbarRowStacked: { flexDirection: 'column', alignItems: 'stretch' },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  searchWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 140, maxWidth: 280, height: 32, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 8 },
+  btnCrear: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#0ea5e9',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  btnCrearPhone: { minHeight: MIN_TOUCH },
+  btnCrearText: { fontSize: 12, fontWeight: '600', color: '#ffffff' },
+  searchWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 140,
+    maxWidth: 280,
+    height: 32,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+  },
+  searchWrapStacked: { maxWidth: '100%', width: '100%', flexGrow: 1 },
   searchIcon: { marginRight: 6 },
-  searchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
+  searchInput: { flex: 1, fontSize: 12, fontWeight: '400', color: '#0f172a', paddingVertical: 0 },
   toolbarBtnWrap: { position: 'relative' },
-  tooltip: { position: 'absolute', bottom: '100%', alignSelf: 'center', marginBottom: 4, backgroundColor: '#334155', paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4, zIndex: 10 },
+  tooltip: {
+    position: 'absolute',
+    bottom: '100%',
+    alignSelf: 'center',
+    marginBottom: 4,
+    backgroundColor: '#334155',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    zIndex: 10,
+  },
   tooltipText: { fontSize: 9, color: '#f8fafc', fontWeight: '400' },
-  toolbarBtn: { padding: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
+  toolbarBtn: {
+    padding: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+  },
+  toolbarBtnPhone: { minHeight: MIN_TOUCH, minWidth: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
   toolbarBtnDisabled: { opacity: 0.6 },
   subtitle: { fontSize: 12, color: '#64748b', marginBottom: 8 },
   scroll: { flex: 1 },
   scrollContentVertical: { paddingBottom: 20 },
   scrollContentHorizontal: { paddingBottom: 20 },
   scrollVertical: { flex: 1 },
-  tableWrapper: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff' },
-  rowHeader: { flexDirection: 'row', backgroundColor: '#e2e8f0', borderBottomWidth: 1, borderBottomColor: '#cbd5e1' },
-  cellHeader: { minWidth: MIN_COL_WIDTH, paddingVertical: 6, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#cbd5e1', position: 'relative' },
-  cellHeaderText: { fontSize: 11, fontWeight: '600', color: '#334155' },
+  tableWrapper: { borderWidth: 1, borderColor: '#eef1f5', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff' },
+  rowHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#f8fafc',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef1f5',
+    borderLeftWidth: 2,
+    borderLeftColor: 'transparent',
+  },
+  cellHeader: {
+    minWidth: MIN_COL_WIDTH,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRightWidth: 1,
+    borderRightColor: '#eef1f5',
+    position: 'relative',
+  },
+  cellHeaderText: {
+    fontSize: 11,
+    fontWeight: '400',
+    lineHeight: 14,
+    letterSpacing: 0.1,
+    color: '#94a3b8',
+    textTransform: 'none',
+  },
   resizeHandle: {
     position: 'absolute',
     top: 0,
@@ -1262,49 +1505,146 @@ const styles = StyleSheet.create({
     height: '100%',
     cursor: 'col-resize' as 'pointer',
   },
-  row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#fff' },
-  rowSelected: { backgroundColor: '#e0f2fe' },
-  cell: { minWidth: MIN_COL_WIDTH, paddingVertical: 4, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#e2e8f0', alignItems: 'center', justifyContent: 'center' },
-  cellText: { fontSize: 11, color: '#475569', textAlign: 'center', alignSelf: 'stretch' },
+  row: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef1f5',
+    backgroundColor: '#fff',
+    borderLeftWidth: 2,
+    borderLeftColor: 'transparent',
+  },
+  rowSelected: {
+    backgroundColor: '#e0f2fe',
+    borderLeftWidth: 2,
+    borderLeftColor: '#0ea5e9',
+  },
+  cell: {
+    minWidth: MIN_COL_WIDTH,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRightWidth: 1,
+    borderRightColor: '#eef1f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cellText: { fontSize: 12, fontWeight: '400', lineHeight: 16, color: '#475569', textAlign: 'center', alignSelf: 'stretch' },
   cellThumbnail: { alignItems: 'center', justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 10 },
   thumbnailImg: { width: 56, height: 56, borderRadius: 6, backgroundColor: '#e2e8f0' },
   thumbnailPlaceholder: { width: 56, height: 56, borderRadius: 6, backgroundColor: '#e2e8f0', alignItems: 'center', justifyContent: 'center' },
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
-  modalContentWrap: { width: '100%', maxWidth: 420, padding: 24, alignItems: 'center' },
-  modalCardTouch: { width: '100%' },
-  modalCard: { width: '100%', backgroundColor: 'rgba(255, 255, 255, 0.9)', borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: '#334155' },
+  modalWrap: { flex: 1, maxHeight: '100%', justifyContent: 'center' },
+  modalWrapDesktop: { maxWidth: 720, width: '100%', padding: 24 },
+  modalWrapTablet: { maxWidth: 640, width: '100%', padding: 20 },
+  modalWrapPhone: { maxWidth: '100%', width: '100%', padding: 12 },
+  modalWrapFull: { maxWidth: '100%', paddingHorizontal: 12 },
+  modalWrapEmpresa: { maxWidth: 520, width: '100%', padding: 20 },
+  modalCardHost: { width: '100%', height: '88%', maxHeight: '88%' },
+  modalCardHostFull: { height: '92%', maxHeight: '92%' },
+  modalCardHostEmpresa: { width: '100%' },
+  modalCard: {
+    width: '100%',
+    flex: 1,
+    minHeight: 0,
+    maxHeight: '100%',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 12,
+    overflow: 'hidden',
+  },
+  modalCardEmpresa: {
+    width: '100%',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 12,
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    flexShrink: 0,
+  },
+  modalHeaderLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
+  modalTitle: { fontSize: 16, fontWeight: '600', color: '#0f172a', flexShrink: 1, minWidth: 0 },
+  modalIdChip: { fontSize: 11, fontWeight: '400', color: '#94a3b8', flexShrink: 0 },
   modalClose: { padding: 4 },
-  modalBodyRow: { flexDirection: 'row' },
-  modalIdSide: { width: 56, paddingVertical: 12, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#e2e8f0', alignItems: 'center', justifyContent: 'flex-start' },
-  modalIdLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', marginBottom: 2 },
-  modalIdValue: { fontSize: 14, fontWeight: '600', color: '#334155' },
-  modalBody: { flex: 1, maxHeight: 400, paddingHorizontal: 16, paddingVertical: 12 },
-  formGroup: { marginBottom: 8 },
-  formLabel: { fontSize: 10, fontWeight: '500', color: '#475569', marginBottom: 2 },
-  formInput: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, fontSize: 13, color: '#334155' },
+  modalBody: { flex: 1, minHeight: 0, paddingHorizontal: 16, paddingVertical: 12 },
+  modalBodyContent: { paddingBottom: 4 },
+  modalBodyEmpresa: { paddingHorizontal: 16, paddingVertical: 12 },
+  formRow2: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  formCol1: { flexDirection: 'column' },
+  formFieldCol: { flex: 1, minWidth: 0 },
+  formFieldFull: { width: '100%' },
+  formGroup: { marginBottom: 10 },
+  formLabel: { fontSize: 11, fontWeight: '400', color: '#64748b', marginBottom: 4 },
+  formInput: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#334155',
+    minHeight: 36,
+  },
+  formInputPhone: { minHeight: MIN_TOUCH },
   formInputRow: { flexDirection: 'row', alignItems: 'center' },
-  formInputText: { fontSize: 13, color: '#334155', flex: 1 },
+  formInputText: { fontSize: 12, fontWeight: '400', color: '#0f172a', flex: 1 },
   formInputPlaceholder: { color: '#94a3b8' },
   sedeChevron: { marginLeft: 4 },
   sedeDropdown: { marginTop: 4, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', maxHeight: 120 },
   sedeOption: { paddingVertical: 8, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
   sedeOptionText: { fontSize: 13, color: '#334155' },
-  empresaDropdownWrap: { marginTop: 4, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', maxHeight: 200 },
+  empresaDropdownWrap: {
+    marginTop: 4,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    overflow: 'hidden',
+    maxHeight: 200,
+    zIndex: 31,
+    ...(Platform.OS === 'web' ? ({ boxShadow: '0 8px 24px rgba(0,0,0,0.12)' } as object) : { elevation: 16 }),
+  },
   empresaDropdownSearch: { paddingVertical: 6, paddingHorizontal: 8, fontSize: 11, color: '#334155', backgroundColor: '#f8fafc', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   empresaDropdownScroll: { maxHeight: 150 },
   empresaDropdownOption: { paddingVertical: 5, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
   empresaDropdownOptionText: { fontSize: 11, color: '#334155' },
   dropdownVaciarOption: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderBottomColor: '#e2e8f0' },
   dropdownVaciarText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
+  dropdownAnchor: { position: 'relative', zIndex: 1, overflow: 'visible' },
+  dropdownAnchorOnTop: { zIndex: 30, ...(Platform.OS !== 'web' ? { elevation: 12 } : {}) },
   direccionInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   direccionVaciarBtn: { padding: 6, backgroundColor: '#f1f5f9', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
   direccionLoadingWrap: { marginTop: 4, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 8 },
   direccionLoadingText: { fontSize: 12, color: '#64748b' },
   direccionHint: { marginTop: 4, fontSize: 11, color: '#64748b' },
   empresaHintAviso: { color: '#d97706' },
-  direccionDropdown: { marginTop: 4, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, maxHeight: 200, overflow: 'hidden' },
+  direccionDropdown: {
+    marginTop: 4,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    maxHeight: 200,
+    overflow: 'hidden',
+    zIndex: 31,
+    ...(Platform.OS === 'web' ? ({ boxShadow: '0 8px 24px rgba(0,0,0,0.12)' } as object) : { elevation: 16 }),
+  },
   direccionDropdownScroll: { maxHeight: 150 },
   direccionOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
   direccionOptionIcon: { marginRight: 8 },
@@ -1321,7 +1661,26 @@ const styles = StyleSheet.create({
   imagenPreview: { width: 120, height: 120, borderRadius: 8, backgroundColor: '#e2e8f0' },
   imagenQuitarBtn: { position: 'absolute', top: 4, right: 4, flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 6 },
   imagenQuitarText: { fontSize: 11, color: '#fff', fontWeight: '500' },
-  modalError: { fontSize: 11, color: '#f87171', paddingHorizontal: 20, paddingVertical: 4 },
-  modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: 6, paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
-  modalFooterBtn: { padding: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
+  modalError: { fontSize: 12, fontWeight: '400', color: '#f87171', paddingHorizontal: 16, paddingVertical: 4, flexShrink: 0 },
+  modalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+    flexShrink: 0,
+  },
+  modalBtnCancel: { paddingVertical: 10, paddingHorizontal: 16 },
+  modalBtnCancelText: { fontSize: 14, color: '#64748b' },
+  modalBtnSave: {
+    backgroundColor: '#0ea5e9',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    minWidth: 100,
+    alignItems: 'center',
+  },
+  modalBtnSaveText: { fontSize: 14, fontWeight: '600', color: '#ffffff' },
 });

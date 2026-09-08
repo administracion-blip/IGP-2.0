@@ -4,13 +4,12 @@ import {
   Text,
   StyleSheet,
   ActivityIndicator,
-  Platform,
   ScrollView,
   TouchableOpacity,
-  useWindowDimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
+import { useBreakpoint } from '../hooks/useBreakpoint';
 import { apiFetch } from '../utils/api';
 
 type TotalByLocal = { local: string; total: number; workplaceId: string };
@@ -57,8 +56,9 @@ function VariacionBadge({ pct }: { pct: number | null }) {
 
 /** Facturación YTD por local con variación vs mismo periodo del año anterior. */
 export function FacturacionYtdWidget() {
-  const { width: windowWidth } = useWindowDimensions();
+  const { isDesktop, hubGridColumns } = useBreakpoint();
   const { localPermitido } = useAuth();
+  const gridCols = isDesktop ? 3 : hubGridColumns;
   const [ytdTotals, setYtdTotals] = useState<TotalByLocal[]>([]);
   const [ytdLastYearTotals, setYtdLastYearTotals] = useState<TotalByLocal[]>([]);
   const [ytdMonthly, setYtdMonthly] = useState<MonthTotal[]>([]);
@@ -184,7 +184,7 @@ export function FacturacionYtdWidget() {
           <View
             style={[
               styles.ytdGrid,
-              windowWidth >= 1024 ? styles.ytdGrid3 : windowWidth >= 640 ? styles.ytdGrid2 : styles.ytdGrid1,
+              gridCols === 3 ? styles.ytdGrid3 : gridCols === 2 ? styles.ytdGrid2 : styles.ytdGrid1,
             ]}
           >
             {localesConComparacion.length === 0 ? (
@@ -197,11 +197,7 @@ export function FacturacionYtdWidget() {
                     key={item.workplaceId || idx}
                     style={[
                       styles.ytdCard,
-                      windowWidth >= 1024
-                        ? styles.ytdCard3
-                        : windowWidth >= 640
-                          ? styles.ytdCard2
-                          : styles.ytdCard1,
+                      gridCols === 3 ? styles.ytdCard3 : gridCols === 2 ? styles.ytdCard2 : styles.ytdCard1,
                     ]}
                   >
                     <Text style={styles.ytdCardLocal} numberOfLines={1}>
@@ -246,9 +242,7 @@ export function FacturacionYtdWidget() {
   );
 }
 
-const mono = Platform.OS === 'web'
-  ? ({ fontFamily: '"Courier New", Courier, monospace' } as object)
-  : { fontFamily: 'monospace' };
+const tabular = { fontVariant: ['tabular-nums'] } as const;
 
 const styles = StyleSheet.create({
   variacionBadge: {
@@ -260,27 +254,23 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   variacionIcon: { marginRight: 2 },
-  variacionText: { fontSize: 12, fontWeight: '700' },
+  variacionText: { fontSize: 12, fontWeight: '500' },
   ytdWidget: {
     backgroundColor: '#ffffff',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#eef1f5',
     padding: 14,
     marginBottom: 16,
     alignSelf: 'stretch',
     overflow: 'hidden',
-    ...(Platform.OS === 'web' && { boxShadow: '0 1px 4px rgba(15,23,42,0.06)' } as object),
   },
   ytdTitle: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '500',
     color: '#64748b',
     flex: 1,
     textAlign: 'center',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    ...mono,
   },
   ytdLoader: { marginVertical: 12 },
   ytdGeneralRow: {
@@ -290,21 +280,21 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginBottom: 4,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: '#eef1f5',
   },
-  ytdGeneralLabel: { fontSize: 14, fontWeight: '600', color: '#64748b' },
+  ytdGeneralLabel: { fontSize: 11, fontWeight: '400', color: '#64748b' },
   ytdGeneralRight: { flexDirection: 'row', alignItems: 'center' },
   ytdGeneralTotal: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '400',
     color: '#334155',
-    ...mono,
+    ...tabular,
   },
   ytdComparacionLabel: {
     fontSize: 11,
+    fontWeight: '400',
     color: '#94a3b8',
     marginBottom: 8,
-    fontStyle: 'italic',
   },
   ytdGrid: {
     flexDirection: 'row',
@@ -317,7 +307,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#eef1f5',
     padding: 10,
   },
   ytdCard1: { width: '100%' },
@@ -326,10 +316,8 @@ const styles = StyleSheet.create({
   ytdCardLocal: {
     fontSize: 12,
     color: '#334155',
-    fontWeight: '700',
+    fontWeight: '500',
     marginBottom: 4,
-    ...mono,
-    letterSpacing: 0.6,
   },
   ytdCardRow: {
     flexDirection: 'row',
@@ -338,14 +326,14 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   ytdCardTotal: {
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '400',
     color: '#0f172a',
-    ...mono,
-    letterSpacing: 0.8,
+    ...tabular,
   },
   ytdCardLastYear: {
-    fontSize: 10,
+    fontSize: 11,
+    fontWeight: '400',
     color: '#94a3b8',
   },
   ytdError: {
@@ -359,12 +347,10 @@ const styles = StyleSheet.create({
   },
   ytdMonthlyTitle: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '500',
     color: '#64748b',
     marginTop: 14,
     marginBottom: 8,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   ytdMonthlyScroll: {
     marginHorizontal: -14,
@@ -378,28 +364,28 @@ const styles = StyleSheet.create({
   },
   ytdMonthCard: {
     backgroundColor: '#f8fafc',
-    borderRadius: 6,
+    borderRadius: 8,
     padding: 10,
     minWidth: 88,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#eef1f5',
     alignItems: 'center',
     gap: 4,
   },
   ytdMonthLabel: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '400',
     color: '#64748b',
-    textTransform: 'uppercase',
   },
   ytdMonthTotal: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '400',
     color: '#334155',
-    ...mono,
+    ...tabular,
   },
   ytdMonthLastYear: {
-    fontSize: 9,
+    fontSize: 11,
+    fontWeight: '400',
     color: '#94a3b8',
     marginTop: 2,
     textAlign: 'center',

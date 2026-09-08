@@ -7,8 +7,12 @@ import { SoftPulseBorderWrap } from './SoftPulseBorderWrap';
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
 
 const FAV_PINK = '#f9a8d4';
-/** Texto e iconos de módulos del sidebar (no Favoritos). */
+/** Texto de módulos inactivos. */
 const MODULO_NAV_COLOR = '#0f172a';
+const MODULO_ICON_IDLE = '#94a3b8';
+const MODULO_ACTIVE_BG = '#e0f2fe';
+const MODULO_ACTIVE_FG = '#0369a1';
+const MODULO_HOVER_BG = '#f8fafc';
 
 type Props = {
   label: string;
@@ -22,7 +26,7 @@ type Props = {
 };
 
 /**
- * Ítem de navegación lateral. Iconos slate; activo con fondo sutil (no azul).
+ * Ítem de navegación lateral. Módulos: activo sky; Favoritos: rosa + SoftPulse.
  */
 export function SidebarNavItem({
   label,
@@ -33,7 +37,11 @@ export function SidebarNavItem({
   accessibilityLabel,
   accentFavoritos = false,
 }: Props) {
-  const iconColor = accentFavoritos ? FAV_PINK : MODULO_NAV_COLOR;
+  const iconColor = accentFavoritos
+    ? FAV_PINK
+    : active
+      ? MODULO_ACTIVE_FG
+      : MODULO_ICON_IDLE;
   const textWeight = accentFavoritos ? (active ? '600' : typography.nav.fontWeight) : '400';
 
   const resolvedIcon = accentFavoritos ? 'star' : icon;
@@ -44,13 +52,12 @@ export function SidebarNavItem({
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
-      style={({ pressed }) => [
+      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [
         styles.item,
         collapsed && styles.itemCollapsed,
-        active && styles.itemActive,
+        !accentFavoritos && active && styles.itemActive,
         accentFavoritos && styles.itemFavoritos,
-        pressed && !active && styles.itemPressed,
-        pressed && active && styles.itemActivePressed,
+        !accentFavoritos && !active && (pressed || hovered) && styles.itemHover,
       ]}
     >
       <View style={[styles.iconWrap, collapsed && styles.iconWrapCollapsed]}>
@@ -61,9 +68,8 @@ export function SidebarNavItem({
           style={[
             styles.label,
             !accentFavoritos && styles.labelModulo,
+            !accentFavoritos && active && styles.labelActiveModulo,
             accentFavoritos && { fontWeight: textWeight },
-            !accentFavoritos && { fontWeight: '400' },
-            accentFavoritos && active && styles.labelActive,
             accentFavoritos && styles.labelFavoritos,
           ]}
           numberOfLines={1}
@@ -105,13 +111,10 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   itemActive: {
-    backgroundColor: colors.navActive,
+    backgroundColor: MODULO_ACTIVE_BG,
   },
-  itemPressed: {
-    backgroundColor: colors.navPressed,
-  },
-  itemActivePressed: {
-    backgroundColor: colors.border,
+  itemHover: {
+    backgroundColor: MODULO_HOVER_BG,
   },
   iconWrap: {
     width: 28,
@@ -132,8 +135,9 @@ const styles = StyleSheet.create({
     color: MODULO_NAV_COLOR,
     fontWeight: '400',
   },
-  labelActive: {
-    color: colors.textPrimary,
+  labelActiveModulo: {
+    color: MODULO_ACTIVE_FG,
+    fontWeight: '500',
   },
   labelFavoritos: {
     color: '#be185d',

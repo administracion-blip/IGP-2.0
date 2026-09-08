@@ -69,6 +69,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalToast, detectToastType } from '../../components/Toast';
 import { MIN_TOUCH } from '../../constants/layout';
+import { tasksColor, tasksRadius } from '../../constants/tasksUiTokens';
 import { useConfirmar } from '../../hooks/useConfirmar';
 import { apiFetch, errorMessage } from '../../utils/api';
 import { resolverIbanBeneficiarioFactura } from '../../lib/resolverIbanFactura';
@@ -1105,7 +1106,7 @@ export default function FacturaDetalleScreen() {
       {/* ── HEADER ── */}
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.push(backPath as any)} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={20} color="#334155" />
+          <MaterialIcons name="arrow-back" size={20} color={tasksColor.textoSecundario} />
         </TouchableOpacity>
         <View style={styles.headerTitleWrap}>
           <Text style={styles.title}>{titulo}</Text>
@@ -1120,7 +1121,7 @@ export default function FacturaDetalleScreen() {
 
       {tipo === 'IN' && modo === 'editar' && remesaActiva ? (
         <View style={styles.remesaActivaBanner}>
-          <MaterialIcons name="account-balance" size={18} color="#1d4ed8" />
+          <MaterialIcons name="account-balance" size={18} color={tasksColor.acentoTexto} />
           <View style={styles.remesaActivaBannerBody}>
             <View style={styles.remesaActivaBannerLine}>
               <Text style={styles.remesaActivaBannerText}>Incluida en remesa </Text>
@@ -1151,10 +1152,10 @@ export default function FacturaDetalleScreen() {
               disabled={quitandoRemesa}
             >
               {quitandoRemesa ? (
-                <ActivityIndicator size="small" color="#1d4ed8" />
+                <ActivityIndicator size="small" color={tasksColor.acentoTexto} />
               ) : (
                 <>
-                  <MaterialIcons name="remove-circle-outline" size={16} color="#1d4ed8" />
+                  <MaterialIcons name="remove-circle-outline" size={16} color={tasksColor.acentoTexto} />
                   <Text style={styles.btnQuitarRemesaText}>Quitar de la remesa</Text>
                 </>
               )}
@@ -1179,7 +1180,7 @@ export default function FacturaDetalleScreen() {
         )}
         {puedeEmitir && hasPermiso('facturacion.emitir') && (
           <TouchableOpacity style={styles.btnSuccess} onPress={emitirFactura} disabled={saving}>
-            <MaterialIcons name={esValidacionRevisionIn ? 'task-alt' : 'send'} size={16} color="#fff" />
+            <MaterialIcons name={esValidacionRevisionIn ? 'task-alt' : 'send'} size={16} color={tasksColor.exito} />
             <Text style={styles.btnSuccessText}>
               {esValidacionRevisionIn ? 'Validar revisión' : 'Emitir'}
             </Text>
@@ -1187,29 +1188,29 @@ export default function FacturaDetalleScreen() {
         )}
         {puedeDuplicar && (
           <TouchableOpacity style={styles.btnOutline} onPress={duplicarFactura} disabled={saving}>
-            <MaterialIcons name="content-copy" size={16} color="#0ea5e9" />
+            <MaterialIcons name="content-copy" size={16} color={tasksColor.textoSecundario} />
             <Text style={styles.btnOutlineText}>Duplicar</Text>
           </TouchableOpacity>
         )}
         {puedeRectificar && (
           <TouchableOpacity style={styles.btnOutlineWarn} onPress={rectificarFactura} disabled={saving}>
-            <MaterialIcons name="replay" size={16} color="#b45309" />
+            <MaterialIcons name="replay" size={16} color={tasksColor.aviso} />
             <Text style={styles.btnOutlineWarnText}>Rectificativa</Text>
           </TouchableOpacity>
         )}
         <TouchableOpacity style={styles.btnOutline} onPress={previsualizarPDF}>
-          <MaterialIcons name="visibility" size={16} color="#0ea5e9" />
+          <MaterialIcons name="visibility" size={16} color={tasksColor.textoSecundario} />
           <Text style={styles.btnOutlineText}>Previsualizar PDF</Text>
         </TouchableOpacity>
         {modo === 'editar' && (
           <TouchableOpacity style={styles.btnOutline} onPress={descargarPDF}>
-            <MaterialIcons name="picture-as-pdf" size={16} color="#0ea5e9" />
+            <MaterialIcons name="picture-as-pdf" size={16} color={tasksColor.textoSecundario} />
             <Text style={styles.btnOutlineText}>Descargar PDF</Text>
           </TouchableOpacity>
         )}
         {modo === 'editar' && estado !== 'borrador' && (
           <TouchableOpacity style={styles.btnOutline} onPress={abrirModalEmail}>
-            <MaterialIcons name="email" size={16} color="#0ea5e9" />
+            <MaterialIcons name="email" size={16} color={tasksColor.textoSecundario} />
             <Text style={styles.btnOutlineText}>Enviar email</Text>
           </TouchableOpacity>
         )}
@@ -1989,21 +1990,22 @@ export default function FacturaDetalleScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: tasksColor.fondoApp,
   },
   contentContainer: {
-    padding: 12,
+    padding: 16,
   },
   center: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f8fafc',
+    backgroundColor: tasksColor.fondoApp,
   },
   loadingText: {
     marginTop: 8,
-    fontSize: 13,
-    color: '#64748b',
+    fontSize: 12,
+    fontWeight: '400',
+    color: tasksColor.textoSecundario,
   },
 
   // Header
@@ -2014,7 +2016,14 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   backBtn: {
-    padding: 4,
+    width: 36,
+    height: 36,
+    borderRadius: tasksRadius.contenedor,
+    borderWidth: 1,
+    borderColor: tasksColor.bordeSutil,
+    backgroundColor: tasksColor.superficie,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitleWrap: {
     flexDirection: 'row',
@@ -2025,18 +2034,18 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 20,
-    fontWeight: '700',
-    color: '#334155',
+    fontWeight: '600',
+    color: tasksColor.textoPrimario,
   },
   remesaActivaBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     flexWrap: 'wrap',
-    backgroundColor: '#eff6ff',
+    backgroundColor: tasksColor.acentoSuave,
     borderWidth: 1,
-    borderColor: '#bfdbfe',
-    borderRadius: 8,
+    borderColor: tasksColor.bordeSutil,
+    borderRadius: tasksRadius.contenedor,
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginBottom: 10,
@@ -2052,39 +2061,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   remesaActivaBannerText: {
-    fontSize: 13,
-    color: '#1e3a8a',
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '400',
+    color: tasksColor.acentoTexto,
   },
   remesaActivaNombre: {
-    fontWeight: '700',
-    color: '#1e40af',
+    fontSize: 12,
+    fontWeight: '500',
+    color: tasksColor.acentoTexto,
   },
   remesaActivaLink: {
-    fontWeight: '700',
-    color: '#2563eb',
+    fontSize: 12,
+    fontWeight: '500',
+    color: tasksColor.acentoTexto,
     textDecorationLine: 'underline',
   },
   remesaActivaBannerHint: {
     fontSize: 12,
-    color: '#64748b',
+    fontWeight: '400',
+    color: tasksColor.textoSecundario,
   },
   btnQuitarRemesa: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     borderWidth: 1,
-    borderColor: '#93c5fd',
-    backgroundColor: '#fff',
+    borderColor: tasksColor.bordeFuerte,
+    backgroundColor: tasksColor.superficie,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 6,
+    borderRadius: tasksRadius.control,
     minHeight: MIN_TOUCH,
   },
   btnQuitarRemesaText: {
-    color: '#1d4ed8',
+    color: tasksColor.acentoTexto,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '400',
   },
 
   // Actions
@@ -2098,61 +2110,63 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#0ea5e9',
+    backgroundColor: tasksColor.acento,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 6,
+    borderRadius: tasksRadius.control,
   },
   btnPrimaryText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
+    color: tasksColor.textoInverso,
+    fontSize: 12,
+    fontWeight: '500',
   },
   btnSuccess: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#059669',
+    backgroundColor: tasksColor.exitoSuave,
+    borderWidth: 1,
+    borderColor: tasksColor.bordeFuerte,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 6,
+    borderRadius: tasksRadius.control,
   },
   btnSuccessText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
+    color: tasksColor.exito,
+    fontSize: 12,
+    fontWeight: '500',
   },
   btnOutline: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     borderWidth: 1,
-    borderColor: '#0ea5e9',
+    borderColor: tasksColor.bordeFuerte,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 6,
-    backgroundColor: '#fff',
+    borderRadius: tasksRadius.control,
+    backgroundColor: tasksColor.superficie,
   },
   btnOutlineText: {
-    color: '#0ea5e9',
-    fontSize: 13,
-    fontWeight: '600',
+    color: tasksColor.textoSecundario,
+    fontSize: 12,
+    fontWeight: '400',
   },
   btnOutlineWarn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     borderWidth: 1,
-    borderColor: '#b45309',
+    borderColor: tasksColor.bordeFuerte,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 6,
-    backgroundColor: '#fff',
+    borderRadius: tasksRadius.control,
+    backgroundColor: tasksColor.superficie,
   },
   btnOutlineWarnText: {
-    color: '#b45309',
-    fontSize: 13,
-    fontWeight: '600',
+    color: tasksColor.aviso,
+    fontSize: 12,
+    fontWeight: '400',
   },
   btnSmall: {
     flexDirection: 'row',
@@ -2160,41 +2174,43 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 4,
+    borderRadius: tasksRadius.control,
     borderWidth: 1,
-    borderColor: '#0ea5e9',
-    backgroundColor: '#f0f9ff',
+    borderColor: tasksColor.bordeFuerte,
+    backgroundColor: tasksColor.superficie,
   },
   btnSmallText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#0ea5e9',
+    fontWeight: '400',
+    color: tasksColor.textoSecundario,
   },
 
   errorText: {
-    color: '#dc2626',
+    color: tasksColor.peligro,
     fontSize: 12,
+    fontWeight: '400',
     marginBottom: 8,
   },
 
   // Sections
   section: {
-    backgroundColor: '#fff',
+    backgroundColor: tasksColor.superficie,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: tasksColor.bordeSutil,
+    borderRadius: tasksRadius.contenedor,
     padding: 12,
     marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#334155',
+    fontSize: 12,
+    fontWeight: '500',
+    color: tasksColor.textoPrimario,
     marginBottom: 10,
   },
   sectionHint: {
     fontSize: 11,
-    color: '#64748b',
+    fontWeight: '400',
+    color: tasksColor.textoTerciario,
     marginTop: -6,
     marginBottom: 8,
     lineHeight: 15,
@@ -2223,10 +2239,10 @@ const styles = StyleSheet.create({
     top: '100%',
     left: 0,
     right: 0,
-    backgroundColor: '#fff',
+    backgroundColor: tasksColor.superficie,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
+    borderColor: tasksColor.bordeSutil,
+    borderRadius: tasksRadius.control,
     maxHeight: 220,
     zIndex: 9999,
     shadowColor: '#000',
@@ -2245,27 +2261,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: tasksColor.bordeSutil,
   },
   dropdownName: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#334155',
+    fontSize: 12,
+    fontWeight: '400',
+    color: tasksColor.textoPrimario,
   },
   dropdownCif: {
     fontSize: 11,
-    color: '#64748b',
+    fontWeight: '400',
+    color: tasksColor.textoTerciario,
   },
   empresaInfo: {
     marginTop: 8,
-    backgroundColor: '#f8fafc',
-    borderRadius: 4,
+    backgroundColor: tasksColor.superficieHundida,
+    borderRadius: tasksRadius.control,
     padding: 8,
     gap: 2,
   },
   empresaInfoText: {
     fontSize: 11,
-    color: '#64748b',
+    fontWeight: '400',
+    color: tasksColor.textoTerciario,
   },
 
   // Form
@@ -2299,7 +2317,8 @@ const styles = StyleSheet.create({
   },
   readOnlyInline: {
     fontSize: 12,
-    color: '#334155',
+    fontWeight: '400',
+    color: tasksColor.textoPrimario,
     paddingVertical: 8,
   },
   checkRow: {
@@ -2312,96 +2331,102 @@ const styles = StyleSheet.create({
   },
   checkLabel: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#334155',
+    fontWeight: '400',
+    color: tasksColor.textoPrimario,
   },
   checkHint: {
     fontSize: 11,
-    color: '#64748b',
+    fontWeight: '400',
+    color: tasksColor.textoTerciario,
     lineHeight: 15,
   },
   avisoAbonoBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
-    backgroundColor: '#fffbeb',
+    backgroundColor: tasksColor.avisoSuave,
     borderWidth: 1,
-    borderColor: '#fde68a',
-    borderRadius: 6,
+    borderColor: tasksColor.bordeSutil,
+    borderRadius: tasksRadius.control,
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
   avisoAbonoText: {
     flex: 1,
-    fontSize: 11,
-    color: '#92400e',
+    fontSize: 12,
+    fontWeight: '400',
+    color: tasksColor.aviso,
     lineHeight: 16,
   },
   label: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#334155',
+    fontSize: 11,
+    fontWeight: '400',
+    color: tasksColor.textoTerciario,
     marginBottom: 4,
   },
   inputReadOnly: {
-    backgroundColor: '#f8fafc',
-    color: '#334155',
+    backgroundColor: tasksColor.superficieHundida,
+    color: tasksColor.textoPrimario,
     minHeight: 36,
   },
   numeroFacturaText: {
     fontSize: 20,
-    fontWeight: '800',
-    color: '#0369a1',
+    fontWeight: '600',
+    color: tasksColor.textoPrimario,
     paddingVertical: 4,
   },
   numeroFacturaAuto: {
     fontSize: 11,
+    fontWeight: '400',
     fontStyle: 'italic',
-    color: '#94a3b8',
+    color: tasksColor.textoTerciario,
     paddingVertical: 4,
   },
   numeroFacturaPreview: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#059669',
+    fontSize: 12,
+    fontWeight: '400',
+    color: tasksColor.textoSecundario,
     paddingVertical: 4,
     fontStyle: 'italic',
   },
   numeroFacturaProvisional: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#b45309',
+    fontSize: 12,
+    fontWeight: '400',
+    color: tasksColor.aviso,
     paddingVertical: 4,
     fontStyle: 'italic',
   },
   numeroFacturaHint: {
-    fontSize: 10,
-    color: '#94a3b8',
+    fontSize: 11,
+    fontWeight: '400',
+    color: tasksColor.textoTerciario,
     lineHeight: 14,
   },
   labelSmall: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#64748b',
+    fontSize: 11,
+    fontWeight: '400',
+    color: tasksColor.textoTerciario,
     marginBottom: 2,
   },
   input: {
     fontSize: 12,
+    fontWeight: '400',
     padding: 8,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 4,
-    backgroundColor: '#fff',
-    color: '#334155',
+    borderColor: tasksColor.bordeFuerte,
+    borderRadius: tasksRadius.control,
+    backgroundColor: tasksColor.superficie,
+    color: tasksColor.textoPrimario,
   },
   inputSmall: {
     fontSize: 12,
+    fontWeight: '400',
     padding: 6,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 4,
-    backgroundColor: '#fff',
-    color: '#334155',
+    borderColor: tasksColor.bordeFuerte,
+    borderRadius: tasksRadius.control,
+    backgroundColor: tasksColor.superficie,
+    color: tasksColor.textoPrimario,
   },
   inputMultiline: {
     minHeight: 60,
@@ -2413,29 +2438,30 @@ const styles = StyleSheet.create({
   },
   pickerPlaceholder: {
     fontSize: 12,
-    color: '#94a3b8',
+    fontWeight: '400',
+    color: tasksColor.textoTerciario,
     fontStyle: 'italic',
   },
   chip: {
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 4,
+    borderRadius: tasksRadius.control,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#fff',
+    borderColor: tasksColor.bordeSutil,
+    backgroundColor: tasksColor.superficie,
     marginRight: 6,
   },
   chipActive: {
-    backgroundColor: '#0ea5e9',
-    borderColor: '#0ea5e9',
+    backgroundColor: tasksColor.acentoSuave,
+    borderColor: tasksColor.acento,
   },
   chipText: {
     fontSize: 11,
-    color: '#64748b',
-    fontWeight: '500',
+    color: tasksColor.textoSecundario,
+    fontWeight: '400',
   },
   chipTextActive: {
-    color: '#fff',
+    color: tasksColor.acentoTexto,
   },
 
   // Líneas
@@ -2450,13 +2476,13 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#cbd5e1',
+    borderBottomColor: tasksColor.bordeSutil,
     marginBottom: 4,
   },
   lineaHeaderCell: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#64748b',
+    fontSize: 11,
+    fontWeight: '400',
+    color: tasksColor.textoTerciario,
     textTransform: 'uppercase',
     textAlign: 'center',
   },
@@ -2466,22 +2492,23 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     gap: 4,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: tasksColor.bordeSutil,
   },
   lineaInput: {
     fontSize: 12,
+    fontWeight: '400',
     padding: 6,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 4,
-    backgroundColor: '#fff',
-    color: '#334155',
+    borderColor: tasksColor.bordeFuerte,
+    borderRadius: tasksRadius.control,
+    backgroundColor: tasksColor.superficie,
+    color: tasksColor.textoPrimario,
     textAlign: 'center',
   },
   lineaCalc: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#334155',
+    fontWeight: '400',
+    color: tasksColor.textoPrimario,
     textAlign: 'center',
   },
   lineaDeleteBtn: {
@@ -2494,11 +2521,11 @@ const styles = StyleSheet.create({
   // Líneas mobile
   lineaCard: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
+    borderColor: tasksColor.bordeSutil,
+    borderRadius: tasksRadius.control,
     padding: 10,
     marginBottom: 8,
-    backgroundColor: '#fafbfc',
+    backgroundColor: tasksColor.superficieHundida,
     gap: 6,
   },
   lineaCardHeader: {
@@ -2508,8 +2535,8 @@ const styles = StyleSheet.create({
   },
   lineaCardNum: {
     fontSize: 11,
-    fontWeight: '700',
-    color: '#64748b',
+    fontWeight: '400',
+    color: tasksColor.textoTerciario,
   },
   lineaCardRow: {
     flexDirection: 'row',
@@ -2520,18 +2547,18 @@ const styles = StyleSheet.create({
   },
   lineaCalcSmall: {
     fontSize: 12,
-    fontWeight: '500',
-    color: '#334155',
+    fontWeight: '400',
+    color: tasksColor.textoPrimario,
     paddingVertical: 6,
   },
   lineaCardTotal: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#334155',
+    fontSize: 12,
+    fontWeight: '500',
+    color: tasksColor.textoPrimario,
     textAlign: 'right',
     paddingTop: 4,
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
+    borderTopColor: tasksColor.bordeSutil,
   },
 
   totalesWrap: {
@@ -2545,36 +2572,40 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: tasksColor.bordeSutil,
     gap: 8,
   },
   pagoFecha: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#334155',
+    fontWeight: '400',
+    color: tasksColor.textoPrimario,
   },
   pagoMeta: {
     fontSize: 11,
-    color: '#64748b',
+    fontWeight: '400',
+    color: tasksColor.textoTerciario,
   },
   pagoObs: {
     fontSize: 11,
-    color: '#94a3b8',
+    fontWeight: '400',
+    color: tasksColor.textoTerciario,
     fontStyle: 'italic',
   },
   pagoAutor: {
-    fontSize: 10,
-    color: '#94a3b8',
+    fontSize: 11,
+    fontWeight: '400',
+    color: tasksColor.textoTerciario,
     marginTop: 2,
   },
   pagoImporte: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#059669',
+    fontSize: 12,
+    fontWeight: '500',
+    color: tasksColor.textoPrimario,
   },
   emptyText: {
     fontSize: 12,
-    color: '#94a3b8',
+    fontWeight: '400',
+    color: tasksColor.textoTerciario,
     textAlign: 'center',
     paddingVertical: 12,
   },
@@ -2585,45 +2616,47 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: tasksColor.bordeSutil,
     gap: 4,
   },
-  adjuntoNombre: { fontSize: 12, fontWeight: '500', color: '#334155' },
-  adjuntoMeta: { fontSize: 10, color: '#94a3b8' },
+  adjuntoNombre: { fontSize: 12, fontWeight: '400', color: tasksColor.textoPrimario },
+  adjuntoMeta: { fontSize: 11, fontWeight: '400', color: tasksColor.textoTerciario },
 
   auditRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: tasksColor.bordeSutil,
   },
   auditAction: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#334155',
+    fontWeight: '400',
+    color: tasksColor.textoPrimario,
   },
   auditMeta: {
-    fontSize: 10,
-    color: '#94a3b8',
+    fontSize: 11,
+    fontWeight: '400',
+    color: tasksColor.textoTerciario,
   },
   auditDetail: {
     fontSize: 11,
-    color: '#64748b',
+    fontWeight: '400',
+    color: tasksColor.textoSecundario,
     marginTop: 2,
   },
 
   // Modal
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: tasksColor.overlay,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
   },
   modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
+    backgroundColor: tasksColor.superficie,
+    borderRadius: tasksRadius.contenedor,
     padding: 16,
     width: '100%',
     maxWidth: 520,
@@ -2636,9 +2669,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   modalTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#334155',
+    fontSize: 12,
+    fontWeight: '500',
+    color: tasksColor.textoPrimario,
   },
   modalScroll: {
     maxHeight: 320,
@@ -2650,20 +2683,21 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 4,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: tasksColor.bordeSutil,
   },
   productoNombre: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#334155',
+    fontSize: 12,
+    fontWeight: '400',
+    color: tasksColor.textoPrimario,
   },
   productoRef: {
     fontSize: 11,
-    color: '#94a3b8',
+    fontWeight: '400',
+    color: tasksColor.textoTerciario,
   },
   productoPrecio: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#0ea5e9',
+    fontSize: 12,
+    fontWeight: '400',
+    color: tasksColor.textoPrimario,
   },
 });

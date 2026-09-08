@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { EstrellaFavorito } from '../../components/EstrellaFavorito';
 import { FacturacionYtdWidget } from '../../components/FacturacionYtdWidget';
 import { HubNavCard, HubNavGrid } from '../../components/ui/HubNavCard';
+import { SPACING } from '../../constants/theme';
 import { useHubNavGrid } from '../../hooks/useHubNavGrid';
 import { hubAccentById } from '../../lib/hubNavAccent';
 
@@ -15,6 +16,20 @@ type OpcionCaja = {
   descripcion: string;
   icon: React.ComponentProps<typeof MaterialIcons>['name'];
   permiso: string;
+};
+
+const CAJAS_ACCENTS: Record<string, { accentBg: string; accentFg: string; variant?: 'accent' }> = {
+  'arqueo-caja': { accentBg: '#ffedd5', accentFg: '#d97706', variant: 'accent' },
+  'cierres-teoricos': { accentBg: '#e0f2fe', accentFg: '#0ea5e9' },
+  'revision-formas-pago': { accentBg: '#dcfce7', accentFg: '#16a34a' },
+  'movimientos-caja': { accentBg: '#ede9fe', accentFg: '#7c3aed' },
+  'revision-cajas': { accentBg: '#ccfbf1', accentFg: '#0d9488' },
+  'comparativa-fechas-cajas': { accentBg: '#e0e7ff', accentFg: '#4f46e5' },
+  objetivos: { accentBg: '#fce7f3', accentFg: '#db2777' },
+  'franjas-horarias': { accentBg: '#d1fae5', accentFg: '#059669' },
+  'control-excepciones': { accentBg: '#dbeafe', accentFg: '#2563eb' },
+  top: { accentBg: '#cffafe', accentFg: '#0891b2' },
+  cashflow: { accentBg: '#ffedd5', accentFg: '#d97706' },
 };
 
 const OPCIONES: OpcionCaja[] = [
@@ -65,7 +80,7 @@ export default function CajasIndexScreen() {
 
       <HubNavGrid style={styles.gridMargin}>
         {visibles.map((opcion) => {
-          const accent = hubAccentById(opcion.id);
+          const accent = CAJAS_ACCENTS[opcion.id] ?? hubAccentById(opcion.id);
           return (
             <HubNavCard
               key={opcion.id}
@@ -74,6 +89,7 @@ export default function CajasIndexScreen() {
               icon={opcion.icon}
               accentBg={accent.accentBg}
               accentFg={accent.accentFg}
+              variant={CAJAS_ACCENTS[opcion.id]?.variant === 'accent' ? 'accent' : 'default'}
               width={cardWidth}
               compact={compact}
               onPress={() => handleSeleccionar(opcion.id)}
@@ -103,18 +119,16 @@ export default function CajasIndexScreen() {
 }
 
 const styles = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: '#ffffff' },
-  scrollContent: { padding: 16, paddingBottom: 32 },
-  title: { fontSize: 20, fontWeight: '700', color: '#0f172a', marginBottom: 2 },
-  subtitle: { fontSize: 13, color: '#64748b', marginBottom: 16 },
+  scroll: { flex: 1, backgroundColor: '#f8fafc' },
+  scrollContent: { padding: SPACING.xl, paddingBottom: 32 },
+  title: { fontSize: 20, fontWeight: '600', color: '#0f172a', marginBottom: 2 },
+  subtitle: { fontSize: 12, fontWeight: '400', color: '#475569', marginBottom: 16 },
   gridMargin: { marginBottom: 18 },
   empty: { fontSize: 13, color: '#94a3b8', fontStyle: 'italic', marginBottom: 12 },
   sectionLabel: {
     fontSize: 12,
-    fontWeight: '700',
-    color: '#64748b',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    fontWeight: '400',
+    color: '#94a3b8',
     marginBottom: 8,
   },
 });

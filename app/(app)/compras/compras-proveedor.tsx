@@ -326,7 +326,7 @@ export default function ComprasProveedorScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#0ea5e9" />
+          <MaterialIcons name="arrow-back" size={22} color="#475569" />
         </TouchableOpacity>
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle}>Compras a Proveedor</Text>

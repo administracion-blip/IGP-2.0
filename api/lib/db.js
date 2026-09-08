@@ -229,6 +229,25 @@ export const tables = {
    * GSI NoLeidas-index (disperso KEYS_ONLY): HASH usuario_no_leida, RANGE creado_en.
    */
   notificaciones: process.env.DDB_NOTIFICACIONES || 'Igp_Notificaciones',
+  /**
+   * Activos — catálogo (categorías CAT# y modelos MOD#).
+   * PK / SK. GSI: Listado-index, Categoria-index, Marca-index.
+   */
+  activosCatalogo: process.env.DDB_ACTIVOS_CATALOGO || 'Igp_ActivosCatalogo',
+  /**
+   * Activos — unidad o lote. PK = asset_id (sin SK).
+   * GSI: CentroEstado-index, Modelo-index, Etiqueta-index, Serie-index,
+   * PendienteVerificacion-index, Listado-index.
+   */
+  activos: process.env.DDB_ACTIVOS || 'Igp_Activos',
+  /**
+   * Activos — eventos append-only. PK ASSET#<id>, SK EVT#<iso>#<uuid>.
+   */
+  activosEventos: process.env.DDB_ACTIVOS_EVENTOS || 'Igp_ActivosEventos',
+  /**
+   * Activos — correlativos de etiqueta por categoría. PK CAT#<id>, SK CONTADOR.
+   */
+  activosContadores: process.env.DDB_ACTIVOS_CONTADORES || 'Igp_ActivosContadores',
 };
 
 /**

@@ -8,8 +8,10 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "api": "cd api && npm run dev",
-    "dev": "concurrently -n api,expo -c blue,magenta \"npm run api\" \"expo start --web --port 8084\"",
+    "api": "cd api && npm start",
+    "api:watch": "cd api && npm run dev",
+    "dev": "concurrently -n api,expo -c blue,magenta \"npm run api:watch\" \"expo start --web --port 8084\"",
+    "dev:api-watch": "concurrently -n api,expo -c blue,magenta \"npm run api:watch\" \"expo start --web --port 8084\"",
     "dev:tunnel": "concurrently -n api,expo -c blue,magenta \"npm run api\" \"expo start --tunnel\""
   },
   "dependencies": {

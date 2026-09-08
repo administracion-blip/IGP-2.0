@@ -122,7 +122,10 @@ function AppLayoutContent() {
       <View style={[styles.header, { paddingLeft: Math.max(10, insets.left), paddingRight: Math.max(10, insets.right) }]}>
         <Pressable
           onPress={() => setSidebarOpen((o) => !o)}
-          style={({ pressed }) => [styles.menuButton, pressed && styles.menuButtonPressed]}
+          style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [
+            styles.menuButton,
+            (pressed || hovered) && styles.menuButtonHover,
+          ]}
           accessibilityLabel={sidebarOpen ? 'Contraer menú' : 'Expandir menú'}
         >
           <MaterialIcons name="menu" size={iconSize.tab} color={colors.textPrimary} />
@@ -319,27 +322,35 @@ export default function AppLayout() {
   );
 }
 
+/** Piel local del shell (Home/Planning). No tocar theme.ts. */
+const SHELL_CANVAS = '#f8fafc';
+const SHELL_BORDER = '#eef1f5';
+const SHELL_HOVER = '#e0f2fe';
+const SHELL_MUTED = '#94a3b8';
+const SHELL_RADIUS = 8;
+
 const styles = StyleSheet.create({
   wrapper: {
     flex: 1,
-    backgroundColor: colors.bg,
+    backgroundColor: SHELL_CANVAS,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 54,
     backgroundColor: colors.surface,
     paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.xs + 2,
+    paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: SHELL_BORDER,
   },
   menuButton: {
     padding: SPACING.xs,
     marginRight: SPACING.xs,
-    borderRadius: radius.sm,
+    borderRadius: SHELL_RADIUS,
   },
-  menuButtonPressed: {
-    backgroundColor: colors.navActive,
+  menuButtonHover: {
+    backgroundColor: SHELL_HOVER,
   },
   headerLogo: {
     height: 36,
@@ -363,7 +374,7 @@ const styles = StyleSheet.create({
   },
   headerIaBtnText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '500',
     color: '#92400e',
   },
   headerConfigWrap: {
@@ -396,7 +407,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.overlay,
     justifyContent: 'flex-start',
     alignItems: 'flex-end',
-    paddingTop: 38,
+    paddingTop: 54,
     paddingRight: SPACING.sm,
   },
   configDropdown: {
@@ -416,8 +427,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
   },
   configDropdownItemText: {
-    ...typography.cuerpo,
+    fontSize: 12,
     fontWeight: '500',
+    color: colors.textPrimary,
   },
   configDropdownItemBorder: {
     borderTopWidth: 1,
@@ -429,15 +441,13 @@ const styles = StyleSheet.create({
     maxWidth: 180,
   },
   headerNombre: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '500',
     color: colors.textPrimary,
   },
   headerRol: {
     fontSize: 11,
-    height: 16,
     color: colors.textSecondary,
-    fontStyle: 'italic',
     fontWeight: '400',
   },
   body: {
@@ -449,7 +459,7 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     backgroundColor: colors.surface,
     borderRightWidth: 1,
-    borderRightColor: colors.border,
+    borderRightColor: SHELL_BORDER,
   },
   sidebarExpanded: {
     width: sidebar.widthExpanded,
@@ -466,15 +476,15 @@ const styles = StyleSheet.create({
   },
   sidebarDivider: {
     height: 1,
-    backgroundColor: colors.border,
+    backgroundColor: SHELL_BORDER,
     marginHorizontal: SPACING.md,
     marginVertical: SPACING.sm,
   },
   sidebarSectionLabel: {
     fontSize: 11,
     fontWeight: '400',
-    color: '#0f172a',
-    letterSpacing: 0.4,
+    color: SHELL_MUTED,
+    letterSpacing: 0.2,
     textTransform: 'uppercase',
     marginLeft: SPACING.md + 2,
     marginBottom: SPACING.xs,
@@ -485,22 +495,23 @@ const styles = StyleSheet.create({
     padding: SPACING.sm + 2,
   },
   footer: {
-    paddingVertical: SPACING.xs + 2,
+    paddingVertical: 4,
     paddingHorizontal: SPACING.sm,
     backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
+    borderTopColor: SHELL_BORDER,
     alignItems: 'center',
   },
   footerText: {
-    fontSize: 11,
-    color: colors.textSecondary,
+    fontSize: 10,
+    fontWeight: '400',
+    color: SHELL_MUTED,
   },
   loadingWrap: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.bg,
+    backgroundColor: SHELL_CANVAS,
     gap: SPACING.md,
   },
   loadingText: {
