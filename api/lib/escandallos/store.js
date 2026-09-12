@@ -42,6 +42,7 @@ function mapMeta(item) {
 
 function mapIng(item) {
   if (!item || !String(item.SK || '').startsWith('ING#')) return null;
+  const costeManual = toNum(item.coste_manual, 0);
   return {
     productoId: String(item.productoId || '').trim(),
     ingredienteId: String(item.ingredienteId || '').trim() || normalizeProductId(String(item.SK || '').replace(/^ING#/, '')),
@@ -50,6 +51,7 @@ function mapIng(item) {
     unidad: item.unidad != null ? String(item.unidad) : '',
     mermaPct: toNum(item.mermaPct, 0),
     orden: toNum(item.orden, 0),
+    ...(costeManual > 0 ? { coste_manual: costeManual } : {}),
   };
 }
 
@@ -218,7 +220,7 @@ function normalizeUnidad(raw) {
   return UNIDAD_ALIAS[s.toLowerCase()] || '';
 }
 
-function validateIngrediente(raw, productoId, index) {
+export function validateIngrediente(raw, productoId, index) {
   const ingredienteId = normalizeProductId(raw?.ingredienteId);
   if (!ingredienteId) {
     throw Object.assign(new Error(`ingredientes[${index}]: ingredienteId es obligatorio`), { status: 400 });
@@ -242,7 +244,7 @@ function validateIngrediente(raw, productoId, index) {
   if (!unidad) {
     throw Object.assign(new Error(`ingredientes[${index}]: unidad debe ser KG, L o UD`), { status: 400 });
   }
-  return {
+  const ing = {
     ingredienteId,
     nombre: raw?.nombre != null ? String(raw.nombre).trim() : '',
     cantidad,
@@ -250,6 +252,17 @@ function validateIngrediente(raw, productoId, index) {
     mermaPct,
     orden,
   };
+  const rawCoste = raw?.coste_manual;
+  if (rawCoste != null && rawCoste !== '') {
+    const costeManual = Number(rawCoste);
+    if (!Number.isFinite(costeManual) || costeManual < 0) {
+      throw Object.assign(new Error(`ingredientes[${index}]: coste_manual debe ser un número >= 0`), { status: 400 });
+    }
+    if (costeManual > 0) {
+      ing.coste_manual = costeManual;
+    }
+  }
+  return ing;
 }
 
 /**
@@ -327,6 +340,7 @@ export async function putReceta(productoId, body) {
             unidad: ing.unidad,
             mermaPct: ing.mermaPct,
             orden: ing.orden,
+            ...(ing.coste_manual > 0 ? { coste_manual: ing.coste_manual } : {}),
           },
         }),
       ),

@@ -46,6 +46,7 @@ export function FirmaEnPantallaModal({
           <View style={styles.padSection}>
             <SignaturePad
               height={Platform.OS === 'web' ? 260 : 220}
+              disabled={!!uploading}
               onSave={(dataUrl) => {
                 const raw = dataUrl.replace(/^data:image\/png;base64,/, '');
                 onConfirm(raw);

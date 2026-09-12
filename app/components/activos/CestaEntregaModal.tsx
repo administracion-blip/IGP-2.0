@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,27 @@ import { ICONS, ICON_SIZE } from '../../constants/icons';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { useConfirmar } from '../../hooks/useConfirmar';
 import { lineaSinLocalFactura, useCestaActivos, type LineaCestaActivo } from '../../lib/activosCesta';
+import { FirmaEnPantallaModal } from '../FirmaEnPantallaModal';
+import { VistaHtmlPlantilla } from './EditorPlantilla';
+import { descargarActaEntregaPdf, nombreFicheroActaEntrega } from '../../lib/activosActa';
+
+const FIRMA_TIMEOUT_MS = 120_000;
+const ERROR_FIRMA_RED =
+  'No se pudo guardar la firma. Comprueba la conexión e inténtalo de nuevo.';
+
+function mensajeErrorFirma(e: unknown): string {
+  const msg = errorMessage(e, ERROR_FIRMA_RED);
+  const nombre = e instanceof Error ? e.name : '';
+  if (
+    nombre === 'AbortError' ||
+    /failed to fetch|the user aborted a request|aborterror|networkerror|network request failed/i.test(
+      `${nombre} ${msg}`,
+    )
+  ) {
+    return ERROR_FIRMA_RED;
+  }
+  return msg;
+}
 
 type EmpleadoOpt = { employee_id: string; full_name?: string; first_name?: string; last_name?: string; active?: boolean };
 
@@ -44,10 +65,15 @@ export function CestaEntregaModal({ visible, onClose, onEntregado }: Props) {
   const [employeeId, setEmployeeId] = useState('');
   const [entregando, setEntregando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actaHtml, setActaHtml] = useState<string | null>(null);
+  const [firmaVisible, setFirmaVisible] = useState(false);
+  const enviandoRef = useRef(false);
 
   useEffect(() => {
     if (!visible) return;
     setError(null);
+    setActaHtml(null);
+    setFirmaVisible(false);
     apiFetch('/api/personal/employees')
       .then(async (r) => {
         const data = (await r.json()) as { employees?: EmpleadoOpt[]; error?: string };
@@ -80,7 +106,16 @@ export function CestaEntregaModal({ visible, onClose, onEntregado }: Props) {
   const nombreLocal = (id: string) => opcionesLocal.find((o) => o.id === formatId6(id))?.titulo || id;
   const faltaLocal = lineas.some(lineaSinLocalFactura);
 
-  const entregarCesta = async () => {
+  const payloadEntrega = () => ({
+    employee_id: employeeId,
+    lineas: lineas.map((l) => ({
+      asset_id: l.asset_id,
+      cantidad: l.granularidad === 'lote' ? l.cantidad : 1,
+      local_imputado_id: l.local_imputado_id,
+    })),
+  });
+
+  const prepararActa = async () => {
     setError(null);
     if (!employeeId) {
       setError('Elige el trabajador que recibe');
@@ -106,114 +141,186 @@ export function CestaEntregaModal({ visible, onClose, onEntregado }: Props) {
     if (!ok) return;
     setEntregando(true);
     try {
-      const res = await apiFetch('/api/activos/entregas', {
+      const res = await apiFetch('/api/activos/entregas/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          employee_id: employeeId,
-          lineas: lineas.map((l) => ({
-            asset_id: l.asset_id,
-            cantidad: l.granularidad === 'lote' ? l.cantidad : 1,
-            local_imputado_id: l.local_imputado_id,
-          })),
-        }),
+        body: JSON.stringify(payloadEntrega()),
       });
-      const data = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(data.error || 'No se pudo entregar');
-      vaciar();
-      setEmployeeId('');
-      onEntregado();
-      onClose();
+      const data = (await res.json()) as { html?: string; error?: string };
+      if (!res.ok) throw new Error(data.error || 'No se pudo preparar el acta');
+      if (!data.html) throw new Error('El acta ha quedado vacía');
+      setActaHtml(data.html);
     } catch (e) {
-      setError(errorMessage(e, 'No se pudo entregar'));
+      setError(errorMessage(e, 'No se pudo preparar el acta'));
     } finally {
       setEntregando(false);
     }
   };
 
+  const firmarYEntregar = async (base64Png: string) => {
+    if (enviandoRef.current) return;
+    enviandoRef.current = true;
+    setError(null);
+    setEntregando(true);
+    try {
+      const res = await apiFetch('/api/activos/entregas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payloadEntrega(), firmaBase64: base64Png }),
+        timeoutMs: FIRMA_TIMEOUT_MS,
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        acta_url?: string | null;
+        entrega_id?: string;
+      };
+      if (!res.ok) throw new Error(data.error || 'No se pudo entregar');
+      if (data.acta_url) {
+        try {
+          await descargarActaEntregaPdf(data.acta_url, nombreFicheroActaEntrega(data.entrega_id));
+        } catch (err) {
+          console.warn('No se pudo descargar el acta de entrega', err);
+        }
+      }
+      vaciar();
+      setEmployeeId('');
+      setActaHtml(null);
+      setFirmaVisible(false);
+      onEntregado();
+      onClose();
+    } catch (e) {
+      setError(mensajeErrorFirma(e));
+      setFirmaVisible(false);
+    } finally {
+      enviandoRef.current = false;
+      setEntregando(false);
+    }
+  };
+
   return (
+    <>
     <Modal visible={visible} transparent animationType="fade" onRequestClose={() => !entregando && onClose()}>
       <Pressable style={styles.fondo} onPress={() => !entregando && onClose()}>
         <Pressable
           style={[styles.caja, shouldStackPanels && styles.cajaFull]}
           onPress={(e) => e.stopPropagation()}
         >
-          <Text style={styles.titulo}>Cesta de entrega</Text>
+          <Text style={styles.titulo}>{actaHtml ? 'Acta de entrega' : 'Cesta de entrega'}</Text>
           <Text style={styles.sub}>
-            {unidades === 0
-              ? 'Añade prendas del almacén. Pueden ser de varios locales; el trabajador las recibe juntas.'
-              : unidades === 1
-                ? '1 prenda, agrupada por el local al que se factura.'
-                : `${unidades} prendas, agrupadas por el local al que se factura.`}
+            {actaHtml
+              ? 'Revisa el documento. El trabajador firma en pantalla y se guarda el PDF.'
+              : unidades === 0
+                ? 'Añade prendas del almacén. Pueden ser de varios locales; el trabajador las recibe juntas.'
+                : unidades === 1
+                  ? '1 prenda, agrupada por el local al que se factura.'
+                  : `${unidades} prendas, agrupadas por el local al que se factura.`}
           </Text>
 
-          <View style={{ zIndex: 30, marginBottom: 12 }}>
-            <SelectorDesplegable
-              label="Trabajador que recibe"
-              icono="badge"
-              placeholder="Elige trabajador"
-              tituloLista="Trabajador"
-              opciones={opcionesEmpleado}
-              valorId={employeeId}
-              onSeleccionar={setEmployeeId}
-              buscador
-              buscadorPlaceholder="Buscar por nombre…"
-              vacioTexto="No hay empleados. Sincroniza Personal."
-            />
-          </View>
+          {actaHtml ? (
+            <ScrollView style={styles.lista} contentContainerStyle={styles.actaCaja} keyboardShouldPersistTaps="handled">
+              <VistaHtmlPlantilla html={actaHtml} />
+            </ScrollView>
+          ) : (
+            <>
+              <View style={{ zIndex: 30, marginBottom: 12 }}>
+                <SelectorDesplegable
+                  label="Trabajador que recibe"
+                  icono="badge"
+                  placeholder="Elige trabajador"
+                  tituloLista="Trabajador"
+                  opciones={opcionesEmpleado}
+                  valorId={employeeId}
+                  onSeleccionar={setEmployeeId}
+                  buscador
+                  buscadorPlaceholder="Buscar por nombre…"
+                  vacioTexto="No hay empleados. Sincroniza Personal."
+                />
+              </View>
 
-          <ScrollView
-            style={styles.lista}
-            contentContainerStyle={styles.listaContent}
-            keyboardShouldPersistTaps="handled"
-          >
-            {lineas.length === 0 ? (
-              <Text style={styles.vacio}>La cesta está vacía.</Text>
-            ) : (
-              grupos.map((grupo) => (
-                <View key={grupo.local_imputado_id} style={styles.grupo}>
-                  <Text style={styles.grupoTitulo}>
-                    {grupo.local_imputado_id === '—'
-                      ? 'Elige el local a facturar'
-                      : `Se factura a ${grupo.local_imputado_nombre}`}
-                    {grupo.unidades === 1 ? ' · 1 ud.' : ` · ${grupo.unidades} ud.`}
-                  </Text>
-                  {grupo.lineas.map((l) => (
-                    <LineaCesta
-                      key={l.asset_id}
-                      linea={l}
-                      opcionesLocal={opcionesLocal}
-                      onQuitar={() => quitar(l.asset_id)}
-                      onCantidad={(n) => setCantidad(l.asset_id, n)}
-                      onLocalImputado={(id) => setLocalImputado(l.asset_id, id, nombreLocal(id))}
-                    />
-                  ))}
-                </View>
-              ))
-            )}
-          </ScrollView>
+              <ScrollView
+                style={styles.lista}
+                contentContainerStyle={styles.listaContent}
+                keyboardShouldPersistTaps="handled"
+              >
+                {lineas.length === 0 ? (
+                  <Text style={styles.vacio}>La cesta está vacía.</Text>
+                ) : (
+                  grupos.map((grupo) => (
+                    <View key={grupo.local_imputado_id} style={styles.grupo}>
+                      <Text style={styles.grupoTitulo}>
+                        {grupo.local_imputado_id === '—'
+                          ? 'Elige el local a facturar'
+                          : `Se factura a ${grupo.local_imputado_nombre}`}
+                        {grupo.unidades === 1 ? ' · 1 ud.' : ` · ${grupo.unidades} ud.`}
+                      </Text>
+                      {grupo.lineas.map((l) => (
+                        <LineaCesta
+                          key={l.asset_id}
+                          linea={l}
+                          opcionesLocal={opcionesLocal}
+                          onQuitar={() => quitar(l.asset_id)}
+                          onCantidad={(n) => setCantidad(l.asset_id, n)}
+                          onLocalImputado={(id) => setLocalImputado(l.asset_id, id, nombreLocal(id))}
+                        />
+                      ))}
+                    </View>
+                  ))
+                )}
+              </ScrollView>
+            </>
+          )}
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <View style={styles.acciones}>
-            <TouchableOpacity style={styles.cancel} onPress={onClose} disabled={entregando}>
-              <Text style={styles.cancelTxt}>Cerrar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.cta, (entregando || !lineas.length || faltaLocal) && { opacity: 0.6 }]}
-              onPress={() => void entregarCesta()}
-              disabled={entregando || !lineas.length || faltaLocal}
-            >
-              {entregando ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.ctaTxt}>Entregar</Text>
-              )}
-            </TouchableOpacity>
+            {actaHtml ? (
+              <>
+                <TouchableOpacity
+                  style={styles.cancel}
+                  onPress={() => setActaHtml(null)}
+                  disabled={entregando}
+                >
+                  <Text style={styles.cancelTxt}>Volver</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.cta, entregando && { opacity: 0.6 }]}
+                  onPress={() => setFirmaVisible(true)}
+                  disabled={entregando}
+                >
+                  <Text style={styles.ctaTxt}>Firmar y entregar</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity style={styles.cancel} onPress={onClose} disabled={entregando}>
+                  <Text style={styles.cancelTxt}>Cerrar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.cta, (entregando || !lineas.length || faltaLocal) && { opacity: 0.6 }]}
+                  onPress={() => void prepararActa()}
+                  disabled={entregando || !lineas.length || faltaLocal}
+                >
+                  {entregando ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.ctaTxt}>Entregar</Text>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
           </View>
           {ConfirmarView}
         </Pressable>
       </Pressable>
     </Modal>
+    <FirmaEnPantallaModal
+      visible={firmaVisible}
+      uploading={entregando}
+      title="Firma del trabajador"
+      subtitle="Quien recibe dibuja la firma. Se guardará en el acta PDF."
+      onClose={() => !entregando && setFirmaVisible(false)}
+      onConfirm={(png) => void firmarYEntregar(png)}
+    />
+    </>
   );
 }
 
@@ -306,6 +413,14 @@ const styles = StyleSheet.create({
   vacio: { fontSize: 13, color: colors.textMuted, paddingVertical: 16 },
   lista: { flexGrow: 1, flexShrink: 1, minHeight: 80, marginBottom: 8 },
   listaContent: { flexGrow: 0 },
+  actaCaja: {
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgSubtle,
+    marginBottom: 8,
+  },
   grupo: { marginBottom: 12 },
   grupoTitulo: { fontSize: 13, fontWeight: '700', color: colors.textPrimary, marginBottom: 4 },
   fila: {

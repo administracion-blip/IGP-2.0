@@ -4,6 +4,7 @@
  */
 
 import { Router } from 'express';
+import multer from 'multer';
 import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
 import {
   bajaCategoria,
@@ -31,6 +32,7 @@ import {
   marcarPerdido,
   presignFoto,
   presignFotoModelo,
+  previewActaEntrega,
   previewEtiquetas,
   previewPlantillaCuerpo,
   resolverActivo,
@@ -46,14 +48,30 @@ import {
   servicioStockModelo,
   sustituirUnidad,
   trasladarActivo,
+  urlActaEntrega,
   urlFoto,
   verificarEtiqueta,
 } from '../lib/activos/servicio.js';
+import { bufferFirmaBase64 } from '../lib/activos/firma.js';
 
 const router = Router();
+const uploadFirma = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 
 function userDe(req) {
   return req.user;
+}
+
+function payloadEntrega(req) {
+  if (typeof req.body?.payload === 'string' && req.body.payload.trim()) {
+    try {
+      return JSON.parse(req.body.payload);
+    } catch {
+      const err = new Error('El cuerpo de la entrega no es válido');
+      err.status = 400;
+      throw err;
+    }
+  }
+  return req.body || {};
 }
 
 // ─── Catálogo ───
@@ -168,9 +186,39 @@ router.get('/activos/custodia', requirePermission('activos.ver'), async (req, re
   res.json(await servicioCustodias(userDe(req), req.query));
 });
 
-router.post('/activos/entregas', requirePermission('activos.editar'), async (req, res) => {
-  res.status(201).json(await entregarActivos(userDe(req), req.body));
+router.post('/activos/entregas/preview', requirePermission('activos.editar'), async (req, res) => {
+  res.json(await previewActaEntrega(userDe(req), req.body));
 });
+
+router.post(
+  '/activos/entregas',
+  requirePermission('activos.editar'),
+  uploadFirma.single('file'),
+  async (req, res) => {
+    let body;
+    try {
+      body = payloadEntrega(req);
+    } catch {
+      return res.status(400).json({ error: 'El cuerpo de la entrega no es válido' });
+    }
+    let firmaBuffer = req.file?.buffer;
+    if (!firmaBuffer) {
+      firmaBuffer = bufferFirmaBase64(req.body?.firmaBase64 || body?.firmaBase64);
+    }
+    if (!firmaBuffer?.length) {
+      return res.status(400).json({ error: 'Falta la firma del trabajador (file o firmaBase64)' });
+    }
+    res.status(201).json(await entregarActivos(userDe(req), body, firmaBuffer));
+  },
+);
+
+router.get(
+  '/activos/:assetId/entregas/:entregaId/acta',
+  requirePermission('activos.ver'),
+  async (req, res) => {
+    res.json(await urlActaEntrega(userDe(req), req.params.assetId, req.params.entregaId));
+  },
+);
 
 router.post('/activos/devoluciones', requirePermission('activos.editar'), async (req, res) => {
   res.json(await devolverActivos(userDe(req), req.body));

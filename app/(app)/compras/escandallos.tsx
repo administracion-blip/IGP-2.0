@@ -44,13 +44,15 @@ import {
   type CategoriaCosteId,
 } from '../../lib/escandalloCosteCategoria';
 import { isoLocal } from '../../lib/comprasProveedorRango';
-import { escCampoId, useEscandalloLineasTab } from '../../hooks/useEscandalloLineasTab';
+import { escCampoId, focusEscCampo, useEscandalloLineasTab } from '../../hooks/useEscandalloLineasTab';
+import { descargarFichaEscandalloPdf } from '../../lib/escandalloFichaPdf';
 
 type IngredienteLista = {
   ingredienteId: string;
   cantidad: number | string;
   mermaPct?: number | string | null;
   unidad?: string;
+  coste_manual?: number | string | null;
 };
 
 type RecetaMeta = {
@@ -70,6 +72,7 @@ type LineaForm = {
   cantidad: string;
   unidad: string;
   mermaPct: string;
+  costeManual: string;
 };
 
 type FormReceta = {
@@ -153,8 +156,23 @@ function parseDecimal(s: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Override €/ud de la línea. Solo cuenta si es un número > 0. */
+function costeManualDe(s: string | undefined | null): number | null {
+  const n = parseDecimal(s ?? '');
+  return n != null && n > 0 ? n : null;
+}
+
 function nuevaKey(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function blobADataUrl(blob: Blob): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+    reader.onerror = () => reject(reader.error ?? new Error('imagen'));
+    reader.readAsDataURL(blob);
+  });
 }
 
 function formatCantidadKpi(n: number, decimales = 3): string {
@@ -347,6 +365,7 @@ export default function EscandallosScreen() {
 
   const [imagenUrl, setImagenUrl] = useState<string | null>(null);
   const [imagenBusy, setImagenBusy] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   const [comprasCtx, setComprasCtx] = useState<Record<string, CompraContextoItem>>({});
   const [comprasModal, setComprasModal] = useState<{
@@ -705,9 +724,11 @@ export default function EscandallosScreen() {
 
       const merma = parseDecimal(ln.mermaPct || '0') ?? 0;
       const prod = getProducto(ln.ingredienteId.trim());
-      const { coste: unit, origen } = costeUnitarioConOrigen(prod, warehouseId);
+      const manual = costeManualDe(ln.costeManual);
+      const { coste: agoraUnit, origen } = costeUnitarioConOrigen(prod, warehouseId);
+      const unit = manual ?? agoraUnit;
       if (unit > 0) lineasConCoste += 1;
-      if (origen === 'otroAlmacen') lineasOtroAlmacen += 1;
+      if (manual == null && origen === 'otroAlmacen') lineasOtroAlmacen += 1;
       coste += cant * (1 + merma / 100) * unit;
     }
 
@@ -782,6 +803,7 @@ export default function EscandallosScreen() {
     setForm(FORM_VACIO);
     setImagenUrl(null);
     setImagenBusy(false);
+    setPdfBusy(false);
     setComprasCtx({});
     setComprasModal(null);
   }, [guardando]);
@@ -814,6 +836,10 @@ export default function EscandallosScreen() {
           cantidad: ing.cantidad != null ? String(ing.cantidad) : '',
           unidad: normalizeUnidadEscandallo(ing.unidad) || '',
           mermaPct: ing.mermaPct != null ? String(ing.mermaPct) : '0',
+          costeManual:
+            ing.coste_manual != null && costeManualDe(String(ing.coste_manual)) != null
+              ? String(ing.coste_manual)
+              : '',
         })),
     });
   }, []);
@@ -881,10 +907,22 @@ export default function EscandallosScreen() {
                 ...ln,
                 ingredienteId: id,
                 nombre: op?.titulo || id,
+                ...(ln.ingredienteId === id ? {} : { costeManual: '' }),
               }
             : ln,
         ),
       }));
+      if (Platform.OS !== 'web') return;
+      const campoId = escCampoId(key, 'cant');
+      const enfocar = () => focusEscCampo(campoId);
+      window.setTimeout(() => {
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(enfocar);
+        } else {
+          enfocar();
+        }
+      }, 0);
+      window.setTimeout(enfocar, 80);
     },
     [opcionProductoDe],
   );
@@ -895,7 +933,7 @@ export default function EscandallosScreen() {
       ...prev,
       lineas: [
         ...prev.lineas,
-        { key, ingredienteId: '', nombre: '', cantidad: '', unidad: 'KG', mermaPct: '0' },
+        { key, ingredienteId: '', nombre: '', cantidad: '', unidad: 'KG', mermaPct: '0', costeManual: '' },
       ],
     }));
     return key;
@@ -989,6 +1027,7 @@ export default function EscandallosScreen() {
       unidad: string;
       mermaPct: number;
       orden: number;
+      coste_manual?: number;
     }> = [];
 
     for (let i = 0; i < form.lineas.length; i += 1) {
@@ -1010,14 +1049,24 @@ export default function EscandallosScreen() {
         setErrorForm(`Merma % de la línea ${i + 1} debe estar entre 0 y 100`);
         return;
       }
-      ingredientes.push({
+      const payload: (typeof ingredientes)[number] = {
         ingredienteId: ln.ingredienteId.trim(),
         nombre: ln.nombre.trim() || ln.ingredienteId.trim(),
         cantidad,
         unidad,
         mermaPct: merma,
         orden: ingredientes.length + 1,
-      });
+      };
+      const rawManual = ln.costeManual.trim();
+      if (rawManual) {
+        const n = parseDecimal(rawManual);
+        if (n == null || n < 0) {
+          setErrorForm(`Precio manual no válido en la línea ${i + 1} (usa decimales con coma)`);
+          return;
+        }
+        if (n > 0) payload.coste_manual = n;
+      }
+      ingredientes.push(payload);
     }
 
     if (form.activo && ingredientes.length === 0) {
@@ -1113,12 +1162,169 @@ export default function EscandallosScreen() {
       const cant = parseDecimal(ln.cantidad);
       if (cant == null || cant < 0) return 0;
       const merma = parseDecimal(ln.mermaPct || '0') ?? 0;
-      const prod = getProducto(ln.ingredienteId.trim());
-      const unit = costeUnitarioProducto(prod, warehouseId);
+      const manual = costeManualDe(ln.costeManual);
+      const unit =
+        manual ??
+        costeUnitarioProducto(getProducto(ln.ingredienteId.trim()), warehouseId);
       return cant * (1 + merma / 100) * unit;
     },
     [getProducto, warehouseId],
   );
+
+  const descargarFichaPdf = useCallback(async () => {
+    if (modoNuevo && !recetaGuardada) return;
+    if (!form.productoId.trim()) {
+      setErrorForm('Guarda la receta antes de descargar la ficha PDF');
+      return;
+    }
+    if (Platform.OS !== 'web') {
+      setErrorForm('La ficha PDF está disponible en la versión web');
+      return;
+    }
+
+    const categoria = categoriaCosteTeorico(kpis.coste);
+    const margenEstiloPdf =
+      margenInfo?.pct != null ? estiloMargenPorPct(margenInfo.pct) : null;
+    const lineasPdf = form.lineas
+      .filter((ln) => ln.ingredienteId.trim())
+      .map((ln) => {
+        const compra =
+          comprasCtx[ln.ingredienteId.trim()] ||
+          comprasCtx[stripLeadingZerosId(ln.ingredienteId.trim())];
+        const cant = ln.cantidad.trim() || '—';
+        const ud = ln.unidad ? labelUnidadEscandallo(ln.unidad) : '';
+        const costeLn = costeLineaDe(ln);
+        return {
+          producto: ln.nombre.trim() || ln.ingredienteId.trim(),
+          cantidadUd: ud ? `${cant} ${ud}` : cant,
+          merma: `${ln.mermaPct.trim() || '0'}%`,
+          coste: costeLn > 0 ? formatMoneda(costeLn) : '—',
+          compraContexto: compra ? textoCompraContexto(compra) : undefined,
+        };
+      });
+
+    const lineasSinPrecio = form.lineas.filter((ln) => {
+      const id = ln.ingredienteId.trim();
+      if (!id) return false;
+      if (costeManualDe(ln.costeManual) != null) return false;
+      return costeUnitarioConOrigen(getProducto(id), warehouseId).origen === 'ninguno';
+    }).length;
+
+    const notas: string[] = [];
+    if (kpis.lineasOtroAlmacen > 0) {
+      notas.push(
+        `${kpis.lineasOtroAlmacen} ingrediente${
+          kpis.lineasOtroAlmacen === 1 ? '' : 's'
+        } sin precio en este almacén: coste de otro almacén`,
+      );
+    }
+    if (lineasSinPrecio > 0) {
+      notas.push(
+        `${lineasSinPrecio} ingrediente${lineasSinPrecio === 1 ? '' : 's'} sin precio de coste`,
+      );
+    }
+    if (localSeleccionado) {
+      if (ventaInfo.sinTarifaLocal) {
+        notas.push('Asigna la tarifa de este local en Puntos de venta');
+      } else if (ventaInfo.sinSync) {
+        notas.push('Sincroniza productos Ágora para precios de venta');
+      } else if (ventaInfo.tienePrices && ventaInfo.precio == null) {
+        notas.push('Sin precio para la tarifa de este local');
+      }
+    } else if (errorLocales) {
+      notas.push('No se pudieron cargar los locales');
+    } else {
+      notas.push('Elige un local para ver precio de venta');
+    }
+
+    const almacenNombre = warehouseId
+      ? nombreAlmacenDe(warehouseId) || `Almacén ${warehouseId}`
+      : almacenesLocal.length === 0
+        ? 'CostPrice global'
+        : '—';
+
+    let tarifaAgora = '—';
+    if (localSeleccionado && !ventaInfo.sinTarifaLocal && ventaInfo.priceListId) {
+      tarifaAgora = `Tarifa ${ventaInfo.priceListId}${
+        ventaInfo.saleCenterNombre ? ` · ${ventaInfo.saleCenterNombre}` : ''
+      }`;
+    }
+
+    setPdfBusy(true);
+    setErrorForm(null);
+    try {
+      const productoId = form.productoId.trim();
+      let imagenDataUrl: string | null = null;
+      try {
+        const res = await apiFetch(`/api/escandallos/${encodeURIComponent(productoId)}/imagen`);
+        if (res.ok) {
+          const blob = await res.blob();
+          imagenDataUrl = await blobADataUrl(blob);
+        }
+      } catch {
+        imagenDataUrl = null;
+      }
+
+      await descargarFichaEscandalloPdf({
+        productoId,
+        nombre: form.nombre.trim() || form.productoId.trim(),
+        udRecetaLabel: labelUnidadEscandallo(form.udReceta) || form.udReceta || '—',
+        activo: form.activo,
+        imagenDataUrl,
+        localNombre: localSeleccionado?.nombre || '—',
+        almacenNombre,
+        tarifaAgora,
+        peso: kpis.kgTotal > 0 ? `${formatCantidadKpi(kpis.kgTotal)} kg` : '—',
+        volumen: kpis.lTotal > 0 ? `${formatCantidadKpi(kpis.lTotal)} L` : '—',
+        unidades: kpis.udTotal > 0 ? `${formatCantidadKpi(kpis.udTotal, 2)} ud` : '—',
+        costeTeorico: kpis.coste > 0 ? formatMoneda(kpis.coste) : 'Sin coste',
+        costePastilla: {
+          texto: categoria.labelCorto,
+          bg: categoria.colores.backgroundColor,
+          fg: categoria.colores.color,
+        },
+        precioVenta:
+          !localSeleccionado || ventaInfo.sinSync || ventaInfo.precio == null
+            ? '—'
+            : formatMoneda(ventaInfo.precio),
+        margen:
+          margenInfo?.margen != null
+            ? `${formatMoneda(margenInfo.margen)}${
+                margenInfo.pct != null ? ` · ${Math.round(margenInfo.pct)}%` : ''
+              }`
+            : null,
+        margenNeto:
+          margenInfo?.neto != null
+            ? `Neto ${formatMoneda(margenInfo.neto)} (sin IVA ${IVA_VENTA}%)`
+            : null,
+        margenColores: margenEstiloPdf
+          ? { bg: margenEstiloPdf.chip.backgroundColor, fg: margenEstiloPdf.texto.color }
+          : undefined,
+        lineas: lineasPdf,
+        totalCoste: kpis.coste > 0 ? formatMoneda(kpis.coste) : '—',
+        notas,
+      });
+    } catch (e) {
+      setErrorForm(errorMessage(e, 'No se pudo generar la ficha PDF'));
+    } finally {
+      setPdfBusy(false);
+    }
+  }, [
+    modoNuevo,
+    recetaGuardada,
+    form,
+    kpis,
+    margenInfo,
+    comprasCtx,
+    costeLineaDe,
+    getProducto,
+    warehouseId,
+    localSeleccionado,
+    ventaInfo,
+    errorLocales,
+    nombreAlmacenDe,
+    almacenesLocal.length,
+  ]);
 
   if (!puedeVer) {
     return (
@@ -1538,6 +1744,30 @@ export default function EscandallosScreen() {
         ? ({ dataSet: { escCampo: escCampoId(ln.key, campo) } } as object)
         : {};
     const webNoTab = Platform.OS === 'web' ? ({ tabIndex: -1 } as object) : {};
+    const costeAgora = ln.ingredienteId.trim()
+      ? costeUnitarioProducto(getProducto(ln.ingredienteId.trim()), warehouseId)
+      : 0;
+    const mostrarCosteManual =
+      Boolean(ln.ingredienteId.trim()) && (costeAgora <= 0 || ln.costeManual.trim() !== '');
+
+    const campoManual = (
+      <TextInput
+        style={[
+          styles.tablaInput,
+          styles.lineaManualInput,
+          isPhone && { minHeight: MIN_TOUCH },
+          !editable && styles.formInputReadonly,
+        ]}
+        value={ln.costeManual}
+        onChangeText={(t) => patchLinea(ln.key, { costeManual: t })}
+        placeholder="0,00"
+        placeholderTextColor="#94a3b8"
+        keyboardType="decimal-pad"
+        editable={editable}
+        accessibilityLabel="Precio unitario manual"
+        {...webNoTab}
+      />
+    );
 
     return (
       <View
@@ -1589,6 +1819,7 @@ export default function EscandallosScreen() {
             compact
             limiteResultados={80}
             minCharsBusqueda={2}
+            tabConfirmaPrimero
             webCampoId={editable ? escCampoId(ln.key, 'ing') : undefined}
             vacioTexto={
               errorProductos
@@ -1596,10 +1827,22 @@ export default function EscandallosScreen() {
                 : 'No hay productos activos'
             }
           />
-          {ln.ingredienteId.trim() ? (
-            <Text style={styles.lineaCompraCtx} numberOfLines={1}>
-              {textoCompraContexto(compra)}
-            </Text>
+          {ln.ingredienteId.trim() || (!apilarLinea && mostrarCosteManual) ? (
+            <View style={styles.lineaMetaRow}>
+              {ln.ingredienteId.trim() ? (
+                <Text style={styles.lineaCompraCtx} numberOfLines={1}>
+                  {textoCompraContexto(compra)}
+                </Text>
+              ) : (
+                <View style={styles.flex1} />
+              )}
+              {!apilarLinea && mostrarCosteManual ? (
+                <View style={[styles.lineaManualWrap, styles.lineaManualWrapDesk]}>
+                  <Text style={styles.lineaManualLabel}>Manual</Text>
+                  {campoManual}
+                </View>
+              ) : null}
+            </View>
           ) : null}
         </View>
 
@@ -1646,6 +1889,13 @@ export default function EscandallosScreen() {
           />
         </View>
 
+        {apilarLinea && mostrarCosteManual ? (
+          <View style={[styles.flex1, styles.lineaManualWrap]}>
+            <Text style={styles.lineaManualLabel}>Manual</Text>
+            {campoManual}
+          </View>
+        ) : null}
+
         <View style={[styles.tablaCellCoste, apilarLinea && styles.flex1]}>
           {apilarLinea ? <Text style={styles.formLabel}>Coste</Text> : null}
           <Text style={styles.tablaCosteTxt} numberOfLines={1} accessible={false}>
@@ -1687,7 +1937,7 @@ export default function EscandallosScreen() {
         style={styles.panel}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.detalleHeader}>
+        <View style={[styles.detalleHeader, shouldStackPanels && styles.detalleHeaderStack]}>
           {shouldStackPanels ? (
             <TouchableOpacity
               style={styles.iconBtn}
@@ -1708,7 +1958,27 @@ export default function EscandallosScreen() {
               </Text>
             ) : null}
           </View>
-          {renderFotoCabecera()}
+          <View style={styles.detalleHeaderActions}>
+            <TouchableOpacity
+              style={[
+                styles.fichaPdfBtn,
+                (modoNuevo && !recetaGuardada) && styles.fichaPdfBtnDisabled,
+              ]}
+              onPress={() => void descargarFichaPdf()}
+              disabled={pdfBusy || loadingDetalle || (modoNuevo && !recetaGuardada)}
+              accessibilityLabel="Descargar ficha PDF"
+            >
+              {pdfBusy ? (
+                <ActivityIndicator size="small" color="#0ea5e9" />
+              ) : (
+                <MaterialIcons name="download" size={16} color="#0ea5e9" />
+              )}
+              <Text style={styles.fichaPdfBtnText}>
+                {pdfBusy ? 'Generando…' : 'Ficha PDF'}
+              </Text>
+            </TouchableOpacity>
+            {renderFotoCabecera()}
+          </View>
           {!shouldStackPanels ? (
             <TouchableOpacity
               style={styles.iconBtn}
@@ -1925,6 +2195,7 @@ type RecetaDetalleLike = {
     unidad?: string;
     mermaPct?: number;
     orden?: number;
+    coste_manual?: number | string | null;
   }>;
 };
 
@@ -2121,7 +2392,27 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e2e8f0',
     backgroundColor: '#f8fafc',
   },
+  detalleHeaderStack: { flexWrap: 'wrap', alignItems: 'flex-start' },
   detalleHeaderTitles: { flex: 1, minWidth: 0 },
+  detalleHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
+  },
+  fichaPdfBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: MIN_TOUCH,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#0ea5e9',
+    backgroundColor: '#f0f9ff',
+  },
+  fichaPdfBtnDisabled: { opacity: 0.45 },
+  fichaPdfBtnText: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
   detalleTitle: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
   detalleSub: { fontSize: 12, color: '#64748b', marginTop: 1 },
 
@@ -2335,13 +2626,34 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   tablaQuitarSpacer: { width: MIN_TOUCH, flexShrink: 0 },
+  lineaMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+    minWidth: 0,
+  },
   lineaCompraCtx: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 10,
     color: '#94a3b8',
-    marginTop: 4,
     textTransform: 'uppercase',
     letterSpacing: 0.2,
   },
+  lineaManualWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
+  lineaManualWrapDesk: { width: 118 },
+  lineaManualLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  lineaManualInput: { flex: 1, minWidth: 0 },
 
   ojoBtn: {
     minHeight: MIN_TOUCH,

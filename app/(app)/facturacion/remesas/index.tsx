@@ -28,6 +28,7 @@ import {
 } from '../../../lib/remesas';
 import type { Remesa, EstadoRemesa } from '../../../types/remesas';
 import { hoyISO } from '../../../utils/facturaFormLogic';
+import { SoftPulseBorderWrap } from '../../../components/ui/SoftPulseBorderWrap';
 
 export default function RemesasIndexScreen() {
   const router = useRouter();
@@ -160,8 +161,9 @@ export default function RemesasIndexScreen() {
             {items.map((r) => {
               const col = colorEstadoRemesa(r.estado);
               const mostrarPagar = puedeEjecutar && r.estado === 'Generada';
-              return (
-                <View key={r.remesaId} style={styles.card}>
+              const esBorrador = r.estado === 'Borrador';
+              const contenido = (
+                <>
                   <TouchableOpacity
                     onPress={() => router.push(`/facturacion/remesas/${r.remesaId}` as never)}
                     activeOpacity={0.7}
@@ -191,7 +193,19 @@ export default function RemesasIndexScreen() {
                       )}
                     </TouchableOpacity>
                   ) : null}
-                </View>
+                </>
+              );
+              return esBorrador ? (
+                <SoftPulseBorderWrap
+                  key={r.remesaId}
+                  preset="favoritos"
+                  borderRadius={12}
+                  style={styles.cardLaser}
+                >
+                  <View style={[styles.card, styles.cardBorrador]}>{contenido}</View>
+                </SoftPulseBorderWrap>
+              ) : (
+                <View key={r.remesaId} style={styles.card}>{contenido}</View>
               );
             })}
           </View>
@@ -229,7 +243,7 @@ export default function RemesasIndexScreen() {
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: '#e2e8f0' },
+  page: { flex: 1, backgroundColor: '#ffffff' },
   scroll: { flex: 1 },
   pageContent: { padding: 16, paddingBottom: 40 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
@@ -286,6 +300,24 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     ...Platform.select({
       web: { boxShadow: '0 1px 3px rgba(0,0,0,0.06)' as unknown as undefined },
+      default: {},
+    }),
+  },
+  cardLaser: {
+    minWidth: Platform.OS === 'web' ? 280 : '100%',
+    flexGrow: 1,
+    flexBasis: 280,
+    maxWidth: Platform.OS === 'web' ? 360 : '100%',
+  },
+  cardBorrador: {
+    borderWidth: 0,
+    width: '100%',
+    minWidth: '100%',
+    flexGrow: 0,
+    flexBasis: 'auto',
+    maxWidth: '100%',
+    ...Platform.select({
+      web: { boxShadow: 'none' as unknown as undefined },
       default: {},
     }),
   },

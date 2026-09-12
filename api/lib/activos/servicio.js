@@ -71,15 +71,18 @@ import { docClient, tables } from '../db.js';
 import { getEmployeeById } from '../dynamo/personalEmployees.js';
 import {
   borrarObjeto,
+  claveActaEntrega,
   clavePerteneceAlActivo,
   clavePerteneceAlModelo,
   presignarSubida,
   presignarSubidaModelo,
+  subirObjeto,
   urlFirmadaLectura,
   urlsFirmadasDeFotos,
 } from './s3.js';
 import { CUERPO_PLANTILLA_DEFAULT, DATOS_PREVIEW_PLANTILLA, renderCuerpoPlantilla, sanitizarHtmlPlantilla } from './plantillaTexto.js';
-import { lineasDisponibles, tallasDesdeMapa, unidadesDe } from './stockDisponible.js';
+import { componerCuerpoActa, generarPdfActa, renderActa } from './actaEntrega.js';
+import { lineasDisponibles, tallaDe, tallasDesdeMapa, unidadesDe } from './stockDisponible.js';
 import { agruparCustodiaPorArticulo } from './custodiaArticulos.js';
 
 function texto(v) {
@@ -1231,7 +1234,7 @@ async function listarTodosAsignados() {
   return items;
 }
 
-async function marcarAsignado(actual, empleado, actor, notas, imputado) {
+async function marcarAsignado(actual, empleado, actor, notas, imputado, acta) {
   const gse = claveEstadoCatEtiqueta(ESTADO.asignado, actual.categoria_id, actual.etiqueta_legible);
   const updated = await updateActivo(actual.asset_id, {
     UpdateExpression:
@@ -1260,6 +1263,7 @@ async function marcarAsignado(actual, empleado, actor, notas, imputado) {
       cantidad: actual.cantidad,
       local_imputado_id: imputado.id_local,
       local_imputado_nombre: imputado.local_nombre,
+      ...(acta || {}),
     },
     notas: texto(notas) || null,
   }));
@@ -1357,7 +1361,7 @@ async function restarCantidadLote(origen, qty, actor, tipoEvento, notas, extraDe
   return updated;
 }
 
-async function entregarUnaLinea(user, origen, empleado, qty, actor, notas, imputado) {
+async function entregarUnaLinea(user, origen, empleado, qty, actor, notas, imputado, acta) {
   if (origen.estado === ESTADO.baja) throw errorHttp(409, `${origen.etiqueta_legible}: está dado de baja`);
   if (origen.custodio_id || origen.estado === ESTADO.asignado) {
     throw errorHttp(409, `${origen.etiqueta_legible}: ya está entregado`);
@@ -1368,7 +1372,7 @@ async function entregarUnaLinea(user, origen, empleado, qty, actor, notas, imput
   await asegurarLocalAccesible(user, origen.id_local);
 
   if (origen.granularidad !== GRANULARIDAD.lote) {
-    return publicActivo(await marcarAsignado(origen, empleado, actor, notas, imputado));
+    return publicActivo(await marcarAsignado(origen, empleado, actor, notas, imputado, acta));
   }
 
   const disponible = unidadesDe(origen);
@@ -1385,7 +1389,7 @@ async function entregarUnaLinea(user, origen, empleado, qty, actor, notas, imput
     imputado.id_local,
   );
   if (qty === disponible && !existente) {
-    return publicActivo(await marcarAsignado(origen, empleado, actor, notas, imputado));
+    return publicActivo(await marcarAsignado(origen, empleado, actor, notas, imputado, acta));
   }
 
   let destino;
@@ -1411,6 +1415,7 @@ async function entregarUnaLinea(user, origen, empleado, qty, actor, notas, imput
         desde: origen.asset_id,
         local_imputado_id: imputado.id_local,
         local_imputado_nombre: imputado.local_nombre,
+        ...(acta || {}),
       },
       notas: texto(notas) || null,
     }));
@@ -1429,6 +1434,7 @@ async function entregarUnaLinea(user, origen, empleado, qty, actor, notas, imput
         desde: origen.asset_id,
         local_imputado_id: imputado.id_local,
         local_imputado_nombre: imputado.local_nombre,
+        ...(acta || {}),
       },
       notas,
     });
@@ -1512,21 +1518,154 @@ function parseLineasCustodia(body) {
   });
 }
 
-export async function entregarActivos(user, body) {
+async function armarActaEntrega(user, lineas, empleado, actor) {
+  const itemsHtml = [];
+  const cuerpos = [];
+  const vistosPlant = new Set();
+  const nombresPlant = [];
+  const locales = new Set();
+  for (const linea of lineas) {
+    const origen = await exigirActivoVisible(user, linea.assetId);
+    const imputado = await asegurarLocalAccesible(user, linea.localImputadoId);
+    locales.add(texto(imputado.local_nombre) || imputado.id_local);
+    const qty = origen.granularidad === GRANULARIDAD.lote
+      ? (linea.cantidad ?? unidadesDe(origen))
+      : 1;
+    const talla = tallaDe(origen);
+    itemsHtml.push(
+      [
+        origen.etiqueta_legible,
+        [origen.marca, origen.nombre_modelo].filter(Boolean).join(' '),
+        talla ? `Talla ${talla}` : '',
+        qty > 1 ? `${qty} ud.` : '1 ud.',
+      ].filter(Boolean).join(' · '),
+    );
+    const cat = origen.categoria_id ? await getCategoria(origen.categoria_id) : null;
+    const pid = texto(cat?.plantilla_documento_id);
+    if (pid && !vistosPlant.has(pid)) {
+      vistosPlant.add(pid);
+      const plant = await getPlantilla(pid);
+      if (plant && plant.activo !== false && texto(plant.cuerpo)) {
+        cuerpos.push(plant.cuerpo);
+        nombresPlant.push(texto(plant.nombre) || 'Plantilla');
+      }
+    }
+  }
+  const cuerpo = componerCuerpoActa(cuerpos);
+  const datos = {
+    fecha: new Date().toLocaleDateString('es-ES'),
+    local: [...locales].join(', ') || '—',
+    trabajador: empleado.nombre,
+    entregado_por: actor.nombre || actor.email || actor.id || '—',
+    items: itemsHtml.join('<br>'),
+    firma: '(pendiente de firma)',
+  };
+  return {
+    cuerpo,
+    datos,
+    html: renderActa(cuerpo, datos),
+    meta: {
+      trabajador: empleado.nombre,
+      locales: [...locales],
+      items: itemsHtml,
+      plantillas: nombresPlant,
+    },
+  };
+}
+
+export async function previewActaEntrega(user, body) {
+  const empleado = await cargarEmpleado(body?.employee_id, { exigirActivo: true });
+  const lineas = parseLineasCustodia(body);
+  const actor = actorDe(user);
+  const { html, meta } = await armarActaEntrega(user, lineas, empleado, actor);
+  return { html, ...meta };
+}
+
+async function exigirLineaEntregable(user, linea) {
+  const origen = await exigirActivoVisible(user, linea.assetId);
+  await asegurarLocalAccesible(user, linea.localImputadoId);
+  await asegurarLocalAccesible(user, origen.id_local);
+  if (origen.estado === ESTADO.baja) throw errorHttp(409, `${origen.etiqueta_legible}: está dado de baja`);
+  if (origen.custodio_id || origen.estado === ESTADO.asignado) {
+    throw errorHttp(409, `${origen.etiqueta_legible}: ya está entregado`);
+  }
+  if (origen.estado !== ESTADO.en_almacen) {
+    throw errorHttp(409, `${origen.etiqueta_legible}: solo se puede entregar desde almacén`);
+  }
+  const qty = origen.granularidad === GRANULARIDAD.lote
+    ? (linea.cantidad ?? unidadesDe(origen))
+    : 1;
+  if (origen.granularidad === GRANULARIDAD.lote) {
+    const disponible = unidadesDe(origen);
+    if (!Number.isInteger(qty) || qty < 1) throw errorHttp(400, `${origen.etiqueta_legible}: indica cuántas unidades`);
+    if (qty > disponible) throw errorHttp(400, `${origen.etiqueta_legible}: no hay tantas unidades`);
+  }
+  return { origen, qty };
+}
+
+export async function entregarActivos(user, body, firmaPng) {
+  if (!firmaPng?.length) throw errorHttp(400, 'Falta la firma del trabajador');
   const empleado = await cargarEmpleado(body?.employee_id, { exigirActivo: true });
   const actor = actorDe(user);
   const notas = body?.notas;
+  const lineas = parseLineasCustodia(body);
+  for (const linea of lineas) {
+    await exigirLineaEntregable(user, linea);
+  }
+  const { cuerpo, datos } = await armarActaEntrega(user, lineas, empleado, actor);
+  const htmlFirmado = renderActa(cuerpo, { ...datos, firma: '' });
+  const pdf = await generarPdfActa(htmlFirmado, firmaPng);
+  const entregaId = nuevoId();
+  const firmaKey = claveActaEntrega(entregaId, 'firma.png');
+  const pdfKey = claveActaEntrega(entregaId, 'acta.pdf');
+  try {
+    await subirObjeto(firmaKey, firmaPng, 'image/png');
+    await subirObjeto(pdfKey, pdf, 'application/pdf');
+  } catch (err) {
+    if (err?.status) throw err;
+    throw errorHttp(502, 'No se pudo guardar el acta firmada. Inténtalo de nuevo.');
+  }
+  const acta = { entrega_id: entregaId, acta_s3_key: pdfKey, firma_s3_key: firmaKey };
   const creados = [];
-  for (const linea of parseLineasCustodia(body)) {
-    if (!linea.localImputadoId) throw errorHttp(400, 'Indica el local al que se factura cada prenda');
+  for (const linea of lineas) {
     const origen = await exigirActivoVisible(user, linea.assetId);
     const imputado = await asegurarLocalAccesible(user, linea.localImputadoId);
     const qty = origen.granularidad === GRANULARIDAD.lote
       ? (linea.cantidad ?? unidadesDe(origen))
       : 1;
-    creados.push(await entregarUnaLinea(user, origen, empleado, qty, actor, notas, imputado));
+    creados.push(await entregarUnaLinea(user, origen, empleado, qty, actor, notas, imputado, acta));
   }
-  return { employee_id: empleado.id, employee_nombre: empleado.nombre, activos: creados };
+  return {
+    employee_id: empleado.id,
+    employee_nombre: empleado.nombre,
+    activos: creados,
+    entrega_id: entregaId,
+    acta_url: await urlFirmadaLectura(pdfKey, {
+      disposition: 'attachment',
+      filename: `acta-entrega-${entregaId}.pdf`,
+    }),
+  };
+}
+
+export async function urlActaEntrega(user, assetId, entregaId) {
+  await exigirActivoVisible(user, assetId);
+  const id = String(entregaId || '').replace(/[^a-zA-Z0-9-]/g, '');
+  if (!id) throw errorHttp(400, 'Identificador de entrega no válido');
+  const { items } = await listarEventos(assetId, { limite: 100 });
+  const evento = (items || []).find((ev) => {
+    const eid = ev?.despues?.entrega_id || ev?.entrega_id;
+    const key = ev?.despues?.acta_s3_key || ev?.acta_s3_key;
+    return String(eid || '') === id && key;
+  });
+  const key = evento?.despues?.acta_s3_key || evento?.acta_s3_key;
+  if (!key) throw errorHttp(404, 'No hay justificante de esta entrega');
+  return {
+    url: await urlFirmadaLectura(key, {
+      disposition: 'attachment',
+      filename: `acta-entrega-${id}.pdf`,
+    }),
+    entrega_id: id,
+  };
 }
 
 export async function devolverActivos(user, body) {

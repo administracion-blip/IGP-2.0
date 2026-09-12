@@ -120,4 +120,4 @@ export function useEscandalloLineasTab({ enabled, lineaKeys, onAddLineaAlFinal }
   }, [enabled]);
 }
 
-export { escCampoId };
+export { escCampoId, focusEscCampo };

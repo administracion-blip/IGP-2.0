@@ -102,6 +102,8 @@ export type IngredienteCosteInput = {
   ingredienteId?: string | null;
   cantidad?: number | string | null;
   mermaPct?: number | string | null;
+  /** Override €/ud de la línea. Si > 0, gana al CostPrice de Ágora. */
+  coste_manual?: number | string | null;
 };
 
 function parseNum(v: number | string | null | undefined): number | null {
@@ -111,8 +113,9 @@ function parseNum(v: number | string | null | undefined): number | null {
 }
 
 /**
- * Coste teórico = Σ cantidad × (1 + merma%/100) × costeUnitario(ingrediente).
- * `costeUnitarioDe` debe reutilizar la misma lógica de precios que el detalle.
+ * Coste teórico = Σ cantidad × (1 + merma%/100) × coste unitario.
+ * Si la línea tiene `coste_manual` > 0, ese es el €/ud (no se llama a `costeUnitarioDe`).
+ * Si no, `costeUnitarioDe` debe reutilizar la misma lógica de precios que el detalle.
  */
 export function costeTeoricoDesdeIngredientes(
   ingredientes: IngredienteCosteInput[] | undefined | null,
@@ -126,7 +129,8 @@ export function costeTeoricoDesdeIngredientes(
     const cant = parseNum(ing.cantidad);
     if (cant == null || cant < 0) continue;
     const merma = parseNum(ing.mermaPct) ?? 0;
-    const unit = costeUnitarioDe(id);
+    const manual = parseNum(ing.coste_manual);
+    const unit = manual != null && manual > 0 ? manual : costeUnitarioDe(id);
     total += cant * (1 + merma / 100) * unit;
   }
   return total;

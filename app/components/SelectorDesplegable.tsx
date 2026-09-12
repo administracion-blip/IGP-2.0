@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -69,6 +69,12 @@ type Props = {
    * Id para cadena Tab en web (`data-esc-campo`). El trigger queda focusable.
    */
   webCampoId?: string;
+  /**
+   * Solo web. Si el modal está abierto y el foco está en el buscador, Tab
+   * (sin Shift) confirma la única opción visible (como un clic). Con 0
+   * resultados no selecciona. No altera el Tab nativo si no se activa.
+   */
+  tabConfirmaPrimero?: boolean;
 };
 
 /**
@@ -99,6 +105,7 @@ export function SelectorDesplegable({
   limiteResultados,
   minCharsBusqueda,
   webCampoId,
+  tabConfirmaPrimero = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [filtro, setFiltro] = useState('');
@@ -149,10 +156,48 @@ export function SelectorDesplegable({
     };
   }, [buscador, filtro, opciones, limiteResultados, minCharsBusqueda, valorId, seleccionada]);
 
+  const tabStateRef = useRef({ opcionesVisibles, onSeleccionar });
+  tabStateRef.current = { opcionesVisibles, onSeleccionar };
+
   const cerrar = () => {
     setOpen(false);
     setFiltro('');
   };
+
+  const aplicarTabConfirma = (e: {
+    key?: string;
+    shiftKey?: boolean;
+    nativeEvent?: { key?: string; shiftKey?: boolean };
+    preventDefault?: () => void;
+    stopPropagation?: () => void;
+  }) => {
+    const key = e.nativeEvent?.key ?? e.key ?? '';
+    const shift = e.nativeEvent?.shiftKey ?? e.shiftKey ?? false;
+    if (key !== 'Tab' || shift) return false;
+    const { opcionesVisibles: visibles, onSeleccionar: sel } = tabStateRef.current;
+    if (visibles.length === 1) {
+      e.preventDefault?.();
+      e.stopPropagation?.();
+      sel(visibles[0].id);
+      cerrar();
+      return true;
+    }
+    if (visibles.length === 0) {
+      e.preventDefault?.();
+      e.stopPropagation?.();
+      return true;
+    }
+    return false;
+  };
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !tabConfirmaPrimero || !open) return;
+    const handler = (e: KeyboardEvent) => {
+      aplicarTabConfirma(e);
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [tabConfirmaPrimero, open]);
 
   return (
     <View style={style}>
@@ -222,6 +267,9 @@ export function SelectorDesplegable({
                     placeholderTextColor="#94a3b8"
                     autoCorrect={false}
                     autoFocus={Platform.OS === 'web'}
+                    {...(Platform.OS === 'web' && tabConfirmaPrimero
+                      ? ({ onKeyDown: aplicarTabConfirma } as object)
+                      : {})}
                   />
                   {filtro ? (
                     <TouchableOpacity onPress={() => setFiltro('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>

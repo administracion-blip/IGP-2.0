@@ -226,6 +226,38 @@ router.put('/escandallos/:productoId', requirePermission('escandallos.editar'), 
   }
 });
 
+/** Same-origin: binario S3 para incrustar en PDF sin CORS. */
+router.get('/escandallos/:productoId/imagen', requirePermission('escandallos.ver'), async (req, res) => {
+  const productoId = normalizeProductId(req.params.productoId);
+  if (!productoId) {
+    return res.status(400).json({ error: 'productoId es obligatorio' });
+  }
+  const receta = await getReceta(productoId);
+  if (!receta) {
+    return res.status(404).json({ error: 'Receta no encontrada' });
+  }
+  const key = receta.meta.imagen_key;
+  if (!key) {
+    return res.status(404).json({ error: 'Esta receta no tiene foto' });
+  }
+  try {
+    const obj = await s3.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: String(key) }));
+    const chunks = [];
+    for await (const chunk of obj.Body) chunks.push(chunk);
+    const buffer = Buffer.concat(chunks);
+    const ext = String(key).match(/\.([a-zA-Z0-9]{1,8})$/)?.[1] || 'jpg';
+    res.setHeader('Content-Type', obj.ContentType || 'image/jpeg');
+    res.setHeader('Content-Disposition', `inline; filename="escandallo-${productoId}.${ext}"`);
+    return res.send(buffer);
+  } catch (err) {
+    const status = err?.status || 500;
+    return res.status(status).json({
+      error: err?.message || 'Error al leer imagen',
+      ...(err?.code ? { code: err.code } : {}),
+    });
+  }
+});
+
 router.post(
   '/escandallos/:productoId/imagen',
   requirePermission('escandallos.editar'),

@@ -81,13 +81,37 @@ export async function presignarSubidaModelo({ modeloId, fotoId, contentType }) {
   return { upload_url: await presignarPut(s3Key, ct), s3_key: s3Key, foto_id: fotoId };
 }
 
-export async function urlFirmadaLectura(s3Key, { expiresIn = 900 } = {}) {
+export async function urlFirmadaLectura(s3Key, { expiresIn = 900, filename, disposition } = {}) {
   if (!s3Key) return null;
+  const params = { Bucket: S3_BUCKET, Key: s3Key };
+  if (disposition === 'attachment' || filename) {
+    const name = String(filename || 'documento').replace(/[^a-zA-Z0-9._-]/g, '_');
+    params.ResponseContentDisposition = `attachment; filename="${name}"`;
+  }
   return getSignedUrl(
     s3,
-    new GetObjectCommand({ Bucket: S3_BUCKET, Key: s3Key }),
+    new GetObjectCommand(params),
     { expiresIn },
   );
+}
+
+export function claveActaEntrega(entregaId, nombre) {
+  const id = String(entregaId || '').replace(/[^a-zA-Z0-9-]/g, '');
+  const file = String(nombre || 'acta.pdf').replace(/[^a-zA-Z0-9._-]/g, '');
+  return `activos/entregas/${id}/${file}`;
+}
+
+export async function subirObjeto(s3Key, body, contentType) {
+  if (!s3Key || !body) throw errorHttp(400, 'Falta el fichero a guardar');
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: s3Key,
+      Body: body,
+      ContentType: contentType || 'application/octet-stream',
+    }),
+  );
+  return s3Key;
 }
 
 export async function borrarObjeto(s3Key) {

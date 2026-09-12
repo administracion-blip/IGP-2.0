@@ -37,6 +37,7 @@ import {
   TRANSICIONES_ACTIVO,
 } from '../../lib/activos';
 import { activoSePuedeEntregar, useCestaActivos } from '../../lib/activosCesta';
+import { descargarActaEntregaPdf, nombreFicheroActaEntrega } from '../../lib/activosActa';
 import type { ActivoFicha, EstadoActivo, EventoActivo, FotoActivo, PreviewEtiquetaActivo } from '../../types/activos';
 
 const ROSA_BG = '#fce7f3';
@@ -46,6 +47,11 @@ async function jsonOrThrow<T>(res: Response, fallback: string): Promise<T> {
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };
   if (!res.ok) throw new Error(data.error || fallback);
   return data;
+}
+
+function entregaIdDeEvento(ev: EventoActivo): string {
+  const d = ev.despues || {};
+  return String(d.entrega_id || '').trim();
 }
 
 type Props = {
@@ -66,6 +72,8 @@ export function ActivoDetallePanel({ assetId, onActualizado }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [accion, setAccion] = useState(false);
   const [historialAbierto, setHistorialAbierto] = useState(false);
+  const [descargandoActaId, setDescargandoActaId] = useState<string | null>(null);
+  const [errorActa, setErrorActa] = useState<{ id: string; msg: string } | null>(null);
 
   const [modalTraslado, setModalTraslado] = useState(false);
   const [localDestino, setLocalDestino] = useState('');
@@ -155,6 +163,8 @@ export function ActivoDetallePanel({ assetId, onActualizado }: Props) {
 
   useEffect(() => {
     setHistorialAbierto(false);
+    setErrorActa(null);
+    setDescargandoActaId(null);
     void cargar();
   }, [cargar]);
 
@@ -272,6 +282,28 @@ export function ActivoDetallePanel({ assetId, onActualizado }: Props) {
       setError(errorMessage(e, 'No se pudo subir la foto'));
     } finally {
       setAccion(false);
+    }
+  };
+
+  const descargarJustificante = async (ev: EventoActivo) => {
+    const entregaId = entregaIdDeEvento(ev);
+    if (!assetId || !entregaId) return;
+    setDescargandoActaId(ev.evento_id);
+    setErrorActa(null);
+    try {
+      const res = await apiFetch(
+        `/api/activos/${encodeURIComponent(assetId)}/entregas/${encodeURIComponent(entregaId)}/acta`,
+      );
+      const data = await jsonOrThrow<{ url?: string; entrega_id?: string; error?: string }>(
+        res,
+        'No se pudo obtener el justificante',
+      );
+      if (!data.url) throw new Error('No hay justificante para esta entrega');
+      await descargarActaEntregaPdf(data.url, nombreFicheroActaEntrega(data.entrega_id || entregaId));
+    } catch (e) {
+      setErrorActa({ id: ev.evento_id, msg: errorMessage(e, 'No se pudo descargar el justificante') });
+    } finally {
+      setDescargandoActaId(null);
     }
   };
 
@@ -480,6 +512,27 @@ export function ActivoDetallePanel({ assetId, onActualizado }: Props) {
                   </Text>
                   {ev.notas ? <Text style={styles.eventoNotas}>{ev.notas}</Text> : null}
                   <TextoCambio ev={ev} />
+                  {ev.tipo === 'entrega' && entregaIdDeEvento(ev) ? (
+                    <>
+                      <TouchableOpacity
+                        style={styles.btnJustificante}
+                        onPress={() => void descargarJustificante(ev)}
+                        disabled={descargandoActaId === ev.evento_id}
+                        accessibilityRole="button"
+                        accessibilityLabel="Descargar justificante"
+                      >
+                        {descargandoActaId === ev.evento_id ? (
+                          <ActivityIndicator size="small" color={colors.accentPressed} />
+                        ) : (
+                          <MaterialIcons name="download" size={18} color={colors.accentPressed} />
+                        )}
+                        <Text style={styles.btnJustificanteTxt}>Descargar justificante</Text>
+                      </TouchableOpacity>
+                      {errorActa?.id === ev.evento_id ? (
+                        <Text style={styles.error}>{errorActa.msg}</Text>
+                      ) : null}
+                    </>
+                  ) : null}
                 </View>
               </View>
             ))
@@ -727,6 +780,20 @@ const styles = StyleSheet.create({
   eventoMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   eventoNotas: { fontSize: 13, color: colors.textPrimary, marginTop: 4 },
   eventoCambio: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
+  btnJustificante: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: MIN_TOUCH,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.bgSubtle,
+  },
+  btnJustificanteTxt: { color: colors.accentPressed, fontWeight: '600', fontSize: 13 },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(15,23,42,0.4)',
