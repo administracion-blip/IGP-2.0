@@ -334,6 +334,29 @@ manteniendo la interfaz `iniciar` / `consultar`.
 Sin proveedor configurado el comportamiento 2B se mantiene (omite
 `audio_pendiente`).
 
+### D-34 · El índice personal también indexa `hecha` con prefijo — 13/09/2026
+
+`Responsable-Vencimiento-index` deja de ser «solo abiertas». Las tareas `hecha`
+**con fecha límite real** (no `9999-12-31` / vacía) se quedan en el índice con
+`vencimiento_orden = hecha#YYYY-MM-DD#id`. Las `hecha` sin fecha, las `cancelada`
+y las que no tienen responsable siguen fuera (`REMOVE`). `sk_proyecto` no cambia
+(`abierta#` / `cerrada#`).
+
+*Consecuencia:*
+
+- `GET /api/tareas/mias` sin flag sigue mostrando **solo abiertas**, acotando con
+  `vencimiento_orden < hecha#` (sin FilterExpression). No mezcla hechas.
+- El calendario consulta las hechas con
+  `GET /api/tareas/mias?incluir_hechas=1&desde=&hasta=` (`BETWEEN` sobre el
+  prefijo). Las dos fechas ISO son obligatorias.
+- `GET /api/tareas?responsable=&estado=hecha` sigue **400**: el histórico por
+  persona no se abre. Se consulta por proyecto.
+- Avisos e ICS no ven `hecha#` (su tope de clave queda por debajo del prefijo; en
+  ICS se añade `< hecha#` a la KeyCondition).
+
+*Motivo:* pintar hechas en el calendario personal sin un GSI nuevo, sin Scan y
+sin mezclarlas en «Mis tareas».
+
 ---
 
 ## Abiertas

@@ -85,13 +85,14 @@ test('esEstadoTareaTerminal', () => {
 
 // ─── tipos: claves derivadas ───
 
-test('vencimientoOrdenDe: solo tareas abiertas y con responsable entran al índice', () => {
+test('vencimientoOrdenDe: abiertas y hecha con fecha; cancelada o hecha sin fecha salen', () => {
   const base = { id_tarea: 't1', responsable_id: BEA, estado: 'pendiente', fecha_limite: '2026-09-01' };
   assert.equal(vencimientoOrdenDe(base), '2026-09-01#t1');
   // Sin fecha límite ordena al final, no al principio.
   assert.equal(vencimientoOrdenDe({ ...base, fecha_limite: undefined }), `${FECHA_SIN_LIMITE}#t1`);
-  // Cerrada o sin responsable: fuera del índice, el escritor debe hacer REMOVE.
-  assert.equal(vencimientoOrdenDe({ ...base, estado: 'hecha' }), null);
+  assert.equal(vencimientoOrdenDe({ ...base, estado: 'hecha' }), 'hecha#2026-09-01#t1');
+  assert.equal(vencimientoOrdenDe({ ...base, estado: 'hecha', fecha_limite: undefined }), null);
+  assert.equal(vencimientoOrdenDe({ ...base, estado: 'hecha', fecha_limite: FECHA_SIN_LIMITE }), null);
   assert.equal(vencimientoOrdenDe({ ...base, estado: 'cancelada' }), null);
   assert.equal(vencimientoOrdenDe({ ...base, responsable_id: '' }), null);
   assert.equal(vencimientoOrdenDe(null), null);

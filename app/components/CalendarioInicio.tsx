@@ -10,7 +10,9 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Pressable,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -20,6 +22,7 @@ import { tasksUi } from '../constants/tasksUiTokens';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import { useAccesoTasks } from '../hooks/useAccesoTasks';
 import { puedeVerProyectos, puedeVerReuniones } from '../lib/tasksAcceso';
+import { BotonCrearAgendaInicio } from './tasks/BotonCrearAgendaInicio';
 import { hoyIso } from '../lib/tasksUi';
 import {
   addDaysIso,
@@ -67,6 +70,10 @@ export const COLOR_AGENDA: Record<TipoAgendaInicio, string> = {
   proyecto: '#db2777',
 };
 
+const COLOR_TAREA_HECHA = '#94a3b8';
+const FONDO_TAREA_HECHA = '#f1f5f9';
+const TEXTO_TAREA_HECHA = '#64748b';
+
 const FONDO_AGENDA: Record<TipoAgendaInicio, string> = {
   tarea: '#fefce8',
   reunion: '#f5f3ff',
@@ -88,6 +95,8 @@ type ItemAgenda = {
   fechaFin?: string;
   meta?: string;
   ruta: string;
+  /** Tarea cerrada (`estado === 'hecha'`). Se pinta en gris y tachada. */
+  hecho?: boolean;
 };
 
 type BarraEmpaquetada = {
@@ -149,8 +158,14 @@ function empaquetarBarras(items: ItemAgenda[], lunes: string): { barras: BarraEm
   };
 }
 
+function colorPuntoDia(item: ItemAgenda): string {
+  if (item.hecho) return COLOR_TAREA_HECHA;
+  return COLOR_AGENDA[item.tipo];
+}
+
 function itemsDeFuentes({
   tareas,
+  tareasHechas,
   reuniones,
   proyectos,
   incluirTareas,
@@ -158,6 +173,7 @@ function itemsDeFuentes({
   incluirProyectos,
 }: {
   tareas: Tarea[];
+  tareasHechas: Tarea[];
   reuniones: Reunion[];
   proyectos: Proyecto[];
   incluirTareas: boolean;
@@ -168,7 +184,9 @@ function itemsDeFuentes({
   const sinFecha: ItemAgenda[] = [];
 
   if (incluirTareas) {
-    for (const t of tareas) {
+    for (const t of [...tareas, ...tareasHechas]) {
+      if (t.estado === 'cancelada') continue;
+      const hecho = t.estado === 'hecha';
       const item: ItemAgenda = {
         clave: `tarea:${t.id_tarea}`,
         tipo: 'tarea',
@@ -176,9 +194,11 @@ function itemsDeFuentes({
         fecha: fechaLimiteCalendario(t.fecha_limite) ?? '',
         meta: t.proyecto_nombre?.trim() || undefined,
         ruta: `/proyectos/tarea/${encodeURIComponent(t.id_tarea)}`,
+        hecho,
       };
       if (item.fecha) conFecha.push(item);
-      else sinFecha.push(item);
+      // Las hechas sin fecha no vienen del API; no las inventamos ni las metemos en el cajón.
+      else if (!hecho) sinFecha.push(item);
     }
   }
 
@@ -229,20 +249,22 @@ function itemsDeFuentes({
 }
 
 function PastillaAgenda({ item, onAbrir }: { item: ItemAgenda; onAbrir: () => void }) {
-  const color = COLOR_AGENDA[item.tipo];
+  const hecho = Boolean(item.hecho);
+  const color = hecho ? COLOR_TAREA_HECHA : COLOR_AGENDA[item.tipo];
+  const fondo = hecho ? FONDO_TAREA_HECHA : FONDO_AGENDA[item.tipo];
   return (
     <TouchableOpacity
-      style={[styles.pill, { backgroundColor: FONDO_AGENDA[item.tipo] }]}
+      style={[styles.pill, { backgroundColor: fondo }]}
       onPress={onAbrir}
       activeOpacity={0.75}
       accessibilityLabel={`${ETIQUETA_TIPO[item.tipo]}: ${item.titulo}`}
     >
       <View style={[styles.pillFranja, { backgroundColor: color }]} />
       <View style={styles.pillCuerpo}>
-        <Text style={styles.pillTitulo} numberOfLines={2}>
+        <Text style={[styles.pillTitulo, hecho && styles.pillHecho]} numberOfLines={2}>
           {item.titulo}
         </Text>
-        <Text style={[styles.pillMeta, { color }]} numberOfLines={1}>
+        <Text style={[styles.pillMeta, { color }, hecho && styles.pillHecho]} numberOfLines={1}>
           {ETIQUETA_TIPO[item.tipo]}
           {item.meta ? ` · ${item.meta}` : ''}
         </Text>
@@ -411,11 +433,15 @@ export function CalendarioInicio() {
   const [diaSeleccionado, setDiaSeleccionado] = useState<string | null>(null);
 
   const [tareas, setTareas] = useState<Tarea[]>([]);
+  const [tareasHechas, setTareasHechas] = useState<Tarea[]>([]);
   const [reuniones, setReuniones] = useState<Reunion[]>([]);
   const [proyectos, setProyectos] = useState<Proyecto[]>([]);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [menuCrearAbierto, setMenuCrearAbierto] = useState(false);
+  const [avisoCalendario, setAvisoCalendario] = useState<string | null>(null);
   const seqReuniones = useRef(0);
+  const seqHechas = useRef(0);
 
   const hoy = hoyIso();
   const lunes = lunesDeSemanaIso(ancla);
@@ -511,10 +537,47 @@ export function CalendarioInicio() {
     }
   }, [acceso.permisosCargando, puedeReuniones, rango.desde, rango.hasta]);
 
+  const cargarHechas = useCallback(async () => {
+    if (acceso.permisosCargando || !puedeTareas) {
+      setTareasHechas([]);
+      return;
+    }
+    const seq = (seqHechas.current += 1);
+    try {
+      const acumuladas: Tarea[] = [];
+      let cursor: string | null = null;
+      for (let i = 0; i < MAX_PAGINAS_TAREAS; i += 1) {
+        const query = new URLSearchParams({
+          incluir_hechas: '1',
+          desde: rango.desde,
+          hasta: rango.hasta,
+          limite: String(LIMITE_TAREAS),
+        });
+        if (cursor) query.set('cursor', cursor);
+        const res = await apiFetch(`/api/tareas/mias?${query.toString()}`);
+        const data = (await res.json().catch(() => ({}))) as {
+          tareas?: Tarea[];
+          cursor?: string | null;
+          error?: string;
+        };
+        if (!res.ok) throw new Error(data.error || 'No se pudieron cargar las tareas hechas');
+        acumuladas.push(...(Array.isArray(data.tareas) ? data.tareas : []));
+        cursor = data.cursor ?? null;
+        if (!cursor) break;
+      }
+      if (seq === seqHechas.current) setTareasHechas(acumuladas);
+    } catch (e) {
+      if (seq !== seqHechas.current) return;
+      console.error('[inicio] fallo al cargar tareas hechas', e);
+      setError(errorMessage(e, 'No se pudieron cargar las tareas hechas'));
+    }
+  }, [acceso.permisosCargando, puedeTareas, rango.desde, rango.hasta]);
+
   useFocusEffect(
     useCallback(() => {
       void cargarBase();
-    }, [cargarBase]),
+      void cargarHechas();
+    }, [cargarBase, cargarHechas]),
   );
 
   useEffect(() => {
@@ -525,13 +588,14 @@ export function CalendarioInicio() {
     () =>
       itemsDeFuentes({
         tareas,
+        tareasHechas,
         reuniones,
         proyectos,
         incluirTareas: puedeTareas,
         incluirReuniones: puedeReuniones,
         incluirProyectos: puedeTareas,
       }),
-    [tareas, reuniones, proyectos, puedeTareas, puedeReuniones],
+    [tareas, tareasHechas, reuniones, proyectos, puedeTareas, puedeReuniones],
   );
 
   const puntuales = useMemo(() => conFecha.filter((i) => !i.fechaFin), [conFecha]);
@@ -569,6 +633,12 @@ export function CalendarioInicio() {
 
   const abrir = (item: ItemAgenda) => router.push(item.ruta as never);
 
+  const recargarAgenda = useCallback(() => {
+    void cargarBase();
+    void cargarHechas();
+    void cargarReuniones();
+  }, [cargarBase, cargarHechas, cargarReuniones]);
+
   const ir = (delta: number) => {
     if (vista === 'semana') setAncla(addDaysIso(lunesDeSemanaIso(ancla), delta * 7));
     else {
@@ -593,7 +663,15 @@ export function CalendarioInicio() {
 
   return (
     <View style={styles.card}>
-      <View style={[styles.toolbar, shouldStackToolbar && styles.toolbarWrap]}>
+      {menuCrearAbierto ? (
+        <Pressable
+          style={styles.menuOverlay}
+          onPress={() => setMenuCrearAbierto(false)}
+          accessibilityLabel="Cerrar menú crear"
+        />
+      ) : null}
+
+      <View style={[styles.toolbar, styles.toolbarSobre, shouldStackToolbar && styles.toolbarWrap]}>
         <Text style={styles.tituloBloque}>{tituloBloque}</Text>
         <View style={styles.rango}>
           <TouchableOpacity
@@ -639,8 +717,17 @@ export function CalendarioInicio() {
             );
           })}
         </View>
+        <BotonCrearAgendaInicio
+          acceso={acceso}
+          compact={isCompact || shouldStackToolbar}
+          menuAbierto={menuCrearAbierto}
+          onMenuCambio={setMenuCrearAbierto}
+          onRecargar={recargarAgenda}
+          onAvisoCalendario={setAvisoCalendario}
+        />
       </View>
 
+      <View style={styles.cuerpoAgenda}>
       <View style={styles.leyenda}>
         {(
           [
@@ -658,12 +745,17 @@ export function CalendarioInicio() {
           ))}
       </View>
 
+      {avisoCalendario ? (
+        <TouchableOpacity style={styles.aviso} onPress={() => setAvisoCalendario(null)}>
+          <Text style={styles.avisoTexto}>{avisoCalendario}</Text>
+        </TouchableOpacity>
+      ) : null}
+
       {error ? (
         <TouchableOpacity
           style={styles.aviso}
           onPress={() => {
-            void cargarBase();
-            void cargarReuniones();
+            recargarAgenda();
           }}
         >
           <Text style={styles.avisoTexto}>{error}</Text>
@@ -741,7 +833,7 @@ export function CalendarioInicio() {
                 >
                   {fila.map(({ iso, delMes }, iCol) => {
                     const delDia = porDiaCubierto.get(iso) ?? [];
-                    const colores = [...new Set(delDia.map((it) => COLOR_AGENDA[it.tipo]))];
+                    const colores = [...new Set(delDia.map(colorPuntoDia))];
                     const visibles = colores.slice(0, MAX_PUNTOS);
                     const extra = colores.length - visibles.length;
                     const esHoy = iso === hoy;
@@ -829,12 +921,14 @@ export function CalendarioInicio() {
           </ScrollView>
         </View>
       ) : null}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
+    position: 'relative',
     width: '100%',
     backgroundColor: tasksUi.color.superficie,
     borderRadius: tasksUi.radius.contenedor,
@@ -843,8 +937,18 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 10,
   },
+  menuOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+  },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  toolbarSobre: {
+    position: 'relative',
+    zIndex: 30,
+    ...(Platform.OS === 'web' ? {} : { elevation: 30 }),
+  },
   toolbarWrap: { flexWrap: 'wrap' },
+  cuerpoAgenda: { position: 'relative', zIndex: 0, gap: 10 },
   tituloBloque: { ...tasksUi.tipo.tituloSeccion },
   rango: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minWidth: 200 },
   rangoBtn: {
@@ -1056,4 +1160,5 @@ const styles = StyleSheet.create({
   pillCuerpo: { flex: 1, minWidth: 0, paddingHorizontal: 7, paddingVertical: 5, gap: 2 },
   pillTitulo: { ...tasksUi.tipo.etiqueta, fontWeight: '600', color: tasksUi.color.textoPrimario, lineHeight: 16 },
   pillMeta: { ...tasksUi.tipo.micro, fontWeight: '500' },
+  pillHecho: { color: TEXTO_TAREA_HECHA, textDecorationLine: 'line-through' },
 });

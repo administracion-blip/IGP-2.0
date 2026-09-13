@@ -127,7 +127,11 @@ export function ModalFormularioTarea({
       setError('La tarea necesita una persona responsable');
       return;
     }
-    if (datos.fecha_limite && !/^\d{4}-\d{2}-\d{2}$/.test(datos.fecha_limite)) {
+    if (!datos.fecha_limite.trim()) {
+      setError('La fecha límite es obligatoria');
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(datos.fecha_limite)) {
       setError('Indica una fecha válida (dd/mm/aaaa)');
       return;
     }
@@ -295,7 +299,7 @@ export function ModalFormularioTarea({
 
                 <View style={[form.group, form.gridDos, shouldStackPanels && form.gridDosApilado]}>
                   <View style={form.col}>
-                    <Text style={form.label}>Fecha límite</Text>
+                    <Text style={form.label}>Fecha límite *</Text>
                     <InputFecha
                       compact
                       valueIso={datos.fecha_limite}

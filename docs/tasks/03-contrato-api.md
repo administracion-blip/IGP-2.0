@@ -226,12 +226,12 @@ Cómo se agrega (servidor):
 
 | Método | Ruta | Fase | Permiso | Notas |
 |---|---|---|---|---|
-| GET | `/api/tareas/mias` | 1A | `proyectos.ver` | **Vista personal.** Solo abiertas, ordenadas por vencimiento, vía `Responsable-Vencimiento-index`. Devuelve además el recuento de vencidas. Incluye `proyecto_nombre`: la pantalla no necesita traerse el listado de proyectos para cruzarlo |
-| GET | `/api/tareas` | 1A | `proyectos.ver` | **Exige `proyecto` o `responsable`** (D-18); además, filtros `estado` y `departamento`. Ver otra persona exige `tareas.ver_todas` o ser miembro del proyecto |
-| POST | `/api/tareas` | 1A | poder editar el proyecto: ser responsable, o miembro con `proyectos.editar`. **Sin proyecto**, `proyectos.editar` | |
+| GET | `/api/tareas/mias` | 1A | `proyectos.ver` | **Vista personal.** Sin flag: solo abiertas (`vencimiento_orden < hecha#`), ordenadas por vencimiento, más recuento de `vencidas`. Con `?incluir_hechas=1&desde=&hasta=` (ambas ISO `YYYY-MM-DD`; si faltan, 400): **solo hechas** de la sesión cuyo sort key cae en `BETWEEN hecha#<desde>#` y `hecha#<hasta>#\uffff`. Respuesta `{ tareas, cursor }` (sin `vencidas`). No mezcla abiertas y hechas. Incluye `proyecto_nombre` |
+| GET | `/api/tareas` | 1A | `proyectos.ver` | **Exige `proyecto` o `responsable`** (D-18); además, filtros `estado` y `departamento`. `responsable` + estado terminal sigue **400** (D-34: el histórico por persona no se abre). Ver otra persona exige `tareas.ver_todas` o ser miembro del proyecto |
+| POST | `/api/tareas` | 1A | poder editar el proyecto: ser responsable, o miembro con `proyectos.editar`. **Sin proyecto**, `proyectos.editar` | `fecha_limite` obligatoria (ISO `YYYY-MM-DD`); 400 si falta o el formato no vale |
 | POST | `/api/tareas/lote` | 1A | `proyectos.editar` | **Creación en lote.** Ver abajo |
 | GET | `/api/tareas/:id` | 1A | `proyectos.ver` + visibilidad | `META` + checklist + enlaces + vínculos en una Query |
-| PATCH | `/api/tareas/:id` | 1A | ser responsable, o miembro del proyecto, o `tareas.editar_todas` | |
+| PATCH | `/api/tareas/:id` | 1A | ser responsable, o miembro del proyecto, o `tareas.editar_todas` | No se puede vaciar `fecha_limite` (400) |
 | POST | `/api/tareas/:id/estado` | 1A | igual que PATCH | Transiciones validadas. `bloqueada` exige motivo. Mantiene `vencimiento_orden` y `sk_proyecto` |
 | POST | `/api/tareas/:id/reasignar` | 1A | poder editar el proyecto de la tarea; en tarea suelta, haberla creado. **`tareas.editar_todas` no reasigna** (D-13) | Cambia el responsable único y avisa al nuevo |
 | DELETE | `/api/tareas/:id` | 1A | `proyectos.borrar` | `409` si tiene subtareas abiertas. Se lleva la partición entera **y los objetos de S3** de sus enlaces y adjuntos |

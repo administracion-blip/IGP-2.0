@@ -11,10 +11,9 @@
  * 1. **Las dos claves derivadas se mantienen en cada escritura.**
  *    `vencimiento_orden` y `sk_proyecto` salen de `vencimientoOrdenDe` y
  *    `skProyectoDe`, y cuando devuelven `null` el atributo se **borra**
- *    (`REMOVE`), no se escribe vacío. De eso depende que
- *    `Responsable-Vencimiento-index` contenga solo tareas abiertas y que la vista
- *    personal no tenga que filtrar nada. Una tarea cerrada que se queda en el
- *    índice es el error más fácil de cometer aquí.
+ *    (`REMOVE`), no se escribe vacío. El índice personal lleva abiertas y
+ *    `hecha` con fecha (`hecha#…`); `cancelada`, `hecha` sin fecha y sin
+ *    responsable salen. La vista personal acota con `< hecha#` y no filtra.
  * 2. **Ni un `Scan`.** Todo por clave primaria o por índice, y paginado. Por eso
  *    el listado general exige filtrar por proyecto o por persona: no hay índice
  *    que devuelva «todas las tareas» (ver `docs/tasks/02-modelo-datos.md`).
@@ -46,6 +45,7 @@ import {
   MAX_TAREAS_LOTE,
   PERMISOS,
   PK,
+  PREFIJO_VENCIMIENTO_HECHA,
   PRIORIDADES,
   SK,
   enLista,
@@ -663,6 +663,10 @@ function normalizarChecklistEntrante(bruto) {
 export async function crearTarea({ ctx, datos = {} } = {}) {
   const validado = validarDatosTarea(datos);
   if (!validado.ok) return { ok: false, status: 400, error: validado.error };
+  // El lote y las plantillas pueden nacer sin plazo; el alta individual, no.
+  if (!validado.datos.fecha_limite) {
+    return { ok: false, status: 400, error: 'La fecha límite es obligatoria' };
+  }
 
   let idProyecto = texto(datos.proyecto_id);
   let departamentoHeredado = '';
@@ -948,9 +952,10 @@ async function contarVencidas(idUsuario) {
  * **Vista personal.** Tareas abiertas de quien pregunta, ya ordenadas por
  * vencimiento, más el recuento de vencidas.
  *
- * El índice solo contiene tareas abiertas —el escritor borra `vencimiento_orden`
- * al cerrarlas—, así que aquí no se filtra por estado. Tampoco hace falta filtrar
- * por visibilidad: ser la persona responsable siempre da acceso.
+ * El índice también guarda `hecha` con prefijo `hecha#` (D-34). Aquí no se
+ * filtra por estado: la KeyCondition `vencimiento_orden < hecha#` deja fuera
+ * ese prefijo. Tampoco hace falta filtrar por visibilidad: ser la persona
+ * responsable siempre da acceso.
  *
  * @returns {Promise<{ ok: true, tareas: object[], vencidas: number, cursor: string|null } | Fallo>}
  */
@@ -963,8 +968,8 @@ export async function listarMisTareas({ ctx, limite, cursor } = {}) {
     new QueryCommand({
       TableName: tables.tareas,
       IndexName: IDX_RESPONSABLE,
-      KeyConditionExpression: 'responsable_id = :r',
-      ExpressionAttributeValues: { ':r': idUsuario },
+      KeyConditionExpression: 'responsable_id = :r AND vencimiento_orden < :tope',
+      ExpressionAttributeValues: { ':r': idUsuario, ':tope': PREFIJO_VENCIMIENTO_HECHA },
       Limit: limiteValido(limite),
       ...(desde && { ExclusiveStartKey: desde }),
     }),
@@ -984,6 +989,52 @@ export async function listarMisTareas({ ctx, limite, cursor } = {}) {
     ok: true,
     tareas: items.map((t) => salidaConExtras(t, ctx, { aux: auxDeMapa(proyectos, t), nombres })),
     vencidas: await contarVencidas(idUsuario),
+    cursor: codificarCursor(res.LastEvaluatedKey),
+  };
+}
+
+/**
+ * Hechas de quien pregunta cuyo sort key cae en el rango de fechas (calendario).
+ *
+ * Exige `desde` y `hasta` ISO (`YYYY-MM-DD`). No mezcla abiertas: BETWEEN sobre
+ * `hecha#<desde>#` … `hecha#<hasta>#\uffff`. Sin recuento de vencidas.
+ *
+ * @returns {Promise<{ ok: true, tareas: object[], cursor: string|null } | Fallo>}
+ */
+export async function listarMisTareasHechas({ ctx, desde: fechaDesde, hasta: fechaHasta, limite, cursor } = {}) {
+  const idUsuario = texto(ctx?.idUsuario);
+  if (!idUsuario) return { ok: false, status: 403, error: 'No hay sesión' };
+  if (!esFechaIso(fechaDesde) || !esFechaIso(fechaHasta)) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'Para consultar las tareas hechas hay que indicar desde y hasta en formato AAAA-MM-DD',
+    };
+  }
+
+  const inicioCursor = decodificarCursor(cursor);
+  const res = await docClient.send(
+    new QueryCommand({
+      TableName: tables.tareas,
+      IndexName: IDX_RESPONSABLE,
+      KeyConditionExpression: 'responsable_id = :r AND vencimiento_orden BETWEEN :desde AND :hasta',
+      ExpressionAttributeValues: {
+        ':r': idUsuario,
+        ':desde': `${PREFIJO_VENCIMIENTO_HECHA}${fechaDesde}#`,
+        ':hasta': `${PREFIJO_VENCIMIENTO_HECHA}${fechaHasta}#\uffff`,
+      },
+      Limit: limiteValido(limite),
+      ...(inicioCursor && { ExclusiveStartKey: inicioCursor }),
+    }),
+  );
+
+  const items = res.Items || [];
+  const proyectos = await proyectosDeLaPagina(ctx, items);
+  const nombres = new Map([[idUsuario, texto(ctx?.nombre) || null]]);
+
+  return {
+    ok: true,
+    tareas: items.map((t) => salidaConExtras(t, ctx, { aux: auxDeMapa(proyectos, t), nombres })),
     cursor: codificarCursor(res.LastEvaluatedKey),
   };
 }
@@ -1077,8 +1128,8 @@ export async function listarTareas({ ctx, filtros = {}, limite, cursor } = {}) {
     };
   }
   if (!proyecto && esEstadoTareaTerminal(estado)) {
-    // El índice por responsable solo tiene tareas abiertas, así que la respuesta
-    // sería una lista vacía indistinguible de «no hay ninguna».
+    // El histórico por persona sigue cerrado (D-34): las hechas del índice
+    // personal solo se ven por `/tareas/mias?incluir_hechas=1`.
     return {
       ok: false,
       status: 400,
@@ -1098,8 +1149,11 @@ export async function listarTareas({ ctx, filtros = {}, limite, cursor } = {}) {
       }
     : {
         IndexName: IDX_RESPONSABLE,
-        KeyConditionExpression: 'responsable_id = :h',
-        ...filtroDeIgualdades({ estado, departamento_id: departamento }, { ':h': responsable }),
+        KeyConditionExpression: 'responsable_id = :h AND vencimiento_orden < :tope',
+        ...filtroDeIgualdades(
+          { estado, departamento_id: departamento },
+          { ':h': responsable, ':tope': PREFIJO_VENCIMIENTO_HECHA },
+        ),
       };
 
   const desde = decodificarCursor(cursor);
@@ -1229,7 +1283,10 @@ export async function actualizarTarea({ ctx, idTarea, cambios = {} } = {}) {
   if (cambios.descripcion !== undefined) nuevos.descripcion = texto(cambios.descripcion);
   if (cambios.fecha_limite !== undefined) {
     const fecha = texto(cambios.fecha_limite);
-    if (fecha && !esFechaIso(fecha)) {
+    if (!fecha) {
+      return { ok: false, status: 400, error: 'La fecha límite es obligatoria' };
+    }
+    if (!esFechaIso(fecha)) {
       return { ok: false, status: 400, error: 'La fecha límite debe ser una fecha en formato AAAA-MM-DD' };
     }
     nuevos.fecha_limite = fecha;
@@ -1285,8 +1342,8 @@ export async function actualizarTarea({ ctx, idTarea, cambios = {} } = {}) {
  *
  * Las transiciones las decide `transicionTareaPermitida`, y una no permitida es
  * `422`, no `400`: la petición está bien formada, es el estado el que no la
- * admite. Cerrar la tarea la saca de `Responsable-Vencimiento-index` y reabrirla
- * la devuelve, que es lo que hace que la vista personal no tenga que filtrar.
+ * admite. `hecha` con fecha se queda en el índice con prefijo `hecha#`;
+ * `cancelada` o `hecha` sin fecha hacen `REMOVE`. Reabrir restaura `fecha#id`.
  *
  * @returns {Promise<{ ok: true, tarea: object } | Fallo>}
  */

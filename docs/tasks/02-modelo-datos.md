@@ -32,9 +32,11 @@ crece, se reparte añadiendo sufijo al valor fijo, sin cambiar la clave primaria
 Un GSI solo contiene los ítems que llevan su atributo de clave. Como el módulo
 guarda las filas hijas como ítems separados (`MIEMBRO#`, `COMPRA#`, `VINC#`), cada
 índice indexa un subconjunto pequeño y el coste de escritura no se multiplica por
-el número de índices. El caso más útil: `Responsable-Vencimiento-index` solo
-contiene **tareas abiertas**, porque el atributo de orden se **borra** al cerrarlas.
-La vista personal consulta un índice minúsculo, sin filtros.
+el número de índices. El caso más útil: `Responsable-Vencimiento-index` contiene
+tareas **abiertas** y las **`hecha` con fecha** (prefijo `hecha#`, D-34). El
+atributo se **borra** si no hay responsable, si está `cancelada` o si está `hecha`
+sin fecha real. La vista personal acota con `vencimiento_orden < hecha#` y no
+necesita FilterExpression.
 
 ---
 
@@ -161,7 +163,7 @@ volumen es un orden de magnitud mayor.
 | `responsable_id` | string | 1A | **Uno solo.** Obligatorio salvo en borrador |
 | `proyecto_id` | string | 1A | Opcional (tarea suelta). Clave del `Proyecto-index` |
 | `departamento_id` | string | 1A | Se hereda del proyecto al crear; editable |
-| `fecha_limite` | date | 1A | Opcional |
+| `fecha_limite` | date | 1A | Obligatoria al crear por API de alta individual; ítems antiguos y lote pueden no tenerla |
 | `prioridad` | enum | 1A | `baja` · `media` · `alta` |
 | `checklist` | lista | 1A | Lista de comprobación interna. Ver abajo |
 | `tarea_padre_id` | string | 1A | Subtarea. Clave del `Padre-index` |
@@ -170,7 +172,7 @@ volumen es un orden de magnitud mayor.
 | `reunion_origen_id` | string | 1B | Reunión de la que nació. Clave del `Reunion-index` |
 | `propuesta_origen_id` | string | 2 | Propuesta de IA validada que la creó |
 | `cita_origen` | string | 2 | Cita literal de la transcripción que la justificó. **Se conserva** aunque se edite la tarea |
-| `vencimiento_orden` | string | 1A | **Disperso.** `<fecha_limite o 9999-12-31>#<id_tarea>`. Se **borra** al pasar a estado terminal |
+| `vencimiento_orden` | string | 1A | **Disperso.** Abierta: `<fecha_limite o 9999-12-31>#<id_tarea>`. `hecha` con fecha real: `hecha#<YYYY-MM-DD>#<id_tarea>`. Se **borra** si no hay responsable, si está `cancelada`, o si está `hecha` sin fecha (`9999-12-31` / vacía) |
 | `sk_proyecto` | string | 1A | `<abierta\|cerrada>#<fecha_limite o 9999-12-31>#<id_tarea>` |
 | `cerrada_en` | string | 1A | |
 | `creado_por` / `creado_en` / `actualizado_en` | string | 1A | |
@@ -245,15 +247,16 @@ de dejar que el backend responda `422`.
 
 | Índice | HASH | RANGE | Proyección | Resuelve |
 |---|---|---|---|---|
-| `Responsable-Vencimiento-index` | `responsable_id` | `vencimiento_orden` | ALL | **Vista personal.** Solo tareas abiertas, ya ordenadas por vencimiento |
+| `Responsable-Vencimiento-index` | `responsable_id` | `vencimiento_orden` | ALL | **Vista personal** (abiertas: `vencimiento_orden < hecha#`) y calendario de hechas (`BETWEEN hecha#<desde>#` y `hecha#<hasta>#\uffff`). `cancelada` y `hecha` sin fecha no están |
 | `Proyecto-index` | `proyecto_id` | `sk_proyecto` | ALL | Tareas de un proyecto, abiertas primero y por fecha |
 | `Padre-index` | `tarea_padre_id` | `creado_en` | ALL | Subtareas de una tarea |
 | `Reunion-index` | `reunion_origen_id` | `creado_en` | ALL | «Qué salió de esta reunión» y el seguimiento de acuerdos incumplidos |
 | `Vinculo-index` | `vinculo_clave` | `PK` | KEYS_ONLY | «Qué tareas tocan a este proveedor / local / factura» |
 
-El histórico de tareas cerradas de una persona **no** tiene índice propio: se
-consulta desde el proyecto. Es deliberado, para que la vista personal siga siendo
-barata y para no indexar datos que nadie mira a diario.
+El histórico de tareas cerradas de una persona **no** se abre por
+`GET /api/tareas?responsable=&estado=hecha` (sigue 400). Las `hecha` con fecha sí
+viven en este índice, visibles solo por el query de calendario
+`GET /api/tareas/mias?incluir_hechas=1`. El resto se consulta desde el proyecto.
 
 ---
 

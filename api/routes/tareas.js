@@ -33,6 +33,7 @@ import {
   listarActividadTarea,
   listarComentarios,
   listarMisTareas,
+  listarMisTareasHechas,
   listarSubtareas,
   listarTareas,
   obtenerTareaDetalle,
@@ -51,6 +52,12 @@ const router = Router();
 
 /** Campos que acepta el `PATCH`. El estado y el responsable tienen su propia ruta. */
 const CAMPOS_PATCH = ['titulo', 'descripcion', 'fecha_limite', 'prioridad', 'departamento_id', 'menciones'];
+
+/** Query truthy (`1` / `true` / `yes`) para el calendario de hechas. */
+function queryTruthy(valor) {
+  const t = String(valor ?? '').trim().toLowerCase();
+  return t === '1' || t === 'true' || t === 'yes';
+}
 
 /**
  * Traduce el fallo uniforme de la capa de lógica a HTTP. Devuelve `true` si ya ha
@@ -89,11 +96,21 @@ router.post('/tasks/vencimientos/token', requirePermission(PERMISOS.proyectosVer
 
 // Antes de `/tareas/:id`: si no, «mias» se tomaría por un id.
 router.get('/tareas/mias', requirePermission(PERMISOS.proyectosVer), async (req, res) => {
-  const r = await listarMisTareas({
-    ctx: await contexto(req),
-    limite: req.query?.limite,
-    cursor: req.query?.cursor,
-  });
+  const ctx = await contexto(req);
+  const limite = req.query?.limite;
+  const cursor = req.query?.cursor;
+  if (queryTruthy(req.query?.incluir_hechas)) {
+    const r = await listarMisTareasHechas({
+      ctx,
+      desde: req.query?.desde,
+      hasta: req.query?.hasta,
+      limite,
+      cursor,
+    });
+    if (fallo(res, r)) return;
+    return res.json({ tareas: r.tareas, cursor: r.cursor });
+  }
+  const r = await listarMisTareas({ ctx, limite, cursor });
   if (fallo(res, r)) return;
   return res.json({ tareas: r.tareas, vencidas: r.vencidas, cursor: r.cursor });
 });

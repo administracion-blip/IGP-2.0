@@ -14,7 +14,7 @@ import crypto from 'node:crypto';
 import { GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
 import { logger } from '../logger.js';
-import { FECHA_SIN_LIMITE } from './tipos.js';
+import { FECHA_SIN_LIMITE, PREFIJO_VENCIMIENTO_HECHA } from './tipos.js';
 
 export const ICS_AJUSTE_PK = 'tareas';
 export const ICS_TOKEN_SK_PREFIJO = 'ics_token#';
@@ -122,6 +122,7 @@ function dtstampUtc(fecha = new Date()) {
 
 /**
  * Tareas abiertas del responsable con fecha límite real (no `9999-12-31`).
+ * Acota `vencimiento_orden < hecha#` para no listar hechas del índice (D-34).
  */
 export async function tareasAbiertasConVencimiento(responsableId) {
   const uid = texto(responsableId);
@@ -133,8 +134,8 @@ export async function tareasAbiertasConVencimiento(responsableId) {
       new QueryCommand({
         TableName: tables.tareas,
         IndexName: IDX_RESPONSABLE,
-        KeyConditionExpression: 'responsable_id = :r',
-        ExpressionAttributeValues: { ':r': uid },
+        KeyConditionExpression: 'responsable_id = :r AND vencimiento_orden < :tope',
+        ExpressionAttributeValues: { ':r': uid, ':tope': PREFIJO_VENCIMIENTO_HECHA },
         ProjectionExpression: 'id_tarea, titulo, fecha_limite',
         ...(desde && { ExclusiveStartKey: desde }),
       }),

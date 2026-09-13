@@ -5,9 +5,10 @@
  *
  * - **Uno por persona, con su lista.** Quince correos a las nueve de la mañana
  *   se silencian el primer día, y entonces el módulo ya no avisa de nada.
- * - **Solo lo que está abierto y tiene plazo.** Las cerradas no están en el
- *   índice y las que no tienen fecha límite ordenan en `9999-12-31`, fuera del
- *   corte: si alguna de las dos apareciera, el aviso dejaría de creerse.
+ * - **Solo lo que está abierto y tiene plazo.** Las `hecha` con prefijo
+ *   `hecha#` quedan por encima del tope `hoy#\uffff` y no entran; las
+ *   `cancelada` salen del índice; las sin fecha ordenan en `9999-12-31`,
+ *   fuera del corte.
  * - **A su responsable y a nadie más.**
  * - **El nombre del proyecto solo a quien lo alcanza.** Tener una tarea asignada
  *   no da acceso al proyecto del que cuelga, y el correo no es una puerta lateral
@@ -241,8 +242,7 @@ test('no se avisa de tareas cerradas ni de las que no tienen fecha límite', asy
     responsable_id: ANA.id_usuario,
     fecha_limite: dia(-1),
   });
-  // Cerrada y pasada de plazo: el escritor le borra `vencimiento_orden`, así que
-  // ni siquiera está en el índice.
+  // Hecha con fecha: entra al índice con `hecha#…`, por encima de `hoy#\uffff`.
   sembrarTarea(db, {
     id_tarea: 'hecha',
     titulo: 'Vencida pero hecha',
@@ -250,6 +250,10 @@ test('no se avisa de tareas cerradas ni de las que no tienen fecha límite', asy
     fecha_limite: dia(-9),
     estado: 'hecha',
   });
+  assert.equal(
+    db.obtener(tables.tareas, { PK: PK.tarea('hecha'), SK: SK.meta }).vencimiento_orden,
+    `hecha#${dia(-9)}#hecha`,
+  );
   sembrarTarea(db, {
     id_tarea: 'cancelada',
     titulo: 'Vencida pero cancelada',

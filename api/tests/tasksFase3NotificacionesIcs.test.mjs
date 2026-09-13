@@ -443,6 +443,13 @@ test('feed ICS lista vencimientos del dueño del token sin DESCRIPTION', async (
     responsable_id: BEA.id_usuario,
     fecha_limite: '2026-09-05',
   });
+  sembrarTarea(db, {
+    id_tarea: 'hecha-con-fecha',
+    titulo: 'Ya hecha',
+    responsable_id: ANA.id_usuario,
+    fecha_limite: '2026-09-08',
+    estado: 'hecha',
+  });
 
   const { token } = await rotarTokenIcs({ usuarioId: ANA.id_usuario });
   const feed = await feedVencimientosIcs(token);
@@ -451,6 +458,7 @@ test('feed ICS lista vencimientos del dueño del token sin DESCRIPTION', async (
   assert.equal(feed.ics.includes('SECRETO'), false);
   assert.equal(feed.ics.includes('Tarea de Bea'), false);
   assert.equal(feed.ics.includes('Sin plazo'), false);
+  assert.equal(feed.ics.includes('Ya hecha'), false);
   assert.equal(/DESCRIPTION/i.test(feed.ics), false);
 
   const tareas = await tareasAbiertasConVencimiento(ANA.id_usuario);

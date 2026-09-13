@@ -21,7 +21,10 @@ export type EstadoProyecto = (typeof ESTADOS_PROYECTO)[number];
 export const ESTADOS_TAREA = ['pendiente', 'en_curso', 'bloqueada', 'hecha', 'cancelada'] as const;
 export type EstadoTarea = (typeof ESTADOS_TAREA)[number];
 
-/** Estados en los que la tarea deja de estar abierta y sale de la vista personal. */
+/**
+ * Estados en los que la tarea deja de estar abierta y sale de la vista personal
+ * (Mis tareas). Las hechas con fecha se piden aparte para el calendario de inicio.
+ */
 export const ESTADOS_TAREA_TERMINALES = ['hecha', 'cancelada'] as const;
 
 export const PRIORIDADES = ['baja', 'media', 'alta'] as const;

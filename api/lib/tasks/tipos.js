@@ -124,6 +124,8 @@ export const MAX_CHECKLIST = 50;
 export const MAX_TAREAS_LOTE = 50;
 /** Las tareas sin fecha límite ordenan al final, no al principio. */
 export const FECHA_SIN_LIMITE = '9999-12-31';
+/** Prefijo de `vencimiento_orden` para tareas `hecha` con fecha real (D-34). */
+export const PREFIJO_VENCIMIENTO_HECHA = 'hecha#';
 
 // ─── Prefijos de clave ───
 
@@ -211,15 +213,20 @@ export function transicionTareaPermitida(desde, hasta) {
 /**
  * Atributo de orden del índice `Responsable-Vencimiento-index`.
  *
- * Devuelve `null` cuando la tarea **no debe estar en el índice**: sin
- * responsable, o ya cerrada. El escritor debe hacer `REMOVE` del atributo en
- * ese caso, y de ahí que el índice contenga solo tareas abiertas y la vista
- * personal no necesite filtrar nada.
+ * El índice no es solo de abiertas (D-34): las `hecha` **con fecha real**
+ * quedan con prefijo `hecha#YYYY-MM-DD#id` para el calendario. Devuelve
+ * `null` —y el escritor debe hacer `REMOVE`— si no hay responsable, si está
+ * `cancelada`, o si está `hecha` sin fecha (`9999-12-31` / vacía / inválida).
+ * La vista personal acota con `vencimiento_orden < hecha#` y no filtra.
  */
 export function vencimientoOrdenDe(tarea) {
   if (!tarea?.responsable_id) return null;
-  if (esEstadoTareaTerminal(tarea.estado)) return null;
   const fecha = tarea.fecha_limite || FECHA_SIN_LIMITE;
+  if (tarea.estado === 'hecha') {
+    if (!fecha || fecha === FECHA_SIN_LIMITE || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return null;
+    return `${PREFIJO_VENCIMIENTO_HECHA}${fecha}#${tarea.id_tarea}`;
+  }
+  if (esEstadoTareaTerminal(tarea.estado)) return null; // cancelada
   return `${fecha}#${tarea.id_tarea}`;
 }
 

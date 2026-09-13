@@ -4,11 +4,10 @@
  * Lo que se fija aquí no es que el CRUD escriba, es que no se rompan las reglas
  * que hacen que la lista sirva para algo:
  *
- * - **Cerrar una tarea la saca de la vista personal.** El índice
- *   `Responsable-Vencimiento-index` es disperso y solo contiene tareas abiertas
- *   porque el escritor **borra** `vencimiento_orden` al cerrarlas. Si en su lugar
- *   se escribiera cadena vacía, la vista personal empezaría a mostrar tareas
- *   hechas y nadie sabría por qué.
+ * - **Cerrar una tarea la saca de la vista personal.** `hecha` con fecha se
+ *   queda en el índice con prefijo `hecha#`; «Mis tareas» acota con
+ *   `vencimiento_orden < hecha#` y no la mezcla. `cancelada` o `hecha` sin
+ *   fecha siguen haciendo `REMOVE`.
  * - **Una tarea sin fecha límite ordena al final**, no al principio: si no, lo
  *   primero que se ve al abrir la pantalla es lo que no tiene plazo.
  * - **El acceso se decide con el proyecto delante.** Quien no participa no ve las
@@ -229,7 +228,12 @@ function dia(desplazamiento) {
 }
 
 async function crear(cuerpo, usuario = ANA) {
-  const r = await api('POST', '/api/tareas', { responsable_id: ANA.sub, ...cuerpo }, usuario);
+  const r = await api(
+    'POST',
+    '/api/tareas',
+    { responsable_id: ANA.sub, fecha_limite: dia(7), ...cuerpo },
+    usuario,
+  );
   assert.equal(r.status, 200, JSON.stringify(r.body));
   return r.body.tarea;
 }
@@ -251,9 +255,9 @@ test('cerrar una tarea la saca de la vista personal y reabrirla la devuelve', as
 
   const cierre = await api('POST', `/api/tareas/${tarea.id_tarea}/estado`, { estado: 'hecha' });
   assert.equal(cierre.status, 200);
-  // El atributo de orden se **borra**: escribir cadena vacía dejaría la tarea
-  // dentro del índice y la vista personal seguiría mostrándola.
-  assert.equal(meta(db, tarea.id_tarea).vencimiento_orden, undefined);
+  // Con fecha real el atributo se queda con prefijo `hecha#` (D-34); «Mis
+  // tareas» no la mezcla porque acota `vencimiento_orden < hecha#`.
+  assert.equal(meta(db, tarea.id_tarea).vencimiento_orden, `hecha#${dia(3)}#${tarea.id_tarea}`);
   assert.match(meta(db, tarea.id_tarea).sk_proyecto, /^cerrada#/);
   assert.ok(meta(db, tarea.id_tarea).cerrada_en);
 
@@ -271,15 +275,15 @@ test('cerrar una tarea la saca de la vista personal y reabrirla la devuelve', as
 });
 
 test('una tarea sin fecha límite ordena al final, no al principio', async () => {
-  montar();
+  const db = montar();
   const conPlazo = await crear({ titulo: 'Firmar presupuesto', fecha_limite: dia(2) });
-  const sinPlazo = await crear({ titulo: 'Repasar proveedores' });
+  sembrarTarea(db, { id_tarea: 'sinplazo-orden', titulo: 'Repasar proveedores', responsable_id: ANA.sub });
   const lejana = await crear({ titulo: 'Revisar garantías', fecha_limite: dia(40) });
 
   const r = await api('GET', '/api/tareas/mias');
   assert.deepEqual(
     r.body.tareas.map((t) => t.id_tarea),
-    [conPlazo.id_tarea, lejana.id_tarea, sinPlazo.id_tarea],
+    [conPlazo.id_tarea, lejana.id_tarea, 'sinplazo-orden'],
   );
 });
 
@@ -290,7 +294,7 @@ test('el recuento de vencidas cuenta las pasadas de plazo y no las cerradas', as
   sembrarTarea(db, { id_tarea: 'hoy', titulo: 'Vence hoy', responsable_id: ANA.sub, fecha_limite: dia(0) });
   sembrarTarea(db, { id_tarea: 'futura', titulo: 'Vence luego', responsable_id: ANA.sub, fecha_limite: dia(5) });
   sembrarTarea(db, { id_tarea: 'sinplazo', titulo: 'Sin plazo', responsable_id: ANA.sub });
-  // Cerrada y pasada de plazo: no está en el índice, así que no cuenta.
+  // Hecha con fecha: está en el índice con `hecha#…`, pero `< hoy#` no la ve.
   sembrarTarea(db, {
     id_tarea: 'cerrada',
     titulo: 'Vencida pero hecha',
@@ -359,7 +363,7 @@ test('sin permiso del módulo no se entra ni al listado ni a la vista personal',
   assert.equal((await api('GET', '/api/tareas/mias', undefined, CARLOS)).status, 403);
   assert.equal((await api('GET', `/api/tareas?proyecto=${OBRA}`, undefined, CARLOS)).status, 403);
   assert.equal(
-    (await api('POST', '/api/tareas', { titulo: 'X', responsable_id: CARLOS.sub }, CARLOS)).status,
+    (await api('POST', '/api/tareas', { titulo: 'X', responsable_id: CARLOS.sub, fecha_limite: dia(7) }, CARLOS)).status,
     403,
   );
 });
@@ -807,6 +811,49 @@ test('el listado exige proyecto o persona: no hay índice de todas las tareas', 
   assert.match(historico.body.error, /por proyecto/);
 });
 
+test('incluir_hechas exige rango y solo devuelve hechas con fecha en él', async () => {
+  const db = montar();
+  const abierta = await crear({ titulo: 'Sigue abierta', fecha_limite: '2026-09-15' });
+  const hechaEnRango = await crear({ titulo: 'Hecha en rango', fecha_limite: '2026-09-10' });
+  const hechaFuera = await crear({ titulo: 'Hecha fuera', fecha_limite: '2026-08-01' });
+  const hechaSinFechaId = sembrarTarea(db, {
+    id_tarea: 'hecha-sin-fecha',
+    titulo: 'Hecha sin fecha',
+    responsable_id: ANA.sub,
+  });
+  const cancelada = await crear({ titulo: 'Cancelada con fecha', fecha_limite: '2026-09-12' });
+
+  assert.equal((await api('POST', `/api/tareas/${hechaEnRango.id_tarea}/estado`, { estado: 'hecha' })).status, 200);
+  assert.equal((await api('POST', `/api/tareas/${hechaFuera.id_tarea}/estado`, { estado: 'hecha' })).status, 200);
+  assert.equal((await api('POST', `/api/tareas/${hechaSinFechaId}/estado`, { estado: 'hecha' })).status, 200);
+  assert.equal((await api('POST', `/api/tareas/${cancelada.id_tarea}/estado`, { estado: 'cancelada' })).status, 200);
+
+  assert.equal(meta(db, hechaEnRango.id_tarea).vencimiento_orden, `hecha#2026-09-10#${hechaEnRango.id_tarea}`);
+  assert.equal(meta(db, hechaSinFechaId).vencimiento_orden, undefined);
+  assert.equal(meta(db, cancelada.id_tarea).vencimiento_orden, undefined);
+
+  const sinFechas = await api('GET', '/api/tareas/mias?incluir_hechas=1');
+  assert.equal(sinFechas.status, 400);
+
+  const soloDesde = await api('GET', '/api/tareas/mias?incluir_hechas=1&desde=2026-09-01');
+  assert.equal(soloDesde.status, 400);
+
+  const calendario = await api('GET', '/api/tareas/mias?incluir_hechas=1&desde=2026-09-01&hasta=2026-09-30');
+  assert.equal(calendario.status, 200);
+  assert.equal('vencidas' in calendario.body, false);
+  assert.deepEqual(calendario.body.tareas.map((t) => t.id_tarea), [hechaEnRango.id_tarea]);
+
+  const mias = await api('GET', '/api/tareas/mias');
+  assert.deepEqual(mias.body.tareas.map((t) => t.id_tarea), [abierta.id_tarea]);
+
+  const porPersona = await api('GET', `/api/tareas?responsable=${ANA.sub}`);
+  assert.equal(porPersona.status, 200);
+  assert.deepEqual(porPersona.body.tareas.map((t) => t.id_tarea), [abierta.id_tarea]);
+
+  const historico = await api('GET', `/api/tareas?responsable=${ANA.sub}&estado=hecha`);
+  assert.equal(historico.status, 400);
+});
+
 // ─── Nombres y permisos de fila ───
 
 test('la vista personal trae el nombre del proyecto y el de quien pregunta sin leer usuarios', async () => {
@@ -962,6 +1009,7 @@ test('crear_subtarea coincide con lo que acepta POST /api/tareas', async () => {
       responsable_id: usuario.sub,
       proyecto_id: OBRA,
       tarea_padre_id: tarea.id_tarea,
+      fecha_limite: dia(7),
     }, usuario);
 
     assert.equal(
@@ -1002,6 +1050,7 @@ test('una subtarea hereda el proyecto de su madre y sale por el índice de padre
     titulo: 'Huérfana',
     responsable_id: ANA.sub,
     tarea_padre_id: 'no-existe',
+    fecha_limite: dia(7),
   });
   assert.equal(inventada.status, 400);
 });
@@ -1116,17 +1165,15 @@ test('editar la fecha límite reordena la vista personal y queda el antes y el d
   });
 });
 
-test('quitar la fecha límite deja la tarea al final, no fuera del índice', async () => {
+test('no se puede quitar la fecha límite', async () => {
   const db = montar();
   const tarea = await crear({ titulo: 'Cambiar la rotulación', fecha_limite: dia(3) });
-  await api('PATCH', `/api/tareas/${tarea.id_tarea}`, { fecha_limite: '' });
+  const r = await api('PATCH', `/api/tareas/${tarea.id_tarea}`, { fecha_limite: '' });
 
-  assert.equal(meta(db, tarea.id_tarea).fecha_limite, undefined);
-  assert.equal(meta(db, tarea.id_tarea).vencimiento_orden, `9999-12-31#${tarea.id_tarea}`);
-  assert.deepEqual(
-    (await api('GET', '/api/tareas/mias')).body.tareas.map((t) => t.id_tarea),
-    [tarea.id_tarea],
-  );
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /fecha límite es obligatoria/);
+  assert.equal(meta(db, tarea.id_tarea).fecha_limite, dia(3));
+  assert.equal(meta(db, tarea.id_tarea).vencimiento_orden, `${dia(3)}#${tarea.id_tarea}`);
 });
 
 test('el PATCH valida y no acepta campos que no son suyos', async () => {
@@ -1156,6 +1203,13 @@ test('una tarea que no existe da 404 en todas sus rutas', async () => {
 
 // ─── Creación ───
 
+test('crear exige fecha límite', async () => {
+  montar();
+  const r = await api('POST', '/api/tareas', { titulo: 'Sin plazo', responsable_id: ANA.sub });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /fecha límite es obligatoria/);
+});
+
 test('crear exige título y responsable, y hereda el departamento del proyecto', async () => {
   const db = montar();
   assert.equal((await api('POST', '/api/tareas', { responsable_id: ANA.sub })).status, 400);
@@ -1182,6 +1236,7 @@ test('no se crean tareas en un proyecto que no se ve ni en uno que no se puede e
     titulo: 'Colarse',
     responsable_id: EVA.sub,
     proyecto_id: OBRA,
+    fecha_limite: dia(7),
   }, EVA);
   assert.equal(ajeno.status, 404, 'un 403 confirmaría que el proyecto existe');
 
@@ -1190,6 +1245,7 @@ test('no se crean tareas en un proyecto que no se ve ni en uno que no se puede e
     titulo: 'Mirar y callar',
     responsable_id: EVA.sub,
     proyecto_id: SECRETO,
+    fecha_limite: dia(7),
   }, EVA);
   assert.equal(observadora.status, 403);
   assert.match(observadora.body.error, /No puedes crear tareas/);
@@ -1198,6 +1254,7 @@ test('no se crean tareas en un proyecto que no se ve ni en uno que no se puede e
     titulo: 'En la nada',
     responsable_id: ANA.sub,
     proyecto_id: 'no-existe',
+    fecha_limite: dia(7),
   });
   assert.equal(inventado.status, 404);
   assert.equal(db.listar(tables.tareas).length, 0);
@@ -1232,6 +1289,7 @@ test('el responsable del proyecto crea tareas en él sin tener proyectos.editar'
     titulo: 'Pedir sombrillas',
     responsable_id: BEA.sub,
     proyecto_id: 'p-bea',
+    fecha_limite: dia(7),
   }, BEA);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.tarea.proyecto_id, 'p-bea');
@@ -1242,13 +1300,18 @@ test('el responsable del proyecto crea tareas en él sin tener proyectos.editar'
     titulo: 'Colarse',
     responsable_id: BEA.sub,
     proyecto_id: OBRA,
+    fecha_limite: dia(7),
   }, BEA);
   assert.equal(ajena.status, 403);
 });
 
 test('la tarea suelta sí exige proyectos.editar: sin proyecto no hay fila que decida', async () => {
   const db = montar();
-  const sinPermiso = await api('POST', '/api/tareas', { titulo: 'Suelta', responsable_id: ANA.sub }, BEA);
+  const sinPermiso = await api('POST', '/api/tareas', {
+    titulo: 'Suelta',
+    responsable_id: ANA.sub,
+    fecha_limite: dia(7),
+  }, BEA);
   assert.equal(sinPermiso.status, 403);
   assert.match(sinPermiso.body.error, /sin proyecto/);
   assert.equal(db.listar(tables.tareas).length, 0);
@@ -1259,6 +1322,7 @@ test('la tarea suelta sí exige proyectos.editar: sin proyecto no hay fila que d
     titulo: 'Recoger los modelos',
     responsable_id: ANA.sub,
     tarea_padre_id: madre.id_tarea,
+    fecha_limite: dia(7),
   }, BEA);
   assert.equal(hija.status, 403);
 });
