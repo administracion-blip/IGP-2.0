@@ -27,6 +27,7 @@ type Props = {
     product_name?: string;
     producto_id?: string;
     cantidad?: number;
+    acuerdo_botellas_restantes?: number | null;
     pvp_unitario?: number;
     ultimo_iva_compra?: number | null;
   }[];
@@ -95,6 +96,7 @@ export function DocumentoProveedorPreview({ neg, lineas, puedeExportar }: Props)
           <View style={styles.tableHeader}>
             <Text style={[styles.th, styles.colProd]}>Producto</Text>
             <Text style={[styles.th, styles.colCant]}>Cant.</Text>
+            <Text style={[styles.th, styles.colRest]}>Rest.</Text>
             <Text style={[styles.th, styles.colPvp]}>PVP</Text>
             <Text style={[styles.th, styles.colIva]}>IVA</Text>
             <Text style={[styles.th, styles.colTotal]}>Total</Text>
@@ -111,6 +113,7 @@ export function DocumentoProveedorPreview({ neg, lineas, puedeExportar }: Props)
                 <View key={`${l.producto}-${i}`} style={styles.tableRow}>
                   <Text style={[styles.td, styles.colProd]} numberOfLines={2}>{l.producto}</Text>
                   <Text style={[styles.td, styles.colCant]}>{l.cantidad}</Text>
+                  <Text style={[styles.td, styles.colRest]}>{l.restante}</Text>
                   <Text style={[styles.td, styles.colPvp]}>{l.pvp}</Text>
                   <Text style={[styles.td, styles.colIva]}>{l.iva}</Text>
                   <Text style={[styles.td, styles.colTotal, styles.totalBold]}>{l.total}</Text>
@@ -119,13 +122,28 @@ export function DocumentoProveedorPreview({ neg, lineas, puedeExportar }: Props)
                 </View>
               ))}
               <View style={styles.tableFooter}>
-                <Text style={[styles.tdFooter, styles.colProd]} />
+                <Text style={[styles.tdFooter, styles.colProd, styles.subtotalLabel]} numberOfLines={1}>
+                  Subtotal
+                </Text>
                 <Text style={[styles.tdFooter, styles.colCant]} />
+                <Text style={[styles.tdFooter, styles.colRest]} />
                 <Text style={[styles.tdFooter, styles.colPvp]} />
-                <Text style={[styles.tdFooter, styles.colIva, styles.subtotalLabel]}>Subtotal</Text>
-                <Text style={[styles.tdFooter, styles.colTotal, styles.subtotalValue]}>{data.subtotal}</Text>
-                <Text style={[styles.tdFooter, styles.colIvaImp, styles.ivaBlue, styles.subtotalConIvaValue]}>{data.subtotalIvaImporte}</Text>
-                <Text style={[styles.tdFooter, styles.colTotalIva, styles.ivaBlue, styles.subtotalConIvaValue]}>{data.subtotalConIva}</Text>
+                <Text style={[styles.tdFooter, styles.colIva]} />
+                <Text style={[styles.tdFooter, styles.colTotal, styles.subtotalValue]} numberOfLines={1}>
+                  {data.subtotal}
+                </Text>
+                <Text
+                  style={[styles.tdFooter, styles.colIvaImp, styles.ivaBlue, styles.subtotalConIvaValue]}
+                  numberOfLines={1}
+                >
+                  {data.subtotalIvaImporte}
+                </Text>
+                <Text
+                  style={[styles.tdFooter, styles.colTotalIva, styles.ivaBlue, styles.subtotalConIvaValue]}
+                  numberOfLines={1}
+                >
+                  {data.subtotalConIva}
+                </Text>
               </View>
             </>
           )}
@@ -225,11 +243,12 @@ const styles = StyleSheet.create({
   subtotalValue: { fontWeight: '800', color: '#0f172a' },
   subtotalConIvaValue: { fontWeight: '800', color: '#0ea5e9' },
   colProd: { flex: 1, minWidth: 0, paddingRight: 4 },
-  colCant: { width: 28, textAlign: 'center' },
-  colPvp: { width: 46, textAlign: 'right' },
-  colIva: { width: 32, textAlign: 'center' },
-  colTotal: { width: 54, textAlign: 'right' },
-  colIvaImp: { width: 50, textAlign: 'right' },
-  colTotalIva: { width: 58, textAlign: 'right' },
+  colCant: { width: 26, textAlign: 'center' },
+  colRest: { width: 34, textAlign: 'center' },
+  colPvp: { width: 40, textAlign: 'right' },
+  colIva: { width: 28, textAlign: 'center' },
+  colTotal: { width: 58, textAlign: 'right' },
+  colIvaImp: { width: 54, textAlign: 'right' },
+  colTotalIva: { width: 62, textAlign: 'right' },
   emptyTd: { fontStyle: 'italic', color: '#94a3b8' },
 });

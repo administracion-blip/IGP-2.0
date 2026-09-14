@@ -4,6 +4,7 @@ import { formatFecha } from '../utils/formatFecha';
 export type LineaDocumentoProveedor = {
   producto: string;
   cantidad: number;
+  restante: string;
   pvp: string;
   iva: string;
   total: string;
@@ -43,6 +44,7 @@ type LineaNeg = {
   product_name?: string;
   producto_id?: string;
   cantidad?: number;
+  acuerdo_botellas_restantes?: number | null;
   pvp_unitario?: number;
   ultimo_iva_compra?: number | null;
 };
@@ -73,6 +75,9 @@ export function buildDocumentoProveedorData(
     return {
       producto: l.product_name || l.producto_id || '—',
       cantidad,
+      restante: l.acuerdo_botellas_restantes == null
+        ? '—'
+        : Number(l.acuerdo_botellas_restantes).toLocaleString('es-ES'),
       pvp: formatEur(pvpNum, 2),
       iva: formatIvaPct(l.ultimo_iva_compra),
       total: formatEur(totalNum, 2),
@@ -171,23 +176,24 @@ export async function descargarPdfDocumentoProveedor(
 
   autoTable(doc, {
     startY: y,
-    head: [['Producto', 'Cant.', 'PVP', 'IVA', 'Total', 'Imp. IVA', 'Total c/IVA']],
+    head: [['Producto', 'Cant.', 'Rest.', 'PVP', 'IVA', 'Total', 'Imp. IVA', 'Total c/IVA']],
     body: data.lineas.length
       ? data.lineas.map((l) => [
         l.producto,
         String(l.cantidad),
+        l.restante,
         l.pvp,
         l.iva,
         l.total,
         l.ivaImporte,
         l.totalConIva,
       ])
-      : [['—', '—', '—', '—', '—', '—', '—']],
+      : [['—', '—', '—', '—', '—', '—', '—', '—']],
     foot: [
-      ['', '', '', 'Subtotal', data.subtotal, data.subtotalIvaImporte, data.subtotalConIva],
+      ['Subtotal', '', '', '', '', data.subtotal, data.subtotalIvaImporte, data.subtotalConIva],
     ],
-    styles: { fontSize: 9, cellPadding: 2.5 },
-    headStyles: { fillColor: [248, 250, 252], textColor: [71, 85, 105], fontStyle: 'bold', fontSize: 8 },
+    styles: { fontSize: 8.5, cellPadding: 2 },
+    headStyles: { fillColor: [248, 250, 252], textColor: [71, 85, 105], fontStyle: 'bold', fontSize: 7.5 },
     footStyles: {
       fillColor: [248, 250, 252],
       textColor: [15, 23, 42],
@@ -196,23 +202,24 @@ export async function descargarPdfDocumentoProveedor(
     },
     columnStyles: {
       0: { cellWidth: 'auto' },
-      1: { cellWidth: 14, halign: 'center' },
-      2: { cellWidth: 22, halign: 'right' },
-      3: { cellWidth: 14, halign: 'center' },
-      4: { cellWidth: 24, halign: 'right', fontStyle: 'bold' },
-      5: { cellWidth: 22, halign: 'right', textColor: PDF_AZUL },
-      6: { cellWidth: 26, halign: 'right', textColor: PDF_AZUL, fontStyle: 'bold' },
+      1: { cellWidth: 12, halign: 'center' },
+      2: { cellWidth: 14, halign: 'center' },
+      3: { cellWidth: 19, halign: 'right' },
+      4: { cellWidth: 12, halign: 'center' },
+      5: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+      6: { cellWidth: 20, halign: 'right', textColor: PDF_AZUL },
+      7: { cellWidth: 24, halign: 'right', textColor: PDF_AZUL, fontStyle: 'bold' },
     },
     didParseCell: (hookData) => {
       if (hookData.section === 'body') {
-        if (hookData.column.index === 4) hookData.cell.styles.fontStyle = 'bold';
-        if (hookData.column.index === 5 || hookData.column.index === 6) {
+        if (hookData.column.index === 5) hookData.cell.styles.fontStyle = 'bold';
+        if (hookData.column.index === 6 || hookData.column.index === 7) {
           hookData.cell.styles.textColor = PDF_AZUL;
-          if (hookData.column.index === 6) hookData.cell.styles.fontStyle = 'bold';
+          if (hookData.column.index === 7) hookData.cell.styles.fontStyle = 'bold';
         }
       }
       if (hookData.section === 'foot') {
-        if (hookData.column.index === 5 || hookData.column.index === 6) {
+        if (hookData.column.index === 6 || hookData.column.index === 7) {
           hookData.cell.styles.textColor = PDF_AZUL;
           hookData.cell.styles.fontStyle = 'bold';
         }

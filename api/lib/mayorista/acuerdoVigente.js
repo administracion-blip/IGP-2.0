@@ -4,6 +4,7 @@
  */
 import { ScanCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
+import { queryComprasPorProductos } from '../dynamo/comprasProveedor.js';
 import {
   totalAportacionUnitaria,
   fechaEnRangoAcuerdo,
@@ -29,17 +30,23 @@ function fechaAIso(fecha) {
   return t.slice(0, 10);
 }
 
-/**
- * @returns {Promise<{ vigente: boolean, aportacion_unitaria: number, acuerdo_id: string|null, acuerdo_fecha_fin: string|null, acuerdo_marca: string|null }>}
- */
-export async function resolveAcuerdoVigenteProducto(productId, fechaOperacion) {
-  const vacio = {
+function vacioAcuerdo() {
+  return {
     vigente: false,
     aportacion_unitaria: 0,
     acuerdo_id: null,
     acuerdo_fecha_fin: null,
     acuerdo_marca: null,
+    botellas_restantes: null,
+    botellas_acordadas: null,
   };
+}
+
+/**
+ * @returns {Promise<{ vigente: boolean, aportacion_unitaria: number, acuerdo_id: string|null, acuerdo_fecha_fin: string|null, acuerdo_marca: string|null, botellas_restantes: number|null, botellas_acordadas: number|null }>}
+ */
+export async function resolveAcuerdoVigenteProducto(productId, fechaOperacion) {
+  const vacio = vacioAcuerdo();
   const pid = String(productId ?? '').trim();
   const fecha = fechaAIso(fechaOperacion);
   if (!pid || !fecha) return vacio;
@@ -61,6 +68,7 @@ export async function resolveAcuerdoVigenteProducto(productId, fechaOperacion) {
 
   let mejorAu = -1;
   let mejor = vacio;
+  let ganador = null;
 
   for (const d of candidatos) {
     const acuerdo = await docClient.send(new GetCommand({
@@ -76,15 +84,30 @@ export async function resolveAcuerdoVigenteProducto(productId, fechaOperacion) {
     const au = totalAportacionUnitaria(d);
     if (au > mejorAu) {
       mejorAu = au;
+      ganador = { detalle: d, inicio, fin };
       mejor = {
         vigente: true,
         aportacion_unitaria: au,
         acuerdo_id: String(d.PK),
         acuerdo_fecha_fin: fin ? fechaAIso(fin) : null,
         acuerdo_marca: a.Marca ? String(a.Marca) : null,
+        botellas_restantes: null,
+        botellas_acordadas: null,
       };
     }
   }
 
+  if (!ganador) return mejor;
+
+  const pidGanador = String(ganador.detalle.ProductId ?? ganador.detalle.SK ?? '').trim() || pid;
+  const acordado = Number(ganador.detalle.Cantidad) || 0;
+  const comprasPorProducto = await queryComprasPorProductos(
+    new Set([pidGanador]),
+    ganador.inicio,
+    ganador.fin,
+  );
+  const compradas = comprasPorProducto[pidGanador] || 0;
+  mejor.botellas_acordadas = acordado;
+  mejor.botellas_restantes = acordado - compradas;
   return mejor;
 }

@@ -9,6 +9,7 @@ import {
   TextInput,
   Modal,
   Pressable,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -17,7 +18,7 @@ import {
   erpListTableStyles,
 } from '../constants/erpListTableStyles';
 import { useAuth } from '../contexts/AuthContext';
-import { tallaDeActivo, unidadesDeActivo } from '../lib/activos';
+import { fotoGeneralUrl, tallaDeActivo, unidadesDeActivo } from '../lib/activos';
 import { apiFetch, errorMessage } from '../utils/api';
 import type { CustodiaEmpleado } from '../types/activos';
 
@@ -363,6 +364,8 @@ export default function PersonalScreen() {
               {(desglose?.activos || []).map((a) => {
                 const talla = tallaDeActivo(a);
                 const on = Boolean(selDev[a.asset_id]);
+                const thumb = fotoGeneralUrl(a);
+                const fotoLabel = `Foto de ${a.nombre_modelo || a.etiqueta_legible}`;
                 return (
                   <View key={a.asset_id} style={styles.modalFila}>
                     {puedeDevolver ? (
@@ -374,6 +377,21 @@ export default function PersonalScreen() {
                         />
                       </TouchableOpacity>
                     ) : null}
+                    {thumb ? (
+                      <Image
+                        source={{ uri: thumb }}
+                        style={styles.modalThumb}
+                        resizeMode="cover"
+                        accessibilityLabel={fotoLabel}
+                      />
+                    ) : (
+                      <View
+                        style={[styles.modalThumb, styles.modalThumbVacio]}
+                        accessibilityLabel={fotoLabel}
+                      >
+                        <MaterialIcons name="image" size={20} color="#94a3b8" />
+                      </View>
+                    )}
                     <View style={{ flex: 1 }}>
                       <Text style={styles.modalEtiqueta}>{a.etiqueta_legible}</Text>
                       <Text style={styles.modalMeta} numberOfLines={1}>
@@ -539,6 +557,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
+  modalThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: '#e2e8f0',
+  },
+  modalThumbVacio: { alignItems: 'center', justifyContent: 'center' },
   modalEtiqueta: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
   modalMeta: { fontSize: 12, color: '#64748b', marginTop: 2 },
   modalCant: {

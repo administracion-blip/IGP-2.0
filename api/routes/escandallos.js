@@ -191,6 +191,7 @@ router.get('/escandallos/:productoId', requirePermission('escandallos.ver'), asy
     udReceta: receta.meta.udReceta,
     activo: receta.meta.activo,
     imagen_key: receta.meta.imagen_key || '',
+    etiquetas: receta.meta.etiquetas || [],
     updatedAt: receta.meta.updatedAt,
     ingredientes: receta.ingredientes,
   });
@@ -214,6 +215,7 @@ router.put('/escandallos/:productoId', requirePermission('escandallos.editar'), 
       udReceta: saved.meta.udReceta,
       activo: saved.meta.activo,
       imagen_key: saved.meta.imagen_key || '',
+      etiquetas: saved.meta.etiquetas || [],
       updatedAt: saved.meta.updatedAt,
       ingredientes: saved.ingredientes,
     });

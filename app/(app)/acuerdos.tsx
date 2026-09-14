@@ -1864,7 +1864,16 @@ export default function AcuerdosScreen() {
                                 <TouchableOpacity onPress={() => pago.abrirEditar(p)} style={styles.imgCardIconBtn}>
                                   <MaterialIcons name="edit" size={14} color="#64748b" />
                                 </TouchableOpacity>
-                                <TouchableOpacity onPress={() => pago.eliminar(p.SK)} style={styles.imgCardIconBtn}>
+                                <TouchableOpacity
+                                  onPress={() =>
+                                    confirmDelete(
+                                      'Eliminar pago',
+                                      'Se va a borrar este pago por imagen. Esta acción no se puede deshacer.',
+                                      () => pago.eliminar(p.SK),
+                                    )
+                                  }
+                                  style={styles.imgCardIconBtn}
+                                >
                                   <MaterialIcons name="delete-outline" size={14} color="#ef4444" />
                                 </TouchableOpacity>
                               </View>
@@ -2020,7 +2029,16 @@ export default function AcuerdosScreen() {
                             >
                               <MaterialIcons name="open-in-new" size={14} color="#0ea5e9" />
                             </TouchableOpacity>
-                            <TouchableOpacity onPress={() => eliminarArchivo(f.fileKey)} style={styles.fileCardActionBtn}>
+                            <TouchableOpacity
+                              onPress={() =>
+                                confirmDelete(
+                                  'Eliminar documento',
+                                  `Se va a borrar «${f.fileName}». Esta acción no se puede deshacer.`,
+                                  () => eliminarArchivo(f.fileKey),
+                                )
+                              }
+                              style={styles.fileCardActionBtn}
+                            >
                               <MaterialIcons name="delete-outline" size={14} color="#ef4444" />
                             </TouchableOpacity>
                           </View>

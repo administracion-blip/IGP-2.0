@@ -63,6 +63,8 @@ type AcuerdoVigente = {
   acuerdo_id: string | null;
   acuerdo_fecha_fin: string | null;
   acuerdo_marca: string | null;
+  botellas_restantes?: number | null;
+  botellas_acordadas?: number | null;
 };
 type Linea = {
   id_linea: string;
@@ -95,6 +97,7 @@ type Linea = {
   alerta_aceptada?: boolean;
   /** IVA de compra del artículo (ultimo_iva_compra). */
   ultimo_iva_compra?: number | null;
+  acuerdo_botellas_restantes?: number | null;
   _modo_edicion?: 'pct' | 'pvp';
   _histPvp?: number | null;
 };
@@ -283,6 +286,16 @@ function recalcLineaFields(
   };
 }
 
+function restBotellasDeAcuerdo(acuerdo: AcuerdoVigente): number | null {
+  return acuerdo.vigente ? (acuerdo.botellas_restantes ?? null) : null;
+}
+
+function colorRestantes(n: number): string {
+  if (n <= 0) return '#dc2626';
+  if (n < 50) return '#d97706';
+  return '#475569';
+}
+
 function mergeAcuerdoEnLinea(
   l: Linea,
   acuerdo: AcuerdoVigente,
@@ -296,6 +309,7 @@ function mergeAcuerdoEnLinea(
     aportacion_unitaria: Number(acuerdo.aportacion_unitaria) || 0,
     dias_cobro: diasCobro,
     marca: acuerdo.acuerdo_marca || l.marca,
+    acuerdo_botellas_restantes: restBotellasDeAcuerdo(acuerdo),
   }, neg, cfg);
 }
 
@@ -449,7 +463,10 @@ export default function MayoristaDetalleScreen() {
         out[i] = { ...out[i], _histPvp: null };
       }
     }));
-    setLineas(out);
+    setLineas((prev) => prev.map((l) => {
+      const hit = out.find((x) => x.id_linea === l.id_linea);
+      return hit ? { ...l, _histPvp: hit._histPvp } : l;
+    }));
   }, []);
 
   useEffect(() => {
@@ -512,27 +529,42 @@ export default function MayoristaDetalleScreen() {
     return d as { acuerdo: AcuerdoVigente; dias_cobro: number };
   }, []);
 
-  const refrescarAcuerdosLineas = useCallback(async (fecha: string, base?: Linea[]) => {
+  const refrescarAcuerdosLineas = useCallback(async (
+    fecha: string,
+    base?: Linea[],
+    opts?: { soloRestantes?: boolean },
+  ) => {
     const lista = base ?? lineas;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || lista.length === 0) return lista;
+    const soloRestantes = Boolean(opts?.soloRestantes);
     const out = await Promise.all(lista.map(async (l) => {
       if (!l.producto_id) return l;
       try {
         const { acuerdo, dias_cobro } = await fetchAcuerdoProducto(l.producto_id, fecha);
+        if (soloRestantes) {
+          return { ...l, acuerdo_botellas_restantes: restBotellasDeAcuerdo(acuerdo) };
+        }
         return mergeAcuerdoEnLinea(l, acuerdo, dias_cobro, neg, config);
       } catch {
         return l;
       }
     }));
-    setLineas(out);
+    setLineas((prev) => prev.map((l) => {
+      const hit = out.find((x) => x.id_linea === l.id_linea);
+      if (!hit) return l;
+      if (soloRestantes) {
+        return { ...l, acuerdo_botellas_restantes: hit.acuerdo_botellas_restantes };
+      }
+      return { ...l, ...hit, _histPvp: l._histPvp };
+    }));
     return out;
   }, [lineas, neg, config, fetchAcuerdoProducto]);
 
   const acuerdoInitRef = useRef(false);
   useEffect(() => {
-    if (loading || acuerdoInitRef.current || !editable || !neg?.fecha || lineas.length === 0) return;
+    if (loading || acuerdoInitRef.current || !neg?.fecha || lineas.length === 0) return;
     acuerdoInitRef.current = true;
-    void refrescarAcuerdosLineas(neg.fecha);
+    void refrescarAcuerdosLineas(neg.fecha, undefined, { soloRestantes: !editable });
   }, [loading, editable, neg?.fecha, lineas.length, refrescarAcuerdosLineas]);
 
   const abrirModalProveedor = async (idx: number) => {
@@ -604,6 +636,7 @@ export default function MayoristaDetalleScreen() {
         aportacion_unitaria: 0,
         dias_cobro: 0,
         ultimo_iva_compra: iva,
+        acuerdo_botellas_restantes: null,
         _modo_edicion: 'pvp',
       };
       nueva = recalcLineaFields(nueva, neg, config);
@@ -686,6 +719,7 @@ export default function MayoristaDetalleScreen() {
       if (!saved) return;
       setNeg(saved.negociacion);
       setLineas(saved.lineas);
+      void refrescarAcuerdosLineas(saved.negociacion.fecha || '', saved.lineas, { soloRestantes: true });
       if (saved.negociacion?.id) void refrescarHistorico(saved.lineas, saved.negociacion.id);
       showToast('Guardado', 'Operación guardada correctamente.', 'success');
       if (esNuevo && saved.negociacion?.id) {
@@ -748,6 +782,7 @@ export default function MayoristaDetalleScreen() {
       }
       setNeg(d.negociacion);
       setLineas(d.lineas || []);
+      void refrescarAcuerdosLineas(d.negociacion?.fecha || '', d.lineas || [], { soloRestantes: true });
       showToast('Confirmada', 'La operación ha sido confirmada.', 'success');
       if (esNuevo && negId) router.replace(`/mayorista/${negId}` as never);
     } catch (e) {
@@ -1050,6 +1085,13 @@ export default function MayoristaDetalleScreen() {
                   <View style={styles.colNumSm}><Text style={styles.detailTableHeaderText}>Mk.%</Text></View>
                   <View style={styles.colNum}><Text style={styles.detailTableHeaderText}>PVP</Text></View>
                   <View style={styles.colAport}><Text style={styles.detailTableHeaderText}>Aport.</Text></View>
+                  <View
+                    style={styles.colRest}
+                    accessibilityLabel="Botellas restantes del acuerdo vigente"
+                    {...(Platform.OS === 'web' ? { title: 'Botellas restantes del acuerdo vigente' } : {})}
+                  >
+                    <Text style={styles.detailTableHeaderText}>Rest.</Text>
+                  </View>
                   <View style={styles.colNum}><Text style={styles.detailTableHeaderText}>Neto</Text></View>
                   <View style={styles.colAct} />
                 </View>
@@ -1062,6 +1104,8 @@ export default function MayoristaDetalleScreen() {
                     else if (pvp > hist + 0.0001) histColor = '#16a34a';
                   }
                   const aportUd = Number(l.aportacion_unitaria) || 0;
+                  const rest = l.acuerdo_botellas_restantes;
+                  const hayRest = rest != null && Number.isFinite(Number(rest));
                   return (
                     <View
                       key={l.id_linea}
@@ -1135,6 +1179,21 @@ export default function MayoristaDetalleScreen() {
                         {l.aportacion_vigente && l.dias_cobro ? (
                           <Text style={styles.cellMeta}>{l.dias_cobro}d</Text>
                         ) : null}
+                      </View>
+                      <View style={styles.colRest}>
+                        {hayRest ? (
+                          <>
+                            <Text
+                              style={[styles.detailTableCell, { color: colorRestantes(Number(rest)), fontWeight: '600' }]}
+                              numberOfLines={1}
+                            >
+                              {Number(rest).toLocaleString('es-ES')}
+                            </Text>
+                            <Text style={styles.cellMeta}>bot.</Text>
+                          </>
+                        ) : (
+                          <Text style={styles.detailTableCell}>—</Text>
+                        )}
                       </View>
                       <View style={styles.colNum}>
                         <Text style={[styles.detailTableCell, { fontWeight: '700', color: (l.beneficio_neto || 0) >= 0 ? '#16a34a' : '#dc2626' }]} numberOfLines={1}>
@@ -1676,6 +1735,7 @@ const styles = StyleSheet.create({
   colNum: { width: 52, flexShrink: 0, alignItems: 'center' },
   colNumSm: { width: 48, flexShrink: 0, alignItems: 'center' },
   colAport: { width: 44, flexShrink: 0, alignItems: 'flex-end' },
+  colRest: { width: 56, flexShrink: 0, alignItems: 'flex-end' },
   colAct: { width: 40, flexShrink: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 1 },
   cellName: { fontSize: 11, fontWeight: '600', color: '#0f172a' },
   cellMeta: { fontSize: 9, color: '#94a3b8', marginTop: 1 },

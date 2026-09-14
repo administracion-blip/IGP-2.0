@@ -24,6 +24,44 @@ function toNum(v, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+const MAX_ETIQUETA_LEN = 32;
+const MAX_ETIQUETAS = 8;
+
+/**
+ * Normaliza etiquetas de receta: trim, sin vacíos, tope 32 chars / 8 ítems,
+ * unicidad case-insensitive (se conserva la primera grafía).
+ * @param {unknown} raw
+ * @returns {string[]}
+ */
+export function normalizeEtiquetas(raw) {
+  if (!Array.isArray(raw)) {
+    throw Object.assign(new Error('etiquetas debe ser un array'), { status: 400 });
+  }
+  const out = [];
+  const seen = new Set();
+  for (const item of raw) {
+    const s = String(item ?? '').trim();
+    if (!s) continue;
+    if (s.length > MAX_ETIQUETA_LEN) {
+      throw Object.assign(
+        new Error(`Cada etiqueta no puede superar ${MAX_ETIQUETA_LEN} caracteres`),
+        { status: 400 },
+      );
+    }
+    const key = s.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+    if (out.length >= MAX_ETIQUETAS) break;
+  }
+  return out;
+}
+
+function etiquetasFromItem(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((t) => String(t ?? '').trim()).filter(Boolean);
+}
+
 function mapMeta(item) {
   if (!item || item.SK !== 'META') return null;
   const imagenKey =
@@ -36,6 +74,7 @@ function mapMeta(item) {
     udReceta: item.udReceta != null ? String(item.udReceta) : '',
     activo: item.activo !== false,
     imagen_key: imagenKey,
+    etiquetas: etiquetasFromItem(item.etiquetas),
     updatedAt: item.updatedAt || null,
   };
 }
@@ -268,7 +307,7 @@ export function validateIngrediente(raw, productoId, index) {
 /**
  * Upsert de receta: escribe META + INGs y borra líneas quitadas.
  * @param {string|number} productoId
- * @param {{ nombre?: string, udReceta?: string, activo?: boolean, ingredientes?: object[] }} body
+ * @param {{ nombre?: string, udReceta?: string, activo?: boolean, etiquetas?: string[], ingredientes?: object[] }} body
  */
 export async function putReceta(productoId, body) {
   const id = normalizeProductId(productoId);
@@ -311,6 +350,13 @@ export async function putReceta(productoId, body) {
     imagenKey = String(existingMeta.imagen_key).trim();
   }
 
+  let etiquetas = [];
+  if (body?.etiquetas !== undefined) {
+    etiquetas = normalizeEtiquetas(body.etiquetas);
+  } else {
+    etiquetas = etiquetasFromItem(existingMeta?.etiquetas);
+  }
+
   const now = new Date().toISOString();
   const PK = pkProducto(id);
   const metaItem = {
@@ -321,6 +367,7 @@ export async function putReceta(productoId, body) {
     udReceta: normalizeUnidad(body?.udReceta) || 'UD',
     activo,
     ...(imagenKey ? { imagen_key: imagenKey } : {}),
+    ...(etiquetas.length ? { etiquetas } : {}),
     updatedAt: now,
   };
 

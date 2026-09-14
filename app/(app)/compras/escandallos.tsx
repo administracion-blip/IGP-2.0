@@ -13,6 +13,7 @@ import {
   Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
@@ -61,6 +62,7 @@ type RecetaMeta = {
   udReceta: string;
   activo: boolean;
   updatedAt?: string;
+  etiquetas?: string[];
   /** Presente si la lista se pidió con `conIngredientes=1`. */
   ingredientes?: IngredienteLista[];
 };
@@ -81,6 +83,7 @@ type FormReceta = {
   udReceta: string;
   activo: boolean;
   imagen_key: string;
+  etiquetas: string[];
   lineas: LineaForm[];
 };
 
@@ -134,8 +137,35 @@ const FORM_VACIO: FormReceta = {
   udReceta: 'UD',
   activo: true,
   imagen_key: '',
+  etiquetas: [],
   lineas: [],
 };
+
+const ETIQUETA_MAX = 8;
+const ETIQUETA_MAX_CHARS = 32;
+
+function normalizarListaEtiquetas(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const t = String(item ?? '').trim();
+    if (!t) continue;
+    const clipped = t.slice(0, ETIQUETA_MAX_CHARS);
+    const key = clipped.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clipped);
+    if (out.length >= ETIQUETA_MAX) break;
+  }
+  return out;
+}
+
+function etiquetaYaExiste(lista: string[], candidata: string): boolean {
+  const key = candidata.trim().toLowerCase();
+  if (!key) return false;
+  return lista.some((e) => e.trim().toLowerCase() === key);
+}
 
 const UNIDADES_COMPACTAS = UNIDADES_ESCANDALLO.map((u) => ({ id: u.id, titulo: u.id }));
 
@@ -346,6 +376,10 @@ export default function EscandallosScreen() {
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
   /** `null` = Todas las categorías de coste. */
   const [filtroCategoriaCoste, setFiltroCategoriaCoste] = useState<CategoriaCosteId | null>(null);
+  /** `null` = Todas las etiquetas. */
+  const [filtroEtiqueta, setFiltroEtiqueta] = useState<string | null>(null);
+  const [etiquetaDraft, setEtiquetaDraft] = useState('');
+  const [hintEtiqueta, setHintEtiqueta] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
 
   const [detalleAbierto, setDetalleAbierto] = useState(false);
@@ -651,17 +685,50 @@ export default function EscandallosScreen() {
     return counts;
   }, [recetas, categoriaDeReceta]);
 
+  const etiquetasCatalogo = useMemo(() => {
+    const map = new Map<string, { label: string; count: number }>();
+    for (const r of recetas) {
+      const tags = r.etiquetas;
+      if (!Array.isArray(tags)) continue;
+      for (const raw of tags) {
+        const t = String(raw ?? '').trim();
+        if (!t) continue;
+        const key = t.toLowerCase();
+        const prev = map.get(key);
+        if (prev) prev.count += 1;
+        else map.set(key, { label: t, count: 1 });
+      }
+    }
+    return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, 'es'));
+  }, [recetas]);
+
+  useEffect(() => {
+    if (filtroEtiqueta == null) return;
+    const key = filtroEtiqueta.trim().toLowerCase();
+    if (!key || !etiquetasCatalogo.some((e) => e.label.toLowerCase() === key)) {
+      setFiltroEtiqueta(null);
+    }
+  }, [etiquetasCatalogo, filtroEtiqueta]);
+
   const recetasFiltradas = useMemo(() => {
     const q = filtroBusqueda.trim().toLowerCase();
+    const tagNeedle = filtroEtiqueta?.trim().toLowerCase() || null;
     return recetas.filter((r) => {
       if (filtroCategoriaCoste && categoriaDeReceta(r).id !== filtroCategoriaCoste) return false;
+      if (tagNeedle) {
+        const tags = r.etiquetas;
+        if (!Array.isArray(tags) || !tags.some((t) => String(t).trim().toLowerCase() === tagNeedle)) {
+          return false;
+        }
+      }
       if (!q) return true;
+      const tagsBlob = Array.isArray(r.etiquetas) ? r.etiquetas.join(' ') : '';
       const blob = `${r.productoId} ${r.nombre} ${labelUnidadEscandallo(r.udReceta)} ${
         r.activo !== false ? 'activo' : 'inactivo'
-      }`.toLowerCase();
+      } ${tagsBlob}`.toLowerCase();
       return blob.includes(q);
     });
-  }, [recetas, filtroBusqueda, filtroCategoriaCoste, categoriaDeReceta]);
+  }, [recetas, filtroBusqueda, filtroCategoriaCoste, filtroEtiqueta, categoriaDeReceta]);
 
   const recetasPorProducto = useMemo(() => {
     const m = new Map<string, RecetaMeta>();
@@ -801,6 +868,8 @@ export default function EscandallosScreen() {
     setErrorForm(null);
     setLoadingDetalle(false);
     setForm(FORM_VACIO);
+    setEtiquetaDraft('');
+    setHintEtiqueta(null);
     setImagenUrl(null);
     setImagenBusy(false);
     setPdfBusy(false);
@@ -811,6 +880,8 @@ export default function EscandallosScreen() {
   const abrirNuevo = useCallback(() => {
     if (!puedeEditar) return;
     setForm(FORM_VACIO);
+    setEtiquetaDraft('');
+    setHintEtiqueta(null);
     setModoNuevo(true);
     setSoloLectura(false);
     setErrorForm(null);
@@ -826,6 +897,7 @@ export default function EscandallosScreen() {
       udReceta: normalizeUnidadEscandallo(data.udReceta ?? fallback?.udReceta) || 'UD',
       activo: data.activo !== false,
       imagen_key: String(data.imagen_key ?? ''),
+      etiquetas: normalizarListaEtiquetas(data.etiquetas ?? fallback?.etiquetas ?? []),
       lineas: ings
         .slice()
         .sort((a, b) => (Number(a.orden) || 0) - (Number(b.orden) || 0))
@@ -849,6 +921,8 @@ export default function EscandallosScreen() {
       setModoNuevo(false);
       setSoloLectura(lectura);
       setErrorForm(null);
+      setEtiquetaDraft('');
+      setHintEtiqueta(null);
       setImagenUrl(null);
       setForm({
         productoId: item.productoId,
@@ -856,6 +930,7 @@ export default function EscandallosScreen() {
         udReceta: normalizeUnidadEscandallo(item.udReceta) || 'UD',
         activo: item.activo !== false,
         imagen_key: '',
+        etiquetas: normalizarListaEtiquetas(item.etiquetas ?? []),
         lineas: [],
       });
       setDetalleAbierto(true);
@@ -1083,6 +1158,7 @@ export default function EscandallosScreen() {
           nombre,
           udReceta,
           activo: form.activo,
+          etiquetas: form.etiquetas,
           ingredientes,
         }),
       });
@@ -1149,6 +1225,51 @@ export default function EscandallosScreen() {
   );
 
   const editable = puedeEditar && !soloLectura && !guardando && !loadingDetalle;
+
+  const etiquetasSugeridas = useMemo(() => {
+    const have = new Set(form.etiquetas.map((e) => e.trim().toLowerCase()));
+    return etiquetasCatalogo
+      .filter((e) => !have.has(e.label.toLowerCase()))
+      .map((e) => e.label);
+  }, [etiquetasCatalogo, form.etiquetas]);
+
+  const añadirEtiquetaForm = useCallback(
+    (raw: string) => {
+      const trimmed = raw.trim();
+      if (!trimmed) return;
+      if (trimmed.length > ETIQUETA_MAX_CHARS) {
+        setHintEtiqueta(`La etiqueta no puede superar ${ETIQUETA_MAX_CHARS} caracteres`);
+        return;
+      }
+      if (etiquetaYaExiste(form.etiquetas, trimmed)) {
+        setEtiquetaDraft('');
+        setHintEtiqueta(null);
+        return;
+      }
+      if (form.etiquetas.length >= ETIQUETA_MAX) {
+        setHintEtiqueta('Máximo 8 etiquetas');
+        return;
+      }
+      setForm((prev) => {
+        if (etiquetaYaExiste(prev.etiquetas, trimmed) || prev.etiquetas.length >= ETIQUETA_MAX) {
+          return prev;
+        }
+        return { ...prev, etiquetas: [...prev.etiquetas, trimmed] };
+      });
+      setEtiquetaDraft('');
+      setHintEtiqueta(null);
+    },
+    [form.etiquetas],
+  );
+
+  const quitarEtiquetaForm = useCallback((tag: string) => {
+    const key = tag.trim().toLowerCase();
+    setForm((prev) => ({
+      ...prev,
+      etiquetas: prev.etiquetas.filter((e) => e.trim().toLowerCase() !== key),
+    }));
+    setHintEtiqueta(null);
+  }, []);
 
   const lineaKeys = useMemo(() => form.lineas.map((ln) => ln.key), [form.lineas]);
   useEscandalloLineasTab({
@@ -1456,10 +1577,72 @@ export default function EscandallosScreen() {
     );
   };
 
+  const renderFiltroEtiqueta = () => {
+    if (etiquetasCatalogo.length === 0 && !filtroEtiqueta) return null;
+    const mostrarFade = etiquetasCatalogo.length > 3;
+    return (
+      <View style={styles.filtroEtiquetaRail}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filtroEtiquetaScroll}
+          contentContainerStyle={styles.filtroEtiquetaRow}
+          keyboardShouldPersistTaps="handled"
+        >
+          <TouchableOpacity
+            key="todas-etiquetas"
+            style={[styles.filtroEtiquetaChip, filtroEtiqueta == null && styles.filtroEtiquetaChipSel]}
+            onPress={() => setFiltroEtiqueta(null)}
+            accessibilityLabel={
+              filtroEtiqueta ? 'Quitar filtro de etiqueta' : 'Mostrar todas las recetas'
+            }
+            accessibilityState={{ selected: filtroEtiqueta == null }}
+          >
+            <Text
+              style={[
+                styles.filtroEtiquetaChipText,
+                filtroEtiqueta == null && styles.filtroEtiquetaChipTextSel,
+              ]}
+            >
+              Todas
+            </Text>
+          </TouchableOpacity>
+          {etiquetasCatalogo.map((e) => {
+            const sel =
+              filtroEtiqueta != null && filtroEtiqueta.toLowerCase() === e.label.toLowerCase();
+            return (
+              <TouchableOpacity
+                key={e.label}
+                style={[styles.filtroEtiquetaChip, sel && styles.filtroEtiquetaChipSel]}
+                onPress={() => setFiltroEtiqueta(e.label)}
+                accessibilityLabel={`Filtrar por etiqueta ${e.label}`}
+                accessibilityState={{ selected: sel }}
+              >
+                <Text style={[styles.filtroEtiquetaChipText, sel && styles.filtroEtiquetaChipTextSel]}>
+                  {`${e.label} · ${e.count}`}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+        {mostrarFade ? (
+          <LinearGradient
+            colors={['rgba(255,255,255,0)', '#ffffff']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.filtroEtiquetaFade}
+            pointerEvents="none"
+          />
+        ) : null}
+      </View>
+    );
+  };
+
   const renderLista = () => (
     <View style={styles.panel}>
       {renderToolbarLista()}
       {renderFiltroCoste()}
+      {renderFiltroEtiqueta()}
       {error ? (
         <View style={styles.errorBanner}>
           <Text style={styles.errorBannerText}>{error}</Text>
@@ -1476,7 +1659,7 @@ export default function EscandallosScreen() {
         <View style={styles.listaEstado}>
           <MaterialIcons name="restaurant-menu" size={36} color="#cbd5e1" />
           <Text style={styles.listaEstadoText}>
-            {filtroBusqueda.trim() || filtroCategoriaCoste
+            {filtroBusqueda.trim() || filtroCategoriaCoste || filtroEtiqueta
               ? 'Ninguna receta coincide con el filtro'
               : 'No hay recetas. Pulsa crear para añadir una.'}
           </Text>
@@ -1504,6 +1687,17 @@ export default function EscandallosScreen() {
                   <Text style={[styles.listaNombre, sel && styles.listaNombreSel]} numberOfLines={1}>
                     {item.nombre || '—'}
                   </Text>
+                  {item.etiquetas?.length ? (
+                    <View style={styles.listaEtiquetasRow}>
+                      {item.etiquetas.map((et) => (
+                        <View key={`${item.productoId}-${et.toLowerCase()}`} style={styles.listaEtiquetaChip}>
+                          <Text style={styles.listaEtiquetaChipText} numberOfLines={1}>
+                            {et}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
                   <View style={styles.listaMetaRow}>
                     <View style={[styles.badge, on ? styles.badgeActivo : styles.badgeInactivo]}>
                       <Text
@@ -2062,6 +2256,88 @@ export default function EscandallosScreen() {
               </View>
             </View>
 
+            <View style={styles.formEtiquetasWrap}>
+              <Text style={styles.formLabel}>Etiquetas</Text>
+              {form.etiquetas.length > 0 ? (
+                <View style={styles.formEtiquetasChips}>
+                  {form.etiquetas.map((et) => (
+                    <View
+                      key={et.toLowerCase()}
+                      style={[styles.formEtiquetaChip, !editable && styles.formEtiquetaChipReadonly]}
+                    >
+                      <Text style={styles.formEtiquetaChipText}>{et}</Text>
+                      {editable ? (
+                        <TouchableOpacity
+                          style={styles.formEtiquetaChipX}
+                          onPress={() => quitarEtiquetaForm(et)}
+                          accessibilityLabel={`Quitar etiqueta ${et}`}
+                          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                        >
+                          <MaterialIcons name="close" size={16} color="#64748b" />
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+              {editable ? (
+                form.etiquetas.length >= ETIQUETA_MAX ? (
+                  <Text style={styles.formEtiquetaHint}>Máximo 8 etiquetas</Text>
+                ) : (
+                  <TextInput
+                    style={styles.formEtiquetaInput}
+                    value={etiquetaDraft}
+                    onChangeText={(t) => {
+                      setEtiquetaDraft(t);
+                      if (hintEtiqueta) setHintEtiqueta(null);
+                    }}
+                    placeholder="Nueva etiqueta y pulsa Intro"
+                    placeholderTextColor="#94a3b8"
+                    returnKeyType="done"
+                    blurOnSubmit={false}
+                    maxLength={ETIQUETA_MAX_CHARS + 8}
+                    onSubmitEditing={
+                      Platform.OS === 'web' ? undefined : () => añadirEtiquetaForm(etiquetaDraft)
+                    }
+                    onKeyPress={
+                      Platform.OS === 'web'
+                        ? (e) => {
+                            if (e.nativeEvent.key === 'Enter') añadirEtiquetaForm(etiquetaDraft);
+                          }
+                        : undefined
+                    }
+                    accessibilityLabel="Nueva etiqueta"
+                  />
+                )
+              ) : null}
+              {hintEtiqueta ? <Text style={styles.formEtiquetaHintError}>{hintEtiqueta}</Text> : null}
+              {editable && etiquetasSugeridas.length > 0 ? (
+                <View style={styles.formEtiquetasSugeridas}>
+                  <Text style={styles.formEtiquetaSugeridasLabel}>Usadas en otras recetas</Text>
+                  <View style={styles.formEtiquetasChips}>
+                    {etiquetasSugeridas.map((et) => (
+                      <TouchableOpacity
+                        key={et.toLowerCase()}
+                        style={[
+                          styles.formEtiquetaSugerida,
+                          (!editable || form.etiquetas.length >= ETIQUETA_MAX) &&
+                            styles.formEtiquetaSugeridaOff,
+                        ]}
+                        onPress={() => {
+                          if (!editable || form.etiquetas.length >= ETIQUETA_MAX) return;
+                          añadirEtiquetaForm(et);
+                        }}
+                        disabled={!editable || form.etiquetas.length >= ETIQUETA_MAX}
+                        accessibilityLabel={`Añadir etiqueta ${et}`}
+                      >
+                        <Text style={styles.formEtiquetaSugeridaText}>{et}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+            </View>
+
             {renderKpis()}
 
             <View style={styles.lineasHeader}>
@@ -2188,6 +2464,7 @@ type RecetaDetalleLike = {
   udReceta?: string;
   activo?: boolean;
   imagen_key?: string;
+  etiquetas?: string[];
   ingredientes?: Array<{
     ingredienteId?: string;
     nombre?: string;
@@ -2312,6 +2589,109 @@ const styles = StyleSheet.create({
   },
   filtroCosteChipText: { fontSize: 11, fontWeight: '500', color: '#64748b' },
   filtroCosteChipTextSel: { fontWeight: '700', color: '#0369a1' },
+  filtroEtiquetaRail: {
+    position: 'relative',
+    flexGrow: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    backgroundColor: '#fff',
+  },
+  filtroEtiquetaScroll: {
+    flexGrow: 0,
+  },
+  filtroEtiquetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  filtroEtiquetaChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+    minHeight: MIN_TOUCH,
+    justifyContent: 'center',
+  },
+  filtroEtiquetaChipSel: {
+    borderColor: '#0ea5e9',
+    backgroundColor: '#f0f9ff',
+  },
+  filtroEtiquetaChipText: { fontSize: 11, fontWeight: '500', color: '#475569' },
+  filtroEtiquetaChipTextSel: { fontWeight: '600', color: '#0369a1' },
+  filtroEtiquetaFade: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 32,
+    ...(Platform.OS === 'web' ? ({ pointerEvents: 'none' } as object) : {}),
+  },
+  listaEtiquetasRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  listaEtiquetaChip: {
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  listaEtiquetaChipText: { fontSize: 10, fontWeight: '500', color: '#475569' },
+  formEtiquetasWrap: { marginBottom: 12, gap: 6 },
+  formEtiquetasChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  formEtiquetaChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 999,
+    paddingLeft: 10,
+    paddingRight: 2,
+    minHeight: MIN_TOUCH,
+  },
+  formEtiquetaChipReadonly: { paddingRight: 10 },
+  formEtiquetaChipText: { fontSize: 12, fontWeight: '500', color: '#475569' },
+  formEtiquetaChipX: {
+    minWidth: MIN_TOUCH,
+    minHeight: MIN_TOUCH,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  formEtiquetaInput: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    paddingHorizontal: 10,
+    minHeight: MIN_TOUCH,
+    fontSize: 13,
+    color: '#1e293b',
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}),
+  },
+  formEtiquetaHint: { fontSize: 11, color: '#94a3b8' },
+  formEtiquetaHintError: { fontSize: 11, color: '#dc2626' },
+  formEtiquetasSugeridas: { gap: 6, marginTop: 2 },
+  formEtiquetaSugeridasLabel: { fontSize: 11, fontWeight: '500', color: '#64748b' },
+  formEtiquetaSugerida: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    minHeight: MIN_TOUCH,
+    justifyContent: 'center',
+  },
+  formEtiquetaSugeridaOff: { opacity: 0.45 },
+  formEtiquetaSugeridaText: { fontSize: 12, fontWeight: '500', color: '#475569' },
 
   errorBanner: {
     flexDirection: 'row',
