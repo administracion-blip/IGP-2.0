@@ -1,0 +1,6 @@
+{
+  "watch": ["server.js", "routes", "lib", "middleware"],
+  "ext": "js,mjs,json",
+  "delay": 1000,
+  "exec": "node --env-file-if-exists=.env.local server.js"
+}

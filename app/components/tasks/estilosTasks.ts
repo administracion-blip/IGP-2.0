@@ -3,7 +3,7 @@
  * chips). Consumen `tasksUiTokens` (piloto de diseño); el resto del ERP no se
  * ve afectado.
  */
-import { Platform, StyleSheet, type ViewStyle } from 'react-native';
+import { Dimensions, Platform, StyleSheet, type ViewStyle } from 'react-native';
 import { MIN_TOUCH } from '../../constants/layout';
 import {
   tasksColor,
@@ -13,6 +13,22 @@ import {
   tasksSpace,
   tasksTipo,
 } from '../../constants/tasksUiTokens';
+
+/** Tarjeta anclada al clic en la agenda, sin ocupar el centro de la pantalla. */
+export function marcoFichaFlotante(ancla: { x: number; y: number }): ViewStyle {
+  const { width, height } = Dimensions.get('window');
+  const ancho = Math.min(420, Math.max(280, width - 16));
+  const left = Math.max(8, Math.min(ancla.x, width - ancho - 8));
+  const top = Math.max(8, Math.min(ancla.y, Math.max(8, height - 220)));
+  return {
+    position: 'absolute',
+    left,
+    top,
+    width: ancho,
+    maxWidth: ancho,
+    maxHeight: Math.max(240, height - top - 12),
+  };
+}
 
 /** Cuerpo scrolleable: deja hueco para padding del overlay + header + footer. */
 const maxAltoCuerpo: ViewStyle['maxHeight'] =

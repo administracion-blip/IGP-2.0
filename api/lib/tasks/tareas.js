@@ -64,7 +64,7 @@ import {
   tienePermiso,
 } from './acceso.js';
 import { leerProyectoConMiembros, leerProyectosParaAcceso } from './proyectoLectura.js';
-import { nombreDe, nombresDeUsuarios } from './proyectos.js';
+import { emailsDeUsuarios, nombreDe, nombresDeUsuarios } from './proyectos.js';
 import {
   ACCIONES,
   listarActividad,
@@ -74,6 +74,12 @@ import {
 import { codificarCursor, decodificarCursor, limiteValido } from './paginacion.js';
 import { crearNotificacion } from './notificaciones.js';
 import { logger } from '../logger.js';
+import {
+  actualizarEvento as calendarActualizar,
+  borrarEvento as calendarBorrar,
+  crearEvento as calendarCrear,
+  disponible as calendarDisponible,
+} from '../google/calendarClient.js';
 // Las salidas a S3 se importan de donde ya viven, para que borrar una tarea use
 // el mismo camino que borrar un enlace o un adjunto sueltos. La dependencia es
 // circular —los dos ficheros importan el acceso de aquí— pero solo se resuelve al
@@ -171,6 +177,39 @@ function esFechaIso(valor) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return false;
   const d = new Date(`${t}T00:00:00Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === t;
+}
+
+/** Hora `HH:mm` o cadena vacía. Criterio copiado de reuniones (`aHora`). */
+function aHora(valor) {
+  const bruto = texto(valor);
+  if (!bruto) return '';
+  if (!/^\d{2}:\d{2}$/.test(bruto)) return null;
+  const [h, m] = bruto.split(':').map(Number);
+  if (h > 23 || m > 59) return null;
+  return bruto;
+}
+
+/**
+ * Par `hora_inicio` / `hora_fin`: ambas o ninguna; fin estrictamente posterior.
+ *
+ * @returns {{ ok: true, hora_inicio: string, hora_fin: string } | { ok: false, error: string }}
+ */
+export function validarHorasPareja({ hora_inicio, hora_fin } = {}) {
+  const hi = aHora(hora_inicio);
+  if (hi === null) return { ok: false, error: 'La hora de inicio debe ser HH:mm' };
+  const hf = aHora(hora_fin);
+  if (hf === null) return { ok: false, error: 'La hora de fin debe ser HH:mm' };
+  if ((hi && !hf) || (!hi && hf)) {
+    return { ok: false, error: 'Indica hora de inicio y de fin, o ninguna' };
+  }
+  if (hi && hf) {
+    const [h1, m1] = hi.split(':').map(Number);
+    const [h2, m2] = hf.split(':').map(Number);
+    if (h2 * 60 + m2 <= h1 * 60 + m1) {
+      return { ok: false, error: 'La hora de fin tiene que ser posterior a la de inicio' };
+    }
+  }
+  return { ok: true, hora_inicio: hi, hora_fin: hf };
 }
 
 /**
@@ -598,6 +637,12 @@ export function validarDatosTarea(bruto = {}) {
     return { ok: false, error: 'La fecha límite debe ser una fecha en formato AAAA-MM-DD' };
   }
 
+  const horas = validarHorasPareja({
+    hora_inicio: bruto.hora_inicio,
+    hora_fin: bruto.hora_fin,
+  });
+  if (!horas.ok) return horas;
+
   const checklist = normalizarChecklistEntrante(bruto.checklist);
   if (!checklist.ok) return checklist;
 
@@ -610,6 +655,8 @@ export function validarDatosTarea(bruto = {}) {
       responsable_id: responsableId,
       departamento_id: texto(bruto.departamento_id),
       fecha_limite: fechaLimite,
+      hora_inicio: horas.hora_inicio,
+      hora_fin: horas.hora_fin,
       prioridad,
       checklist: checklist.checklist,
       menciones: extraerMenciones(bruto.descripcion, bruto.menciones),
@@ -646,6 +693,152 @@ function normalizarChecklistEntrante(bruto) {
     });
   }
   return { ok: true, checklist };
+}
+
+// ─── Google Calendar (D-21: no tumba la tarea) ───
+
+const CAMPOS_SYNC_CALENDARIO = ['titulo', 'descripcion', 'fecha_limite', 'hora_inicio', 'hora_fin'];
+
+function syncCalendarDe(resultado) {
+  return {
+    calendario_sincronizado: !!(resultado && resultado.ok && resultado.eventId),
+    calendar_event_id: resultado?.eventId || null,
+    calendar_id: resultado?.calendarId || null,
+    calendario_error: resultado?.ok ? null : texto(resultado?.error) || null,
+  };
+}
+
+function syncDesdeMeta(meta) {
+  const eventId = texto(meta?.calendar_event_id) || null;
+  return {
+    calendario_sincronizado: Boolean(eventId),
+    calendar_event_id: eventId,
+    calendar_id: texto(meta?.calendar_id) || null,
+    calendario_error: null,
+  };
+}
+
+async function emailDeResponsable(responsableId) {
+  const id = texto(responsableId);
+  if (!id) return '';
+  const mapa = await emailsDeUsuarios([id]);
+  return mapa.get(id) || '';
+}
+
+function datosEventoTarea(tarea, organizadorEmail) {
+  return {
+    titulo: texto(tarea?.titulo),
+    descripcion: texto(tarea?.descripcion),
+    fecha: texto(tarea?.fecha_limite),
+    horaInicio: texto(tarea?.hora_inicio),
+    horaFin: texto(tarea?.hora_fin),
+    organizadorEmail: texto(organizadorEmail),
+    conMeet: false,
+    asistentesEmails: [],
+  };
+}
+
+/**
+ * Alta en Calendar del responsable. Fallo o ausencia → sync con error; no lanza.
+ */
+async function sincronizarAltaCalendar(tarea) {
+  if (!calendarDisponible()) {
+    return syncCalendarDe({ ok: false, error: 'Google Calendar no está configurado' });
+  }
+  const email = await emailDeResponsable(tarea?.responsable_id);
+  if (!email) {
+    return syncCalendarDe({ ok: false, error: 'El responsable no tiene email' });
+  }
+  if (!texto(tarea?.fecha_limite)) {
+    return syncCalendarDe({ ok: false, error: 'La tarea no tiene fecha límite para el calendario' });
+  }
+  try {
+    const cal = await calendarCrear(datosEventoTarea(tarea, email));
+    return syncCalendarDe(cal);
+  } catch (err) {
+    return syncCalendarDe({ ok: false, error: err?.message || 'Error al sincronizar con Calendar' });
+  }
+}
+
+/**
+ * Actualiza o crea el evento tras un PATCH de campos de calendario.
+ * Persiste `calendar_event_id` / `calendar_id` si el alta tiene éxito.
+ */
+async function sincronizarEdicionCalendar(tarea) {
+  const eventId = texto(tarea?.calendar_event_id);
+  if (!calendarDisponible()) {
+    return {
+      ...syncDesdeMeta(tarea),
+      calendario_sincronizado: false,
+      calendario_error: 'Google Calendar no está configurado',
+    };
+  }
+  const email = await emailDeResponsable(tarea?.responsable_id);
+  if (!email) {
+    return {
+      ...syncDesdeMeta(tarea),
+      calendario_sincronizado: false,
+      calendario_error: 'El responsable no tiene email',
+    };
+  }
+
+  if (eventId) {
+    try {
+      const cal = await calendarActualizar(eventId, datosEventoTarea(tarea, email));
+      if (!cal.ok) {
+        return {
+          calendario_sincronizado: false,
+          calendar_event_id: eventId,
+          calendar_id: texto(tarea?.calendar_id) || null,
+          calendario_error: texto(cal.error) || 'No se pudo actualizar el evento de Calendar',
+        };
+      }
+      return syncCalendarDe({ ...cal, eventId: cal.eventId || eventId });
+    } catch (err) {
+      return {
+        calendario_sincronizado: false,
+        calendar_event_id: eventId,
+        calendar_id: texto(tarea?.calendar_id) || null,
+        calendario_error: err?.message || 'Error al sincronizar con Calendar',
+      };
+    }
+  }
+
+  if (!texto(tarea?.fecha_limite)) {
+    return { ...syncDesdeMeta(tarea), calendario_sincronizado: false, calendario_error: null };
+  }
+
+  const sync = await sincronizarAltaCalendar(tarea);
+  if (sync.calendario_sincronizado && sync.calendar_event_id) {
+    const guardado = await escribirMeta(tarea.id_tarea, {
+      calendar_event_id: sync.calendar_event_id,
+      calendar_id: sync.calendar_id || '',
+    });
+    if (guardado) {
+      return { sync, meta: guardado };
+    }
+  }
+  return { sync };
+}
+
+/** Intenta borrar el evento; nunca lanza. */
+async function intentarBorrarEventoCalendar(meta) {
+  const eventId = texto(meta?.calendar_event_id);
+  if (!eventId) return { ok: true };
+  try {
+    const email = await emailDeResponsable(meta?.responsable_id);
+    const cal = await calendarBorrar(eventId, { organizadorEmail: email || undefined });
+    if (!cal.ok) {
+      logger.warn(
+        { eventId, error: cal.error },
+        '[tareas] No se pudo borrar el evento de Calendar',
+      );
+    }
+    return cal;
+  } catch (err) {
+    logger.warn({ err, eventId }, '[tareas] Error al borrar el evento de Calendar');
+    return { ok: false, error: err?.message || 'Error al borrar el evento de Calendar' };
+  }
 }
 
 // ─── Creación ───
@@ -705,6 +898,17 @@ export async function crearTarea({ ctx, datos = {} } = {}) {
 
   await docClient.send(new PutCommand({ TableName: tables.tareas, Item: itemTarea(tarea) }));
 
+  // D-21: Calendar no tumba la tarea.
+  let sync = await sincronizarAltaCalendar(tarea);
+  let metaGuardada = itemTarea(tarea);
+  if (sync.calendario_sincronizado && sync.calendar_event_id) {
+    const conCal = await escribirMeta(tarea.id_tarea, {
+      calendar_event_id: sync.calendar_event_id,
+      calendar_id: sync.calendar_id || '',
+    });
+    if (conCal) metaGuardada = conCal;
+  }
+
   await registrarActividad({
     tipo: 'tarea',
     entidadId: tarea.id_tarea,
@@ -715,6 +919,7 @@ export async function crearTarea({ ctx, datos = {} } = {}) {
       responsable_id: tarea.responsable_id,
       proyecto_id: tarea.proyecto_id || null,
       fecha_limite: tarea.fecha_limite || null,
+      calendario_sincronizado: sync.calendario_sincronizado,
     },
   });
 
@@ -727,7 +932,8 @@ export async function crearTarea({ ctx, datos = {} } = {}) {
   const nombres = await nombresDeUsuarios([tarea.responsable_id]);
   return {
     ok: true,
-    tarea: salidaConExtras(itemTarea(tarea), ctx, { aux: acceso.aux, nombres }),
+    tarea: salidaConExtras(metaGuardada, ctx, { aux: acceso.aux, nombres }),
+    ...sync,
   };
 }
 
@@ -1261,7 +1467,16 @@ export async function listarActividadTarea({ ctx, idTarea, limite, cursor } = {}
 // ─── Edición ───
 
 /** Campos que se editan con `PATCH`. El estado y el responsable tienen su endpoint. */
-const CAMPOS_EDITABLES = ['titulo', 'descripcion', 'fecha_limite', 'prioridad', 'departamento_id', 'menciones'];
+const CAMPOS_EDITABLES = [
+  'titulo',
+  'descripcion',
+  'fecha_limite',
+  'hora_inicio',
+  'hora_fin',
+  'prioridad',
+  'departamento_id',
+  'menciones',
+];
 
 /**
  * Edita los campos de una tarea, manteniendo las claves derivadas: cambiar la
@@ -1290,6 +1505,15 @@ export async function actualizarTarea({ ctx, idTarea, cambios = {} } = {}) {
       return { ok: false, status: 400, error: 'La fecha límite debe ser una fecha en formato AAAA-MM-DD' };
     }
     nuevos.fecha_limite = fecha;
+  }
+  if (cambios.hora_inicio !== undefined || cambios.hora_fin !== undefined) {
+    const horas = validarHorasPareja({
+      hora_inicio: cambios.hora_inicio !== undefined ? cambios.hora_inicio : meta.hora_inicio,
+      hora_fin: cambios.hora_fin !== undefined ? cambios.hora_fin : meta.hora_fin,
+    });
+    if (!horas.ok) return { ok: false, status: 400, error: horas.error };
+    nuevos.hora_inicio = horas.hora_inicio;
+    nuevos.hora_fin = horas.hora_fin;
   }
   if (cambios.prioridad !== undefined) {
     const prioridad = texto(cambios.prioridad);
@@ -1333,8 +1557,24 @@ export async function actualizarTarea({ ctx, idTarea, cambios = {} } = {}) {
     detalle: { antes, despues: nuevos },
   });
 
-  const nombres = await nombresDeUsuarios([guardado?.responsable_id]);
-  return { ok: true, tarea: salidaConExtras(guardado, ctx, { aux: acceso.aux, nombres }) };
+  let metaFinal = guardado;
+  let sync = null;
+  const tocaCalendar = CAMPOS_SYNC_CALENDARIO.some((c) => nuevos[c] !== undefined);
+  if (tocaCalendar) {
+    const r = await sincronizarEdicionCalendar({
+      ...guardado,
+      id_tarea: texto(idTarea),
+    });
+    if (r.meta) metaFinal = r.meta;
+    sync = r.sync || r;
+  }
+
+  const nombres = await nombresDeUsuarios([metaFinal?.responsable_id]);
+  return {
+    ok: true,
+    tarea: salidaConExtras(metaFinal, ctx, { aux: acceso.aux, nombres }),
+    ...(sync || {}),
+  };
 }
 
 /**
@@ -1448,8 +1688,78 @@ export async function reasignarTarea({ ctx, idTarea, responsableId } = {}) {
     },
   });
 
+  // Reasignar: quitar el evento del calendario anterior e intentar crear en el nuevo.
+  let sync = syncDesdeMeta(guardado);
+  const eventIdAnterior = texto(meta.calendar_event_id);
+  if (eventIdAnterior) {
+    await intentarBorrarEventoCalendar(meta);
+  }
+
+  const paraAlta = {
+    ...guardado,
+    id_tarea: texto(idTarea),
+    responsable_id: nuevo,
+    calendar_event_id: '',
+    calendar_id: '',
+  };
+  const alta = await sincronizarAltaCalendar(paraAlta);
+  if (alta.calendario_sincronizado && alta.calendar_event_id) {
+    const conCal = await escribirMeta(idTarea, {
+      calendar_event_id: alta.calendar_event_id,
+      calendar_id: alta.calendar_id || '',
+    });
+    sync = alta;
+    if (!conCal) {
+      await intentarBorrarEventoCalendar({
+        calendar_event_id: alta.calendar_event_id,
+        responsable_id: nuevo,
+      });
+    }
+    if (conCal) {
+      const nombres = await nombresDeUsuarios([nuevo]);
+      return {
+        ok: true,
+        tarea: salidaConExtras(conCal, ctx, { aux: acceso.aux, nombres }),
+        ...sync,
+      };
+    }
+  } else {
+    // Sin evento nuevo: limpiar ids del anterior si los había.
+    if (eventIdAnterior) {
+      const limpio = await escribirMeta(idTarea, {
+        calendar_event_id: '',
+        calendar_id: '',
+      });
+      sync = {
+        calendario_sincronizado: false,
+        calendar_event_id: null,
+        calendar_id: null,
+        calendario_error: alta.calendario_error || 'No se pudo crear el evento en el calendario del nuevo responsable',
+      };
+      if (limpio) {
+        const nombres = await nombresDeUsuarios([nuevo]);
+        return {
+          ok: true,
+          tarea: salidaConExtras(limpio, ctx, { aux: acceso.aux, nombres }),
+          ...sync,
+        };
+      }
+    } else {
+      sync = {
+        calendario_sincronizado: false,
+        calendar_event_id: null,
+        calendar_id: null,
+        calendario_error: alta.calendario_error,
+      };
+    }
+  }
+
   const nombres = await nombresDeUsuarios([nuevo]);
-  return { ok: true, tarea: salidaConExtras(guardado, ctx, { aux: acceso.aux, nombres }) };
+  return {
+    ok: true,
+    tarea: salidaConExtras(guardado, ctx, { aux: acceso.aux, nombres }),
+    ...sync,
+  };
 }
 
 /**
@@ -1507,6 +1817,9 @@ export async function borrarTarea({ ctx, idTarea } = {}) {
       error: `La tarea tiene ${abiertas.length} subtarea(s) sin cerrar`,
     };
   }
+
+  // Calendar no tumba el borrado (D-21).
+  await intentarBorrarEventoCalendar(acceso.meta);
 
   await borrarParticionTarea({
     ctx,
@@ -1575,7 +1888,7 @@ export async function borrarTareasDeProyecto({ ctx, idProyecto } = {}) {
     IndexName: IDX_PROYECTO,
     KeyConditionExpression: 'proyecto_id = :p',
     ExpressionAttributeValues: { ':p': id },
-    ProjectionExpression: 'id_tarea, titulo, proyecto_id',
+    ProjectionExpression: 'id_tarea, titulo, proyecto_id, calendar_event_id, responsable_id',
   });
   const vistos = new Set();
   let borradas = 0;
@@ -1583,6 +1896,7 @@ export async function borrarTareasDeProyecto({ ctx, idProyecto } = {}) {
     const idTarea = texto(meta.id_tarea);
     if (!idTarea || vistos.has(idTarea)) continue;
     vistos.add(idTarea);
+    await intentarBorrarEventoCalendar(meta);
     const ok = await borrarParticionTarea({
       ctx,
       idTarea,

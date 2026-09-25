@@ -119,6 +119,30 @@ export async function borrarObjeto(s3Key) {
   await s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: s3Key })).catch(() => {});
 }
 
+/** GetObject → { body, contentType } o null (sin clave o error de S3). */
+export async function bajarObjeto(s3Key) {
+  const key = String(s3Key || '').trim();
+  if (!key) return null;
+  try {
+    const obj = await s3.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+    if (!obj?.Body) return null;
+    let body;
+    if (typeof obj.Body.transformToByteArray === 'function') {
+      body = Buffer.from(await obj.Body.transformToByteArray());
+    } else {
+      const chunks = [];
+      for await (const chunk of obj.Body) {
+        chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+      }
+      body = Buffer.concat(chunks);
+    }
+    if (!body?.length) return null;
+    return { body, contentType: obj.ContentType || 'application/octet-stream' };
+  } catch {
+    return null;
+  }
+}
+
 export async function urlsFirmadasDeFotos(fotos) {
   const lista = Array.isArray(fotos) ? fotos : [];
   const out = {};

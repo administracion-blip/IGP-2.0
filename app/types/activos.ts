@@ -102,6 +102,13 @@ export type CustodiaEmpleado = {
   activos: ActivoListado[];
 };
 
+/** Acta firmada de prendas que siguen en poder del trabajador. */
+export type ActaCustodia = {
+  entrega_id: string;
+  fecha?: string;
+  url?: string;
+};
+
 /** Custodio de un artículo en la vista agrupada por modelo. */
 export type CustodioArticulo = {
   employee_id: string;

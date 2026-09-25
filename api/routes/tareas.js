@@ -51,7 +51,27 @@ import { rotarTokenIcs, urlFeedVencimientos } from '../lib/tasks/vencimientosIcs
 const router = Router();
 
 /** Campos que acepta el `PATCH`. El estado y el responsable tienen su propia ruta. */
-const CAMPOS_PATCH = ['titulo', 'descripcion', 'fecha_limite', 'prioridad', 'departamento_id', 'menciones'];
+const CAMPOS_PATCH = [
+  'titulo',
+  'descripcion',
+  'fecha_limite',
+  'hora_inicio',
+  'hora_fin',
+  'prioridad',
+  'departamento_id',
+  'menciones',
+];
+
+/** Campos de sync Calendar que viajan junto a `tarea` en crear / editar / reasignar. */
+function camposCalendarDe(r) {
+  if (r.calendario_sincronizado === undefined) return {};
+  return {
+    calendario_sincronizado: r.calendario_sincronizado,
+    calendario_error: r.calendario_error ?? null,
+    calendar_event_id: r.calendar_event_id ?? null,
+    calendar_id: r.calendar_id ?? null,
+  };
+}
 
 /** Query truthy (`1` / `true` / `yes`) para el calendario de hechas. */
 function queryTruthy(valor) {
@@ -141,7 +161,7 @@ router.get('/tareas', requirePermission(PERMISOS.proyectosVer), async (req, res)
 router.post('/tareas', async (req, res) => {
   const r = await crearTarea({ ctx: await contexto(req), datos: req.body || {} });
   if (fallo(res, r)) return;
-  return res.json({ ok: true, tarea: r.tarea });
+  return res.json({ ok: true, tarea: r.tarea, ...camposCalendarDe(r) });
 });
 
 // El único camino de creación múltiple: lo usan la validación de propuestas de
@@ -181,7 +201,7 @@ router.patch('/tareas/:id', async (req, res) => {
     cambios,
   });
   if (fallo(res, r)) return;
-  return res.json({ ok: true, tarea: r.tarea });
+  return res.json({ ok: true, tarea: r.tarea, ...camposCalendarDe(r) });
 });
 
 router.post('/tareas/:id/estado', async (req, res) => {
@@ -202,7 +222,7 @@ router.post('/tareas/:id/reasignar', async (req, res) => {
     responsableId: req.body?.responsable_id,
   });
   if (fallo(res, r)) return;
-  return res.json({ ok: true, tarea: r.tarea });
+  return res.json({ ok: true, tarea: r.tarea, ...camposCalendarDe(r) });
 });
 
 router.delete('/tareas/:id', requirePermission(PERMISOS.proyectosBorrar), async (req, res) => {

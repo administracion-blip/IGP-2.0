@@ -48,6 +48,9 @@ import {
   servicioStockModelo,
   sustituirUnidad,
   trasladarActivo,
+  listarActasCustodia,
+  pdfInventarioCustodia,
+  urlActaCustodia,
   urlActaEntrega,
   urlFoto,
   verificarEtiqueta,
@@ -184,6 +187,22 @@ router.get('/activos/resolver/:assetId', requirePermission('activos.ver'), async
 
 router.get('/activos/custodia', requirePermission('activos.ver'), async (req, res) => {
   res.json(await servicioCustodias(userDe(req), req.query));
+});
+
+router.get('/activos/custodia/:employeeId/inventario', requirePermission('activos.ver'), async (req, res) => {
+  const pdf = await pdfInventarioCustodia(userDe(req), req.params.employeeId);
+  const id = String(req.params.employeeId || '').replace(/[^a-zA-Z0-9._-]/g, '_');
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="inventario-custodia-${id}.pdf"`);
+  res.send(pdf);
+});
+
+router.get('/activos/custodia/:employeeId/actas/:entregaId', requirePermission('activos.ver'), async (req, res) => {
+  res.json(await urlActaCustodia(userDe(req), req.params.employeeId, req.params.entregaId));
+});
+
+router.get('/activos/custodia/:employeeId/actas', requirePermission('activos.ver'), async (req, res) => {
+  res.json(await listarActasCustodia(userDe(req), req.params.employeeId));
 });
 
 router.post('/activos/entregas/preview', requirePermission('activos.editar'), async (req, res) => {

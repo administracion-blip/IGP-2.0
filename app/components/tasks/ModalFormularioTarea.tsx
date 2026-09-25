@@ -29,6 +29,7 @@ import { SelectorDesplegable, type OpcionDesplegable } from '../SelectorDesplega
 import { ETIQUETA_PRIORIDAD } from '../../lib/tasksUi';
 import { PRIORIDADES, type Prioridad, type Tarea } from '../../types/tasks';
 import { estilosFormTasks as form, estilosModalTasks as modal } from './estilosTasks';
+import { aplicarHoraInicio, InputHora } from './InputHora';
 import type { NombresUsuarios } from '../../hooks/useNombresUsuarios';
 import type { MaestroDepartamentos } from '../../hooks/useDepartamentos';
 
@@ -39,9 +40,17 @@ type FormTarea = {
   descripcion: string;
   responsable_id: string;
   fecha_limite: string;
+  hora_inicio: string;
+  hora_fin: string;
   prioridad: Prioridad;
   departamento_id: string;
 };
+
+function horaValida(valor: string): boolean {
+  const t = valor.trim();
+  if (!t) return true;
+  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(t);
+}
 
 export function ModalFormularioTarea({
   visible,
@@ -51,6 +60,9 @@ export function ModalFormularioTarea({
   tareaPadreId,
   departamentoPorDefecto,
   responsablePorDefecto,
+  fechaPorDefecto,
+  horaInicioPorDefecto,
+  presentacion = 'modal',
   usuarios,
   departamentos,
   onCerrar,
@@ -63,10 +75,14 @@ export function ModalFormularioTarea({
   tareaPadreId?: string;
   departamentoPorDefecto?: string;
   responsablePorDefecto?: string;
+  /** Alta desde un hueco de la agenda. */
+  fechaPorDefecto?: string;
+  horaInicioPorDefecto?: string;
+  presentacion?: 'modal' | 'flotante';
   usuarios: NombresUsuarios;
   departamentos: MaestroDepartamentos;
   onCerrar: () => void;
-  onGuardada: (tarea: Tarea) => void;
+  onGuardada: (tarea: Tarea, extras?: { avisoCalendario?: string }) => void;
 }) {
   const { shouldStackPanels, isCompact } = useBreakpoint();
   const [datos, setDatos] = useState<FormTarea>(() => vacio());
@@ -74,11 +90,15 @@ export function ModalFormularioTarea({
   const [error, setError] = useState<string | null>(null);
 
   function vacio(): FormTarea {
+    const hi = (horaInicioPorDefecto ?? '').trim();
+    const par = hi ? aplicarHoraInicio(hi, '') : { hora_inicio: '', hora_fin: '' };
     return {
       titulo: '',
       descripcion: '',
       responsable_id: responsablePorDefecto ?? '',
-      fecha_limite: '',
+      fecha_limite: (fechaPorDefecto ?? '').trim(),
+      hora_inicio: par.hora_inicio,
+      hora_fin: par.hora_fin,
       prioridad: 'media',
       departamento_id: departamentoPorDefecto ?? '',
     };
@@ -93,6 +113,8 @@ export function ModalFormularioTarea({
         descripcion: tarea.descripcion ?? '',
         responsable_id: tarea.responsable_id ?? '',
         fecha_limite: tarea.fecha_limite ?? '',
+        hora_inicio: tarea.hora_inicio ?? '',
+        hora_fin: tarea.hora_fin ?? '',
         prioridad: tarea.prioridad ?? 'media',
         departamento_id: tarea.departamento_id ?? '',
       });
@@ -101,7 +123,7 @@ export function ModalFormularioTarea({
     }
     // `vacio` solo lee props estables dentro de una apertura del modal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, modo, tarea, departamentoPorDefecto, responsablePorDefecto]);
+  }, [visible, modo, tarea, departamentoPorDefecto, responsablePorDefecto, fechaPorDefecto, horaInicioPorDefecto]);
 
   const opcionesDepartamento = useMemo<OpcionDesplegable[]>(
     () => [{ id: SIN_DEPARTAMENTO, titulo: '(sin departamento)' }, ...departamentos.opciones],
@@ -135,6 +157,20 @@ export function ModalFormularioTarea({
       setError('Indica una fecha válida (dd/mm/aaaa)');
       return;
     }
+    if (!horaValida(datos.hora_inicio) || !horaValida(datos.hora_fin)) {
+      setError('Las horas deben tener formato HH:mm');
+      return;
+    }
+    const hi = datos.hora_inicio.trim();
+    const hf = datos.hora_fin.trim();
+    if ((hi && !hf) || (!hi && hf)) {
+      setError('Indica hora de inicio y hora de fin, o deja ambas vacías');
+      return;
+    }
+    if (hi && hf && hf <= hi) {
+      setError('La hora de fin debe ser posterior a la de inicio');
+      return;
+    }
 
     setGuardando(true);
     setError(null);
@@ -156,6 +192,13 @@ export function ModalFormularioTarea({
         if (datos.departamento_id !== (tarea.departamento_id ?? '')) {
           cuerpo.departamento_id = datos.departamento_id;
         }
+        const hiPrev = (tarea.hora_inicio ?? '').trim();
+        const hfPrev = (tarea.hora_fin ?? '').trim();
+        if (hi !== hiPrev || hf !== hfPrev) {
+          // Vacío al editar = quitar el tramo (el API acepta cadena vacía).
+          cuerpo.hora_inicio = hi;
+          cuerpo.hora_fin = hf;
+        }
         if (Object.keys(cuerpo).length === 0) {
           onCerrar();
           return;
@@ -169,17 +212,31 @@ export function ModalFormularioTarea({
           prioridad: datos.prioridad,
           departamento_id: datos.departamento_id,
         };
+        if (hi && hf) {
+          cuerpo.hora_inicio = hi;
+          cuerpo.hora_fin = hf;
+        }
         if (proyectoId) cuerpo.proyecto_id = proyectoId;
         if (tareaPadreId) cuerpo.tarea_padre_id = tareaPadreId;
       }
 
       const res = await apiFetch(ruta, { method: metodo, body: JSON.stringify(cuerpo) });
-      const data = (await res.json().catch(() => ({}))) as { tarea?: Tarea; error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        tarea?: Tarea;
+        error?: string;
+        calendario_sincronizado?: boolean;
+        calendario_error?: string | null;
+      };
       if (!res.ok || !data.tarea) {
         setError(data.error || 'No se pudo guardar la tarea');
         return;
       }
-      onGuardada(data.tarea);
+      const avisoCalendario =
+        data.calendario_sincronizado === false
+          ? data.calendario_error?.trim() ||
+            'La tarea se guardó, pero no se pudo sincronizar con Google Calendar.'
+          : undefined;
+      onGuardada(data.tarea, avisoCalendario ? { avisoCalendario } : undefined);
     } catch (e) {
       console.error('[tasks] fallo al guardar la tarea', e);
       setError(errorMessage(e, 'No se pudo conectar con el servidor'));
@@ -190,16 +247,25 @@ export function ModalFormularioTarea({
 
   const tituloModal =
     modo === 'editar' ? 'Editar tarea' : tareaPadreId ? 'Nueva subtarea' : 'Nueva tarea';
+  const flotante = presentacion === 'flotante';
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCerrar}>
-      <Pressable style={modal.overlay}>
+      <Pressable
+        style={[modal.overlay, flotante && styles.overlayFlotante]}
+        onPress={flotante && !guardando ? onCerrar : undefined}
+      >
         <KeyboardAvoidingView
           style={modal.center}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <Pressable
-            style={[modal.cardWrap, (shouldStackPanels || isCompact) && modal.cardWrapAncho]}
+            style={[
+              modal.cardWrap,
+              flotante ? modal.cardWrapEstrecho : null,
+              (shouldStackPanels || isCompact) && !flotante && modal.cardWrapAncho,
+            ]}
+            onPress={() => {}}
           >
             <View style={modal.card}>
               <View style={modal.header}>
@@ -209,7 +275,10 @@ export function ModalFormularioTarea({
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={modal.body} keyboardShouldPersistTaps="handled">
+              <ScrollView
+                style={[modal.body, flotante && styles.cuerpoFlotante]}
+                keyboardShouldPersistTaps="handled"
+              >
                 <View style={form.group}>
                   <Text style={form.label}>Título *</Text>
                   <TextInput
@@ -308,28 +377,49 @@ export function ModalFormularioTarea({
                       style={estiloCampoFechaCompacto}
                     />
                   </View>
-                  <View style={form.col}>
-                    <Text style={form.label}>Prioridad</Text>
-                    <View style={form.chipsRow}>
-                      {PRIORIDADES.map((p) => (
-                        <TouchableOpacity
-                          key={p}
-                          style={[
-                            form.chip,
-                            isCompact && form.chipTactil,
-                            datos.prioridad === p && form.chipActivo,
-                          ]}
-                          onPress={() => setDatos((prev) => ({ ...prev, prioridad: p }))}
-                          disabled={guardando}
+                  <View style={styles.colHora}>
+                    <Text style={form.label}>Hora inicio</Text>
+                    <InputHora
+                      compact
+                      value={datos.hora_inicio}
+                      onChange={(hhmm) =>
+                        setDatos((p) => ({ ...p, ...aplicarHoraInicio(hhmm, p.hora_fin) }))
+                      }
+                      editable={!guardando}
+                    />
+                  </View>
+                  <View style={styles.colHora}>
+                    <Text style={form.label}>Hora fin</Text>
+                    <InputHora
+                      compact
+                      value={datos.hora_fin}
+                      onChange={(hhmm) => setDatos((p) => ({ ...p, hora_fin: hhmm }))}
+                      editable={!guardando}
+                    />
+                  </View>
+                </View>
+
+                <View style={form.group}>
+                  <Text style={form.label}>Prioridad</Text>
+                  <View style={form.chipsRow}>
+                    {PRIORIDADES.map((p) => (
+                      <TouchableOpacity
+                        key={p}
+                        style={[
+                          form.chip,
+                          isCompact && form.chipTactil,
+                          datos.prioridad === p && form.chipActivo,
+                        ]}
+                        onPress={() => setDatos((prev) => ({ ...prev, prioridad: p }))}
+                        disabled={guardando}
+                      >
+                        <Text
+                          style={[form.chipTexto, datos.prioridad === p && form.chipTextoActivo]}
                         >
-                          <Text
-                            style={[form.chipTexto, datos.prioridad === p && form.chipTextoActivo]}
-                          >
-                            {ETIQUETA_PRIORIDAD[p]}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
+                          {ETIQUETA_PRIORIDAD[p]}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
                   </View>
                 </View>
               </ScrollView>
@@ -366,4 +456,7 @@ export function ModalFormularioTarea({
 
 const styles = StyleSheet.create({
   soloLectura: { fontSize: 13, fontWeight: '600', color: '#334155', paddingVertical: 4 },
+  colHora: { flexGrow: 0, flexShrink: 0, alignSelf: 'flex-start' },
+  overlayFlotante: { backgroundColor: 'rgba(15, 23, 42, 0.12)' },
+  cuerpoFlotante: { maxHeight: 420 },
 });

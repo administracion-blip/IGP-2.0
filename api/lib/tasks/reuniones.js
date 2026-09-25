@@ -125,6 +125,16 @@ function aFecha(valor) {
   return bruto.slice(0, 10);
 }
 
+/** Ambas horas o ninguna; fin posterior al inicio. */
+function errorHorasPareja(horaInicio, horaFin) {
+  const hi = texto(horaInicio);
+  const hf = texto(horaFin);
+  if (!hi && !hf) return null;
+  if (!hi || !hf) return 'Indica hora de inicio y de fin, o ninguna';
+  if (hf <= hi) return 'La hora de fin tiene que ser posterior a la de inicio';
+  return null;
+}
+
 /** Hora `HH:mm` o cadena vacía. */
 function aHora(valor) {
   const bruto = texto(valor);
@@ -743,6 +753,8 @@ function itemMeta(reunion) {
       'modalidad',
       'meet_code',
       'sala_recurso_email',
+      'hora_inicio',
+      'hora_fin',
     ].includes(campo)) {
       continue;
     }
@@ -760,6 +772,8 @@ export async function crearReunion(ctx, body = {}) {
   if (normalizado.error) return rechazar(400, normalizado.error);
 
   const datos = normalizado.datos;
+  const errorHoras = errorHorasPareja(datos.hora_inicio, datos.hora_fin);
+  if (errorHoras) return rechazar(400, errorHoras);
   if (!datos.visibilidad) datos.visibilidad = VISIBILIDAD_POR_DEFECTO;
   if (!datos.estado) datos.estado = ESTADO_INICIAL;
 
@@ -883,6 +897,8 @@ export async function actualizarReunion(ctx, idReunion, cambios = {}) {
 
   const instante = ahora();
   const actualizado = { ...salidaReunion(cargado.reunion), ...datos, actualizado_en: instante };
+  const errorHoras = errorHorasPareja(actualizado.hora_inicio, actualizado.hora_fin);
+  if (errorHoras) return rechazar(400, errorHoras);
 
   // Congelar orden al pasar a celebrada / acta_* si aún no había copia.
   const estadoNuevo = texto(actualizado.estado);

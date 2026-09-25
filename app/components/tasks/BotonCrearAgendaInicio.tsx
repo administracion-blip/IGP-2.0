@@ -29,6 +29,7 @@ import {
   ModalFormularioReunion,
   type ResultadoGuardadoReunion,
 } from './ModalFormularioReunion';
+import type { Tarea } from '../../types/tasks';
 
 type TipoCrearAgenda = 'tarea' | 'proyecto' | 'reunion';
 
@@ -86,10 +87,11 @@ export function BotonCrearAgendaInicio({
 
   const cerrarModal = () => setModal(null);
 
-  const trasGuardar = () => {
+  const trasGuardar = (extras?: { avisoCalendario?: string }) => {
     setModal(null);
-    onAvisoCalendario(null);
     onRecargar();
+    if (extras?.avisoCalendario) onAvisoCalendario(extras.avisoCalendario);
+    else onAvisoCalendario(null);
   };
 
   const trasGuardarReunion = (resultado: ResultadoGuardadoReunion) => {
@@ -141,14 +143,14 @@ export function BotonCrearAgendaInicio({
         <ModalTareaConMaestros
           responsablePorDefecto={acceso.usuarioId}
           onCerrar={cerrarModal}
-          onGuardada={trasGuardar}
+          onGuardada={(_tarea, extras) => trasGuardar(extras)}
         />
       ) : null}
       {modal === 'proyecto' ? (
         <ModalProyectoConMaestros
           puedeVerPresupuesto={puedeVerPresupuesto(acceso)}
           onCerrar={cerrarModal}
-          onGuardado={trasGuardar}
+          onGuardado={() => trasGuardar()}
         />
       ) : null}
       {modal === 'reunion' ? (
@@ -165,7 +167,7 @@ function ModalTareaConMaestros({
 }: {
   responsablePorDefecto: string;
   onCerrar: () => void;
-  onGuardada: () => void;
+  onGuardada: (tarea: Tarea, extras?: { avisoCalendario?: string }) => void;
 }) {
   const usuarios = useNombresUsuarios();
   const departamentos = useDepartamentos();

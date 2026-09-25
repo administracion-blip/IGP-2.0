@@ -70,6 +70,7 @@ import {
 import { docClient, tables } from '../db.js';
 import { getEmployeeById } from '../dynamo/personalEmployees.js';
 import {
+  bajarObjeto,
   borrarObjeto,
   claveActaEntrega,
   clavePerteneceAlActivo,
@@ -81,9 +82,10 @@ import {
   urlsFirmadasDeFotos,
 } from './s3.js';
 import { CUERPO_PLANTILLA_DEFAULT, DATOS_PREVIEW_PLANTILLA, renderCuerpoPlantilla, sanitizarHtmlPlantilla } from './plantillaTexto.js';
-import { componerCuerpoActa, generarPdfActa, renderActa } from './actaEntrega.js';
+import { componerCuerpoActa, generarPdfActa, generarPdfInventarioCustodia, renderActa, thumbJpeg } from './actaEntrega.js';
 import { lineasDisponibles, tallaDe, tallasDesdeMapa, unidadesDe } from './stockDisponible.js';
 import { agruparCustodiaPorArticulo } from './custodiaArticulos.js';
+import { agregarActasDesdeEventos } from './custodiaDocumentos.js';
 
 function texto(v) {
   return v == null ? '' : String(v).trim();
@@ -1518,8 +1520,42 @@ function parseLineasCustodia(body) {
   });
 }
 
+const TOPE_FOTOS_ACTA = 6;
+
+async function thumbsActa(itemsLineas) {
+  const lista = Array.isArray(itemsLineas) ? itemsLineas : [];
+  const cache = new Map();
+  const jpegDeClave = (key) => {
+    if (cache.has(key)) return cache.get(key);
+    const pending = (async () => {
+      try {
+        const obj = await bajarObjeto(key);
+        if (obj?.body?.length) return await thumbJpeg(obj.body);
+      } catch {
+        /* foto opcional */
+      }
+      return null;
+    })();
+    cache.set(key, pending);
+    return pending;
+  };
+  const out = [];
+  for (let i = 0; i < lista.length; i += TOPE_FOTOS_ACTA) {
+    const chunk = lista.slice(i, i + TOPE_FOTOS_ACTA);
+    const parte = await Promise.all(chunk.map(async (it) => {
+      const textoItem = String(it?.texto || '');
+      const key = String(it?.foto_s3_key || '').trim();
+      if (!key) return { texto: textoItem, jpeg: null };
+      return { texto: textoItem, jpeg: await jpegDeClave(key) };
+    }));
+    out.push(...parte);
+  }
+  return out;
+}
+
 async function armarActaEntrega(user, lineas, empleado, actor) {
   const itemsHtml = [];
+  const itemsOrigen = [];
   const cuerpos = [];
   const vistosPlant = new Set();
   const nombresPlant = [];
@@ -1532,14 +1568,14 @@ async function armarActaEntrega(user, lineas, empleado, actor) {
       ? (linea.cantidad ?? unidadesDe(origen))
       : 1;
     const talla = tallaDe(origen);
-    itemsHtml.push(
-      [
-        origen.etiqueta_legible,
-        [origen.marca, origen.nombre_modelo].filter(Boolean).join(' '),
-        talla ? `Talla ${talla}` : '',
-        qty > 1 ? `${qty} ud.` : '1 ud.',
-      ].filter(Boolean).join(' · '),
-    );
+    const lineaTexto = [
+      origen.etiqueta_legible,
+      [origen.marca, origen.nombre_modelo].filter(Boolean).join(' '),
+      talla ? `Talla ${talla}` : '',
+      qty > 1 ? `${qty} ud.` : '1 ud.',
+    ].filter(Boolean).join(' · ');
+    itemsHtml.push(lineaTexto);
+    itemsOrigen.push({ texto: lineaTexto, origen });
     const cat = origen.categoria_id ? await getCategoria(origen.categoria_id) : null;
     const pid = texto(cat?.plantilla_documento_id);
     if (pid && !vistosPlant.has(pid)) {
@@ -1551,6 +1587,13 @@ async function armarActaEntrega(user, lineas, empleado, actor) {
       }
     }
   }
+  const fotosModelo = await clavesFotoModelo(
+    itemsOrigen.filter((it) => !fotoGeneralDe(it.origen)?.s3_key).map((it) => it.origen.modelo_id),
+  );
+  const itemsLineas = itemsOrigen.map(({ texto: lineaTexto, origen }) => ({
+    texto: lineaTexto,
+    foto_s3_key: fotoGeneralDe(origen)?.s3_key || fotosModelo.get(origen.modelo_id) || null,
+  }));
   const cuerpo = componerCuerpoActa(cuerpos);
   const datos = {
     fecha: new Date().toLocaleDateString('es-ES'),
@@ -1564,6 +1607,7 @@ async function armarActaEntrega(user, lineas, empleado, actor) {
     cuerpo,
     datos,
     html: renderActa(cuerpo, datos),
+    itemsLineas,
     meta: {
       trabajador: empleado.nombre,
       locales: [...locales],
@@ -1612,9 +1656,10 @@ export async function entregarActivos(user, body, firmaPng) {
   for (const linea of lineas) {
     await exigirLineaEntregable(user, linea);
   }
-  const { cuerpo, datos } = await armarActaEntrega(user, lineas, empleado, actor);
-  const htmlFirmado = renderActa(cuerpo, { ...datos, firma: '' });
-  const pdf = await generarPdfActa(htmlFirmado, firmaPng);
+  const { cuerpo, datos, itemsLineas } = await armarActaEntrega(user, lineas, empleado, actor);
+  const htmlPdf = renderActa(cuerpo, { ...datos, items: '<<<ITEMS>>>', firma: '' });
+  const itemsPdf = await thumbsActa(itemsLineas);
+  const pdf = await generarPdfActa(htmlPdf, firmaPng, { items: itemsPdf });
   const entregaId = nuevoId();
   const firmaKey = claveActaEntrega(entregaId, 'firma.png');
   const pdfKey = claveActaEntrega(entregaId, 'acta.pdf');
@@ -1738,6 +1783,105 @@ export async function servicioCustodias(user, query) {
     return uno;
   }
   return { custodias: pub };
+}
+
+function textoLineaCustodia(item) {
+  const qty = unidadesDe(item);
+  const talla = tallaDe(item);
+  return [
+    item.etiqueta_legible,
+    [item.marca, item.nombre_modelo].filter(Boolean).join(' '),
+    talla ? `Talla ${talla}` : '',
+    qty > 1 ? `${qty} ud.` : '1 ud.',
+  ].filter(Boolean).join(' · ');
+}
+
+async function itemsCustodiaEmpleado(user, employeeId) {
+  const id = texto(employeeId);
+  if (!id) throw errorHttp(400, 'Indica el trabajador');
+  const permitidos = await idsLocalesPermitidos(user);
+  let items = await listarTodosAsignados();
+  items = filtrarPorAlcance(items, permitidos).filter((it) => String(it.custodio_id) === id);
+  return { employeeId: id, items };
+}
+
+const TOPE_CUSTODIA_PARALELO = 20;
+
+export async function pdfInventarioCustodia(user, employeeId) {
+  const { employeeId: id, items } = await itemsCustodiaEmpleado(user, employeeId);
+  if (!items.length) throw errorHttp(404, 'Este trabajador no tiene prendas en custodia');
+  const fotosModelo = await clavesFotoModelo(
+    items.filter((it) => !fotoGeneralDe(it)?.s3_key).map((it) => it.modelo_id),
+  );
+  const itemsLineas = items.map((it) => ({
+    texto: textoLineaCustodia(it),
+    foto_s3_key: fotoGeneralDe(it)?.s3_key || fotosModelo.get(it.modelo_id) || null,
+  }));
+  const itemsPdf = await thumbsActa(itemsLineas);
+  const cantidad = items.reduce((acc, it) => acc + unidadesDe(it), 0);
+  return generarPdfInventarioCustodia({
+    trabajador: texto(items[0].custodio_nombre) || id,
+    fecha: new Date().toLocaleDateString('es-ES'),
+    cantidad,
+    items: itemsPdf,
+  });
+}
+
+export async function listarActasCustodia(user, employeeId) {
+  const { employeeId: id, items } = await itemsCustodiaEmpleado(user, employeeId);
+  const nombre = items[0] ? (texto(items[0].custodio_nombre) || id) : '';
+  if (!items.length) {
+    return { employee_id: id, employee_nombre: nombre, actas: [] };
+  }
+  const eventos = [];
+  for (let i = 0; i < items.length; i += TOPE_CUSTODIA_PARALELO) {
+    const chunk = items.slice(i, i + TOPE_CUSTODIA_PARALELO);
+    const partes = await Promise.all(chunk.map(async (it) => {
+      try {
+        const { items: evs } = await listarEventos(it.asset_id, { limite: 100 });
+        return evs || [];
+      } catch {
+        return [];
+      }
+    }));
+    for (const parte of partes) eventos.push(...parte);
+  }
+  const agregadas = agregarActasDesdeEventos(eventos);
+  return {
+    employee_id: id,
+    employee_nombre: nombre,
+    actas: agregadas.map((a) => ({ entrega_id: a.entrega_id, fecha: a.fecha })),
+  };
+}
+
+export async function urlActaCustodia(user, employeeId, entregaId) {
+  const idEntrega = String(entregaId || '').replace(/[^a-zA-Z0-9-]/g, '');
+  if (!idEntrega) throw errorHttp(400, 'Identificador de entrega no válido');
+  const { employeeId: id, items } = await itemsCustodiaEmpleado(user, employeeId);
+  if (!items.length) throw errorHttp(404, 'Este trabajador no tiene prendas en custodia');
+  const eventos = [];
+  for (let i = 0; i < items.length; i += TOPE_CUSTODIA_PARALELO) {
+    const chunk = items.slice(i, i + TOPE_CUSTODIA_PARALELO);
+    const partes = await Promise.all(chunk.map(async (it) => {
+      try {
+        const { items: evs } = await listarEventos(it.asset_id, { limite: 100 });
+        return evs || [];
+      } catch {
+        return [];
+      }
+    }));
+    for (const parte of partes) eventos.push(...parte);
+  }
+  const acta = agregarActasDesdeEventos(eventos).find((a) => a.entrega_id === idEntrega);
+  if (!acta) throw errorHttp(404, 'No hay justificante de esta entrega en la custodia actual');
+  return {
+    url: await urlFirmadaLectura(acta.acta_s3_key, {
+      disposition: 'attachment',
+      filename: `acta-entrega-${idEntrega}.pdf`,
+    }),
+    entrega_id: idEntrega,
+    employee_id: id,
+  };
 }
 
 async function aplicarCambioEstado(actual, estado, actor, notas, tipoEvento = EVENTO.cambio_estado) {

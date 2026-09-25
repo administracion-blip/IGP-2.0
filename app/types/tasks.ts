@@ -334,6 +334,9 @@ export type Tarea = {
   proyecto_id?: string;
   departamento_id?: string;
   fecha_limite?: string;
+  /** Tramo opcional `HH:mm`; si hay una hora, deben ir las dos y fin > inicio. */
+  hora_inicio?: string;
+  hora_fin?: string;
   prioridad?: Prioridad;
   checklist?: ChecklistItem[];
   tarea_padre_id?: string;

@@ -1,9 +1,19 @@
 /**
- * Agenda de Inicio: semana (por defecto) o mes con las tareas, reuniones y
- * proyectos visibles para quien entra. Reutiliza las APIs ya filtradas por
- * servidor; el color distingue el tipo, no el departamento.
+ * Agenda de Inicio: semana tipo Google Calendar (rejilla horaria) o mes con
+ * tareas, reuniones y proyectos. Reutiliza las APIs ya filtradas por servidor;
+ * el color distingue el tipo, no el departamento.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  createElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type ReactNode,
+} from 'react';
 import {
   View,
   Text,
@@ -13,6 +23,7 @@ import {
   Pressable,
   ActivityIndicator,
   Platform,
+  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -21,7 +32,9 @@ import { MIN_TOUCH } from '../constants/layout';
 import { tasksUi } from '../constants/tasksUiTokens';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import { useAccesoTasks } from '../hooks/useAccesoTasks';
-import { puedeVerProyectos, puedeVerReuniones } from '../lib/tasksAcceso';
+import { puedeEditarProyectos, puedeGestionarReuniones, puedeVerProyectos, puedeVerReuniones } from '../lib/tasksAcceso';
+import { AltaHuecoAgenda, type HuecoAgenda } from './tasks/AltaHuecoAgenda';
+import { desplazarTramo } from './tasks/InputHora';
 import { BotonCrearAgendaInicio } from './tasks/BotonCrearAgendaInicio';
 import { hoyIso } from '../lib/tasksUi';
 import {
@@ -42,14 +55,53 @@ import {
   recortarTramoARango,
   tramoProyecto,
   weekdayHeaderEs,
+  weekdayShortEs,
   weekdayUltraEs,
 } from '../lib/tasksCalendario';
 import { apiFetch, errorMessage } from '../utils/api';
+import { formatFecha } from '../utils/formatFecha';
 import type { Proyecto, Reunion, Tarea } from '../types/tasks';
+
+type TipoArrastrable = 'tarea' | 'reunion';
+
+type PayloadDragAgenda = {
+  tipo: TipoArrastrable;
+  id: string;
+  clave: string;
+};
+
+function esPayloadDrag(valor: unknown): valor is PayloadDragAgenda {
+  if (!valor || typeof valor !== 'object') return false;
+  const o = valor as Record<string, unknown>;
+  return (
+    (o.tipo === 'tarea' || o.tipo === 'reunion') &&
+    typeof o.id === 'string' &&
+    o.id.length > 0 &&
+    typeof o.clave === 'string' &&
+    o.clave.length > 0
+  );
+}
+
+function payloadDesdeRaw(raw: string): PayloadDragAgenda | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return esPayloadDrag(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function payloadDesdeEvent(e: DragEvent<HTMLDivElement>): PayloadDragAgenda | null {
+  return (
+    payloadDesdeRaw(e.dataTransfer.getData('application/json')) ??
+    payloadDesdeRaw(e.dataTransfer.getData('text/plain'))
+  );
+}
 
 const COL_MIN = 132;
 const GAP_SEMANA = 6;
-const ANCHO_SEMANA_MOVIL = 7 * COL_MIN + 6 * GAP_SEMANA;
+const ANCHO_ETIQUETA_HORA = 84;
+const ANCHO_SEMANA_MOVIL = ANCHO_ETIQUETA_HORA + 7 * COL_MIN + 6 * GAP_SEMANA;
 const MAX_PUNTOS = 3;
 const LIMITE_TAREAS = 50;
 const MAX_PAGINAS_TAREAS = 10;
@@ -61,6 +113,24 @@ const GAP_CARRIL = 3;
 const ALTO_OVERFLOW = 14;
 const PAD_BANDA = 4;
 const PAD_BANDA_MES = 2;
+
+/** Rejilla horaria visible (Google Calendar). */
+const HORA_VISTA_INICIO = 8;
+const HORA_VISTA_FIN = 22;
+const ALTO_HORA = 48;
+const ALTO_BLOQUE_MIN = 22;
+const ALTO_OJO_BLOQUE = 28;
+const MINUTOS_DIA_INICIO = HORA_VISTA_INICIO * 60;
+const MINUTOS_DIA_FIN = HORA_VISTA_FIN * 60;
+const ALTO_REJILLA = (HORA_VISTA_FIN - HORA_VISTA_INICIO) * ALTO_HORA;
+/** Hueco para que la etiqueta de las 08:00 no quede recortada por el scroll. */
+const PAD_REJILLA_TOP = 14;
+const PAD_REJILLA_BOTTOM = 10;
+const ALTO_REJILLA_CAJA = ALTO_REJILLA + PAD_REJILLA_TOP + PAD_REJILLA_BOTTOM;
+const HORAS_ETIQUETA = Array.from(
+  { length: HORA_VISTA_FIN - HORA_VISTA_INICIO + 1 },
+  (_, i) => HORA_VISTA_INICIO + i,
+);
 
 export type TipoAgendaInicio = 'tarea' | 'reunion' | 'proyecto';
 
@@ -89,6 +159,8 @@ const ETIQUETA_TIPO: Record<TipoAgendaInicio, string> = {
 type ItemAgenda = {
   clave: string;
   tipo: TipoAgendaInicio;
+  /** `id_tarea` o `id_reunion` (en proyectos, `id_proyecto`). */
+  id: string;
   titulo: string;
   fecha: string;
   /** Fin inclusive del tramo; solo si hay más de un día. */
@@ -97,7 +169,135 @@ type ItemAgenda = {
   ruta: string;
   /** Tarea cerrada (`estado === 'hecha'`). Se pinta en gris y tachada. */
   hecho?: boolean;
+  /** `permisos_fila.editar === true`. Proyectos siempre `false`. */
+  puedeMover: boolean;
+  horaInicio?: string;
+  horaFin?: string;
+  descripcion?: string;
 };
+
+type BloqueEmpaquetado = {
+  item: ItemAgenda;
+  top: number;
+  height: number;
+  carril: number;
+  nCarriles: number;
+};
+
+function esArrastrable(item: ItemAgenda): boolean {
+  return (item.tipo === 'tarea' || item.tipo === 'reunion') && item.puedeMover;
+}
+
+function tieneTramoHorario(item: ItemAgenda): boolean {
+  const hi = (item.horaInicio ?? '').trim();
+  const hf = (item.horaFin ?? '').trim();
+  return Boolean(hi && hf);
+}
+
+/** Cabe en la rejilla 08:00–22:00. Fuera de esa ventana va a «Todo el día». */
+function cabeEnRejilla(item: ItemAgenda): boolean {
+  if (!tieneTramoHorario(item)) return false;
+  const inicio = minutosDeHhmm(item.horaInicio!);
+  const fin = minutosDeHhmm(item.horaFin!);
+  if (inicio == null || fin == null || fin <= inicio) return false;
+  return fin > MINUTOS_DIA_INICIO && inicio < MINUTOS_DIA_FIN;
+}
+
+function minutosDeHhmm(hhmm: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isInteger(h) || !Number.isInteger(min) || h < 0 || h > 23 || min < 0 || min > 59) {
+    return null;
+  }
+  return h * 60 + min;
+}
+
+function etiquetaTramo(item: ItemAgenda): string | null {
+  const hi = (item.horaInicio ?? '').trim();
+  const hf = (item.horaFin ?? '').trim();
+  if (!hi || !hf) return null;
+  return `${hi}–${hf}`;
+}
+
+function compararPorHoraInicio(a: ItemAgenda, b: ItemAgenda): number {
+  const ha = (a.horaInicio ?? '').trim();
+  const hb = (b.horaInicio ?? '').trim();
+  if (ha && !hb) return -1;
+  if (!ha && hb) return 1;
+  if (ha && hb && ha !== hb) return ha < hb ? -1 : 1;
+  return a.titulo.localeCompare(b.titulo, 'es');
+}
+
+function empaquetarBloquesDia(items: ItemAgenda[]): BloqueEmpaquetado[] {
+  const conHora: Array<{ item: ItemAgenda; inicio: number; fin: number }> = [];
+  for (const item of items) {
+    if (!tieneTramoHorario(item)) continue;
+    const inicio = minutosDeHhmm(item.horaInicio!);
+    const fin = minutosDeHhmm(item.horaFin!);
+    if (inicio == null || fin == null || fin <= inicio) continue;
+    conHora.push({ item, inicio, fin });
+  }
+
+  conHora.sort((a, b) => {
+    if (a.inicio !== b.inicio) return a.inicio - b.inicio;
+    return b.fin - b.inicio - (a.fin - a.inicio);
+  });
+
+  const finCarril: number[] = [];
+  const conCarril: Array<{ item: ItemAgenda; inicio: number; fin: number; carril: number }> = [];
+
+  for (const t of conHora) {
+    let puesto = -1;
+    for (let i = 0; i < finCarril.length; i += 1) {
+      if (finCarril[i] <= t.inicio) {
+        puesto = i;
+        break;
+      }
+    }
+    if (puesto === -1) {
+      puesto = finCarril.length;
+      finCarril.push(t.fin);
+    } else {
+      finCarril[puesto] = t.fin;
+    }
+    conCarril.push({ ...t, carril: puesto });
+  }
+
+  // Agrupar solapes para repartir ancho (nCarriles del cluster).
+  const resultados: BloqueEmpaquetado[] = [];
+  let i = 0;
+  while (i < conCarril.length) {
+    let clusterFin = conCarril[i].fin;
+    let j = i + 1;
+    let maxCarril = conCarril[i].carril;
+    while (j < conCarril.length && conCarril[j].inicio < clusterFin) {
+      clusterFin = Math.max(clusterFin, conCarril[j].fin);
+      maxCarril = Math.max(maxCarril, conCarril[j].carril);
+      j += 1;
+    }
+    const nCarriles = maxCarril + 1;
+    for (let k = i; k < j; k += 1) {
+      const t = conCarril[k];
+      const inicioVis = Math.max(t.inicio, MINUTOS_DIA_INICIO);
+      const finVis = Math.min(t.fin, MINUTOS_DIA_FIN);
+      const top = ((inicioVis - MINUTOS_DIA_INICIO) / 60) * ALTO_HORA;
+      let height = Math.max(ALTO_BLOQUE_MIN, ((finVis - inicioVis) / 60) * ALTO_HORA);
+      if (top + height > ALTO_REJILLA) height = Math.max(ALTO_BLOQUE_MIN, ALTO_REJILLA - top);
+      resultados.push({
+        item: t.item,
+        top,
+        height,
+        carril: t.carril,
+        nCarriles,
+      });
+    }
+    i = j;
+  }
+
+  return resultados;
+}
 
 type BarraEmpaquetada = {
   item: ItemAgenda;
@@ -187,17 +387,23 @@ function itemsDeFuentes({
     for (const t of [...tareas, ...tareasHechas]) {
       if (t.estado === 'cancelada') continue;
       const hecho = t.estado === 'hecha';
+      const hi = (t.hora_inicio ?? '').trim();
+      const hf = (t.hora_fin ?? '').trim();
       const item: ItemAgenda = {
         clave: `tarea:${t.id_tarea}`,
         tipo: 'tarea',
+        id: t.id_tarea,
         titulo: t.titulo,
         fecha: fechaLimiteCalendario(t.fecha_limite) ?? '',
         meta: t.proyecto_nombre?.trim() || undefined,
         ruta: `/proyectos/tarea/${encodeURIComponent(t.id_tarea)}`,
         hecho,
+        puedeMover: t.permisos_fila?.editar === true,
+        horaInicio: hi || undefined,
+        horaFin: hf || undefined,
+        descripcion: t.descripcion?.trim() || undefined,
       };
       if (item.fecha) conFecha.push(item);
-      // Las hechas sin fecha no vienen del API; no las inventamos ni las metemos en el cajón.
       else if (!hecho) sinFecha.push(item);
     }
   }
@@ -209,13 +415,19 @@ function itemsDeFuentes({
       if (!fecha) continue;
       const ini = (r.hora_inicio ?? '').trim();
       const fin = (r.hora_fin ?? '').trim();
+      const desc = (r.orden_del_dia ?? r.resumen ?? '').trim();
       conFecha.push({
         clave: `reunion:${r.id_reunion}`,
         tipo: 'reunion',
+        id: r.id_reunion,
         titulo: r.titulo,
         fecha,
-        meta: ini && fin ? `${ini} – ${fin}` : ini || undefined,
+        meta: r.local_nombre?.trim() || undefined,
         ruta: `/reuniones/${encodeURIComponent(r.id_reunion)}`,
+        puedeMover: r.permisos_fila?.editar === true,
+        horaInicio: ini || undefined,
+        horaFin: fin || undefined,
+        descripcion: desc || undefined,
       });
     }
   }
@@ -228,6 +440,7 @@ function itemsDeFuentes({
       const item: ItemAgenda = {
         clave: `proyecto:${p.id_proyecto}`,
         tipo: 'proyecto',
+        id: p.id_proyecto,
         titulo: p.nombre,
         fecha: tramo?.desde ?? '',
         fechaFin: esTramo && tramo ? tramo.hasta : undefined,
@@ -239,6 +452,8 @@ function itemsDeFuentes({
               ? 'Inicio'
               : undefined,
         ruta: `/proyectos/${encodeURIComponent(p.id_proyecto)}`,
+        puedeMover: false,
+        descripcion: p.descripcion?.trim() || undefined,
       };
       if (item.fecha) conFecha.push(item);
       else sinFecha.push(item);
@@ -248,28 +463,340 @@ function itemsDeFuentes({
   return { conFecha, sinFecha };
 }
 
-function PastillaAgenda({ item, onAbrir }: { item: ItemAgenda; onAbrir: () => void }) {
+function PopoverVistaItem({
+  item,
+  onCerrar,
+}: {
+  item: ItemAgenda;
+  onCerrar: () => void;
+}) {
+  const tramo = etiquetaTramo(item);
+  const etiquetaFecha =
+    item.tipo === 'reunion' ? 'Fecha' : item.tipo === 'proyecto' ? 'Fecha' : 'Fecha de vencimiento';
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onCerrar}>
+      <Pressable style={styles.popoverOverlay} onPress={onCerrar} accessibilityLabel="Cerrar vista previa">
+        <Pressable style={styles.popoverCard} onPress={() => {}}>
+          <View style={styles.popoverHeader}>
+            <Text style={styles.popoverTitulo} numberOfLines={3}>
+              {item.titulo}
+            </Text>
+            <TouchableOpacity
+              onPress={onCerrar}
+              style={styles.popoverCerrar}
+              accessibilityLabel="Cerrar"
+              hitSlop={8}
+            >
+              <MaterialIcons name="close" size={20} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.popoverDesc} numberOfLines={8}>
+            {item.descripcion?.trim() || 'Sin descripción'}
+          </Text>
+          <View style={styles.popoverFila}>
+            <Text style={styles.popoverLabel}>{etiquetaFecha}</Text>
+            <Text style={styles.popoverValor}>{formatFecha(item.fecha)}</Text>
+          </View>
+          <View style={styles.popoverFila}>
+            <Text style={styles.popoverLabel}>Tramo</Text>
+            <Text style={styles.popoverValor}>
+              {tramo ? `${(item.horaInicio ?? '').trim()} – ${(item.horaFin ?? '').trim()}` : 'Sin hora'}
+            </Text>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function BotonOjo({
+  compacto,
+  onPress,
+}: {
+  compacto?: boolean;
+  onPress: () => void;
+}) {
+  const lado = compacto ? ALTO_OJO_BLOQUE : MIN_TOUCH;
+  return (
+    <TouchableOpacity
+      onPress={() => {
+        onPress();
+      }}
+      style={[styles.ojoBtn, { width: lado, height: lado, minWidth: lado, minHeight: lado }]}
+      hitSlop={compacto ? 6 : 4}
+      accessibilityLabel="Ver detalle"
+      accessibilityRole="button"
+    >
+      <MaterialIcons name="visibility" size={compacto ? 16 : 18} color="#64748b" />
+    </TouchableOpacity>
+  );
+}
+
+function PastillaAgenda({
+  item,
+  onAbrir,
+  onVistaPrevia,
+  arrastrable,
+  arrastrando,
+  recienSoltada,
+  onDragStart,
+  onDragEnd,
+}: {
+  item: ItemAgenda;
+  onAbrir: () => void;
+  onVistaPrevia: () => void;
+  arrastrable?: boolean;
+  arrastrando?: boolean;
+  recienSoltada?: boolean;
+  onDragStart?: (payload: PayloadDragAgenda) => void;
+  onDragEnd?: () => void;
+}) {
   const hecho = Boolean(item.hecho);
   const color = hecho ? COLOR_TAREA_HECHA : COLOR_AGENDA[item.tipo];
   const fondo = hecho ? FONDO_TAREA_HECHA : FONDO_AGENDA[item.tipo];
-  return (
-    <TouchableOpacity
-      style={[styles.pill, { backgroundColor: fondo }]}
-      onPress={onAbrir}
-      activeOpacity={0.75}
-      accessibilityLabel={`${ETIQUETA_TIPO[item.tipo]}: ${item.titulo}`}
+  const tramo = etiquetaTramo(item);
+  const cuerpo = (
+    <View
+      style={[
+        styles.pill,
+        { backgroundColor: fondo },
+        arrastrando && styles.pillArrastrando,
+        recienSoltada && styles.pillRecienSoltada,
+      ]}
     >
-      <View style={[styles.pillFranja, { backgroundColor: color }]} />
-      <View style={styles.pillCuerpo}>
-        <Text style={[styles.pillTitulo, hecho && styles.pillHecho]} numberOfLines={2}>
+      <TouchableOpacity
+        style={styles.pillToque}
+        onPress={onAbrir}
+        activeOpacity={0.75}
+        accessibilityLabel={`${ETIQUETA_TIPO[item.tipo]}: ${item.titulo}`}
+      >
+        <View style={[styles.pillFranja, { backgroundColor: color }]} />
+        <View style={styles.pillCuerpo}>
+          <Text style={[styles.pillTitulo, hecho && styles.pillHecho]} numberOfLines={2}>
+            {item.titulo}
+          </Text>
+          <Text style={[styles.pillMeta, { color }, hecho && styles.pillHecho]} numberOfLines={1}>
+            {ETIQUETA_TIPO[item.tipo]}
+            {tramo ? ` · ${tramo}` : ''}
+            {item.meta ? ` · ${item.meta}` : ''}
+          </Text>
+        </View>
+      </TouchableOpacity>
+      {item.tipo === 'tarea' || item.tipo === 'reunion' ? (
+        <BotonOjo onPress={onVistaPrevia} />
+      ) : null}
+    </View>
+  );
+
+  if (Platform.OS !== 'web' || !arrastrable) return cuerpo;
+  if (item.tipo !== 'tarea' && item.tipo !== 'reunion') return cuerpo;
+
+  const payload: PayloadDragAgenda = { tipo: item.tipo, id: item.id, clave: item.clave };
+  return createElement(
+    'div',
+    {
+      draggable: true,
+      onDragStart: (e: DragEvent<HTMLDivElement>) => {
+        e.stopPropagation();
+        const raw = JSON.stringify(payload);
+        e.dataTransfer.setData('application/json', raw);
+        e.dataTransfer.setData('text/plain', raw);
+        e.dataTransfer.effectAllowed = 'move';
+        e.currentTarget.style.cursor = 'grabbing';
+        onDragStart?.(payload);
+      },
+      onDragEnd: () => {
+        onDragEnd?.();
+      },
+      style: {
+        width: '100%',
+        cursor: arrastrando ? 'grabbing' : 'grab',
+        boxSizing: 'border-box',
+        transition: 'opacity 180ms ease, transform 220ms ease',
+        transform: recienSoltada ? 'scale(1.03)' : 'scale(1)',
+      },
+    },
+    cuerpo,
+  );
+}
+
+function BloqueHorario({
+  bloque,
+  arrastrable,
+  arrastrando,
+  recienSoltada,
+  onAbrir,
+  onVistaPrevia,
+  onDragStart,
+  onDragEnd,
+}: {
+  bloque: BloqueEmpaquetado;
+  arrastrable: boolean;
+  arrastrando: boolean;
+  recienSoltada: boolean;
+  onAbrir: () => void;
+  onVistaPrevia: () => void;
+  onDragStart?: (payload: PayloadDragAgenda) => void;
+  onDragEnd?: () => void;
+}) {
+  const { item, top, height, carril, nCarriles } = bloque;
+  const hecho = Boolean(item.hecho);
+  const color = hecho ? COLOR_TAREA_HECHA : COLOR_AGENDA[item.tipo];
+  const fondo = hecho ? FONDO_TAREA_HECHA : FONDO_AGENDA[item.tipo];
+  const tramo = etiquetaTramo(item);
+  const anchoPct = 100 / nCarriles;
+  const compacto = height < 36;
+  const mostrarTramo = height >= 28 && Boolean(tramo);
+  const estiloPos = {
+    position: 'absolute' as const,
+    top: top + PAD_REJILLA_TOP,
+    height,
+    left: `${carril * anchoPct}%`,
+    width: `${anchoPct}%`,
+    boxSizing: 'border-box' as const,
+  };
+
+  const interior = (
+    <>
+      <TouchableOpacity
+        style={styles.bloqueToque}
+        onPress={onAbrir}
+        activeOpacity={0.8}
+        accessibilityLabel={`${ETIQUETA_TIPO[item.tipo]}: ${item.titulo}${tramo ? `, ${tramo}` : ''}`}
+      >
+        <Text style={[styles.bloqueTitulo, hecho && styles.pillHecho]} numberOfLines={compacto ? 1 : 2}>
           {item.titulo}
+          {compacto && mostrarTramo ? ` ${tramo}` : ''}
         </Text>
-        <Text style={[styles.pillMeta, { color }, hecho && styles.pillHecho]} numberOfLines={1}>
-          {ETIQUETA_TIPO[item.tipo]}
-          {item.meta ? ` · ${item.meta}` : ''}
-        </Text>
+        {!compacto && mostrarTramo ? (
+          <Text style={[styles.bloqueHora, hecho && styles.pillHecho]} numberOfLines={1}>
+            {tramo}
+          </Text>
+        ) : null}
+      </TouchableOpacity>
+      <BotonOjo compacto onPress={onVistaPrevia} />
+    </>
+  );
+
+  if (Platform.OS !== 'web' || !arrastrable || (item.tipo !== 'tarea' && item.tipo !== 'reunion')) {
+    return (
+      <View
+        style={[
+          styles.bloque,
+          estiloPos,
+          { backgroundColor: fondo, borderLeftColor: color },
+          arrastrando && styles.pillArrastrando,
+          recienSoltada && styles.pillRecienSoltada,
+        ]}
+      >
+        {interior}
       </View>
-    </TouchableOpacity>
+    );
+  }
+
+  const payload: PayloadDragAgenda = { tipo: item.tipo, id: item.id, clave: item.clave };
+  return createElement(
+    'div',
+    {
+      draggable: true,
+      onDragStart: (e: DragEvent<HTMLDivElement>) => {
+        e.stopPropagation();
+        const raw = JSON.stringify(payload);
+        e.dataTransfer.setData('application/json', raw);
+        e.dataTransfer.setData('text/plain', raw);
+        e.dataTransfer.effectAllowed = 'move';
+        onDragStart?.(payload);
+      },
+      onDragEnd: () => onDragEnd?.(),
+      style: {
+        ...estiloPos,
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        backgroundColor: fondo,
+        borderRadius: 4,
+        border: `1px solid ${tasksUi.color.bordeSutil}`,
+        borderLeft: `3px solid ${color}`,
+        overflow: 'hidden',
+        paddingRight: 2,
+        zIndex: 2,
+        cursor: arrastrando ? 'grabbing' : 'grab',
+        opacity: arrastrando ? 0.4 : 1,
+        outline: recienSoltada ? `1px solid ${tasksUi.color.acento}` : undefined,
+      },
+    },
+    interior,
+  );
+}
+
+function EnvolverSemana({
+  movil,
+  children,
+}: {
+  movil: boolean;
+  children: ReactNode;
+}) {
+  if (!movil) return children;
+  return (
+    <ScrollView horizontal style={styles.semanaScroll}>
+      {children}
+    </ScrollView>
+  );
+}
+
+function ZonaDropDia({
+  iso,
+  children,
+  estiloWeb,
+  onEnter,
+  onLeave,
+  onSoltar,
+  horaAlSoltar,
+}: {
+  iso: string;
+  children: ReactNode;
+  estiloWeb?: CSSProperties;
+  onEnter: (iso: string) => void;
+  onLeave: (iso: string, related: EventTarget | null, current: EventTarget) => void;
+  /** Si viene, la Y del suelto fija la hora. `null` = todo el día. Sin callback, solo cambia la fecha. */
+  horaAlSoltar?: (offsetY: number) => string | null;
+  onSoltar: (iso: string, payload: PayloadDragAgenda, horaInicio?: string | null) => void;
+}) {
+  if (Platform.OS !== 'web') return children;
+  return createElement(
+    'div',
+    {
+      onDragOver: (e: DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        onEnter(iso);
+      },
+      onDragLeave: (e: DragEvent<HTMLDivElement>) => {
+        onLeave(iso, e.relatedTarget, e.currentTarget);
+      },
+      onDrop: (e: DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const payload = payloadDesdeEvent(e);
+        if (!payload) return;
+        if (!horaAlSoltar) {
+          onSoltar(iso, payload);
+          return;
+        }
+        const rect = e.currentTarget.getBoundingClientRect();
+        onSoltar(iso, payload, horaAlSoltar(e.clientY - rect.top));
+      },
+      style: {
+        display: 'flex',
+        flexDirection: 'column',
+        alignSelf: 'stretch',
+        boxSizing: 'border-box',
+        minWidth: 0,
+        ...estiloWeb,
+      },
+    },
+    children,
   );
 }
 
@@ -284,6 +811,7 @@ function BarraTramo({
   continuaDer,
   compacta,
   columnasFijas,
+  offsetIzq = 0,
   onAbrir,
 }: {
   titulo: string;
@@ -295,8 +823,8 @@ function BarraTramo({
   continuaIzq: boolean;
   continuaDer: boolean;
   compacta?: boolean;
-  /** Semana móvil: columnas de ancho fijo + gap, no flex. */
   columnasFijas?: boolean;
+  offsetIzq?: number;
   onAbrir: () => void;
 }) {
   const resto = 7 - indiceInicio - span;
@@ -323,7 +851,7 @@ function BarraTramo({
         accessibilityLabel={`Proyecto: ${titulo}`}
         style={{
           position: 'absolute',
-          left: indiceInicio * (COL_MIN + GAP_SEMANA),
+          left: offsetIzq + indiceInicio * (COL_MIN + GAP_SEMANA),
           width: span * COL_MIN + Math.max(0, span - 1) * GAP_SEMANA,
           top: paddingTop + carril * (alto + GAP_CARRIL),
           height: alto,
@@ -342,7 +870,7 @@ function BarraTramo({
       pointerEvents="box-none"
       style={{
         position: 'absolute',
-        left: 0,
+        left: offsetIzq,
         right: 0,
         top: paddingTop + carril * (alto + GAP_CARRIL),
         height: alto,
@@ -377,6 +905,7 @@ function BandaCarriles({
   altoCarril,
   compacta,
   columnasFijas,
+  conGutterHoras,
   onAbrir,
 }: {
   barras: BarraEmpaquetada[];
@@ -384,14 +913,20 @@ function BandaCarriles({
   altoCarril: number;
   compacta?: boolean;
   columnasFijas?: boolean;
+  /** Semana: deja hueco a la izquierda alineado con la columna de horas. */
+  conGutterHoras?: boolean;
   onAbrir: (item: ItemAgenda) => void;
 }) {
   const n = nCarrilesDe(barras);
   const height = alturaBanda(n, overflow, altoCarril, compacta);
   if (height === 0) return null;
   const pad = compacta ? PAD_BANDA_MES : PAD_BANDA;
+  const offsetIzq = conGutterHoras ? ANCHO_ETIQUETA_HORA : 0;
   return (
-    <View style={[styles.bandaCarriles, compacta && styles.bandaCarrilesMes, { height }]} pointerEvents="box-none">
+    <View
+      style={[styles.bandaCarriles, compacta && styles.bandaCarrilesMes, { height }]}
+      pointerEvents="box-none"
+    >
       {barras.map((b) => (
         <BarraTramo
           key={b.item.clave}
@@ -405,13 +940,14 @@ function BandaCarriles({
           continuaDer={b.continuaDer}
           compacta={compacta}
           columnasFijas={columnasFijas}
+          offsetIzq={offsetIzq}
           onAbrir={() => onAbrir(b.item)}
         />
       ))}
       {overflow > 0 ? (
         <Text
           pointerEvents="none"
-          style={[styles.masProyectos, { bottom: Math.max(0, pad - 1) }]}
+          style={[styles.masProyectos, { bottom: Math.max(0, pad - 1), left: offsetIzq + 8 }]}
         >
           +{overflow} {overflow === 1 ? 'proyecto' : 'proyectos'}
         </Text>
@@ -440,8 +976,29 @@ export function CalendarioInicio() {
   const [error, setError] = useState<string | null>(null);
   const [menuCrearAbierto, setMenuCrearAbierto] = useState(false);
   const [avisoCalendario, setAvisoCalendario] = useState<string | null>(null);
+  const [claveArrastrando, setClaveArrastrando] = useState<string | null>(null);
+  const [isoDragOver, setIsoDragOver] = useState<string | null>(null);
+  const [claveRecienSoltada, setClaveRecienSoltada] = useState<string | null>(null);
+  const [vistaPrevia, setVistaPrevia] = useState<ItemAgenda | null>(null);
+  const [huecoAlta, setHuecoAlta] = useState<HuecoAgenda | null>(null);
+  const [minutosAhora, setMinutosAhora] = useState(() => {
+    const ahora = new Date();
+    return ahora.getHours() * 60 + ahora.getMinutes();
+  });
   const seqReuniones = useRef(0);
   const seqHechas = useRef(0);
+  const arrastro = useRef(false);
+  const ignoraClickCelda = useRef(false);
+  const timerSoltada = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seqMove = useRef(new Map<string, number>());
+  const rejillaScrollRef = useRef<ScrollView>(null);
+  const [reservaBarra, setReservaBarra] = useState(0);
+  const tareasRef = useRef(tareas);
+  const tareasHechasRef = useRef(tareasHechas);
+  const reunionesRef = useRef(reuniones);
+  tareasRef.current = tareas;
+  tareasHechasRef.current = tareasHechas;
+  reunionesRef.current = reuniones;
 
   const hoy = hoyIso();
   const lunes = lunesDeSemanaIso(ancla);
@@ -584,6 +1141,14 @@ export function CalendarioInicio() {
     void cargarReuniones();
   }, [cargarReuniones]);
 
+  useEffect(() => {
+    const id = setInterval(() => {
+      const ahora = new Date();
+      setMinutosAhora(ahora.getHours() * 60 + ahora.getMinutes());
+    }, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   const { conFecha, sinFecha } = useMemo(
     () =>
       itemsDeFuentes({
@@ -612,6 +1177,24 @@ export function CalendarioInicio() {
   }, [conFecha, rango.desde, rango.hasta]);
   const empaquetadoSemana = useMemo(() => empaquetarBarras(conFecha, lunes), [conFecha, lunes]);
 
+  const bloquesPorDia = useMemo(() => {
+    const map = new Map<string, BloqueEmpaquetado[]>();
+    for (const iso of diasDeSemana(lunes)) {
+      const delDia = (porDiaPuntuales.get(iso) ?? []).filter(cabeEnRejilla);
+      map.set(iso, empaquetarBloquesDia(delDia));
+    }
+    return map;
+  }, [porDiaPuntuales, lunes]);
+
+  const todoElDiaPorDia = useMemo(() => {
+    const map = new Map<string, ItemAgenda[]>();
+    for (const iso of diasDeSemana(lunes)) {
+      const delDia = (porDiaPuntuales.get(iso) ?? []).filter((i) => !cabeEnRejilla(i));
+      map.set(iso, delDia);
+    }
+    return map;
+  }, [porDiaPuntuales, lunes]);
+
   useEffect(() => {
     if (vista !== 'mes') return;
     if (diaSeleccionado && diaSeleccionado.slice(0, 7) !== inicioMesIso(ancla).slice(0, 7)) {
@@ -633,11 +1216,291 @@ export function CalendarioInicio() {
 
   const abrir = (item: ItemAgenda) => router.push(item.ruta as never);
 
+  const marcarSoltada = useCallback((clave: string) => {
+    setClaveRecienSoltada(clave);
+    if (timerSoltada.current) clearTimeout(timerSoltada.current);
+    timerSoltada.current = setTimeout(() => {
+      setClaveRecienSoltada(null);
+      timerSoltada.current = null;
+    }, 220);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (timerSoltada.current) clearTimeout(timerSoltada.current);
+    },
+    [],
+  );
+
+  const iniciarArrastre = useCallback((payload: PayloadDragAgenda) => {
+    arrastro.current = true;
+    setClaveArrastrando(payload.clave);
+    setVistaPrevia(null);
+  }, []);
+
+  const terminarArrastre = useCallback(() => {
+    setClaveArrastrando(null);
+    setIsoDragOver(null);
+    setTimeout(() => {
+      arrastro.current = false;
+    }, 300);
+  }, []);
+
+  const abrirTrasDrag = useCallback((item: ItemAgenda) => {
+    ignoraClickCelda.current = true;
+    setTimeout(() => {
+      ignoraClickCelda.current = false;
+    }, 0);
+    if (arrastro.current) return;
+    router.push(item.ruta as never);
+  }, [router]);
+
+  const entrarDrop = useCallback((iso: string) => {
+    setIsoDragOver(iso);
+  }, []);
+
+  const salirDrop = useCallback((iso: string, related: EventTarget | null, current: EventTarget) => {
+    const relatedNode = related as Node | null;
+    const caja = current as Node;
+    if (relatedNode && typeof caja.contains === 'function' && caja.contains(relatedNode)) return;
+    setIsoDragOver((prev) => (prev === iso ? null : prev));
+  }, []);
+
+  const seleccionarDiaSiVisible = useCallback(
+    (destinoIso: string) => {
+      if (vista !== 'mes') return;
+      if (destinoIso.slice(0, 7) !== inicioMesIso(ancla).slice(0, 7)) return;
+      setDiaSeleccionado(destinoIso);
+    },
+    [vista, ancla],
+  );
+
+  const moverFechaAgenda = useCallback(
+    async (payload: PayloadDragAgenda, destinoIso: string, horaInicio?: string | null) => {
+      setIsoDragOver(null);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(destinoIso)) return;
+
+      const claveMove = `${payload.tipo}:${payload.id}`;
+      const reservarSeq = () => {
+        const seq = (seqMove.current.get(claveMove) ?? 0) + 1;
+        seqMove.current.set(claveMove, seq);
+        return () => seqMove.current.get(claveMove) === seq;
+      };
+
+      const horasNuevas = (inicioPrev: string, finPrev: string) => {
+        if (horaInicio === undefined) return null;
+        if (horaInicio === null) return { hora_inicio: '', hora_fin: '' };
+        return desplazarTramo(horaInicio, inicioPrev, finPrev);
+      };
+
+      if (payload.tipo === 'tarea') {
+        const t =
+          tareasRef.current.find((x) => x.id_tarea === payload.id) ??
+          tareasHechasRef.current.find((x) => x.id_tarea === payload.id);
+        if (!t) return;
+        const fechaDisplay = fechaLimiteCalendario(t.fecha_limite) ?? '';
+        const hiPrev = (t.hora_inicio ?? '').trim();
+        const hfPrev = (t.hora_fin ?? '').trim();
+        const horas = horasNuevas(hiPrev, hfPrev);
+        const mismaFecha = fechaDisplay === destinoIso;
+        const mismasHoras = !horas || (horas.hora_inicio === hiPrev && horas.hora_fin === hfPrev);
+        if (mismaFecha && mismasHoras) return;
+        const esUltimo = reservarSeq();
+
+        const snapshotFecha = t.fecha_limite;
+        const parchear = (lista: Tarea[]) =>
+          lista.map((x) =>
+            x.id_tarea === t.id_tarea
+              ? { ...x, fecha_limite: destinoIso, ...(horas ?? {}) }
+              : x,
+          );
+        const restaurar = (lista: Tarea[]) =>
+          lista.map((x) =>
+            x.id_tarea === t.id_tarea
+              ? { ...x, fecha_limite: snapshotFecha, hora_inicio: t.hora_inicio, hora_fin: t.hora_fin }
+              : x,
+          );
+        const fusionar = (actualizada: Tarea) => (lista: Tarea[]) =>
+          lista.map((x) => (x.id_tarea === actualizada.id_tarea ? { ...x, ...actualizada } : x));
+
+        const cuerpo: Record<string, string> = {};
+        if (!mismaFecha) cuerpo.fecha_limite = destinoIso;
+        if (horas && !mismasHoras) {
+          cuerpo.hora_inicio = horas.hora_inicio;
+          cuerpo.hora_fin = horas.hora_fin;
+        }
+
+        setAvisoCalendario(null);
+        setTareas(parchear);
+        setTareasHechas(parchear);
+        seleccionarDiaSiVisible(destinoIso);
+        marcarSoltada(payload.clave);
+
+        try {
+          const res = await apiFetch(`/api/tareas/${encodeURIComponent(t.id_tarea)}`, {
+            method: 'PATCH',
+            body: JSON.stringify(cuerpo),
+          });
+          const data = (await res.json().catch(() => ({}))) as { tarea?: Tarea; error?: string };
+          if (!res.ok) throw new Error(data.error || 'No se pudo cambiar la fecha de la tarea');
+          if (!esUltimo()) return;
+          if (data.tarea) {
+            setTareas(fusionar(data.tarea));
+            setTareasHechas(fusionar(data.tarea));
+          }
+        } catch (e) {
+          if (!esUltimo()) return;
+          setTareas(restaurar);
+          setTareasHechas(restaurar);
+          setAvisoCalendario(errorMessage(e, 'No se pudo cambiar la fecha de la tarea'));
+        }
+        return;
+      }
+
+      const r = reunionesRef.current.find((x) => x.id_reunion === payload.id);
+      if (!r) return;
+      const fechaDisplay = fechaDeReunion(r) ?? '';
+      const hiPrev = (r.hora_inicio ?? '').trim();
+      const hfPrev = (r.hora_fin ?? '').trim();
+      const horas = horasNuevas(hiPrev, hfPrev);
+      const mismaFecha = fechaDisplay === destinoIso;
+      const mismasHoras = !horas || (horas.hora_inicio === hiPrev && horas.hora_fin === hfPrev);
+      if (mismaFecha && mismasHoras) return;
+      const esUltimo = reservarSeq();
+
+      const snapshotFecha = r.fecha;
+      const cuerpo: Record<string, string> = {};
+      if (!mismaFecha) cuerpo.fecha = destinoIso;
+      if (horas && !mismasHoras) {
+        cuerpo.hora_inicio = horas.hora_inicio;
+        cuerpo.hora_fin = horas.hora_fin;
+      }
+
+      setAvisoCalendario(null);
+      setReuniones((lista) =>
+        lista.map((x) => (x.id_reunion === r.id_reunion ? { ...x, fecha: destinoIso, ...(horas ?? {}) } : x)),
+      );
+      seleccionarDiaSiVisible(destinoIso);
+      marcarSoltada(payload.clave);
+
+      try {
+        const res = await apiFetch(`/api/reuniones/${encodeURIComponent(r.id_reunion)}`, {
+          method: 'PATCH',
+          body: JSON.stringify(cuerpo),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          reunion?: Reunion;
+          error?: string;
+          mensaje?: string;
+        };
+        if (!res.ok) throw new Error(data.error || data.mensaje || 'No se pudo cambiar la fecha de la reunión');
+        if (!esUltimo()) return;
+        if (data.reunion) {
+          setReuniones((lista) =>
+            lista.map((x) => (x.id_reunion === data.reunion!.id_reunion ? { ...x, ...data.reunion } : x)),
+          );
+        }
+      } catch (e) {
+        if (!esUltimo()) return;
+        setReuniones((lista) =>
+          lista.map((x) =>
+            x.id_reunion === r.id_reunion
+              ? { ...x, fecha: snapshotFecha, hora_inicio: r.hora_inicio, hora_fin: r.hora_fin }
+              : x,
+          ),
+        );
+        setAvisoCalendario(errorMessage(e, 'No se pudo cambiar la fecha de la reunión'));
+      }
+    },
+    [marcarSoltada, seleccionarDiaSiVisible],
+  );
+
+  const soltarEnDia = useCallback(
+    (iso: string, payload: PayloadDragAgenda, horaInicio?: string | null) => {
+      ignoraClickCelda.current = true;
+      setTimeout(() => {
+        ignoraClickCelda.current = false;
+      }, 0);
+      terminarArrastre();
+      void moverFechaAgenda(payload, iso, horaInicio);
+    },
+    [moverFechaAgenda, terminarArrastre],
+  );
+
+  const puedeCrearEnHueco = puedeEditarProyectos(acceso) || puedeGestionarReuniones(acceso);
+
+  const abrirHueco = (iso: string, horaInicio: string, x: number, y: number) => {
+    if (!puedeCrearEnHueco || arrastro.current || ignoraClickCelda.current) return;
+    setHuecoAlta({ iso, horaInicio, x, y });
+  };
+
+  const horaDesdePulsacion = (y: number) => {
+    const indice = Math.floor((y - PAD_REJILLA_TOP) / ALTO_HORA);
+    const hora = Math.min(HORA_VISTA_FIN - 1, Math.max(HORA_VISTA_INICIO, HORA_VISTA_INICIO + indice));
+    return `${String(hora).padStart(2, '0')}:00`;
+  };
+
+  const yEnColumna = (e: {
+    nativeEvent: { locationY: number; pageY: number };
+    currentTarget: unknown;
+  }) => {
+    const nativo = e.nativeEvent as { locationY: number; pageY: number; clientY?: number; target?: EventTarget | null };
+    const nodo = (nativo.target ?? e.currentTarget) as HTMLElement | null;
+    const clientY = nativo.clientY ?? nativo.pageY;
+    if (nodo && typeof nodo.getBoundingClientRect === 'function' && typeof clientY === 'number') {
+      const origen = typeof nativo.clientY === 'number' ? clientY : clientY - (typeof window !== 'undefined' ? window.scrollY : 0);
+      return origen - nodo.getBoundingClientRect().top;
+    }
+    return nativo.locationY;
+  };
+
+  const pintarPastilla = (item: ItemAgenda) => (
+    <PastillaAgenda
+      key={item.clave}
+      item={item}
+      arrastrable={esArrastrable(item)}
+      arrastrando={claveArrastrando === item.clave}
+      recienSoltada={claveRecienSoltada === item.clave}
+      onDragStart={iniciarArrastre}
+      onDragEnd={terminarArrastre}
+      onAbrir={() => abrirTrasDrag(item)}
+      onVistaPrevia={() => {
+        ignoraClickCelda.current = true;
+        setTimeout(() => {
+          ignoraClickCelda.current = false;
+        }, 0);
+        setVistaPrevia(item);
+      }}
+    />
+  );
+
   const recargarAgenda = useCallback(() => {
     void cargarBase();
     void cargarHechas();
     void cargarReuniones();
   }, [cargarBase, cargarHechas, cargarReuniones]);
+
+  const medirBarraRejilla = useCallback(() => {
+    if (Platform.OS !== 'web') return;
+    const inst = rejillaScrollRef.current as unknown as {
+      getScrollableNode?: () => HTMLElement;
+    } | null;
+    const desdeRef = inst?.getScrollableNode?.() ?? (inst as unknown as HTMLElement | null);
+    const nodo =
+      desdeRef && typeof desdeRef.offsetWidth === 'number'
+        ? desdeRef
+        : document.querySelector<HTMLElement>('[data-testid="rejilla-semana"]');
+    if (!nodo) return;
+    const ancho = Math.max(0, nodo.offsetWidth - nodo.clientWidth);
+    setReservaBarra((prev) => (prev === ancho ? prev : ancho));
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || vista !== 'semana') return;
+    medirBarraRejilla();
+    window.addEventListener('resize', medirBarraRejilla);
+    return () => window.removeEventListener('resize', medirBarraRejilla);
+  }, [vista, medirBarraRejilla, cargando]);
 
   const ir = (delta: number) => {
     if (vista === 'semana') setAncla(addDaysIso(lunesDeSemanaIso(ancla), delta * 7));
@@ -660,6 +1523,8 @@ export function CalendarioInicio() {
       ? 'Esta semana'
       : 'Este mes'
     : 'Agenda';
+  const semanaMovil = isPhone && isPortrait;
+  const diasSemana = diasDeSemana(lunes);
 
   return (
     <View style={styles.card}>
@@ -668,6 +1533,23 @@ export function CalendarioInicio() {
           style={styles.menuOverlay}
           onPress={() => setMenuCrearAbierto(false)}
           accessibilityLabel="Cerrar menú crear"
+        />
+      ) : null}
+
+      {vistaPrevia ? (
+        <PopoverVistaItem item={vistaPrevia} onCerrar={() => setVistaPrevia(null)} />
+      ) : null}
+
+      {huecoAlta ? (
+        <AltaHuecoAgenda
+          hueco={huecoAlta}
+          acceso={acceso}
+          onCerrar={() => setHuecoAlta(null)}
+          onCreada={(aviso) => {
+            setHuecoAlta(null);
+            recargarAgenda();
+            setAvisoCalendario(aviso ?? null);
+          }}
         />
       ) : null}
 
@@ -769,52 +1651,214 @@ export function CalendarioInicio() {
           <Text style={styles.centroTexto}>Cargando la agenda…</Text>
         </View>
       ) : vista === 'semana' ? (
-        <ScrollView
-          horizontal={isPhone && isPortrait}
-          style={styles.semanaScroll}
-          contentContainerStyle={[
+        <EnvolverSemana movil={semanaMovil}>
+        <View
+          style={[
             styles.semanaCuerpo,
-            isPhone && isPortrait ? { width: ANCHO_SEMANA_MOVIL } : styles.semanaCuerpoEscritorio,
+            semanaMovil ? { width: ANCHO_SEMANA_MOVIL } : styles.semanaCuerpoEscritorio,
           ]}
         >
           <BandaCarriles
             barras={empaquetadoSemana.barras}
             overflow={empaquetadoSemana.overflow}
             altoCarril={ALTO_CARRIL_SEMANA}
-            columnasFijas={isPhone && isPortrait}
+            columnasFijas={semanaMovil}
+            conGutterHoras
             onAbrir={abrir}
           />
-          <View style={[styles.semanaFila, isPhone && isPortrait && styles.semanaFilaMovil]}>
-            {diasDeSemana(lunes).map((iso) => {
-              const delDiaPuntuales = porDiaPuntuales.get(iso) ?? [];
-              const delDiaTodos = porDiaCubierto.get(iso) ?? [];
-              const esHoy = iso === hoy;
-              return (
-                <View
-                  key={iso}
-                  style={[styles.col, isPhone && isPortrait && styles.colMovil, esHoy && styles.colHoy]}
-                >
-                  <View style={styles.colHeader}>
-                    <Text style={[styles.colDia, esHoy && styles.colDiaHoy]}>{weekdayHeaderEs(iso)}</Text>
-                    {esHoy ? <Text style={styles.badgeHoy}>Hoy</Text> : null}
+
+          {/* Cabecera de días. El padding derecho reserva el hueco de la barra de la rejilla. */}
+          <View
+            style={[
+              styles.semanaCabecera,
+              semanaMovil && styles.semanaFilaMovil,
+              reservaBarra > 0 && { paddingRight: reservaBarra },
+            ]}
+          >
+            <View style={styles.gutterHora} />
+            <View style={[styles.semanaDias, semanaMovil && styles.semanaDiasMovil]}>
+              {diasSemana.map((iso) => {
+                const esHoy = iso === hoy;
+                const delDiaTodos = porDiaCubierto.get(iso) ?? [];
+                return (
+                  <View
+                    key={`h-${iso}`}
+                    style={[styles.colHeaderSemana, semanaMovil && styles.colMovil]}
+                  >
+                    <Text style={styles.colDow}>{weekdayShortEs(iso).toUpperCase()}</Text>
+                    <View style={[styles.colNumWrap, esHoy && styles.colNumHoy]}>
+                      <Text style={[styles.colNum, esHoy && styles.colNumTextoHoy]}>{diaNumero(iso)}</Text>
+                    </View>
+                    {esHoy ? <View style={styles.colHoyLinea} /> : <View style={styles.colHoyLineaHueco} />}
                     {delDiaTodos.length > 0 ? <Text style={styles.colCount}>{delDiaTodos.length}</Text> : null}
                   </View>
-                  <ScrollView style={styles.colLista} contentContainerStyle={styles.colListaContent} nestedScrollEnabled>
-                    {delDiaPuntuales.map((item) => (
-                      <PastillaAgenda key={item.clave} item={item} onAbrir={() => abrir(item)} />
-                    ))}
-                  </ScrollView>
-                </View>
-              );
-            })}
+                );
+              })}
+            </View>
           </View>
-        </ScrollView>
+
+          {/* Franja todo el día */}
+          <View
+            style={[
+              styles.todoElDiaFila,
+              semanaMovil && styles.semanaFilaMovil,
+              reservaBarra > 0 && { paddingRight: reservaBarra },
+            ]}
+          >
+            <View style={styles.gutterHora}>
+              <Text style={styles.todoElDiaLabel} numberOfLines={1}>
+                Todo el día
+              </Text>
+            </View>
+            <View style={[styles.semanaDias, semanaMovil && styles.semanaDiasMovil]}>
+              {diasSemana.map((iso) => {
+                const items = todoElDiaPorDia.get(iso) ?? [];
+                const sobre = isoDragOver === iso;
+                return (
+                  <ZonaDropDia
+                    key={`td-${iso}`}
+                    iso={iso}
+                    estiloWeb={semanaMovil ? { width: COL_MIN, flex: '0 0 auto' } : { flex: 1 }}
+                    onEnter={entrarDrop}
+                    onLeave={salirDrop}
+                    horaAlSoltar={() => null}
+                    onSoltar={soltarEnDia}
+                  >
+                    <Pressable
+                      style={[
+                        styles.todoElDiaCol,
+                        semanaMovil && styles.colMovil,
+                        sobre && styles.colDragOver,
+                      ]}
+                      onPress={(e) => abrirHueco(iso, '', e.nativeEvent.pageX, e.nativeEvent.pageY)}
+                    >
+                      {items.map((item) => pintarPastilla(item))}
+                    </Pressable>
+                  </ZonaDropDia>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Rejilla horaria */}
+          <ScrollView
+            ref={rejillaScrollRef}
+            style={styles.rejillaScroll}
+            nestedScrollEnabled
+            showsVerticalScrollIndicator
+            onLayout={medirBarraRejilla}
+          >
+            <View style={[styles.rejillaFila, semanaMovil && styles.semanaFilaMovil, { minHeight: ALTO_REJILLA_CAJA }]}>
+              <View style={[styles.gutterHora, { height: ALTO_REJILLA_CAJA }]}>
+                {HORAS_ETIQUETA.map((h) => (
+                  <Text
+                    key={h}
+                    style={[
+                      styles.horaEtiqueta,
+                      {
+                        top:
+                          ((h - HORA_VISTA_INICIO) / (HORA_VISTA_FIN - HORA_VISTA_INICIO)) * ALTO_REJILLA +
+                          PAD_REJILLA_TOP -
+                          8,
+                      },
+                    ]}
+                  >
+                    {`${String(h).padStart(2, '0')}:00`}
+                  </Text>
+                ))}
+              </View>
+              <View style={[styles.semanaDias, semanaMovil && styles.semanaDiasMovil, { height: ALTO_REJILLA_CAJA }]}>
+                {diasSemana.map((iso) => {
+                  const bloques = bloquesPorDia.get(iso) ?? [];
+                  const sobre = isoDragOver === iso;
+                  return (
+                    <ZonaDropDia
+                      key={`g-${iso}`}
+                      iso={iso}
+                      estiloWeb={
+                        semanaMovil
+                          ? { width: COL_MIN, flex: '0 0 auto', height: ALTO_REJILLA_CAJA }
+                          : { flex: 1, height: ALTO_REJILLA_CAJA }
+                      }
+                      onEnter={entrarDrop}
+                      onLeave={salirDrop}
+                      horaAlSoltar={horaDesdePulsacion}
+                      onSoltar={soltarEnDia}
+                    >
+                      <Pressable
+                        style={[
+                          styles.colRejilla,
+                          semanaMovil && styles.colMovil,
+                          sobre && styles.colDragOver,
+                          { height: ALTO_REJILLA_CAJA },
+                        ]}
+                        onPress={(e) =>
+                          abrirHueco(
+                            iso,
+                            horaDesdePulsacion(yEnColumna(e)),
+                            e.nativeEvent.pageX,
+                            e.nativeEvent.pageY,
+                          )
+                        }
+                      >
+                        {Array.from({ length: HORA_VISTA_FIN - HORA_VISTA_INICIO }, (_, i) => (
+                          <View
+                            key={i}
+                            pointerEvents="none"
+                            style={[styles.lineaHora, { top: i * ALTO_HORA + PAD_REJILLA_TOP }]}
+                          />
+                        ))}
+                        {iso === hoy &&
+                        minutosAhora >= MINUTOS_DIA_INICIO &&
+                        minutosAhora < MINUTOS_DIA_FIN ? (
+                          <View
+                            pointerEvents="none"
+                            style={[
+                              styles.lineaAhora,
+                              {
+                                top:
+                                  ((minutosAhora - MINUTOS_DIA_INICIO) / 60) * ALTO_HORA +
+                                  PAD_REJILLA_TOP,
+                              },
+                            ]}
+                          >
+                            <View style={styles.lineaAhoraPunto} />
+                          </View>
+                        ) : null}
+                        {bloques.map((b) => (
+                          <BloqueHorario
+                            key={b.item.clave}
+                            bloque={b}
+                            arrastrable={esArrastrable(b.item)}
+                            arrastrando={claveArrastrando === b.item.clave}
+                            recienSoltada={claveRecienSoltada === b.item.clave}
+                            onAbrir={() => abrirTrasDrag(b.item)}
+                            onVistaPrevia={() => {
+                              ignoraClickCelda.current = true;
+                              setTimeout(() => {
+                                ignoraClickCelda.current = false;
+                              }, 0);
+                              setVistaPrevia(b.item);
+                            }}
+                            onDragStart={iniciarArrastre}
+                            onDragEnd={terminarArrastre}
+                          />
+                        ))}
+                      </Pressable>
+                    </ZonaDropDia>
+                  );
+                })}
+              </View>
+            </View>
+          </ScrollView>
+        </View>
+        </EnvolverSemana>
       ) : (
         <View style={styles.mesWrap}>
           <View style={styles.mesCabecera}>
             {diasDeSemana(lunesDeSemanaIso(hoy)).map((iso) => (
               <Text key={iso} style={styles.mesDow}>
-                {weekdayUltraEs(iso)}
+                {weekdayShortEs(iso).toUpperCase()}
               </Text>
             ))}
           </View>
@@ -833,43 +1877,66 @@ export function CalendarioInicio() {
                 >
                   {fila.map(({ iso, delMes }, iCol) => {
                     const delDia = porDiaCubierto.get(iso) ?? [];
-                    const colores = [...new Set(delDia.map(colorPuntoDia))];
-                    const visibles = colores.slice(0, MAX_PUNTOS);
-                    const extra = colores.length - visibles.length;
+                    const citas = delDia.filter((item) => item.tipo !== 'proyecto');
+                    const chips = citas.slice(0, 2);
+                    const resto = citas.length - chips.length;
                     const esHoy = iso === hoy;
                     const seleccionado = iso === diaSeleccionado;
+                    const sobre = isoDragOver === iso;
                     return (
-                      <TouchableOpacity
+                      <ZonaDropDia
                         key={iso}
-                        style={[
-                          styles.celda,
-                          iCol === fila.length - 1 && styles.celdaUltima,
-                          !delMes && styles.celdaFuera,
-                          esHoy && styles.celdaHoy,
-                          seleccionado && styles.celdaSel,
-                          altoBanda > 0 && { paddingBottom: altoBanda },
-                        ]}
-                        onPress={() => {
-                          if (!delMes) {
-                            setAncla(iso);
-                            setDiaSeleccionado(iso);
-                            return;
-                          }
-                          setDiaSeleccionado(seleccionado ? null : iso);
-                        }}
-                        accessibilityLabel={`${weekdayHeaderEs(iso)}, ${delDia.length} elementos`}
+                        iso={iso}
+                        estiloWeb={{ flex: 1 }}
+                        onEnter={entrarDrop}
+                        onLeave={salirDrop}
+                        onSoltar={soltarEnDia}
                       >
-                        <Text style={[styles.celdaNum, esHoy && styles.celdaNumHoy, !delMes && styles.celdaNumFuera]}>
-                          {diaNumero(iso)}
-                        </Text>
-                        <View style={styles.puntos}>
-                          {visibles.map((c) => (
-                            <View key={c} style={[styles.punto, { backgroundColor: c }]} />
-                          ))}
-                          {extra > 0 ? <Text style={styles.masPuntos}>+{extra}</Text> : null}
-                        </View>
-                        {delDia.length > 0 ? <Text style={styles.celdaCount}>·{delDia.length}</Text> : null}
-                      </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.celda,
+                            iCol === fila.length - 1 && styles.celdaUltima,
+                            !delMes && styles.celdaFuera,
+                            seleccionado && styles.celdaSel,
+                            sobre && styles.celdaDragOver,
+                            altoBanda > 0 && { paddingBottom: altoBanda },
+                            { flex: 1 },
+                          ]}
+                          onPress={() => {
+                            if (ignoraClickCelda.current) return;
+                            if (!delMes) {
+                              setAncla(iso);
+                              setDiaSeleccionado(iso);
+                              return;
+                            }
+                            setDiaSeleccionado(seleccionado ? null : iso);
+                          }}
+                          accessibilityLabel={`${weekdayHeaderEs(iso)}, ${delDia.length} elementos`}
+                        >
+                          <View style={[styles.mesNumWrap, esHoy && styles.colNumHoy]}>
+                            <Text
+                              style={[
+                                styles.mesNum,
+                                esHoy && styles.colNumTextoHoy,
+                                !delMes && !esHoy && styles.celdaNumFuera,
+                              ]}
+                            >
+                              {diaNumero(iso)}
+                            </Text>
+                          </View>
+                          <View style={styles.chipsMes}>
+                            {chips.map((item) => (
+                              <View key={item.clave} style={styles.chipMes}>
+                                <View style={[styles.chipMesBarra, { backgroundColor: colorPuntoDia(item) }]} />
+                                <Text style={styles.chipMesTexto} numberOfLines={1}>
+                                  {item.titulo}
+                                </Text>
+                              </View>
+                            ))}
+                            {resto > 0 ? <Text style={styles.masPuntos}>+{resto}</Text> : null}
+                          </View>
+                        </TouchableOpacity>
+                      </ZonaDropDia>
                     );
                   })}
                   {altoBanda > 0 ? (
@@ -888,21 +1955,28 @@ export function CalendarioInicio() {
             })}
           </View>
           {diaSeleccionado ? (
-            <View style={styles.diaPanel}>
-              <Text style={styles.diaPanelTitulo}>
-                {weekdayHeaderEs(diaSeleccionado)}
-                {diaSeleccionado === hoy ? ' · Hoy' : ''}
-              </Text>
-              {(porDiaCubierto.get(diaSeleccionado) ?? []).length === 0 ? (
-                <Text style={styles.vacioDia}>Nada este día.</Text>
-              ) : (
-                <View style={styles.diaLista}>
-                  {(porDiaCubierto.get(diaSeleccionado) ?? []).map((item) => (
-                    <PastillaAgenda key={item.clave} item={item} onAbrir={() => abrir(item)} />
-                  ))}
-                </View>
-              )}
-            </View>
+            <ZonaDropDia
+              iso={diaSeleccionado}
+              onEnter={entrarDrop}
+              onLeave={salirDrop}
+              onSoltar={soltarEnDia}
+            >
+              <View style={[styles.diaPanel, isoDragOver === diaSeleccionado && styles.diaPanelDragOver]}>
+                <Text style={styles.diaPanelTitulo}>
+                  {weekdayHeaderEs(diaSeleccionado)}
+                  {diaSeleccionado === hoy ? ' · Hoy' : ''}
+                </Text>
+                {(porDiaCubierto.get(diaSeleccionado) ?? []).length === 0 ? (
+                  <Text style={styles.vacioDia}>Nada este día.</Text>
+                ) : (
+                  <View style={styles.diaLista}>
+                    {[...(porDiaCubierto.get(diaSeleccionado) ?? [])]
+                      .sort(compararPorHoraInicio)
+                      .map((item) => pintarPastilla(item))}
+                  </View>
+                )}
+              </View>
+            </ZonaDropDia>
           ) : (
             <Text style={styles.pistaMes}>Toca un día para ver el detalle.</Text>
           )}
@@ -915,7 +1989,7 @@ export function CalendarioInicio() {
           <ScrollView horizontal contentContainerStyle={styles.cajonLista} showsHorizontalScrollIndicator={false}>
             {sinFecha.map((item) => (
               <View key={item.clave} style={styles.cajonItem}>
-                <PastillaAgenda item={item} onAbrir={() => abrir(item)} />
+                {pintarPastilla(item)}
               </View>
             ))}
           </ScrollView>
@@ -1006,10 +2080,159 @@ const styles = StyleSheet.create({
   centroTexto: { fontSize: 13, color: tasksUi.color.textoSecundario },
 
   semanaScroll: {},
-  semanaCuerpo: { flexDirection: 'column', gap: 6 },
+  semanaCuerpo: { flexDirection: 'column', gap: 4 },
   semanaCuerpoEscritorio: { flexGrow: 1, width: '100%' },
-  semanaFila: { flexDirection: 'row', gap: GAP_SEMANA, minHeight: 220, width: '100%' },
   semanaFilaMovil: { width: ANCHO_SEMANA_MOVIL },
+  semanaCabecera: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    width: '100%',
+  },
+  semanaDias: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: GAP_SEMANA,
+    minWidth: 0,
+  },
+  semanaDiasMovil: {
+    flex: 0,
+    width: 7 * COL_MIN + 6 * GAP_SEMANA,
+  },
+  todoElDiaFila: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    width: '100%',
+    minHeight: 44,
+  },
+  todoElDiaLabel: {
+    ...tasksUi.tipo.micro,
+    fontWeight: '600',
+    color: tasksUi.color.textoTerciario,
+    textAlign: 'right',
+    paddingRight: 14,
+    paddingTop: 4,
+  },
+  todoElDiaCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+    padding: 4,
+    borderRadius: 10,
+    backgroundColor: '#eef1f6',
+    minHeight: 32,
+  },
+  rejillaScroll: {
+    maxHeight: ALTO_REJILLA_CAJA,
+    backgroundColor: 'transparent',
+  },
+  rejillaFila: {
+    flexDirection: 'row',
+    width: '100%',
+  },
+  gutterHora: {
+    width: ANCHO_ETIQUETA_HORA,
+    flexShrink: 0,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  horaEtiqueta: {
+    position: 'absolute',
+    right: 14,
+    ...tasksUi.tipo.micro,
+    color: tasksUi.color.textoTerciario,
+    fontWeight: '600',
+  },
+  colHeaderSemana: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: 4,
+    backgroundColor: 'transparent',
+  },
+  colDow: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.6,
+    color: tasksUi.color.textoTerciario,
+  },
+  colNumWrap: {
+    minWidth: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  colNumHoy: { backgroundColor: '#0ea5e9' },
+  colNum: { fontSize: 22, fontWeight: '700', color: '#0f172a', lineHeight: 26 },
+  colNumTextoHoy: { color: '#ffffff' },
+  colHoyLinea: {
+    width: 36,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: '#0ea5e9',
+    marginTop: 2,
+  },
+  colHoyLineaHueco: { width: 36, height: 2, marginTop: 2 },
+  colRejilla: {
+    flex: 1,
+    minWidth: 0,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  lineaHora: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: '#e7ebf0',
+  },
+  lineaAhora: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: '#f43f5e',
+    zIndex: 4,
+  },
+  lineaAhoraPunto: {
+    position: 'absolute',
+    left: -3,
+    top: -3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#f43f5e',
+  },
+  bloque: {
+    position: 'absolute',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderLeftWidth: 3,
+    borderRadius: 12,
+    overflow: 'hidden',
+    paddingRight: 2,
+    zIndex: 2,
+  },
+  bloqueToque: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  bloqueTitulo: {
+    ...tasksUi.tipo.micro,
+    fontWeight: '700',
+    color: tasksUi.color.textoPrimario,
+    lineHeight: 14,
+  },
+  bloqueHora: {
+    ...tasksUi.tipo.micro,
+    fontWeight: '500',
+    marginTop: 1,
+    color: tasksUi.color.textoTerciario,
+  },
+
   bandaCarriles: {
     position: 'relative',
     width: '100%',
@@ -1036,7 +2259,7 @@ const styles = StyleSheet.create({
     backgroundColor: FONDO_AGENDA.proyecto,
     borderWidth: 1,
     borderColor: '#f9a8d4',
-    borderRadius: tasksUi.radius.control,
+    borderRadius: 8,
     justifyContent: 'center',
     paddingHorizontal: 6,
     overflow: 'hidden',
@@ -1061,78 +2284,98 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLOR_AGENDA.proyecto,
   },
-  col: {
-    flex: 1,
-    minWidth: 0,
-    backgroundColor: tasksUi.color.superficie,
-    borderRadius: tasksUi.radius.contenedor,
-    borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
-    overflow: 'hidden',
-  },
   colMovil: { width: COL_MIN, flex: 0 },
   colHoy: { borderColor: tasksUi.color.acentoSuave, backgroundColor: tasksUi.color.acentoSuave },
-  colHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: tasksUi.color.bordeSutil,
+  colDragOver: {
+    backgroundColor: tasksUi.color.acentoSuave,
+    borderColor: tasksUi.color.acento,
   },
   colDia: { ...tasksUi.tipo.micro, fontWeight: '600', color: tasksUi.color.textoSecundario },
   colDiaHoy: { color: tasksUi.color.acentoTexto },
   badgeHoy: { ...tasksUi.tipo.micro, fontWeight: '600', color: tasksUi.color.acentoTexto },
   colCount: { marginLeft: 'auto', ...tasksUi.tipo.micro, fontWeight: '600', color: tasksUi.color.textoTerciario },
-  colLista: { maxHeight: 220 },
-  colListaContent: { padding: 6, gap: 6 },
 
   mesWrap: { gap: 8 },
   mesCabecera: { flexDirection: 'row' },
-  mesDow: { flex: 1, textAlign: 'center', ...tasksUi.tipo.micro, fontWeight: '600', color: tasksUi.color.textoTerciario },
+  mesDow: {
+    flex: 1,
+    textAlign: 'left',
+    paddingLeft: 6,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.6,
+    color: tasksUi.color.textoTerciario,
+  },
   mesMarco: {
-    borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
     borderRadius: tasksUi.radius.contenedor,
     overflow: 'hidden',
-    backgroundColor: tasksUi.color.superficie,
+    backgroundColor: 'transparent',
   },
   mesFila: {
     position: 'relative',
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: tasksUi.color.bordeSutil,
+    borderBottomColor: '#e7ebf0',
   },
   mesFilaUltima: { borderBottomWidth: 0 },
   celda: {
     flex: 1,
-    minHeight: 56,
+    minHeight: 88,
     minWidth: 0,
     paddingVertical: 6,
-    paddingHorizontal: 2,
-    alignItems: 'center',
-    gap: 3,
-    borderRightWidth: 1,
-    borderRightColor: tasksUi.color.bordeSutil,
-    backgroundColor: tasksUi.color.superficie,
+    paddingHorizontal: 4,
+    alignItems: 'flex-start',
+    gap: 4,
+    backgroundColor: 'transparent',
   },
-  celdaUltima: { borderRightWidth: 0 },
-  celdaFuera: { backgroundColor: tasksUi.color.superficieHundida },
-  celdaHoy: { backgroundColor: tasksUi.color.acentoSuave },
-  celdaSel: { backgroundColor: tasksUi.color.acentoSuave },
+  celdaUltima: {},
+  celdaFuera: { opacity: 0.45 },
+  celdaHoy: {},
+  celdaSel: {
+    borderWidth: 1,
+    borderColor: '#0ea5e9',
+    borderRadius: 10,
+  },
+  celdaDragOver: {
+    backgroundColor: tasksUi.color.acentoSuave,
+    borderRadius: 10,
+  },
+  diaPanelDragOver: {
+    backgroundColor: tasksUi.color.acentoSuave,
+    borderColor: tasksUi.color.acento,
+  },
+  mesNumWrap: {
+    minWidth: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mesNum: { fontSize: 16, fontWeight: '700', color: '#0f172a', lineHeight: 20 },
   celdaNum: { fontSize: 13, fontWeight: '600', color: tasksUi.color.textoPrimario },
   celdaNumHoy: { color: tasksUi.color.acentoTexto },
   celdaNumFuera: { color: tasksUi.color.textoTerciario },
+  chipsMes: { alignSelf: 'stretch', gap: 3, minWidth: 0 },
+  chipMes: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'stretch',
+    minWidth: 0,
+    backgroundColor: '#f8fafc',
+    borderRadius: 6,
+    overflow: 'hidden',
+    paddingRight: 4,
+  },
+  chipMesBarra: { width: 3, alignSelf: 'stretch', minHeight: 16 },
+  chipMesTexto: { flex: 1, minWidth: 0, fontSize: 11, fontWeight: '600', color: '#0f172a' },
   puntos: { flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 8 },
   punto: { width: 7, height: 7, borderRadius: 4 },
-  masPuntos: { fontSize: 9, fontWeight: '600', color: tasksUi.color.textoSecundario },
+  masPuntos: { fontSize: 11, fontWeight: '600', color: tasksUi.color.textoSecundario },
   celdaCount: { ...tasksUi.tipo.micro, color: tasksUi.color.textoSecundario },
   diaPanel: {
     backgroundColor: tasksUi.color.superficie,
-    borderRadius: tasksUi.radius.contenedor,
-    borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
+    borderRadius: 12,
     padding: 10,
     gap: 8,
   },
@@ -1150,15 +2393,89 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'stretch',
     backgroundColor: tasksUi.color.superficie,
-    borderRadius: tasksUi.radius.contenedor,
-    borderWidth: 1,
-    borderColor: tasksUi.color.bordeSutil,
+    borderRadius: 12,
     overflow: 'hidden',
     minHeight: 36,
+  },
+  pillToque: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'stretch',
   },
   pillFranja: { width: 3 },
   pillCuerpo: { flex: 1, minWidth: 0, paddingHorizontal: 7, paddingVertical: 5, gap: 2 },
   pillTitulo: { ...tasksUi.tipo.etiqueta, fontWeight: '600', color: tasksUi.color.textoPrimario, lineHeight: 16 },
   pillMeta: { ...tasksUi.tipo.micro, fontWeight: '500' },
   pillHecho: { color: TEXTO_TAREA_HECHA, textDecorationLine: 'line-through' },
+  pillArrastrando: { opacity: 0.4 },
+  pillRecienSoltada: { borderColor: tasksUi.color.acento },
+
+  ojoBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+  },
+
+  popoverOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    zIndex: 100,
+  },
+  popoverCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: tasksUi.color.bordeSutil,
+    padding: 14,
+    gap: 10,
+    ...(Platform.OS === 'web'
+      ? ({ boxShadow: '0 12px 32px rgba(0,0,0,0.18)' } as object)
+      : { elevation: 16 }),
+  },
+  popoverHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  popoverTitulo: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    color: tasksUi.color.textoPrimario,
+  },
+  popoverCerrar: {
+    width: MIN_TOUCH,
+    height: MIN_TOUCH,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: -6,
+    marginRight: -6,
+  },
+  popoverDesc: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: tasksUi.color.textoSecundario,
+  },
+  popoverFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  popoverLabel: {
+    ...tasksUi.tipo.micro,
+    fontWeight: '600',
+    color: tasksUi.color.textoTerciario,
+  },
+  popoverValor: {
+    ...tasksUi.tipo.etiqueta,
+    fontWeight: '600',
+    color: tasksUi.color.textoPrimario,
+  },
 });

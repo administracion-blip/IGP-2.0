@@ -16,8 +16,15 @@ import { useBreakpoint } from '../../../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../../../constants/layout';
 import { colors, inputCursorProps, radius, shadowCard, statusColors, typography } from '../../../constants/theme';
 import { apiFetch, errorMessage } from '../../../utils/api';
+import { formatCreadoEn } from '../../../utils/formatFecha';
 import { fotoGeneralUrl, tallaDeActivo } from '../../../lib/activos';
-import type { ActivoListado, ArticuloCustodia, CustodiaEmpleado } from '../../../types/activos';
+import {
+  descargarActaEntregaPdf,
+  descargarPdfDesdeRespuesta,
+  nombreFicheroActaEntrega,
+  nombreFicheroInventarioCustodia,
+} from '../../../lib/activosActa';
+import type { ActaCustodia, ActivoListado, ArticuloCustodia, CustodiaEmpleado } from '../../../types/activos';
 
 type Vista = 'trabajador' | 'articulo';
 
@@ -238,7 +245,10 @@ export default function ActivosCustodiaScreen() {
                 </TouchableOpacity>
               ) : null}
               {vista === 'trabajador' ? (
-                <DetalleTrabajador trabajador={trabajadorSel} />
+                <DetalleTrabajador
+                  key={trabajadorSel ? String(trabajadorSel.employee_id) : 'vacio'}
+                  trabajador={trabajadorSel}
+                />
               ) : (
                 <DetalleArticulo articulo={articuloSel} />
               )}
@@ -251,6 +261,86 @@ export default function ActivosCustodiaScreen() {
 }
 
 function DetalleTrabajador({ trabajador }: { trabajador: CustodiaEmpleado | null }) {
+  const employeeId = trabajador ? String(trabajador.employee_id) : '';
+  const [actas, setActas] = useState<ActaCustodia[]>([]);
+  const [cargandoActas, setCargandoActas] = useState(false);
+  const [errorActas, setErrorActas] = useState<string | null>(null);
+  const [descargandoInventario, setDescargandoInventario] = useState(false);
+  const [errorInventario, setErrorInventario] = useState<string | null>(null);
+  const [descargandoActaId, setDescargandoActaId] = useState<string | null>(null);
+  const [errorActa, setErrorActa] = useState<{ id: string; msg: string } | null>(null);
+
+  useEffect(() => {
+    if (!employeeId) {
+      setActas([]);
+      setErrorActas(null);
+      setErrorInventario(null);
+      return;
+    }
+    let cancelado = false;
+    const cargarActas = async () => {
+      setCargandoActas(true);
+      setErrorActas(null);
+      setErrorInventario(null);
+      setErrorActa(null);
+      try {
+        const res = await apiFetch(`/api/activos/custodia/${encodeURIComponent(employeeId)}/actas`);
+        const data = (await res.json().catch(() => ({}))) as { actas?: ActaCustodia[]; error?: string };
+        if (!res.ok) throw new Error(data.error || 'No se pudieron cargar las actas');
+        if (!cancelado) setActas(Array.isArray(data.actas) ? data.actas : []);
+      } catch (e) {
+        if (!cancelado) {
+          setActas([]);
+          setErrorActas(errorMessage(e, 'No se pudieron cargar las actas'));
+        }
+      } finally {
+        if (!cancelado) setCargandoActas(false);
+      }
+    };
+    void cargarActas();
+    return () => {
+      cancelado = true;
+    };
+  }, [employeeId]);
+
+  const descargarInventario = async () => {
+    if (!trabajador) return;
+    setDescargandoInventario(true);
+    setErrorInventario(null);
+    try {
+      const res = await apiFetch(
+        `/api/activos/custodia/${encodeURIComponent(employeeId)}/inventario`,
+        { timeoutMs: 60000 },
+      );
+      await descargarPdfDesdeRespuesta(
+        res,
+        nombreFicheroInventarioCustodia(trabajador.employee_id, trabajador.employee_nombre),
+      );
+    } catch (e) {
+      setErrorInventario(errorMessage(e, 'No se pudo descargar el inventario'));
+    } finally {
+      setDescargandoInventario(false);
+    }
+  };
+
+  const descargarActa = async (acta: ActaCustodia) => {
+    setDescargandoActaId(acta.entrega_id);
+    setErrorActa(null);
+    try {
+      const res = await apiFetch(
+        `/api/activos/custodia/${encodeURIComponent(employeeId)}/actas/${encodeURIComponent(acta.entrega_id)}`,
+      );
+      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!res.ok) throw new Error(data.error || 'No se pudo descargar el acta');
+      if (!data.url) throw new Error('No hay justificante para descargar');
+      await descargarActaEntregaPdf(data.url, nombreFicheroActaEntrega(acta.entrega_id));
+    } catch (e) {
+      setErrorActa({ id: acta.entrega_id, msg: errorMessage(e, 'No se pudo descargar el acta') });
+    } finally {
+      setDescargandoActaId(null);
+    }
+  };
+
   if (!trabajador) {
     return (
       <View style={styles.detalleVacio}>
@@ -259,16 +349,70 @@ function DetalleTrabajador({ trabajador }: { trabajador: CustodiaEmpleado | null
       </View>
     );
   }
+
   return (
     <ScrollView contentContainerStyle={styles.detalleBody}>
       <Text style={styles.detalleTitulo}>{trabajador.employee_nombre || String(trabajador.employee_id)}</Text>
       <Text style={styles.detalleSub}>
         {trabajador.cantidad === 1 ? '1 prenda en su poder' : `${trabajador.cantidad} prendas en su poder`}
       </Text>
+      <TouchableOpacity
+        style={styles.btnDoc}
+        onPress={() => void descargarInventario()}
+        disabled={descargandoInventario}
+        accessibilityRole="button"
+        accessibilityLabel="Descargar inventario"
+      >
+        {descargandoInventario ? (
+          <ActivityIndicator size="small" color={colors.accentPressed} />
+        ) : (
+          <MaterialIcons name="picture-as-pdf" size={18} color={colors.accentPressed} />
+        )}
+        <Text style={styles.btnDocTxt}>Descargar inventario</Text>
+      </TouchableOpacity>
+      {errorInventario ? <Text style={styles.errorLocal}>{errorInventario}</Text> : null}
       {(trabajador.activos || []).length === 0 ? (
         <Text style={styles.vacio}>No hay prendas registradas.</Text>
       ) : (
         (trabajador.activos || []).map((a) => <FilaActivoCustodia key={a.asset_id} activo={a} />)
+      )}
+
+      <Text style={styles.seccionTitulo}>Actas firmadas</Text>
+      {cargandoActas ? (
+        <ActivityIndicator size="small" color={colors.accent} style={styles.actasLoading} />
+      ) : errorActas ? (
+        <Text style={styles.errorLocal}>{errorActas}</Text>
+      ) : actas.length === 0 ? (
+        <Text style={styles.vacioSeccion}>No hay actas firmadas de estas prendas.</Text>
+      ) : (
+        actas.map((acta) => (
+          <View key={acta.entrega_id}>
+            <View style={styles.filaActa}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.filaActaFecha}>
+                  {acta.fecha ? formatCreadoEn(acta.fecha) : 'Sin fecha'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.btnDocFila}
+                onPress={() => void descargarActa(acta)}
+                disabled={descargandoActaId === acta.entrega_id}
+                accessibilityRole="button"
+                accessibilityLabel={`Descargar acta ${acta.entrega_id}`}
+              >
+                {descargandoActaId === acta.entrega_id ? (
+                  <ActivityIndicator size="small" color={colors.accentPressed} />
+                ) : (
+                  <MaterialIcons name="download" size={18} color={colors.accentPressed} />
+                )}
+                <Text style={styles.btnDocTxt}>Descargar</Text>
+              </TouchableOpacity>
+            </View>
+            {errorActa?.id === acta.entrega_id ? (
+              <Text style={styles.errorLocal}>{errorActa.msg}</Text>
+            ) : null}
+          </View>
+        ))
       )}
     </ScrollView>
   );
@@ -487,6 +631,45 @@ const styles = StyleSheet.create({
   detalleSub: { fontSize: 13, color: colors.textSecondary, marginBottom: 6 },
   detalleVacio: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 },
   detalleVacioTxt: { fontSize: 14, color: colors.textSecondary, textAlign: 'center' },
+  btnDoc: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: MIN_TOUCH,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+  },
+  btnDocFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: MIN_TOUCH,
+    paddingHorizontal: 10,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+  },
+  btnDocTxt: { color: colors.accentPressed, fontWeight: '600', fontSize: 13 },
+  errorLocal: { color: statusColors.danger.text, fontSize: 13 },
+  seccionTitulo: { ...typography.subtitulo, color: '#0f172a', marginTop: 8 },
+  actasLoading: { alignSelf: 'flex-start', marginVertical: 6 },
+  vacioSeccion: { color: colors.textMuted, fontSize: 14 },
+  filaActa: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filaActaFecha: { fontSize: 14, fontWeight: '600', color: '#0f172a' },
   volverLista: {
     flexDirection: 'row',
     alignItems: 'center',

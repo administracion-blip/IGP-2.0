@@ -1,6 +1,6 @@
 /**
- * Selector compacto de hora (HH:mm) para reuniones.
- * Dos desplegables [HH ▼] : [mm ▼]. Vacío permitido. No usa fetch.
+ * Selector compacto de hora (HH:mm) para tareas y reuniones.
+ * Un solo campo abre hora y minutos a la vez. Vacío permitido. No usa fetch.
  */
 import { useMemo, useState } from 'react';
 import {
@@ -38,6 +38,55 @@ function componer(hora: string, minuto: string): string {
   return `${hora}:${minuto}`;
 }
 
+/**
+ * Al elegir inicio, propone fin = inicio + 1 h si la fin está vacía o no es posterior.
+ * Borrar el inicio vacía también la fin. Una fin ya posterior no se pisa.
+ */
+export function aplicarHoraInicio(inicio: string, finActual: string): { hora_inicio: string; hora_fin: string } {
+  const hi = inicio.trim();
+  if (!hi) return { hora_inicio: '', hora_fin: '' };
+  const m = /^(\d{2}):(\d{2})$/.exec(hi);
+  if (!m) return { hora_inicio: hi, hora_fin: finActual };
+  const hf = finActual.trim();
+  if (hf > hi) return { hora_inicio: hi, hora_fin: hf };
+  const hora = Number(m[1]);
+  const horaFin = hora >= 23 ? '23:59' : `${String(hora + 1).padStart(2, '0')}:${m[2]}`;
+  if (horaFin <= hi) return { hora_inicio: hi, hora_fin: hf };
+  return { hora_inicio: hi, hora_fin: horaFin };
+}
+
+function minutosDeHhmm(hhmm: string): number | null {
+  const m = /^(\d{2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+function hhmmDeMinutos(total: number): string {
+  const acotado = Math.min(23 * 60 + 59, Math.max(0, total));
+  const hora = Math.floor(acotado / 60);
+  const minuto = acotado % 60;
+  return `${String(hora).padStart(2, '0')}:${String(minuto).padStart(2, '0')}`;
+}
+
+/** Mueve el tramo a `inicioNuevo` conservando la duración. Sin tramo previo, fin = inicio + 1 h. */
+export function desplazarTramo(
+  inicioNuevo: string,
+  inicioPrev: string,
+  finPrev: string,
+): { hora_inicio: string; hora_fin: string } {
+  const hi = inicioNuevo.trim();
+  if (!hi) return { hora_inicio: '', hora_fin: '' };
+  const desde = minutosDeHhmm(inicioPrev);
+  const hasta = minutosDeHhmm(finPrev);
+  const nuevo = minutosDeHhmm(hi);
+  if (desde == null || hasta == null || nuevo == null || hasta <= desde) {
+    return aplicarHoraInicio(hi, '');
+  }
+  const fin = hhmmDeMinutos(nuevo + (hasta - desde));
+  if (fin <= hi) return aplicarHoraInicio(hi, '');
+  return { hora_inicio: hi, hora_fin: fin };
+}
+
 export function InputHora({
   value,
   onChange,
@@ -50,7 +99,8 @@ export function InputHora({
   compact?: boolean;
 }) {
   const { isCompact } = useBreakpoint();
-  const [abierto, setAbierto] = useState<'hora' | 'minuto' | null>(null);
+  const [abierto, setAbierto] = useState(false);
+  const [draftHora, setDraftHora] = useState<string | null>(null);
   const parsed = parseHhmm(value);
   const tactil = compact && isCompact;
 
@@ -62,21 +112,35 @@ export function InputHora({
     return MINUTOS_BASE;
   }, [parsed?.minuto]);
 
+  function abrir() {
+    setDraftHora(parsed?.hora ?? null);
+    setAbierto(true);
+  }
+
+  function cerrar() {
+    if (draftHora && draftHora !== (parsed?.hora ?? null)) {
+      onChange(componer(draftHora, parsed?.minuto ?? '00'));
+    }
+    setAbierto(false);
+  }
+
   function elegirHora(hora: string) {
     if (hora === VACIO) {
       onChange('');
-    } else {
-      onChange(componer(hora, parsed?.minuto ?? '00'));
+      setAbierto(false);
+      return;
     }
-    setAbierto(null);
+    setDraftHora(hora);
   }
 
   function elegirMinuto(minuto: string) {
-    onChange(componer(parsed?.hora ?? '00', minuto));
-    setAbierto(null);
+    onChange(componer(draftHora ?? parsed?.hora ?? '00', minuto));
+    setAbierto(false);
   }
 
   const altoCaja = tactil ? MIN_TOUCH : compact ? 32 : 38;
+  const horaMarcada = draftHora ?? parsed?.hora ?? null;
+  const vista = parsed ? `${parsed.hora}:${parsed.minuto}` : '—';
 
   return (
     <View style={styles.wrap}>
@@ -84,101 +148,71 @@ export function InputHora({
         style={[
           styles.caja,
           { height: altoCaja, minHeight: altoCaja },
-          abierto === 'hora' && styles.cajaActiva,
+          abierto && styles.cajaActiva,
           !editable && styles.cajaOff,
         ]}
-        onPress={() => editable && setAbierto('hora')}
+        onPress={() => editable && abrir()}
         disabled={!editable}
         accessibilityRole="button"
-        accessibilityLabel="Hora"
-        accessibilityHint="Abre la lista de horas"
+        accessibilityLabel={parsed ? `Hora ${vista}` : 'Sin hora'}
+        accessibilityHint="Abre el selector de hora y minutos"
       >
         <Text style={parsed ? styles.valor : styles.placeholder} numberOfLines={1}>
-          {parsed ? parsed.hora : '—'}
+          {vista}
         </Text>
         <MaterialIcons name="arrow-drop-down" size={20} color="#64748b" />
       </TouchableOpacity>
 
-      <Text style={styles.separador}>:</Text>
-
-      <TouchableOpacity
-        style={[
-          styles.caja,
-          { height: altoCaja, minHeight: altoCaja },
-          abierto === 'minuto' && styles.cajaActiva,
-          !editable && styles.cajaOff,
-        ]}
-        onPress={() => editable && setAbierto('minuto')}
-        disabled={!editable}
-        accessibilityRole="button"
-        accessibilityLabel="Minuto"
-        accessibilityHint="Abre la lista de minutos"
-      >
-        <Text style={parsed ? styles.valor : styles.placeholder} numberOfLines={1}>
-          {parsed ? parsed.minuto : '—'}
-        </Text>
-        <MaterialIcons name="arrow-drop-down" size={20} color="#64748b" />
-      </TouchableOpacity>
-
-      <Modal
-        visible={abierto != null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setAbierto(null)}
-      >
-        <Pressable style={styles.overlay} onPress={() => setAbierto(null)}>
+      <Modal visible={abierto} transparent animationType="fade" onRequestClose={cerrar}>
+        <Pressable style={styles.overlay} onPress={cerrar}>
           <Pressable style={styles.card} onPress={() => {}}>
             <View style={styles.header}>
-              <Text style={styles.headerText}>{abierto === 'hora' ? 'Hora' : 'Minuto'}</Text>
+              <Text style={styles.headerText}>
+                {horaMarcada ? `${horaMarcada}:${parsed?.minuto ?? '—'}` : 'Elige hora y minutos'}
+              </Text>
+              <TouchableOpacity
+                onPress={() => elegirHora(VACIO)}
+                accessibilityRole="button"
+                accessibilityLabel="Sin hora"
+              >
+                <Text style={styles.sinHora}>Sin hora</Text>
+              </TouchableOpacity>
             </View>
-            <ScrollView
-              style={styles.scroll}
-              keyboardShouldPersistTaps="handled"
-              nestedScrollEnabled
-            >
-              {abierto === 'hora' ? (
-                <View style={styles.grid}>
-                  <TouchableOpacity
-                    style={[styles.celda, styles.celdaAncha, !parsed && styles.celdaActiva, tactil && styles.celdaTactil]}
-                    onPress={() => elegirHora(VACIO)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Sin hora"
-                  >
-                    <Text style={[styles.celdaTexto, !parsed && styles.celdaTextoActivo]}>Sin hora</Text>
-                  </TouchableOpacity>
-                  {HORAS.map((h) => {
-                    const activo = parsed?.hora === h;
-                    return (
-                      <TouchableOpacity
-                        key={h}
-                        style={[styles.celda, activo && styles.celdaActiva, tactil && styles.celdaTactil]}
-                        onPress={() => elegirHora(h)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Hora ${h}`}
-                      >
-                        <Text style={[styles.celdaTexto, activo && styles.celdaTextoActivo]}>{h}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              ) : (
-                <View style={styles.grid}>
-                  {minutos.map((m) => {
-                    const activo = parsed?.minuto === m;
-                    return (
-                      <TouchableOpacity
-                        key={m}
-                        style={[styles.celda, activo && styles.celdaActiva, tactil && styles.celdaTactil]}
-                        onPress={() => elegirMinuto(m)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Minuto ${m}`}
-                      >
-                        <Text style={[styles.celdaTexto, activo && styles.celdaTextoActivo]}>{m}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
+            <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+              <Text style={styles.seccion}>Hora</Text>
+              <View style={styles.grid}>
+                {HORAS.map((h) => {
+                  const activo = horaMarcada === h;
+                  return (
+                    <TouchableOpacity
+                      key={h}
+                      style={[styles.celda, activo && styles.celdaActiva, tactil && styles.celdaTactil]}
+                      onPress={() => elegirHora(h)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Hora ${h}`}
+                    >
+                      <Text style={[styles.celdaTexto, activo && styles.celdaTextoActivo]}>{h}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={styles.seccion}>Minutos</Text>
+              <View style={styles.grid}>
+                {minutos.map((m) => {
+                  const activo = parsed?.minuto === m && horaMarcada === parsed?.hora;
+                  return (
+                    <TouchableOpacity
+                      key={m}
+                      style={[styles.celda, activo && styles.celdaActiva, tactil && styles.celdaTactil]}
+                      onPress={() => elegirMinuto(m)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Minuto ${m}`}
+                    >
+                      <Text style={[styles.celdaTexto, activo && styles.celdaTextoActivo]}>{m}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </ScrollView>
           </Pressable>
         </Pressable>
@@ -189,19 +223,15 @@ export function InputHora({
 
 const styles = StyleSheet.create({
   wrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    width: '100%',
-    minWidth: 0,
+    alignSelf: 'flex-start',
   },
   caja: {
-    flex: 1,
-    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
+    gap: 2,
+    paddingLeft: 10,
+    paddingRight: 2,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 8,
@@ -210,8 +240,7 @@ const styles = StyleSheet.create({
   cajaActiva: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
   cajaOff: { opacity: 0.6 },
   valor: { fontSize: 13, fontWeight: '600', color: '#334155' },
-  placeholder: { fontSize: 13, color: '#94a3b8' },
-  separador: { fontSize: 15, fontWeight: '700', color: '#64748b', paddingHorizontal: 2 },
+  placeholder: { fontSize: 13, color: '#94a3b8', minWidth: 40 },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.3)',
@@ -223,7 +252,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderRadius: 12,
     width: '100%',
-    maxWidth: 320,
+    maxWidth: 360,
     maxHeight: '70%',
     overflow: 'hidden',
     borderWidth: 1,
@@ -231,13 +260,26 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' ? ({ boxShadow: '0 12px 32px rgba(0,0,0,0.18)' } as object) : { elevation: 12 }),
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
     paddingHorizontal: 14,
     paddingVertical: 10,
     backgroundColor: '#f8fafc',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
-  headerText: { fontSize: 12, fontWeight: '700', color: '#334155' },
+  headerText: { fontSize: 13, fontWeight: '700', color: '#334155' },
+  sinHora: { fontSize: 13, fontWeight: '600', color: '#0369a1' },
+  seccion: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+    letterSpacing: 0.3,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+  },
   scroll: { maxHeight: 320 },
   grid: {
     flexDirection: 'row',
@@ -256,7 +298,6 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     backgroundColor: '#f8fafc',
   },
-  celdaAncha: { width: '100%', flexGrow: 0 },
   celdaTactil: { minHeight: MIN_TOUCH },
   celdaActiva: { borderColor: '#0ea5e9', backgroundColor: '#e0f2fe' },
   celdaTexto: { fontSize: 13, fontWeight: '600', color: '#64748b' },

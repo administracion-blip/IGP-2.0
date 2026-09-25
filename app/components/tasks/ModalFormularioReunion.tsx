@@ -26,7 +26,7 @@ import { InputFecha } from '../InputFecha';
 import { estiloCampoFechaCompacto } from '../RangoFechas';
 import { SelectorDesplegable, type OpcionDesplegable } from '../SelectorDesplegable';
 import { SelectorDesplegableMulti } from '../SelectorDesplegableMulti';
-import { InputHora } from './InputHora';
+import { aplicarHoraInicio, InputHora } from './InputHora';
 import {
   autoNumerarOrdenDelDiaAlEnter,
   ETIQUETA_ESTADO_REUNION,
@@ -127,6 +127,9 @@ export function ModalFormularioReunion({
   reunion,
   asistentesIniciales,
   proyectoId,
+  fechaPorDefecto,
+  horaInicioPorDefecto,
+  presentacion = 'modal',
   usuarios,
   departamentos,
   onCerrar,
@@ -138,6 +141,10 @@ export function ModalFormularioReunion({
   asistentesIniciales?: AsistenteReunion[];
   /** Si viene de la ficha de un proyecto, fija `proyecto_id` y oculta el campo libre. */
   proyectoId?: string;
+  /** Alta desde un hueco de la agenda. */
+  fechaPorDefecto?: string;
+  horaInicioPorDefecto?: string;
+  presentacion?: 'modal' | 'flotante';
   usuarios: NombresUsuarios;
   departamentos: MaestroDepartamentos;
   onCerrar: () => void;
@@ -191,13 +198,17 @@ export function ModalFormularioReunion({
           .filter(Boolean),
       });
     } else {
+      const hi = (horaInicioPorDefecto ?? '').trim();
+      const par = hi ? aplicarHoraInicio(hi, '') : { hora_inicio: '', hora_fin: '' };
       setDatos({
         ...INICIAL,
-        fecha: hoyIso(),
+        fecha: (fechaPorDefecto ?? '').trim() || hoyIso(),
+        hora_inicio: par.hora_inicio,
+        hora_fin: par.hora_fin,
         proyecto_id: proyectoFijo || '',
       });
     }
-  }, [visible, modo, reunion, asistentesIniciales, proyectoFijo]);
+  }, [visible, modo, reunion, asistentesIniciales, proyectoFijo, fechaPorDefecto, horaInicioPorDefecto]);
 
   useEffect(() => {
     if (!visible) return;
@@ -378,6 +389,16 @@ export function ModalFormularioReunion({
       setError('Las horas deben tener formato HH:mm');
       return;
     }
+    const hi = datos.hora_inicio.trim();
+    const hf = datos.hora_fin.trim();
+    if ((hi && !hf) || (!hi && hf)) {
+      setError('Indica hora de inicio y hora de fin, o deja ambas vacías');
+      return;
+    }
+    if (hi && hf && hf <= hi) {
+      setError('La hora de fin debe ser posterior a la de inicio');
+      return;
+    }
     if (datos.visibilidad === 'departamento' && !datos.departamento_id.trim()) {
       setError('Elige un departamento para la visibilidad de departamento');
       return;
@@ -390,8 +411,8 @@ export function ModalFormularioReunion({
     const cuerpo: Record<string, unknown> = {
       titulo,
       fecha: datos.fecha,
-      hora_inicio: datos.hora_inicio.trim() || undefined,
-      hora_fin: datos.hora_fin.trim() || undefined,
+      hora_inicio: datos.hora_inicio.trim(),
+      hora_fin: datos.hora_fin.trim(),
       estado: datos.estado,
       visibilidad: datos.visibilidad,
       departamento_id: datos.departamento_id.trim() || null,
@@ -521,15 +542,25 @@ export function ModalFormularioReunion({
     }
   }
 
+  const flotante = presentacion === 'flotante';
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCerrar}>
-      <Pressable style={modal.overlay} onPress={() => !guardando && onCerrar()}>
+      <Pressable
+        style={[modal.overlay, flotante && styles.overlayFlotante]}
+        onPress={() => !guardando && onCerrar()}
+      >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={modal.center}
         >
           <Pressable
-            style={[modal.cardWrap, (shouldStackPanels || isCompact) && modal.cardWrapAncho]}
+            style={[
+              modal.cardWrap,
+              flotante ? modal.cardWrapEstrecho : null,
+              (shouldStackPanels || isCompact) && !flotante && modal.cardWrapAncho,
+            ]}
+            onPress={() => {}}
           >
             <View style={modal.card}>
               <View style={modal.header}>
@@ -539,7 +570,10 @@ export function ModalFormularioReunion({
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={modal.body} keyboardShouldPersistTaps="handled">
+              <ScrollView
+                style={[modal.body, flotante && styles.cuerpoFlotante]}
+                keyboardShouldPersistTaps="handled"
+              >
                 <View style={form.group}>
                   <Text style={form.label}>Título</Text>
                   <TextInput
@@ -575,16 +609,18 @@ export function ModalFormularioReunion({
                   </View>
                 </View>
                 <View style={[form.group, form.gridDos, shouldStackPanels && form.gridDosApilado]}>
-                  <View style={form.col}>
+                  <View style={styles.colHora}>
                     <Text style={form.label}>Hora inicio</Text>
                     <InputHora
                       compact
                       value={datos.hora_inicio}
-                      onChange={(hhmm) => setCampo('hora_inicio', hhmm)}
+                      onChange={(hhmm) =>
+                        setDatos((p) => ({ ...p, ...aplicarHoraInicio(hhmm, p.hora_fin) }))
+                      }
                       editable={!guardando}
                     />
                   </View>
-                  <View style={form.col}>
+                  <View style={styles.colHora}>
                     <Text style={form.label}>Hora fin</Text>
                     <InputHora
                       compact
@@ -856,4 +892,7 @@ const styles = StyleSheet.create({
   },
   btnSugerirTexto: { fontSize: 11, fontWeight: '600', color: '#0ea5e9' },
   btnSugerirTextoDisabled: { color: '#94a3b8' },
+  colHora: { flexGrow: 0, flexShrink: 0, alignSelf: 'flex-start' },
+  overlayFlotante: { backgroundColor: 'rgba(15, 23, 42, 0.12)' },
+  cuerpoFlotante: { maxHeight: 420 },
 });
