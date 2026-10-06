@@ -356,7 +356,7 @@ router.patch('/reuniones/:id', requirePermission(PERMISOS.reunionesGestionar), a
 });
 
 router.delete('/reuniones/:id', requirePermission(PERMISOS.reunionesGestionar), async (req, res) => {
-  const r = await borrarReunion(await contexto(req), req.params.id);
+  const r = await borrarReunion(await contexto(req), req.params.id, { alcance: req.query?.alcance });
   if (fallo(res, r)) return;
   return res.json({
     ok: true,

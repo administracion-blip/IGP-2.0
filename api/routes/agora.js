@@ -30,6 +30,7 @@ import {
   toApiProduct,
   pickAllowedFields,
   updatePurchaseVatRates,
+  letraZona,
 } from '../lib/dynamo/agoraProducts.js';
 import { refrescarNombresEscandallosDesdeAgora } from '../lib/escandallos/refrescarNombresDesdeAgora.js';
 import {
@@ -2920,6 +2921,57 @@ router.patch('/agora/products/igp/batch', async (req, res) => {
   });
 });
 
+router.patch('/agora/products/zona/batch', async (req, res) => {
+  const body = req.body || {};
+  const rawIds = body.ids ?? body.Ids ?? [];
+  const ids = [...new Set(
+    (Array.isArray(rawIds) ? rawIds : [])
+      .map((id) => String(id ?? '').trim())
+      .filter(Boolean),
+  )];
+  if (ids.length === 0) {
+    return res.status(400).json({ error: 'Indica ids de producto' });
+  }
+  const zonaRaw = body.Zona !== undefined ? body.Zona : body.zona;
+  const quitar = zonaRaw == null || String(zonaRaw).trim() === '';
+  const zona = quitar ? '' : letraZona(zonaRaw);
+  if (!quitar && !zona) {
+    return res.status(400).json({ error: 'Zona debe ser una letra de la A a la Z' });
+  }
+  const PARALLEL_SIZE = 25;
+  let updated = 0;
+  const failed = [];
+  for (let i = 0; i < ids.length; i += PARALLEL_SIZE) {
+    const chunk = ids.slice(i, i + PARALLEL_SIZE);
+    const results = await Promise.allSettled(
+      chunk.map((id) =>
+        docClient.send(
+          new UpdateCommand({
+            TableName: tableAgoraProductsName,
+            Key: { PK: 'GLOBAL', SK: id },
+            UpdateExpression: quitar ? 'REMOVE #zona' : 'SET #zona = :v',
+            ExpressionAttributeNames: { '#zona': 'Zona' },
+            ...(quitar ? {} : { ExpressionAttributeValues: { ':v': zona } }),
+            ConditionExpression: 'attribute_exists(PK)',
+          })
+        )
+      )
+    );
+    results.forEach((r, idx) => {
+      if (r.status === 'fulfilled') updated++;
+      else failed.push(chunk[idx]);
+    });
+  }
+  return res.json({
+    ok: true,
+    Zona: quitar ? null : zona,
+    totalSolicitados: ids.length,
+    totalActualizados: updated,
+    totalFallidos: failed.length,
+    idsFallidos: failed.length > 0 ? failed : undefined,
+  });
+});
+
 router.patch('/agora/products/:id', async (req, res) => {
   const id = req.params.id;
   const body = req.body || {};
@@ -2927,7 +2979,7 @@ router.patch('/agora/products/:id', async (req, res) => {
     return res.status(400).json({ error: 'Falta id en la URL' });
   }
   const sk = String(id);
-  const EDITABLE_FIELDS = ['IGP', 'Name', 'CostPrice', 'BaseSaleFormatId', 'FamilyId', 'VatId'];
+  const EDITABLE_FIELDS = ['IGP', 'Name', 'CostPrice', 'BaseSaleFormatId', 'FamilyId', 'VatId', 'Zona'];
   const updates = {};
   const removes = [];
   for (const key of EDITABLE_FIELDS) {
@@ -2941,6 +2993,16 @@ router.patch('/agora/products/:id', async (req, res) => {
     } else if (key === 'CostPrice') {
       const n = parseFloat(String(val).replace(',', '.'));
       updates.CostPrice = Number.isNaN(n) ? 0 : n;
+    } else if (key === 'Zona') {
+      if (val == null || String(val).trim() === '') {
+        removes.push('Zona');
+      } else {
+        const zona = letraZona(val);
+        if (!zona) {
+          return res.status(400).json({ error: 'Zona debe ser una letra de la A a la Z' });
+        }
+        updates.Zona = zona;
+      }
     } else if (['BaseSaleFormatId', 'FamilyId', 'VatId'].includes(key)) {
       const v = val != null ? String(val).trim() : '';
       if (v) updates[key] = v;
@@ -2950,7 +3012,7 @@ router.patch('/agora/products/:id', async (req, res) => {
   if (Object.keys(updates).length === 0 && removes.length === 0) {
     return res.status(400).json({
       error:
-        'Indica al menos un campo a actualizar (IGP, Name, CostPrice, BaseSaleFormatId, FamilyId, VatId)',
+        'Indica al menos un campo a actualizar (IGP, Name, CostPrice, BaseSaleFormatId, FamilyId, VatId, Zona)',
     });
   }
   try {

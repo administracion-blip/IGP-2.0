@@ -628,3 +628,56 @@ test('fallo de Calendar al añadir asistentes no tumba el alta (D-21)', async ()
     restore();
   }
 });
+
+test('una reunión mensual crea una ficha por fecha y un solo evento recurrente', async () => {
+  const db = montar();
+  const insertados = [];
+  const { configurarClienteCalendar } = await import('../lib/google/calendarClient.js');
+  const restore = configurarClienteCalendar(async () => ({
+    calendarId: 'primary',
+    subject: 'ana@grupo.test',
+    calendar: {
+      events: {
+        insert: async (args) => {
+          insertados.push(args.requestBody);
+          return { data: { id: 'reu-serie' } };
+        },
+        patch: async (args) => ({ data: { id: args.eventId } }),
+        delete: async () => ({}),
+        get: async () => ({
+          data: {
+            recurrence: ['RRULE:FREQ=MONTHLY;BYMONTHDAY=-1'],
+            start: { date: '2026-09-30' },
+          },
+        }),
+        instances: async () => ({ data: { items: [] } }),
+      },
+    },
+  }));
+  try {
+    const alta = await api('POST', '/api/reuniones', {
+      titulo: 'Cierre de mes',
+      fecha: '2026-09-15',
+      hora_inicio: '09:00',
+      hora_fin: '10:00',
+      visibilidad: 'empresa',
+      recurrencia: { frecuencia: 'ultimo_dia' },
+    });
+    assert.equal(alta.status, 200, JSON.stringify(alta.body));
+    assert.equal(alta.body.reunion.fecha, '2026-09-30');
+    assert.equal(alta.body.reunion.recurrencia_frecuencia, 'ultimo_dia');
+    assert.deepEqual(insertados[0].recurrence, ['RRULE:FREQ=MONTHLY;BYMONTHDAY=-1']);
+    const fichas = db.listar(tables.reuniones).filter((it) => String(it.PK).startsWith('REU#'));
+    assert.ok(fichas.length > 5);
+    assert.ok(fichas.every((r) => r.calendar_event_id === 'reu-serie' && r.ocurrencia_fecha === r.fecha));
+
+    const segunda = fichas.find((r) => r.fecha === '2026-10-31');
+    const baja = await api('DELETE', `/api/reuniones/${segunda.id_reunion}?alcance=posteriores`);
+    assert.equal(baja.status, 200, JSON.stringify(baja.body));
+    const quedan = db.listar(tables.reuniones).filter((it) => String(it.PK).startsWith('REU#'));
+    assert.ok(quedan.every((r) => r.fecha < '2026-10-31'));
+    assert.ok(quedan.some((r) => r.fecha === '2026-09-30'));
+  } finally {
+    restore();
+  }
+});

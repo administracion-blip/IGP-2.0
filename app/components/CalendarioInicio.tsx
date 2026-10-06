@@ -24,6 +24,7 @@ import {
   ActivityIndicator,
   Platform,
   Modal,
+  Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -36,6 +37,7 @@ import { puedeEditarProyectos, puedeGestionarReuniones, puedeVerProyectos, puede
 import { AltaHuecoAgenda, type HuecoAgenda } from './tasks/AltaHuecoAgenda';
 import { desplazarTramo } from './tasks/InputHora';
 import { BotonCrearAgendaInicio } from './tasks/BotonCrearAgendaInicio';
+import { ContadorChecklist } from './tasks/ContadorChecklist';
 import { hoyIso } from '../lib/tasksUi';
 import {
   addDaysIso,
@@ -60,7 +62,7 @@ import {
 } from '../lib/tasksCalendario';
 import { apiFetch, errorMessage } from '../utils/api';
 import { formatFecha } from '../utils/formatFecha';
-import type { Proyecto, Reunion, Tarea } from '../types/tasks';
+import type { ChecklistItem, Proyecto, Reunion, Tarea } from '../types/tasks';
 
 type TipoArrastrable = 'tarea' | 'reunion';
 
@@ -169,11 +171,15 @@ type ItemAgenda = {
   ruta: string;
   /** Tarea cerrada (`estado === 'hecha'`). Se pinta en gris y tachada. */
   hecho?: boolean;
+  /** Estado de la tarea, para saber si se puede pasar a hecha. */
+  estado?: string;
   /** `permisos_fila.editar === true`. Proyectos siempre `false`. */
   puedeMover: boolean;
   horaInicio?: string;
   horaFin?: string;
   descripcion?: string;
+  /** Lista de comprobación. Solo en tareas. */
+  checklist?: ChecklistItem[];
 };
 
 type BloqueEmpaquetado = {
@@ -398,10 +404,12 @@ function itemsDeFuentes({
         meta: t.proyecto_nombre?.trim() || undefined,
         ruta: `/proyectos/tarea/${encodeURIComponent(t.id_tarea)}`,
         hecho,
+        estado: t.estado,
         puedeMover: t.permisos_fila?.editar === true,
         horaInicio: hi || undefined,
         horaFin: hf || undefined,
         descripcion: t.descripcion?.trim() || undefined,
+        checklist: t.checklist,
       };
       if (item.fecha) conFecha.push(item);
       else if (!hecho) sinFecha.push(item);
@@ -463,16 +471,106 @@ function itemsDeFuentes({
   return { conFecha, sinFecha };
 }
 
+function BotonMarcarRealizada({
+  onPress,
+  disabled,
+}: {
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  const pulso = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulso, {
+          toValue: 0.72,
+          duration: 900,
+          useNativeDriver: Platform.OS !== 'web',
+        }),
+        Animated.timing(pulso, {
+          toValue: 1,
+          duration: 900,
+          useNativeDriver: Platform.OS !== 'web',
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulso]);
+
+  return (
+    <Animated.View style={{ opacity: disabled ? 1 : pulso }}>
+      <TouchableOpacity
+        onPress={onPress}
+        disabled={disabled}
+        style={styles.btnRealizada}
+        accessibilityRole="button"
+        accessibilityLabel="Marcar como realizada"
+      >
+        {disabled ? (
+          <ActivityIndicator size="small" color="#ffffff" />
+        ) : (
+          <MaterialIcons name="check-circle" size={18} color="#ffffff" />
+        )}
+        <Text style={styles.btnRealizadaTexto}>Marcar como realizada</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
 function PopoverVistaItem({
   item,
   onCerrar,
+  onMarcarCasilla,
+  onMarcarRealizada,
 }: {
   item: ItemAgenda;
   onCerrar: () => void;
+  /** Marca o desmarca una casilla. Solo si la tarea se puede editar. */
+  onMarcarCasilla?: (casillaId: string, hecho: boolean) => Promise<void>;
+  /** Cierra la tarea. Solo si se puede editar y aún no está hecha. */
+  onMarcarRealizada?: () => Promise<void>;
 }) {
+  const { isCompact } = useBreakpoint();
+  const [casillaEnCurso, setCasillaEnCurso] = useState<string | null>(null);
+  const [errorCasillas, setErrorCasillas] = useState<string | null>(null);
+  const [marcandoRealizada, setMarcandoRealizada] = useState(false);
+  const [errorRealizada, setErrorRealizada] = useState<string | null>(null);
   const tramo = etiquetaTramo(item);
   const etiquetaFecha =
     item.tipo === 'reunion' ? 'Fecha' : item.tipo === 'proyecto' ? 'Fecha' : 'Fecha de vencimiento';
+  const casillas = [...(item.checklist ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
+  const puedeMarcar = item.tipo === 'tarea' && item.puedeMover && Boolean(onMarcarCasilla);
+  const puedeRealizar =
+    item.tipo === 'tarea' &&
+    (item.estado === 'pendiente' || item.estado === 'en_curso') &&
+    item.puedeMover &&
+    Boolean(onMarcarRealizada);
+
+  const marcarRealizada = async () => {
+    if (!onMarcarRealizada || !puedeRealizar || marcandoRealizada) return;
+    setMarcandoRealizada(true);
+    setErrorRealizada(null);
+    try {
+      await onMarcarRealizada();
+    } catch (e) {
+      setErrorRealizada(errorMessage(e, 'No se pudo marcar la tarea como realizada'));
+      setMarcandoRealizada(false);
+    }
+  };
+
+  const alternar = async (casilla: ChecklistItem) => {
+    if (!onMarcarCasilla || !puedeMarcar || casillaEnCurso) return;
+    setCasillaEnCurso(casilla.id);
+    setErrorCasillas(null);
+    try {
+      await onMarcarCasilla(casilla.id, !casilla.hecho);
+    } catch (e) {
+      setErrorCasillas(errorMessage(e, 'No se pudo actualizar la lista de comprobación'));
+    } finally {
+      setCasillaEnCurso(null);
+    }
+  };
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onCerrar}>
@@ -491,19 +589,58 @@ function PopoverVistaItem({
               <MaterialIcons name="close" size={20} color="#64748b" />
             </TouchableOpacity>
           </View>
-          <Text style={styles.popoverDesc} numberOfLines={8}>
-            {item.descripcion?.trim() || 'Sin descripción'}
-          </Text>
-          <View style={styles.popoverFila}>
-            <Text style={styles.popoverLabel}>{etiquetaFecha}</Text>
-            <Text style={styles.popoverValor}>{formatFecha(item.fecha)}</Text>
-          </View>
-          <View style={styles.popoverFila}>
-            <Text style={styles.popoverLabel}>Tramo</Text>
-            <Text style={styles.popoverValor}>
-              {tramo ? `${(item.horaInicio ?? '').trim()} – ${(item.horaFin ?? '').trim()}` : 'Sin hora'}
+          <ScrollView style={styles.popoverScroll} contentContainerStyle={styles.popoverScrollContent}>
+            <Text style={styles.popoverDesc}>
+              {item.descripcion?.trim() || 'Sin descripción'}
             </Text>
-          </View>
+            <View style={styles.popoverFila}>
+              <Text style={styles.popoverLabel}>{etiquetaFecha}</Text>
+              <Text style={styles.popoverValor}>{formatFecha(item.fecha)}</Text>
+            </View>
+            <View style={styles.popoverFila}>
+              <Text style={styles.popoverLabel}>Tramo</Text>
+              <Text style={styles.popoverValor}>
+                {tramo ? `${(item.horaInicio ?? '').trim()} – ${(item.horaFin ?? '').trim()}` : 'Sin hora'}
+              </Text>
+            </View>
+            {casillas.length > 0 ? (
+              <View style={styles.popoverLista}>
+                <View style={styles.popoverListaCabecera}>
+                  <Text style={styles.popoverLabel}>Lista de comprobación</Text>
+                  <ContadorChecklist checklist={casillas} />
+                </View>
+                {casillas.map((casilla) => (
+                  <TouchableOpacity
+                    key={casilla.id}
+                    style={[styles.popoverCasilla, isCompact && styles.popoverCasillaTactil]}
+                    onPress={() => void alternar(casilla)}
+                    disabled={!puedeMarcar || casillaEnCurso != null}
+                    accessibilityLabel={casilla.hecho ? 'Desmarcar el elemento' : 'Marcar el elemento'}
+                  >
+                    {casillaEnCurso === casilla.id ? (
+                      <ActivityIndicator size="small" color="#0ea5e9" />
+                    ) : (
+                      <MaterialIcons
+                        name={casilla.hecho ? 'check-box' : 'check-box-outline-blank'}
+                        size={20}
+                        color={casilla.hecho ? '#16a34a' : '#94a3b8'}
+                      />
+                    )}
+                    <Text style={[styles.popoverCasillaTexto, casilla.hecho && styles.popoverCasillaHecha]}>
+                      {casilla.texto}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                {errorCasillas ? <Text style={styles.popoverError}>{errorCasillas}</Text> : null}
+              </View>
+            ) : null}
+          </ScrollView>
+          {puedeRealizar ? (
+            <View style={styles.popoverAccion}>
+              <BotonMarcarRealizada onPress={() => void marcarRealizada()} disabled={marcandoRealizada} />
+              {errorRealizada ? <Text style={styles.popoverError}>{errorRealizada}</Text> : null}
+            </View>
+          ) : null}
         </Pressable>
       </Pressable>
     </Modal>
@@ -576,11 +713,17 @@ function PastillaAgenda({
           <Text style={[styles.pillTitulo, hecho && styles.pillHecho]} numberOfLines={2}>
             {item.titulo}
           </Text>
-          <Text style={[styles.pillMeta, { color }, hecho && styles.pillHecho]} numberOfLines={1}>
-            {ETIQUETA_TIPO[item.tipo]}
-            {tramo ? ` · ${tramo}` : ''}
-            {item.meta ? ` · ${item.meta}` : ''}
-          </Text>
+          <View style={styles.pillMetaFila}>
+            <Text
+              style={[styles.pillMeta, styles.pillMetaTexto, { color }, hecho && styles.pillHecho]}
+              numberOfLines={1}
+            >
+              {ETIQUETA_TIPO[item.tipo]}
+              {tramo ? ` · ${tramo}` : ''}
+              {item.meta ? ` · ${item.meta}` : ''}
+            </Text>
+            <ContadorChecklist checklist={item.checklist} compacto />
+          </View>
         </View>
       </TouchableOpacity>
       {item.tipo === 'tarea' || item.tipo === 'reunion' ? (
@@ -665,10 +808,16 @@ function BloqueHorario({
         activeOpacity={0.8}
         accessibilityLabel={`${ETIQUETA_TIPO[item.tipo]}: ${item.titulo}${tramo ? `, ${tramo}` : ''}`}
       >
-        <Text style={[styles.bloqueTitulo, hecho && styles.pillHecho]} numberOfLines={compacto ? 1 : 2}>
-          {item.titulo}
-          {compacto && mostrarTramo ? ` ${tramo}` : ''}
-        </Text>
+        <View style={styles.bloqueTituloFila}>
+          <Text
+            style={[styles.bloqueTitulo, styles.bloqueTituloTexto, hecho && styles.pillHecho]}
+            numberOfLines={compacto ? 1 : 2}
+          >
+            {item.titulo}
+            {compacto && mostrarTramo ? ` ${tramo}` : ''}
+          </Text>
+          <ContadorChecklist checklist={item.checklist} compacto />
+        </View>
         {!compacto && mostrarTramo ? (
           <Text style={[styles.bloqueHora, hecho && styles.pillHecho]} numberOfLines={1}>
             {tramo}
@@ -732,14 +881,31 @@ function BloqueHorario({
 
 function EnvolverSemana({
   movil,
+  embebido,
   children,
 }: {
   movil: boolean;
+  embebido: boolean;
   children: ReactNode;
 }) {
   if (!movil) return children;
   return (
-    <ScrollView horizontal style={styles.semanaScroll}>
+    <ScrollView horizontal style={[styles.semanaScroll, embebido && styles.semanaScrollEmbebida]}>
+      {children}
+    </ScrollView>
+  );
+}
+
+function EnvolverMes({
+  embebido,
+  children,
+}: {
+  embebido: boolean;
+  children: ReactNode;
+}) {
+  if (!embebido) return children;
+  return (
+    <ScrollView style={styles.mesScrollEmbebido} nestedScrollEnabled>
       {children}
     </ScrollView>
   );
@@ -956,7 +1122,7 @@ function BandaCarriles({
   );
 }
 
-export function CalendarioInicio() {
+export function CalendarioInicio({ embebido = false }: { embebido?: boolean } = {}) {
   const router = useRouter();
   const acceso = useAccesoTasks();
   const { isPhone, isPortrait, isCompact, shouldStackToolbar } = useBreakpoint();
@@ -1132,10 +1298,18 @@ export function CalendarioInicio() {
 
   useFocusEffect(
     useCallback(() => {
+      if (embebido) return;
       void cargarBase();
       void cargarHechas();
-    }, [cargarBase, cargarHechas]),
+    }, [embebido, cargarBase, cargarHechas]),
   );
+
+  // En el panel de la cabecera no hay pantalla enfocada: carga al abrir y al cambiar de semana o mes.
+  useEffect(() => {
+    if (!embebido) return;
+    void cargarBase();
+    void cargarHechas();
+  }, [embebido, cargarBase, cargarHechas]);
 
   useEffect(() => {
     void cargarReuniones();
@@ -1480,6 +1654,40 @@ export function CalendarioInicio() {
     void cargarReuniones();
   }, [cargarBase, cargarHechas, cargarReuniones]);
 
+  const marcarRealizadaVista = useCallback(async (tareaId: string) => {
+    const res = await apiFetch(`/api/tareas/${encodeURIComponent(tareaId)}/estado`, {
+      method: 'POST',
+      body: JSON.stringify({ estado: 'hecha' }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { tarea?: Tarea; error?: string };
+    if (!res.ok || !data.tarea) {
+      throw new Error(data.error || 'No se pudo marcar la tarea como realizada');
+    }
+    const hecha = data.tarea;
+    setTareas((lista) => lista.filter((t) => t.id_tarea !== tareaId));
+    setTareasHechas((lista) => [hecha, ...lista.filter((t) => t.id_tarea !== tareaId)]);
+    setVistaPrevia(null);
+  }, []);
+
+  const marcarCasillaVista = useCallback(async (tareaId: string, casillaId: string, hecho: boolean) => {
+    const res = await apiFetch(
+      `/api/tareas/${encodeURIComponent(tareaId)}/checklist/${encodeURIComponent(casillaId)}`,
+      { method: 'PATCH', body: JSON.stringify({ hecho }) },
+    );
+    const data = (await res.json().catch(() => ({}))) as { tarea?: Tarea; error?: string };
+    if (!res.ok || !data.tarea) {
+      throw new Error(data.error || 'No se pudo actualizar la lista de comprobación');
+    }
+    const checklist = data.tarea.checklist ?? [];
+    const aplicar = (lista: Tarea[]) =>
+      lista.map((t) => (t.id_tarea === tareaId ? { ...t, checklist } : t));
+    setTareas(aplicar);
+    setTareasHechas(aplicar);
+    setVistaPrevia((prev) =>
+      prev && prev.tipo === 'tarea' && prev.id === tareaId ? { ...prev, checklist } : prev,
+    );
+  }, []);
+
   const medirBarraRejilla = useCallback(() => {
     if (Platform.OS !== 'web') return;
     const inst = rejillaScrollRef.current as unknown as {
@@ -1527,7 +1735,7 @@ export function CalendarioInicio() {
   const diasSemana = diasDeSemana(lunes);
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, embebido && styles.cardEmbebida]}>
       {menuCrearAbierto ? (
         <Pressable
           style={styles.menuOverlay}
@@ -1537,7 +1745,23 @@ export function CalendarioInicio() {
       ) : null}
 
       {vistaPrevia ? (
-        <PopoverVistaItem item={vistaPrevia} onCerrar={() => setVistaPrevia(null)} />
+        <PopoverVistaItem
+          key={vistaPrevia.clave}
+          item={vistaPrevia}
+          onCerrar={() => setVistaPrevia(null)}
+          onMarcarCasilla={
+            vistaPrevia.tipo === 'tarea' && vistaPrevia.puedeMover
+              ? (casillaId, hecho) => marcarCasillaVista(vistaPrevia.id, casillaId, hecho)
+              : undefined
+          }
+          onMarcarRealizada={
+            vistaPrevia.tipo === 'tarea' &&
+            vistaPrevia.puedeMover &&
+            (vistaPrevia.estado === 'pendiente' || vistaPrevia.estado === 'en_curso')
+              ? () => marcarRealizadaVista(vistaPrevia.id)
+              : undefined
+          }
+        />
       ) : null}
 
       {huecoAlta ? (
@@ -1609,7 +1833,7 @@ export function CalendarioInicio() {
         />
       </View>
 
-      <View style={styles.cuerpoAgenda}>
+      <View style={[styles.cuerpoAgenda, embebido && styles.cuerpoAgendaEmbebido]}>
       <View style={styles.leyenda}>
         {(
           [
@@ -1651,11 +1875,13 @@ export function CalendarioInicio() {
           <Text style={styles.centroTexto}>Cargando la agenda…</Text>
         </View>
       ) : vista === 'semana' ? (
-        <EnvolverSemana movil={semanaMovil}>
+        <EnvolverSemana movil={semanaMovil} embebido={embebido}>
         <View
           style={[
             styles.semanaCuerpo,
             semanaMovil ? { width: ANCHO_SEMANA_MOVIL } : styles.semanaCuerpoEscritorio,
+            embebido && !semanaMovil && styles.semanaCuerpoEmbebida,
+            embebido && semanaMovil && styles.semanaCuerpoEmbebidaMovil,
           ]}
         >
           <BandaCarriles
@@ -1743,7 +1969,7 @@ export function CalendarioInicio() {
           {/* Rejilla horaria */}
           <ScrollView
             ref={rejillaScrollRef}
-            style={styles.rejillaScroll}
+            style={[styles.rejillaScroll, embebido ? styles.rejillaScrollEmbebida : styles.rejillaScrollInicio]}
             nestedScrollEnabled
             showsVerticalScrollIndicator
             onLayout={medirBarraRejilla}
@@ -1854,6 +2080,7 @@ export function CalendarioInicio() {
         </View>
         </EnvolverSemana>
       ) : (
+        <EnvolverMes embebido={embebido}>
         <View style={styles.mesWrap}>
           <View style={styles.mesCabecera}>
             {diasDeSemana(lunesDeSemanaIso(hoy)).map((iso) => (
@@ -1981,6 +2208,7 @@ export function CalendarioInicio() {
             <Text style={styles.pistaMes}>Toca un día para ver el detalle.</Text>
           )}
         </View>
+        </EnvolverMes>
       )}
 
       {sinFecha.length > 0 ? (
@@ -2011,6 +2239,13 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 10,
   },
+  cardEmbebida: {
+    flex: 1,
+    minHeight: 0,
+    borderWidth: 0,
+    borderRadius: 0,
+    paddingTop: 4,
+  },
   menuOverlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 20,
@@ -2023,6 +2258,7 @@ const styles = StyleSheet.create({
   },
   toolbarWrap: { flexWrap: 'wrap' },
   cuerpoAgenda: { position: 'relative', zIndex: 0, gap: 10 },
+  cuerpoAgendaEmbebido: { flex: 1, minHeight: 0 },
   tituloBloque: { ...tasksUi.tipo.tituloSeccion },
   rango: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minWidth: 200 },
   rangoBtn: {
@@ -2080,7 +2316,11 @@ const styles = StyleSheet.create({
   centroTexto: { fontSize: 13, color: tasksUi.color.textoSecundario },
 
   semanaScroll: {},
+  semanaScrollEmbebida: { flex: 1, minHeight: 0 },
+  mesScrollEmbebido: { flex: 1, minHeight: 0 },
   semanaCuerpo: { flexDirection: 'column', gap: 4 },
+  semanaCuerpoEmbebida: { flex: 1, minHeight: 0, width: '100%' },
+  semanaCuerpoEmbebidaMovil: { flex: 1, minHeight: 0 },
   semanaCuerpoEscritorio: { flexGrow: 1, width: '100%' },
   semanaFilaMovil: { width: ANCHO_SEMANA_MOVIL },
   semanaCabecera: {
@@ -2122,8 +2362,14 @@ const styles = StyleSheet.create({
     minHeight: 32,
   },
   rejillaScroll: {
-    maxHeight: ALTO_REJILLA_CAJA,
     backgroundColor: 'transparent',
+  },
+  rejillaScrollInicio: {
+    maxHeight: ALTO_REJILLA_CAJA,
+  },
+  rejillaScrollEmbebida: {
+    flex: 1,
+    minHeight: 0,
   },
   rejillaFila: {
     flexDirection: 'row',
@@ -2220,12 +2466,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingVertical: 2,
   },
+  bloqueTituloFila: { flexDirection: 'row', alignItems: 'flex-start', gap: 4 },
   bloqueTitulo: {
     ...tasksUi.tipo.micro,
     fontWeight: '700',
     color: tasksUi.color.textoPrimario,
     lineHeight: 14,
   },
+  bloqueTituloTexto: { flex: 1, minWidth: 0 },
   bloqueHora: {
     ...tasksUi.tipo.micro,
     fontWeight: '500',
@@ -2406,7 +2654,9 @@ const styles = StyleSheet.create({
   pillFranja: { width: 3 },
   pillCuerpo: { flex: 1, minWidth: 0, paddingHorizontal: 7, paddingVertical: 5, gap: 2 },
   pillTitulo: { ...tasksUi.tipo.etiqueta, fontWeight: '600', color: tasksUi.color.textoPrimario, lineHeight: 16 },
+  pillMetaFila: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   pillMeta: { ...tasksUi.tipo.micro, fontWeight: '500' },
+  pillMetaTexto: { flexShrink: 1 },
   pillHecho: { color: TEXTO_TAREA_HECHA, textDecorationLine: 'line-through' },
   pillArrastrando: { opacity: 0.4 },
   pillRecienSoltada: { borderColor: tasksUi.color.acento },
@@ -2428,6 +2678,7 @@ const styles = StyleSheet.create({
   popoverCard: {
     width: '100%',
     maxWidth: 360,
+    maxHeight: '80%',
     backgroundColor: '#ffffff',
     borderRadius: 12,
     borderWidth: 1,
@@ -2449,6 +2700,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: tasksUi.color.textoPrimario,
   },
+  popoverAccion: { gap: 6 },
+  btnRealizada: {
+    minHeight: MIN_TOUCH,
+    borderRadius: 10,
+    backgroundColor: '#16a34a',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+  },
+  btnRealizadaTexto: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
   popoverCerrar: {
     width: MIN_TOUCH,
     height: MIN_TOUCH,
@@ -2457,6 +2724,24 @@ const styles = StyleSheet.create({
     marginTop: -6,
     marginRight: -6,
   },
+  popoverScroll: { flexGrow: 0, maxHeight: 420 },
+  popoverScrollContent: { gap: 10 },
+  popoverLista: { gap: 4, marginTop: 2 },
+  popoverListaCabecera: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 2,
+  },
+  popoverCasilla: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 4 },
+  popoverCasillaTactil: { minHeight: MIN_TOUCH, alignItems: 'center' },
+  popoverCasillaTexto: { flex: 1, fontSize: 14, color: tasksUi.color.textoPrimario, lineHeight: 20 },
+  popoverCasillaHecha: {
+    color: tasksUi.color.textoTerciario,
+    textDecorationLine: 'line-through',
+  },
+  popoverError: { fontSize: 12, color: tasksUi.color.peligro },
   popoverDesc: {
     fontSize: 13,
     lineHeight: 18,

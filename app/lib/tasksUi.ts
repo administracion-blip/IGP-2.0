@@ -29,6 +29,22 @@ import {
 
 export type NombreIcono = ComponentProps<typeof MaterialIcons>['name'];
 
+/** `2/5` si la tarea tiene casillas; nada si no hay ninguna. */
+export function textoProgresoChecklist(
+  checklist?: ReadonlyArray<{ hecho?: boolean }> | null,
+): string | null {
+  if (!checklist || checklist.length === 0) return null;
+  const hechos = checklist.filter((item) => item.hecho).length;
+  return `${hechos}/${checklist.length}`;
+}
+
+/** Todas las casillas de la lista están marcadas. */
+export function checklistCompletada(
+  checklist?: ReadonlyArray<{ hecho?: boolean }> | null,
+): boolean {
+  return Boolean(checklist && checklist.length > 0 && checklist.every((item) => item.hecho));
+}
+
 /** Par fondo / texto de una etiqueta de estado. Solo colores del ERP. */
 export type Tono = { bg: string; fg: string };
 
@@ -84,6 +100,14 @@ export const ETIQUETA_PRIORIDAD: Record<Prioridad, string> = {
   baja: 'Baja',
   media: 'Media',
   alta: 'Alta',
+};
+
+export const ETIQUETA_REPETICION: Record<string, string> = {
+  ninguna: 'No se repite',
+  diaria: 'Cada día',
+  semanal: 'Cada semana',
+  mensual: 'Cada mes',
+  ultimo_dia: 'El último día del mes',
 };
 
 export const TONO_PRIORIDAD: Record<Prioridad, Tono> = {

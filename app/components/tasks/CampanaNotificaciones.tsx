@@ -18,8 +18,9 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import { BotonIconoCabecera } from '../ui/BotonIconoCabecera';
 import { MIN_TOUCH } from '../../constants/layout';
-import { colors, iconSize, radius, shadowCard, SPACING, typography } from '../../constants/theme';
+import { colors, radius, shadowCard, SPACING, typography } from '../../constants/theme';
 import { apiFetch, errorMessage } from '../../utils/api';
 import { formatCreadoEn } from '../../utils/formatFecha';
 import type { Notificacion, TipoNotificacion, Vinculo } from '../../types/tasks';
@@ -246,22 +247,17 @@ export function CampanaNotificaciones() {
 
   return (
     <>
-      <TouchableOpacity
+      <BotonIconoCabecera
+        nombre="bell"
+        etiqueta={noLeidas > 0 ? `Notificaciones, ${noLeidas} sin leer` : 'Notificaciones'}
         onPress={abrir}
-        style={styles.btn}
-        accessibilityLabel={
-          noLeidas > 0
-            ? `Notificaciones, ${noLeidas} sin leer`
-            : 'Notificaciones'
-        }
       >
-        <MaterialIcons name="notifications" size={iconSize.tab} color={colors.textSecondary} />
         {noLeidas > 0 ? (
           <View style={styles.badge} accessibilityElementsHidden>
             <Text style={styles.badgeTexto}>{badgeTexto}</Text>
           </View>
         ) : null}
-      </TouchableOpacity>
+      </BotonIconoCabecera>
 
       <Modal visible={abierto} transparent animationType="fade" onRequestClose={cerrar}>
         <Pressable style={styles.overlay} onPress={cerrar}>
@@ -364,19 +360,9 @@ export function CampanaNotificaciones() {
 }
 
 const styles = StyleSheet.create({
-  btn: {
-    position: 'relative',
-    minWidth: MIN_TOUCH,
-    minHeight: MIN_TOUCH,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: SPACING.xs,
-    borderRadius: radius.sm,
-    marginRight: SPACING.xs,
-  },
   badge: {
     position: 'absolute',
-    top: 4,
+    top: 2,
     right: 2,
     minWidth: 18,
     height: 18,

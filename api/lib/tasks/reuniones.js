@@ -34,8 +34,17 @@ import {
   crearEvento as calendarCrear,
   actualizarEvento as calendarActualizar,
   borrarEvento as calendarBorrar,
+  cancelarInstanciaSerie,
   disponible as calendarDisponible,
+  truncarSerieHasta,
 } from '../google/calendarClient.js';
+import {
+  fechasDeRecurrencia,
+  normalizarRecurrencia,
+  pkSerie,
+  rruleDe,
+  separarMiembros,
+} from './recurrencia.js';
 import {
   ESTADOS_ACUERDO,
   ESTADOS_REUNION,
@@ -54,7 +63,7 @@ import {
   puedeVerReunion,
   tienePermiso,
 } from './acceso.js';
-import { ACCIONES, listarActividad, registrarActividad } from './actividad.js';
+import { ACCIONES, AUTOR_SISTEMA, listarActividad, registrarActividad } from './actividad.js';
 import { responsableDeDepartamento } from './departamentos.js';
 import { emailsDeUsuarios, nombreDe, nombresDeUsuarios } from './proyectos.js';
 import { crearTareasEnLote, IDX_REUNION } from './tareas.js';
@@ -763,6 +772,72 @@ function itemMeta(reunion) {
   return item;
 }
 
+/**
+ * Copia título, fecha y hora desde Google sin volver a escribir el evento.
+ * Si el evento se canceló en Calendar, la reunión en borrador o convocada pasa
+ * a cancelada. Una reunión ya celebrada no se toca. No se borra la ficha.
+ *
+ * @param {string} idReunion
+ * @param {{ cancelado?: boolean, titulo?: string, fecha?: string, horaInicio?: string, horaFin?: string }} remoto
+ */
+export async function aplicarEventoCalendarEnReunion(idReunion, remoto = {}) {
+  const id = texto(idReunion);
+  const meta = await leerMeta(id);
+  if (!meta || texto(meta.estado) === 'cancelada') return { ok: true, aplicada: false };
+
+  if (remoto.cancelado) {
+    if (texto(meta.estado) !== 'borrador' && texto(meta.estado) !== 'convocada') {
+      return { ok: true, aplicada: false };
+    }
+    const actualizado = { ...meta, id_reunion: id, estado: 'cancelada', actualizado_en: ahora() };
+    await docClient.send(
+      new PutCommand({ TableName: tables.reuniones, Item: itemMeta(actualizado) }),
+    );
+    await registrarActividad({
+      tipo: ENTIDAD,
+      entidadId: id,
+      accion: ACCIONES.estadoCambiado,
+      usuario: { id_usuario: AUTOR_SISTEMA, nombre: 'Sistema' },
+      detalle: { motivo: 'calendar_entrante', estado_antes: meta.estado, estado_despues: 'cancelada' },
+    });
+    return { ok: true, aplicada: true, cancelada: true };
+  }
+
+  if (ordenBloqueado(meta.estado)) return { ok: true, aplicada: false };
+
+  const cambios = {};
+  const titulo = texto(remoto.titulo);
+  if (titulo && titulo !== texto(meta.titulo)) cambios.titulo = titulo;
+  const fecha = texto(remoto.fecha);
+  const ancla = texto(meta.ocurrencia_fecha);
+  const desplazada = Boolean(ancla) && ancla !== texto(meta.fecha);
+  if (!desplazada && fecha && fecha !== texto(meta.fecha)) {
+    cambios.fecha = fecha;
+    if (ancla) cambios.ocurrencia_fecha = fecha;
+  }
+  const hi = texto(remoto.horaInicio);
+  const hf = texto(remoto.horaFin);
+  const parValido = (hi && hf) || (!hi && !hf);
+  if (parValido && (hi !== texto(meta.hora_inicio) || hf !== texto(meta.hora_fin))) {
+    cambios.hora_inicio = hi;
+    cambios.hora_fin = hf;
+  }
+  if (Object.keys(cambios).length === 0) return { ok: true, aplicada: false };
+
+  const actualizado = { ...meta, ...cambios, id_reunion: id, actualizado_en: ahora() };
+  await docClient.send(
+    new PutCommand({ TableName: tables.reuniones, Item: itemMeta(actualizado) }),
+  );
+  await registrarActividad({
+    tipo: ENTIDAD,
+    entidadId: id,
+    accion: ACCIONES.editada,
+    usuario: { id_usuario: AUTOR_SISTEMA, nombre: 'Sistema' },
+    detalle: { motivo: 'calendar_entrante', campos: Object.keys(cambios) },
+  });
+  return { ok: true, aplicada: true };
+}
+
 export async function crearReunion(ctx, body = {}) {
   if (!tienePermiso(ctx, PERMISOS.reunionesGestionar) && !ctx?.esAdmin) {
     return rechazar(403, 'No tienes permiso para gestionar reuniones');
@@ -821,6 +896,10 @@ export async function crearReunion(ctx, body = {}) {
     actualizado_en: instante,
   };
 
+  const rec = normalizarRecurrencia(body.recurrencia);
+  if (!rec.ok) return rechazar(400, rec.error);
+  if (rec.regla) return crearSerieReuniones({ ctx, reunion, regla: rec.regla });
+
   // D-21: Calendar no tumba la reunión.
   let sync = syncCalendarDe({ ok: false, error: 'Google Calendar no está configurado' });
   try {
@@ -869,6 +948,215 @@ export async function crearReunion(ctx, body = {}) {
     ...sync,
     calendar_disponible: calendarDisponible(),
   };
+}
+
+async function leerSerieReunion(recId) {
+  const r = await docClient.send(
+    new GetCommand({
+      TableName: tables.reuniones,
+      Key: { PK: pkSerie(recId), SK: SK.meta },
+    }),
+  );
+  return r.Item || null;
+}
+
+async function guardarSerieReunion(serie, miembros) {
+  const pk = serie?.PK || pkSerie(serie?.recurrencia_id);
+  if (!miembros.length) {
+    await borrarEnLotes(tables.reuniones, [{ PK: pk, SK: SK.meta }]);
+    return;
+  }
+  await docClient.send(
+    new PutCommand({
+      TableName: tables.reuniones,
+      Item: { ...serie, PK: pk, SK: SK.meta, miembros },
+    }),
+  );
+}
+
+/**
+ * Una ficha por fecha y un solo evento recurrente en Google.
+ * Calendar no tumba el alta.
+ */
+async function crearSerieReuniones({ ctx, reunion, regla }) {
+  const fechas = fechasDeRecurrencia(reunion.fecha, regla);
+  if (fechas.length === 0) return rechazar(400, 'Esa repetición no genera ninguna fecha');
+  const recId = crypto.randomUUID();
+  const rrule = rruleDe(regla, fechas[0]);
+  const reuniones = fechas.map((fecha, i) => ({
+    ...reunion,
+    id_reunion: i === 0 ? reunion.id_reunion : crypto.randomUUID(),
+    fecha,
+    ocurrencia_fecha: fecha,
+    recurrencia_id: recId,
+    recurrencia_frecuencia: regla.frecuencia,
+    ...(regla.dias_semana?.length ? { recurrencia_dias_semana: regla.dias_semana } : {}),
+    ...(regla.dias_mes?.length ? { recurrencia_dias_mes: regla.dias_mes } : {}),
+    recurrencia_rrule: rrule,
+  }));
+
+  let sync = syncCalendarDe({ ok: false, error: 'Google Calendar no está configurado' });
+  try {
+    const cal = await calendarCrear({
+      titulo: reuniones[0].titulo,
+      fecha: reuniones[0].fecha,
+      horaInicio: reuniones[0].hora_inicio,
+      horaFin: reuniones[0].hora_fin,
+      descripcion: reuniones[0].orden_del_dia,
+      asistentesEmails: [],
+      recurrence: [rrule],
+    });
+    sync = syncCalendarDe(cal);
+    if (cal.ok && cal.eventId) {
+      for (const r of reuniones) {
+        r.calendar_event_id = cal.eventId;
+        if (cal.calendarId) r.calendar_id = cal.calendarId;
+        if (cal.modalidad) r.modalidad = cal.modalidad;
+        if (cal.sala) r.sala_recurso_email = cal.sala;
+        if (cal.meetCode) r.meet_code = cal.meetCode;
+      }
+    }
+  } catch (err) {
+    sync = syncCalendarDe({ ok: false, error: err?.message || 'Error al sincronizar con Calendar' });
+  }
+
+  const items = reuniones.map((r) => itemMeta(r));
+  items.push({
+    PK: pkSerie(recId),
+    SK: SK.meta,
+    recurrencia_id: recId,
+    tipo: 'reunion',
+    frecuencia: regla.frecuencia,
+    ...(regla.dias_semana?.length ? { dias_semana: regla.dias_semana } : {}),
+    ...(regla.dias_mes?.length ? { dias_mes: regla.dias_mes } : {}),
+    rrule,
+    ...(reuniones[0].calendar_event_id ? { calendar_event_id: reuniones[0].calendar_event_id } : {}),
+    ...(reuniones[0].calendar_id ? { calendar_id: reuniones[0].calendar_id } : {}),
+    miembros: reuniones.map((r) => ({ id: r.id_reunion, fecha: r.ocurrencia_fecha })),
+  });
+  await escribirEnLotes(tables.reuniones, items);
+
+  await registrarActividad({
+    tipo: ENTIDAD,
+    entidadId: reuniones[0].id_reunion,
+    accion: ACCIONES.creada,
+    usuario: autorDe(ctx),
+    detalle: {
+      titulo: reuniones[0].titulo,
+      fecha: reuniones[0].fecha,
+      visibilidad: reuniones[0].visibilidad,
+      recurrencia_id: recId,
+      ocurrencias: reuniones.length,
+      calendario_sincronizado: sync.calendario_sincronizado,
+    },
+  });
+
+  const nombres = await nombresDeUsuarios([reuniones[0].convocada_por]);
+  return {
+    ok: true,
+    reunion: reunionConExtras(itemMeta(reuniones[0]), ctx, { asistentes: [], aux: {}, nombres }),
+    ids_serie: reuniones.map((r) => r.id_reunion),
+    ...sync,
+    calendar_disponible: calendarDisponible(),
+  };
+}
+
+async function copiarAsistentesAlaSerie(recurrenciaId, idOrigen, items) {
+  const serie = await leerSerieReunion(recurrenciaId);
+  if (!serie) return;
+  const copias = [];
+  for (const m of serie.miembros || []) {
+    if (texto(m.id) === idOrigen) continue;
+    for (const item of items) copias.push({ ...item, PK: PK.reunion(m.id) });
+  }
+  if (copias.length > 0) await escribirEnLotes(tables.reuniones, copias);
+}
+
+async function borrarOcurrenciasReunion(ctx, reunion, alcance) {
+  const id = texto(reunion.id_reunion);
+  const modo = alcance === 'posteriores' ? 'posteriores' : 'esta';
+  const serie = await leerSerieReunion(reunion.recurrencia_id);
+  if (!serie) {
+    const eventId = texto(reunion.calendar_event_id);
+    let sync = { calendario_sincronizado: !eventId, calendario_error: null };
+    if (eventId) {
+      try {
+        const cal = await cancelarInstanciaSerie({
+          eventId,
+          fecha: texto(reunion.ocurrencia_fecha) || texto(reunion.fecha),
+          calendarId: texto(reunion.calendar_id) || undefined,
+        });
+        sync = {
+          calendario_sincronizado: !!cal.ok,
+          calendario_error: cal.ok ? null : texto(cal.error) || 'No se pudo cancelar esa fecha en Calendar',
+        };
+      } catch (err) {
+        sync = { calendario_sincronizado: false, calendario_error: err?.message || 'Error al cancelar esa fecha' };
+      }
+    }
+    const claves = await clavesDeParticion(id);
+    await borrarEnLotes(tables.reuniones, claves);
+    await registrarActividad({
+      tipo: ENTIDAD,
+      entidadId: id,
+      accion: ACCIONES.borrada,
+      usuario: autorDe(ctx),
+      detalle: { titulo: reunion.titulo, calendario_sincronizado: sync.calendario_sincronizado },
+    });
+    return { ok: true, ...sync, calendar_disponible: calendarDisponible() };
+  }
+  const { borrar, quedar } = separarMiembros(serie?.miembros, {
+    id,
+    fecha: texto(reunion.ocurrencia_fecha) || texto(reunion.fecha),
+    alcance: modo,
+  });
+
+  const eventId = texto(reunion.calendar_event_id) || texto(serie?.calendar_event_id);
+  let sync = { calendario_sincronizado: !eventId, calendario_error: null };
+  if (eventId) {
+    const datosCal = { calendarId: texto(reunion.calendar_id) || texto(serie?.calendar_id) || undefined };
+    try {
+      let cal = { ok: true };
+      if (quedar.length === 0) cal = await calendarBorrar(eventId, datosCal);
+      else if (modo === 'posteriores') {
+        cal = await truncarSerieHasta({
+          eventId,
+          fechaDesde: texto(reunion.ocurrencia_fecha) || texto(reunion.fecha),
+          ...datosCal,
+        });
+      } else {
+        cal = await cancelarInstanciaSerie({
+          eventId,
+          fecha: texto(reunion.ocurrencia_fecha) || texto(reunion.fecha),
+          ...datosCal,
+        });
+      }
+      sync.calendario_sincronizado = !!cal.ok;
+      if (!cal.ok) sync.calendario_error = texto(cal.error) || 'No se pudo ajustar la serie en Calendar';
+    } catch (err) {
+      sync.calendario_sincronizado = false;
+      sync.calendario_error = err?.message || 'Error al ajustar la serie en Calendar';
+    }
+  }
+
+  for (const m of borrar) {
+    const claves = await clavesDeParticion(m.id);
+    if (claves.length === 0) continue;
+    await borrarEnLotes(tables.reuniones, claves);
+    await registrarActividad({
+      tipo: ENTIDAD,
+      entidadId: m.id,
+      accion: ACCIONES.borrada,
+      usuario: autorDe(ctx),
+      detalle: {
+        titulo: reunion.titulo,
+        alcance: modo,
+        calendario_sincronizado: sync.calendario_sincronizado,
+      },
+    });
+  }
+  if (serie) await guardarSerieReunion(serie, quedar);
+  return { ok: true, ...sync, calendar_disponible: calendarDisponible() };
 }
 
 export async function actualizarReunion(ctx, idReunion, cambios = {}) {
@@ -936,6 +1224,7 @@ export async function actualizarReunion(ctx, idReunion, cambios = {}) {
         horaInicio: actualizado.hora_inicio,
         horaFin: actualizado.hora_fin,
         descripcion: actualizado.orden_del_dia,
+        conservarHorario: Boolean(texto(actualizado.recurrencia_id)),
       });
       if (!cal.ok) {
         sync.calendario_sincronizado = false;
@@ -988,9 +1277,12 @@ export async function actualizarReunion(ctx, idReunion, cambios = {}) {
   };
 }
 
-export async function borrarReunion(ctx, idReunion) {
+export async function borrarReunion(ctx, idReunion, { alcance } = {}) {
   const cargado = await cargarParaGestionar(ctx, idReunion);
   if (!cargado.ok) return cargado.fallo;
+  if (texto(cargado.reunion.recurrencia_id)) {
+    return borrarOcurrenciasReunion(ctx, cargado.reunion, alcance);
+  }
 
   const eventId = texto(cargado.reunion.calendar_event_id);
   let sync = {
@@ -1068,6 +1360,9 @@ export async function anadirAsistentes(ctx, idReunion, body = {}) {
   }
 
   await escribirEnLotes(tables.reuniones, items);
+  if (texto(cargado.reunion.recurrencia_id)) {
+    await copiarAsistentesAlaSerie(cargado.reunion.recurrencia_id, texto(idReunion), items);
+  }
   await tocarReunion(idReunion, instante);
   await registrarActividad({
     tipo: ENTIDAD,
@@ -1093,6 +1388,7 @@ export async function anadirAsistentes(ctx, idReunion, body = {}) {
         horaFin: cargado.reunion.hora_fin,
         descripcion: cargado.reunion.orden_del_dia,
         asistentesEmails,
+        conservarHorario: Boolean(texto(cargado.reunion.recurrencia_id)),
       });
       sync = {
         calendario_sincronizado: !!cal.ok,

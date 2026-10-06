@@ -96,6 +96,63 @@ export function etiquetaFacturaCompensable(f) {
   return num && prov ? `${num} · ${prov}` : num || prov || f.id_factura;
 }
 
+/** Número de proveedor (o propio) y fecha de emisión, para el detalle del pago. */
+export function resumenFacturaCompensacion(f) {
+  const id = String(f?.id_factura || '').trim();
+  const numero = String(f?.numero_factura_proveedor || f?.numero_factura || '').trim();
+  let fechaIso = fechaToIsoGuardada(f?.fecha_emision);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaIso) && /^\d{4}-\d{2}-\d{2}/.test(fechaIso)) {
+    fechaIso = fechaIso.slice(0, 10);
+  }
+  const fecha_emision = /^\d{4}-\d{2}-\d{2}$/.test(fechaIso) ? fechaIso : '';
+  return { id_factura: id, numero, fecha_emision };
+}
+
+/** Texto visible del enlace: «50/2026 · 03/09/2026». Si faltan datos, el id. */
+export function textoEnlaceCompensacion(f) {
+  const { id_factura, numero, fecha_emision } = resumenFacturaCompensacion(f);
+  let fecha = '';
+  if (fecha_emision) {
+    const [y, m, d] = fecha_emision.split('-');
+    fecha = `${d}/${m}/${y}`;
+  }
+  const visible = [numero, fecha].filter(Boolean).join(' · ');
+  return visible || id_factura;
+}
+
+/**
+ * Añade `compensacion_detalle` (número y fecha de cada factura cruzada) para
+ * que el listado no tenga que mostrar solo el id guardado en el pago.
+ */
+export async function enriquecerPagosCompensacion(pagos) {
+  const lista = Array.isArray(pagos) ? pagos : [];
+  const ids = new Set();
+  for (const p of lista) {
+    if (!Array.isArray(p?.compensacion_con)) continue;
+    for (const id of p.compensacion_con) {
+      const s = String(id || '').trim();
+      if (s) ids.add(s);
+    }
+  }
+  if (ids.size === 0) return lista;
+
+  const porId = new Map();
+  await Promise.all(
+    [...ids].map(async (id) => {
+      const f = await cargarFactura(id);
+      porId.set(id, f ? resumenFacturaCompensacion(f) : { id_factura: id, numero: '', fecha_emision: '' });
+    }),
+  );
+
+  return lista.map((p) => {
+    if (!Array.isArray(p?.compensacion_con) || p.compensacion_con.length === 0) return p;
+    const compensacion_detalle = p.compensacion_con
+      .map((id) => porId.get(String(id).trim()))
+      .filter(Boolean);
+    return { ...p, compensacion_detalle };
+  });
+}
+
 async function registrarAuditoria(id_factura, accion, usuario_id, usuario_nombre, detalle) {
   const id_entrada = `AUD-${id_factura}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   await docClient.send(
@@ -309,7 +366,8 @@ export async function registrarPagoCompensacion(opts) {
 
   const idsDestinoRep = reparto.map((r) => r.factura.id_factura);
   const refOrigen = idsDestinoRep.join(', ');
-  const etiquetaOrigen = etiquetaFacturaCompensable(origen);
+  const textoDestinos = reparto.map((r) => textoEnlaceCompensacion(r.factura)).join(', ');
+  const textoOrigen = textoEnlaceCompensacion(origen);
 
   const origenMut = { ...origen };
   const aplicadoOrigen = aplicarCompensacionAFactura(origenMut, importeNum);
@@ -333,7 +391,7 @@ export async function registrarPagoCompensacion(opts) {
     referencia: refOrigen,
     observaciones:
       (observaciones ? `${observaciones.trim()} · ` : '') +
-      `Compensación con: ${idsDestinoRep.map((id) => id).join(', ')}`,
+      `Compensación con: ${textoDestinos}`,
     grupoId,
     compensacionCon: idsDestinoRep,
     usuario_id,
@@ -360,7 +418,7 @@ export async function registrarPagoCompensacion(opts) {
       fechaIso,
       importe: impDest,
       referencia: origenMut.id_factura,
-      observaciones: `Compensación con factura ${etiquetaOrigen}`,
+      observaciones: `Compensación con: ${textoOrigen}`,
       grupoId,
       compensacionCon: [origenMut.id_factura],
       usuario_id,

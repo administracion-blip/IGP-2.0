@@ -12,6 +12,7 @@ import { formatMoneda, labelMetodoPagoDisplay } from '../utils/facturacion';
 import { formatFechaPagoRow } from '../utils/formatFecha';
 import { MIN_TOUCH } from '../constants/layout';
 import type { PagoDetalleRow } from '../lib/pagosFacturaDetalle';
+import { lineasDetalleCompensacion, notaAparteDeCompensacion } from '../lib/compensacionFactura';
 
 export type ModalDetallePagosTablaProps = {
   loading: boolean;
@@ -89,7 +90,10 @@ export function ModalDetallePagosTabla({
           const metodoRaw = p.metodo_pago != null ? String(p.metodo_pago) : '';
           const ref = p.referencia != null ? String(p.referencia).trim() : '';
           const obs = p.observaciones != null ? String(p.observaciones).trim() : '';
-          const hasExtra = Boolean(ref || obs);
+          const compensaciones = lineasDetalleCompensacion(p.compensacion_detalle);
+          const nota = compensaciones.length > 0 ? notaAparteDeCompensacion(obs) : obs;
+          const refVisible = compensaciones.length > 0 ? '' : ref;
+          const hasExtra = Boolean(refVisible || nota || compensaciones.length > 0);
           const idPago = p.id_pago != null ? String(p.id_pago) : '';
           const rowKey = idPago || `pago-${idx}`;
           const procesando = idPago && procesandoPagoId === idPago;
@@ -142,15 +146,28 @@ export function ModalDetallePagosTabla({
               </View>
               {hasExtra ? (
                 <View style={styles.extraRow}>
-                  {ref ? (
+                  {compensaciones.map((c) => (
+                    <View key={c.id || c.principal} style={styles.compensacionBloque}>
+                      <Text style={styles.extraText}>
+                        <Text style={styles.extraLabel}>Compensación con: </Text>
+                        {c.principal}
+                      </Text>
+                      {c.id ? (
+                        <Text style={styles.extraId} numberOfLines={2}>
+                          Id: {c.id}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ))}
+                  {refVisible ? (
                     <Text style={styles.extraText} numberOfLines={2}>
                       <Text style={styles.extraLabel}>Ref.: </Text>
-                      {ref}
+                      {refVisible}
                     </Text>
                   ) : null}
-                  {obs ? (
+                  {nota ? (
                     <Text style={styles.extraText} numberOfLines={3}>
-                      {obs}
+                      {nota}
                     </Text>
                   ) : null}
                 </View>
@@ -268,6 +285,8 @@ const styles = StyleSheet.create({
   },
   extraLabel: { fontWeight: '600', color: '#94a3b8', fontSize: 11 },
   extraText: { fontSize: 11, color: '#64748b', lineHeight: 16 },
+  compensacionBloque: { gap: 2 },
+  extraId: { fontSize: 10, color: '#94a3b8', lineHeight: 14 },
 
   totalRow: {
     flexDirection: 'row',

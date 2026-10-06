@@ -25,6 +25,9 @@ import {
   leerAjustesAvisos,
 } from '../tasks/avisos.js';
 import { leerAjustesPipeline } from '../tasks/reuniones/pipelineTick.js';
+import { arrastrarTareasVencidas } from '../tasks/arrastreVencimiento.js';
+import { fechaHoyMadrid } from '../tasks/tareas.js';
+import { traerCambiosDesdeCalendar } from '../tasks/syncCalendarEntrante.js';
 
 const tableAjustesName = tables.ajustes;
 
@@ -359,6 +362,67 @@ export const checkFacturacionRappel = crearTrabajoFacturacionPeriodica({
  * mandan el aviso dos veces. La comprobación de aquí solo evita intentarlo cada
  * minuto una vez enviado.
  */
+/**
+ * Pasa a hoy las tareas abiertas con vencimiento anterior. Una vez por día de
+ * Madrid; el reclamo vive en Dynamo para que dos instancias no lo hagan dos veces.
+ * En memoria solo se evita repetir el intento cada minuto cuando ya se reclamó.
+ */
+let arrastreEnVuelo = false;
+let arrastreDiaHecho = '';
+
+export async function checkArrastreTareas() {
+  const dia = fechaHoyMadrid();
+  if (arrastreDiaHecho === dia || arrastreEnVuelo) return;
+  arrastreEnVuelo = true;
+  try {
+    const r = await arrastrarTareasVencidas({ hoy: dia });
+    if (r.reclamado || r.motivo === 'ya') arrastreDiaHecho = dia;
+    if (r.arrastradas > 0 || r.fallidas > 0 || r.calendarioFallido > 0) {
+      logger.info(
+        {
+          dia: r.dia,
+          arrastradas: r.arrastradas,
+          fallidas: r.fallidas,
+          calendarioFallido: r.calendarioFallido,
+        },
+        `[tareas-arrastre] ${r.arrastradas} tarea(s) pasada(s) a hoy` +
+          (r.fallidas > 0 ? `, ${r.fallidas} fallida(s)` : '') +
+          (r.calendarioFallido > 0 ? `, ${r.calendarioFallido} sin Calendar` : ''),
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, '[tareas-arrastre] scheduler error');
+  } finally {
+    arrastreEnVuelo = false;
+  }
+}
+
+/** Cambios de Google → app. Cada 5 minutos; no importa eventos nuevos. */
+const INTERVALO_CALENDAR_ENTRANTE_MS = 5 * 60 * 1000;
+let calendarEntranteEnVuelo = false;
+let calendarEntranteUltimo = 0;
+
+export async function checkSyncCalendarEntrante() {
+  if (calendarEntranteEnVuelo) return;
+  if (Date.now() - calendarEntranteUltimo < INTERVALO_CALENDAR_ENTRANTE_MS) return;
+  calendarEntranteEnVuelo = true;
+  calendarEntranteUltimo = Date.now();
+  try {
+    const r = await traerCambiosDesdeCalendar();
+    if (r.aplicadas > 0 || r.fallidas > 0) {
+      logger.info(
+        { aplicadas: r.aplicadas, ignoradas: r.ignoradas, fallidas: r.fallidas },
+        `[calendar-entrante] ${r.aplicadas} cambio(s) copiado(s) desde Google` +
+          (r.fallidas > 0 ? `, ${r.fallidas} fallido(s)` : ''),
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, '[calendar-entrante] scheduler error');
+  } finally {
+    calendarEntranteEnVuelo = false;
+  }
+}
+
 export async function checkAvisosTareas() {
   try {
     const ajustes = await leerAjustesAvisos();

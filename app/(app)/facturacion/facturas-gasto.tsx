@@ -86,6 +86,8 @@ import {
   resumenDuplicadosProveedor,
 } from '../../lib/registroMasivo';
 import IconoSugerenciaConciliacion from '../../components/conciliacion/IconoSugerenciaConciliacion';
+import { BarraSeleccionFacturas } from '../../components/facturacion/BarraSeleccionFacturas';
+import ModalElegirMovimientoConciliacion from '../../components/conciliacion/ModalElegirMovimientoConciliacion';
 import ConciliarMovimientoModal, {
   type ResultadoConciliacion,
 } from '../../components/conciliacion/ConciliarMovimientoModal';
@@ -189,6 +191,16 @@ function pastelChipEstado(key: TabEstado): { bg: string; text: string; border: s
   const { bg, text } = colorEstado(key);
   const border = key === 'parcialmente_pagada' ? '#fed7aa' : bg;
   return { bg, text, border };
+}
+
+function saldoPendientePositivo(f: FacturaListado): number {
+  const n = Number(f.saldo_pendiente) || 0;
+  return n > 0.001 ? n : 0;
+}
+
+function mesVencimientoFactura(f: FacturaListado): string {
+  const iso = fechaEmisionFacturaAIso(String(f.fecha_vencimiento ?? '')) ?? '';
+  return iso.length >= 7 ? iso.slice(0, 7) : '';
 }
 
 const COLUMNAS = [
@@ -298,12 +310,16 @@ export default function FacturasGastoScreen() {
 
   const [tabActivo, setTabActivo] = useState<TabEstado>('todas');
   const [busqueda, setBusqueda] = useState('');
+  const [busquedaFoco, setBusquedaFoco] = useState(false);
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
   const [empresasFiltroIds, setEmpresasFiltroIds] = useState<string[]>([]);
   const [etiquetasProveedorFiltro, setEtiquetasProveedorFiltro] = useState<string[]>([]);
   const [anioFiltro, setAnioFiltro] = useState(() => String(new Date().getFullYear()));
   const [filtroColaPago, setFiltroColaPago] = useState<FiltroColaPago>('todos');
+  const [filtroProveedorNombre, setFiltroProveedorNombre] = useState('');
+  const [soloVenceEsteMes, setSoloVenceEsteMes] = useState(false);
+  const [menuMasAbierto, setMenuMasAbierto] = useState(false);
   const [soloDuplicadosProveedor, setSoloDuplicadosProveedor] = useState(false);
   const [soloPendientesConciliacion, setSoloPendientesConciliacion] = useState(false);
   const [soloConExceso, setSoloConExceso] = useState(false);
@@ -351,7 +367,9 @@ export default function FacturasGastoScreen() {
   const [resyncMaestroToken, setResyncMaestroToken] = useState(0);
   const maestroToastRef = useRef(false);
 
-  const puedeModoSeleccion = hasPermiso('facturacion.emitir') || hasPermiso('remesas.gestionar');
+  const puedeModoSeleccion = hasPermiso('facturacion.emitir')
+    || hasPermiso('remesas.gestionar')
+    || (hasPermiso('facturacion.cobrar_pagar') && hasPermiso('banca.ver'));
 
   const fetchFacturas = useCallback(() => {
     setLoading(true);
@@ -373,6 +391,7 @@ export default function FacturasGastoScreen() {
     () => new Map(),
   );
   const [conciliarEntrada, setConciliarEntrada] = useState<SugerenciasDeFactura | null>(null);
+  const [modalMovimientos, setModalMovimientos] = useState(false);
   /** Solo la última carga escribe: al refrescar tras conciliar se solapan dos. */
   const sugerenciasSeqRef = useRef(0);
 
@@ -410,6 +429,7 @@ export default function FacturasGastoScreen() {
   const onConciliacionAplicada = useCallback(
     (resultado: ResultadoConciliacion) => {
       setConciliarEntrada(null);
+      if (resultado.aplicadas.length > 0) setSelectedMultiIds(new Set());
       const total = resultado.aplicadas.reduce((acc, a) => acc + Number(a.importe || 0), 0);
       const aviso = resultado.avisos[0]?.mensaje;
       showToast(
@@ -600,6 +620,10 @@ export default function FacturasGastoScreen() {
         facturaProveedorCoincideEtiquetas(f, etiquetasProveedorFiltro, empresasCatalogo),
       );
     }
+    if (filtroProveedorNombre) {
+      const nombre = filtroProveedorNombre.toLowerCase();
+      list = list.filter((f) => String(f.empresa_nombre ?? '').trim().toLowerCase() === nombre);
+    }
     if (fechaDesde) {
       list = list.filter((f) => (fechaEmisionComparable(f.fecha_emision) || '') >= fechaDesde);
     }
@@ -645,6 +669,7 @@ export default function FacturasGastoScreen() {
     anioFiltro,
     empresasFiltroIds,
     etiquetasProveedorFiltro,
+    filtroProveedorNombre,
     empresasCatalogo,
     fechaDesde,
     fechaHasta,
@@ -668,9 +693,60 @@ export default function FacturasGastoScreen() {
     return counts;
   }, [facturasBaseFiltradas]);
 
+  const cifrasGasto = useMemo(() => {
+    const list = filtrarFacturasPorColaPago(facturasBaseFiltradas, filtroColaPago, empresasCatalogo);
+    let pendiente = 0;
+    let vencido = 0;
+    let esteMes = 0;
+    const mes = hoyISO().slice(0, 7);
+    const trimestres = [0, 0, 0, 0];
+    const porProveedor = new Map<string, number>();
+    for (const f of list) {
+      const saldo = saldoPendientePositivo(f);
+      const estado = String(f.estado ?? '');
+      if (estado === 'pendiente_pago') pendiente += saldo;
+      if (estado === 'vencida') vencido += saldo;
+      if (
+        mesVencimientoFactura(f) === mes
+        && saldo > 0
+        && estado !== 'anulada'
+        && estado !== 'pagada'
+        && estado !== 'borrador'
+      ) {
+        esteMes += saldo;
+      }
+      const nombre = String(f.empresa_nombre ?? '').trim();
+      if (nombre) porProveedor.set(nombre, (porProveedor.get(nombre) ?? 0) + (Number(f.total_factura) || 0));
+      const trimestre = trimestreDesdeFechaEmision(f.fecha_emision);
+      if (trimestre && trimestre.trimestre >= 1 && trimestre.trimestre <= 4) {
+        trimestres[trimestre.trimestre - 1] += Number(f.total_factura) || 0;
+      }
+    }
+    let mayorNombre = '';
+    let mayorImporte = 0;
+    for (const [nombre, importe] of porProveedor) {
+      if (!mayorNombre || importe > mayorImporte) {
+        mayorNombre = nombre;
+        mayorImporte = importe;
+      }
+    }
+    return { pendiente, vencido, esteMes, mayorNombre, mayorImporte, trimestres };
+  }, [facturasBaseFiltradas, filtroColaPago, empresasCatalogo]);
+
   const filtradas = useMemo(() => {
     let list = facturasBaseFiltradas;
     if (tabActivo !== 'todas') list = list.filter((f) => f.estado === tabActivo);
+    if (soloVenceEsteMes) {
+      const mes = hoyISO().slice(0, 7);
+      list = list.filter((f) => {
+        const estado = String(f.estado ?? '');
+        return mesVencimientoFactura(f) === mes
+          && saldoPendientePositivo(f) > 0
+          && estado !== 'anulada'
+          && estado !== 'pagada'
+          && estado !== 'borrador';
+      });
+    }
     list = filtrarFacturasPorColaPago(list, filtroColaPago, empresasCatalogo);
     if (sortCol) {
       list = [...list].sort((a, b) => {
@@ -742,7 +818,7 @@ export default function FacturasGastoScreen() {
       });
     }
     return list;
-  }, [facturasBaseFiltradas, tabActivo, filtroColaPago, empresasCatalogo, sortCol, sortDir, soloDuplicadosProveedor]);
+  }, [facturasBaseFiltradas, tabActivo, soloVenceEsteMes, filtroColaPago, empresasCatalogo, sortCol, sortDir, soloDuplicadosProveedor]);
 
   const totalPages = Math.max(1, Math.ceil(filtradas.length / PAGE_SIZE));
   const pageClamped = Math.min(Math.max(0, pageIndex), totalPages - 1);
@@ -777,6 +853,8 @@ export default function FacturasGastoScreen() {
     fechaHasta,
     empresasFiltroIds,
     etiquetasProveedorFiltro,
+    filtroProveedorNombre,
+    soloVenceEsteMes,
     anioFiltro,
     filtroColaPago,
     soloDuplicadosProveedor,
@@ -1559,22 +1637,26 @@ export default function FacturasGastoScreen() {
 
   if (loading && facturas.length === 0) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
-        <Text style={styles.loadingText}>Cargando facturas…</Text>
+      <View style={styles.container}>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#0ea5e9" />
+          <Text style={styles.loadingText}>Cargando facturas…</Text>
+        </View>
       </View>
     );
   }
 
   if (error && facturas.length === 0) {
     return (
-      <View style={styles.center}>
-        <MaterialIcons name="error-outline" size={48} color="#f87171" />
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={fetchFacturas}>
-          <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
-          <Text style={styles.retryBtnText}>Reintentar</Text>
-        </TouchableOpacity>
+      <View style={styles.container}>
+        <View style={styles.center}>
+          <MaterialIcons name="error-outline" size={48} color="#f87171" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={fetchFacturas}>
+            <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
+            <Text style={styles.retryBtnText}>Reintentar</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -1587,36 +1669,6 @@ export default function FacturasGastoScreen() {
           <MaterialIcons name="arrow-back" size={22} color="#334155" />
         </TouchableOpacity>
         <Text style={styles.title}>Facturas de gasto</Text>
-        <View style={styles.headerActions}>
-          {hasPermiso('empresas.ver') ? (
-            <TouchableOpacity
-              style={styles.masivoBtnHeader}
-              onPress={() => router.push(buildEmpresasDesdeFacturasHref('IN') as never)}
-              accessibilityLabel="Ir al maestro de empresas"
-            >
-              <MaterialIcons name="business" size={16} color="#0ea5e9" />
-              <Text style={styles.headerActionText}>Empresas</Text>
-            </TouchableOpacity>
-          ) : null}
-          {hasPermiso('remesas.ver') ? (
-            <TouchableOpacity
-              style={styles.masivoBtnHeader}
-              onPress={() => router.push('/facturacion/remesas' as never)}
-            >
-              <MaterialIcons name="account-balance" size={16} color="#0ea5e9" />
-              <Text style={styles.headerActionText}>Remesas de pago</Text>
-            </TouchableOpacity>
-          ) : null}
-          {hasPermiso('facturacion.crear') ? (
-            <TouchableOpacity
-              style={styles.registroMasivoBtnHeader}
-              onPress={() => router.push('/facturacion/registro-masivo' as any)}
-            >
-              <MaterialIcons name="upload-file" size={16} color="#5b21b6" />
-              <Text style={styles.registroMasivoBtnText}>Registro masivo</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
       </View>
 
       <View style={styles.filtrosRow}>
@@ -1659,6 +1711,16 @@ export default function FacturasGastoScreen() {
           valorId={anioFiltro}
           opciones={aniosFiltroOpciones}
           onSeleccionar={setAnioFiltro}
+        />
+        <SelectorDesplegable
+          style={styles.empresaFiltroSelector}
+          placeholder="Todos los métodos"
+          icono="payments"
+          tituloLista="Filtrar por método de pago"
+          iconoLista="payments"
+          valorId={filtroColaPago}
+          opciones={COLA_PAGO_OPCIONES}
+          onSeleccionar={(id) => setFiltroColaPago(id as FiltroColaPago)}
         />
       </View>
 
@@ -1719,22 +1781,10 @@ export default function FacturasGastoScreen() {
             </TouchableOpacity>
           ) : null}
         </ScrollView>
-
-        <SelectorDesplegable
-          style={[styles.colaPagoFiltroSelector, shouldStackToolbar && styles.colaPagoFiltroSelectorStacked]}
-          compact
-          placeholder="Método"
-          icono="payments"
-          tituloLista="Filtrar por método de pago"
-          iconoLista="payments"
-          valorId={filtroColaPago}
-          opciones={COLA_PAGO_OPCIONES}
-          onSeleccionar={(id) => setFiltroColaPago(id as FiltroColaPago)}
-        />
       </View>
 
       {/* Toolbar */}
-      <View style={styles.toolbarRow}>
+      <View style={[styles.toolbarRow, menuMasAbierto && styles.toolbarRowAbierta]}>
         <View style={styles.toolbar}>
           {TOOLBAR_BUTTONS.filter((b) => hasPermiso(b.permiso)).map((btn) => {
             const disabled = isBtnDisabled(btn);
@@ -1758,6 +1808,7 @@ export default function FacturasGastoScreen() {
                     esPagar
                       ? (esModoMultipagoToolbar ? styles.toolbarBtnMultipago : styles.toolbarBtnPagar)
                       : styles.toolbarBtn,
+                    !esPagar && hoveredBtn === btn.id && !disabled && styles.toolbarBtnHover,
                     disabled && styles.toolbarBtnDisabled,
                   ]}
                   onPress={() => handleToolbar(btn.id)}
@@ -1786,7 +1837,11 @@ export default function FacturasGastoScreen() {
                   <View style={styles.tooltip}><Text style={styles.tooltipText}>Selección múltiple</Text></View>
                 )}
                 <TouchableOpacity
-                  style={[styles.toolbarBtn, modoSeleccion && styles.toolbarBtnActive]}
+                  style={[
+                    styles.toolbarBtn,
+                    modoSeleccion && styles.toolbarBtnActive,
+                    !modoSeleccion && hoveredBtn === 'sel_mode' && styles.toolbarBtnHover,
+                  ]}
                   onPress={() => {
                     setModoSeleccion((m) => !m);
                     if (modoSeleccion) setSelectedMultiIds(new Set());
@@ -1827,6 +1882,11 @@ export default function FacturasGastoScreen() {
                       </Text>
                     </TouchableOpacity>
                   ) : null}
+                  <BarraSeleccionFacturas
+                    facturas={facturasSeleccionadas}
+                    puedeConciliar={puedeGestionarPagos && puedeVerConciliacion}
+                    onConciliar={() => setModalMovimientos(true)}
+                  />
                 </View>
               ) : null}
             </>
@@ -1842,7 +1902,7 @@ export default function FacturasGastoScreen() {
               <View style={styles.tooltip}><Text style={styles.tooltipText}>Exportar Excel</Text></View>
             )}
             <TouchableOpacity
-              style={styles.toolbarBtn}
+              style={[styles.toolbarBtn, hoveredBtn === 'excel' && styles.toolbarBtnHover]}
               onPress={async () => {
                 const { exportarFacturasGastoExcel } = await import('../../utils/exportFacturasExcel');
                 exportarFacturasGastoExcel(filtradas, undefined, empresasCatalogo);
@@ -1854,12 +1914,68 @@ export default function FacturasGastoScreen() {
           </View>
         )}
 
-        <View style={styles.searchWrap}>
+        {hasPermiso('empresas.ver') || hasPermiso('remesas.ver') || hasPermiso('facturacion.crear') ? (
+          <View style={styles.menuMasWrap}>
+            <TouchableOpacity
+              style={[styles.menuMasBtn, menuMasAbierto && styles.toolbarBtnHover]}
+              onPress={() => setMenuMasAbierto((abierto) => !abierto)}
+              accessibilityLabel="Más acciones"
+            >
+              <Text style={styles.menuMasBtnText}>Más</Text>
+              <MaterialIcons name={menuMasAbierto ? 'expand-less' : 'expand-more'} size={16} color="#334155" />
+            </TouchableOpacity>
+            {menuMasAbierto ? (
+              <View style={styles.menuMas}>
+                {hasPermiso('empresas.ver') ? (
+                  <TouchableOpacity
+                    style={styles.menuMasItem}
+                    onPress={() => {
+                      setMenuMasAbierto(false);
+                      router.push(buildEmpresasDesdeFacturasHref('IN') as never);
+                    }}
+                    accessibilityLabel="Ir al maestro de empresas"
+                  >
+                    <MaterialIcons name="business" size={16} color="#0ea5e9" />
+                    <Text style={styles.menuMasItemText}>Empresas</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {hasPermiso('remesas.ver') ? (
+                  <TouchableOpacity
+                    style={styles.menuMasItem}
+                    onPress={() => {
+                      setMenuMasAbierto(false);
+                      router.push('/facturacion/remesas' as never);
+                    }}
+                  >
+                    <MaterialIcons name="account-balance" size={16} color="#0ea5e9" />
+                    <Text style={styles.menuMasItemText}>Remesas de pago</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {hasPermiso('facturacion.crear') ? (
+                  <TouchableOpacity
+                    style={styles.menuMasItem}
+                    onPress={() => {
+                      setMenuMasAbierto(false);
+                      router.push('/facturacion/registro-masivo' as never);
+                    }}
+                  >
+                    <MaterialIcons name="upload-file" size={16} color="#5b21b6" />
+                    <Text style={styles.menuMasItemText}>Registro masivo</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        <View style={[styles.searchWrap, busquedaFoco && styles.filtroFoco]}>
           <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             value={busqueda}
             onChangeText={setBusqueda}
+            onFocus={() => setBusquedaFoco(true)}
+            onBlur={() => setBusquedaFoco(false)}
             placeholder="Buscar proveedor, CIF, nº…"
             placeholderTextColor="#94a3b8"
           />
@@ -1887,27 +2003,79 @@ export default function FacturasGastoScreen() {
         </View>
       </View>
 
-      {/* Resumen rápido */}
-      {filtradas.length > 0 && (
-        <View style={styles.resumenRow}>
-          <View style={styles.resumenItem}>
-            <Text style={styles.resumenLabel}>Total gastos</Text>
-            <Text style={[styles.resumenVal, { color: '#dc2626' }]}>
-              {formatMoneda(filtradas.reduce((s: number, f: FacturaListado) => s + (Number(f.total_factura) || 0), 0))}
+      {menuMasAbierto ? (
+        <Pressable style={styles.menuMasFondo} onPress={() => setMenuMasAbierto(false)} accessibilityLabel="Cerrar menú" />
+      ) : null}
+
+      <View style={[styles.kpiBloque, menuMasAbierto && styles.bajoMenu]}>
+        <View style={[styles.kpiFila, shouldStackToolbar && styles.kpiFilaStacked]}>
+          <TouchableOpacity
+            style={[styles.kpiTarjeta, tabActivo === 'pendiente_pago' && styles.kpiTarjetaActiva]}
+            onPress={() => setTabActivo((tab) => (tab === 'pendiente_pago' ? 'todas' : 'pendiente_pago'))}
+            accessibilityRole="button"
+            accessibilityState={{ selected: tabActivo === 'pendiente_pago' }}
+          >
+            <Text style={styles.kpiEtiqueta}>Pendiente de pago</Text>
+            <Text style={[styles.kpiValor, { color: '#b45309' }]}>{formatMoneda(cifrasGasto.pendiente)}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.kpiTarjeta, tabActivo === 'vencida' && styles.kpiTarjetaActiva]}
+            onPress={() => setTabActivo((tab) => (tab === 'vencida' ? 'todas' : 'vencida'))}
+            accessibilityRole="button"
+            accessibilityState={{ selected: tabActivo === 'vencida' }}
+          >
+            <Text style={styles.kpiEtiqueta}>Vencido</Text>
+            <Text style={[styles.kpiValor, { color: '#dc2626' }]}>{formatMoneda(cifrasGasto.vencido)}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.kpiTarjeta, soloVenceEsteMes && styles.kpiTarjetaActiva]}
+            onPress={() => setSoloVenceEsteMes((activo) => !activo)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: soloVenceEsteMes }}
+          >
+            <Text style={styles.kpiEtiqueta}>Este mes</Text>
+            <Text style={[styles.kpiValor, { color: '#334155' }]}>{formatMoneda(cifrasGasto.esteMes)}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.kpiTarjeta, Boolean(filtroProveedorNombre) && styles.kpiTarjetaActiva]}
+            onPress={() => {
+              if (filtroProveedorNombre) {
+                setFiltroProveedorNombre('');
+                return;
+              }
+              if (!cifrasGasto.mayorNombre) return;
+              setFiltroProveedorNombre(cifrasGasto.mayorNombre);
+            }}
+            disabled={!cifrasGasto.mayorNombre && !filtroProveedorNombre}
+            accessibilityRole="button"
+            accessibilityState={{ selected: Boolean(filtroProveedorNombre) }}
+          >
+            <Text style={styles.kpiEtiqueta}>Mayor proveedor</Text>
+            <Text style={styles.kpiProveedor} numberOfLines={1}>
+              {cifrasGasto.mayorNombre || '—'}
             </Text>
-          </View>
-          <View style={styles.resumenItem}>
-            <Text style={styles.resumenLabel}>Pendiente pago</Text>
-            <Text style={[styles.resumenVal, { color: '#b45309' }]}>
-              {formatMoneda(filtradas.reduce((s: number, f: FacturaListado) => s + (Number(f.saldo_pendiente) || 0), 0))}
+            <Text style={styles.kpiProveedorImporte}>
+              {cifrasGasto.mayorNombre ? formatMoneda(cifrasGasto.mayorImporte) : ''}
             </Text>
-          </View>
-          <View style={styles.resumenItem}>
-            <Text style={styles.resumenLabel}>Facturas</Text>
-            <Text style={styles.resumenVal}>{filtradas.length}</Text>
-          </View>
+          </TouchableOpacity>
         </View>
-      )}
+        <View style={styles.trimestreBar}>
+          {cifrasGasto.trimestres.map((importe, indice) => {
+            const pastel = estiloChipTrimestre(indice + 1);
+            const ancho = Math.max(importe, 0);
+            return (
+              <View
+                key={indice}
+                style={[styles.trimestreSeg, { flexGrow: ancho > 0 ? ancho : 1, backgroundColor: pastel.bg }]}
+              >
+                <Text style={[styles.trimestreSegText, { color: pastel.text }]} numberOfLines={1}>
+                  T{indice + 1}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      </View>
 
       {/* Subtitle + pagination */}
       <View style={styles.subtitleRow}>
@@ -1934,7 +2102,7 @@ export default function FacturasGastoScreen() {
       </View>
 
       {/* Tabla + panel detalle */}
-      <View style={[styles.tableSplitWrap, layoutSplit ? styles.tableSplitRow : styles.tableSplitCol]}>
+      <View style={[styles.tableSplitWrap, layoutSplit ? styles.tableSplitRow : styles.tableSplitCol, menuMasAbierto && styles.bajoMenu]}>
         <View style={styles.tableOuter}>
           {resumenDupGlobal.grupos > 0 ? (
             <TouchableOpacity
@@ -2063,7 +2231,7 @@ export default function FacturasGastoScreen() {
                     <Text style={styles.cellEmptyText}>
                       {facturas.length === 0
                         ? 'No hay facturas de gasto'
-                        : busqueda.trim() || fechaDesde || fechaHasta || empresasFiltroIds.length > 0 || etiquetasProveedorFiltro.length > 0 || tabActivo !== 'todas' || filtroColaPago !== 'todos'
+                        : busqueda.trim() || fechaDesde || fechaHasta || empresasFiltroIds.length > 0 || etiquetasProveedorFiltro.length > 0 || filtroProveedorNombre || soloVenceEsteMes || tabActivo !== 'todas' || filtroColaPago !== 'todos'
                           ? 'Ningún resultado con los filtros aplicados'
                           : `No hay facturas de gasto en ${anioFiltro}`}
                     </Text>
@@ -2220,6 +2388,16 @@ export default function FacturasGastoScreen() {
       </View>
 
       {/* Conciliación bancaria de la factura de la fila */}
+      <ModalElegirMovimientoConciliacion
+        visible={modalMovimientos}
+        tipo="IN"
+        facturas={facturasSeleccionadas}
+        onClose={() => setModalMovimientos(false)}
+        onElegido={(entrada) => {
+          setModalMovimientos(false);
+          setConciliarEntrada(entrada);
+        }}
+      />
       <ConciliarMovimientoModal
         visible={conciliarEntrada !== null}
         entrada={conciliarEntrada}
@@ -2550,12 +2728,35 @@ export default function FacturasGastoScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10 },
+  container: { flex: 1, margin: -10, padding: 16, backgroundColor: '#ffffff' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
-  resumenRow: { flexDirection: 'row', gap: 12, marginBottom: 8, flexWrap: 'wrap' },
-  resumenItem: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
-  resumenLabel: { fontSize: 10, color: '#94a3b8' },
-  resumenVal: { fontSize: 14, fontWeight: '700', color: '#334155' },
+  kpiBloque: { marginBottom: 8, gap: 8 },
+  kpiFila: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  kpiFilaStacked: { flexDirection: 'column' },
+  kpiTarjeta: {
+    flex: 1,
+    minWidth: 150,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#eef1f5',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  kpiTarjetaActiva: { borderColor: '#0ea5e9' },
+  kpiEtiqueta: { fontSize: 11, color: '#94a3b8', marginBottom: 2 },
+  kpiValor: { fontSize: 18, fontWeight: '700' },
+  kpiProveedor: { fontSize: 14, fontWeight: '700', color: '#334155' },
+  kpiProveedorImporte: { fontSize: 12, color: '#64748b', marginTop: 1 },
+  trimestreBar: {
+    flexDirection: 'row',
+    height: 22,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  trimestreSeg: { minWidth: 28, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  trimestreSegText: { fontSize: 10, fontWeight: '700' },
+  bajoMenu: { position: 'relative' as const, zIndex: 0 },
   loadingText: { fontSize: 12, color: '#64748b' },
   errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
   retryBtn: {
@@ -2564,47 +2765,14 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 8,
     padding: 8,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#ffffff',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#eef1f5',
   },
   retryBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '500' },
 
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginLeft: 'auto',
-    flexShrink: 1,
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
-  },
-  headerActionText: { fontSize: 11, color: '#0ea5e9', fontWeight: '500' },
-  masivoBtnHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: '#0ea5e9',
-    borderRadius: 6,
-    backgroundColor: '#f0f9ff',
-  },
-  registroMasivoBtnHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: '#ddd6fe',
-    borderRadius: 6,
-    backgroundColor: '#ede9fe',
-  },
-  registroMasivoBtnText: { fontSize: 11, color: '#5b21b6', fontWeight: '500' },
   backBtn: { padding: 4 },
   title: { fontSize: 20, fontWeight: '700', color: '#334155' },
 
@@ -2634,8 +2802,6 @@ const styles = StyleSheet.create({
     maxHeight: 32,
   },
   tabsContent: { flexDirection: 'row', gap: 4, paddingRight: 4, alignItems: 'center' },
-  colaPagoFiltroSelector: { width: 168, flexShrink: 0 },
-  colaPagoFiltroSelectorStacked: { width: '100%' as const, maxWidth: '100%' as const },
   estadoChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2678,6 +2844,51 @@ const styles = StyleSheet.create({
   },
 
   toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 10, flexWrap: 'wrap' },
+  toolbarRowAbierta: { position: 'relative' as const, zIndex: 40, elevation: 40 },
+  menuMasWrap: { position: 'relative' as const, zIndex: 41 },
+  menuMasBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    height: 32,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#eef1f5',
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+  },
+  menuMasBtnText: { fontSize: 12, fontWeight: '600', color: '#334155' },
+  menuMas: {
+    position: 'absolute' as const,
+    top: '100%' as const,
+    left: 0,
+    marginTop: 4,
+    minWidth: 196,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#eef1f5',
+    borderRadius: 10,
+    paddingVertical: 4,
+    zIndex: 42,
+    elevation: 16,
+    ...(Platform.OS === 'web' ? { boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)' } : {}),
+  },
+  menuMasItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  menuMasItemText: { fontSize: 13, color: '#334155' },
+  menuMasFondo: {
+    position: 'absolute' as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 25,
+  },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   toolbarBtnWrap: { position: 'relative' as const },
   tooltip: {
@@ -2695,10 +2906,12 @@ const styles = StyleSheet.create({
   toolbarBtn: {
     padding: 6,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#eef1f5',
     borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#ffffff',
   },
+  toolbarBtnHover: { backgroundColor: '#f8fafc' },
+  filtroFoco: { borderColor: '#0ea5e9' },
   toolbarBtnDisabled: { opacity: 0.5 },
   toolbarBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
   toolbarBtnMultipago: {
@@ -2757,9 +2970,9 @@ const styles = StyleSheet.create({
     minWidth: 140,
     maxWidth: 260,
     height: 32,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#eef1f5',
     borderRadius: 8,
     paddingHorizontal: 8,
   },
@@ -2778,8 +2991,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: '#eef1f5',
+    backgroundColor: '#ffffff',
   },
 
   subtitleRow: {
@@ -2806,8 +3019,8 @@ const styles = StyleSheet.create({
   /** Orden fijo de columnas (ID primero); evita que en RTL el ID quede al final */
   tableScrollLtr: { direction: 'ltr' },
   detailPanel: {
-    backgroundColor: '#f8fafc',
-    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+    borderColor: '#eef1f5',
   },
   detailPanelFlex: {
     flex: 1,
@@ -2839,7 +3052,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: '100%' as unknown as number,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#eef1f5',
     borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: '#fff',
@@ -2851,19 +3064,18 @@ const styles = StyleSheet.create({
   rowHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: '#cbd5e1',
+    borderBottomColor: '#eef1f5',
   },
   cellHeader: {
     minWidth: MIN_COL_WIDTH,
-    paddingVertical: 4,
+    paddingVertical: 8,
     paddingHorizontal: 6,
-    borderRightWidth: 1,
-    borderRightColor: '#cbd5e1',
+    borderRightWidth: 0,
     position: 'relative' as const,
   },
-  cellHeaderText: { fontSize: 10, fontWeight: '600', color: '#334155', lineHeight: 12 },
+  cellHeaderText: { fontSize: 10, fontWeight: '600', color: '#94a3b8', lineHeight: 12, letterSpacing: 0.3 },
   cellHeaderRight: { alignItems: 'flex-end' as const },
   cellHeaderTextRight: { textAlign: 'right' as const },
   resizeHandle: {
@@ -2879,7 +3091,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: '#eef1f5',
     backgroundColor: '#fff',
   },
   rowSelected: { backgroundColor: '#e0f2fe' },
@@ -2959,8 +3171,7 @@ const styles = StyleSheet.create({
     minWidth: MIN_COL_WIDTH,
     paddingVertical: 2,
     paddingHorizontal: 5,
-    borderRightWidth: 1,
-    borderRightColor: '#e2e8f0',
+    borderRightWidth: 0,
     justifyContent: 'center',
   },
   cellRight: { alignItems: 'flex-end' as const },
@@ -3039,9 +3250,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#eef1f5',
     gap: 2,
   },
   modalGrupoRemesaLinea: { fontSize: 11, color: '#475569', lineHeight: 16 },
@@ -3083,13 +3294,13 @@ const styles = StyleSheet.create({
   },
   modalInput: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#eef1f5',
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 8,
     fontSize: 13,
     color: '#334155',
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#ffffff',
   },
   modalActions: {
     flexDirection: 'row',
@@ -3102,8 +3313,8 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: '#eef1f5',
+    backgroundColor: '#ffffff',
   },
   modalBtnCancelText: { fontSize: 13, color: '#64748b', fontWeight: '500' },
   modalBtnConfirm: {

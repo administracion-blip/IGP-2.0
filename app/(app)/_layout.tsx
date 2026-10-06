@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, usePathname, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import { BotonIconoCabecera } from '../components/ui/BotonIconoCabecera';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
 import { ProductosCacheProvider } from '../contexts/ProductosCache';
 import { ComprasProveedorCacheProvider } from '../contexts/ComprasProveedorCache';
@@ -25,6 +26,7 @@ import { SidebarNavItem } from '../components/ui/SidebarNavItem';
 import { SidebarApiStatus } from '../components/ui/SidebarApiStatus';
 import { SoftPulseBorderWrap } from '../components/ui/SoftPulseBorderWrap';
 import { CampanaNotificaciones } from '../components/tasks/CampanaNotificaciones';
+import { AgendaFlotante } from '../components/tasks/AgendaFlotante';
 
 function normalizarPath(pathname: string): string {
   const p = pathname.replace(/\/$/, '');
@@ -120,16 +122,11 @@ function AppLayoutContent() {
     <View style={[styles.wrapper, { paddingTop: insets.top }]}>
       {/* Barra superior */}
       <View style={[styles.header, { paddingLeft: Math.max(10, insets.left), paddingRight: Math.max(10, insets.right) }]}>
-        <Pressable
+        <BotonIconoCabecera
+          nombre="menu"
+          etiqueta={sidebarOpen ? 'Contraer menú' : 'Expandir menú'}
           onPress={() => setSidebarOpen((o) => !o)}
-          style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [
-            styles.menuButton,
-            (pressed || hovered) && styles.menuButtonHover,
-          ]}
-          accessibilityLabel={sidebarOpen ? 'Contraer menú' : 'Expandir menú'}
-        >
-          <MaterialIcons name="menu" size={iconSize.tab} color={colors.textPrimary} />
-        </Pressable>
+        />
         {imagenApp ? (
           <Image
             source={{ uri: imagenApp }}
@@ -152,6 +149,7 @@ function AppLayoutContent() {
             </TouchableOpacity>
           </SoftPulseBorderWrap>
         ) : null}
+        {hasPermiso('proyectos.ver') ? <AgendaFlotante /> : null}
         {hasPermiso('proyectos.ver') ? <CampanaNotificaciones /> : null}
         <View
           style={styles.headerConfigWrap}
@@ -163,13 +161,11 @@ function AppLayoutContent() {
               <Text style={styles.configTooltipText}>Configuración</Text>
             </View>
           ) : null}
-          <TouchableOpacity
+          <BotonIconoCabecera
+            nombre="settings"
+            etiqueta="Configuración"
             onPress={() => setConfigOpen((o) => !o)}
-            style={styles.headerConfigBtn}
-            accessibilityLabel="Configuración"
-          >
-            <MaterialIcons name="settings" size={iconSize.tab} color={colors.textSecondary} />
-          </TouchableOpacity>
+          />
         </View>
         <Modal visible={configOpen} transparent animationType="fade">
           <Pressable style={styles.configOverlay} onPress={() => setConfigOpen(false)}>
@@ -325,9 +321,7 @@ export default function AppLayout() {
 /** Piel local del shell (Home/Planning). No tocar theme.ts. */
 const SHELL_CANVAS = '#f8fafc';
 const SHELL_BORDER = '#eef1f5';
-const SHELL_HOVER = '#e0f2fe';
 const SHELL_MUTED = '#94a3b8';
-const SHELL_RADIUS = 8;
 
 const styles = StyleSheet.create({
   wrapper: {
@@ -343,14 +337,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: SHELL_BORDER,
-  },
-  menuButton: {
-    padding: SPACING.xs,
-    marginRight: SPACING.xs,
-    borderRadius: SHELL_RADIUS,
-  },
-  menuButtonHover: {
-    backgroundColor: SHELL_HOVER,
   },
   headerLogo: {
     height: 36,
@@ -380,10 +366,6 @@ const styles = StyleSheet.create({
   headerConfigWrap: {
     position: 'relative',
     marginRight: SPACING.sm,
-  },
-  headerConfigBtn: {
-    padding: SPACING.xs,
-    borderRadius: radius.sm,
   },
   configTooltip: {
     position: 'absolute',

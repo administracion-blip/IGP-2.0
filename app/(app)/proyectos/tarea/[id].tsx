@@ -41,7 +41,10 @@ import {
   nombreUsuario,
   proyectoDeTareaAlcanzable,
   textoVencimiento,
+  ETIQUETA_REPETICION,
 } from '../../../lib/tasksUi';
+import { ContadorChecklist } from '../../../components/tasks/ContadorChecklist';
+import { ModalBorrarSerie } from '../../../components/tasks/ModalBorrarSerie';
 import { SeccionFicha } from '../../../components/tasks/SeccionFicha';
 import { TasksPageHeader } from '../../../components/tasks/TasksPageHeader';
 import { BadgeEstadoTarea, BadgePrioridad } from '../../../components/tasks/BadgesTasks';
@@ -123,6 +126,36 @@ export default function FichaTareaScreen() {
   // Colgar una subtarea decide sobre el proyecto, no sobre esta tarea: viene en su
   // propio permiso de fila y no se deduce de `editar`.
   const puedeCrearSubtarea = tarea?.permisos_fila?.crear_subtarea === true;
+  const puedeBorrar = tarea?.permisos_fila?.borrar === true;
+  const [borrarVisible, setBorrarVisible] = useState(false);
+  const [borrando, setBorrando] = useState(false);
+  const [errorBorrar, setErrorBorrar] = useState<string | null>(null);
+
+  const confirmarBorrar = useCallback(
+    async (alcance: 'esta' | 'posteriores') => {
+      if (!idTarea) return;
+      setBorrando(true);
+      setErrorBorrar(null);
+      try {
+        const res = await apiFetch(
+          `/api/tareas/${encodeURIComponent(idTarea)}?alcance=${encodeURIComponent(alcance)}`,
+          { method: 'DELETE' },
+        );
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          setErrorBorrar(data.error || 'No se pudo borrar la tarea');
+          return;
+        }
+        setBorrarVisible(false);
+        router.back();
+      } catch (e) {
+        setErrorBorrar(errorMessage(e, 'No se pudo conectar con el servidor'));
+      } finally {
+        setBorrando(false);
+      }
+    },
+    [idTarea, router],
+  );
 
   enlacesRef.current = tarea?.enlaces ?? [];
   const hayCapturasPendientes = (tarea?.enlaces ?? []).some((e) => e.captura_estado === 'pendiente');
@@ -436,7 +469,6 @@ export default function FichaTareaScreen() {
   }
 
   const checklist = [...(tarea.checklist ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
-  const hechos = checklist.filter((i) => i.hecho).length;
   const vinculos = tarea.vinculos ?? [];
   const abierta = tarea.estado !== 'hecha' && tarea.estado !== 'cancelada';
   const nombreProyecto = nombreProyectoDeTarea(tarea);
@@ -463,6 +495,12 @@ export default function FichaTareaScreen() {
             valor={abierta ? textoVencimiento(tarea.fecha_limite) : formatFecha(tarea.fecha_limite)}
             tabular
           />
+          {tarea.recurrencia_frecuencia ? (
+            <Dato
+              etiqueta="Repetición"
+              valor={ETIQUETA_REPETICION[tarea.recurrencia_frecuencia] || tarea.recurrencia_frecuencia}
+            />
+          ) : null}
           <Dato etiqueta="Departamento" valor={departamentos.nombrePorId(tarea.departamento_id)} />
           {nombreProyecto ? <Dato etiqueta="Proyecto" valor={nombreProyecto} /> : null}
           <Dato etiqueta="Creada por" valor={usuarios.nombrePorId(tarea.creado_por)} />
@@ -480,6 +518,19 @@ export default function FichaTareaScreen() {
           >
             <MaterialIcons name="folder-open" size={16} color="#0ea5e9" />
             <Text style={styles.enlaceProyectoTexto}>Ver el proyecto</Text>
+          </TouchableOpacity>
+        ) : null}
+
+        {puedeBorrar ? (
+          <TouchableOpacity
+            style={[styles.enlaceProyecto, isCompact && styles.enlaceProyectoTactil]}
+            onPress={() => {
+              setErrorBorrar(null);
+              setBorrarVisible(true);
+            }}
+          >
+            <MaterialIcons name="delete-outline" size={16} color="#b91c1c" />
+            <Text style={[styles.enlaceProyectoTexto, { color: '#b91c1c' }]}>Eliminar tarea</Text>
           </TouchableOpacity>
         ) : null}
 
@@ -573,9 +624,7 @@ export default function FichaTareaScreen() {
         <View style={styles.lista}>
           {checklist.length > 0 ? (
             <>
-              <Text style={styles.progreso}>
-                {hechos} de {checklist.length} completados
-              </Text>
+              <ContadorChecklist checklist={checklist} />
               {checklist.map((item) => (
                 <View key={item.id} style={styles.filaLista}>
                   <TouchableOpacity
@@ -869,6 +918,17 @@ export default function FichaTareaScreen() {
         </View>
       </ScrollView>
 
+      <ModalBorrarSerie
+        visible={borrarVisible}
+        nombre={tarea.titulo}
+        esSerie={Boolean(tarea.recurrencia_id)}
+        detalleSinSerie="se borrará definitivamente, también en Google Calendar si tenía evento."
+        ocupado={borrando}
+        error={errorBorrar}
+        onCerrar={() => !borrando && setBorrarVisible(false)}
+        onConfirmar={(alcance) => void confirmarBorrar(alcance)}
+      />
+
       <ModalFormularioTarea
         visible={editarVisible}
         modo="editar"
@@ -889,7 +949,7 @@ export default function FichaTareaScreen() {
         tareaPadreId={tarea.id_tarea}
         proyectoId={tarea.proyecto_id}
         departamentoPorDefecto={tarea.departamento_id}
-        responsablePorDefecto={tarea.responsable_id}
+        responsablePorDefecto={acceso.usuarioId}
         usuarios={usuarios}
         departamentos={departamentos}
         onCerrar={() => setSubtareaVisible(false)}
@@ -1014,7 +1074,6 @@ const styles = StyleSheet.create({
   reasignarTexto: { ...tasksTipo.etiqueta, color: tasksColor.textoEnlace },
 
   lista: { gap: 8 },
-  progreso: { ...tasksTipo.etiqueta, color: tasksColor.textoSecundario },
   filaLista: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -197,6 +197,8 @@ export type PermisosFilaReunion = {
 
 /** Por encima de esto, son subtareas y no elementos de lista. */
 export const MAX_CHECKLIST = 50;
+/** Personas, aparte del responsable, a las que les sale la misma tarea. */
+export const MAX_PARTICIPANTES_TAREA = 20;
 /** Tope de tareas por llamada a la creación en lote. */
 export const MAX_TAREAS_LOTE = 50;
 /** Orden de las tareas sin fecha límite: al final, no al principio. */
@@ -329,11 +331,20 @@ export type Tarea = {
   titulo: string;
   descripcion?: string;
   estado: EstadoTarea;
-  /** **Uno solo.** No existe lista de responsables. */
+  /** **Uno solo.** Quien la cierra y en cuyo calendario de Google vive el evento. */
   responsable_id?: string;
+  /**
+   * Otras personas a las que les sale la misma tarea en su agenda.
+   * No sustituye al responsable.
+   */
+  participantes_ids?: string[];
   proyecto_id?: string;
   departamento_id?: string;
   fecha_limite?: string;
+  /** Hueco original de una serie. Si difiere de `fecha_limite`, esa fecha se arrastró sola. */
+  ocurrencia_fecha?: string;
+  recurrencia_id?: string;
+  recurrencia_frecuencia?: 'diaria' | 'semanal' | 'mensual' | 'ultimo_dia';
   /** Tramo opcional `HH:mm`; si hay una hora, deben ir las dos y fin > inicio. */
   hora_inicio?: string;
   hora_fin?: string;
@@ -397,6 +408,10 @@ export type Reunion = {
   empresa_id?: string;
   proyecto_id?: string;
   serie_id?: string;
+  /** Serie de repetición (distinta de `serie_id`, que arrastra el orden del día). */
+  recurrencia_id?: string;
+  ocurrencia_fecha?: string;
+  recurrencia_frecuencia?: 'diaria' | 'semanal' | 'mensual' | 'ultimo_dia';
   convocada_por?: string;
   orden_del_dia?: string;
   /** Copia al arrancar la grabación. La cobertura se mide contra esta, no contra la editable. */

@@ -32,7 +32,9 @@
 
 import crypto from 'crypto';
 import {
+  BatchGetCommand,
   BatchWriteCommand,
+  DeleteCommand,
   GetCommand,
   PutCommand,
   QueryCommand,
@@ -41,7 +43,9 @@ import {
 import { docClient, tables } from '../db.js';
 import {
   ESTADOS_TAREA,
+  FECHA_SIN_LIMITE,
   MAX_CHECKLIST,
+  MAX_PARTICIPANTES_TAREA,
   MAX_TAREAS_LOTE,
   PERMISOS,
   PK,
@@ -67,6 +71,7 @@ import { leerProyectoConMiembros, leerProyectosParaAcceso } from './proyectoLect
 import { emailsDeUsuarios, nombreDe, nombresDeUsuarios } from './proyectos.js';
 import {
   ACCIONES,
+  AUTOR_SISTEMA,
   listarActividad,
   registrarActividad,
   registrarActividadLote,
@@ -77,9 +82,18 @@ import { logger } from '../logger.js';
 import {
   actualizarEvento as calendarActualizar,
   borrarEvento as calendarBorrar,
+  cancelarInstanciaSerie,
   crearEvento as calendarCrear,
   disponible as calendarDisponible,
+  truncarSerieHasta,
 } from '../google/calendarClient.js';
+import {
+  fechasDeRecurrencia,
+  normalizarRecurrencia,
+  pkSerie,
+  rruleDe,
+  separarMiembros,
+} from './recurrencia.js';
 // Las salidas a S3 se importan de donde ya viven, para que borrar una tarea use
 // el mismo camino que borrar un enlace o un adjunto sueltos. La dependencia es
 // circular —los dos ficheros importan el acceso de aquí— pero solo se resuelve al
@@ -128,6 +142,42 @@ function listaDeTexto(valor) {
     if (t) vistos.add(t);
   }
   return [...vistos];
+}
+
+/** Ids que ven la tarea en su agenda, sin repetir al responsable. */
+function idsParticipantes(tarea) {
+  const responsable = texto(tarea?.responsable_id);
+  return listaDeTexto(tarea?.participantes_ids).filter((id) => id !== responsable);
+}
+
+function esItemVista(item) {
+  return item?.es_vista === true || texto(item?.SK).startsWith('VISTA#');
+}
+
+/** El índice siempre devuelve la clave de tabla; `id_tarea` puede no venir proyectado. */
+function idTareaDeItem(item) {
+  const directo = texto(item?.id_tarea);
+  if (directo) return directo;
+  const pk = texto(item?.PK);
+  return pk.startsWith('TAREA#') ? pk.slice('TAREA#'.length) : '';
+}
+
+/**
+ * Fila del índice personal de un participante. No copia título ni fecha: quien
+ * lista hidrata `META`, y los avisos/el feed ignoran la fila porque no tiene
+ * fecha. El orden sí va, para que caiga en el mismo día que la tarea.
+ */
+function itemVista(tarea, idUsuario) {
+  const orden = vencimientoOrdenDe(tarea);
+  const item = {
+    PK: PK.tarea(tarea.id_tarea),
+    SK: SK.vista(idUsuario),
+    es_vista: true,
+    id_tarea: texto(tarea.id_tarea),
+    responsable_id: idUsuario,
+  };
+  if (orden) item.vencimiento_orden = orden;
+  return item;
 }
 
 function aOrden(valor, porDefecto = 0) {
@@ -230,6 +280,7 @@ function salida(item) {
     ...resto,
     checklist: Array.isArray(resto.checklist) ? resto.checklist : [],
     menciones: Array.isArray(resto.menciones) ? resto.menciones : [],
+    participantes_ids: Array.isArray(resto.participantes_ids) ? resto.participantes_ids : [],
   };
 }
 
@@ -421,6 +472,26 @@ async function notificarAsignacion({ destinatarioId, actorId, tarea }) {
   }
 }
 
+/** Avisa a quien verá la tarea en su agenda sin ser el responsable. */
+async function notificarParticipantes({ tarea, actorId }) {
+  const actor = texto(actorId);
+  const tituloTarea = texto(tarea?.titulo) || 'Tarea';
+  for (const dest of idsParticipantes(tarea)) {
+    if (!dest || dest === actor) continue;
+    try {
+      await crearNotificacion({
+        usuarioId: dest,
+        tipo: 'asignacion',
+        titulo: `También te aparece: ${tituloTarea}`,
+        cuerpo: `La añadió ${texto(tarea?.asignada_por_nombre) || 'un compañero'} a tu agenda`,
+        entidad_ref: { tipo: 'tarea', id: texto(tarea?.id_tarea), etiqueta: tituloTarea },
+      });
+    } catch (err) {
+      logger.warn({ err, destinatarioId: dest }, '[tareas] No se pudo avisar a un participante');
+    }
+  }
+}
+
 /**
  * Avisos de mención en un comentario (cada mencionado salvo el autor).
  */
@@ -544,9 +615,9 @@ function itemTarea(tarea) {
  * acceso y la escritura—, igual que `escribirEnlace`: quien llama lo traduce a
  * `404`, que es lo que la interfaz sabe tratar, y no a un `500`.
  */
-async function escribirMeta(idTarea, cambios) {
-  const nombres = { '#pk': 'PK' };
-  const valores = {};
+async function escribirMeta(idTarea, cambios, extra = {}) {
+  const nombres = { '#pk': 'PK', ...(extra.nombres || {}) };
+  const valores = { ...(extra.valores || {}) };
   const sets = [];
   const removes = [];
   let i = 0;
@@ -575,12 +646,19 @@ async function escribirMeta(idTarea, cambios) {
         ExpressionAttributeNames: nombres,
         // Si otra persona la ha borrado entre la lectura y la escritura, no se
         // resucita a medias.
-        ConditionExpression: 'attribute_exists(#pk)',
+        ConditionExpression: extra.condicion
+          ? `attribute_exists(#pk) AND (${extra.condicion})`
+          : 'attribute_exists(#pk)',
         ...(Object.keys(valores).length > 0 && { ExpressionAttributeValues: valores }),
         ReturnValues: 'ALL_NEW',
       }),
     );
-    return res.Attributes || null;
+    const attrs = res.Attributes || null;
+    const tocaVistas = ['estado', 'fecha_limite', 'responsable_id', 'participantes_ids'].some((campo) =>
+      Object.prototype.hasOwnProperty.call(cambios, campo),
+    );
+    if (attrs && tocaVistas) await guardarVistas(attrs);
+    return attrs;
   } catch (err) {
     if (err?.name === 'ConditionalCheckFailedException') return null;
     throw err;
@@ -616,9 +694,17 @@ export function validarDatosTarea(bruto = {}) {
   if (!titulo) return { ok: false, error: 'El título de la tarea es obligatorio' };
 
   // Un solo responsable, y obligatorio: una tarea sin dueño no aparece en la
-  // vista personal de nadie y se queda sin hacer.
+  // vista personal de nadie y se queda sin hacer. El resto de personas van en
+  // `participantes_ids`: ven la misma tarea, no una copia.
   const responsableId = texto(bruto.responsable_id);
   if (!responsableId) return { ok: false, error: 'La tarea necesita una persona responsable' };
+  const participantes = listaDeTexto(bruto.participantes_ids).filter((id) => id !== responsableId);
+  if (participantes.length > MAX_PARTICIPANTES_TAREA) {
+    return {
+      ok: false,
+      error: `Una tarea admite como máximo ${MAX_PARTICIPANTES_TAREA} personas además del responsable`,
+    };
+  }
 
   const estado = texto(bruto.estado) || ESTADO_INICIAL;
   if (!enLista(ESTADOS_TAREA, estado)) return { ok: false, error: `Estado no válido: «${estado}»` };
@@ -653,6 +739,7 @@ export function validarDatosTarea(bruto = {}) {
       descripcion: texto(bruto.descripcion),
       estado,
       responsable_id: responsableId,
+      participantes_ids: participantes,
       departamento_id: texto(bruto.departamento_id),
       fecha_limite: fechaLimite,
       hora_inicio: horas.hora_inicio,
@@ -725,16 +812,37 @@ async function emailDeResponsable(responsableId) {
   return mapa.get(id) || '';
 }
 
-function datosEventoTarea(tarea, organizadorEmail) {
+async function emailsDeParticipantes(tarea) {
+  const ids = idsParticipantes(tarea);
+  if (ids.length === 0) return [];
+  const mapa = await emailsDeUsuarios(ids);
+  const organizador = (await emailDeResponsable(tarea?.responsable_id)).toLowerCase();
+  const emails = [];
+  const vistos = new Set();
+  for (const id of ids) {
+    const email = texto(mapa.get(id)).toLowerCase();
+    if (!email || email === organizador || vistos.has(email)) continue;
+    vistos.add(email);
+    emails.push(email);
+  }
+  return emails;
+}
+
+function datosEventoTarea(tarea, organizadorEmail, { alta = false, asistentesEmails = [] } = {}) {
+  const serie = Boolean(texto(tarea?.recurrencia_id));
+  const rrule = texto(tarea?.recurrencia_rrule);
   return {
     titulo: texto(tarea?.titulo),
     descripcion: texto(tarea?.descripcion),
-    fecha: texto(tarea?.fecha_limite),
+    fecha: texto(tarea?.ocurrencia_fecha) || texto(tarea?.fecha_limite),
     horaInicio: texto(tarea?.hora_inicio),
     horaFin: texto(tarea?.hora_fin),
     organizadorEmail: texto(organizadorEmail),
     conMeet: false,
-    asistentesEmails: [],
+    asistentesEmails,
+    ...(alta && rrule ? { recurrence: [rrule] } : {}),
+    // Editar una fecha de la serie no reescribe el inicio del evento recurrente.
+    conservarHorario: serie && !alta,
   };
 }
 
@@ -753,7 +861,8 @@ async function sincronizarAltaCalendar(tarea) {
     return syncCalendarDe({ ok: false, error: 'La tarea no tiene fecha límite para el calendario' });
   }
   try {
-    const cal = await calendarCrear(datosEventoTarea(tarea, email));
+    const asistentesEmails = await emailsDeParticipantes(tarea);
+    const cal = await calendarCrear(datosEventoTarea(tarea, email, { alta: true, asistentesEmails }));
     return syncCalendarDe(cal);
   } catch (err) {
     return syncCalendarDe({ ok: false, error: err?.message || 'Error al sincronizar con Calendar' });
@@ -781,10 +890,11 @@ async function sincronizarEdicionCalendar(tarea) {
       calendario_error: 'El responsable no tiene email',
     };
   }
+  const asistentesEmails = await emailsDeParticipantes(tarea);
 
   if (eventId) {
     try {
-      const cal = await calendarActualizar(eventId, datosEventoTarea(tarea, email));
+      const cal = await calendarActualizar(eventId, datosEventoTarea(tarea, email, { asistentesEmails }));
       if (!cal.ok) {
         return {
           calendario_sincronizado: false,
@@ -896,7 +1006,15 @@ export async function crearTarea({ ctx, datos = {} } = {}) {
     actualizado_en: instante,
   };
 
+  const rec = normalizarRecurrencia(datos.recurrencia);
+  if (!rec.ok) return { ok: false, status: 400, error: rec.error };
+  if (rec.regla) {
+    if (idPadre) return { ok: false, status: 400, error: 'Una subtarea no se puede repetir' };
+    return crearSerieTareas({ ctx, acceso, plantilla: tarea, regla: rec.regla });
+  }
+
   await docClient.send(new PutCommand({ TableName: tables.tareas, Item: itemTarea(tarea) }));
+  await guardarVistas(tarea);
 
   // D-21: Calendar no tumba la tarea.
   let sync = await sincronizarAltaCalendar(tarea);
@@ -928,6 +1046,10 @@ export async function crearTarea({ ctx, datos = {} } = {}) {
     actorId: ctx?.idUsuario,
     tarea: { ...tarea, asignada_por_nombre: texto(ctx?.nombre) },
   });
+  await notificarParticipantes({
+    tarea: { ...tarea, asignada_por_nombre: texto(ctx?.nombre) },
+    actorId: ctx?.idUsuario,
+  });
 
   const nombres = await nombresDeUsuarios([tarea.responsable_id]);
   return {
@@ -935,6 +1057,126 @@ export async function crearTarea({ ctx, datos = {} } = {}) {
     tarea: salidaConExtras(metaGuardada, ctx, { aux: acceso.aux, nombres }),
     ...sync,
   };
+}
+
+function copiarChecklist(lista) {
+  return (Array.isArray(lista) ? lista : []).map((e) => ({
+    id: crypto.randomUUID(),
+    texto: e.texto,
+    hecho: false,
+    orden: e.orden,
+  }));
+}
+
+/**
+ * Materializa la serie en fichas y deja un solo evento recurrente en Google.
+ * Calendar no tumba el alta (D-21): si falla, las fichas quedan igual.
+ */
+async function crearSerieTareas({ ctx, acceso, plantilla, regla }) {
+  const fechas = fechasDeRecurrencia(plantilla.fecha_limite, regla);
+  if (fechas.length === 0) {
+    return { ok: false, status: 400, error: 'Esa repetición no genera ninguna fecha' };
+  }
+  const recId = crypto.randomUUID();
+  const rrule = rruleDe(regla, fechas[0]);
+  const tareas = fechas.map((fecha, i) => {
+    const base = i === 0 ? plantilla : { ...plantilla, id_tarea: crypto.randomUUID() };
+    return {
+      ...base,
+      fecha_limite: fecha,
+      ocurrencia_fecha: fecha,
+      recurrencia_id: recId,
+      recurrencia_frecuencia: regla.frecuencia,
+      ...(regla.dias_semana?.length ? { recurrencia_dias_semana: regla.dias_semana } : {}),
+      ...(regla.dias_mes?.length ? { recurrencia_dias_mes: regla.dias_mes } : {}),
+      recurrencia_rrule: rrule,
+      checklist: i === 0 ? plantilla.checklist : copiarChecklist(plantilla.checklist),
+    };
+  });
+
+  const ancla = { ...tareas[0] };
+  let sync = await sincronizarAltaCalendar(ancla);
+  const eventId = sync.calendario_sincronizado ? texto(sync.calendar_event_id) : '';
+  const calendarId = texto(sync.calendar_id);
+  if (eventId) {
+    for (const t of tareas) {
+      t.calendar_event_id = eventId;
+      if (calendarId) t.calendar_id = calendarId;
+    }
+  }
+
+  const items = tareas.flatMap((t) => [
+    itemTarea(t),
+    ...idsParticipantes(t).map((idUsuario) => itemVista(t, idUsuario)),
+  ]);
+  items.push({
+    PK: pkSerie(recId),
+    SK: SK.meta,
+    recurrencia_id: recId,
+    tipo: 'tarea',
+    frecuencia: regla.frecuencia,
+    ...(regla.dias_semana?.length ? { dias_semana: regla.dias_semana } : {}),
+    ...(regla.dias_mes?.length ? { dias_mes: regla.dias_mes } : {}),
+    rrule,
+    ...(eventId ? { calendar_event_id: eventId } : {}),
+    ...(calendarId ? { calendar_id: calendarId } : {}),
+    miembros: tareas.map((t) => ({ id: t.id_tarea, fecha: t.ocurrencia_fecha })),
+  });
+  const noEscritos = await escribirEnLotes(items);
+  if (noEscritos.length > 0) {
+    return { ok: false, status: 500, error: 'No se pudo guardar toda la serie' };
+  }
+
+  await registrarActividad({
+    tipo: 'tarea',
+    entidadId: ancla.id_tarea,
+    accion: ACCIONES.creada,
+    usuario: autorDe(ctx),
+    detalle: {
+      titulo: ancla.titulo,
+      responsable_id: ancla.responsable_id,
+      proyecto_id: ancla.proyecto_id || null,
+      fecha_limite: ancla.fecha_limite || null,
+      recurrencia_id: recId,
+      ocurrencias: tareas.length,
+      calendario_sincronizado: sync.calendario_sincronizado,
+    },
+  });
+  await notificarAsignacion({
+    destinatarioId: ancla.responsable_id,
+    actorId: ctx?.idUsuario,
+    tarea: { ...ancla, asignada_por_nombre: texto(ctx?.nombre) },
+  });
+  await notificarParticipantes({
+    tarea: { ...ancla, asignada_por_nombre: texto(ctx?.nombre) },
+    actorId: ctx?.idUsuario,
+  });
+
+  const nombres = await nombresDeUsuarios([ancla.responsable_id]);
+  return {
+    ok: true,
+    tarea: salidaConExtras(itemTarea(tareas[0]), ctx, { aux: acceso.aux, nombres }),
+    ...sync,
+  };
+}
+
+async function leerSerieTarea(recId) {
+  const r = await docClient.send(
+    new GetCommand({
+      TableName: tables.tareas,
+      Key: { PK: pkSerie(recId), SK: SK.meta },
+    }),
+  );
+  return r.Item || null;
+}
+
+async function guardarSerieTarea(serie, miembros) {
+  const item = { ...serie, miembros, SK: SK.meta, PK: serie.PK || pkSerie(serie.recurrencia_id) };
+  if (!miembros.length) {
+    await docClient.send(new DeleteCommand({ TableName: tables.tareas, Key: { PK: item.PK, SK: SK.meta } }));
+    return;
+  }
+  await docClient.send(new PutCommand({ TableName: tables.tareas, Item: item }));
 }
 
 /**
@@ -998,6 +1240,114 @@ async function escribirEnLotes(items) {
     }
   }
   return noEscritos;
+}
+
+async function borrarClavesTarea(claves) {
+  for (let i = 0; i < claves.length; i += MAX_LOTE_ESCRITURA) {
+    let pendientes = claves
+      .slice(i, i + MAX_LOTE_ESCRITURA)
+      .map((Key) => ({ DeleteRequest: { Key } }));
+    for (let intento = 0; intento < MAX_INTENTOS_LOTE && pendientes.length > 0; intento += 1) {
+      const res = await docClient.send(
+        new BatchWriteCommand({ RequestItems: { [tables.tareas]: pendientes } }),
+      );
+      pendientes = res?.UnprocessedItems?.[tables.tareas] || [];
+    }
+    if (pendientes.length > 0) {
+      throw new Error('No se pudo actualizar la agenda de los participantes');
+    }
+  }
+}
+
+/**
+ * Reescribe las filas `VISTA#` para que el índice personal de cada participante
+ * siga el mismo día y el mismo estado que la ficha. Si el orden desaparece
+ * (cancelada, hecha sin fecha), la fila se queda fuera del índice.
+ */
+async function guardarVistas(tarea) {
+  const id = texto(tarea?.id_tarea);
+  if (!id) return;
+  const ids = idsParticipantes(tarea);
+  const existentes = await consultarTodo({
+    TableName: tables.tareas,
+    KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+    ExpressionAttributeValues: { ':pk': PK.tarea(id), ':sk': 'VISTA#' },
+    ProjectionExpression: 'PK, SK',
+  });
+  const quieren = new Set(ids.map((idUsuario) => SK.vista(idUsuario)));
+  const sobran = existentes
+    .filter((it) => !quieren.has(texto(it.SK)))
+    .map((it) => ({ PK: it.PK, SK: it.SK }));
+  if (sobran.length > 0) await borrarClavesTarea(sobran);
+  if (ids.length > 0) {
+    const noEscritos = await escribirEnLotes(
+      ids.map((idUsuario) => itemVista({ ...tarea, id_tarea: id }, idUsuario)),
+    );
+    if (noEscritos.length > 0) {
+      throw new Error('No se pudo actualizar la agenda de los participantes');
+    }
+  }
+}
+
+async function leerMetasPorId(ids) {
+  const unicos = [...new Set(ids.map(texto).filter(Boolean))];
+  const out = [];
+  for (let i = 0; i < unicos.length; i += 100) {
+    let Keys = unicos.slice(i, i + 100).map((idTarea) => ({ PK: PK.tarea(idTarea), SK: SK.meta }));
+    for (let intento = 0; intento < MAX_INTENTOS_LOTE && Keys.length > 0; intento += 1) {
+      const res = await docClient.send(
+        new BatchGetCommand({ RequestItems: { [tables.tareas]: { Keys } } }),
+      );
+      out.push(...(res.Responses?.[tables.tareas] || []));
+      Keys = res.UnprocessedKeys?.[tables.tareas]?.Keys || [];
+    }
+  }
+  return out;
+}
+
+/**
+ * La query del índice mezcla fichas (`META`) y punteros (`VISTA#`). Los punteros
+ * se sustituyen por la ficha, que es la que tiene título, estado y checklist.
+ */
+/**
+ * En la agenda propia, si todas las fichas son de quien pregunta, su nombre ya
+ * viene en el contexto y no hace falta leer usuarios. Si hay tareas de otras
+ * personas (participa sin ser responsable), sí se resuelven en un lote.
+ */
+async function nombresDeFichas(ctx, fichas) {
+  const yo = texto(ctx?.idUsuario);
+  const ids = [...new Set(fichas.map((t) => texto(t.responsable_id)).filter(Boolean))];
+  if (ids.every((id) => id === yo)) {
+    return new Map(yo ? [[yo, texto(ctx?.nombre) || null]] : []);
+  }
+  return nombresDeUsuarios(ids);
+}
+
+async function fichasDeIndice(items) {
+  const idsVista = [];
+  for (const it of items) {
+    if (esItemVista(it)) {
+      const id = idTareaDeItem(it);
+      if (id) idsVista.push(id);
+    }
+  }
+  const leidas = idsVista.length > 0 ? await leerMetasPorId(idsVista) : [];
+  const porId = new Map();
+  for (const t of leidas) {
+    const id = texto(t.id_tarea);
+    if (id) porId.set(id, t);
+  }
+  const orden = [];
+  const vistos = new Set();
+  for (const it of items) {
+    const id = idTareaDeItem(it);
+    if (!id || vistos.has(id)) continue;
+    const ficha = esItemVista(it) ? porId.get(id) : it;
+    if (!ficha || esItemVista(ficha)) continue;
+    orden.push(ficha);
+    vistos.add(id);
+  }
+  return orden;
 }
 
 /**
@@ -1084,6 +1434,7 @@ export async function crearTareasEnLote({ ctx, datos = {} } = {}) {
     };
     const item = itemTarea(tarea);
     items.push(item);
+    for (const idUsuario of idsParticipantes(tarea)) items.push(itemVista(tarea, idUsuario));
     creadas.push(salida(item));
     // Dos entradas del mismo lote con la misma propuesta tampoco se duplican.
     if (propuesta) yaCreadas.set(propuesta, salida(item));
@@ -1116,6 +1467,10 @@ export async function crearTareasEnLote({ ctx, datos = {} } = {}) {
         destinatarioId: tarea.responsable_id,
         actorId: creadoPor,
         tarea: { ...tarea, asignada_por_nombre: nombreActor },
+      });
+      await notificarParticipantes({
+        tarea: { ...tarea, asignada_por_nombre: nombreActor },
+        actorId: creadoPor,
       });
     }
     // Todas las del lote comparten proyecto, así que el contexto de acceso es el
@@ -1181,19 +1536,16 @@ export async function listarMisTareas({ ctx, limite, cursor } = {}) {
     }),
   );
 
-  const items = res.Items || [];
+  const fichas = await fichasDeIndice(res.Items || []);
   // Los proyectos de la página en una sola lectura. Aquí no se necesitan para
-  // decidir visibilidad —ser la responsable ya la da—, sino para el nombre del
-  // proyecto y los permisos de fila; a cambio, la pantalla deja de traerse el
-  // listado de proyectos solo para cruzar ese nombre.
-  const proyectos = await proyectosDeLaPagina(ctx, items);
-  // La responsable es siempre quien pregunta, y su nombre visible ya viene en el
-  // contexto de acceso: ni una lectura para resolverlo.
-  const nombres = new Map([[idUsuario, texto(ctx?.nombre) || null]]);
+  // decidir visibilidad —ser la responsable o participante ya la da—, sino para
+  // el nombre del proyecto y los permisos de fila.
+  const proyectos = await proyectosDeLaPagina(ctx, fichas);
+  const nombres = await nombresDeFichas(ctx, fichas);
 
   return {
     ok: true,
-    tareas: items.map((t) => salidaConExtras(t, ctx, { aux: auxDeMapa(proyectos, t), nombres })),
+    tareas: fichas.map((t) => salidaConExtras(t, ctx, { aux: auxDeMapa(proyectos, t), nombres })),
     vencidas: await contarVencidas(idUsuario),
     cursor: codificarCursor(res.LastEvaluatedKey),
   };
@@ -1234,13 +1586,13 @@ export async function listarMisTareasHechas({ ctx, desde: fechaDesde, hasta: fec
     }),
   );
 
-  const items = res.Items || [];
-  const proyectos = await proyectosDeLaPagina(ctx, items);
-  const nombres = new Map([[idUsuario, texto(ctx?.nombre) || null]]);
+  const fichas = await fichasDeIndice(res.Items || []);
+  const proyectos = await proyectosDeLaPagina(ctx, fichas);
+  const nombres = await nombresDeFichas(ctx, fichas);
 
   return {
     ok: true,
-    tareas: items.map((t) => salidaConExtras(t, ctx, { aux: auxDeMapa(proyectos, t), nombres })),
+    tareas: fichas.map((t) => salidaConExtras(t, ctx, { aux: auxDeMapa(proyectos, t), nombres })),
     cursor: codificarCursor(res.LastEvaluatedKey),
   };
 }
@@ -1372,7 +1724,11 @@ export async function listarTareas({ ctx, filtros = {}, limite, cursor } = {}) {
     }),
   );
 
-  const { visibles, proyectos } = await visiblesConProyectos(ctx, res.Items || []);
+  // `VISTA#` no es una tarea de la que esa persona sea responsable.
+  const { visibles, proyectos } = await visiblesConProyectos(
+    ctx,
+    (res.Items || []).filter((it) => !esItemVista(it)),
+  );
   return {
     ok: true,
     tareas: await paginaDeTareas(ctx, visibles, proyectos),
@@ -1523,6 +1879,25 @@ export async function actualizarTarea({ ctx, idTarea, cambios = {} } = {}) {
     nuevos.prioridad = prioridad;
   }
   if (cambios.departamento_id !== undefined) nuevos.departamento_id = texto(cambios.departamento_id);
+  let participantesNuevos = [];
+  if (cambios.participantes_ids !== undefined) {
+    const participantes = listaDeTexto(cambios.participantes_ids).filter(
+      (id) => id !== texto(meta.responsable_id),
+    );
+    if (participantes.length > MAX_PARTICIPANTES_TAREA) {
+      return {
+        ok: false,
+        status: 400,
+        error: `Una tarea admite como máximo ${MAX_PARTICIPANTES_TAREA} personas además del responsable`,
+      };
+    }
+    const antesIds = idsParticipantes(meta).slice().sort().join('\0');
+    const ahoraIds = participantes.slice().sort().join('\0');
+    if (antesIds !== ahoraIds) {
+      nuevos.participantes_ids = participantes;
+      participantesNuevos = participantes.filter((id) => !idsParticipantes(meta).includes(id));
+    }
+  }
   if (cambios.menciones !== undefined) {
     // Lista explícita: manda quien edita, y se le añaden las del texto.
     nuevos.menciones = extraerMenciones(cambios.descripcion, cambios.menciones);
@@ -1557,9 +1932,22 @@ export async function actualizarTarea({ ctx, idTarea, cambios = {} } = {}) {
     detalle: { antes, despues: nuevos },
   });
 
+  if (participantesNuevos.length > 0) {
+    await notificarParticipantes({
+      tarea: {
+        ...guardado,
+        participantes_ids: participantesNuevos,
+        asignada_por_nombre: texto(ctx?.nombre),
+      },
+      actorId: ctx?.idUsuario,
+    });
+  }
+
   let metaFinal = guardado;
   let sync = null;
-  const tocaCalendar = CAMPOS_SYNC_CALENDARIO.some((c) => nuevos[c] !== undefined);
+  const tocaCalendar =
+    CAMPOS_SYNC_CALENDARIO.some((c) => nuevos[c] !== undefined) ||
+    nuevos.participantes_ids !== undefined;
   if (tocaCalendar) {
     const r = await sincronizarEdicionCalendar({
       ...guardado,
@@ -1575,6 +1963,215 @@ export async function actualizarTarea({ ctx, idTarea, cambios = {} } = {}) {
     tarea: salidaConExtras(metaFinal, ctx, { aux: acceso.aux, nombres }),
     ...(sync || {}),
   };
+}
+
+/**
+ * Pasa el vencimiento de una tarea abierta a `hoy` y sincroniza Google Calendar
+ * igual que un cambio de fecha hecho a mano.
+ *
+ * La condición de la escritura mira el ítem que hay ahora: si entre la lectura y
+ * el update alguien la cerró o ya le puso la fecha de hoy, no se pisa. La hora
+ * no se toca. Un fallo de Calendar no deshace la fecha.
+ *
+ * @param {string} idTarea
+ * @param {string} hoy `YYYY-MM-DD` en Madrid
+ * @returns {Promise<{ ok: true, arrastrada: boolean, calendario_error: string|null } | { ok: false, error: string }>}
+ */
+export async function arrastrarFechaLimiteAHoy(idTarea, hoy) {
+  const id = texto(idTarea);
+  const dia = texto(hoy);
+  if (!id || !esFechaIso(dia)) return { ok: false, error: 'Falta la tarea o el día' };
+
+  const meta = await leerMeta(id);
+  if (!meta) return { ok: true, arrastrada: false, calendario_error: null };
+  if (esEstadoTareaTerminal(meta.estado)) return { ok: true, arrastrada: false, calendario_error: null };
+
+  const fecha = texto(meta.fecha_limite);
+  if (!esFechaIso(fecha) || fecha === FECHA_SIN_LIMITE || fecha >= dia) {
+    // Una vista atrasada vuelve a entrar en el arrastre aunque la ficha ya esté al día.
+    if (idsParticipantes(meta).length > 0) await guardarVistas(meta);
+    return { ok: true, arrastrada: false, calendario_error: null };
+  }
+
+  const guardado = await escribirMeta(
+    id,
+    {
+      fecha_limite: dia,
+      actualizado_en: ahora(),
+      ...clavesDerivadas({ ...meta, fecha_limite: dia }),
+    },
+    {
+      condicion: '#est <> :hecha AND #est <> :cancelada AND #fl < :hoy',
+      nombres: { '#est': 'estado', '#fl': 'fecha_limite' },
+      valores: { ':hecha': 'hecha', ':cancelada': 'cancelada', ':hoy': dia },
+    },
+  );
+  if (!guardado) return { ok: true, arrastrada: false, calendario_error: null };
+
+  await registrarActividad({
+    tipo: 'tarea',
+    entidadId: id,
+    accion: ACCIONES.editada,
+    usuario: { id_usuario: AUTOR_SISTEMA, nombre: 'Sistema' },
+    detalle: {
+      motivo: 'arrastre_vencimiento',
+      antes: { fecha_limite: fecha },
+      despues: { fecha_limite: dia },
+    },
+  });
+
+  // Una serie es un solo evento en Google. Mover esta fecha no desplaza las demás.
+  if (texto(guardado.recurrencia_id)) {
+    return { ok: true, arrastrada: true, calendario_error: null };
+  }
+
+  const r = await sincronizarEdicionCalendar({ ...guardado, id_tarea: id });
+  const sync = r.sync || r;
+  return {
+    ok: true,
+    arrastrada: true,
+    calendario_error: texto(sync?.calendario_error) || null,
+  };
+}
+
+/**
+ * Copia título, fecha y hora desde Google sin volver a escribir el evento.
+ * Así un cambio hecho en Calendar no rebota y no se pisan en bucle.
+ * Un evento borrado en Google no borra la tarea.
+ *
+ * @param {string} idTarea
+ * @param {{ titulo?: string, fecha?: string, horaInicio?: string, horaFin?: string }} remoto
+ */
+export async function aplicarEventoCalendarEnTarea(idTarea, remoto = {}) {
+  const id = texto(idTarea);
+  const meta = await leerMeta(id);
+  if (!meta || esEstadoTareaTerminal(meta.estado)) return { ok: true, aplicada: false };
+
+  const cambios = {};
+  const titulo = texto(remoto.titulo);
+  if (titulo && titulo !== texto(meta.titulo)) cambios.titulo = titulo;
+  const fecha = texto(remoto.fecha);
+  const ancla = texto(meta.ocurrencia_fecha);
+  const mostrada = texto(meta.fecha_limite);
+  // Si el arrastre ya movió esta fecha, Google sigue en el hueco original y no la pisa.
+  const desplazada = Boolean(ancla) && Boolean(mostrada) && ancla !== mostrada;
+  if (!desplazada && esFechaIso(fecha) && fecha !== mostrada) {
+    cambios.fecha_limite = fecha;
+    if (ancla) cambios.ocurrencia_fecha = fecha;
+  }
+
+  const hi = texto(remoto.horaInicio);
+  const hf = texto(remoto.horaFin);
+  const parValido = (hi && hf) || (!hi && !hf);
+  if (parValido && (hi !== texto(meta.hora_inicio) || hf !== texto(meta.hora_fin))) {
+    cambios.hora_inicio = hi;
+    cambios.hora_fin = hf;
+  }
+  if (Object.keys(cambios).length === 0) return { ok: true, aplicada: false };
+
+  const guardado = await escribirMeta(id, {
+    ...cambios,
+    actualizado_en: ahora(),
+    ...clavesDerivadas({ ...meta, ...cambios }),
+  });
+  if (!guardado) return { ok: true, aplicada: false };
+
+  await registrarActividad({
+    tipo: 'tarea',
+    entidadId: id,
+    accion: ACCIONES.editada,
+    usuario: { id_usuario: AUTOR_SISTEMA, nombre: 'Sistema' },
+    detalle: { motivo: 'calendar_entrante', campos: Object.keys(cambios) },
+  });
+  return { ok: true, aplicada: true };
+}
+
+/**
+ * Una instancia cancelada en Google cierra solo esa fecha de la serie.
+ * No borra la ficha ni el resto de ocurrencias.
+ */
+export async function cancelarOcurrenciaDesdeCalendar(idTarea) {
+  const id = texto(idTarea);
+  const meta = await leerMeta(id);
+  if (!meta || !texto(meta.recurrencia_id) || esEstadoTareaTerminal(meta.estado)) {
+    return { ok: true, aplicada: false };
+  }
+  const instante = ahora();
+  const guardado = await escribirMeta(id, {
+    estado: 'cancelada',
+    cerrada_en: instante,
+    actualizado_en: instante,
+    ...clavesDerivadas({ ...meta, estado: 'cancelada' }),
+  });
+  if (!guardado) return { ok: true, aplicada: false };
+  await registrarActividad({
+    tipo: 'tarea',
+    entidadId: id,
+    accion: ACCIONES.estadoCambiado,
+    usuario: { id_usuario: AUTOR_SISTEMA, nombre: 'Sistema' },
+    detalle: { motivo: 'calendar_entrante', estado_antes: meta.estado, estado_despues: 'cancelada' },
+  });
+  return { ok: true, aplicada: true };
+}
+
+/**
+ * Crea una tarea a partir de un evento que ya existe en Google.
+ * No llama a Calendar: el evento ya está y volver a crearlo lo duplicaría.
+ *
+ * @param {{ responsableId: string, eventId: string, calendarId?: string, titulo: string, fecha: string, horaInicio?: string, horaFin?: string }} datos
+ */
+export async function crearTareaDesdeEventoCalendar(datos = {}) {
+  const eventId = texto(datos.eventId);
+  const fecha = texto(datos.fecha);
+  if (!eventId) return { ok: false, error: 'Falta el evento de Calendar' };
+  if (!esFechaIso(fecha)) return { ok: false, error: 'La fecha del evento no es válida' };
+
+  const hi = texto(datos.horaInicio);
+  const hf = texto(datos.horaFin);
+  const horas = hi && hf ? { hora_inicio: hi, hora_fin: hf } : { hora_inicio: '', hora_fin: '' };
+
+  const validado = validarDatosTarea({
+    titulo: texto(datos.titulo),
+    responsable_id: texto(datos.responsableId),
+    fecha_limite: fecha,
+    ...horas,
+  });
+  if (!validado.ok) return { ok: false, error: validado.error };
+
+  const instante = ahora();
+  const tarea = {
+    ...validado.datos,
+    id_tarea: crypto.randomUUID(),
+    calendar_event_id: eventId,
+    calendar_id: texto(datos.calendarId),
+    creado_por: AUTOR_SISTEMA,
+    creado_en: instante,
+    actualizado_en: instante,
+  };
+
+  await docClient.send(new PutCommand({ TableName: tables.tareas, Item: itemTarea(tarea) }));
+
+  await registrarActividad({
+    tipo: 'tarea',
+    entidadId: tarea.id_tarea,
+    accion: ACCIONES.creada,
+    usuario: { id_usuario: AUTOR_SISTEMA, nombre: 'Sistema' },
+    detalle: {
+      motivo: 'calendar_entrante',
+      titulo: tarea.titulo,
+      responsable_id: tarea.responsable_id,
+      fecha_limite: tarea.fecha_limite,
+      calendar_event_id: eventId,
+    },
+  });
+
+  await notificarAsignacion({
+    destinatarioId: tarea.responsable_id,
+    actorId: AUTOR_SISTEMA,
+    tarea,
+  });
+
+  return { ok: true, creada: true, id_tarea: tarea.id_tarea };
 }
 
 /**
@@ -1662,9 +2259,11 @@ export async function reasignarTarea({ ctx, idTarea, responsableId } = {}) {
     return { ok: false, status: 409, error: 'La tarea ya está asignada a esa persona' };
   }
 
-  const actualizado = { ...salida(meta), responsable_id: nuevo };
+  const participantes = listaDeTexto(meta.participantes_ids).filter((id) => id !== nuevo);
+  const actualizado = { ...salida(meta), responsable_id: nuevo, participantes_ids: participantes };
   const guardado = await escribirMeta(idTarea, {
     responsable_id: nuevo,
+    participantes_ids: participantes,
     ...clavesDerivadas(actualizado),
     actualizado_en: ahora(),
   });
@@ -1687,6 +2286,17 @@ export async function reasignarTarea({ ctx, idTarea, responsableId } = {}) {
       asignada_por_nombre: texto(ctx?.nombre),
     },
   });
+
+  // Una ficha de serie comparte el evento recurrente. Reasignarla no puede
+  // borrar esa RRULE ni crear otra: el calendario de la serie se queda.
+  if (texto(meta.recurrencia_id)) {
+    const nombres = await nombresDeUsuarios([nuevo]);
+    return {
+      ok: true,
+      tarea: salidaConExtras(guardado, ctx, { aux: acceso.aux, nombres }),
+      ...syncDesdeMeta(guardado),
+    };
+  }
 
   // Reasignar: quitar el evento del calendario anterior e intentar crear en el nuevo.
   let sync = syncDesdeMeta(guardado);
@@ -1798,25 +2408,16 @@ async function borrarObjetosDeS3(filas) {
  *
  * @returns {Promise<{ ok: true } | Fallo>}
  */
-export async function borrarTarea({ ctx, idTarea } = {}) {
+export async function borrarTarea({ ctx, idTarea, alcance } = {}) {
   const acceso = await cargarParaVer(ctx, idTarea);
   if (!acceso.ok) return acceso;
   const id = texto(idTarea);
-
-  const subtareas = await consultarTodo({
-    TableName: tables.tareas,
-    IndexName: IDX_PADRE,
-    KeyConditionExpression: 'tarea_padre_id = :p',
-    ExpressionAttributeValues: { ':p': id },
-  });
-  const abiertas = subtareas.filter((s) => !esEstadoTareaTerminal(texto(s.estado)));
-  if (abiertas.length > 0) {
-    return {
-      ok: false,
-      status: 409,
-      error: `La tarea tiene ${abiertas.length} subtarea(s) sin cerrar`,
-    };
+  if (texto(acceso.meta.recurrencia_id)) {
+    return borrarOcurrenciasTarea({ ctx, meta: acceso.meta, alcance });
   }
+
+  const bloqueo = await subtareasAbiertasDe(id);
+  if (bloqueo) return bloqueo;
 
   // Calendar no tumba el borrado (D-21).
   await intentarBorrarEventoCalendar(acceso.meta);
@@ -1827,6 +2428,101 @@ export async function borrarTarea({ ctx, idTarea } = {}) {
     titulo: texto(acceso.meta.titulo),
     proyectoId: texto(acceso.meta.proyecto_id) || null,
   });
+  return { ok: true };
+}
+
+async function subtareasAbiertasDe(idTarea) {
+  const subtareas = await consultarTodo({
+    TableName: tables.tareas,
+    IndexName: IDX_PADRE,
+    KeyConditionExpression: 'tarea_padre_id = :p',
+    ExpressionAttributeValues: { ':p': texto(idTarea) },
+  });
+  const abiertas = subtareas.filter((s) => !esEstadoTareaTerminal(texto(s.estado)));
+  if (abiertas.length === 0) return null;
+  return {
+    ok: false,
+    status: 409,
+    error: `La tarea tiene ${abiertas.length} subtarea(s) sin cerrar`,
+  };
+}
+
+/**
+ * `esta` borra solo esa fecha. `posteriores` borra esa y las que vienen detrás.
+ * Las anteriores se quedan. Google cancela la instancia o acorta la RRULE.
+ */
+async function borrarOcurrenciasTarea({ ctx, meta, alcance }) {
+  const id = texto(meta.id_tarea);
+  const modo = alcance === 'posteriores' ? 'posteriores' : 'esta';
+  const serie = await leerSerieTarea(meta.recurrencia_id);
+  if (!serie) {
+    const bloqueo = await subtareasAbiertasDe(id);
+    if (bloqueo) return bloqueo;
+    const email = await emailDeResponsable(meta.responsable_id);
+    const eventId = texto(meta.calendar_event_id);
+    if (eventId) {
+      try {
+        await cancelarInstanciaSerie({
+          eventId,
+          fecha: texto(meta.ocurrencia_fecha) || texto(meta.fecha_limite),
+          organizadorEmail: email || undefined,
+          calendarId: texto(meta.calendar_id) || undefined,
+        });
+      } catch (err) {
+        logger.warn({ err, eventId }, '[tareas] No se pudo cancelar la fecha en Calendar');
+      }
+    }
+    await borrarParticionTarea({
+      ctx,
+      idTarea: id,
+      titulo: texto(meta.titulo),
+      proyectoId: texto(meta.proyecto_id) || null,
+    });
+    return { ok: true };
+  }
+  const { borrar, quedar } = separarMiembros(serie?.miembros, {
+    id,
+    fecha: texto(meta.ocurrencia_fecha) || texto(meta.fecha_limite),
+    alcance: modo,
+  });
+
+  for (const m of borrar) {
+    const bloqueo = await subtareasAbiertasDe(m.id);
+    if (bloqueo) return bloqueo;
+  }
+
+  const eventId = texto(meta.calendar_event_id) || texto(serie?.calendar_event_id);
+  const email = await emailDeResponsable(meta.responsable_id);
+  const datosCal = { organizadorEmail: email || undefined, calendarId: texto(meta.calendar_id) || undefined };
+  if (eventId) {
+    try {
+      if (quedar.length === 0) await calendarBorrar(eventId, datosCal);
+      else if (modo === 'posteriores') {
+        await truncarSerieHasta({ eventId, fechaDesde: texto(meta.ocurrencia_fecha) || texto(meta.fecha_limite), ...datosCal });
+      } else {
+        await cancelarInstanciaSerie({
+          eventId,
+          fecha: texto(meta.ocurrencia_fecha) || texto(meta.fecha_limite),
+          ...datosCal,
+        });
+      }
+    } catch (err) {
+      logger.warn({ err, eventId }, '[tareas] No se pudo ajustar la serie en Calendar');
+    }
+  }
+
+  for (const m of borrar) {
+    const fila = m.id === id ? meta : await leerMeta(m.id);
+    if (!fila) continue;
+    await borrarParticionTarea({
+      ctx,
+      idTarea: m.id,
+      titulo: texto(fila.titulo) || texto(meta.titulo),
+      proyectoId: texto(fila.proyecto_id) || null,
+      origen: modo === 'posteriores' ? 'serie_posteriores' : 'serie_esta',
+    });
+  }
+  if (serie) await guardarSerieTarea(serie, quedar);
   return { ok: true };
 }
 

@@ -62,6 +62,8 @@ import { PanelMovimientosFactura } from '../../components/conciliacion/PanelMovi
 import ConciliarMovimientoModal, {
   type ResultadoConciliacion,
 } from '../../components/conciliacion/ConciliarMovimientoModal';
+import ModalElegirMovimientoConciliacion from '../../components/conciliacion/ModalElegirMovimientoConciliacion';
+import { BarraSeleccionFacturas } from '../../components/facturacion/BarraSeleccionFacturas';
 import { indicePorFactura, queryConciliacionSugerencias } from '../../lib/conciliacion';
 import type { RespuestaSugerencias, SugerenciasDeFactura } from '../../types/conciliacion';
 
@@ -183,6 +185,7 @@ export default function FacturasVentaScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalFacturaId, setModalFacturaId] = useState<string | null>(null);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
+  const [busquedaFoco, setBusquedaFoco] = useState(false);
   const [tabActivo, setTabActivo] = useState<TabEstado>('todas');
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
@@ -285,6 +288,9 @@ export default function FacturasVentaScreen() {
     () => new Map(),
   );
   const [conciliarEntrada, setConciliarEntrada] = useState<SugerenciasDeFactura | null>(null);
+  const [modalMovimientos, setModalMovimientos] = useState(false);
+  const [modoSeleccion, setModoSeleccion] = useState(false);
+  const [selectedMultiIds, setSelectedMultiIds] = useState<Set<string>>(new Set());
   /** Solo la última carga escribe: al refrescar tras conciliar se solapan dos. */
   const sugerenciasSeqRef = useRef(0);
 
@@ -322,6 +328,7 @@ export default function FacturasVentaScreen() {
   const onConciliacionAplicada = useCallback(
     (resultado: ResultadoConciliacion) => {
       setConciliarEntrada(null);
+      if (resultado.aplicadas.length > 0) setSelectedMultiIds(new Set());
       const total = resultado.aplicadas.reduce((acc, a) => acc + Number(a.importe || 0), 0);
       const aviso = resultado.avisos[0]?.mensaje;
       showToast(
@@ -538,6 +545,20 @@ export default function FacturasVentaScreen() {
     const start = pageIndexClamped * PAGE_SIZE;
     return facturasFiltradas.slice(start, start + PAGE_SIZE);
   }, [facturasFiltradas, pageIndexClamped]);
+
+  const facturasSeleccionadas = useMemo(
+    () => facturasFiltradas.filter((f) => selectedMultiIds.has(f.id_factura)),
+    [facturasFiltradas, selectedMultiIds],
+  );
+
+  const toggleSeleccionMulti = (id: string) => {
+    setSelectedMultiIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   useEffect(() => {
     setPageIndex((p) => (p >= totalPages ? Math.max(0, totalPages - 1) : p));
@@ -856,9 +877,11 @@ export default function FacturasVentaScreen() {
 
   if (loading && facturas.length === 0) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
-        <Text style={styles.loadingText}>Cargando facturas…</Text>
+      <View style={styles.container}>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#0ea5e9" />
+          <Text style={styles.loadingText}>Cargando facturas…</Text>
+        </View>
       </View>
     );
   }
@@ -1002,7 +1025,11 @@ export default function FacturasVentaScreen() {
                   </View>
                 )}
                 <TouchableOpacity
-                  style={[styles.toolbarBtn, disabled && styles.toolbarBtnDisabled]}
+                  style={[
+                    styles.toolbarBtn,
+                    hoveredBtn === btn.id && !disabled && styles.toolbarBtnHover,
+                    disabled && styles.toolbarBtnDisabled,
+                  ]}
                   onPress={() => handleToolbarPress(btn.id)}
                   disabled={disabled}
                   accessibilityLabel={btn.label}
@@ -1012,6 +1039,37 @@ export default function FacturasVentaScreen() {
               </View>
             );
           })}
+          <View
+            style={styles.toolbarBtnWrap}
+            {...(Platform.OS === 'web'
+              ? ({ onMouseEnter: () => setHoveredBtn('sel_mode'), onMouseLeave: () => setHoveredBtn(null) } as object)
+              : {})}
+          >
+            {hoveredBtn === 'sel_mode' && (
+              <View style={styles.tooltip}><Text style={styles.tooltipText}>Selección múltiple</Text></View>
+            )}
+            <TouchableOpacity
+              style={[
+                styles.toolbarBtn,
+                modoSeleccion && styles.toolbarBtnActive,
+                !modoSeleccion && hoveredBtn === 'sel_mode' && styles.toolbarBtnHover,
+              ]}
+              onPress={() => {
+                setModoSeleccion((m) => !m);
+                if (modoSeleccion) setSelectedMultiIds(new Set());
+              }}
+              accessibilityLabel="Selección múltiple"
+            >
+              <MaterialIcons name="checklist" size={18} color={modoSeleccion ? '#fff' : '#0ea5e9'} />
+            </TouchableOpacity>
+          </View>
+          {modoSeleccion ? (
+            <BarraSeleccionFacturas
+              facturas={facturasSeleccionadas}
+              puedeConciliar={puedeGestionarPagos && puedeVerConciliacion}
+              onConciliar={() => setModalMovimientos(true)}
+            />
+          ) : null}
         </View>
 
         <View
@@ -1023,7 +1081,12 @@ export default function FacturasVentaScreen() {
           {hoveredBtn === 'refresh' && (
             <View style={styles.tooltip}><Text style={styles.tooltipText}>Actualizar</Text></View>
           )}
-          <TouchableOpacity style={styles.toolbarBtn} onPress={refrescarListadoYSugerencias} disabled={loading} accessibilityLabel="Actualizar">
+          <TouchableOpacity
+            style={[styles.toolbarBtn, hoveredBtn === 'refresh' && !loading && styles.toolbarBtnHover]}
+            onPress={refrescarListadoYSugerencias}
+            disabled={loading}
+            accessibilityLabel="Actualizar"
+          >
             <MaterialIcons name="refresh" size={18} color={loading ? '#94a3b8' : '#0ea5e9'} />
           </TouchableOpacity>
         </View>
@@ -1037,7 +1100,7 @@ export default function FacturasVentaScreen() {
               <View style={styles.tooltip}><Text style={styles.tooltipText}>Exportar Excel</Text></View>
             )}
             <TouchableOpacity
-              style={styles.toolbarBtn}
+              style={[styles.toolbarBtn, hoveredBtn === 'excel' && styles.toolbarBtnHover]}
               onPress={async () => {
                 const { exportarFacturasVentaExcel } = await import('../../utils/exportFacturasExcel');
                 exportarFacturasVentaExcel(facturasFiltradas);
@@ -1049,12 +1112,14 @@ export default function FacturasVentaScreen() {
           </View>
         )}
 
-        <View style={styles.searchWrap}>
+        <View style={[styles.searchWrap, busquedaFoco && styles.filtroFoco]}>
           <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             value={filtroBusqueda}
             onChangeText={setFiltroBusqueda}
+            onFocus={() => setBusquedaFoco(true)}
+            onBlur={() => setBusquedaFoco(false)}
             placeholder="Nº, cliente, CIF, ID…"
             placeholderTextColor="#94a3b8"
           />
@@ -1170,10 +1235,35 @@ export default function FacturasVentaScreen() {
               facturasPagina.map((item) => (
                 <Pressable
                   key={item.id_factura}
-                  style={[styles.row, selectedId === item.id_factura && styles.rowSelected]}
-                  onPress={() => setSelectedId(selectedId === item.id_factura ? null : item.id_factura)}
+                  style={[
+                    styles.row,
+                    ((selectedId === item.id_factura && !modoSeleccion) || (modoSeleccion && selectedMultiIds.has(item.id_factura))) && styles.rowSelected,
+                  ]}
+                  onPress={() => {
+                    if (modoSeleccion) {
+                      toggleSeleccionMulti(item.id_factura);
+                      return;
+                    }
+                    setSelectedId(selectedId === item.id_factura ? null : item.id_factura);
+                  }}
                 >
                   <View style={[styles.actionCell, puedeVerConciliacion && styles.actionCellAncha]}>
+                    {modoSeleccion ? (
+                      <Pressable
+                        hitSlop={8}
+                        onPress={(e) => {
+                          absorberClickFila(e);
+                          toggleSeleccionMulti(item.id_factura);
+                        }}
+                        style={styles.actionBtn}
+                      >
+                        <MaterialIcons
+                          name={selectedMultiIds.has(item.id_factura) ? 'check-box' : 'check-box-outline-blank'}
+                          size={18}
+                          color="#0ea5e9"
+                        />
+                      </Pressable>
+                    ) : (
                     <Pressable
                       hitSlop={8}
                       accessibilityLabel="Ver detalle y documento"
@@ -1186,7 +1276,8 @@ export default function FacturasVentaScreen() {
                     >
                       <MaterialIcons name="vertical-split" size={16} color="#0369a1" />
                     </Pressable>
-                    {puedeVerConciliacion ? (
+                    )}
+                    {!modoSeleccion && puedeVerConciliacion ? (
                       <IconoSugerenciaConciliacion
                         entrada={sugerenciasPorFactura.get(item.id_factura)}
                         comodo={shouldUseComfortableTable}
@@ -1246,6 +1337,16 @@ export default function FacturasVentaScreen() {
       </View>
 
       {/* Conciliación bancaria de la factura de la fila */}
+      <ModalElegirMovimientoConciliacion
+        visible={modalMovimientos}
+        tipo="OUT"
+        facturas={facturasSeleccionadas}
+        onClose={() => setModalMovimientos(false)}
+        onElegido={(entrada) => {
+          setModalMovimientos(false);
+          setConciliarEntrada(entrada);
+        }}
+      />
       <ConciliarMovimientoModal
         visible={conciliarEntrada !== null}
         entrada={conciliarEntrada}
@@ -1450,7 +1551,7 @@ export default function FacturasVentaScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10 },
+  container: { flex: 1, margin: -10, padding: 16, backgroundColor: '#ffffff' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
   loadingText: { fontSize: 12, color: '#64748b' },
   errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
@@ -1482,7 +1583,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, fontWeight: '700', color: '#334155' },
 
   resumenRow: { flexDirection: 'row', gap: 12, marginBottom: 8, flexWrap: 'wrap' },
-  resumenItem: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
+  resumenItem: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#eef1f5', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
   resumenLabel: { fontSize: 10, color: '#94a3b8' },
   resumenVal: { fontSize: 14, fontWeight: '700', color: '#334155' },
 
@@ -1555,17 +1656,20 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   tooltipText: { fontSize: 9, color: '#f8fafc', fontWeight: '400' },
-  toolbarBtn: { padding: 6, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, backgroundColor: '#f8fafc' },
+  toolbarBtn: { padding: 6, borderWidth: 1, borderColor: '#eef1f5', borderRadius: 10, backgroundColor: '#ffffff' },
+  toolbarBtnHover: { backgroundColor: '#f8fafc' },
+  toolbarBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
   toolbarBtnDisabled: { opacity: 0.5 },
+  filtroFoco: { borderColor: '#0ea5e9' },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     minWidth: 140,
     maxWidth: 280,
     height: 32,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#eef1f5',
     borderRadius: 8,
     paddingHorizontal: 8,
   },
@@ -1574,7 +1678,19 @@ const styles = StyleSheet.create({
 
   fechaFilterWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   fechaLabel: { fontSize: 11, color: '#64748b', fontWeight: '500' },
-  fechaInput: { fontSize: 11, paddingVertical: 3, paddingHorizontal: 6, minHeight: 28, color: '#334155', width: 110 },
+  fechaInput: {
+    fontSize: 11,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    minHeight: 32,
+    height: 32,
+    color: '#334155',
+    width: 118,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#eef1f5',
+    borderRadius: 8,
+  },
 
   subtitleRow: {
     flexDirection: 'row',
@@ -1594,8 +1710,8 @@ const styles = StyleSheet.create({
   tableSplitRow: { flexDirection: 'row', alignItems: 'stretch' },
   tableSplitCol: { flexDirection: 'column' },
   detailPanel: {
-    backgroundColor: '#f8fafc',
-    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+    borderColor: '#eef1f5',
   },
   detailPanelFlex: {
     flex: 1,
@@ -1631,7 +1747,7 @@ const styles = StyleSheet.create({
   table: {
     minWidth: '100%',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#eef1f5',
     borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: '#fff',
@@ -1640,19 +1756,18 @@ const styles = StyleSheet.create({
   rowHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: '#cbd5e1',
+    borderBottomColor: '#eef1f5',
   },
   cellHeader: {
     minWidth: MIN_COL_WIDTH,
-    paddingVertical: 4,
+    paddingVertical: 8,
     paddingHorizontal: 6,
-    borderRightWidth: 1,
-    borderRightColor: '#cbd5e1',
+    borderRightWidth: 0,
     position: 'relative',
   },
-  cellHeaderText: { fontSize: 9, fontWeight: '600', color: '#334155', lineHeight: 11 },
+  cellHeaderText: { fontSize: 10, fontWeight: '600', color: '#94a3b8', lineHeight: 12, letterSpacing: 0.3 },
   resizeHandle: {
     position: 'absolute',
     top: 0,
@@ -1665,7 +1780,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: '#eef1f5',
     backgroundColor: '#fff',
   },
   rowSelected: { backgroundColor: '#e0f2fe' },
@@ -1685,8 +1800,7 @@ const styles = StyleSheet.create({
     minWidth: MIN_COL_WIDTH,
     paddingVertical: 2,
     paddingHorizontal: 5,
-    borderRightWidth: 1,
-    borderRightColor: '#e2e8f0',
+    borderRightWidth: 0,
     justifyContent: 'center',
   },
   cellPagadoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 },
@@ -1743,7 +1857,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: '#eef1f5',
   },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#334155', marginBottom: 4 },
   modalSubtitle: { fontSize: 13, color: '#64748b', lineHeight: 18 },
@@ -1757,9 +1871,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#eef1f5',
     borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#ffffff',
   },
   modalErrorWrap: {
     flexDirection: 'row',
@@ -1781,15 +1895,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 16,
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderTopColor: '#eef1f5',
+    backgroundColor: '#ffffff',
   },
   modalFooterBtnSecondary: {
     paddingVertical: 10,
     paddingHorizontal: 18,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#eef1f5',
     backgroundColor: '#fff',
   },
   modalFooterBtnSecondaryText: { fontSize: 14, color: '#64748b', fontWeight: '500' },

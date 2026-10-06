@@ -524,6 +524,7 @@ export type PagoFactura = {
   observaciones: string;
   creado_por_nombre: string;
   creado_en: string;
+  compensacion_detalle?: { id_factura: string; numero?: string; fecha_emision?: string }[];
 };
 
 /**

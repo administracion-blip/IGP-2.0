@@ -15,6 +15,7 @@ import {
   tasksTipo,
 } from '../../constants/tasksUiTokens';
 import { grupoVencimiento, proyectoDeTareaAlcanzable } from '../../lib/tasksUi';
+import { ContadorChecklist } from './ContadorChecklist';
 import { abreviaturaDepartamento, colorDepartamento } from '../../lib/tasksDepartamentoColor';
 import type { Tarea } from '../../types/tasks';
 
@@ -54,6 +55,7 @@ export function PastillaTareaCalendario({
         </Text>
         <View style={styles.meta}>
           {abrev ? <Text style={[styles.abrev, { color }]}>{abrev}</Text> : null}
+          <ContadorChecklist checklist={tarea.checklist} compacto />
           {vencida ? <Text style={styles.alerta}>!</Text> : null}
         </View>
       </TouchableOpacity>

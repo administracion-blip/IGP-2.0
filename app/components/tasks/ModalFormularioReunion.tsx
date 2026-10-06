@@ -44,6 +44,7 @@ import {
   type VisibilidadReunion,
 } from '../../types/tasks';
 import { estilosFormTasks as form, estilosModalTasks as modal } from './estilosTasks';
+import { diaMesDeFecha, diaSemanaDeFecha, SelectorRepeticion } from './SelectorRepeticion';
 import type { NombresUsuarios } from '../../hooks/useNombresUsuarios';
 import type { MaestroDepartamentos } from '../../hooks/useDepartamentos';
 
@@ -54,6 +55,9 @@ type LocalOpcion = { id: string; nombre: string };
 type FormReunion = {
   titulo: string;
   fecha: string;
+  repetir: string;
+  dias_semana: number[];
+  dias_mes: number[];
   hora_inicio: string;
   hora_fin: string;
   estado: EstadoReunion;
@@ -77,6 +81,9 @@ export type ResultadoGuardadoReunion = {
 const INICIAL: FormReunion = {
   titulo: '',
   fecha: '',
+  repetir: 'ninguna',
+  dias_semana: [1],
+  dias_mes: [1],
   hora_inicio: '',
   hora_fin: '',
   estado: 'convocada',
@@ -182,6 +189,9 @@ export function ModalFormularioReunion({
       setDatos({
         titulo: reunion.titulo ?? '',
         fecha: reunion.fecha ?? '',
+        repetir: 'ninguna',
+        dias_semana: [1],
+        dias_mes: [1],
         hora_inicio: reunion.hora_inicio ?? '',
         hora_fin: reunion.hora_fin ?? '',
         estado: reunion.estado ?? 'convocada',
@@ -200,9 +210,12 @@ export function ModalFormularioReunion({
     } else {
       const hi = (horaInicioPorDefecto ?? '').trim();
       const par = hi ? aplicarHoraInicio(hi, '') : { hora_inicio: '', hora_fin: '' };
+      const fecha = (fechaPorDefecto ?? '').trim() || hoyIso();
       setDatos({
         ...INICIAL,
-        fecha: (fechaPorDefecto ?? '').trim() || hoyIso(),
+        fecha,
+        dias_semana: [diaSemanaDeFecha(fecha)],
+        dias_mes: [diaMesDeFecha(fecha)],
         hora_inicio: par.hora_inicio,
         hora_fin: par.hora_fin,
         proyecto_id: proyectoFijo || '',
@@ -422,6 +435,13 @@ export function ModalFormularioReunion({
       serie_id: datos.serie_id.trim() || null,
       resumen: datos.resumen.trim() || null,
     };
+    if (modo === 'crear' && datos.repetir && datos.repetir !== 'ninguna') {
+      cuerpo.recurrencia = {
+        frecuencia: datos.repetir,
+        ...(datos.repetir === 'semanal' ? { dias_semana: datos.dias_semana } : {}),
+        ...(datos.repetir === 'mensual' ? { dias_mes: datos.dias_mes } : {}),
+      };
+    }
     if (!ordenBloqueado) {
       cuerpo.orden_del_dia = datos.orden_del_dia;
     }
@@ -591,7 +611,14 @@ export function ModalFormularioReunion({
                     <InputFecha
                       compact
                       valueIso={datos.fecha}
-                      onChangeIso={(iso) => setCampo('fecha', iso)}
+                      onChangeIso={(iso) =>
+                        setDatos((p) => ({
+                          ...p,
+                          fecha: iso,
+                          dias_semana: p.repetir === 'semanal' ? p.dias_semana : [diaSemanaDeFecha(iso)],
+                          dias_mes: p.repetir === 'mensual' ? p.dias_mes : [diaMesDeFecha(iso)],
+                        }))
+                      }
                       style={estiloCampoFechaCompacto}
                     />
                   </View>
@@ -608,6 +635,30 @@ export function ModalFormularioReunion({
                     />
                   </View>
                 </View>
+                {modo === 'crear' ? (
+                  <SelectorRepeticion
+                    frecuencia={datos.repetir}
+                    diasSemana={datos.dias_semana}
+                    diasMes={datos.dias_mes}
+                    disabled={guardando}
+                    onCambiarFrecuencia={(frecuencia) =>
+                      setDatos((p) => ({
+                        ...p,
+                        repetir: frecuencia,
+                        dias_semana:
+                          frecuencia === 'semanal' && p.dias_semana.length === 0
+                            ? [diaSemanaDeFecha(p.fecha)]
+                            : p.dias_semana,
+                        dias_mes:
+                          frecuencia === 'mensual' && p.dias_mes.length === 0
+                            ? [diaMesDeFecha(p.fecha)]
+                            : p.dias_mes,
+                      }))
+                    }
+                    onCambiarDiasSemana={(dias) => setCampo('dias_semana', dias)}
+                    onCambiarDiasMes={(dias) => setCampo('dias_mes', dias)}
+                  />
+                ) : null}
                 <View style={[form.group, form.gridDos, shouldStackPanels && form.gridDosApilado]}>
                   <View style={styles.colHora}>
                     <Text style={form.label}>Hora inicio</Text>

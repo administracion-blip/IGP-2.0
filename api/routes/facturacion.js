@@ -59,6 +59,7 @@ import {
   METODO_PAGO_COMPENSACION,
   etiquetaFacturaCompensable,
   saldoFirmadoFactura,
+  enriquecerPagosCompensacion,
 } from '../lib/facturacion/compensacionFactura.js';
 import {
   filtrarFacturasConExceso,
@@ -430,7 +431,7 @@ router.get('/facturacion/facturas/:id', requirePermission('facturacion.ver'), as
     if (await rejectFacturaEmisorNoPermitido(req, result.Item, res)) return;
     const lineas = await queryLineasByFactura(req.params.id);
     lineas.sort((a, b) => (a.id_linea || '').localeCompare(b.id_linea || ''));
-    const pagos = await queryPagosByFactura(req.params.id);
+    const pagos = await enriquecerPagosCompensacion(await queryPagosByFactura(req.params.id));
     pagos.sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
     const auditoria = await queryAuditoriaByFactura(req.params.id);
     auditoria.sort((a, b) => (b.timestamp_accion || '').localeCompare(a.timestamp_accion || ''));
@@ -1063,7 +1064,7 @@ router.get('/facturacion/facturas/:id/pagos', requirePermission('facturacion.ver
     // [SEC S-08]
     if (await rejectFacturaEmisorNoPermitido(req, existing.Item, res)) return;
 
-    const pagos = await queryPagosByFactura(req.params.id);
+    const pagos = await enriquecerPagosCompensacion(await queryPagosByFactura(req.params.id));
     pagos.sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
     res.json({ pagos });
   } catch (err) {

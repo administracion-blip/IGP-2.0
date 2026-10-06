@@ -1,6 +1,6 @@
 import { apiFetch } from '../utils/api';
 import { esMetodoAplicacionExceso, mapTipoReciboToFormaPago } from '../utils/facturacion';
-import { esMetodoCompensacion } from './compensacionFactura';
+import { esMetodoCompensacion, type CompensacionDetalle } from './compensacionFactura';
 import type { RegistrarPagoInitial, RegistrarPagoPayloadFactura } from '../components/RegistrarPagoModal';
 import type { FacturaListado } from '../types/factura';
 import type { RemesaActivaFactura } from '../types/remesas';
@@ -12,6 +12,7 @@ export type PagoDetalleRow = {
   metodo_pago?: string;
   referencia?: string;
   observaciones?: string;
+  compensacion_detalle?: CompensacionDetalle[];
 };
 
 type ErrorPagoBody = {

@@ -316,6 +316,7 @@ export function puedeVerTarea(ctx, tarea, aux = {}) {
   if (!ctx || !tarea) return false;
   if (ctx.esAdmin) return true;
   if (mismoUsuario(tarea.responsable_id, ctx.idUsuario)) return true;
+  if ((tarea.participantes_ids || []).some((id) => mismoUsuario(id, ctx.idUsuario))) return true;
   if ((tarea.menciones || []).some((m) => mismoUsuario(m, ctx.idUsuario))) return true;
   if (tienePermiso(ctx, PERMISOS.tareasVerTodas)) return true;
   if (normalizarId(tarea.proyecto_id)) {
@@ -326,6 +327,8 @@ export function puedeVerTarea(ctx, tarea, aux = {}) {
 
 /**
  * Editar es más estrecho que ver: estar mencionado no da permiso de escritura.
+ * Quien está en `participantes_ids` sí puede: es la misma tarea en su agenda
+ * (cerrarla, moverla, marcar casillas). Reasignar sigue siendo otra decisión.
  * El creador sí puede editar **su** tarea suelta, para poder corregir lo que
  * acaba de escribir; si la tarea pertenece a un proyecto, manda el proyecto.
  *
@@ -335,6 +338,7 @@ export function puedeEditarTarea(ctx, tarea, aux = {}) {
   if (!ctx || !tarea) return false;
   if (ctx.esAdmin) return true;
   if (mismoUsuario(tarea.responsable_id, ctx.idUsuario)) return true;
+  if ((tarea.participantes_ids || []).some((id) => mismoUsuario(id, ctx.idUsuario))) return true;
   if (tienePermiso(ctx, PERMISOS.tareasEditarTodas)) return true;
   if (normalizarId(tarea.proyecto_id)) {
     return aux.proyecto ? puedeEditarProyecto(ctx, aux.proyecto, aux.miembros) : false;

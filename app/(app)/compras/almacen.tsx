@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,11 +9,16 @@ import {
   TextInput,
   Modal,
   Platform,
+  Animated,
+  Easing,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { useProductosCache } from '../../contexts/ProductosCache';
+import { BadgeFormato, useMapaFormatosBase } from '../../components/compras/BadgeFormato';
+import { EtiquetaZona, ordenarLineasPorZona, useMapaZonas } from '../../components/compras/EtiquetaZona';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../../constants/layout';
 import { apiFetch } from '../../utils/api';
@@ -25,16 +30,40 @@ import {
   horaEnvioLocal,
   parseIsoMs,
 } from '../../components/compras/CronometroEsperaPedido';
-import { SoftPulseBorderWrap, type SoftPulseColors } from '../../components/ui/SoftPulseBorderWrap';
 import NuevoPedidoModal from './NuevoPedidoModal';
 
-const PULSO_PEDIDO_NUEVO: SoftPulseColors = {
-  border: '#fdba74',
-  pulseFrom: 'rgba(249, 115, 22, 0.35)',
-  pulseTo: 'rgba(234, 88, 12, 0.95)',
-  glow: 'rgba(249, 115, 22, 0.65)',
-  shadow: '#f97316',
-};
+/** Franja interior del card: pedido aún no abierto. El borde del card no se mueve. */
+function FranjaPedidoNuevo() {
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 1400,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: false,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 1400,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: false,
+        }),
+      ]),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [pulse]);
+
+  const backgroundColor = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#ffedd5', '#fdba74'],
+  });
+
+  return <Animated.View pointerEvents="none" style={[styles.franjaNueva, { backgroundColor }]} />;
+}
 
 type Registro = Record<string, string | number | boolean | undefined | null>;
 
@@ -74,7 +103,14 @@ function etiquetaEstado(estado: string): string {
 export default function PedidosAlmacenScreen() {
   const router = useRouter();
   const { localPermitido, hasPermiso } = useAuth();
-  const { shouldStackPanels } = useBreakpoint();
+  const { isDesktop } = useBreakpoint();
+  // Lista + detalle en paralelo solo en escritorio. En móvil y tablet (también
+  // en horizontal) el detalle va a pantalla completa: con la barra lateral no
+  // cabe una columna de 320 px y el texto se partía letra a letra.
+  const dosColumnas = isDesktop;
+  const { productos } = useProductosCache();
+  const formatos = useMapaFormatosBase(productos);
+  const zonas = useMapaZonas(productos);
 
   const [pedidos, setPedidos] = useState<Registro[]>([]);
   const [locales, setLocales] = useState<Registro[]>([]);
@@ -87,6 +123,7 @@ export default function PedidosAlmacenScreen() {
   const [vistos, setVistos] = useState<Record<string, true>>({});
   const [pedidoSel, setPedidoSel] = useState<Registro | null>(null);
   const [lineas, setLineas] = useState<Registro[]>([]);
+  const lineasPorZona = useMemo(() => ordenarLineasPorZona(lineas, zonas), [lineas, zonas]);
   const [loadingLineas, setLoadingLineas] = useState(false);
   const [guardandoLinea, setGuardandoLinea] = useState<string | null>(null);
   const [prepararTodoEnCurso, setPrepararTodoEnCurso] = useState(false);
@@ -413,17 +450,16 @@ export default function PedidosAlmacenScreen() {
             );
           })}
         </ScrollView>
-      </View>
-
-      <View style={styles.searchWrap}>
-        <MaterialIcons name="search" size={18} color="#64748b" />
-        <TextInput
-          style={styles.searchInput}
-          value={busqueda}
-          onChangeText={setBusqueda}
-          placeholder="Buscar por nº de pedido o local…"
-          placeholderTextColor="#94a3b8"
-        />
+        <View style={styles.searchWrap}>
+          <MaterialIcons name="search" size={18} color="#64748b" />
+          <TextInput
+            style={styles.searchInput}
+            value={busqueda}
+            onChangeText={setBusqueda}
+            placeholder="Buscar pedido o local"
+            placeholderTextColor="#94a3b8"
+          />
+        </View>
       </View>
     </View>
   );
@@ -447,7 +483,10 @@ export default function PedidosAlmacenScreen() {
           <Text style={styles.vacioText}>No hay pedidos en este estado.</Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.listaScrollContent} showsVerticalScrollIndicator>
+        <ScrollView
+          contentContainerStyle={[styles.listaScrollContent, dosColumnas && styles.listaGrid]}
+          showsVerticalScrollIndicator
+        >
           {pedidosFiltrados.map((p) => {
             const id = String(valorEnLocal(p, 'Id') ?? '');
             const estado = String(valorEnLocal(p, 'Estado') ?? '');
@@ -465,10 +504,11 @@ export default function PedidosAlmacenScreen() {
               !vistos[id] && (estado === 'Enviado' || estado === 'Pendiente');
             const card = (
               <TouchableOpacity
-                style={[styles.card, seleccionado && styles.cardSel, noRevisado && styles.cardEnPulso]}
+                style={[styles.card, dosColumnas && styles.cardEnGrid, seleccionado && styles.cardSel]}
                 onPress={() => abrirPedido(p)}
                 activeOpacity={0.7}
               >
+                {noRevisado ? <FranjaPedidoNuevo /> : null}
                 <View style={styles.cardTopRow}>
                   <Text style={styles.cardId}>{id}</Text>
                   <View style={styles.cardBadges}>
@@ -511,17 +551,10 @@ export default function PedidosAlmacenScreen() {
                 </View>
               </TouchableOpacity>
             );
-            return noRevisado ? (
-              <SoftPulseBorderWrap
-                key={id}
-                colors={PULSO_PEDIDO_NUEVO}
-                borderRadius={12}
-                style={styles.cardPulsoWrap}
-              >
+            return (
+              <View key={id} style={dosColumnas ? styles.cardCol : styles.cardColUna}>
                 {card}
-              </SoftPulseBorderWrap>
-            ) : (
-              <View key={id}>{card}</View>
+              </View>
             );
           })}
         </ScrollView>
@@ -545,11 +578,49 @@ export default function PedidosAlmacenScreen() {
     const total = lineas.length;
     const prep = lineas.filter((l) => !!l.Preparada).length;
     const todasPreparadas = total > 0 && prep === total;
+    const botonesEnCabecera = dosColumnas;
+
+    const botonesPreparar = (
+      <>
+        <TouchableOpacity
+          style={[
+            styles.accionBtn,
+            styles.accionBtnPrimary,
+            botonesEnCabecera && styles.accionBtnCompacta,
+            (prepararTodoEnCurso || todasPreparadas) && styles.accionBtnDisabled,
+          ]}
+          onPress={() => prepararTodo(true)}
+          disabled={prepararTodoEnCurso || todasPreparadas || total === 0}
+          activeOpacity={0.7}
+        >
+          {prepararTodoEnCurso ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <MaterialIcons name="done-all" size={18} color="#fff" />
+          )}
+          <Text style={[styles.accionBtnPrimaryText, botonesEnCabecera && styles.accionBtnTextCompacta]}>Preparar todo</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.accionBtn,
+            styles.accionBtnGhost,
+            botonesEnCabecera && styles.accionBtnCompacta,
+            (prepararTodoEnCurso || prep === 0) && styles.accionBtnDisabled,
+          ]}
+          onPress={() => prepararTodo(false)}
+          disabled={prepararTodoEnCurso || prep === 0}
+          activeOpacity={0.7}
+        >
+          <MaterialIcons name="remove-done" size={18} color="#64748b" />
+          <Text style={[styles.accionBtnGhostText, botonesEnCabecera && styles.accionBtnTextCompacta]}>Desmarcar todo</Text>
+        </TouchableOpacity>
+      </>
+    );
 
     return (
       <View style={styles.detalleWrap}>
         <View style={styles.detalleHeader}>
-          <View style={{ flex: 1 }}>
+          <View style={styles.detalleDatos}>
             <View style={styles.detalleTitleRow}>
               <Text style={styles.detalleTitle} numberOfLines={1}>
                 {id} · {nombreLocal(pedidoSel)}
@@ -565,12 +636,14 @@ export default function PedidosAlmacenScreen() {
               {formatFecha(valorEnLocal(pedidoSel, 'Fecha'))} · {etiquetaEstado(estado)}
               {total > 0 ? ` · ${prep}/${total} preparadas` : ''}
             </Text>
+            {botonesEnCabecera ? null : <View style={styles.accionesBajoFecha}>{botonesPreparar}</View>}
           </View>
-          {shouldStackPanels ? (
+          {botonesEnCabecera ? <View style={styles.accionesCabecera}>{botonesPreparar}</View> : null}
+          {botonesEnCabecera ? null : (
             <TouchableOpacity onPress={cerrarPedido} style={styles.cerrarBtn}>
               <MaterialIcons name="close" size={22} color="#64748b" />
             </TouchableOpacity>
-          ) : null}
+          )}
         </View>
 
         {notas ? (
@@ -580,38 +653,13 @@ export default function PedidosAlmacenScreen() {
           </View>
         ) : null}
 
-        <View style={styles.accionesRow}>
-          <TouchableOpacity
-            style={[styles.accionBtn, styles.accionBtnPrimary, (prepararTodoEnCurso || todasPreparadas) && styles.accionBtnDisabled]}
-            onPress={() => prepararTodo(true)}
-            disabled={prepararTodoEnCurso || todasPreparadas || total === 0}
-            activeOpacity={0.7}
-          >
-            {prepararTodoEnCurso ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <MaterialIcons name="done-all" size={18} color="#fff" />
-            )}
-            <Text style={styles.accionBtnPrimaryText}>Preparar todo</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.accionBtn, styles.accionBtnGhost, (prepararTodoEnCurso || prep === 0) && styles.accionBtnDisabled]}
-            onPress={() => prepararTodo(false)}
-            disabled={prepararTodoEnCurso || prep === 0}
-            activeOpacity={0.7}
-          >
-            <MaterialIcons name="remove-done" size={18} color="#64748b" />
-            <Text style={styles.accionBtnGhostText}>Desmarcar todo</Text>
-          </TouchableOpacity>
-        </View>
-
         {loadingLineas ? (
           <ActivityIndicator size="small" color="#0ea5e9" style={{ marginTop: 24 }} />
         ) : lineas.length === 0 ? (
           <Text style={styles.vacioText}>Este pedido no tiene líneas.</Text>
         ) : (
           <ScrollView style={styles.detalleScroll} contentContainerStyle={{ paddingBottom: 24, gap: 6 }} showsVerticalScrollIndicator>
-            {lineas.map((l) => {
+            {lineasPorZona.map((l) => {
               const key = String(l.LineaIndex ?? '');
               const preparada = !!l.Preparada;
               const guardando = guardandoLinea === key;
@@ -623,6 +671,14 @@ export default function PedidosAlmacenScreen() {
                   disabled={guardando || prepararTodoEnCurso}
                   activeOpacity={0.7}
                 >
+                  <Text style={styles.lineaCantidad}>{String(l.Cantidad ?? 0)}</Text>
+                  <View style={styles.lineaArticulo}>
+                    <EtiquetaZona zona={zonas.get(String(l.ProductId ?? '').trim())} />
+                    <Text style={[styles.lineaNombre, preparada && styles.lineaNombrePrep]} numberOfLines={2}>
+                      {String(l.ProductoNombre || l.ProductId || '—')}
+                    </Text>
+                    <BadgeFormato nombre={formatos.get(String(l.ProductId ?? '').trim())} />
+                  </View>
                   <View style={styles.lineaCheck}>
                     {guardando ? (
                       <ActivityIndicator size="small" color={preparada ? '#16a34a' : '#0ea5e9'} />
@@ -634,15 +690,6 @@ export default function PedidosAlmacenScreen() {
                       />
                     )}
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.lineaNombre, preparada && styles.lineaNombrePrep]} numberOfLines={2}>
-                      {String(l.ProductoNombre || l.ProductId || '—')}
-                    </Text>
-                  </View>
-                  <View style={styles.lineaCantidadBox}>
-                    <Text style={styles.lineaCantidad}>{String(l.Cantidad ?? 0)}</Text>
-                    <Text style={styles.lineaCantidadLabel}>uds</Text>
-                  </View>
                 </TouchableOpacity>
               );
             })}
@@ -652,8 +699,8 @@ export default function PedidosAlmacenScreen() {
     );
   };
 
-  // Toolbar a ancho completo; debajo lista + detalle (split o modal en portrait).
-  if (shouldStackPanels) {
+  // En móvil y tablet el detalle ocupa la pantalla. En escritorio, lista y detalle van en paralelo.
+  if (!dosColumnas) {
     return (
       <View style={styles.container}>
         {renderToolbar()}
@@ -679,33 +726,45 @@ export default function PedidosAlmacenScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#e2e8f0', padding: 12 },
-  modalContainer: { flex: 1, backgroundColor: '#e2e8f0', padding: 12 },
+  container: { flex: 1, backgroundColor: '#e8eef5', padding: 16 },
+  modalContainer: { flex: 1, backgroundColor: '#e8eef5', padding: 16 },
   centro: { alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 40 },
-  toolbar: { flexShrink: 0, marginBottom: 12, gap: 10 },
-  splitRow: { flex: 1, flexDirection: 'row', gap: 12, minHeight: 0 },
+  toolbar: { flexShrink: 0, marginBottom: 16, gap: 12 },
+  splitRow: { flex: 1, flexDirection: 'row', gap: 16, minHeight: 0 },
   splitLista: { flex: 1, minWidth: 0, minHeight: 0 },
   splitDetalle: { width: '48%', maxWidth: '50%', minWidth: 320, minHeight: 0 },
   listaContenido: { flex: 1, minHeight: 0 },
   listaScrollContent: { paddingBottom: 24, gap: 8 },
+  listaGrid: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch', gap: 0, marginHorizontal: -6 },
+  cardCol: { width: '50%', paddingHorizontal: 6, paddingBottom: 12 },
+  cardColUna: { width: '100%' },
   listaVacio: { flex: 1, alignItems: 'center', justifyContent: 'flex-start', paddingTop: 48, gap: 10 },
-  detalleWrap: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0', minHeight: 0 },
+  detalleWrap: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e7edf4',
+    minHeight: 0,
+    ...(Platform.OS === 'web' ? ({ boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)' } as object) : {}),
+  },
   detalleScroll: { flex: 1 },
 
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   filtrosRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  chipsScroll: { flex: 1, flexGrow: 1, flexShrink: 1, maxHeight: MIN_TOUCH + 14 },
+  chipsScroll: { flex: 1, flexGrow: 1, flexShrink: 1, minWidth: 0, maxHeight: MIN_TOUCH + 14 },
   backBtn: {
     width: 40,
     height: 40,
-    borderRadius: 8,
+    borderRadius: 12,
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#e7edf4',
   },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
+  title: { fontSize: 20, fontWeight: '700', color: '#0f172a', letterSpacing: -0.3 },
   subtitle: { fontSize: 13, color: '#64748b', marginTop: 2 },
   nuevoBtn: {
     flexDirection: 'row',
@@ -713,10 +772,10 @@ const styles = StyleSheet.create({
     gap: 6,
     minHeight: MIN_TOUCH,
     paddingHorizontal: 14,
-    borderRadius: 10,
-    backgroundColor: '#ffedd5',
+    borderRadius: 999,
+    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#fdba74',
+    borderColor: '#e7edf4',
   },
   nuevoBtnText: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
 
@@ -727,11 +786,11 @@ const styles = StyleSheet.create({
     gap: 6,
     minHeight: MIN_TOUCH,
     paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    paddingHorizontal: 14,
+    borderRadius: 999,
     backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#e7edf4',
   },
   chipText: { fontSize: 14, color: '#475569', fontWeight: '600' },
   chipTextActivo: { color: '#fff' },
@@ -744,19 +803,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    width: 240,
+    maxWidth: '46%',
+    flexGrow: 0,
+    flexShrink: 0,
     backgroundColor: '#fff',
-    borderRadius: 10,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    paddingHorizontal: 10,
+    borderColor: '#e7edf4',
+    paddingHorizontal: 14,
     minHeight: MIN_TOUCH,
   },
   searchInput: { flex: 1, fontSize: 15, color: '#334155', ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}) },
 
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0', gap: 6 },
-  cardSel: { borderColor: '#0ea5e9', borderWidth: 2 },
-  cardEnPulso: { borderColor: 'transparent' },
-  cardPulsoWrap: { alignSelf: 'stretch' },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#e7edf4',
+    gap: 8,
+    overflow: 'hidden',
+    ...(Platform.OS === 'web' ? ({ boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)' } as object) : {}),
+  },
+  cardEnGrid: { flex: 1 },
+  cardSel: { borderColor: '#0ea5e9', borderWidth: 1.5 },
+  franjaNueva: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4 },
   cardTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cardId: { fontSize: 15, fontWeight: '700', color: '#334155' },
   estadoBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
@@ -770,12 +842,13 @@ const styles = StyleSheet.create({
   cardFecha: { fontSize: 13, color: '#64748b', flexShrink: 1 },
   cardTotal: { fontSize: 13, color: '#334155', fontWeight: '700', flexShrink: 0 },
   progresoRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
-  progresoBarBg: { flex: 1, height: 8, borderRadius: 999, backgroundColor: '#e2e8f0', overflow: 'hidden' },
-  progresoBarFill: { height: 8, borderRadius: 999 },
+  progresoBarBg: { flex: 1, height: 4, borderRadius: 999, backgroundColor: '#e8eef5', overflow: 'hidden' },
+  progresoBarFill: { height: 4, borderRadius: 999 },
   progresoText: { fontSize: 12, color: '#64748b', fontWeight: '600', minWidth: 56, textAlign: 'right' },
 
-  detalleHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8 },
-  detalleTitle: { fontSize: 16, fontWeight: '700', color: '#334155' },
+  detalleHeader: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 14 },
+  detalleDatos: { flex: 1, minWidth: 180 },
+  detalleTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a', letterSpacing: -0.2 },
   detalleSub: { fontSize: 13, color: '#64748b', marginTop: 2 },
   cerrarBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: '#f1f5f9' },
 
@@ -791,42 +864,46 @@ const styles = StyleSheet.create({
   },
   notasText: { flex: 1, fontSize: 14, color: '#92400e' },
 
-  accionesRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  accionesCabecera: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
+  accionesBajoFecha: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   accionBtn: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    minHeight: 52,
+    minHeight: MIN_TOUCH,
+    paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
+    flex: 1,
+    minWidth: 148,
   },
+  accionBtnCompacta: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', minHeight: 36, paddingHorizontal: 10 },
   accionBtnPrimary: { backgroundColor: '#16a34a', borderColor: '#16a34a' },
-  accionBtnPrimaryText: { fontSize: 16, fontWeight: '700', color: '#fff' },
-  accionBtnGhost: { backgroundColor: '#fff', borderColor: '#e2e8f0' },
-  accionBtnGhostText: { fontSize: 16, fontWeight: '600', color: '#64748b' },
+  accionBtnPrimaryText: { fontSize: 14, fontWeight: '700', color: '#fff' },
+  accionBtnGhost: { backgroundColor: '#fff', borderColor: '#e7edf4' },
+  accionBtnGhostText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
+  accionBtnTextCompacta: { fontSize: 13 },
   accionBtnDisabled: { opacity: 0.5 },
 
   linea: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
     minHeight: 56,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#e7edf4',
     backgroundColor: '#fff',
   },
-  lineaPreparada: { backgroundColor: '#f0fdf4', borderColor: '#86efac' },
+  lineaPreparada: { backgroundColor: '#f0fdf4', borderColor: '#dcfce7' },
   lineaCheck: { width: 30, alignItems: 'center', justifyContent: 'center' },
-  lineaNombre: { fontSize: 15, color: '#334155', fontWeight: '500' },
+  lineaArticulo: { flex: 1, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, minWidth: 0 },
+  lineaNombre: { fontSize: 15, color: '#334155', fontWeight: '500', flexShrink: 1 },
   lineaNombrePrep: { color: '#15803d', fontWeight: '600' },
-  lineaCantidadBox: { alignItems: 'center', minWidth: 48 },
-  lineaCantidad: { fontSize: 17, fontWeight: '700', color: '#0f172a' },
-  lineaCantidadLabel: { fontSize: 11, color: '#94a3b8' },
+  lineaCantidad: { fontSize: 17, fontWeight: '700', color: '#0f172a', minWidth: 28, textAlign: 'right' },
 
   sinPermisoText: { fontSize: 15, color: '#64748b', textAlign: 'center' },
   errorText: { fontSize: 14, color: '#dc2626', textAlign: 'center' },

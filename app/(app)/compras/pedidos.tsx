@@ -38,6 +38,8 @@ import {
   CeldaFacturacionPedido,
   COLUMNA_FACTURACION,
 } from '../../components/compras/CeldaFacturacionPedido';
+import { BadgeFormato, useMapaFormatosBase } from '../../components/compras/BadgeFormato';
+import { EtiquetaZona, ordenarLineasPorZona, useMapaZonas } from '../../components/compras/EtiquetaZona';
 import { estadoFacturacionPedido } from '../../lib/comprasFacturacion';
 import NuevoPedidoModal from './NuevoPedidoModal';
 
@@ -165,7 +167,10 @@ export default function PedidosScreen() {
   const [modalLineaFormVisible, setModalLineaFormVisible] = useState(false);
   const [formLinea, setFormLinea] = useState({ ProductId: '', ProductoNombre: '', Cantidad: '', PrecioUnitario: '', Iva: '', TotalRappel: '' });
   const [guardandoLinea, setGuardandoLinea] = useState(false);
-  const { productosIgp: productosIgpCache, loading: loadingProductosCache, lastFetch: productosLastFetch, recargar: recargarProductos } = useProductosCache();
+  const { productos, productosIgp: productosIgpCache, loading: loadingProductosCache, lastFetch: productosLastFetch, recargar: recargarProductos } = useProductosCache();
+  const formatos = useMapaFormatosBase(productos);
+  const zonas = useMapaZonas(productos);
+  const lineasPorZona = useMemo(() => ordenarLineasPorZona(lineas, zonas), [lineas, zonas]);
   const productosIgp = productosIgpCache as Record<string, string | number | boolean>[];
   const loadingProductos = loadingProductosCache;
   const [porcentajeBeneficio, setPorcentajeBeneficio] = useState(0);
@@ -973,7 +978,7 @@ export default function PedidosScreen() {
           <Text style={styles.lineasEmpty}>No hay líneas</Text>
         </View>
       ) : (
-        lineas.map((l, idx) => {
+        lineasPorZona.map((l, idx) => {
           const key = String(l.LineaIndex ?? idx);
           const cantEdit = lineasEditValues[key] ?? String(l.Cantidad ?? '');
           const cant = editModeLineas ? (parseFloat(String(cantEdit).replace(',', '.')) || 0) : Number(l.Cantidad ?? 0);
@@ -1016,7 +1021,11 @@ export default function PedidosScreen() {
                 )}
               </View>
               <View style={[styles.lineasColArticulo, preparada && styles.lineasColArticuloPreparada]} {...(Platform.OS === 'web' ? { title: String(l.ProductoNombre || l.ProductId || '—') } : {})}>
-                <Text style={[styles.lineasTableCell, preparada && styles.lineasCellArticuloPreparada]} numberOfLines={1}>{String(l.ProductoNombre || l.ProductId || '—')}</Text>
+                <View style={styles.lineasArticulo}>
+                  <EtiquetaZona zona={zonas.get(String(l.ProductId ?? '').trim())} size={26} />
+                  <Text style={[styles.lineasTableCell, preparada && styles.lineasCellArticuloPreparada, styles.lineasArticuloNombre]} numberOfLines={1}>{String(l.ProductoNombre || l.ProductId || '—')}</Text>
+                  <BadgeFormato nombre={formatos.get(String(l.ProductId ?? '').trim())} />
+                </View>
               </View>
               <View style={styles.lineasColPrecio}><Text style={[styles.lineasTableCell, { textAlign: 'right' }]}>{formatMoneda(precio)}</Text></View>
               <View style={styles.lineasColIva}><Text style={[styles.lineasTableCell, { textAlign: 'right' }]}>{iva}</Text></View>
@@ -1904,6 +1913,8 @@ const styles = StyleSheet.create({
   lineasColDelete: { width: 36, alignItems: 'center', justifyContent: 'center' },
   lineasDeleteBtn: { padding: 4 },
   lineasColArticulo: { flex: 1, minWidth: 120 },
+  lineasArticulo: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, minWidth: 0 },
+  lineasArticuloNombre: { flexShrink: 1 },
   lineasColArticuloPreparada: { backgroundColor: '#dcfce7' },
   lineasCellArticuloPreparada: { color: '#16a34a', fontWeight: '600' },
   lineasCellIdBadge: { backgroundColor: '#dbeafe', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, alignSelf: 'center' },

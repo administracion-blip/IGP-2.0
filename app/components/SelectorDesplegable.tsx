@@ -24,6 +24,8 @@ export type OpcionDesplegable = {
   subtitulo?: string;
   /** Texto corto para el badge cuadrado de la izquierda (ej. "Lun"). */
   badge?: string;
+  /** Color de fondo del badge. Si viene, el texto va en blanco. */
+  badgeColor?: string;
   /** Icono por opción (alternativa al badge). */
   icono?: IconName;
 };
@@ -304,8 +306,8 @@ export function SelectorDesplegable({
                         activeOpacity={0.7}
                       >
                         {o.badge !== undefined ? (
-                          <View style={[styles.badge, sel && styles.badgeSelected]}>
-                            <Text style={[styles.badgeText, sel && styles.badgeTextSelected]}>{o.badge}</Text>
+                          <View style={[styles.badge, o.badgeColor ? { backgroundColor: o.badgeColor } : sel && styles.badgeSelected]}>
+                            <Text style={[styles.badgeText, (o.badgeColor || sel) && styles.badgeTextSelected]}>{o.badge}</Text>
                           </View>
                         ) : o.icono ? (
                           <View style={[styles.iconBox, sel && styles.iconBoxSelected]}>

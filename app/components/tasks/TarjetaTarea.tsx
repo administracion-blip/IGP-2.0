@@ -22,6 +22,7 @@ import {
   textoVencimiento,
 } from '../../lib/tasksUi';
 import { BadgeEstadoTarea, BadgePrioridad } from './BadgesTasks';
+import { ContadorChecklist } from './ContadorChecklist';
 import { AccionesEstadoTarea } from './AccionesEstadoTarea';
 import type { EstadoTarea, Tarea } from '../../types/tasks';
 
@@ -79,6 +80,7 @@ export function TarjetaTarea({
             <Text style={[styles.metaTexto, vencida && !cerrada && styles.metaVencida]}>
               {textoVencimiento(tarea.fecha_limite)}
             </Text>
+            <ContadorChecklist checklist={tarea.checklist} />
             {meta ? <Text style={styles.metaTexto} numberOfLines={1}>{`· ${meta}`}</Text> : null}
           </View>
           {tarea.estado === 'bloqueada' && tarea.bloqueo_motivo ? (

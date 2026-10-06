@@ -22,6 +22,7 @@ import {
 } from '../../components/RegistrarPagoModal';
 import { PanelMovimientosFactura } from '../../components/conciliacion/PanelMovimientosFactura';
 import { registrarPagoFacturaApi } from '../../lib/pagosFacturaDetalle';
+import { lineasDetalleCompensacion, notaAparteDeCompensacion } from '../../lib/compensacionFactura';
 import { BadgeEstado } from '../../components/BadgeEstado';
 import { BadgeEnRemesa } from '../../components/BadgeEnRemesa';
 import { BadgeAbono } from '../../components/BadgeAbono';
@@ -1725,20 +1726,30 @@ export default function FacturaDetalleScreen() {
           {pagos.length === 0 ? (
             <Text style={styles.emptyText}>No hay {esVenta ? 'cobros' : 'pagos'} registrados</Text>
           ) : (
-            pagos.map((p) => (
+            pagos.map((p) => {
+              const compensaciones = lineasDetalleCompensacion(p.compensacion_detalle);
+              const nota = compensaciones.length > 0 ? notaAparteDeCompensacion(p.observaciones) : p.observaciones;
+              return (
               <View key={p.id_pago} style={styles.pagoRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.pagoFecha}>{formatFechaPagoRow(p.fecha)}</Text>
                   <Text style={styles.pagoMeta}>
                     {labelFormaPago(p.metodo_pago)}
-                    {p.referencia ? ` · ${p.referencia}` : ''}
+                    {compensaciones.length === 0 && p.referencia ? ` · ${p.referencia}` : ''}
                   </Text>
-                  {p.observaciones ? <Text style={styles.pagoObs}>{p.observaciones}</Text> : null}
+                  {compensaciones.map((c) => (
+                    <View key={c.id || c.principal}>
+                      <Text style={styles.pagoObs}>Compensación con: {c.principal}</Text>
+                      {c.id ? <Text style={styles.pagoObs}>Id: {c.id}</Text> : null}
+                    </View>
+                  ))}
+                  {nota ? <Text style={styles.pagoObs}>{nota}</Text> : null}
                   <Text style={styles.pagoAutor}>{p.creado_por_nombre} – {p.creado_en}</Text>
                 </View>
                 <Text style={styles.pagoImporte}>{formatMoneda(p.importe)}</Text>
               </View>
-            ))
+              );
+            })
           )}
         </View>
       )}

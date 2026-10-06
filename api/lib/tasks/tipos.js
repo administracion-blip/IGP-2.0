@@ -121,6 +121,8 @@ export const ROL_ADMINISTRADOR = 'Administrador';
 // ─── Límites ───
 
 export const MAX_CHECKLIST = 50;
+/** Personas, aparte del responsable, a las que les sale la misma tarea en su agenda. */
+export const MAX_PARTICIPANTES_TAREA = 20;
 export const MAX_TAREAS_LOTE = 50;
 /** Las tareas sin fecha límite ordenan al final, no al principio. */
 export const FECHA_SIN_LIMITE = '9999-12-31';
@@ -145,6 +147,11 @@ export const SK = {
   adjunto: (idAdjunto) => `ADJUNTO#${idAdjunto}`,
   comentario: (iso, uuid) => `COMENT#${iso}#${uuid}`,
   asistente: (idUsuario) => `ASIST#${idUsuario}`,
+  /**
+   * Copia de índice para que un participante vea la tarea en su agenda.
+   * `responsable_id` de esta fila es el participante, no el dueño de la tarea.
+   */
+  vista: (idUsuario) => `VISTA#${idUsuario}`,
   punto: (orden) => `PUNTO#${String(orden).padStart(3, '0')}`,
   /** Tarea dentro de una plantilla de proyecto (`PLANTILLA#…`). Orden padded a 3. */
   tareaPlantilla: (orden) => `TAREA#${String(orden).padStart(3, '0')}`,

@@ -45,6 +45,8 @@ import {
   SYNC_SALES_LINES_WEEKLY_ENABLED,
   SYNC_SALES_LINES_WEEKLY_HOUR,
   checkWeeklySalesLinesResync,
+  checkArrastreTareas,
+  checkSyncCalendarEntrante,
   VENCIMIENTOS_INTERVAL_MS,
 } from './lib/jobs/scheduledTasks.js';
 import facturacionRouter from './routes/facturacion.js';
@@ -357,6 +359,21 @@ app.listen(port, host, () => {
   logger.info(
     { intervalSec: SYNC_SCHEDULER_INTERVAL_MS / 1000 },
     '[facturacion-rappel] Scheduler activo — genera el periodo pendiente si está activada en Ajustes',
+  );
+
+  // Arrastre de tareas abiertas al día de hoy (y a Google Calendar). Va antes
+  // que el aviso por email para que el correo ya vea la fecha nueva.
+  setTimeout(() => checkArrastreTareas(), 15000);
+  setInterval(() => checkArrastreTareas(), SYNC_SCHEDULER_INTERVAL_MS);
+  setTimeout(() => checkSyncCalendarEntrante(), 21000);
+  setInterval(() => checkSyncCalendarEntrante(), SYNC_SCHEDULER_INTERVAL_MS);
+  logger.info(
+    { intervalSec: SYNC_SCHEDULER_INTERVAL_MS / 1000 },
+    '[tareas-arrastre] Scheduler activo — pasa a hoy las tareas abiertas con vencimiento anterior',
+  );
+  logger.info(
+    { intervalSec: 300 },
+    '[calendar-entrante] Scheduler activo — copia cambios de Google y crea tareas nuevas del calendario de IGP',
   );
 
   // Aviso a cada responsable de sus tareas vencidas. No recibe `port`: no se llama

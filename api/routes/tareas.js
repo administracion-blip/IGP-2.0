@@ -60,6 +60,7 @@ const CAMPOS_PATCH = [
   'prioridad',
   'departamento_id',
   'menciones',
+  'participantes_ids',
 ];
 
 /** Campos de sync Calendar que viajan junto a `tarea` en crear / editar / reasignar. */
@@ -226,7 +227,11 @@ router.post('/tareas/:id/reasignar', async (req, res) => {
 });
 
 router.delete('/tareas/:id', requirePermission(PERMISOS.proyectosBorrar), async (req, res) => {
-  const r = await borrarTarea({ ctx: await contexto(req), idTarea: req.params.id });
+  const r = await borrarTarea({
+    ctx: await contexto(req),
+    idTarea: req.params.id,
+    alcance: req.query?.alcance,
+  });
   if (fallo(res, r)) return;
   return res.json({ ok: true });
 });

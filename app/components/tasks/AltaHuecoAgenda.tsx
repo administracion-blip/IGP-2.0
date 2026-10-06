@@ -67,6 +67,7 @@ export function AltaHuecoAgenda({
         presentacion="flotante"
         fechaPorDefecto={hueco.iso}
         horaInicioPorDefecto={hueco.horaInicio}
+        responsablePorDefecto={acceso.usuarioId}
         usuarios={usuarios}
         departamentos={departamentos}
         onCerrar={onCerrar}

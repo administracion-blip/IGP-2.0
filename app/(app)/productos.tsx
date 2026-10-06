@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { formatId6 } from '../utils/idFormat';
 import { SelectorDesplegable } from '../components/SelectorDesplegable';
+import { EtiquetaZona, OPCIONES_ZONA, letraZona } from '../components/compras/EtiquetaZona';
 import { useProductosCache } from '../contexts/ProductosCache';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocalToast } from '../components/Toast';
@@ -29,7 +30,7 @@ const PAGE_SIZE = 50;
 const MAX_TEXT_LENGTH = 30;
 
 /** Columnas preferidas para Productos Ágora (solo campos permitidos por API) */
-const PREFERRED_COLS_AGORA = ['Id', 'IGP', 'Name', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'ultimo_iva_compra', 'CostPrice', 'CostPrices', 'BaseSaleFormatId', 'Active', 'IsSoldByWeight'];
+const PREFERRED_COLS_AGORA = ['Id', 'IGP', 'Name', 'Zona', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'ultimo_iva_compra', 'CostPrice', 'CostPrices', 'BaseSaleFormatId', 'Active', 'IsSoldByWeight'];
 
 const DEFAULT_COL_WIDTH = 90;
 const MAX_TEXT_LENGTH_TABLE = 30;
@@ -127,7 +128,7 @@ function columnasFromProductos(
 }
 
 function getAnchoColumna(col: string): number {
-  if (col === 'IGP') return 56;
+  if (col === 'IGP' || col === 'Zona') return 56;
   if (col === 'Name') return 180;
   return DEFAULT_COL_WIDTH;
 }
@@ -156,11 +157,12 @@ type ProductRowProps = {
   columnas: string[];
   onToggleSelect: (rowId: string, shiftKey: boolean) => void;
   onToggleIGP: (producto: Producto) => void;
+  onEditar: (producto: Producto) => void;
   valorCelda: (item: Producto, col: string) => string;
 };
 
 const ProductRow = memo(function ProductRow({
-  producto, rowId, isSelected, isLastRow, columnas, onToggleSelect, onToggleIGP, valorCelda,
+  producto, rowId, isSelected, isLastRow, columnas, onToggleSelect, onToggleIGP, onEditar, valorCelda,
 }: ProductRowProps) {
   const handlePress = useCallback((e: any) => {
     if (!rowId) return;
@@ -172,6 +174,11 @@ const ProductRow = memo(function ProductRow({
     ev.stopPropagation();
     onToggleIGP(producto);
   }, [producto, onToggleIGP]);
+
+  const handleEditar = useCallback((ev: any) => {
+    ev.stopPropagation();
+    onEditar(producto);
+  }, [producto, onEditar]);
 
   return (
     <Pressable
@@ -189,11 +196,34 @@ const ProductRow = memo(function ProductRow({
           color={isSelected ? colors.accent : colors.border}
         />
       </View>
+      <TouchableOpacity
+        style={styles.editCell}
+        onPress={handleEditar}
+        accessibilityLabel="Editar producto"
+        activeOpacity={0.7}
+      >
+        <MaterialIcons name="edit" size={16} color={colors.textSecondary} />
+      </TouchableOpacity>
       {columnas.map((col, colIdx) => {
         const isLastCol = colIdx === columnas.length - 1;
         const colWidth = getAnchoColumna(col);
         const isMoneda = col === 'CostPrice';
         const isIGP = col === 'IGP';
+        if (col === 'Zona') {
+          const zona = letraZona(producto.Zona);
+          return (
+            <View
+              key={col}
+              style={[
+                erpTableStyles.cell,
+                isLastCol && erpTableStyles.cellLast,
+                { width: colWidth, alignItems: 'center', justifyContent: 'center' },
+              ]}
+            >
+              {zona ? <EtiquetaZona zona={zona} size={26} /> : <Text style={erpTableStyles.cellText}>—</Text>}
+            </View>
+          );
+        }
         if (isIGP) {
           const igpVal = producto.IGP === true || producto.IGP === 'true';
           return (
@@ -279,6 +309,7 @@ export default function ProductosScreen() {
   const [formFamilyId, setFormFamilyId] = useState('');
   const [formVatId, setFormVatId] = useState('');
   const [formIGP, setFormIGP] = useState(false);
+  const [formZona, setFormZona] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [errorEditar, setErrorEditar] = useState<string | null>(null);
 
@@ -356,6 +387,7 @@ export default function ProductosScreen() {
     setFormFamilyId(String(producto.FamilyId ?? ''));
     setFormVatId(String(producto.VatId ?? ''));
     setFormIGP(producto.IGP === true || producto.IGP === 'true');
+    setFormZona(letraZona(producto.Zona));
     setErrorEditar(null);
     setModalEditarVisible(true);
   }, []);
@@ -383,6 +415,7 @@ export default function ProductosScreen() {
         FamilyId: formFamilyId.trim() || null,
         VatId: formVatId.trim() || null,
         IGP: formIGP,
+        Zona: formZona,
       };
       const res = await apiFetch(`/api/agora/products/${encodeURIComponent(String(id))}`, {
         method: 'PATCH',
@@ -400,7 +433,7 @@ export default function ProductosScreen() {
     } finally {
       setGuardando(false);
     }
-  }, [productoEditando, formName, formCostPrice, formBaseSaleFormatId, formFamilyId, formVatId, formIGP, cerrarModalEditar, refetchProductosAgora]);
+  }, [productoEditando, formName, formCostPrice, formBaseSaleFormatId, formFamilyId, formVatId, formIGP, formZona, cerrarModalEditar, refetchProductosAgora]);
 
   /** Columnas para Productos Ágora */
   const columnasAgora = useMemo(
@@ -457,6 +490,7 @@ export default function ProductosScreen() {
     }
     const str = String(raw);
     if (col === 'Id' || col === 'id') return formatId6(str);
+    if (col === 'Zona') return letraZona(raw) || '—';
     return str;
   }, []);
 
@@ -598,7 +632,52 @@ export default function ProductosScreen() {
   }, []);
 
 
-  const anchoTabla = 32 + columnasAgora.reduce((w, c) => w + getAnchoColumna(c), 0);
+  const anchoTabla = 32 + 36 + columnasAgora.reduce((w, c) => w + getAnchoColumna(c), 0);
+
+  const opcionesZonaLote = useMemo(
+    () => [{ id: '', titulo: 'Quitar zona' }, ...OPCIONES_ZONA.filter((o) => o.id)],
+    [],
+  );
+
+  const batchAsignarZona = useCallback(
+    async (zonaId: string) => {
+      if (selectedIds.size === 0 || batchUpdating) return;
+      const letra = letraZona(zonaId);
+      setBatchUpdating(true);
+      const ids = [...selectedIds];
+      ids.forEach((id) => updateProductoLocal(id, { Zona: letra || null }));
+      try {
+        const res = await apiFetch('/api/agora/products/zona/batch', {
+          method: 'PATCH',
+          body: JSON.stringify({ ids, Zona: letra }),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok && !data.totalFallidos) {
+          showToast(
+            letra ? 'Zona asignada' : 'Zona quitada',
+            `${data.totalActualizados} producto(s)`,
+            'success',
+          );
+          setSelectedIds(new Set());
+        } else if (res.ok && data.ok) {
+          showToast(
+            'Actualización parcial',
+            `${data.totalActualizados} actualizados. ${data.totalFallidos} fallaron.`,
+            'warning',
+          );
+          await refetchProductosAgora();
+        } else {
+          showToast('Error', data.error || 'Error al asignar la zona', 'error');
+          await refetchProductosAgora();
+        }
+      } catch (e) {
+        showToast('Error', e instanceof Error ? e.message : 'Error de conexión', 'error');
+        await refetchProductosAgora();
+      }
+      setBatchUpdating(false);
+    },
+    [selectedIds, batchUpdating, updateProductoLocal, showToast, refetchProductosAgora],
+  );
 
   return (
     <View style={erpTableStyles.screen}>
@@ -709,6 +788,16 @@ export default function ProductosScreen() {
                 )}
                 <Text style={[erpTableStyles.toolbarBtnLabeledText, styles.batchBtnText]}>Desmarcar IGP</Text>
               </TouchableOpacity>
+              <SelectorDesplegable
+                compact
+                sinIconoTrigger
+                placeholder="Asignar zona"
+                tituloLista="Asignar zona"
+                opciones={opcionesZonaLote}
+                onSeleccionar={batchAsignarZona}
+                disabled={batchUpdating}
+                style={styles.zonaLote}
+              />
               <TouchableOpacity
                 style={erpTableStyles.toolbarBtnLabeled}
                 onPress={() => setSelectedIds(new Set())}
@@ -840,6 +929,7 @@ export default function ProductosScreen() {
                         color={colors.textSecondary}
                       />
                     </TouchableOpacity>
+                    <View style={styles.editCell} />
                     {columnasAgora.map((col, colIdx) => {
                       const isLastCol = colIdx === columnasAgora.length - 1;
                       return (
@@ -871,6 +961,7 @@ export default function ProductosScreen() {
                         columnas={columnasAgora}
                         onToggleSelect={handleToggleSelect}
                         onToggleIGP={toggleAgoraProductIGP}
+                        onEditar={abrirModalEditar}
                         valorCelda={valorCeldaAgora}
                       />
                     );
@@ -994,6 +1085,23 @@ export default function ProductosScreen() {
                         />
                       </View>
                       <View style={styles.formGroup}>
+                        <Text style={styles.formLabel}>Zona</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                          <EtiquetaZona zona={formZona} />
+                          <View style={{ flex: 1 }}>
+                            <SelectorDesplegable
+                              placeholder="Sin zona"
+                              opciones={OPCIONES_ZONA}
+                              valorId={formZona}
+                              onSeleccionar={setFormZona}
+                              tituloLista="Zona del almacén"
+                              sinIconoTrigger
+                              disabled={guardando}
+                            />
+                          </View>
+                        </View>
+                      </View>
+                      <View style={styles.formGroup}>
                         <Text style={styles.formLabel}>CostPrice (€)</Text>
                         <TextInput
                           style={styles.formInput}
@@ -1097,6 +1205,15 @@ const styles = StyleSheet.create({
   },
   searchInputFlex: { flex: 1, minWidth: 80, fontSize: 12, color: colors.textPrimary, paddingVertical: 0 },
   limpiarBusquedaBtn: { padding: SPACING.xs + 2 },
+  editCell: {
+    width: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+    borderRightWidth: 1,
+    borderRightColor: colors.borderStrong,
+  },
+  zonaLote: { width: 168, maxWidth: 200 },
   batchBtnSuccess: { backgroundColor: colors.success, borderColor: colors.success },
   batchBtnDanger: { backgroundColor: colors.danger, borderColor: colors.danger },
   batchBtnText: { color: colors.surface },

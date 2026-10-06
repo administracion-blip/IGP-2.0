@@ -12,10 +12,13 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
+import { BadgeFormato, useMapaFormatosBase } from '../../components/compras/BadgeFormato';
+import { EtiquetaZona, ordenarLineasPorZona, useMapaZonas } from '../../components/compras/EtiquetaZona';
+import { useProductosCache } from '../../contexts/ProductosCache';
 import { fetchPorcentajeBeneficio, aplicarPorcentajeBeneficio } from '../../lib/personalizacion';
 import { apiFetch } from '../../utils/api';
 
-const COLUMNAS = ['PedidoId', 'LineaIndex', 'ProductId', 'ProductoNombre', 'Cantidad', 'PrecioUnitario', 'TotalLinea'];
+const COLUMNAS = ['PedidoId', 'LineaIndex', 'ProductId', 'ProductoNombre', 'Zona', 'Formato', 'Cantidad', 'PrecioUnitario', 'TotalLinea'];
 
 type Pedido = Record<string, string | number | undefined>;
 type Detalle = Record<string, string | number | undefined>;
@@ -35,6 +38,9 @@ function formatMoneda(val: string | number | undefined): string {
 
 export default function DetallesPedidosScreen() {
   const router = useRouter();
+  const { productos } = useProductosCache();
+  const formatos = useMapaFormatosBase(productos);
+  const zonas = useMapaZonas(productos);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [pedidoSeleccionado, setPedidoSeleccionado] = useState<string | null>(null);
   const [details, setDetails] = useState<Detalle[]>([]);
@@ -94,16 +100,26 @@ export default function DetallesPedidosScreen() {
 
   const detailsFiltrados = useMemo(() => {
     const q = filtroBusqueda.trim().toLowerCase();
-    if (!q) return details;
-    return details.filter((d) => {
-      const texto = COLUMNAS.map((c) => String(valorEnLocal(d, c) ?? '')).join(' ').toLowerCase();
-      return texto.includes(q);
-    });
-  }, [details, filtroBusqueda]);
+    const lista = !q
+      ? details
+      : details.filter((d) => {
+          const texto = COLUMNAS.map((c) => String(valorEnLocal(d, c) ?? '')).join(' ');
+          const idProd = String(valorEnLocal(d, 'ProductId') ?? '').trim();
+          const formato = formatos.get(idProd) ?? '';
+          const zona = zonas.get(idProd) ?? '';
+          return `${texto} ${formato} ${zona}`.toLowerCase().includes(q);
+        });
+    return ordenarLineasPorZona(lista, zonas);
+  }, [details, filtroBusqueda, formatos, zonas]);
 
   const getValorCelda = useCallback(
     (item: Detalle, col: string): string => {
       const v = valorEnLocal(item, col);
+      const idProd = String(valorEnLocal(item, 'ProductId') ?? '').trim();
+      if (col === 'Zona') return zonas.get(idProd) ?? '—';
+      if (col === 'Formato') {
+        return formatos.get(idProd) ?? '';
+      }
       if (col === 'PrecioUnitario' || col === 'TotalLinea') {
         const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''));
         if (Number.isNaN(n)) return v != null ? String(v) : '—';
@@ -111,7 +127,7 @@ export default function DetallesPedidosScreen() {
       }
       return v != null ? String(v) : '—';
     },
-    [porcentajeBeneficio],
+    [porcentajeBeneficio, formatos, zonas],
   );
 
   return (
@@ -163,6 +179,15 @@ export default function DetallesPedidosScreen() {
           columnas={[...COLUMNAS]}
           datos={detailsFiltrados}
           getValorCelda={getValorCelda}
+          renderCell={(item, col) => {
+            const idProd = String(valorEnLocal(item, 'ProductId') ?? '').trim();
+            if (col === 'Zona') {
+              const zona = zonas.get(idProd);
+              return zona ? <EtiquetaZona zona={zona} size={26} /> : null;
+            }
+            if (col !== 'Formato') return null;
+            return <BadgeFormato nombre={formatos.get(idProd)} />;
+          }}
           loading={loadingDetails}
           error={error}
           onRetry={() => pedidoSeleccionado && refetchDetails(pedidoSeleccionado)}

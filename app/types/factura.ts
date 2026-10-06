@@ -60,6 +60,7 @@ export type FacturaListado = {
 } & Partial<Pick<Factura,
   | 'estado'
   | 'fecha_emision'
+  | 'fecha_vencimiento'
   | 'numero_factura'
   | 'numero_factura_proveedor'
   | 'emisor_id'

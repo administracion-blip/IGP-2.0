@@ -269,6 +269,19 @@ const tareaSuelta = {
   menciones: [CARLOS],
 };
 
+test('puedeVerTarea y puedeEditarTarea: un participante las tiene; reasignar no', () => {
+  const tarea = {
+    ...tareaSuelta,
+    menciones: [],
+    proyecto_id: 'p1',
+    participantes_ids: ['diego'],
+  };
+  const diego = crearContextoAcceso({ idUsuario: 'diego' });
+  assert.equal(puedeVerTarea(diego, tarea), true);
+  assert.equal(puedeEditarTarea(diego, tarea), true);
+  assert.equal(puedeReasignarTarea(diego, tarea, { proyecto, miembros }), false);
+});
+
 test('puedeVerTarea: responsable, creador y mencionado la ven; un ajeno no', () => {
   assert.equal(puedeVerTarea(crearContextoAcceso({ idUsuario: BEA }), tareaSuelta), true);
   assert.equal(puedeVerTarea(ctxDe(), tareaSuelta), true);

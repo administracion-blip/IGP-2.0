@@ -25,6 +25,7 @@ import test, { after } from 'node:test';
 import { strict as assert } from 'node:assert';
 import http from 'node:http';
 import express from 'express';
+import { UpdateCommand } from '@aws-sdk/lib-dynamodb';
 
 process.env.AWS_REGION = process.env.AWS_REGION || 'eu-west-3';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'secreto-solo-para-las-pruebas-de-tareas';
@@ -272,6 +273,70 @@ test('cerrar una tarea la saca de la vista personal y reabrirla la devuelve', as
 
   const devuelta = await api('GET', '/api/tareas/mias');
   assert.deepEqual(devuelta.body.tareas.map((t) => t.id_tarea), [tarea.id_tarea]);
+});
+
+test('un participante ve la misma tarea en su agenda y puede cerrarla', async () => {
+  const db = montar();
+  const tarea = await crear({
+    titulo: 'Montar el escenario',
+    participantes_ids: [BEA.sub, ANA.sub, BEA.sub],
+  });
+  assert.deepEqual(tarea.participantes_ids, [BEA.sub]);
+  assert.equal(tarea.responsable_id, ANA.sub);
+
+  const vista = db.obtener(tables.tareas, { PK: PK.tarea(tarea.id_tarea), SK: `VISTA#${BEA.sub}` });
+  assert.equal(vista?.es_vista, true);
+  assert.equal(vista?.responsable_id, BEA.sub);
+  assert.equal(vista?.vencimiento_orden, `${dia(7)}#${tarea.id_tarea}`);
+
+  const deAna = await api('GET', '/api/tareas/mias');
+  assert.deepEqual(deAna.body.tareas.map((t) => t.id_tarea), [tarea.id_tarea]);
+
+  const deBea = await api('GET', '/api/tareas/mias', undefined, BEA);
+  assert.equal(deBea.status, 200);
+  assert.deepEqual(deBea.body.tareas.map((t) => t.id_tarea), [tarea.id_tarea]);
+  assert.equal(deBea.body.tareas[0].responsable_id, ANA.sub);
+  assert.equal(deBea.body.tareas[0].titulo, 'Montar el escenario');
+  assert.equal(deBea.body.tareas[0].permisos_fila.editar, true);
+  assert.equal(deBea.body.tareas[0].permisos_fila.reasignar, false);
+
+  const cierre = await api('POST', `/api/tareas/${tarea.id_tarea}/estado`, { estado: 'hecha' }, BEA);
+  assert.equal(cierre.status, 200);
+  assert.equal((await api('GET', '/api/tareas/mias', undefined, BEA)).body.tareas.length, 0);
+  assert.equal((await api('GET', '/api/tareas/mias')).body.tareas.length, 0);
+  const vistaCerrada = db.obtener(tables.tareas, { PK: PK.tarea(tarea.id_tarea), SK: `VISTA#${BEA.sub}` });
+  assert.equal(vistaCerrada.vencimiento_orden, `hecha#${dia(7)}#${tarea.id_tarea}`);
+
+  const sobran = await api('POST', '/api/tareas', {
+    titulo: 'Demasiadas',
+    responsable_id: ANA.sub,
+    fecha_limite: dia(1),
+    participantes_ids: Array.from({ length: 21 }, (_, i) => `p${String(i).padStart(4, '0')}`),
+  });
+  assert.equal(sobran.status, 400);
+});
+
+test('editar los participantes les mete o les saca la tarea de la agenda', async () => {
+  montar();
+  const tarea = await crear({ titulo: 'Revisar el almacén' });
+  assert.deepEqual((await api('GET', '/api/tareas/mias', undefined, BEA)).body.tareas, []);
+
+  const alta = await api('PATCH', `/api/tareas/${tarea.id_tarea}`, { participantes_ids: [BEA.sub, ANA.sub] });
+  assert.equal(alta.status, 200, JSON.stringify(alta.body));
+  assert.deepEqual(alta.body.tarea.participantes_ids, [BEA.sub]);
+  assert.deepEqual(
+    (await api('GET', '/api/tareas/mias', undefined, BEA)).body.tareas.map((t) => t.id_tarea),
+    [tarea.id_tarea],
+  );
+
+  const baja = await api('PATCH', `/api/tareas/${tarea.id_tarea}`, { participantes_ids: [] });
+  assert.equal(baja.status, 200);
+  assert.deepEqual(baja.body.tarea.participantes_ids, []);
+  assert.deepEqual((await api('GET', '/api/tareas/mias', undefined, BEA)).body.tareas, []);
+  assert.deepEqual(
+    (await api('GET', '/api/tareas/mias')).body.tareas.map((t) => t.id_tarea),
+    [tarea.id_tarea],
+  );
 });
 
 test('una tarea sin fecha límite ordena al final, no al principio', async () => {
@@ -1428,4 +1493,415 @@ test('las @menciones de la descripción se extraen también al editar la tarea',
   await api('POST', `/api/tareas/${tarea.id_tarea}/comentarios`, { texto: 'Ojo @000004' });
   await api('PATCH', `/api/tareas/${tarea.id_tarea}`, { descripcion: 'Sin nadie citado' });
   assert.deepEqual(meta(db, tarea.id_tarea).menciones.sort(), [BEA.sub, DORA.sub].sort());
+});
+
+test('una tarea abierta con vencimiento pasado pasa a hoy y Google Calendar recibe ese día', async () => {
+  const db = montar();
+  db.crearTabla(tables.ajustes, { hashKey: 'PK', rangeKey: 'SK' });
+
+  const ayer = dia(-1);
+  const hoy = fechaHoyMadrid();
+  const vencida = await crear({
+    titulo: 'Cerrar el inventario',
+    proyecto_id: OBRA,
+    fecha_limite: ayer,
+    hora_inicio: '10:00',
+    hora_fin: '11:00',
+  });
+  const deHoy = await crear({ titulo: 'La de hoy', proyecto_id: OBRA, fecha_limite: hoy });
+  const hecha = await crear({ titulo: 'Ya hecha', proyecto_id: OBRA, fecha_limite: ayer });
+  assert.equal((await api('POST', `/api/tareas/${hecha.id_tarea}/estado`, { estado: 'hecha' })).status, 200);
+
+  await docClient.send(
+    new UpdateCommand({
+      TableName: tables.tareas,
+      Key: { PK: PK.tarea(vencida.id_tarea), SK: SK.meta },
+      UpdateExpression: 'SET calendar_event_id = :e, calendar_id = :c',
+      ExpressionAttributeValues: { ':e': 'evt-arrastre', ':c': 'primary' },
+    }),
+  );
+
+  const llamadas = [];
+  const { configurarClienteCalendar } = await import('../lib/google/calendarClient.js');
+  const restore = configurarClienteCalendar(async () => ({
+    calendarId: 'primary',
+    subject: 'ana@grupo.test',
+    calendar: {
+      events: {
+        patch: async (args) => {
+          llamadas.push(args);
+          return { data: { id: args.eventId } };
+        },
+        insert: async () => ({ data: { id: 'evt-nuevo' } }),
+        delete: async () => ({}),
+      },
+    },
+  }));
+
+  try {
+    const { arrastrarTareasVencidas } = await import('../lib/tasks/arrastreVencimiento.js');
+    const primera = await arrastrarTareasVencidas({ hoy });
+    assert.equal(primera.reclamado, true);
+    assert.equal(primera.arrastradas, 1);
+    assert.equal(primera.fallidas, 0);
+
+    const guardada = meta(db, vencida.id_tarea);
+    assert.equal(guardada.fecha_limite, hoy);
+    assert.equal(guardada.hora_inicio, '10:00');
+    assert.equal(guardada.hora_fin, '11:00');
+    assert.equal(guardada.estado, 'pendiente');
+    assert.equal(meta(db, deHoy.id_tarea).fecha_limite, hoy);
+    assert.equal(meta(db, hecha.id_tarea).fecha_limite, ayer);
+
+    assert.equal(llamadas.length, 1);
+    assert.equal(llamadas[0].eventId, 'evt-arrastre');
+    assert.equal(llamadas[0].requestBody.start.dateTime, `${hoy}T10:00:00`);
+    assert.equal(llamadas[0].requestBody.end.dateTime, `${hoy}T11:00:00`);
+
+    const segunda = await arrastrarTareasVencidas({ hoy });
+    assert.equal(segunda.reclamado, false);
+    assert.equal(segunda.motivo, 'ya');
+    assert.equal(llamadas.length, 1);
+  } finally {
+    restore();
+  }
+});
+
+test('un cambio del evento en Google actualiza la tarea y no vuelve a escribir Calendar', async () => {
+  const db = montar();
+  db.crearTabla(tables.ajustes, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.reuniones, {
+    hashKey: 'PK',
+    rangeKey: 'SK',
+    indices: { 'Listado-index': { hashKey: 'gsi_listado', rangeKey: 'fecha' } },
+  });
+  const hoy = fechaHoyMadrid();
+  const tarea = await crear({
+    titulo: 'Revisar el almacén',
+    proyecto_id: OBRA,
+    fecha_limite: hoy,
+    hora_inicio: '09:00',
+    hora_fin: '10:00',
+  });
+  await docClient.send(
+    new UpdateCommand({
+      TableName: tables.tareas,
+      Key: { PK: PK.tarea(tarea.id_tarea), SK: SK.meta },
+      UpdateExpression: 'SET calendar_event_id = :e, calendar_id = :c',
+      ExpressionAttributeValues: { ':e': 'evt-google', ':c': 'primary' },
+    }),
+  );
+
+  const dominioPrevio = process.env.GOOGLE_CALENDAR_DOMINIOS_PERMITIDOS;
+  const impersonatePrevio = process.env.GOOGLE_CALENDAR_IMPERSONATE;
+  process.env.GOOGLE_CALENDAR_DOMINIOS_PERMITIDOS = 'grupo.test';
+  delete process.env.GOOGLE_CALENDAR_IMPERSONATE;
+
+  const llamadas = [];
+  const inicioUtc = `${hoy}T09:00:00Z`;
+  const finUtc = `${hoy}T10:00:00Z`;
+  const { configurarClienteCalendar, interpretarEventoGoogle } = await import('../lib/google/calendarClient.js');
+  const esperado = interpretarEventoGoogle({
+    id: 'evt-google',
+    summary: 'Revisar el almacén',
+    start: { dateTime: inicioUtc },
+    end: { dateTime: finUtc },
+  });
+  const restore = configurarClienteCalendar(async () => ({
+    calendarId: 'primary',
+    subject: 'ana@grupo.test',
+    calendar: {
+      events: {
+        list: async () => ({
+          data: {
+            items: [
+              {
+                id: 'evt-google',
+                status: 'confirmed',
+                summary: 'Revisar el almacén',
+                start: { dateTime: inicioUtc },
+                end: { dateTime: finUtc },
+              },
+            ],
+            nextSyncToken: 'tok-1',
+          },
+        }),
+        patch: async (args) => {
+          llamadas.push(args);
+          return { data: { id: args.eventId } };
+        },
+        insert: async () => ({ data: { id: 'no' } }),
+        delete: async () => ({}),
+      },
+    },
+  }));
+
+  try {
+    const { traerCambiosDesdeCalendar } = await import('../lib/tasks/syncCalendarEntrante.js');
+    const r = await traerCambiosDesdeCalendar();
+    assert.equal(r.ok, true);
+    assert.equal(r.aplicadas, 1);
+    const guardada = meta(db, tarea.id_tarea);
+    assert.equal(guardada.titulo, 'Revisar el almacén');
+    assert.equal(guardada.fecha_limite, esperado.fecha);
+    assert.equal(guardada.hora_inicio, esperado.horaInicio);
+    assert.equal(guardada.hora_fin, esperado.horaFin);
+    assert.notEqual(guardada.hora_inicio, '09:00');
+    assert.equal(llamadas.length, 0);
+  } finally {
+    restore();
+    if (dominioPrevio === undefined) delete process.env.GOOGLE_CALENDAR_DOMINIOS_PERMITIDOS;
+    else process.env.GOOGLE_CALENDAR_DOMINIOS_PERMITIDOS = dominioPrevio;
+    if (impersonatePrevio === undefined) delete process.env.GOOGLE_CALENDAR_IMPERSONATE;
+    else process.env.GOOGLE_CALENDAR_IMPERSONATE = impersonatePrevio;
+  }
+});
+
+test('un evento nuevo del calendario de IGP se crea como tarea y no se duplica en Google', async () => {
+  const db = montar();
+  db.crearTabla(tables.ajustes, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.reuniones, {
+    hashKey: 'PK',
+    rangeKey: 'SK',
+    indices: { 'Listado-index': { hashKey: 'gsi_listado', rangeKey: 'fecha' } },
+  });
+  db.sembrar(tables.ajustes, {
+    PK: 'tareas',
+    SK: 'calendar_pull#ana@grupo.test#primary',
+    sync_token: 'tok-previo',
+  });
+
+  const hoy = fechaHoyMadrid();
+  const inicioUtc = `${hoy}T09:00:00Z`;
+  const finUtc = `${hoy}T10:00:00Z`;
+  const { configurarClienteCalendar, interpretarEventoGoogle } = await import('../lib/google/calendarClient.js');
+  const esperado = interpretarEventoGoogle({
+    id: 'evt-nuevo',
+    summary: 'Comprar hielo',
+    start: { dateTime: inicioUtc },
+    end: { dateTime: finUtc },
+  });
+
+  const dominioPrevio = process.env.GOOGLE_CALENDAR_DOMINIOS_PERMITIDOS;
+  const impersonatePrevio = process.env.GOOGLE_CALENDAR_IMPERSONATE;
+  const calendarIdPrevio = process.env.GOOGLE_CALENDAR_ID;
+  process.env.GOOGLE_CALENDAR_DOMINIOS_PERMITIDOS = 'grupo.test';
+  process.env.GOOGLE_CALENDAR_IMPERSONATE = 'ana@grupo.test';
+  delete process.env.GOOGLE_CALENDAR_ID;
+
+  const llamadas = [];
+  const restore = configurarClienteCalendar(async () => ({
+    calendarId: 'primary',
+    subject: 'ana@grupo.test',
+    calendar: {
+      events: {
+        list: async () => ({
+          data: {
+            items: [
+              {
+                id: 'evt-nuevo',
+                status: 'confirmed',
+                summary: 'Comprar hielo',
+                start: { dateTime: inicioUtc },
+                end: { dateTime: finUtc },
+              },
+            ],
+            nextSyncToken: 'tok-siguiente',
+          },
+        }),
+        insert: async (args) => {
+          llamadas.push(['insert', args]);
+          return { data: { id: 'no-debe' } };
+        },
+        patch: async (args) => {
+          llamadas.push(['patch', args]);
+          return { data: { id: args.eventId } };
+        },
+        delete: async () => ({}),
+      },
+    },
+  }));
+
+  try {
+    const { traerCambiosDesdeCalendar } = await import('../lib/tasks/syncCalendarEntrante.js');
+    const r = await traerCambiosDesdeCalendar();
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.aplicadas, 1);
+    assert.equal(llamadas.length, 0);
+
+    const mias = await api('GET', '/api/tareas/mias');
+    assert.equal(mias.status, 200);
+    assert.equal(mias.body.tareas.length, 1);
+    const tarea = mias.body.tareas[0];
+    assert.equal(tarea.titulo, 'Comprar hielo');
+    assert.equal(tarea.fecha_limite, esperado.fecha);
+    assert.equal(tarea.hora_inicio, esperado.horaInicio);
+    assert.equal(tarea.hora_fin, esperado.horaFin);
+    assert.equal(tarea.responsable_id, ANA.sub);
+    assert.equal(meta(db, tarea.id_tarea).calendar_event_id, 'evt-nuevo');
+  } finally {
+    restore();
+    if (dominioPrevio === undefined) delete process.env.GOOGLE_CALENDAR_DOMINIOS_PERMITIDOS;
+    else process.env.GOOGLE_CALENDAR_DOMINIOS_PERMITIDOS = dominioPrevio;
+    if (impersonatePrevio === undefined) delete process.env.GOOGLE_CALENDAR_IMPERSONATE;
+    else process.env.GOOGLE_CALENDAR_IMPERSONATE = impersonatePrevio;
+    if (calendarIdPrevio === undefined) delete process.env.GOOGLE_CALENDAR_ID;
+    else process.env.GOOGLE_CALENDAR_ID = calendarIdPrevio;
+  }
+});
+
+test('una tarea semanal crea una ficha por fecha y un solo evento en Google', async () => {
+  const db = montar();
+  const insertados = [];
+  const borrados = [];
+  const parches = [];
+  const { configurarClienteCalendar } = await import('../lib/google/calendarClient.js');
+  const restore = configurarClienteCalendar(async () => ({
+    calendarId: 'primary',
+    subject: 'ana@grupo.test',
+    calendar: {
+      events: {
+        insert: async (args) => {
+          insertados.push(args.requestBody);
+          return { data: { id: 'serie-evt' } };
+        },
+        patch: async (args) => {
+          parches.push(args.requestBody);
+          return { data: { id: args.eventId } };
+        },
+        delete: async (args) => {
+          borrados.push(args.eventId);
+          return {};
+        },
+        get: async () => ({
+          data: {
+            id: 'serie-evt',
+            recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=MO'],
+            start: { dateTime: '2026-09-28T08:00:00+02:00', timeZone: 'Europe/Madrid' },
+          },
+        }),
+        instances: async () => ({
+          data: {
+            items: [
+              {
+                id: 'serie-evt_inst',
+                status: 'confirmed',
+                start: { date: '2026-10-05' },
+              },
+            ],
+          },
+        }),
+      },
+    },
+  }));
+
+  try {
+    const alta = await api('POST', '/api/tareas', {
+      titulo: 'Cerrar caja',
+      responsable_id: ANA.sub,
+      fecha_limite: '2026-09-28',
+      hora_inicio: '10:00',
+      hora_fin: '11:00',
+      recurrencia: { frecuencia: 'semanal', dia_semana: 1 },
+    });
+    assert.equal(alta.status, 200, JSON.stringify(alta.body));
+    assert.equal(insertados.length, 1);
+    assert.deepEqual(insertados[0].recurrence, ['RRULE:FREQ=WEEKLY;BYDAY=MO']);
+
+    const fichas = db.listar(tables.tareas).filter((it) => String(it.PK).startsWith('TAREA#'));
+    assert.ok(fichas.length > 20, `solo ${fichas.length} fichas`);
+    assert.ok(fichas.every((t) => t.calendar_event_id === 'serie-evt'));
+    assert.ok(fichas.every((t) => t.recurrencia_id && t.ocurrencia_fecha === t.fecha_limite));
+
+    const segunda = fichas.find((t) => t.ocurrencia_fecha === '2026-10-05');
+    assert.ok(segunda);
+    const una = await api('DELETE', `/api/tareas/${segunda.id_tarea}?alcance=esta`);
+    assert.equal(una.status, 200, JSON.stringify(una.body));
+    assert.deepEqual(borrados, ['serie-evt_inst']);
+    assert.equal(meta(db, segunda.id_tarea), null);
+
+    const tercera = fichas.find((t) => t.ocurrencia_fecha === '2026-10-12');
+    const resto = await api('DELETE', `/api/tareas/${tercera.id_tarea}?alcance=posteriores`);
+    assert.equal(resto.status, 200, JSON.stringify(resto.body));
+    const regla = String(parches.at(-1)?.recurrence?.[0] || '');
+    assert.ok(regla.includes('UNTIL='), regla);
+    const quedan = db.listar(tables.tareas).filter((it) => String(it.PK).startsWith('TAREA#'));
+    assert.ok(quedan.length > 0);
+    assert.ok(quedan.every((t) => t.ocurrencia_fecha < '2026-10-12'));
+    assert.ok(quedan.some((t) => t.ocurrencia_fecha === '2026-09-28'));
+  } finally {
+    restore();
+  }
+});
+
+test('una instancia de Google no devuelve al día original una fecha ya arrastrada', async () => {
+  const db = montar();
+  db.crearTabla(tables.ajustes, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.reuniones, {
+    hashKey: 'PK',
+    rangeKey: 'SK',
+    indices: { 'Listado-index': { hashKey: 'gsi_listado', rangeKey: 'fecha' } },
+  });
+  const hoy = fechaHoyMadrid();
+  const ancla = dia(-3);
+  sembrarTarea(db, {
+    id_tarea: 't-serie',
+    titulo: 'Viejo',
+    responsable_id: ANA.sub,
+    fecha_limite: hoy,
+    ocurrencia_fecha: ancla,
+    recurrencia_id: 'rec-1',
+    calendar_event_id: 'serie-1',
+    calendar_id: 'primary',
+    hora_inicio: '10:00',
+    hora_fin: '11:00',
+  });
+
+  const dominioPrevio = process.env.GOOGLE_CALENDAR_DOMINIOS_PERMITIDOS;
+  process.env.GOOGLE_CALENDAR_DOMINIOS_PERMITIDOS = 'grupo.test';
+  const { configurarClienteCalendar } = await import('../lib/google/calendarClient.js');
+  const restore = configurarClienteCalendar(async () => ({
+    calendarId: 'primary',
+    subject: 'ana@grupo.test',
+    calendar: {
+      events: {
+        list: async () => ({
+          data: {
+            items: [
+              {
+                id: 'serie-1_inst',
+                recurringEventId: 'serie-1',
+                status: 'confirmed',
+                summary: 'Nuevo título',
+                start: { dateTime: `${ancla}T08:00:00Z` },
+                end: { dateTime: `${ancla}T09:00:00Z` },
+              },
+            ],
+            nextSyncToken: 'tok-serie',
+          },
+        }),
+        insert: async () => {
+          throw new Error('no debe crear otro evento');
+        },
+        patch: async () => {
+          throw new Error('no debe escribir en Google');
+        },
+      },
+    },
+  }));
+
+  try {
+    const { traerCambiosDesdeCalendar } = await import('../lib/tasks/syncCalendarEntrante.js');
+    const r = await traerCambiosDesdeCalendar();
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.aplicadas, 1);
+    const guardada = meta(db, 't-serie');
+    assert.equal(guardada.titulo, 'Nuevo título');
+    assert.equal(guardada.fecha_limite, hoy);
+    assert.equal(guardada.ocurrencia_fecha, ancla);
+  } finally {
+    restore();
+    if (dominioPrevio === undefined) delete process.env.GOOGLE_CALENDAR_DOMINIOS_PERMITIDOS;
+    else process.env.GOOGLE_CALENDAR_DOMINIOS_PERMITIDOS = dominioPrevio;
+  }
 });

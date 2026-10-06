@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,8 @@ import { InputCantidad } from '../../components/InputCantidad';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useAuth } from '../../contexts/AuthContext';
 import { useProductosCache } from '../../contexts/ProductosCache';
+import { BadgeFormato, useMapaFormatosBase } from '../../components/compras/BadgeFormato';
+import { EtiquetaZona, ordenarLineasPorZona, useMapaZonas } from '../../components/compras/EtiquetaZona';
 import { apiFetch } from '../../utils/api';
 import { valorEnLocal } from '../../utils/valorEnLocal';
 import { formatMoneda } from '../../utils/formatMoneda';
@@ -45,17 +47,18 @@ type Props = {
   onCreado?: () => void;
 };
 
-const FORM_LINEA_VACIO = { ProductId: '', ProductoNombre: '', Cantidad: '', PrecioUnitario: '', Iva: '', TotalRappel: '' };
-
 export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) {
   const { localPermitido, hasPermiso } = useAuth();
   const { isCompact } = useBreakpoint();
   const {
+    productos,
     productosIgp: productosIgpCache,
     loading: loadingProductos,
     lastFetch: productosLastFetch,
     recargar: recargarProductos,
   } = useProductosCache();
+  const formatos = useMapaFormatosBase(productos);
+  const zonas = useMapaZonas(productos);
   const productosIgp = productosIgpCache as Registro[];
 
   const [locales, setLocales] = useState<Registro[]>([]);
@@ -81,17 +84,28 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
 
   const [pedidoCreado, setPedidoCreado] = useState<Registro | null>(null);
   const [lineas, setLineas] = useState<Registro[]>([]);
+  const lineasPorZona = useMemo(() => ordenarLineasPorZona(lineas, zonas), [lineas, zonas]);
   const [loadingLineas, setLoadingLineas] = useState(false);
-  const [formLinea, setFormLinea] = useState(FORM_LINEA_VACIO);
-  const [guardandoLinea, setGuardandoLinea] = useState(false);
+  const [eligiendoProductos, setEligiendoProductos] = useState(false);
+  const [busquedaProducto, setBusquedaProducto] = useState('');
+  const [cantidadesPicker, setCantidadesPicker] = useState<Record<string, string>>({});
+  const [cantidadesLinea, setCantidadesLinea] = useState<Record<string, string>>({});
+  const [guardandoLinea, setGuardandoLinea] = useState<string | null>(null);
   const [borrandoLinea, setBorrandoLinea] = useState<string | null>(null);
+  const cantidadTimer = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const lineasRef = useRef<Registro[]>([]);
+  const deseoCantidad = useRef<Record<string, string>>({});
+  const syncEnCurso = useRef<Set<string>>(new Set());
+  lineasRef.current = lineas;
   const [enviando, setEnviando] = useState(false);
-  const [rappelPreviewInfo, setRappelPreviewInfo] = useState<{ unitaria: number; sinAcuerdo: boolean } | null>(null);
-  const [loadingRappelPreview, setLoadingRappelPreview] = useState(false);
 
   // Carga de datos y reset al abrir.
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      Object.values(cantidadTimer.current).forEach(clearTimeout);
+      cantidadTimer.current = {};
+      return;
+    }
     setFase('cabecera');
     setTipo('Pedido');
     setForm({ LocalId: '', AlmacenOrigenId: '', AlmacenDestinoId: '', Fecha: hoyISO(), Notas: '' });
@@ -100,7 +114,10 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
     setErrorForm(null);
     setPedidoCreado(null);
     setLineas([]);
-    setFormLinea(FORM_LINEA_VACIO);
+    setEligiendoProductos(false);
+    setBusquedaProducto('');
+    setCantidadesPicker({});
+    setCantidadesLinea({});
     setCertVisible(false);
     setCertAceptada(false);
     setLoadingDatos(true);
@@ -277,54 +294,6 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
     }
   }, []);
 
-  // Preview de rappel para la línea en edición (igual que en Pedidos).
-  useEffect(() => {
-    if (fase !== 'lineas' || !pedidoCreado) {
-      setRappelPreviewInfo(null);
-      return;
-    }
-    // Las devoluciones nunca generan rappel/abono.
-    if (esDevolucion) {
-      setRappelPreviewInfo(null);
-      setFormLinea((f) => (f.TotalRappel ? { ...f, TotalRappel: '' } : f));
-      return;
-    }
-    const pedidoId = String(valorEnLocal(pedidoCreado, 'Id') ?? '').trim();
-    const productId = formLinea.ProductId.trim();
-    if (!pedidoId || !productId) {
-      setRappelPreviewInfo(null);
-      setFormLinea((f) => (f.TotalRappel ? { ...f, TotalRappel: '' } : f));
-      return;
-    }
-    const cantidad = formLinea.Cantidad || '0';
-    let cancelled = false;
-    setLoadingRappelPreview(true);
-    apiFetch(
-      `/api/pedidos/${encodeURIComponent(pedidoId)}/rappel-preview?productId=${encodeURIComponent(productId)}&cantidad=${encodeURIComponent(cantidad)}`,
-    )
-      .then((r) => r.json())
-      .then((data) => {
-        if (cancelled) return;
-        if (!data?.ok) {
-          setRappelPreviewInfo(null);
-          return;
-        }
-        const unitaria = Number(data.totalAportacionUnitaria ?? 0);
-        const total = Number(data.totalRappel ?? 0);
-        setRappelPreviewInfo({ unitaria, sinAcuerdo: unitaria <= 0 });
-        setFormLinea((f) => ({ ...f, TotalRappel: String(total) }));
-      })
-      .catch(() => {
-        if (!cancelled) setRappelPreviewInfo(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingRappelPreview(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [fase, pedidoCreado, formLinea.ProductId, formLinea.Cantidad, esDevolucion]);
-
   const crearPedido = useCallback(async () => {
     if (!form.LocalId.trim()) {
       setErrorForm('Selecciona un local.');
@@ -377,7 +346,6 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
       const nuevo = (data.pedido ?? { ...body }) as Registro;
       setPedidoCreado(nuevo);
       setLineas([]);
-      setFormLinea(FORM_LINEA_VACIO);
       setFase('lineas');
       onCreado?.();
     } catch {
@@ -387,48 +355,126 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
     }
   }, [form, tipo, localSinAlmacenes, origenOtroLocal, localOrigenId, almacenesDelLocalOrigen, onCreado]);
 
-  const handleAddLinea = useCallback(async () => {
+  const sincronizarProducto = useCallback(async (prod: Registro) => {
     if (!pedidoCreado) return;
     const pedidoId = String(valorEnLocal(pedidoCreado, 'Id') ?? '');
-    if (!pedidoId) return;
-    if (!formLinea.ProductId?.trim()) {
-      alert('Selecciona un producto');
-      return;
+    const productId = String(valorEnLocal(prod, 'Id') ?? '').trim();
+    if (!pedidoId || !productId) return;
+    if (syncEnCurso.current.has(productId)) return;
+    syncEnCurso.current.add(productId);
+    setGuardandoLinea(productId);
+    const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? productId) || '—').trim();
+    const precio = Number(valorEnLocal(prod, 'CostPrice') ?? 0) || 0;
+    const ivaRaw = valorEnLocal(prod, 'ultimo_iva_compra') ?? valorEnLocal(prod, 'VatPercent');
+    const ivaPct = Number(ivaRaw ?? 0) || 0;
+    const buscar = () => lineasRef.current.find((l) => String(valorEnLocal(l, 'ProductId') ?? '').trim() === productId);
+    let aplicado = '';
+    let repetir = false;
+    try {
+      while (aplicado !== (deseoCantidad.current[productId] ?? '0')) {
+        const texto = deseoCantidad.current[productId] ?? '0';
+        aplicado = texto;
+        const cant = parseFloat(String(texto).replace(',', '.')) || 0;
+        const existente = buscar();
+        if (cant > 0 && !existente) {
+          const res = await apiFetch(`/api/pedidos/${pedidoId}/lineas`, {
+            method: 'POST',
+            body: JSON.stringify({
+              ProductId: productId,
+              ProductoNombre: nombre,
+              Cantidad: cant,
+              PrecioUnitario: precio,
+              VatRate: ivaPct / 100,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok || data.error) throw new Error(data.error || 'Error al añadir el producto');
+          const linea = (data.linea ?? {}) as Registro;
+          lineasRef.current = [
+            ...lineasRef.current.filter((l) => String(valorEnLocal(l, 'ProductId') ?? '').trim() !== productId),
+            linea,
+          ];
+        } else if (cant > 0 && existente && Number(existente.Cantidad ?? 0) !== cant) {
+          const lineaIndex = String(existente.LineaIndex ?? '').trim();
+          const res = await apiFetch(`/api/pedidos/${pedidoId}/lineas`, {
+            method: 'PUT',
+            body: JSON.stringify({ LineaIndex: lineaIndex, Cantidad: cant }),
+          });
+          const data = await res.json();
+          if (!res.ok || data.error) throw new Error(data.error || 'Error al cambiar la cantidad');
+          lineasRef.current = lineasRef.current.map((l) =>
+            String(valorEnLocal(l, 'ProductId') ?? '').trim() === productId ? { ...l, Cantidad: cant } : l,
+          );
+        } else if (!(cant > 0) && existente) {
+          const lineaIndex = String(existente.LineaIndex ?? '').trim();
+          const res = await apiFetch(`/api/pedidos/${pedidoId}/lineas`, {
+            method: 'DELETE',
+            body: JSON.stringify({ LineaIndex: lineaIndex }),
+          });
+          const data = await res.json();
+          if (!res.ok || data.error) throw new Error(data.error || 'Error al quitar el producto');
+          lineasRef.current = lineasRef.current.filter((l) => String(valorEnLocal(l, 'ProductId') ?? '').trim() !== productId);
+        }
+      }
+      setLineas(lineasRef.current);
+      fetchLineas(pedidoId);
+      onCreado?.();
+      repetir = (deseoCantidad.current[productId] ?? '0') !== aplicado;
+    } catch (e) {
+      alert((e as Error).message || 'Error al actualizar el producto');
+    } finally {
+      syncEnCurso.current.delete(productId);
+      setGuardandoLinea(null);
     }
-    const cant = parseFloat(String(formLinea.Cantidad).replace(',', '.')) || 0;
-    if (!(cant > 0)) {
-      alert('La cantidad debe ser mayor que cero');
-      return;
-    }
-    const precio = parseFloat(String(formLinea.PrecioUnitario).replace(',', '.')) || 0;
-    const ivaPct = parseFloat(String(formLinea.Iva).replace(',', '.')) || 0;
-    const vatRate = ivaPct / 100;
-    const totalRappel = parseFloat(String(formLinea.TotalRappel).replace(',', '.')) || 0;
-    setGuardandoLinea(true);
+    if (repetir) sincronizarProducto(prod);
+  }, [pedidoCreado, fetchLineas, onCreado]);
+
+  const programarCantidadProducto = useCallback((prod: Registro, cantidadTexto: string) => {
+    const productId = String(valorEnLocal(prod, 'Id') ?? '').trim();
+    if (!productId) return;
+    setCantidadesPicker((prev) => ({ ...prev, [productId]: cantidadTexto }));
+    deseoCantidad.current[productId] = cantidadTexto;
+    const previo = cantidadTimer.current[productId];
+    if (previo) clearTimeout(previo);
+    cantidadTimer.current[productId] = setTimeout(() => {
+      sincronizarProducto(prod);
+    }, 400);
+  }, [sincronizarProducto]);
+
+  const guardarCantidadLinea = useCallback(async (linea: Registro, cantidadTexto: string) => {
+    if (!pedidoCreado) return;
+    const pedidoId = String(valorEnLocal(pedidoCreado, 'Id') ?? '');
+    const lineaIndex = String(linea.LineaIndex ?? '').trim();
+    if (!pedidoId || !lineaIndex) return;
+    const cant = parseFloat(String(cantidadTexto).replace(',', '.')) || 0;
+    if (!(cant > 0)) return;
+    setGuardandoLinea(lineaIndex);
     try {
       const res = await apiFetch(`/api/pedidos/${pedidoId}/lineas`, {
-        method: 'POST',
-        body: JSON.stringify({
-          ProductId: formLinea.ProductId,
-          ProductoNombre: formLinea.ProductoNombre,
-          Cantidad: cant,
-          PrecioUnitario: precio,
-          TotalLinea: cant * precio,
-          VatRate: vatRate,
-          TotalRappel: totalRappel,
-        }),
+        method: 'PUT',
+        body: JSON.stringify({ LineaIndex: lineaIndex, Cantidad: cant }),
       });
       const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || 'Error al crear línea');
-      setFormLinea(FORM_LINEA_VACIO);
+      if (!res.ok || data.error) throw new Error(data.error || 'Error al cambiar la cantidad');
       fetchLineas(pedidoId);
       onCreado?.();
     } catch (e) {
-      alert((e as Error).message || 'Error al añadir línea');
+      alert((e as Error).message || 'Error al cambiar la cantidad');
     } finally {
-      setGuardandoLinea(false);
+      setGuardandoLinea(null);
     }
-  }, [pedidoCreado, formLinea, fetchLineas, onCreado]);
+  }, [pedidoCreado, fetchLineas, onCreado]);
+
+  const programarCantidadLinea = useCallback((linea: Registro, cantidadTexto: string) => {
+    const lineaIndex = String(linea.LineaIndex ?? '').trim();
+    if (!lineaIndex) return;
+    setCantidadesLinea((prev) => ({ ...prev, [lineaIndex]: cantidadTexto }));
+    const previo = cantidadTimer.current[lineaIndex];
+    if (previo) clearTimeout(previo);
+    cantidadTimer.current[lineaIndex] = setTimeout(() => {
+      guardarCantidadLinea(linea, cantidadTexto);
+    }, 400);
+  }, [guardarCantidadLinea]);
 
   const handleDeleteLinea = useCallback(async (lineaIndex: string) => {
     if (!pedidoCreado) return;
@@ -442,6 +488,15 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Error al borrar línea');
+      const productId = String(valorEnLocal(
+        lineasRef.current.find((l) => String(l.LineaIndex ?? '') === lineaIndex) ?? {},
+        'ProductId',
+      ) ?? '').trim();
+      if (productId) {
+        deseoCantidad.current[productId] = '0';
+        setCantidadesPicker((prev) => ({ ...prev, [productId]: '0' }));
+        lineasRef.current = lineasRef.current.filter((l) => String(l.LineaIndex ?? '') !== lineaIndex);
+      }
       fetchLineas(pedidoId);
       onCreado?.();
     } catch (e) {
@@ -543,20 +598,38 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
   // Zona táctil cómoda para los chips en móvil y tablet.
   const chipTouch = isCompact ? styles.pickerChipTouch : null;
 
+  const productosVisibles = useMemo(() => {
+    const q = busquedaProducto.trim().toLowerCase();
+    return productosIgp.filter((prod) => {
+      const idProd = String(valorEnLocal(prod, 'Id') ?? '').trim();
+      const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? idProd) || '').trim();
+      if (!q) return true;
+      return nombre.toLowerCase().includes(q) || idProd.toLowerCase().includes(q);
+    });
+  }, [productosIgp, busquedaProducto]);
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       {/* El fondo no cierra el pedido en curso (evita perder datos); se cierra con la X o Cancelar. */}
       <Pressable style={styles.overlay}>
-        <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
+        <Pressable style={[styles.card, fase === 'lineas' && styles.cardLineas]} onPress={(e) => e.stopPropagation()}>
           <View style={styles.header}>
-            <Text style={styles.title}>
+            <Text style={styles.title} numberOfLines={1}>
               {fase === 'cabecera'
                 ? (esDevolucion ? 'Nueva devolución' : 'Nuevo pedido')
-                : `${esDevolucion ? 'Devolución' : 'Añadir productos'} · ${String(valorEnLocal(pedidoCreado ?? {}, 'Id') ?? '')}`}
+                : eligiendoProductos
+                  ? 'Productos'
+                  : `${esDevolucion ? 'Devolución' : 'Añadir productos'} · ${String(valorEnLocal(pedidoCreado ?? {}, 'Id') ?? '')}`}
             </Text>
-            <TouchableOpacity onPress={onClose} style={styles.close}>
-              <MaterialIcons name="close" size={22} color="#64748b" />
-            </TouchableOpacity>
+            {eligiendoProductos ? (
+              <TouchableOpacity onPress={() => setEligiendoProductos(false)} style={styles.btnListo} activeOpacity={0.8}>
+                <Text style={styles.btnListoText}>Listo</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity onPress={onClose} style={styles.close}>
+                <MaterialIcons name="close" size={22} color="#64748b" />
+              </TouchableOpacity>
+            )}
           </View>
 
           {loadingDatos ? (
@@ -885,6 +958,7 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
             </>
           ) : (
             <>
+              {!eligiendoProductos ? (
               <View style={[styles.resumenCabecera, esDevolucion && styles.resumenCabeceraDev]}>
                 <MaterialIcons name={esDevolucion ? 'undo' : 'store'} size={16} color={esDevolucion ? '#b45309' : '#0369a1'} />
                 <Text style={[styles.resumenText, esDevolucion && styles.resumenTextDev]} numberOfLines={1}>
@@ -893,160 +967,149 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
                   {localNombre} · {formatFecha(form.Fecha)}
                 </Text>
               </View>
-              {avisoEntreLocales?.tono === 'aviso' ? (
+              ) : null}
+              {!eligiendoProductos && avisoEntreLocales?.tono === 'aviso' ? (
                 <Text style={[styles.avisoFactura, styles.avisoFacturaLineas]}>{avisoEntreLocales.texto}</Text>
               ) : null}
 
-              <View style={styles.lineaForm}>
-                <View style={styles.group}>
-                  <Text style={styles.label}>Producto</Text>
-                  <SelectorDesplegable
-                    placeholder="Buscar producto…"
-                    icono="inventory-2"
-                    tituloLista="Selecciona un producto"
-                    iconoLista="inventory-2"
-                    loading={loadingProductos}
-                    buscador
-                    buscadorPlaceholder="Buscar producto…"
-                    valorId={formLinea.ProductId || null}
-                    opciones={productosIgp.map((prod, idx) => {
-                      const idProd = String(valorEnLocal(prod, 'Id') ?? '').trim();
-                      const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? idProd) || '—').trim();
-                      return {
-                        id: idProd || `p-${idx}`,
-                        titulo: nombre || idProd || '—',
-                        subtitulo: idProd ? `ID ${idProd}` : undefined,
-                        icono: 'inventory-2' as const,
-                      };
-                    })}
-                    onSeleccionar={(id) => {
-                      const prod = productosIgp.find((p) => String(valorEnLocal(p, 'Id') ?? '').trim() === id);
-                      if (!prod) return;
-                      const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? id) || '—').trim();
-                      const costPrice = valorEnLocal(prod, 'CostPrice');
-                      const precioStr = costPrice != null ? String(costPrice) : '';
-                      const purchaseVat = valorEnLocal(prod, 'ultimo_iva_compra');
-                      const fallbackVat = valorEnLocal(prod, 'VatPercent');
-                      const ivaStr = purchaseVat != null ? String(purchaseVat) : fallbackVat != null ? String(fallbackVat) : '';
-                      setFormLinea((f) => ({ ...f, ProductId: id, ProductoNombre: nombre, PrecioUnitario: precioStr, Iva: ivaStr }));
-                    }}
-                  />
-                </View>
-                <View style={styles.lineaValoresRow}>
-                  <View style={styles.lineaValorColCantidad}>
-                    <Text style={styles.label}>Cantidad</Text>
-                    <InputCantidad
-                      value={formLinea.Cantidad}
-                      onChangeText={(v) => setFormLinea((f) => ({ ...f, Cantidad: v }))}
-                      placeholder="0"
-                    />
-                  </View>
-                  <View style={styles.lineaValorCol}>
-                    <Text style={styles.label}>Precio unit.</Text>
+              {eligiendoProductos ? (
+                <View style={styles.pickerProductos}>
+                  <View style={styles.buscadorProducto}>
+                    <MaterialIcons name="search" size={22} color="#64748b" />
                     <TextInput
-                      style={[styles.input, styles.inputReadonly]}
-                      value={formLinea.PrecioUnitario ? formatMoneda(aplicarPorcentajeBeneficio(Number(formLinea.PrecioUnitario), porcentajeBeneficio)) : ''}
-                      editable={false}
-                      placeholder="—"
+                      style={styles.buscadorProductoInput}
+                      value={busquedaProducto}
+                      onChangeText={setBusquedaProducto}
+                      placeholder="Escribe el nombre del producto"
                       placeholderTextColor="#94a3b8"
+                      autoFocus
                     />
                   </View>
-                  <View style={styles.lineaValorCol}>
-                    <Text style={styles.label}>IVA %</Text>
-                    <TextInput
-                      style={[styles.input, styles.inputReadonly]}
-                      value={formLinea.Iva ? `${formLinea.Iva} %` : ''}
-                      editable={false}
-                      placeholder="—"
-                      placeholderTextColor="#94a3b8"
-                    />
-                  </View>
-                  <View style={styles.lineaValorCol}>
-                    <Text style={styles.label}>Total Rappel</Text>
-                    <TextInput
-                      style={[styles.input, styles.inputReadonly]}
-                      value={
-                        loadingRappelPreview
-                          ? '…'
-                          : Number(formLinea.TotalRappel) > 0
-                            ? `-${formatMoneda(Number(formLinea.TotalRappel))}`
-                            : formLinea.ProductId
-                              ? formatMoneda(0)
-                              : ''
-                      }
-                      editable={false}
-                      placeholder="Según acuerdo"
-                      placeholderTextColor="#94a3b8"
-                    />
-                  </View>
-                </View>
-                {formLinea.ProductId && !loadingRappelPreview && rappelPreviewInfo?.sinAcuerdo ? (
-                  <Text style={styles.hintWarn}>Sin acuerdo activo para este producto en la fecha del pedido</Text>
-                ) : null}
-                {formLinea.ProductId && !loadingRappelPreview && rappelPreviewInfo && rappelPreviewInfo.unitaria > 0 ? (
-                  <Text style={styles.hintOk}>Abono -{formatMoneda(rappelPreviewInfo.unitaria)}/ud (aportación + rappel + dto.)</Text>
-                ) : null}
-                <TouchableOpacity
-                  style={[styles.btnAdd, (guardandoLinea || !formLinea.ProductId?.trim()) && styles.btnDisabled]}
-                  onPress={handleAddLinea}
-                  disabled={guardandoLinea || !formLinea.ProductId?.trim()}
-                  activeOpacity={0.8}
-                >
-                  {guardandoLinea ? <ActivityIndicator size="small" color="#16a34a" /> : <MaterialIcons name="add" size={18} color="#16a34a" />}
-                  <Text style={styles.btnAddText}>Añadir producto</Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.lineasListWrap}>
-                {loadingLineas ? (
-                  <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 16 }} />
-                ) : lineas.length === 0 ? (
-                  <Text style={styles.lineasVacio}>Aún no hay productos en este pedido.</Text>
-                ) : (
-                  <ScrollView style={styles.lineasScroll} showsVerticalScrollIndicator>
-                    {lineas.map((l) => {
-                      const key = String(l.LineaIndex ?? '');
-                      const borrando = borrandoLinea === key;
-                      return (
-                        <View key={key} style={styles.lineaItem}>
-                          <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text style={styles.lineaNombre} numberOfLines={1}>
-                              {String(l.ProductoNombre || l.ProductId || '—')}
-                            </Text>
-                            <Text style={styles.lineaMeta}>
-                              {String(l.Cantidad ?? 0)} uds · {formatMoneda(Number(l.TotalLinea ?? 0))}
-                            </Text>
+                  {loadingProductos ? (
+                    <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 24 }} />
+                  ) : productosVisibles.length === 0 ? (
+                    <Text style={styles.lineasVacio}>Ningún producto con ese nombre.</Text>
+                  ) : (
+                    <ScrollView style={styles.productosScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator>
+                      {productosVisibles.map((prod, idx) => {
+                        const idProd = String(valorEnLocal(prod, 'Id') ?? '').trim() || `p-${idx}`;
+                        const nombre = String((valorEnLocal(prod, 'Name') ?? valorEnLocal(prod, 'Nombre') ?? idProd) || '—').trim();
+                        const coste = Number(valorEnLocal(prod, 'CostPrice') ?? 0) || 0;
+                        const precio = aplicarPorcentajeBeneficio(coste, porcentajeBeneficio);
+                        const lineaYa = lineas.find((l) => String(valorEnLocal(l, 'ProductId') ?? '').trim() === idProd);
+                        const cant = cantidadesPicker[idProd] ?? (lineaYa ? String(lineaYa.Cantidad ?? 0) : '0');
+                        const guardandoEste = guardandoLinea === idProd;
+                        return (
+                          <View key={idProd} style={styles.prodCard}>
+                            <View style={styles.prodTexto}>
+                              <View style={styles.lineaArticulo}>
+                                <EtiquetaZona zona={zonas.get(idProd)} />
+                                <Text style={styles.lineaNombre} numberOfLines={2}>{nombre}</Text>
+                              </View>
+                              <View style={styles.lineaArticulo}>
+                                <BadgeFormato nombre={formatos.get(idProd)} />
+                                <Text style={styles.lineaMeta}>{formatMoneda(precio)}</Text>
+                              </View>
+                            </View>
+                            <InputCantidad
+                              value={cant}
+                              min={0}
+                              onChangeText={(v) => programarCantidadProducto(prod, v)}
+                              disabled={guardandoEste}
+                            />
+                            {guardandoEste ? <ActivityIndicator size="small" color="#0ea5e9" /> : null}
                           </View>
-                          <TouchableOpacity onPress={() => handleDeleteLinea(key)} disabled={borrando} style={styles.lineaBorrar}>
-                            {borrando ? (
-                              <ActivityIndicator size="small" color="#dc2626" />
-                            ) : (
-                              <MaterialIcons name="delete-outline" size={20} color="#dc2626" />
-                            )}
-                          </TouchableOpacity>
-                        </View>
-                      );
-                    })}
-                  </ScrollView>
-                )}
-              </View>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
+                </View>
+              ) : (
+                <>
+                  <View style={styles.lineasListWrap}>
+                    <Text style={styles.enPedidoTitulo}>En este pedido{lineas.length > 0 ? ` · ${lineas.length}` : ''}</Text>
+                    {loadingLineas ? (
+                      <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 16 }} />
+                    ) : lineas.length === 0 ? (
+                      <Text style={styles.lineasVacio}>Aún no hay productos en este pedido.</Text>
+                    ) : (
+                      <ScrollView style={styles.lineasScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator>
+                        {lineasPorZona.map((l) => {
+                          const key = String(l.LineaIndex ?? '');
+                          const borrando = borrandoLinea === key;
+                          const cant = cantidadesLinea[key] ?? String(l.Cantidad ?? 0);
+                          const ivaRaw = Number(l.VatRate ?? 0);
+                          const ivaPct = Number.isFinite(ivaRaw) ? (ivaRaw <= 1 ? ivaRaw * 100 : ivaRaw) : 0;
+                          const rappel = Number(l.TotalRappel ?? 0);
+                          return (
+                            <View key={key} style={styles.lineaItem}>
+                              <InputCantidad
+                                value={cant}
+                                min={1}
+                                style={styles.cantidadCuatro}
+                                inputStyle={styles.cantidadCuatroInput}
+                                onChangeText={(v) => programarCantidadLinea(l, v)}
+                                disabled={borrando || guardandoLinea === key}
+                              />
+                              <View style={styles.prodTexto}>
+                                <View style={styles.lineaArticulo}>
+                                  <EtiquetaZona zona={zonas.get(String(l.ProductId ?? '').trim())} />
+                                  <Text style={styles.lineaNombre} numberOfLines={1}>
+                                    {String(l.ProductoNombre || l.ProductId || '—')}
+                                  </Text>
+                                  <BadgeFormato nombre={formatos.get(String(l.ProductId ?? '').trim())} />
+                                </View>
+                                <Text style={styles.lineaMeta}>
+                                  {formatMoneda(Number(l.TotalLinea ?? 0))}
+                                  {' · '}
+                                  IVA {ivaPct.toLocaleString('es-ES', { maximumFractionDigits: 2 })} %
+                                  {' · '}
+                                  {rappel > 0 ? `rappel -${formatMoneda(rappel)}` : `rappel ${formatMoneda(0)}`}
+                                </Text>
+                              </View>
+                              <TouchableOpacity onPress={() => handleDeleteLinea(key)} disabled={borrando} style={styles.lineaBorrar}>
+                                {borrando ? (
+                                  <ActivityIndicator size="small" color="#dc2626" />
+                                ) : (
+                                  <MaterialIcons name="delete-outline" size={22} color="#dc2626" />
+                                )}
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        })}
+                      </ScrollView>
+                    )}
+                  </View>
+                  <TouchableOpacity
+                    style={styles.btnAnadirGrande}
+                    onPress={() => setEligiendoProductos(true)}
+                    activeOpacity={0.85}
+                  >
+                    <MaterialIcons name="add" size={28} color="#0369a1" />
+                    <Text style={styles.btnAnadirGrandeText}>Añadir producto</Text>
+                  </TouchableOpacity>
+                </>
+              )}
 
-              <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Total albarán</Text>
-                <Text style={styles.totalValor}>{formatMoneda(totalAlbaran)}</Text>
-              </View>
-
-              <View style={styles.footer}>
-                <TouchableOpacity
-                  style={[styles.btnEnviar, esDevolucion && styles.btnEnviarDev, (enviando || lineas.length === 0) && styles.btnDisabled]}
-                  onPress={onPulsarEnviar}
-                  disabled={enviando || lineas.length === 0}
-                  activeOpacity={0.8}
-                >
-                  {enviando ? <ActivityIndicator size="small" color="#fff" /> : <MaterialIcons name={esDevolucion ? 'undo' : 'send'} size={18} color="#fff" />}
-                  <Text style={styles.btnEnviarText}>{esDevolucion ? 'Enviar devolución' : 'Enviar pedido'}</Text>
-                </TouchableOpacity>
-              </View>
+              {!eligiendoProductos ? (
+                <>
+                  <View style={styles.totalRow}>
+                    <Text style={styles.totalLabel}>Total albarán</Text>
+                    <Text style={styles.totalValor}>{formatMoneda(totalAlbaran)}</Text>
+                  </View>
+                  <View style={styles.footer}>
+                    <TouchableOpacity
+                      style={[styles.btnEnviar, esDevolucion && styles.btnEnviarDev, (enviando || lineas.length === 0) && styles.btnDisabled]}
+                      onPress={onPulsarEnviar}
+                      disabled={enviando || lineas.length === 0}
+                      activeOpacity={0.8}
+                    >
+                      {enviando ? <ActivityIndicator size="small" color="#fff" /> : <MaterialIcons name={esDevolucion ? 'undo' : 'send'} size={18} color="#fff" />}
+                      <Text style={styles.btnEnviarText}>{esDevolucion ? 'Enviar devolución' : 'Enviar pedido'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              ) : null}
             </>
           )}
         </Pressable>
@@ -1096,9 +1159,12 @@ export default function NuevoPedidoModal({ visible, onClose, onCreado }: Props) 
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'center', alignItems: 'center', padding: 16 },
   card: { width: '100%', maxWidth: 560, maxHeight: '90%', backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden' },
+  cardLineas: { maxWidth: 760 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
   title: { flex: 1, fontSize: 17, fontWeight: '700', color: '#334155' },
   close: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
+  btnListo: { minHeight: MIN_TOUCH, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#e0f2fe' },
+  btnListoText: { fontSize: 15, fontWeight: '700', color: '#0369a1' },
   loadingWrap: { paddingVertical: 48, alignItems: 'center' },
   body: { paddingHorizontal: 16, paddingTop: 12 },
   group: { marginBottom: 14 },
@@ -1185,18 +1251,58 @@ const styles = StyleSheet.create({
   certCheckboxOn: { backgroundColor: '#b45309', borderColor: '#b45309' },
   certCheckText: { flex: 1, fontSize: 13, color: '#334155', lineHeight: 18, fontWeight: '500' },
   certFooter: { flexDirection: 'row', gap: 10 },
-  lineaForm: { paddingHorizontal: 16, paddingTop: 12 },
-  lineaValoresRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  lineaValorCol: { flex: 1, minWidth: 80, marginBottom: 14 },
-  lineaValorColCantidad: { flexGrow: 0, flexShrink: 0, minWidth: 168, width: 168, marginBottom: 14 },
-  btnAdd: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: '#86efac', backgroundColor: '#f0fdf4', marginTop: 4 },
-  btnAddText: { fontSize: 14, fontWeight: '700', color: '#16a34a' },
+  pickerProductos: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 },
+  buscadorProducto: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    backgroundColor: '#fff',
+    marginBottom: 12,
+  },
+  buscadorProductoInput: { flex: 1, fontSize: 16, color: '#0f172a', minHeight: 44, ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}) },
+  productosScroll: { maxHeight: 460 },
+  prodCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    backgroundColor: '#fff',
+  },
+  prodTexto: { flex: 1, minWidth: 0 },
+  cantidadCuatro: { flexShrink: 0, minWidth: 210 },
+  cantidadCuatroInput: { minWidth: 88 },
+  btnAnadirGrande: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 72,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#7dd3fc',
+    backgroundColor: '#f0f9ff',
+  },
+  btnAnadirGrandeText: { fontSize: 18, fontWeight: '800', color: '#0369a1' },
+  enPedidoTitulo: { fontSize: 13, fontWeight: '700', color: '#64748b', marginBottom: 8 },
 
-  lineasListWrap: { paddingHorizontal: 16, flexShrink: 1 },
-  lineasScroll: { maxHeight: 200 },
-  lineasVacio: { fontSize: 13, color: '#94a3b8', paddingVertical: 12, textAlign: 'center' },
+  lineasListWrap: { paddingHorizontal: 16, paddingTop: 12, flexShrink: 1 },
+  lineasScroll: { maxHeight: 280 },
+  lineasVacio: { fontSize: 14, color: '#94a3b8', paddingVertical: 16, textAlign: 'center' },
   lineaItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  lineaNombre: { fontSize: 14, color: '#334155', fontWeight: '600' },
+  lineaArticulo: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, minWidth: 0 },
+  lineaNombre: { fontSize: 14, color: '#334155', fontWeight: '600', flexShrink: 1 },
   lineaMeta: { fontSize: 12, color: '#64748b', marginTop: 1 },
   lineaBorrar: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
 

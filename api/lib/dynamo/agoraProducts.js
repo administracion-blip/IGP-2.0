@@ -12,7 +12,92 @@ const BATCH_SIZE = 25;
 const META_SK = '__meta__';
 
 /** Campos permitidos: solo estos se guardan en DynamoDB y se devuelven por API */
-const ALLOWED_FIELDS = ['Id', 'IGP', 'Name', 'CostPrice', 'CostPrices', 'Prices', 'BaseSaleFormatId', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'ultimo_iva_compra', 'Active', 'IsSoldByWeight'];
+const ALLOWED_FIELDS = ['Id', 'IGP', 'Name', 'Zona', 'CostPrice', 'CostPrices', 'Prices', 'BaseSaleFormatId', 'FormatoBaseNombre', 'FamilyId', 'FamilyName', 'VatId', 'VatName', 'VatPercent', 'ultimo_iva_compra', 'Active', 'IsSoldByWeight'];
+
+function texto(v) {
+  return String(v ?? '').trim();
+}
+
+/** Letra de zona de almacén (A–Z). Ágora no la envía: es un dato local de IGP. */
+export function letraZona(value) {
+  const s = texto(value).toUpperCase();
+  return /^[A-Z]$/.test(s) ? s : '';
+}
+
+/**
+ * Al reescribir un producto por un cambio de Ágora, conserva lo que solo existe en IGP.
+ * @param {Record<string, unknown>} item
+ * @param {Record<string, unknown> | undefined} existing
+ */
+export function conservarDatosLocales(item, existing) {
+  if (!item || !existing) return item;
+  item.IGP = existing.IGP === true;
+  if (existing.ultimo_iva_compra != null) item.ultimo_iva_compra = existing.ultimo_iva_compra;
+  else if (existing.PurchaseVatPercent != null) item.ultimo_iva_compra = existing.PurchaseVatPercent;
+  const zona = letraZona(existing.Zona);
+  if (zona) item.Zona = zona;
+  else delete item.Zona;
+  return item;
+}
+
+/** Formatos con nombre que vienen en el producto de Ágora (el maestro no trae un catálogo aparte). */
+function formatosNombrados(p) {
+  const fuentes = [p?.SaleFormats, p?.saleFormats, p?.AdditionalSaleFormats, p?.additionalSaleFormats];
+  const vistos = new Set();
+  const out = [];
+  for (const lista of fuentes) {
+    if (!Array.isArray(lista)) continue;
+    for (const f of lista) {
+      if (!f || typeof f !== 'object') continue;
+      const id = f.Id ?? f.id ?? f.SaleFormatId ?? f.saleFormatId;
+      const name = texto(f.Name ?? f.name);
+      if (!name) continue;
+      const key = id == null ? name : String(id);
+      if (vistos.has(key)) continue;
+      vistos.add(key);
+      const ratioRaw = f.Ratio ?? f.ratio;
+      const ratio = ratioRaw == null || ratioRaw === '' ? null : Number(ratioRaw);
+      out.push({
+        id: id == null ? '' : String(id),
+        name,
+        ratio: Number.isFinite(ratio) ? ratio : null,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Nombre del formato en el que se cuenta la unidad del producto.
+ * Solo si Ágora lo dice: el formato cuyo id es BaseSaleFormatId, o, si no viene,
+ * el único formato adicional que consume exactamente 1 unidad base.
+ * Si el nombre repite el del producto, o hay varios candidatos, no hay etiqueta.
+ * @param {Record<string, unknown>} p
+ * @returns {string}
+ */
+export function nombreFormatoBase(p) {
+  if (!p || typeof p !== 'object') return '';
+  const productName = texto(p.Name ?? p.name).toLowerCase();
+  const distinto = (name) => {
+    const n = texto(name);
+    if (!n || (productName && n.toLowerCase() === productName)) return '';
+    return n;
+  };
+  const directo = distinto(p.FormatoBaseNombre ?? p.BaseSaleFormatName ?? p.baseSaleFormatName);
+  const formatos = formatosNombrados(p);
+  const baseId = p.BaseSaleFormatId ?? p.baseSaleFormatId;
+  if (baseId != null && texto(baseId)) {
+    const hit = formatos.find((f) => f.id === String(baseId));
+    const porId = hit ? distinto(hit.name) : '';
+    if (porId) return porId;
+  }
+  const unidad = formatos.filter((f) => f.ratio === 1);
+  if (unidad.length === 1) {
+    const porUnidad = distinto(unidad[0].name);
+    if (porUnidad) return porUnidad;
+  }
+  return directo;
+}
 
 /**
  * Extrae solo los campos permitidos de un producto (sin IGP, que se gestiona aparte).
@@ -29,6 +114,7 @@ export function pickAllowedFields(p) {
     if (key === 'IsSoldByWeight') continue;
     if (key === 'CostPrices') continue;
     if (key === 'Prices') continue;
+    if (key === 'Zona') continue;
     const val = p[key] ?? p[key.toLowerCase()];
     if (val !== undefined && val !== null) out[key] = val;
   }
@@ -63,6 +149,12 @@ export function pickAllowedFields(p) {
       .filter(Boolean);
     if (!out.Prices.length) delete out.Prices;
   }
+  const formato = nombreFormatoBase(p);
+  if (formato) out.FormatoBaseNombre = formato;
+  else delete out.FormatoBaseNombre;
+  const zona = letraZona(p.Zona ?? p.zona);
+  if (zona) out.Zona = zona;
+  else delete out.Zona;
   return out;
 }
 
@@ -93,6 +185,7 @@ export function hashProduct(product) {
   delete copy.IGP;
   delete copy.ultimo_iva_compra;
   delete copy.PurchaseVatPercent;
+  delete copy.Zona;
   const keys = Object.keys(copy).sort();
   const obj = {};
   for (const k of keys) obj[k] = copy[k];
@@ -166,9 +259,7 @@ export async function syncProducts(docClient, tableName, productsFromAgora) {
       toWrite.push(item);
       added++;
     } else if ((existing._hash ?? '') !== item._hash) {
-      item.IGP = existing.IGP === true;
-      if (existing.ultimo_iva_compra != null) item.ultimo_iva_compra = existing.ultimo_iva_compra;
-      else if (existing.PurchaseVatPercent != null) item.ultimo_iva_compra = existing.PurchaseVatPercent;
+      conservarDatosLocales(item, existing);
       toWrite.push(item);
       updated++;
     } else {

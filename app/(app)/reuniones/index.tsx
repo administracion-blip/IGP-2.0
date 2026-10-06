@@ -9,8 +9,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Modal,
-  Pressable,
   TouchableOpacity,
   ActivityIndicator,
   TextInput,
@@ -26,7 +24,7 @@ import {
   type ResultadoGuardadoReunion,
 } from '../../components/tasks/ModalFormularioReunion';
 import { TasksPageHeader } from '../../components/tasks/TasksPageHeader';
-import { estilosModalTasks as modal } from '../../components/tasks/estilosTasks';
+import { ModalBorrarSerie } from '../../components/tasks/ModalBorrarSerie';
 import { MIN_TOUCH } from '../../constants/layout';
 import { tasksColor } from '../../constants/tasksUiTokens';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
@@ -221,14 +219,15 @@ export default function ListadoReunionesScreen() {
     [puedeGestionar],
   );
 
-  const confirmarBaja = useCallback(async () => {
+  const confirmarBaja = useCallback(async (alcance: 'esta' | 'posteriores' = 'esta') => {
     if (!reunionBaja) return;
     setGuardando(true);
     setErrorBaja(null);
     try {
-      const res = await apiFetch(`/api/reuniones/${encodeURIComponent(reunionBaja.id_reunion)}`, {
-        method: 'DELETE',
-      });
+      const res = await apiFetch(
+        `/api/reuniones/${encodeURIComponent(reunionBaja.id_reunion)}?alcance=${encodeURIComponent(alcance)}`,
+        { method: 'DELETE' },
+      );
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
         setErrorBaja(data.error || 'No se pudo borrar la reunión');
@@ -503,44 +502,16 @@ export default function ListadoReunionesScreen() {
         />
       ) : null}
 
-      <Modal
+      <ModalBorrarSerie
         visible={reunionBaja != null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setReunionBaja(null)}
-      >
-        <Pressable style={modal.overlay} onPress={() => !guardando && setReunionBaja(null)}>
-          <Pressable style={modal.confirmCard}>
-            <MaterialIcons name="warning" size={36} color="#d97706" style={modal.confirmIcono} />
-            <Text style={modal.confirmTitle}>Borrar la reunión</Text>
-            <Text style={modal.confirmText}>
-              <Text style={modal.confirmDestacado}>{reunionBaja?.titulo}</Text> se borrará
-              definitivamente, junto con el evento de Calendar y el audio si los hubiera.
-            </Text>
-            {errorBaja ? <Text style={styles.errorBaja}>{errorBaja}</Text> : null}
-            <View style={modal.confirmBotones}>
-              <TouchableOpacity
-                style={[modal.btn, isCompact && modal.btnTactil]}
-                onPress={() => setReunionBaja(null)}
-                disabled={guardando}
-              >
-                <Text style={modal.btnText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[modal.btn, modal.btnPeligro, isCompact && modal.btnTactil]}
-                onPress={() => void confirmarBaja()}
-                disabled={guardando}
-              >
-                {guardando ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
-                ) : (
-                  <Text style={modal.btnTextPeligro}>Borrar</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+        nombre={reunionBaja?.titulo || ''}
+        esSerie={Boolean(reunionBaja?.recurrencia_id)}
+        detalleSinSerie="se borrará definitivamente, junto con el evento de Calendar y el audio si los hubiera."
+        ocupado={guardando}
+        error={errorBaja}
+        onCerrar={() => !guardando && setReunionBaja(null)}
+        onConfirmar={(alcance) => void confirmarBaja(alcance)}
+      />
     </View>
   );
 }

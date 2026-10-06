@@ -26,25 +26,102 @@ import { apiFetch, errorMessage } from '../../utils/api';
 import { InputFecha } from '../InputFecha';
 import { estiloCampoFechaCompacto } from '../RangoFechas';
 import { SelectorDesplegable, type OpcionDesplegable } from '../SelectorDesplegable';
+import { CampoMenciones } from './CampoMenciones';
 import { ETIQUETA_PRIORIDAD } from '../../lib/tasksUi';
-import { PRIORIDADES, type Prioridad, type Tarea } from '../../types/tasks';
+import { MAX_CHECKLIST, PRIORIDADES, type Prioridad, type Tarea } from '../../types/tasks';
 import { estilosFormTasks as form, estilosModalTasks as modal } from './estilosTasks';
 import { aplicarHoraInicio, InputHora } from './InputHora';
+import { diaMesDeFecha, diaSemanaDeFecha, SelectorRepeticion } from './SelectorRepeticion';
 import type { NombresUsuarios } from '../../hooks/useNombresUsuarios';
 import type { MaestroDepartamentos } from '../../hooks/useDepartamentos';
 
 const SIN_DEPARTAMENTO = '';
 
+type CasillaForm = {
+  clave: string;
+  id?: string;
+  texto: string;
+};
+
 type FormTarea = {
   titulo: string;
   descripcion: string;
+  casillas: CasillaForm[];
   responsable_id: string;
+  participantes_ids: string[];
   fecha_limite: string;
+  repetir: string;
+  dias_semana: number[];
+  dias_mes: number[];
   hora_inicio: string;
   hora_fin: string;
   prioridad: Prioridad;
   departamento_id: string;
 };
+
+function claveCasilla(): string {
+  return `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function casillasDesdeTarea(tarea: Tarea): CasillaForm[] {
+  return [...(tarea.checklist ?? [])]
+    .sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
+    .map((item) => ({ clave: item.id, id: item.id, texto: item.texto ?? '' }));
+}
+
+function textosCasilla(casillas: CasillaForm[]): string[] {
+  return casillas.map((c) => c.texto.trim()).filter(Boolean);
+}
+
+function casillasIguales(tarea: Tarea, casillas: CasillaForm[]): boolean {
+  const antes = [...(tarea.checklist ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
+  const ahora = casillas.filter((c) => c.texto.trim());
+  if (antes.length !== ahora.length) return false;
+  return ahora.every((c, i) => c.id === antes[i].id && c.texto.trim() === antes[i].texto);
+}
+
+async function sincronizarCasillas(
+  idTarea: string,
+  tarea: Tarea,
+  casillas: CasillaForm[],
+): Promise<{ error?: string; tarea?: Tarea }> {
+  const base = `/api/tareas/${encodeURIComponent(idTarea)}/checklist`;
+  const antes = [...(tarea.checklist ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
+  const ahora = casillas.filter((c) => c.texto.trim());
+  const ids = new Set(ahora.map((c) => c.id).filter((id): id is string => !!id));
+  let ultima: Tarea | undefined;
+
+  async function pedir(ruta: string, method: 'POST' | 'PATCH' | 'DELETE', body?: unknown) {
+    const res = await apiFetch(ruta, {
+      method,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as { tarea?: Tarea; error?: string };
+    if (!res.ok) return data.error || 'No se pudo guardar una casilla';
+    if (data.tarea) ultima = data.tarea;
+    return null;
+  }
+
+  for (const item of antes) {
+    if (ids.has(item.id)) continue;
+    const error = await pedir(`${base}/${encodeURIComponent(item.id)}`, 'DELETE');
+    if (error) return { error };
+  }
+  for (const casilla of ahora) {
+    if (!casilla.id) {
+      const error = await pedir(base, 'POST', { texto: casilla.texto.trim() });
+      if (error) return { error };
+      continue;
+    }
+    const previa = antes.find((item) => item.id === casilla.id);
+    if (!previa || previa.texto === casilla.texto.trim()) continue;
+    const error = await pedir(`${base}/${encodeURIComponent(casilla.id)}`, 'PATCH', {
+      texto: casilla.texto.trim(),
+    });
+    if (error) return { error };
+  }
+  return { tarea: ultima };
+}
 
 function horaValida(valor: string): boolean {
   const t = valor.trim();
@@ -95,8 +172,13 @@ export function ModalFormularioTarea({
     return {
       titulo: '',
       descripcion: '',
+      casillas: [],
       responsable_id: responsablePorDefecto ?? '',
+      participantes_ids: [],
       fecha_limite: (fechaPorDefecto ?? '').trim(),
+      repetir: 'ninguna',
+      dias_semana: [diaSemanaDeFecha((fechaPorDefecto ?? '').trim())],
+      dias_mes: [diaMesDeFecha((fechaPorDefecto ?? '').trim())],
       hora_inicio: par.hora_inicio,
       hora_fin: par.hora_fin,
       prioridad: 'media',
@@ -111,8 +193,13 @@ export function ModalFormularioTarea({
       setDatos({
         titulo: tarea.titulo ?? '',
         descripcion: tarea.descripcion ?? '',
+        casillas: casillasDesdeTarea(tarea),
         responsable_id: tarea.responsable_id ?? '',
+        participantes_ids: (tarea.participantes_ids ?? []).filter((id) => id !== (tarea.responsable_id ?? '')),
         fecha_limite: tarea.fecha_limite ?? '',
+        repetir: 'ninguna',
+        dias_semana: [1],
+        dias_mes: [1],
         hora_inicio: tarea.hora_inicio ?? '',
         hora_fin: tarea.hora_fin ?? '',
         prioridad: tarea.prioridad ?? 'media',
@@ -138,6 +225,11 @@ export function ModalFormularioTarea({
     }
     return lista;
   }, [usuarios, datos.responsable_id]);
+
+  const opcionesParticipantes = useMemo(
+    () => opcionesResponsable.filter((o) => o.id !== datos.responsable_id.trim()),
+    [opcionesResponsable, datos.responsable_id],
+  );
 
   async function guardar() {
     const titulo = datos.titulo.trim();
@@ -192,6 +284,11 @@ export function ModalFormularioTarea({
         if (datos.departamento_id !== (tarea.departamento_id ?? '')) {
           cuerpo.departamento_id = datos.departamento_id;
         }
+        const participantes = datos.participantes_ids.filter((id) => id !== (tarea.responsable_id ?? ''));
+        const anteriores = (tarea.participantes_ids ?? []).filter((id) => id !== (tarea.responsable_id ?? ''));
+        if ([...participantes].sort().join('\0') !== [...anteriores].sort().join('\0')) {
+          cuerpo.participantes_ids = participantes;
+        }
         const hiPrev = (tarea.hora_inicio ?? '').trim();
         const hfPrev = (tarea.hora_fin ?? '').trim();
         if (hi !== hiPrev || hf !== hfPrev) {
@@ -199,7 +296,8 @@ export function ModalFormularioTarea({
           cuerpo.hora_inicio = hi;
           cuerpo.hora_fin = hf;
         }
-        if (Object.keys(cuerpo).length === 0) {
+        const casillasCambiaron = !casillasIguales(tarea, datos.casillas);
+        if (Object.keys(cuerpo).length === 0 && !casillasCambiaron) {
           onCerrar();
           return;
         }
@@ -212,31 +310,60 @@ export function ModalFormularioTarea({
           prioridad: datos.prioridad,
           departamento_id: datos.departamento_id,
         };
+        const participantes = datos.participantes_ids.filter((id) => id !== datos.responsable_id.trim());
+        if (participantes.length > 0) cuerpo.participantes_ids = participantes;
+        const casillas = textosCasilla(datos.casillas);
+        if (casillas.length > 0) cuerpo.checklist = casillas;
         if (hi && hf) {
           cuerpo.hora_inicio = hi;
           cuerpo.hora_fin = hf;
         }
         if (proyectoId) cuerpo.proyecto_id = proyectoId;
         if (tareaPadreId) cuerpo.tarea_padre_id = tareaPadreId;
+        if (!tareaPadreId && datos.repetir && datos.repetir !== 'ninguna') {
+          cuerpo.recurrencia = {
+            frecuencia: datos.repetir,
+            ...(datos.repetir === 'semanal' ? { dias_semana: datos.dias_semana } : {}),
+            ...(datos.repetir === 'mensual' ? { dias_mes: datos.dias_mes } : {}),
+          };
+        }
       }
 
-      const res = await apiFetch(ruta, { method: metodo, body: JSON.stringify(cuerpo) });
-      const data = (await res.json().catch(() => ({}))) as {
-        tarea?: Tarea;
-        error?: string;
-        calendario_sincronizado?: boolean;
-        calendario_error?: string | null;
-      };
-      if (!res.ok || !data.tarea) {
-        setError(data.error || 'No se pudo guardar la tarea');
+      let tareaGuardada: Tarea | undefined;
+      let avisoCalendario: string | undefined;
+      const hayCampos = Object.keys(cuerpo).length > 0;
+      if (hayCampos) {
+        const res = await apiFetch(ruta, { method: metodo, body: JSON.stringify(cuerpo) });
+        const data = (await res.json().catch(() => ({}))) as {
+          tarea?: Tarea;
+          error?: string;
+          calendario_sincronizado?: boolean;
+          calendario_error?: string | null;
+        };
+        if (!res.ok || !data.tarea) {
+          setError(data.error || 'No se pudo guardar la tarea');
+          return;
+        }
+        tareaGuardada = data.tarea;
+        if (data.calendario_sincronizado === false) {
+          avisoCalendario =
+            data.calendario_error?.trim() ||
+            'La tarea se guardó, pero no se pudo sincronizar con Google Calendar.';
+        }
+      }
+      if (modo === 'editar' && tarea && !casillasIguales(tarea, datos.casillas)) {
+        const sync = await sincronizarCasillas(tarea.id_tarea, tarea, datos.casillas);
+        if (sync.error) {
+          setError(sync.error);
+          return;
+        }
+        if (sync.tarea) tareaGuardada = sync.tarea;
+      }
+      if (!tareaGuardada) {
+        onCerrar();
         return;
       }
-      const avisoCalendario =
-        data.calendario_sincronizado === false
-          ? data.calendario_error?.trim() ||
-            'La tarea se guardó, pero no se pudo sincronizar con Google Calendar.'
-          : undefined;
-      onGuardada(data.tarea, avisoCalendario ? { avisoCalendario } : undefined);
+      onGuardada(tareaGuardada, avisoCalendario ? { avisoCalendario } : undefined);
     } catch (e) {
       console.error('[tasks] fallo al guardar la tarea', e);
       setError(errorMessage(e, 'No se pudo conectar con el servidor'));
@@ -303,6 +430,57 @@ export function ModalFormularioTarea({
                     numberOfLines={4}
                     editable={!guardando}
                   />
+                  <View style={styles.casillasCabecera}>
+                    <Text style={form.label}>Casillas</Text>
+                    <TouchableOpacity
+                      style={styles.casillaAnadir}
+                      onPress={() =>
+                        setDatos((p) => {
+                          if (p.casillas.length >= MAX_CHECKLIST) return p;
+                          return { ...p, casillas: [...p.casillas, { clave: claveCasilla(), texto: '' }] };
+                        })
+                      }
+                      disabled={guardando || datos.casillas.length >= MAX_CHECKLIST}
+                    >
+                      <MaterialIcons name="add-box" size={16} color="#0ea5e9" />
+                      <Text style={styles.casillaAnadirTexto}>Añadir casilla</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {datos.casillas.map((casilla) => (
+                    <View key={casilla.clave} style={styles.casillaFila}>
+                      <MaterialIcons name="check-box-outline-blank" size={18} color="#94a3b8" />
+                      <TextInput
+                        style={[form.input, styles.casillaInput]}
+                        value={casilla.texto}
+                        onChangeText={(texto) =>
+                          setDatos((p) => ({
+                            ...p,
+                            casillas: p.casillas.map((c) => (c.clave === casilla.clave ? { ...c, texto } : c)),
+                          }))
+                        }
+                        placeholder="Paso a seguir"
+                        placeholderTextColor="#94a3b8"
+                        editable={!guardando}
+                      />
+                      <TouchableOpacity
+                        onPress={() =>
+                          setDatos((p) => ({
+                            ...p,
+                            casillas: p.casillas.filter((c) => c.clave !== casilla.clave),
+                          }))
+                        }
+                        disabled={guardando}
+                        accessibilityLabel="Quitar casilla"
+                      >
+                        <MaterialIcons name="close" size={18} color="#94a3b8" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                  {datos.casillas.length > 0 ? (
+                    <Text style={form.help}>
+                      Al marcarlas en la tarea verás el avance, por ejemplo 2/5.
+                    </Text>
+                  ) : null}
                 </View>
 
                 <View style={[form.group, form.gridDos, shouldStackPanels && form.gridDosApilado]}>
@@ -322,7 +500,13 @@ export function ModalFormularioTarea({
                           vacioTexto="No hay usuarios disponibles"
                           disabled={guardando || usuarios.noDisponibles}
                           loading={usuarios.cargando}
-                          onSeleccionar={(id) => setDatos((p) => ({ ...p, responsable_id: id }))}
+                          onSeleccionar={(id) =>
+                            setDatos((p) => ({
+                              ...p,
+                              responsable_id: id,
+                              participantes_ids: p.participantes_ids.filter((x) => x !== id),
+                            }))
+                          }
                         />
                         {usuarios.noDisponibles ? (
                           <View style={form.aviso}>
@@ -366,13 +550,36 @@ export function ModalFormularioTarea({
                   </View>
                 </View>
 
+                <View style={form.group}>
+                  <Text style={form.label}>También en la agenda de</Text>
+                  <CampoMenciones
+                    opciones={opcionesParticipantes}
+                    valorIds={datos.participantes_ids}
+                    onChange={(ids) => setDatos((p) => ({ ...p, participantes_ids: ids }))}
+                    nombreDe={(id) => usuarios.nombrePorId(id)}
+                    loading={usuarios.cargando}
+                    disabled={guardando || usuarios.noDisponibles}
+                  />
+                  <Text style={form.help}>
+                    Escribe un nombre y elige a la persona. Verá la misma tarea en su calendario.
+                    El responsable sigue siendo una sola persona.
+                  </Text>
+                </View>
+
                 <View style={[form.group, form.gridDos, shouldStackPanels && form.gridDosApilado]}>
                   <View style={form.col}>
                     <Text style={form.label}>Fecha límite *</Text>
                     <InputFecha
                       compact
                       valueIso={datos.fecha_limite}
-                      onChangeIso={(iso) => setDatos((p) => ({ ...p, fecha_limite: iso }))}
+                      onChangeIso={(iso) =>
+                        setDatos((p) => ({
+                          ...p,
+                          fecha_limite: iso,
+                          dias_semana: p.repetir === 'semanal' ? p.dias_semana : [diaSemanaDeFecha(iso)],
+                          dias_mes: p.repetir === 'mensual' ? p.dias_mes : [diaMesDeFecha(iso)],
+                        }))
+                      }
                       editable={!guardando}
                       style={estiloCampoFechaCompacto}
                     />
@@ -398,6 +605,31 @@ export function ModalFormularioTarea({
                     />
                   </View>
                 </View>
+
+                {modo === 'crear' && !tareaPadreId ? (
+                  <SelectorRepeticion
+                    frecuencia={datos.repetir}
+                    diasSemana={datos.dias_semana}
+                    diasMes={datos.dias_mes}
+                    disabled={guardando}
+                    onCambiarFrecuencia={(frecuencia) =>
+                      setDatos((p) => ({
+                        ...p,
+                        repetir: frecuencia,
+                        dias_semana:
+                          frecuencia === 'semanal' && p.dias_semana.length === 0
+                            ? [diaSemanaDeFecha(p.fecha_limite)]
+                            : p.dias_semana,
+                        dias_mes:
+                          frecuencia === 'mensual' && p.dias_mes.length === 0
+                            ? [diaMesDeFecha(p.fecha_limite)]
+                            : p.dias_mes,
+                      }))
+                    }
+                    onCambiarDiasSemana={(dias) => setDatos((p) => ({ ...p, dias_semana: dias }))}
+                    onCambiarDiasMes={(dias) => setDatos((p) => ({ ...p, dias_mes: dias }))}
+                  />
+                ) : null}
 
                 <View style={form.group}>
                   <Text style={form.label}>Prioridad</Text>
@@ -455,6 +687,16 @@ export function ModalFormularioTarea({
 }
 
 const styles = StyleSheet.create({
+  casillasCabecera: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  casillaAnadir: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 32 },
+  casillaAnadirTexto: { fontSize: 13, fontWeight: '600', color: '#0ea5e9' },
+  casillaFila: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
+  casillaInput: { flex: 1 },
   soloLectura: { fontSize: 13, fontWeight: '600', color: '#334155', paddingVertical: 4 },
   colHora: { flexGrow: 0, flexShrink: 0, alignSelf: 'flex-start' },
   overlayFlotante: { backgroundColor: 'rgba(15, 23, 42, 0.12)' },
