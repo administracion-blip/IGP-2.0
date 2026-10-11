@@ -5,7 +5,7 @@ import { hasPermission } from '../middleware/auth.js';
 import { formatId6 } from '../lib/usuarioLocales.js';
 import { resolveTotalAportacionUnitaria } from '../lib/pedidos/rappelAcuerdo.js';
 import { idsAlmacenGeneral } from '../lib/pedidos/almacenGeneral.js';
-import { MENSAJE_SIN_ACCESO_LOCAL } from '../lib/alcance.js';
+import { MENSAJE_SIN_ACCESO_LOCAL, cargarAlcance } from '../lib/alcance.js';
 import {
   permitePedido,
   permiteEscribirPedido,
@@ -812,8 +812,21 @@ router.post('/pedidos/traspaso-export/marcar', async (req, res) => {
   if (!(await hasPermission(req.user, 'pedidos.exportar_traspaso'))) {
     return res.status(403).json({ error: 'No tienes permiso para exportar traspasos' });
   }
-  const ids = Array.isArray(req.body?.pedidoIds) ? req.body.pedidoIds.map((x) => String(x).trim()).filter(Boolean) : [];
+  const ids = Array.isArray(req.body?.pedidoIds)
+    ? [...new Set(req.body.pedidoIds.map((x) => String(x).trim()).filter(Boolean))]
+    : [];
   if (ids.length === 0) return res.status(400).json({ error: 'pedidoIds es obligatorio' });
+  // Todos los pedidos tienen que ser suyos antes de marcar ninguno.
+  if (!(await cargarAlcance(req)).global) {
+    for (const id of ids) {
+      const got = await docClient.send(new GetCommand({
+        TableName: tables.pedidos,
+        Key: { Id: id },
+        ProjectionExpression: 'Id, LocalId, AlmacenOrigenId',
+      }));
+      if (got.Item && !(await permitePedido(req, got.Item))) return sinAccesoLocal(res);
+    }
+  }
   const now = new Date().toISOString();
   const email = String(req.user?.email ?? '').trim();
   let marcados = 0;

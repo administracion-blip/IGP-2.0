@@ -189,6 +189,23 @@ test('mover un pedido propio a otro local (sin ser dueño del origen): 403 y el 
   assert.equal(pedido('PED-2').Notas, 'dos cajas');
 });
 
+// ─── Marcar traspasos exportados ───
+
+test('marcar traspasos con un pedido ajeno en la lista: 403 sin marcar ninguno, tampoco el propio', async () => {
+  montar();
+  db.sembrar(tables.rolesPermisos, { PK: 'ROL#Local', SK: 'PERMISO#pedidos.exportar_traspaso' });
+  const r = await api('POST', '/api/pedidos/traspaso-export/marcar', { pedidoIds: ['PED-2', 'PED-1'] }, LOCAL_NORTE);
+  assert.equal(r.status, 403);
+  assert.equal(r.body.error, 'No tienes acceso a este local');
+  assert.equal(pedido('PED-1').TraspasoExportadoEn, undefined);
+  assert.equal(pedido('PED-2').TraspasoExportadoEn, undefined);
+
+  const ok = await api('POST', '/api/pedidos/traspaso-export/marcar', { pedidoIds: ['PED-2', 'NO-EXISTE'] }, LOCAL_NORTE);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.marcados, 1);
+  assert.ok(pedido('PED-2').TraspasoExportadoEn);
+});
+
 // ─── Devoluciones: el local que devuelve tiene que ser suyo ───
 
 const OFICINA = { sub: '000093', email: 'oficina@grupo.test', rol: 'SuperUser' };
