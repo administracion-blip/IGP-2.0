@@ -170,7 +170,8 @@ router.put('/locales', requirePermission('locales.editar'), async (req, res) => 
     Key: { id_Locales: idLocales },
   });
   const got = await docClient.send(getCmd);
-  const existing = got.Item || {};
+  if (!got.Item) return res.status(404).json({ error: 'Local no encontrado' });
+  const existing = got.Item;
   const item = {};
   for (const key of TABLE_LOCALES_ATTRS) {
     if (key === 'id_Locales') item[key] = idLocales;
@@ -202,10 +203,19 @@ router.put('/locales', requirePermission('locales.editar'), async (req, res) => 
       item[key] = v != null && v !== '' ? String(v) : String(existing[key] ?? '');
     }
   }
-  await docClient.send(new PutCommand({
-    TableName: tables.locales,
-    Item: item,
-  }));
+  // Sin la condición, un borrado entre el Get y el Put volvería a crear el local con solo locales.editar.
+  try {
+    await docClient.send(new PutCommand({
+      TableName: tables.locales,
+      Item: item,
+      ConditionExpression: 'attribute_exists(id_Locales)',
+    }));
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') {
+      return res.status(404).json({ error: 'Local no encontrado' });
+    }
+    throw err;
+  }
   cachedLocalesMinimal = null;
   res.json({ ok: true, local: item });
 });

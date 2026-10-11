@@ -34,19 +34,32 @@ router.post('/almacenes', requirePermission('almacenes.crear'), async (req, res)
   if (!body.Nombre || !String(body.Nombre).trim()) {
     return res.status(400).json({ error: 'Nombre es obligatorio' });
   }
+  if (body.Id == null || String(body.Id).trim() === '') {
+    return res.status(400).json({ error: 'Id es obligatorio para crear un almacén' });
+  }
   const item = {};
   for (const key of TABLE_ALMACENES_ATTRS) {
     if (key === 'Id') {
-      item[key] = body.Id != null ? formatId6(body.Id) : '000000';
+      item[key] = formatId6(body.Id);
     } else {
       const v = body[key];
       item[key] = v != null && v !== '' ? String(v) : '';
     }
   }
-  await docClient.send(new PutCommand({
-    TableName: tableAlmacenesName,
-    Item: item,
-  }));
+  try {
+    await docClient.send(new PutCommand({
+      TableName: tableAlmacenesName,
+      Item: item,
+      ConditionExpression: 'attribute_not_exists(Id)',
+    }));
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') {
+      return res.status(409).json({
+        error: `El identificador de almacén ${item.Id} ya está en uso. Recarga la pantalla de almacenes y vuelve a crearlo.`,
+      });
+    }
+    throw err;
+  }
   res.json({ ok: true, almacen: item });
 });
 
@@ -60,7 +73,8 @@ router.put('/almacenes', requirePermission('almacenes.editar'), async (req, res)
     Key: { Id: idAlmacenes },
   });
   const got = await docClient.send(getCmd);
-  const existing = got.Item || {};
+  if (!got.Item) return res.status(404).json({ error: 'Almacén no encontrado' });
+  const existing = got.Item;
   const item = {};
   for (const key of TABLE_ALMACENES_ATTRS) {
     if (key === 'Id') item[key] = idAlmacenes;
@@ -69,10 +83,19 @@ router.put('/almacenes', requirePermission('almacenes.editar'), async (req, res)
       item[key] = v != null && v !== '' ? String(v) : String(existing[key] ?? '');
     }
   }
-  await docClient.send(new PutCommand({
-    TableName: tableAlmacenesName,
-    Item: item,
-  }));
+  // Sin la condición, un borrado entre el Get y el Put volvería a crear el almacén con solo almacenes.editar.
+  try {
+    await docClient.send(new PutCommand({
+      TableName: tableAlmacenesName,
+      Item: item,
+      ConditionExpression: 'attribute_exists(Id)',
+    }));
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') {
+      return res.status(404).json({ error: 'Almacén no encontrado' });
+    }
+    throw err;
+  }
   res.json({ ok: true, almacen: item });
 });
 

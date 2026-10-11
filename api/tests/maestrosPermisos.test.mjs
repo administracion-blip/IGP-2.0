@@ -135,6 +135,15 @@ test('la creación rápida desde Usuarios funciona con usuarios.crear, pero solo
   assert.equal((await api('DELETE', '/api/locales', { id_Locales: '000021' }, GESTOR_USUARIOS)).status, 403);
 });
 
+test('PUT de un local inexistente devuelve 404 y no lo crea (locales.editar no sirve para crear)', async () => {
+  const db = montar();
+  const r = await api('PUT', '/api/locales', { id_Locales: '000099', Nombre: 'Colado', AgoraCode: '5' }, ADMINISTRACION);
+  assert.equal(r.status, 404);
+  assert.equal(r.body.error, 'Local no encontrado');
+  assert.equal(db.obtener(tables.locales, { id_Locales: '000099' }), null);
+  assert.equal(db.listar(tables.locales).length, 1);
+});
+
 test('el listado de locales sigue abierto a cualquier usuario autenticado', async () => {
   montar();
   const r = await api('GET', '/api/locales', undefined, ENCARGADO);
@@ -161,6 +170,31 @@ test('con almacenes.crear / editar / borrar el maestro funciona como antes', asy
   assert.equal(db.obtener(tables.almacenes, { Id: '000002' }).Nombre, 'Bebidas 2');
   assert.equal((await api('DELETE', '/api/almacenes', { Id: '000002' }, ADMINISTRACION)).status, 200);
   assert.equal(db.obtener(tables.almacenes, { Id: '000002' }), null);
+});
+
+test('POST de almacén con un Id ya usado devuelve 409 y no pisa el existente', async () => {
+  const db = montar();
+  const r = await api('POST', '/api/almacenes', { Id: '1', Nombre: 'Pisado', Cif: 'B000' }, ADMINISTRACION);
+  assert.equal(r.status, 409);
+  assert.deepEqual(db.obtener(tables.almacenes, { Id: '000001' }), { Id: '000001', Nombre: 'General' });
+});
+
+test('POST de almacén sin Id devuelve 400 y no escribe nada', async () => {
+  const db = montar();
+  for (const Id of [undefined, '', '  ']) {
+    const r = await api('POST', '/api/almacenes', { Id, Nombre: 'Sin id' }, ADMINISTRACION);
+    assert.equal(r.status, 400);
+  }
+  assert.equal(db.obtener(tables.almacenes, { Id: '000000' }), null);
+  assert.equal(db.listar(tables.almacenes).length, 1);
+});
+
+test('PUT de un almacén inexistente devuelve 404 y no lo crea (almacenes.editar no sirve para crear)', async () => {
+  const db = montar();
+  const r = await api('PUT', '/api/almacenes', { Id: '000077', Nombre: 'Colado' }, ADMINISTRACION);
+  assert.equal(r.status, 404);
+  assert.equal(db.obtener(tables.almacenes, { Id: '000077' }), null);
+  assert.equal(db.listar(tables.almacenes).length, 1);
 });
 
 // ─── Festivos ───
