@@ -2886,7 +2886,7 @@ router.get('/agora/products/sync/status', requireAnyPermission('productos.sincro
   });
 });
 
-router.patch('/agora/products/igp/batch', async (req, res) => {
+router.patch('/agora/products/igp/batch', requirePermission('productos.editar'), async (req, res) => {
   const body = req.body || {};
   const raw = body.updates ?? body.Updates ?? [];
   const updates = Array.isArray(raw) ? raw : [];
@@ -2937,7 +2937,7 @@ router.patch('/agora/products/igp/batch', async (req, res) => {
   });
 });
 
-router.patch('/agora/products/zona/batch', async (req, res) => {
+router.patch('/agora/products/zona/batch', requirePermission('productos.editar'), async (req, res) => {
   const body = req.body || {};
   const rawIds = body.ids ?? body.Ids ?? [];
   const ids = [...new Set(
@@ -2988,7 +2988,7 @@ router.patch('/agora/products/zona/batch', async (req, res) => {
   });
 });
 
-router.patch('/agora/products/:id', async (req, res) => {
+router.patch('/agora/products/:id', requirePermission('productos.editar'), async (req, res) => {
   const id = req.params.id;
   const body = req.body || {};
   if (id == null || id === '') {
@@ -3085,7 +3085,7 @@ router.get('/agora/sale-centers', async (req, res) => {
   res.json({ saleCenters });
 });
 
-router.patch('/agora/sale-centers', async (req, res) => {
+router.patch('/agora/sale-centers', requirePermission('puntos_venta.editar'), async (req, res) => {
   const { id, Activo } = req.body || {};
   if (id == null) {
     return res.status(400).json({ error: 'Falta id en el body' });
@@ -3129,7 +3129,7 @@ router.patch('/agora/sale-centers', async (req, res) => {
  * separadas. La tarifa de un local se resuelve por el mapa manual LOCAL_TARIFA
  * (PUT /agora/locales-tarifa), que es lo que consume escandallos/almacen-contexto.
  */
-router.post('/agora/sale-centers/sync', async (req, res) => {
+router.post('/agora/sale-centers/sync', requirePermission('puntos_venta.editar'), async (req, res) => {
   const { AGORA_API_BASE_URL, AGORA_API_TOKEN } = env();
   const baseUrl = (AGORA_API_BASE_URL || '').trim().replace(/\/+$/, '');
   const token = (AGORA_API_TOKEN || '').trim();
@@ -3435,7 +3435,7 @@ router.get('/agora/franjas-plantillas', async (_req, res) => {
   res.json({ plantillas });
 });
 
-router.post('/agora/franjas-plantillas', async (req, res) => {
+router.post('/agora/franjas-plantillas', requirePermission('objetivos.ver'), async (req, res) => {
   const nombre = String(req.body?.nombre ?? '').trim();
   if (!nombre) return res.status(400).json({ error: 'nombre es obligatorio' });
   const franjas = normalizarFranjas(req.body?.franjas);
@@ -3452,7 +3452,7 @@ router.post('/agora/franjas-plantillas', async (req, res) => {
   res.json({ ok: true, plantilla: { plantillaId, nombre, franjas } });
 });
 
-router.put('/agora/franjas-plantillas', async (req, res) => {
+router.put('/agora/franjas-plantillas', requirePermission('objetivos.ver'), async (req, res) => {
   const plantillaId = String(req.body?.plantillaId ?? '').trim();
   if (!plantillaId) return res.status(400).json({ error: 'plantillaId es obligatorio' });
   const nombre = String(req.body?.nombre ?? '').trim();
@@ -3482,7 +3482,7 @@ router.put('/agora/franjas-plantillas', async (req, res) => {
   }
 });
 
-router.delete('/agora/franjas-plantillas', async (req, res) => {
+router.delete('/agora/franjas-plantillas', requirePermission('objetivos.ver'), async (req, res) => {
   const plantillaId = String(req.query.plantillaId ?? req.body?.plantillaId ?? '').trim();
   if (!plantillaId) return res.status(400).json({ error: 'plantillaId es obligatorio' });
   await docClient.send(
@@ -3572,7 +3572,7 @@ router.get('/agora/invoices/sales-by-hour', requireLocalLectura(desde.query('wor
   res.json(payload);
 });
 
-router.post('/agora/warehouses/sync', async (req, res) => {
+router.post('/agora/warehouses/sync', requireAnyPermission('ajustes.sincronizaciones.almacenes', 'almacenes.sincronizar'), async (req, res) => {
   {
     const rawList = await exportWarehouses();
     const list = Array.isArray(rawList) ? rawList : [];
