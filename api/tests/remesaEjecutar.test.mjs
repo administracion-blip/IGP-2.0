@@ -195,4 +195,84 @@ test('POST ejecutar reclama y paga; un segundo POST concurrente/reintento da 409
 
   const remesa = db.obtener(tables.remesas, { remesaId });
   assert.equal(remesa.estado, 'Ejecutada');
+  assert.equal(remesa.lineasPendientesPago, undefined);
+});
+
+/** Hace que cada escritura de pago de `idFactura` choque con otra (o falle con `error`). */
+function romperPagosDe(db, idFactura, error) {
+  const enviar = docClient.send;
+  docClient.send = async (cmd) => {
+    const items = cmd?.constructor?.name === 'TransactWriteCommand' ? cmd.input.TransactItems : [];
+    const deLaFactura = items.some((it) => it.Put?.TableName === tables.facturas && it.Put.Item.id_factura === idFactura);
+    if (deLaFactura) {
+      if (error) throw error;
+      const f = db.obtener(tables.facturas, { id_factura: idFactura });
+      db.sembrar(tables.facturas, { ...f, version: (f.version || 1) + 1 });
+    }
+    return enviar(cmd);
+  };
+  return () => { docClient.send = enviar; };
+}
+
+test('una línea con 409 FACTURA_CAMBIADA no corta las demás; se reanuda pagando solo la pendiente', async () => {
+  const db = escenarioRemesas();
+  const remesaId = 'REM-PARCIAL';
+  sembrarFacturaPendiente(db, 'FAC-A', { total: 40 });
+  sembrarFacturaPendiente(db, 'FAC-B', { total: 60 });
+  sembrarRemesa(db, remesaId, [
+    { id_factura: 'FAC-A', importe: 40 },
+    { id_factura: 'FAC-B', importe: 60 },
+  ]);
+
+  const restaurar = romperPagosDe(db, 'FAC-A');
+  let primera;
+  try {
+    primera = await api('POST', `/api/remesas/${remesaId}/ejecutar`, { fecha: '2026-08-11' });
+  } finally {
+    restaurar();
+  }
+  assert.equal(primera.status, 409);
+  assert.equal(primera.body.code, 'REMESA_EJECUCION_PARCIAL');
+  assert.match(primera.body.error, /1 de 2 pago/);
+  assert.equal(primera.body.pagos.length, 1);
+  assert.deepEqual(primera.body.fallidas, [
+    { id_factura: 'FAC-A', error: 'La factura ha cambiado, vuelve a intentarlo', code: 'FACTURA_CAMBIADA' },
+  ]);
+  assert.deepEqual(primera.body.remesa.lineasPendientesPago, ['FAC-A']);
+  assert.equal(db.obtener(tables.facturas, { id_factura: 'FAC-B' }).estado, 'pagada');
+  assert.equal(db.obtener(tables.facturas, { id_factura: 'FAC-A' }).total_cobrado, 0);
+  const guardada = db.obtener(tables.remesas, { remesaId });
+  assert.equal(guardada.estado, 'Ejecutada');
+  assert.deepEqual(guardada.lineasPendientesPago, ['FAC-A']);
+
+  const segunda = await api('POST', `/api/remesas/${remesaId}/ejecutar`, { fecha: '2026-08-11' });
+  assert.equal(segunda.status, 200, JSON.stringify(segunda.body));
+  assert.deepEqual(segunda.body.pagos.map((p) => p.id_factura), ['FAC-A']);
+  assert.equal(segunda.body.remesa.lineasPendientesPago, undefined);
+  assert.equal(db.obtener(tables.remesas, { remesaId }).lineasPendientesPago, undefined);
+  assert.equal(db.listar(tables.facturasPagos).filter((p) => p.id_factura === 'FAC-B').length, 1);
+  assert.equal(db.obtener(tables.facturas, { id_factura: 'FAC-A' }).estado, 'pagada');
+
+  const tercera = await api('POST', `/api/remesas/${remesaId}/ejecutar`, { fecha: '2026-08-11' });
+  assert.equal(tercera.status, 409);
+  assert.match(tercera.body.error, /ya está ejecutada/);
+});
+
+test('un error interno en una línea sale genérico en fallidas, sin detalle técnico', async () => {
+  const db = escenarioRemesas();
+  sembrarFacturaPendiente(db, 'FAC-X', { total: 10 });
+  sembrarFacturaPendiente(db, 'FAC-Y', { total: 20 });
+  sembrarRemesa(db, 'REM-500', [{ id_factura: 'FAC-X', importe: 10 }, { id_factura: 'FAC-Y', importe: 20 }]);
+  const restaurar = romperPagosDe(db, 'FAC-Y', Object.assign(new Error('ProvisionedThroughputExceeded arn:aws:dynamodb:...'), {
+    name: 'ProvisionedThroughputExceededException', $metadata: { httpStatusCode: 400 },
+  }));
+  let r;
+  try {
+    r = await api('POST', '/api/remesas/REM-500/ejecutar', { fecha: '2026-08-11' });
+  } finally {
+    restaurar();
+  }
+  assert.equal(r.status, 409);
+  assert.deepEqual(r.body.fallidas, [{ id_factura: 'FAC-Y', error: 'Error interno del servidor' }]);
+  assert.deepEqual(db.obtener(tables.remesas, { remesaId: 'REM-500' }).lineasPendientesPago, ['FAC-Y']);
 });

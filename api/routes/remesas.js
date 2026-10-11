@@ -6,7 +6,8 @@
  *  - remesas.gestionar — crear, editar, generar fichero, ejecutar, anular
  *  - facturacion.cobrar_pagar — requerido además para ejecutar (crea pagos)
  */
-import { responderError } from '../lib/http/responderError.js';
+import { errorPublico, responderError } from '../lib/http/responderError.js';
+import { logger } from '../lib/logger.js';
 import { Router } from 'express';
 import crypto from 'crypto';
 import {
@@ -469,7 +470,10 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
   try {
     const remesa = await getRemesa(req.params.remesaId);
     if (!remesa) return res.status(404).json({ error: 'Remesa no encontrada' });
-    if (remesa.estado === 'Ejecutada') return res.status(409).json({ error: 'La remesa ya está ejecutada' });
+    // Una ejecución que dejó líneas sin pagar se reanuda solo con esas líneas.
+    const pendientesPrevias = Array.isArray(remesa.lineasPendientesPago) ? remesa.lineasPendientesPago : [];
+    const reanudar = remesa.estado === 'Ejecutada' && pendientesPrevias.length > 0;
+    if (remesa.estado === 'Ejecutada' && !reanudar) return res.status(409).json({ error: 'La remesa ya está ejecutada' });
     if (remesa.estado === 'Anulada') return res.status(400).json({ error: 'Remesa anulada' });
     if (!remesa.lineas?.length) return res.status(400).json({ error: 'Sin líneas' });
 
@@ -478,11 +482,16 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
     const referencia = String(req.body?.referencia || '').trim() || `Remesa ${remesa.remesaId}`;
     const observacionesGlobal = String(req.body?.observaciones ?? '').trim();
 
-    const recalculo = await recalcularDesdeFacturas(remesa);
+    const idsPendientes = new Set(pendientesPrevias.map(String));
+    const lineasAPagar = reanudar
+      ? remesa.lineas.filter((l) => idsPendientes.has(String(l.id_factura)))
+      : remesa.lineas;
+
+    const recalculo = await recalcularDesdeFacturas(reanudar ? { ...remesa, lineas: lineasAPagar } : remesa);
     if (!recalculo.ok) return respuestaLineasInvalidas(res, recalculo.invalidas);
 
     // Fase 1: validar todas las líneas antes de crear pagos
-    for (const linea of remesa.lineas) {
+    for (const linea of lineasAPagar) {
       const factura = await cargarFactura(linea.id_factura);
       if (!factura) {
         return res.status(400).json({ error: `Factura ${linea.id_factura} no encontrada` });
@@ -496,51 +505,97 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
       }
     }
 
-    // [SEC S-04] Reclamar remesa atómicamente antes de pagar
-    const tsEjecucion = now();
-    try {
-      await docClient.send(new UpdateCommand({
-        TableName: TABLE,
-        Key: { remesaId: remesa.remesaId },
-        UpdateExpression: 'SET estado = :ejecutada, ejecutadaEn = :ts, actualizadoEn = :ts',
-        ConditionExpression: 'estado = :generada OR estado = :borrador',
-        ExpressionAttributeValues: {
-          ':ejecutada': 'Ejecutada',
-          ':generada': 'Generada',
-          ':borrador': 'Borrador',
-          ':ts': tsEjecucion,
-        },
-      }));
-    } catch (claimErr) {
-      if (claimErr?.name === 'ConditionalCheckFailedException') {
-        return res.status(409).json({ error: 'La remesa ya está ejecutada o no se puede ejecutar' });
+    // [SEC S-04] Reclamar remesa atómicamente antes de pagar. Todas las líneas
+    // quedan pendientes desde el reclamo: si el proceso cae a mitad, la remesa
+    // se puede reanudar en vez de quedarse Ejecutada con facturas sin pagar.
+    if (!reanudar) {
+      const tsEjecucion = now();
+      const todas = remesa.lineas.map((l) => String(l.id_factura));
+      try {
+        await docClient.send(new UpdateCommand({
+          TableName: TABLE,
+          Key: { remesaId: remesa.remesaId },
+          UpdateExpression: 'SET estado = :ejecutada, ejecutadaEn = :ts, actualizadoEn = :ts, lineasPendientesPago = :pend',
+          ConditionExpression: 'estado = :generada OR estado = :borrador',
+          ExpressionAttributeValues: {
+            ':ejecutada': 'Ejecutada',
+            ':generada': 'Generada',
+            ':borrador': 'Borrador',
+            ':ts': tsEjecucion,
+            ':pend': todas,
+          },
+        }));
+      } catch (claimErr) {
+        if (claimErr?.name === 'ConditionalCheckFailedException') {
+          return res.status(409).json({ error: 'La remesa ya está ejecutada o no se puede ejecutar' });
+        }
+        throw claimErr;
       }
-      throw claimErr;
+      remesa.estado = 'Ejecutada';
+      remesa.ejecutadaEn = tsEjecucion;
+      remesa.actualizadoEn = tsEjecucion;
     }
-    remesa.estado = 'Ejecutada';
-    remesa.ejecutadaEn = tsEjecucion;
-    remesa.actualizadoEn = tsEjecucion;
 
-    // Fase 2: registrar pagos (idempotentes por línea)
+    // Fase 2: registrar pagos (idempotentes por línea). El fallo de una línea
+    // (p. ej. 409 porque su factura cambió) no corta las demás.
     const pagosCreados = [];
-    for (const linea of remesa.lineas) {
-      const factura = await cargarFactura(linea.id_factura);
-      const pendiente = calcularSaldoPendiente(factura);
-      const result = await registrarPagoFactura({
-        id_factura: linea.id_factura,
-        fecha,
-        importe: round2(Number(linea.importe) || 0),
-        metodo_pago,
-        referencia,
-        observaciones: observacionesGlobal || linea.concepto || '',
-        usuario_id: usuario.id_usuario || usuario.sub || '',
-        usuario_nombre: usuario.Nombre || usuario.email || '',
-        importeMaximo: pendiente,
-        idempotencyKey: `remesa:${remesa.remesaId}:${linea.id_factura}`,
-      });
-      pagosCreados.push(result.pago);
+    const fallidas = [];
+    for (const linea of lineasAPagar) {
+      try {
+        const factura = await cargarFactura(linea.id_factura);
+        const pendiente = calcularSaldoPendiente(factura);
+        const result = await registrarPagoFactura({
+          id_factura: linea.id_factura,
+          fecha,
+          importe: round2(Number(linea.importe) || 0),
+          metodo_pago,
+          referencia,
+          observaciones: observacionesGlobal || linea.concepto || '',
+          usuario_id: usuario.id_usuario || usuario.sub || '',
+          usuario_nombre: usuario.Nombre || usuario.email || '',
+          importeMaximo: pendiente,
+          idempotencyKey: `remesa:${remesa.remesaId}:${linea.id_factura}`,
+        });
+        pagosCreados.push(result.pago);
+      } catch (err) {
+        (req.log?.error ? req.log : logger).error(
+          { err, remesaId: remesa.remesaId, id_factura: linea.id_factura },
+          '[remesas/ejecutar] línea sin pagar',
+        );
+        const pub = errorPublico(err);
+        fallidas.push({
+          id_factura: linea.id_factura,
+          error: pub.error,
+          ...(pub.publico && err?.code && { code: err.code }),
+        });
+      }
     }
 
+    const pendientes = fallidas.map((f) => String(f.id_factura));
+    const tsFin = now();
+    await docClient.send(new UpdateCommand({
+      TableName: TABLE,
+      Key: { remesaId: remesa.remesaId },
+      UpdateExpression: pendientes.length > 0
+        ? 'SET lineasPendientesPago = :pend, actualizadoEn = :ts'
+        : 'SET actualizadoEn = :ts REMOVE lineasPendientesPago',
+      ExpressionAttributeValues: { ':ts': tsFin, ...(pendientes.length > 0 && { ':pend': pendientes }) },
+    }));
+    remesa.actualizadoEn = tsFin;
+    if (pendientes.length > 0) remesa.lineasPendientesPago = pendientes;
+    else delete remesa.lineasPendientesPago;
+
+    if (fallidas.length > 0) {
+      return res.status(409).json({
+        ok: false,
+        code: 'REMESA_EJECUCION_PARCIAL',
+        error: `Se han registrado ${pagosCreados.length} de ${lineasAPagar.length} pago(s). `
+          + `${fallidas.length} factura(s) no se han podido pagar; vuelve a ejecutar la remesa para pagar solo las pendientes.`,
+        remesa,
+        pagos: pagosCreados,
+        fallidas,
+      });
+    }
     res.json({ ok: true, remesa, pagos: pagosCreados });
   } catch (err) {
     responderError(res, err);
