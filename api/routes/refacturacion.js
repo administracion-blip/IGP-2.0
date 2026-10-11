@@ -38,7 +38,6 @@ import {
 } from '../lib/facturacion/refacturacionCalculo.js';
 import { cargarAlcance, permiteEmpresa } from '../lib/alcance.js';
 import { filtrarLecturaPorEmpresa, permiteLecturaEmpresa } from '../lib/alcanceSociedad.js';
-import { esSedeGrupoParipeEmpresa } from '../lib/locales/sede.js';
 
 const router = Router();
 
@@ -510,7 +509,7 @@ router.post(
         });
       }
 
-      // [SEC S-08] Destino propio; el emisor se comprueba con el maestro más abajo.
+      // [SEC S-08] Destino y emisor propios; el emisor se comprueba tras confirmar que existe.
       const alcance = await cargarAlcance(req);
       if (!permiteEmpresa(alcance, empresa_destino_id)) {
         return res.status(403).json({ error: MENSAJE_SOCIEDAD_AJENA });
@@ -543,8 +542,7 @@ router.post(
           error: `Empresa destino "${empresa_destino_id}" no encontrada`,
         });
       }
-      // La sede emite para todo el grupo: con refacturacion.gestionar (exigido arriba) siempre vale.
-      if (!permiteEmpresa(alcance, emisor_id) && !esSedeGrupoParipeEmpresa(emisorItem)) {
+      if (!permiteEmpresa(alcance, emisor_id)) {
         return res.status(403).json({ error: MENSAJE_SOCIEDAD_AJENA });
       }
 

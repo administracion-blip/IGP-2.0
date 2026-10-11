@@ -1,7 +1,7 @@
 /**
  * [SEC S-08] Ataques por sociedad en Refacturación: un usuario restringido a la
  * sociedad Norte no crea, reasigna, borra ni emite líneas de la sociedad Sur.
- * La sede emisora del grupo vale siempre para quien tiene refacturacion.gestionar.
+ * El emisor tiene que ser una de sus sociedades, aunque sea la sede del grupo.
  */
 
 import test, { after, beforeEach } from 'node:test';
@@ -131,19 +131,38 @@ test('POST con una línea a otra sociedad: 403 y no se guarda ninguna', async ()
   assert.equal(db.listar(tables.refacturaciones).length, 2);
 });
 
-test('emitir desde la sede a la sociedad propia: OK aunque la sede no esté en sus locales', async () => {
+test('emitir desde la sede del grupo sin tenerla entre sus sociedades: 403 sin factura', async () => {
   const r = await api('POST', '/api/refacturacion/emitir', {
     emisor_id: EMPRESA_CENTRAL,
     empresa_destino_id: EMPRESA_NORTE,
     serie: 'REF',
     lineas_ids: ['L-NORTE'],
   });
+  assert.equal(r.status, 403);
+  assert.equal(r.body.error, 'No tienes acceso a esa sociedad');
+  assert.equal(db.listar(tables.facturas).length, 0);
+  assert.equal(lineasDe(EMPRESA_NORTE)[0].estado, 'pendiente');
+});
+
+test('emitir desde una sociedad propia a otra propia: OK', async () => {
+  const EMPRESA_ESTE = '000004';
+  db.sembrar(tables.empresas, empresa(EMPRESA_ESTE, 'Este', { Sede: 'GRUPO PARIPE' }));
+  db.sembrar(tables.locales, local('000040', 'Local Este', EMPRESA_ESTE));
+  db.sembrar(tables.usuarios, { id_usuario: 'u-norte', Email: NORTE.email, Local: ['Local Norte', 'Local Este'], Rol: ROL });
+  invalidarContextoAcceso();
+  invalidarMaestroLocales();
+  const r = await api('POST', '/api/refacturacion/emitir', {
+    emisor_id: EMPRESA_ESTE,
+    empresa_destino_id: EMPRESA_NORTE,
+    serie: 'REF',
+    lineas_ids: ['L-NORTE'],
+  });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.equal(r.body.factura.emisor_id, EMPRESA_CENTRAL);
+  assert.equal(r.body.factura.emisor_id, EMPRESA_ESTE);
   assert.equal(lineasDe(EMPRESA_NORTE)[0].estado, 'refacturada');
 });
 
-test('emitir a otra sociedad o desde una sociedad ajena que no es sede: 403 sin factura', async () => {
+test('emitir a otra sociedad o desde una sociedad ajena: 403 sin factura', async () => {
   const aSur = await api('POST', '/api/refacturacion/emitir', {
     emisor_id: EMPRESA_CENTRAL,
     empresa_destino_id: EMPRESA_SUR,
