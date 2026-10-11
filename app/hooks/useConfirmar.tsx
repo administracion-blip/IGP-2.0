@@ -12,6 +12,8 @@ export type ConfirmarOpciones = {
   confirmarLabel?: string;
   cancelarLabel?: string;
   variant?: 'default' | 'danger';
+  /** Aviso informativo: solo muestra el botón de confirmar (por defecto «Aceptar»). */
+  soloAceptar?: boolean;
 };
 
 type ConfirmarState = {
@@ -20,6 +22,7 @@ type ConfirmarState = {
   confirmarLabel: string;
   cancelarLabel: string;
   variant: 'default' | 'danger';
+  soloAceptar: boolean;
 };
 
 /**
@@ -37,9 +40,10 @@ export function useConfirmar() {
         setState({
           titulo,
           mensaje,
-          confirmarLabel: opciones?.confirmarLabel ?? 'Confirmar',
+          confirmarLabel: opciones?.confirmarLabel ?? (opciones?.soloAceptar ? 'Aceptar' : 'Confirmar'),
           cancelarLabel: opciones?.cancelarLabel ?? 'Cancelar',
           variant: opciones?.variant ?? 'default',
+          soloAceptar: !!opciones?.soloAceptar,
         });
       }),
     [],
@@ -63,9 +67,11 @@ export function useConfirmar() {
           <Text style={styles.titulo}>{state.titulo}</Text>
           <Text style={styles.mensaje}>{state.mensaje}</Text>
           <View style={styles.actions}>
-            <TouchableOpacity style={styles.btnCancel} onPress={() => cerrar(false)}>
-              <Text style={styles.btnCancelText}>{state.cancelarLabel}</Text>
-            </TouchableOpacity>
+            {state.soloAceptar ? null : (
+              <TouchableOpacity style={styles.btnCancel} onPress={() => cerrar(false)}>
+                <Text style={styles.btnCancelText}>{state.cancelarLabel}</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={state.variant === 'danger' ? styles.btnDanger : styles.btnConfirm}
               onPress={() => cerrar(true)}

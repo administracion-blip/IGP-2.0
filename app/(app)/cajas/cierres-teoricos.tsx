@@ -12,7 +12,6 @@ import {
   PanResponder,
   Platform,
   Switch,
-  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -443,7 +442,7 @@ export default function CierresTeoricosScreen() {
       await confirmar(
         'No se puede sincronizar',
         'No tienes ningún local con código de Ágora asignado. Revisa tus locales o vuelve a intentarlo cuando terminen de cargar.',
-        { confirmarLabel: 'Aceptar', cancelarLabel: 'Cerrar' },
+        { soloAceptar: true },
       );
       return;
     }
@@ -504,7 +503,7 @@ export default function CierresTeoricosScreen() {
       await confirmar(
         'Sincronización incompleta',
         `No se pudieron sincronizar ${fallidos.length} de ${totalDays} día(s):\n${fallidos.join('\n')}`,
-        { confirmarLabel: 'Aceptar', cancelarLabel: 'Cerrar' },
+        { soloAceptar: true },
       );
     }
   }, [refetchCloseouts, localesPermitidos, accesoTodosLocales, confirmar]);
@@ -802,12 +801,12 @@ export default function CierresTeoricosScreen() {
   const handleBulkShiftDayBack = useCallback(async () => {
     const items = selectedRowIds.map((id) => findCloseoutByRowId(id, closeoutsPermitidos)).filter(Boolean) as CloseOut[];
     if (items.length === 0) {
-      Alert.alert('Selección', 'Marca al menos un cierre con la casilla de la izquierda.');
+      await confirmar('Selección', 'Marca al menos un cierre con la casilla de la izquierda.', { soloAceptar: true });
       return;
     }
     const err = checkShiftDayCollisions(items, closeouts);
     if (err) {
-      Alert.alert('No se puede retroceder la fecha', err);
+      await confirmar('No se puede retroceder la fecha', err, { soloAceptar: true });
       return;
     }
     setShiftSaving(true);
@@ -827,19 +826,19 @@ export default function CierresTeoricosScreen() {
       setSelectedRowKey(null);
       refetchCloseouts(true);
     } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo actualizar');
+      await confirmar('Error', e instanceof Error ? e.message : 'No se pudo actualizar', { soloAceptar: true });
     } finally {
       setShiftSaving(false);
     }
-  }, [selectedRowIds, closeouts, closeoutsPermitidos, agoraCodeToNombre, refetchCloseouts]);
+  }, [selectedRowIds, closeouts, closeoutsPermitidos, agoraCodeToNombre, refetchCloseouts, confirmar]);
 
-  const openDeleteModal = useCallback(() => {
+  const openDeleteModal = useCallback(async () => {
     if (selectedRowIds.length > 0) {
       const items = selectedRowIds.map((id) => findCloseoutByRowId(id, closeoutsPermitidos)).filter(Boolean) as CloseOut[];
       if (items.length === 0) {
-        Alert.alert('Selección', 'No se encontraron los registros marcados. Actualiza la lista e inténtalo de nuevo.');
-      return;
-    }
+        await confirmar('Selección', 'No se encontraron los registros marcados. Actualiza la lista e inténtalo de nuevo.', { soloAceptar: true });
+        return;
+      }
       setDeletingItems(items);
       setFormError(null);
       setShowDeleteModal(true);
@@ -850,7 +849,7 @@ export default function CierresTeoricosScreen() {
       setFormError(null);
       setShowDeleteModal(true);
     }
-  }, [selectedRowIds, closeoutsPermitidos, selectedItem]);
+  }, [selectedRowIds, closeoutsPermitidos, selectedItem, confirmar]);
 
   const handleSaveForm = useCallback(async () => {
     const bd = formBusinessDay.trim();
@@ -1678,7 +1677,7 @@ export default function CierresTeoricosScreen() {
         <Text style={styles.infoLine}>
           {totalCount === 0
             ? 'No hay cierres. Se sincronizan automáticamente cada 2 min desde Ágora.'
-            : `${totalCount} cierre${totalCount !== 1 ? 's' : ''} (ordenado por Business Day, más reciente primero; luego por local). Casillas: selección múltiple. Doble clic en una fila para editar.`}
+            : `${totalCount} cierre${totalCount !== 1 ? 's' : ''} (ordenado por Business Day, más reciente primero; luego por local). Casillas: selección múltiple.${puedeEditar ? ' Doble clic en una fila para editar.' : ''}`}
         </Text>
         {totalCount > PAGE_SIZE && (
           <View style={styles.pagination}>
