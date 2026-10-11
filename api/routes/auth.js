@@ -7,6 +7,7 @@ import { signToken } from '../lib/jwt.js';
 import { requireAuth } from '../middleware/auth.js';
 import { normalizeLocalesUsuario } from '../lib/usuarioLocales.js';
 import { normalizarIdsDepartamento } from '../lib/tasks/departamentos.js';
+import { invalidarContextoAcceso, normalizarTokenVersion } from '../lib/tasks/acceso.js';
 import { enviarEmail, smtpConfigurado } from '../lib/email.js';
 import {
   MIN_PASSWORD_LENGTH,
@@ -101,6 +102,7 @@ router.post('/login', async (req, res) => {
     sub: userPayload.id_usuario,
     email: userPayload.email,
     rol: userPayload.Rol,
+    tv: normalizarTokenVersion(user.tokenVersion),
   });
 
   res.json({ user: userPayload, token });
@@ -261,10 +263,11 @@ router.post('/reset-password', async (req, res) => {
   await docClient.send(new UpdateCommand({
     TableName: tables.usuarios,
     Key: { id_usuario: user.id_usuario },
-    UpdateExpression: 'SET #Password = :p REMOVE ResetTokenHash, ResetTokenExp',
+    UpdateExpression: 'SET #Password = :p REMOVE ResetTokenHash, ResetTokenExp ADD tokenVersion :uno',
     ExpressionAttributeNames: { '#Password': 'Password' },
-    ExpressionAttributeValues: { ':p': hash },
+    ExpressionAttributeValues: { ':p': hash, ':uno': 1 },
   }));
+  invalidarContextoAcceso(user.id_usuario);
 
   return res.json({ ok: true, message: 'Contraseña actualizada. Ya puedes iniciar sesión.' });
 });

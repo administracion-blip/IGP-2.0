@@ -185,12 +185,13 @@ async function run() {
   await docClient.send(new UpdateCommand({
     TableName: TABLE,
     Key: { id_usuario: user.id_usuario },
-    UpdateExpression: 'SET #Password = :p',
+    UpdateExpression: 'SET #Password = :p ADD tokenVersion :uno',
     ExpressionAttributeNames: { '#Password': 'Password' },
-    ExpressionAttributeValues: { ':p': hash },
+    ExpressionAttributeValues: { ':p': hash, ':uno': 1 },
   }));
 
   console.log(`\n✓ Contraseña actualizada para ${user.Email} (id_usuario=${user.id_usuario}).`);
+  console.log('Sus sesiones abiertas dejarán de valer en como mucho 60 s.');
   console.log('Ya puedes hacer login con la nueva contraseña.');
 }
 

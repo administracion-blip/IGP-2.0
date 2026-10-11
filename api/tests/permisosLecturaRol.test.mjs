@@ -18,6 +18,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'secreto-solo-para-las-prueba
 const { docClient, tables } = await import('../lib/db.js');
 const { crearDynamoMemoria } = await import('./dynamoMemoria.mjs');
 const { signToken } = await import('../lib/jwt.js');
+const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
 const { default: permisosRouter } = await import('../routes/permisos.js');
 
 const ADMIN = { sub: '000001', email: 'jefe@grupo.test', rol: 'Administrador' };
@@ -48,6 +49,12 @@ after(() => {
 function montar() {
   const db = crearDynamoMemoria();
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
+  // requireAuth contrasta el token con la ficha: los usuarios tienen que existir.
+  db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
+  for (const u of [ADMIN, LOCAL, GESTOR]) {
+    db.sembrar(tables.usuarios, { id_usuario: u.sub, Email: u.email, Rol: u.rol });
+  }
+  invalidarContextoAcceso();
   db.instalar(docClient);
   db.sembrar(tables.rolesPermisos, { PK: 'ROL#Local', SK: 'PERMISO#cajas.ver' });
   db.sembrar(tables.rolesPermisos, { PK: 'ROL#SuperUser', SK: 'PERMISO#facturacion.pagar' });

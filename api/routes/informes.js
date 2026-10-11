@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
-import { signToken } from '../lib/jwt.js';
+import { signSystemToken } from '../lib/jwt.js';
 import { logger } from '../lib/logger.js';
 import { enviarEmail, smtpConfigurado } from '../lib/email.js';
 import {
@@ -62,7 +62,7 @@ router.post('/informes/diario/enviar', async (req, res) => {
   // Para reutilizar /cajas/top y /exceptions: reenvía el token del usuario o, en
   // llamadas internas, firma uno de sistema con rol Administrador.
   const authHeader = req.headers.authorization
-    || `Bearer ${signToken({ sub: 'sistema-informes', email: 'sistema@informes', rol: 'Administrador' })}`;
+    || `Bearer ${signSystemToken('informes')}`;
 
   try {
     const config = await leerConfig();
@@ -145,7 +145,7 @@ router.post('/informes/diario/descargar', async (req, res) => {
   const port = process.env.PORT || 3002;
   const baseUrl = `http://127.0.0.1:${port}`;
   const authHeader = req.headers.authorization
-    || `Bearer ${signToken({ sub: 'sistema-informes', email: 'sistema@informes', rol: 'Administrador' })}`;
+    || `Bearer ${signSystemToken('informes')}`;
 
   try {
     const config = await leerConfig();

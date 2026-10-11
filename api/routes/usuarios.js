@@ -5,7 +5,8 @@ import { requirePermission } from '../middleware/auth.js';
 import { puedeGestionarRol, validarRolUsuario } from '../lib/roles.js';
 import { hashPassword } from '../lib/password.js';
 import { emailEnUsoPorOtroUsuario } from '../lib/dynamo/usuarios.js';
-import { invalidarContextoAcceso } from '../lib/tasks/acceso.js';
+import { invalidarContextoAcceso, normalizarTokenVersion } from '../lib/tasks/acceso.js';
+import { revocarSesionesUsuario } from '../lib/sesiones.js';
 import {
   filtrarDepartamentosExistentes,
   normalizarIdsDepartamento,
@@ -216,22 +217,68 @@ router.put('/usuarios', requirePermission('usuarios.editar'), async (req, res) =
   const departamentos = await departamentosDelCuerpo(body.Departamentos, existing.Departamentos);
   if (departamentos.length > 0) item.Departamentos = departamentos;
 
+  // El Put reescribe el ítem entero: si no se arrastrara `tokenVersion`, volvería
+  // a 0 y revivirían los tokens que se revocaron al subirla.
+  const tvPrevio = existing.tokenVersion;
+  const cambiaRol = String(item.Rol ?? '').trim() !== String(existing.Rol ?? '').trim();
+  const cambiaPassword = item.Password !== (existing.Password ?? '');
+  const revocar = cambiaRol || cambiaPassword;
+  if (tvPrevio !== undefined || revocar) {
+    item.tokenVersion = normalizarTokenVersion(tvPrevio) + (revocar ? 1 : 0);
+  }
+
   // Sin la condición, un borrado entre el Get y el Put volvería a crear el usuario con solo usuarios.editar.
+  // La de `tokenVersion` evita pisar un «cerrar sesiones» hecho entre el Get y el Put.
+  const condTv = tvPrevio === undefined
+    ? 'attribute_not_exists(tokenVersion)'
+    : 'tokenVersion = :tvPrevio';
   try {
     await docClient.send(new PutCommand({
       TableName: tables.usuarios,
       Item: item,
-      ConditionExpression: 'attribute_exists(id_usuario)',
+      ConditionExpression: `attribute_exists(id_usuario) AND ${condTv}`,
+      ...(tvPrevio !== undefined && { ExpressionAttributeValues: { ':tvPrevio': tvPrevio } }),
     }));
   } catch (err) {
     if (err?.name === 'ConditionalCheckFailedException') {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
+      const sigue = await docClient.send(new GetCommand({
+        TableName: tables.usuarios,
+        Key: { id_usuario: idUsuario },
+        ProjectionExpression: 'id_usuario',
+      }));
+      if (!sigue.Item) return res.status(404).json({ error: 'Usuario no encontrado' });
+      return res.status(409).json({
+        error: 'El usuario se ha modificado mientras lo editabas. Recarga la lista y vuelve a guardar.',
+      });
     }
     throw err;
   }
   invalidarContextoAcceso(idUsuario);
-  const { Password: _, ...safeItem } = item;
+  const { Password: _, tokenVersion: _tv, ...safeItem } = item;
   res.json({ ok: true, usuario: safeItem });
+});
+
+// Invalida todos los tokens emitidos al usuario (tendrá que volver a iniciar sesión).
+router.post('/usuarios/:id/cerrar-sesiones', requirePermission('usuarios.editar'), async (req, res) => {
+  const idUsuario = String(req.params.id ?? '').trim();
+  const got = await docClient.send(new GetCommand({
+    TableName: tables.usuarios,
+    Key: { id_usuario: idUsuario },
+    ProjectionExpression: 'id_usuario, #rol',
+    ExpressionAttributeNames: { '#rol': 'Rol' },
+  }));
+  if (!got.Item) {
+    return res.status(404).json({ error: 'Usuario no encontrado' });
+  }
+  const gestRol = puedeGestionarRol(req.user, null, got.Item.Rol);
+  if (!gestRol.ok) {
+    return res.status(gestRol.status).json({ error: gestRol.error });
+  }
+  const version = await revocarSesionesUsuario(idUsuario);
+  if (version === null) {
+    return res.status(404).json({ error: 'Usuario no encontrado' });
+  }
+  res.json({ ok: true });
 });
 
 // Borrar usuario por id_usuario (clave de la tabla).

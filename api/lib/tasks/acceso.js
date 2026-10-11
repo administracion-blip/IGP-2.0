@@ -68,6 +68,12 @@ function normalizarNombre(valor) {
   return normalizarId(valor).toLowerCase();
 }
 
+/** Ausente o no numérico cuenta como 0: así siguen valiendo los tokens anteriores a `tv`. */
+export function normalizarTokenVersion(valor) {
+  const n = Number(valor ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function listaDeIds(valor) {
   if (Array.isArray(valor)) return valor.map(normalizarId).filter(Boolean);
   const uno = normalizarId(valor);
@@ -106,6 +112,7 @@ function conjuntoInmutable(valores) {
  *   con esto puesto, todo permiso se deniega aunque la lista venga vacía.
  * @param {string[]} [datos.locales] **Nombres** de local, no IDs.
  * @param {string[]} [datos.departamentos] IDs de departamento.
+ * @param {number} [datos.tokenVersion] Versión de sesión de la ficha (`tv` del JWT).
  */
 export function crearContextoAcceso({
   idUsuario = '',
@@ -115,12 +122,14 @@ export function crearContextoAcceso({
   permisosCargados,
   locales = [],
   departamentos = [],
+  tokenVersion = 0,
 } = {}) {
   const rolNorm = normalizarId(rol);
   const localesNorm = listaDeIds(locales);
   return Object.freeze({
     idUsuario: normalizarId(idUsuario),
     rol: rolNorm,
+    tokenVersion: normalizarTokenVersion(tokenVersion),
     // Va en el contexto porque la ficha del usuario ya se lee aquí: sin esto, cada
     // escritura que firma el historial acabaría haciendo su propio `GetItem`.
     nombre: typeof nombre === 'string' ? nombre.trim() : '',
@@ -194,8 +203,8 @@ export async function cargarContextoAcceso(user, { forzar = false } = {}) {
       TableName: tables.usuarios,
       Key: { id_usuario: idUsuario },
       // `Local` es palabra reservada en DynamoDB; de ahí el alias.
-      ProjectionExpression: 'id_usuario, #rol, #local, Locales, Departamentos, Nombre, Apellidos, Email',
-      ExpressionAttributeNames: { '#rol': 'Rol', '#local': 'Local' },
+      ProjectionExpression: 'id_usuario, #rol, #local, Locales, Departamentos, Nombre, Apellidos, Email, #tv',
+      ExpressionAttributeNames: { '#rol': 'Rol', '#local': 'Local', '#tv': 'tokenVersion' },
     }),
   );
 
@@ -221,6 +230,7 @@ export async function cargarContextoAcceso(user, { forzar = false } = {}) {
     permisosCargados: true,
     locales: normalizeLocalesUsuario(got.Item),
     departamentos: got.Item.Departamentos,
+    tokenVersion: got.Item.tokenVersion,
   });
 
   cache.set(idUsuario, { ctx, expira: Date.now() + CACHE_TTL_MS });

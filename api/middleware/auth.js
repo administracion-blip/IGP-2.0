@@ -1,4 +1,5 @@
-import { verifyToken } from '../lib/jwt.js';
+import { verifyToken, PREFIJO_SUB_SISTEMA } from '../lib/jwt.js';
+import { cargarContextoAcceso, normalizarTokenVersion } from '../lib/tasks/acceso.js';
 import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 import { INTERNAL_SYNC_POST_PATHS, normalizeApiPathname } from '../lib/internalSync.js';
@@ -35,13 +36,48 @@ export function requireAuth(req, res, next) {
   if (!header || !header.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Token no proporcionado' });
   }
+  let decoded;
   try {
-    const decoded = verifyToken(header.slice(7));
-    req.user = decoded;
-    next();
+    decoded = verifyToken(header.slice(7));
   } catch (err) {
     return res.status(401).json({ error: 'Token inválido o expirado' });
   }
+  if (esTokenDeSistema(decoded)) {
+    req.user = decoded;
+    return next();
+  }
+
+  return sesionVigente(decoded).then(
+    (vigente) => {
+      if (!vigente) return res.status(401).json({ error: SESION_CADUCADA });
+      req.user = decoded;
+      return next();
+    },
+    (err) => {
+      console.error('[requireAuth] Error verificando la sesión', err?.message || err);
+      return res.status(500).json({ error: 'Error verificando la sesión' });
+    },
+  );
+}
+
+export const SESION_CADUCADA = 'Sesión caducada, vuelve a iniciar sesión';
+
+function esTokenDeSistema(decoded) {
+  return decoded?.sys === true
+    && typeof decoded.sub === 'string'
+    && decoded.sub.startsWith(PREFIJO_SUB_SISTEMA);
+}
+
+/**
+ * El token sigue valiendo si el usuario existe, su `tv` coincide con
+ * `tokenVersion` y su rol con el de la ficha. Usa el contexto cacheado (60 s):
+ * un cambio hecho en otra instancia tarda como mucho eso en surtir efecto aquí.
+ */
+async function sesionVigente(decoded) {
+  const ctx = await cargarContextoAcceso(decoded);
+  if (!ctx.idUsuario) return false;
+  if (normalizarTokenVersion(decoded.tv) !== ctx.tokenVersion) return false;
+  return String(decoded.rol ?? '').trim() === ctx.rol;
 }
 
 export function requireRole(...roles) {
