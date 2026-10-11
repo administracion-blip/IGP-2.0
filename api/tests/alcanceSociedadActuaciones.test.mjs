@@ -94,6 +94,22 @@ test('con una factura de otra sociedad: 404 sin tocar la actuación', async () =
   assert.equal(estadoDe('A-NORTE'), 'firmada');
 });
 
+test('ids repetidos: se asocia una vez, sin claves duplicadas en el BatchWrite', async () => {
+  // Como DynamoDB: claves repetidas en la misma petición son ValidationException.
+  db.interceptar('BatchWriteCommand', undefined, async (entrada) => {
+    for (const lista of Object.values(entrada.RequestItems)) {
+      const claves = lista.map((p) => p.PutRequest.Item.id_actuacion);
+      if (new Set(claves).size !== claves.length) {
+        throw Object.assign(new Error('Provided list of item keys contains duplicates'), { name: 'ValidationException' });
+      }
+    }
+  });
+  const r = await asociar({ id_factura: 'F-NORTE', ids_actuacion: ['A-NORTE', 'A-NORTE'] });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.actualizadas, 1);
+  assert.equal(estadoDe('A-NORTE'), 'asociada');
+});
+
 test('factura y actuación propias: se asocian', async () => {
   const r = await asociar({ id_factura: 'F-NORTE', ids_actuacion: ['A-NORTE'] });
   assert.equal(r.status, 200, JSON.stringify(r.body));

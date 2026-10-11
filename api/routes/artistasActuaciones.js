@@ -512,8 +512,9 @@ router.post('/actuaciones/asociar-factura', requirePermission('actuaciones.factu
   const fechaAsoc = now();
   const usuarioStr = [usuario_nombre, usuario_id].filter(Boolean).join(' · ');
 
+  // BatchWrite rechaza claves repetidas en la misma petición (ValidationException).
   const actuaciones = [];
-  for (const id of ids_actuacion) {
+  for (const id of new Set(ids_actuacion.map(String))) {
     const r = await docClient.send(
       new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: String(id) } })
     );
