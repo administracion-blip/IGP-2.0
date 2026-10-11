@@ -329,6 +329,41 @@ test('crear con el id de una actuación de otro local: 409 y el registro ajeno q
   assert.equal(global.status, 409);
 });
 
+// ─── Sin local ───
+
+test('crear sin local: el restringido recibe 400 sin escribir; el global puede', async () => {
+  montar();
+  const antes = db.listar(tables.actuaciones).length;
+  for (const cuerpo of [{ fecha: '2026-10-10' }, { fecha: '2026-10-10', id_local: '' }, { fecha: '2026-10-10', id_local: null }]) {
+    const r = await api('POST', '/api/actuaciones', cuerpo);
+    assert.equal(r.status, 400, JSON.stringify(cuerpo));
+    assert.equal(r.body.error, 'Falta el local');
+  }
+  assert.equal(db.listar(tables.actuaciones).length, antes);
+  assert.equal((await api('POST', '/api/actuaciones', { fecha: '2026-10-10' }, OFICINA)).status, 200);
+});
+
+test('editar vaciando el local: el restringido recibe 400 y la actuación sigue en su local', async () => {
+  montar();
+  for (const id_local of ['', null]) {
+    const r = await api('PUT', '/api/actuaciones/item/A-NORTE-2', { id_local, observaciones: 'x' });
+    assert.equal(r.status, 400);
+    assert.equal(r.body.error, 'Falta el local');
+  }
+  const a = db.obtener(tables.actuaciones, { id_actuacion: 'A-NORTE-2' });
+  assert.equal(a.id_local, '000010');
+  assert.equal(a.observaciones, undefined);
+});
+
+test('editar sin mandar id_local conserva el leído (seguimiento del planning)', async () => {
+  montar();
+  const r = await api('PUT', '/api/actuaciones/item/A-NORTE-2', { observaciones: 'Muy bien' });
+  assert.equal(r.status, 200);
+  const a = db.obtener(tables.actuaciones, { id_actuacion: 'A-NORTE-2' });
+  assert.equal(a.id_local, '000010');
+  assert.equal(a.observaciones, 'Muy bien');
+});
+
 test('crear sin id_actuacion genera uno en el servidor', async () => {
   montar();
   const r = await api('POST', '/api/actuaciones', { id_local: '000010', fecha: '2026-10-10', hora_inicio: '21:00' });

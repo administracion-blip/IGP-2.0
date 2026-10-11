@@ -218,6 +218,16 @@ async function puedeLocalActuacion(req, idLocal) {
   return permiteLocal(await cargarAlcance(req), { idLocal });
 }
 
+/** Local con el que va a quedar escrita la actuación: un restringido no puede dejarla sin local. */
+async function errorLocalEscritura(req, idLocal) {
+  const alcance = await cargarAlcance(req);
+  if (alcance.global) return null;
+  const id = String(idLocal ?? '').trim();
+  if (!id || id === '000000') return { status: 400, error: 'Falta el local' };
+  if (!permiteLocal(alcance, { idLocal: id })) return { status: 403, error: MENSAJE_SIN_ACCESO_LOCAL };
+  return null;
+}
+
 async function assertAccesoLocalActuacion(req, res, actuacion) {
   if (!actuacion) {
     res.status(404).json({ error: 'Actuación no encontrada' });
@@ -843,9 +853,8 @@ router.post('/actuaciones', async (req, res) => {
       return res.status(409).json({ conflicto: true, otro: actuacionResumenConflicto(otro) });
     }
   }
-  if (item.id_local && !(await puedeLocalActuacion(req, item.id_local))) {
-    return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
-  }
+  const errorLocal = await errorLocalEscritura(req, item.id_local);
+  if (errorLocal) return res.status(errorLocal.status).json({ error: errorLocal.error });
   // [SEC S-07] Con id_actuacion del body, crear no puede pisar una actuación existente (de otro local o firmada).
   try {
     await docClient.send(new PutCommand({
@@ -914,9 +923,9 @@ router.put('/actuaciones/item/:id', async (req, res) => {
     }
   }
   if (body.fecha != null) item.fecha = fechaAIso(String(body.fecha));
-  if (item.id_local && !(await puedeLocalActuacion(req, item.id_local))) {
-    return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
-  }
+  // Sin id_local en el body se conserva el del registro leído.
+  const errorLocal = await errorLocalEscritura(req, item.id_local);
+  if (errorLocal) return res.status(errorLocal.status).json({ error: errorLocal.error });
   // Sello de auditoría de la valoración (servidor): quién y cuándo valoró.
   if (body.valoracion !== undefined) {
     item.valoracion_por = req.user?.email || req.user?.sub || '';
