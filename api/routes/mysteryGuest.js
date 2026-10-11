@@ -7,9 +7,12 @@
  */
 import express from 'express';
 import { randomUUID } from 'node:crypto';
-import { ScanCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { ScanCommand, PutCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 import { requirePermission } from '../middleware/auth.js';
+import { requireLocal, desde } from '../middleware/alcance.js';
+import { cargarAlcance, permiteLocal, MENSAJE_SIN_ACCESO_LOCAL } from '../lib/alcance.js';
+import { filtrarLecturaPorLocal, permiteLecturaLocal } from '../lib/alcanceLecturas.js';
 import {
   mgTodosLosIdsPregunta,
   computeMediasPorCategoria,
@@ -137,6 +140,9 @@ router.get('/mystery-guest', requirePermission('mystery_guest.ver'), async (req,
   if (fechaDesde > fechaHasta) {
     return res.status(400).json({ error: 'fechaDesde debe ser <= fechaHasta' });
   }
+  if (localId && !(await permiteLecturaLocal(req, { idLocal: localId }))) {
+    return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
+  }
 
   const items = [];
   let lastKey = null;
@@ -151,7 +157,7 @@ router.get('/mystery-guest', requirePermission('mystery_guest.ver'), async (req,
     lastKey = r.LastEvaluatedKey || null;
   } while (lastKey);
 
-  const filtrados = items.filter((it) => {
+  const enRango = items.filter((it) => {
     const f = fechaDiaParaFiltro(it);
     if (isoDateOk(f)) {
       if (f < fechaDesde || f > fechaHasta) return false;
@@ -160,6 +166,7 @@ router.get('/mystery-guest', requirePermission('mystery_guest.ver'), async (req,
     if (localId && localIdItem(it) !== localId.trim()) return false;
     return true;
   });
+  const filtrados = localId ? enRango : await filtrarLecturaPorLocal(req, enRango, (it) => ({ idLocal: localIdItem(it) }));
 
   // Orden de llegada: primero el que envió antes (CreadoEn ascendente)
   filtrados.sort((a, b) => {
@@ -176,8 +183,20 @@ router.get('/mystery-guest', requirePermission('mystery_guest.ver'), async (req,
 });
 
 /** POST /mystery-guest — alta: Respuestas (cuestionario) + ExperienciaGeneral, o legado tres puntuaciones. */
-router.post('/mystery-guest', requirePermission('mystery_guest.ver'), async (req, res) => {
+router.post('/mystery-guest', requirePermission('mystery_guest.ver'), requireLocal(desde.body('LocalId'), { tipo: 'idLocal' }), async (req, res) => {
   const body = req.body || {};
+  // Con id_MisteryGuest el Put sobrescribe: la auditoría que ya exista también tiene que ser de un local propio.
+  if (body.id_MisteryGuest != null && String(body.id_MisteryGuest).trim() !== '') {
+    const alcance = await cargarAlcance(req);
+    if (!alcance.global) {
+      const previo = await docClient.send(
+        new GetCommand({ TableName: TABLE, Key: { [DYNAMO_PK]: String(body.id_MisteryGuest).trim() } })
+      );
+      if (previo.Item && !permiteLocal(alcance, { idLocal: localIdItem(previo.Item) })) {
+        return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
+      }
+    }
+  }
   const rawFecha = body.Fecha != null ? String(body.Fecha).trim() : '';
   const LocalId = body.LocalId != null ? String(body.LocalId).trim() : '';
   /** Fecha de visita: ISO 8601 con hora, o legado solo yyyy-mm-dd. */
