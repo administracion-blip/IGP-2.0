@@ -58,20 +58,21 @@ export const PERMISOS_DESCRIPCIONES: Record<string, string> = {
     'Permite crear, modificar y dar de baja departamentos y sus responsables.',
   'productos.ver': 'Muestra la tarjeta Productos en Base de datos.',
   'productos.editar':
-    'Permite dar de alta, modificar y borrar productos del maestro de productos.',
+    'Permite dar de alta, modificar y borrar productos del maestro de productos, y editar los productos de Ágora (IGP, zona y ficha).',
   'productos.sincronizar':
     'Permite sincronizar los productos con Ágora desde la pantalla de Productos.',
   'almacenes.ver': 'Muestra la tarjeta Almacenes en Base de datos.',
   'almacenes.crear': 'Permite dar de alta almacenes nuevos.',
   'almacenes.editar': 'Permite modificar los datos de los almacenes.',
   'almacenes.borrar': 'Permite borrar almacenes.',
-  'almacenes.sincronizar': `${SIN_EFECTO} La sincronización de almacenes se controla con «Ajustes · Sync Almacenes».`,
+  'almacenes.sincronizar':
+    'Permite sincronizar los almacenes desde Ágora en la pantalla de Almacenes. También lo permite «Ajustes · Sync Almacenes».',
   'usuarios_agora.ver': 'Muestra la tarjeta Usuarios Ágora en Base de datos.',
   'usuarios_agora.sincronizar':
     'Muestra el botón para sincronizar los usuarios de Ágora en su pantalla.',
   'puntos_venta.ver': 'Muestra la tarjeta Puntos de venta en Base de datos.',
   'puntos_venta.editar':
-    'Permite modificar los puntos de venta, incluida la tarifa de Ágora asignada a cada local.',
+    'Permite modificar los puntos de venta y sincronizarlos desde Ágora, incluida la tarifa de Ágora asignada a cada local.',
 
   // Compras
   'compras.ver': 'Muestra el módulo Compras en el menú lateral.',
@@ -93,7 +94,8 @@ export const PERMISOS_DESCRIPCIONES: Record<string, string> = {
   'pedidos.borrar_enviado': 'Permite borrar pedidos que ya se han enviado al almacén.',
   'compras_proveedor.ver':
     'Permite entrar en Compras a proveedor (albaranes de Ágora) y en Conciliación de facturas.',
-  'compras_proveedor.sincronizar': `${SIN_EFECTO} La sincronización se controla con «Ajustes · Sync Compras Proveedor».`,
+  'compras_proveedor.sincronizar':
+    'Permite sincronizar las compras a proveedor (albaranes) desde Ágora en Compras a proveedor y Conciliación de facturas. También lo permite «Ajustes · Sync Compras Proveedor».',
   'compras.facturar':
     'Permite generar las facturas mensuales de ventas internas y los abonos de rappel entre sociedades, y cambiar su configuración.',
   'mia.ver':
@@ -117,7 +119,8 @@ export const PERMISOS_DESCRIPCIONES: Record<string, string> = {
   'cierres.sincronizar':
     'Permite sincronizar desde Ágora los cierres de caja de sus locales. También lo permite «Ajustes · Sync Cierres de caja».',
   'cierres.exportar': SIN_EFECTO,
-  'formas_pago.editar': 'Permite modificar el maestro de formas de pago.',
+  'formas_pago.editar':
+    'Permite modificar el maestro de formas de pago y sincronizarlas desde Ágora.',
   'comparativa.ver':
     'Permite entrar en la Comparativa de fechas de cajas y editar los festivos de la comparativa.',
   'comparativa.crear': SIN_EFECTO,
@@ -126,10 +129,11 @@ export const PERMISOS_DESCRIPCIONES: Record<string, string> = {
   'comparativa.importar': SIN_EFECTO,
   'comparativa.exportar': SIN_EFECTO,
   'objetivos.ver':
-    'Permite entrar en Objetivos y en Plantillas de franjas horarias, y modificar la agrupación de locales de los objetivos.',
+    'Permite entrar en Objetivos, consultar las Plantillas de franjas horarias y modificar la agrupación de locales de los objetivos. Crear, modificar o borrar plantillas de franjas requiere «Franjas horarias · Editar plantillas».',
   'objetivos.compartir': SIN_EFECTO,
   'franjas.editar': 'Permite crear, modificar y borrar las plantillas de franjas horarias.',
-  'excepciones.ver': 'Permite entrar en Control de excepciones.',
+  'excepciones.ver':
+    'Permite entrar en Control de excepciones y consultar las excepciones de los cierres de caja.',
   'excepciones.exportar': 'Permite exportar el listado de Control de excepciones.',
   'top.ver':
     'Permite ver el ranking Top de ventas y la tarjeta de mejores camareros en el Planning del día.',
