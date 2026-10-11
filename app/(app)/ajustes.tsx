@@ -175,7 +175,7 @@ const defaultState = (): SyncState => ({
 
 export default function AjustesScreen() {
   const router = useRouter();
-  const { hasPermiso } = useAuth();
+  const { hasPermiso, localPermitido, user } = useAuth();
   const { width: winWidth } = useWindowDimensions();
 
   const [syncStates, setSyncStates] = useState<Record<string, SyncState>>(() => {
@@ -694,7 +694,23 @@ export default function AjustesScreen() {
           timeoutMs: 0,
         });
       } else {
-        const body = item.bodyBuilder ? item.bodyBuilder() : {};
+        const body: Record<string, unknown> = item.bodyBuilder ? item.bodyBuilder() : {};
+        const accesoTodosLocales = user?.Rol === 'Administrador' || !user?.Locales || user.Locales.length === 0;
+        if (item.id === 'closeouts' && !accesoTodosLocales) {
+          // Usuarios restringidos: el backend exige los agoraCode de sus locales.
+          const resLocales = await apiFetch('/api/locales');
+          const dataLocales = await resLocales.json();
+          const lista: { nombre?: string; Nombre?: string; agoraCode?: string; AgoraCode?: string }[] =
+            Array.isArray(dataLocales?.locales) ? dataLocales.locales : [];
+          const workplaces = lista
+            .filter((l) => localPermitido(String(l.nombre ?? l.Nombre ?? '').trim()))
+            .map((l) => String(l.agoraCode ?? l.AgoraCode ?? '').trim())
+            .filter(Boolean);
+          if (workplaces.length === 0) {
+            throw new Error('No tienes ningún local con código de Ágora para sincronizar');
+          }
+          body.workplaces = workplaces;
+        }
         res = await apiFetch(item.endpoint, {
           method: 'POST',
           body: JSON.stringify(body),
@@ -763,7 +779,7 @@ export default function AjustesScreen() {
         },
       }));
     }
-  }, [ventasSyncDays]);
+  }, [ventasSyncDays, user, localPermitido]);
 
   // --- Config modal helpers ---
   const abrirConfig = useCallback((id: string) => {
