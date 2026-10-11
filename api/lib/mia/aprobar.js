@@ -407,7 +407,7 @@ export async function aprobarInformeMia(informeId, opts = {}) {
         proveedorId,
         supplierId,
         ok: false,
-        error: mensajeSeguro(err, 'Error construyendo PurchaseOrder', { statusPorDefecto: 400 }),
+        error: mensajeSeguro(err, 'Error construyendo PurchaseOrder'),
         lineas: poLines.length,
       });
       continue;

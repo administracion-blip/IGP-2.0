@@ -129,7 +129,7 @@ router.put(
       const item = await upsertGrupoFamiliasIa(req.body || {});
       return res.json({ ok: true, item });
     } catch (err) {
-      return responderError(res, err, { mensaje: 'Datos inválidos', statusPorDefecto: 400 });
+      return responderError(res, err, { mensaje: 'No se pudo guardar' });
     }
   },
 );
@@ -145,7 +145,7 @@ router.delete(
       const result = await deleteGrupoFamiliasIa(id);
       return res.json(result);
     } catch (err) {
-      return responderError(res, err, { mensaje: 'No se pudo eliminar', statusPorDefecto: 400 });
+      return responderError(res, err, { mensaje: 'No se pudo eliminar' });
     }
   },
 );

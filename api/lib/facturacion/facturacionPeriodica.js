@@ -1053,7 +1053,7 @@ export async function generarPeriodo(
         await borrarLineasFactura(lineas, dominio.etiqueta);
         errores.push({
           ...dominio.identidadGrupo(grupo),
-          error: mensajeSeguro(err, 'Error al escribir la factura', { statusPorDefecto: 400 }),
+          error: mensajeSeguro(err, 'Error al escribir la factura'),
         });
         continue;
       }

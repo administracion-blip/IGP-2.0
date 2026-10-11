@@ -104,7 +104,7 @@ router.put('/mia/grupos-familias', requirePermission('mia.configurar'), async (r
     const item = await upsertGrupoFamilias(req.body || {});
     return res.json({ ok: true, item });
   } catch (err) {
-    return responderError(res, err, { mensaje: 'Datos inválidos', statusPorDefecto: 400 });
+    return responderError(res, err, { mensaje: 'No se pudo guardar' });
   }
 });
 
@@ -115,7 +115,7 @@ router.delete('/mia/grupos-familias/:id', requirePermission('mia.configurar'), a
     const result = await deleteGrupoFamilias(id);
     return res.json(result);
   } catch (err) {
-    return responderError(res, err, { mensaje: 'No se pudo eliminar', statusPorDefecto: 400 });
+    return responderError(res, err, { mensaje: 'No se pudo eliminar' });
   }
 });
 
@@ -173,7 +173,7 @@ router.put('/mia/config', requirePermission('mia.configurar'), async (req, res) 
     const item = await upsertConfigProducto(body);
     res.json({ ok: true, item });
   } catch (err) {
-    return responderError(res, err, { mensaje: 'Datos inválidos', statusPorDefecto: 400 });
+    return responderError(res, err, { mensaje: 'No se pudo guardar' });
   }
 });
 
@@ -232,7 +232,7 @@ router.put('/mia/calendario', requirePermission('mia.configurar'), requireLocal(
     const item = await upsertCalendario(body, { usuario: req.user });
     return res.json({ ok: true, item });
   } catch (err) {
-    return responderError(res, err, { mensaje: 'Datos inválidos', statusPorDefecto: 400 });
+    return responderError(res, err, { mensaje: 'No se pudo guardar' });
   }
 });
 
@@ -249,7 +249,7 @@ router.delete('/mia/calendario', requirePermission('mia.configurar'), requireLoc
     const result = await removeCalendario(localId, proveedorId);
     return res.json(result);
   } catch (err) {
-    return responderError(res, err, { mensaje: 'No se pudo eliminar', statusPorDefecto: 400 });
+    return responderError(res, err, { mensaje: 'No se pudo eliminar' });
   }
 });
 

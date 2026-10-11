@@ -2297,7 +2297,7 @@ router.post('/facturacion/ocr/reconciliar', requirePermission('facturacion.crear
     const datos = await ejecutarReconciliarFacturaOcr(req.body || {});
     res.json({ ok: true, datos });
   } catch (err) {
-    responderError(res, err, { statusPorDefecto: 400 });
+    responderError(res, err);
   }
 });
 

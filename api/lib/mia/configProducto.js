@@ -68,9 +68,9 @@ export async function upsertConfigProducto(input) {
   const warehouseId = normalizeWarehouseId(input.warehouseId);
   const productId = normalizeProductId(input.productId);
   if (!warehouseId || warehouseId === '000000') {
-    throw new Error('warehouseId es obligatorio');
+    throw Object.assign(new Error('warehouseId es obligatorio'), { status: 400 });
   }
-  if (!productId) throw new Error('productId es obligatorio');
+  if (!productId) throw Object.assign(new Error('productId es obligatorio'), { status: 400 });
 
   const PK = pkWarehouse(warehouseId);
   const SK = skProduct(productId);
