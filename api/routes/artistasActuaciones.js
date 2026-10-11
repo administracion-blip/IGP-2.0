@@ -564,6 +564,11 @@ router.post('/actuaciones/generar-base', requirePermission('actuaciones.crear'),
   if (idsLocales.length === 0) {
     return res.status(400).json({ error: 'Indica id_local o id_locales (al menos un local)' });
   }
+  // [SEC S-07] Todos los locales antes de escribir ningún hueco.
+  const alcance = await cargarAlcance(req);
+  if (idsLocales.some((idLocal) => !permiteLocal(alcance, { idLocal }))) {
+    return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
+  }
   if (!Array.isArray(horas) || horas.length === 0) {
     return res.status(400).json({ error: 'horas debe ser un array no vacío' });
   }

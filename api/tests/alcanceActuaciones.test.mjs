@@ -1,0 +1,136 @@
+/**
+ * Aislamiento por local en actuaciones. Un encargado con todos los permisos de
+ * actuaciones pero solo con «Bar Norte» intenta generar huecos, mover artistas,
+ * listar y firmar actuaciones de «Bar Sur».
+ *
+ * Escrituras: bloquean siempre.
+ */
+
+import test, { after, afterEach } from 'node:test';
+import { strict as assert } from 'node:assert';
+import http from 'node:http';
+import express from 'express';
+
+process.env.AWS_REGION = process.env.AWS_REGION || 'eu-west-3';
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'secreto-solo-para-las-pruebas-de-alcance-actuaciones';
+
+const { docClient, tables } = await import('../lib/db.js');
+const { crearDynamoMemoria } = await import('./dynamoMemoria.mjs');
+const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
+const { invalidarMaestroLocales } = await import('../lib/alcance.js');
+const { default: actuacionesRouter } = await import('../routes/artistasActuaciones.js');
+
+const ROL = 'Encargado';
+const ENCARGADO_NORTE = { sub: '000070', email: 'norte@grupo.test', rol: ROL };
+const OFICINA = { sub: '000071', email: 'oficina@grupo.test', rol: ROL };
+
+const MODO_ORIGINAL = process.env.ALCANCE_MODO_LECTURAS;
+function modo(valor) {
+  if (valor === undefined) delete process.env.ALCANCE_MODO_LECTURAS;
+  else process.env.ALCANCE_MODO_LECTURAS = valor;
+}
+afterEach(() => modo(MODO_ORIGINAL));
+
+let usuarioActual = ENCARGADO_NORTE;
+let servidor = null;
+let base = '';
+
+async function arrancar() {
+  if (servidor) return;
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    req.user = usuarioActual;
+    next();
+  });
+  app.use('/api', actuacionesRouter);
+  servidor = http.createServer(app);
+  await new Promise((listo) => servidor.listen(0, '127.0.0.1', listo));
+  base = `http://127.0.0.1:${servidor.address().port}`;
+}
+
+async function api(metodo, ruta, cuerpo, usuario = ENCARGADO_NORTE) {
+  usuarioActual = usuario;
+  await arrancar();
+  const res = await fetch(base + ruta, {
+    method: metodo,
+    headers: { 'Content-Type': 'application/json' },
+    ...(cuerpo !== undefined && { body: JSON.stringify(cuerpo) }),
+  });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
+
+after(() => {
+  servidor?.closeAllConnections?.();
+  servidor?.close();
+});
+
+let db = null;
+
+function actuacion(id, idLocal, extra = {}) {
+  return {
+    id_actuacion: id,
+    id_local: idLocal,
+    fecha: '2026-09-05',
+    hora_inicio: '22:00',
+    id_artista: '',
+    estado: 'pendiente',
+    firma_artista_key: '',
+    fecha_firma: '',
+    ...extra,
+  };
+}
+
+function montar() {
+  db = crearDynamoMemoria();
+  db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
+  db.crearTabla(tables.locales, { hashKey: 'id_Locales' });
+  db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.actuaciones, { hashKey: 'id_actuacion' });
+  db.crearTabla(tables.artistas, { hashKey: 'id_artista' });
+  db.crearTabla(tables.gestionFestivos, { hashKey: 'id' });
+  db.instalar(docClient);
+  for (const p of ['ver', 'crear', 'editar', 'programacion', 'firma']) {
+    db.sembrar(tables.rolesPermisos, { PK: `ROL#${ROL}`, SK: `PERMISO#actuaciones.${p}` });
+  }
+  db.sembrar(tables.locales, { id_Locales: '000010', nombre: 'Bar Norte' });
+  db.sembrar(tables.locales, { id_Locales: '000020', nombre: 'Bar Sur' });
+  db.sembrar(tables.usuarios, { id_usuario: '000070', Email: ENCARGADO_NORTE.email, Rol: ROL, Local: ['Bar Norte'] });
+  db.sembrar(tables.usuarios, { id_usuario: '000071', Email: OFICINA.email, Rol: ROL, Local: [] });
+  db.sembrar(tables.artistas, { id_artista: 'art-1', nombre_artistico: 'Trío Jazz' });
+  db.sembrar(tables.actuaciones, actuacion('A-NORTE', '000010', { id_artista: 'art-1', artista_nombre_snapshot: 'Trío Jazz' }));
+  db.sembrar(tables.actuaciones, actuacion('A-SUR', '000020', { id_artista: 'art-1', artista_nombre_snapshot: 'Trío Jazz' }));
+  db.sembrar(tables.actuaciones, actuacion('A-NORTE-2', '000010', { hora_inicio: '23:00' }));
+  invalidarContextoAcceso();
+  invalidarMaestroLocales();
+  return db;
+}
+
+// ─── generar-base ───
+
+const HUECOS = { fecha_inicio: '2026-10-01', fecha_fin: '2026-10-02', horas: ['22:00'] };
+
+test('generar-base con un local ajeno: 403 y no se crea ningún hueco, tampoco del propio', async () => {
+  montar();
+  const antes = db.listar(tables.actuaciones);
+  for (const cuerpo of [
+    { ...HUECOS, id_locales: ['000010', '000020'] },
+    { ...HUECOS, id_local: '000020' },
+    { ...HUECOS, id_locales: ['abc'] },
+  ]) {
+    const r = await api('POST', '/api/actuaciones/generar-base', cuerpo);
+    assert.equal(r.status, 403, JSON.stringify(cuerpo));
+    assert.equal(r.body.error, 'No tienes acceso a este local');
+  }
+  assert.deepEqual(db.listar(tables.actuaciones), antes);
+});
+
+test('generar-base en su local crea los huecos; con alcance global, en cualquiera', async () => {
+  montar();
+  const propio = await api('POST', '/api/actuaciones/generar-base', { ...HUECOS, id_locales: ['000010'] });
+  assert.equal(propio.status, 200);
+  assert.equal(propio.body.creadas, 2);
+  const global = await api('POST', '/api/actuaciones/generar-base', { ...HUECOS, id_locales: ['000010', '000020'] }, OFICINA);
+  assert.equal(global.status, 200);
+  assert.equal(global.body.creadas, 4);
+});
