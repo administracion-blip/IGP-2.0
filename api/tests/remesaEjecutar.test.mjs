@@ -198,6 +198,104 @@ test('POST ejecutar reclama y paga; un segundo POST concurrente/reintento da 409
   assert.equal(remesa.lineasPendientesPago, undefined);
 });
 
+/** Remesa ya ejecutada (el banco tiene el fichero) con `pendientes` sin cerrar. */
+function sembrarEjecutadaConPendientes(db, remesaId, lineas, pendientes) {
+  sembrarRemesa(db, remesaId, lineas, 'Ejecutada');
+  const r = db.obtener(tables.remesas, { remesaId });
+  db.sembrar(tables.remesas, { ...r, lineasPendientesPago: pendientes, actualizadoEn: '2026-08-11T10:00:00.000Z' });
+}
+
+const pagoRemesa = (remesaId, id_factura, importe) => registrarPagoFactura({
+  id_factura, fecha: '2026-08-11', importe, metodo_pago: 'remesa', idempotencyKey: `remesa:${remesaId}:${id_factura}`,
+});
+
+test('reanudar tras caer después de pagar una línea: la ya pagada no bloquea ni se paga dos veces', async () => {
+  const db = escenarioRemesas();
+  sembrarFacturaPendiente(db, 'FAC-A', { total: 40 });
+  sembrarFacturaPendiente(db, 'FAC-B', { total: 60 });
+  sembrarEjecutadaConPendientes(db, 'REM-CAIDA', [
+    { id_factura: 'FAC-A', importe: 40 },
+    { id_factura: 'FAC-B', importe: 60 },
+  ], ['FAC-A', 'FAC-B']);
+  await pagoRemesa('REM-CAIDA', 'FAC-A', 40);
+
+  const r = await api('POST', '/api/remesas/REM-CAIDA/ejecutar', { fecha: '2026-08-11' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.pagos.map((p) => p.id_factura).sort(), ['FAC-A', 'FAC-B']);
+  assert.equal(db.listar(tables.facturasPagos).filter((p) => p.id_factura === 'FAC-A').length, 1);
+  assert.equal(db.obtener(tables.facturas, { id_factura: 'FAC-B' }).estado, 'pagada');
+  assert.equal(db.obtener(tables.remesas, { remesaId: 'REM-CAIDA' }).lineasPendientesPago, undefined);
+});
+
+test('reanudar con una pendiente pagada a mano: sale de pendientes (sistema), las demás se pagan', async () => {
+  const db = escenarioRemesas();
+  sembrarFacturaPendiente(db, 'FAC-A', { total: 40 });
+  sembrarFacturaPendiente(db, 'FAC-B', { total: 60 });
+  sembrarEjecutadaConPendientes(db, 'REM-MANO', [
+    { id_factura: 'FAC-A', importe: 40 },
+    { id_factura: 'FAC-B', importe: 60 },
+  ], ['FAC-A', 'FAC-B']);
+  await registrarPagoFactura({ id_factura: 'FAC-A', fecha: '2026-08-11', importe: 40, metodo_pago: 'transferencia' });
+
+  const r = await api('POST', '/api/remesas/REM-MANO/ejecutar', { fecha: '2026-08-11' });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.code, 'REMESA_EJECUCION_PARCIAL');
+  assert.deepEqual(r.body.fallidas, [{
+    id_factura: 'FAC-A',
+    error: 'La factura ya no tiene saldo pendiente (pagada por otra vía)',
+    code: 'PENDIENTE_NO_PAGABLE',
+    siguePendiente: false,
+  }]);
+  assert.deepEqual(r.body.pagos.map((p) => p.id_factura), ['FAC-B']);
+  const g = db.obtener(tables.remesas, { remesaId: 'REM-MANO' });
+  assert.equal(g.lineasPendientesPago, undefined);
+  assert.equal(g.pendientesDescartadas.length, 1);
+  assert.equal(g.pendientesDescartadas[0].por, 'sistema');
+  assert.equal(g.pendientesDescartadas[0].id_factura, 'FAC-A');
+  assert.equal(db.listar(tables.facturasPagos).filter((p) => p.id_factura === 'FAC-A').length, 1);
+
+  const otra = await api('POST', '/api/remesas/REM-MANO/ejecutar', { fecha: '2026-08-11' });
+  assert.equal(otra.status, 409);
+  assert.match(otra.body.error, /ya está ejecutada/);
+});
+
+test('pendiente con saldo menor que su importe: sigue pendiente; se puede descartar y la remesa queda cerrada', async () => {
+  const db = escenarioRemesas();
+  sembrarFacturaPendiente(db, 'FAC-A', { total: 40, cobrado: 10 });
+  sembrarEjecutadaConPendientes(db, 'REM-SALDO', [{ id_factura: 'FAC-A', importe: 40 }], ['FAC-A']);
+
+  const r = await api('POST', '/api/remesas/REM-SALDO/ejecutar', { fecha: '2026-08-11' });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.fallidas[0].siguePendiente, true);
+  assert.match(r.body.fallidas[0].error, /supera el pendiente/);
+  assert.deepEqual(db.obtener(tables.remesas, { remesaId: 'REM-SALDO' }).lineasPendientesPago, ['FAC-A']);
+
+  const noEsta = await api('POST', '/api/remesas/REM-SALDO/descartar-pendientes', { facturaIds: ['FAC-X'] });
+  assert.equal(noEsta.status, 400);
+  const d = await api('POST', '/api/remesas/REM-SALDO/descartar-pendientes', { facturaIds: ['FAC-A'] });
+  assert.equal(d.status, 200, JSON.stringify(d.body));
+  assert.equal(d.body.remesa.lineasPendientesPago, undefined);
+  assert.equal(d.body.remesa.pendientesDescartadas[0].por, 'U-1');
+  assert.equal(db.listar(tables.facturasPagos).length, 0);
+  assert.equal((await api('POST', '/api/remesas/REM-SALDO/descartar-pendientes', {})).status, 409);
+  assert.equal((await api('POST', '/api/remesas/REM-SALDO/ejecutar', { fecha: '2026-08-11' })).status, 409);
+});
+
+test('facturaEnRemesaActiva / índice: las pendientes de una Ejecutada cuentan; las pagadas no', async () => {
+  const { facturaEnRemesaActiva, indexRemesasActivasPorFactura } = await import('../lib/remesas/facturaEnRemesa.js');
+  const remesas = [
+    { remesaId: 'R1', estado: 'Ejecutada', lineas: [{ id_factura: 'A' }, { id_factura: 'B' }], lineasPendientesPago: ['B'] },
+    { remesaId: 'R2', estado: 'Ejecutada', lineas: [{ id_factura: 'C' }] },
+    { remesaId: 'R3', estado: 'Borrador', lineas: [{ id_factura: 'D' }] },
+  ];
+  assert.equal(facturaEnRemesaActiva(remesas, 'A'), null);
+  assert.equal(facturaEnRemesaActiva(remesas, 'B')?.remesaId, 'R1');
+  assert.equal(facturaEnRemesaActiva(remesas, 'B', 'R1'), null);
+  assert.equal(facturaEnRemesaActiva(remesas, 'C'), null);
+  assert.equal(facturaEnRemesaActiva(remesas, 'D')?.remesaId, 'R3');
+  assert.deepEqual([...indexRemesasActivasPorFactura(remesas).keys()].sort(), ['B', 'D']);
+});
+
 /** Hace que cada escritura de pago de `idFactura` choque con otra (o falle con `error`). */
 function romperPagosDe(db, idFactura, error) {
   const enviar = docClient.send;
@@ -236,7 +334,7 @@ test('una línea con 409 FACTURA_CAMBIADA no corta las demás; se reanuda pagand
   assert.match(primera.body.error, /1 de 2 pago/);
   assert.equal(primera.body.pagos.length, 1);
   assert.deepEqual(primera.body.fallidas, [
-    { id_factura: 'FAC-A', error: 'La factura ha cambiado, vuelve a intentarlo', code: 'FACTURA_CAMBIADA' },
+    { id_factura: 'FAC-A', error: 'La factura ha cambiado, vuelve a intentarlo', code: 'FACTURA_CAMBIADA', siguePendiente: true },
   ]);
   assert.deepEqual(primera.body.remesa.lineasPendientesPago, ['FAC-A']);
   assert.equal(db.obtener(tables.facturas, { id_factura: 'FAC-B' }).estado, 'pagada');
@@ -273,6 +371,6 @@ test('un error interno en una línea sale genérico en fallidas, sin detalle té
     restaurar();
   }
   assert.equal(r.status, 409);
-  assert.deepEqual(r.body.fallidas, [{ id_factura: 'FAC-Y', error: 'Error interno del servidor' }]);
+  assert.deepEqual(r.body.fallidas, [{ id_factura: 'FAC-Y', error: 'Error interno del servidor', siguePendiente: true }]);
   assert.deepEqual(db.obtener(tables.remesas, { remesaId: 'REM-500' }).lineasPendientesPago, ['FAC-Y']);
 });

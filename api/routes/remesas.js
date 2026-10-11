@@ -3,8 +3,8 @@
  *
  * Permisos:
  *  - remesas.ver — listar y ver ficha
- *  - remesas.gestionar — crear, editar, generar fichero, ejecutar, anular
- *  - facturacion.cobrar_pagar — requerido además para ejecutar (crea pagos)
+ *  - remesas.gestionar — crear, editar, generar fichero, ejecutar, anular, descartar pendientes
+ *  - facturacion.cobrar_pagar — requerido además para ejecutar (crea pagos) y descartar pendientes
  */
 import { errorPublico, responderError } from '../lib/http/responderError.js';
 import { logger } from '../lib/logger.js';
@@ -18,7 +18,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables, keyForFacturaPrincipalId } from '../lib/db.js';
 import { requirePermission, hasPermission } from '../middleware/auth.js';
-import { queryLineasByFactura } from '../lib/dynamo/facturasRelacionadas.js';
+import { queryLineasByFactura, queryPagosByFactura } from '../lib/dynamo/facturasRelacionadas.js';
 import {
   indexarEmpresas,
   evaluarFacturaParaRemesa,
@@ -117,9 +117,13 @@ function sumaLineas(lineas) {
   return round2((lineas || []).reduce((s, l) => s + (Number(l.importe) || 0), 0));
 }
 
-async function cargarFactura(id) {
+async function cargarFactura(id, { consistente = false } = {}) {
   const r = await docClient.send(
-    new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }),
+    new GetCommand({
+      TableName: tables.facturas,
+      Key: await keyForFacturaPrincipalId(id),
+      ...(consistente && { ConsistentRead: true }),
+    }),
   );
   return r.Item || null;
 }
@@ -502,26 +506,36 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
     const referencia = String(req.body?.referencia || '').trim() || `Remesa ${remesa.remesaId}`;
     const observacionesGlobal = String(req.body?.observaciones ?? '').trim();
 
-    const idsPendientes = new Set(pendientesPrevias.map(String));
-    const lineasAPagar = reanudar
-      ? remesa.lineas.filter((l) => idsPendientes.has(String(l.id_factura)))
-      : remesa.lineas;
+    // Al reanudar no se revalida la remesa entera: cada pendiente se clasifica
+    // por separado (ver `clasificarPendientes`) y las que no se pueden pagar no
+    // bloquean a las demás. Ejecutar por primera vez sigue siendo todo o nada.
+    let lineasAPagar = remesa.lineas;
+    const pagosCreados = [];
+    const fallidas = [];
+    const descartadasAhora = [];
+    if (reanudar) {
+      const c = await clasificarPendientes(remesa, pendientesPrevias.map(String));
+      lineasAPagar = c.aPagar;
+      pagosCreados.push(...c.yaPagadas);
+      fallidas.push(...c.fallidas);
+      descartadasAhora.push(...c.descartadas);
+    } else {
+      const recalculo = await recalcularDesdeFacturas(remesa);
+      if (!recalculo.ok) return respuestaLineasInvalidas(res, recalculo.invalidas);
 
-    const recalculo = await recalcularDesdeFacturas(reanudar ? { ...remesa, lineas: lineasAPagar } : remesa);
-    if (!recalculo.ok) return respuestaLineasInvalidas(res, recalculo.invalidas);
-
-    // Fase 1: validar todas las líneas antes de crear pagos
-    for (const linea of lineasAPagar) {
-      const factura = await cargarFactura(linea.id_factura);
-      if (!factura) {
-        return res.status(400).json({ error: `Factura ${linea.id_factura} no encontrada` });
-      }
-      const pendiente = calcularSaldoPendiente(factura);
-      const importe = round2(Number(linea.importe) || 0);
-      if (importe <= 0 || importe > pendiente + 0.001) {
-        return res.status(400).json({
-          error: `Importe inválido para factura ${linea.id_factura} (pendiente ${pendiente})`,
-        });
+      // Fase 1: validar todas las líneas antes de crear pagos
+      for (const linea of lineasAPagar) {
+        const factura = await cargarFactura(linea.id_factura);
+        if (!factura) {
+          return res.status(400).json({ error: `Factura ${linea.id_factura} no encontrada` });
+        }
+        const pendiente = calcularSaldoPendiente(factura);
+        const importe = round2(Number(linea.importe) || 0);
+        if (importe <= 0 || importe > pendiente + 0.001) {
+          return res.status(400).json({
+            error: `Importe inválido para factura ${linea.id_factura} (pendiente ${pendiente})`,
+          });
+        }
       }
     }
 
@@ -558,8 +572,7 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
 
     // Fase 2: registrar pagos (idempotentes por línea). El fallo de una línea
     // (p. ej. 409 porque su factura cambió) no corta las demás.
-    const pagosCreados = [];
-    const fallidas = [];
+    const totalLineas = lineasAPagar.length + pagosCreados.length + fallidas.length;
     for (const linea of lineasAPagar) {
       try {
         const factura = await cargarFactura(linea.id_factura);
@@ -574,7 +587,7 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
           usuario_id: usuario.id_usuario || usuario.sub || '',
           usuario_nombre: usuario.Nombre || usuario.email || '',
           importeMaximo: pendiente,
-          idempotencyKey: `remesa:${remesa.remesaId}:${linea.id_factura}`,
+          idempotencyKey: claveIdempotenciaRemesa(remesa.remesaId, linea.id_factura),
         });
         pagosCreados.push(result.pago);
       } catch (err) {
@@ -587,36 +600,206 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
           id_factura: linea.id_factura,
           error: pub.error,
           ...(pub.publico && err?.code && { code: err.code }),
+          siguePendiente: true,
         });
       }
     }
 
-    const pendientes = fallidas.map((f) => String(f.id_factura));
+    const pendientes = fallidas.filter((f) => f.siguePendiente).map((f) => String(f.id_factura));
     const tsFin = now();
+    const descartadas = [
+      ...(Array.isArray(remesa.pendientesDescartadas) ? remesa.pendientesDescartadas : []),
+      ...descartadasAhora.map((d) => ({ ...d, por: 'sistema', en: tsFin })),
+    ];
+    const sets = ['actualizadoEn = :ts'];
+    const valores = { ':ts': tsFin };
+    if (pendientes.length > 0) {
+      sets.push('lineasPendientesPago = :pend');
+      valores[':pend'] = pendientes;
+    }
+    if (descartadasAhora.length > 0) {
+      sets.push('pendientesDescartadas = :desc');
+      valores[':desc'] = descartadas;
+    }
     await docClient.send(new UpdateCommand({
       TableName: TABLE,
       Key: { remesaId: remesa.remesaId },
-      UpdateExpression: pendientes.length > 0
-        ? 'SET lineasPendientesPago = :pend, actualizadoEn = :ts'
-        : 'SET actualizadoEn = :ts REMOVE lineasPendientesPago',
-      ExpressionAttributeValues: { ':ts': tsFin, ...(pendientes.length > 0 && { ':pend': pendientes }) },
+      UpdateExpression: `SET ${sets.join(', ')}${pendientes.length > 0 ? '' : ' REMOVE lineasPendientesPago'}`,
+      ExpressionAttributeValues: valores,
     }));
     remesa.actualizadoEn = tsFin;
     if (pendientes.length > 0) remesa.lineasPendientesPago = pendientes;
     else delete remesa.lineasPendientesPago;
+    if (descartadasAhora.length > 0) remesa.pendientesDescartadas = descartadas;
 
     if (fallidas.length > 0) {
+      const quitadas = fallidas.length - pendientes.length;
       return res.status(409).json({
         ok: false,
         code: 'REMESA_EJECUCION_PARCIAL',
-        error: `Se han registrado ${pagosCreados.length} de ${lineasAPagar.length} pago(s). `
-          + `${fallidas.length} factura(s) no se han podido pagar; vuelve a ejecutar la remesa para pagar solo las pendientes.`,
+        error: `Se han registrado ${pagosCreados.length} de ${totalLineas} pago(s). `
+          + (pendientes.length > 0
+            ? `${pendientes.length} factura(s) siguen pendientes; vuelve a ejecutar la remesa para pagarlas o descártalas. `
+            : '')
+          + (quitadas > 0
+            ? `${quitadas} factura(s) se han quitado de pendientes porque ya no se pueden pagar (revisa el detalle).`
+            : ''),
         remesa,
         pagos: pagosCreados,
         fallidas,
       });
     }
     res.json({ ok: true, remesa, pagos: pagosCreados });
+  } catch (err) {
+    responderError(res, err);
+  }
+});
+
+const claveIdempotenciaRemesa = (remesaId, idFactura) => `remesa:${remesaId}:${idFactura}`;
+
+/**
+ * Clasifica las pendientes de una remesa Ejecutada antes de reanudarla. El banco
+ * ya recibió el fichero, así que una pendiente nunca debe bloquear a las demás:
+ *
+ *  - Ya tiene el pago de esta remesa (clave `remesa:<id>:<factura>`, lectura
+ *    fuerte): estaba pagada y solo faltaba cerrar la pendiente → `yaPagadas`.
+ *  - Factura no encontrada, anulada o sin saldo pendiente (pagada por otra vía):
+ *    no se puede pagar sin deshacer algo a mano → sale de pendientes, queda en
+ *    `pendientesDescartadas` (por 'sistema') y va en `fallidas` con
+ *    `siguePendiente: false`.
+ *  - Cualquier otro motivo (IBAN, estado en revisión, importe mayor que el saldo
+ *    que queda…): puede corregirse → sigue pendiente, va en `fallidas` con
+ *    `siguePendiente: true`; se reintenta en la próxima reanudación o se descarta
+ *    con POST /remesas/:id/descartar-pendientes.
+ */
+async function clasificarPendientes(remesa, idsPendientes) {
+  const empresasIdx = indexarEmpresas(await scanEmpresas());
+  const lineasPorFactura = new Map((remesa.lineas || []).map((l) => [String(l.id_factura), l]));
+  const yaPagadas = [];
+  const aPagar = [];
+  const fallidas = [];
+  const descartadas = [];
+  const definitiva = (id_factura, motivo) => {
+    descartadas.push({ id_factura, motivo });
+    fallidas.push({ id_factura, error: motivo, code: 'PENDIENTE_NO_PAGABLE', siguePendiente: false });
+  };
+
+  for (const id of idsPendientes) {
+    const linea = lineasPorFactura.get(id);
+    if (!linea) {
+      definitiva(id, 'La factura ya no está en la remesa');
+      continue;
+    }
+    const clave = claveIdempotenciaRemesa(remesa.remesaId, id);
+    const previo = (await queryPagosByFactura(id, { consistente: true })).find((p) => p.idempotency_key === clave);
+    if (previo) {
+      yaPagadas.push(previo);
+      continue;
+    }
+    const factura = await cargarFactura(id, { consistente: true });
+    const pendiente = factura ? calcularSaldoPendiente(factura) : 0;
+    if (!factura) {
+      definitiva(id, 'Factura no encontrada');
+      continue;
+    }
+    if (factura.estado === 'anulada') {
+      definitiva(id, 'Factura anulada');
+      continue;
+    }
+    if (pendiente <= 0) {
+      definitiva(id, 'La factura ya no tiene saldo pendiente (pagada por otra vía)');
+      continue;
+    }
+    const ev = await recalcularLineasRemesa({ ...remesa, lineas: [linea] }, {
+      cargarFactura: async () => factura,
+      cargarLineasFactura: queryLineasByFactura,
+      empresasIdx,
+    });
+    const importe = round2(Number(linea.importe) || 0);
+    const motivo = !ev.ok
+      ? ev.invalidas[0]?.motivo || 'Factura no válida para la remesa'
+      : (importe <= 0 || importe > pendiente + 0.001)
+        ? `El importe de la remesa (${importe}) supera el pendiente de la factura (${pendiente})`
+        : null;
+    if (motivo) {
+      fallidas.push({ id_factura: id, error: motivo, code: 'PENDIENTE_NO_PAGABLE', siguePendiente: true });
+      continue;
+    }
+    aPagar.push(linea);
+  }
+  return { yaPagadas, aPagar, fallidas, descartadas };
+}
+
+// ─── Descartar pendientes de una remesa ejecutada ───
+
+/**
+ * Quita facturas de `lineasPendientesPago` sin tocar pagos: para pendientes que
+ * se han resuelto fuera de la remesa. Queda registro en `pendientesDescartadas`.
+ * Body: `{ facturaIds?: string[], motivo?: string }`; sin `facturaIds`, todas.
+ */
+router.post('/remesas/:remesaId/descartar-pendientes', requirePermission('remesas.gestionar'), async (req, res) => {
+  if (!(await hasPermission(req.user, 'facturacion.cobrar_pagar'))) {
+    return res.status(403).json({ error: 'Permiso facturacion.cobrar_pagar requerido para descartar pendientes' });
+  }
+  const b = req.body || {};
+  if (b.facturaIds !== undefined && !Array.isArray(b.facturaIds)) {
+    return res.status(400).json({ error: 'facturaIds debe ser una lista' });
+  }
+  try {
+    const remesa = await getRemesa(req.params.remesaId);
+    if (!remesa) return res.status(404).json({ error: 'Remesa no encontrada' });
+    if (await rechazaSociedadAjena(req, res, remesa.sociedadId)) return; // [SEC S-08]
+    const pendientes = Array.isArray(remesa.lineasPendientesPago) ? remesa.lineasPendientesPago.map(String) : [];
+    if (remesa.estado !== 'Ejecutada' || pendientes.length === 0) {
+      return res.status(409).json({ error: 'La remesa no tiene facturas pendientes de pago' });
+    }
+    const pedidas = Array.isArray(b.facturaIds)
+      ? [...new Set(b.facturaIds.map((id) => String(id ?? '').trim()).filter(Boolean))]
+      : pendientes;
+    if (pedidas.length === 0) return res.status(400).json({ error: 'Indica las facturas a descartar' });
+    const ajenas = pedidas.filter((id) => !pendientes.includes(id));
+    if (ajenas.length > 0) {
+      return res.status(400).json({ error: `No están pendientes en esta remesa: ${ajenas.join(', ')}` });
+    }
+
+    const usuario = req.user || {};
+    const ts = now();
+    const motivo = String(b.motivo ?? '').trim().slice(0, 300);
+    const restantes = pendientes.filter((id) => !pedidas.includes(id));
+    const descartadas = [
+      ...(Array.isArray(remesa.pendientesDescartadas) ? remesa.pendientesDescartadas : []),
+      ...pedidas.map((id_factura) => ({
+        id_factura,
+        por: String(usuario.id_usuario || usuario.sub || usuario.email || ''),
+        porNombre: String(usuario.Nombre || usuario.email || ''),
+        en: ts,
+        ...(motivo && { motivo }),
+      })),
+    ];
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: TABLE,
+        Key: { remesaId: remesa.remesaId },
+        UpdateExpression: `SET pendientesDescartadas = :desc, actualizadoEn = :ts${restantes.length > 0 ? ', lineasPendientesPago = :rest' : ' REMOVE lineasPendientesPago'}`,
+        ConditionExpression: remesa.actualizadoEn ? 'actualizadoEn = :leido' : 'attribute_not_exists(actualizadoEn)',
+        ExpressionAttributeValues: {
+          ':desc': descartadas,
+          ':ts': ts,
+          ...(remesa.actualizadoEn && { ':leido': remesa.actualizadoEn }),
+          ...(restantes.length > 0 && { ':rest': restantes }),
+        },
+      }));
+    } catch (err) {
+      if (err?.name === 'ConditionalCheckFailedException') {
+        return res.status(409).json({ error: 'La remesa ha cambiado, vuelve a cargarla' });
+      }
+      throw err;
+    }
+    remesa.pendientesDescartadas = descartadas;
+    remesa.actualizadoEn = ts;
+    if (restantes.length > 0) remesa.lineasPendientesPago = restantes;
+    else delete remesa.lineasPendientesPago;
+    res.json({ ok: true, remesa, descartadas: pedidas });
   } catch (err) {
     responderError(res, err);
   }

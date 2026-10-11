@@ -1,11 +1,20 @@
 /**
- * Facturas incluidas en remesas activas (Borrador / Generada).
+ * Facturas incluidas en remesas activas: Borrador / Generada, y las facturas de
+ * `lineasPendientesPago` de una remesa Ejecutada (el banco ya tiene el fichero:
+ * meterlas en otra remesa o pagarlas a mano sería pagarlas dos veces).
  * Enfoque B: flag derivado `remesaActiva`, sin estado `en_remesa` en la factura.
  */
 import { ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
 
 export const ESTADOS_ACTIVOS = new Set(['Borrador', 'Generada']);
+
+/** Ids de factura que mantienen activa la remesa `rem`. */
+function facturasActivasDeRemesa(rem) {
+  if (ESTADOS_ACTIVOS.has(rem?.estado)) return (rem.lineas || []).map((l) => l?.id_factura);
+  if (rem?.estado === 'Ejecutada' && Array.isArray(rem.lineasPendientesPago)) return rem.lineasPendientesPago;
+  return [];
+}
 
 /**
  * @param {object|null|undefined} rem
@@ -30,9 +39,7 @@ export function facturaEnRemesaActiva(remesas, facturaId, excludeRemesaId = null
   if (!facturaId) return null;
   for (const rem of remesas || []) {
     if (excludeRemesaId && rem.remesaId === excludeRemesaId) continue;
-    if (!ESTADOS_ACTIVOS.has(rem.estado)) continue;
-    const lineas = rem.lineas || [];
-    if (lineas.some((l) => l.id_factura === facturaId)) {
+    if (facturasActivasDeRemesa(rem).some((id) => String(id) === String(facturaId))) {
       return rem;
     }
   }
@@ -48,10 +55,10 @@ export function facturaEnRemesaActiva(remesas, facturaId, excludeRemesaId = null
 export function indexRemesasActivasPorFactura(remesas) {
   const map = new Map();
   for (const rem of remesas || []) {
-    if (!ESTADOS_ACTIVOS.has(rem.estado)) continue;
+    const ids = facturasActivasDeRemesa(rem);
+    if (ids.length === 0) continue;
     const info = infoRemesaActiva(rem);
-    for (const l of rem.lineas || []) {
-      const id = l?.id_factura;
+    for (const id of ids) {
       if (!id || map.has(id)) continue;
       map.set(id, info);
     }

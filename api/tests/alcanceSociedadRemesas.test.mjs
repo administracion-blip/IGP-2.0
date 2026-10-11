@@ -187,6 +187,54 @@ test('lecturas en modo observar: listado y detalle se sirven y avisan por la soc
   assert.equal(avisos.length, 1);
 });
 
+function ejecutadaConPendiente(id, sociedadId, cuenta, factura) {
+  db.sembrar(tables.remesas, {
+    ...remesa(id, sociedadId, cuenta, factura), estado: 'Ejecutada', lineasPendientesPago: [factura],
+    actualizadoEn: '2026-10-05T10:00:00.000Z',
+  });
+}
+
+test('descartar pendientes: sociedad ajena 403, sin cobrar_pagar 403; en la propia registra quién y no toca pagos', async () => {
+  ejecutadaConPendiente('R-SUR-EJ', EMPRESA_SUR, IBAN_SUR, 'F-SUR');
+  ejecutadaConPendiente('R-NORTE-EJ', EMPRESA_NORTE, IBAN_NORTE, 'F-NORTE');
+  const ajena = await api('POST', '/api/remesas/R-SUR-EJ/descartar-pendientes', {});
+  assert.equal(ajena.status, 403);
+  assert.equal(ajena.body.error, MENSAJE);
+  assert.deepEqual(remesaGuardada('R-SUR-EJ').lineasPendientesPago, ['F-SUR']);
+
+  db.sembrar(tables.usuarios, { id_usuario: 'u-solo', Email: 'solo@grupo.test', Local: ['Local Norte'], Rol: 'SoloRemesas' });
+  db.sembrar(tables.rolesPermisos, { PK: 'ROL#SoloRemesas', SK: 'PERMISO#remesas.gestionar' });
+  invalidarContextoAcceso();
+  usuario = { sub: 'u-solo', id_usuario: 'u-solo', email: 'solo@grupo.test', rol: 'SoloRemesas' };
+  const sinCobrar = await api('POST', '/api/remesas/R-NORTE-EJ/descartar-pendientes', {});
+  assert.equal(sinCobrar.status, 403);
+  assert.deepEqual(remesaGuardada('R-NORTE-EJ').lineasPendientesPago, ['F-NORTE']);
+
+  usuario = NORTE;
+  const ok = await api('POST', '/api/remesas/R-NORTE-EJ/descartar-pendientes', { motivo: 'Pagada por banco aparte' });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.deepEqual(ok.body.descartadas, ['F-NORTE']);
+  const g = remesaGuardada('R-NORTE-EJ');
+  assert.equal(g.lineasPendientesPago, undefined);
+  assert.equal(g.pendientesDescartadas.length, 1);
+  assert.equal(g.pendientesDescartadas[0].id_factura, 'F-NORTE');
+  assert.equal(g.pendientesDescartadas[0].por, 'u-norte');
+  assert.equal(g.pendientesDescartadas[0].motivo, 'Pagada por banco aparte');
+  assert.ok(g.pendientesDescartadas[0].en);
+  assert.equal(db.listar(tables.facturasPagos).length, 0);
+});
+
+test('una pendiente de una remesa Ejecutada cuenta como "en remesa activa": no se puede meter en otra', async () => {
+  ejecutadaConPendiente('R-NORTE-EJ', EMPRESA_NORTE, IBAN_NORTE, 'F-NORTE-2');
+  const r = await api('POST', '/api/remesas', { nombre: 'Otra', sociedadId: EMPRESA_NORTE, facturaIds: ['F-NORTE-2'] });
+  assert.notEqual(r.status, 201);
+  assert.equal(db.listar(tables.remesas).filter((x) => x.nombre === 'Otra').length, 0);
+  const anadir = await api('PATCH', '/api/remesas/R-NORTE', { anadirFacturaIds: ['F-NORTE-2'] });
+  assert.equal(anadir.status, 200);
+  assert.deepEqual(remesaGuardada('R-NORTE').lineas.map((l) => l.id_factura), ['F-NORTE']);
+  assert.ok(remesaGuardada('R-NORTE').excluidas.some((e) => e.id_factura === 'F-NORTE-2' && /Ya en remesa/.test(e.motivo)));
+});
+
 test('lecturas en modo bloquear: el listado solo trae las suyas y el detalle ajeno es 403', async () => {
   process.env.ALCANCE_MODO_LECTURAS = 'bloquear';
   const lista = await api('GET', '/api/remesas');
