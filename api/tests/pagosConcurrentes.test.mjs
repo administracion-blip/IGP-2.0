@@ -115,6 +115,60 @@ test('si la factura sigue cambiando en cada intento: 409 en español y no se esc
   assert.equal(factura(db).total_cobrado, 0);
 });
 
+for (const [caso, error] of [
+  ['transacción cancelada por TransactionConflict', Object.assign(new Error('Transaction cancelled'), {
+    name: 'TransactionCanceledException',
+    CancellationReasons: [{ Code: 'None' }, { Code: 'TransactionConflict' }],
+  })],
+  ['TransactionConflictException (escritura suelta contra una transacción)', Object.assign(new Error('conflict'), {
+    name: 'TransactionConflictException',
+  })],
+]) {
+  test(`${caso}: se reintenta y el pago entra una vez`, async () => {
+    const db = escenario();
+    const enviar = docClient.send;
+    let fallos = 0;
+    docClient.send = async (cmd) => {
+      if (cmd?.constructor?.name === 'TransactWriteCommand' && fallos === 0) {
+        fallos += 1;
+        throw error;
+      }
+      return enviar(cmd);
+    };
+    try {
+      const r = await pagar(15);
+      assert.equal(r.ok, true);
+    } finally {
+      docClient.send = enviar;
+    }
+    assert.equal(fallos, 1);
+    assert.equal(pagos(db).length, 1);
+    assert.equal(factura(db).total_cobrado, 15);
+  });
+}
+
+test('un error que no es de conflicto no se reintenta', async () => {
+  escenario();
+  const enviar = docClient.send;
+  let intentos = 0;
+  docClient.send = async (cmd) => {
+    if (cmd?.constructor?.name === 'TransactWriteCommand') {
+      intentos += 1;
+      throw Object.assign(new Error('throttled'), {
+        name: 'TransactionCanceledException',
+        CancellationReasons: [{ Code: 'None' }, { Code: 'ThrottlingError' }],
+      });
+    }
+    return enviar(cmd);
+  };
+  try {
+    await assert.rejects(() => pagar(15), (err) => err.name === 'TransactionCanceledException');
+  } finally {
+    docClient.send = enviar;
+  }
+  assert.equal(intentos, 1);
+});
+
 test('borrar un pago mientras entra otro: el borrado relee y el saldo queda bien', async () => {
   const db = escenario();
   await pagar(30);

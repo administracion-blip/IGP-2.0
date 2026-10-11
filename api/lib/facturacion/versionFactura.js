@@ -43,12 +43,20 @@ export function putFacturaVersionada(factura, versionLeida, extra = {}) {
   };
 }
 
-/** Fallo de una escritura condicional, suelta o dentro de una transacción. */
+const RAZONES_CONFLICTO = new Set(['ConditionalCheckFailed', 'TransactionConflict']);
+
+/**
+ * Choque con otra escritura, suelta o dentro de una transacción: condición que
+ * ya no se cumple, o transacción/Put que coincide en el tiempo con otra
+ * transacción sobre el mismo ítem (`TransactionConflict*`). Todos se resuelven
+ * releyendo y repitiendo.
+ */
 export function esConflictoEscritura(err) {
   if (err?.name === 'ConditionalCheckFailedException') return true;
+  if (err?.name === 'TransactionConflictException') return true;
   if (err?.name !== 'TransactionCanceledException') return false;
   const razones = Array.isArray(err?.CancellationReasons) ? err.CancellationReasons : [];
-  return razones.some((r) => r?.Code === 'ConditionalCheckFailed');
+  return razones.some((r) => RAZONES_CONFLICTO.has(r?.Code));
 }
 
 export function errorFacturaCambiada() {
