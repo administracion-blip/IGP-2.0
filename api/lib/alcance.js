@@ -15,6 +15,7 @@ import { cargarContextoAcceso } from './tasks/acceso.js';
 import { formatId6 } from './usuarioLocales.js';
 
 export const MENSAJE_SIN_ACCESO_LOCAL = 'No tienes acceso a este local';
+export const MENSAJE_SIN_ACCESO_EMPRESA = 'No tienes acceso a esa sociedad';
 
 const MAESTRO_TTL_MS = 60_000;
 

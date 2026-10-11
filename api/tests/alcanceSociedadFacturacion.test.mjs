@@ -64,12 +64,13 @@ after(() => {
   servidor?.close();
 });
 
-async function api(metodo, ruta, cuerpo, { interno = false } = {}) {
+async function api(metodo, ruta, cuerpo, { interno = false, admin = false } = {}) {
   if (!servidor) {
     const app = express();
     app.use(express.json());
     app.use((req, _res, next) => {
       if (req.headers['x-test-interno'] === '1') req.isInternal = true;
+      else if (req.headers['x-test-admin'] === '1') req.user = { sub: 'u-admin', email: 'admin@grupo.test', rol: 'Administrador' };
       else req.user = NORTE;
       next();
     });
@@ -80,7 +81,11 @@ async function api(metodo, ruta, cuerpo, { interno = false } = {}) {
   }
   const res = await fetch(base + ruta, {
     method: metodo,
-    headers: { 'Content-Type': 'application/json', ...(interno && { 'x-test-interno': '1' }) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(interno && { 'x-test-interno': '1' }),
+      ...(admin && { 'x-test-admin': '1' }),
+    },
     ...(cuerpo !== undefined && { body: JSON.stringify(cuerpo) }),
   });
   return { status: res.status, body: await res.json().catch(() => ({})) };
@@ -130,6 +135,31 @@ test('enviar-recordatorios: restringido no envía ni marca facturas de otra soci
     if (smtp === undefined) delete process.env.SMTP_USER;
     else process.env.SMTP_USER = smtp;
   }
+});
+
+test('editar factura: un restringido no la lleva a una sociedad ajena; a la suya o sin tocar el emisor, sí', async () => {
+  db.sembrar(tables.facturas, factura('E-NORTE', EMPRESA_NORTE, { version: 1 }));
+
+  const ajena = await api('PUT', '/api/facturacion/facturas/E-NORTE', { emisor_id: EMPRESA_SUR, observaciones: 'x' });
+  assert.equal(ajena.status, 403);
+  assert.equal(ajena.body.error, 'No tienes acceso a esa sociedad');
+  const tras = db.obtener(tables.facturas, { id_factura: 'E-NORTE' });
+  assert.equal(tras.emisor_id, EMPRESA_NORTE);
+  assert.equal(tras.observaciones, undefined);
+
+  const vacia = await api('PUT', '/api/facturacion/facturas/E-NORTE', { emisor_id: '' });
+  assert.equal(vacia.status, 403);
+
+  const misma = await api('PUT', '/api/facturacion/facturas/E-NORTE', { emisor_id: '2', observaciones: 'y' });
+  assert.equal(misma.status, 200, JSON.stringify(misma.body));
+  assert.equal(db.obtener(tables.facturas, { id_factura: 'E-NORTE' }).observaciones, 'y');
+});
+
+test('editar factura: un administrador sí cambia la sociedad emisora', async () => {
+  db.sembrar(tables.facturas, factura('E-NORTE', EMPRESA_NORTE, { version: 1 }));
+  const r = await api('PUT', '/api/facturacion/facturas/E-NORTE', { emisor_id: EMPRESA_SUR }, { admin: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(db.obtener(tables.facturas, { id_factura: 'E-NORTE' }).emisor_id, EMPRESA_SUR);
 });
 
 function sembrarPagosYDuplicados() {

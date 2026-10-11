@@ -113,7 +113,7 @@ import {
   facturaEmisorPermitido,
   formatId6,
 } from '../lib/usuarioLocales.js';
-import { cargarAlcance, permiteEmpresa, filtrarPorEmpresa } from '../lib/alcance.js';
+import { cargarAlcance, permiteEmpresa, filtrarPorEmpresa, MENSAJE_SIN_ACCESO_EMPRESA } from '../lib/alcance.js';
 import { filtrarLecturaPorEmpresa } from '../lib/alcanceSociedad.js';
 import { emisoresDeFacturas } from '../lib/facturacion/emisorDeFacturas.js';
 import crypto from 'crypto';
@@ -551,6 +551,14 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
     const factura = existing.Item;
     // [SEC S-08]
     if (await rejectFacturaEmisorNoPermitido(req, factura, res)) return;
+    // [SEC S-08] Tampoco se puede llevar la factura a una sociedad ajena.
+    if (
+      body.emisor_id !== undefined
+      && formatId6(body.emisor_id) !== formatId6(factura.emisor_id)
+      && !permiteEmpresa(await cargarAlcance(req), body.emisor_id)
+    ) {
+      return res.status(403).json({ error: MENSAJE_SIN_ACCESO_EMPRESA });
+    }
     const esGasto = factura.tipo === 'IN';
     const estadoOriginal = factura.estado;
     // `factura` se modifica con el body más abajo; para detectar en el reintento

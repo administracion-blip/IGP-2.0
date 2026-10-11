@@ -198,6 +198,10 @@ test('editar líneas sin carrera: cabecera y líneas se guardan juntas', async (
 });
 
 test('cambiar el emisor mientras entra un pago: el reintento compara con el emisor leído, no con el del body', async () => {
+  db.sembrar(tables.locales, local('000099', 'Local Extra', '000099'));
+  db.sembrar(tables.usuarios, { id_usuario: 'u-norte', Email: NORTE.email, Local: ['Local Norte', 'Local Extra'], Rol: ROL });
+  invalidarContextoAcceso();
+  invalidarMaestroLocales();
   db.interceptar('PutCommand', tables.facturas, otroPago);
   const r = await api('PUT', '/api/facturacion/facturas/F-1', { emisor_id: '000099', observaciones: 'cambio' });
   assert.equal(r.status, 200, JSON.stringify(r.body));
