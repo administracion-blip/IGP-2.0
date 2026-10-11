@@ -294,3 +294,20 @@ test('PUT no acepta campos de firma: firma_artista_key y fecha_firma no cambian'
   assert.equal(vacia.status, 200);
   assert.equal(db.obtener(tables.actuaciones, { id_actuacion: 'A-NORTE-2' }).firma_artista_key, '');
 });
+
+test('crear una actuación no acepta campos de firma: nace sin firma', async () => {
+  montar();
+  const r = await api('POST', '/api/actuaciones', {
+    id_actuacion: 'A-NUEVA',
+    id_local: '000010',
+    fecha: '2026-10-10',
+    hora_inicio: '21:00',
+    firma_artista_key: 'actuaciones/A-SUR/firma_robada.png',
+    fecha_firma: '2000-01-01T00:00:00.000Z',
+  });
+  assert.equal(r.status, 200);
+  const creada = db.obtener(tables.actuaciones, { id_actuacion: 'A-NUEVA' });
+  assert.equal(creada.firma_artista_key, '');
+  assert.equal(creada.fecha_firma, '');
+  assert.equal(r.body.actuacion.firma_artista_key, '');
+});
