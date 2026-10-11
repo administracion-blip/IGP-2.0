@@ -257,6 +257,48 @@ test('líneas duplicadas inyectadas en BD: 409 en fichero y ejecutar, sin pagos'
   assert.equal(db.obtener(tables.remesas, { remesaId: remesa.remesaId }).estado, 'Borrador');
 });
 
+test('fichero de una remesa Ejecutada: 409 y no vuelve a Generada', async () => {
+  const db = escenario();
+  const remesa = await crearRemesa();
+  const guardada = db.obtener(tables.remesas, { remesaId: remesa.remesaId });
+  db.sembrar(tables.remesas, { ...guardada, estado: 'Ejecutada', ejecutadaEn: '2026-08-11T10:00:00.000Z' });
+
+  const fichero = await descargarFichero(remesa.remesaId);
+  assert.equal(fichero.status, 409);
+  assert.match(fichero.body.error, /ejecutada/);
+  const tras = db.obtener(tables.remesas, { remesaId: remesa.remesaId });
+  assert.equal(tras.estado, 'Ejecutada');
+  assert.equal(tras.ejecutadaEn, '2026-08-11T10:00:00.000Z');
+});
+
+test('si la remesa se ejecuta mientras se genera el fichero: 409 sin pisar la ejecución', async () => {
+  const db = escenario();
+  const remesa = await crearRemesa();
+  db.interceptar('PutCommand', tables.remesas, () => {
+    const actual = db.obtener(tables.remesas, { remesaId: remesa.remesaId });
+    db.sembrar(tables.remesas, { ...actual, estado: 'Ejecutada', ejecutadaEn: '2026-08-11T10:00:00.000Z' });
+  });
+
+  const fichero = await descargarFichero(remesa.remesaId);
+  assert.equal(fichero.status, 409);
+  assert.match(fichero.body.error, /ha cambiado/);
+  const tras = db.obtener(tables.remesas, { remesaId: remesa.remesaId });
+  assert.equal(tras.estado, 'Ejecutada');
+  assert.equal(tras.ejecutadaEn, '2026-08-11T10:00:00.000Z');
+});
+
+test('fichero desde Borrador y regenerado desde Generada sigue funcionando', async () => {
+  const db = escenario();
+  const remesa = await crearRemesa();
+  const primero = await descargarFichero(remesa.remesaId);
+  assert.equal(primero.status, 200);
+  assert.equal(db.obtener(tables.remesas, { remesaId: remesa.remesaId }).estado, 'Generada');
+  const segundo = await descargarFichero(remesa.remesaId);
+  assert.equal(segundo.status, 200);
+  assert.equal(segundo.lineas.length, 2);
+  assert.equal(db.obtener(tables.remesas, { remesaId: remesa.remesaId }).estado, 'Generada');
+});
+
 test('normalizarLineasEntrada: solo importe y concepto, acotado a [0, importeMaximo]', () => {
   const existentes = [{ id_factura: 'A', ibanBeneficiario: IBAN_PROVEEDOR, importe: 50, importeMaximo: 50, concepto: 'c' }];
   const [l] = normalizarLineasEntrada([{ id_factura: 'A', importe: -10, ibanBeneficiario: IBAN_ATACANTE, importeMaximo: 1e6 }], existentes);

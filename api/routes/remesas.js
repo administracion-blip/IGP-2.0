@@ -391,7 +391,9 @@ router.get('/remesas/:remesaId/fichero', requirePermission('remesas.gestionar'),
     const remesa = await getRemesa(req.params.remesaId);
     if (!remesa) return res.status(404).json({ error: 'Remesa no encontrada' });
     if (remesa.estado === 'Anulada') return res.status(400).json({ error: 'Remesa anulada' });
+    if (remesa.estado === 'Ejecutada') return res.status(409).json({ error: 'La remesa ya está ejecutada' });
     if (!remesa.lineas?.length) return res.status(400).json({ error: 'Sin líneas en la remesa' });
+    const estadoLeido = remesa.estado;
 
     const recalculo = await recalcularDesdeFacturas(remesa);
     if (!recalculo.ok) return respuestaLineasInvalidas(res, recalculo.invalidas);
@@ -407,7 +409,20 @@ router.get('/remesas/:remesaId/fichero', requirePermission('remesas.gestionar'),
     remesa.estado = 'Generada';
     remesa.generadaEn = now();
     remesa.actualizadoEn = now();
-    await docClient.send(new PutCommand({ TableName: TABLE, Item: remesa }));
+    try {
+      await docClient.send(new PutCommand({
+        TableName: TABLE,
+        Item: remesa,
+        ConditionExpression: '#estado = :leido',
+        ExpressionAttributeNames: { '#estado': 'estado' },
+        ExpressionAttributeValues: { ':leido': estadoLeido },
+      }));
+    } catch (putErr) {
+      if (putErr?.name === 'ConditionalCheckFailedException') {
+        return res.status(409).json({ error: 'La remesa ha cambiado, vuelve a cargarla' });
+      }
+      throw putErr;
+    }
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
