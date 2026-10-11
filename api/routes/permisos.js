@@ -1,7 +1,7 @@
 import express from 'express';
 import { QueryCommand, ScanCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { hasPermission, requireAuth, requireRole } from '../middleware/auth.js';
 import { invalidarContextoAcceso } from '../lib/tasks/acceso.js';
 
 const router = express.Router();
@@ -31,6 +31,16 @@ router.get('/permisos', requireAuth, async (req, res) => {
   const rol = (req.query.rol ?? '').toString().trim();
   if (!rol) {
     return res.json({ permisos: [] });
+  }
+  if (rol !== String(req.user?.rol ?? '').trim()) {
+    try {
+      if (!(await hasPermission(req.user, 'permisos.ver'))) {
+        return res.status(403).json({ error: 'Permiso insuficiente' });
+      }
+    } catch (err) {
+      console.error('[permisos GET]', err.message || err);
+      return res.status(500).json({ error: 'Error verificando permisos' });
+    }
   }
   const pk = `ROL#${rol}`;
   let items = [];
