@@ -23,6 +23,7 @@ import { emailValido } from '../utils/validation';
 import { formatId6 } from '../utils/idFormat';
 import { useAuth, UserSession } from '../contexts/AuthContext';
 import { useBreakpoint } from '../hooks/useBreakpoint';
+import { useConfirmar } from '../hooks/useConfirmar';
 import { MIN_TOUCH } from '../constants/layout';
 import { SelectorDesplegable } from '../components/SelectorDesplegable';
 import { apiFetch } from '../utils/api';
@@ -64,7 +65,7 @@ function labelColumna(col: string): string {
   return COL_LABELS[col] ?? col;
 }
 
-type ToolbarSecId = 'editar' | 'borrar';
+type ToolbarSecId = 'editar' | 'borrar' | 'cerrarSesiones';
 
 // Campos del formulario nuevo registro (todos menos id_usuario, que se calcula en el servidor/app)
 const CAMPOS_FORM: { key: (typeof ATRIBUTOS_TABLA_USUARIOS)[number]; label: string; secure?: boolean }[] = [
@@ -93,7 +94,8 @@ function truncar(val: string): string {
 
 export default function UsuariosScreen() {
   const router = useRouter();
-  const { hasPermiso, user, setUser } = useAuth();
+  const { hasPermiso, user, setUser, logout } = useAuth();
+  const { confirmar, ConfirmarView } = useConfirmar();
   const { isPhone, isDesktop, shouldStackPanels } = useBreakpoint();
   const formDosColumnas = !isPhone;
   const modalCasiFull = isPhone || shouldStackPanels;
@@ -351,15 +353,28 @@ export default function UsuariosScreen() {
       setErrorForm('El email debe contener @');
       return;
     }
-    if (isEdit) {
-      const original = usuarios.find((u) => String(u.id_usuario) === editingUsuarioId);
-      if (original && String(original.Rol) === 'Administrador' && formNuevo.Rol !== 'Administrador') {
-        const admins = usuarios.filter((u) => String(u.Rol) === 'Administrador');
-        if (admins.length <= 1) {
-          setErrorForm('Debe haber al menos un usuario con rol Administrador');
-          return;
-        }
+    const original = isEdit ? usuarios.find((u) => String(u.id_usuario) === editingUsuarioId) : undefined;
+    if (original && String(original.Rol) === 'Administrador' && formNuevo.Rol !== 'Administrador') {
+      const admins = usuarios.filter((u) => String(u.Rol) === 'Administrador');
+      if (admins.length <= 1) {
+        setErrorForm('Debe haber al menos un usuario con rol Administrador');
+        return;
       }
+    }
+    // El backend revoca todos los tokens del usuario al cambiarle la contraseña o el rol:
+    // si es la propia ficha, la sesión actual deja de valer en cuanto responde el PUT.
+    const esPropiaFicha = isEdit && editingUsuarioId === user?.id_usuario;
+    const cierraPropiaSesion =
+      esPropiaFicha &&
+      (!!formNuevo.Password ||
+        String(original?.Rol ?? '').trim() !== (formNuevo.Rol ?? '').trim());
+    if (cierraPropiaSesion) {
+      const ok = await confirmar(
+        'Se cerrará tu sesión',
+        'Al cambiar tu contraseña o tu rol se cerrará tu sesión en todos los dispositivos y tendrás que volver a entrar.',
+        { confirmarLabel: 'Guardar y cerrar sesión' },
+      );
+      if (!ok) return;
     }
     setErrorForm(null);
     setGuardando(true);
@@ -384,7 +399,13 @@ export default function UsuariosScreen() {
         setErrorForm(data.error || 'Error al guardar');
         return;
       }
-      if (isEdit && editingUsuarioId === user?.id_usuario) {
+      if (cierraPropiaSesion) {
+        cerrarModalNuevo();
+        await confirmar('Cambios guardados', 'Cambios guardados. Vuelve a iniciar sesión.', { soloAceptar: true });
+        await logout();
+        return;
+      }
+      if (esPropiaFicha) {
         const updatedSession: UserSession = {
           ...user!,
           Nombre: (formNuevo.Nombre ?? '').trim() || user!.Nombre,
@@ -437,6 +458,42 @@ export default function UsuariosScreen() {
     }
   };
 
+  const cerrarSesionesSeleccionado = async () => {
+    if (selectedRowIndex == null) return;
+    const usuario = usuariosFiltrados[selectedRowIndex];
+    const id = usuario?.id_usuario != null ? String(usuario.id_usuario) : '';
+    if (!id) return;
+    const esYo = id === user?.id_usuario;
+    const nombre = [usuario.Nombre, usuario.Apellidos].filter(Boolean).join(' ') || String(usuario.Email ?? formatId6(id));
+    const ok = await confirmar(
+      'Cerrar sesiones',
+      esYo
+        ? 'Se cerrará tu sesión en todos los dispositivos, también en este, y tendrás que volver a entrar.'
+        : `Se cerrarán todas las sesiones abiertas de ${nombre}. Tendrá que volver a iniciar sesión en todos sus dispositivos.`,
+      { confirmarLabel: 'Cerrar sesiones', variant: 'danger' },
+    );
+    if (!ok) return;
+    setGuardando(true);
+    try {
+      const res = await apiFetch(`/api/usuarios/${encodeURIComponent(id)}/cerrar-sesiones`, { method: 'POST' });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        await confirmar('No se pudieron cerrar las sesiones', data.error || 'Error al cerrar las sesiones', { soloAceptar: true });
+        return;
+      }
+      if (esYo) {
+        await confirmar('Sesiones cerradas', 'Sesiones cerradas. Vuelve a iniciar sesión.', { soloAceptar: true });
+        await logout();
+        return;
+      }
+      await confirmar('Sesiones cerradas', `Se han cerrado todas las sesiones de ${nombre}.`, { soloAceptar: true });
+    } catch (e) {
+      await confirmar('No se pudieron cerrar las sesiones', 'No se pudo conectar con el servidor', { soloAceptar: true });
+    } finally {
+      setGuardando(false);
+    }
+  };
+
   const próximoId = (() => {
     if (!usuarios.length) return formatId6(1);
     const ids = usuarios.map((u) => {
@@ -458,6 +515,7 @@ export default function UsuariosScreen() {
   const toolbarSecundarios = [
     puedeEditar && { id: 'editar' as const, label: 'Editar', icon: ICONS.edit as ComponentProps<typeof MaterialIcons>['name'] },
     puedeBorrar && { id: 'borrar' as const, label: 'Borrar', icon: ICONS.delete as ComponentProps<typeof MaterialIcons>['name'] },
+    puedeEditar && { id: 'cerrarSesiones' as const, label: 'Cerrar sesiones', icon: 'logout' as ComponentProps<typeof MaterialIcons>['name'] },
   ].filter(Boolean) as { id: ToolbarSecId; label: string; icon: ComponentProps<typeof MaterialIcons>['name'] }[];
 
   const filaSeleccionDisabled = selectedRowIndex == null;
@@ -684,6 +742,7 @@ export default function UsuariosScreen() {
                       abrirModalEditar(usuariosFiltrados[selectedRowIndex]);
                     }
                     if (btn.id === 'borrar' && selectedRowIndex != null) borrarSeleccionado();
+                    if (btn.id === 'cerrarSesiones' && selectedRowIndex != null) cerrarSesionesSeleccionado();
                   }}
                   disabled={disabled}
                   accessibilityLabel={btn.label}
@@ -1221,6 +1280,7 @@ export default function UsuariosScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+      {ConfirmarView}
     </View>
   );
 }
