@@ -541,19 +541,62 @@ export function crearDynamoMemoria({ paginaTam = 0 } = {}) {
       if (tipo === 'TransactWriteCommand') {
         operaciones.push({ tipo, tabla: null });
         await dispararGatillos(tipo, e);
-        // Secuencial: el doble no simula atomicidad real, pero sí los Puts/Deletes
-        // que usan compensación y aplicación de exceso en las pruebas.
-        for (const item of e.TransactItems || []) {
-          if (item.Put) {
-            await api.enviar({ constructor: { name: 'PutCommand' }, input: item.Put });
-          } else if (item.Delete) {
-            await api.enviar({ constructor: { name: 'DeleteCommand' }, input: item.Delete });
-          } else if (item.Update) {
-            await api.enviar({ constructor: { name: 'UpdateCommand' }, input: item.Update });
-          } else {
-            throw new Error('El doble solo soporta Put/Delete/Update en TransactWrite');
+        const pasos = (e.TransactItems || []).map((item) => {
+          const [accion, entrada] = Object.entries(item)[0] ?? [];
+          if (!['Put', 'Delete', 'Update', 'ConditionCheck'].includes(accion)) {
+            throw new Error('El doble solo soporta Put/Delete/Update/ConditionCheck en TransactWrite');
           }
+          return { accion, entrada };
+        });
+        // Los ganchos de cada elemento se disparan antes de comprobar nada, como si
+        // la otra escritura hubiera llegado justo antes de la transacción.
+        for (const { accion, entrada } of pasos) {
+          if (accion === 'ConditionCheck') continue;
+          operaciones.push({ tipo: `${accion}Command`, tabla: entrada.TableName });
+          await dispararGatillos(`${accion}Command`, entrada);
         }
+        // Atómica como en DynamoDB: se comprueban todas las condiciones y solo si
+        // se cumplen todas se aplica todo; si no, TransactionCanceledException con
+        // una razón por elemento y nada escrito.
+        const vistos = new Set();
+        const cambios = [];
+        const razones = pasos.map(({ accion, entrada }) => {
+          const t = tabla(entrada.TableName);
+          const clave = claveDe(t, accion === 'Put' ? entrada.Item : entrada.Key);
+          if (vistos.has(`${t.nombre}|${clave}`)) {
+            throw Object.assign(
+              new Error('Transaction request cannot include multiple operations on one item'),
+              { name: 'ValidationException' },
+            );
+          }
+          vistos.add(`${t.nombre}|${clave}`);
+          const previo = t.items.get(clave);
+          const n = entrada.ExpressionAttributeNames;
+          const v = entrada.ExpressionAttributeValues;
+          if (!cumple(entrada.ConditionExpression, previo, n, v)) {
+            return { Code: 'ConditionalCheckFailed', Message: 'The conditional request failed' };
+          }
+          if (accion === 'Put') {
+            cambios.push(() => t.items.set(clave, structuredClone(entrada.Item)));
+          } else if (accion === 'Delete') {
+            cambios.push(() => t.items.delete(clave));
+          } else if (accion === 'Update') {
+            const item = previo ? structuredClone(previo) : { ...structuredClone(entrada.Key) };
+            aplicarUpdate(item, entrada.UpdateExpression, n, v);
+            cambios.push(() => t.items.set(clave, item));
+          }
+          return { Code: 'None' };
+        });
+        if (razones.some((r) => r.Code !== 'None')) {
+          throw Object.assign(
+            new Error(
+              'Transaction cancelled, please refer cancellation reasons for specific reasons '
+                + `[${razones.map((r) => r.Code).join(', ')}]`,
+            ),
+            { name: 'TransactionCanceledException', CancellationReasons: razones },
+          );
+        }
+        for (const aplicar of cambios) aplicar();
         return {};
       }
 
