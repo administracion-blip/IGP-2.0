@@ -21,12 +21,16 @@ import {
   type RegistrarPagoPayloadRemesa,
 } from '../../../components/RegistrarPagoModal';
 import { useLocalToast, detectToastType } from '../../../components/Toast';
+import { useConfirmar } from '../../../hooks/useConfirmar';
 import {
+  CODE_REMESA_EJECUCION_PARCIAL,
   colorEstadoRemesa,
   FILTROS_ESTADO_REMESA,
   labelEstadoRemesa,
+  lineasPendientesPagoRemesa,
+  resumenEjecucionParcial,
 } from '../../../lib/remesas';
-import type { Remesa, EstadoRemesa } from '../../../types/remesas';
+import type { Remesa, EstadoRemesa, FallidaEjecucionRemesa } from '../../../types/remesas';
 import { hoyISO } from '../../../utils/facturaFormLogic';
 import { SoftPulseBorderWrap } from '../../../components/ui/SoftPulseBorderWrap';
 
@@ -47,6 +51,7 @@ export default function RemesasIndexScreen() {
   const [errorEjecutar, setErrorEjecutar] = useState<string | null>(null);
 
   const { show: showToast, ToastView } = useLocalToast();
+  const { confirmar, ConfirmarView } = useConfirmar();
 
   const refetch = useCallback(() => {
     if (!puedeVer) {
@@ -92,6 +97,18 @@ export default function RemesasIndexScreen() {
         }),
       });
       const data = await res.json();
+      if (res.status === 409 && data.code === CODE_REMESA_EJECUCION_PARCIAL) {
+        const fallidas: FallidaEjecucionRemesa[] = Array.isArray(data.fallidas) ? data.fallidas : [];
+        const pagadas = Array.isArray(data.pagos) ? data.pagos.length : 0;
+        const remesaRef = data.remesa ?? remesaPago;
+        setRemesaPago(null);
+        setAccionando(false);
+        refetch();
+        await confirmar('Remesa pagada parcialmente', resumenEjecucionParcial(remesaRef, pagadas, fallidas), {
+          soloAceptar: true,
+        });
+        return;
+      }
       if (!res.ok) throw new Error(data.error);
       setRemesaPago(null);
       const n = Array.isArray(data.pagos) ? data.pagos.length : remesaPago.lineas?.length ?? 0;
@@ -162,6 +179,7 @@ export default function RemesasIndexScreen() {
               const col = colorEstadoRemesa(r.estado);
               const mostrarPagar = puedeEjecutar && r.estado === 'Generada';
               const esBorrador = r.estado === 'Borrador';
+              const numPendientesPago = lineasPendientesPagoRemesa(r).length;
               const contenido = (
                 <>
                   <TouchableOpacity
@@ -176,6 +194,14 @@ export default function RemesasIndexScreen() {
                     </View>
                     <Text style={styles.cardMeta}>{r.sociedadNombre}</Text>
                     <Text style={styles.cardMeta}>{r.lineas?.length || 0} facturas · {formatMoneda(r.importeTotal)}</Text>
+                    {numPendientesPago > 0 ? (
+                      <View style={styles.badgePendientes}>
+                        <MaterialIcons name="warning-amber" size={14} color="#d97706" />
+                        <Text style={styles.badgePendientesText}>
+                          Pagos pendientes: {numPendientesPago} {numPendientesPago === 1 ? 'factura' : 'facturas'}
+                        </Text>
+                      </View>
+                    ) : null}
                     {r.creadoEn ? (
                       <Text style={styles.cardDate}>Creada {formatFecha(r.creadoEn.slice(0, 10))}</Text>
                     ) : null}
@@ -238,6 +264,7 @@ export default function RemesasIndexScreen() {
         />
       ) : null}
       {ToastView}
+      {ConfirmarView}
     </View>
   );
 }
@@ -327,6 +354,20 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 11, fontWeight: '600' },
   cardMeta: { fontSize: 13, color: '#475569', marginBottom: 2 },
   cardDate: { fontSize: 12, color: '#94a3b8', marginTop: 8 },
+  badgePendientes: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    marginTop: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    backgroundColor: '#fffbeb',
+  },
+  badgePendientesText: { fontSize: 12, fontWeight: '700', color: '#d97706' },
   btnSuccess: {
     marginTop: 12,
     paddingHorizontal: 12,

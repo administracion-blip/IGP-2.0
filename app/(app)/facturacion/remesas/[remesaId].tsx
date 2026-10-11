@@ -27,8 +27,16 @@ import {
 import { useLocalToast, detectToastType } from '../../../components/Toast';
 import { useConfirmar } from '../../../hooks/useConfirmar';
 import { descargarAdjuntoFacturaRecibida } from '../../../lib/descargarAdjuntoFactura';
-import { colorEstadoRemesa, labelEstadoRemesa, slugNombreArchivoRemesa } from '../../../lib/remesas';
-import type { LineaRemesa, Remesa } from '../../../types/remesas';
+import {
+  CODE_REMESA_EJECUCION_PARCIAL,
+  colorEstadoRemesa,
+  etiquetaFacturaRemesa,
+  labelEstadoRemesa,
+  lineasPendientesPagoRemesa,
+  resumenEjecucionParcial,
+  slugNombreArchivoRemesa,
+} from '../../../lib/remesas';
+import type { FallidaEjecucionRemesa, LineaRemesa, Remesa } from '../../../types/remesas';
 import { hoyISO } from '../../../utils/facturaFormLogic';
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -67,6 +75,7 @@ export default function RemesaDetalleScreen() {
   const [lineasEdit, setLineasEdit] = useState<LineaRemesa[]>([]);
   const [viendoDocId, setViendoDocId] = useState<string | null>(null);
   const [quitandoId, setQuitandoId] = useState<string | null>(null);
+  const [fallidasEjecucion, setFallidasEjecucion] = useState<FallidaEjecucionRemesa[]>([]);
 
   const { show: showToast, ToastView } = useLocalToast();
   const { confirmar, ConfirmarView } = useConfirmar();
@@ -206,10 +215,28 @@ export default function RemesaDetalleScreen() {
         }),
       });
       const data = await res.json();
+      const pagadas = Array.isArray(data.pagos) ? data.pagos.length : 0;
+      if (res.status === 409 && data.code === CODE_REMESA_EJECUCION_PARCIAL) {
+        const fallidas: FallidaEjecucionRemesa[] = Array.isArray(data.fallidas) ? data.fallidas : [];
+        setModalPagoRemesa(false);
+        setFallidasEjecucion(fallidas);
+        if (data.remesa) {
+          setRemesa(data.remesa);
+          setLineasEdit(data.remesa.lineas || []);
+        }
+        setAccionando(false);
+        await confirmar('Remesa pagada parcialmente', resumenEjecucionParcial(data.remesa ?? remesa, pagadas, fallidas), {
+          soloAceptar: true,
+        });
+        refetch();
+        return;
+      }
       if (!res.ok) throw new Error(data.error);
       setModalPagoRemesa(false);
+      setFallidasEjecucion([]);
       setRemesa(data.remesa);
-      const n = Array.isArray(data.pagos) ? data.pagos.length : remesa.lineas?.length ?? 0;
+      setLineasEdit(data.remesa?.lineas || remesa.lineas || []);
+      const n = Array.isArray(data.pagos) ? pagadas : remesa.lineas?.length ?? 0;
       alertMsg('Remesa pagada', `Se han registrado ${n} pago(s) en las facturas.`);
     } catch (e) {
       setErrorEjecutar((e as Error).message);
@@ -464,6 +491,12 @@ export default function RemesaDetalleScreen() {
   const envioLabel = remesa.fechaEjecucion
     ? formatFecha(remesa.fechaEjecucion)
     : 'Ahora';
+  const pendientesPago = lineasPendientesPagoRemesa(remesa);
+  const idsPendientesPago = new Set(pendientesPago);
+  const importePendientePago = (remesa.lineas || [])
+    .filter((l) => idsPendientesPago.has(String(l.id_factura)))
+    .reduce((s, l) => s + (Number(l.importe) || 0), 0);
+  const motivoFallida = new Map(fallidasEjecucion.map((f) => [String(f.id_factura), f.error]));
 
   return (
     <View style={styles.container}>
@@ -501,6 +534,12 @@ export default function RemesaDetalleScreen() {
               <Text style={styles.btnSuccessText}>Marcar como pagada</Text>
             </TouchableOpacity>
           ) : null}
+          {puedeEjecutar && pendientesPago.length > 0 ? (
+            <TouchableOpacity style={styles.btnWarning} onPress={abrirModalPagar} disabled={accionando}>
+              <MaterialIcons name="replay" size={16} color="#fff" />
+              <Text style={styles.btnSuccessText}>Reintentar pagos pendientes</Text>
+            </TouchableOpacity>
+          ) : null}
           {puedeGestionar && remesa.estado === 'Generada' ? (
             <TouchableOpacity style={styles.btnOutline} onPress={reabrir} disabled={accionando}>
               <Text style={styles.btnOutlineText}>Reabrir</Text>
@@ -512,6 +551,29 @@ export default function RemesaDetalleScreen() {
             </TouchableOpacity>
           ) : null}
         </View>
+
+        {pendientesPago.length > 0 ? (
+          <View style={styles.avisoPendientes}>
+            <View style={styles.avisoPendientesHeader}>
+              <MaterialIcons name="warning-amber" size={18} color="#d97706" />
+              <Text style={styles.avisoPendientesTitulo}>
+                Pagos pendientes: {pendientesPago.length} {pendientesPago.length === 1 ? 'factura' : 'facturas'}
+                {' · '}{formatMoneda(importePendientePago)}
+              </Text>
+            </View>
+            {pendientesPago.map((id) => (
+              <Text key={id} style={styles.avisoPendientesLinea}>
+                • {etiquetaFacturaRemesa(remesa, id)}
+                {motivoFallida.get(id) ? `: ${motivoFallida.get(id)}` : ''}
+              </Text>
+            ))}
+            <Text style={styles.avisoPendientesHint}>
+              {puedeEjecutar
+                ? 'Al reintentar solo se pagan estas facturas; las ya pagadas no se duplican.'
+                : 'Un usuario con permiso de pagos debe reintentar estos pagos.'}
+            </Text>
+          </View>
+        ) : null}
 
         <Text style={styles.toolbarHint}>
           Revisa importes y conceptos de cada línea antes de descargar el fichero bancario.
@@ -541,6 +603,11 @@ export default function RemesaDetalleScreen() {
                       </Text>
                     </View>
                     <View style={[styles.dotSem, { backgroundColor: semColor }]} />
+                    {idsPendientesPago.has(String(l.id_factura)) ? (
+                      <View style={styles.badgePendientePago}>
+                        <Text style={styles.badgePendientePagoText}>Pago pendiente</Text>
+                      </View>
+                    ) : null}
                   </View>
                   <View style={styles.cardActions}>
                     <TouchableOpacity
@@ -665,10 +732,11 @@ export default function RemesaDetalleScreen() {
           referencia: `Remesa ${remesa.remesaId}`,
           observaciones: '',
         }}
-        resumen={{
-          numFacturas: lineasEdit.length,
-          importeTotal: remesa.importeTotal,
-        }}
+        resumen={
+          pendientesPago.length > 0
+            ? { numFacturas: pendientesPago.length, importeTotal: importePendientePago }
+            : { numFacturas: lineasEdit.length, importeTotal: remesa.importeTotal }
+        }
         submitting={accionando}
         errorExterno={errorEjecutar ?? undefined}
         onSubmit={ejecutarRemesa}
@@ -760,6 +828,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   btnSuccessText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+  btnWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: '#d97706',
+  },
+  avisoPendientes: {
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    borderLeftWidth: 4,
+    borderLeftColor: '#d97706',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 4,
+  },
+  avisoPendientesHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  avisoPendientesTitulo: { fontSize: 14, fontWeight: '700', color: '#92400e', flexShrink: 1 },
+  avisoPendientesLinea: { fontSize: 13, color: '#78350f', lineHeight: 18 },
+  avisoPendientesHint: { fontSize: 12, color: '#92400e', marginTop: 2 },
+  badgePendientePago: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    backgroundColor: '#fffbeb',
+  },
+  badgePendientePagoText: { fontSize: 11, fontWeight: '700', color: '#d97706' },
   btnDanger: {
     paddingHorizontal: 14,
     paddingVertical: 9,

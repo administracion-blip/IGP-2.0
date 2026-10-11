@@ -45,9 +45,18 @@ export type Remesa = {
   importeTotal: number;
   generadaEn?: string | null;
   ejecutadaEn?: string | null;
+  /** `id_factura` de las líneas que quedaron sin pagar al ejecutar (remesa `Ejecutada`). */
+  lineasPendientesPago?: string[];
   creadoPor?: string;
   creadoEn?: string;
   actualizadoEn?: string;
+};
+
+/** Línea que no se pudo pagar en `POST /remesas/:id/ejecutar` (409 `REMESA_EJECUCION_PARCIAL`). */
+export type FallidaEjecucionRemesa = {
+  id_factura: string;
+  error: string;
+  code?: string;
 };
 
 export type CrearRemesaBody = {

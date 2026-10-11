@@ -1,4 +1,4 @@
-import type { EstadoRemesa } from '../types/remesas';
+import type { EstadoRemesa, FallidaEjecucionRemesa, Remesa } from '../types/remesas';
 
 export const FILTROS_ESTADO_REMESA: { id: EstadoRemesa | 'todos'; label: string }[] = [
   { id: 'todos', label: 'Todas' },
@@ -86,4 +86,36 @@ export function slugNombreArchivoRemesa(nombre: string | null | undefined): stri
     .replace(/[^A-Za-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
     .slice(0, 40) || 'sociedad';
+}
+
+export const CODE_REMESA_EJECUCION_PARCIAL = 'REMESA_EJECUCION_PARCIAL';
+
+/** Facturas de una remesa `Ejecutada` que quedaron sin pagar (re-ejecutar paga solo estas). */
+export function lineasPendientesPagoRemesa(remesa: Pick<Remesa, 'estado' | 'lineasPendientesPago'>): string[] {
+  if (remesa.estado !== 'Ejecutada' || !Array.isArray(remesa.lineasPendientesPago)) return [];
+  return remesa.lineasPendientesPago.map(String);
+}
+
+/** «Proveedor · nº factura» de una línea de la remesa; si no está, el `id_factura`. */
+export function etiquetaFacturaRemesa(remesa: Pick<Remesa, 'lineas'> | null | undefined, idFactura: string): string {
+  const l = remesa?.lineas?.find((x) => String(x.id_factura) === String(idFactura));
+  if (!l) return `Factura ${idFactura}`;
+  const numero = l.numero_factura_proveedor || l.numero_factura || idFactura;
+  return l.proveedorNombre ? `${l.proveedorNombre} · ${numero}` : numero;
+}
+
+/** Texto para el aviso de una ejecución parcial: pagadas y lista de fallidas con motivo. */
+export function resumenEjecucionParcial(
+  remesa: Pick<Remesa, 'lineas'> | null | undefined,
+  pagadas: number,
+  fallidas: FallidaEjecucionRemesa[],
+): string {
+  const total = pagadas + fallidas.length;
+  const lista = fallidas
+    .map((f) => `• ${etiquetaFacturaRemesa(remesa, f.id_factura)}: ${f.error || 'Error desconocido'}`)
+    .join('\n');
+  return (
+    `Se han pagado ${pagadas} de ${total} factura(s). No se han podido pagar ${fallidas.length}:\n\n${lista}\n\n`
+    + 'La remesa queda con pagos pendientes; puedes reintentarlos desde su detalle.'
+  );
 }
