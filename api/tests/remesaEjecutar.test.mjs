@@ -84,6 +84,8 @@ function sembrarFacturaPendiente(db, id_factura, { total = 100, cobrado = 0 } = 
   db.sembrar(tables.facturas, {
     id_factura,
     tipo: 'IN',
+    emisor_id: '000001',
+    empresa_iban: 'ES9121000418450200051332',
     total_factura: total,
     total_cobrado: cobrado,
     saldo_pendiente: saldo,

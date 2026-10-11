@@ -27,6 +27,7 @@ import { validarIban } from '../lib/remesas/iban.js';
 import { truncarNombreFit } from '../lib/remesas/concepto.js';
 import { generarFicheroRemesa } from '../lib/remesas/index.js';
 import { facturaEnRemesaActiva } from '../lib/remesas/facturaEnRemesa.js';
+import { normalizarLineasEntrada, recalcularLineasRemesa } from '../lib/remesas/recalcularLineas.js';
 import { registrarPagoFactura } from '../lib/facturacion/registrarPago.js';
 import { normalizeCif, getCifFromEmpresaItem, getNombreFromEmpresaItem } from '../lib/empresaCif.js';
 
@@ -101,24 +102,20 @@ async function cargarFactura(id) {
   return r.Item || null;
 }
 
-function normalizarLineasEntrada(raw, existentes = []) {
-  if (!Array.isArray(raw)) return existentes;
-  const mapExistentes = new Map((existentes || []).map((l) => [l.id_factura, l]));
-  return raw.map((l) => {
-    const id = String(l.id_factura || '').trim();
-    const prev = mapExistentes.get(id) || l;
-    const importeMax = round2(Number(l.importeMaximo ?? prev.importeMaximo ?? prev.saldoPendiente ?? l.importe) || 0);
-    let importe = round2(Number(l.importe ?? prev.importe) || 0);
-    if (importe > importeMax) importe = importeMax;
-    return {
-      ...prev,
-      ...l,
-      id_factura: id,
-      importe,
-      importeMaximo: importeMax,
-      concepto: String(l.concepto ?? prev.concepto ?? '').slice(0, 140),
-    };
-  }).filter((l) => l.id_factura);
+async function recalcularDesdeFacturas(remesa) {
+  const empresasIdx = indexarEmpresas(await scanEmpresas());
+  return recalcularLineasRemesa(remesa, {
+    cargarFactura,
+    cargarLineasFactura: queryLineasByFactura,
+    empresasIdx,
+  });
+}
+
+function respuestaLineasInvalidas(res, invalidas) {
+  return res.status(409).json({
+    error: 'Hay facturas de la remesa que ya no se pueden pagar (estado, saldo o IBAN cambiados). Revalida la remesa antes de continuar.',
+    invalidas,
+  });
 }
 
 // ─── Listado ───
@@ -394,6 +391,11 @@ router.get('/remesas/:remesaId/fichero', requirePermission('remesas.gestionar'),
     if (remesa.estado === 'Anulada') return res.status(400).json({ error: 'Remesa anulada' });
     if (!remesa.lineas?.length) return res.status(400).json({ error: 'Sin líneas en la remesa' });
 
+    const recalculo = await recalcularDesdeFacturas(remesa);
+    if (!recalculo.ok) return respuestaLineasInvalidas(res, recalculo.invalidas);
+    remesa.lineas = recalculo.lineas;
+    remesa.importeTotal = sumaLineas(remesa.lineas);
+
     const buffer = await generarFicheroRemesa(remesa);
     const fecha = (remesa.fechaEjecucion || now().slice(0, 10)).replace(/-/g, '');
     const nombreSlug = slugNombreArchivoRemesa(remesa.sociedadNombre);
@@ -434,6 +436,9 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
     const metodo_pago = String(req.body?.metodo_pago || '').trim() || 'remesa';
     const referencia = String(req.body?.referencia || '').trim() || `Remesa ${remesa.remesaId}`;
     const observacionesGlobal = String(req.body?.observaciones ?? '').trim();
+
+    const recalculo = await recalcularDesdeFacturas(remesa);
+    if (!recalculo.ok) return respuestaLineasInvalidas(res, recalculo.invalidas);
 
     // Fase 1: validar todas las líneas antes de crear pagos
     for (const linea of remesa.lineas) {
