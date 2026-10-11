@@ -22,6 +22,7 @@ import {
   esActualizacionSeguimiento,
 } from '../lib/permisosModulos.js';
 import { usuarioPuedeAccederLocal, jornadaNegocioHoyIso } from '../lib/usuarioLocales.js';
+import { cargarAlcance, permiteEmpresa, permiteLocal, MENSAJE_SIN_ACCESO_LOCAL } from '../lib/alcance.js';
 import { camposFechaVirtuales } from '../lib/actuacionFechaVirtual.js';
 
 const router = Router();
@@ -451,7 +452,11 @@ router.post('/actuaciones/asociar-factura', requirePermission('actuaciones.factu
     const all = await scanAll(tables.facturas);
     factura = all.find((x) => (x.id_factura || x.id_entrada) === id_factura);
   }
-  if (!factura) return res.status(404).json({ error: 'Factura no encontrada' });
+  // [SEC S-08] Factura de otra sociedad: no existe.
+  const alcance = await cargarAlcance(req);
+  if (!factura || !permiteEmpresa(alcance, factura.emisor_id)) {
+    return res.status(404).json({ error: 'Factura no encontrada' });
+  }
 
   if (factura.tipo !== 'IN') return res.status(400).json({ error: 'Solo facturas recibidas (IN)' });
   if (!ESTADOS_FACTURA_ASOCIABLE.has(factura.estado)) {
@@ -467,14 +472,22 @@ router.post('/actuaciones/asociar-factura', requirePermission('actuaciones.factu
   const fechaAsoc = now();
   const usuarioStr = [usuario_nombre, usuario_id].filter(Boolean).join(' · ');
 
-  const updates = [];
+  const actuaciones = [];
   for (const id of ids_actuacion) {
     const r = await docClient.send(
       new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: String(id) } })
     );
-    if (!r.Item) continue;
+    if (r.Item) actuaciones.push(r.Item);
+  }
+  // [SEC S-08] Se comprueban todas antes de escribir ninguna.
+  if (actuaciones.some((a) => !permiteLocal(alcance, { idLocal: a.id_local }))) {
+    return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
+  }
+
+  const updates = [];
+  for (const actuacion of actuaciones) {
     const item = {
-      ...r.Item,
+      ...actuacion,
       id_factura_gasto: String(factura.id_factura || factura.id_entrada || id_factura),
       pago_asociado_numero_factura: String(factura.numero_factura_proveedor || factura.numero_factura || ''),
       pago_asociado_proveedor: String(factura.empresa_nombre || ''),
