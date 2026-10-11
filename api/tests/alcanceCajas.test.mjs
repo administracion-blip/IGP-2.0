@@ -1,0 +1,128 @@
+/**
+ * Aislamiento por local en cajas: cierres, sincronizaciones, arqueos, revisión,
+ * efectivo a ingresar y movimientos. Cada prueba es un ataque: un usuario con
+ * permiso de rol intenta actuar sobre un local que no está en su lista.
+ */
+
+import test, { after } from 'node:test';
+import { strict as assert } from 'node:assert';
+import http from 'node:http';
+import express from 'express';
+
+process.env.AWS_REGION = process.env.AWS_REGION || 'eu-west-3';
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'secreto-solo-para-las-pruebas-de-cajas';
+
+const { docClient, tables } = await import('../lib/db.js');
+const { crearDynamoMemoria } = await import('./dynamoMemoria.mjs');
+const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
+const { invalidarMaestroLocales } = await import('../lib/alcance.js');
+const { default: agoraRouter } = await import('../routes/agora.js');
+
+// Local con PARIPE (101); SuperUser restringido a PARIPE; oficina global (Local vacío).
+const LOCAL_PARIPE = { sub: '000050', email: 'paripe@grupo.test', rol: 'Local' };
+const SUPER_PARIPE = { sub: '000051', email: 'super@grupo.test', rol: 'SuperUser' };
+
+const PERMISOS = {
+  Local: ['cierres.crear', 'cierres.editar', 'cierres.sincronizar', 'planning_dia.arqueo', 'planning_dia.ver', 'pedidos.ver'],
+  SuperUser: [
+    'cierres.ver', 'cierres.crear', 'cierres.editar', 'cierres.borrar', 'cierres.sincronizar',
+    'cajas.ver', 'planning_dia.arqueo', 'rrhh.horas', 'ajustes.sincronizaciones.closeouts',
+  ],
+};
+
+let usuarioActual = LOCAL_PARIPE;
+let servidor = null;
+let base = '';
+let db = null;
+
+async function api(metodo, ruta, usuario, body) {
+  usuarioActual = usuario;
+  if (!servidor) {
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      req.user = usuarioActual;
+      req.log = { info() {}, error() {}, warn() {} };
+      next();
+    });
+    app.use('/api', agoraRouter);
+    servidor = http.createServer(app);
+    await new Promise((listo) => servidor.listen(0, '127.0.0.1', listo));
+    base = `http://127.0.0.1:${servidor.address().port}`;
+  }
+  const res = await fetch(base + ruta, {
+    method: metodo,
+    headers: { 'Content-Type': 'application/json' },
+    ...(body !== undefined && { body: JSON.stringify(body) }),
+  });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
+
+after(() => {
+  servidor?.closeAllConnections?.();
+  servidor?.close();
+});
+
+function montar() {
+  db = crearDynamoMemoria();
+  db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
+  db.crearTabla(tables.locales, { hashKey: 'id_Locales' });
+  db.crearTabla(tables.empresas, { hashKey: 'id_empresa' });
+  db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.salesCloseOuts, { hashKey: 'PK', rangeKey: 'SK' });
+  db.instalar(docClient);
+  for (const [rol, lista] of Object.entries(PERMISOS)) {
+    for (const p of lista) db.sembrar(tables.rolesPermisos, { PK: `ROL#${rol}`, SK: `PERMISO#${p}` });
+  }
+  db.sembrar(tables.locales, { id_Locales: '000001', nombre: 'PARIPE', agoraCode: '101', id_empresa: '000010', empresa: 'Norte SL' });
+  db.sembrar(tables.locales, { id_Locales: '000002', nombre: 'SUR', agoraCode: '202', id_empresa: '000020', empresa: 'Sur SL' });
+  db.sembrar(tables.usuarios, { id_usuario: '000050', Email: 'paripe@grupo.test', Rol: 'Local', Local: ['PARIPE'] });
+  db.sembrar(tables.usuarios, { id_usuario: '000051', Email: 'super@grupo.test', Rol: 'SuperUser', Local: ['PARIPE'] });
+  db.sembrar(tables.salesCloseOuts, { PK: '101', SK: '2026-10-01#1#1', BusinessDay: '2026-10-01' });
+  db.sembrar(tables.salesCloseOuts, { PK: '202', SK: '2026-10-01#1#1', BusinessDay: '2026-10-01' });
+  invalidarContextoAcceso();
+  invalidarMaestroLocales();
+  return db;
+}
+
+// ─── Cierres (POST/PUT/DELETE /agora/closeouts) ───
+
+test('cierres: Local de PARIPE no borra un cierre de otro workplace', async () => {
+  montar();
+  const r = await api('DELETE', '/api/agora/closeouts?PK=202&SK=2026-10-01%231%231', SUPER_PARIPE);
+  assert.equal(r.status, 403);
+  assert.equal(r.body.error, 'No tienes acceso a este local');
+  assert.ok(db.obtener(tables.salesCloseOuts, { PK: '202', SK: '2026-10-01#1#1' }), 'el cierre sigue');
+
+  const local = await api('DELETE', '/api/agora/closeouts?PK=202&SK=2026-10-01%231%231', LOCAL_PARIPE);
+  assert.equal(local.status, 403);
+  assert.ok(db.obtener(tables.salesCloseOuts, { PK: '202', SK: '2026-10-01#1#1' }));
+});
+
+test('cierres: sin cierres.borrar no se borra ni en el propio local', async () => {
+  montar();
+  const r = await api('DELETE', '/api/agora/closeouts?PK=101&SK=2026-10-01%231%231', LOCAL_PARIPE);
+  assert.equal(r.status, 403);
+  assert.equal(r.body.error, 'Permiso insuficiente');
+  assert.ok(db.obtener(tables.salesCloseOuts, { PK: '101', SK: '2026-10-01#1#1' }));
+});
+
+test('cierres: SuperUser con PARIPE borra el cierre de PARIPE', async () => {
+  montar();
+  const r = await api('DELETE', '/api/agora/closeouts?PK=101&SK=2026-10-01%231%231', SUPER_PARIPE);
+  assert.equal(r.status, 200);
+  assert.equal(db.obtener(tables.salesCloseOuts, { PK: '101', SK: '2026-10-01#1#1' }), null);
+});
+
+test('cierres: crear y editar solo en el propio local', async () => {
+  montar();
+  const alta = { PK: '202', BusinessDay: '2026-10-02', PosId: '1', Number: '1' };
+  assert.equal((await api('POST', '/api/agora/closeouts', LOCAL_PARIPE, alta)).status, 403);
+  assert.equal(db.obtener(tables.salesCloseOuts, { PK: '202', SK: '2026-10-02#1#1' }), null);
+  assert.equal((await api('POST', '/api/agora/closeouts', LOCAL_PARIPE, { ...alta, PK: '101' })).status, 200);
+
+  const edicion = { PK: '202', SK: '2026-10-01#1#1', BusinessDay: '2026-09-30', PosId: '1', Number: '1' };
+  assert.equal((await api('PUT', '/api/agora/closeouts', LOCAL_PARIPE, edicion)).status, 403);
+  assert.ok(db.obtener(tables.salesCloseOuts, { PK: '202', SK: '2026-10-01#1#1' }), 'no se movió');
+  assert.equal((await api('PUT', '/api/agora/closeouts', LOCAL_PARIPE, { ...edicion, PK: '101' })).status, 200);
+});

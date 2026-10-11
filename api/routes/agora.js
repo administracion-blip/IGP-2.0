@@ -73,6 +73,7 @@ import {
   upsertFormasFromAgora,
 } from '../lib/agora/formasPago.js';
 import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
+import { requireLocal, desde } from '../middleware/alcance.js';
 import { buildObjetivoMensualCard } from '../lib/agora/objetivoMensual.js';
 import {
   buildExcepcionesFromInvoices,
@@ -4230,7 +4231,9 @@ router.post('/agora/closeouts/complete-fields', async (req, res) => {
   }
 });
 
-router.post('/agora/closeouts', async (req, res) => {
+const pkCierreBody = desde.body('PK', 'pk');
+
+router.post('/agora/closeouts', requirePermission('cierres.crear'), requireLocal(pkCierreBody), async (req, res) => {
   const body = req.body || {};
   const pk = String(body.PK ?? body.pk ?? '').trim();
   const businessDay = String(body.BusinessDay ?? body.businessDay ?? '').trim();
@@ -4270,7 +4273,8 @@ router.post('/agora/closeouts', async (req, res) => {
   res.json({ ok: true, item: { PK: item.PK, SK: item.SK } });
 });
 
-router.put('/agora/closeouts', async (req, res) => {
+// El PUT nunca cambia el PK (solo el SK al mover de día), así que basta el del body.
+router.put('/agora/closeouts', requirePermission('cierres.editar'), requireLocal(pkCierreBody), async (req, res) => {
   const body = req.body || {};
   const pk = String(body.PK ?? body.pk ?? '').trim();
   const sk = String(body.SK ?? body.sk ?? '').trim();
@@ -4360,7 +4364,9 @@ router.put('/agora/closeouts', async (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete('/agora/closeouts', async (req, res) => {
+const pkCierreQueryOBody = desde.primero(desde.query('PK', 'pk'), pkCierreBody);
+
+router.delete('/agora/closeouts', requirePermission('cierres.borrar'), requireLocal(pkCierreQueryOBody), async (req, res) => {
   const pk = (req.query.PK ?? req.query.pk ?? req.body?.PK ?? req.body?.pk ?? '').toString().trim();
   const sk = (req.query.SK ?? req.query.sk ?? req.body?.SK ?? req.body?.sk ?? '').toString().trim();
   if (!pk || !sk) return res.status(400).json({ error: 'PK y SK obligatorios' });
