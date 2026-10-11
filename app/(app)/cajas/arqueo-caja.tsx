@@ -159,6 +159,8 @@ type CompareResponse = {
   closeoutsCount: number;
   error?: string;
   realGuardado?: {
+    PK?: string;
+    SK?: string;
     tarjetaLineas?: TarjetaLineaPersisted[];
     /** Desglose de efectivo por denominación: { "50": 2, "0.5": 10 }. */
     efectivoConteo?: Record<string, number>;
@@ -469,12 +471,17 @@ export default function ArqueoCajaScreen() {
         if (incoming.length > 0) {
           const normalized = incoming.map(normalizeTarjetaLineaFromApi);
           setTarjetaLineas(normalized);
+          const arqueoPk = String(rg?.PK ?? '').trim();
+          const arqueoSk = String(rg?.SK ?? '').trim();
+          const claveArqueo = arqueoPk && arqueoSk
+            ? `&pk=${encodeURIComponent(arqueoPk)}&sk=${encodeURIComponent(arqueoSk)}`
+            : '';
           Promise.all(
             normalized.map(async (l) => {
               if (!l.imagenKey || l.localUri) return l;
               try {
                 const rurl = await apiFetch(
-                  `/api/cajas/arqueos-reales/ticket-image-url?key=${encodeURIComponent(l.imagenKey)}`,
+                  `/api/cajas/arqueos-reales/ticket-image-url?key=${encodeURIComponent(l.imagenKey)}${claveArqueo}`,
                 );
                 const d = await safeJson<{ url?: string }>(rurl);
                 return { ...l, previewUrl: d.url };

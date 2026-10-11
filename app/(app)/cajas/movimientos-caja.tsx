@@ -89,6 +89,11 @@ function formatMoneda(n: number): string {
   return `${intPart},${parts[1]} €`;
 }
 
+function urlJustificante(key: string, m: Pick<Movimiento, 'PK' | 'SK'>): string {
+  const clave = m.PK && m.SK ? `&pk=${encodeURIComponent(m.PK)}&sk=${encodeURIComponent(m.SK)}` : '';
+  return `/api/cajas/movimientos/justificante-url?key=${encodeURIComponent(key)}${clave}`;
+}
+
 function parseEuroInput(s: string): number {
   const n = parseFloat(String(s).replace(',', '.').replace(/\s/g, ''));
   return Number.isFinite(n) ? n : 0;
@@ -270,7 +275,7 @@ export default function MovimientosCajaScreen() {
     setJustificanteUri('');
     setModalOpen(true);
     if (m.justificanteKey) {
-      apiFetch(`/api/cajas/movimientos/justificante-url?key=${encodeURIComponent(m.justificanteKey)}`)
+      apiFetch(urlJustificante(m.justificanteKey, m))
         .then((r) => safeJson<{ url?: string }>(r))
         .then((d) => { if (d.url) setJustificanteUri(d.url); })
         .catch(() => {});
@@ -354,10 +359,10 @@ export default function MovimientosCajaScreen() {
     }
   }, [fetchMovimientos]);
 
-  const verJustificante = useCallback(async (key?: string) => {
-    if (!key) return;
+  const verJustificante = useCallback(async (m: Movimiento) => {
+    if (!m.justificanteKey) return;
     try {
-      const r = await apiFetch(`/api/cajas/movimientos/justificante-url?key=${encodeURIComponent(key)}`);
+      const r = await apiFetch(urlJustificante(m.justificanteKey, m));
       const d = await safeJson<{ url?: string }>(r);
       if (d.url) setLightboxUri(d.url);
     } catch { /* noop */ }
@@ -539,7 +544,7 @@ export default function MovimientosCajaScreen() {
                     </View>
                     <View style={styles.cardActions}>
                       {m.justificanteKey ? (
-                        <TouchableOpacity style={styles.cardActionBtn} onPress={() => verJustificante(m.justificanteKey)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <TouchableOpacity style={styles.cardActionBtn} onPress={() => verJustificante(m)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                           <MaterialIcons name="image" size={18} color="#0ea5e9" />
                         </TouchableOpacity>
                       ) : null}
