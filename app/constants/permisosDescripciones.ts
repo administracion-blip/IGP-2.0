@@ -110,11 +110,12 @@ export const PERMISOS_DESCRIPCIONES: Record<string, string> = {
   // Cajas
   'cajas.ver': 'Muestra el módulo Cajas en el menú lateral.',
   'cierres.ver':
-    'Permite entrar en Cierres teóricos, Arqueo de caja, Movimientos de caja, Revisión de cajas y Revisión de formas de pago. También muestra Formas de pago en Base de datos y permite editarlas.',
-  'cierres.crear': SIN_EFECTO,
-  'cierres.editar': SIN_EFECTO,
-  'cierres.borrar': 'Permite borrar cierres de caja.',
-  'cierres.sincronizar': `${SIN_EFECTO} La sincronización se controla con «Ajustes · Sync Cierres de caja».`,
+    'Permite entrar en Cierres teóricos, Arqueo de caja, Movimientos de caja, Revisión de cajas y Revisión de formas de pago. También permite marcar cajas como revisadas, reabrir jornadas y ver el efectivo a ingresar con su IBAN. Muestra Formas de pago en Base de datos y permite editarlas.',
+  'cierres.crear': 'Permite crear cierres teóricos de caja de sus locales.',
+  'cierres.editar': 'Permite editar cierres teóricos de caja de sus locales (incluido mover la fecha un día atrás).',
+  'cierres.borrar': 'Permite borrar cierres teóricos y arqueos de caja de sus locales.',
+  'cierres.sincronizar':
+    'Permite sincronizar desde Ágora los cierres de caja de sus locales. También lo permite «Ajustes · Sync Cierres de caja».',
   'cierres.exportar': SIN_EFECTO,
   'formas_pago.editar': 'Permite modificar el maestro de formas de pago.',
   'comparativa.ver':
@@ -258,7 +259,7 @@ export const PERMISOS_DESCRIPCIONES: Record<string, string> = {
     'Muestra las actuaciones del día en el Planning y permite añadir observaciones, valorarlas y firmarlas.',
   'planning_dia.activaciones':
     'Muestra las activaciones del día en el Planning y permite marcarlas como realizadas.',
-  'planning_dia.arqueo': 'Permite hacer el arqueo de caja desde el Planning del día.',
+  'planning_dia.arqueo': 'Permite hacer el arqueo de caja y registrar movimientos de caja de sus locales.',
 
   // Mantenimiento
   'mantenimiento.ver': 'Muestra el módulo Mantenimiento y permite ver las incidencias.',

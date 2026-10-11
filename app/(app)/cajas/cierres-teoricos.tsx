@@ -319,8 +319,11 @@ type LocalItem = { AgoraCode?: string; agoraCode?: string; Nombre?: string; nomb
 
 export default function CierresTeoricosScreen() {
   const router = useRouter();
-  const { localPermitido, user } = useAuth();
+  const { localPermitido, user, hasPermiso } = useAuth();
   const { confirmar, ConfirmarView } = useConfirmar();
+  const puedeCrear = hasPermiso('cierres.crear');
+  const puedeEditar = hasPermiso('cierres.editar');
+  const puedeBorrar = hasPermiso('cierres.borrar');
   const [closeouts, setCloseouts] = useState<CloseOut[]>([]);
   const [formasPago, setFormasPago] = useState<FormaPago[]>([]);
   const [locales, setLocales] = useState<LocalItem[]>([]);
@@ -764,7 +767,7 @@ export default function CierresTeoricosScreen() {
   const handleRowPress = useCallback((rowKey: string, item: CloseOut) => {
     const now = Date.now();
     const last = lastRowTapRef.current;
-    if (last?.rowKey === rowKey && now - last.time < DOUBLE_TAP_MS) {
+    if (puedeEditar && last?.rowKey === rowKey && now - last.time < DOUBLE_TAP_MS) {
       lastRowTapRef.current = null;
       setSelectedRowKey(rowKey);
       openEditModalForItem(item);
@@ -772,7 +775,7 @@ export default function CierresTeoricosScreen() {
     }
     lastRowTapRef.current = { rowKey, time: now };
     setSelectedRowKey((prev) => (prev === rowKey ? null : rowKey));
-  }, [openEditModalForItem]);
+  }, [openEditModalForItem, puedeEditar]);
 
   const toggleRowSelected = useCallback((rowId: string) => {
     setSelectedRowIds((prev) => (prev.includes(rowId) ? prev.filter((id) => id !== rowId) : [...prev, rowId]));
@@ -1311,40 +1314,48 @@ export default function CierresTeoricosScreen() {
             </>
           )}
           </View>
-        <TouchableOpacity style={styles.toolbarBtnAdd} onPress={openAddModal}>
-          <MaterialIcons name="add" size={16} color="#fff" />
-          <Text style={styles.toolbarBtnAddText}>Añadir</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.toolbarBtn, !selectedItem && styles.toolbarBtnDisabled]}
-          onPress={openEditModal}
-          disabled={!selectedItem}
-        >
-          <MaterialIcons name="edit" size={16} color={selectedItem ? '#0ea5e9' : '#94a3b8'} />
-          <Text style={[styles.toolbarBtnText, !selectedItem && styles.toolbarBtnTextDisabled]}>Editar</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.toolbarBtn, !canDeleteSelection && styles.toolbarBtnDisabled]}
-          onPress={openDeleteModal}
-          disabled={!canDeleteSelection}
-        >
-          <MaterialIcons name="delete" size={16} color={canDeleteSelection ? '#dc2626' : '#94a3b8'} />
-          <Text style={[styles.toolbarBtnText, !canDeleteSelection && styles.toolbarBtnTextDisabled]}>Borrar</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.toolbarBtn, (selectedRowIds.length === 0 || shiftSaving) && styles.toolbarBtnDisabled]}
-          onPress={handleBulkShiftDayBack}
-          disabled={selectedRowIds.length === 0 || shiftSaving}
-        >
-          {shiftSaving ? (
-            <ActivityIndicator size="small" color="#0ea5e9" />
-          ) : (
-            <MaterialIcons name="today" size={16} color={selectedRowIds.length > 0 ? '#0ea5e9' : '#94a3b8'} />
-          )}
-          <Text style={[styles.toolbarBtnText, (selectedRowIds.length === 0 || shiftSaving) && styles.toolbarBtnTextDisabled]}>
-            −1 día
-      </Text>
-        </TouchableOpacity>
+        {puedeCrear ? (
+          <TouchableOpacity style={styles.toolbarBtnAdd} onPress={openAddModal}>
+            <MaterialIcons name="add" size={16} color="#fff" />
+            <Text style={styles.toolbarBtnAddText}>Añadir</Text>
+          </TouchableOpacity>
+        ) : null}
+        {puedeEditar ? (
+          <TouchableOpacity
+            style={[styles.toolbarBtn, !selectedItem && styles.toolbarBtnDisabled]}
+            onPress={openEditModal}
+            disabled={!selectedItem}
+          >
+            <MaterialIcons name="edit" size={16} color={selectedItem ? '#0ea5e9' : '#94a3b8'} />
+            <Text style={[styles.toolbarBtnText, !selectedItem && styles.toolbarBtnTextDisabled]}>Editar</Text>
+          </TouchableOpacity>
+        ) : null}
+        {puedeBorrar ? (
+          <TouchableOpacity
+            style={[styles.toolbarBtn, !canDeleteSelection && styles.toolbarBtnDisabled]}
+            onPress={openDeleteModal}
+            disabled={!canDeleteSelection}
+          >
+            <MaterialIcons name="delete" size={16} color={canDeleteSelection ? '#dc2626' : '#94a3b8'} />
+            <Text style={[styles.toolbarBtnText, !canDeleteSelection && styles.toolbarBtnTextDisabled]}>Borrar</Text>
+          </TouchableOpacity>
+        ) : null}
+        {puedeEditar ? (
+          <TouchableOpacity
+            style={[styles.toolbarBtn, (selectedRowIds.length === 0 || shiftSaving) && styles.toolbarBtnDisabled]}
+            onPress={handleBulkShiftDayBack}
+            disabled={selectedRowIds.length === 0 || shiftSaving}
+          >
+            {shiftSaving ? (
+              <ActivityIndicator size="small" color="#0ea5e9" />
+            ) : (
+              <MaterialIcons name="today" size={16} color={selectedRowIds.length > 0 ? '#0ea5e9' : '#94a3b8'} />
+            )}
+            <Text style={[styles.toolbarBtnText, (selectedRowIds.length === 0 || shiftSaving) && styles.toolbarBtnTextDisabled]}>
+              −1 día
+            </Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       <View style={styles.totalFacturadoBox}>
