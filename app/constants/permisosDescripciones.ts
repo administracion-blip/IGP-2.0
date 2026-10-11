@@ -128,6 +128,7 @@ export const PERMISOS_DESCRIPCIONES: Record<string, string> = {
   'objetivos.ver':
     'Permite entrar en Objetivos y en Plantillas de franjas horarias, y modificar la agrupación de locales de los objetivos.',
   'objetivos.compartir': SIN_EFECTO,
+  'franjas.editar': 'Permite crear, modificar y borrar las plantillas de franjas horarias.',
   'excepciones.ver': 'Permite entrar en Control de excepciones.',
   'excepciones.exportar': 'Permite exportar el listado de Control de excepciones.',
   'top.ver':

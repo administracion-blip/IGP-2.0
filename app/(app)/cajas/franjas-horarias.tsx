@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
 import { errorMessage } from '../../utils/api';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   type Franja,
   type PlantillaFranjas,
@@ -33,6 +34,8 @@ function resumenFranjas(franjas: Franja[]): string {
 
 export default function FranjasHorariasScreen() {
   const router = useRouter();
+  const { hasPermiso } = useAuth();
+  const puedeEditar = hasPermiso('franjas.editar');
   const [plantillas, setPlantillas] = useState<PlantillaFranjas[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -163,7 +166,8 @@ export default function FranjasHorariasScreen() {
         onEditar={abrirEditar}
         onBorrar={borrar}
         guardando={guardando}
-        emptyMessage="No hay plantillas. Crea la primera."
+        hideToolbarActions={!puedeEditar}
+        emptyMessage={puedeEditar ? 'No hay plantillas. Crea la primera.' : 'No hay plantillas.'}
         toolbarCrearLabel="Crear plantilla"
       />
 
