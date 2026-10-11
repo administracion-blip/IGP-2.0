@@ -2890,7 +2890,6 @@ async function extraerDatosBasicos(buffer, mimetype, filename) {
   }
 
   console.log(`[OCR] Método final: ${metodo_extraccion} — Texto: ${text.length} chars`);
-  console.log(`[OCR] Texto (primeros 500 chars):`, text.slice(0, 500));
 
   const {
     cifs,

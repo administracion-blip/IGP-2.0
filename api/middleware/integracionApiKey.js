@@ -28,12 +28,6 @@ function scopesDeItem(item) {
   return [];
 }
 
-function sufijoKeyParaLog(apiKey) {
-  const s = String(apiKey || '');
-  if (s.length < 4) return '****';
-  return s.slice(-4);
-}
-
 /**
  * Rechaza POST/PUT/PATCH/DELETE (y cualquier no-GET) bajo /integraciones.
  * Debe aplicarse al namespace antes de los handlers.
@@ -87,8 +81,7 @@ export function requireIntegracionApiKey(opts = {}) {
       const prefix = item?.key_prefix ? String(item.key_prefix) : '';
       console.warn(
         '[integracionApiKey] Rechazada',
-        prefix ? `prefix=${prefix}` : 'sin-match',
-        prefix ? `tail=${sufijoKeyParaLog(apiKey)}` : '',
+        prefix ? `prefix=${prefix} id_clave=${item.id_clave || ''} inactiva` : `sin-match longitud=${apiKey.length}`,
       );
       return res.status(401).json({ error: 'API key inválida o inactiva' });
     }
@@ -97,7 +90,8 @@ export function requireIntegracionApiKey(opts = {}) {
       console.warn(
         '[integracionApiKey] Sin scope',
         `prefix=${String(item.key_prefix || '')}`,
-        `tail=${sufijoKeyParaLog(apiKey)}`,
+        `id_clave=${item.id_clave || ''}`,
+        `scope=${scopeRequerido}`,
       );
       return res.status(401).json({ error: 'API key sin permiso para este recurso' });
     }
