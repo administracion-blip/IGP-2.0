@@ -114,6 +114,7 @@ import {
   normalizeUploadBuffer,
   sanitizeUploadFileName,
 } from '../lib/uploadAllowlist.js';
+import { validarClaveS3 } from '../lib/s3/claves.js';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const Tesseract = require('tesseract.js');
@@ -132,6 +133,8 @@ async function rejectFacturaEmisorNoPermitido(req, factura, res) {
 
 const S3_BUCKET = process.env.S3_BUCKET || 'igp-2.0-files';
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'eu-west-3' });
+/** Único prefijo del que los endpoints OCR aceptan claves enviadas por el cliente. */
+const OCR_TEMP_PREFIX = 'facturas/ocr-temp/';
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 },
@@ -2140,7 +2143,7 @@ router.post('/facturacion/ocr/extraer', requirePermission('facturacion.crear'), 
 
     const extracted = await extraerDatosBasicos(buf, detectedMime || req.file.mimetype, safeName);
 
-    const fileKey = `facturas/ocr-temp/${Date.now()}_${uuid().slice(0, 8)}_${safeName}`;
+    const fileKey = `${OCR_TEMP_PREFIX}${Date.now()}_${uuid().slice(0, 8)}_${safeName}`;
     await s3.send(new PutObjectCommand({
       Bucket: S3_BUCKET,
       Key: fileKey,
@@ -2265,6 +2268,9 @@ router.post('/facturacion/ocr/extraer-zona', requirePermission('facturacion.crea
   if (!fileKey || width == null || height == null) {
     return res.status(400).json({ error: 'Faltan parámetros (fileKey, x, y, width, height)' });
   }
+  if (!validarClaveS3(fileKey, [OCR_TEMP_PREFIX]).ok) {
+    return res.status(400).json({ error: 'fileKey inválido' });
+  }
 
   try {
     const sharp = (await import('sharp')).default;
@@ -2324,7 +2330,7 @@ router.post('/facturacion/ocr/extraer-zona', requirePermission('facturacion.crea
 
     const text = await ocrWithTesseract(croppedBuffer);
     const cleaned = (text || '').trim().replace(/\n+/g, ' ');
-    console.log(`[OCR-zona] Extraído de zona (${cropW}x${cropH}): "${cleaned}"`);
+    console.log(`[OCR-zona] Extraído de zona (${cropW}x${cropH}): ${cleaned.length} caracteres`);
 
     res.json({ ok: true, texto: cleaned });
   } catch (err) {
@@ -2337,7 +2343,7 @@ router.post('/facturacion/ocr/extraer-zona', requirePermission('facturacion.crea
 // [SEC S-01]
 router.get('/facturacion/ocr/preview-png', requirePermission('facturacion.crear'), async (req, res) => {
   const fileKey = req.query.fileKey;
-  if (!fileKey || typeof fileKey !== 'string' || !fileKey.startsWith('facturas/') || fileKey.includes('..')) {
+  if (!validarClaveS3(fileKey, [OCR_TEMP_PREFIX]).ok) {
     return res.status(400).json({ error: 'fileKey inválido' });
   }
 
@@ -3002,6 +3008,9 @@ router.post('/facturacion/ocr/confirmar', requirePermission('facturacion.crear')
       }
       if (proveedorCoincideConSociedad(b)) {
         return res.status(400).json({ error: ERROR_PROVEEDOR_IGUAL_SOCIEDAD });
+      }
+      if (b.archivo && b.archivo.fileKey && !validarClaveS3(String(b.archivo.fileKey), [OCR_TEMP_PREFIX]).ok) {
+        return res.status(400).json({ error: 'Documento adjunto inválido en uno o más borradores' });
       }
       const fechaEmisionNorm = fechaToIsoGuardada(b.fecha_emision) || b.fecha_emision;
       const errorFechaFutura = errorFechaEmisionDemasiadoFutura(fechaEmisionNorm);
