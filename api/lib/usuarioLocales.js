@@ -1,6 +1,7 @@
-import { GetCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from './db.js';
 import { findUsuarioByEmail } from './dynamo/usuarios.js';
+import { maestroLocales } from './alcance.js';
 
 export function formatId6(val) {
   if (val == null || val === '') return '000000';
@@ -87,25 +88,12 @@ export async function empresasPermitidasDelUsuario(user) {
     const locales = normalizeLocalesUsuario(usuarios[0]);
     if (locales.length === 0) return null;
 
-    const localesNorm = new Set(locales.map((l) => String(l).trim().toLowerCase()));
+    const { porNombre } = await maestroLocales();
     const empresas = new Set();
-    let lastKey = null;
-    do {
-      const result = await docClient.send(
-        new ScanCommand({
-          TableName: tables.locales,
-          ...(lastKey && { ExclusiveStartKey: lastKey }),
-        }),
-      );
-      for (const loc of result.Items || []) {
-        const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim().toLowerCase();
-        if (!nombre || !localesNorm.has(nombre)) continue;
-        if (loc.id_empresa == null || loc.id_empresa === '') continue;
-        const idEmp = formatId6(loc.id_empresa);
-        if (idEmp && idEmp !== '000000') empresas.add(idEmp);
-      }
-      lastKey = result.LastEvaluatedKey || null;
-    } while (lastKey);
+    for (const l of locales) {
+      const loc = porNombre.get(String(l).trim().toLowerCase());
+      if (loc?.idEmpresa) empresas.add(loc.idEmpresa);
+    }
     return empresas;
   } catch (err) {
     console.error('[empresasPermitidasDelUsuario]', err.message || err);

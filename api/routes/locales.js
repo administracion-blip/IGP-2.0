@@ -3,6 +3,7 @@ import { ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib
 import { docClient, tables } from '../lib/db.js';
 import { formatId6 } from '../lib/usuarioLocales.js';
 import { esSedeGrupoParipeLocal } from '../lib/locales/sede.js';
+import { invalidarMaestroLocales } from '../lib/alcance.js';
 import { hasPermission, requireAnyPermission, requirePermission } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -143,6 +144,7 @@ router.post('/locales', requireAnyPermission('locales.crear', 'usuarios.crear', 
         ConditionExpression: 'attribute_not_exists(id_Locales)',
       }));
       cachedLocalesMinimal = null;
+      invalidarMaestroLocales();
       return res.json({ ok: true, local: item });
     } catch (err) {
       if (err?.name !== 'ConditionalCheckFailedException') {
@@ -217,6 +219,7 @@ router.put('/locales', requirePermission('locales.editar'), async (req, res) => 
     throw err;
   }
   cachedLocalesMinimal = null;
+  invalidarMaestroLocales();
   res.json({ ok: true, local: item });
 });
 
@@ -228,6 +231,7 @@ router.delete('/locales', requirePermission('locales.borrar'), async (req, res) 
     Key: { id_Locales: idLocales },
   }));
   cachedLocalesMinimal = null;
+  invalidarMaestroLocales();
   res.json({ ok: true });
 });
 
