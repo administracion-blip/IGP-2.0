@@ -98,11 +98,19 @@ export async function maestroLocales() {
   return maestroEnCurso;
 }
 
+const derivadasDelMaestro = new Set();
+
+/** Registra la invalidación de una caché construida también a partir de igp_Locales. */
+export function alInvalidarMaestroLocales(invalidar) {
+  derivadasDelMaestro.add(invalidar);
+}
+
 /** Llamar al crear, editar o borrar un local. */
 export function invalidarMaestroLocales() {
   maestroGeneracion += 1;
   maestroCache = null;
   maestroEnCurso = null;
+  for (const invalidar of derivadasDelMaestro) invalidar();
 }
 
 // ─── Alcance ───

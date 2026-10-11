@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { ScanCommand, GetCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 import { requirePermission } from '../middleware/auth.js';
+import { invalidarMapaAlmacenes } from '../lib/alcanceAlmacenes.js';
 
 const router = Router();
 const tableAlmacenesName = tables.almacenes;
@@ -60,6 +61,7 @@ router.post('/almacenes', requirePermission('almacenes.crear'), async (req, res)
     }
     throw err;
   }
+  invalidarMapaAlmacenes();
   res.json({ ok: true, almacen: item });
 });
 
@@ -96,6 +98,7 @@ router.put('/almacenes', requirePermission('almacenes.editar'), async (req, res)
     }
     throw err;
   }
+  invalidarMapaAlmacenes();
   res.json({ ok: true, almacen: item });
 });
 
@@ -106,6 +109,7 @@ router.delete('/almacenes', requirePermission('almacenes.borrar'), async (req, r
     TableName: tableAlmacenesName,
     Key: { Id: idAlmacenes },
   }));
+  invalidarMapaAlmacenes();
   res.json({ ok: true });
 });
 

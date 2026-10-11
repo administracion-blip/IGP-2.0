@@ -76,6 +76,7 @@ import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
 import { requireLocal, requireLocales, requireAlcanceGlobal, requireLocalLectura, desde } from '../middleware/alcance.js';
 import { filtrarLecturaPorLocal, permiteLecturaLocal, workplacesLectura } from '../lib/alcanceLecturas.js';
 import { MENSAJE_SIN_ACCESO_LOCAL } from '../lib/alcance.js';
+import { invalidarMapaAlmacenes } from '../lib/alcanceAlmacenes.js';
 import { buildObjetivoMensualCard } from '../lib/agora/objetivoMensual.js';
 import {
   buildExcepcionesFromInvoices,
@@ -3625,6 +3626,7 @@ router.post('/agora/warehouses/sync', requireAnyPermission('ajustes.sincronizaci
       if (existed) updated++;
       else added++;
     }
+    invalidarMapaAlmacenes();
 
     res.json({
       ok: true,
