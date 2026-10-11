@@ -357,6 +357,26 @@ test('arqueos: OCR sin workplaceId o con uno ajeno, 403 para restringidos', asyn
   assert.equal(await enviar({ workplaceId: '202', businessDay: '2026-10-01' }), 403);
 });
 
+test('arqueos: OCR con lineId que se sale del formato de id, 400 sin subir nada a S3', async () => {
+  montar();
+  const enviar = async (lineId) => {
+    usuarioActual = LOCAL_PARIPE;
+    const form = new FormData();
+    form.append('workplaceId', '101');
+    form.append('businessDay', '2026-10-01');
+    form.append('lineId', lineId);
+    form.append('imagen', new Blob([Buffer.from('no-es-imagen')], { type: 'image/jpeg' }), 't.jpg');
+    const res = await fetch(`${base}/api/cajas/arqueos-reales/ocr-ticket`, { method: 'POST', body: form });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  };
+  await api('GET', '/api/cajas/jornada?workplaceId=101&businessDay=2026-10-01', LOCAL_PARIPE); // arranca el servidor
+  for (const malo of ['../../202/2026-10-01/x', 'a/b', 'boleta.jpg', 'x'.repeat(65), 'línea 1']) {
+    const r = await enviar(malo);
+    assert.equal(r.status, 400, malo);
+    assert.match(r.body.error, /lineId no válido/);
+  }
+});
+
 test('revisión de cajas: cierres.ver e intersección de workplaceIds', async () => {
   montar();
   const q = 'dateFrom=2026-10-01&dateTo=2026-10-01';

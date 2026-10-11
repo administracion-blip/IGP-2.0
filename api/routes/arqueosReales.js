@@ -241,6 +241,8 @@ function sanitizeEfectivoConteo(body) {
   return out;
 }
 
+const LINE_ID_RE = /^[\w-]{1,64}$/;
+
 function validTicketKey(key) {
   if (!key || typeof key !== 'string') return false;
   return key.startsWith('arqueos-tickets/') && !key.includes('..');
@@ -339,6 +341,10 @@ router.post('/cajas/arqueos-reales/ocr-ticket', permisoArqueo, uploadOcr.single(
   const workplaceId = String(req.body.workplaceId || '').trim();
   const businessDay = String(req.body.businessDay || '').trim();
   const lineId = String(req.body.lineId || '').trim() || randomUUID();
+  // Va dentro de la clave S3: solo el formato de id que generan arqueo-caja.tsx y sanitizeTarjetaLineas.
+  if (!LINE_ID_RE.test(lineId)) {
+    return res.status(400).json({ error: 'lineId no válido: solo letras, números, guiones y guiones bajos (máx. 64)' });
+  }
   try {
     let buf = file.buffer;
     try {
