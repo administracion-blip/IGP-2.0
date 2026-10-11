@@ -153,6 +153,58 @@ test('al reintentar editar un pago o la factura se relee con ConsistentRead', as
   assert.ok(relecturas.every((l) => l.ConsistentRead === true));
 });
 
+test('editar líneas cuando la factura sigue cambiando: 409 y ni las líneas ni la cabecera cambian', async () => {
+  const { docClient } = await import('../lib/db.js');
+  db.crearTabla(tables.facturasLineas, { hashKey: 'id_factura', rangeKey: 'id_linea' });
+  db.sembrar(tables.facturasLineas, { id_factura: 'F-1', id_linea: 'L001', descripcion: 'Original', total_linea: 100 });
+  db.sembrar(tables.facturasLineas, { id_factura: 'F-1', id_linea: 'L002', descripcion: 'Segunda', total_linea: 0 });
+  const enviar = docClient.send;
+  docClient.send = async (cmd) => {
+    const items = cmd?.constructor?.name === 'TransactWriteCommand' ? cmd.input.TransactItems : [];
+    const nombre = cmd?.constructor?.name;
+    if (items.some((it) => it.Put?.TableName === tables.facturas)
+      || (nombre === 'PutCommand' && cmd.input.TableName === tables.facturas)) {
+      db.sembrar(tables.facturas, { ...factura(), version: factura().version + 1 });
+    }
+    return enviar.call(docClient, cmd);
+  };
+  let r;
+  try {
+    r = await api('PUT', '/api/facturacion/facturas/F-1', {
+      lineas: [{ descripcion: 'Nueva', cantidad: 1, precio_unitario: 300, tipo_iva: 0 }],
+    });
+  } finally {
+    docClient.send = enviar;
+  }
+  assert.equal(r.status, 409);
+  assert.equal(r.body.error, 'La factura ha cambiado, vuelve a intentarlo');
+  const lineas = db.listar(tables.facturasLineas).filter((l) => l.id_factura === 'F-1');
+  assert.deepEqual(lineas.map((l) => [l.id_linea, l.descripcion]), [['L001', 'Original'], ['L002', 'Segunda']]);
+  assert.equal(factura().total_factura, 100);
+});
+
+test('editar líneas sin carrera: cabecera y líneas se guardan juntas', async () => {
+  db.crearTabla(tables.facturasLineas, { hashKey: 'id_factura', rangeKey: 'id_linea' });
+  db.sembrar(tables.facturasLineas, { id_factura: 'F-1', id_linea: 'L001', descripcion: 'Original' });
+  db.sembrar(tables.facturasLineas, { id_factura: 'F-1', id_linea: 'L002', descripcion: 'Sobra' });
+  const r = await api('PUT', '/api/facturacion/facturas/F-1', {
+    lineas: [{ descripcion: 'Nueva', cantidad: 1, precio_unitario: 300, tipo_iva: 0 }],
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const lineas = db.listar(tables.facturasLineas).filter((l) => l.id_factura === 'F-1');
+  assert.deepEqual(lineas.map((l) => [l.id_linea, l.descripcion]), [['L001', 'Nueva']]);
+  assert.equal(factura().total_factura, 300);
+  assert.equal(factura().version, 4);
+});
+
+test('cambiar el emisor mientras entra un pago: el reintento compara con el emisor leído, no con el del body', async () => {
+  db.interceptar('PutCommand', tables.facturas, otroPago);
+  const r = await api('PUT', '/api/facturacion/facturas/F-1', { emisor_id: '000099', observaciones: 'cambio' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(factura().emisor_id, '000099');
+  assert.equal(factura().total_cobrado, 40);
+});
+
 test('check-vencimientos: si un pago la deja pagada entre el Scan y el Update, no se marca vencida (omitida)', async () => {
   db.sembrar(tables.facturas, { ...factura(), fecha_vencimiento: '2020-01-01' });
   db.interceptar('UpdateCommand', tables.facturas, () => registrarPagoFactura({

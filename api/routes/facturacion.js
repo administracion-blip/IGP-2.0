@@ -553,6 +553,9 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
     if (await rejectFacturaEmisorNoPermitido(req, factura, res)) return;
     const esGasto = factura.tipo === 'IN';
     const estadoOriginal = factura.estado;
+    // `factura` se modifica con el body más abajo; para detectar en el reintento
+    // que otra petición cambió el emisor hay que compararlo con el leído.
+    const emisorOriginal = String(factura.emisor_id ?? '');
 
     if (estadoOriginal === 'anulada') {
       return res.status(400).json({ error: 'No se pueden editar facturas anuladas' });
@@ -609,6 +612,7 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
     }
 
     let totalesLineas = null;
+    let operacionesLineas = [];
     if (Array.isArray(body.lineas)) {
       const oldLineas = await queryLineasByFactura(id);
 
@@ -654,8 +658,10 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
       // Reemplazo atómico: los Put sobrescriben L001..LNNN y solo se borran las
       // líneas antiguas sobrantes. Antes se borraba todo y se reinsertaba en un
       // bucle sin transacción: un fallo a mitad dejaba la factura sin líneas.
+      // Se escriben junto con la cabecera (más abajo): si la cabecera choca con
+      // otra escritura, las líneas no cambian.
       const idsNuevos = new Set(nuevasLineas.map((l) => l.id_linea));
-      const operaciones = [
+      operacionesLineas = [
         ...nuevasLineas.map((item) => ({ Put: { TableName: tables.facturasLineas, Item: item } })),
         ...oldLineas
           .filter((ol) => !idsNuevos.has(ol.id_linea))
@@ -663,15 +669,6 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
             Delete: { TableName: tables.facturasLineas, Key: { id_factura: id, id_linea: ol.id_linea } },
           })),
       ];
-      // TransactWrite admite hasta 100 operaciones; trocear por si acaso.
-      for (let i = 0; i < operaciones.length; i += 100) {
-        const bloque = operaciones.slice(i, i + 100);
-        if (bloque.length === 1 && bloque[0].Put) {
-          await docClient.send(new PutCommand(bloque[0].Put));
-        } else if (bloque.length > 0) {
-          await docClient.send(new TransactWriteCommand({ TransactItems: bloque }));
-        }
-      }
 
       totalesLineas = {
         base_imponible: round2(base_imponible),
@@ -710,6 +707,7 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
     // Un pago registrado entre la lectura y el guardado no se pisa: se relee y se
     // vuelve a aplicar la edición sobre su total_cobrado.
     let guardada = existing.Item;
+    let lineasPendientes = [];
     await conReintentoFactura(async (intento) => {
       let estadoLeido = estadoOriginal;
       if (intento > 1) {
@@ -719,15 +717,28 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
         if (!fresca.Item) throw Object.assign(new Error('Factura no encontrada'), { status: 404 });
         const cambioDeFondo = fresca.Item.estado === 'anulada'
           || (!esGasto && fresca.Item.estado !== estadoOriginal)
-          || String(fresca.Item.emisor_id ?? '') !== String(existing.Item.emisor_id ?? '');
+          || String(fresca.Item.emisor_id ?? '') !== emisorOriginal;
         if (cambioDeFondo) throw errorFacturaCambiada();
         guardada = fresca.Item;
         estadoLeido = guardada.estado;
       }
       const versionLeida = guardada.version;
       aplicarEdicion(guardada, estadoLeido);
-      await docClient.send(new PutCommand(putFacturaVersionada(guardada, versionLeida)));
+      const cabecera = putFacturaVersionada(guardada, versionLeida);
+      // Cabecera y líneas en la misma transacción (máx. 100 operaciones).
+      if (operacionesLineas.length === 0) {
+        await docClient.send(new PutCommand(cabecera));
+      } else if (operacionesLineas.length < 100) {
+        await docClient.send(new TransactWriteCommand({ TransactItems: [{ Put: cabecera }, ...operacionesLineas] }));
+      } else {
+        await docClient.send(new PutCommand(cabecera));
+        lineasPendientes = operacionesLineas;
+      }
     });
+    // Solo con más de 99 líneas: van después de la cabecera ya guardada.
+    for (let i = 0; i < lineasPendientes.length; i += 100) {
+      await docClient.send(new TransactWriteCommand({ TransactItems: lineasPendientes.slice(i, i + 100) }));
+    }
     await registrarAuditoria(id, 'modificacion', body.usuario_id, body.usuario_nombre, changes);
 
     res.json({ ok: true, factura: guardada });
