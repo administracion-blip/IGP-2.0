@@ -27,6 +27,7 @@ const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
 const { invalidarMaestroLocales } = await import('../lib/alcance.js');
 const { default: agoraRouter } = await import('../routes/agora.js');
 const { default: arqueosRouter } = await import('../routes/arqueosReales.js');
+const { default: movimientosRouter } = await import('../routes/movimientosCaja.js');
 
 // Local con PARIPE (101); SuperUser restringido a PARIPE; oficina global (Local vacío).
 const LOCAL_PARIPE = { sub: '000050', email: 'paripe@grupo.test', rol: 'Local' };
@@ -57,6 +58,7 @@ async function api(metodo, ruta, usuario, body) {
     });
     app.use('/api', agoraRouter);
     app.use('/api', arqueosRouter);
+    app.use('/api', movimientosRouter);
     servidor = http.createServer(app);
     await new Promise((listo) => servidor.listen(0, '127.0.0.1', listo));
     base = `http://127.0.0.1:${servidor.address().port}`;
@@ -317,4 +319,44 @@ test('efectivo a ingresar: el IBAN de una sociedad ajena no sale aunque se pida 
 
   assert.equal((await api('GET', `/api/cajas/efectivo-ingresar?${q}&workplaceIds=202`, SUPER_PARIPE)).status, 403);
   assert.equal((await api('GET', `/api/cajas/efectivo-ingresar?${q}&workplaceIds=101`, LOCAL_PARIPE)).status, 403);
+});
+
+// ─── Movimientos de caja ───
+
+test('movimientos: DELETE de otro local, 403 y el movimiento sigue', async () => {
+  montar();
+  db.sembrar(tables.movimientosCaja, { PK: '202', SK: '2026-10-01#1#retirada#m1', tipo: 'retirada', importe: 50 });
+  const r = await api('DELETE', '/api/cajas/movimientos?PK=202&SK=2026-10-01%231%23retirada%23m1', LOCAL_PARIPE);
+  assert.equal(r.status, 403);
+  assert.ok(db.obtener(tables.movimientosCaja, { PK: '202', SK: '2026-10-01#1#retirada#m1' }));
+});
+
+test('movimientos: listar, crear y editar solo en el propio local', async () => {
+  montar();
+  assert.equal((await api('GET', '/api/cajas/movimientos?workplaceId=202&businessDay=2026-10-01', LOCAL_PARIPE)).status, 403);
+  assert.equal((await api('GET', '/api/cajas/movimientos?workplaceId=101&businessDay=2026-10-01', LOCAL_PARIPE)).status, 200);
+  const mov = { workplaceId: '202', businessDay: '2026-10-01', posId: '1', tipo: 'retirada', importe: '10' };
+  assert.equal((await api('POST', '/api/cajas/movimientos', LOCAL_PARIPE, mov)).status, 403);
+  assert.equal((await api('PUT', '/api/cajas/movimientos', LOCAL_PARIPE, { ...mov, workplaceId: undefined, PK: '202' })).status, 403);
+  assert.equal(db.listar(tables.movimientosCaja).length, 0);
+  assert.equal((await api('POST', '/api/cajas/movimientos', LOCAL_PARIPE, { ...mov, workplaceId: '101' })).status, 200);
+});
+
+test('movimientos: justificante-url de otro local o de anon, 403', async () => {
+  montar();
+  const ajeno = await api('GET', '/api/cajas/movimientos/justificante-url?key=cajas-movimientos/202/2026-10-01/x.jpg', LOCAL_PARIPE);
+  assert.equal(ajeno.status, 403);
+  const anon = await api('GET', '/api/cajas/movimientos/justificante-url?key=cajas-movimientos/anon/x.jpg', LOCAL_PARIPE);
+  assert.equal(anon.status, 403);
+  const propio = await api('GET', '/api/cajas/movimientos/justificante-url?key=cajas-movimientos/101/2026-10-01/x.jpg', LOCAL_PARIPE);
+  assert.equal(propio.status, 200);
+});
+
+test('movimientos: sin permiso de arqueo, 403 aunque sea su local', async () => {
+  montar();
+  const sinArqueo = { sub: '000052', email: 'mkt@grupo.test', rol: 'Marketing' };
+  db.sembrar(tables.usuarios, { id_usuario: '000052', Email: 'mkt@grupo.test', Rol: 'Marketing', Local: ['PARIPE'] });
+  const r = await api('GET', '/api/cajas/movimientos?workplaceId=101&businessDay=2026-10-01', sinArqueo);
+  assert.equal(r.status, 403);
+  assert.equal(r.body.error, 'Permiso insuficiente');
 });

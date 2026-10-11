@@ -19,8 +19,12 @@ import {
   parseImporte,
   TIPOS_MOVIMIENTO,
 } from '../lib/cajas/movimientos.js';
+import { requireAnyPermission } from '../middleware/auth.js';
+import { requireLocal, desde } from '../middleware/alcance.js';
 
 const router = express.Router();
+
+const permisoArqueo = requireAnyPermission('planning_dia.arqueo', 'cierres.ver');
 const uploadJustificante = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 12 * 1024 * 1024 },
@@ -43,7 +47,7 @@ function isoDay(v) {
 }
 
 // GET /api/cajas/movimientos?workplaceId=&businessDay=&posId=opcional
-router.get('/cajas/movimientos', async (req, res) => {
+router.get('/cajas/movimientos', permisoArqueo, requireLocal(desde.query('workplaceId')), async (req, res) => {
   const workplaceId = String(req.query.workplaceId || '').trim();
   const businessDay = String(req.query.businessDay || '').trim();
   const posId = req.query.posId == null ? undefined : String(req.query.posId).trim();
@@ -60,7 +64,8 @@ router.get('/cajas/movimientos', async (req, res) => {
 });
 
 // POST /api/cajas/movimientos/justificante — multipart: imagen (+ workplaceId, businessDay)
-router.post('/cajas/movimientos/justificante', uploadJustificante.single('imagen'), async (req, res) => {
+const localBodyJustificante = requireLocal(desde.body('workplaceId'));
+router.post('/cajas/movimientos/justificante', permisoArqueo, uploadJustificante.single('imagen'), localBodyJustificante, async (req, res) => {
   const file = req.file;
   if (!file?.buffer) return res.status(400).json({ error: 'Falta imagen (campo imagen)' });
   const workplaceId = String(req.body.workplaceId || '').trim();
@@ -98,7 +103,9 @@ router.post('/cajas/movimientos/justificante', uploadJustificante.single('imagen
 });
 
 // GET /api/cajas/movimientos/justificante-url?key=cajas-movimientos/...
-router.get('/cajas/movimientos/justificante-url', async (req, res) => {
+// cajas-movimientos/{workplaceId}/...: la carpeta 'anon' solo la ve el alcance global.
+const localClaveJustificante = requireLocal(desde.claveS3(JUSTIF_PREFIX, 1));
+router.get('/cajas/movimientos/justificante-url', permisoArqueo, localClaveJustificante, async (req, res) => {
   const key = String(req.query.key || '').trim();
   if (!validJustificanteKey(key)) return res.status(400).json({ error: 'key no válida' });
   try {
@@ -178,11 +185,13 @@ async function upsertMovimiento(req, res) {
   }
 }
 
-router.post('/cajas/movimientos', upsertMovimiento);
-router.put('/cajas/movimientos', upsertMovimiento);
+const localBodyMovimiento = requireLocal(desde.body('workplaceId', 'PK'));
+router.post('/cajas/movimientos', permisoArqueo, localBodyMovimiento, upsertMovimiento);
+router.put('/cajas/movimientos', permisoArqueo, localBodyMovimiento, upsertMovimiento);
 
 // DELETE /api/cajas/movimientos?PK=&SK=
-router.delete('/cajas/movimientos', async (req, res) => {
+const localPkMovimiento = requireLocal(desde.primero(desde.query('PK'), desde.body('PK')));
+router.delete('/cajas/movimientos', permisoArqueo, localPkMovimiento, async (req, res) => {
   const pk = String(req.query.PK ?? req.body?.PK ?? '').trim();
   const sk = String(req.query.SK ?? req.body?.SK ?? '').trim();
   if (!pk || !sk) return res.status(400).json({ error: 'PK y SK obligatorios' });
