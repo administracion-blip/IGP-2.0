@@ -20,6 +20,8 @@ const { docClient, tables } = await import('../lib/db.js');
 const { crearDynamoMemoria } = await import('./dynamoMemoria.mjs');
 const { default: personalRouter } = await import('../routes/personal.js');
 const { default: cuadranteRouter } = await import('../routes/cuadrante.js');
+const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
+const { invalidarMaestroLocales } = await import('../lib/alcance.js');
 
 const CAMARERO = { sub: '000009', email: 'camarero@grupo.test', rol: 'Camarero' };
 const ENCARGADO = { sub: '000010', email: 'local@grupo.test', rol: 'Local' };
@@ -76,7 +78,15 @@ function montar() {
   const db = crearDynamoMemoria();
   db.crearTabla(tables.empleados, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
+  db.crearTabla(tables.locales, { hashKey: 'id_Locales' });
   db.instalar(docClient);
+  db.sembrar(tables.locales, { id_Locales: '000001', nombre: 'Local A', agoraCode: '101' });
+  db.sembrar(tables.locales, { id_Locales: '000002', nombre: 'Local B', agoraCode: '202' });
+  db.sembrar(tables.usuarios, { id_usuario: '000010', Email: 'local@grupo.test', Rol: 'Local', Local: ['Local A'] });
+  db.sembrar(tables.usuarios, { id_usuario: '000012', Email: 'rrhh@grupo.test', Rol: 'Administracion', Local: ['Local A'] });
+  invalidarContextoAcceso();
+  invalidarMaestroLocales();
   db.sembrar(tables.rolesPermisos, { PK: 'ROL#Local', SK: 'PERMISO#personal.ver' });
   db.sembrar(tables.rolesPermisos, { PK: 'ROL#Local', SK: 'PERMISO#planning_dia.ver' });
   db.sembrar(tables.rolesPermisos, { PK: 'ROL#Tesoreria', SK: 'PERMISO#cashflow.registrar' });
@@ -168,5 +178,25 @@ test('con planning_dia.ver o rrhh.horas se pasa al cuadrante', async () => {
   for (const usuario of [ENCARGADO, RRHH]) {
     const r = await api('GET', '/api/personal/cuadrante', usuario);
     assert.equal(r.status, 400, 'pasa el permiso y llega a la validación de parámetros');
+  }
+});
+
+// Ningún local de prueba tiene factorial_location_id: el servicio responde 400
+// nombrando el primer local que procesa, sin llamar a Factorial.
+test('cuadrante: Local con A pide B,A y solo se procesa A', async () => {
+  montar();
+  const r = await api('GET', '/api/personal/cuadrante?local_ids=000002,000001&from=2026-10-01&to=2026-10-07', ENCARGADO);
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /Local A/);
+  const repetido = await api('GET', '/api/personal/cuadrante?local_ids=000001&local_id=000002&from=2026-10-01&to=2026-10-07', ENCARGADO);
+  assert.match(repetido.body.error, /Local A/);
+});
+
+test('cuadrante: solo locales ajenos, 403 (también con rrhh.horas)', async () => {
+  montar();
+  for (const usuario of [ENCARGADO, RRHH]) {
+    const r = await api('GET', '/api/personal/cuadrante?local_ids=000002&from=2026-10-01&to=2026-10-07', usuario);
+    assert.equal(r.status, 403);
+    assert.equal(r.body.error, 'No tienes acceso a este local');
   }
 });

@@ -9,6 +9,7 @@
 
 import { Router } from 'express';
 import { requireAnyPermission } from '../middleware/auth.js';
+import { requireLocales } from '../middleware/alcance.js';
 import {
   obtenerCuadrantePorLocales,
   CuadranteServicioError,
@@ -36,10 +37,12 @@ function parseLocalIds(query) {
   return [...ids];
 }
 
-// Incluye costes salariales por turno.
-router.get('/personal/cuadrante', requireAnyPermission('planning_dia.ver', 'rrhh.horas'), async (req, res) => {
+// Incluye costes salariales por turno. La intersección con el alcance va aquí y no en
+// obtenerCuadrantePorLocales, que también usa ratiosDiaLocal sin petición de usuario.
+const localesPedidos = requireLocales((req) => parseLocalIds(req.query), { tipo: 'idLocal' });
+router.get('/personal/cuadrante', requireAnyPermission('planning_dia.ver', 'rrhh.horas'), localesPedidos, async (req, res) => {
   try {
-    const localIds = parseLocalIds(req.query);
+    const localIds = req.alcanceLocales;
     const from = req.query.from != null ? String(req.query.from) : '';
     const to = req.query.to != null ? String(req.query.to) : '';
     const payload = await obtenerCuadrantePorLocales({ localIds, from, to });
