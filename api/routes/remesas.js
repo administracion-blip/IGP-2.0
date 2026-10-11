@@ -33,8 +33,17 @@ import { facturaEnRemesaActiva } from '../lib/remesas/facturaEnRemesa.js';
 import { normalizarLineasEntrada, recalcularLineasRemesa } from '../lib/remesas/recalcularLineas.js';
 import { registrarPagoFactura } from '../lib/facturacion/registrarPago.js';
 import { normalizeCif, getCifFromEmpresaItem, getNombreFromEmpresaItem } from '../lib/empresaCif.js';
+import { cargarAlcance, permiteEmpresa, MENSAJE_SIN_ACCESO_EMPRESA } from '../lib/alcance.js';
+import { filtrarLecturaPorEmpresa, permiteLecturaEmpresa } from '../lib/alcanceSociedad.js';
 
 const router = Router();
+
+/** [SEC S-08] Escrituras sobre una sociedad: bloquean siempre si está fuera del alcance. */
+async function rechazaSociedadAjena(req, res, sociedadId) {
+  if (permiteEmpresa(await cargarAlcance(req), sociedadId)) return false;
+  res.status(403).json({ error: MENSAJE_SIN_ACCESO_EMPRESA });
+  return true;
+}
 const TABLE = tables.remesas;
 
 const ESTADOS = ['Borrador', 'Generada', 'Ejecutada', 'Anulada'];
@@ -135,7 +144,8 @@ function respuestaLineasInvalidas(res, invalidas) {
 
 router.get('/remesas', requirePermission('remesas.ver'), async (req, res) => {
   try {
-    let items = await scanRemesas();
+    // [SEC S-08]
+    let items = await filtrarLecturaPorEmpresa(req, await scanRemesas(), (r) => r.sociedadId);
     const estado = String(req.query.estado || '').trim();
     if (estado) items = items.filter((r) => r.estado === estado);
     items.sort((a, b) => String(b.creadoEn || '').localeCompare(String(a.creadoEn || '')));
@@ -151,6 +161,10 @@ router.get('/remesas/:remesaId', requirePermission('remesas.ver'), async (req, r
   try {
     const remesa = await getRemesa(req.params.remesaId);
     if (!remesa) return res.status(404).json({ error: 'Remesa no encontrada' });
+    // [SEC S-08]
+    if (!(await permiteLecturaEmpresa(req, remesa.sociedadId))) {
+      return res.status(403).json({ error: MENSAJE_SIN_ACCESO_EMPRESA });
+    }
     res.json({ remesa });
   } catch (err) {
     responderError(res, err);
@@ -177,6 +191,8 @@ router.post('/remesas', requirePermission('remesas.gestionar'), async (req, res)
   }
 
   try {
+    // [SEC S-08]
+    if (await rechazaSociedadAjena(req, res, sociedadId)) return;
     const [empresasItems, remesasActivas] = await Promise.all([scanEmpresas(), scanRemesas()]);
     const empresasIdx = indexarEmpresas(empresasItems);
     const empresaSoc = empresasIdx.byId.get(sociedadId);
@@ -262,6 +278,7 @@ router.patch('/remesas/:remesaId', requirePermission('remesas.gestionar'), async
   try {
     const remesa = await getRemesa(remesaId);
     if (!remesa) return res.status(404).json({ error: 'Remesa no encontrada' });
+    if (await rechazaSociedadAjena(req, res, remesa.sociedadId)) return; // [SEC S-08]
 
     if (b.accion === 'reabrir') {
       if (!['Generada'].includes(remesa.estado)) {
@@ -361,6 +378,7 @@ router.post('/remesas/:remesaId/revalidar', requirePermission('remesas.gestionar
   try {
     const remesa = await getRemesa(req.params.remesaId);
     if (!remesa) return res.status(404).json({ error: 'Remesa no encontrada' });
+    if (await rechazaSociedadAjena(req, res, remesa.sociedadId)) return; // [SEC S-08]
     if (!['Borrador', 'Generada'].includes(remesa.estado)) {
       return res.status(400).json({ error: 'Solo se revalida en Borrador o Generada' });
     }
@@ -409,6 +427,7 @@ router.get('/remesas/:remesaId/fichero', requirePermission('remesas.gestionar'),
   try {
     const remesa = await getRemesa(req.params.remesaId);
     if (!remesa) return res.status(404).json({ error: 'Remesa no encontrada' });
+    if (await rechazaSociedadAjena(req, res, remesa.sociedadId)) return; // [SEC S-08]
     if (remesa.estado === 'Anulada') return res.status(400).json({ error: 'Remesa anulada' });
     if (remesa.estado === 'Ejecutada') return res.status(409).json({ error: 'La remesa ya está ejecutada' });
     if (!remesa.lineas?.length) return res.status(400).json({ error: 'Sin líneas en la remesa' });
@@ -470,6 +489,7 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
   try {
     const remesa = await getRemesa(req.params.remesaId);
     if (!remesa) return res.status(404).json({ error: 'Remesa no encontrada' });
+    if (await rechazaSociedadAjena(req, res, remesa.sociedadId)) return; // [SEC S-08]
     // Una ejecución que dejó líneas sin pagar se reanuda solo con esas líneas.
     const pendientesPrevias = Array.isArray(remesa.lineasPendientesPago) ? remesa.lineasPendientesPago : [];
     const reanudar = remesa.estado === 'Ejecutada' && pendientesPrevias.length > 0;
@@ -608,6 +628,7 @@ router.post('/remesas/:remesaId/anular', requirePermission('remesas.gestionar'),
   try {
     const remesa = await getRemesa(req.params.remesaId);
     if (!remesa) return res.status(404).json({ error: 'Remesa no encontrada' });
+    if (await rechazaSociedadAjena(req, res, remesa.sociedadId)) return; // [SEC S-08]
     if (!['Borrador', 'Generada'].includes(remesa.estado)) {
       return res.status(400).json({ error: 'Solo se anulan remesas en Borrador o Generada' });
     }
