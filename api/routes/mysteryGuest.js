@@ -18,7 +18,7 @@ import {
   computeMediasPorCategoria,
   computeMediaGlobalCategorias,
 } from '../lib/mysteryGuestCuestionario.js';
-import { imagenDataUrlSegura, MENSAJE_TIPO_NO_PERMITIDO } from '../lib/seguridad/subidas.js';
+import { imagenDataUrlSegura } from '../lib/seguridad/subidas.js';
 
 const router = express.Router();
 const TABLE = tables.mysteryGuest;
@@ -58,16 +58,22 @@ function score1to5(v) {
 
 /**
  * Hasta 6 data URLs o URLs http(s) de imágenes (Mystery Guest — categoría Producto).
- * Cada data URL se valida por contenido; una que no sea imagen queda como `null`.
+ * Cada data URL se valida por contenido; la que no es imagen se descarta (no tumba el envío).
  */
 function parseProductoFotos(body) {
   const raw = body.ProductoFotos;
   if (!Array.isArray(raw)) return [];
-  return raw
+  const candidatas = raw
     .slice(0, 6)
     .map((x) => String(x).trim())
-    .filter((s) => s.startsWith('data:') || /^https?:\/\//i.test(s))
-    .map((s) => (s.startsWith('data:') ? imagenDataUrlSegura(s) : s));
+    .filter((s) => s.startsWith('data:') || /^https?:\/\//i.test(s));
+  const fotos = candidatas
+    .map((s) => (s.startsWith('data:') ? imagenDataUrlSegura(s) : s))
+    .filter(Boolean);
+  if (fotos.length < candidatas.length) {
+    console.warn('[mystery-guest] fotos descartadas por tipo no permitido:', candidatas.length - fotos.length);
+  }
+  return fotos;
 }
 
 function parseProductoComentario(body) {
@@ -270,7 +276,6 @@ router.post('/mystery-guest', requirePermission('mystery_guest.ver'), requireLoc
     /** Misma escala 1–5 que la media global redondeada (estrellas no editables en cliente). */
     const ExperienciaGeneral = Math.min(5, Math.max(1, Math.round(MediaGlobal)));
     const ProductoFotos = parseProductoFotos(body);
-    if (ProductoFotos.some((f) => !f)) return res.status(400).json({ error: MENSAJE_TIPO_NO_PERMITIDO });
     const ProductoComentario = parseProductoComentario(body);
     const ServicioComentario = parseComentarioCategoria(body, 'ServicioComentario');
     const LimpiezaComentario = parseComentarioCategoria(body, 'LimpiezaComentario');

@@ -7,7 +7,7 @@ import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import crypto from 'crypto';
 import {
-  PERFILES, detectarTipo, extensionDeTipo, multerPerfil, validarSubidas,
+  PERFILES, detectarTipo, extensionDeTipo, multerPerfil, validarSubidas, tipoImagenHeredada,
 } from '../lib/seguridad/subidas.js';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -249,7 +249,12 @@ router.get('/escandallos/:productoId/imagen', requirePermission('escandallos.ver
     // Se sirve desde el origen del API: el tipo sale del contenido, nunca del ContentType guardado.
     const tipo = detectarTipo(buffer);
     if (!tipo || !PERFILES.imagen.tipos.includes(tipo)) {
-      return res.status(415).json({ error: 'Tipo de archivo no permitido' });
+      const heredada = tipoImagenHeredada(buffer);
+      if (!heredada) return res.status(415).json({ error: 'Tipo de archivo no permitido' });
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Disposition', `attachment; filename="escandallo-${productoId}.${heredada === 'image/bmp' ? 'bmp' : 'tif'}"`);
+      return res.send(buffer);
     }
     res.setHeader('Content-Type', tipo);
     res.setHeader('X-Content-Type-Options', 'nosniff');

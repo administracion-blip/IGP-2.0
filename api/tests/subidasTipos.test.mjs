@@ -155,7 +155,7 @@ test('escandallos: foto HTML con mimetype image/png → 400 y no se sube nada', 
   assert.equal(r.body.error, 'Tipo de archivo no permitido');
 });
 
-test('mystery guest: data URL "image/png" con HTML dentro → 400; una imagen real se guarda con su tipo', async () => {
+test('mystery guest: una foto que no es imagen se descarta y la visita se guarda con las buenas', async () => {
   montar();
   const respuestas = Object.fromEntries(mgTodosLosIdsPregunta().map((id) => [id, 4]));
   const visita = (fotos) => ({
@@ -166,17 +166,90 @@ test('mystery guest: data URL "image/png" con HTML dentro → 400; una imagen re
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   }).then(async (res) => ({ status: res.status, body: await res.json().catch(() => ({})) }));
 
-  const falsa = await enviar(visita([`data:image/png;base64,${HTML.toString('base64')}`]));
-  assert.equal(falsa.status, 400);
-  const svg = await enviar(visita([`data:image/svg+xml;base64,${SVG.toString('base64')}`]));
-  assert.equal(svg.status, 400);
-  assert.equal(svg.body.error, 'Tipo de archivo no permitido');
-  assert.equal(db.listar(tables.mysteryGuest).length, 0);
+  const warn = console.warn;
+  const avisos = [];
+  console.warn = (...args) => avisos.push(args.join(' '));
+  try {
+    const solo = await enviar(visita([
+      `data:image/png;base64,${HTML.toString('base64')}`,
+      `data:image/svg+xml;base64,${SVG.toString('base64')}`,
+    ]));
+    assert.ok(solo.status < 300, JSON.stringify(solo.body));
+    const [sinFotos] = db.listar(tables.mysteryGuest);
+    assert.equal(sinFotos.ProductoFotos, undefined);
+    assert.ok(avisos.some((a) => a.includes('fotos descartadas') && a.includes('2')), avisos.join('\n'));
 
-  const buena = await enviar(visita([`data:image/jpeg;base64,${PNG.toString('base64')}`]));
-  assert.ok(buena.status < 300, JSON.stringify(buena.body));
-  const [guardada] = db.listar(tables.mysteryGuest);
-  assert.deepEqual(guardada.ProductoFotos, [`data:image/png;base64,${PNG.toString('base64')}`]);
+    montar();
+    const mezcla = await enviar(visita([
+      `data:image/png;base64,${HTML.toString('base64')}`,
+      `data:image/jpeg;base64,${PNG.toString('base64')}`,
+    ]));
+    assert.ok(mezcla.status < 300, JSON.stringify(mezcla.body));
+    const [guardada] = db.listar(tables.mysteryGuest);
+    assert.deepEqual(guardada.ProductoFotos, [`data:image/png;base64,${PNG.toString('base64')}`]);
+  } finally {
+    console.warn = warn;
+  }
+});
+
+function ftyp(mayor, compatibles = []) {
+  const cuerpo = Buffer.concat([Buffer.from(`ftyp${mayor}`), Buffer.alloc(4), ...compatibles.map((m) => Buffer.from(m))]);
+  const tam = Buffer.alloc(4);
+  tam.writeUInt32BE(cuerpo.length + 4);
+  return Buffer.concat([tam, cuerpo, Buffer.alloc(16)]);
+}
+
+test('detectarTipo: AVIF (marca avif/avis, o mif1 con avif compatible) frente a HEIC', () => {
+  assert.equal(detectarTipo(ftyp('avif', ['mif1', 'miaf'])), 'image/avif');
+  assert.equal(detectarTipo(ftyp('avis', ['msf1'])), 'image/avif');
+  assert.equal(detectarTipo(ftyp('mif1', ['avif', 'miaf'])), 'image/avif');
+  assert.equal(detectarTipo(ftyp('mif1', ['heic', 'miaf'])), 'image/heic');
+  assert.equal(detectarTipo(ftyp('heic', ['mif1'])), 'image/heic');
+  const f = { buffer: ftyp('mif1', ['avif']) };
+  assert.equal(comprobarArchivo(f, 'imagen'), 'image/avif');
+  assert.equal(f.extDetectada, 'avif');
+});
+
+test('detectarTipo: PDF con basura antes de %PDF- dentro del primer KB; más allá no', () => {
+  const desplazado = Buffer.concat([Buffer.alloc(300, 0x20), PDF]);
+  assert.equal(detectarTipo(desplazado), 'application/pdf');
+  assert.equal(comprobarArchivo({ buffer: desplazado }, 'documento'), 'application/pdf');
+  assert.equal(detectarTipo(Buffer.concat([Buffer.alloc(1100, 0x20), PDF])), null);
+  assert.equal(detectarTipo(HTML), null);
+});
+
+test('escandallos GET imagen: BMP/TIFF antiguos se descargan como octet-stream; HTML/SVG siguen en 415', async () => {
+  const { S3Client } = await import('@aws-sdk/client-s3');
+  const BMP = Buffer.concat([Buffer.from('BM'), Buffer.alloc(60)]);
+  const TIFF = Buffer.concat([Buffer.from('II*\0'), Buffer.alloc(60)]);
+  let contenido = null;
+  const sendOriginal = S3Client.prototype.send;
+  S3Client.prototype.send = async () => ({ Body: (async function* () { yield contenido; })() });
+  try {
+    montar();
+    db.sembrar(tables.escandallos, { PK: 'PRODUCT#123', SK: 'META', productoId: '123', nombre: 'Plato', imagen_key: 'escandallos/123/foto' });
+    await arrancar();
+    const pedir = () => fetch(`${base}/api/escandallos/123/imagen`);
+    for (const [buffer, ext] of [[BMP, 'bmp'], [TIFF, 'tif']]) {
+      contenido = buffer;
+      const r = await pedir();
+      assert.equal(r.status, 200, ext);
+      assert.equal(r.headers.get('content-type'), 'application/octet-stream');
+      assert.match(r.headers.get('content-disposition'), new RegExp(`^attachment; filename="escandallo-123\\.${ext}"$`));
+      assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
+    }
+    for (const malo of [HTML, SVG]) {
+      contenido = malo;
+      const r = await pedir();
+      assert.equal(r.status, 415);
+    }
+    contenido = PNG;
+    const png = await pedir();
+    assert.equal(png.headers.get('content-type'), 'image/png');
+    assert.match(png.headers.get('content-disposition'), /^inline/);
+  } finally {
+    S3Client.prototype.send = sendOriginal;
+  }
 });
 
 test('imagenDataUrlSegura: normaliza al tipo real y rechaza lo que no es imagen', () => {

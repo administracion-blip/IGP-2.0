@@ -14,7 +14,7 @@ const MB = 1024 * 1024;
 
 export const MENSAJE_TIPO_NO_PERMITIDO = 'Tipo de archivo no permitido';
 
-const IMAGEN = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic'];
+const IMAGEN = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/avif'];
 const OFFICE = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -45,6 +45,7 @@ const EXTENSION = {
   'image/webp': 'webp',
   'image/gif': 'gif',
   'image/heic': 'heic',
+  'image/avif': 'avif',
   'application/pdf': 'pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
@@ -61,10 +62,27 @@ function extensionDeclarada(nombre) {
   return String(nombre || '').toLowerCase().match(/\.([a-z0-9]{1,8})$/)?.[1] || '';
 }
 
-/** HEIF/HEIC de iPhone: caja `ftyp` con marca heic/heix/hevc/heim/heis/mif1/msf1. */
-function esHeic(b) {
-  if (b.length < 12 || b.toString('latin1', 4, 8) !== 'ftyp') return false;
-  return /^(heic|heix|hevc|hevx|heim|heis|mif1|msf1)$/.test(b.toString('latin1', 8, 12));
+/**
+ * HEIF con caja `ftyp`: AVIF si la marca principal es avif/avis, o si es la genérica
+ * mif1/msf1 con avif/avis entre las compatibles; HEIC (iPhone) con heic/heix/hevc/
+ * hevx/heim/heis o mif1/msf1 sin marca AVIF.
+ */
+function tipoHeif(b) {
+  if (b.length < 12 || b.toString('latin1', 4, 8) !== 'ftyp') return null;
+  const mayor = b.toString('latin1', 8, 12);
+  const fin = Math.min(b.readUInt32BE(0), b.length, 256);
+  const compatibles = [];
+  for (let i = 16; i + 4 <= fin; i += 4) compatibles.push(b.toString('latin1', i, i + 4));
+  const esAvif = (m) => m === 'avif' || m === 'avis';
+  if (esAvif(mayor)) return 'image/avif';
+  if (/^(mif1|msf1)$/.test(mayor) && compatibles.some(esAvif)) return 'image/avif';
+  if (/^(heic|heix|hevc|hevx|heim|heis|mif1|msf1)$/.test(mayor)) return 'image/heic';
+  return null;
+}
+
+/** Los lectores de PDF aceptan la cabecera `%PDF-` en cualquier punto del primer KB. */
+function esPdfDesplazado(b) {
+  return b.subarray(0, 1024).includes('%PDF-', 0, 'latin1');
 }
 
 /** ZIP de Office: el nombre de las entradas va en claro en las cabeceras locales. */
@@ -98,9 +116,11 @@ export function detectarTipo(buffer, nombre = '') {
   const b = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
   const magia = detectMimeFromMagic(b);
   if (magia) return magia;
-  if (esHeic(b)) return 'image/heic';
+  const heif = tipoHeif(b);
+  if (heif) return heif;
   const office = tipoOfficeZip(b);
   if (office) return office;
+  if (esPdfDesplazado(b)) return 'application/pdf';
   const ext = extensionDeclarada(nombre);
   if (b.length >= 8 && b.subarray(0, 8).equals(OLE)) {
     if (ext === 'doc') return 'application/msword';
@@ -108,6 +128,20 @@ export function detectarTipo(buffer, nombre = '') {
     return null;
   }
   if (ext === 'csv' && pareceCsv(b)) return 'text/csv';
+  return null;
+}
+
+/**
+ * Imágenes que ya no se aceptan al subir pero pueden estar guardadas de antes
+ * (BMP, TIFF). No son activas en el navegador: se pueden servir como descarga.
+ * @returns {'image/bmp'|'image/tiff'|null}
+ */
+export function tipoImagenHeredada(buffer) {
+  if (!buffer || buffer.length < 4) return null;
+  const b = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  if (b.length >= 14 && b[0] === 0x42 && b[1] === 0x4d) return 'image/bmp';
+  const cabeza = b.toString('latin1', 0, 4);
+  if (cabeza === 'II*\0' || cabeza === 'MM\0*') return 'image/tiff';
   return null;
 }
 
