@@ -34,6 +34,15 @@ async function leerConfig() {
   };
 }
 
+/**
+ * Para reutilizar /cajas/top y /exceptions: reenvía el token del usuario o, en
+ * llamadas internas, firma uno de sistema. Se firma en cada llamada porque el de
+ * sistema dura poco y un envío con muchos destinatarios puede pasar de su vida.
+ */
+function cabeceraAuthInforme(req) {
+  return req.headers.authorization || `Bearer ${signSystemToken('informes')}`;
+}
+
 /** Solo Administrador (vía token) o llamada interna (job, sin req.user) pueden disparar el envío. */
 function puedeEjecutar(req) {
   if (!req.user) return true; // llamada interna autenticada por X-Internal-Secret
@@ -59,11 +68,6 @@ router.post('/informes/diario/enviar', async (req, res) => {
 
   const port = process.env.PORT || 3002;
   const baseUrl = `http://127.0.0.1:${port}`;
-  // Para reutilizar /cajas/top y /exceptions: reenvía el token del usuario o, en
-  // llamadas internas, firma uno de sistema con rol Administrador.
-  const authHeader = req.headers.authorization
-    || `Bearer ${signSystemToken('informes')}`;
-
   try {
     const config = await leerConfig();
     const mapaLocales = await cargarMapaLocales();
@@ -80,7 +84,7 @@ router.post('/informes/diario/enviar', async (req, res) => {
       try {
         const datos = await obtenerDatosInforme({
           baseUrl,
-          authHeader,
+          authHeader: cabeceraAuthInforme(req),
           businessDay,
           agoraCodes: dest.agoraCodes,
           topLimit: config.topLimit,
@@ -144,8 +148,6 @@ router.post('/informes/diario/descargar', async (req, res) => {
 
   const port = process.env.PORT || 3002;
   const baseUrl = `http://127.0.0.1:${port}`;
-  const authHeader = req.headers.authorization
-    || `Bearer ${signSystemToken('informes')}`;
 
   try {
     const config = await leerConfig();
@@ -165,7 +167,7 @@ router.post('/informes/diario/descargar', async (req, res) => {
     const localesNombres = agoraCodes.map((c) => agoraToNombre.get(c) || c);
     const datos = await obtenerDatosInforme({
       baseUrl,
-      authHeader,
+      authHeader: cabeceraAuthInforme(req),
       businessDay,
       agoraCodes,
       topLimit: config.topLimit,
