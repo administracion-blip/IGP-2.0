@@ -50,6 +50,12 @@ import { aplicarPostProcesadoPipeline } from '../lib/ocrFacturaValidacion.js';
 import { registrarPagoFactura } from '../lib/facturacion/registrarPago.js';
 import { eliminarPagoFactura } from '../lib/facturacion/eliminarPago.js';
 import {
+  conReintentoFactura,
+  errorFacturaCambiada,
+  esConflictoEscritura,
+  putFacturaVersionada,
+} from '../lib/facturacion/versionFactura.js';
+import {
   indexRemesasActivasPorFactura,
   findRemesaActivaDeFactura,
 } from '../lib/remesas/facturaEnRemesa.js';
@@ -600,6 +606,7 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
       factura.es_abono = esAbono;
     }
 
+    let totalesLineas = null;
     if (Array.isArray(body.lineas)) {
       const oldLineas = await queryLineasByFactura(id);
 
@@ -664,42 +671,66 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
         }
       }
 
-      factura.base_imponible = round2(base_imponible);
-      factura.total_iva = round2(total_iva);
-      factura.total_retencion = round2(total_retencion);
-      factura.total_factura = round2(base_imponible + total_iva - total_retencion);
-      factura.saldo_pendiente = round2(factura.total_factura - (factura.total_cobrado || 0));
-      factura.impuestos_resumen = buildImpuestosResumenFromLineas(body.lineas);
-
-      // Gasto (IN) ya validado: al cambiar totales, recalcular estado de pago.
-      // Usa estadoOriginal (no factura.estado) para no depender de body.estado.
-      if (
-        esGasto &&
-        !['borrador', 'pendiente_revision', 'anulada'].includes(estadoOriginal)
-      ) {
-        const saldo = factura.saldo_pendiente;
-        factura.saldo_pendiente = Math.max(0, saldo);
-        if (saldo <= 0) {
-          factura.estado = 'pagada';
-        } else if ((factura.total_cobrado || 0) > 0) {
-          factura.estado = 'parcialmente_pagada';
-        } else {
-          factura.estado = 'pendiente_pago';
-        }
-      }
-      recalcularExcesoPendiente(factura);
+      totalesLineas = {
+        base_imponible: round2(base_imponible),
+        total_iva: round2(total_iva),
+        total_retencion: round2(total_retencion),
+        total_factura: round2(base_imponible + total_iva - total_retencion),
+        impuestos_resumen: buildImpuestosResumenFromLineas(body.lineas),
+      };
     }
 
-    factura.modificado_por = body.usuario_id || factura.modificado_por;
-    factura.modificado_en = now();
-    factura.version = (factura.version || 1) + 1;
+    /** Aplica la edición sobre una lectura de la factura; `estadoLeido` es su estado antes de editar. */
+    const aplicarEdicion = (f, estadoLeido) => {
+      Object.assign(f, changes);
+      if (totalesLineas) {
+        Object.assign(f, totalesLineas);
+        f.saldo_pendiente = round2(f.total_factura - (f.total_cobrado || 0));
+        // Gasto (IN) ya validado: al cambiar totales, recalcular estado de pago.
+        // Usa el estado leído (no f.estado) para no depender de body.estado.
+        if (esGasto && !['borrador', 'pendiente_revision', 'anulada'].includes(estadoLeido)) {
+          const saldo = f.saldo_pendiente;
+          f.saldo_pendiente = Math.max(0, saldo);
+          if (saldo <= 0) {
+            f.estado = 'pagada';
+          } else if ((f.total_cobrado || 0) > 0) {
+            f.estado = 'parcialmente_pagada';
+          } else {
+            f.estado = 'pendiente_pago';
+          }
+        }
+        recalcularExcesoPendiente(f);
+      }
+      f.modificado_por = body.usuario_id || f.modificado_por;
+      f.modificado_en = now();
+    };
 
-    await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
+    // Un pago registrado entre la lectura y el guardado no se pisa: se relee y se
+    // vuelve a aplicar la edición sobre su total_cobrado.
+    let guardada = existing.Item;
+    await conReintentoFactura(async (intento) => {
+      let estadoLeido = estadoOriginal;
+      if (intento > 1) {
+        const fresca = await docClient.send(
+          new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }),
+        );
+        if (!fresca.Item) throw Object.assign(new Error('Factura no encontrada'), { status: 404 });
+        const cambioDeFondo = fresca.Item.estado === 'anulada'
+          || (!esGasto && fresca.Item.estado !== estadoOriginal)
+          || String(fresca.Item.emisor_id ?? '') !== String(existing.Item.emisor_id ?? '');
+        if (cambioDeFondo) throw errorFacturaCambiada();
+        guardada = fresca.Item;
+        estadoLeido = guardada.estado;
+      }
+      const versionLeida = guardada.version;
+      aplicarEdicion(guardada, estadoLeido);
+      await docClient.send(new PutCommand(putFacturaVersionada(guardada, versionLeida)));
+    });
     await registrarAuditoria(id, 'modificacion', body.usuario_id, body.usuario_nombre, changes);
 
-    res.json({ ok: true, factura });
+    res.json({ ok: true, factura: guardada });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message, ...(err.code && { code: err.code }) });
   }
 });
 
@@ -807,22 +838,27 @@ router.post('/facturacion/facturas/:id/anular', requirePermission('facturacion.a
       return res.json({ ok: true, eliminada: true });
     }
 
+    const versionLeida = factura.version;
     factura.estado = 'anulada';
     factura.modificado_por = usuario_id || '';
     factura.modificado_en = now();
-    factura.version = (factura.version || 1) + 1;
     factura.verifactu_registro_anulacion = JSON.stringify({
       id_factura: factura.id_factura,
       motivo: motivo || '',
       timestamp: now(),
     });
 
-    await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
+    try {
+      await docClient.send(new PutCommand(putFacturaVersionada(factura, versionLeida)));
+    } catch (err) {
+      if (esConflictoEscritura(err)) throw errorFacturaCambiada();
+      throw err;
+    }
     await registrarAuditoria(id, 'anulacion', usuario_id, usuario_nombre, { motivo });
 
     res.json({ ok: true, factura });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message, ...(err.code && { code: err.code }) });
   }
 });
 
@@ -1341,6 +1377,60 @@ router.post('/facturacion/facturas/:id/pagos', requirePermission('facturacion.co
   }
 });
 
+/**
+ * Un intento de guardar la edición de un pago: recalcula el saldo sobre la
+ * factura leída y escribe pago y factura juntos, con la versión leída como
+ * condición. Muta `factura` con el resultado.
+ */
+async function guardarEdicionPago(pagoLeido, factura, { fechaIso, importeNum, metodo_pago, referencia, observaciones, usuario_id }) {
+  const versionLeida = factura.version;
+  const importeAnterior = round2(Number(pagoLeido.importe) || 0);
+  const delta = round2(importeNum - importeAnterior);
+  const nuevoTotalCobrado = round2(Math.max(0, (factura.total_cobrado || 0) + delta));
+  const nuevoSaldo = round2(factura.total_factura - nuevoTotalCobrado);
+
+  let nuevoEstado = factura.estado;
+  if (nuevoSaldo <= 0 && factura.estado !== 'anulada') {
+    nuevoEstado = factura.tipo === 'OUT' ? 'cobrada' : 'pagada';
+  } else if (nuevoTotalCobrado <= 0 && factura.estado !== 'anulada') {
+    nuevoEstado = factura.tipo === 'OUT' ? 'emitida' : 'pendiente_pago';
+  } else if (nuevoTotalCobrado > 0 && nuevoSaldo > 0) {
+    nuevoEstado = factura.tipo === 'OUT' ? 'parcialmente_cobrada' : 'parcialmente_pagada';
+  }
+
+  const pagoActualizado = {
+    ...pagoLeido,
+    fecha: fechaIso,
+    importe: importeNum,
+    metodo_pago: metodo_pago || '',
+    referencia: referencia || '',
+    observaciones: observaciones || '',
+    modificado_por: usuario_id || '',
+    modificado_en: now(),
+  };
+
+  factura.total_cobrado = nuevoTotalCobrado;
+  factura.saldo_pendiente = Math.max(0, nuevoSaldo);
+  factura.estado = nuevoEstado;
+  recalcularExcesoPendiente(factura);
+  factura.modificado_por = usuario_id || '';
+  factura.modificado_en = now();
+
+  await docClient.send(new TransactWriteCommand({
+    TransactItems: [
+      { Put: putFacturaVersionada(factura, versionLeida) },
+      {
+        Put: {
+          TableName: tables.facturasPagos,
+          Item: pagoActualizado,
+          ConditionExpression: 'attribute_exists(id_pago)',
+        },
+      },
+    ],
+  }));
+  return { pagoActualizado, importeAnterior, nuevoEstado };
+}
+
 // [SEC S-01]
 router.put('/facturacion/pagos/:id_factura/:id_pago', requirePermission('facturacion.cobrar_pagar'), async (req, res) => {
   const { id_factura, id_pago } = req.params;
@@ -1404,45 +1494,24 @@ router.put('/facturacion/pagos/:id_factura/:id_pago', requirePermission('factura
       new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura) }),
     );
     if (!facResult.Item) return res.status(404).json({ error: 'Factura no encontrada' });
-    const factura = facResult.Item;
+    let factura = facResult.Item;
     // [SEC S-08]
     if (await rejectFacturaEmisorNoPermitido(req, factura, res)) return;
 
-    const importeAnterior = round2(Number(pagoResult.Item.importe) || 0);
-    const delta = round2(importeNum - importeAnterior);
-    const nuevoTotalCobrado = round2(Math.max(0, (factura.total_cobrado || 0) + delta));
-    const nuevoSaldo = round2(factura.total_factura - nuevoTotalCobrado);
-
-    let nuevoEstado = factura.estado;
-    if (nuevoSaldo <= 0 && factura.estado !== 'anulada') {
-      nuevoEstado = factura.tipo === 'OUT' ? 'cobrada' : 'pagada';
-    } else if (nuevoTotalCobrado <= 0 && factura.estado !== 'anulada') {
-      nuevoEstado = factura.tipo === 'OUT' ? 'emitida' : 'pendiente_pago';
-    } else if (nuevoTotalCobrado > 0 && nuevoSaldo > 0) {
-      nuevoEstado = factura.tipo === 'OUT' ? 'parcialmente_cobrada' : 'parcialmente_pagada';
-    }
-
-    const pagoActualizado = {
-      ...pagoResult.Item,
-      fecha: fechaIso,
-      importe: importeNum,
-      metodo_pago: metodo_pago || '',
-      referencia: referencia || '',
-      observaciones: observaciones || '',
-      modificado_por: usuario_id || '',
-      modificado_en: now(),
-    };
-
-    await docClient.send(new PutCommand({ TableName: tables.facturasPagos, Item: pagoActualizado }));
-
-    factura.total_cobrado = nuevoTotalCobrado;
-    factura.saldo_pendiente = Math.max(0, nuevoSaldo);
-    factura.estado = nuevoEstado;
-    recalcularExcesoPendiente(factura);
-    factura.modificado_por = usuario_id || '';
-    factura.modificado_en = now();
-
-    await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
+    const cambios = { fechaIso, importeNum, metodo_pago, referencia, observaciones, usuario_id };
+    const { pagoActualizado, importeAnterior, nuevoEstado } = await conReintentoFactura(async (intento) => {
+      if (intento === 1) return guardarEdicionPago(pagoResult.Item, factura, cambios);
+      const [pagoFresco, facturaFresca] = await Promise.all([
+        docClient.send(new GetCommand({ TableName: tables.facturasPagos, Key: { id_factura, id_pago } })),
+        docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura) })),
+      ]);
+      if (!pagoFresco.Item) throw Object.assign(new Error('Pago no encontrado'), { status: 404 });
+      if (!facturaFresca.Item) throw Object.assign(new Error('Factura no encontrada'), { status: 404 });
+      // El alcance por sociedad se comprobó con la primera lectura.
+      if (String(facturaFresca.Item.emisor_id ?? '') !== String(factura.emisor_id ?? '')) throw errorFacturaCambiada();
+      factura = facturaFresca.Item;
+      return guardarEdicionPago(pagoFresco.Item, factura, cambios);
+    });
     await registrarAuditoria(id_factura, 'editar_pago', usuario_id, usuario_nombre, {
       id_pago,
       importe_anterior: importeAnterior,

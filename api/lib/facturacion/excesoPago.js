@@ -12,6 +12,7 @@ import {
   mismoParEmisorProveedor,
   etiquetaFacturaCompensable,
 } from './compensacionFactura.js';
+import { esConflictoEscritura, putFacturaVersionada } from './versionFactura.js';
 
 export const METODO_PAGO_APLICACION_EXCESO = 'aplicacion_exceso';
 
@@ -369,31 +370,22 @@ export async function aplicarExcesoPago(opts) {
   try {
     await persistirTransaccion([
       {
-        Put: {
-          TableName: tables.facturas,
-          Item: origenMut,
-          ConditionExpression: 'total_cobrado = :tcLeido',
-          ExpressionAttributeValues: { ':tcLeido': tcOrigenLeido },
-        },
+        Put: putFacturaVersionada(origenMut, origen.version, {
+          condicion: 'total_cobrado = :tcLeido',
+          valores: { ':tcLeido': tcOrigenLeido },
+        }),
       },
       {
-        Put: {
-          TableName: tables.facturas,
-          Item: destinoMut,
-          ConditionExpression: 'total_cobrado = :tcLeido',
-          ExpressionAttributeValues: { ':tcLeido': tcDestinoLeido },
-        },
+        Put: putFacturaVersionada(destinoMut, destino.version, {
+          condicion: 'total_cobrado = :tcLeido',
+          valores: { ':tcLeido': tcDestinoLeido },
+        }),
       },
-      { Put: { TableName: tables.facturasPagos, Item: pagoOrigen } },
-      { Put: { TableName: tables.facturasPagos, Item: pagoDestino } },
+      { Put: { TableName: tables.facturasPagos, Item: pagoOrigen, ConditionExpression: 'attribute_not_exists(id_pago)' } },
+      { Put: { TableName: tables.facturasPagos, Item: pagoDestino, ConditionExpression: 'attribute_not_exists(id_pago)' } },
     ]);
   } catch (err) {
-    const razones = Array.isArray(err?.CancellationReasons) ? err.CancellationReasons : [];
-    const esConflicto =
-      err?.name === 'ConditionalCheckFailedException'
-      || (err?.name === 'TransactionCanceledException'
-        && razones.some((r) => r?.Code === 'ConditionalCheckFailed'));
-    if (esConflicto) {
+    if (esConflictoEscritura(err)) {
       throw Object.assign(
         new Error(
           'Otro usuario ha modificado una de las facturas mientras se aplicaba el exceso. '

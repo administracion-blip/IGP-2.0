@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { PutCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { PutCommand, GetCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables, keyForFacturaPrincipalId } from '../db.js';
 import { queryPagosByFactura } from '../dynamo/facturasRelacionadas.js';
 import { METODO_PAGO_COMPENSACION } from './compensacionFactura.js';
@@ -7,6 +7,7 @@ import {
   METODO_PAGO_APLICACION_EXCESO,
   recalcularExcesoPendiente,
 } from './excesoPago.js';
+import { conReintentoFactura, putFacturaVersionada } from './versionFactura.js';
 
 function uuid() {
   return crypto.randomUUID();
@@ -109,26 +110,11 @@ async function registrarAuditoria(id_factura, accion, usuario_id, usuario_nombre
  * @param {string} [opts.cuenta_caja]
  * @param {string} [opts.recibo_file_key]
  * @param {string} [opts.recibo_nombre]
+ * Si otra escritura toca la factura entre la lectura y el guardado se relee y
+ * se reintenta; agotados los intentos, error 409 `FACTURA_CAMBIADA`.
  */
 export async function registrarPagoFactura(opts) {
-  const {
-    id_factura,
-    fecha,
-    importe,
-    metodo_pago = '',
-    referencia = '',
-    observaciones = '',
-    usuario_id = '',
-    usuario_nombre = '',
-    importeMaximo,
-    idempotencyKey,
-    banca_movement_hash = '',
-    banca_cuenta_ref = '',
-    permitirSobrepago = false,
-    cuenta_caja = '',
-    recibo_file_key = '',
-    recibo_nombre = '',
-  } = opts;
+  const { fecha, importe, metodo_pago = '' } = opts;
 
   const fechaIso = fechaToIsoGuardada(fecha);
   if (!fechaIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaIso)) {
@@ -154,6 +140,28 @@ export async function registrarPagoFactura(opts) {
     );
   }
 
+  return conReintentoFactura(() => registrarPagoUnaVez({ ...opts, fechaIso, importeNum }));
+}
+
+/** Lectura, cálculo y escritura de un intento; si otra escritura se adelanta, falla con conflicto. */
+async function registrarPagoUnaVez({
+  id_factura,
+  fechaIso,
+  importeNum,
+  metodo_pago = '',
+  referencia = '',
+  observaciones = '',
+  usuario_id = '',
+  usuario_nombre = '',
+  importeMaximo,
+  idempotencyKey,
+  banca_movement_hash = '',
+  banca_cuenta_ref = '',
+  permitirSobrepago = false,
+  cuenta_caja = '',
+  recibo_file_key = '',
+  recibo_nombre = '',
+}) {
   const existing = await docClient.send(
     new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura) }),
   );
@@ -161,6 +169,7 @@ export async function registrarPagoFactura(opts) {
     throw Object.assign(new Error('Factura no encontrada'), { status: 404 });
   }
   const factura = existing.Item;
+  const versionLeida = factura.version;
 
   // Idempotencia: si ya hay un pago con la misma clave, no crear otro
   if (idempotencyKey) {
@@ -228,8 +237,6 @@ export async function registrarPagoFactura(opts) {
     }),
   };
 
-  await docClient.send(new PutCommand({ TableName: tables.facturasPagos, Item: pago }));
-
   const nuevoTotalCobrado = round2((factura.total_cobrado || 0) + importeNum);
   const nuevoSaldo = round2(factura.total_factura - nuevoTotalCobrado);
 
@@ -258,7 +265,20 @@ export async function registrarPagoFactura(opts) {
   factura.modificado_por = usuario_id || '';
   factura.modificado_en = now();
 
-  await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
+  // Pago y saldo van juntos: si la factura cambió desde la lectura, o el id_pago
+  // ya lo cogió otro, no se escribe ninguno de los dos y se reintenta.
+  await docClient.send(new TransactWriteCommand({
+    TransactItems: [
+      { Put: putFacturaVersionada(factura, versionLeida) },
+      {
+        Put: {
+          TableName: tables.facturasPagos,
+          Item: pago,
+          ConditionExpression: 'attribute_not_exists(id_pago)',
+        },
+      },
+    ],
+  }));
   await registrarAuditoria(id_factura, 'pago', usuario_id, usuario_nombre, {
     importe: importeNum,
     metodo_pago,

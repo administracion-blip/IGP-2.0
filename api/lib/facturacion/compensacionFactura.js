@@ -9,6 +9,7 @@ import { docClient, tables, keyForFacturaPrincipalId } from '../db.js';
 import { queryPagosByFactura } from '../dynamo/facturasRelacionadas.js';
 import { ordinalMaximoIdPago } from './registrarPago.js';
 import { normalizeCif } from '../empresaCif.js';
+import { errorFacturaCambiada, esConflictoEscritura, putFacturaVersionada } from './versionFactura.js';
 
 export const METODO_PAGO_COMPENSACION = 'compensacion';
 
@@ -256,6 +257,15 @@ async function cargarConteosPagos(ids) {
   return conteoPagos;
 }
 
+/** Put de un pago nuevo: falla si el id_pago ya existe (otro pago concurrente lo cogió). */
+function putPagoNuevo(pago) {
+  return {
+    TableName: tables.facturasPagos,
+    Item: pago,
+    ConditionExpression: 'attribute_not_exists(id_pago)',
+  };
+}
+
 async function persistirCompensacionTransaccion(items) {
   const bloques = [];
   for (let i = 0; i < items.length; i += 100) {
@@ -400,8 +410,8 @@ export async function registrarPagoCompensacion(opts) {
   const pagosDestino = [];
   const facturasDestino = [];
   const transactItems = [
-    { Put: { TableName: tables.facturas, Item: origenMut } },
-    { Put: { TableName: tables.facturasPagos, Item: pagoOrigen } },
+    { Put: putFacturaVersionada(origenMut, origen.version) },
+    { Put: putPagoNuevo(pagoOrigen) },
   ];
 
   for (const { factura: destRaw, importe: impDest } of reparto) {
@@ -424,13 +434,18 @@ export async function registrarPagoCompensacion(opts) {
       usuario_id,
     });
 
-    transactItems.push({ Put: { TableName: tables.facturas, Item: destMut } });
-    transactItems.push({ Put: { TableName: tables.facturasPagos, Item: pagoDest } });
+    transactItems.push({ Put: putFacturaVersionada(destMut, destRaw.version) });
+    transactItems.push({ Put: putPagoNuevo(pagoDest) });
     pagosDestino.push(pagoDest);
     facturasDestino.push(destMut);
   }
 
-  await persistirCompensacionTransaccion(transactItems);
+  try {
+    await persistirCompensacionTransaccion(transactItems);
+  } catch (err) {
+    if (esConflictoEscritura(err)) throw errorFacturaCambiada();
+    throw err;
+  }
 
   for (const destMut of facturasDestino) {
     await registrarAuditoria(destMut.id_factura, 'pago_compensacion', usuario_id, usuario_nombre, {

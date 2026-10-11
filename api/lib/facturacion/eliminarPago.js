@@ -12,7 +12,7 @@
  * con `status` y `code` para que el router los traduzca a HTTP.
  */
 
-import { DeleteCommand, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, PutCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables, keyForFacturaPrincipalId } from '../db.js';
 import { findRemesaActivaDeFactura } from '../remesas/facturaEnRemesa.js';
 import { METODO_PAGO_COMPENSACION } from './compensacionFactura.js';
@@ -21,6 +21,7 @@ import {
   assertSinAplicacionesExcesoEnFactura,
   recalcularExcesoPendiente,
 } from './excesoPago.js';
+import { conReintentoFactura, putFacturaVersionada } from './versionFactura.js';
 
 function now() {
   return new Date().toISOString();
@@ -89,6 +90,27 @@ export async function eliminarPagoFactura({
   const idPago = String(id_pago || '').trim();
   if (!idFactura || !idPago) throw error(400, 'Faltan la factura y el pago a eliminar');
 
+  // En los reintentos se relee: la factura que pasó quien llama ya no vale.
+  return conReintentoFactura((intento) => eliminarPagoUnaVez({
+    idFactura,
+    idPago,
+    usuario_id,
+    usuario_nombre,
+    facturaPrevia: intento === 1 ? facturaPrevia : null,
+    accionAuditoria,
+    detalleAuditoria,
+  }));
+}
+
+async function eliminarPagoUnaVez({
+  idFactura,
+  idPago,
+  usuario_id,
+  usuario_nombre,
+  facturaPrevia,
+  accionAuditoria,
+  detalleAuditoria,
+}) {
   let factura = facturaPrevia;
   if (!factura) {
     const result = await docClient.send(
@@ -131,10 +153,7 @@ export async function eliminarPagoFactura({
   // borrar otro pago dejaría crédito/cobro huérfano en la contraparte.
   await assertSinAplicacionesExcesoEnFactura(idFactura);
 
-  await docClient.send(
-    new DeleteCommand({ TableName: tables.facturasPagos, Key: { id_factura: idFactura, id_pago: idPago } }),
-  );
-
+  const versionLeida = factura.version;
   const nuevoTotalCobrado = round2(Math.max(0, (factura.total_cobrado || 0) - (Number(pago.importe) || 0)));
   const nuevoSaldo = round2((Number(factura.total_factura) || 0) - nuevoTotalCobrado);
 
@@ -144,7 +163,19 @@ export async function eliminarPagoFactura({
   recalcularExcesoPendiente(factura);
   factura.modificado_en = now();
 
-  await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
+  // Borrado y saldo juntos: dos borrados del mismo pago no restan dos veces.
+  await docClient.send(new TransactWriteCommand({
+    TransactItems: [
+      { Put: putFacturaVersionada(factura, versionLeida) },
+      {
+        Delete: {
+          TableName: tables.facturasPagos,
+          Key: { id_factura: idFactura, id_pago: idPago },
+          ConditionExpression: 'attribute_exists(id_pago)',
+        },
+      },
+    ],
+  }));
   await registrarAuditoria(idFactura, accionAuditoria, usuario_id, usuario_nombre, {
     id_pago: idPago,
     importe: pago.importe,
