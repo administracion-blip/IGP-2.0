@@ -10,6 +10,13 @@ import test, { after, afterEach } from 'node:test';
 import { strict as assert } from 'node:assert';
 import http from 'node:http';
 import express from 'express';
+import { S3Client } from '@aws-sdk/client-s3';
+
+const subidasS3 = [];
+S3Client.prototype.send = async (cmd) => {
+  subidasS3.push(cmd.input?.Key);
+  return {};
+};
 
 process.env.AWS_REGION = process.env.AWS_REGION || 'eu-west-3';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'secreto-solo-para-las-pruebas-de-alcance-actuaciones';
@@ -101,6 +108,7 @@ function montar() {
   db.sembrar(tables.actuaciones, actuacion('A-NORTE', '000010', { id_artista: 'art-1', artista_nombre_snapshot: 'Trío Jazz' }));
   db.sembrar(tables.actuaciones, actuacion('A-SUR', '000020', { id_artista: 'art-1', artista_nombre_snapshot: 'Trío Jazz' }));
   db.sembrar(tables.actuaciones, actuacion('A-NORTE-2', '000010', { hora_inicio: '23:00' }));
+  subidasS3.length = 0;
   invalidarContextoAcceso();
   invalidarMaestroLocales();
   return db;
@@ -221,4 +229,68 @@ test('las lecturas de Dynamo por petición no crecen con el número de actuacion
       assert.equal(await lecturas(40, ruta, usuario), await lecturas(2, ruta, usuario), `${usuario.sub} ${ruta}`);
     }
   }
+});
+
+// ─── Firma ───
+
+async function firmar(id, usuario = ENCARGADO_NORTE) {
+  usuarioActual = usuario;
+  await arrancar();
+  const form = new FormData();
+  form.append('file', new Blob([Buffer.from('png-falso')], { type: 'image/png' }), 'firma.png');
+  const res = await fetch(`${base}/api/actuaciones/item/${id}/firma`, { method: 'POST', body: form });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
+
+test('firmar una actuación de un local ajeno: 403 sin subir nada a S3 ni tocar el registro', async () => {
+  montar();
+  const antes = db.obtener(tables.actuaciones, { id_actuacion: 'A-SUR' });
+  const r = await firmar('A-SUR');
+  assert.equal(r.status, 403);
+  assert.equal(r.body.error, 'No tienes acceso a este local');
+  assert.deepEqual(subidasS3, []);
+  assert.deepEqual(db.obtener(tables.actuaciones, { id_actuacion: 'A-SUR' }), antes);
+});
+
+test('firmar una actuación inexistente: 404 sin subir nada a S3', async () => {
+  montar();
+  const r = await firmar('NO-EXISTE');
+  assert.equal(r.status, 404);
+  assert.deepEqual(subidasS3, []);
+});
+
+test('firmar en su local sube la firma y marca la actuación; volver a firmar sigue permitido (flujo del front)', async () => {
+  montar();
+  const r = await firmar('A-NORTE');
+  assert.equal(r.status, 200);
+  assert.equal(subidasS3.length, 1);
+  const firmada = db.obtener(tables.actuaciones, { id_actuacion: 'A-NORTE' });
+  assert.equal(firmada.estado, 'firmada');
+  assert.equal(firmada.firma_artista_key, subidasS3[0]);
+  assert.ok(firmada.firma_artista_key.startsWith('actuaciones/A-NORTE/firma_'));
+
+  const otra = await firmar('A-NORTE');
+  assert.equal(otra.status, 200);
+  assert.equal(subidasS3.length, 2);
+});
+
+test('PUT no acepta campos de firma: firma_artista_key y fecha_firma no cambian', async () => {
+  montar();
+  assert.equal((await firmar('A-NORTE')).status, 200);
+  const antes = db.obtener(tables.actuaciones, { id_actuacion: 'A-NORTE' });
+  const r = await api('PUT', '/api/actuaciones/item/A-NORTE', {
+    observaciones: 'Todo bien',
+    firma_artista_key: 'actuaciones/A-SUR/firma_robada.png',
+    fecha_firma: '2000-01-01T00:00:00.000Z',
+    forzar_conflicto: true,
+  });
+  assert.equal(r.status, 200);
+  const despues = db.obtener(tables.actuaciones, { id_actuacion: 'A-NORTE' });
+  assert.equal(despues.observaciones, 'Todo bien');
+  assert.equal(despues.firma_artista_key, antes.firma_artista_key);
+  assert.equal(despues.fecha_firma, antes.fecha_firma);
+
+  const vacia = await api('PUT', '/api/actuaciones/item/A-NORTE-2', { firma_artista_key: 'actuaciones/x/firma.png' });
+  assert.equal(vacia.status, 200);
+  assert.equal(db.obtener(tables.actuaciones, { id_actuacion: 'A-NORTE-2' }).firma_artista_key, '');
 });

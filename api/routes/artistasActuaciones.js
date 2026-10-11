@@ -878,8 +878,6 @@ router.put('/actuaciones/item/:id', async (req, res) => {
     'importe_previsto',
     'importe_final',
     'estado',
-    'firma_artista_key',
-    'fecha_firma',
     'observaciones',
     'valoracion',
     'id_factura_gasto',
@@ -956,6 +954,8 @@ router.post('/actuaciones/item/:id/firma', upload.single('file'), async (req, re
   }
   if (!req.file?.buffer) return res.status(400).json({ error: 'Falta archivo (field: file)' });
   const id = req.params.id;
+  const r = await docClient.send(new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: id } }));
+  if (!(await assertAccesoLocalActuacion(req, res, r.Item))) return;
   const ext = (req.file.originalname || 'firma.png').match(/\.([a-zA-Z0-9]{1,8})$/)?.[1] || 'png';
   const key = `actuaciones/${id}/firma_${Date.now()}.${ext}`;
   await s3.send(
@@ -966,8 +966,6 @@ router.post('/actuaciones/item/:id/firma', upload.single('file'), async (req, re
       ContentType: req.file.mimetype || 'image/png',
     })
   );
-  const r = await docClient.send(new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: id } }));
-  if (!(await assertAccesoLocalActuacion(req, res, r.Item))) return;
   const ts = now();
   const item = {
     ...r.Item,
