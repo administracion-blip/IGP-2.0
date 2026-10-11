@@ -20,6 +20,7 @@ import { validateEnv } from './lib/validateEnv.js';
 import { helmetOptions } from './lib/helmetOptions.js';
 import { origenesDeEntorno, origenesPermitidos } from './lib/corsOrigins.js';
 import { crearLimitadoresAuth } from './lib/seguridad/limitadoresAuth.js';
+import { safeEqual } from './lib/seguridad/safeEqual.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { tables } from './lib/db.js';
 import { requireAuth } from './middleware/auth.js';
@@ -187,9 +188,7 @@ const agoraProductsSyncLimiter = rateLimit({
   max: parseInt(process.env.RATE_LIMIT_AGORA_SYNC_MAX || '10', 10),
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) =>
-    !!process.env.INTERNAL_SYNC_SECRET &&
-    req.headers['x-internal-secret'] === process.env.INTERNAL_SYNC_SECRET,
+  skip: (req) => safeEqual(req.headers['x-internal-secret'], process.env.INTERNAL_SYNC_SECRET),
   message: { error: 'Demasiadas sincronizaciones seguidas. Espera un momento e inténtalo de nuevo.' },
 });
 app.post('/api/agora/products/sync', agoraProductsSyncLimiter);

@@ -1,5 +1,6 @@
 import { verifyToken, PREFIJO_SUB_SISTEMA } from '../lib/jwt.js';
 import { cargarContextoAcceso, normalizarTokenVersion } from '../lib/tasks/acceso.js';
+import { safeEqual } from '../lib/seguridad/safeEqual.js';
 import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 import { INTERNAL_SYNC_POST_PATHS, normalizeApiPathname } from '../lib/internalSync.js';
@@ -14,7 +15,7 @@ export function requireAuth(req, res, next) {
     const pathname = normalizeApiPathname(req);
     if (
       INTERNAL_SYNC_POST_PATHS.has(pathname) &&
-      req.headers['x-internal-secret'] === internalSecret
+      safeEqual(req.headers['x-internal-secret'], internalSecret)
     ) {
       // [SEC S-13] Allowlist IP opcional para el bypass x-internal-secret
       const allowlistRaw = (process.env.INTERNAL_SYNC_IP_ALLOWLIST || '').trim();

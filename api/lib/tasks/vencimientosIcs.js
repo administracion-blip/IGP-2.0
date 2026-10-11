@@ -14,6 +14,7 @@ import crypto from 'node:crypto';
 import { GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
 import { logger } from '../logger.js';
+import { safeEqual } from '../seguridad/safeEqual.js';
 import { FECHA_SIN_LIMITE, PREFIJO_VENCIMIENTO_HECHA } from './tipos.js';
 
 export const ICS_AJUSTE_PK = 'tareas';
@@ -96,7 +97,7 @@ export async function validarTokenIcs(token) {
       }),
     );
     const item = r.Item;
-    if (!item || texto(item.token_hash) !== hashTokenIcs(bruto)) {
+    if (!item || !safeEqual(texto(item.token_hash), hashTokenIcs(bruto))) {
       return { ok: false, error: 'Token no válido' };
     }
     return { ok: true, usuarioId: uid };

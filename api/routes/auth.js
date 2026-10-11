@@ -10,6 +10,7 @@ import { normalizarIdsDepartamento } from '../lib/tasks/departamentos.js';
 import { invalidarContextoAcceso, normalizarTokenVersion } from '../lib/tasks/acceso.js';
 import { enviarEmail, smtpConfigurado } from '../lib/email.js';
 import { origenesPermitidos } from '../lib/corsOrigins.js';
+import { safeEqual } from '../lib/seguridad/safeEqual.js';
 import {
   MIN_PASSWORD_LENGTH,
   hashPassword,
@@ -270,16 +271,7 @@ router.post('/reset-password', async (req, res) => {
     return res.status(400).json(invalido);
   }
 
-  // Comparación en tiempo constante del hash del token.
-  const candidato = Buffer.from(hashResetToken(token));
-  const almacenado = Buffer.from(String(user.ResetTokenHash));
-  let tokenValido = false;
-  try {
-    tokenValido = candidato.length === almacenado.length && crypto.timingSafeEqual(candidato, almacenado);
-  } catch {
-    tokenValido = false;
-  }
-  if (!tokenValido) {
+  if (!safeEqual(hashResetToken(token), String(user.ResetTokenHash))) {
     return res.status(400).json(invalido);
   }
 
