@@ -11,8 +11,10 @@ import {
   cargarAlcance,
   permiteLocal,
   registrarObservacion,
+  modoLecturas,
   MENSAJE_SIN_ACCESO_LOCAL,
 } from '../lib/alcance.js';
+import { avisarDenegaria } from '../lib/alcanceLecturas.js';
 
 function valoresDe(bruto) {
   if (bruto == null) return [];
@@ -93,6 +95,30 @@ export function requireLocal(extraer, { tipo = 'workplaceId', modo = 'bloquear' 
         return next();
       }
       return denegar(res);
+    } catch (err) {
+      return fallo(res, err);
+    }
+  };
+}
+
+/**
+ * Como `requireLocal`, pero para lecturas: sigue `modoLecturas()` en cada petición
+ * ('observar' avisa y deja pasar; 'bloquear' responde 403).
+ *
+ * @param {(req: object) => unknown} extraer
+ * @param {{ tipo?: 'workplaceId'|'agoraCode'|'idLocal'|'nombre' }} [opciones]
+ */
+export function requireLocalLectura(extraer, { tipo = 'workplaceId' } = {}) {
+  return async (req, res, next) => {
+    try {
+      const alcance = await cargarAlcance(req);
+      if (alcance.global) return next();
+      const valores = valoresDe(extraer(req));
+      const ok = valores.length > 0 && valores.every((v) => permiteLocal(alcance, { [tipo]: v }));
+      if (ok) return next();
+      if (modoLecturas() === 'bloquear') return denegar(res);
+      avisarDenegaria(req, valores.length > 0 ? valores : ['']);
+      return next();
     } catch (err) {
       return fallo(res, err);
     }
