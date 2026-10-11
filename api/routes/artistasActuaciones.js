@@ -21,8 +21,14 @@ import {
   puedeFirmarActuacionApi,
   esActualizacionSeguimiento,
 } from '../lib/permisosModulos.js';
-import { usuarioPuedeAccederLocal, jornadaNegocioHoyIso } from '../lib/usuarioLocales.js';
-import { cargarAlcance, permiteEmpresa, permiteLocal, MENSAJE_SIN_ACCESO_LOCAL } from '../lib/alcance.js';
+import { jornadaNegocioHoyIso } from '../lib/usuarioLocales.js';
+import {
+  cargarAlcance,
+  permiteEmpresa,
+  permiteLocal,
+  filtrarPorLocal,
+  MENSAJE_SIN_ACCESO_LOCAL,
+} from '../lib/alcance.js';
 import { camposFechaVirtuales } from '../lib/actuacionFechaVirtual.js';
 
 const router = Router();
@@ -201,12 +207,15 @@ async function recomputarValoracionMediaArtista(idArtista) {
   }));
 }
 
-async function filtrarActuacionesPorLocal(user, items) {
-  const out = [];
-  for (const a of items) {
-    if (await usuarioPuedeAccederLocal(user, a.id_local)) out.push(a);
-  }
-  return out;
+const refLocalActuacion = (a) => ({ idLocal: a.id_local });
+
+/** Los listados de actuaciones filtran siempre por local, no siguen `modoLecturas()`. */
+async function filtrarActuacionesPorLocal(req, items) {
+  return filtrarPorLocal(await cargarAlcance(req), items, refLocalActuacion);
+}
+
+async function puedeLocalActuacion(req, idLocal) {
+  return permiteLocal(await cargarAlcance(req), { idLocal });
 }
 
 async function assertAccesoLocalActuacion(req, res, actuacion) {
@@ -214,8 +223,8 @@ async function assertAccesoLocalActuacion(req, res, actuacion) {
     res.status(404).json({ error: 'Actuación no encontrada' });
     return false;
   }
-  if (!(await usuarioPuedeAccederLocal(req.user, actuacion.id_local))) {
-    res.status(403).json({ error: 'No tienes acceso a este local' });
+  if (!(await puedeLocalActuacion(req, actuacion.id_local))) {
+    res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
     return false;
   }
   return true;
@@ -700,11 +709,8 @@ router.get('/actuaciones/dia/total', requireAnyPermission('actuaciones.ver', 'pl
   try {
     const fecha = RE_FECHA.test(String(req.query.fecha || '')) ? String(req.query.fecha) : jornadaNegocioHoyIso();
     const items = await scanAll(tables.actuaciones);
-    let total = 0;
-    for (const a of items) {
-      if (String(a.fecha || '') !== fecha) continue;
-      if (await usuarioPuedeAccederLocal(req.user, a.id_local)) total += 1;
-    }
+    const delDia = items.filter((a) => String(a.fecha || '') === fecha);
+    const total = (await filtrarActuacionesPorLocal(req, delDia)).length;
     return res.json({ total, fecha });
   } catch (err) {
     console.error('[actuaciones dia/total GET]', err.message || err);
@@ -733,7 +739,7 @@ router.get('/actuaciones', async (req, res) => {
   if (estado) items = items.filter((x) => String(x.estado || '') === String(estado));
   if (fechaDesde) items = items.filter((x) => String(x.fecha || '') >= String(fechaDesde));
   if (fechaHasta) items = items.filter((x) => String(x.fecha || '') <= String(fechaHasta));
-  items = await filtrarActuacionesPorLocal(req.user, items);
+  items = await filtrarActuacionesPorLocal(req, items);
   items.sort((a, b) => {
     const cf = String(a.fecha || '').localeCompare(String(b.fecha || ''));
     if (cf !== 0) return cf;
@@ -837,8 +843,8 @@ router.post('/actuaciones', async (req, res) => {
       return res.status(409).json({ conflicto: true, otro: actuacionResumenConflicto(otro) });
     }
   }
-  if (item.id_local && !(await usuarioPuedeAccederLocal(req.user, item.id_local))) {
-    return res.status(403).json({ error: 'No tienes acceso a este local' });
+  if (item.id_local && !(await puedeLocalActuacion(req, item.id_local))) {
+    return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
   }
   await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: item }));
   res.json({ ok: true, actuacion: enriquecerFechaActuacion(item) });
@@ -898,8 +904,8 @@ router.put('/actuaciones/item/:id', async (req, res) => {
     }
   }
   if (body.fecha != null) item.fecha = fechaAIso(String(body.fecha));
-  if (item.id_local && !(await usuarioPuedeAccederLocal(req.user, item.id_local))) {
-    return res.status(403).json({ error: 'No tienes acceso a este local' });
+  if (item.id_local && !(await puedeLocalActuacion(req, item.id_local))) {
+    return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
   }
   // Sello de auditoría de la valoración (servidor): quién y cuándo valoró.
   if (body.valoracion !== undefined) {

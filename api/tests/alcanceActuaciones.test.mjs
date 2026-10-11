@@ -174,3 +174,51 @@ test('mover-artista-aqui con alcance global cruza locales', async () => {
   assert.equal(r.status, 200);
   assert.equal(db.obtener(tables.actuaciones, { id_actuacion: 'A-SUR' }).id_artista, '');
 });
+
+// ─── Listados: filtran de verdad en cualquier modo ───
+
+const idsDe = (r) => r.body.actuaciones.map((a) => a.id_actuacion).sort();
+
+test('GET /actuaciones: el restringido solo ve su local (observar y bloquear); el global, todo', async () => {
+  for (const m of [undefined, 'observar', 'bloquear']) {
+    montar();
+    modo(m);
+    const r = await api('GET', '/api/actuaciones');
+    assert.equal(r.status, 200);
+    assert.deepEqual(idsDe(r), ['A-NORTE', 'A-NORTE-2'], String(m));
+    const ajeno = await api('GET', '/api/actuaciones?id_local=000020');
+    assert.deepEqual(ajeno.body.actuaciones, [], String(m));
+    const global = await api('GET', '/api/actuaciones', undefined, OFICINA);
+    assert.deepEqual(idsDe(global), ['A-NORTE', 'A-NORTE-2', 'A-SUR'], String(m));
+  }
+});
+
+test('GET /actuaciones/dia/total cuenta solo su local; el global, todo', async () => {
+  montar();
+  const r = await api('GET', '/api/actuaciones/dia/total?fecha=2026-09-05');
+  assert.deepEqual(r.body, { total: 2, fecha: '2026-09-05' });
+  const global = await api('GET', '/api/actuaciones/dia/total?fecha=2026-09-05', undefined, OFICINA);
+  assert.equal(global.body.total, 3);
+});
+
+test('las lecturas de Dynamo por petición no crecen con el número de actuaciones', async () => {
+  // Token vivo de un usuario ya borrado: su contexto no se cachea, así que una
+  // comprobación por fila haría una lectura de igp_usuarios por fila.
+  const BORRADO = { sub: '000079', email: 'borrado@grupo.test', rol: ROL };
+  async function lecturas(filas, ruta, usuario) {
+    montar();
+    for (let i = 0; i < filas; i += 1) {
+      db.sembrar(tables.actuaciones, actuacion(`X-${i}`, i % 2 ? '000010' : '000020'));
+    }
+    const desde = db.operaciones.length;
+    const r = await api('GET', ruta, undefined, usuario);
+    assert.equal(r.status, 200);
+    if (usuario === BORRADO) assert.ok(r.body.total === 0 || r.body.actuaciones?.length === 0);
+    return db.operaciones.length - desde;
+  }
+  for (const usuario of [ENCARGADO_NORTE, BORRADO]) {
+    for (const ruta of ['/api/actuaciones', '/api/actuaciones/dia/total?fecha=2026-09-05']) {
+      assert.equal(await lecturas(40, ruta, usuario), await lecturas(2, ruta, usuario), `${usuario.sub} ${ruta}`);
+    }
+  }
+});
