@@ -95,6 +95,17 @@ function analizar(tokens) {
       const hasta = operando();
       return { tipo: 'between', izq, desde, hasta };
     }
+    if (op?.toUpperCase?.() === 'IN') {
+      comer();
+      comer('(');
+      const lista = [operando()];
+      while (mirar() === ',') {
+        comer(',');
+        lista.push(operando());
+      }
+      comer(')');
+      return { tipo: 'in', izq, lista };
+    }
     if (['=', '<>', '<', '<=', '>', '>='].includes(op)) {
       comer();
       return { tipo: 'comparacion', op, izq, der: operando() };
@@ -188,6 +199,11 @@ function evaluar(nodo, item, ctx) {
       const c1 = comparar(v, valorDe(nodo.desde, item, ctx));
       const c2 = comparar(v, valorDe(nodo.hasta, item, ctx));
       return Number.isNaN(c1) || Number.isNaN(c2) ? false : c1 >= 0 && c2 <= 0;
+    }
+    case 'in': {
+      const v = valorDe(nodo.izq, item, ctx);
+      if (v === undefined) return false;
+      return nodo.lista.some((n) => comparar(v, valorDe(n, item, ctx)) === 0);
     }
     case 'comparacion': {
       const a = valorDe(nodo.izq, item, ctx);

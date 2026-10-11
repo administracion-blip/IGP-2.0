@@ -6,10 +6,11 @@
  *  - mia.configurar (productos + calendario informativo)
  *  - mia.sincronizar
  *  - mia.calcular
- *  - mia.aprobar (ajustar / aprobar → PurchaseOrders Ágora)
+ *  - mia.aprobar (ajustar / aprobar → PurchaseOrders Ágora en borrador)
+ *  - mia.confirmar_agora (aprobar enviando el PurchaseOrder ya 'Confirmed')
  */
 import { Router } from 'express';
-import { requireAnyPermission, requirePermission } from '../middleware/auth.js';
+import { hasPermission, requireAnyPermission, requirePermission } from '../middleware/auth.js';
 import { listConfigByWarehouse, upsertConfigProducto } from '../lib/mia/configProducto.js';
 import { buildMapaLocalAlmacen } from '../lib/mia/localAlmacen.js';
 import {
@@ -365,9 +366,17 @@ router.post('/mia/informes/:id/aprobar', requirePermission('mia.aprobar'), async
   if (!id) return res.status(400).json({ error: 'id de informe obligatorio' });
   const body = req.body || {};
   if (!(await permiteInforme(req, id))) return sinAcceso(res);
+  // Sin permiso no se degrada a borrador: quien pidió confirmar tiene que saber que no se hizo.
+  const pideConfirmado = String(body.statusAgora ?? '').trim() === 'Confirmed';
+  if (pideConfirmado && !req.isInternal && !(await hasPermission(req.user, 'mia.confirmar_agora'))) {
+    return res.status(403).json({
+      ok: false,
+      error: 'No tienes permiso para enviar el pedido a Ágora como confirmado; apruébalo como borrador',
+    });
+  }
   try {
     const result = await aprobarInformeMia(id, {
-      statusAgora: body.statusAgora,
+      statusAgora: pideConfirmado ? 'Confirmed' : 'Draft',
       force: body.force === true || body.force === 'true',
       usuario: req.user,
     });

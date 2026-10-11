@@ -171,7 +171,8 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `mia.configurar` | MIA · Configurar productos, calendario de pedidos y agrupaciones de familias |
 | `mia.sincronizar` | MIA · Sincronizar stocks desde Ágora |
 | `mia.calcular` | MIA · Calcular pedido recomendado (`POST /api/mia/calcular`) |
-| `mia.aprobar` | MIA · Aprobar y enviar a Ágora / PDF (reservado Fase 3+) |
+| `mia.aprobar` | MIA · Aprobar y enviar a Ágora / PDF (reservado Fase 3+). El pedido se crea en Ágora como borrador (`Draft`) |
+| `mia.confirmar_agora` | MIA · Aprobar enviando el pedido a Ágora ya confirmado (`statusAgora: 'Confirmed'`); sin él → 403 |
 | `escandallos.ver` | Escandallos IGP · Ver recetas (cabecera y líneas) |
 | `escandallos.editar` | Escandallos IGP · Crear, editar y borrar recetas |
 | `acuerdos.ver` | Acuerdos · Ver |
