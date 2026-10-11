@@ -117,7 +117,8 @@ import { cargarAlcance, permiteEmpresa, filtrarPorEmpresa, MENSAJE_SIN_ACCESO_EM
 import { filtrarLecturaPorEmpresa } from '../lib/alcanceSociedad.js';
 import { emisoresDeFacturas } from '../lib/facturacion/emisorDeFacturas.js';
 import crypto from 'crypto';
-import { enviarEmail, escapeHtml, textoPlanoAHtml } from '../lib/email.js';
+import { enviarEmail, escapeHtml, textoPlanoAHtml, errorDestinatarioRechazado } from '../lib/email.js';
+import { logger } from '../lib/logger.js';
 import multer from 'multer';
 import {
   multerFacturaFileFilter,
@@ -1768,7 +1769,14 @@ router.post('/facturacion/facturas/:id/enviar-email', requirePermission('factura
 
     res.json({ ok: true, message: `Email enviado a ${destinatario}` });
   } catch (err) {
-    responderError(res, err);
+    const rechazo = errorDestinatarioRechazado(err);
+    if (rechazo) {
+      logger.warn(
+        { smtp: { code: err.code, responseCode: err.responseCode, command: err.command }, id_factura: id },
+        '[enviar-email] destinatario rechazado por el SMTP',
+      );
+    }
+    responderError(res, rechazo || err);
   }
 });
 

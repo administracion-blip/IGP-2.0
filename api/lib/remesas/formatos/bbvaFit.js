@@ -57,7 +57,12 @@ export const bbvaFitFormato = {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile(PLANTILLA_PATH);
     const ws = wb.getWorksheet(HOJA);
-    if (!ws) throw new Error(`Hoja "${HOJA}" no encontrada en plantilla BBVA FIT`);
+    if (!ws) {
+      throw Object.assign(
+        new Error(`La plantilla BBVA FIT no tiene la hoja "${HOJA}"; revisa la plantilla de remesas configurada en el servidor`),
+        { status: 422 },
+      );
+    }
 
     const lineas = Array.isArray(remesa.lineas) ? remesa.lineas : [];
     const importeTotal = round2(lineas.reduce((s, l) => s + (Number(l.importe) || 0), 0));

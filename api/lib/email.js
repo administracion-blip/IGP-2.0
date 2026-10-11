@@ -34,6 +34,24 @@ export function smtpConfigurado() {
   return Boolean(process.env.SMTP_USER);
 }
 
+export const MENSAJE_DESTINATARIO_RECHAZADO = 'El servidor de correo rechazó el destinatario; revisa la dirección';
+
+const CODIGOS_SMTP_DESTINATARIO = new Set([550, 553]);
+
+/**
+ * Error 400 para el cliente si `err` es un rechazo SMTP del destinatario (nodemailer:
+ * `code: 'EENVELOPE'` o `responseCode` 550/553 en el RCPT TO); `null` si es otro fallo.
+ * El texto del servidor SMTP no se copia al mensaje.
+ */
+export function errorDestinatarioRechazado(err) {
+  if (!err || typeof err !== 'object') return null;
+  const comando = String(err.command || '').trim().toUpperCase();
+  if (comando && !comando.startsWith('RCPT')) return null;
+  const rechazo = err.code === 'EENVELOPE' || CODIGOS_SMTP_DESTINATARIO.has(Number(err.responseCode));
+  if (!rechazo) return null;
+  return Object.assign(new Error(MENSAJE_DESTINATARIO_RECHAZADO), { status: 400 });
+}
+
 /**
  * Envía un email. `attachments` sigue el formato de nodemailer
  * (p. ej. `[{ filename, content: Buffer, contentType }]`).

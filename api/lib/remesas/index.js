@@ -14,6 +14,11 @@ export function listarFormatosRemesa() {
 
 export async function generarFicheroRemesa(remesa) {
   const formato = getFormatoRemesa(remesa.banco || 'BBVA_FIT');
-  if (!formato) throw new Error(`Formato de remesa no soportado: ${remesa.banco}`);
+  if (!formato) {
+    throw Object.assign(
+      new Error('El formato bancario de la remesa no está soportado; revisa el banco configurado en la remesa'),
+      { status: 422 },
+    );
+  }
   return formato.generar(remesa);
 }
