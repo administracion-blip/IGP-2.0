@@ -24,6 +24,7 @@ import {
   calcularSaldoPendiente,
 } from '../lib/remesas/resolverDatos.js';
 import { validarIban } from '../lib/remesas/iban.js';
+import { esCuentaDeSociedad } from '../lib/remesas/cuentaOrdenante.js';
 import { truncarNombreFit } from '../lib/remesas/concepto.js';
 import { generarFicheroRemesa } from '../lib/remesas/index.js';
 import { facturaEnRemesaActiva } from '../lib/remesas/facturaEnRemesa.js';
@@ -84,6 +85,16 @@ async function scanEmpresas() {
     lastKey = r.LastEvaluatedKey || null;
   } while (lastKey);
   return items;
+}
+
+async function getEmpresa(idEmpresa) {
+  if (!idEmpresa) return null;
+  const r = await docClient.send(new GetCommand({ TableName: tables.empresas, Key: { id_empresa: idEmpresa } }));
+  return r.Item || null;
+}
+
+function errorCuentaAjena(iban) {
+  return `La cuenta ordenante ${iban} no es una cuenta registrada de la sociedad ordenante. Elige una de sus cuentas o dala de alta en la ficha de la empresa.`;
 }
 
 async function getRemesa(remesaId) {
@@ -207,6 +218,9 @@ router.post('/remesas', requirePermission('remesas.gestionar'), async (req, res)
       if (!v.valido) return res.status(400).json({ error: v.motivo || 'IBAN ordenante inválido' });
       cuentaOrdenante = v.iban;
     }
+    if (!(await esCuentaDeSociedad(cuentaOrdenante, empresaSoc, sociedadId))) {
+      return res.status(400).json({ error: errorCuentaAjena(cuentaOrdenante) });
+    }
 
     const usuario = req.user || {};
     const remesa = {
@@ -279,6 +293,9 @@ router.patch('/remesas/:remesaId', requirePermission('remesas.gestionar'), async
     if (b.cuentaOrdenante !== undefined) {
       const v = validarIban(b.cuentaOrdenante);
       if (!v.valido) return res.status(400).json({ error: v.motivo });
+      if (!(await esCuentaDeSociedad(v.iban, await getEmpresa(remesa.sociedadId), remesa.sociedadId))) {
+        return res.status(400).json({ error: errorCuentaAjena(v.iban) });
+      }
       remesa.cuentaOrdenante = v.iban;
     }
     if (b.sufijoOrdenante !== undefined) {
@@ -394,6 +411,12 @@ router.get('/remesas/:remesaId/fichero', requirePermission('remesas.gestionar'),
     if (remesa.estado === 'Ejecutada') return res.status(409).json({ error: 'La remesa ya está ejecutada' });
     if (!remesa.lineas?.length) return res.status(400).json({ error: 'Sin líneas en la remesa' });
     const estadoLeido = remesa.estado;
+
+    if (!(await esCuentaDeSociedad(remesa.cuentaOrdenante, await getEmpresa(remesa.sociedadId), remesa.sociedadId))) {
+      return res.status(409).json({
+        error: `La cuenta ordenante ${remesa.cuentaOrdenante || '(vacía)'} ya no es una cuenta registrada de la sociedad ordenante. Revisa la cuenta de la remesa antes de generar el fichero.`,
+      });
+    }
 
     const recalculo = await recalcularDesdeFacturas(remesa);
     if (!recalculo.ok) return respuestaLineasInvalidas(res, recalculo.invalidas);
