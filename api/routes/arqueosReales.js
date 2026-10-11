@@ -29,6 +29,7 @@ import { ibanPredeterminadoDeEmpresa } from '../lib/empresaIban.js';
 import { queryMovimientosLocalRango, agregarCashflowPorLocal } from '../lib/cashflow/store.js';
 import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
 import { requireLocal, requireLocales, requireLocalClaveS3, desde } from '../middleware/alcance.js';
+import { cargarAlcance, claveS3AjenaAlLocal } from '../lib/alcance.js';
 
 /** Hacer arqueo de caja: mismo criterio que puedeArqueoCaja en el frontend. */
 const permisoArqueo = requireAnyPermission('planning_dia.arqueo', 'cierres.ver');
@@ -243,9 +244,11 @@ function sanitizeEfectivoConteo(body) {
 
 const LINE_ID_RE = /^[\w-]{1,64}$/;
 
+const TICKET_PREFIX = 'arqueos-tickets/';
+
 function validTicketKey(key) {
   if (!key || typeof key !== 'string') return false;
-  return key.startsWith('arqueos-tickets/') && !key.includes('..');
+  return key.startsWith(TICKET_PREFIX) && !key.includes('..');
 }
 
 // GET /api/cajas/arqueos-reales?workplaceId=&businessDay=opcional
@@ -414,7 +417,7 @@ router.post('/cajas/arqueos-reales/ocr-ticket', permisoArqueo, uploadOcr.single(
 // GET /api/cajas/arqueos-reales/ticket-image-url?key=arqueos-tickets/...[&pk=&sk=]
 // arqueos-tickets/{workplaceId}/...: exige ese local. Carpeta 'anon': los restringidos
 // mandan pk (workplaceId) y sk del arqueo cuya tarjetaLineas[].imagenKey es la clave.
-const localClaveTicket = requireLocalClaveS3('arqueos-tickets/', {
+const localClaveTicket = requireLocalClaveS3(TICKET_PREFIX, {
   leerRegistro: async (pk, sk) =>
     (await docClient.send(new GetCommand({ TableName: tableArqueos, Key: { PK: pk, SK: sk } }))).Item,
   contieneClave: (arqueo, key) =>
@@ -465,6 +468,15 @@ router.put('/cajas/arqueos-reales', permisoArqueo, requireLocal(desde.body('PK',
   })).then((r) => r.Item);
 
   const lineasSan = sanitizeTarjetaLineas(body);
+  if (lineasSan) {
+    const ajena = claveS3AjenaAlLocal(await cargarAlcance(req), {
+      prefijo: TICKET_PREFIX,
+      workplaceId: pk,
+      claves: lineasSan.map((l) => l.imagenKey),
+      previas: (Array.isArray(existing?.tarjetaLineas) ? existing.tarjetaLineas : []).map((l) => l?.imagenKey),
+    });
+    if (ajena) return res.status(400).json({ error: 'La imagen del ticket no es de este local; vuelve a subirla' });
+  }
   const lineasEfectivas =
     lineasSan !== null
       ? lineasSan

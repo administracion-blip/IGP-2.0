@@ -501,3 +501,92 @@ test('movimientos: sin permiso de arqueo, 403 aunque sea su local', async () => 
   assert.equal(r.status, 403);
   assert.equal(r.body.error, 'Permiso insuficiente');
 });
+
+// ─── Adopción de claves S3 ajenas ───
+// Guardar en un registro propio una clave 'anon' (o de otro local) que no subió
+// abriría la lectura con pk/sk de ese registro.
+
+const OFICINA = { sub: '000053', email: 'oficina@grupo.test', rol: 'SuperUser' };
+
+function arqueoConLinea(imagenKey, extra = {}) {
+  return {
+    PK: '101', BusinessDay: '2026-09-01', PosId: '1',
+    tarjetaLineas: [{ id: 'l1', importe: '10', imagenKey }],
+    ...extra,
+  };
+}
+
+test('arqueos: PUT con una boleta anon ajena, 400 y no se guarda; luego no se puede leer', async () => {
+  montar();
+  sembrarArqueosConBoletaAnon();
+  const antes = db.obtener(tables.arqueosReales, { PK: '101', SK: '2026-09-01#1' });
+  const r = await api('PUT', '/api/cajas/arqueos-reales', LOCAL_PARIPE, arqueoConLinea(TICKET_ANON_202));
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /no es de este local/);
+  assert.deepEqual(db.obtener(tables.arqueosReales, { PK: '101', SK: '2026-09-01#1' }), antes);
+  assert.equal((await api('GET', urlTicket(TICKET_ANON_202, '101', '2026-09-01#1'), LOCAL_PARIPE)).status, 403);
+});
+
+test('arqueos: PUT con una boleta de otro local, 400', async () => {
+  montar();
+  const r = await api('PUT', '/api/cajas/arqueos-reales', LOCAL_PARIPE, arqueoConLinea('arqueos-tickets/202/2026-09-01/x.jpg'));
+  assert.equal(r.status, 400);
+  assert.equal(db.obtener(tables.arqueosReales, { PK: '101', SK: '2026-09-01#1' }), null);
+});
+
+test('arqueos: PUT con boleta nueva del propio local o con la anon que ya tenía, 200', async () => {
+  montar();
+  sembrarArqueosConBoletaAnon();
+  const conservada = await api('PUT', '/api/cajas/arqueos-reales', LOCAL_PARIPE, arqueoConLinea(TICKET_ANON_101));
+  assert.equal(conservada.status, 200, JSON.stringify(conservada.body));
+  const nueva = await api('PUT', '/api/cajas/arqueos-reales', LOCAL_PARIPE, {
+    ...arqueoConLinea(TICKET_ANON_101),
+    tarjetaLineas: [
+      { id: 'l1', importe: '10', imagenKey: TICKET_ANON_101 },
+      { id: 'l2', importe: '5', imagenKey: 'arqueos-tickets/101/2026-09-01/l2-x.jpg' },
+    ],
+  });
+  assert.equal(nueva.status, 200, JSON.stringify(nueva.body));
+  const lineas = db.obtener(tables.arqueosReales, { PK: '101', SK: '2026-09-01#1' }).tarjetaLineas;
+  assert.deepEqual(lineas.map((l) => l.imagenKey), [TICKET_ANON_101, 'arqueos-tickets/101/2026-09-01/l2-x.jpg']);
+});
+
+test('arqueos: el alcance global sí puede guardar claves anon', async () => {
+  montar();
+  db.sembrar(tables.usuarios, { id_usuario: '000053', Email: OFICINA.email, Rol: 'SuperUser', Local: [] });
+  const r = await api('PUT', '/api/cajas/arqueos-reales', OFICINA, arqueoConLinea('arqueos-tickets/anon/nueva.jpg'));
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+});
+
+test('movimientos: justificante anon ajeno o de otro local en POST/PUT, 400 y no se guarda', async () => {
+  montar();
+  sembrarMovimientosConJustificanteAnon();
+  const mov = { workplaceId: '101', businessDay: '2026-09-01', posId: '1', tipo: 'retirada', importe: '10' };
+  const nuevo = await api('POST', '/api/cajas/movimientos', LOCAL_PARIPE, { ...mov, justificanteKey: JUSTIF_ANON_202 });
+  assert.equal(nuevo.status, 400);
+  assert.match(nuevo.body.error, /no es de este local/);
+  const otroLocal = await api('POST', '/api/cajas/movimientos', LOCAL_PARIPE, {
+    ...mov, justificanteKey: 'cajas-movimientos/202/2026-09-01/x.jpg',
+  });
+  assert.equal(otroLocal.status, 400);
+  const edicion = await api('PUT', '/api/cajas/movimientos', LOCAL_PARIPE, { ...mov, SK: SK_MOV, justificanteKey: JUSTIF_ANON_202 });
+  assert.equal(edicion.status, 400);
+  assert.equal(db.obtener(tables.movimientosCaja, { PK: '101', SK: SK_MOV }).justificanteKey, JUSTIF_ANON_101);
+  assert.equal(db.listar(tables.movimientosCaja).length, 2);
+});
+
+test('movimientos: justificante nuevo del propio local o el anon que ya tenía, 200; global, anon nuevo 200', async () => {
+  montar();
+  sembrarMovimientosConJustificanteAnon();
+  const mov = { workplaceId: '101', businessDay: '2026-09-01', posId: '1', tipo: 'retirada', importe: '10' };
+  assert.equal((await api('PUT', '/api/cajas/movimientos', LOCAL_PARIPE, { ...mov, SK: SK_MOV, justificanteKey: JUSTIF_ANON_101 })).status, 200);
+  assert.equal(
+    (await api('POST', '/api/cajas/movimientos', LOCAL_PARIPE, { ...mov, justificanteKey: 'cajas-movimientos/101/2026-09-01/y.jpg' })).status,
+    200,
+  );
+  db.sembrar(tables.usuarios, { id_usuario: '000053', Email: OFICINA.email, Rol: 'SuperUser', Local: [] });
+  assert.equal(
+    (await api('POST', '/api/cajas/movimientos', OFICINA, { ...mov, justificanteKey: 'cajas-movimientos/anon/z.jpg' })).status,
+    200,
+  );
+});

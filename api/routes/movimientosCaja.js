@@ -21,6 +21,7 @@ import {
 } from '../lib/cajas/movimientos.js';
 import { requireAnyPermission } from '../middleware/auth.js';
 import { requireLocal, requireLocalClaveS3, desde } from '../middleware/alcance.js';
+import { cargarAlcance, claveS3AjenaAlLocal } from '../lib/alcance.js';
 
 const router = express.Router();
 
@@ -154,6 +155,15 @@ async function upsertMovimiento(req, res) {
       TableName: tableMovimientos,
       Key: { PK: workplaceId, SK: sk },
     })).then((r) => r.Item).catch(() => null);
+  }
+  if (justificanteKey) {
+    const ajena = claveS3AjenaAlLocal(await cargarAlcance(req), {
+      prefijo: JUSTIF_PREFIX,
+      workplaceId,
+      claves: [justificanteKey],
+      previas: [existing?.justificanteKey],
+    });
+    if (ajena) return res.status(400).json({ error: 'El justificante no es de este local; vuelve a subirlo' });
   }
   if (!sk) {
     id = id || randomUUID();

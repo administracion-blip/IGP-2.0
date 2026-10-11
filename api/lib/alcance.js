@@ -230,6 +230,28 @@ export function filtrarPorEmpresa(alcance, items, empresaDe) {
   return lista.filter((it) => permiteEmpresa(alcance, empresaDe(it)));
 }
 
+/**
+ * Claves S3 `{prefijo}{workplaceId}/...` que se van a guardar en un registro del
+ * local `workplaceId`. Un restringido no puede meter una clave nueva de la carpeta
+ * `anon` ni de otro local: con ella en un registro suyo, `requireLocalClaveS3` le
+ * dejaría leer un fichero que no subió. Las que el registro ya tenía pasan.
+ *
+ * @param {object} alcance
+ * @param {{ prefijo: string, workplaceId: string, claves: string[], previas?: string[] }} datos
+ * @returns {string|null} la primera clave rechazada, o null si todas valen
+ */
+export function claveS3AjenaAlLocal(alcance, { prefijo, workplaceId, claves, previas = [] }) {
+  if (alcance?.global) return null;
+  const yaEstaban = new Set((previas || []).filter(Boolean));
+  const propio = normalizarCodigo(workplaceId);
+  for (const clave of claves || []) {
+    if (!clave || yaEstaban.has(clave)) continue;
+    const segmento = String(clave).startsWith(prefijo) ? String(clave).slice(prefijo.length).split('/')[0] : '';
+    if (!segmento || segmento === 'anon' || !propio || normalizarCodigo(segmento) !== propio) return clave;
+  }
+  return null;
+}
+
 export function errorSinAccesoLocal(mensaje = MENSAJE_SIN_ACCESO_LOCAL) {
   return Object.assign(new Error(mensaje), { status: 403 });
 }
