@@ -28,7 +28,7 @@ import { formatId6 } from '../lib/usuarioLocales.js';
 import { ibanPredeterminadoDeEmpresa } from '../lib/empresaIban.js';
 import { queryMovimientosLocalRango, agregarCashflowPorLocal } from '../lib/cashflow/store.js';
 import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
-import { requireLocal, requireLocales, desde } from '../middleware/alcance.js';
+import { requireLocal, requireLocales, requireLocalClaveS3, desde } from '../middleware/alcance.js';
 
 /** Hacer arqueo de caja: mismo criterio que puedeArqueoCaja en el frontend. */
 const permisoArqueo = requireAnyPermission('planning_dia.arqueo', 'cierres.ver');
@@ -405,9 +405,15 @@ router.post('/cajas/arqueos-reales/ocr-ticket', permisoArqueo, uploadOcr.single(
   }
 });
 
-// GET /api/cajas/arqueos-reales/ticket-image-url?key=arqueos-tickets/...
-// arqueos-tickets/{workplaceId}/...: la carpeta 'anon' no es de ningún local, solo alcance global.
-const localClaveTicket = requireLocal(desde.claveS3('arqueos-tickets/', 1));
+// GET /api/cajas/arqueos-reales/ticket-image-url?key=arqueos-tickets/...[&pk=&sk=]
+// arqueos-tickets/{workplaceId}/...: exige ese local. Carpeta 'anon': los restringidos
+// mandan pk (workplaceId) y sk del arqueo cuya tarjetaLineas[].imagenKey es la clave.
+const localClaveTicket = requireLocalClaveS3('arqueos-tickets/', {
+  leerRegistro: async (pk, sk) =>
+    (await docClient.send(new GetCommand({ TableName: tableArqueos, Key: { PK: pk, SK: sk } }))).Item,
+  contieneClave: (arqueo, key) =>
+    Array.isArray(arqueo.tarjetaLineas) && arqueo.tarjetaLineas.some((l) => l?.imagenKey === key),
+});
 router.get('/cajas/arqueos-reales/ticket-image-url', permisoArqueo, localClaveTicket, async (req, res) => {
   const key = String(req.query.key || '').trim();
   if (!validTicketKey(key)) return res.status(400).json({ error: 'key no válida' });

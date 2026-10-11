@@ -20,7 +20,7 @@ import {
   TIPOS_MOVIMIENTO,
 } from '../lib/cajas/movimientos.js';
 import { requireAnyPermission } from '../middleware/auth.js';
-import { requireLocal, desde } from '../middleware/alcance.js';
+import { requireLocal, requireLocalClaveS3, desde } from '../middleware/alcance.js';
 
 const router = express.Router();
 
@@ -102,9 +102,14 @@ router.post('/cajas/movimientos/justificante', permisoArqueo, uploadJustificante
   }
 });
 
-// GET /api/cajas/movimientos/justificante-url?key=cajas-movimientos/...
-// cajas-movimientos/{workplaceId}/...: la carpeta 'anon' solo la ve el alcance global.
-const localClaveJustificante = requireLocal(desde.claveS3(JUSTIF_PREFIX, 1));
+// GET /api/cajas/movimientos/justificante-url?key=cajas-movimientos/...[&pk=&sk=]
+// cajas-movimientos/{workplaceId}/...: exige ese local. Carpeta 'anon': los restringidos
+// mandan pk (workplaceId) y sk del movimiento cuyo justificanteKey es la clave.
+const localClaveJustificante = requireLocalClaveS3(JUSTIF_PREFIX, {
+  leerRegistro: async (pk, sk) =>
+    (await docClient.send(new GetCommand({ TableName: tableMovimientos, Key: { PK: pk, SK: sk } }))).Item,
+  contieneClave: (movimiento, key) => movimiento.justificanteKey === key,
+});
 router.get('/cajas/movimientos/justificante-url', permisoArqueo, localClaveJustificante, async (req, res) => {
   const key = String(req.query.key || '').trim();
   if (!validJustificanteKey(key)) return res.status(400).json({ error: 'key no válida' });

@@ -100,6 +100,53 @@ export function requireLocal(extraer, { tipo = 'workplaceId', modo = 'bloquear' 
 }
 
 /**
+ * Clave S3 `{prefijo}{workplaceId}/...` en `?key=`: exige ese local, como
+ * `requireLocal(desde.claveS3(prefijo, 1))`. La carpeta `anon` (subidas antiguas sin
+ * local) no es de ningún local: un restringido solo la ve si `?pk=&sk=` señalan un
+ * registro de un local suyo que contiene esa misma clave. Con otra carpeta, pk/sk
+ * se ignoran.
+ *
+ * @param {string} prefijo
+ * @param {{
+ *   leerRegistro: (pk: string, sk: string) => Promise<object|null|undefined>,
+ *   contieneClave: (registro: object, key: string) => boolean,
+ *   modo?: 'bloquear'|'observar',
+ * }} opciones
+ */
+export function requireLocalClaveS3(prefijo, { leerRegistro, contieneClave, modo = 'bloquear' }) {
+  const segmentoLocal = desde.claveS3(prefijo, 1);
+  return async (req, res, next) => {
+    try {
+      const alcance = await cargarAlcance(req);
+      if (alcance.global) return next();
+      const local = segmentoLocal(req);
+      let ok = false;
+      let detalle = `workplaceId=${JSON.stringify(local)}`;
+      if (local === 'anon') {
+        const pk = String(req.query?.pk ?? '').trim();
+        const sk = String(req.query?.sk ?? '').trim();
+        const key = String(req.query?.key ?? '').trim();
+        detalle = `anon pk=${JSON.stringify(pk)} sk=${JSON.stringify(sk)}`;
+        if (key && pk && sk && permiteLocal(alcance, { workplaceId: pk })) {
+          const registro = await leerRegistro(pk, sk);
+          ok = !!registro && contieneClave(registro, key);
+        }
+      } else if (local) {
+        ok = permiteLocal(alcance, { workplaceId: local });
+      }
+      if (ok) return next();
+      if (modo === 'observar') {
+        registrarObservacion(req, detalle);
+        return next();
+      }
+      return denegar(res);
+    } catch (err) {
+      return fallo(res, err);
+    }
+  };
+}
+
+/**
  * Lista de locales (array o separada por comas) intersecada con el alcance.
  * Deja el resultado en `req.alcanceLocales`; no toca `req.query` ni `req.body`.
  *

@@ -266,6 +266,82 @@ test('arqueos: ticket-image-url de otro local o de anon, 403', async () => {
   assert.ok(propio.body.url);
 });
 
+// Boletas antiguas subidas sin local: viven en arqueos-tickets/anon/ y solo el registro
+// que las referencia dice de qué local son.
+const TICKET_ANON_101 = 'arqueos-tickets/anon/boleta-101.jpg';
+const TICKET_ANON_202 = 'arqueos-tickets/anon/boleta-202.jpg';
+
+function sembrarArqueosConBoletaAnon() {
+  db.sembrar(tables.arqueosReales, {
+    PK: '101', SK: '2026-09-01#1', BusinessDay: '2026-09-01', PosId: '1',
+    tarjetaLineas: [{ id: 'l1', importe: '10', imagenKey: TICKET_ANON_101 }],
+  });
+  db.sembrar(tables.arqueosReales, {
+    PK: '202', SK: '2026-09-01#1', BusinessDay: '2026-09-01', PosId: '1',
+    tarjetaLineas: [{ id: 'l1', importe: '20', imagenKey: TICKET_ANON_202 }],
+  });
+}
+
+function urlTicket(key, pk, sk) {
+  const q = new URLSearchParams({ key });
+  if (pk !== undefined) q.set('pk', pk);
+  if (sk !== undefined) q.set('sk', sk);
+  return `/api/cajas/arqueos-reales/ticket-image-url?${q}`;
+}
+
+test('arqueos: ticket anon con pk/sk del arqueo propio que la contiene, 200', async () => {
+  montar();
+  sembrarArqueosConBoletaAnon();
+  const r = await api('GET', urlTicket(TICKET_ANON_101, '101', '2026-09-01#1'), LOCAL_PARIPE);
+  assert.equal(r.status, 200);
+  assert.ok(r.body.url);
+});
+
+test('arqueos: ticket anon de un arqueo ajeno, 403 (aunque pk/sk sean correctos)', async () => {
+  montar();
+  sembrarArqueosConBoletaAnon();
+  const r = await api('GET', urlTicket(TICKET_ANON_202, '202', '2026-09-01#1'), LOCAL_PARIPE);
+  assert.equal(r.status, 403);
+  assert.equal(r.body.error, 'No tienes acceso a este local');
+});
+
+test('arqueos: ticket anon que no está en el arqueo propio indicado, 403', async () => {
+  montar();
+  sembrarArqueosConBoletaAnon();
+  // Arqueo propio como tapadera para leer la boleta de SUR.
+  const ajena = await api('GET', urlTicket(TICKET_ANON_202, '101', '2026-09-01#1'), LOCAL_PARIPE);
+  assert.equal(ajena.status, 403);
+  // Registro propio que no existe.
+  const inexistente = await api('GET', urlTicket(TICKET_ANON_101, '101', '2026-09-02#1'), LOCAL_PARIPE);
+  assert.equal(inexistente.status, 403);
+});
+
+test('arqueos: ticket anon sin pk o sin sk, 403', async () => {
+  montar();
+  sembrarArqueosConBoletaAnon();
+  assert.equal((await api('GET', urlTicket(TICKET_ANON_101), LOCAL_PARIPE)).status, 403);
+  assert.equal((await api('GET', urlTicket(TICKET_ANON_101, '101'), LOCAL_PARIPE)).status, 403);
+  assert.equal((await api('GET', urlTicket(TICKET_ANON_101, undefined, '2026-09-01#1'), LOCAL_PARIPE)).status, 403);
+});
+
+test('arqueos: clave con workplace ignora pk/sk (ajena sigue 403 aunque pk sea propio)', async () => {
+  montar();
+  sembrarArqueosConBoletaAnon();
+  const ajena = await api('GET', urlTicket('arqueos-tickets/202/2026-09-01/x.jpg', '101', '2026-09-01#1'), LOCAL_PARIPE);
+  assert.equal(ajena.status, 403);
+  const propia = await api('GET', urlTicket('arqueos-tickets/101/2026-09-01/x.jpg', '202', 'no-existe'), LOCAL_PARIPE);
+  assert.equal(propia.status, 200);
+});
+
+test('anon: el alcance global sigue sin necesitar pk/sk', async () => {
+  montar();
+  const oficina = { sub: '000053', email: 'oficina@grupo.test', rol: 'SuperUser' };
+  db.sembrar(tables.usuarios, { id_usuario: '000053', Email: 'oficina@grupo.test', Rol: 'SuperUser', Local: [] });
+  assert.equal((await api('GET', urlTicket(TICKET_ANON_202), oficina)).status, 200);
+  const justif = await api('GET', '/api/cajas/movimientos/justificante-url?key=cajas-movimientos/anon/x.jpg', oficina);
+  assert.equal(justif.status, 200);
+});
+
 test('arqueos: OCR sin workplaceId o con uno ajeno, 403 para restringidos', async () => {
   montar();
   const enviar = async (campos) => {
@@ -350,6 +426,51 @@ test('movimientos: justificante-url de otro local o de anon, 403', async () => {
   assert.equal(anon.status, 403);
   const propio = await api('GET', '/api/cajas/movimientos/justificante-url?key=cajas-movimientos/101/2026-10-01/x.jpg', LOCAL_PARIPE);
   assert.equal(propio.status, 200);
+});
+
+const JUSTIF_ANON_101 = 'cajas-movimientos/anon/justif-101.jpg';
+const JUSTIF_ANON_202 = 'cajas-movimientos/anon/justif-202.jpg';
+const SK_MOV = '2026-09-01#1#retirada#m1';
+
+function sembrarMovimientosConJustificanteAnon() {
+  db.sembrar(tables.movimientosCaja, { PK: '101', SK: SK_MOV, tipo: 'retirada', importe: 5, justificanteKey: JUSTIF_ANON_101 });
+  db.sembrar(tables.movimientosCaja, { PK: '202', SK: SK_MOV, tipo: 'retirada', importe: 7, justificanteKey: JUSTIF_ANON_202 });
+}
+
+function urlJustificante(key, pk, sk) {
+  const q = new URLSearchParams({ key });
+  if (pk !== undefined) q.set('pk', pk);
+  if (sk !== undefined) q.set('sk', sk);
+  return `/api/cajas/movimientos/justificante-url?${q}`;
+}
+
+test('movimientos: justificante anon con pk/sk del movimiento propio que lo contiene, 200', async () => {
+  montar();
+  sembrarMovimientosConJustificanteAnon();
+  const r = await api('GET', urlJustificante(JUSTIF_ANON_101, '101', SK_MOV), LOCAL_PARIPE);
+  assert.equal(r.status, 200);
+  assert.ok(r.body.url);
+});
+
+test('movimientos: justificante anon de un movimiento ajeno, 403', async () => {
+  montar();
+  sembrarMovimientosConJustificanteAnon();
+  assert.equal((await api('GET', urlJustificante(JUSTIF_ANON_202, '202', SK_MOV), LOCAL_PARIPE)).status, 403);
+});
+
+test('movimientos: justificante anon que no es el del movimiento propio indicado, 403', async () => {
+  montar();
+  sembrarMovimientosConJustificanteAnon();
+  assert.equal((await api('GET', urlJustificante(JUSTIF_ANON_202, '101', SK_MOV), LOCAL_PARIPE)).status, 403);
+  assert.equal((await api('GET', urlJustificante(JUSTIF_ANON_101, '101', 'otro-sk'), LOCAL_PARIPE)).status, 403);
+});
+
+test('movimientos: justificante anon sin pk o sin sk, 403', async () => {
+  montar();
+  sembrarMovimientosConJustificanteAnon();
+  assert.equal((await api('GET', urlJustificante(JUSTIF_ANON_101), LOCAL_PARIPE)).status, 403);
+  assert.equal((await api('GET', urlJustificante(JUSTIF_ANON_101, '101'), LOCAL_PARIPE)).status, 403);
+  assert.equal((await api('GET', urlJustificante(JUSTIF_ANON_101, undefined, SK_MOV), LOCAL_PARIPE)).status, 403);
 });
 
 test('movimientos: sin permiso de arqueo, 403 aunque sea su local', async () => {
