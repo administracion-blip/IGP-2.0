@@ -105,6 +105,9 @@ import {
   facturaEmisorPermitido,
   formatId6,
 } from '../lib/usuarioLocales.js';
+import { cargarAlcance, permiteEmpresa, filtrarPorEmpresa } from '../lib/alcance.js';
+import { filtrarLecturaPorEmpresa } from '../lib/alcanceSociedad.js';
+import { emisoresDeFacturas } from '../lib/facturacion/emisorDeFacturas.js';
 import crypto from 'crypto';
 import { enviarEmail } from '../lib/email.js';
 import multer from 'multer';
@@ -717,8 +720,19 @@ router.post('/facturacion/facturas/validar-revision', requirePermission('factura
   try {
     const validadas = [];
     const fallidas = [];
+    // [SEC S-08]
+    const alcance = await cargarAlcance(req);
 
     for (const id of ids) {
+      if (!alcance.global) {
+        const got = await docClient.send(
+          new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }),
+        );
+        if (!got.Item || !permiteEmpresa(alcance, got.Item.emisor_id)) {
+          fallidas.push({ id_factura: id, motivo: 'Factura no encontrada' });
+          continue;
+        }
+      }
       const result = await emitirOValidarFacturaPorId(id, { usuario_id, usuario_nombre, soloRevision: true });
       if (result.ok) {
         validadas.push({ id_factura: id, estado: result.factura.estado });
@@ -1047,9 +1061,14 @@ router.post('/facturacion/facturas/:id/rectificar', requirePermission('facturaci
 // ─── PAGOS / COBROS ───
 
 // [SEC S-01]
-router.get('/facturacion/pagos', requirePermission('facturacion.cobrar_pagar'), async (_req, res) => {
+router.get('/facturacion/pagos', requirePermission('facturacion.cobrar_pagar'), async (req, res) => {
   try {
-    const items = await scanAll(tables.facturasPagos);
+    let items = await scanAll(tables.facturasPagos);
+    // [SEC S-08]
+    if (!(await cargarAlcance(req)).global) {
+      const emisores = await emisoresDeFacturas(items.map((p) => p.id_factura));
+      items = await filtrarLecturaPorEmpresa(req, items, (p) => emisores.get(String(p.id_factura ?? '')) ?? '');
+    }
     items.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
     res.json({ pagos: items });
   } catch (err) {
@@ -1840,7 +1859,8 @@ router.get('/facturacion/metricas-avanzadas', requirePermission('facturacion.ver
 router.post('/facturacion/check-vencimientos', requirePermission('facturacion.editar'), async (req, res) => {
   try {
     const hoy = now().slice(0, 10);
-    const facturas = await scanAll(tables.facturas);
+    // [SEC S-08] Internas y globales revisan todo; el resto, solo sus sociedades.
+    const facturas = filtrarPorEmpresa(await cargarAlcance(req), await scanAll(tables.facturas), (f) => f.emisor_id);
 
     const pendientes = facturas.filter(
       (f) =>
@@ -3177,7 +3197,8 @@ router.post('/facturacion/enviar-recordatorios', requirePermission('facturacion.
   if (!process.env.SMTP_USER) return res.status(500).json({ error: 'SMTP no configurado' });
 
   try {
-    const facturas = await scanAll(tables.facturas);
+    // [SEC S-08]
+    const facturas = filtrarPorEmpresa(await cargarAlcance(req), await scanAll(tables.facturas), (f) => f.emisor_id);
     const vencidas = facturas.filter(
       (f) => f.tipo === 'OUT' && f.estado === 'vencida' && f.empresa_email && (f.saldo_pendiente || 0) > 0
     );
@@ -3233,7 +3254,12 @@ router.post('/facturacion/check-duplicados', requirePermission('facturacion.crea
   try {
     const ref = { proveedor_cif, numero_factura_proveedor, fecha_emision };
     const facturas = await scanAll(tables.facturas, '#t = :t', { ':t': 'IN' }, { '#t': 'tipo' });
-    const posibles = facturas.filter((f) => esDuplicadoFacturaProveedor(ref, f));
+    // [SEC S-08]
+    const posibles = await filtrarLecturaPorEmpresa(
+      req,
+      facturas.filter((f) => esDuplicadoFacturaProveedor(ref, f)),
+      (f) => f.emisor_id,
+    );
 
     res.json({
       duplicados: posibles.map((f) => ({
