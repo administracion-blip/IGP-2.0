@@ -162,12 +162,18 @@ router.get('/mia/config', requirePermission('mia.ver'), async (req, res) => {
   if (!wid || wid === '000000') {
     return res.status(400).json({ error: 'warehouseId inválido' });
   }
+  if (!(await permiteLecturaAlmacen(req, wid))) return sinAcceso(res);
   const items = await listConfigByWarehouse(wid);
   res.json({ warehouseId: wid, items, total: items.length });
 });
 
 router.put('/mia/config', requirePermission('mia.configurar'), async (req, res) => {
   const body = req.body || {};
+  const wid = normalizeWarehouseId(body.warehouseId);
+  if (!wid || wid === '000000') {
+    return res.status(400).json({ error: 'warehouseId es obligatorio' });
+  }
+  if (!(await permiteAlmacen(req, wid))) return sinAcceso(res);
   try {
     const item = await upsertConfigProducto(body);
     res.json({ ok: true, item });

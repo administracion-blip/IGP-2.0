@@ -107,6 +107,7 @@ function montar() {
     indices: { 'WarehouseId-CreadoEn-index': { hashKey: 'WarehouseId', rangeKey: 'creadoEn' } },
   });
   db.crearTabla(tables.miaInformeLineas, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.miaConfigProducto, { hashKey: 'PK', rangeKey: 'SK' });
   db.instalar(docClient);
   for (const p of ['ver', 'configurar', 'calcular', 'aprobar']) {
     db.sembrar(tables.rolesPermisos, { PK: 'ROL#SuperUser', SK: `PERMISO#mia.${p}` });
@@ -180,6 +181,36 @@ test('ajustar líneas de un informe de su almacén funciona; con alcance global 
   assert.equal(db.obtener(tables.miaInformeLineas, { PK: 'INFORME#inf-centro', SK: 'LINE#PROV1#P1' }).cantidadPedida, 5);
   const global = await api('PATCH', '/api/mia/informes/inf-sur/lineas', { lineas: [{ productId: 'P1', proveedorId: 'PROV1', cantidadPedida: 7 }] }, OFICINA);
   assert.equal(global.status, 200);
+});
+
+test('config de producto de un almacén ajeno o sin local: PUT 403 sin escribir; el propio y el global sí', async () => {
+  montar();
+  for (const warehouseId of ['202', '999']) {
+    const r = await api('PUT', '/api/mia/config', { warehouseId, productId: 'P1', colchon: 9 });
+    assert.equal(r.status, 403, warehouseId);
+    assert.equal(r.body.error, 'No tienes acceso a este local');
+  }
+  assert.deepEqual(db.listar(tables.miaConfigProducto), []);
+  assert.equal((await api('PUT', '/api/mia/config', { productId: 'P1', colchon: 9 })).status, 400);
+
+  assert.equal((await api('PUT', '/api/mia/config', { warehouseId: '101', productId: 'P1', colchon: 3 })).status, 200);
+  assert.equal((await api('PUT', '/api/mia/config', { warehouseId: '202', productId: 'P1', colchon: 4 }, OFICINA)).status, 200);
+  assert.deepEqual(db.listar(tables.miaConfigProducto).map((i) => [i.WarehouseId, i.colchon]).sort(), [['000101', 3], ['000202', 4]]);
+});
+
+test('GET config de un almacén ajeno: observar sirve con aviso; bloquear 403', async () => {
+  montar();
+  db.sembrar(tables.miaConfigProducto, { PK: 'WAREHOUSE#000202', SK: 'PRODUCT#P1', WarehouseId: '000202', ProductId: 'P1' });
+  modo(undefined);
+  const obs = await conAvisos(() => api('GET', '/api/mia/config?warehouseId=202'));
+  assert.equal(obs.r.status, 200);
+  assert.equal(obs.r.body.items.length, 1);
+  assert.equal(obs.avisos.length, 1);
+  modo('bloquear');
+  const r = await api('GET', '/api/mia/config?warehouseId=202');
+  assert.equal(r.status, 403);
+  assert.equal(r.body.items, undefined);
+  assert.equal((await api('GET', '/api/mia/config?warehouseId=202', undefined, OFICINA)).body.items.length, 1);
 });
 
 // ─── Lecturas ───
