@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ScanCommand, GetCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
+import { requirePermission } from '../middleware/auth.js';
 
 const router = Router();
 const tableAlmacenesName = tables.almacenes;
@@ -28,7 +29,7 @@ router.get('/almacenes', async (req, res) => {
   res.json({ almacenes: items });
 });
 
-router.post('/almacenes', async (req, res) => {
+router.post('/almacenes', requirePermission('almacenes.crear'), async (req, res) => {
   const body = req.body || {};
   if (!body.Nombre || !String(body.Nombre).trim()) {
     return res.status(400).json({ error: 'Nombre es obligatorio' });
@@ -49,7 +50,7 @@ router.post('/almacenes', async (req, res) => {
   res.json({ ok: true, almacen: item });
 });
 
-router.put('/almacenes', async (req, res) => {
+router.put('/almacenes', requirePermission('almacenes.editar'), async (req, res) => {
   const body = req.body || {};
   const idAlmacenes = body.Id != null ? String(body.Id) : '';
   if (!idAlmacenes) return res.status(400).json({ error: 'Id es obligatorio para editar' });
@@ -75,7 +76,7 @@ router.put('/almacenes', async (req, res) => {
   res.json({ ok: true, almacen: item });
 });
 
-router.delete('/almacenes', async (req, res) => {
+router.delete('/almacenes', requirePermission('almacenes.borrar'), async (req, res) => {
   const idAlmacenes = req.body?.Id != null ? String(req.body.Id) : req.query?.Id != null ? String(req.query.Id) : '';
   if (!idAlmacenes) return res.status(400).json({ error: 'Id es obligatorio para borrar' });
   await docClient.send(new DeleteCommand({

@@ -3,6 +3,7 @@ import { ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib
 import { docClient, tables } from '../lib/db.js';
 import { formatId6 } from '../lib/usuarioLocales.js';
 import { esSedeGrupoParipeLocal } from '../lib/locales/sede.js';
+import { hasPermission, requireAnyPermission, requirePermission } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -99,16 +100,23 @@ router.get('/locales', async (req, res) => {
   res.json({ locales });
 });
 
-router.post('/locales', async (req, res) => {
+// La creación rápida desde la ficha de usuario (usuarios.crear / usuarios.editar) solo
+// da de alta el nombre y la sede; el resto del maestro exige locales.crear.
+const ATTRS_ALTA_RAPIDA = new Set(['id_Locales', 'nombre', 'sede']);
+
+router.post('/locales', requireAnyPermission('locales.crear', 'usuarios.crear', 'usuarios.editar'), async (req, res) => {
   const body = req.body || {};
   if (!bodyLocalesVal(body, 'nombre') || !String(bodyLocalesVal(body, 'nombre')).trim()) {
     return res.status(400).json({ error: 'nombre es obligatorio' });
   }
+  const soloAltaRapida = !req.isInternal && !(await hasPermission(req.user, 'locales.crear'));
   const idBody = body.id_Locales ?? body.Id_Locales;
   const idExplicito = idBody != null && String(idBody).trim() !== '';
   const item = {};
   for (const key of TABLE_LOCALES_ATTRS) {
-    if (key === 'id_Locales') {
+    if (soloAltaRapida && !ATTRS_ALTA_RAPIDA.has(key)) {
+      item[key] = key === 'estilo_visual_imagen_keys' ? [] : '';
+    } else if (key === 'id_Locales') {
       item[key] = idExplicito ? formatId6(idBody) : '';
     } else if (key === 'id_empresa') {
       item[key] = formatIdEmpresa(bodyLocalesVal(body, key));
@@ -152,7 +160,7 @@ router.post('/locales', async (req, res) => {
   }
 });
 
-router.put('/locales', async (req, res) => {
+router.put('/locales', requirePermission('locales.editar'), async (req, res) => {
   const body = req.body || {};
   const idLocales = (body.id_Locales ?? body.Id_Locales) != null ? String(body.id_Locales ?? body.Id_Locales) : '';
   if (!idLocales) return res.status(400).json({ error: 'id_Locales es obligatorio para editar' });
@@ -202,7 +210,7 @@ router.put('/locales', async (req, res) => {
   res.json({ ok: true, local: item });
 });
 
-router.delete('/locales', async (req, res) => {
+router.delete('/locales', requirePermission('locales.borrar'), async (req, res) => {
   const idLocales = req.body?.id_Locales != null ? String(req.body.id_Locales) : req.query?.id_Locales != null ? String(req.query.id_Locales) : '';
   if (!idLocales) return res.status(400).json({ error: 'id_Locales es obligatorio para borrar' });
   await docClient.send(new DeleteCommand({

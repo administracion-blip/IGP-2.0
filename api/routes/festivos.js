@@ -2,8 +2,13 @@ import crypto from 'node:crypto';
 import express from 'express';
 import { ScanCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
+import { requirePermission } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// Los festivos solo se escriben desde Cajas → Comparativa fechas, que la app abre con
+// comparativa.ver y no distingue crear/editar/borrar.
+const puedeEscribirFestivos = requirePermission('comparativa.ver');
 
 // GET /gestion-festivos
 router.get('/gestion-festivos', async (req, res) => {
@@ -33,7 +38,7 @@ router.get('/gestion-festivos', async (req, res) => {
 });
 
 // POST /gestion-festivos
-router.post('/gestion-festivos', async (req, res) => {
+router.post('/gestion-festivos', puedeEscribirFestivos, async (req, res) => {
   const body = req.body || {};
   const fechaComparativa = String(body.FechaComparativa ?? body.fechaComparativa ?? body.Fecha ?? body.fecha ?? '').trim();
   if (!fechaComparativa) {
@@ -61,7 +66,7 @@ router.post('/gestion-festivos', async (req, res) => {
 });
 
 // PUT /gestion-festivos
-router.put('/gestion-festivos', async (req, res) => {
+router.put('/gestion-festivos', puedeEscribirFestivos, async (req, res) => {
   const body = req.body || {};
   const idRaw = String(body.id ?? body.ID ?? '').trim();
   if (!idRaw) return res.status(400).json({ error: 'id es obligatorio para editar' });
@@ -91,7 +96,7 @@ router.put('/gestion-festivos', async (req, res) => {
 });
 
 // DELETE /gestion-festivos
-router.delete('/gestion-festivos', async (req, res) => {
+router.delete('/gestion-festivos', puedeEscribirFestivos, async (req, res) => {
   const idRaw = (req.query?.id ?? req.body?.id ?? '').toString().trim();
   if (!idRaw) return res.status(400).json({ error: 'id es obligatorio para borrar' });
   const [pk, sk] = idRaw.includes('#') ? idRaw.split('#') : ['GLOBAL', idRaw];
@@ -108,7 +113,7 @@ router.delete('/gestion-festivos', async (req, res) => {
 });
 
 // POST /gestion-festivos/generar-rango
-router.post('/gestion-festivos/generar-rango', async (req, res) => {
+router.post('/gestion-festivos/generar-rango', puedeEscribirFestivos, async (req, res) => {
   const body = req.body || {};
   const dateFrom = String(body.dateFrom ?? body.fechaDesde ?? body.fechaInicio ?? '').trim();
   const dateTo = String(body.dateTo ?? body.fechaHasta ?? body.fechaFin ?? '').trim();
