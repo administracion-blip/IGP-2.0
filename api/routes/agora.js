@@ -73,7 +73,9 @@ import {
   upsertFormasFromAgora,
 } from '../lib/agora/formasPago.js';
 import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
-import { requireLocal, requireLocales, requireAlcanceGlobal, desde } from '../middleware/alcance.js';
+import { requireLocal, requireLocales, requireAlcanceGlobal, requireLocalLectura, desde } from '../middleware/alcance.js';
+import { filtrarLecturaPorLocal, permiteLecturaLocal, workplacesLectura } from '../lib/alcanceLecturas.js';
+import { MENSAJE_SIN_ACCESO_LOCAL } from '../lib/alcance.js';
 import { buildObjetivoMensualCard } from '../lib/agora/objetivoMensual.js';
 import {
   buildExcepcionesFromInvoices,
@@ -784,9 +786,12 @@ function validateAgoraCloseOut(raw) {
 
 // --- Fase C: lectura / dashboard de cierres ---
 
-router.get('/agora/closeouts', async (req, res) => {
+router.get('/agora/closeouts', requirePermission('cierres.ver'), async (req, res) => {
   const businessDay = (req.query.businessDay && String(req.query.businessDay).trim()) || '';
   const workplaceId = (req.query.workplaceId && String(req.query.workplaceId).trim()) || '';
+  if (workplaceId && !(await permiteLecturaLocal(req, { workplaceId }))) {
+    return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
+  }
   const items = [];
   let lastKey = null;
   do {
@@ -803,6 +808,7 @@ router.get('/agora/closeouts', async (req, res) => {
     const sk = (i) => i.SK ?? i.sk ?? '';
     list = list.filter((i) => sk(i) && sk(i).startsWith(businessDay));
   }
+  if (!workplaceId) list = await filtrarLecturaPorLocal(req, list, (i) => ({ workplaceId: String(i.PK ?? i.pk ?? '') }));
   list.sort((a, b) => ((a.SK ?? a.sk) || '').localeCompare((b.SK ?? b.sk) || ''));
   for (const item of list) {
     if ((item.PosId ?? item.posId) != null) continue;
@@ -868,7 +874,7 @@ router.get('/agora/closeouts/objetivo-mensual-card', requirePermission('planning
   }
 });
 
-router.get('/agora/closeouts/totals-by-local-range', async (req, res) => {
+router.get('/agora/closeouts/totals-by-local-range', requireLocalLectura(desde.query('workplaceId')), async (req, res) => {
   const workplaceId = (req.query.workplaceId && String(req.query.workplaceId).trim()) || '';
   const dateFrom = (req.query.dateFrom && String(req.query.dateFrom).trim()) || '';
   const dateTo = (req.query.dateTo && String(req.query.dateTo).trim()) || '';
@@ -979,8 +985,12 @@ router.get('/agora/closeouts/totals-by-local', async (req, res) => {
       workplaceId,
     }))
     .sort((a, b) => b.total - a.total);
-  res.json({ businessDay, totals: result });
+  const totals = await filtrarLecturaPorLocal(req, result, (r) => ({ workplaceId: r.workplaceId }));
+  res.json({ businessDay, totals });
 });
+
+// Sin alcance a propósito: el resumen anual (totals-by-local-ytd, totals-by-month,
+// dashboard-home) y /cajas/top son datos de grupo que cualquier usuario ve completos.
 
 router.get('/agora/closeouts/totals-by-local-ytd', async (req, res) => {
   const year = (req.query.year && String(req.query.year).trim()) || '';
@@ -1354,7 +1364,7 @@ function rowMatchesRules(row, rules, combMode) {
   return combMode === 'OR' ? results.some(Boolean) : results.every(Boolean);
 }
 
-router.get('/agora/invoices/payments-review', async (req, res) => {
+router.get('/agora/invoices/payments-review', requirePermission('cierres.ver'), async (req, res) => {
   const businessDay = (req.query.businessDay && String(req.query.businessDay).trim()) || '';
   const dateFromRaw = (req.query.dateFrom && String(req.query.dateFrom).trim()) || '';
   const dateToRaw = (req.query.dateTo && String(req.query.dateTo).trim()) || '';
@@ -1368,6 +1378,8 @@ router.get('/agora/invoices/payments-review', async (req, res) => {
     workplaceIds = workplaceIdsRaw.split(',').map((s) => s.trim()).filter(Boolean);
   }
   if (workplaceIds.length === 0 && workplaceIdRaw) workplaceIds = [workplaceIdRaw];
+  workplaceIds = await workplacesLectura(req, workplaceIds);
+  if (!workplaceIds) return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
 
   let rules = [];
   const rulesRaw = req.query.rules;
@@ -1780,7 +1792,7 @@ function exceptionsCacheSet(key, rows) {
 
 // Helpers de excepciones → api/lib/agora/excepcionesInvoice.js
 
-router.get('/agora/invoices/exceptions', async (req, res) => {
+router.get('/agora/invoices/exceptions', requirePermission('excepciones.ver'), async (req, res) => {
   const dateFromRaw = String(req.query.dateFrom || '').trim();
   const dateToRaw = String(req.query.dateTo || '').trim();
   const workplaceIdsRaw = req.query.workplaceIds ?? req.query['workplaceIds[]'];
@@ -1790,6 +1802,8 @@ router.get('/agora/invoices/exceptions', async (req, res) => {
   } else if (typeof workplaceIdsRaw === 'string' && workplaceIdsRaw.trim()) {
     workplaceIds = workplaceIdsRaw.split(',').map((s) => s.trim()).filter(Boolean);
   }
+  workplaceIds = await workplacesLectura(req, workplaceIds);
+  if (!workplaceIds) return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
   const refresh = String(req.query.refresh || '') === '1';
 
   const isIso = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -1984,6 +1998,7 @@ function sumInvoiceAmount(inv) {
   return 0;
 }
 
+// Sin alcance a propósito: ranking de todo el grupo, visible para cualquier usuario.
 router.get('/cajas/top', async (req, res) => {
   const dateFromRaw = String(req.query.dateFrom || '').trim();
   const dateToRaw = String(req.query.dateTo || '').trim();
@@ -3512,7 +3527,7 @@ function horaDesdeFecha(fechaStr) {
   return Number.isInteger(h) && h >= 0 && h <= 23 ? h : null;
 }
 
-router.get('/agora/invoices/sales-by-hour', async (req, res) => {
+router.get('/agora/invoices/sales-by-hour', requireLocalLectura(desde.query('workplaceId')), async (req, res) => {
   const workplaceId = String(req.query.workplaceId ?? '').trim();
   const businessDay = String(req.query.businessDay ?? '').trim();
   const refresh = String(req.query.refresh || '') === '1';
