@@ -80,3 +80,12 @@ test('logger: los campos de credenciales se censuran y los útiles se conservan'
   assert.ok(!lineas[0].includes('Secreta123!'));
   assert.ok(!lineas[0].includes(API_KEY));
 });
+
+test('logger: la cabecera Api-Token de Ágora en un objeto de petición se censura', () => {
+  const { logger, lineas } = crearLogger();
+  logger.warn({ peticion: { url: 'https://agora/api/import/', headers: { 'api-token': API_KEY, accept: 'application/json' } } }, 'ágora');
+  const entrada = JSON.parse(lineas[0]);
+  assert.equal(entrada.peticion.headers['api-token'], '[Redacted]');
+  assert.equal(entrada.peticion.headers.accept, 'application/json');
+  assert.ok(!lineas[0].includes(API_KEY));
+});

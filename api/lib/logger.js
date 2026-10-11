@@ -29,6 +29,7 @@ export const RUTAS_REDACTADAS = [
   '*.api_key',
   '*.secret',
   '*.authorization',
+  '*.headers["api-token"]',
 ];
 
 export const OPCIONES_LOGGER = {
