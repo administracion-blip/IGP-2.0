@@ -27,6 +27,7 @@ import {
 } from '../lib/mia/gruposFamilias.js';
 import {
   getInformeCompleto,
+  getInformeMeta,
   listInformesByWarehouse,
   updateLineas,
 } from '../lib/mia/informes.js';
@@ -38,8 +39,24 @@ import {
   upsert as upsertCalendario,
 } from '../lib/mia/calendarioPedidos.js';
 import { formatId6 } from '../lib/usuarioLocales.js';
+import { requireLocal, desde } from '../middleware/alcance.js';
+import { MENSAJE_SIN_ACCESO_LOCAL } from '../lib/alcance.js';
+import { filtrarLecturaPorLocal, permiteLecturaLocal } from '../lib/alcanceLecturas.js';
+import { permiteAlmacen, permiteLecturaAlmacen } from '../lib/alcanceAlmacenes.js';
 
 const router = Router();
+
+function sinAcceso(res) {
+  return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
+}
+
+/** Acciones sobre un informe: el almacén del informe leído tiene que ser del usuario (basta un local suyo). */
+async function permiteInforme(req, id) {
+  const meta = await getInformeMeta(id);
+  // Sin informe no se escribe nada: el 404 lo da la propia acción.
+  if (!meta) return true;
+  return permiteAlmacen(req, meta.WarehouseId ?? meta.warehouseId);
+}
 
 // ─── Sync status ─────────────────────────────────────────────────────────────
 
@@ -192,6 +209,7 @@ router.get('/mia/calendario', requirePermission('mia.ver'), async (req, res) => 
       if (!localId || localId === '000000') {
         return res.status(400).json({ error: 'localId inválido' });
       }
+      if (!(await permiteLecturaLocal(req, { idLocal: localId }))) return sinAcceso(res);
       const items = await listByLocalId(localId);
       return res.json({ localId, items, total: items.length });
     }
@@ -199,7 +217,7 @@ router.get('/mia/calendario', requirePermission('mia.ver'), async (req, res) => 
     if (!wid || wid === '000000') {
       return res.status(400).json({ error: 'warehouseId inválido' });
     }
-    const items = await listByWarehouseId(wid);
+    const items = await filtrarLecturaPorLocal(req, await listByWarehouseId(wid), (it) => ({ idLocal: it.LocalId }));
     return res.json({ warehouseId: wid, items, total: items.length });
   } catch (err) {
     req.log?.error?.({ err }, '[mia/calendario] Error listando');
@@ -207,7 +225,7 @@ router.get('/mia/calendario', requirePermission('mia.ver'), async (req, res) => 
   }
 });
 
-router.put('/mia/calendario', requirePermission('mia.configurar'), async (req, res) => {
+router.put('/mia/calendario', requirePermission('mia.configurar'), requireLocal(desde.body('localId'), { tipo: 'idLocal' }), async (req, res) => {
   const body = req.body || {};
   try {
     const item = await upsertCalendario(body, { usuario: req.user });
@@ -218,7 +236,7 @@ router.put('/mia/calendario', requirePermission('mia.configurar'), async (req, r
   }
 });
 
-router.delete('/mia/calendario', requirePermission('mia.configurar'), async (req, res) => {
+router.delete('/mia/calendario', requirePermission('mia.configurar'), requireLocal(desde.query('localId'), { tipo: 'idLocal' }), async (req, res) => {
   const localId = req.query.localId;
   const proveedorId = req.query.proveedorId;
   if (localId == null || String(localId).trim() === '') {
@@ -240,6 +258,7 @@ router.delete('/mia/calendario', requirePermission('mia.configurar'), async (req
 
 router.post('/mia/calcular', requirePermission('mia.calcular'), async (req, res) => {
   const body = req.body || {};
+  if (!(await permiteAlmacen(req, body.warehouseId))) return sinAcceso(res);
   try {
     const result = await calcularPedidoMia({
       warehouseId: body.warehouseId,
@@ -275,6 +294,7 @@ router.get('/mia/informes', requirePermission('mia.ver'), async (req, res) => {
   if (!wid || wid === '000000') {
     return res.status(400).json({ error: 'warehouseId inválido' });
   }
+  if (!(await permiteLecturaAlmacen(req, wid))) return sinAcceso(res);
   try {
     const limit = req.query.limit;
     const items = await listInformesByWarehouse(wid, { limit });
@@ -291,6 +311,9 @@ router.get('/mia/informes/:id', requirePermission('mia.ver'), async (req, res) =
   try {
     const full = await getInformeCompleto(id);
     if (!full) return res.status(404).json({ error: 'Informe no encontrado' });
+    if (!(await permiteLecturaAlmacen(req, full.informe?.WarehouseId ?? full.informe?.warehouseId))) {
+      return sinAcceso(res);
+    }
     return res.json({ ok: true, ...full, avisos: full.informe?.avisos || [] });
   } catch (err) {
     req.log?.error?.({ err }, '[mia/informes/:id] Error');
@@ -311,6 +334,7 @@ router.patch(
     if (!Array.isArray(lineas) || lineas.length === 0) {
       return res.status(400).json({ error: 'Body { lineas: [...] } obligatorio' });
     }
+    if (!(await permiteInforme(req, id))) return sinAcceso(res);
     try {
       const result = await updateLineas(id, lineas, { usuario: req.user });
       return res.json({
@@ -334,6 +358,7 @@ router.post('/mia/informes/:id/aprobar', requirePermission('mia.aprobar'), async
   const id = String(req.params.id || '').trim();
   if (!id) return res.status(400).json({ error: 'id de informe obligatorio' });
   const body = req.body || {};
+  if (!(await permiteInforme(req, id))) return sinAcceso(res);
   try {
     const result = await aprobarInformeMia(id, {
       statusAgora: body.statusAgora,

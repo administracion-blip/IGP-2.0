@@ -4,15 +4,19 @@
  * En 'observar' se sirve todo y se deja un aviso con los locales que se
  * denegarían; en 'bloquear' se filtra (listados) o se responde 403 (lectura de
  * un local ajeno). Las escrituras no pasan por aquí: bloquean siempre.
+ *
+ * La referencia de local puede ser una lista (ver `permiteAlgunLocal`): basta
+ * con que una esté permitida.
  */
 
-import { cargarAlcance, permiteLocal, modoLecturas } from './alcance.js';
+import { cargarAlcance, permiteLocal, permiteAlgunLocal, modoLecturas } from './alcance.js';
 
 function usuarioDe(req) {
   return req?.user?.sub ?? req?.user?.id_usuario ?? '?';
 }
 
 function valorRef(ref) {
+  if (Array.isArray(ref)) return ref.map(valorRef).filter(Boolean).join('|');
   if (!ref || typeof ref !== 'object') return '';
   return String(ref.workplaceId ?? ref.agoraCode ?? ref.idLocal ?? ref.nombre ?? '').trim();
 }
@@ -24,7 +28,7 @@ export function avisarDenegaria(req, locales) {
 }
 
 /**
- * @param {(item: object) => object} refDe referencia de local de cada elemento.
+ * @param {(item: object) => object|object[]} refDe referencia de local de cada elemento.
  * @returns {Promise<object[]>} todo en 'observar'; solo lo permitido en 'bloquear'.
  */
 export async function filtrarLecturaPorLocal(req, items, refDe) {
@@ -36,7 +40,7 @@ export async function filtrarLecturaPorLocal(req, items, refDe) {
   const ajenos = new Set();
   for (const it of lista) {
     const ref = refDe(it);
-    if (permiteLocal(alcance, ref)) permitidos.push(it);
+    if (permiteAlgunLocal(alcance, ref)) permitidos.push(it);
     else ajenos.add(valorRef(ref));
   }
   if (ajenos.size === 0) return lista;
@@ -51,7 +55,7 @@ export async function filtrarLecturaPorLocal(req, items, refDe) {
  */
 export async function permiteLecturaLocal(req, ref) {
   const alcance = await cargarAlcance(req);
-  if (permiteLocal(alcance, ref)) return true;
+  if (permiteAlgunLocal(alcance, ref)) return true;
   if (modoLecturas() === 'bloquear') return false;
   avisarDenegaria(req, [valorRef(ref)]);
   return true;

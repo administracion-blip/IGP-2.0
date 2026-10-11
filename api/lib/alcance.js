@@ -183,6 +183,16 @@ export function permiteLocal(alcance, ref) {
 }
 
 /**
+ * Como `permiteLocal`, pero `refs` puede ser una lista: basta con que una de sus
+ * referencias esté permitida (registro que pertenece a varios locales a la vez).
+ */
+export function permiteAlgunLocal(alcance, refs) {
+  if (!Array.isArray(refs)) return permiteLocal(alcance, refs);
+  if (alcance?.global) return true;
+  return refs.some((ref) => permiteLocal(alcance, ref));
+}
+
+/**
  * Deja solo los valores permitidos. `tipo` indica qué es cada valor.
  * @param {'workplaceId'|'agoraCode'|'idLocal'|'nombre'} [tipo]
  */
@@ -237,11 +247,12 @@ export function registrarObservacion(req, detalle) {
 /**
  * Para usar dentro de un handler cuando el local solo se conoce tras leer datos.
  * Lanza un error HTTP 403 (lo recoge errorHandler). Con `modo: 'observar'` solo avisa.
+ * `ref` puede ser una lista de referencias (ver `permiteAlgunLocal`).
  * @param {{ modo?: 'bloquear'|'observar' }} [opciones]
  */
 export async function asegurarLocal(req, ref, { modo = 'bloquear' } = {}) {
   const alcance = await cargarAlcance(req);
-  if (permiteLocal(alcance, ref)) return alcance;
+  if (permiteAlgunLocal(alcance, ref)) return alcance;
   if (modo === 'observar') {
     registrarObservacion(req, `ref=${JSON.stringify(ref ?? null)}`);
     return alcance;
