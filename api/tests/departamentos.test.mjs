@@ -398,7 +398,7 @@ test('sin departamentos válidos el atributo no se escribe', async () => {
   const soloFantasmas = db.obtener(tables.usuarios, { id_usuario: '000012' });
   assert.equal(soloFantasmas.Departamentos, undefined, 'es un atributo disperso, no una lista vacía');
 
-  await api('POST', '/api/usuarios', { ...USUARIO_NUEVO, id_usuario: '13' });
+  await api('POST', '/api/usuarios', { ...USUARIO_NUEVO, id_usuario: '13', Email: 'otra@IGP.local' });
   assert.equal(db.obtener(tables.usuarios, { id_usuario: '000013' }).Departamentos, undefined);
 });
 

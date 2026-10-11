@@ -4,6 +4,7 @@ import { docClient, tables } from '../lib/db.js';
 import { requirePermission } from '../middleware/auth.js';
 import { puedeGestionarRol, validarRolUsuario } from '../lib/roles.js';
 import { hashPassword } from '../lib/password.js';
+import { emailEnUsoPorOtroUsuario } from '../lib/dynamo/usuarios.js';
 import { invalidarContextoAcceso } from '../lib/tasks/acceso.js';
 import {
   filtrarDepartamentosExistentes,
@@ -66,6 +67,14 @@ router.get('/usuarios', requirePermission('usuarios.ver'), async (req, res) => {
   res.json({ usuarios });
 });
 
+function normalizarEmail(val) {
+  return String(val ?? '').trim().toLowerCase();
+}
+
+function errorEmailEnUso(email) {
+  return `Ya existe otro usuario con el email ${email}. Cada usuario debe tener un email distinto.`;
+}
+
 function normalizeLocal(val) {
   if (Array.isArray(val)) return val.filter((l) => l != null && String(l).trim() !== '').map((l) => String(l).trim());
   if (val != null && String(val).trim() !== '') return [String(val).trim()];
@@ -87,6 +96,13 @@ router.post('/usuarios', requirePermission('usuarios.crear'), async (req, res) =
   if (!gestRol.ok) {
     return res.status(gestRol.status).json({ error: gestRol.error });
   }
+  const emailNorm = normalizarEmail(body.Email);
+  if (!emailNorm) {
+    return res.status(400).json({ error: 'Email y Password son obligatorios' });
+  }
+  if (await emailEnUsoPorOtroUsuario(emailNorm)) {
+    return res.status(409).json({ error: errorEmailEnUso(emailNorm) });
+  }
 
   const item = {};
   for (const key of TABLE_USUARIOS_ATTRS) {
@@ -94,7 +110,7 @@ router.post('/usuarios', requirePermission('usuarios.crear'), async (req, res) =
       const v = body.id_usuario;
       item[key] = v != null ? formatId6(v) : '000000';
     } else if (key === 'Email') {
-      item[key] = String(body.Email ?? '').trim().toLowerCase();
+      item[key] = emailNorm;
     } else if (key === 'Password') {
       // [SEC S-10]
       item[key] = await hashPassword(String(body.Password ?? ''));
@@ -164,13 +180,18 @@ router.put('/usuarios', requirePermission('usuarios.editar'), async (req, res) =
   if (!gestRol.ok) {
     return res.status(gestRol.status).json({ error: gestRol.error });
   }
+  const emailNorm = normalizarEmail(body.Email);
+  // Solo al cambiar el email: los duplicados que ya existan no deben impedir editar el resto de la ficha.
+  if (emailNorm !== normalizarEmail(existing.Email) && await emailEnUsoPorOtroUsuario(emailNorm, idUsuario)) {
+    return res.status(409).json({ error: errorEmailEnUso(emailNorm) });
+  }
 
   const item = {};
   for (const key of TABLE_USUARIOS_ATTRS) {
     if (key === 'id_usuario') {
       item[key] = idUsuario;
     } else if (key === 'Email') {
-      item[key] = String(body.Email ?? '').trim().toLowerCase();
+      item[key] = emailNorm;
     } else if (key === 'Password') {
       // [SEC S-10]
       const rawPass = body.Password != null ? String(body.Password).trim() : '';

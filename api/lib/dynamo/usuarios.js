@@ -99,3 +99,14 @@ export async function findUsuarioByEmail(emailNorm) {
   }));
   return r.Items || [];
 }
+
+/**
+ * ¿Hay otro usuario (distinto de `idUsuarioPropio`) con este email? El login se
+ * queda con el primer resultado y la recuperación de contraseña exige uno solo,
+ * así que un email repetido deja sin acceso al usuario original.
+ */
+export async function emailEnUsoPorOtroUsuario(emailNorm, idUsuarioPropio = '') {
+  const propio = String(idUsuarioPropio ?? '').trim();
+  const items = await findUsuarioByEmail(emailNorm);
+  return items.some((u) => String(u?.id_usuario ?? '').trim() !== propio);
+}
