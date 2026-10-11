@@ -288,3 +288,33 @@ test('revisión de cajas: cierres.ver e intersección de workplaceIds', async ()
   assert.equal(r.status, 200);
   assert.deepEqual(r.body.locales.map((l) => l.workplaceId), ['101']);
 });
+
+// ─── Efectivo a ingresar (IBAN de sociedades) ───
+
+const IBAN_NORTE = 'ES9121000418450200051332';
+const IBAN_SUR = 'ES7921000813610123456789';
+
+function sembrarEfectivo() {
+  db.sembrar(tables.empresas, { id_empresa: '000010', Nombre: 'Norte SL', IbanPredeterminado: IBAN_NORTE });
+  db.sembrar(tables.empresas, { id_empresa: '000020', Nombre: 'Sur SL', IbanPredeterminado: IBAN_SUR });
+  for (const pk of ['101', '202']) {
+    db.sembrar(tables.arqueosReales, {
+      PK: pk, SK: '2026-10-03#1', BusinessDay: '2026-10-03', PosId: '1', realPorMetodo: { Efectivo: 100 },
+    });
+  }
+}
+
+test('efectivo a ingresar: el IBAN de una sociedad ajena no sale aunque se pida su local', async () => {
+  montar();
+  sembrarEfectivo();
+  const q = 'dateFrom=2026-10-03&dateTo=2026-10-03';
+  const r = await api('GET', `/api/cajas/efectivo-ingresar?${q}&workplaceIds=101,202`, SUPER_PARIPE);
+  assert.equal(r.status, 200);
+  const texto = JSON.stringify(r.body);
+  assert.ok(texto.includes(IBAN_NORTE));
+  assert.ok(!texto.includes(IBAN_SUR), 'no debe aparecer el IBAN de la sociedad de SUR');
+  assert.deepEqual(r.body.sociedades.flatMap((s) => s.locales.map((l) => l.workplaceId)), ['101']);
+
+  assert.equal((await api('GET', `/api/cajas/efectivo-ingresar?${q}&workplaceIds=202`, SUPER_PARIPE)).status, 403);
+  assert.equal((await api('GET', `/api/cajas/efectivo-ingresar?${q}&workplaceIds=101`, LOCAL_PARIPE)).status, 403);
+});

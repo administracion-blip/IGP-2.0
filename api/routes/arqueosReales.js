@@ -888,16 +888,14 @@ function desglosarConteo(efectivoConteo) {
 // Total de efectivo a ingresar en banco por sociedad → local, en un rango.
 // "A ingresar" = efectivo contado en el arqueo + retiradas de efectivo (que también
 // se ingresan). Las retiradas cuentan siempre como billetes.
-router.get('/cajas/efectivo-ingresar', async (req, res) => {
+// Las sociedades (y su IBAN) salen solo de los locales permitidos: no se listan aparte.
+router.get('/cajas/efectivo-ingresar', requirePermission('cierres.ver'), requireLocales(desde.query('workplaceIds')), async (req, res) => {
   const dateFrom = String(req.query.dateFrom || '').trim();
   const dateTo = String(req.query.dateTo || req.query.dateFrom || '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
     return res.status(400).json({ error: 'dateFrom y dateTo (YYYY-MM-DD) obligatorios' });
   }
-  const workplaceIds = String(req.query.workplaceIds || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const workplaceIds = req.alcanceLocales;
   if (workplaceIds.length === 0) {
     return res.status(400).json({ error: 'workplaceIds obligatorio (códigos Ágora separados por coma)' });
   }
