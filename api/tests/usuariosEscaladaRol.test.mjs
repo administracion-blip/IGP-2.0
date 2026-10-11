@@ -151,6 +151,20 @@ test('un no-admin sigue pudiendo gestionar usuarios normales', async () => {
   assert.equal(ficha(db, '000060'), null);
 });
 
+test('PUT de un usuario inexistente devuelve 404 y no lo crea (usuarios.editar no sirve para crear)', async () => {
+  const db = montar();
+  db.sembrar(tables.rolesPermisos, { PK: 'ROL#Editor', SK: 'PERMISO#usuarios.editar' });
+  const EDITOR = { sub: '000006', email: 'editor@grupo.test', rol: 'Editor' };
+  const antes = db.listar(tables.usuarios).length;
+  const r = await api('PUT', '/api/usuarios', {
+    id_usuario: '000099', Email: 'colado@grupo.test', Password: 'secreta123', Rol: 'Local',
+  }, EDITOR);
+  assert.equal(r.status, 404);
+  assert.equal(r.body.error, 'Usuario no encontrado');
+  assert.equal(ficha(db, '000099'), null);
+  assert.equal(db.listar(tables.usuarios).length, antes);
+});
+
 test('puedeGestionarRol: matriz de decisiones', () => {
   assert.equal(puedeGestionarRol(ADMIN, 'Administrador', 'Administrador').ok, true);
   assert.equal(puedeGestionarRol(GESTOR, 'Local', 'Local').ok, true);

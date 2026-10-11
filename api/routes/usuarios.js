@@ -175,7 +175,10 @@ router.put('/usuarios', requirePermission('usuarios.editar'), async (req, res) =
     Key: { id_usuario: idUsuario },
   });
   const got = await docClient.send(getCmd);
-  const existing = got.Item || {};
+  if (!got.Item) {
+    return res.status(404).json({ error: 'Usuario no encontrado' });
+  }
+  const existing = got.Item;
   const gestRol = puedeGestionarRol(req.user, body.Rol, existing.Rol);
   if (!gestRol.ok) {
     return res.status(gestRol.status).json({ error: gestRol.error });
@@ -213,10 +216,19 @@ router.put('/usuarios', requirePermission('usuarios.editar'), async (req, res) =
   const departamentos = await departamentosDelCuerpo(body.Departamentos, existing.Departamentos);
   if (departamentos.length > 0) item.Departamentos = departamentos;
 
-  await docClient.send(new PutCommand({
-    TableName: tables.usuarios,
-    Item: item,
-  }));
+  // Sin la condición, un borrado entre el Get y el Put volvería a crear el usuario con solo usuarios.editar.
+  try {
+    await docClient.send(new PutCommand({
+      TableName: tables.usuarios,
+      Item: item,
+      ConditionExpression: 'attribute_exists(id_usuario)',
+    }));
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    throw err;
+  }
   invalidarContextoAcceso(idUsuario);
   const { Password: _, ...safeItem } = item;
   res.json({ ok: true, usuario: safeItem });
