@@ -189,6 +189,68 @@ test('mover un pedido propio a otro local (sin ser dueño del origen): 403 y el 
   assert.equal(pedido('PED-2').Notas, 'dos cajas');
 });
 
+// ─── Devoluciones: el local que devuelve tiene que ser suyo ───
+
+const OFICINA = { sub: '000093', email: 'oficina@grupo.test', rol: 'SuperUser' };
+
+function sembrarDevolucionNorte() {
+  db.sembrar(tables.usuarios, { id_usuario: '000093', Email: OFICINA.email, Rol: 'SuperUser', Local: [] });
+  // PED-3: devolución de Bar Norte desde su almacén al General.
+  db.sembrar(tables.pedidos, {
+    Id: 'PED-3', LocalId: '000010', AlmacenOrigenId: '2', AlmacenDestinoId: '1',
+    Tipo: 'Devolucion', Estado: 'Borrador', Fecha: '2026-10-04', Notas: '',
+  });
+}
+
+test('crear una devolución a nombre de otro local desde su almacén: 403 sin escribir', async () => {
+  montar();
+  const ataque = { Fecha: '2026-10-05', Tipo: 'Devolucion', LocalId: '000020', AlmacenOrigenId: '2', AlmacenDestinoId: '1' };
+  const r = await api('POST', '/api/pedidos', ataque, LOCAL_NORTE);
+  assert.equal(r.status, 403);
+  assert.equal(r.body.error, 'No tienes acceso a este local');
+  assert.equal(db.listar(tables.pedidos).length, 2);
+
+  const propia = await api('POST', '/api/pedidos', { ...ataque, LocalId: '000010' }, LOCAL_NORTE);
+  assert.equal(propia.status, 200);
+  assert.equal(propia.body.pedido.Tipo, 'Devolucion');
+});
+
+test('editar para dejar una devolución a nombre de otro local: 403 y el pedido no cambia', async () => {
+  montar();
+  sembrarDevolucionNorte();
+  const ataques = [
+    { Id: 'PED-3', LocalId: '000020' },
+    { Id: 'PED-2', LocalId: '000020', AlmacenOrigenId: '2', AlmacenDestinoId: '1', Tipo: 'Devolucion' },
+  ];
+  for (const cuerpo of ataques) {
+    const r = await api('PUT', '/api/pedidos', cuerpo, LOCAL_NORTE);
+    assert.equal(r.status, 403, JSON.stringify(cuerpo));
+  }
+  assert.equal(pedido('PED-3').LocalId, '000010');
+  assert.equal(pedido('PED-2').LocalId, '000010');
+  assert.equal(pedido('PED-2').Tipo, undefined);
+});
+
+test('convertir una devolución desde su almacén en pedido: es venta entre locales y pide el permiso', async () => {
+  montar();
+  sembrarDevolucionNorte();
+  const r = await api('PUT', '/api/pedidos', { Id: 'PED-3', Tipo: 'Pedido' }, LOCAL_NORTE);
+  assert.equal(r.status, 403);
+  assert.match(r.body.error, /almacén de otro local/);
+  assert.equal(pedido('PED-3').Tipo, 'Devolucion');
+});
+
+test('editar su devolución sin cambiar el movimiento sigue funcionando; el global la mueve', async () => {
+  montar();
+  sembrarDevolucionNorte();
+  const ok = await api('PUT', '/api/pedidos', { Id: 'PED-3', Notas: 'tres cajas' }, LOCAL_NORTE);
+  assert.equal(ok.status, 200);
+  assert.equal(pedido('PED-3').Notas, 'tres cajas');
+  const global = await api('PUT', '/api/pedidos', { Id: 'PED-3', LocalId: '000020' }, OFICINA);
+  assert.equal(global.status, 200);
+  assert.equal(pedido('PED-3').LocalId, '000020');
+});
+
 // ─── Lecturas ───
 
 test('listado y líneas en observar: todo + aviso', async () => {

@@ -26,6 +26,18 @@ export async function permitePedido(req, pedido) {
   return permiteAlgunLocal(alcance, await refsPedido(req, pedido));
 }
 
+/**
+ * Pedido tal como va a quedar escrito al crearlo o editarlo: tiene que ser suyo y,
+ * si es una devolución, además el local que devuelve (`LocalId`), porque la
+ * devolución resta en las ventas y el rappel de ese local. Ser dueño del almacén
+ * origen no basta para dejarla a nombre de otro.
+ */
+export async function permiteEscribirPedido(req, pedido) {
+  if (!(await permitePedido(req, pedido))) return false;
+  if (String(pedido?.Tipo ?? '').trim() !== 'Devolucion') return true;
+  return permiteLocal(await cargarAlcance(req), refDestino(pedido));
+}
+
 /** Lectura de un pedido: sigue `modoLecturas()`. */
 export async function permiteLecturaPedido(req, pedido) {
   const alcance = await cargarAlcance(req);

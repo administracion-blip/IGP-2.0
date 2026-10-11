@@ -6,7 +6,12 @@ import { formatId6 } from '../lib/usuarioLocales.js';
 import { resolveTotalAportacionUnitaria } from '../lib/pedidos/rappelAcuerdo.js';
 import { idsAlmacenGeneral } from '../lib/pedidos/almacenGeneral.js';
 import { MENSAJE_SIN_ACCESO_LOCAL } from '../lib/alcance.js';
-import { permitePedido, permiteLecturaPedido, filtrarPedidosLectura } from '../lib/pedidos/alcancePedido.js';
+import {
+  permitePedido,
+  permiteEscribirPedido,
+  permiteLecturaPedido,
+  filtrarPedidosLectura,
+} from '../lib/pedidos/alcancePedido.js';
 
 const router = express.Router();
 
@@ -856,7 +861,7 @@ router.post('/pedidos', async (req, res) => {
       baseItem.EnviadoEn = ahora;
     }
 
-    if (!(await permitePedido(req, baseItem))) return sinAccesoLocal(res);
+    if (!(await permiteEscribirPedido(req, baseItem))) return sinAccesoLocal(res);
 
     const bloqueoOrigen = await errorPermisoOrigenEntreLocales(req, {
       tipo: baseItem.Tipo,
@@ -974,17 +979,19 @@ router.put('/pedidos', async (req, res) => {
         ? (String(body.Tipo).trim() === 'Devolucion' ? 'Devolucion' : 'Pedido')
         : (String(existing.Tipo ?? 'Pedido').trim() === 'Devolucion' ? 'Devolucion' : 'Pedido'),
     };
-    // Mover el pedido de local u origen: el pedido resultante también tiene que ser suyo.
-    const mueveLocalOOrigen =
-      fijar.LocalId !== String(existing.LocalId ?? '').trim()
-      || fijar.AlmacenOrigenId !== String(existing.AlmacenOrigenId ?? '').trim();
-    if (mueveLocalOOrigen && !(await permitePedido(req, fijar))) return sinAccesoLocal(res);
+    // Cambiar local, almacenes o tipo: el pedido resultante tiene que pasar lo
+    // mismo que al crearlo (alcance y venta entre sociedades). El resto de
+    // ediciones de un pedido ya creado (prepararlo, completarlo, anotarlo) no lo
+    // revalidan, para no bloquear un pedido interlocal legítimo.
+    const tipoExistente = String(existing.Tipo ?? 'Pedido').trim() === 'Devolucion' ? 'Devolucion' : 'Pedido';
+    const cambiaOrigenDestinoOTipo =
+      fijar.AlmacenOrigenId !== String(existing.AlmacenOrigenId ?? '').trim()
+      || fijar.AlmacenDestinoId !== String(existing.AlmacenDestinoId ?? '').trim()
+      || fijar.Tipo !== tipoExistente;
+    const cambiaMovimiento = cambiaOrigenDestinoOTipo || fijar.LocalId !== String(existing.LocalId ?? '').trim();
+    if (cambiaMovimiento && !(await permiteEscribirPedido(req, fijar))) return sinAccesoLocal(res);
     const borrar = [];
-    // Mover el origen a un almacén que no sea el general convierte el pedido en
-    // una venta entre sociedades: mismo permiso que al crearlo. Solo se valida
-    // cuando la petición cambia el origen, para no bloquear el resto de ediciones
-    // de un pedido interlocal ya creado (prepararlo, completarlo, anotarlo).
-    if (fijar.AlmacenOrigenId !== String(existing.AlmacenOrigenId ?? '').trim()) {
+    if (cambiaOrigenDestinoOTipo) {
       const bloqueoOrigen = await errorPermisoOrigenEntreLocales(req, {
         tipo: fijar.Tipo,
         almacenOrigenId: fijar.AlmacenOrigenId,
