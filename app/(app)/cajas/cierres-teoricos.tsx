@@ -871,13 +871,14 @@ export default function CierresTeoricosScreen() {
     setFormError(null);
     try {
       if (editingItem) {
+        const editPk = String(editingItem.PK ?? editingItem.pk ?? '').trim();
         const res = await apiFetch('/api/agora/closeouts', {
           method: 'PUT',
           body: JSON.stringify({
-            PK: editingItem.PK ?? editingItem.pk,
+            PK: editPk,
             SK: editingItem.SK ?? editingItem.sk,
             BusinessDay: bd,
-            WorkplaceName: agoraCodeToNombre[pk] ?? pk,
+            WorkplaceName: agoraCodeToNombre[editPk] ?? editPk,
             PosId: formPosId.trim() || null,
             PosName: formPosName.trim() || null,
             Number: formNumber.trim() || '1',
