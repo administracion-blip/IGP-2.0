@@ -8,6 +8,7 @@
  */
 
 import { Router } from 'express';
+import { requireAnyPermission } from '../middleware/auth.js';
 import {
   obtenerCuadrantePorLocales,
   CuadranteServicioError,
@@ -35,7 +36,8 @@ function parseLocalIds(query) {
   return [...ids];
 }
 
-router.get('/personal/cuadrante', async (req, res) => {
+// Incluye costes salariales por turno.
+router.get('/personal/cuadrante', requireAnyPermission('planning_dia.ver', 'rrhh.horas'), async (req, res) => {
   try {
     const localIds = parseLocalIds(req.query);
     const from = req.query.from != null ? String(req.query.from) : '';
