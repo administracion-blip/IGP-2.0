@@ -40,8 +40,8 @@ async function queryByIdFactura(tableName, idFactura, { consistente = false } = 
   return items;
 }
 
-export function queryLineasByFactura(idFactura) {
-  return queryByIdFactura(tables.facturasLineas, idFactura);
+export function queryLineasByFactura(idFactura, opts) {
+  return queryByIdFactura(tables.facturasLineas, idFactura, opts);
 }
 
 export function queryPagosByFactura(idFactura, opts) {

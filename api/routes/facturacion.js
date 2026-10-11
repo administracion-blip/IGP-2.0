@@ -546,7 +546,10 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
   const body = req.body || {};
 
   try {
-    const existing = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }));
+    // Lectura fuerte: la versión leída es la que protege las líneas (ver el reintento más abajo).
+    const existing = await docClient.send(new GetCommand({
+      TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id), ConsistentRead: true,
+    }));
     if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
 
     const factura = existing.Item;
@@ -623,7 +626,7 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
     let totalesLineas = null;
     let operacionesLineas = [];
     if (Array.isArray(body.lineas)) {
-      const oldLineas = await queryLineasByFactura(id);
+      const oldLineas = await queryLineasByFactura(id, { consistente: true });
 
       let base_imponible = 0;
       let total_iva = 0;
@@ -714,9 +717,13 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
     };
 
     // Un pago registrado entre la lectura y el guardado no se pisa: se relee y se
-    // vuelve a aplicar la edición sobre su total_cobrado.
+    // vuelve a aplicar la edición sobre su total_cobrado. Si la petición trae
+    // líneas no se reintenta: las operaciones de líneas salen de la lectura
+    // inicial y, si otra edición las cambió, reaplicarlas dejaría huérfanas o
+    // totales de otra versión; el usuario tiene que ver los cambios del otro.
     let guardada = existing.Item;
     let lineasPendientes = [];
+    const intentos = Array.isArray(body.lineas) ? 1 : undefined;
     await conReintentoFactura(async (intento) => {
       let estadoLeido = estadoOriginal;
       if (intento > 1) {
@@ -743,7 +750,7 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
         await docClient.send(new PutCommand(cabecera));
         lineasPendientes = operacionesLineas;
       }
-    });
+    }, intentos);
     // Solo con más de 99 líneas: van después de la cabecera ya guardada.
     for (let i = 0; i < lineasPendientes.length; i += 100) {
       await docClient.send(new TransactWriteCommand({ TransactItems: lineasPendientes.slice(i, i + 100) }));

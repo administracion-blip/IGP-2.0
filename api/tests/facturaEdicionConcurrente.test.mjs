@@ -93,17 +93,47 @@ test('editar un pago mientras entra otro: se relee y el total suma el pago edita
   assert.equal(factura().saldo_pendiente, 55);
 });
 
-test('editar las líneas de la factura mientras entra un pago: el saldo se recalcula con el pago nuevo', async () => {
+test('editar la cabecera (sin líneas) mientras entra un pago: se relee y el pago no se pisa', async () => {
   db.interceptar('PutCommand', tables.facturas, otroPago);
+  const r = await api('PUT', '/api/facturacion/facturas/F-1', { observaciones: 'nota' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(factura().observaciones, 'nota');
+  assert.equal(factura().total_cobrado, 40);
+  assert.equal(r.body.factura.total_cobrado, 40);
+});
+
+test('editar las líneas mientras entra un pago: 409 sin reintentar; el pago queda y las líneas no cambian', async () => {
+  db.crearTabla(tables.facturasLineas, { hashKey: 'id_factura', rangeKey: 'id_linea' });
+  db.sembrar(tables.facturasLineas, { id_factura: 'F-1', id_linea: 'L001', descripcion: 'Original' });
+  db.interceptar('TransactWriteCommand', undefined, otroPago);
   const r = await api('PUT', '/api/facturacion/facturas/F-1', {
     lineas: [{ descripcion: 'Servicio', cantidad: 1, precio_unitario: 200, tipo_iva: 0 }],
   });
-  assert.equal(r.status, 200, JSON.stringify(r.body));
-  const f = factura();
-  assert.equal(f.total_factura, 200);
-  assert.equal(f.total_cobrado, 40);
-  assert.equal(f.saldo_pendiente, 160);
-  assert.equal(r.body.factura.total_cobrado, 40);
+  assert.equal(r.status, 409);
+  assert.equal(r.body.error, 'La factura ha cambiado, vuelve a intentarlo');
+  assert.equal(factura().total_cobrado, 40);
+  assert.equal(factura().total_factura, 100);
+  assert.deepEqual(db.listar(tables.facturasLineas).map((l) => l.descripcion), ['Original']);
+});
+
+test('dos ediciones con líneas a la vez: la segunda recibe 409 y no quedan líneas huérfanas', async () => {
+  db.crearTabla(tables.facturasLineas, { hashKey: 'id_factura', rangeKey: 'id_linea' });
+  db.sembrar(tables.facturasLineas, { id_factura: 'F-1', id_linea: 'L001', descripcion: 'Original' });
+  const linea = (descripcion, precio) => ({ descripcion, cantidad: 1, precio_unitario: precio, tipo_iva: 0 });
+  // La primera edición (3 líneas) entra completa justo antes de que la segunda (1 línea) escriba.
+  let primera;
+  db.interceptar('TransactWriteCommand', undefined, async () => {
+    primera = await api('PUT', '/api/facturacion/facturas/F-1', {
+      lineas: [linea('A', 10), linea('B', 20), linea('C', 30)],
+    });
+  });
+  const segunda = await api('PUT', '/api/facturacion/facturas/F-1', { lineas: [linea('Sola', 500)] });
+  assert.equal(primera.status, 200, JSON.stringify(primera.body));
+  assert.equal(segunda.status, 409);
+  const lineas = db.listar(tables.facturasLineas).filter((l) => l.id_factura === 'F-1');
+  assert.deepEqual(lineas.map((l) => [l.id_linea, l.descripcion]), [['L001', 'A'], ['L002', 'B'], ['L003', 'C']]);
+  assert.equal(factura().total_factura, 60);
+  assert.equal(lineas.reduce((s, l) => s + l.total_linea, 0), factura().total_factura);
 });
 
 test('anular mientras entra un pago: 409 y el pago no se pierde', async () => {
