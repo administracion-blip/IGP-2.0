@@ -294,6 +294,29 @@ test('una carga del contexto en vuelo durante una invalidación no repuebla la c
   assert.equal(lecturasFicha(db), lecturas, 'sin invalidación en medio, sí se cachea');
 });
 
+test('id reutilizado: el alta nueva no hereda los tokens del usuario borrado y su propio login entra', async () => {
+  const db = await montar();
+  const delBorrado = await login(VICTIMA);
+  const sinTv = tokenSinTv(VICTIMA);
+  const adminToken = await login(ADMIN);
+
+  assert.equal((await api('DELETE', `/api/usuarios?id_usuario=${VICTIMA.id_usuario}`, { token: adminToken })).status, 200);
+  const alta = await api('POST', '/api/usuarios', {
+    token: adminToken,
+    cuerpo: { id_usuario: VICTIMA.id_usuario, Email: 'nueva@grupo.test', Password: PASSWORD, Rol: VICTIMA.Rol, Nombre: 'Nueva' },
+  });
+  assert.equal(alta.status, 200, JSON.stringify(alta.body));
+  assert.equal(alta.body.usuario.tokenVersion, undefined, 'la respuesta no expone tokenVersion');
+  assert.ok(db.obtener(tables.usuarios, { id_usuario: VICTIMA.id_usuario }).tokenVersion > 0);
+
+  assertCaducada(await api('GET', '/api/ping', { token: delBorrado }));
+  assertCaducada(await api('GET', '/api/ping', { token: sinTv }));
+
+  const r = await api('POST', '/api/login', { cuerpo: { email: 'nueva@grupo.test', password: PASSWORD } });
+  assert.equal(r.status, 200);
+  assert.equal((await api('GET', '/api/ping', { token: r.body.token })).status, 200);
+});
+
 test('el token de sistema no vale fuera de las rutas del informe; sin sys:true se trata como usuario', async () => {
   await montar();
   const r = await api('GET', '/api/ping', { token: signSystemToken('informes') });

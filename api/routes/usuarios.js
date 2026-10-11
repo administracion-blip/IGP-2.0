@@ -126,6 +126,10 @@ router.post('/usuarios', requirePermission('usuarios.crear'), async (req, res) =
   const departamentos = await departamentosDelCuerpo(body.Departamentos);
   if (departamentos.length > 0) item.Departamentos = departamentos;
 
+  // Si el id es de un usuario borrado, sus tokens (tv 0 o el que tuviera)
+  // seguirían cuadrando con una ficha nueva a 0. El login firma este valor.
+  item.tokenVersion = Date.now();
+
   // El `id_usuario` lo propone el cliente contando la lista que tiene cargada,
   // así que dos altas hechas sobre la misma lista proponen el mismo id. Sin esta
   // condición el segundo `Put` machacaría la ficha entera del primero —email,
@@ -149,7 +153,7 @@ router.post('/usuarios', requirePermission('usuarios.crear'), async (req, res) =
   }
   // El contexto de acceso cachea rol, locales y departamentos del usuario.
   invalidarContextoAcceso(item.id_usuario);
-  const { Password: _, ...safeItem } = item;
+  const { Password: _, tokenVersion: _tv, ...safeItem } = item;
   res.json({ ok: true, usuario: safeItem });
 });
 
