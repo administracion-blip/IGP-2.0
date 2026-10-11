@@ -2,7 +2,7 @@ import express from 'express';
 import { ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 import { requirePermission } from '../middleware/auth.js';
-import { validarRolUsuario } from '../lib/roles.js';
+import { puedeGestionarRol, validarRolUsuario } from '../lib/roles.js';
 import { hashPassword } from '../lib/password.js';
 import { invalidarContextoAcceso } from '../lib/tasks/acceso.js';
 import {
@@ -83,6 +83,10 @@ router.post('/usuarios', requirePermission('usuarios.crear'), async (req, res) =
   if (!valRol.ok) {
     return res.status(400).json({ error: valRol.error });
   }
+  const gestRol = puedeGestionarRol(req.user, body.Rol, null);
+  if (!gestRol.ok) {
+    return res.status(gestRol.status).json({ error: gestRol.error });
+  }
 
   const item = {};
   for (const key of TABLE_USUARIOS_ATTRS) {
@@ -156,6 +160,10 @@ router.put('/usuarios', requirePermission('usuarios.editar'), async (req, res) =
   });
   const got = await docClient.send(getCmd);
   const existing = got.Item || {};
+  const gestRol = puedeGestionarRol(req.user, body.Rol, existing.Rol);
+  if (!gestRol.ok) {
+    return res.status(gestRol.status).json({ error: gestRol.error });
+  }
 
   const item = {};
   for (const key of TABLE_USUARIOS_ATTRS) {
@@ -199,6 +207,15 @@ router.delete('/usuarios', requirePermission('usuarios.borrar'), async (req, res
   const idUsuario = req.body?.id_usuario != null ? String(req.body.id_usuario) : req.query?.id_usuario != null ? String(req.query.id_usuario) : '';
   if (!idUsuario) {
     return res.status(400).json({ error: 'id_usuario es obligatorio para borrar' });
+  }
+
+  const got = await docClient.send(new GetCommand({
+    TableName: tables.usuarios,
+    Key: { id_usuario: idUsuario },
+  }));
+  const gestRol = puedeGestionarRol(req.user, null, got.Item?.Rol);
+  if (!gestRol.ok) {
+    return res.status(gestRol.status).json({ error: gestRol.error });
   }
 
   await docClient.send(new DeleteCommand({

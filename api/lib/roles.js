@@ -349,6 +349,35 @@ export async function seedRolesCatalogoInicial() {
   return resultados;
 }
 
+function esRolSistema(rol) {
+  return (rol ?? '').toString().trim() === ROL_SISTEMA;
+}
+
+/**
+ * Decide si `actor` (req.user) puede asignar `rolNuevo` a un usuario cuyo rol
+ * actual es `rolActualObjetivo`. Solo un Administrador puede conceder el rol
+ * Administrador o tocar (editar, cambiar credenciales o borrar) a un usuario que
+ * ya lo tiene. `rolNuevo` vacío o ausente significa que el rol no cambia.
+ */
+export function puedeGestionarRol(actor, rolNuevo, rolActualObjetivo) {
+  if (esRolSistema(actor?.rol)) return { ok: true };
+  if (esRolSistema(rolActualObjetivo)) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'Solo un Administrador puede modificar o eliminar a un usuario Administrador',
+    };
+  }
+  if (esRolSistema(rolNuevo)) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'Solo un Administrador puede asignar el rol Administrador',
+    };
+  }
+  return { ok: true };
+}
+
 export async function validarRolUsuario(rol) {
   const nombre = (rol ?? '').toString().trim();
   if (!nombre) return { ok: true };
