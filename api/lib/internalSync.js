@@ -6,6 +6,8 @@
 /** POST exactos permitidos con secreto interno (sin query string en la clave). */
 export const INTERNAL_SYNC_POST_PATHS = new Set([
   '/api/agora/products/sync',
+  '/api/agora/users/sync',
+  '/api/agora/payment-methods/sync',
   '/api/agora/purchases/sync',
   '/api/agora/closeouts/sync',
   '/api/agora/closeouts/full-sync',
