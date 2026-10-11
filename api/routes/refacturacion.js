@@ -36,8 +36,13 @@ import {
   recalcularLineaRefacturacion,
   pareceFactura,
 } from '../lib/facturacion/refacturacionCalculo.js';
+import { cargarAlcance, permiteEmpresa } from '../lib/alcance.js';
+import { filtrarLecturaPorEmpresa, permiteLecturaEmpresa } from '../lib/alcanceSociedad.js';
+import { esSedeGrupoParipeEmpresa } from '../lib/locales/sede.js';
 
 const router = Router();
+
+const MENSAJE_SOCIEDAD_AJENA = 'No tienes acceso a esa sociedad';
 
 export { pareceFactura, INCREMENTO_REFACTURACION_PCT };
 
@@ -225,15 +230,22 @@ router.post(
       }
 
       const usuario = usuarioDesdeReq(req, body);
-      const guardadas = [];
-
+      const items = [];
       for (const raw of lineasIn) {
-        let item;
         try {
-          item = construirItemLinea(raw, { usuario });
+          items.push(construirItemLinea(raw, { usuario }));
         } catch (e) {
           return res.status(400).json({ error: e.message });
         }
+      }
+      // [SEC S-08] Ninguna línea se guarda si alguna va a una sociedad ajena.
+      const alcance = await cargarAlcance(req);
+      if (items.some((it) => !permiteEmpresa(alcance, it.empresa_destino_id))) {
+        return res.status(403).json({ error: MENSAJE_SOCIEDAD_AJENA });
+      }
+
+      const guardadas = [];
+      for (const item of items) {
         await docClient.send(
           new PutCommand({ TableName: tables.refacturaciones, Item: item }),
         );
@@ -259,12 +271,20 @@ router.get(
 
       let lineas;
       if (empresa_destino_id) {
+        // [SEC S-08]
+        if (!(await permiteLecturaEmpresa(req, empresa_destino_id))) {
+          return res.json({ ok: true, lineas: [] });
+        }
         lineas = await queryLineasSociedad(empresa_destino_id, {
           estado: estado || undefined,
         });
       } else {
         // Sin sociedad: Scan filtrado (ver comentario en scanLineasFiltradas).
-        lineas = await scanLineasFiltradas({ estado: estado || undefined });
+        lineas = await filtrarLecturaPorEmpresa(
+          req,
+          await scanLineasFiltradas({ estado: estado || undefined }),
+          (l) => l.empresa_destino_id,
+        );
       }
 
       lineas.sort((a, b) => String(b.creado_en || '').localeCompare(String(a.creado_en || '')));
@@ -292,8 +312,16 @@ router.patch(
         });
       }
 
+      // [SEC S-08] La línea de una sociedad ajena no existe; tampoco se reasigna a una.
+      const alcance = await cargarAlcance(req);
+      if (!permiteEmpresa(alcance, empresaActual)) {
+        return res.status(404).json({ error: 'Línea no encontrada' });
+      }
       const existente = await encontrarLineaPorId(empresaActual, id);
       if (!existente) return res.status(404).json({ error: 'Línea no encontrada' });
+      if (!permiteEmpresa(alcance, existente.empresa_destino_id)) {
+        return res.status(404).json({ error: 'Línea no encontrada' });
+      }
       if (existente.estado === 'refacturada') {
         return res.status(400).json({ error: 'No se puede editar una línea ya refacturada' });
       }
@@ -309,6 +337,9 @@ router.patch(
       if (nuevaEmpresaRaw != null && String(nuevaEmpresaRaw).trim()) {
         empresaDestinoId = normalizarIdEmpresa(nuevaEmpresaRaw)
           || String(nuevaEmpresaRaw).trim();
+        if (!permiteEmpresa(alcance, empresaDestinoId)) {
+          return res.status(403).json({ error: MENSAJE_SOCIEDAD_AJENA });
+        }
       }
       if (body.empresa_destino_nombre != null) {
         empresaDestinoNombre = String(body.empresa_destino_nombre).trim();
@@ -419,8 +450,15 @@ router.delete(
         });
       }
 
+      // [SEC S-08]
+      const alcance = await cargarAlcance(req);
+      if (!permiteEmpresa(alcance, empresa_destino_id)) {
+        return res.status(404).json({ error: 'Línea no encontrada' });
+      }
       const existente = await encontrarLineaPorId(empresa_destino_id, id);
-      if (!existente) return res.status(404).json({ error: 'Línea no encontrada' });
+      if (!existente || !permiteEmpresa(alcance, existente.empresa_destino_id)) {
+        return res.status(404).json({ error: 'Línea no encontrada' });
+      }
       if (existente.estado === 'refacturada') {
         return res.status(400).json({ error: 'No se puede borrar una línea ya refacturada' });
       }
@@ -472,6 +510,12 @@ router.post(
         });
       }
 
+      // [SEC S-08] Destino propio; el emisor se comprueba con el maestro más abajo.
+      const alcance = await cargarAlcance(req);
+      if (!permiteEmpresa(alcance, empresa_destino_id)) {
+        return res.status(403).json({ error: MENSAJE_SOCIEDAD_AJENA });
+      }
+
       const idsSet = new Set(lineas_ids);
       const candidatas = await queryLineasSociedad(empresa_destino_id, { estado: 'pendiente' });
       const lineasSel = candidatas.filter((l) => idsSet.has(String(l.id_linea)));
@@ -498,6 +542,10 @@ router.post(
         return res.status(404).json({
           error: `Empresa destino "${empresa_destino_id}" no encontrada`,
         });
+      }
+      // La sede emite para todo el grupo: con refacturacion.gestionar (exigido arriba) siempre vale.
+      if (!permiteEmpresa(alcance, emisor_id) && !esSedeGrupoParipeEmpresa(emisorItem)) {
+        return res.status(403).json({ error: MENSAJE_SOCIEDAD_AJENA });
       }
 
       const emisora = datosEmpresaFiscal(emisorItem);
