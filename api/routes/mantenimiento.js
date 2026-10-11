@@ -3,6 +3,9 @@ import express from 'express';
 import { GetCommand, PutCommand, QueryCommand, ScanCommand, UpdateCommand, DeleteCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 import { requireAnyPermission, requirePermission } from '../middleware/auth.js';
+import { requireLocal, desde } from '../middleware/alcance.js';
+import { MENSAJE_SIN_ACCESO_LOCAL } from '../lib/alcance.js';
+import { filtrarLecturaPorLocal, permiteLecturaLocal } from '../lib/alcanceLecturas.js';
 import {
   previsualizarFacturacionMantenimiento,
   generarFacturacionMantenimiento,
@@ -584,7 +587,11 @@ function throwSiTablaMantenimientoFalta(err) {
   throw err;
 }
 
-router.post('/mantenimiento/incidencias', requirePermission('mantenimiento.crear'), async (req, res) => {
+// El local de una incidencia es el de su PK (`LOCAL#<local_id>`), que se compone
+// con `local_id` del cuerpo: comprobar ese valor es comprobar el registro que se toca.
+const localDelCuerpo = requireLocal(desde.body('local_id', 'id_Locales'), { tipo: 'idLocal' });
+
+router.post('/mantenimiento/incidencias', requirePermission('mantenimiento.crear'), localDelCuerpo, async (req, res) => {
   const body = req.body || {};
   const localId = (body.local_id ?? body.id_Locales ?? '').toString().trim();
   const zona = (body.zona ?? '').toString().trim().toLowerCase();
@@ -649,7 +656,7 @@ router.post('/mantenimiento/incidencias', requirePermission('mantenimiento.crear
  * Anti-duplicados: incidencias Nuevo/Programado del mismo local con texto similar.
  * Misma protección que POST /incidencias.
  */
-router.post('/mantenimiento/incidencias/similares', requirePermission('mantenimiento.crear'), async (req, res) => {
+router.post('/mantenimiento/incidencias/similares', requirePermission('mantenimiento.crear'), localDelCuerpo, async (req, res) => {
   const body = req.body || {};
   const localId = (body.local_id ?? body.id_Locales ?? '').toString().trim();
   const titulo = (body.titulo ?? '').toString().trim();
@@ -692,6 +699,10 @@ router.get('/mantenimiento/incidencias', requireAnyPermission('mantenimiento.ver
   const creadoPor = (req.query.creado_por ?? '').toString().trim();
   const estado = (req.query.estado ?? '').toString().trim().toUpperCase();
 
+  if (localId && !(await permiteLecturaLocal(req, { idLocal: localId }))) {
+    return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
+  }
+
   let items = [];
   try {
     if (localId) {
@@ -724,6 +735,7 @@ router.get('/mantenimiento/incidencias', requireAnyPermission('mantenimiento.ver
   } catch (err) {
     throwSiTablaMantenimientoFalta(err);
   }
+  if (!localId) items = await filtrarLecturaPorLocal(req, items, (i) => ({ idLocal: i.local_id }));
   if (creadoPor) items = items.filter((i) => (i.creado_por_id_usuario ?? '') === creadoPor);
   if (estado) items = items.filter((i) => (i.estado ?? '') === estado);
   items.sort((a, b) => (b.fecha_creacion || '').localeCompare(a.fecha_creacion || ''));
@@ -767,7 +779,10 @@ router.get('/mantenimiento/incidencias', requireAnyPermission('mantenimiento.ver
   return res.json({ incidencias });
 });
 
-router.post('/mantenimiento/incidencias/lote', requirePermission('mantenimiento.crear'), async (req, res) => {
+// Todos los locales del lote tienen que ser del usuario: uno ajeno rechaza el lote entero antes de escribir.
+const localesDelLote = requireLocal(desde.body('local_ids'), { tipo: 'idLocal' });
+
+router.post('/mantenimiento/incidencias/lote', requirePermission('mantenimiento.crear'), localesDelLote, async (req, res) => {
   const body = req.body || {};
   const localIds = Array.isArray(body.local_ids) ? body.local_ids.map((v) => String(v).trim()).filter(Boolean) : [];
   const fechas = Array.isArray(body.fechas_programadas) ? body.fechas_programadas.filter((f) => /^\d{4}-\d{2}-\d{2}$/.test(String(f))) : [];
@@ -831,7 +846,8 @@ router.post('/mantenimiento/incidencias/lote', requirePermission('mantenimiento.
   return res.json({ ok: true, creados, total: localIds.length * fechas.length, errores });
 });
 
-router.patch('/mantenimiento/incidencias', requirePermission('mantenimiento.editar'), async (req, res) => {
+// PATCH no cambia `local_id` (la PK lo fija): solo hay un local que comprobar.
+router.patch('/mantenimiento/incidencias', requirePermission('mantenimiento.editar'), localDelCuerpo, async (req, res) => {
   const body = req.body || {};
   const localId = (body.local_id ?? '').toString().trim();
   const idIncidencia = (body.id_incidencia ?? '').toString().trim();
@@ -1290,7 +1306,7 @@ router.patch('/mantenimiento/incidencias', requirePermission('mantenimiento.edit
   return res.json({ ok: true });
 });
 
-router.delete('/mantenimiento/incidencias', requirePermission('mantenimiento.borrar'), async (req, res) => {
+router.delete('/mantenimiento/incidencias', requirePermission('mantenimiento.borrar'), localDelCuerpo, async (req, res) => {
   const body = req.body || {};
   const localId = (body.local_id ?? '').toString().trim();
   const idIncidencia = (body.id_incidencia ?? '').toString().trim();

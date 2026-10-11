@@ -15,6 +15,8 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'secreto-solo-para-las-prueba
 
 const { docClient, tables } = await import('../lib/db.js');
 const { crearDynamoMemoria } = await import('./dynamoMemoria.mjs');
+const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
+const { invalidarMaestroLocales } = await import('../lib/alcance.js');
 const { default: mantenimientoRouter } = await import('../routes/mantenimiento.js');
 const { default: mysteryGuestRouter } = await import('../routes/mysteryGuest.js');
 const { mgTodosLosIdsPregunta } = await import('../lib/mysteryGuestCuestionario.js');
@@ -68,7 +70,14 @@ function montar() {
   db.crearTabla(tables.ajustes, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.mysteryGuest, { hashKey: 'ud_mysteryguest' });
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
   db.instalar(docClient);
+  // Todos con el único local del escenario: aquí se prueban permisos, no alcance.
+  for (const u of [ENCARGADO, TECNICO, ADMINISTRACION, REPORTERO, SOCIO]) {
+    db.sembrar(tables.usuarios, { id_usuario: u.sub, Email: u.email, Rol: u.rol, Local: ['Bar Centro'] });
+  }
+  invalidarContextoAcceso();
+  invalidarMaestroLocales();
   for (const permiso of ['mantenimiento.ver', 'mantenimiento.crear', 'mantenimiento.editar']) {
     db.sembrar(tables.rolesPermisos, { PK: 'ROL#Mantenimiento', SK: `PERMISO#${permiso}` });
     db.sembrar(tables.rolesPermisos, { PK: 'ROL#Administracion', SK: `PERMISO#${permiso}` });
