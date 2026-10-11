@@ -22,6 +22,7 @@ import { InputFecha } from '../../components/InputFecha';
 import { SelectorRangoSemana } from '../../components/SelectorRangoSemana';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
+import { useAuth } from '../../contexts/AuthContext';
 
 type LocalItem = {
   id_Locales?: string;
@@ -155,6 +156,7 @@ const DROPDOWN_Z = 10050;
 
 export default function CuadrantePersonalScreen() {
   const router = useRouter();
+  const { localPermitido } = useAuth();
 
   const [locales, setLocales] = useState<LocalItem[]>([]);
   const [localesLoading, setLocalesLoading] = useState(true);
@@ -189,8 +191,14 @@ export default function CuadrantePersonalScreen() {
   }, []);
 
   const localesConFactorial = useMemo(
-    () => locales.filter((l) => l.factorial_location_id && String(l.factorial_location_id).trim() !== ''),
-    [locales],
+    () =>
+      locales.filter(
+        (l) =>
+          l.factorial_location_id &&
+          String(l.factorial_location_id).trim() !== '' &&
+          localPermitido(String(l.nombre ?? '').trim()),
+      ),
+    [locales, localPermitido],
   );
 
   const localesFiltrados = useMemo(() => {

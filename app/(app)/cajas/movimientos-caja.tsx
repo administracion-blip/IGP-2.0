@@ -124,7 +124,7 @@ async function appendImagen(form: FormData, uri: string) {
 export default function MovimientosCajaScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ workplaceId?: string; posId?: string; posName?: string; businessDay?: string }>();
-  const { hasPermiso, user } = useAuth();
+  const { hasPermiso, user, localPermitido } = useAuth();
   const { shouldStackToolbar } = useBreakpoint();
 
   const [locales, setLocales] = useState<LocalItem[]>([]);
@@ -416,7 +416,7 @@ export default function MovimientosCajaScreen() {
                   code: String(loc.agoraCode ?? loc.AgoraCode ?? '').trim(),
                   nombre: String(loc.nombre ?? loc.Nombre ?? '').trim(),
                 }))
-                .filter((l) => l.code)
+                .filter((l) => l.code && localPermitido(l.nombre))
                 .map((l) => ({ id: l.code, titulo: l.nombre || '—', subtitulo: `id ${l.code}`, icono: 'store' as const }))}
               onSeleccionar={(code) => setFormLocal(code)}
             />

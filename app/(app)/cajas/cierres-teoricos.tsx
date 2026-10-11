@@ -1399,9 +1399,9 @@ export default function CierresTeoricosScreen() {
           >
                 <Text style={[styles.filterChipText, !filtroLocal && styles.filterChipTextActive]}>Todos</Text>
           </TouchableOpacity>
-              {locales.map((loc) => {
-                const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
-                const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim() || code || '—';
+              {localesPermitidos.map((loc) => {
+                const code = loc.code;
+                const nombre = loc.nombre || code || '—';
                 const sel = code !== '' && filtroLocal === code;
                 return (
           <TouchableOpacity
@@ -1558,13 +1558,11 @@ export default function CierresTeoricosScreen() {
               buscador
               buscadorPlaceholder="Buscar local…"
               valorId={formLocal}
-              opciones={locales
-                .filter((loc) => String(loc.agoraCode ?? loc.AgoraCode ?? '').trim())
-                .map((loc) => {
-                  const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
-                  const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim() || code || '—';
-                  return { id: code, titulo: nombre, icono: 'store' as const };
-                })}
+              opciones={localesPermitidos.map((loc) => ({
+                id: loc.code,
+                titulo: loc.nombre || loc.code || '—',
+                icono: 'store' as const,
+              }))}
               onSeleccionar={(code) => setFormLocal(code)}
             />
             <Text style={styles.filterLabel}>TPV</Text>

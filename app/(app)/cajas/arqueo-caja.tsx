@@ -269,7 +269,7 @@ async function obtenerUriImagen(source: 'library' | 'camera'): Promise<string | 
 export default function ArqueoCajaScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ workplaceId?: string; posId?: string; posName?: string; businessDay?: string }>();
-  const { hasPermiso, user } = useAuth();
+  const { hasPermiso, user, localPermitido } = useAuth();
   const { shouldStackToolbar } = useBreakpoint();
 
   const [locales, setLocales] = useState<LocalItem[]>([]);
@@ -912,7 +912,7 @@ export default function ArqueoCajaScreen() {
                   const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
                   return { code, nombre };
                 })
-                .filter((l) => l.code)
+                .filter((l) => l.code && localPermitido(l.nombre))
                 .map((l) => ({
                   id: l.code,
                   titulo: l.nombre || '—',

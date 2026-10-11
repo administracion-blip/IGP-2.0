@@ -35,6 +35,7 @@ import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
+import { useAuth } from '../../contexts/AuthContext';
 import { fechaComparacion, obtenerFilasObjetivos } from '../../lib/objetivosFilasApi';
 import {
   type Franja,
@@ -193,6 +194,7 @@ function RatioInput({ valor, defecto, onCommit }: { valor: number; defecto: numb
 
 export default function HorasFacturacionScreen() {
   const router = useRouter();
+  const { localPermitido } = useAuth();
 
   const [locales, setLocales] = useState<LocalItem[]>([]);
   const [localesLoading, setLocalesLoading] = useState(true);
@@ -254,7 +256,7 @@ export default function HorasFacturacionScreen() {
       .then((res: { locales?: LocalItem[]; error?: string }) => {
         if (cancelled) return;
         if (res.error) setLocalesError(res.error);
-        else setLocales(res.locales || []);
+        else setLocales((res.locales || []).filter((l) => localPermitido(String(l.nombre ?? '').trim())));
       })
       .catch((e) => {
         if (!cancelled) setLocalesError(e instanceof Error ? e.message : 'Error de conexión');
@@ -263,7 +265,7 @@ export default function HorasFacturacionScreen() {
         if (!cancelled) setLocalesLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [localPermitido]);
 
   const localById = useMemo(() => {
     const m = new Map<string, LocalItem>();
