@@ -40,4 +40,10 @@ export function validateEnv() {
       'Variables de entorno recomendadas no definidas',
     );
   }
+
+  if (process.env.NODE_ENV === 'production' && !String(process.env.APP_PUBLIC_URL || '').trim()) {
+    logger.warn(
+      '[auth] APP_PUBLIC_URL no definida en producción: el enlace de recuperación de contraseña solo se enviará si el Origin de la petición está en CORS_ALLOWED_ORIGINS',
+    );
+  }
 }

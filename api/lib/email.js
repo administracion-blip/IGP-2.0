@@ -22,6 +22,11 @@ function getTransport() {
   return transport;
 }
 
+/** Sustituye el transporte (pruebas). `null` vuelve al SMTP real. */
+export function establecerTransporteEmail(t) {
+  transport = t;
+}
+
 /** Indica si el SMTP está configurado (hay credenciales mínimas). */
 export function smtpConfigurado() {
   return Boolean(process.env.SMTP_USER);

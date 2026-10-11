@@ -9,6 +9,7 @@ import { normalizeLocalesUsuario } from '../lib/usuarioLocales.js';
 import { normalizarIdsDepartamento } from '../lib/tasks/departamentos.js';
 import { invalidarContextoAcceso, normalizarTokenVersion } from '../lib/tasks/acceso.js';
 import { enviarEmail, smtpConfigurado } from '../lib/email.js';
+import { origenesPermitidos } from '../lib/corsOrigins.js';
 import {
   MIN_PASSWORD_LENGTH,
   hashPassword,
@@ -25,14 +26,22 @@ function hashResetToken(token) {
 }
 
 /**
- * URL del enlace de recuperación que se incluye en el correo. Apunta a la web
- * de la app (web/tablet first). Prioriza `APP_PUBLIC_URL`; si no, usa el
- * `Origin` de la petición (la web llama al API desde su propio origen).
+ * Base del enlace de recuperación. `APP_PUBLIC_URL` manda siempre; sin ella se
+ * acepta el `Origin` solo si está en la lista blanca de CORS. Un `Origin`
+ * cualquiera no vale: lo pone quien llama y el correo saldría con un enlace a
+ * su dominio y el token dentro. `null` = no hay base fiable.
  */
-function buildResetUrl(req, token, emailNorm) {
-  const base = String(process.env.APP_PUBLIC_URL || req.headers.origin || '').replace(/\/+$/, '');
+function baseEnlaceReset(req) {
+  const publica = String(process.env.APP_PUBLIC_URL || '').trim();
+  if (publica) return publica.replace(/\/+$/, '');
+  const origin = typeof req.headers.origin === 'string' ? req.headers.origin.trim() : '';
+  if (origin && origenesPermitidos().has(origin)) return origin.replace(/\/+$/, '');
+  return null;
+}
+
+function buildResetUrl(base, token, emailNorm) {
   const qs = `token=${encodeURIComponent(token)}&email=${encodeURIComponent(emailNorm)}`;
-  return base ? `${base}/reset-password?${qs}` : `/reset-password?${qs}`;
+  return `${base}/reset-password?${qs}`;
 }
 
 // [SEC S-10]
@@ -164,6 +173,12 @@ router.post('/forgot-password', async (req, res) => {
   }
   const emailNorm = String(email).trim().toLowerCase();
 
+  const baseEnlace = baseEnlaceReset(req);
+  if (!baseEnlace) {
+    console.error('[auth] APP_PUBLIC_URL no configurada y Origin no permitido');
+    return res.json(respuestaGenerica);
+  }
+
   try {
     const items = await findUsuarioByEmail(emailNorm);
     // Solo actuamos si hay exactamente un usuario (misma prudencia que reset-password.js).
@@ -180,7 +195,7 @@ router.post('/forgot-password', async (req, res) => {
         ExpressionAttributeValues: { ':h': tokenHash, ':e': expMs },
       }));
 
-      const resetUrl = buildResetUrl(req, token, emailNorm);
+      const resetUrl = buildResetUrl(baseEnlace, token, emailNorm);
       const nombre = user.Nombre || 'Hola';
       if (smtpConfigurado()) {
         try {

@@ -18,6 +18,7 @@ import pino from 'pino';
 import { logger } from './lib/logger.js';
 import { validateEnv } from './lib/validateEnv.js';
 import { helmetOptions } from './lib/helmetOptions.js';
+import { origenesDeEntorno, origenesPermitidos } from './lib/corsOrigins.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { tables } from './lib/db.js';
 import { requireAuth } from './middleware/auth.js';
@@ -135,16 +136,7 @@ app.use(
 app.use(helmet(helmetOptions));
 
 // --- CORS: restringido por entorno ---
-const DEFAULT_DEV_ORIGINS = [
-  'http://localhost:8084',
-  'http://127.0.0.1:8084',
-  'http://localhost:3002',
-  'http://127.0.0.1:3002',
-];
-const envOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
-  .split(',')
-  .map((o) => o.trim())
-  .filter(Boolean);
+const envOrigins = origenesDeEntorno();
 const isProd = process.env.NODE_ENV === 'production';
 
 // [SEC S-15] En producción exige lista blanca explícita; sin fallback a *
@@ -157,9 +149,7 @@ if (isProd && envOrigins.length === 0) {
   );
 }
 
-const allowedOrigins = new Set(
-  isProd ? envOrigins : [...DEFAULT_DEV_ORIGINS, ...envOrigins],
-);
+const allowedOrigins = origenesPermitidos();
 
 app.use(cors({
   origin(origin, cb) {
