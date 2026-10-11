@@ -11,6 +11,10 @@ import express from 'express';
 
 process.env.AWS_REGION = process.env.AWS_REGION || 'eu-west-3';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'secreto-solo-para-las-pruebas-de-cajas';
+// Sin credenciales de Ágora las exportaciones fallan en local y la sync responde 0 cierres.
+delete process.env.AGORA_BASE_URL;
+delete process.env.AGORA_API_BASE_URL;
+delete process.env.AGORA_API_TOKEN;
 
 const { docClient, tables } = await import('../lib/db.js');
 const { crearDynamoMemoria } = await import('./dynamoMemoria.mjs');
@@ -125,4 +129,47 @@ test('cierres: crear y editar solo en el propio local', async () => {
   assert.equal((await api('PUT', '/api/agora/closeouts', LOCAL_PARIPE, edicion)).status, 403);
   assert.ok(db.obtener(tables.salesCloseOuts, { PK: '202', SK: '2026-10-01#1#1' }), 'no se movió');
   assert.equal((await api('PUT', '/api/agora/closeouts', LOCAL_PARIPE, { ...edicion, PK: '101' })).status, 200);
+});
+
+// ─── Sincronizaciones de cierres ───
+
+function escrituras() {
+  return db.operaciones.filter((o) => ['DeleteCommand', 'BatchWriteCommand', 'PutCommand', 'UpdateCommand'].includes(o.tipo));
+}
+
+test('full-sync: SuperUser restringido recibe 403 y no se borra nada', async () => {
+  montar();
+  const r = await api('POST', '/api/agora/closeouts/full-sync', SUPER_PARIPE, { dateFrom: '2026-10-05', dateTo: '2026-10-05' });
+  assert.equal(r.status, 403);
+  assert.equal(escrituras().length, 0);
+  assert.equal(db.listar(tables.salesCloseOuts).length, 2);
+});
+
+test('full-sync: sin ajustes.sincronizaciones.closeouts, 403 aunque tenga cierres.sincronizar', async () => {
+  montar();
+  const r = await api('POST', '/api/agora/closeouts/full-sync', LOCAL_PARIPE, { dateFrom: '2026-10-05', dateTo: '2026-10-05' });
+  assert.equal(r.status, 403);
+  assert.equal(db.listar(tables.salesCloseOuts).length, 2);
+});
+
+test('sync: Local sin workplaces 403; con workplace ajeno 403; con el suyo pasa', async () => {
+  montar();
+  assert.equal((await api('POST', '/api/agora/closeouts/sync', LOCAL_PARIPE, { businessDay: '2026-10-01' })).status, 403);
+  assert.equal((await api('POST', '/api/agora/closeouts/sync', LOCAL_PARIPE, { businessDay: '2026-10-01', workplaces: [] })).status, 403);
+  assert.equal(
+    (await api('POST', '/api/agora/closeouts/sync', LOCAL_PARIPE, { businessDay: '2026-10-01', workplaces: '202' })).status,
+    403,
+  );
+  // Mismo formato que arqueo-caja.tsx: `workplaces` como cadena con el agoraCode.
+  const propio = await api('POST', '/api/agora/closeouts/sync', LOCAL_PARIPE, { businessDay: '2026-10-01', workplaces: '101' });
+  assert.equal(propio.status, 200);
+  assert.equal(propio.body.ok, true);
+  assert.equal(db.listar(tables.salesCloseOuts).length, 2);
+});
+
+test('complete-fields: restringido sin workplaceId o con uno ajeno, 403', async () => {
+  montar();
+  assert.equal((await api('POST', '/api/agora/closeouts/complete-fields', SUPER_PARIPE, {})).status, 403);
+  assert.equal((await api('POST', '/api/agora/closeouts/complete-fields', SUPER_PARIPE, { workplaceId: '202' })).status, 403);
+  assert.equal((await api('POST', '/api/agora/closeouts/complete-fields', LOCAL_PARIPE, { workplaceId: '101', limit: 1 })).status, 200);
 });

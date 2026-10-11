@@ -73,7 +73,7 @@ import {
   upsertFormasFromAgora,
 } from '../lib/agora/formasPago.js';
 import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
-import { requireLocal, desde } from '../middleware/alcance.js';
+import { requireLocal, requireLocales, requireAlcanceGlobal, desde } from '../middleware/alcance.js';
 import { buildObjetivoMensualCard } from '../lib/agora/objetivoMensual.js';
 import {
   buildExcepcionesFromInvoices,
@@ -3621,12 +3621,17 @@ router.post('/agora/warehouses/sync', async (req, res) => {
   }
 });
 
-router.post('/agora/closeouts/sync', async (req, res) => {
+const permisoSyncCierres = requireAnyPermission('cierres.sincronizar', 'ajustes.sincronizaciones.closeouts');
+
+// Restringidos: `workplaces` obligatorio e intersecado con sus locales.
+const workplacesSyncCierres = requireLocales(desde.body('workplaces'), { obligatorio: true });
+
+router.post('/agora/closeouts/sync', permisoSyncCierres, workplacesSyncCierres, async (req, res) => {
   const body = req.body || {};
   const businessDay = body.businessDay
     ? String(body.businessDay).trim()
     : new Date().toISOString().slice(0, 10);
-  const workplaces = body.workplaces != null ? (Array.isArray(body.workplaces) ? body.workplaces : [body.workplaces]) : null;
+  const workplaces = req.alcanceLocales.length > 0 ? req.alcanceLocales : null;
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
     return res.status(400).json({ error: 'businessDay obligatorio (YYYY-MM-DD)' });
@@ -3689,7 +3694,9 @@ router.post('/agora/closeouts/sync', async (req, res) => {
       })
       .filter(
         (i) => i.PK && i.SK && String(i.PK).trim() !== '' && String(i.SK).trim() !== ''
-      );
+      )
+      // Lo que devuelva Ágora fuera de los workplaces pedidos no se borra ni se reescribe.
+      .filter((i) => !workplaces || workplaces.includes(String(i.PK).trim()));
 
     const openCloseEnrichment = enrichItemsOpenCloseDatesFromAuxiliary(items, businessDay, sysList, posList);
     console.log('[agora/closeouts/open-close-enrich]', businessDay, openCloseEnrichment);
@@ -3745,7 +3752,8 @@ router.post('/agora/closeouts/sync', async (req, res) => {
   }
 });
 
-router.post('/agora/closeouts/full-sync', async (req, res) => {
+// Borra en masa de todos los locales (deleteOutOfRange): solo alcance global.
+router.post('/agora/closeouts/full-sync', requirePermission('ajustes.sincronizaciones.closeouts'), requireAlcanceGlobal(), async (req, res) => {
   const body = req.body || {};
   const today = new Date().toISOString().slice(0, 10);
   const dateFrom = (body.dateFrom || '2025-01-01').toString().trim();
@@ -3970,7 +3978,8 @@ router.post('/agora/closeouts/full-sync', async (req, res) => {
   }
 });
 
-router.post('/agora/closeouts/complete-fields', async (req, res) => {
+// Sin workplaceId recorre la tabla entera: los restringidos tienen que indicar el suyo.
+router.post('/agora/closeouts/complete-fields', permisoSyncCierres, requireLocal(desde.body('workplaceId')), async (req, res) => {
   const body = req.body || {};
   const limit = Math.min(Math.max(parseInt(body.limit, 10) || 5000, 1), 10000);
   const dateFrom = (body.dateFrom || '').toString().trim();
