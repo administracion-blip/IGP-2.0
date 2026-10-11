@@ -134,3 +134,43 @@ test('generar-base en su local crea los huecos; con alcance global, en cualquier
   assert.equal(global.status, 200);
   assert.equal(global.body.creadas, 4);
 });
+
+// ─── mover-artista-aqui ───
+
+test('mover-artista-aqui con origen o destino en un local ajeno: 403 y no cambia ninguno', async () => {
+  montar();
+  const antes = db.listar(tables.actuaciones);
+  for (const [id_vaciar, id_asignar] of [
+    ['A-SUR', 'A-NORTE-2'],
+    ['A-NORTE', 'A-SUR'],
+  ]) {
+    const r = await api('POST', '/api/actuaciones/mover-artista-aqui', { id_vaciar, id_asignar, id_artista: 'art-1' });
+    assert.equal(r.status, 403, `${id_vaciar} -> ${id_asignar}`);
+    assert.equal(r.body.error, 'No tienes acceso a este local');
+  }
+  assert.deepEqual(db.listar(tables.actuaciones), antes);
+});
+
+test('mover-artista-aqui entre dos actuaciones de su local mueve el artista', async () => {
+  montar();
+  const r = await api('POST', '/api/actuaciones/mover-artista-aqui', {
+    id_vaciar: 'A-NORTE',
+    id_asignar: 'A-NORTE-2',
+    id_artista: 'art-1',
+  });
+  assert.equal(r.status, 200);
+  assert.equal(db.obtener(tables.actuaciones, { id_actuacion: 'A-NORTE' }).id_artista, '');
+  assert.equal(db.obtener(tables.actuaciones, { id_actuacion: 'A-NORTE-2' }).id_artista, 'art-1');
+});
+
+test('mover-artista-aqui con alcance global cruza locales', async () => {
+  montar();
+  const r = await api(
+    'POST',
+    '/api/actuaciones/mover-artista-aqui',
+    { id_vaciar: 'A-SUR', id_asignar: 'A-NORTE-2', id_artista: 'art-1' },
+    OFICINA,
+  );
+  assert.equal(r.status, 200);
+  assert.equal(db.obtener(tables.actuaciones, { id_actuacion: 'A-SUR' }).id_artista, '');
+});

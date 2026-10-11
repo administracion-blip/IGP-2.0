@@ -634,6 +634,11 @@ router.post('/actuaciones/mover-artista-aqui', requireAnyPermission('actuaciones
     docClient.send(new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: String(id_asignar) } })),
   ]);
   if (!rV.Item || !rA.Item) return res.status(404).json({ error: 'Actuación no encontrada' });
+  // [SEC S-07] Origen y destino, con el local de los registros leídos.
+  const alcance = await cargarAlcance(req);
+  if (![rV.Item, rA.Item].every((a) => permiteLocal(alcance, { idLocal: a.id_local }))) {
+    return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
+  }
   const ar = await docClient.send(
     new GetCommand({ TableName: tables.artistas, Key: { id_artista: String(id_artista) } })
   );
