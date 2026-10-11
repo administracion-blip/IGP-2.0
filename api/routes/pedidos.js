@@ -5,8 +5,14 @@ import { hasPermission } from '../middleware/auth.js';
 import { formatId6 } from '../lib/usuarioLocales.js';
 import { resolveTotalAportacionUnitaria } from '../lib/pedidos/rappelAcuerdo.js';
 import { idsAlmacenGeneral } from '../lib/pedidos/almacenGeneral.js';
+import { MENSAJE_SIN_ACCESO_LOCAL } from '../lib/alcance.js';
+import { permitePedido, permiteLecturaPedido, filtrarPedidosLectura } from '../lib/pedidos/alcancePedido.js';
 
 const router = express.Router();
+
+function sinAccesoLocal(res) {
+  return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
+}
 
 const ESTADO_BORRADOR = 'Borrador';
 const MAX_REINTENTOS_ID = 25;
@@ -74,6 +80,8 @@ const PROYECCION_CABECERA = [
   'Estado',
   'Fecha',
   'LocalId',
+  // Con LocalId decide el alcance: destino u origen (`lib/pedidos/alcancePedido.js`).
+  'AlmacenOrigenId',
   'CompletadoEn',
   'EnviadoEn',
   'factura_id_empresa_local',
@@ -526,7 +534,7 @@ router.get('/pedidos', async (req, res) => {
     }
 
     items.sort((a, b) => String(b.Fecha ?? b.Id ?? '').localeCompare(String(a.Fecha ?? a.Id ?? '')));
-    res.json({ pedidos: items });
+    res.json({ pedidos: await filtrarPedidosLectura(req, items) });
   } catch (err) {
     console.error('DynamoDB error:', err);
     res.status(500).json({ error: err.message || 'Error al listar pedidos' });
@@ -596,14 +604,14 @@ router.get('/pedidos/abonos', async (req, res) => {
       lastKey = r.LastEvaluatedKey || null;
     } while (lastKey);
 
-    const pedidosPeriodo = pedidos.filter((p) => {
+    const pedidosPeriodo = await filtrarPedidosLectura(req, pedidos.filter((p) => {
       const lid = String(p.LocalId ?? '').trim();
       if (!localIdsEmpresa.has(lid)) return false;
       // En ventas solo cuentan los pedidos ya completados (facturables).
       if (modo === 'ventas' && String(p.Estado ?? '').trim() !== 'Completado') return false;
       const fechaRef = modo === 'ventas' ? fechaReferenciaVentas(p) : fechaPedidoToIso(p.Fecha) || String(p.Fecha ?? '').trim();
       return fechaRef ? fechaRef.startsWith(prefijo) : false;
-    });
+    }));
 
     const items = [];
     const resumenPedidos = [];
@@ -710,13 +718,13 @@ router.get('/pedidos/traspaso-export', async (req, res) => {
       lastKey = r.LastEvaluatedKey || null;
     } while (lastKey);
 
-    const completadosRango = pedidos.filter((p) => {
+    const completadosRango = await filtrarPedidosLectura(req, pedidos.filter((p) => {
       if (String(p.Estado ?? '').trim() !== 'Completado') return false;
       const iso = fechaPedidoToIso(p.Fecha);
       if (!iso || iso < desde || iso > hasta) return false;
       if (!incluirExportados && p.TraspasoExportadoEn) return false;
       return true;
-    });
+    }));
 
     // 2) Líneas de cada pedido → filas + resumen agregado por producto.
     const filas = [];
@@ -848,6 +856,8 @@ router.post('/pedidos', async (req, res) => {
       baseItem.EnviadoEn = ahora;
     }
 
+    if (!(await permitePedido(req, baseItem))) return sinAccesoLocal(res);
+
     const bloqueoOrigen = await errorPermisoOrigenEntreLocales(req, {
       tipo: baseItem.Tipo,
       almacenOrigenId: baseItem.AlmacenOrigenId,
@@ -933,6 +943,7 @@ router.put('/pedidos', async (req, res) => {
     const got = await docClient.send(new GetCommand({ TableName: tables.pedidos, Key: { Id: id } }));
     const existing = got.Item;
     if (!existing) return res.status(404).json({ error: 'Pedido no encontrado' });
+    if (!(await permitePedido(req, existing))) return sinAccesoLocal(res);
 
     // Este endpoint puede cambiar el local (y con él la sociedad a la que se
     // factura), la fecha, el total y el estado: con el pedido ya facturado
@@ -963,6 +974,11 @@ router.put('/pedidos', async (req, res) => {
         ? (String(body.Tipo).trim() === 'Devolucion' ? 'Devolucion' : 'Pedido')
         : (String(existing.Tipo ?? 'Pedido').trim() === 'Devolucion' ? 'Devolucion' : 'Pedido'),
     };
+    // Mover el pedido de local u origen: el pedido resultante también tiene que ser suyo.
+    const mueveLocalOOrigen =
+      fijar.LocalId !== String(existing.LocalId ?? '').trim()
+      || fijar.AlmacenOrigenId !== String(existing.AlmacenOrigenId ?? '').trim();
+    if (mueveLocalOOrigen && !(await permitePedido(req, fijar))) return sinAccesoLocal(res);
     const borrar = [];
     // Mover el origen a un almacén que no sea el general convierte el pedido en
     // una venta entre sociedades: mismo permiso que al crearlo. Solo se valida
@@ -1045,6 +1061,7 @@ router.delete('/pedidos', async (req, res) => {
   if (!id) return res.status(400).json({ error: 'Id es obligatorio para borrar' });
   try {
     const cabecera = await getCabeceraPedido(id);
+    if (!(await permitePedido(req, cabecera))) return sinAccesoLocal(res);
     const estadoExistente = cabecera ? String(cabecera.Estado ?? '') : null;
     if (estadoExistente != null) {
       // Borrar un pedido ya enviado requiere el permiso reforzado; borrar un
@@ -1134,6 +1151,7 @@ router.get('/pedidos/:pedidoId/lineas', async (req, res) => {
   const pedidoId = req.params.pedidoId?.trim();
   if (!pedidoId) return res.status(400).json({ error: 'pedidoId obligatorio' });
   try {
+    if (!(await permiteLecturaPedido(req, await getCabeceraPedido(pedidoId)))) return sinAccesoLocal(res);
     const result = await docClient.send(new QueryCommand({
       TableName: tables.pedidosLineas,
       KeyConditionExpression: 'PedidoId = :pid',
@@ -1154,6 +1172,7 @@ router.get('/pedidos/:pedidoId/details', async (req, res) => {
   const pedidoId = req.params.pedidoId?.trim();
   if (!pedidoId) return res.status(400).json({ error: 'pedidoId obligatorio' });
   try {
+    if (!(await permiteLecturaPedido(req, await getCabeceraPedido(pedidoId)))) return sinAccesoLocal(res);
     const result = await docClient.send(new QueryCommand({
       TableName: tables.pedidosLineas,
       KeyConditionExpression: 'PedidoId = :pid',
@@ -1176,6 +1195,7 @@ router.post('/pedidos/:pedidoId/lineas', async (req, res) => {
   const body = req.body || {};
   try {
     const cabecera = await getCabeceraPedido(pedidoId);
+    if (!(await permitePedido(req, cabecera))) return sinAccesoLocal(res);
     // Añadir líneas a un pedido ya enviado solo lo puede hacer el almacén central.
     const estadoPadre = cabecera ? String(cabecera.Estado ?? '') : null;
     if (estadoPadre && estadoPadre !== ESTADO_BORRADOR) {
@@ -1271,6 +1291,7 @@ router.put('/pedidos/:pedidoId/lineas', async (req, res) => {
     const soloPreparada = body.Preparada != null && !camposContenido.some((c) => body[c] != null);
 
     const cabecera = await getCabeceraPedido(pedidoId);
+    if (!(await permitePedido(req, cabecera))) return sinAccesoLocal(res);
     const estadoPadre = cabecera ? String(cabecera.Estado ?? '') : null;
     if (!soloPreparada) {
       if (estadoPadre && estadoPadre !== ESTADO_BORRADOR) {
@@ -1365,6 +1386,7 @@ router.delete('/pedidos/:pedidoId/lineas', async (req, res) => {
   if (!pedidoId || !lineaIndex) return res.status(400).json({ error: 'pedidoId y LineaIndex obligatorios' });
   try {
     const cabecera = await getCabeceraPedido(pedidoId);
+    if (!(await permitePedido(req, cabecera))) return sinAccesoLocal(res);
     // Borrar líneas de un pedido ya enviado requiere el permiso reforzado.
     const estadoPadre = cabecera ? String(cabecera.Estado ?? '') : null;
     if (estadoPadre && estadoPadre !== ESTADO_BORRADOR) {

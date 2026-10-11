@@ -35,11 +35,16 @@ const {
 
 const { default: pedidosRouter } = await import('../routes/pedidos.js');
 const { olvidarAlmacenGeneralCacheado } = await import('../lib/pedidos/almacenGeneral.js');
+const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
+const { invalidarMaestroLocales } = await import('../lib/alcance.js');
 
 /** Administrador: `hasPermission` lo da por bueno sin leer la tabla de permisos. */
 const ADMIN = { email: 'jefe@grupo.test', rol: 'Administrador' };
-/** Encargado sin ningún permiso concedido: el que las guardas de permiso frenan. */
-const ENCARGADO = { email: 'encargado@grupo.test', rol: 'Encargado' };
+/**
+ * Encargado sin ningún permiso concedido: el que las guardas de permiso frenan.
+ * Tiene los dos locales del escenario: aquí se prueban permisos, no alcance.
+ */
+const ENCARGADO = { sub: '000042', email: 'encargado@grupo.test', rol: 'Encargado' };
 
 /**
  * Marca tal como la escribe el generador: un UUID y el periodo. **Sin número**,
@@ -104,6 +109,10 @@ function escenario(opciones) {
   db.sembrar(tables.locales, local('000020', 'Bar Sur', EMPRESA_SUR));
   db.sembrar(tables.empresas, empresa(EMPRESA_NORTE, 'Norte'));
   db.sembrar(tables.empresas, empresa(EMPRESA_SUR, 'Sur'));
+  db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
+  db.sembrar(tables.usuarios, { id_usuario: ENCARGADO.sub, Email: ENCARGADO.email, Rol: ENCARGADO.rol, Local: ['Bar Norte', 'Bar Sur'] });
+  invalidarContextoAcceso();
+  invalidarMaestroLocales();
   return db;
 }
 
