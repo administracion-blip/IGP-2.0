@@ -216,6 +216,17 @@ export function errorSinAccesoLocal(mensaje = MENSAJE_SIN_ACCESO_LOCAL) {
   return Object.assign(new Error(mensaje), { status: 403 });
 }
 
+/**
+ * Modo de las lecturas y listados por alcance: `ALCANCE_MODO_LECTURAS=bloquear`
+ * filtra; cualquier otro valor (o ausente) solo observa. Las escrituras bloquean siempre.
+ * @returns {'bloquear'|'observar'}
+ */
+export function modoLecturas() {
+  return String(process.env.ALCANCE_MODO_LECTURAS ?? '').trim().toLowerCase() === 'bloquear'
+    ? 'bloquear'
+    : 'observar';
+}
+
 /** Deja traza de lo que se denegaría sin bloquear (modo 'observar'). */
 export function registrarObservacion(req, detalle) {
   const ruta = String(req?.originalUrl || req?.url || '').split('?')[0];
