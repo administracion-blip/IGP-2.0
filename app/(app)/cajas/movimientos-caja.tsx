@@ -21,6 +21,7 @@ import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
+import { puedeVerArqueoCaja } from '../../lib/permisosModulos';
 import { apiFetch } from '../../utils/api';
 
 type LocalItem = { AgoraCode?: string; agoraCode?: string; Nombre?: string; nombre?: string };
@@ -362,7 +363,7 @@ export default function MovimientosCajaScreen() {
     } catch { /* noop */ }
   }, []);
 
-  if (!hasPermiso('cierres.ver')) {
+  if (!puedeVerArqueoCaja(hasPermiso)) {
     return (
       <View style={styles.center}>
         <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
