@@ -71,6 +71,7 @@ export function responderError(res, err, { mensaje, contexto, status: statusForz
 
   if (pub.publico) {
     log.warn?.({ err, status, contexto: ctx }, `[${ctx}] ${status}`);
+    if (res.headersSent) return res;
     const code = typeof err.code === 'string' && /^[A-Za-z0-9_.-]{2,64}$/.test(err.code) ? err.code : undefined;
     return res.status(status).json({ error: pub.error, ...(code && { code }), ...extra });
   }

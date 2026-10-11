@@ -60,6 +60,11 @@ async function pedir(metodo, ruta) {
     app.get('/x/expuesto', (_req, res) => {
       responderError(res, Object.assign(new Error('Falló el envío a Ágora para todos los proveedores (2)'), { status: 502, expose: true }));
     });
+    app.get('/x/4xx-tras-cabeceras', (_req, res) => {
+      res.status(200).write('parcial');
+      responderError(res, Object.assign(new Error('Importe debe ser mayor que 0'), { status: 400 }));
+      res.end();
+    });
     app.get('/x/throw', () => { throw errorAws(); });
     app.get('/x/throw-aws-404', () => { throw errorAws('ResourceNotFoundException'); });
     app.get('/x/throw-500-status', () => { throw Object.assign(new Error(`fallo en ${ARN}`), { status: 503 }); });
@@ -109,6 +114,12 @@ test('helper: 4xx de negocio conserva mensaje, status y code', async () => {
   const c = await pedir('GET', '/x/conflicto');
   assert.equal(c.status, 409);
   assert.deepEqual(c.body, { error: 'La factura ha cambiado, vuelve a intentarlo', code: 'FACTURA_CAMBIADA' });
+});
+
+test('helper: un 4xx con las cabeceras ya enviadas no intenta responder otra vez', async () => {
+  const r = await pedir('GET', '/x/4xx-tras-cabeceras');
+  assert.equal(r.status, 200);
+  assert.equal(r.texto, 'parcial');
 });
 
 test('helper: error de AWS → 500 con el mensaje de la ruta, sin ARN', async () => {
