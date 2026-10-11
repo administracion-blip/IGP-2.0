@@ -49,6 +49,9 @@ const CACHE_TTL_MS = 60_000;
 
 /** @type {Map<string, { ctx: object, expira: number }>} */
 const cache = new Map();
+/** Contadores de invalidación (por usuario y global) para no cachear lecturas en vuelo. */
+const generaciones = new Map();
+let generacionGlobal = 0;
 
 // ─── Utilidades ───
 
@@ -197,6 +200,7 @@ export async function cargarContextoAcceso(user, { forzar = false } = {}) {
     const entrada = cache.get(idUsuario);
     if (entrada && entrada.expira > Date.now()) return entrada.ctx;
   }
+  const generacion = generacionDe(idUsuario);
 
   const got = await docClient.send(
     new GetCommand({
@@ -233,7 +237,11 @@ export async function cargarContextoAcceso(user, { forzar = false } = {}) {
     tokenVersion: got.Item.tokenVersion,
   });
 
-  cache.set(idUsuario, { ctx, expira: Date.now() + CACHE_TTL_MS });
+  // Si se invalidó mientras leíamos, lo leído puede ser anterior al cambio
+  // (p. ej. un tokenVersion viejo): se usa para esta petición pero no se cachea.
+  if (generacion === generacionDe(idUsuario)) {
+    cache.set(idUsuario, { ctx, expira: Date.now() + CACHE_TTL_MS });
+  }
   return ctx;
 }
 
@@ -242,8 +250,19 @@ export async function cargarContextoAcceso(user, { forzar = false } = {}) {
  * llamarla al cambiar los permisos de un rol o el alta de un usuario.
  */
 export function invalidarContextoAcceso(idUsuario) {
-  if (idUsuario === undefined) cache.clear();
-  else cache.delete(normalizarId(idUsuario));
+  if (idUsuario === undefined) {
+    cache.clear();
+    generaciones.clear();
+    generacionGlobal += 1;
+  } else {
+    const id = normalizarId(idUsuario);
+    cache.delete(id);
+    generaciones.set(id, (generaciones.get(id) ?? 0) + 1);
+  }
+}
+
+function generacionDe(idUsuario) {
+  return `${generacionGlobal}:${generaciones.get(idUsuario) ?? 0}`;
 }
 
 // ─── Permisos globales ───

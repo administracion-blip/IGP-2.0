@@ -20,7 +20,8 @@ const { docClient, tables } = await import('../lib/db.js');
 const { crearDynamoMemoria } = await import('./dynamoMemoria.mjs');
 const { signToken, signSystemToken } = await import('../lib/jwt.js');
 const { hashPassword } = await import('../lib/password.js');
-const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
+const { invalidarContextoAcceso, cargarContextoAcceso } = await import('../lib/tasks/acceso.js');
+const { revocarSesionesUsuario } = await import('../lib/sesiones.js');
 const { requireAuth, SESION_CADUCADA } = await import('../middleware/auth.js');
 const { default: authRouter } = await import('../routes/auth.js');
 const { default: usuariosRouter } = await import('../routes/usuarios.js');
@@ -272,6 +273,25 @@ test('el login invalida el contexto: tras revocar en otro proceso, el token del 
   const nuevo = await login(VICTIMA);
   assert.equal((await api('GET', '/api/ping', { token: nuevo })).status, 200);
   assertCaducada(await api('GET', '/api/ping', { token: viejo }));
+});
+
+test('una carga del contexto en vuelo durante una invalidación no repuebla la caché con la versión vieja', async () => {
+  const db = await montar();
+  const yo = { sub: VICTIMA.id_usuario };
+  // La ficha ya se leyó (tv 0) y falta la consulta de permisos: ahí se revoca.
+  db.interceptar('QueryCommand', tables.rolesPermisos, async () => {
+    await revocarSesionesUsuario(VICTIMA.id_usuario);
+  });
+  const enVuelo = await cargarContextoAcceso(yo);
+  assert.equal(enVuelo.tokenVersion, 0, 'la lectura en vuelo vio la versión vieja');
+
+  const siguiente = await cargarContextoAcceso(yo);
+  assert.equal(siguiente.tokenVersion, 1, 'no se cacheó la lectura vieja');
+  assertCaducada(await api('GET', '/api/ping', { token: tokenSinTv(VICTIMA) }));
+
+  const lecturas = lecturasFicha(db);
+  await cargarContextoAcceso(yo);
+  assert.equal(lecturasFicha(db), lecturas, 'sin invalidación en medio, sí se cachea');
 });
 
 test('el token de sistema del informe diario no depende de igp_usuarios', async () => {
