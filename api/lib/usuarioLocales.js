@@ -1,7 +1,4 @@
-import { GetCommand } from '@aws-sdk/lib-dynamodb';
-import { docClient, tables } from './db.js';
-import { findUsuarioByEmail } from './dynamo/usuarios.js';
-import { maestroLocales } from './alcance.js';
+import { cargarAlcance, permiteLocal } from './alcance.js';
 
 export function formatId6(val) {
   if (val == null || val === '') return '000000';
@@ -35,6 +32,15 @@ export function tieneAlcanceGlobalLocales(rol, locales) {
 }
 
 /**
+ * Alcance central (`lib/alcance.js`) para quien tiene el `user` del token pero no
+ * la petición. Se resuelve por id de usuario: sin ficha (borrado con el token
+ * vivo) o sin id queda restringido sin locales, nunca global.
+ */
+function alcanceDelUsuario(user) {
+  return cargarAlcance({ user });
+}
+
+/**
  * ¿Puede el usuario del token acceder a este local?
  * Administrador o Locales vacío = todos.
  */
@@ -42,15 +48,7 @@ export async function usuarioPuedeAccederLocal(user, idLocal) {
   if (!user) return false;
   if (user.rol === 'Administrador') return true;
   try {
-    const usuarios = await findUsuarioByEmail(String(user.email || '').trim().toLowerCase());
-    const locales = normalizeLocalesUsuario(usuarios[0]);
-    if (tieneAlcanceGlobalLocales(user.rol, locales)) return true;
-    const loc = await docClient.send(
-      new GetCommand({ TableName: tables.locales, Key: { id_Locales: formatId6(idLocal) } }),
-    );
-    const nombre = String(loc.Item?.nombre ?? loc.Item?.Nombre ?? '').trim().toLowerCase();
-    if (!nombre) return false;
-    return locales.some((l) => String(l).trim().toLowerCase() === nombre);
+    return permiteLocal(await alcanceDelUsuario(user), { idLocal });
   } catch (err) {
     console.error('[usuarioPuedeAccederLocal]', err.message || err);
     return false;
@@ -65,9 +63,7 @@ export async function usuarioTieneAlcanceGlobal(user) {
   if (!user) return false;
   if (user.rol === 'Administrador') return true;
   try {
-    const usuarios = await findUsuarioByEmail(String(user.email || '').trim().toLowerCase());
-    const locales = normalizeLocalesUsuario(usuarios[0]);
-    return tieneAlcanceGlobalLocales(user.rol, locales);
+    return (await alcanceDelUsuario(user)).global === true;
   } catch (err) {
     console.error('[usuarioTieneAlcanceGlobal]', err.message || err);
     return false;
@@ -77,24 +73,15 @@ export async function usuarioTieneAlcanceGlobal(user) {
 // [SEC S-08]
 /**
  * Empresas (id_empresa formatId6) permitidas para el usuario según sus Locales.
- * JWT no lleva Locales: se recargan desde DB por email (igual que usuarioPuedeAccederLocal).
  * @returns {Promise<null|Set<string>>} null = sin restricción; Set = solo esos emisor_id
  */
 export async function empresasPermitidasDelUsuario(user) {
   if (!user) return new Set();
   if (user.rol === 'Administrador') return null;
   try {
-    const usuarios = await findUsuarioByEmail(String(user.email || '').trim().toLowerCase());
-    const locales = normalizeLocalesUsuario(usuarios[0]);
-    if (locales.length === 0) return null;
-
-    const { porNombre } = await maestroLocales();
-    const empresas = new Set();
-    for (const l of locales) {
-      const loc = porNombre.get(String(l).trim().toLowerCase());
-      if (loc?.idEmpresa) empresas.add(loc.idEmpresa);
-    }
-    return empresas;
+    const alcance = await alcanceDelUsuario(user);
+    if (alcance.global) return null;
+    return new Set(alcance.empresaIds);
   } catch (err) {
     console.error('[empresasPermitidasDelUsuario]', err.message || err);
     return new Set();
