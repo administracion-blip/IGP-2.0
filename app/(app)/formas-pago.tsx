@@ -48,6 +48,7 @@ export default function FormasPagoScreen() {
   const router = useRouter();
   const { hasPermiso } = useAuth();
   const puedeEditar = hasPermiso('formas_pago.editar') || hasPermiso('cierres.ver');
+  const puedeSincronizar = hasPermiso('formas_pago.editar') || hasPermiso('ajustes.sincronizaciones.closeouts');
 
   const [formas, setFormas] = useState<FormaPago[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,18 +161,20 @@ export default function FormasPagoScreen() {
           <MaterialIcons name="arrow-back" size={22} color="#334155" />
         </TouchableOpacity>
         <Text style={styles.title}>Formas de pago</Text>
-        <TouchableOpacity
-          style={[styles.syncBtn, sincronizando && styles.btnDisabled]}
-          onPress={sincronizar}
-          disabled={sincronizando}
-        >
-          {sincronizando ? (
-            <ActivityIndicator size="small" color="#0ea5e9" />
-          ) : (
-            <MaterialIcons name="sync" size={16} color="#0ea5e9" />
-          )}
-          <Text style={styles.syncBtnText}>Sincronizar con Ágora</Text>
-        </TouchableOpacity>
+        {puedeSincronizar ? (
+          <TouchableOpacity
+            style={[styles.syncBtn, sincronizando && styles.btnDisabled]}
+            onPress={sincronizar}
+            disabled={sincronizando}
+          >
+            {sincronizando ? (
+              <ActivityIndicator size="small" color="#0ea5e9" />
+            ) : (
+              <MaterialIcons name="sync" size={16} color="#0ea5e9" />
+            )}
+            <Text style={styles.syncBtnText}>Sincronizar con Ágora</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       <Text style={styles.subtitle}>
@@ -190,7 +193,8 @@ export default function FormasPagoScreen() {
       ) : formasOrdenadas.length === 0 ? (
         <View style={styles.emptyWrap}>
           <Text style={styles.emptyText}>
-            No hay formas de pago registradas. Pulsa “Sincronizar con Ágora” para cargarlas.
+            No hay formas de pago registradas.
+            {puedeSincronizar ? ' Pulsa “Sincronizar con Ágora” para cargarlas.' : ''}
           </Text>
         </View>
       ) : (

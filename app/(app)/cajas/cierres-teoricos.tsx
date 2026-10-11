@@ -323,6 +323,7 @@ export default function CierresTeoricosScreen() {
   const puedeCrear = hasPermiso('cierres.crear');
   const puedeEditar = hasPermiso('cierres.editar');
   const puedeBorrar = hasPermiso('cierres.borrar');
+  const puedeSincronizar = hasPermiso('cierres.sincronizar') || hasPermiso('ajustes.sincronizaciones.closeouts');
   const [closeouts, setCloseouts] = useState<CloseOut[]>([]);
   const [formasPago, setFormasPago] = useState<FormaPago[]>([]);
   const [locales, setLocales] = useState<LocalItem[]>([]);
@@ -1279,14 +1280,16 @@ export default function CierresTeoricosScreen() {
             placeholderTextColor="#94a3b8"
           />
         </View>
-        <TouchableOpacity
-          style={[styles.toolbarBtn, syncing && styles.toolbarBtnDisabled]}
-          onPress={() => setShowSyncModal(true)}
-          disabled={syncing}
-        >
-          <MaterialIcons name="sync" size={16} color="#0ea5e9" />
-          <Text style={styles.toolbarBtnText}>Sincronizar</Text>
-        </TouchableOpacity>
+        {puedeSincronizar ? (
+          <TouchableOpacity
+            style={[styles.toolbarBtn, syncing && styles.toolbarBtnDisabled]}
+            onPress={() => setShowSyncModal(true)}
+            disabled={syncing}
+          >
+            <MaterialIcons name="sync" size={16} color="#0ea5e9" />
+            <Text style={styles.toolbarBtnText}>Sincronizar</Text>
+          </TouchableOpacity>
+        ) : null}
         <TouchableOpacity
           style={[styles.toolbarBtn, showFilterPanel && styles.toolbarBtnActive]}
           onPress={() => setShowFilterPanel((v) => !v)}

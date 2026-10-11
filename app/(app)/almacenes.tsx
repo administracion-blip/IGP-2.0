@@ -20,6 +20,7 @@ import { colors, iconSize } from '../constants/theme';
 import { EstadoVacio } from '../components/ui/EstadoVacio';
 import { formatId6 } from '../utils/idFormat';
 import { apiFetch } from '../utils/api';
+import { useAuth } from '../contexts/AuthContext';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -86,6 +87,8 @@ function truncar(val: string): string {
 
 export default function AlmacenesScreen() {
   const router = useRouter();
+  const { hasPermiso } = useAuth();
+  const puedeSincronizar = hasPermiso('almacenes.sincronizar') || hasPermiso('ajustes.sincronizaciones.almacenes');
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -416,7 +419,7 @@ export default function AlmacenesScreen() {
             <Text style={erpTableStyles.btnPrimaryText}>Nuevo almacén</Text>
           </TouchableOpacity>
 
-          {TOOLBAR_SECUNDARIOS.map((btn) => {
+          {TOOLBAR_SECUNDARIOS.filter((btn) => btn.id !== 'sync' || puedeSincronizar).map((btn) => {
             const needsRow = btn.id === 'editar' || btn.id === 'borrar';
             const disabled = toolbarBusy || (needsRow && filaSeleccionDisabled);
             return (

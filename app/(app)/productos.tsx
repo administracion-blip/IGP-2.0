@@ -159,10 +159,11 @@ type ProductRowProps = {
   onToggleIGP: (producto: Producto) => void;
   onEditar: (producto: Producto) => void;
   valorCelda: (item: Producto, col: string) => string;
+  puedeEditar: boolean;
 };
 
 const ProductRow = memo(function ProductRow({
-  producto, rowId, isSelected, isLastRow, columnas, onToggleSelect, onToggleIGP, onEditar, valorCelda,
+  producto, rowId, isSelected, isLastRow, columnas, onToggleSelect, onToggleIGP, onEditar, valorCelda, puedeEditar,
 }: ProductRowProps) {
   const handlePress = useCallback((e: any) => {
     if (!rowId) return;
@@ -196,14 +197,18 @@ const ProductRow = memo(function ProductRow({
           color={isSelected ? colors.accent : colors.border}
         />
       </View>
-      <TouchableOpacity
-        style={styles.editCell}
-        onPress={handleEditar}
-        accessibilityLabel="Editar producto"
-        activeOpacity={0.7}
-      >
-        <MaterialIcons name="edit" size={16} color={colors.textSecondary} />
-      </TouchableOpacity>
+      {puedeEditar ? (
+        <TouchableOpacity
+          style={styles.editCell}
+          onPress={handleEditar}
+          accessibilityLabel="Editar producto"
+          activeOpacity={0.7}
+        >
+          <MaterialIcons name="edit" size={16} color={colors.textSecondary} />
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.editCell} />
+      )}
       {columnas.map((col, colIdx) => {
         const isLastCol = colIdx === columnas.length - 1;
         const colWidth = getAnchoColumna(col);
@@ -235,6 +240,7 @@ const ProductRow = memo(function ProductRow({
                 { width: colWidth, alignItems: 'center' },
               ]}
               onPress={handleIGP}
+              disabled={!puedeEditar}
               activeOpacity={0.7}
             >
               <MaterialIcons
@@ -283,6 +289,7 @@ export default function ProductosScreen() {
   } = useProductosCache();
   const { hasPermiso } = useAuth();
   const puedeSincronizar = hasPermiso('productos.sincronizar');
+  const puedeEditar = hasPermiso('productos.editar');
   const [filtroAgoraInput, setFiltroAgoraInput] = useState('');
   const [filtroAgora, setFiltroAgora] = useState('');
   const [pageIndexAgora, setPageIndexAgora] = useState(0);
@@ -764,40 +771,44 @@ export default function ProductosScreen() {
                   {selectedIds.size} seleccionado{selectedIds.size !== 1 ? 's' : ''}
                 </Text>
               </View>
-              <TouchableOpacity
-                style={[erpTableStyles.toolbarBtnLabeled, styles.batchBtnSuccess]}
-                onPress={() => batchToggleIGP(true)}
-                disabled={batchUpdating}
-              >
-                {batchUpdating ? (
-                  <ActivityIndicator size="small" color={colors.surface} />
-                ) : (
-                  <MaterialIcons name="check-box" size={18} color={colors.surface} />
-                )}
-                <Text style={[erpTableStyles.toolbarBtnLabeledText, styles.batchBtnText]}>Marcar IGP</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[erpTableStyles.toolbarBtnLabeled, styles.batchBtnDanger]}
-                onPress={() => batchToggleIGP(false)}
-                disabled={batchUpdating}
-              >
-                {batchUpdating ? (
-                  <ActivityIndicator size="small" color={colors.surface} />
-                ) : (
-                  <MaterialIcons name="check-box-outline-blank" size={18} color={colors.surface} />
-                )}
-                <Text style={[erpTableStyles.toolbarBtnLabeledText, styles.batchBtnText]}>Desmarcar IGP</Text>
-              </TouchableOpacity>
-              <SelectorDesplegable
-                compact
-                sinIconoTrigger
-                placeholder="Asignar zona"
-                tituloLista="Asignar zona"
-                opciones={opcionesZonaLote}
-                onSeleccionar={batchAsignarZona}
-                disabled={batchUpdating}
-                style={styles.zonaLote}
-              />
+              {puedeEditar ? (
+                <>
+                  <TouchableOpacity
+                    style={[erpTableStyles.toolbarBtnLabeled, styles.batchBtnSuccess]}
+                    onPress={() => batchToggleIGP(true)}
+                    disabled={batchUpdating}
+                  >
+                    {batchUpdating ? (
+                      <ActivityIndicator size="small" color={colors.surface} />
+                    ) : (
+                      <MaterialIcons name="check-box" size={18} color={colors.surface} />
+                    )}
+                    <Text style={[erpTableStyles.toolbarBtnLabeledText, styles.batchBtnText]}>Marcar IGP</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[erpTableStyles.toolbarBtnLabeled, styles.batchBtnDanger]}
+                    onPress={() => batchToggleIGP(false)}
+                    disabled={batchUpdating}
+                  >
+                    {batchUpdating ? (
+                      <ActivityIndicator size="small" color={colors.surface} />
+                    ) : (
+                      <MaterialIcons name="check-box-outline-blank" size={18} color={colors.surface} />
+                    )}
+                    <Text style={[erpTableStyles.toolbarBtnLabeledText, styles.batchBtnText]}>Desmarcar IGP</Text>
+                  </TouchableOpacity>
+                  <SelectorDesplegable
+                    compact
+                    sinIconoTrigger
+                    placeholder="Asignar zona"
+                    tituloLista="Asignar zona"
+                    opciones={opcionesZonaLote}
+                    onSeleccionar={batchAsignarZona}
+                    disabled={batchUpdating}
+                    style={styles.zonaLote}
+                  />
+                </>
+              ) : null}
               <TouchableOpacity
                 style={erpTableStyles.toolbarBtnLabeled}
                 onPress={() => setSelectedIds(new Set())}
@@ -963,6 +974,7 @@ export default function ProductosScreen() {
                         onToggleIGP={toggleAgoraProductIGP}
                         onEditar={abrirModalEditar}
                         valorCelda={valorCeldaAgora}
+                        puedeEditar={puedeEditar}
                       />
                     );
                   })}

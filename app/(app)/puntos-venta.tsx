@@ -196,6 +196,7 @@ export default function PuntosVentaScreen() {
 
   // Sync al abrir la pantalla (en segundo plano) para mantener datos actualizados
   useEffect(() => {
+    if (!puedeEditarTarifa) return;
     apiFetch('/api/agora/sale-centers/sync', {
       method: 'POST',
       body: JSON.stringify({}),
@@ -208,7 +209,7 @@ export default function PuntosVentaScreen() {
         }
       })
       .catch(() => {});
-  }, [refetch, cargarTarifas]);
+  }, [refetch, cargarTarifas, puedeEditarTarifa]);
 
   useEffect(() => {
     cargarTarifas();
@@ -378,6 +379,7 @@ export default function PuntosVentaScreen() {
   useEffect(() => { setCurrentPage((p) => (p > totalPages ? totalPages : p)); }, [totalPages]);
 
   const toggleActivo = useCallback((item: PuntoVentaItem, newActivo: boolean) => {
+    if (!puedeEditarTarifa) return;
     const id = item.Id ?? item.id;
     if (id == null) return;
     setSaleCenters((prev) =>
@@ -400,7 +402,7 @@ export default function PuntosVentaScreen() {
           prev.map((p) => (String(p.Id ?? p.id) === String(id) ? { ...p, Activo: !newActivo } : p))
         );
       });
-  }, []);
+  }, [puedeEditarTarifa]);
 
   if (loading && saleCenters.length === 0) {
     return (
@@ -432,19 +434,21 @@ export default function PuntosVentaScreen() {
         </TouchableOpacity>
         <Text style={styles.title}>Puntos de venta</Text>
         <View style={styles.headerSpacer} />
-        <TouchableOpacity
-          style={[styles.syncBtn, syncing && styles.pageBtnDisabled]}
-          onPress={syncAndRefetch}
-          disabled={syncing}
-          accessibilityLabel="Sincronizar"
-        >
-          {syncing ? (
-            <ActivityIndicator size="small" color="#0ea5e9" />
-          ) : (
-            <MaterialIcons name="sync" size={20} color="#0ea5e9" />
-          )}
-          <Text style={styles.syncBtnText}>{syncing ? 'Sincronizando…' : 'Sincronizar'}</Text>
-        </TouchableOpacity>
+        {puedeEditarTarifa ? (
+          <TouchableOpacity
+            style={[styles.syncBtn, syncing && styles.pageBtnDisabled]}
+            onPress={syncAndRefetch}
+            disabled={syncing}
+            accessibilityLabel="Sincronizar"
+          >
+            {syncing ? (
+              <ActivityIndicator size="small" color="#0ea5e9" />
+            ) : (
+              <MaterialIcons name="sync" size={20} color="#0ea5e9" />
+            )}
+            <Text style={styles.syncBtnText}>{syncing ? 'Sincronizando…' : 'Sincronizar'}</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {syncError ? <Text style={styles.syncErrorText}>{syncError}</Text> : null}
@@ -677,6 +681,7 @@ export default function PuntosVentaScreen() {
                                   <TouchableOpacity
                                     style={styles.checkboxTouch}
                                     onPress={() => toggleActivo(item, !activo)}
+                                    disabled={!puedeEditarTarifa}
                                     accessibilityLabel={activo ? 'Desactivar' : 'Activar'}
                                     accessibilityRole="checkbox"
                                   >

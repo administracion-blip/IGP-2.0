@@ -522,6 +522,8 @@ export default function ConciliacionFacturasScreen() {
 
   const puedeValidarRevision = hasPermiso('facturacion.emitir');
   const puedeEmitir = puedeValidarRevision;
+  const puedeSincronizar =
+    hasPermiso('compras_proveedor.sincronizar') || hasPermiso('ajustes.sincronizaciones.compras_proveedor');
 
   // ── Comparador albaranes ↔ factura (modal dividido) ──
   const { width: winW, height: winH } = useWindowDimensions();
@@ -1848,11 +1850,13 @@ export default function ConciliacionFacturasScreen() {
             <MaterialIcons name="refresh" size={TOOLBAR_ICON_SIZE} color="#0ea5e9" />
           )}
         </ComprasToolbarIconBtn>
-        <ComprasToolbarSyncBtn
-          syncing={syncing}
-          onPress={() => setMenuSyncVisible(true)}
-          disabled={cargando}
-        />
+        {puedeSincronizar ? (
+          <ComprasToolbarSyncBtn
+            syncing={syncing}
+            onPress={() => setMenuSyncVisible(true)}
+            disabled={cargando}
+          />
+        ) : null}
       </View>
 
       {syncResult ? (

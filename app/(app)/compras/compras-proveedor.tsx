@@ -80,6 +80,8 @@ export default function ComprasProveedorScreen() {
   const { grupos, crearGrupo, borrarGrupo } = useGruposFamilias();
   const { hasPermiso } = useAuth();
   const puedeInformeIa = hasPermiso('ia.informes') && hasPermiso('ia.informe_compras');
+  const puedeSincronizar =
+    hasPermiso('compras_proveedor.sincronizar') || hasPermiso('ajustes.sincronizaciones.compras_proveedor');
 
   /** Clave del filtro de fechas ya pedido a la API (evita refetch al cerrar el modal sin cambios). */
   const filtroFechasApiKeyRef = useRef('|');
@@ -435,7 +437,9 @@ export default function ComprasProveedorScreen() {
               <MaterialIcons name="refresh" size={TOOLBAR_ICON_SIZE} color="#0ea5e9" />
             )}
           </ComprasToolbarIconBtn>
-          <ComprasToolbarSyncBtn syncing={syncing} onPress={() => setMenuSyncVisible(true)} />
+          {puedeSincronizar ? (
+            <ComprasToolbarSyncBtn syncing={syncing} onPress={() => setMenuSyncVisible(true)} />
+          ) : null}
         </View>
       </View>
 
@@ -624,7 +628,9 @@ export default function ComprasProveedorScreen() {
                 <MaterialIcons name="inbox" size={48} color="#cbd5e1" />
                 <Text style={styles.emptyText}>
                   {items.length === 0
-                    ? 'No hay datos. Pulsa "Sincronizar Ágora" para importar albaranes de entrada.'
+                    ? puedeSincronizar
+                      ? 'No hay datos. Pulsa "Sincronizar Ágora" para importar albaranes de entrada.'
+                      : 'No hay datos.'
                     : filtrosActivosCount > 0 || busqueda.trim()
                       ? 'Sin resultados con los filtros o la búsqueda actuales.'
                       : 'Sin resultados para la búsqueda.'}
