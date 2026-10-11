@@ -242,6 +242,38 @@ test('cerrar-sesiones: sin usuarios.editar 403, un no admin no cierra las de un 
   assert.equal(noExiste.status, 404);
 });
 
+function lecturasFicha(db) {
+  return db.operaciones.filter((o) => o.tipo === 'GetCommand' && o.tabla === tables.usuarios).length;
+}
+
+test('caché con tv viejo: un token con tv mayor (login en otra instancia) relee y entra; el viejo → 401 sin leer', async () => {
+  const db = await montar();
+  const viejo = await login(VICTIMA);
+  assert.equal((await api('GET', '/api/ping', { token: viejo })).status, 200);
+
+  // Revocación hecha por otro proceso: la ficha sube a 1 y esta caché no se entera.
+  const v = db.obtener(tables.usuarios, { id_usuario: VICTIMA.id_usuario });
+  db.sembrar(tables.usuarios, { ...v, tokenVersion: 1 });
+  const nuevo = signToken({ sub: VICTIMA.id_usuario, email: VICTIMA.Email, rol: VICTIMA.Rol, tv: 1 });
+  assert.equal((await api('GET', '/api/ping', { token: nuevo })).status, 200);
+
+  const antes = lecturasFicha(db);
+  assertCaducada(await api('GET', '/api/ping', { token: viejo }));
+  assert.equal(lecturasFicha(db), antes, 'un tv menor no fuerza lectura');
+});
+
+test('el login invalida el contexto: tras revocar en otro proceso, el token del login nuevo entra', async () => {
+  const db = await montar();
+  const viejo = await login(VICTIMA);
+  assert.equal((await api('GET', '/api/ping', { token: viejo })).status, 200);
+  const v = db.obtener(tables.usuarios, { id_usuario: VICTIMA.id_usuario });
+  db.sembrar(tables.usuarios, { ...v, tokenVersion: 1 });
+
+  const nuevo = await login(VICTIMA);
+  assert.equal((await api('GET', '/api/ping', { token: nuevo })).status, 200);
+  assertCaducada(await api('GET', '/api/ping', { token: viejo }));
+});
+
 test('el token de sistema del informe diario no depende de igp_usuarios', async () => {
   await montar();
   const r = await api('GET', '/api/ping', { token: signSystemToken('informes') });

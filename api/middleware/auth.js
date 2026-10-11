@@ -75,10 +75,19 @@ function esTokenDeSistema(decoded) {
  * un cambio hecho en otra instancia tarda como mucho eso en surtir efecto aquí.
  */
 async function sesionVigente(decoded) {
-  const ctx = await cargarContextoAcceso(decoded);
+  const tv = normalizarTokenVersion(decoded.tv);
+  const rol = String(decoded.rol ?? '').trim();
+  let ctx = await cargarContextoAcceso(decoded);
   if (!ctx.idUsuario) return false;
-  if (normalizarTokenVersion(decoded.tv) !== ctx.tokenVersion) return false;
-  return String(decoded.rol ?? '').trim() === ctx.rol;
+  // Un tv menor que el cacheado es un token revocado: se rechaza sin leer. Uno
+  // mayor (o un rol distinto) puede venir de un login posterior a una revocación
+  // hecha en otro proceso: la caché es la que está vieja, se relee una vez.
+  if (tv < ctx.tokenVersion) return false;
+  if (tv > ctx.tokenVersion || rol !== ctx.rol) {
+    ctx = await cargarContextoAcceso(decoded, { forzar: true });
+    if (!ctx.idUsuario) return false;
+  }
+  return tv === ctx.tokenVersion && rol === ctx.rol;
 }
 
 export function requireRole(...roles) {

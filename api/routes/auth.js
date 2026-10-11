@@ -124,6 +124,7 @@ router.post('/login', async (req, res) => {
     rol: userPayload.Rol,
     tv: normalizarTokenVersion(user.tokenVersion),
   });
+  invalidarContextoAcceso(userPayload.id_usuario);
 
   res.json({ user: userPayload, token });
 });
