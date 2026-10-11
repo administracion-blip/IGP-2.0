@@ -115,7 +115,7 @@ import { cargarAlcance, permiteEmpresa, filtrarPorEmpresa } from '../lib/alcance
 import { filtrarLecturaPorEmpresa } from '../lib/alcanceSociedad.js';
 import { emisoresDeFacturas } from '../lib/facturacion/emisorDeFacturas.js';
 import crypto from 'crypto';
-import { enviarEmail } from '../lib/email.js';
+import { enviarEmail, escapeHtml, textoPlanoAHtml } from '../lib/email.js';
 import multer from 'multer';
 import {
   multerFacturaFileFilter,
@@ -1728,9 +1728,9 @@ router.post('/facturacion/facturas/:id/enviar-email', requirePermission('factura
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: destinatario,
       subject: asunto || `Factura ${factura.numero_factura || id}`,
-      html: cuerpo || `
-        <p>Estimado/a <strong>${factura.empresa_nombre || 'cliente'}</strong>,</p>
-        <p>Adjuntamos la factura <strong>${factura.numero_factura || id}</strong> por un total de <strong>${(factura.total_factura || 0).toFixed(2)} €</strong>.</p>
+      html: cuerpo ? textoPlanoAHtml(cuerpo) : `
+        <p>Estimado/a <strong>${escapeHtml(factura.empresa_nombre || 'cliente')}</strong>,</p>
+        <p>Adjuntamos la factura <strong>${escapeHtml(factura.numero_factura || id)}</strong> por un total de <strong>${(factura.total_factura || 0).toFixed(2)} €</strong>.</p>
         <p>Quedamos a su disposición para cualquier consulta.</p>
         <p>Un saludo,<br/>IPG Hostelería</p>
       `,
@@ -3283,9 +3283,9 @@ router.post('/facturacion/enviar-recordatorios', requirePermission('facturacion.
           to: f.empresa_email,
           subject: `Recordatorio: Factura ${f.numero_factura || f.id_factura} pendiente de pago`,
           html: `
-            <p>Estimado/a <strong>${f.empresa_nombre || 'cliente'}</strong>,</p>
-            <p>Le recordamos que la factura <strong>${f.numero_factura || f.id_factura}</strong> emitida el ${f.fecha_emision || '—'}
-            con vencimiento ${f.fecha_vencimiento || '—'} tiene un saldo pendiente de <strong>${(f.saldo_pendiente || 0).toFixed(2)} €</strong>.</p>
+            <p>Estimado/a <strong>${escapeHtml(f.empresa_nombre || 'cliente')}</strong>,</p>
+            <p>Le recordamos que la factura <strong>${escapeHtml(f.numero_factura || f.id_factura)}</strong> emitida el ${escapeHtml(f.fecha_emision || '—')}
+            con vencimiento ${escapeHtml(f.fecha_vencimiento || '—')} tiene un saldo pendiente de <strong>${(f.saldo_pendiente || 0).toFixed(2)} €</strong>.</p>
             <p>Le rogamos proceda a su abono a la mayor brevedad posible.</p>
             <p>Un saludo,<br/>IPG Hostelería</p>
           `,

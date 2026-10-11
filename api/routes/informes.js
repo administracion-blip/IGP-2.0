@@ -3,7 +3,7 @@ import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 import { signSystemToken } from '../lib/jwt.js';
 import { logger } from '../lib/logger.js';
-import { enviarEmail, smtpConfigurado } from '../lib/email.js';
+import { enviarEmail, escapeHtml, smtpConfigurado } from '../lib/email.js';
 import {
   INFORME_AJUSTE_PK,
   INFORME_AJUSTE_SK,
@@ -96,8 +96,8 @@ router.post('/informes/diario/enviar', async (req, res) => {
         await enviarEmail({
           to: dest.email,
           subject: `Informe diario de jornadas — ${businessDay}`,
-          html: `<p>Hola ${dest.nombre},</p>
-            <p>Adjuntamos el informe diario de jornadas del <strong>${businessDay}</strong> para tus locales: ${dest.localesNombres.join(', ')}.</p>
+          html: `<p>Hola ${escapeHtml(dest.nombre)},</p>
+            <p>Adjuntamos el informe diario de jornadas del <strong>${escapeHtml(businessDay)}</strong> para tus locales: ${escapeHtml(dest.localesNombres.join(', '))}.</p>
             <p>Un saludo,<br/>IPG Hostelería</p>`,
           attachments: [{
             filename: `informe-diario-${businessDay}.pdf`,

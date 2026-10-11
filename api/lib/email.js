@@ -1,5 +1,7 @@
 import nodemailer from 'nodemailer';
 
+export { escapeHtml, textoPlanoAHtml } from './seguridad/escapeHtml.js';
+
 /**
  * Transporte SMTP compartido para todo el backend (facturación, informes, etc.).
  * Reutiliza las variables SMTP_* ya existentes. Se crea de forma perezosa para no

@@ -35,7 +35,7 @@
 import crypto from 'node:crypto';
 import { GetCommand, QueryCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
-import { enviarEmail, smtpConfigurado } from '../email.js';
+import { enviarEmail, escapeHtml as escaparHtml, smtpConfigurado } from '../email.js';
 import { logger } from '../logger.js';
 import { crearCerrojo } from '../facturacion/facturacionPeriodica.js';
 import { cargarContextoAcceso, puedeVerProyecto } from './acceso.js';
@@ -316,14 +316,6 @@ async function nombresDeProyectoVisibles(idUsuario, ids) {
 }
 
 // ─── El correo ───
-
-function escaparHtml(valor) {
-  return String(valor ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
 
 /** Enlace a la vista personal, si el servidor sabe en qué URL vive la app. */
 function urlMisTareas() {

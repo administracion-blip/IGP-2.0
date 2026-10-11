@@ -8,7 +8,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { normalizeLocalesUsuario } from '../lib/usuarioLocales.js';
 import { normalizarIdsDepartamento } from '../lib/tasks/departamentos.js';
 import { invalidarContextoAcceso, normalizarTokenVersion } from '../lib/tasks/acceso.js';
-import { enviarEmail, smtpConfigurado } from '../lib/email.js';
+import { enviarEmail, escapeHtml, smtpConfigurado } from '../lib/email.js';
 import { origenesPermitidos } from '../lib/corsOrigins.js';
 import { safeEqual } from '../lib/seguridad/safeEqual.js';
 import {
@@ -221,9 +221,9 @@ router.post('/forgot-password', async (req, res) => {
             `Abre este enlace para elegir una nueva (caduca en 60 minutos):\n\n${resetUrl}\n\n` +
             `Si no has solicitado este cambio, puedes ignorar este correo.`,
           html:
-            `<p>${nombre},</p>` +
+            `<p>${escapeHtml(nombre)},</p>` +
             `<p>Hemos recibido una solicitud para restablecer tu contraseña.</p>` +
-            `<p><a href="${resetUrl}">Pulsa aquí para elegir una nueva contraseña</a> (el enlace caduca en 60 minutos).</p>` +
+            `<p><a href="${escapeHtml(resetUrl)}">Pulsa aquí para elegir una nueva contraseña</a> (el enlace caduca en 60 minutos).</p>` +
             `<p style="color:#64748b;font-size:13px">Si no has solicitado este cambio, puedes ignorar este correo.</p>`,
         }).catch((mailErr) => {
           req.log.error({ err: mailErr }, '[auth] Error enviando email de recuperación');
