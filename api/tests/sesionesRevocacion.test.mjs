@@ -294,11 +294,10 @@ test('una carga del contexto en vuelo durante una invalidación no repuebla la c
   assert.equal(lecturasFicha(db), lecturas, 'sin invalidación en medio, sí se cachea');
 });
 
-test('el token de sistema del informe diario no depende de igp_usuarios', async () => {
+test('el token de sistema no vale fuera de las rutas del informe; sin sys:true se trata como usuario', async () => {
   await montar();
   const r = await api('GET', '/api/ping', { token: signSystemToken('informes') });
-  assert.equal(r.status, 200);
-  assert.equal(r.body.sub, 'sistema-informes');
+  assert.equal(r.status, 403);
 
   const imitado = signToken({ sub: 'sistema-informes', email: 'x', rol: 'Administrador' });
   assertCaducada(await api('GET', '/api/ping', { token: imitado }));

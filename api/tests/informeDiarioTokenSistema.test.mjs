@@ -21,6 +21,7 @@ const { docClient, tables } = await import('../lib/db.js');
 const { crearDynamoMemoria } = await import('./dynamoMemoria.mjs');
 const { establecerTransporteEmail } = await import('../lib/email.js');
 const { requireAuth } = await import('../middleware/auth.js');
+const { signSystemToken } = await import('../lib/jwt.js');
 const { default: informesRouter } = await import('../routes/informes.js');
 
 const ONCE_MIN = 11 * 60 * 1000;
@@ -76,6 +77,30 @@ async function enviarInforme() {
   });
   return { status: res.status, body: await res.json().catch(() => ({})) };
 }
+
+async function conTokenSistema(metodo, ruta) {
+  const res = await fetch(base + ruta, {
+    method: metodo,
+    headers: { Authorization: `Bearer ${signSystemToken('informes')}` },
+  });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
+
+test('el token de sistema solo entra en los GET que usa el informe; el resto → 403', async () => {
+  montar();
+  assert.equal((await conTokenSistema('GET', '/api/cajas/top?dateFrom=2026-10-10')).status, 200);
+  assert.equal((await conTokenSistema('GET', '/api/agora/invoices/exceptions')).status, 200);
+  for (const [metodo, ruta] of [
+    ['POST', '/api/cajas/top'],
+    ['GET', '/api/usuarios'],
+    ['POST', '/api/informes/diario/enviar'],
+    ['GET', '/api/cajas/top/../../usuarios'],
+  ]) {
+    const r = await conTokenSistema(metodo, ruta);
+    assert.equal(r.status, 403, `${metodo} ${ruta}`);
+    assert.equal(r.body.error, 'Token de sistema no autorizado para esta ruta');
+  }
+});
 
 test('envío con varios destinatarios que dura más que la vida del token de sistema: ninguno da 401', async () => {
   montar();

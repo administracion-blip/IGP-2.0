@@ -3,7 +3,11 @@ import { cargarContextoAcceso, normalizarTokenVersion } from '../lib/tasks/acces
 import { safeEqual } from '../lib/seguridad/safeEqual.js';
 import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
-import { INTERNAL_SYNC_POST_PATHS, normalizeApiPathname } from '../lib/internalSync.js';
+import {
+  INTERNAL_SYNC_POST_PATHS,
+  SYSTEM_TOKEN_GET_PATHS,
+  normalizeApiPathname,
+} from '../lib/internalSync.js';
 import { codigosPermisoEfectivos } from '../lib/permisoAliases.js';
 
 export function requireAuth(req, res, next) {
@@ -44,6 +48,9 @@ export function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Token inválido o expirado' });
   }
   if (esTokenDeSistema(decoded)) {
+    if (req.method !== 'GET' || !SYSTEM_TOKEN_GET_PATHS.has(normalizeApiPathname(req))) {
+      return res.status(403).json({ error: 'Token de sistema no autorizado para esta ruta' });
+    }
     req.user = decoded;
     return next();
   }

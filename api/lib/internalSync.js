@@ -24,6 +24,15 @@ export const INTERNAL_SYNC_POST_PATHS = new Set([
   '/api/reuniones/pipeline/tick',
 ]);
 
+/**
+ * GET que acepta el token de sistema (`signSystemToken`): las que el informe
+ * diario (`lib/informes/informeDiario.js`) llama sobre el propio API.
+ */
+export const SYSTEM_TOKEN_GET_PATHS = new Set([
+  '/api/cajas/top',
+  '/api/agora/invoices/exceptions',
+]);
+
 export function normalizeApiPathname(req) {
   const raw = req.originalUrl || req.url || '';
   const path = raw.split('?')[0].replace(/\/+$/, '') || '/';
