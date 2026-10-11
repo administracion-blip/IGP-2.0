@@ -4555,7 +4555,7 @@ router.get('/agora/purchases', async (req, res) => {
   }
 });
 
-router.post('/agora/purchases/sync', async (req, res) => {
+router.post('/agora/purchases/sync', requireAnyPermission('ajustes.sincronizaciones.compras_proveedor', 'compras_proveedor.sincronizar'), async (req, res) => {
   const body = req.body || {};
   const today = new Date().toISOString().slice(0, 10);
   const default60daysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);

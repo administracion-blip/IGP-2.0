@@ -138,6 +138,13 @@ test('el scheduler entra como interno en warehouses/sync', () => {
   assert.ok(INTERNAL_SYNC_POST_PATHS.has('/api/agora/warehouses/sync'));
 });
 
+test('purchases/sync: sin permiso de sync de compras 403 sin llamar a Ágora ni purgar', async () => {
+  montar();
+  sinEfecto(await api('POST', '/api/agora/purchases/sync', LOCAL, {}));
+  sinEfecto(await api('POST', '/api/agora/purchases/sync', SUPER, {}));
+  assert.ok(INTERNAL_SYNC_POST_PATHS.has('/api/agora/purchases/sync'));
+});
+
 // ─── Escrituras ───
 
 test('sale-centers PATCH: sin puntos_venta.editar 403 y no cambia Activo', async () => {
