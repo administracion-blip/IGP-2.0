@@ -281,6 +281,68 @@ test('pendiente con saldo menor que su importe: sigue pendiente; se puede descar
   assert.equal((await api('POST', '/api/remesas/REM-SALDO/ejecutar', { fecha: '2026-08-11' })).status, 409);
 });
 
+test('dos reanudaciones a la vez: la segunda recibe 409 "se está procesando" y la primera cierra bien', async () => {
+  const db = escenarioRemesas();
+  sembrarFacturaPendiente(db, 'FAC-A', { total: 40 });
+  sembrarFacturaPendiente(db, 'FAC-B', { total: 60 });
+  sembrarEjecutadaConPendientes(db, 'REM-DOBLE', [
+    { id_factura: 'FAC-A', importe: 40 },
+    { id_factura: 'FAC-B', importe: 60 },
+  ], ['FAC-A', 'FAC-B']);
+  let segunda;
+  db.interceptar('TransactWriteCommand', undefined, async () => {
+    segunda = await api('POST', '/api/remesas/REM-DOBLE/ejecutar', { fecha: '2026-08-11' });
+    assert.equal((await api('POST', '/api/remesas/REM-DOBLE/descartar-pendientes', {})).status, 409);
+  });
+  const primera = await api('POST', '/api/remesas/REM-DOBLE/ejecutar', { fecha: '2026-08-11' });
+  assert.equal(segunda.status, 409);
+  assert.equal(segunda.body.error, 'La remesa se está procesando');
+  assert.equal(primera.status, 200, JSON.stringify(primera.body));
+  const g = db.obtener(tables.remesas, { remesaId: 'REM-DOBLE' });
+  assert.equal(g.lineasPendientesPago, undefined);
+  assert.equal(g.procesandoToken, undefined);
+  assert.equal(db.listar(tables.facturasPagos).length, 2);
+});
+
+test('un reclamo caducado (proceso caído) no bloquea la reanudación', async () => {
+  const db = escenarioRemesas();
+  sembrarFacturaPendiente(db, 'FAC-A', { total: 40 });
+  sembrarEjecutadaConPendientes(db, 'REM-CADUCA', [{ id_factura: 'FAC-A', importe: 40 }], ['FAC-A']);
+  const r0 = db.obtener(tables.remesas, { remesaId: 'REM-CADUCA' });
+  db.sembrar(tables.remesas, { ...r0, procesandoToken: 'viejo', procesandoDesde: '2020-01-01T00:00:00.000Z' });
+  const r = await api('POST', '/api/remesas/REM-CADUCA/ejecutar', { fecha: '2026-08-11' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(db.obtener(tables.remesas, { remesaId: 'REM-CADUCA' }).procesandoToken, undefined);
+});
+
+test('si otro toma el reclamo mientras se paga, este no pisa el cierre: 409 y el estado del otro queda', async () => {
+  const db = escenarioRemesas();
+  sembrarFacturaPendiente(db, 'FAC-A', { total: 40 });
+  sembrarEjecutadaConPendientes(db, 'REM-ROBADA', [{ id_factura: 'FAC-A', importe: 40 }], ['FAC-A']);
+  db.interceptar('TransactWriteCommand', undefined, () => {
+    const r = db.obtener(tables.remesas, { remesaId: 'REM-ROBADA' });
+    db.sembrar(tables.remesas, { ...r, procesandoToken: 'otro', procesandoDesde: new Date().toISOString() });
+  });
+  const r = await api('POST', '/api/remesas/REM-ROBADA/ejecutar', { fecha: '2026-08-11' });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.error, 'La remesa se está procesando');
+  const g = db.obtener(tables.remesas, { remesaId: 'REM-ROBADA' });
+  assert.equal(g.procesandoToken, 'otro');
+  assert.deepEqual(g.lineasPendientesPago, ['FAC-A']);
+});
+
+test('un error inesperado a mitad suelta el reclamo', async () => {
+  const db = escenarioRemesas();
+  sembrarFacturaPendiente(db, 'FAC-A', { total: 40 });
+  sembrarEjecutadaConPendientes(db, 'REM-ERROR', [{ id_factura: 'FAC-A', importe: 40 }], ['FAC-A']);
+  db.interceptar('ScanCommand', tables.empresas, () => { throw new Error('Dynamo caído'); });
+  const r = await api('POST', '/api/remesas/REM-ERROR/ejecutar', { fecha: '2026-08-11' });
+  assert.equal(r.status, 500);
+  const g = db.obtener(tables.remesas, { remesaId: 'REM-ERROR' });
+  assert.equal(g.procesandoToken, undefined);
+  assert.deepEqual(g.lineasPendientesPago, ['FAC-A']);
+});
+
 test('facturaEnRemesaActiva / índice: las pendientes de una Ejecutada cuentan; las pagadas no', async () => {
   const { facturaEnRemesaActiva, indexRemesasActivasPorFactura } = await import('../lib/remesas/facturaEnRemesa.js');
   const remesas = [

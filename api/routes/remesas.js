@@ -490,6 +490,10 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
   const fecha = String(req.body?.fecha || '').trim() || now().slice(0, 10);
   if (!RE_FECHA.test(fecha)) return res.status(400).json({ error: 'fecha debe ser YYYY-MM-DD' });
 
+  // Reclamo de la ejecución en curso (`procesandoToken`): una sola a la vez paga
+  // y cierra las pendientes; se suelta al terminar o caduca a los 5 minutos.
+  let tokenProceso = null;
+  let remesaProceso = null;
   try {
     const remesa = await getRemesa(req.params.remesaId);
     if (!remesa) return res.status(404).json({ error: 'Remesa no encontrada' });
@@ -514,7 +518,18 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
     const fallidas = [];
     const descartadasAhora = [];
     if (reanudar) {
-      const c = await clasificarPendientes(remesa, pendientesPrevias.map(String));
+      if (procesoActivo(remesa)) return res.status(409).json({ error: MENSAJE_EN_PROCESO });
+      const token = uuid();
+      const reclamada = await reclamarReanudacion(remesa.remesaId, token);
+      if (!reclamada) {
+        const actual = await getRemesa(remesa.remesaId);
+        return res.status(409).json({ error: procesoActivo(actual) ? MENSAJE_EN_PROCESO : 'La remesa ya está ejecutada' });
+      }
+      tokenProceso = token;
+      remesaProceso = remesa.remesaId;
+      // Las pendientes y descartadas valen las del reclamo, no las de la primera lectura.
+      Object.assign(remesa, reclamada);
+      const c = await clasificarPendientes(remesa, remesa.lineasPendientesPago.map(String));
       lineasAPagar = c.aPagar;
       pagosCreados.push(...c.yaPagadas);
       fallidas.push(...c.fallidas);
@@ -545,11 +560,13 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
     if (!reanudar) {
       const tsEjecucion = now();
       const todas = remesa.lineas.map((l) => String(l.id_factura));
+      const token = uuid();
       try {
         await docClient.send(new UpdateCommand({
           TableName: TABLE,
           Key: { remesaId: remesa.remesaId },
-          UpdateExpression: 'SET estado = :ejecutada, ejecutadaEn = :ts, actualizadoEn = :ts, lineasPendientesPago = :pend',
+          UpdateExpression: 'SET estado = :ejecutada, ejecutadaEn = :ts, actualizadoEn = :ts, lineasPendientesPago = :pend, '
+            + 'procesandoToken = :tok, procesandoDesde = :ts',
           ConditionExpression: 'estado = :generada OR estado = :borrador',
           ExpressionAttributeValues: {
             ':ejecutada': 'Ejecutada',
@@ -557,6 +574,7 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
             ':borrador': 'Borrador',
             ':ts': tsEjecucion,
             ':pend': todas,
+            ':tok': token,
           },
         }));
       } catch (claimErr) {
@@ -565,6 +583,8 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
         }
         throw claimErr;
       }
+      tokenProceso = token;
+      remesaProceso = remesa.remesaId;
       remesa.estado = 'Ejecutada';
       remesa.ejecutadaEn = tsEjecucion;
       remesa.actualizadoEn = tsEjecucion;
@@ -621,12 +641,28 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
       sets.push('pendientesDescartadas = :desc');
       valores[':desc'] = descartadas;
     }
-    await docClient.send(new UpdateCommand({
-      TableName: TABLE,
-      Key: { remesaId: remesa.remesaId },
-      UpdateExpression: `SET ${sets.join(', ')}${pendientes.length > 0 ? '' : ' REMOVE lineasPendientesPago'}`,
-      ExpressionAttributeValues: valores,
-    }));
+    const quitar = ['procesandoToken', 'procesandoDesde', ...(pendientes.length > 0 ? [] : ['lineasPendientesPago'])];
+    try {
+      // Solo quien tiene el reclamo cierra: si caducó y otro lo tomó, su cierre manda.
+      await docClient.send(new UpdateCommand({
+        TableName: TABLE,
+        Key: { remesaId: remesa.remesaId },
+        UpdateExpression: `SET ${sets.join(', ')} REMOVE ${quitar.join(', ')}`,
+        ConditionExpression: 'procesandoToken = :tok',
+        ExpressionAttributeValues: { ...valores, ':tok': tokenProceso },
+      }));
+    } catch (err) {
+      if (err?.name !== 'ConditionalCheckFailedException') throw err;
+      tokenProceso = null;
+      (req.log?.warn ? req.log : logger).warn(
+        { remesaId: remesa.remesaId },
+        '[remesas/ejecutar] el reclamo caducó y lo tomó otra ejecución; no se cierra el estado',
+      );
+      return res.status(409).json({ ok: false, error: MENSAJE_EN_PROCESO, pagos: pagosCreados, fallidas });
+    }
+    tokenProceso = null;
+    delete remesa.procesandoToken;
+    delete remesa.procesandoDesde;
     remesa.actualizadoEn = tsFin;
     if (pendientes.length > 0) remesa.lineasPendientesPago = pendientes;
     else delete remesa.lineasPendientesPago;
@@ -651,9 +687,59 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
     }
     res.json({ ok: true, remesa, pagos: pagosCreados });
   } catch (err) {
+    if (tokenProceso) await liberarProceso(remesaProceso, tokenProceso, req);
     responderError(res, err);
   }
 });
+
+const MENSAJE_EN_PROCESO = 'La remesa se está procesando';
+/** Un reclamo de ejecución más antiguo se da por abandonado (proceso caído). */
+const CADUCIDAD_PROCESO_MS = 5 * 60 * 1000;
+
+const limiteCaducidad = () => new Date(Date.now() - CADUCIDAD_PROCESO_MS).toISOString();
+
+function procesoActivo(remesa) {
+  return Boolean(remesa?.procesandoToken) && String(remesa.procesandoDesde || '') >= limiteCaducidad();
+}
+
+/**
+ * Reclama la reanudación de una remesa Ejecutada con pendientes. Devuelve la
+ * remesa tal y como queda tras el reclamo, o null si otra ejecución la tiene o
+ * ya no quedan pendientes.
+ */
+async function reclamarReanudacion(remesaId, token) {
+  const ts = now();
+  try {
+    const r = await docClient.send(new UpdateCommand({
+      TableName: TABLE,
+      Key: { remesaId },
+      UpdateExpression: 'SET procesandoToken = :tok, procesandoDesde = :ts',
+      ConditionExpression: 'estado = :ejecutada AND attribute_exists(lineasPendientesPago) '
+        + 'AND (attribute_not_exists(procesandoToken) OR procesandoDesde < :caduca)',
+      ExpressionAttributeValues: { ':tok': token, ':ts': ts, ':ejecutada': 'Ejecutada', ':caduca': limiteCaducidad() },
+      ReturnValues: 'ALL_NEW',
+    }));
+    return r.Attributes;
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') return null;
+    throw err;
+  }
+}
+
+/** Suelta el reclamo tras un error inesperado; si no se puede, caduca solo. */
+async function liberarProceso(remesaId, token, req) {
+  try {
+    await docClient.send(new UpdateCommand({
+      TableName: TABLE,
+      Key: { remesaId },
+      UpdateExpression: 'REMOVE procesandoToken, procesandoDesde',
+      ConditionExpression: 'procesandoToken = :tok',
+      ExpressionAttributeValues: { ':tok': token },
+    }));
+  } catch (err) {
+    (req.log?.warn ? req.log : logger).warn({ err, remesaId }, '[remesas/ejecutar] no se pudo soltar el reclamo');
+  }
+}
 
 const claveIdempotenciaRemesa = (remesaId, idFactura) => `remesa:${remesaId}:${idFactura}`;
 
@@ -753,6 +839,7 @@ router.post('/remesas/:remesaId/descartar-pendientes', requirePermission('remesa
     if (remesa.estado !== 'Ejecutada' || pendientes.length === 0) {
       return res.status(409).json({ error: 'La remesa no tiene facturas pendientes de pago' });
     }
+    if (procesoActivo(remesa)) return res.status(409).json({ error: MENSAJE_EN_PROCESO });
     const pedidas = Array.isArray(b.facturaIds)
       ? [...new Set(b.facturaIds.map((id) => String(id ?? '').trim()).filter(Boolean))]
       : pendientes;
@@ -781,10 +868,12 @@ router.post('/remesas/:remesaId/descartar-pendientes', requirePermission('remesa
         TableName: TABLE,
         Key: { remesaId: remesa.remesaId },
         UpdateExpression: `SET pendientesDescartadas = :desc, actualizadoEn = :ts${restantes.length > 0 ? ', lineasPendientesPago = :rest' : ' REMOVE lineasPendientesPago'}`,
-        ConditionExpression: remesa.actualizadoEn ? 'actualizadoEn = :leido' : 'attribute_not_exists(actualizadoEn)',
+        ConditionExpression: `${remesa.actualizadoEn ? 'actualizadoEn = :leido' : 'attribute_not_exists(actualizadoEn)'} `
+          + 'AND (attribute_not_exists(procesandoToken) OR procesandoDesde < :caduca)',
         ExpressionAttributeValues: {
           ':desc': descartadas,
           ':ts': ts,
+          ':caduca': limiteCaducidad(),
           ...(remesa.actualizadoEn && { ':leido': remesa.actualizadoEn }),
           ...(restantes.length > 0 && { ':rest': restantes }),
         },
