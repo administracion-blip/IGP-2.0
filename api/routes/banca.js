@@ -35,8 +35,37 @@ import {
   altaCuentaBancariaEmpresa,
   httpErrorAltaCuenta,
 } from '../lib/empresaCuentaAlta.js';
+import { getCuentaByIban } from '../lib/dynamo/bankAccounts.js';
+import { cargarAlcance, permiteEmpresa, modoLecturas } from '../lib/alcance.js';
+import {
+  avisarDenegaria,
+  filtrarLecturaPorEmpresa,
+  permiteLecturaEmpresa,
+} from '../lib/alcanceSociedad.js';
 
 const router = Router();
+
+// [SEC S-08] Una carga es de las sociedades de sus cuentas; las pendientes de asignar no tienen.
+function empresasDeFichero(fichero) {
+  return (fichero?.cuentas || []).map((c) => c?.empresaId);
+}
+
+function ficheroVisible(alcance, fichero) {
+  if (alcance.global) return true;
+  return empresasDeFichero(fichero).some((e) => permiteEmpresa(alcance, e));
+}
+
+/** Visible y sin cuentas ajenas ni pendientes de asignar. */
+function ficheroTodoPermitido(alcance, fichero) {
+  if (alcance.global) return true;
+  return ficheroVisible(alcance, fichero)
+    && empresasDeFichero(fichero).every((e) => permiteEmpresa(alcance, e));
+}
+
+function sinCuentasAjenas(alcance, fichero) {
+  if (alcance.global) return fichero;
+  return { ...fichero, cuentas: (fichero.cuentas || []).filter((c) => permiteEmpresa(alcance, c?.empresaId)) };
+}
 
 /**
  * Los extractos no son PDF ni imágenes, así que la allowlist de facturas
@@ -174,6 +203,18 @@ router.post(
       }
     }
 
+    // [SEC S-08] No se importan movimientos a cuentas dadas de alta en otra sociedad.
+    const alcance = await cargarAlcance(req);
+    if (!alcance.global) {
+      const ibanes = new Set([ibanIndicado, ...extracto.cuentas.map((c) => limpiarIban(c.iban))].filter(Boolean));
+      for (const ibanCuenta of ibanes) {
+        const empresaCuenta = String((await getCuentaByIban(ibanCuenta))?.empresaId ?? '').trim();
+        if (empresaCuenta && !permiteEmpresa(alcance, empresaCuenta)) {
+          return res.status(403).json({ error: 'El extracto contiene cuentas de otra sociedad' });
+        }
+      }
+    }
+
     const confirmar = esVerdadero(req.body?.confirmar);
     const resultado = await ingestarExtracto({
       extracto,
@@ -224,24 +265,39 @@ router.get('/banca/movimientos', requirePermission('banca.ver'), async (req, res
   if (req.query.desde && !desde) return res.status(400).json({ error: 'desde debe ser YYYY-MM-DD' });
   if (req.query.hasta && !hasta) return res.status(400).json({ error: 'hasta debe ser YYYY-MM-DD' });
 
+  if (!iban && !empresaId && !estado) {
+    return res.status(400).json({
+      error: 'Indica al menos iban, empresaId o estado para consultar movimientos',
+    });
+  }
+  const filtros = { iban, empresaId, estado: estado || '', desde, hasta, orden };
+
+  // [SEC S-08] Por cuenta o empresa se decide antes de leer; por estado, movimiento a movimiento.
+  const alcance = await cargarAlcance(req);
+  if (!alcance.global && (iban || empresaId)) {
+    const empresaConsulta = iban
+      ? String((await getCuentaByIban(iban))?.empresaId ?? '').trim()
+      : empresaId;
+    if (!(await permiteLecturaEmpresa(req, empresaConsulta))) {
+      return res.json({ ok: true, movimientos: [], cursor: null, filtros });
+    }
+  }
+
   let salida;
   if (iban) {
     salida = await queryMovimientosCuenta(iban, { desde, hasta, estado, limite, cursor, orden });
   } else if (empresaId) {
     salida = await queryMovimientosEmpresa(empresaId, { desde, hasta, estado, limite, cursor, orden });
-  } else if (estado) {
-    salida = await queryMovimientosEstado(estado, { desde, hasta, limite, cursor, orden });
   } else {
-    return res.status(400).json({
-      error: 'Indica al menos iban, empresaId o estado para consultar movimientos',
-    });
+    salida = await queryMovimientosEstado(estado, { desde, hasta, limite, cursor, orden });
+    salida.movimientos = await filtrarLecturaPorEmpresa(req, salida.movimientos, (m) => m.empresaId);
   }
 
   res.json({
     ok: true,
     movimientos: salida.movimientos.map(movimientoToApi),
     cursor: salida.cursor,
-    filtros: { iban, empresaId, estado: estado || '', desde, hasta, orden },
+    filtros,
   });
 });
 
@@ -254,16 +310,35 @@ router.get('/banca/ficheros', requirePermission('banca.ver'), async (req, res) =
     iban: limpiarIban(req.query.iban),
     limite: req.query.limite ?? req.query.limit,
   });
-  res.json({ ok: true, ficheros });
+  // [SEC S-08]
+  const alcance = await cargarAlcance(req);
+  const visibles = await filtrarLecturaPorEmpresa(req, ficheros, empresasDeFichero);
+  res.json({
+    ok: true,
+    ficheros: modoLecturas() === 'bloquear' ? visibles.map((f) => sinCuentasAjenas(alcance, f)) : visibles,
+  });
 });
 
 /** GET /api/banca/ficheros/:hashFichero — detalle de una carga. */
 router.get('/banca/ficheros/:hashFichero', requirePermission('banca.ver'), async (req, res) => {
-  const fichero = await getFicheroCarga(req.params.hashFichero);
+  let fichero = await getFicheroCarga(req.params.hashFichero);
   if (!fichero) return res.status(404).json({ error: 'Carga no encontrada' });
 
+  // [SEC S-08] El original en S3 trae todas las cuentas: con alguna ajena no se firma.
+  const alcance = await cargarAlcance(req);
+  let originalPermitido = true;
+  if (!ficheroTodoPermitido(alcance, fichero)) {
+    if (modoLecturas() === 'bloquear') {
+      if (!ficheroVisible(alcance, fichero)) return res.status(404).json({ error: 'Carga no encontrada' });
+      fichero = sinCuentasAjenas(alcance, fichero);
+      originalPermitido = false;
+    } else {
+      avisarDenegaria(req, empresasDeFichero(fichero).join(','));
+    }
+  }
+
   let urlOriginal = '';
-  if (fichero.s3Key) {
+  if (fichero.s3Key && originalPermitido) {
     try {
       urlOriginal = await urlExtractoOriginal(fichero.s3Key);
     } catch (err) {
@@ -300,6 +375,10 @@ router.post(
     }
 
     try {
+      // [SEC S-08] Solo se asigna la cuenta a una sociedad propia.
+      if (!permiteEmpresa(await cargarAlcance(req), empresaId)) {
+        return res.status(404).json({ error: 'Empresa no encontrada' });
+      }
       const fichero = await getFicheroCarga(hash);
       if (!fichero) return res.status(404).json({ error: 'Carga no encontrada' });
       if (fichero.estado === ESTADO_FICHERO_EN_CURSO) {
@@ -374,6 +453,12 @@ router.delete('/banca/ficheros/:hashFichero', requirePermission('banca.importar'
 
   const fichero = await getFicheroCarga(hash);
   if (!fichero) return res.status(404).json({ error: 'Carga no encontrada' });
+  // [SEC S-08] Borrar arrastra los movimientos de todas las cuentas de la carga.
+  const alcance = await cargarAlcance(req);
+  if (!ficheroVisible(alcance, fichero)) return res.status(404).json({ error: 'Carga no encontrada' });
+  if (!ficheroTodoPermitido(alcance, fichero)) {
+    return res.status(403).json({ error: 'La carga incluye cuentas de otra sociedad o sin asignar' });
+  }
 
   const movimientos = await listarMovimientosDeCarga(hash, fichero.cuentas);
   const movimientosBorrados = await borrarMovimientos(movimientos);
