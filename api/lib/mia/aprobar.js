@@ -105,6 +105,16 @@ function mapaPoIds(meta) {
   return out;
 }
 
+/** Resultados guardados de intentos anteriores, sin el cuerpo crudo de Ágora que llevaban los antiguos. */
+function resultadosPrevios(meta) {
+  const lista = Array.isArray(meta?.agoraResultados) ? meta.agoraResultados : [];
+  return lista.map((r) => {
+    if (!r || typeof r !== 'object' || !('agoraBody' in r)) return r;
+    const { agoraBody: _cuerpo, ...resto } = r;
+    return resto;
+  });
+}
+
 function proveedorTienePoOk(poIds, proveedorId) {
   const prev = poIds[String(proveedorId)];
   if (!prev) return false;
@@ -327,7 +337,7 @@ export async function aprobarInformeMia(informeId, opts = {}) {
     for (const a of avisos) {
       if (!metaAvisos.includes(a)) metaAvisos.push(a);
     }
-    const prevResults = Array.isArray(meta.agoraResultados) ? meta.agoraResultados : [];
+    const prevResults = resultadosPrevios(meta);
     const metaActualizado = await updateMeta(id, {
       estado: 'aprobado',
       aprobadoEn: meta.aprobadoEn || ahora,
@@ -417,7 +427,13 @@ export async function aprobarInformeMia(informeId, opts = {}) {
         agoraData: result.data ?? null,
       });
     } catch (err) {
-      console.warn('[mia/aprobar] Ágora rechazó el pedido del proveedor', proveedorId, err?.agoraStatus ?? '', err?.message || err);
+      console.warn(
+        '[mia/aprobar] Ágora rechazó el pedido del proveedor',
+        proveedorId,
+        err?.agoraStatus ?? '',
+        err?.message || err,
+        err?.agoraBody != null ? JSON.stringify(err.agoraBody).slice(0, 2000) : '',
+      );
       agoraResultadosNuevos.push({
         proveedorId,
         supplierId,
@@ -428,7 +444,6 @@ export async function aprobarInformeMia(informeId, opts = {}) {
         lineas: poLines.length,
         error: mensajeSeguro(err, 'Error importando en Ágora'),
         agoraStatus: err?.agoraStatus ?? null,
-        agoraBody: err?.agoraBody ?? null,
       });
     }
   }
@@ -452,7 +467,7 @@ export async function aprobarInformeMia(informeId, opts = {}) {
   }
 
   // Merge resultados: sustituir entrada del proveedor si se reintentó
-  const prevResults = Array.isArray(meta.agoraResultados) ? [...meta.agoraResultados] : [];
+  const prevResults = resultadosPrevios(meta);
   const byProv = new Map(prevResults.map((r) => [String(r.proveedorId), r]));
   for (const r of agoraResultadosNuevos) {
     byProv.set(String(r.proveedorId), r);

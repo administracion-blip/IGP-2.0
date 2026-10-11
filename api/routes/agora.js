@@ -3279,8 +3279,8 @@ router.post('/agora/sale-centers/sync', requirePermission('puntos_venta.editar')
         token,
       });
     } catch (err) {
-      priceListsWarning = err?.message || 'Error al sincronizar centros de venta';
-      console.warn('[agora/sale-centers/sync] centros de venta:', priceListsWarning);
+      priceListsWarning = mensajeSeguro(err, 'Error al sincronizar centros de venta');
+      console.warn('[agora/sale-centers/sync] centros de venta:', err?.message || err);
     }
 
     return res.json({

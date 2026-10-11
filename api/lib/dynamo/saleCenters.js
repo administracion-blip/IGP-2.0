@@ -199,8 +199,10 @@ export async function syncCentrosVentaFromAgora(docClient, tableName, { baseUrl,
   });
   if (!r.ok) {
     const text = await r.text();
+    // El status de Ágora no es un 4xx nuestro: con `status` se publicaría el texto crudo.
     const err = new Error(`Agora SaleCenters respondió ${r.status}: ${text.slice(0, 200)}`);
-    err.status = r.status;
+    err.agoraStatus = r.status;
+    err.status = 502;
     throw err;
   }
 
