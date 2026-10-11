@@ -1,82 +1,84 @@
 import { Router } from 'express';
 import { ScanCommand, QueryCommand, PutCommand, GetCommand, DeleteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
-import { hasPermission } from '../middleware/auth.js';
 import { normalizarUrlExterna, sanitizarEnlacesPlanning } from '../lib/planningEnlaces.js';
+import {
+  ACCESO,
+  accesoEscrituraAjuste,
+  accesoLecturaAjuste,
+  esAjusteCerrado,
+  lecturaDependeSoloDelPk,
+  puedeLeerPk,
+} from '../lib/ajustes/politica.js';
 
 const router = Router();
 const tableAjustesName = tables.ajustes;
 
-/**
- * Ajustes que deciden comportamiento sensible y necesitan permiso para
- * escribirse. Se protege **por clave** y no la ruta entera porque este CRUD
- * genérico lo usa cualquier usuario autenticado para cosas suyas (los favoritos
- * de cada uno se guardan con PATCH aquí mismo): un middleware en la ruta dejaría
- * sin favoritos a todo el que no tenga el permiso.
- *
- * `mantenimiento/facturacion` y `compras/facturacion` son los interruptores de la
- * generación automática de las facturas mensuales (reparaciones, ventas internas
- * del grupo y abonos de rappel) y deciden la sociedad emisora y las series, así
- * que se pide el mismo permiso que ya gobierna cada una de esas facturaciones.
- * Un solo ítem para las dos series de compras: quien puede tocar una serie de
- * facturación de compras puede tocar la otra. Sin esto, el
- * bloqueo que la pantalla de ajustes aplica a esos formularios sería solo
- * cosmético: bastaría con llamar al endpoint.
- *
- * La protección es **por prefijo de SK**, no por clave exacta, porque la
- * facturación periódica guarda más ítems bajo el mismo PK que su configuración:
- * los cerrojos de ejecución (`facturacion_lock`, `facturacion_rappel_lock`). Un
- * cerrojo es tan sensible como el interruptor: escribir uno con caducidad lejana
- * deja la facturación mensual muerta —la adquisición devuelve 409 para siempre,
- * el trabajo programado se salta todos los ciclos y el botón manual rebota— y
- * borrarlo a media tanda la aborta. Con la protección por clave exacta eso lo
- * podía hacer cualquier usuario autenticado.
- *
- * El prefijo no bloquea nada legítimo: bajo `mantenimiento` y `compras` no hay
- * más ítems de ajustes que los de facturación, y los ítems de cualquier usuario
- * (favoritos, personalización, agrupaciones) viven en otros PK.
- */
-const PREFIJOS_AJUSTES_PROTEGIDOS = [
-  { pk: 'mantenimiento', prefijoSk: 'facturacion', permiso: 'mantenimiento.facturar' },
-  { pk: 'compras', prefijoSk: 'facturacion', permiso: 'compras.facturar' },
-];
+const ERROR_SIN_PERMISO = 'No tienes permiso para este ajuste';
+const ERROR_NO_ENCONTRADO = 'Ajuste no encontrado';
 
-/** Permiso necesario para escribir un ajuste, o null si no está protegido. */
-function permisoDeAjuste(pk, sk) {
-  const pkTexto = String(pk ?? '');
-  const skTexto = String(sk ?? '');
-  const regla = PREFIJOS_AJUSTES_PROTEGIDOS.find(
-    (r) => r.pk === pkTexto && skTexto.startsWith(r.prefijoSk)
-  );
-  return regla?.permiso ?? null;
+function esAdministrador(user) {
+  return user?.rol === 'Administrador';
 }
 
 /**
- * Corta la petición con 401/403 si el ajuste está protegido y el usuario no tiene
- * el permiso. Devuelve true si ya ha respondido.
+ * Corta la petición si la política no deja leer/escribir la clave. Devuelve true
+ * si ya ha respondido. Las claves cerradas responden 404 para no revelar que
+ * existen; las llamadas internas solo saltan los permisos, no el cierre.
  */
-async function respondeSiNoPuedeEscribir(req, res, pk, sk) {
-  const permiso = permisoDeAjuste(pk, sk);
-  if (!permiso) return false;
-  if (req.isInternal) return false;
+async function respondeSiNoPuede(req, res, pk, sk, evaluar) {
+  if (req.isInternal) {
+    if (!esAjusteCerrado(pk, sk)) return false;
+    res.status(404).json({ error: ERROR_NO_ENCONTRADO });
+    return true;
+  }
   if (!req.user) {
     res.status(401).json({ error: 'No autenticado' });
     return true;
   }
+  let acceso;
   try {
-    if (await hasPermission(req.user, permiso)) return false;
+    acceso = await evaluar(pk, sk, req.user);
   } catch (err) {
     console.error('[ajustes permisos]', err.message || err);
     res.status(500).json({ error: 'Error verificando permisos' });
     return true;
   }
-  res.status(403).json({ error: 'No tienes permiso para cambiar esta configuración' });
+  if (acceso === ACCESO.PERMITIDO) return false;
+  if (acceso === ACCESO.CERRADO) res.status(404).json({ error: ERROR_NO_ENCONTRADO });
+  else res.status(403).json({ error: ERROR_SIN_PERMISO });
   return true;
+}
+
+const respondeSiNoPuedeLeer = (req, res, pk, sk) => respondeSiNoPuede(req, res, pk, sk, accesoLecturaAjuste);
+const respondeSiNoPuedeEscribir = (req, res, pk, sk) => respondeSiNoPuede(req, res, pk, sk, accesoEscrituraAjuste);
+
+/** Deja solo los ítems de la categoría que el usuario puede leer. */
+async function filtrarLegibles(req, categoria, items) {
+  const visibles = items.filter((it) => !esAjusteCerrado(it.PK, it.SK));
+  if (req.isInternal || lecturaDependeSoloDelPk(categoria)) return visibles;
+  const legibles = [];
+  for (const it of visibles) {
+    if ((await accesoLecturaAjuste(it.PK, it.SK, req.user)) === ACCESO.PERMITIDO) legibles.push(it);
+  }
+  return legibles;
 }
 
 router.get('/ajustes', async (req, res) => {
   try {
     const { categoria } = req.query;
+    if (categoria !== undefined && typeof categoria !== 'string') {
+      return res.status(400).json({ error: 'categoria debe ser un texto' });
+    }
+    if (!req.isInternal) {
+      if (!req.user) return res.status(401).json({ error: 'No autenticado' });
+      if (!categoria && !esAdministrador(req.user)) {
+        return res.status(403).json({ error: ERROR_SIN_PERMISO });
+      }
+      if (categoria && lecturaDependeSoloDelPk(categoria) && !(await puedeLeerPk(categoria, req.user))) {
+        return res.status(403).json({ error: ERROR_SIN_PERMISO });
+      }
+    }
     let items = [];
     let lastKey = null;
     if (categoria) {
@@ -90,12 +92,14 @@ router.get('/ajustes', async (req, res) => {
         items.push(...(r.Items || []));
         lastKey = r.LastEvaluatedKey || null;
       } while (lastKey);
+      items = await filtrarLegibles(req, categoria, items);
     } else {
       do {
         const r = await docClient.send(new ScanCommand({ TableName: tableAjustesName, ...(lastKey && { ExclusiveStartKey: lastKey }) }));
         items.push(...(r.Items || []));
         lastKey = r.LastEvaluatedKey || null;
       } while (lastKey);
+      items = items.filter((it) => !esAjusteCerrado(it.PK, it.SK));
     }
     return res.json({ ok: true, items });
   } catch (err) {
@@ -107,8 +111,9 @@ router.get('/ajustes', async (req, res) => {
 router.get('/ajustes/:pk/:sk', async (req, res) => {
   try {
     const { pk, sk } = req.params;
+    if (await respondeSiNoPuedeLeer(req, res, pk, sk)) return;
     const r = await docClient.send(new GetCommand({ TableName: tableAjustesName, Key: { PK: pk, SK: sk } }));
-    if (!r.Item) return res.status(404).json({ error: 'Ajuste no encontrado' });
+    if (!r.Item) return res.status(404).json({ error: ERROR_NO_ENCONTRADO });
     return res.json({ ok: true, item: r.Item });
   } catch (err) {
     console.error('[ajustes GET/:pk/:sk]', err.message || err);
@@ -143,8 +148,11 @@ router.post('/ajustes', async (req, res) => {
   try {
     const body = req.body || {};
     if (!body.PK || !body.SK) return res.status(400).json({ error: 'PK y SK son obligatorios' });
-    // El POST reemplaza el ítem completo: si no se comprobara aquí, el candado
-    // del PATCH se saltaría escribiendo el mismo ajuste por esta ruta.
+    if (typeof body.PK !== 'string' || typeof body.SK !== 'string') {
+      return res.status(400).json({ error: 'PK y SK deben ser texto' });
+    }
+    // El POST reemplaza el ítem completo: sin esta comprobación, el candado del
+    // PATCH se saltaría escribiendo el mismo ajuste por esta ruta.
     if (await respondeSiNoPuedeEscribir(req, res, body.PK, body.SK)) return;
 
     const errEnlaces = aplicarValidacionEnlacesPlanning(body);
