@@ -27,6 +27,13 @@ import {
 import { formatId6 } from '../lib/usuarioLocales.js';
 import { ibanPredeterminadoDeEmpresa } from '../lib/empresaIban.js';
 import { queryMovimientosLocalRango, agregarCashflowPorLocal } from '../lib/cashflow/store.js';
+import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
+import { requireLocal, requireLocales, desde } from '../middleware/alcance.js';
+
+/** Hacer arqueo de caja: mismo criterio que puedeArqueoCaja en el frontend. */
+const permisoArqueo = requireAnyPermission('planning_dia.arqueo', 'cierres.ver');
+const localQuery = requireLocal(desde.query('workplaceId'));
+const localBodyWorkplace = requireLocal(desde.body('workplaceId', 'PK'));
 
 /** Grupo canónico de tarjeta (para banderas de boletas en la revisión). */
 const GRUPO_TARJETA = 'Tarjeta';
@@ -240,7 +247,7 @@ function validTicketKey(key) {
 }
 
 // GET /api/cajas/arqueos-reales?workplaceId=&businessDay=opcional
-router.get('/cajas/arqueos-reales', async (req, res) => {
+router.get('/cajas/arqueos-reales', permisoArqueo, localQuery, async (req, res) => {
   const workplaceId = String(req.query.workplaceId || '').trim();
   if (!workplaceId) return res.status(400).json({ error: 'workplaceId obligatorio' });
   const businessDay = String(req.query.businessDay || '').trim();
@@ -264,7 +271,7 @@ router.get('/cajas/arqueos-reales', async (req, res) => {
 });
 
 // GET /api/cajas/arqueos-reales/compare?workplaceId=&businessDay=&posId=
-router.get('/cajas/arqueos-reales/compare', async (req, res) => {
+router.get('/cajas/arqueos-reales/compare', permisoArqueo, localQuery, async (req, res) => {
   const workplaceId = String(req.query.workplaceId || '').trim();
   const businessDay = String(req.query.businessDay || '').trim();
   const posId = String(req.query.posId ?? '').trim();
@@ -323,8 +330,10 @@ router.get('/cajas/arqueos-reales/compare', async (req, res) => {
   }
 });
 
-// POST /api/cajas/arqueos-reales/ocr-ticket — multipart: imagen + opcional workplaceId, businessDay, lineId
-router.post('/cajas/arqueos-reales/ocr-ticket', uploadOcr.single('imagen'), async (req, res) => {
+// POST /api/cajas/arqueos-reales/ocr-ticket — multipart: imagen + workplaceId (obligatorio salvo
+// alcance global, que puede subir a 'anon'), businessDay, lineId
+const localBodyOcr = requireLocal(desde.body('workplaceId'));
+router.post('/cajas/arqueos-reales/ocr-ticket', permisoArqueo, uploadOcr.single('imagen'), localBodyOcr, async (req, res) => {
   const file = req.file;
   if (!file?.buffer) return res.status(400).json({ error: 'Falta imagen (campo imagen)' });
   const workplaceId = String(req.body.workplaceId || '').trim();
@@ -397,7 +406,9 @@ router.post('/cajas/arqueos-reales/ocr-ticket', uploadOcr.single('imagen'), asyn
 });
 
 // GET /api/cajas/arqueos-reales/ticket-image-url?key=arqueos-tickets/...
-router.get('/cajas/arqueos-reales/ticket-image-url', async (req, res) => {
+// arqueos-tickets/{workplaceId}/...: la carpeta 'anon' no es de ningún local, solo alcance global.
+const localClaveTicket = requireLocal(desde.claveS3('arqueos-tickets/', 1));
+router.get('/cajas/arqueos-reales/ticket-image-url', permisoArqueo, localClaveTicket, async (req, res) => {
   const key = String(req.query.key || '').trim();
   if (!validTicketKey(key)) return res.status(400).json({ error: 'key no válida' });
   try {
@@ -414,7 +425,7 @@ router.get('/cajas/arqueos-reales/ticket-image-url', async (req, res) => {
 });
 
 // PUT /api/cajas/arqueos-reales — crear o actualizar
-router.put('/cajas/arqueos-reales', async (req, res) => {
+router.put('/cajas/arqueos-reales', permisoArqueo, requireLocal(desde.body('PK', 'workplaceId')), async (req, res) => {
   const body = req.body || {};
   const pk = String(body.PK ?? body.workplaceId ?? '').trim();
   const businessDay = String(body.BusinessDay ?? body.businessDay ?? '').trim();
@@ -545,7 +556,7 @@ router.put('/cajas/arqueos-reales', async (req, res) => {
 
 // POST /api/cajas/arqueos-reales/estado — cerrar o reabrir el arqueo de un TPV
 // body: { workplaceId|PK, businessDay, posId, estado: 'cerrado'|'borrador', usuarioId?, usuarioNombre? }
-router.post('/cajas/arqueos-reales/estado', async (req, res) => {
+router.post('/cajas/arqueos-reales/estado', permisoArqueo, localBodyWorkplace, async (req, res) => {
   const body = req.body || {};
   const pk = String(body.workplaceId ?? body.PK ?? '').trim();
   const businessDay = String(body.businessDay ?? body.BusinessDay ?? '').trim();
@@ -594,7 +605,7 @@ router.post('/cajas/arqueos-reales/estado', async (req, res) => {
 
 // POST /api/cajas/arqueos-reales/revisado — marca/desmarca el visto bueno de revisión
 // body: { workplaceId|PK, businessDay, posId, revisado:boolean, usuarioId?, usuarioNombre? }
-router.post('/cajas/arqueos-reales/revisado', async (req, res) => {
+router.post('/cajas/arqueos-reales/revisado', requirePermission('cierres.ver'), localBodyWorkplace, async (req, res) => {
   const body = req.body || {};
   const pk = String(body.workplaceId ?? body.PK ?? '').trim();
   const businessDay = String(body.businessDay ?? body.BusinessDay ?? '').trim();
@@ -695,16 +706,13 @@ function buildCeldaRevision({ posId, posName, closeouts, arqueo, retiradas, tran
 
 // GET /api/cajas/revision?dateFrom=&dateTo=&workplaceIds=code1,code2
 // Centro de mando: cruza teórico (cierres) y real (arqueo) por local → TPV → día.
-router.get('/cajas/revision', async (req, res) => {
+router.get('/cajas/revision', requirePermission('cierres.ver'), requireLocales(desde.query('workplaceIds')), async (req, res) => {
   const dateFrom = String(req.query.dateFrom || '').trim();
   const dateTo = String(req.query.dateTo || req.query.dateFrom || '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
     return res.status(400).json({ error: 'dateFrom y dateTo (YYYY-MM-DD) obligatorios' });
   }
-  const workplaceIds = String(req.query.workplaceIds || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const workplaceIds = req.alcanceLocales;
   if (workplaceIds.length === 0) {
     return res.status(400).json({ error: 'workplaceIds obligatorio (códigos Ágora separados por coma)' });
   }
@@ -1083,7 +1091,7 @@ router.get('/cajas/efectivo-ingresar', async (req, res) => {
 
 // GET /api/cajas/jornada?workplaceId=&businessDay= — estado de la jornada del local
 // Devuelve los arqueos guardados (con estado) y el registro de jornada si existe.
-router.get('/cajas/jornada', async (req, res) => {
+router.get('/cajas/jornada', permisoArqueo, localQuery, async (req, res) => {
   const workplaceId = String(req.query.workplaceId || '').trim();
   const businessDay = String(req.query.businessDay || '').trim();
   if (!workplaceId || !/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
@@ -1125,7 +1133,7 @@ router.get('/cajas/jornada', async (req, res) => {
 
 // POST /api/cajas/jornada/cerrar — consolida y cierra la jornada del local
 // body: { workplaceId|PK, businessDay, workplaceName?, usuarioId?, usuarioNombre? }
-router.post('/cajas/jornada/cerrar', async (req, res) => {
+router.post('/cajas/jornada/cerrar', permisoArqueo, localBodyWorkplace, async (req, res) => {
   const body = req.body || {};
   const pk = String(body.workplaceId ?? body.PK ?? '').trim();
   const businessDay = String(body.businessDay ?? body.BusinessDay ?? '').trim();
@@ -1183,7 +1191,7 @@ router.post('/cajas/jornada/cerrar', async (req, res) => {
 });
 
 // POST /api/cajas/jornada/reabrir — reabre una jornada cerrada
-router.post('/cajas/jornada/reabrir', async (req, res) => {
+router.post('/cajas/jornada/reabrir', requirePermission('cierres.ver'), localBodyWorkplace, async (req, res) => {
   const body = req.body || {};
   const pk = String(body.workplaceId ?? body.PK ?? '').trim();
   const businessDay = String(body.businessDay ?? body.BusinessDay ?? '').trim();
@@ -1207,7 +1215,8 @@ router.post('/cajas/jornada/reabrir', async (req, res) => {
 });
 
 // DELETE /api/cajas/arqueos-reales?PK=&SK=
-router.delete('/cajas/arqueos-reales', async (req, res) => {
+const localPkQueryOBody = requireLocal(desde.primero(desde.query('PK'), desde.body('PK')));
+router.delete('/cajas/arqueos-reales', requirePermission('cierres.borrar'), localPkQueryOBody, async (req, res) => {
   const pk = String(req.query.PK ?? req.body?.PK ?? '').trim();
   const sk = String(req.query.SK ?? req.body?.SK ?? '').trim();
   if (!pk || !sk) return res.status(400).json({ error: 'PK y SK obligatorios' });
