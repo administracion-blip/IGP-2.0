@@ -20,6 +20,13 @@ const router = express.Router();
 /** Validez del enlace de recuperación de contraseña. */
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 60 min
 
+/** Hash bcrypt de un valor aleatorio, para comparar cuando el email no existe. */
+const HASH_FICTICIO = hashPassword(crypto.randomBytes(24).toString('hex'));
+
+function esTextoNoVacio(v) {
+  return typeof v === 'string' && v.trim() !== '';
+}
+
 /** Hash del token de recuperación (nunca guardamos el token en claro). */
 function hashResetToken(token) {
   return crypto.createHash('sha256').update(String(token)).digest('hex');
@@ -47,7 +54,7 @@ function buildResetUrl(base, token, emailNorm) {
 // [SEC S-10]
 router.post('/login', async (req, res) => {
   const { email, password } = req.body || {};
-  if (!email || !password) {
+  if (!esTextoNoVacio(email) || typeof password !== 'string' || password === '') {
     return res.status(400).json({ error: 'Faltan email o password' });
   }
 
@@ -59,6 +66,9 @@ router.post('/login', async (req, res) => {
   const items = await findUsuarioByEmail(emailNorm);
 
   if (items.length === 0) {
+    // Mismo coste que una contraseña mala: el tiempo de respuesta no debe
+    // delatar qué emails están dados de alta.
+    await verifyPassword(password, await HASH_FICTICIO);
     return res.status(401).json({ error: 'Credenciales incorrectas' });
   }
 
@@ -168,10 +178,10 @@ router.post('/forgot-password', async (req, res) => {
     ok: true,
     message: 'Si el email está registrado, recibirás un correo con instrucciones para restablecer tu contraseña.',
   };
-  if (!email) {
+  if (!esTextoNoVacio(email)) {
     return res.status(400).json({ error: 'Falta el email' });
   }
-  const emailNorm = String(email).trim().toLowerCase();
+  const emailNorm = email.trim().toLowerCase();
 
   const baseEnlace = baseEnlaceReset(req);
   if (!baseEnlace) {
@@ -198,24 +208,24 @@ router.post('/forgot-password', async (req, res) => {
       const resetUrl = buildResetUrl(baseEnlace, token, emailNorm);
       const nombre = user.Nombre || 'Hola';
       if (smtpConfigurado()) {
-        try {
-          await enviarEmail({
-            to: user.Email,
-            subject: 'Recuperación de contraseña — Grupo Paripé',
-            text:
-              `${nombre},\n\n` +
-              `Hemos recibido una solicitud para restablecer tu contraseña.\n` +
-              `Abre este enlace para elegir una nueva (caduca en 60 minutos):\n\n${resetUrl}\n\n` +
-              `Si no has solicitado este cambio, puedes ignorar este correo.`,
-            html:
-              `<p>${nombre},</p>` +
-              `<p>Hemos recibido una solicitud para restablecer tu contraseña.</p>` +
-              `<p><a href="${resetUrl}">Pulsa aquí para elegir una nueva contraseña</a> (el enlace caduca en 60 minutos).</p>` +
-              `<p style="color:#64748b;font-size:13px">Si no has solicitado este cambio, puedes ignorar este correo.</p>`,
-          });
-        } catch (mailErr) {
+        // Sin `await`: esperar al SMTP solo cuando el email existe haría que el
+        // tiempo de respuesta delatara qué cuentas hay.
+        enviarEmail({
+          to: user.Email,
+          subject: 'Recuperación de contraseña — Grupo Paripé',
+          text:
+            `${nombre},\n\n` +
+            `Hemos recibido una solicitud para restablecer tu contraseña.\n` +
+            `Abre este enlace para elegir una nueva (caduca en 60 minutos):\n\n${resetUrl}\n\n` +
+            `Si no has solicitado este cambio, puedes ignorar este correo.`,
+          html:
+            `<p>${nombre},</p>` +
+            `<p>Hemos recibido una solicitud para restablecer tu contraseña.</p>` +
+            `<p><a href="${resetUrl}">Pulsa aquí para elegir una nueva contraseña</a> (el enlace caduca en 60 minutos).</p>` +
+            `<p style="color:#64748b;font-size:13px">Si no has solicitado este cambio, puedes ignorar este correo.</p>`,
+        }).catch((mailErr) => {
           req.log.error({ err: mailErr }, '[auth] Error enviando email de recuperación');
-        }
+        });
       } else {
         req.log.warn('[auth] SMTP no configurado: no se pudo enviar el email de recuperación');
       }
@@ -239,14 +249,14 @@ router.post('/reset-password', async (req, res) => {
     error: 'El enlace de recuperación no es válido o ha caducado. Solicita uno nuevo.',
   };
 
-  if (!email || !token || !password) {
+  if (!esTextoNoVacio(email) || !esTextoNoVacio(token) || typeof password !== 'string' || password === '') {
     return res.status(400).json({ error: 'Faltan datos para restablecer la contraseña' });
   }
-  if (String(password).length < MIN_PASSWORD_LENGTH) {
+  if (password.length < MIN_PASSWORD_LENGTH) {
     return res.status(400).json({ error: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres` });
   }
 
-  const emailNorm = String(email).trim().toLowerCase();
+  const emailNorm = email.trim().toLowerCase();
   const items = await findUsuarioByEmail(emailNorm);
   if (items.length !== 1) {
     return res.status(400).json(invalido);

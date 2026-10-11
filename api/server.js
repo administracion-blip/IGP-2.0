@@ -19,6 +19,7 @@ import { logger } from './lib/logger.js';
 import { validateEnv } from './lib/validateEnv.js';
 import { helmetOptions } from './lib/helmetOptions.js';
 import { origenesDeEntorno, origenesPermitidos } from './lib/corsOrigins.js';
+import { crearLimitadoresAuth } from './lib/seguridad/limitadoresAuth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { tables } from './lib/db.js';
 import { requireAuth } from './middleware/auth.js';
@@ -163,25 +164,10 @@ app.use(cors({
 app.use(express.json({ limit: '15mb' }));
 
 // --- Rate limiting ---
-const loginLimiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_LOGIN_WINDOW_MS || '900000', 10),
-  max: parseInt(process.env.RATE_LIMIT_LOGIN_MAX || '15', 10),
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Demasiados intentos de login. Inténtalo de nuevo más tarde.' },
-});
-app.post('/api/login', loginLimiter);
-
-// Límite específico para recuperación de contraseña: evita usarlo para spam de
-// correos o enumeración de usuarios. Más restrictivo que el login.
-const forgotPasswordLimiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_FORGOT_WINDOW_MS || '900000', 10),
-  max: parseInt(process.env.RATE_LIMIT_FORGOT_MAX || '5', 10),
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Demasiadas solicitudes de recuperación. Inténtalo de nuevo más tarde.' },
-});
-app.post('/api/forgot-password', forgotPasswordLimiter);
+const limitadoresAuth = crearLimitadoresAuth();
+app.post('/api/login', limitadoresAuth.login);
+app.post('/api/forgot-password', limitadoresAuth.forgotPassword);
+app.post('/api/reset-password', limitadoresAuth.resetPassword);
 
 const apiLimiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),
