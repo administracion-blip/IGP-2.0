@@ -128,6 +128,28 @@ function localIdItem(it) {
   return String(it.LocalId ?? it.localId ?? '').trim();
 }
 
+/** Condición del Put: la auditoría sigue en el local leído, o sigue sin existir si no se leyó ninguna. */
+function condicionLocalLeido(previo) {
+  if (!previo) {
+    return {
+      ConditionExpression: 'attribute_not_exists(#pk)',
+      ExpressionAttributeNames: { '#pk': DYNAMO_PK },
+    };
+  }
+  const ExpressionAttributeNames = { '#l0': 'LocalId', '#l1': 'localId' };
+  const ExpressionAttributeValues = {};
+  const partes = ['LocalId', 'localId'].map((campo, i) => {
+    if (previo[campo] === undefined) return `attribute_not_exists(#l${i})`;
+    ExpressionAttributeValues[`:l${i}`] = previo[campo];
+    return `#l${i} = :l${i}`;
+  });
+  return {
+    ConditionExpression: partes.join(' AND '),
+    ExpressionAttributeNames,
+    ...(Object.keys(ExpressionAttributeValues).length > 0 && { ExpressionAttributeValues }),
+  };
+}
+
 /** GET /mystery-guest — lista valoraciones; query: fechaDesde, fechaHasta (YYYY-MM-DD), localId (opcional) */
 router.get('/mystery-guest', requirePermission('mystery_guest.ver'), async (req, res) => {
   const fechaDesde = req.query.fechaDesde != null ? String(req.query.fechaDesde).trim() : '';
@@ -185,7 +207,9 @@ router.get('/mystery-guest', requirePermission('mystery_guest.ver'), async (req,
 /** POST /mystery-guest — alta: Respuestas (cuestionario) + ExperienciaGeneral, o legado tres puntuaciones. */
 router.post('/mystery-guest', requirePermission('mystery_guest.ver'), requireLocal(desde.body('LocalId'), { tipo: 'idLocal' }), async (req, res) => {
   const body = req.body || {};
-  // Con id_MisteryGuest el Put sobrescribe: la auditoría que ya exista también tiene que ser de un local propio.
+  // Con id_MisteryGuest el Put sobrescribe: la auditoría que ya exista también tiene que ser de un local propio,
+  // y el Put solo se aplica si sigue como se leyó (o sigue sin existir).
+  let condicionLeido = null;
   if (body.id_MisteryGuest != null && String(body.id_MisteryGuest).trim() !== '') {
     const alcance = await cargarAlcance(req);
     if (!alcance.global) {
@@ -195,6 +219,7 @@ router.post('/mystery-guest', requirePermission('mystery_guest.ver'), requireLoc
       if (previo.Item && !permiteLocal(alcance, { idLocal: localIdItem(previo.Item) })) {
         return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
       }
+      condicionLeido = condicionLocalLeido(previo.Item);
     }
   }
   const rawFecha = body.Fecha != null ? String(body.Fecha).trim() : '';
@@ -298,7 +323,14 @@ router.post('/mystery-guest', requirePermission('mystery_guest.ver'), requireLoc
   }
 
   const ddbItem = toDynamoItem(item);
-  await docClient.send(new PutCommand({ TableName: TABLE, Item: ddbItem }));
+  try {
+    await docClient.send(new PutCommand({ TableName: TABLE, Item: ddbItem, ...condicionLeido }));
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') {
+      return res.status(409).json({ error: 'La auditoría ha cambiado, vuelve a cargarla' });
+    }
+    throw err;
+  }
   res.json({ ok: true, valoracion: normalizeItemForApi(ddbItem) });
 });
 

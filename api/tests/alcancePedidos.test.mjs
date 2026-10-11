@@ -189,6 +189,28 @@ test('mover un pedido propio a otro local (sin ser dueño del origen): 403 y el 
   assert.equal(pedido('PED-2').Notas, 'dos cajas');
 });
 
+// ─── Carrera entre leer y escribir ───
+
+test('si el pedido cambia de local entre la lectura y la escritura: 409 y no se aplica la edición', async () => {
+  montar();
+  db.interceptar('UpdateCommand', tables.pedidos, async () => {
+    db.sembrar(tables.pedidos, { ...pedido('PED-2'), LocalId: '000020' });
+  });
+  const r = await api('PUT', '/api/pedidos', { Id: 'PED-2', Notas: 'colada' }, LOCAL_NORTE);
+  assert.equal(r.status, 409);
+  assert.equal(r.body.error, 'El pedido ha cambiado, vuelve a cargarlo');
+  assert.equal(pedido('PED-2').LocalId, '000020');
+  assert.equal(pedido('PED-2').Notas, '');
+});
+
+test('pedido sin AlmacenOrigenId: la condición lo acepta si sigue sin él', async () => {
+  montar();
+  db.sembrar(tables.pedidos, { Id: 'PED-4', LocalId: '000010', Estado: 'Borrador', Fecha: '2026-10-06', Notas: '' });
+  const r = await api('PUT', '/api/pedidos', { Id: 'PED-4', Notas: 'ok' }, LOCAL_NORTE);
+  assert.equal(r.status, 200);
+  assert.equal(pedido('PED-4').Notas, 'ok');
+});
+
 // ─── Marcar traspasos exportados ───
 
 test('marcar traspasos con un pedido ajeno en la lista: 403 sin marcar ninguno, tampoco el propio', async () => {

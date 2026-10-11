@@ -329,6 +329,33 @@ test('crear con el id de una actuación de otro local: 409 y el registro ajeno q
   assert.equal(global.status, 409);
 });
 
+// ─── Carrera entre leer y escribir ───
+
+function moverDeLocalAntesDelPut(id) {
+  db.interceptar('PutCommand', tables.actuaciones, async () => {
+    db.sembrar(tables.actuaciones, { ...db.obtener(tables.actuaciones, { id_actuacion: id }), id_local: '000020' });
+  });
+}
+
+test('editar o firmar una actuación que otro mueve de local entre la lectura y el Put: 409 sin pisarla', async () => {
+  montar();
+  moverDeLocalAntesDelPut('A-NORTE-2');
+  const r = await api('PUT', '/api/actuaciones/item/A-NORTE-2', { observaciones: 'colada' });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.error, 'La actuación ha cambiado, vuelve a cargarla');
+  let a = db.obtener(tables.actuaciones, { id_actuacion: 'A-NORTE-2' });
+  assert.equal(a.id_local, '000020');
+  assert.equal(a.observaciones, undefined);
+
+  montar();
+  moverDeLocalAntesDelPut('A-NORTE-2');
+  const f = await firmar('A-NORTE-2');
+  assert.equal(f.status, 409);
+  a = db.obtener(tables.actuaciones, { id_actuacion: 'A-NORTE-2' });
+  assert.equal(a.id_local, '000020');
+  assert.equal(a.estado, 'pendiente');
+});
+
 // ─── Sin local ───
 
 test('crear sin local: el restringido recibe 400 sin escribir; el global puede', async () => {

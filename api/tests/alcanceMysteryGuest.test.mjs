@@ -119,6 +119,31 @@ test('sobrescribir por id una auditoría de un local ajeno, aunque el cuerpo dig
   assert.deepEqual(db.obtener(tables.mysteryGuest, { ud_mysteryguest: 'mg-sur' }), antes);
 });
 
+test('sobrescribir por id una auditoría propia que otro mueve de local entre la lectura y el Put: 409 sin pisarla', async () => {
+  montar();
+  db.interceptar('PutCommand', tables.mysteryGuest, async () => {
+    db.sembrar(tables.mysteryGuest, { ...db.obtener(tables.mysteryGuest, { ud_mysteryguest: 'mg-centro' }), LocalId: '000020' });
+  });
+  const r = await api('POST', '/api/mystery-guest', alta({ LocalId: '000010', id_MisteryGuest: 'mg-centro' }));
+  assert.equal(r.status, 409);
+  assert.equal(r.body.error, 'La auditoría ha cambiado, vuelve a cargarla');
+  assert.equal(db.obtener(tables.mysteryGuest, { ud_mysteryguest: 'mg-centro' }).LocalId, '000020');
+});
+
+test('alta por id que otro crea entre la lectura y el Put: 409 sin pisarla; sin carrera se sobrescribe la propia', async () => {
+  montar();
+  db.interceptar('PutCommand', tables.mysteryGuest, async () => {
+    db.sembrar(tables.mysteryGuest, { ud_mysteryguest: 'mg-nueva', Fecha: '2026-09-03', LocalId: '000020' });
+  });
+  const r = await api('POST', '/api/mystery-guest', alta({ LocalId: '000010', id_MisteryGuest: 'mg-nueva' }));
+  assert.equal(r.status, 409);
+  assert.equal(db.obtener(tables.mysteryGuest, { ud_mysteryguest: 'mg-nueva' }).LocalId, '000020');
+
+  const ok = await api('POST', '/api/mystery-guest', alta({ LocalId: '000010', id_MisteryGuest: 'mg-centro', Notas: 'repaso' }));
+  assert.equal(ok.status, 200);
+  assert.equal(db.obtener(tables.mysteryGuest, { ud_mysteryguest: 'mg-centro' }).Notas, 'repaso');
+});
+
 test('alta en su local y con alcance global en cualquiera', async () => {
   montar();
   assert.equal((await api('POST', '/api/mystery-guest', alta({ LocalId: '000010' }))).status, 200);

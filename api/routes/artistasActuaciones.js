@@ -218,6 +218,27 @@ async function puedeLocalActuacion(req, idLocal) {
   return permiteLocal(await cargarAlcance(req), { idLocal });
 }
 
+const MENSAJE_ACTUACION_CAMBIADA = 'La actuación ha cambiado, vuelve a cargarla';
+
+/** Put de una actuación leída: solo se aplica si sigue en el local con el que se decidió el acceso. */
+async function putActuacionLeida(prev, item) {
+  const leido = prev.id_local;
+  try {
+    await docClient.send(new PutCommand({
+      TableName: tables.actuaciones,
+      Item: item,
+      ConditionExpression: leido === undefined
+        ? 'attribute_exists(id_actuacion) AND attribute_not_exists(id_local)'
+        : 'id_local = :leido',
+      ...(leido !== undefined && { ExpressionAttributeValues: { ':leido': leido } }),
+    }));
+    return true;
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') return false;
+    throw err;
+  }
+}
+
 /** Local con el que va a quedar escrita la actuación: un restringido no puede dejarla sin local. */
 async function errorLocalEscritura(req, idLocal) {
   const alcance = await cargarAlcance(req);
@@ -945,7 +966,7 @@ router.put('/actuaciones/item/:id', async (req, res) => {
       return res.status(409).json({ conflicto: true, otro: actuacionResumenConflicto(otro) });
     }
   }
-  await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: item }));
+  if (!(await putActuacionLeida(prev, item))) return res.status(409).json({ error: MENSAJE_ACTUACION_CAMBIADA });
   // Si se ha valorado, recalcular la media del artista para su ficha.
   if (body.valoracion !== undefined && String(item.id_artista || '').trim()) {
     try {
@@ -995,7 +1016,7 @@ router.post('/actuaciones/item/:id/firma', upload.single('file'), async (req, re
     estado: 'firmada',
     updated_at: ts,
   };
-  await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: item }));
+  if (!(await putActuacionLeida(r.Item, item))) return res.status(409).json({ error: MENSAJE_ACTUACION_CAMBIADA });
   res.json({ ok: true, firma_artista_key: key, actuacion: enriquecerFechaActuacion(item) });
 });
 

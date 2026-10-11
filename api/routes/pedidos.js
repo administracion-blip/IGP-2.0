@@ -187,7 +187,7 @@ async function errorPermisoOrigenEntreLocales(req, { tipo, almacenOrigenId, alma
  *
  * @returns {Promise<{ status: number, error: string }>}
  */
-async function motivoConflictoPedido(id, accion) {
+async function motivoConflictoPedido(id, accion, leido = null) {
   let cabecera = null;
   try {
     cabecera = await getCabeceraPedido(id);
@@ -198,7 +198,30 @@ async function motivoConflictoPedido(id, accion) {
   if (!cabecera) return { status: 404, error: 'Pedido no encontrado' };
   const bloqueoFacturado = errorPedidoFacturado(cabecera, accion);
   if (bloqueoFacturado) return { status: 409, error: bloqueoFacturado };
+  if (leido && CAMPOS_ALCANCE_PEDIDO.some((c) => cabecera[c] !== leido[c])) {
+    return { status: 409, error: 'El pedido ha cambiado, vuelve a cargarlo' };
+  }
   return { status: 409, error: 'El pedido ha cambiado mientras se guardaba; recárgalo e inténtalo de nuevo.' };
+}
+
+/** Campos con los que se decidió el alcance del pedido leído. */
+const CAMPOS_ALCANCE_PEDIDO = ['LocalId', 'AlmacenOrigenId'];
+
+/**
+ * Condición de que los campos de alcance siguen como se leyeron: si otro proceso
+ * mueve el pedido de local entre la lectura y la escritura, la decisión de
+ * alcance ya no vale y la escritura no debe aplicarse.
+ */
+function condicionAlcanceLeido(leido) {
+  const ExpressionAttributeNames = {};
+  const ExpressionAttributeValues = {};
+  const partes = CAMPOS_ALCANCE_PEDIDO.map((campo, i) => {
+    ExpressionAttributeNames[`#a${i}`] = campo;
+    if (leido[campo] === undefined) return `attribute_not_exists(#a${i})`;
+    ExpressionAttributeValues[`:a${i}`] = leido[campo];
+    return `#a${i} = :a${i}`;
+  });
+  return { expresion: partes.join(' AND '), ExpressionAttributeNames, ExpressionAttributeValues };
 }
 
 /**
@@ -1048,17 +1071,21 @@ router.put('/pedidos', async (req, res) => {
 
     let pedido;
     try {
+      const update = construirUpdate(fijar, borrar);
+      const testigo = condicionAlcanceLeido(existing);
       const escrito = await docClient.send(new UpdateCommand({
         TableName: tables.pedidos,
         Key: { Id: id },
-        ...construirUpdate(fijar, borrar),
-        ConditionExpression: `attribute_exists(Id) AND ${CONDICION_SIN_FACTURAR}`,
+        UpdateExpression: update.UpdateExpression,
+        ExpressionAttributeNames: { ...update.ExpressionAttributeNames, ...testigo.ExpressionAttributeNames },
+        ExpressionAttributeValues: { ...update.ExpressionAttributeValues, ...testigo.ExpressionAttributeValues },
+        ConditionExpression: `attribute_exists(Id) AND ${CONDICION_SIN_FACTURAR} AND ${testigo.expresion}`,
         ReturnValues: 'ALL_NEW',
       }));
       pedido = escrito.Attributes;
     } catch (err) {
       if (err?.name !== 'ConditionalCheckFailedException') throw err;
-      const conflicto = await motivoConflictoPedido(id, 'cambiarlo');
+      const conflicto = await motivoConflictoPedido(id, 'cambiarlo', existing);
       return res.status(conflicto.status).json({ error: conflicto.error });
     }
     res.json({ ok: true, pedido });
