@@ -1,3 +1,4 @@
+import { responderError } from '../lib/http/responderError.js';
 import crypto from 'node:crypto';
 import express from 'express';
 import { ScanCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
@@ -33,7 +34,7 @@ router.get('/gestion-festivos', async (req, res) => {
       return res.json({ registros: [], error: 'Tabla no existe. Ejecuta: node api/scripts/create-gestion-festivos-table.js' });
     }
     console.error('[gestion-festivos GET]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al listar' });
+    responderError(res, err, { mensaje: 'Error al listar' });
   }
 });
 
@@ -61,7 +62,7 @@ router.post('/gestion-festivos', puedeEscribirFestivos, async (req, res) => {
     res.json({ ok: true, registro: { id: `GLOBAL#${id}`, ...item } });
   } catch (err) {
     console.error('[gestion-festivos POST]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al crear' });
+    responderError(res, err, { mensaje: 'Error al crear' });
   }
 });
 
@@ -91,7 +92,7 @@ router.put('/gestion-festivos', puedeEscribirFestivos, async (req, res) => {
     res.json({ ok: true, registro: { id: `${pk}#${sk}`, ...item } });
   } catch (err) {
     console.error('[gestion-festivos PUT]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al actualizar' });
+    responderError(res, err, { mensaje: 'Error al actualizar' });
   }
 });
 
@@ -108,7 +109,7 @@ router.delete('/gestion-festivos', puedeEscribirFestivos, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error('[gestion-festivos DELETE]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al borrar' });
+    responderError(res, err, { mensaje: 'Error al borrar' });
   }
 });
 
@@ -145,7 +146,7 @@ router.post('/gestion-festivos/generar-rango', puedeEscribirFestivos, async (req
     res.json({ ok: true, creados: count });
   } catch (err) {
     console.error('[gestion-festivos generar-rango]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al generar registros' });
+    responderError(res, err, { mensaje: 'Error al generar registros' });
   }
 });
 

@@ -15,6 +15,7 @@
  * Permisos: limpieza.ver, limpieza.completar, limpieza.programar,
  * limpieza.catalogo, limpieza.informes, limpieza.borrar.
  */
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import multer from 'multer';
@@ -384,8 +385,7 @@ router.get('/limpieza/tipos', requireAnyPermission('limpieza.ver', 'limpieza.cat
       .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || '')));
     return res.json({ tipos });
   } catch (err) {
-    try { throwSiTablaFalta(err, tTipos); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-    return res.status(500).json({ error: 'Error al listar tipos de limpieza' });
+    try { throwSiTablaFalta(err, tTipos); } catch (e) { return responderError(res, e, { mensaje: 'Error al listar tipos de limpieza' }); }
   }
 });
 
@@ -417,8 +417,7 @@ router.post('/limpieza/tipos', requirePermission('limpieza.catalogo'), async (re
     await docClient.send(new PutCommand({ TableName: tTipos, Item: item }));
     return res.json({ ok: true, tipo: item });
   } catch (err) {
-    try { throwSiTablaFalta(err, tTipos); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-    return res.status(500).json({ error: 'Error al crear el tipo' });
+    try { throwSiTablaFalta(err, tTipos); } catch (e) { return responderError(res, e, { mensaje: 'Error al crear el tipo' }); }
   }
 });
 
@@ -498,8 +497,7 @@ router.get('/limpieza/objetos', requireAnyPermission('limpieza.ver', 'limpieza.c
       .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || '')));
     return res.json({ objetos });
   } catch (err) {
-    try { throwSiTablaFalta(err, tObj); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-    return res.status(500).json({ error: 'Error al listar objetos' });
+    try { throwSiTablaFalta(err, tObj); } catch (e) { return responderError(res, e, { mensaje: 'Error al listar objetos' }); }
   }
 });
 
@@ -544,8 +542,7 @@ router.post('/limpieza/objetos', requireAnyPermission('limpieza.catalogo', 'limp
     await docClient.send(new PutCommand({ TableName: tObj, Item: item }));
     return res.json({ ok: true, objeto: mapObjeto(item) });
   } catch (err) {
-    try { throwSiTablaFalta(err, tObj); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-    return res.status(500).json({ error: 'Error al crear el objeto' });
+    try { throwSiTablaFalta(err, tObj); } catch (e) { return responderError(res, e, { mensaje: 'Error al crear el objeto' }); }
   }
 });
 
@@ -613,8 +610,7 @@ router.delete('/limpieza/objetos/:localId/:id', requireAnyPermission('limpieza.c
     await docClient.send(new DeleteCommand({ TableName: tObj, Key: { PK: pkLocal(localId), SK: skObjeto(id) } }));
     return res.json({ ok: true });
   } catch (err) {
-    try { throwSiTablaFalta(err, tObj); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-    return res.status(500).json({ error: 'Error al borrar el objeto' });
+    try { throwSiTablaFalta(err, tObj); } catch (e) { return responderError(res, e, { mensaje: 'Error al borrar el objeto' }); }
   }
 });
 
@@ -635,8 +631,7 @@ router.get('/limpieza/reglas', requireAnyPermission('limpieza.ver', 'limpieza.pr
     items.sort((a, b) => String(a.creado_en || '').localeCompare(String(b.creado_en || '')));
     return res.json({ reglas: items });
   } catch (err) {
-    try { throwSiTablaFalta(err, tProg); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-    return res.status(500).json({ error: 'Error al listar reglas' });
+    try { throwSiTablaFalta(err, tProg); } catch (e) { return responderError(res, e, { mensaje: 'Error al listar reglas' }); }
   }
 });
 
@@ -657,8 +652,7 @@ router.post('/limpieza/reglas', requirePermission('limpieza.programar'), async (
   try {
     objeto = await getObjeto(localId, objetoId);
   } catch (err) {
-    try { throwSiTablaFalta(err, tObj); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-    return res.status(500).json({ error: 'Error al cargar el objeto' });
+    try { throwSiTablaFalta(err, tObj); } catch (e) { return responderError(res, e, { mensaje: 'Error al cargar el objeto' }); }
   }
   if (!objeto) return res.status(404).json({ error: 'Objeto no encontrado en este local' });
 
@@ -692,8 +686,7 @@ router.post('/limpieza/reglas', requirePermission('limpieza.programar'), async (
     }
     return res.json({ ok: true, regla: item, generacion });
   } catch (err) {
-    try { throwSiTablaFalta(err, tProg); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-    return res.status(500).json({ error: 'Error al crear la regla' });
+    try { throwSiTablaFalta(err, tProg); } catch (e) { return responderError(res, e, { mensaje: 'Error al crear la regla' }); }
   }
 });
 
@@ -728,8 +721,7 @@ router.patch('/limpieza/reglas/:localId/:id', requirePermission('limpieza.progra
       if (!obj) return res.status(404).json({ error: 'Objeto no encontrado en este local' });
       body.tipo_objeto_id = obj.tipo_objeto_id ?? null;
     } catch (err) {
-      try { throwSiTablaFalta(err, tObj); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-      return res.status(500).json({ error: 'Error al cargar el objeto' });
+      try { throwSiTablaFalta(err, tObj); } catch (e) { return responderError(res, e, { mensaje: 'Error al cargar el objeto' }); }
     }
   }
   for (const [k, norm] of Object.entries(campos)) {
@@ -894,8 +886,7 @@ router.post('/limpieza/registros/generar', requirePermission('limpieza.programar
     const out = await generarRegistrosLocal(localId, desde, hasta);
     return res.json({ ok: true, ...out });
   } catch (err) {
-    try { throwSiTablaFalta(err, tReg); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-    return res.status(500).json({ error: 'Error al generar registros' });
+    try { throwSiTablaFalta(err, tReg); } catch (e) { return responderError(res, e, { mensaje: 'Error al generar registros' }); }
   }
 });
 
@@ -940,8 +931,7 @@ router.post('/limpieza/registros', requirePermission('limpieza.programar'), asyn
     await docClient.send(new PutCommand({ TableName: tReg, Item: item }));
     return res.json({ ok: true, registro: mapRegistro(item) });
   } catch (err) {
-    try { throwSiTablaFalta(err, tReg); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-    return res.status(500).json({ error: 'Error al crear el registro' });
+    try { throwSiTablaFalta(err, tReg); } catch (e) { return responderError(res, e, { mensaje: 'Error al crear el registro' }); }
   }
 });
 
@@ -977,8 +967,7 @@ router.get('/limpieza/registros', requireAnyPermission('limpieza.ver', 'limpieza
     visibles.sort((a, b) => String(a.fecha_programada || '').localeCompare(String(b.fecha_programada || '')));
     return res.json({ fecha, registros: visibles.map((it) => mapRegistro(it, fecha)) });
   } catch (err) {
-    try { throwSiTablaFalta(err, tReg); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-    return res.status(500).json({ error: 'Error al listar registros' });
+    try { throwSiTablaFalta(err, tReg); } catch (e) { return responderError(res, e, { mensaje: 'Error al listar registros' }); }
   }
 });
 
@@ -1003,8 +992,7 @@ router.get('/limpieza/registros/pendientes-dia', requireAnyPermission('limpieza.
     }
     return res.json({ total, fecha });
   } catch (err) {
-    try { throwSiTablaFalta(err, tReg); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-    return res.status(500).json({ error: 'Error al contar limpiezas del día' });
+    try { throwSiTablaFalta(err, tReg); } catch (e) { return responderError(res, e, { mensaje: 'Error al contar limpiezas del día' }); }
   }
 });
 
@@ -1070,8 +1058,7 @@ router.post(
       return res.json({ ok: true, registro: mapRegistro(out.Attributes) });
     } catch (err) {
       if (err?.name === 'ConditionalCheckFailedException') return res.status(404).json({ error: 'Registro no encontrado' });
-      try { throwSiTablaFalta(err, tReg); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-      return res.status(500).json({ error: err.message || 'Error al completar el registro' });
+      try { throwSiTablaFalta(err, tReg); } catch (e) { return responderError(res, e, { mensaje: 'Error al completar el registro' }); }
     }
   },
 );
@@ -1135,7 +1122,7 @@ router.delete('/limpieza/registros', requirePermission('limpieza.borrar'), async
       borrados += 1;
     } catch (err) {
       try { throwSiTablaFalta(err, tReg); } catch (e) {
-        return res.status(e.status || 500).json({ error: e.message });
+        return responderError(res, e);
       }
       errores.push({
         local_id: localId,
@@ -1233,8 +1220,7 @@ router.get('/limpieza/registros/calendario', requireAnyPermission('limpieza.ver'
 
     return res.json({ desde, hasta, registros });
   } catch (err) {
-    try { throwSiTablaFalta(err, tReg); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-    return res.status(500).json({ error: 'Error al cargar el calendario' });
+    try { throwSiTablaFalta(err, tReg); } catch (e) { return responderError(res, e, { mensaje: 'Error al cargar el calendario' }); }
   }
 });
 

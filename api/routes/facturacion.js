@@ -1,3 +1,4 @@
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import {
   ScanCommand,
@@ -314,7 +315,7 @@ router.get('/facturacion/series', requirePermission('facturacion.series'), async
     const configOnly = items.filter((s) => !(s.serie || '').includes('#'));
     res.json({ series: configOnly });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -331,7 +332,7 @@ router.get('/facturacion/series/next-number', requireAnyPermission('facturacion.
     // Se devuelve `emisor_id` tal cual llegó para no romper el contrato del frontend.
     res.json({ serie: result.serie, emisor_id: emisor_id || 'DEFAULT', ultimo_numero: result.ultimo_numero - 1, next_numero: result.ultimo_numero, num_digitos: result.num_digitos || 6 });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -359,7 +360,7 @@ router.post('/facturacion/series', requirePermission('facturacion.series'), asyn
     await docClient.send(new PutCommand({ TableName: tables.facturasSeries, Item: item }));
     res.json({ ok: true, serie: item });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -380,7 +381,7 @@ router.put('/facturacion/series', requirePermission('facturacion.series'), async
     await docClient.send(new PutCommand({ TableName: tables.facturasSeries, Item: updated }));
     res.json({ ok: true, serie: updated });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -394,7 +395,7 @@ router.delete('/facturacion/series', requirePermission('facturacion.series'), as
     await docClient.send(new DeleteCommand({ TableName: tables.facturasSeries, Key: { serie } }));
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -428,7 +429,7 @@ router.get('/facturacion/facturas', requirePermission('facturacion.ver'), async 
 
     res.json({ facturas: items });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -455,7 +456,7 @@ router.get('/facturacion/facturas/:id', requirePermission('facturacion.ver'), as
     factura.exceso_pendiente = excesoPendienteEfectivo(factura);
     res.json({ factura, lineas, pagos, auditoria, remesaActiva });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -533,7 +534,7 @@ router.post('/facturacion/facturas', requirePermission('facturacion.crear'), asy
 
     res.json({ ok: true, factura, lineas: lineasToSave });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -730,7 +731,7 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
 
     res.json({ ok: true, factura: guardada });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message, ...(err.code && { code: err.code }) });
+    responderError(res, err);
   }
 });
 
@@ -783,7 +784,7 @@ router.post('/facturacion/facturas/validar-revision', requirePermission('factura
       detalleFallidas: fallidas,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -809,7 +810,7 @@ router.post('/facturacion/facturas/:id/emitir', requirePermission('facturacion.e
     }
     res.json({ ok: true, factura: result.factura });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -858,7 +859,7 @@ router.post('/facturacion/facturas/:id/anular', requirePermission('facturacion.a
 
     res.json({ ok: true, factura });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message, ...(err.code && { code: err.code }) });
+    responderError(res, err);
   }
 });
 
@@ -909,7 +910,7 @@ router.delete('/facturacion/facturas/:id', requirePermission('facturacion.editar
     res.json({ ok: true, eliminada: true });
   } catch (err) {
     console.error('[DELETE /facturacion/facturas/:id]', id, err?.message, err?.stack);
-    res.status(500).json({ error: err.message || 'Error al eliminar la factura' });
+    responderError(res, err, { mensaje: 'Error al eliminar la factura' });
   }
 });
 
@@ -997,7 +998,7 @@ router.post('/facturacion/facturas/:id/duplicar', requirePermission('facturacion
 
     res.json({ ok: true, factura: nueva });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -1090,7 +1091,7 @@ router.post('/facturacion/facturas/:id/rectificar', requirePermission('facturaci
 
     res.json({ ok: true, factura: rectificativa });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -1108,7 +1109,7 @@ router.get('/facturacion/pagos', requirePermission('facturacion.cobrar_pagar'), 
     items.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
     res.json({ pagos: items });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -1126,7 +1127,7 @@ router.get('/facturacion/facturas/:id/pagos', requirePermission('facturacion.ver
     pagos.sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
     res.json({ pagos });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -1162,7 +1163,7 @@ router.get('/facturacion/facturas/:id/compensables', requirePermission('facturac
     candidatas.sort((a, b) => String(b.fecha_emision || '').localeCompare(String(a.fecha_emision || '')));
     res.json({ ok: true, facturas: candidatas });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Error al listar compensables' });
+    responderError(res, err, { mensaje: 'Error al listar compensables' });
   }
 });
 
@@ -1199,7 +1200,7 @@ router.get('/facturacion/facturas/:id/excesos-disponibles', requirePermission('f
     candidatas.sort((a, b) => String(b.fecha_emision || '').localeCompare(String(a.fecha_emision || '')));
     res.json({ ok: true, facturas: candidatas });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Error al listar excesos disponibles' });
+    responderError(res, err, { mensaje: 'Error al listar excesos disponibles' });
   }
 });
 
@@ -1249,8 +1250,7 @@ router.post('/facturacion/facturas/:id/pagos/compensacion', requirePermission('f
     });
     res.json(result);
   } catch (err) {
-    const status = err.status || 500;
-    res.status(status).json({ error: err.message || 'Error al registrar compensación' });
+    responderError(res, err, { mensaje: 'Error al registrar compensación' });
   }
 });
 
@@ -1297,8 +1297,7 @@ router.post('/facturacion/facturas/:id/pagos/aplicacion-exceso', requirePermissi
     });
     res.json(result);
   } catch (err) {
-    const status = err.status || 500;
-    res.status(status).json({ error: err.message || 'Error al aplicar exceso' });
+    responderError(res, err, { mensaje: 'Error al aplicar exceso' });
   }
 });
 
@@ -1373,7 +1372,7 @@ router.post('/facturacion/facturas/:id/pagos', requirePermission('facturacion.co
     });
     res.json(result);
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -1522,10 +1521,7 @@ router.put('/facturacion/pagos/:id_factura/:id_pago', requirePermission('factura
 
     res.json({ ok: true, pago: pagoActualizado, factura });
   } catch (err) {
-    res.status(err.status || 500).json({
-      error: err.message,
-      ...(err.code && { code: err.code }),
-    });
+    responderError(res, err);
   }
 });
 
@@ -1553,11 +1549,7 @@ router.delete('/facturacion/pagos/:id_factura/:id_pago', requirePermission('fact
     });
     res.json({ ok: true, factura });
   } catch (err) {
-    res.status(err.status || 500).json({
-      error: err.message,
-      ...(err.code && { code: err.code }),
-      ...(err.remesaActiva && { remesaActiva: err.remesaActiva }),
-    });
+    responderError(res, err, { extra: err.remesaActiva && { remesaActiva: err.remesaActiva } });
   }
 });
 
@@ -1703,7 +1695,7 @@ router.get('/facturacion/metricas', requirePermission('facturacion.ver'), async 
       },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -1752,7 +1744,7 @@ router.post('/facturacion/facturas/:id/enviar-email', requirePermission('factura
 
     res.json({ ok: true, message: `Email enviado a ${destinatario}` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -1918,7 +1910,7 @@ router.get('/facturacion/metricas-avanzadas', requirePermission('facturacion.ver
       empresaId: empresaIdFiltro || null,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -1957,7 +1949,7 @@ router.post('/facturacion/check-vencimientos', requirePermission('facturacion.ed
 
     res.json({ ok: true, revisadas: facturas.length, actualizadas });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -2027,7 +2019,7 @@ router.put('/facturacion/facturas/:id/albaranes-conciliados', requirePermission(
       },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -2083,7 +2075,7 @@ router.post('/facturacion/facturas/:id/adjuntos', requirePermission('facturacion
 
     res.json({ ok: true, adjuntos });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -2118,7 +2110,7 @@ router.get('/facturacion/facturas/:id/adjuntos', requirePermission('facturacion.
 
     res.json({ adjuntos: withUrls });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -2151,7 +2143,7 @@ router.delete('/facturacion/facturas/:id/adjuntos/:adjId', requirePermission('fa
 
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -2200,7 +2192,7 @@ router.get('/facturacion/facturas/:id/adjuntos/:adjId/descargar', requirePermiss
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(buffer);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -2217,7 +2209,7 @@ router.post('/facturacion/ocr/prewarm', requirePermission('facturacion.crear'), 
     await prewarmTesseractWorker();
     res.json({ ok: true, ready: isTesseractWorkerReady() });
   } catch (err) {
-    res.status(500).json({ error: err.message, ready: false });
+    responderError(res, err, { extra: { ready: false } });
   }
 });
 
@@ -2255,7 +2247,7 @@ router.post('/facturacion/ocr/extraer', requirePermission('facturacion.crear'), 
       },
     });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -2266,7 +2258,7 @@ router.post('/facturacion/ocr/reconciliar', requirePermission('facturacion.crear
     const datos = await ejecutarReconciliarFacturaOcr(req.body || {});
     res.json({ ok: true, datos });
   } catch (err) {
-    res.status(400).json({ error: err.message || String(err) });
+    responderError(res, err, { statusPorDefecto: 400 });
   }
 });
 
@@ -2345,7 +2337,7 @@ router.post('/facturacion/ocr/enriquecer-ia', requirePermission('facturacion.cre
     res.json({ ok: true, datos: merged });
   } catch (err) {
     console.error('[OCR IA]', err);
-    res.status(500).json({ error: err.message || String(err) });
+    responderError(res, err);
   }
 });
 
@@ -2424,7 +2416,7 @@ router.post('/facturacion/ocr/extraer-zona', requirePermission('facturacion.crea
     res.json({ ok: true, texto: cleaned });
   } catch (err) {
     console.error('[OCR-zona] Error:', err.message);
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -2462,7 +2454,7 @@ router.get('/facturacion/ocr/preview-png', requirePermission('facturacion.crear'
     return res.send(pngBuffer);
   } catch (err) {
     console.error('[OCR preview-png] Error:', err.message);
-    return res.status(500).json({ error: err.message });
+    return responderError(res, err);
   }
 });
 
@@ -3255,7 +3247,7 @@ router.post('/facturacion/ocr/confirmar', requirePermission('facturacion.crear')
 
     res.json({ ok: true, creados: creados.length, ids: creados });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -3311,7 +3303,7 @@ router.post('/facturacion/enviar-recordatorios', requirePermission('facturacion.
 
     res.json({ ok: true, vencidas: vencidas.length, enviados });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -3342,7 +3334,7 @@ router.post('/facturacion/check-duplicados', requirePermission('facturacion.crea
       })),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 

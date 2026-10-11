@@ -7,6 +7,13 @@
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 3;
 
+/** 4xx de Ágora: su respuesta va en el mensaje (solo para el log) y el código en agoraStatus. */
+function errorAgora(status, detalle) {
+  const err = new Error(`Ágora ${status}: ${detalle}`);
+  err.agoraStatus = status;
+  return err;
+}
+
 async function fetchWithTimeout(url, options = {}, opts = {}) {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
@@ -52,7 +59,7 @@ export async function exportSystemCloseOuts(businessDay, workplaces = null) {
       if (res.status >= 500) throw new Error(`Ágora respondió ${res.status}`);
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(`Ágora ${res.status}: ${text.slice(0, 200)}`);
+        throw errorAgora(res.status, text.slice(0, 200));
       }
       return await res.json();
     } catch (err) {
@@ -78,7 +85,7 @@ export async function exportCloseOutsCombined(businessDay, workplaces = null) {
     method: 'GET',
     headers: { 'Api-Token': token, Accept: 'application/json' },
   });
-  if (!res.ok) throw new Error(`Ágora ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw errorAgora(res.status, await res.text());
   return await res.json();
 }
 
@@ -110,7 +117,7 @@ export async function exportInvoices(businessDay, workplaces = null) {
       if (res.status >= 500) throw new Error(`Ágora respondió ${res.status}`);
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(`Ágora ${res.status}: ${text.slice(0, 200)}`);
+        throw errorAgora(res.status, text.slice(0, 200));
       }
       return await res.json();
     } catch (err) {
@@ -147,7 +154,7 @@ export async function exportPosCloseOuts(businessDay, workplaces = null) {
       if (res.status >= 500) throw new Error(`Ágora respondió ${res.status}`);
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(`Ágora ${res.status}: ${text.slice(0, 200)}`);
+        throw errorAgora(res.status, text.slice(0, 200));
       }
       return await res.json();
     } catch (err) {
@@ -185,7 +192,7 @@ export async function exportIncomingDeliveryNotes(businessDay, workplaces = null
       if (res.status >= 500) throw new Error(`Ágora respondió ${res.status}`);
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(`Ágora ${res.status}: ${text.slice(0, 200)}`);
+        throw errorAgora(res.status, text.slice(0, 200));
       }
       return await res.json();
     } catch (err) {
@@ -206,7 +213,7 @@ export async function exportFamilies() {
     method: 'GET',
     headers: { 'Api-Token': token, Accept: 'application/json' },
   });
-  if (!res.ok) throw new Error(`Ágora ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) throw errorAgora(res.status, (await res.text()).slice(0, 200));
   const data = await res.json();
   return data.Families || data.families || [];
 }
@@ -222,7 +229,7 @@ export async function exportVats() {
     method: 'GET',
     headers: { 'Api-Token': token, Accept: 'application/json' },
   });
-  if (!res.ok) throw new Error(`Ágora ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) throw errorAgora(res.status, (await res.text()).slice(0, 200));
   const data = await res.json();
   return data.Vats || data.vats || [];
 }
@@ -238,7 +245,7 @@ export async function exportWarehouses() {
     method: 'GET',
     headers: { 'Api-Token': token, Accept: 'application/json' },
   });
-  if (!res.ok) throw new Error(`Ágora ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) throw errorAgora(res.status, (await res.text()).slice(0, 200));
   const data = await res.json();
   return data.Warehouses || data.warehouses || [];
 }
@@ -283,7 +290,7 @@ export async function exportStocks(opts = {}) {
       if (res.status >= 500) throw new Error(`Ágora respondió ${res.status}`);
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(`Ágora ${res.status}: ${text.slice(0, 200)}`);
+        throw errorAgora(res.status, text.slice(0, 200));
       }
       const data = await res.json();
       const list = data.Stocks || data.stocks || [];
@@ -309,7 +316,7 @@ export async function exportUsers() {
     method: 'GET',
     headers: { 'Api-Token': token, Accept: 'application/json' },
   });
-  if (!res.ok) throw new Error(`Ágora ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) throw errorAgora(res.status, (await res.text()).slice(0, 200));
   const data = await res.json();
   const list = data.Users || data.users || [];
   if (!Array.isArray(list)) return [];
@@ -337,7 +344,7 @@ export async function exportPaymentMethods() {
     method: 'GET',
     headers: { 'Api-Token': token, Accept: 'application/json' },
   });
-  if (!res.ok) throw new Error(`Ágora ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) throw errorAgora(res.status, (await res.text()).slice(0, 200));
   const data = await res.json();
   const list = data.PaymentMethods || data.paymentMethods || [];
   return Array.isArray(list)

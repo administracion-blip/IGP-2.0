@@ -68,6 +68,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables, keyForFacturaPrincipalId } from '../db.js';
 import { formatId6 } from '../usuarioLocales.js';
+import { mensajeSeguro } from '../http/responderError.js';
 import {
   getCifFromEmpresaItem,
   getNombreFromEmpresaItem,
@@ -1052,7 +1053,7 @@ export async function generarPeriodo(
         await borrarLineasFactura(lineas, dominio.etiqueta);
         errores.push({
           ...dominio.identidadGrupo(grupo),
-          error: err?.message || 'Error al escribir la factura',
+          error: mensajeSeguro(err, 'Error al escribir la factura', { statusPorDefecto: 400 }),
         });
         continue;
       }

@@ -7,6 +7,7 @@
  *   SK = LINEA#<creado_en_iso>#<uuid>
  * Sin GSI: con empresa_destino_id → Query; sin ella → Scan filtrado (volumen bajo OK).
  */
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import {
   PutCommand,
@@ -254,7 +255,7 @@ router.post(
       res.json({ ok: true, lineas: guardadas });
     } catch (err) {
       console.error('[refacturacion] POST /lineas:', err);
-      res.status(500).json({ error: err.message });
+      responderError(res, err);
     }
   },
 );
@@ -290,7 +291,7 @@ router.get(
       res.json({ ok: true, lineas });
     } catch (err) {
       console.error('[refacturacion] GET /lineas:', err);
-      res.status(500).json({ error: err.message });
+      responderError(res, err);
     }
   },
 );
@@ -427,7 +428,7 @@ router.patch(
       res.json({ ok: true, linea: actualizado });
     } catch (err) {
       console.error('[refacturacion] PATCH /lineas/:id:', err);
-      res.status(500).json({ error: err.message });
+      responderError(res, err);
     }
   },
 );
@@ -472,7 +473,7 @@ router.delete(
       res.json({ ok: true });
     } catch (err) {
       console.error('[refacturacion] DELETE /lineas/:id:', err);
-      res.status(500).json({ error: err.message });
+      responderError(res, err);
     }
   },
 );
@@ -668,7 +669,7 @@ router.post(
       });
     } catch (err) {
       console.error('[refacturacion] POST /emitir:', err);
-      res.status(500).json({ error: err.message });
+      responderError(res, err);
     }
   },
 );

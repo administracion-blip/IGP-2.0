@@ -7,6 +7,7 @@
  * otra fase.
  */
 
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -438,7 +439,7 @@ router.post(
       });
     } catch (err) {
       req.log?.error({ err }, '[banca/asignar-cuenta] error');
-      return res.status(500).json({ error: err.message || 'Error al asignar la cuenta' });
+      return responderError(res, err, { mensaje: 'Error al asignar la cuenta' });
     }
   },
 );

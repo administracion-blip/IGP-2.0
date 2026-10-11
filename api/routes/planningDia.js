@@ -1,3 +1,4 @@
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import { requirePermission } from '../middleware/auth.js';
 import { buildTopCamarerosPlanningCard } from '../lib/planning/topCamareros.js';
@@ -21,7 +22,7 @@ router.get('/planning-dia/top-camareros', requirePermission('top.ver'), async (r
       return res.status(403).json({ error: err.message || 'Sin acceso' });
     }
     console.error('[planning-dia/top-camareros]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al calcular top camareros' });
+    responderError(res, err, { mensaje: 'Error al calcular top camareros' });
   }
 });
 

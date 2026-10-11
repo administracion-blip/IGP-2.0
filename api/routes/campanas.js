@@ -8,6 +8,7 @@
  *  - incentivos_producto.borrar — borrar campaña (gestionar también vale)
  *  - incentivos_producto.exportar — exportar informes (UI)
  */
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import {
@@ -171,7 +172,7 @@ router.get('/campanas', requirePermission('incentivos_producto.ver'), async (req
     return res.json({ ok: true, items });
   } catch (err) {
     console.error('[campanas GET]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al listar campañas' });
+    return responderError(res, err, { mensaje: 'Error al listar campañas' });
   }
 });
 
@@ -186,7 +187,7 @@ router.get('/campanas/ventas-sync', requirePermission('incentivos_producto.ver')
     return res.json({ ok: true, lastSync, stale, hoursSince });
   } catch (err) {
     console.error('[campanas ventas-sync]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al consultar sync de ventas' });
+    return responderError(res, err, { mensaje: 'Error al consultar sync de ventas' });
   }
 });
 
@@ -201,7 +202,7 @@ router.get('/campanas/:campanaId', requirePermission('incentivos_producto.ver'),
     return res.json({ ok: true, item: campanaEnriquecida(r.Item) });
   } catch (err) {
     console.error('[campanas GET :id]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al cargar campaña' });
+    return responderError(res, err, { mensaje: 'Error al cargar campaña' });
   }
 });
 
@@ -218,7 +219,7 @@ router.get('/campanas/:campanaId/resultados', requirePermission('incentivos_prod
     return res.json({ ok: true, campanaId, ...resultados });
   } catch (err) {
     console.error('[campanas resultados]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al calcular resultados' });
+    return responderError(res, err, { mensaje: 'Error al calcular resultados' });
   }
 });
 
@@ -262,7 +263,7 @@ router.post('/campanas', requirePermission('incentivos_producto.gestionar'), asy
     });
   } catch (err) {
     console.error('[campanas POST]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al crear campaña' });
+    return responderError(res, err, { mensaje: 'Error al crear campaña' });
   }
 });
 
@@ -410,7 +411,7 @@ router.patch('/campanas/:campanaId', requirePermission('incentivos_producto.edit
     });
   } catch (err) {
     console.error('[campanas PATCH]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al actualizar campaña' });
+    return responderError(res, err, { mensaje: 'Error al actualizar campaña' });
   }
 });
 
@@ -437,7 +438,7 @@ router.delete('/campanas/:campanaId', requirePermission('incentivos_producto.bor
     return res.json({ ok: true, campanaId });
   } catch (err) {
     console.error('[campanas DELETE]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al borrar campaña' });
+    return responderError(res, err, { mensaje: 'Error al borrar campaña' });
   }
 });
 
@@ -547,7 +548,7 @@ router.get('/campanas/:campanaId/ventas-detalle', requirePermission('incentivos_
     return res.json({ ok: true, campanaId, tipoIncentivo, valorIncentivo, porLocal });
   } catch (err) {
     console.error('[campanas ventas-detalle]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al cargar detalle de ventas' });
+    return responderError(res, err, { mensaje: 'Error al cargar detalle de ventas' });
   }
 });
 

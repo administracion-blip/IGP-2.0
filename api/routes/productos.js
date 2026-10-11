@@ -1,3 +1,4 @@
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import { ScanCommand, GetCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
@@ -35,7 +36,7 @@ router.get('/productos', async (req, res) => {
     res.json({ productos: items });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al listar productos' });
+    responderError(res, err, { mensaje: 'Error al listar productos' });
   }
 });
 
@@ -65,7 +66,7 @@ router.post('/productos', requirePermission('productos.editar'), async (req, res
       return res.status(409).json({ error: `Ya existe un producto con el identificador ${idProducto}. Recarga la lista y usa otro identificador.` });
     }
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al guardar el producto' });
+    responderError(res, err, { mensaje: 'Error al guardar el producto' });
   }
 });
 
@@ -98,7 +99,7 @@ router.put('/productos', requirePermission('productos.editar'), async (req, res)
     res.json({ ok: true, producto: item });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al actualizar el producto' });
+    responderError(res, err, { mensaje: 'Error al actualizar el producto' });
   }
 });
 
@@ -113,7 +114,7 @@ router.delete('/productos', requirePermission('productos.editar'), async (req, r
     res.json({ ok: true });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al borrar el producto' });
+    responderError(res, err, { mensaje: 'Error al borrar el producto' });
   }
 });
 

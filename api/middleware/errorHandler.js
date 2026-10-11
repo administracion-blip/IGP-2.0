@@ -37,7 +37,6 @@ function shortErrorId() {
 // eslint-disable-next-line no-unused-vars
 export function errorHandler(err, req, res, _next) {
   const log = req?.log || logger;
-  const isProd = process.env.NODE_ENV === 'production';
 
   if (res.headersSent) {
     log.error({ err }, 'Error tras enviar headers; delegando a Express');
@@ -57,19 +56,16 @@ export function errorHandler(err, req, res, _next) {
       { err, awsName: err.name, status: awsMatch.status },
       `[errorHandler] AWS ${err.name}`,
     );
-    // [SEC S-12] En prod: mensaje genérico + code; en dev: message real
-    const error = isProd
-      ? 'Error de servicio externo'
-      : (err.message || err.name);
+    // [SEC S-12/S-19] El texto de AWS lleva tablas, ARNs y claves: nunca al cliente
     return res
       .status(awsMatch.status)
-      .json({ error, code: awsMatch.code });
+      .json({ error: 'Error de servicio externo', code: awsMatch.code });
   }
 
   // Errores aplicativos con `status` (lanzados por nosotros desde handlers)
   // Incluye 4xx de negocio: se mantiene err.message (no se oculta en prod).
   if (typeof err?.status === 'number' && err.status >= 400 && err.status < 600) {
-    if (err.status >= 500 && isProd) {
+    if (err.status >= 500) {
       // [SEC S-12] 5xx controlados en prod: mensaje genérico + errorId
       const errorId = shortErrorId();
       log.error({ err, errorId, status: err.status }, '[errorHandler] error aplicativo 5xx');
@@ -85,14 +81,8 @@ export function errorHandler(err, req, res, _next) {
       .json({ error: err.message || 'Error', ...(err.code ? { code: err.code } : {}) });
   }
 
-  // Errores no controlados (5xx)
-  if (isProd) {
-    // [SEC S-12]
-    const errorId = shortErrorId();
-    log.error({ err, errorId }, '[errorHandler] error no controlado');
-    return res.status(500).json({ error: 'Error interno del servidor', errorId });
-  }
-
-  log.error({ err }, '[errorHandler] error no controlado');
-  return res.status(500).json({ error: err?.message || 'Error interno del servidor' });
+  // Errores no controlados (5xx) [SEC S-12/S-19]: también en desarrollo, el detalle va al log
+  const errorId = shortErrorId();
+  log.error({ err, errorId }, '[errorHandler] error no controlado');
+  return res.status(500).json({ error: 'Error interno del servidor', errorId });
 }

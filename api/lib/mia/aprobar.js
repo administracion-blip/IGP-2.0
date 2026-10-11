@@ -13,6 +13,7 @@ import {
   importPurchaseOrders,
 } from '../agora/purchaseOrdersImport.js';
 import { formatId6 } from '../usuarioLocales.js';
+import { mensajeSeguro } from '../http/responderError.js';
 import {
   getInformeMeta,
   listInformeLineas,
@@ -396,7 +397,7 @@ export async function aprobarInformeMia(informeId, opts = {}) {
         proveedorId,
         supplierId,
         ok: false,
-        error: err?.message || 'Error construyendo PurchaseOrder',
+        error: mensajeSeguro(err, 'Error construyendo PurchaseOrder', { statusPorDefecto: 400 }),
         lineas: poLines.length,
       });
       continue;
@@ -416,6 +417,7 @@ export async function aprobarInformeMia(informeId, opts = {}) {
         agoraData: result.data ?? null,
       });
     } catch (err) {
+      console.warn('[mia/aprobar] Ágora rechazó el pedido del proveedor', proveedorId, err?.agoraStatus ?? '', err?.message || err);
       agoraResultadosNuevos.push({
         proveedorId,
         supplierId,
@@ -424,7 +426,7 @@ export async function aprobarInformeMia(informeId, opts = {}) {
         number: payload.Number ?? null,
         status: payload.Status,
         lineas: poLines.length,
-        error: err?.message || 'Error importando en Ágora',
+        error: mensajeSeguro(err, 'Error importando en Ágora'),
         agoraStatus: err?.agoraStatus ?? null,
         agoraBody: err?.agoraBody ?? null,
       });
@@ -497,6 +499,7 @@ export async function aprobarInformeMia(informeId, opts = {}) {
       `Falló el envío a Ágora para todos los proveedores (${failCount})`,
     );
     err.status = 502;
+    err.expose = true;
     err.agoraResultados = agoraResultados;
     err.omitidasAgora = omitidasAgora;
     err.enviadoAgora = true;

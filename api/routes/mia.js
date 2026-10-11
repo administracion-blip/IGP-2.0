@@ -9,6 +9,7 @@
  *  - mia.aprobar (ajustar / aprobar → PurchaseOrders Ágora en borrador)
  *  - mia.confirmar_agora (aprobar enviando el PurchaseOrder ya 'Confirmed')
  */
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import { hasPermission, requireAnyPermission, requirePermission } from '../middleware/auth.js';
 import { listConfigByWarehouse, upsertConfigProducto } from '../lib/mia/configProducto.js';
@@ -78,10 +79,8 @@ router.get('/mia/familias', requirePermission('mia.ver'), async (req, res) => {
     return res.json(result);
   } catch (err) {
     req.log?.error?.({ err }, '[mia/familias] Error');
-    return res.status(502).json({
-      error: err?.message || 'Error listando familias',
-      familias: [],
-      source: 'dynamo',
+    return responderError(res, err, {
+      mensaje: 'Error listando familias', status: 502, extra: { familias: [], source: 'dynamo' },
     });
   }
 });
@@ -96,7 +95,7 @@ router.get('/mia/grupos-familias', requirePermission('mia.ver'), async (req, res
     return res.json({ grupos, total: grupos.length, todos });
   } catch (err) {
     req.log?.error?.({ err }, '[mia/grupos-familias] Error listando');
-    return res.status(500).json({ error: err?.message || 'Error listando grupos' });
+    return responderError(res, err, { mensaje: 'Error listando grupos' });
   }
 });
 
@@ -105,8 +104,7 @@ router.put('/mia/grupos-familias', requirePermission('mia.configurar'), async (r
     const item = await upsertGrupoFamilias(req.body || {});
     return res.json({ ok: true, item });
   } catch (err) {
-    const status = err?.status || 400;
-    return res.status(status).json({ error: err?.message || 'Datos inválidos' });
+    return responderError(res, err, { mensaje: 'Datos inválidos', statusPorDefecto: 400 });
   }
 });
 
@@ -117,8 +115,7 @@ router.delete('/mia/grupos-familias/:id', requirePermission('mia.configurar'), a
     const result = await deleteGrupoFamilias(id);
     return res.json(result);
   } catch (err) {
-    const status = err?.status || 400;
-    return res.status(status).json({ error: err?.message || 'No se pudo eliminar' });
+    return responderError(res, err, { mensaje: 'No se pudo eliminar', statusPorDefecto: 400 });
   }
 });
 
@@ -145,10 +142,7 @@ router.post('/mia/stocks/sync', requirePermission('mia.sincronizar'), async (req
     return res.json(result);
   } catch (err) {
     req.log?.error?.({ err }, '[mia/stocks/sync] Error');
-    return res.status(502).json({
-      ok: false,
-      error: err?.message || 'Error sincronizando stocks',
-    });
+    return responderError(res, err, { mensaje: 'Error sincronizando stocks', status: 502, extra: { ok: false } });
   }
 });
 
@@ -179,7 +173,7 @@ router.put('/mia/config', requirePermission('mia.configurar'), async (req, res) 
     const item = await upsertConfigProducto(body);
     res.json({ ok: true, item });
   } catch (err) {
-    return res.status(400).json({ error: err?.message || 'Datos inválidos' });
+    return responderError(res, err, { mensaje: 'Datos inválidos', statusPorDefecto: 400 });
   }
 });
 
@@ -228,7 +222,7 @@ router.get('/mia/calendario', requirePermission('mia.ver'), async (req, res) => 
     return res.json({ warehouseId: wid, items, total: items.length });
   } catch (err) {
     req.log?.error?.({ err }, '[mia/calendario] Error listando');
-    return res.status(500).json({ error: err?.message || 'Error listando calendario' });
+    return responderError(res, err, { mensaje: 'Error listando calendario' });
   }
 });
 
@@ -238,8 +232,7 @@ router.put('/mia/calendario', requirePermission('mia.configurar'), requireLocal(
     const item = await upsertCalendario(body, { usuario: req.user });
     return res.json({ ok: true, item });
   } catch (err) {
-    const status = err?.status || 400;
-    return res.status(status).json({ error: err?.message || 'Datos inválidos' });
+    return responderError(res, err, { mensaje: 'Datos inválidos', statusPorDefecto: 400 });
   }
 });
 
@@ -256,8 +249,7 @@ router.delete('/mia/calendario', requirePermission('mia.configurar'), requireLoc
     const result = await removeCalendario(localId, proveedorId);
     return res.json(result);
   } catch (err) {
-    const status = err?.status || 400;
-    return res.status(status).json({ error: err?.message || 'No se pudo eliminar' });
+    return responderError(res, err, { mensaje: 'No se pudo eliminar', statusPorDefecto: 400 });
   }
 });
 
@@ -280,15 +272,7 @@ router.post('/mia/calcular', requirePermission('mia.calcular'), async (req, res)
     });
     return res.json(result);
   } catch (err) {
-    const status = err?.status || 500;
-    if (status >= 500) {
-      req.log?.error?.({ err }, '[mia/calcular] Error');
-    }
-    return res.status(status).json({
-      ok: false,
-      error: err?.message || 'Error calculando pedido MIA',
-      ...(err?.code ? { code: err.code } : {}),
-    });
+    return responderError(res, err, { mensaje: 'Error calculando pedido MIA', extra: { ok: false } });
   }
 });
 
@@ -308,7 +292,7 @@ router.get('/mia/informes', requirePermission('mia.ver'), async (req, res) => {
     return res.json({ warehouseId: wid, items, total: items.length });
   } catch (err) {
     req.log?.error?.({ err }, '[mia/informes] Error');
-    return res.status(500).json({ error: err?.message || 'Error listando informes' });
+    return responderError(res, err, { mensaje: 'Error listando informes' });
   }
 });
 
@@ -324,7 +308,7 @@ router.get('/mia/informes/:id', requirePermission('mia.ver'), async (req, res) =
     return res.json({ ok: true, ...full, avisos: full.informe?.avisos || [] });
   } catch (err) {
     req.log?.error?.({ err }, '[mia/informes/:id] Error');
-    return res.status(500).json({ error: err?.message || 'Error leyendo informe' });
+    return responderError(res, err, { mensaje: 'Error leyendo informe' });
   }
 });
 
@@ -350,12 +334,9 @@ router.patch(
         avisos: result.informe?.avisos || [],
       });
     } catch (err) {
-      const status = err?.status || 500;
-      if (status >= 500) req.log?.error?.({ err }, '[mia/informes/:id/lineas] Error');
-      return res.status(status).json({
-        ok: false,
-        error: err?.message || 'Error ajustando líneas',
-        ...(err?.missing ? { missing: err.missing } : {}),
+      return responderError(res, err, {
+        mensaje: 'Error ajustando líneas',
+        extra: { ok: false, ...(err?.missing ? { missing: err.missing } : {}) },
       });
     }
   },
@@ -382,16 +363,16 @@ router.post('/mia/informes/:id/aprobar', requirePermission('mia.aprobar'), async
     });
     return res.json(result);
   } catch (err) {
-    const status = err?.status || 500;
-    if (status >= 500) req.log?.error?.({ err }, '[mia/informes/:id/aprobar] Error');
-    return res.status(status).json({
-      ok: false,
-      error: err?.message || 'Error aprobando informe',
-      ...(err?.agoraResultados ? { agoraResultados: err.agoraResultados } : {}),
-      ...(err?.omitidasAgora ? { omitidasAgora: err.omitidasAgora } : {}),
-      ...(err?.agoraPurchaseOrderIds ? { agoraPurchaseOrderIds: err.agoraPurchaseOrderIds } : {}),
-      ...(err?.enviadoAgora != null ? { enviadoAgora: err.enviadoAgora } : {}),
-      ...(err?.pedidosCreados != null ? { pedidosCreados: err.pedidosCreados } : {}),
+    return responderError(res, err, {
+      mensaje: 'Error aprobando informe',
+      extra: {
+        ok: false,
+        ...(err?.agoraResultados ? { agoraResultados: err.agoraResultados } : {}),
+        ...(err?.omitidasAgora ? { omitidasAgora: err.omitidasAgora } : {}),
+        ...(err?.agoraPurchaseOrderIds ? { agoraPurchaseOrderIds: err.agoraPurchaseOrderIds } : {}),
+        ...(err?.enviadoAgora != null ? { enviadoAgora: err.enviadoAgora } : {}),
+        ...(err?.pedidosCreados != null ? { pedidosCreados: err.pedidosCreados } : {}),
+      },
     });
   }
 });

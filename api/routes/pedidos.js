@@ -1,3 +1,4 @@
+import { responderError } from '../lib/http/responderError.js';
 import express from 'express';
 import { ScanCommand, QueryCommand, PutCommand, GetCommand, DeleteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
@@ -565,7 +566,7 @@ router.get('/pedidos', async (req, res) => {
     res.json({ pedidos: await filtrarPedidosLectura(req, items) });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al listar pedidos' });
+    responderError(res, err, { mensaje: 'Error al listar pedidos' });
   }
 });
 
@@ -713,7 +714,7 @@ router.get('/pedidos/abonos', async (req, res) => {
     res.json({ ok: true, empresa, local: local || null, anio, mes: mes || null, modo, total, items, pedidos: resumenPedidos });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al calcular el informe' });
+    responderError(res, err, { mensaje: 'Error al calcular el informe' });
   }
 });
 
@@ -825,7 +826,7 @@ router.get('/pedidos/traspaso-export', async (req, res) => {
     });
   } catch (err) {
     console.error('[pedidos/traspaso-export]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al preparar la exportación de traspasos' });
+    responderError(res, err, { mensaje: 'Error al preparar la exportación de traspasos' });
   }
 });
 
@@ -930,7 +931,7 @@ router.post('/pedidos', async (req, res) => {
     return res.status(409).json({ error: 'No se pudo asignar un Id único para el pedido, inténtalo de nuevo' });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al crear pedido' });
+    responderError(res, err, { mensaje: 'Error al crear pedido' });
   }
 });
 
@@ -1091,7 +1092,7 @@ router.put('/pedidos', async (req, res) => {
     res.json({ ok: true, pedido });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al actualizar pedido' });
+    responderError(res, err, { mensaje: 'Error al actualizar pedido' });
   }
 });
 
@@ -1157,7 +1158,7 @@ router.delete('/pedidos', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al borrar pedido' });
+    responderError(res, err, { mensaje: 'Error al borrar pedido' });
   }
 });
 
@@ -1189,7 +1190,7 @@ router.get('/pedidos/:pedidoId/rappel-preview', async (req, res) => {
     });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al calcular rappel' });
+    responderError(res, err, { mensaje: 'Error al calcular rappel' });
   }
 });
 
@@ -1210,7 +1211,7 @@ router.get('/pedidos/:pedidoId/lineas', async (req, res) => {
     res.json({ lineas: items });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al listar líneas del pedido' });
+    responderError(res, err, { mensaje: 'Error al listar líneas del pedido' });
   }
 });
 
@@ -1231,7 +1232,7 @@ router.get('/pedidos/:pedidoId/details', async (req, res) => {
     res.json({ details: items });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al listar detalles del pedido' });
+    responderError(res, err, { mensaje: 'Error al listar detalles del pedido' });
   }
 });
 
@@ -1315,7 +1316,7 @@ router.post('/pedidos/:pedidoId/lineas', async (req, res) => {
     res.json({ ok: true, linea: item });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al crear línea' });
+    responderError(res, err, { mensaje: 'Error al crear línea' });
   }
 });
 
@@ -1422,7 +1423,7 @@ router.put('/pedidos/:pedidoId/lineas', async (req, res) => {
     res.json({ ok: true, linea: item, ...(estadoPedido != null && { estadoPedido }) });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al actualizar línea' });
+    responderError(res, err, { mensaje: 'Error al actualizar línea' });
   }
 });
 
@@ -1455,7 +1456,7 @@ router.delete('/pedidos/:pedidoId/lineas', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al borrar línea' });
+    responderError(res, err, { mensaje: 'Error al borrar línea' });
   }
 });
 

@@ -3,6 +3,7 @@
  *
  * Permisos: escandallos.ver / escandallos.editar
  */
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import crypto from 'crypto';
 import multer from 'multer';
@@ -220,11 +221,7 @@ router.put('/escandallos/:productoId', requirePermission('escandallos.editar'), 
       ingredientes: saved.ingredientes,
     });
   } catch (err) {
-    const status = err?.status || 400;
-    return res.status(status).json({
-      error: err?.message || 'Datos inválidos',
-      ...(err?.code ? { code: err.code } : {}),
-    });
+    return responderError(res, err, { mensaje: 'Datos inválidos', statusPorDefecto: 400 });
   }
 });
 
@@ -252,11 +249,7 @@ router.get('/escandallos/:productoId/imagen', requirePermission('escandallos.ver
     res.setHeader('Content-Disposition', `inline; filename="escandallo-${productoId}.${ext}"`);
     return res.send(buffer);
   } catch (err) {
-    const status = err?.status || 500;
-    return res.status(status).json({
-      error: err?.message || 'Error al leer imagen',
-      ...(err?.code ? { code: err.code } : {}),
-    });
+    return responderError(res, err, { mensaje: 'Error al leer imagen' });
   }
 });
 
@@ -286,11 +279,7 @@ router.post(
       await setImagenKey(productoId, key);
       return res.json({ ok: true, imagen_key: key });
     } catch (err) {
-      const status = err?.status || 500;
-      return res.status(status).json({
-        error: err?.message || 'Error al subir imagen',
-        ...(err?.code ? { code: err.code } : {}),
-      });
+      return responderError(res, err, { mensaje: 'Error al subir imagen' });
     }
   },
 );
@@ -322,11 +311,7 @@ router.delete('/escandallos/:productoId/imagen', requirePermission('escandallos.
     const result = await setImagenKey(productoId, null);
     return res.json({ ok: true, productoId: result.productoId, imagen_key: null });
   } catch (err) {
-    const status = err?.status || 500;
-    return res.status(status).json({
-      error: err?.message || 'Error al borrar imagen',
-      ...(err?.code ? { code: err.code } : {}),
-    });
+    return responderError(res, err, { mensaje: 'Error al borrar imagen' });
   }
 });
 

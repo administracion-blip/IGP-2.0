@@ -1,3 +1,4 @@
+import { responderError, mensajeSeguro } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
@@ -108,7 +109,7 @@ router.post('/informes/diario/enviar', async (req, res) => {
         enviados += 1;
       } catch (err) {
         logger.error({ err, email: dest.email }, '[informe-diario] error enviando');
-        errores.push({ email: dest.email, error: err.message });
+        errores.push({ email: dest.email, error: mensajeSeguro(err, 'No se pudo enviar el correo') });
       }
     }
 
@@ -128,7 +129,7 @@ router.post('/informes/diario/enviar', async (req, res) => {
     return res.json({ ok: true, businessDay, enviados, total: destinatarios.length, errores });
   } catch (err) {
     logger.error({ err }, '[informe-diario] fallo general');
-    return res.status(500).json({ error: err.message || 'Error generando el informe diario' });
+    return responderError(res, err, { mensaje: 'Error generando el informe diario' });
   }
 });
 
@@ -182,7 +183,7 @@ router.post('/informes/diario/descargar', async (req, res) => {
     });
   } catch (err) {
     logger.error({ err }, '[informe-diario] fallo en descarga');
-    return res.status(500).json({ error: err.message || 'Error generando el informe diario' });
+    return responderError(res, err, { mensaje: 'Error generando el informe diario' });
   }
 });
 
@@ -206,7 +207,7 @@ router.get('/informes/diario/destinatarios', async (req, res) => {
       })),
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Error resolviendo destinatarios' });
+    return responderError(res, err, { mensaje: 'Error resolviendo destinatarios' });
   }
 });
 

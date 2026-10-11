@@ -1,3 +1,4 @@
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import path from 'node:path';
@@ -108,7 +109,7 @@ router.get('/acuerdos', requirePermission('acuerdos.ver'), async (req, res) => {
     return res.json({ ok: true, items });
   } catch (err) {
     console.error('[acuerdos GET]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al listar acuerdos' });
+    return responderError(res, err, { mensaje: 'Error al listar acuerdos' });
   }
 });
 
@@ -205,7 +206,7 @@ router.get('/acuerdos/productos-activos', requirePermission('acuerdos.ver'), asy
     });
   } catch (err) {
     console.error('[acuerdos productos-activos]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al listar productos de acuerdos activos' });
+    return responderError(res, err, { mensaje: 'Error al listar productos de acuerdos activos' });
   }
 });
 
@@ -227,7 +228,7 @@ router.get('/acuerdos/informe-compras', requireAnyPermission('acuerdos.ver', 'ac
       return res.status(400).json({ error: msg });
     }
     console.error('[acuerdos informe-compras]', msg);
-    return res.status(500).json({ error: msg });
+    return responderError(res, err, { mensaje: 'Error al generar informe' });
   }
 });
 
@@ -295,7 +296,7 @@ router.get('/acuerdos/totales', requirePermission('acuerdos.ver'), async (req, r
     return res.json({ ok: true, totales: result });
   } catch (err) {
     console.error('[acuerdos totales]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al obtener totales' });
+    return responderError(res, err, { mensaje: 'Error al obtener totales' });
   }
 });
 // [SEC S-03]
@@ -310,7 +311,7 @@ router.get('/acuerdos/:id', requirePermission('acuerdos.ver'), async (req, res) 
     return res.json({ ok: true, item: got.Item });
   } catch (err) {
     console.error('[acuerdos GET :id]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al obtener acuerdo' });
+    return responderError(res, err, { mensaje: 'Error al obtener acuerdo' });
   }
 });
 
@@ -344,7 +345,7 @@ router.post('/acuerdos', requirePermission('acuerdos.crear'), async (req, res) =
     return res.json({ ok: true, item });
   } catch (err) {
     console.error('[acuerdos POST]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al crear acuerdo' });
+    return responderError(res, err, { mensaje: 'Error al crear acuerdo' });
   }
 });
 
@@ -395,7 +396,7 @@ router.patch('/acuerdos/:id', requirePermission('acuerdos.editar'), async (req, 
   } catch (err) {
     if (err.name === 'ConditionalCheckFailedException') return res.status(404).json({ error: 'Acuerdo no encontrado' });
     console.error('[acuerdos PATCH]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al actualizar acuerdo' });
+    return responderError(res, err, { mensaje: 'Error al actualizar acuerdo' });
   }
 });
 
@@ -406,7 +407,7 @@ router.delete('/acuerdos/:id', requirePermission('acuerdos.borrar'), async (req,
     return res.json({ ok: true });
   } catch (err) {
     console.error('[acuerdos DELETE]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al eliminar acuerdo' });
+    return responderError(res, err, { mensaje: 'Error al eliminar acuerdo' });
   }
 });
 
@@ -432,7 +433,7 @@ router.get('/acuerdos/:id/detalles', requirePermission('acuerdos.ver'), async (r
     return res.json({ ok: true, items });
   } catch (err) {
     console.error('[acuerdos detalles GET]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al listar detalles' });
+    return responderError(res, err, { mensaje: 'Error al listar detalles' });
   }
 });
 
@@ -490,7 +491,7 @@ router.get('/acuerdos/:id/detalles-con-compras', requirePermission('acuerdos.ver
     return res.json({ ok: true, items, totalAcordado, totalCompradas, totalRestante: totalAcordado - totalCompradas });
   } catch (err) {
     console.error('[acuerdos detalles-con-compras]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al obtener detalles con compras' });
+    return responderError(res, err, { mensaje: 'Error al obtener detalles con compras' });
   }
 });
 
@@ -522,7 +523,7 @@ router.post('/acuerdos/:id/detalles', requirePermission('acuerdos.editar'), asyn
     return res.json({ ok: true, item });
   } catch (err) {
     console.error('[acuerdos detalles POST]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al añadir producto' });
+    return responderError(res, err, { mensaje: 'Error al añadir producto' });
   }
 });
 
@@ -548,7 +549,7 @@ router.patch('/acuerdos/:id/detalles/:productId', requirePermission('acuerdos.ed
   } catch (err) {
     if (err.name === 'ConditionalCheckFailedException') return res.status(404).json({ error: 'Detalle no encontrado' });
     console.error('[acuerdos detalles PATCH]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al actualizar detalle' });
+    return responderError(res, err, { mensaje: 'Error al actualizar detalle' });
   }
 });
 
@@ -562,7 +563,7 @@ router.delete('/acuerdos/:id/detalles/:productId', requirePermission('acuerdos.e
     return res.json({ ok: true });
   } catch (err) {
     console.error('[acuerdos detalles DELETE]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al eliminar producto' });
+    return responderError(res, err, { mensaje: 'Error al eliminar producto' });
   }
 });
 
@@ -623,7 +624,7 @@ router.get('/acuerdos/:id/seguimiento', requirePermission('acuerdos.ver'), async
     });
   } catch (err) {
     console.error('[acuerdos seguimiento]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al obtener seguimiento' });
+    return responderError(res, err, { mensaje: 'Error al obtener seguimiento' });
   }
 });
 
@@ -699,7 +700,7 @@ router.get('/acuerdos/:id/imagen', requirePermission('acuerdos.ver'), async (req
     return res.json({ ok: true, items: withUrls });
   } catch (err) {
     console.error('[acuerdos imagen GET]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al obtener pagos por imagen' });
+    return responderError(res, err, { mensaje: 'Error al obtener pagos por imagen' });
   }
 });
 
@@ -725,7 +726,7 @@ router.post('/acuerdos/:id/imagen', requirePermission('acuerdos.editar'), async 
     return res.json({ ok: true, item });
   } catch (err) {
     console.error('[acuerdos imagen POST]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al crear pago por imagen' });
+    return responderError(res, err, { mensaje: 'Error al crear pago por imagen' });
   }
 });
 
@@ -770,7 +771,7 @@ router.patch('/acuerdos/:id/imagen/:sk', requirePermission('acuerdos.editar'), a
     return res.json({ ok: true });
   } catch (err) {
     console.error('[acuerdos imagen PATCH]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al actualizar pago por imagen' });
+    return responderError(res, err, { mensaje: 'Error al actualizar pago por imagen' });
   }
 });
 
@@ -793,7 +794,7 @@ router.delete('/acuerdos/:id/imagen/:sk', requirePermission('acuerdos.editar'), 
     return res.json({ ok: true });
   } catch (err) {
     console.error('[acuerdos imagen DELETE]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al eliminar pago por imagen' });
+    return responderError(res, err, { mensaje: 'Error al eliminar pago por imagen' });
   }
 });
 
@@ -815,7 +816,7 @@ router.delete('/acuerdos/:id/imagen/objeto/:encodedKey', requirePermission('acue
     return res.json({ ok: true });
   } catch (err) {
     console.error('imagen delete objeto error', err);
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -842,7 +843,7 @@ router.post('/acuerdos/:id/imagen/presign-upload', requirePermission('acuerdos.e
     res.json({ uploadUrl, fileKey });
   } catch (err) {
     console.error('imagen presign-upload error', err);
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -873,7 +874,7 @@ router.post('/acuerdos/:id/files/presign-upload', requirePermission('acuerdos.ed
     res.json({ uploadUrl, fileKey });
   } catch (err) {
     console.error('presign-upload error', err);
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -904,7 +905,7 @@ router.post('/acuerdos/:id/files', requirePermission('acuerdos.editar'), async (
     res.json({ archivos });
   } catch (err) {
     console.error('save file meta error', err);
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -927,7 +928,7 @@ router.get('/acuerdos/:id/files', requirePermission('acuerdos.ver'), async (req,
     res.json(withUrls);
   } catch (err) {
     console.error('list files error', err);
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -955,7 +956,7 @@ router.delete('/acuerdos/:id/files/:encodedKey', requirePermission('acuerdos.edi
     res.json({ ok: true, archivos });
   } catch (err) {
     console.error('delete file error', err);
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 

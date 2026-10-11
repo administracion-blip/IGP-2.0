@@ -1,3 +1,4 @@
+import { responderError, mensajeSeguro } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import {
   QueryCommand,
@@ -239,7 +240,7 @@ async function getPaymentMethodsCached() {
       Id: Number(id),
       Name: name,
     }));
-    return { items: fallback, fetchedAt: 0, stale: true, source: 'fallback', error: err?.message || String(err) };
+    return { items: fallback, fetchedAt: 0, stale: true, source: 'fallback', error: mensajeSeguro(err, 'No se pudieron leer las formas de pago de Ágora') };
   }
 }
 
@@ -871,7 +872,7 @@ router.get('/agora/closeouts/objetivo-mensual-card', requirePermission('planning
     res.json(payload);
   } catch (err) {
     console.error('[agora/closeouts/objetivo-mensual-card]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al calcular objetivo mensual' });
+    responderError(res, err, { mensaje: 'Error al calcular objetivo mensual' });
   }
 });
 
@@ -1650,7 +1651,7 @@ router.get('/agora/users', async (req, res) => {
       const usuarios = list.map((u) => toApiUser(u));
       return res.json({ usuarios });
     } catch (err) {
-      return res.status(500).json({ error: err.message || 'Error al conectar con Agora.' });
+      return responderError(res, err, { mensaje: 'Error al conectar con Agora.' });
     }
   }
 
@@ -2502,7 +2503,7 @@ router.get('/agora/payment-methods', async (req, res) => {
     const result = await getPaymentMethodsCached();
     return res.json(result);
   } catch (err) {
-    return res.status(500).json({ error: err?.message || 'Error obteniendo formas de pago' });
+    return responderError(res, err, { mensaje: 'Error obteniendo formas de pago' });
   }
 });
 
@@ -2514,7 +2515,7 @@ router.get('/agora/formas-pago', async (_req, res) => {
     const formas = await listFormasPago();
     res.json({ ok: true, formas });
   } catch (err) {
-    res.status(500).json({ error: err?.message || 'Error al leer formas de pago' });
+    responderError(res, err, { mensaje: 'Error al leer formas de pago' });
   }
 });
 
@@ -2532,7 +2533,7 @@ router.post('/agora/payment-methods/sync', requireAnyPermission('ajustes.sincron
     });
   } catch (err) {
     console.error('[agora/payment-methods/sync]', err?.message || err);
-    res.status(500).json({ error: err?.message || 'Error al sincronizar formas de pago' });
+    responderError(res, err, { mensaje: 'Error al sincronizar formas de pago' });
   }
 });
 
@@ -2571,7 +2572,7 @@ router.put('/agora/formas-pago/:agoraId', requireAnyPermission('formas_pago.edit
     res.json({ ok: true, forma: out.Attributes });
   } catch (err) {
     console.error('[agora/formas-pago PUT]', err?.message || err);
-    res.status(500).json({ error: err?.message || 'Error al actualizar forma de pago' });
+    responderError(res, err, { mensaje: 'Error al actualizar forma de pago' });
   }
 });
 
@@ -2599,7 +2600,9 @@ router.get('/agora/products', async (req, res) => {
       }
       if (!r.ok) {
         const text = await r.text();
-        return res.status(r.status).json({ error: `Agora respondió ${r.status}: ${text.slice(0, 200)}` });
+        return responderError(res, Object.assign(new Error(`Ágora ${r.status}: ${text.slice(0, 200)}`), { agoraStatus: r.status }), {
+          mensaje: 'Error al conectar con Agora.', status: 502,
+        });
       }
       const data = await r.json().catch(() => null);
       const rawList = Array.isArray(data)
@@ -2625,7 +2628,7 @@ router.get('/agora/products', async (req, res) => {
       });
       return res.json({ productos });
     } catch (err) {
-      return res.status(500).json({ error: err.message || 'Error al conectar con Agora.' });
+      return responderError(res, err, { mensaje: 'Error al conectar con Agora.' });
     }
   }
 
@@ -2798,8 +2801,8 @@ function startProductsSync() {
       productsSyncState.status = 'error';
       productsSyncState.error =
         err?.name === 'ResourceNotFoundException'
-          ? 'Tabla Igp_AgoraProducts no existe. Ejecuta: node api/scripts/create-agora-products-table.js'
-          : (err?.message || 'Error al sincronizar productos');
+          ? 'La tabla de productos de Ágora no existe; avisa al administrador'
+          : mensajeSeguro(err, 'Error al sincronizar productos');
       console.error('[agora/products/sync]', err?.message || err);
     } finally {
       productsSyncState.finishedAt = Date.now();
@@ -3156,7 +3159,9 @@ router.post('/agora/sale-centers/sync', requirePermission('puntos_venta.editar')
     }
     if (!r.ok) {
       const text = await r.text();
-      return res.status(r.status).json({ error: `Agora respondió ${r.status}: ${text.slice(0, 200)}` });
+      return responderError(res, Object.assign(new Error(`Ágora ${r.status}: ${text.slice(0, 200)}`), { agoraStatus: r.status }), {
+        mensaje: 'Error al conectar con Agora.', status: 502,
+      });
     }
 
     const rawText = await r.text();
@@ -3549,7 +3554,7 @@ router.get('/agora/invoices/sales-by-hour', requireLocalLectura(desde.query('wor
     data = await exportInvoices(businessDay, [workplaceId]);
   } catch (err) {
     console.warn('[agora/invoices/sales-by-hour]', businessDay, err.message || err);
-    return res.status(502).json({ error: `No se pudieron obtener facturas de Ágora: ${err.message || err}` });
+    return responderError(res, err, { mensaje: 'No se pudieron obtener facturas de Ágora', status: 502 });
   }
   const invoices = extractCloseOutsArray(data, ['Invoices', 'invoices']);
 
@@ -3966,7 +3971,8 @@ router.post('/agora/closeouts/full-sync', requirePermission('ajustes.sincronizac
           console.log('[agora/closeouts/full-sync] Progreso:', i + 1, '/', days.length, 'días');
         await new Promise((r) => setTimeout(r, 100));
       } catch (err) {
-        errors.push({ day: businessDay, error: err.message || String(err) });
+        errors.push({ day: businessDay, error: mensajeSeguro(err, 'Error al sincronizar el día') });
+        console.warn('[agora/closeouts/full-sync] Error en', businessDay, ':', err?.message || err);
       }
     }
 
@@ -4106,7 +4112,8 @@ router.post('/agora/closeouts/complete-fields', permisoSyncCierres, requireLocal
         );
         posNameUpdated++;
       } catch (e) {
-        errors.push({ type: 'PosName', key: `${it.PK}#${it.SK}`, error: e.message });
+        errors.push({ type: 'PosName', key: `${it.PK}#${it.SK}`, error: mensajeSeguro(e, 'No se pudo actualizar') });
+        req.log?.warn?.({ err: e, key: `${it.PK}#${it.SK}` }, '[agora/closeouts/complete-fields] PosName');
       }
     }
 
@@ -4231,12 +4238,14 @@ router.post('/agora/closeouts/complete-fields', permisoSyncCierres, requireLocal
             );
             agoraUpdated++;
           } catch (e) {
-            errors.push({ type: 'Agora', key: `${it.PK}#${it.SK}`, error: e.message });
+            errors.push({ type: 'Agora', key, error: mensajeSeguro(e, 'No se pudo actualizar') });
+            req.log?.warn?.({ err: e, key }, '[agora/closeouts/complete-fields] Agora');
           }
         }
         await new Promise((r) => setTimeout(r, 150));
       } catch (e) {
-        errors.push({ type: 'AgoraFetch', day: dayKey, error: e.message });
+        errors.push({ type: 'AgoraFetch', day: dayKey, error: mensajeSeguro(e, 'No se pudo consultar Ágora') });
+        req.log?.warn?.({ err: e, day: dayKey }, '[agora/closeouts/complete-fields] AgoraFetch');
       }
     }
 
@@ -4793,7 +4802,7 @@ router.post('/agora/purchases/sync', requireAnyPermission('ajustes.sincronizacio
         totalUpserted += upserted;
       } catch (err) {
         // Error del día (forma inválida, API, BatchWrite…): no se marca como ok; purge solo corre tras array válido.
-        errors.push({ day: businessDay, error: err.message || String(err) });
+        errors.push({ day: businessDay, error: mensajeSeguro(err, 'Error al sincronizar el día') });
         console.warn(
           '[agora/purchases/sync] Error en',
           businessDay,
@@ -4874,7 +4883,7 @@ router.post('/agora/sales-lines/sync', requirePermission('ajustes.sincronizacion
     return res.json(result);
   } catch (err) {
     req.log.error({ err, businessDay }, '[agora/sales-lines/sync] Error');
-    return res.status(500).json({ error: err.message || 'Error en sync de ventas por producto' });
+    return responderError(res, err, { mensaje: 'Error en sync de ventas por producto' });
   }
 });
 
@@ -4905,7 +4914,8 @@ router.post('/agora/sales-lines/full-sync', requirePermission('ajustes.sincroniz
       totalItems += r.items ?? 0;
       totalDeleted += r.deleted ?? 0;
     } catch (err) {
-      errors.push({ day: businessDay, error: err.message || String(err) });
+      errors.push({ day: businessDay, error: mensajeSeguro(err, 'Error al sincronizar el día') });
+      console.warn('[agora/sales-lines/full-sync] Error en', businessDay, ':', err?.message || err);
     }
     if ((i + 1) % 30 === 0) {
       console.log('[agora/sales-lines/full-sync] Progreso:', i + 1, '/', days.length, 'días');

@@ -4,6 +4,7 @@
 
 import { BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
+import { mensajeSeguro } from '../http/responderError.js';
 import { exportStocks } from '../agora/client.js';
 import { getLastSalesLinesSync } from '../dynamo/ventasProducto.js';
 import { listConfigByWarehouse, mergeStockIntoItem } from './configProducto.js';
@@ -167,10 +168,11 @@ export async function syncStocksAll(opts = {}) {
       if (!r.skipped) totalUpserted += r.upserted || 0;
     } catch (err) {
       errors += 1;
+      console.warn('[mia/stocksSync] almacén', wid, err?.message || err);
       results.push({
         ok: false,
         warehouseId: wid,
-        error: err?.message || String(err),
+        error: mensajeSeguro(err, 'No se pudo sincronizar el stock'),
       });
     }
   }

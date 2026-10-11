@@ -11,6 +11,7 @@
  * Permisos: `activaciones.ver` (bar: consultar, marcar realizada/cancelada,
  * incidencias) y `activaciones.gestionar` (administración: CRUD completo).
  */
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import multer from 'multer';
@@ -641,7 +642,7 @@ router.post('/activaciones/:id_activacion/adjuntos', requirePermission('activaci
     return res.json({ ok: true, adjuntos });
   } catch (err) {
     console.error('[activaciones adjuntos POST]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al subir adjunto' });
+    return responderError(res, err, { mensaje: 'Error al subir adjunto' });
   }
 });
 
@@ -661,7 +662,7 @@ router.get('/activaciones/:id_activacion/adjuntos', requirePermission('activacio
     return res.json({ adjuntos: withUrls });
   } catch (err) {
     console.error('[activaciones adjuntos GET]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al listar adjuntos' });
+    return responderError(res, err, { mensaje: 'Error al listar adjuntos' });
   }
 });
 
@@ -692,7 +693,7 @@ router.delete('/activaciones/:id_activacion/adjuntos/:adjId', requirePermission(
     return res.json({ ok: true });
   } catch (err) {
     console.error('[activaciones adjuntos DELETE]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al eliminar adjunto' });
+    return responderError(res, err, { mensaje: 'Error al eliminar adjunto' });
   }
 });
 

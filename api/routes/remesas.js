@@ -6,6 +6,7 @@
  *  - remesas.gestionar — crear, editar, generar fichero, ejecutar, anular
  *  - facturacion.cobrar_pagar — requerido además para ejecutar (crea pagos)
  */
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import crypto from 'crypto';
 import {
@@ -139,7 +140,7 @@ router.get('/remesas', requirePermission('remesas.ver'), async (req, res) => {
     items.sort((a, b) => String(b.creadoEn || '').localeCompare(String(a.creadoEn || '')));
     res.json({ items });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -151,7 +152,7 @@ router.get('/remesas/:remesaId', requirePermission('remesas.ver'), async (req, r
     if (!remesa) return res.status(404).json({ error: 'Remesa no encontrada' });
     res.json({ remesa });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -247,7 +248,7 @@ router.post('/remesas', requirePermission('remesas.gestionar'), async (req, res)
     await docClient.send(new PutCommand({ TableName: TABLE, Item: remesa }));
     res.status(201).json({ remesa, excluidas });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -349,7 +350,7 @@ router.patch('/remesas/:remesaId', requirePermission('remesas.gestionar'), async
     await docClient.send(new PutCommand({ TableName: TABLE, Item: remesa }));
     res.json({ remesa });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -397,7 +398,7 @@ router.post('/remesas/:remesaId/revalidar', requirePermission('remesas.gestionar
     await docClient.send(new PutCommand({ TableName: TABLE, Item: remesa }));
     res.json({ remesa, excluidas });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -451,7 +452,7 @@ router.get('/remesas/:remesaId/fichero', requirePermission('remesas.gestionar'),
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(buffer);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -542,8 +543,7 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
 
     res.json({ ok: true, remesa, pagos: pagosCreados });
   } catch (err) {
-    const status = err.status || 500;
-    res.status(status).json({ error: err.message });
+    responderError(res, err);
   }
 });
 
@@ -561,7 +561,7 @@ router.post('/remesas/:remesaId/anular', requirePermission('remesas.gestionar'),
     await docClient.send(new PutCommand({ TableName: TABLE, Item: remesa }));
     res.json({ remesa });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, err);
   }
 });
 

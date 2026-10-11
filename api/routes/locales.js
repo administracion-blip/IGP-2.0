@@ -1,3 +1,4 @@
+import { responderError } from '../lib/http/responderError.js';
 import express from 'express';
 import { ScanCommand, PutCommand, GetCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
@@ -149,7 +150,7 @@ router.post('/locales', requireAnyPermission('locales.crear', 'usuarios.crear', 
     } catch (err) {
       if (err?.name !== 'ConditionalCheckFailedException') {
         console.error('DynamoDB error:', err);
-        return res.status(500).json({ error: err.message || 'Error al guardar el local' });
+        return responderError(res, err, { mensaje: 'Error al guardar el local' });
       }
       if (intento === MAX_INTENTOS) {
         return res.status(409).json({

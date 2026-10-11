@@ -1,3 +1,4 @@
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import { ScanCommand, GetCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
@@ -75,7 +76,7 @@ router.get('/empresas', requirePermission('empresas.ver'), async (req, res) => {
     res.json({ empresas });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al listar empresas' });
+    responderError(res, err, { mensaje: 'Error al listar empresas' });
   }
 });
 
@@ -103,7 +104,7 @@ router.get('/empresas/check-cif', requireAnyPermission('empresas.ver', 'empresas
     return res.json({ exists });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    return res.status(500).json({ error: err.message || 'Error al comprobar CIF' });
+    return responderError(res, err, { mensaje: 'Error al comprobar CIF' });
   }
 });
 
@@ -164,7 +165,7 @@ router.post('/empresas', requirePermission('empresas.crear'), async (req, res) =
       return res.status(409).json({ error: `Ya existe una empresa con el id ${idEmpresa}` });
     }
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al guardar la empresa' });
+    responderError(res, err, { mensaje: 'Error al guardar la empresa' });
   }
 });
 
@@ -226,7 +227,7 @@ router.put('/empresas', requirePermission('empresas.editar'), async (req, res) =
     res.json({ ok: true, empresa: item });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al actualizar la empresa' });
+    responderError(res, err, { mensaje: 'Error al actualizar la empresa' });
   }
 });
 
@@ -242,7 +243,7 @@ router.delete('/empresas', requireRole('Administrador'), async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    res.status(500).json({ error: err.message || 'Error al borrar la empresa' });
+    responderError(res, err, { mensaje: 'Error al borrar la empresa' });
   }
 });
 
@@ -322,7 +323,7 @@ router.get('/empresas/:idEmpresa/cuentas', requirePermission('empresas.ver'), as
     });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    return res.status(500).json({ error: err.message || 'Error al listar las cuentas bancarias' });
+    return responderError(res, err, { mensaje: 'Error al listar las cuentas bancarias' });
   }
 });
 
@@ -362,7 +363,7 @@ router.post('/empresas/:idEmpresa/cuentas', requirePermission('empresas.editar')
     });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    return res.status(500).json({ error: err.message || 'Error al crear la cuenta bancaria' });
+    return responderError(res, err, { mensaje: 'Error al crear la cuenta bancaria' });
   }
 });
 
@@ -400,7 +401,7 @@ router.put('/empresas/:idEmpresa/cuentas/:iban', requirePermission('empresas.edi
     return res.json({ ok: true, cuenta: resultado.cuenta });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    return res.status(500).json({ error: err.message || 'Error al actualizar la cuenta bancaria' });
+    return responderError(res, err, { mensaje: 'Error al actualizar la cuenta bancaria' });
   }
 });
 
@@ -420,7 +421,7 @@ router.put('/empresas/:idEmpresa/cuentas/:iban/predeterminada', requirePermissio
     return res.json({ ok: true, ibanPredeterminado: cuenta.iban });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    return res.status(500).json({ error: err.message || 'Error al marcar la cuenta como predeterminada' });
+    return responderError(res, err, { mensaje: 'Error al marcar la cuenta como predeterminada' });
   }
 });
 
@@ -447,7 +448,7 @@ router.delete('/empresas/:idEmpresa/cuentas/:iban', requirePermission('empresas.
     return res.json({ ok: true, cuenta: resultado.cuenta });
   } catch (err) {
     console.error('DynamoDB error:', err);
-    return res.status(500).json({ error: err.message || 'Error al desactivar la cuenta bancaria' });
+    return responderError(res, err, { mensaje: 'Error al desactivar la cuenta bancaria' });
   }
 });
 

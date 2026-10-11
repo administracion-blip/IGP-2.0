@@ -15,6 +15,7 @@ import crypto from 'node:crypto';
 import { GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../../db.js';
 import { logger } from '../../logger.js';
+import { mensajeSeguro } from '../../http/responderError.js';
 import { crearCerrojo } from '../../facturacion/facturacionPeriodica.js';
 import { PK, SK } from '../tipos.js';
 import { hashTexto } from './hashTexto.js';
@@ -540,7 +541,7 @@ export async function ejecutarTickPipeline({ origen = 'programado' } = {}) {
           omitirRestoTick.add(idReu);
           errores.push({
             id_reunion: idReu,
-            error: err?.message || String(err),
+            error: mensajeSeguro(err, 'Error procesando la reunión'),
           });
           logger.error(
             { err, id_reunion: reunion.id_reunion },

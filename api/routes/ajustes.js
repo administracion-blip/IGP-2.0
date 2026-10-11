@@ -1,3 +1,4 @@
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import { ScanCommand, QueryCommand, PutCommand, GetCommand, DeleteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
@@ -104,7 +105,7 @@ router.get('/ajustes', async (req, res) => {
     return res.json({ ok: true, items });
   } catch (err) {
     console.error('[ajustes GET]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al listar ajustes' });
+    return responderError(res, err, { mensaje: 'Error al listar ajustes' });
   }
 });
 
@@ -117,7 +118,7 @@ router.get('/ajustes/:pk/:sk', async (req, res) => {
     return res.json({ ok: true, item: r.Item });
   } catch (err) {
     console.error('[ajustes GET/:pk/:sk]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al obtener ajuste' });
+    return responderError(res, err, { mensaje: 'Error al obtener ajuste' });
   }
 });
 
@@ -163,7 +164,7 @@ router.post('/ajustes', async (req, res) => {
     return res.json({ ok: true, item });
   } catch (err) {
     console.error('[ajustes POST]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al crear ajuste' });
+    return responderError(res, err, { mensaje: 'Error al crear ajuste' });
   }
 });
 
@@ -205,7 +206,7 @@ router.patch('/ajustes/:pk/:sk', async (req, res) => {
     return res.json({ ok: true, item: r.Attributes });
   } catch (err) {
     console.error('[ajustes PATCH]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al actualizar ajuste' });
+    return responderError(res, err, { mensaje: 'Error al actualizar ajuste' });
   }
 });
 
@@ -219,7 +220,7 @@ router.delete('/ajustes/:pk/:sk', async (req, res) => {
     return res.json({ ok: true });
   } catch (err) {
     console.error('[ajustes DELETE]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al eliminar ajuste' });
+    return responderError(res, err, { mensaje: 'Error al eliminar ajuste' });
   }
 });
 

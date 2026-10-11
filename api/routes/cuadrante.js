@@ -7,6 +7,7 @@
  * La carga vive en `api/lib/personal/cuadranteServicio.js`.
  */
 
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import { requireAnyPermission } from '../middleware/auth.js';
 import { requireLocales } from '../middleware/alcance.js';
@@ -52,7 +53,7 @@ router.get('/personal/cuadrante', requireAnyPermission('planning_dia.ver', 'rrhh
       return res.status(err.status).json({ error: err.message });
     }
     console.error('[cuadrante]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al cargar el cuadrante' });
+    return responderError(res, err, { mensaje: 'Error al cargar el cuadrante' });
   }
 });
 

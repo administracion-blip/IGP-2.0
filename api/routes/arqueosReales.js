@@ -2,6 +2,7 @@
  * Arqueos reales (conteo manual) vs cierres teóricos — tabla Igp_ArqueosReales
  * PK = workplaceId, SK = yyyy-mm-dd#posId
  */
+import { responderError } from '../lib/http/responderError.js';
 import express from 'express';
 import multer from 'multer';
 import { randomUUID } from 'crypto';
@@ -271,7 +272,7 @@ router.get('/cajas/arqueos-reales', permisoArqueo, localQuery, async (req, res) 
     res.json({ arqueos: items });
   } catch (err) {
     console.error('[cajas/arqueos-reales GET]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al listar arqueos' });
+    responderError(res, err, { mensaje: 'Error al listar arqueos' });
   }
 });
 
@@ -331,7 +332,7 @@ router.get('/cajas/arqueos-reales/compare', permisoArqueo, localQuery, async (re
     });
   } catch (err) {
     console.error('[cajas/arqueos-reales/compare]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al comparar' });
+    responderError(res, err, { mensaje: 'Error al comparar' });
   }
 });
 
@@ -410,7 +411,7 @@ router.post('/cajas/arqueos-reales/ocr-ticket', permisoArqueo, uploadOcr.single(
     });
   } catch (err) {
     console.error('[cajas/arqueos-reales/ocr-ticket]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al leer el ticket' });
+    responderError(res, err, { mensaje: 'Error al leer el ticket' });
   }
 });
 
@@ -435,7 +436,7 @@ router.get('/cajas/arqueos-reales/ticket-image-url', permisoArqueo, localClaveTi
     res.json({ url });
   } catch (err) {
     console.error('[cajas/arqueos-reales/ticket-image-url]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al generar URL' });
+    responderError(res, err, { mensaje: 'Error al generar URL' });
   }
 });
 
@@ -574,7 +575,7 @@ router.put('/cajas/arqueos-reales', permisoArqueo, requireLocal(desde.body('PK',
     res.json({ ok: true, item });
   } catch (err) {
     console.error('[cajas/arqueos-reales PUT]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al guardar arqueo' });
+    responderError(res, err, { mensaje: 'Error al guardar arqueo' });
   }
 });
 
@@ -623,7 +624,7 @@ router.post('/cajas/arqueos-reales/estado', permisoArqueo, localBodyWorkplace, a
     res.json({ ok: true, item });
   } catch (err) {
     console.error('[cajas/arqueos-reales/estado]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al cambiar el estado del arqueo' });
+    responderError(res, err, { mensaje: 'Error al cambiar el estado del arqueo' });
   }
 });
 
@@ -661,7 +662,7 @@ router.post('/cajas/arqueos-reales/revisado', requirePermission('cierres.ver'), 
     res.json({ ok: true, item });
   } catch (err) {
     console.error('[cajas/arqueos-reales/revisado]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al marcar la revisión' });
+    responderError(res, err, { mensaje: 'Error al marcar la revisión' });
   }
 });
 
@@ -875,7 +876,7 @@ router.get('/cajas/revision', requirePermission('cierres.ver'), requireLocales(d
     res.json({ dateFrom, dateTo, locales });
   } catch (err) {
     console.error('[cajas/revision]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al construir la revisión de cajas' });
+    responderError(res, err, { mensaje: 'Error al construir la revisión de cajas' });
   }
 });
 
@@ -1107,7 +1108,7 @@ router.get('/cajas/efectivo-ingresar', requirePermission('cierres.ver'), require
     res.json({ dateFrom, dateTo, sociedades, totalGeneral });
   } catch (err) {
     console.error('[cajas/efectivo-ingresar]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al calcular el efectivo a ingresar' });
+    responderError(res, err, { mensaje: 'Error al calcular el efectivo a ingresar' });
   }
 });
 
@@ -1149,7 +1150,7 @@ router.get('/cajas/jornada', permisoArqueo, localQuery, async (req, res) => {
     });
   } catch (err) {
     console.error('[cajas/jornada GET]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al cargar la jornada' });
+    responderError(res, err, { mensaje: 'Error al cargar la jornada' });
   }
 });
 
@@ -1208,7 +1209,7 @@ router.post('/cajas/jornada/cerrar', permisoArqueo, localBodyWorkplace, async (r
     res.json({ ok: true, jornada: item });
   } catch (err) {
     console.error('[cajas/jornada/cerrar]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al cerrar la jornada' });
+    responderError(res, err, { mensaje: 'Error al cerrar la jornada' });
   }
 });
 
@@ -1232,7 +1233,7 @@ router.post('/cajas/jornada/reabrir', requirePermission('cierres.ver'), localBod
     res.json({ ok: true, jornada: item });
   } catch (err) {
     console.error('[cajas/jornada/reabrir]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al reabrir la jornada' });
+    responderError(res, err, { mensaje: 'Error al reabrir la jornada' });
   }
 });
 
@@ -1250,7 +1251,7 @@ router.delete('/cajas/arqueos-reales', requirePermission('cierres.borrar'), loca
     res.json({ ok: true });
   } catch (err) {
     console.error('[cajas/arqueos-reales DELETE]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al eliminar' });
+    responderError(res, err, { mensaje: 'Error al eliminar' });
   }
 });
 

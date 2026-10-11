@@ -12,6 +12,7 @@
  * - Historial/detalle filtran por `alcanceLocales` del informe (o `generadoPor`
  *   en informes legacy sin ese campo). Admin / Locales vacío ven todos.
  */
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import { requirePermission, requireAnyPermission, hasPermission } from '../middleware/auth.js';
 import { getFuente, listarFuentes, fuenteMeta } from '../lib/ia/fuentes/index.js';
@@ -93,10 +94,8 @@ router.get(
       return res.json(result);
     } catch (err) {
       console.error('[ia/familias]', err.message || err);
-      return res.status(502).json({
-        error: err?.message || 'Error listando familias',
-        familias: [],
-        source: 'dynamo',
+      return responderError(res, err, {
+        mensaje: 'Error listando familias', status: 502, extra: { familias: [], source: 'dynamo' },
       });
     }
   },
@@ -116,7 +115,7 @@ router.get(
       return res.json({ grupos, total: grupos.length, todos });
     } catch (err) {
       console.error('[ia/grupos-familias]', err.message || err);
-      return res.status(500).json({ error: err?.message || 'Error listando grupos' });
+      return responderError(res, err, { mensaje: 'Error listando grupos' });
     }
   },
 );
@@ -130,8 +129,7 @@ router.put(
       const item = await upsertGrupoFamiliasIa(req.body || {});
       return res.json({ ok: true, item });
     } catch (err) {
-      const status = err?.status || 400;
-      return res.status(status).json({ error: err?.message || 'Datos inválidos' });
+      return responderError(res, err, { mensaje: 'Datos inválidos', statusPorDefecto: 400 });
     }
   },
 );
@@ -147,8 +145,7 @@ router.delete(
       const result = await deleteGrupoFamiliasIa(id);
       return res.json(result);
     } catch (err) {
-      const status = err?.status || 400;
-      return res.status(status).json({ error: err?.message || 'No se pudo eliminar' });
+      return responderError(res, err, { mensaje: 'No se pudo eliminar', statusPorDefecto: 400 });
     }
   },
 );
@@ -384,8 +381,7 @@ router.post('/ia/informes', requirePermission('ia.informes'), async (req, res) =
     return res.json({ informe: guardado, cache: false });
   } catch (err) {
     console.error('[ia/informes:post]', err.message || err);
-    const status = err?.status || err?.statusCode || 500;
-    return res.status(status).json({ error: err.message || 'No se pudo generar el informe' });
+    return responderError(res, err, { mensaje: 'No se pudo generar el informe' });
   }
 });
 

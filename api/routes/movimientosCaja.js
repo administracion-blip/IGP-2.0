@@ -5,6 +5,7 @@
  * Se registran a cualquier hora del día y el arqueo de caja los lee para ajustar
  * el real (retiradas → Efectivo; transferencias → Prepago Transferencia).
  */
+import { responderError } from '../lib/http/responderError.js';
 import express from 'express';
 import multer from 'multer';
 import { randomUUID } from 'crypto';
@@ -60,7 +61,7 @@ router.get('/cajas/movimientos', permisoArqueo, requireLocal(desde.query('workpl
     res.json({ movimientos, tipos: TIPOS_MOVIMIENTO });
   } catch (err) {
     console.error('[cajas/movimientos GET]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al listar movimientos' });
+    responderError(res, err, { mensaje: 'Error al listar movimientos' });
   }
 });
 
@@ -99,7 +100,7 @@ router.post('/cajas/movimientos/justificante', permisoArqueo, uploadJustificante
     res.json({ ok: true, key, url });
   } catch (err) {
     console.error('[cajas/movimientos/justificante]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al subir el justificante' });
+    responderError(res, err, { mensaje: 'Error al subir el justificante' });
   }
 });
 
@@ -119,7 +120,7 @@ router.get('/cajas/movimientos/justificante-url', permisoArqueo, localClaveJusti
     res.json({ url });
   } catch (err) {
     console.error('[cajas/movimientos/justificante-url]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al generar URL' });
+    responderError(res, err, { mensaje: 'Error al generar URL' });
   }
 });
 
@@ -196,7 +197,7 @@ async function upsertMovimiento(req, res) {
     res.json({ ok: true, item });
   } catch (err) {
     console.error('[cajas/movimientos PUT/POST]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al guardar el movimiento' });
+    responderError(res, err, { mensaje: 'Error al guardar el movimiento' });
   }
 }
 
@@ -215,7 +216,7 @@ router.delete('/cajas/movimientos', permisoArqueo, localPkMovimiento, async (req
     res.json({ ok: true });
   } catch (err) {
     console.error('[cajas/movimientos DELETE]', err.message || err);
-    res.status(500).json({ error: err.message || 'Error al eliminar el movimiento' });
+    responderError(res, err, { mensaje: 'Error al eliminar el movimiento' });
   }
 });
 

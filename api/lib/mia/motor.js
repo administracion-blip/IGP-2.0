@@ -5,6 +5,7 @@
 import { randomUUID } from 'crypto';
 import { ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
+import { mensajeSeguro } from '../http/responderError.js';
 import {
   daysBetweenInclusive,
   getLastSalesLinesSync,
@@ -341,7 +342,8 @@ export async function calcularPedidoMia(input) {
       syncStockResult = await syncStocksForWarehouse(warehouseId, { force: true });
     } catch (err) {
       avisos.push('sync_stock_fallido');
-      syncStockResult = { ok: false, error: err?.message || String(err) };
+      console.warn('[mia/motor] sync de stock fallido', warehouseId, err?.message || err);
+      syncStockResult = { ok: false, error: mensajeSeguro(err, 'No se pudo sincronizar el stock') };
     }
   }
 

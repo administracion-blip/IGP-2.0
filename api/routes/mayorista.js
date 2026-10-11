@@ -2,6 +2,7 @@
  * Venta mayorista a clientes externos (empresas).
  * Lectura de acuerdos/compras; persistencia en Igp_Negociaciones.
  */
+import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import {
@@ -347,7 +348,7 @@ router.get('/mayorista/config', requireAnyPermission('mayorista.ver', 'mayorista
     const config = await getConfig();
     return res.json({ ok: true, config });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Error al cargar config' });
+    return responderError(res, err, { mensaje: 'Error al cargar config' });
   }
 });
 
@@ -371,7 +372,7 @@ router.put('/mayorista/config', requirePermission('mayorista.editar'), async (re
     await docClient.send(new PutCommand({ TableName: tAjustes, Item: item }));
     return res.json({ ok: true, config: await getConfig() });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Error al guardar config' });
+    return responderError(res, err, { mensaje: 'Error al guardar config' });
   }
 });
 
@@ -390,7 +391,7 @@ router.get('/mayorista/productos/:productId/acuerdo-vigente', requireAnyPermissi
     return res.json({ ok: true, productId, fecha, acuerdo, dias_cobro });
   } catch (err) {
     console.error('[mayorista/acuerdo-vigente]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al resolver acuerdo' });
+    return responderError(res, err, { mensaje: 'Error al resolver acuerdo' });
   }
 });
 
@@ -454,7 +455,7 @@ router.get('/mayorista/productos/:productId/precios-proveedor', requireAnyPermis
     return res.json({ ok: true, productId, precios });
   } catch (err) {
     console.error('[mayorista/precios-proveedor]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al listar precios' });
+    return responderError(res, err, { mensaje: 'Error al listar precios' });
   }
 });
 
@@ -509,7 +510,7 @@ router.get('/mayorista/productos/:productId/ultima-venta', requireAnyPermission(
     }
     return res.json({ ok: true, encontrada: false, venta: null });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Error al buscar última venta' });
+    return responderError(res, err, { mensaje: 'Error al buscar última venta' });
   }
 });
 
@@ -530,7 +531,7 @@ router.get('/mayorista/negociaciones', requirePermission('mayorista.ver'), async
     return res.json({ ok: true, negociaciones: metas.map(mapMeta) });
   } catch (err) {
     console.error('[mayorista/list]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al listar' });
+    return responderError(res, err, { mensaje: 'Error al listar' });
   }
 });
 
@@ -540,7 +541,7 @@ router.get('/mayorista/negociaciones/siguiente-numero', requirePermission('mayor
     return res.json({ ok: true, numero_operacion });
   } catch (err) {
     console.error('[mayorista/siguiente-numero]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al obtener número de operación' });
+    return responderError(res, err, { mensaje: 'Error al obtener número de operación' });
   }
 });
 
@@ -587,7 +588,7 @@ router.post('/mayorista/negociaciones', requirePermission('mayorista.crear'), as
     return res.status(201).json({ ok: true, negociacion: meta, lineas });
   } catch (err) {
     console.error('[mayorista/create]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al crear' });
+    return responderError(res, err, { mensaje: 'Error al crear' });
   }
 });
 
@@ -713,7 +714,7 @@ router.get('/mayorista/negociaciones/resumen', requirePermission('mayorista.ver'
     });
   } catch (err) {
     console.error('[mayorista/resumen]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al calcular resumen' });
+    return responderError(res, err, { mensaje: 'Error al calcular resumen' });
   }
 });
 
@@ -723,7 +724,7 @@ router.get('/mayorista/negociaciones/:id', requirePermission('mayorista.ver'), a
     if (!data) return res.status(404).json({ error: 'Negociación no encontrada' });
     return res.json({ ok: true, negociacion: data.meta, lineas: data.lineas });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Error al cargar' });
+    return responderError(res, err, { mensaje: 'Error al cargar' });
   }
 });
 
@@ -765,7 +766,7 @@ router.put('/mayorista/negociaciones/:id', requirePermission('mayorista.editar')
     return res.json({ ok: true, negociacion: meta, lineas });
   } catch (err) {
     console.error('[mayorista/put]', err.message || err);
-    return res.status(500).json({ error: err.message || 'Error al guardar' });
+    return responderError(res, err, { mensaje: 'Error al guardar' });
   }
 });
 
@@ -817,7 +818,7 @@ router.post('/mayorista/negociaciones/:id/confirmar', requirePermission('mayoris
     await persistirNegociacion(meta, lineas);
     return res.json({ ok: true, negociacion: meta, lineas });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Error al confirmar' });
+    return responderError(res, err, { mensaje: 'Error al confirmar' });
   }
 });
 
@@ -838,7 +839,7 @@ router.post('/mayorista/negociaciones/:id/facturar', requirePermission('mayorist
     await persistirNegociacion(meta, actual.lineas);
     return res.json({ ok: true, negociacion: meta, lineas: actual.lineas });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Error al facturar' });
+    return responderError(res, err, { mensaje: 'Error al facturar' });
   }
 });
 
@@ -859,7 +860,7 @@ router.post('/mayorista/negociaciones/:id/pagar', requirePermission('mayorista.e
     await persistirNegociacion(meta, actual.lineas);
     return res.json({ ok: true, negociacion: meta, lineas: actual.lineas });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Error al marcar como pagada' });
+    return responderError(res, err, { mensaje: 'Error al marcar como pagada' });
   }
 });
 
@@ -902,7 +903,7 @@ router.post('/mayorista/negociaciones/:id/duplicar', requirePermission('mayorist
     await persistirNegociacion(meta, lineas);
     return res.status(201).json({ ok: true, negociacion: meta, lineas });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Error al duplicar' });
+    return responderError(res, err, { mensaje: 'Error al duplicar' });
   }
 });
 
@@ -931,7 +932,7 @@ router.delete('/mayorista/negociaciones/:id', requirePermission('mayorista.borra
     }
     return res.json({ ok: true });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Error al borrar' });
+    return responderError(res, err, { mensaje: 'Error al borrar' });
   }
 });
 
@@ -979,7 +980,7 @@ router.get('/mayorista/clientes', requirePermission('mayorista.ver'), async (_re
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
     return res.json({ ok: true, clientes });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Error al listar empresas' });
+    return responderError(res, err, { mensaje: 'Error al listar empresas' });
   }
 });
 

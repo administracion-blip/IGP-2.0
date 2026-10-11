@@ -14,6 +14,7 @@
 import { registrarPagoFactura } from '../../facturacion/registrarPago.js';
 import { eliminarPagoFactura } from '../../facturacion/eliminarPago.js';
 import { findRemesaActivaDeFactura } from '../../remesas/facturaEnRemesa.js';
+import { mensajeSeguro } from '../../http/responderError.js';
 import {
   ESTADO_IGNORADO,
   TOLERANCIA_CENTIMOS,
@@ -371,7 +372,7 @@ export async function aplicarConciliacion({
         id_factura: idFactura,
         code: err?.code || 'ERROR_PAGO',
         status: Number(err?.status) || 500,
-        mensaje: err?.message || 'No se ha podido registrar el pago',
+        mensaje: mensajeSeguro(err, 'No se ha podido registrar el pago'),
         ...(err?.remesaActiva && { remesaActiva: err.remesaActiva }),
       });
     }
@@ -528,7 +529,7 @@ export async function deshacerConciliacion({
       ok: false,
       code: err?.code || 'ERROR_BORRADO_PAGO',
       status: Number(err?.status) || 500,
-      mensaje: err?.message || 'No se ha podido eliminar el pago',
+      mensaje: mensajeSeguro(err, 'No se ha podido eliminar el pago'),
       ...(err?.remesaActiva && { remesaActiva: err.remesaActiva }),
     };
   }
