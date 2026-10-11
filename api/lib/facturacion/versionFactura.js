@@ -63,9 +63,21 @@ export function errorFacturaCambiada() {
   return Object.assign(new Error(MENSAJE_FACTURA_CAMBIADA), { status: 409, code: 'FACTURA_CAMBIADA' });
 }
 
+export const ESPERA_REINTENTO_MIN_MS = 30;
+export const ESPERA_REINTENTO_MAX_MS = 120;
+
+/** Espera aleatoria entre intentos para que dos peticiones que chocan no vuelvan a coincidir. */
+function esperarAntesDeReintentar() {
+  const ms = ESPERA_REINTENTO_MIN_MS
+    + Math.floor(Math.random() * (ESPERA_REINTENTO_MAX_MS - ESPERA_REINTENTO_MIN_MS + 1));
+  return new Promise((resolve) => { setTimeout(resolve, ms); });
+}
+
 /**
  * Ejecuta `fn` (lectura + cálculo + escritura condicional) y la repite releyendo
- * si la escritura choca con otra. Agotados los intentos, 409.
+ * si la escritura choca con otra. Agotados los intentos, 409. Las lecturas de
+ * `fn` tienen que ser `ConsistentRead`: una lectura eventual puede devolver la
+ * versión anterior y gastar el reintento en chocar otra vez.
  *
  * @template T
  * @param {(intento: number) => Promise<T>} fn
@@ -79,6 +91,7 @@ export async function conReintentoFactura(fn, intentos = INTENTOS_ESCRITURA_FACT
     } catch (err) {
       if (!esConflictoEscritura(err)) throw err;
       if (intento >= intentos) throw errorFacturaCambiada();
+      await esperarAntesDeReintentar();
     }
   }
 }

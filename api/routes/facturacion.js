@@ -713,7 +713,7 @@ router.put('/facturacion/facturas/:id', requirePermission('facturacion.editar'),
       let estadoLeido = estadoOriginal;
       if (intento > 1) {
         const fresca = await docClient.send(
-          new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }),
+          new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id), ConsistentRead: true }),
         );
         if (!fresca.Item) throw Object.assign(new Error('Factura no encontrada'), { status: 404 });
         const cambioDeFondo = fresca.Item.estado === 'anulada'
@@ -1501,8 +1501,12 @@ router.put('/facturacion/pagos/:id_factura/:id_pago', requirePermission('factura
     const { pagoActualizado, importeAnterior, nuevoEstado } = await conReintentoFactura(async (intento) => {
       if (intento === 1) return guardarEdicionPago(pagoResult.Item, factura, cambios);
       const [pagoFresco, facturaFresca] = await Promise.all([
-        docClient.send(new GetCommand({ TableName: tables.facturasPagos, Key: { id_factura, id_pago } })),
-        docClient.send(new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura) })),
+        docClient.send(new GetCommand({
+          TableName: tables.facturasPagos, Key: { id_factura, id_pago }, ConsistentRead: true,
+        })),
+        docClient.send(new GetCommand({
+          TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura), ConsistentRead: true,
+        })),
       ]);
       if (!pagoFresco.Item) throw Object.assign(new Error('Pago no encontrado'), { status: 404 });
       if (!facturaFresca.Item) throw Object.assign(new Error('Factura no encontrada'), { status: 404 });

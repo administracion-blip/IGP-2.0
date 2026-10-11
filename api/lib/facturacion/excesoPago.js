@@ -99,7 +99,7 @@ export function facturaTienePagosAplicacionExceso(pagos) {
  * @param {string} id_factura
  */
 export async function assertSinAplicacionesExcesoEnFactura(id_factura) {
-  const pagos = await queryPagosByFactura(id_factura);
+  const pagos = await queryPagosByFactura(id_factura, { consistente: true });
   if (facturaTienePagosAplicacionExceso(pagos)) {
     throw Object.assign(new Error(MSG_FACTURA_CON_APLICACION_EXCESO), {
       status: 400,

@@ -114,7 +114,9 @@ async function eliminarPagoUnaVez({
   let factura = facturaPrevia;
   if (!factura) {
     const result = await docClient.send(
-      new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(idFactura) }),
+      new GetCommand({
+        TableName: tables.facturas, Key: await keyForFacturaPrincipalId(idFactura), ConsistentRead: true,
+      }),
     );
     if (!result.Item) throw error(404, 'Factura no encontrada');
     factura = result.Item;
@@ -131,7 +133,9 @@ async function eliminarPagoUnaVez({
   }
 
   const pagoResult = await docClient.send(
-    new GetCommand({ TableName: tables.facturasPagos, Key: { id_factura: idFactura, id_pago: idPago } }),
+    new GetCommand({
+      TableName: tables.facturasPagos, Key: { id_factura: idFactura, id_pago: idPago }, ConsistentRead: true,
+    }),
   );
   if (!pagoResult.Item) throw error(404, 'Pago no encontrado');
   const pago = pagoResult.Item;

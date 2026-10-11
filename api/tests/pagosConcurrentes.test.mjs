@@ -147,6 +147,44 @@ for (const [caso, error] of [
   });
 }
 
+test('al reintentar, pago y borrado releen con ConsistentRead y esperan 30-120 ms entre intentos', async () => {
+  const db = escenario();
+  await pagar(10);
+  const enviar = docClient.send;
+  const lecturas = [];
+  const intentos = [];
+  let chocar = 0;
+  docClient.send = async (cmd) => {
+    const nombre = cmd?.constructor?.name;
+    if (nombre === 'TransactWriteCommand') {
+      intentos.push(Date.now());
+      if (chocar > 0) {
+        chocar -= 1;
+        throw Object.assign(new Error('conflict'), { name: 'TransactionConflictException' });
+      }
+    } else if (['GetCommand', 'QueryCommand'].includes(nombre)
+      && [tables.facturas, tables.facturasPagos].includes(cmd.input.TableName)) {
+      lecturas.push(cmd.input);
+    }
+    return enviar(cmd);
+  };
+  try {
+    chocar = 2;
+    await pagar(15, { idempotencyKey: 'k-1' });
+    chocar = 1;
+    await eliminarPagoFactura({ id_factura: 'FAC-1', id_pago: 'P001' });
+  } finally {
+    docClient.send = enviar;
+  }
+  assert.ok(lecturas.length > 0);
+  assert.deepEqual(lecturas.filter((l) => l.ConsistentRead !== true), []);
+  assert.equal(intentos.length, 5);
+  for (const [a, b] of [[0, 1], [1, 2], [3, 4]]) {
+    assert.ok(intentos[b] - intentos[a] >= 25, `espera ${intentos[b] - intentos[a]} ms`);
+  }
+  assert.equal(factura(db).total_cobrado, 15);
+});
+
 test('un error que no es de conflicto no se reintenta', async () => {
   escenario();
   const enviar = docClient.send;

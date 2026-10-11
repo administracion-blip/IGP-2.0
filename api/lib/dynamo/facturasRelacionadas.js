@@ -17,7 +17,12 @@
 import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
 
-async function queryByIdFactura(tableName, idFactura) {
+/**
+ * @param {{ consistente?: boolean }} [opts] `consistente` pide lectura fuerte
+ *   (se puede: es Query sobre la tabla base, no sobre un GSI). Hace falta al
+ *   releer para reintentar una escritura condicional.
+ */
+async function queryByIdFactura(tableName, idFactura, { consistente = false } = {}) {
   const items = [];
   let lastKey = null;
   do {
@@ -26,6 +31,7 @@ async function queryByIdFactura(tableName, idFactura) {
       KeyConditionExpression: '#fid = :fid',
       ExpressionAttributeNames: { '#fid': 'id_factura' },
       ExpressionAttributeValues: { ':fid': idFactura },
+      ...(consistente && { ConsistentRead: true }),
       ...(lastKey && { ExclusiveStartKey: lastKey }),
     }));
     items.push(...(r.Items || []));
@@ -38,8 +44,8 @@ export function queryLineasByFactura(idFactura) {
   return queryByIdFactura(tables.facturasLineas, idFactura);
 }
 
-export function queryPagosByFactura(idFactura) {
-  return queryByIdFactura(tables.facturasPagos, idFactura);
+export function queryPagosByFactura(idFactura, opts) {
+  return queryByIdFactura(tables.facturasPagos, idFactura, opts);
 }
 
 export function queryAuditoriaByFactura(idFactura) {

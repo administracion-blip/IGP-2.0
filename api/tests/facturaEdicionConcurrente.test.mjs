@@ -115,6 +115,44 @@ test('anular mientras entra un pago: 409 y el pago no se pierde', async () => {
   assert.equal(factura().total_cobrado, 40);
 });
 
+/** Lecturas de facturas/pagos hechas después del primer intento de escritura de la factura. */
+async function lecturasTrasPrimerIntento(accion) {
+  const { docClient } = await import('../lib/db.js');
+  const enviar = docClient.send;
+  const lecturas = [];
+  let escrito = false;
+  docClient.send = async (cmd) => {
+    const nombre = cmd?.constructor?.name;
+    const tabla = cmd?.input?.TableName;
+    if (nombre === 'TransactWriteCommand' || (nombre === 'PutCommand' && tabla === tables.facturas)) escrito = true;
+    else if (escrito && ['GetCommand', 'QueryCommand'].includes(nombre)
+      && [tables.facturas, tables.facturasPagos].includes(tabla)) lecturas.push(cmd.input);
+    return enviar.call(docClient, cmd);
+  };
+  try {
+    return { r: await accion(), lecturas };
+  } finally {
+    docClient.send = enviar;
+  }
+}
+
+test('al reintentar editar un pago o la factura se relee con ConsistentRead', async () => {
+  db.interceptar('TransactWriteCommand', undefined, otroPago);
+  const pago = await lecturasTrasPrimerIntento(() => api('PUT', '/api/facturacion/pagos/F-1/P001', {
+    fecha: '2026-10-01', importe: 15, metodo_pago: 'transferencia',
+  }));
+  assert.equal(pago.r.status, 200);
+  assert.ok(pago.lecturas.length >= 2);
+  assert.ok(pago.lecturas.every((l) => l.ConsistentRead === true), JSON.stringify(pago.lecturas));
+
+  db.interceptar('PutCommand', tables.facturas, otroPago);
+  const edicion = await lecturasTrasPrimerIntento(() => api('PUT', '/api/facturacion/facturas/F-1', { observaciones: 'x' }));
+  assert.equal(edicion.r.status, 200);
+  const relecturas = edicion.lecturas.filter((l) => l.TableName === tables.facturas);
+  assert.ok(relecturas.length >= 1);
+  assert.ok(relecturas.every((l) => l.ConsistentRead === true));
+});
+
 test('sin concurrencia, editar pago y anular siguen funcionando y suben la versión', async () => {
   const r = await api('PUT', '/api/facturacion/pagos/F-1/P001', { fecha: '2026-10-01', importe: 20, metodo_pago: 'transferencia' });
   assert.equal(r.status, 200);

@@ -163,7 +163,7 @@ async function registrarPagoUnaVez({
   recibo_nombre = '',
 }) {
   const existing = await docClient.send(
-    new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura) }),
+    new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id_factura), ConsistentRead: true }),
   );
   if (!existing.Item) {
     throw Object.assign(new Error('Factura no encontrada'), { status: 404 });
@@ -173,7 +173,7 @@ async function registrarPagoUnaVez({
 
   // Idempotencia: si ya hay un pago con la misma clave, no crear otro
   if (idempotencyKey) {
-    const pagosExistentes = await queryPagosByFactura(id_factura);
+    const pagosExistentes = await queryPagosByFactura(id_factura, { consistente: true });
     const previo = pagosExistentes.find((p) => p.idempotency_key === idempotencyKey);
     if (previo) {
       return { ok: true, pago: previo, factura, idempotent: true };
@@ -206,7 +206,7 @@ async function registrarPagoUnaVez({
     );
   }
 
-  const pagos = await queryPagosByFactura(id_factura);
+  const pagos = await queryPagosByFactura(id_factura, { consistente: true });
   const id_pago = siguienteIdPago(pagos);
 
   const pago = {
