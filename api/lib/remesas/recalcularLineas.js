@@ -40,7 +40,7 @@ export function normalizarLineasEntrada(raw, existentes = []) {
 /**
  * Recalcula cada línea de la remesa desde la factura actual: IBAN beneficiario y
  * datos del proveedor del maestro/factura, importe limitado al pendiente de hoy.
- * Si alguna factura ya no es remesable devuelve `ok: false` con las inválidas,
+ * Si alguna factura ya no es remesable o aparece repetida devuelve `ok: false` con las inválidas,
  * para no generar un fichero ni ejecutar pagos con parte de las líneas.
  *
  * @param {object} remesa
@@ -51,7 +51,14 @@ export function normalizarLineasEntrada(raw, existentes = []) {
 export async function recalcularLineasRemesa(remesa, { cargarFactura, cargarLineasFactura, empresasIdx }) {
   const lineas = [];
   const invalidas = [];
+  const vistas = new Set();
   for (const linea of remesa.lineas || []) {
+    const idNormalizado = String(linea.id_factura ?? '').trim();
+    if (vistas.has(idNormalizado)) {
+      invalidas.push({ id_factura: linea.id_factura, motivo: 'Factura duplicada en la remesa' });
+      continue;
+    }
+    vistas.add(idNormalizado);
     const factura = await cargarFactura(linea.id_factura);
     if (!factura) {
       invalidas.push({ id_factura: linea.id_factura, motivo: 'Factura no encontrada' });

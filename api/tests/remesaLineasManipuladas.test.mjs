@@ -218,6 +218,45 @@ test('quitar y añadir facturas por sus vías propias sigue funcionando', async 
   assert.equal(db.obtener(tables.remesas, { remesaId: remesa.remesaId }).importeTotal, 160);
 });
 
+test('facturas repetidas en facturaIds o anadirFacturaIds generan una sola línea', async () => {
+  const db = escenario();
+  const r = await api('POST', '/api/remesas', {
+    nombre: 'Remesa duplicada',
+    sociedadId: '000001',
+    facturaIds: ['FAC-1', 'FAC-1', ' FAC-1 '],
+  });
+  assert.equal(r.status, 201, r.body?.error);
+  assert.deepEqual(r.body.remesa.lineas.map((l) => l.id_factura), ['FAC-1']);
+  assert.equal(r.body.remesa.importeTotal, 100);
+
+  const anadir = await api('PATCH', `/api/remesas/${r.body.remesa.remesaId}`, {
+    anadirFacturaIds: [' FAC-1 ', 'FAC-2', 'FAC-2 '],
+  });
+  assert.equal(anadir.status, 200, anadir.body?.error);
+  const guardada = db.obtener(tables.remesas, { remesaId: r.body.remesa.remesaId });
+  assert.deepEqual(guardada.lineas.map((l) => l.id_factura), ['FAC-1', 'FAC-2']);
+  assert.equal(guardada.importeTotal, 160);
+});
+
+test('líneas duplicadas inyectadas en BD: 409 en fichero y ejecutar, sin pagos', async () => {
+  const db = escenario();
+  const remesa = await crearRemesa();
+  const guardada = db.obtener(tables.remesas, { remesaId: remesa.remesaId });
+  const fac1 = guardada.lineas.find((l) => l.id_factura === 'FAC-1');
+  db.sembrar(tables.remesas, { ...guardada, lineas: [fac1, { ...fac1 }] });
+
+  const fichero = await descargarFichero(remesa.remesaId);
+  assert.equal(fichero.status, 409);
+  assert.match(fichero.body.error, /Revalida/);
+  assert.deepEqual(fichero.body.invalidas, [{ id_factura: 'FAC-1', motivo: 'Factura duplicada en la remesa' }]);
+  assert.equal(db.obtener(tables.remesas, { remesaId: remesa.remesaId }).estado, 'Borrador');
+
+  const ejecutar = await api('POST', `/api/remesas/${remesa.remesaId}/ejecutar`, { fecha: '2026-08-11' });
+  assert.equal(ejecutar.status, 409);
+  assert.equal(db.listar(tables.facturasPagos).length, 0);
+  assert.equal(db.obtener(tables.remesas, { remesaId: remesa.remesaId }).estado, 'Borrador');
+});
+
 test('normalizarLineasEntrada: solo importe y concepto, acotado a [0, importeMaximo]', () => {
   const existentes = [{ id_factura: 'A', ibanBeneficiario: IBAN_PROVEEDOR, importe: 50, importeMaximo: 50, concepto: 'c' }];
   const [l] = normalizarLineasEntrada([{ id_factura: 'A', importe: -10, ibanBeneficiario: IBAN_ATACANTE, importeMaximo: 1e6 }], existentes);

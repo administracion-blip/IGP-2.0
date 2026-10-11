@@ -150,7 +150,9 @@ router.post('/remesas', requirePermission('remesas.gestionar'), async (req, res)
   const b = req.body || {};
   const nombre = String(b.nombre || '').trim();
   const sociedadId = String(b.sociedadId || '').trim();
-  const facturaIds = Array.isArray(b.facturaIds) ? b.facturaIds.map((id) => String(id).trim()).filter(Boolean) : [];
+  const facturaIds = Array.isArray(b.facturaIds)
+    ? [...new Set(b.facturaIds.map((id) => String(id).trim()).filter(Boolean))]
+    : [];
   const fechaEjecucion = String(b.fechaEjecucion || '').trim();
   const cuentaOrdenanteInput = String(b.cuentaOrdenante || '').trim();
 
@@ -286,11 +288,11 @@ router.patch('/remesas/:remesaId', requirePermission('remesas.gestionar'), async
     if (b.anadirFacturaIds && Array.isArray(b.anadirFacturaIds)) {
       const empresasIdx = indexarEmpresas(await scanEmpresas());
       const remesasActivas = await scanRemesas();
-      const idsActuales = new Set((remesa.lineas || []).map((l) => l.id_factura));
+      const idsActuales = new Set((remesa.lineas || []).map((l) => String(l.id_factura ?? '').trim()));
       const nuevasExcluidas = [...(remesa.excluidas || [])];
 
-      for (const fid of b.anadirFacturaIds) {
-        if (idsActuales.has(fid)) continue;
+      for (const fid of b.anadirFacturaIds.map((id) => String(id ?? '').trim())) {
+        if (!fid || idsActuales.has(fid)) continue;
         const dup = facturaEnRemesaActiva(remesasActivas, fid, remesaId);
         if (dup) {
           nuevasExcluidas.push({ id_factura: fid, motivo: `Ya en remesa ${dup.nombre || dup.remesaId}` });
