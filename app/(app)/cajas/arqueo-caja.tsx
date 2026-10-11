@@ -1659,14 +1659,16 @@ export default function ArqueoCajaScreen() {
                 {jornada.jornada?.cerradoPor ? (
                   <Text style={styles.jornadaMeta}>Cerrada por {jornada.jornada.cerradoPor}</Text>
                 ) : null}
-                <TouchableOpacity
-                  style={[styles.estadoBtn, styles.estadoBtnReabrir, styles.jornadaActionBtn]}
-                  onPress={() => cambiarEstadoJornada('reabrir')}
-                  disabled={jornadaBusy}
-                >
-                  {jornadaBusy ? <ActivityIndicator size="small" color="#b45309" /> : <MaterialIcons name="lock-open" size={16} color="#b45309" />}
-                  <Text style={styles.estadoBtnReabrirText}>Reabrir jornada</Text>
-                </TouchableOpacity>
+                {hasPermiso('cierres.ver') ? (
+                  <TouchableOpacity
+                    style={[styles.estadoBtn, styles.estadoBtnReabrir, styles.jornadaActionBtn]}
+                    onPress={() => cambiarEstadoJornada('reabrir')}
+                    disabled={jornadaBusy}
+                  >
+                    {jornadaBusy ? <ActivityIndicator size="small" color="#b45309" /> : <MaterialIcons name="lock-open" size={16} color="#b45309" />}
+                    <Text style={styles.estadoBtnReabrirText}>Reabrir jornada</Text>
+                  </TouchableOpacity>
+                ) : null}
               </>
             ) : (
               <>
