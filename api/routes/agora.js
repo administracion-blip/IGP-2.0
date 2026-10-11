@@ -1687,7 +1687,7 @@ router.get('/agora/users', async (req, res) => {
   }
 });
 
-router.post('/agora/users/sync', async (req, res) => {
+router.post('/agora/users/sync', requireAnyPermission('ajustes.sincronizaciones.agora_usuarios', 'usuarios_agora.sincronizar'), async (req, res) => {
   const { AGORA_API_BASE_URL, AGORA_API_TOKEN } = env();
   const force =
     req.body?.force === true ||
@@ -2503,7 +2503,7 @@ router.get('/agora/formas-pago', async (_req, res) => {
 });
 
 // POST /api/agora/payment-methods/sync — sincroniza el maestro desde Ágora
-router.post('/agora/payment-methods/sync', async (_req, res) => {
+router.post('/agora/payment-methods/sync', requireAnyPermission('ajustes.sincronizaciones.closeouts', 'formas_pago.editar'), async (_req, res) => {
   try {
     const list = await exportPaymentMethods();
     const result = await upsertFormasFromAgora(list);
@@ -4821,7 +4821,7 @@ router.post('/agora/purchases/sync', async (req, res) => {
   }
 });
 
-router.post('/agora/sales-lines/sync', async (req, res) => {
+router.post('/agora/sales-lines/sync', requirePermission('ajustes.sincronizaciones.ventas_producto'), async (req, res) => {
   const body = req.body || {};
   const force = body.force === true || String(req.query.force || '') === '1';
 
@@ -4861,7 +4861,7 @@ router.post('/agora/sales-lines/sync', async (req, res) => {
   }
 });
 
-router.post('/agora/sales-lines/full-sync', async (req, res) => {
+router.post('/agora/sales-lines/full-sync', requirePermission('ajustes.sincronizaciones.ventas_producto'), async (req, res) => {
   const body = req.body || {};
   const today = new Date().toISOString().slice(0, 10);
   const default60daysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
