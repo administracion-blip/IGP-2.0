@@ -12,6 +12,7 @@ import {
   CAMPOS_CIERRE_SIN_FACTURA,
 } from '../lib/facturacion/facturarMantenimiento.js';
 import { rankearSimilares } from '../lib/mantenimiento/similaresIncidencia.js';
+import { imagenDataUrlSegura, MENSAJE_TIPO_NO_PERMITIDO } from '../lib/seguridad/subidas.js';
 
 const router = express.Router();
 
@@ -599,7 +600,9 @@ router.post('/mantenimiento/incidencias', requirePermission('mantenimiento.crear
   const titulo = (body.titulo ?? '').toString().trim();
   const descripcion = (body.descripcion ?? '').toString().trim();
   const prioridadReportada = (body.prioridad_reportada ?? 'media').toString().trim().toLowerCase();
-  const fotos = Array.isArray(body.fotos) ? body.fotos.filter((f) => typeof f === 'string' && f.length > 0).slice(0, 3) : [];
+  const fotosIn = Array.isArray(body.fotos) ? body.fotos.filter((f) => typeof f === 'string' && f.length > 0).slice(0, 3) : [];
+  const fotos = fotosIn.map((f) => (/^https?:\/\//i.test(f) ? f : imagenDataUrlSegura(f)));
+  if (fotos.some((f) => !f)) return res.status(400).json({ error: MENSAJE_TIPO_NO_PERMITIDO });
   const creadoPor = (body.creado_por_id_usuario ?? req.headers['x-user-id'] ?? '').toString().trim();
 
   if (!localId) return res.status(400).json({ error: 'local_id es obligatorio' });

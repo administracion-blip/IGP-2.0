@@ -2,7 +2,7 @@
  * Cashflow — pagos/cobros en efectivo fuera del TPV con recibí firmado.
  */
 import { Router } from 'express';
-import multer from 'multer';
+import { multerPerfil, rechazaArchivo } from '../lib/seguridad/subidas.js';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { ScanCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
@@ -23,7 +23,7 @@ import {
 } from '../lib/cashflow/store.js';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
+const upload = multerPerfil('firma');
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'eu-west-3' });
 const S3_BUCKET = process.env.S3_BUCKET || 'igp-2.0-files';
 const UMBRAL = Number(process.env.CASHFLOW_UMBRAL_VALIDACION) || 300;
@@ -308,6 +308,7 @@ router.post('/cashflow/:movimientoId/firmar', requirePermission('cashflow.regist
   if (item.estado !== 'Pendiente_firma') {
     return res.status(400).json({ error: 'El movimiento no está pendiente de firma' });
   }
+  if (rechazaArchivo(res, { buffer: firmaBuffer }, 'firma')) return;
 
   const ts = nowIso();
   const anio = (item.fecha || ts).slice(0, 4);

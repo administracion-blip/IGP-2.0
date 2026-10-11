@@ -56,9 +56,10 @@ import {
   verificarEtiqueta,
 } from '../lib/activos/servicio.js';
 import { bufferFirmaBase64 } from '../lib/activos/firma.js';
+import { comprobarArchivo, multerPerfil } from '../lib/seguridad/subidas.js';
 
 const router = Router();
-const uploadFirma = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
+const uploadFirma = multerPerfil('firma');
 
 function userDe(req) {
   return req.user;
@@ -226,6 +227,11 @@ router.post(
     }
     if (!firmaBuffer?.length) {
       return res.status(400).json({ error: 'Falta la firma del trabajador (file o firmaBase64)' });
+    }
+    try {
+      comprobarArchivo({ buffer: firmaBuffer }, 'firma');
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
     }
     res.status(201).json(await entregarActivos(userDe(req), body, firmaBuffer));
   },

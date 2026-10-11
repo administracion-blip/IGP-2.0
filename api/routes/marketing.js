@@ -21,7 +21,7 @@
 
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import multer from 'multer';
+import { comprobarArchivo, multerPerfil } from '../lib/seguridad/subidas.js';
 import {
   GetCommand,
   PutCommand,
@@ -49,10 +49,7 @@ const S3_BUCKET = process.env.S3_BUCKET || 'igp-2.0-files';
 const s3 = new S3Client({ region });
 
 // Upload de imágenes en memoria. Límite 10MB; el frontend ya redimensiona.
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
-});
+const upload = multerPerfil('imagen', { maxBytes: 10 * 1024 * 1024 });
 
 const MIMES_IMAGEN_VALIDOS = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const EXT_POR_MIME = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
@@ -1244,6 +1241,7 @@ router.post(
   upload.single('file'),
   async (req, res) => {
     if (!req.file) throw badRequest('Falta el archivo (campo "file")');
+    comprobarArchivo(req.file, 'imagen');
     const mime = req.file.mimetype;
     if (!MIMES_IMAGEN_VALIDOS.has(mime)) {
       throw badRequest('Tipo de imagen no soportado. Usa JPEG, PNG o WebP.');

@@ -7,7 +7,7 @@
  */
 import { responderError } from '../lib/http/responderError.js';
 import express from 'express';
-import multer from 'multer';
+import { extensionDeTipo, multerPerfil, validarSubidas } from '../lib/seguridad/subidas.js';
 import { randomUUID } from 'crypto';
 import { GetCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
@@ -27,10 +27,7 @@ import { cargarAlcance, claveS3AjenaAlLocal } from '../lib/alcance.js';
 const router = express.Router();
 
 const permisoArqueo = requireAnyPermission('planning_dia.arqueo', 'cierres.ver');
-const uploadJustificante = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 12 * 1024 * 1024 },
-});
+const uploadJustificante = multerPerfil('imagen', { maxBytes: 12 * 1024 * 1024 });
 
 const region = process.env.AWS_REGION || 'eu-west-3';
 const S3_BUCKET = process.env.S3_BUCKET || 'igp-2.0-files';
@@ -67,7 +64,7 @@ router.get('/cajas/movimientos', permisoArqueo, requireLocal(desde.query('workpl
 
 // POST /api/cajas/movimientos/justificante — multipart: imagen (+ workplaceId, businessDay)
 const localBodyJustificante = requireLocal(desde.body('workplaceId'));
-router.post('/cajas/movimientos/justificante', permisoArqueo, uploadJustificante.single('imagen'), localBodyJustificante, async (req, res) => {
+router.post('/cajas/movimientos/justificante', permisoArqueo, uploadJustificante.single('imagen'), localBodyJustificante, validarSubidas('imagen'), async (req, res) => {
   const file = req.file;
   if (!file?.buffer) return res.status(400).json({ error: 'Falta imagen (campo imagen)' });
   const workplaceId = String(req.body.workplaceId || '').trim();
@@ -83,10 +80,10 @@ router.post('/cajas/movimientos/justificante', permisoArqueo, uploadJustificante
         .toBuffer();
     } catch (e) {
       console.warn('[movimientos/justificante] sharp', e.message || e);
-      contentType = file.mimetype || 'application/octet-stream';
+      contentType = file.mimetype;
     }
     const base = workplaceId && isoDay(businessDay) ? `${workplaceId}/${businessDay}` : 'anon';
-    const key = `${JUSTIF_PREFIX}${base}/${randomUUID()}.jpg`;
+    const key = `${JUSTIF_PREFIX}${base}/${randomUUID()}.${extensionDeTipo(contentType)}`;
     await s3.send(new PutObjectCommand({
       Bucket: S3_BUCKET,
       Key: key,

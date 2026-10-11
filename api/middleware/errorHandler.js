@@ -15,6 +15,12 @@ const AWS_ERROR_MAP = {
   ValidationException: { status: 400, code: 'AWS_VALIDATION' },
 };
 
+const MENSAJES_MULTER = {
+  LIMIT_FILE_SIZE: 'El archivo supera el tamaño máximo permitido',
+  LIMIT_FILE_COUNT: 'Demasiados archivos en la misma subida',
+  LIMIT_UNEXPECTED_FILE: 'Campo de archivo no esperado o demasiados archivos',
+};
+
 function shortErrorId() {
   return crypto.randomBytes(6).toString('hex');
 }
@@ -46,7 +52,7 @@ export function errorHandler(err, req, res, _next) {
   // Multer (tamaño / tipo rechazado vía fileFilter sin status) → 400
   if (err?.name === 'MulterError') {
     log.warn({ err }, '[errorHandler] MulterError');
-    return res.status(400).json({ error: err.message || 'Archivo no válido' });
+    return res.status(400).json({ error: MENSAJES_MULTER[err.code] || 'Archivo no válido' });
   }
 
   // Errores conocidos del SDK de AWS

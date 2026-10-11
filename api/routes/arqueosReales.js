@@ -4,7 +4,7 @@
  */
 import { responderError } from '../lib/http/responderError.js';
 import express from 'express';
-import multer from 'multer';
+import { extensionDeTipo, multerPerfil, rechazaArchivo } from '../lib/seguridad/subidas.js';
 import { randomUUID } from 'crypto';
 import { QueryCommand, GetCommand, PutCommand, DeleteCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
@@ -41,10 +41,7 @@ const localBodyWorkplace = requireLocal(desde.body('workplaceId', 'PK'));
 const GRUPO_TARJETA = 'Tarjeta';
 
 const router = express.Router();
-const uploadOcr = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 12 * 1024 * 1024 },
-});
+const uploadOcr = multerPerfil('imagen', { maxBytes: 12 * 1024 * 1024 });
 
 const region = process.env.AWS_REGION || 'eu-west-3';
 const S3_BUCKET = process.env.S3_BUCKET || 'igp-2.0-files';
@@ -349,8 +346,10 @@ router.post('/cajas/arqueos-reales/ocr-ticket', permisoArqueo, uploadOcr.single(
   if (!LINE_ID_RE.test(lineId)) {
     return res.status(400).json({ error: 'lineId no válido: solo letras, números, guiones y guiones bajos (máx. 64)' });
   }
+  if (rechazaArchivo(res, file, 'imagen')) return;
   try {
     let buf = file.buffer;
+    let tipo = 'image/jpeg';
     try {
       buf = await sharp(buf)
         .rotate()
@@ -361,7 +360,9 @@ router.post('/cajas/arqueos-reales/ocr-ticket', permisoArqueo, uploadOcr.single(
         .toBuffer();
     } catch (e) {
       console.warn('[ocr-ticket] sharp', e.message || e);
+      tipo = file.mimetype;
     }
+    const ext = extensionDeTipo(tipo);
 
     const { data } = await Tesseract.recognize(buf, 'spa+eng', { logger: () => {} });
     const text = data?.text || '';
@@ -371,14 +372,14 @@ router.post('/cajas/arqueos-reales/ocr-ticket', permisoArqueo, uploadOcr.single(
     try {
       const prefix =
         workplaceId && businessDay && /^\d{4}-\d{2}-\d{2}$/.test(businessDay)
-          ? `arqueos-tickets/${workplaceId}/${businessDay}/${lineId}-${randomUUID()}.jpg`
-          : `arqueos-tickets/anon/${randomUUID()}.jpg`;
+          ? `arqueos-tickets/${workplaceId}/${businessDay}/${lineId}-${randomUUID()}.${ext}`
+          : `arqueos-tickets/anon/${randomUUID()}.${ext}`;
       await s3.send(
         new PutObjectCommand({
           Bucket: S3_BUCKET,
           Key: prefix,
           Body: buf,
-          ContentType: 'image/jpeg',
+          ContentType: tipo,
         }),
       );
       imagenKey = prefix;

@@ -6,7 +6,9 @@
 import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import crypto from 'crypto';
-import multer from 'multer';
+import {
+  PERFILES, detectarTipo, extensionDeTipo, multerPerfil, validarSubidas,
+} from '../lib/seguridad/subidas.js';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { requirePermission } from '../middleware/auth.js';
@@ -32,7 +34,7 @@ import { normalizeLocalesUsuario, tieneAlcanceGlobalLocales } from '../lib/usuar
 import { findUsuarioByEmail } from '../lib/dynamo/usuarios.js';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+const upload = multerPerfil('imagen', { maxBytes: 15 * 1024 * 1024 });
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'eu-west-3' });
 const S3_BUCKET = process.env.S3_BUCKET || 'igp-2.0-files';
 const PRESIGN_EXPIRES = 3600;
@@ -244,9 +246,14 @@ router.get('/escandallos/:productoId/imagen', requirePermission('escandallos.ver
     const chunks = [];
     for await (const chunk of obj.Body) chunks.push(chunk);
     const buffer = Buffer.concat(chunks);
-    const ext = String(key).match(/\.([a-zA-Z0-9]{1,8})$/)?.[1] || 'jpg';
-    res.setHeader('Content-Type', obj.ContentType || 'image/jpeg');
-    res.setHeader('Content-Disposition', `inline; filename="escandallo-${productoId}.${ext}"`);
+    // Se sirve desde el origen del API: el tipo sale del contenido, nunca del ContentType guardado.
+    const tipo = detectarTipo(buffer);
+    if (!tipo || !PERFILES.imagen.tipos.includes(tipo)) {
+      return res.status(415).json({ error: 'Tipo de archivo no permitido' });
+    }
+    res.setHeader('Content-Type', tipo);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', `inline; filename="escandallo-${productoId}.${extensionDeTipo(tipo)}"`);
     return res.send(buffer);
   } catch (err) {
     return responderError(res, err, { mensaje: 'Error al leer imagen' });
@@ -257,6 +264,7 @@ router.post(
   '/escandallos/:productoId/imagen',
   requirePermission('escandallos.editar'),
   upload.single('file'),
+  validarSubidas('imagen'),
   async (req, res) => {
     const productoId = normalizeProductId(req.params.productoId);
     if (!productoId) {
@@ -266,14 +274,13 @@ router.post(
       return res.status(400).json({ error: 'Falta archivo (field: file)' });
     }
     try {
-      const ext = (req.file.originalname || 'img').match(/\.([a-zA-Z0-9]{1,8})$/)?.[1] || 'jpg';
-      const key = `escandallos/${productoId}/${Date.now()}_${uuid().slice(0, 8)}.${ext}`;
+      const key = `escandallos/${productoId}/${Date.now()}_${uuid().slice(0, 8)}.${req.file.extDetectada}`;
       await s3.send(
         new PutObjectCommand({
           Bucket: S3_BUCKET,
           Key: key,
           Body: req.file.buffer,
-          ContentType: req.file.mimetype || 'image/jpeg',
+          ContentType: req.file.mimetype,
         }),
       );
       await setImagenKey(productoId, key);

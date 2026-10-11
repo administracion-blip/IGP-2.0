@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import multer from 'multer';
+import { multerPerfil, rechazaArchivo } from '../lib/seguridad/subidas.js';
 import {
   ScanCommand,
   GetCommand,
@@ -32,7 +32,7 @@ import {
 import { camposFechaVirtuales } from '../lib/actuacionFechaVirtual.js';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+const upload = multerPerfil('imagen', { maxBytes: 15 * 1024 * 1024 });
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'eu-west-3' });
 
 const S3_BUCKET = process.env.S3_BUCKET || 'igp-2.0-files';
@@ -358,15 +358,15 @@ router.post('/artistas/:id/imagen', upload.single('file'), async (req, res) => {
     return res.status(403).json({ error: 'Permiso insuficiente' });
   }
   if (!req.file?.buffer) return res.status(400).json({ error: 'Falta archivo (field: file)' });
+  if (rechazaArchivo(res, req.file, 'imagen')) return;
   const id = req.params.id;
-  const ext = (req.file.originalname || 'img').match(/\.([a-zA-Z0-9]{1,8})$/)?.[1] || 'jpg';
-  const key = `artistas/${id}/${Date.now()}_${uuid().slice(0, 8)}.${ext}`;
+  const key = `artistas/${id}/${Date.now()}_${uuid().slice(0, 8)}.${req.file.extDetectada}`;
   await s3.send(
     new PutObjectCommand({
       Bucket: S3_BUCKET,
       Key: key,
       Body: req.file.buffer,
-      ContentType: req.file.mimetype || 'image/jpeg',
+      ContentType: req.file.mimetype,
     })
   );
   const r = await docClient.send(new GetCommand({ TableName: tables.artistas, Key: { id_artista: id } }));
@@ -999,14 +999,14 @@ router.post('/actuaciones/item/:id/firma', upload.single('file'), async (req, re
   const id = req.params.id;
   const r = await docClient.send(new GetCommand({ TableName: tables.actuaciones, Key: { id_actuacion: id } }));
   if (!(await assertAccesoLocalActuacion(req, res, r.Item))) return;
-  const ext = (req.file.originalname || 'firma.png').match(/\.([a-zA-Z0-9]{1,8})$/)?.[1] || 'png';
-  const key = `actuaciones/${id}/firma_${Date.now()}.${ext}`;
+  if (rechazaArchivo(res, req.file, 'firma')) return;
+  const key = `actuaciones/${id}/firma_${Date.now()}.${req.file.extDetectada}`;
   await s3.send(
     new PutObjectCommand({
       Bucket: S3_BUCKET,
       Key: key,
       Body: req.file.buffer,
-      ContentType: req.file.mimetype || 'image/png',
+      ContentType: req.file.mimetype,
     })
   );
   const ts = now();

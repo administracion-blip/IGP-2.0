@@ -237,7 +237,9 @@ async function firmar(id, usuario = ENCARGADO_NORTE) {
   usuarioActual = usuario;
   await arrancar();
   const form = new FormData();
-  form.append('file', new Blob([Buffer.from('png-falso')], { type: 'image/png' }), 'firma.png');
+  // PNG real de 1×1: desde S-20 la firma se valida por contenido.
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+  form.append('file', new Blob([png], { type: 'image/png' }), 'firma.png');
   const res = await fetch(`${base}/api/actuaciones/item/${id}/firma`, { method: 'POST', body: form });
   return { status: res.status, body: await res.json().catch(() => ({})) };
 }

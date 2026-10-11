@@ -10,6 +10,7 @@
 import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import multer from 'multer';
+import { detectarTipo, PERFILES } from '../lib/seguridad/subidas.js';
 import path from 'path';
 import { requirePermission } from '../middleware/auth.js';
 import { limpiarIban, validarIban } from '../lib/remesas/iban.js';
@@ -88,9 +89,18 @@ function filtroExtracto(_req, file, cb) {
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
   fileFilter: filtroExtracto,
 });
+
+/**
+ * ContentType del original en S3: el de la hoja si el contenido lo es; el resto
+ * (Norma 43, texto) como binario. Nunca el que declara el cliente.
+ */
+function tipoExtractoGuardado(buffer, nombreFichero) {
+  const tipo = detectarTipo(buffer, nombreFichero);
+  return tipo && PERFILES.hoja.tipos.includes(tipo) ? tipo : 'application/octet-stream';
+}
 
 const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -227,7 +237,7 @@ router.post(
         buffer,
         hashFichero: extracto.hashFichero,
         nombreFichero,
-        tipoMime: req.file.mimetype,
+        tipoMime: tipoExtractoGuardado(buffer, nombreFichero),
       }),
     });
 

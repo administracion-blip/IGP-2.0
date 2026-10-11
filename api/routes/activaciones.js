@@ -14,7 +14,7 @@
 import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import multer from 'multer';
+import { multerPerfil, validarSubidas } from '../lib/seguridad/subidas.js';
 import {
   S3Client,
   PutObjectCommand,
@@ -42,7 +42,7 @@ const tableSesiones = tables.activacionSesiones;
 
 const S3_BUCKET = process.env.S3_BUCKET || 'igp-2.0-files';
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'eu-west-3' });
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const upload = multerPerfil('adjunto');
 
 const ESTADOS_FICHA = ['borrador', 'activa', 'archivada'];
 const ESTADOS_SESION = ['programada', 'realizada', 'cancelada'];
@@ -603,7 +603,7 @@ router.post('/activaciones/:id_activacion/sesiones', requirePermission('activaci
 
 // ─── Adjuntos ficha maestra (S3) ───
 
-router.post('/activaciones/:id_activacion/adjuntos', requirePermission('activaciones.gestionar'), upload.single('file'), async (req, res) => {
+router.post('/activaciones/:id_activacion/adjuntos', requirePermission('activaciones.gestionar'), upload.single('file'), validarSubidas('adjunto'), async (req, res) => {
   const idActivacion = String(req.params.id_activacion);
   if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
 
@@ -611,7 +611,7 @@ router.post('/activaciones/:id_activacion/adjuntos', requirePermission('activaci
     const existing = await getFicha(idActivacion);
     if (!existing) return res.status(404).json({ error: 'Activación no encontrada' });
 
-    const ext = (req.file.originalname || 'file').split('.').pop();
+    const ext = req.file.extDetectada;
     const fileKey = `activaciones/${idActivacion}/${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${ext}`;
 
     await s3.send(new PutObjectCommand({

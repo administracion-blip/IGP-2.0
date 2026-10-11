@@ -18,7 +18,7 @@
 import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import multer from 'multer';
+import { multerPerfil, rechazaArchivo } from '../lib/seguridad/subidas.js';
 import {
   S3Client,
   PutObjectCommand,
@@ -45,7 +45,7 @@ const tReg = tables.limpiezaRegistros;
 
 const S3_BUCKET = process.env.S3_BUCKET || 'igp-2.0-files';
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'eu-west-3' });
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const upload = multerPerfil('imagen', { maxFicheros: 3 });
 
 const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 const FRECUENCIAS = ['diaria', 'cada_n_dias', 'semanal', 'mensual', 'trimestral', 'anual', 'personalizada'];
@@ -1023,6 +1023,9 @@ router.post(
 
     const fotos = req.files?.foto || [];
     if (fotos.length === 0) return res.status(400).json({ error: 'Se requiere al menos una foto' });
+    for (const f of fotos) {
+      if (rechazaArchivo(res, f, 'imagen')) return;
+    }
 
     try {
       const existente = await getRegistro(localId, fecha, objetoId, tareaKey);
@@ -1031,8 +1034,7 @@ router.post(
       const base = `limpieza/${localId}/${fecha}/${objetoId}${tareaKey ? `/${tareaKey}` : ''}`;
       const fotoKeys = [];
       for (const f of fotos) {
-        const ext = (f.originalname || 'foto.jpg').split('.').pop();
-        const key = `${base}/foto_${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${ext}`;
+        const key = `${base}/foto_${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${f.extDetectada}`;
         await s3.send(new PutObjectCommand({ Bucket: S3_BUCKET, Key: key, Body: f.buffer, ContentType: f.mimetype }));
         fotoKeys.push(key);
       }
