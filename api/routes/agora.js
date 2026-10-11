@@ -2521,7 +2521,7 @@ router.post('/agora/payment-methods/sync', requireAnyPermission('ajustes.sincron
 });
 
 // PUT /api/agora/formas-pago/:agoraId — edita config del maestro (canonico, arquear, orden)
-router.put('/agora/formas-pago/:agoraId', async (req, res) => {
+router.put('/agora/formas-pago/:agoraId', requireAnyPermission('formas_pago.editar', 'cierres.ver'), async (req, res) => {
   const sk = String(req.params.agoraId || '').trim();
   if (!sk) return res.status(400).json({ error: 'agoraId obligatorio' });
   const body = req.body || {};
