@@ -120,6 +120,14 @@ test('extraer-zona y preview-png siguen leyendo claves de facturas/ocr-temp/', a
   ]);
 });
 
+test('nombres saneados con puntos intermedios (Fra_12..pdf) siguen siendo claves válidas', async () => {
+  const fileKey = 'facturas/ocr-temp/1_ab_Fra_12..pdf';
+  assert.deepEqual(validarClaveS3(fileKey, ['facturas/ocr-temp/']), { ok: true, key: fileKey });
+  const prev = await api('GET', `/api/facturacion/ocr/preview-png?fileKey=${encodeURIComponent(fileKey)}`);
+  assert.match(prev.body.error, /no soportado/, 'llega a leer el objeto');
+  assert.deepEqual(llamadasS3, [{ tipo: 'GetObjectCommand', key: fileKey }]);
+});
+
 test('ocr/confirmar no acepta como documento una clave de otro módulo', async () => {
   const r = await api('POST', '/api/facturacion/ocr/confirmar', {
     borradores: [{
@@ -140,6 +148,9 @@ test('validarClaveS3: matriz de casos', () => {
   assert.deepEqual(validarClaveS3('facturas/ocr-temp/1_a_b.pdf', P), { ok: true, key: 'facturas/ocr-temp/1_a_b.pdf' });
   for (const mala of [...CLAVES_AJENAS, null, undefined, 42, ['facturas/ocr-temp/x'], 'facturas/ocr-temp/a\u0000b', 'facturas/ocr-temp/./x', `facturas/ocr-temp/${'a'.repeat(1100)}`]) {
     assert.equal(validarClaveS3(mala, P).ok, false, String(mala));
+  }
+  for (const mala of ['facturas/ocr-temp/../actas/x.pdf', 'facturas/ocr-temp/a/../../x', 'facturas/ocr-temp/..']) {
+    assert.equal(validarClaveS3(mala, P).ok, false, mala);
   }
   assert.equal(validarClaveS3('facturas/ocr-temp/x.pdf', []).ok, false, 'sin prefijos no se permite nada');
   assert.equal(validarClaveS3('facturas/ocr-temp-otro/x.pdf', ['facturas/ocr-temp']).ok, false, 'un prefijo sin barra final no vale');

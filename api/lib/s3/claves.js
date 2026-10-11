@@ -21,9 +21,8 @@ export function validarClaveS3(fileKey, prefijosPermitidos) {
     fileKey.startsWith('/')
     || fileKey.includes('\\')
     || fileKey.includes('//')
-    || fileKey.includes('..')
     || /[\u0000-\u001f\u007f]/.test(fileKey)
-    || fileKey.split('/').some((seg) => seg === '.')
+    || fileKey.split('/').some((seg) => seg === '.' || seg === '..')
   ) {
     return { ok: false, error: 'fileKey inválido' };
   }
