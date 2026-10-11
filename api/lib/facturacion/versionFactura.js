@@ -43,6 +43,31 @@ export function putFacturaVersionada(factura, versionLeida, extra = {}) {
   };
 }
 
+/**
+ * Añade a un UpdateCommand de factura la subida de `version`, para que un Put
+ * versionado que leyó antes del Update falle y relea en vez de pisarlo. Sin
+ * `version`, la factura cuenta como 1 (igual que en `putFacturaVersionada`) y
+ * pasa a 2.
+ *
+ * @param {object} params Parámetros del UpdateCommand con `UpdateExpression` `SET ...`.
+ */
+export function updateFacturaVersionado(params) {
+  const expr = String(params.UpdateExpression || '').trim();
+  if (!/^SET\s/i.test(expr)) throw new Error('updateFacturaVersionado espera un UpdateExpression que empiece por SET');
+  const subida = '#ver = if_not_exists(#ver, :verUno) + :verUno';
+  const otraClausula = expr.search(/\s(REMOVE|ADD|DELETE)\s/i);
+  const UpdateExpression = otraClausula === -1
+    ? `${expr}, ${subida}`
+    : `${expr.slice(0, otraClausula)}, ${subida}${expr.slice(otraClausula)}`;
+  return {
+    ...params,
+    TableName: tables.facturas,
+    UpdateExpression,
+    ExpressionAttributeNames: { ...(params.ExpressionAttributeNames || {}), '#ver': 'version' },
+    ExpressionAttributeValues: { ...(params.ExpressionAttributeValues || {}), ':verUno': 1 },
+  };
+}
+
 const RAZONES_CONFLICTO = new Set(['ConditionalCheckFailed', 'TransactionConflict']);
 
 /**

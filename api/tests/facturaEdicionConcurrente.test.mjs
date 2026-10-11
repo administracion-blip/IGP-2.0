@@ -153,6 +153,73 @@ test('al reintentar editar un pago o la factura se relee con ConsistentRead', as
   assert.ok(relecturas.every((l) => l.ConsistentRead === true));
 });
 
+test('check-vencimientos: si un pago la deja pagada entre el Scan y el Update, no se marca vencida (omitida)', async () => {
+  db.sembrar(tables.facturas, { ...factura(), fecha_vencimiento: '2020-01-01' });
+  db.interceptar('UpdateCommand', tables.facturas, () => registrarPagoFactura({
+    id_factura: 'F-1', fecha: '2026-10-02', importe: 90, metodo_pago: 'transferencia',
+  }));
+  const r = await api('POST', '/api/facturacion/check-vencimientos');
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.actualizadas, 0);
+  assert.equal(r.body.omitidas, 1);
+  assert.equal(factura().estado, 'pagada');
+  assert.equal(factura().saldo_pendiente, 0);
+});
+
+test('check-vencimientos sin carrera marca vencida y sube la versión', async () => {
+  db.sembrar(tables.facturas, { ...factura(), fecha_vencimiento: '2020-01-01' });
+  const r = await api('POST', '/api/facturacion/check-vencimientos');
+  assert.equal(r.body.actualizadas, 1);
+  assert.equal(r.body.omitidas, 0);
+  assert.equal(factura().estado, 'vencida');
+  assert.equal(factura().version, 4);
+});
+
+test('un Update de factura entre la lectura y el Put de un pago: el pago relee y no pisa el Update', async () => {
+  const { docClient } = await import('../lib/db.js');
+  const { UpdateCommand } = await import('@aws-sdk/lib-dynamodb');
+  const { updateFacturaVersionado } = await import('../lib/facturacion/versionFactura.js');
+  // Factura antigua sin version: el Update se la crea y el Put condicionado a
+  // attribute_not_exists(version) tiene que fallar y releer.
+  const { version: _v, ...sinVersion } = factura();
+  db.sembrar(tables.facturas, sinVersion);
+  db.interceptar('TransactWriteCommand', undefined, () => docClient.send(new UpdateCommand(updateFacturaVersionado({
+    Key: { id_factura: 'F-1' },
+    UpdateExpression: 'SET adjuntos = :adj',
+    ExpressionAttributeValues: { ':adj': [{ id: 'a1' }] },
+  }))));
+  await otroPago();
+  const f = factura();
+  assert.deepEqual(f.adjuntos, [{ id: 'a1' }]);
+  assert.equal(f.total_cobrado, 40);
+  assert.equal(f.version, 3);
+});
+
+test('updateFacturaVersionado: sin version pasa a 2, con version suma 1, respeta REMOVE', async () => {
+  const { updateFacturaVersionado } = await import('../lib/facturacion/versionFactura.js');
+  const p = updateFacturaVersionado({
+    Key: { id_factura: 'F-1' },
+    UpdateExpression: 'SET a = :a REMOVE b',
+    ExpressionAttributeValues: { ':a': 1 },
+  });
+  assert.equal(p.UpdateExpression, 'SET a = :a, #ver = if_not_exists(#ver, :verUno) + :verUno REMOVE b');
+  assert.equal(p.TableName, tables.facturas);
+  assert.equal(p.ExpressionAttributeValues[':verUno'], 1);
+});
+
+test('ningún UpdateCommand sobre la tabla de facturas se salta la subida de versión', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const raiz = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+  const ficheros = [
+    ...readdirSync(join(raiz, 'routes')).map((f) => join(raiz, 'routes', f)),
+    ...readdirSync(join(raiz, 'lib', 'facturacion')).map((f) => join(raiz, 'lib', 'facturacion', f)),
+  ].filter((f) => f.endsWith('.js'));
+  assert.ok(ficheros.some((f) => f.endsWith('facturacion.js')));
+  const sinVersion = ficheros.filter((f) => /new UpdateCommand\(\{\s*TableName:\s*tables\.facturas\s*,/.test(readFileSync(f, 'utf8')));
+  assert.deepEqual(sinVersion, []);
+});
+
 test('sin concurrencia, editar pago y anular siguen funcionando y suben la versión', async () => {
   const r = await api('PUT', '/api/facturacion/pagos/F-1/P001', { fecha: '2026-10-01', importe: 20, metodo_pago: 'transferencia' });
   assert.equal(r.status, 200);

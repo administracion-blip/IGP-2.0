@@ -55,6 +55,7 @@ import {
   errorFacturaCambiada,
   esConflictoEscritura,
   putFacturaVersionada,
+  updateFacturaVersionado,
 } from '../lib/facturacion/versionFactura.js';
 import {
   indexRemesasActivasPorFactura,
@@ -1935,15 +1936,25 @@ router.post('/facturacion/check-vencimientos', requirePermission('facturacion.ed
     );
 
     let actualizadas = 0;
+    let omitidas = 0;
     for (const f of pendientes) {
-      await docClient.send(
-        new UpdateCommand({
-          TableName: tables.facturas,
-          Key: await keyForFacturaItem(f),
-          UpdateExpression: 'SET estado = :e, actualizado_en = :ts',
-          ExpressionAttributeValues: { ':e': 'vencida', ':ts': now() },
-        }),
-      );
+      // Solo si sigue en el estado leído en el Scan: un pago que la deja pagada
+      // entretanto no se convierte en 'vencida'.
+      try {
+        await docClient.send(
+          new UpdateCommand(updateFacturaVersionado({
+            Key: await keyForFacturaItem(f),
+            UpdateExpression: 'SET estado = :e, actualizado_en = :ts',
+            ConditionExpression: '#estado = :estadoLeido',
+            ExpressionAttributeNames: { '#estado': 'estado' },
+            ExpressionAttributeValues: { ':e': 'vencida', ':ts': now(), ':estadoLeido': f.estado },
+          })),
+        );
+      } catch (err) {
+        if (err?.name !== 'ConditionalCheckFailedException') throw err;
+        omitidas++;
+        continue;
+      }
       await registrarAuditoria(f.id_factura, 'vencimiento_auto', 'sistema', 'Sistema', {
         estado_anterior: f.estado,
         fecha_vencimiento: f.fecha_vencimiento,
@@ -1951,7 +1962,7 @@ router.post('/facturacion/check-vencimientos', requirePermission('facturacion.ed
       actualizadas++;
     }
 
-    res.json({ ok: true, revisadas: facturas.length, actualizadas });
+    res.json({ ok: true, revisadas: facturas.length, actualizadas, omitidas });
   } catch (err) {
     responderError(res, err);
   }
@@ -2000,12 +2011,11 @@ router.put('/facturacion/facturas/:id/albaranes-conciliados', requirePermission(
 
     const ts = now();
     await docClient.send(
-      new UpdateCommand({
-        TableName: tables.facturas,
+      new UpdateCommand(updateFacturaVersionado({
         Key: await keyForFacturaPrincipalId(id),
         UpdateExpression: 'SET albaranes_conciliados = :a, actualizado_en = :ts',
         ExpressionAttributeValues: { ':a': sanitized.items, ':ts': ts },
-      }),
+      })),
     );
 
     await registrarAuditoria(id, 'albaranes_conciliados', usuario_id, usuario_nombre, {
@@ -2065,12 +2075,11 @@ router.post('/facturacion/facturas/:id/adjuntos', requirePermission('facturacion
       subido_por: req.body.usuario_nombre || '',
     });
 
-    await docClient.send(new UpdateCommand({
-      TableName: tables.facturas,
+    await docClient.send(new UpdateCommand(updateFacturaVersionado({
       Key: await keyForFacturaPrincipalId(id),
       UpdateExpression: 'SET adjuntos = :adj, actualizado_en = :ts',
       ExpressionAttributeValues: { ':adj': adjuntos, ':ts': now() },
-    }));
+    })));
 
     await registrarAuditoria(id, 'adjunto_subido', req.body.usuario_id, req.body.usuario_nombre, {
       nombre: safeName,
@@ -2136,12 +2145,11 @@ router.delete('/facturacion/facturas/:id/adjuntos/:adjId', requirePermission('fa
     await s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: adj.fileKey }));
 
     const nuevos = adjuntos.filter((a) => a.id !== adjId);
-    await docClient.send(new UpdateCommand({
-      TableName: tables.facturas,
+    await docClient.send(new UpdateCommand(updateFacturaVersionado({
       Key: await keyForFacturaPrincipalId(id),
       UpdateExpression: 'SET adjuntos = :adj, actualizado_en = :ts',
       ExpressionAttributeValues: { ':adj': nuevos, ':ts': now() },
-    }));
+    })));
 
     await registrarAuditoria(id, 'adjunto_eliminado', usuario_id, usuario_nombre, { nombre: adj.nombre });
 
@@ -3286,12 +3294,11 @@ router.post('/facturacion/enviar-recordatorios', requirePermission('facturacion.
           `,
         });
 
-        await docClient.send(new UpdateCommand({
-          TableName: tables.facturas,
+        await docClient.send(new UpdateCommand(updateFacturaVersionado({
           Key: await keyForFacturaItem(f),
           UpdateExpression: 'SET ultimo_recordatorio = :h',
           ExpressionAttributeValues: { ':h': hoy },
-        }));
+        })));
 
         await registrarAuditoria(f.id_entrada, 'recordatorio_cobro', 'sistema', 'Sistema', {
           destinatario: f.empresa_email,

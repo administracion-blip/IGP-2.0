@@ -319,17 +319,19 @@ function aplicarUpdate(item, expr, nombres, valores) {
     const destino = resolverNombre(rutaBruta.trim(), nombres);
     const fuente = resto.join('=').trim();
     let valor;
-    const siNoExiste = fuente.match(/^if_not_exists\(\s*([^,\s]+)\s*,\s*(:[A-Za-z0-9_]+)\s*\)$/);
-    const aritmetica = fuente.match(/^(\S+)\s*([+-])\s*(\S+)$/);
-    if (siNoExiste) {
+    const leerOperando = (token) => {
+      const siNoExiste = token.trim().match(/^if_not_exists\(\s*([^,\s]+)\s*,\s*(:[A-Za-z0-9_]+)\s*\)$/);
+      if (!siNoExiste) return leerValor(token);
       const actual = item[resolverNombre(siNoExiste[1], nombres)];
-      valor = actual === undefined ? leerValor(siNoExiste[2]) : actual;
-    } else if (aritmetica) {
-      const a = Number(leerValor(aritmetica[1]) ?? 0);
-      const b = Number(leerValor(aritmetica[3]) ?? 0);
+      return actual === undefined ? leerValor(siNoExiste[2]) : actual;
+    };
+    const aritmetica = fuente.match(/^(if_not_exists\([^)]*\)|\S+)\s*([+-])\s*(\S+)$/);
+    if (aritmetica) {
+      const a = Number(leerOperando(aritmetica[1]) ?? 0);
+      const b = Number(leerOperando(aritmetica[3]) ?? 0);
       valor = aritmetica[2] === '+' ? a + b : a - b;
     } else {
-      valor = leerValor(fuente);
+      valor = leerOperando(fuente);
     }
     item[destino] = valor;
     tocados[destino] = valor;
