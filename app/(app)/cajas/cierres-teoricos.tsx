@@ -431,6 +431,12 @@ export default function CierresTeoricosScreen() {
   /** Usuarios con alcance global: sin `workplaces` el backend sincroniza todos los locales. */
   const accesoTodosLocales = user?.Rol === 'Administrador' || !user?.Locales || user.Locales.length === 0;
 
+  const closeoutsPermitidos = useMemo(() => {
+    if (accesoTodosLocales) return closeouts;
+    const codes = new Set(localesPermitidos.map((l) => l.code));
+    return closeouts.filter((i) => codes.has(String(i.PK ?? i.pk ?? '').trim()));
+  }, [closeouts, localesPermitidos, accesoTodosLocales]);
+
   const syncRangoFechas = useCallback(async (desde: string, hasta: string) => {
     const workplaces = localesPermitidos.map((l) => l.code);
     if (!accesoTodosLocales && workplaces.length === 0) {
@@ -638,8 +644,8 @@ export default function CierresTeoricosScreen() {
   }, [formasPago]);
 
   const paymentCols = useMemo(
-    () => getUniquePaymentMethods(closeouts, ordenFormasPago),
-    [closeouts, ordenFormasPago],
+    () => getUniquePaymentMethods(closeoutsPermitidos, ordenFormasPago),
+    [closeoutsPermitidos, ordenFormasPago],
   );
   const columnas = useMemo(() => {
     const base = ['__sel', 'BusinessDay', 'DiaSemana', 'Local', 'PosName', 'InvoicePayments'];
@@ -649,7 +655,7 @@ export default function CierresTeoricosScreen() {
   }, [paymentCols]);
 
   const closeoutsFiltrados = useMemo(() => {
-    let list = closeouts;
+    let list = closeoutsPermitidos;
     if (filtroLocal) {
       list = list.filter((i) => (i.PK ?? i.pk) === filtroLocal);
     }
@@ -702,7 +708,7 @@ export default function CierresTeoricosScreen() {
       return localA.localeCompare(localB);
     });
     return list;
-  }, [closeouts, filtroBusqueda, filtroLocal, filtroTpvIds, filtroDiasSemana, filtroFechaDesde, filtroFechaHasta, soloConFacturacion, agoraCodeToNombre]);
+  }, [closeoutsPermitidos, filtroBusqueda, filtroLocal, filtroTpvIds, filtroDiasSemana, filtroFechaDesde, filtroFechaHasta, soloConFacturacion, agoraCodeToNombre]);
 
   const { paginatedList, totalPages, totalCount, effectivePage } = useMemo(() => {
     const total = closeoutsFiltrados.length;
@@ -794,7 +800,7 @@ export default function CierresTeoricosScreen() {
   }, [paginatedList]);
 
   const handleBulkShiftDayBack = useCallback(async () => {
-    const items = selectedRowIds.map((id) => findCloseoutByRowId(id, closeouts)).filter(Boolean) as CloseOut[];
+    const items = selectedRowIds.map((id) => findCloseoutByRowId(id, closeoutsPermitidos)).filter(Boolean) as CloseOut[];
     if (items.length === 0) {
       Alert.alert('Selección', 'Marca al menos un cierre con la casilla de la izquierda.');
       return;
@@ -825,11 +831,11 @@ export default function CierresTeoricosScreen() {
     } finally {
       setShiftSaving(false);
     }
-  }, [selectedRowIds, closeouts, agoraCodeToNombre, refetchCloseouts]);
+  }, [selectedRowIds, closeouts, closeoutsPermitidos, agoraCodeToNombre, refetchCloseouts]);
 
   const openDeleteModal = useCallback(() => {
     if (selectedRowIds.length > 0) {
-      const items = selectedRowIds.map((id) => findCloseoutByRowId(id, closeouts)).filter(Boolean) as CloseOut[];
+      const items = selectedRowIds.map((id) => findCloseoutByRowId(id, closeoutsPermitidos)).filter(Boolean) as CloseOut[];
       if (items.length === 0) {
         Alert.alert('Selección', 'No se encontraron los registros marcados. Actualiza la lista e inténtalo de nuevo.');
       return;
@@ -844,7 +850,7 @@ export default function CierresTeoricosScreen() {
       setFormError(null);
       setShowDeleteModal(true);
     }
-  }, [selectedRowIds, closeouts, selectedItem]);
+  }, [selectedRowIds, closeoutsPermitidos, selectedItem]);
 
   const handleSaveForm = useCallback(async () => {
     const bd = formBusinessDay.trim();
@@ -1739,7 +1745,7 @@ export default function CierresTeoricosScreen() {
               {paginatedList.length === 0 ? (
                 <View style={styles.emptyRow}>
                   <Text style={styles.emptyText}>
-                    {closeouts.length === 0 ? 'No hay cierres. Sincronizando…' : 'Ningún resultado con el filtro'}
+                    {closeoutsPermitidos.length === 0 ? 'No hay cierres. Sincronizando…' : 'Ningún resultado con el filtro'}
                   </Text>
                 </View>
               ) : (
