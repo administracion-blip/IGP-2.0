@@ -105,6 +105,8 @@ export const PERMISOS_DESCRIPCIONES: Record<string, string> = {
   'mia.sincronizar': 'Permite sincronizar los stocks de los almacenes desde Ágora para MIA.',
   'mia.calcular': 'Permite calcular el pedido recomendado de MIA.',
   'mia.aprobar': 'Permite aprobar los informes de pedido de MIA.',
+  'mia.confirmar_agora':
+    'Permite que, al aprobar un informe de MIA, el pedido se cree en Ágora ya confirmado en lugar de como borrador.',
   'escandallos.ver': 'Permite ver las recetas (escandallos) de los platos.',
   'escandallos.editar':
     'Permite crear, modificar y borrar recetas de platos, incluida su imagen.',
