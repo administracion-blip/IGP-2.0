@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,12 +11,17 @@ import {
   Modal,
   Alert,
   KeyboardAvoidingView,
+  Pressable,
+  type GestureResponderEvent,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiFetch } from '../utils/api';
 import { SelectorDesplegable } from '../components/SelectorDesplegable';
 import { MODULOS, PERMISOS_MENU_CONFIGURACION } from '../constants/modulos';
+import { MIN_TOUCH } from '../constants/layout';
+import { descripcionPermiso } from '../constants/permisosDescripciones';
+import { useBreakpoint } from '../hooks/useBreakpoint';
 
 type RolCatalogo = {
   nombre: string;
@@ -500,6 +505,109 @@ function etiquetaFila(codigo: string): string {
   return partes.length > 1 ? partes.slice(1).join('·').trim() : label;
 }
 
+type AnclaAyuda = { codigo: string; x: number; y: number; w: number; h: number };
+
+const AYUDA_ICON_BOX = 28;
+const AYUDA_HIT_SLOP = Math.max(0, (MIN_TOUCH - AYUDA_ICON_BOX) / 2);
+const AYUDA_PANEL_WIDTH = 320;
+const AYUDA_MARGEN = 8;
+
+/** Ojo junto al nombre del permiso: abre la explicación sin tocar las celdas del rol. */
+function BotonAyudaPermiso({
+  codigo,
+  onAbrir,
+}: {
+  codigo: string;
+  onAbrir: (ancla: AnclaAyuda) => void;
+}) {
+  const ref = useRef<View>(null);
+  const abrir = (e: GestureResponderEvent) => {
+    (e as unknown as { stopPropagation?: () => void }).stopPropagation?.();
+    const node = ref.current;
+    if (!node) {
+      onAbrir({ codigo, x: 0, y: 0, w: 0, h: 0 });
+      return;
+    }
+    node.measureInWindow((x, y, w, h) => onAbrir({ codigo, x, y, w, h }));
+  };
+  return (
+    <Pressable
+      ref={ref}
+      onPress={abrir}
+      hitSlop={AYUDA_HIT_SLOP}
+      style={({ pressed }) => [styles.ayudaBtn, pressed && styles.ayudaBtnPressed]}
+      accessibilityRole="button"
+      accessibilityLabel="Ver qué permite este permiso"
+    >
+      <MaterialIcons name="visibility" size={18} color="#64748b" />
+    </Pressable>
+  );
+}
+
+/** Panel flotante con la explicación; anclado al ojo en pantallas anchas, centrado en móvil vertical. */
+function PanelAyudaPermiso({ ancla, onCerrar }: { ancla: AnclaAyuda | null; onCerrar: () => void }) {
+  const { width, height, shouldStackPanels } = useBreakpoint();
+
+  useEffect(() => {
+    if (!ancla || Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCerrar();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [ancla, onCerrar]);
+
+  if (!ancla) return null;
+  const etiqueta = PERMISOS_LABELS[ancla.codigo] ?? ancla.codigo;
+  const centrado = shouldStackPanels || (ancla.w === 0 && ancla.h === 0);
+  const panelWidth = Math.min(AYUDA_PANEL_WIDTH, width - AYUDA_MARGEN * 2);
+
+  let posicion: { top: number; left: number } | null = null;
+  if (!centrado) {
+    const cabeDerecha = ancla.x + ancla.w + AYUDA_MARGEN + panelWidth <= width - AYUDA_MARGEN;
+    const left = cabeDerecha
+      ? ancla.x + ancla.w + AYUDA_MARGEN
+      : Math.max(AYUDA_MARGEN, ancla.x - panelWidth - AYUDA_MARGEN);
+    const top = Math.max(AYUDA_MARGEN, Math.min(ancla.y - AYUDA_MARGEN, height - 200));
+    posicion = { top, left };
+  }
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onCerrar}>
+      <Pressable
+        style={[styles.ayudaOverlay, centrado && styles.ayudaOverlayCentrado]}
+        onPress={onCerrar}
+        accessibilityLabel="Cerrar explicación"
+      >
+        <Pressable
+          onPress={() => {}}
+          style={[
+            styles.ayudaPanel,
+            { width: panelWidth },
+            posicion ? { position: 'absolute', top: posicion.top, left: posicion.left } : null,
+          ]}
+        >
+          <View style={styles.ayudaHeader}>
+            <MaterialIcons name="visibility" size={18} color="#0ea5e9" />
+            <Text style={styles.ayudaTitulo}>{etiqueta}</Text>
+            <Pressable
+              onPress={onCerrar}
+              hitSlop={AYUDA_HIT_SLOP}
+              style={styles.ayudaCerrar}
+              accessibilityRole="button"
+              accessibilityLabel="Cerrar"
+            >
+              <MaterialIcons name="close" size={18} color="#64748b" />
+            </Pressable>
+          </View>
+          <Text style={styles.ayudaCodigo}>{ancla.codigo}</Text>
+          <Text style={styles.ayudaTexto}>{descripcionPermiso(ancla.codigo, etiqueta)}</Text>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 export default function PermisosScreen() {
   const router = useRouter();
   const [items, setItems] = useState<ItemPermiso[]>([]);
@@ -515,6 +623,8 @@ export default function PermisosScreen() {
   const [clonarDeRol, setClonarDeRol] = useState('');
   const [guardandoRol, setGuardandoRol] = useState(false);
   const [errorModalRol, setErrorModalRol] = useState<string | null>(null);
+  const [ayudaPermiso, setAyudaPermiso] = useState<AnclaAyuda | null>(null);
+  const cerrarAyudaPermiso = useCallback(() => setAyudaPermiso(null), []);
 
   const rolesNombres = useMemo(
     () => rolesCatalogo.map((r) => r.nombre),
@@ -960,13 +1070,16 @@ export default function PermisosScreen() {
                           key={codigo}
                           style={[styles.matrixRow, idx % 2 === 1 && styles.matrixRowAlt]}
                         >
-                          <View style={styles.labelCell}>
-                            <Text style={styles.labelText} numberOfLines={1}>
-                              {etiquetaFila(codigo)}
-                            </Text>
-                            <Text style={styles.labelCode} numberOfLines={1}>
-                              {codigo}
-                            </Text>
+                          <View style={[styles.labelCell, styles.labelCellRow]}>
+                            <View style={styles.labelTexts}>
+                              <Text style={styles.labelText} numberOfLines={1}>
+                                {etiquetaFila(codigo)}
+                              </Text>
+                              <Text style={styles.labelCode} numberOfLines={1}>
+                                {codigo}
+                              </Text>
+                            </View>
+                            <BotonAyudaPermiso codigo={codigo} onAbrir={setAyudaPermiso} />
                           </View>
                           {rolesNombres.map((rol) => {
                             const k = celKey(rol, codigo);
@@ -1060,6 +1173,8 @@ export default function PermisosScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <PanelAyudaPermiso ancla={ayudaPermiso} onCerrar={cerrarAyudaPermiso} />
     </View>
   );
 }
@@ -1242,6 +1357,40 @@ const styles = StyleSheet.create({
     borderBottomColor: '#f1f5f9',
   },
   matrixRowAlt: { backgroundColor: '#fafbfc' },
+  labelCellRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 4 },
+  labelTexts: { flex: 1, minWidth: 0 },
+  ayudaBtn: {
+    width: AYUDA_ICON_BOX,
+    height: AYUDA_ICON_BOX,
+    borderRadius: AYUDA_ICON_BOX / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : {}),
+  },
+  ayudaBtnPressed: { backgroundColor: '#e2e8f0' },
+  ayudaOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.08)' },
+  ayudaOverlayCentrado: {
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  ayudaPanel: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 14,
+    gap: 6,
+    zIndex: 10,
+    elevation: 12,
+    ...(Platform.OS === 'web' ? ({ boxShadow: '0 8px 24px rgba(0,0,0,0.12)' } as object) : {}),
+  },
+  ayudaHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  ayudaTitulo: { flex: 1, fontSize: 14, fontWeight: '700', color: '#334155' },
+  ayudaCerrar: { width: AYUDA_ICON_BOX, height: AYUDA_ICON_BOX, alignItems: 'center', justifyContent: 'center' },
+  ayudaCodigo: { fontSize: 12, color: '#94a3b8' },
+  ayudaTexto: { fontSize: 14, lineHeight: 20, color: '#475569' },
   labelText: { fontSize: 12, color: '#334155', fontWeight: '500' },
   labelCode: { fontSize: 10, color: '#94a3b8', marginTop: 1 },
   matrixCell: {
