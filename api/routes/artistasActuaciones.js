@@ -846,7 +846,19 @@ router.post('/actuaciones', async (req, res) => {
   if (item.id_local && !(await puedeLocalActuacion(req, item.id_local))) {
     return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
   }
-  await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: item }));
+  // [SEC S-07] Con id_actuacion del body, crear no puede pisar una actuación existente (de otro local o firmada).
+  try {
+    await docClient.send(new PutCommand({
+      TableName: tables.actuaciones,
+      Item: item,
+      ConditionExpression: 'attribute_not_exists(id_actuacion)',
+    }));
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') {
+      return res.status(409).json({ error: 'Ya existe una actuación con ese identificador' });
+    }
+    throw err;
+  }
   res.json({ ok: true, actuacion: enriquecerFechaActuacion(item) });
 });
 

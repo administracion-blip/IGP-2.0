@@ -311,3 +311,29 @@ test('crear una actuación no acepta campos de firma: nace sin firma', async () 
   assert.equal(creada.fecha_firma, '');
   assert.equal(r.body.actuacion.firma_artista_key, '');
 });
+
+test('crear con el id de una actuación de otro local: 409 y el registro ajeno queda igual', async () => {
+  montar();
+  const antes = db.obtener(tables.actuaciones, { id_actuacion: 'A-SUR' });
+  const r = await api('POST', '/api/actuaciones', {
+    id_actuacion: 'A-SUR',
+    id_local: '000010',
+    fecha: '2026-10-10',
+    hora_inicio: '21:00',
+  });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.error, 'Ya existe una actuación con ese identificador');
+  assert.deepEqual(db.obtener(tables.actuaciones, { id_actuacion: 'A-SUR' }), antes);
+
+  const global = await api('POST', '/api/actuaciones', { id_actuacion: 'A-NORTE', id_local: '000010', fecha: '2026-10-10' }, OFICINA);
+  assert.equal(global.status, 409);
+});
+
+test('crear sin id_actuacion genera uno en el servidor', async () => {
+  montar();
+  const r = await api('POST', '/api/actuaciones', { id_local: '000010', fecha: '2026-10-10', hora_inicio: '21:00' });
+  assert.equal(r.status, 200);
+  const id = r.body.actuacion.id_actuacion;
+  assert.match(id, /^[0-9a-f-]{36}$/);
+  assert.equal(db.obtener(tables.actuaciones, { id_actuacion: id }).id_local, '000010');
+});
