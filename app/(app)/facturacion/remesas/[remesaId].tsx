@@ -27,12 +27,15 @@ import {
 import { useLocalToast, detectToastType } from '../../../components/Toast';
 import { useConfirmar } from '../../../hooks/useConfirmar';
 import { descargarAdjuntoFacturaRecibida } from '../../../lib/descargarAdjuntoFactura';
+import { CollapsibleSection } from '../../../components/CollapsibleSection';
 import {
   CODE_REMESA_EJECUCION_PARCIAL,
   colorEstadoRemesa,
+  etiquetaAutorDescarte,
   etiquetaFacturaRemesa,
   labelEstadoRemesa,
   lineasPendientesPagoRemesa,
+  mensajeErrorAccionRemesa,
   resumenEjecucionParcial,
   slugNombreArchivoRemesa,
 } from '../../../lib/remesas';
@@ -46,6 +49,13 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   if (typeof btoa !== 'undefined') return btoa(binary);
   // @ts-expect-error Buffer en entornos Node/web embebido
   return Buffer.from(bytes).toString('base64');
+}
+
+function fechaHoraDescarte(iso: string | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return formatFecha(iso.slice(0, 10));
+  return `${formatFecha(iso.slice(0, 10))} ${d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
@@ -76,6 +86,8 @@ export default function RemesaDetalleScreen() {
   const [viendoDocId, setViendoDocId] = useState<string | null>(null);
   const [quitandoId, setQuitandoId] = useState<string | null>(null);
   const [fallidasEjecucion, setFallidasEjecucion] = useState<FallidaEjecucionRemesa[]>([]);
+  const [motivoDescarte, setMotivoDescarte] = useState('');
+  const [descartandoId, setDescartandoId] = useState<string | null>(null);
 
   const { show: showToast, ToastView } = useLocalToast();
   const { confirmar, ConfirmarView } = useConfirmar();
@@ -231,7 +243,7 @@ export default function RemesaDetalleScreen() {
         refetch();
         return;
       }
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(mensajeErrorAccionRemesa(data, 'No se pudo ejecutar la remesa'));
       setModalPagoRemesa(false);
       setFallidasEjecucion([]);
       setRemesa(data.remesa);
@@ -242,6 +254,48 @@ export default function RemesaDetalleScreen() {
       setErrorEjecutar((e as Error).message);
     } finally {
       setAccionando(false);
+    }
+  };
+
+  /** Sin `facturaId` descarta todas las pendientes. No registra pagos. */
+  const descartarPendientes = async (facturaId?: string) => {
+    if (!remesa) return;
+    const n = facturaId ? 1 : lineasPendientesPagoRemesa(remesa).length;
+    if (n === 0) return;
+    const motivo = motivoDescarte.trim();
+    const ok = await confirmar(
+      facturaId ? 'Descartar pago pendiente' : 'Descartar pagos pendientes',
+      (facturaId
+        ? `«${etiquetaFacturaRemesa(remesa, facturaId)}» dejará de estar pendiente en esta remesa.`
+        : `${n} factura(s) dejarán de estar pendientes en esta remesa.`)
+        + ' No se registra ningún pago: podrán pagarse por otra vía (pago manual, conciliación…).'
+        + (motivo ? `\n\nMotivo: ${motivo}` : '\n\nPuedes indicar un motivo en el recuadro de pagos pendientes antes de confirmar.'),
+      { confirmarLabel: 'Descartar', variant: 'danger' },
+    );
+    if (!ok) return;
+    setAccionando(true);
+    setDescartandoId(facturaId ?? 'todas');
+    try {
+      const res = await apiFetch(`/api/remesas/${remesa.remesaId}/descartar-pendientes`, {
+        method: 'POST',
+        body: JSON.stringify({
+          ...(facturaId && { facturaIds: [facturaId] }),
+          ...(motivo && { motivo }),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(mensajeErrorAccionRemesa(data, 'No se pudieron descartar los pendientes'));
+      setRemesa(data.remesa);
+      setLineasEdit(data.remesa?.lineas || remesa.lineas || []);
+      setMotivoDescarte('');
+      const descartadas = Array.isArray(data.descartadas) ? data.descartadas.length : n;
+      alertMsg('Pendientes descartados', `${descartadas} factura(s) ya no están pendientes en la remesa.`);
+    } catch (e) {
+      alertMsg('Error', (e as Error).message);
+      refetch();
+    } finally {
+      setAccionando(false);
+      setDescartandoId(null);
     }
   };
 
@@ -569,9 +623,34 @@ export default function RemesaDetalleScreen() {
             ))}
             <Text style={styles.avisoPendientesHint}>
               {puedeEjecutar
-                ? 'Al reintentar solo se pagan estas facturas; las ya pagadas no se duplican.'
-                : 'Un usuario con permiso de pagos debe reintentar estos pagos.'}
+                ? 'Al reintentar solo se pagan estas facturas; las ya pagadas no se duplican. '
+                  + 'Mientras sigan pendientes no se pueden pagar por otra vía: si ya se han resuelto fuera de la remesa, descártalas.'
+                : 'Un usuario con permiso de pagos debe reintentar o descartar estos pagos.'}
             </Text>
+            {puedeEjecutar ? (
+              <View style={[styles.descartarRow, shouldStackToolbar && styles.descartarRowStack]}>
+                <TextInput
+                  style={styles.inputMotivoDescarte}
+                  value={motivoDescarte}
+                  onChangeText={(t) => setMotivoDescarte(t.slice(0, 300))}
+                  placeholder="Motivo del descarte (opcional)"
+                  placeholderTextColor="#b45309"
+                  editable={!accionando}
+                />
+                <TouchableOpacity
+                  style={styles.btnDescartar}
+                  onPress={() => descartarPendientes()}
+                  disabled={accionando}
+                >
+                  {descartandoId === 'todas' ? (
+                    <ActivityIndicator size="small" color="#b45309" />
+                  ) : (
+                    <MaterialIcons name="playlist-remove" size={16} color="#b45309" />
+                  )}
+                  <Text style={styles.btnDescartarText}>Descartar pendientes</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -604,9 +683,26 @@ export default function RemesaDetalleScreen() {
                     </View>
                     <View style={[styles.dotSem, { backgroundColor: semColor }]} />
                     {idsPendientesPago.has(String(l.id_factura)) ? (
-                      <View style={styles.badgePendientePago}>
-                        <Text style={styles.badgePendientePagoText}>Pago pendiente</Text>
-                      </View>
+                      puedeEjecutar ? (
+                        <TouchableOpacity
+                          style={[styles.badgePendientePago, styles.badgePendientePagoAccion]}
+                          onPress={() => descartarPendientes(String(l.id_factura))}
+                          disabled={accionando}
+                          hitSlop={8}
+                          accessibilityLabel="Descartar pago pendiente de esta factura"
+                        >
+                          <Text style={styles.badgePendientePagoText}>Pago pendiente</Text>
+                          {descartandoId === String(l.id_factura) ? (
+                            <ActivityIndicator size="small" color="#d97706" />
+                          ) : (
+                            <MaterialIcons name="close" size={14} color="#d97706" />
+                          )}
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={styles.badgePendientePago}>
+                          <Text style={styles.badgePendientePagoText}>Pago pendiente</Text>
+                        </View>
+                      )
                     ) : null}
                   </View>
                   <View style={styles.cardActions}>
@@ -713,6 +809,24 @@ export default function RemesaDetalleScreen() {
                 </View>
               </View>
             ))}
+          </View>
+        ) : null}
+
+        {remesa.pendientesDescartadas && remesa.pendientesDescartadas.length > 0 ? (
+          <View style={styles.historialDescartes}>
+            <CollapsibleSection title={`Pendientes descartadas (${remesa.pendientesDescartadas.length})`}>
+              {[...remesa.pendientesDescartadas].reverse().map((d, i) => (
+                <View key={`${d.id_factura}-${d.en}-${i}`} style={styles.descarteItem}>
+                  <Text style={styles.descarteFactura} numberOfLines={1}>
+                    {etiquetaFacturaRemesa(remesa, d.id_factura)}
+                  </Text>
+                  <Text style={styles.descarteMeta}>
+                    {etiquetaAutorDescarte(d)} · {fechaHoraDescarte(d.en)}
+                  </Text>
+                  {d.motivo ? <Text style={styles.descarteMotivo}>{d.motivo}</Text> : null}
+                </View>
+              ))}
+            </CollapsibleSection>
           </View>
         ) : null}
       </ScrollView>
@@ -862,6 +976,40 @@ const styles = StyleSheet.create({
     backgroundColor: '#fffbeb',
   },
   badgePendientePagoText: { fontSize: 11, fontWeight: '700', color: '#d97706' },
+  badgePendientePagoAccion: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  descartarRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  descartarRowStack: { flexDirection: 'column', alignItems: 'stretch' },
+  inputMotivoDescarte: {
+    flex: 1,
+    minHeight: 38,
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
+    fontSize: 13,
+    color: '#0f172a',
+  },
+  btnDescartar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: 38,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#d97706',
+    backgroundColor: '#fff',
+  },
+  btnDescartarText: { color: '#b45309', fontWeight: '600', fontSize: 13 },
+  historialDescartes: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', paddingHorizontal: 14, paddingBottom: 10 },
+  descarteItem: { paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', gap: 2 },
+  descarteFactura: { fontSize: 13, fontWeight: '600', color: '#334155' },
+  descarteMeta: { fontSize: 12, color: '#64748b' },
+  descarteMotivo: { fontSize: 12, color: '#475569', fontStyle: 'italic' },
   btnDanger: {
     paddingHorizontal: 14,
     paddingVertical: 9,

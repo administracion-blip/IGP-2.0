@@ -1,10 +1,13 @@
 export type EstadoRemesa = 'Borrador' | 'Generada' | 'Ejecutada' | 'Anulada';
 
-/** Remesa Borrador/Generada en la que está incluida una factura IN (campo `remesaActiva`). */
+/**
+ * Remesa activa de una factura IN (campo `remesaActiva`): Borrador/Generada, o
+ * Ejecutada si la factura sigue en sus `lineasPendientesPago`.
+ */
 export type RemesaActivaFactura = {
   remesaId: string;
   nombre: string;
-  estado: 'Borrador' | 'Generada';
+  estado: 'Borrador' | 'Generada' | 'Ejecutada';
 };
 
 export type LineaRemesa = {
@@ -47,6 +50,8 @@ export type Remesa = {
   ejecutadaEn?: string | null;
   /** `id_factura` de las líneas que quedaron sin pagar al ejecutar (remesa `Ejecutada`). */
   lineasPendientesPago?: string[];
+  /** Pendientes quitadas sin pago: a mano (`descartar-pendientes`) o por el sistema. */
+  pendientesDescartadas?: PendienteDescartadaRemesa[];
   creadoPor?: string;
   creadoEn?: string;
   actualizadoEn?: string;
@@ -57,6 +62,17 @@ export type FallidaEjecucionRemesa = {
   id_factura: string;
   error: string;
   code?: string;
+  /** false: el sistema la quitó de pendientes porque ya no se puede pagar. */
+  siguePendiente?: boolean;
+};
+
+export type PendienteDescartadaRemesa = {
+  id_factura: string;
+  /** `id_usuario` de quien la descartó, o `'sistema'`. */
+  por: string;
+  porNombre?: string;
+  en: string;
+  motivo?: string;
 };
 
 export type CrearRemesaBody = {

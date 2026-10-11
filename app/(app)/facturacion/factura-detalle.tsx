@@ -75,6 +75,7 @@ import { useConfirmar } from '../../hooks/useConfirmar';
 import { apiFetch, errorMessage } from '../../utils/api';
 import { resolverIbanBeneficiarioFactura } from '../../lib/resolverIbanFactura';
 import { buildConceptoRemesaFacturaRecibida } from '../../lib/conceptoRemesa';
+import { avisoPagosFacturaEnRemesa, mensajeErrorAccionRemesa } from '../../lib/remesas';
 import type { EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
 import type { RemesaActivaFactura } from '../../types/remesas';
 
@@ -868,6 +869,31 @@ export default function FacturaDetalleScreen() {
 
   const quitarDeRemesa = async () => {
     if (!remesaActiva || !facturaId || tipo !== 'IN') return;
+    if (remesaActiva.estado === 'Ejecutada') {
+      const okDescartar = await confirmar(
+        'Descartar pendiente en la remesa',
+        `Esta factura dejará de estar pendiente en «${remesaActiva.nombre}». No se registra ningún pago: `
+          + 'después podrás pagarla por otra vía.',
+        { confirmarLabel: 'Descartar', variant: 'danger' },
+      );
+      if (!okDescartar) return;
+      setQuitandoRemesa(true);
+      try {
+        const res = await apiFetch(`/api/remesas/${remesaActiva.remesaId}/descartar-pendientes`, {
+          method: 'POST',
+          body: JSON.stringify({ facturaIds: [facturaId] }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(mensajeErrorAccionRemesa(data, 'No se pudo descartar el pendiente'));
+        showToast('Hecho', 'La factura ya no está pendiente en la remesa', 'success');
+        await fetchFactura();
+      } catch (e: unknown) {
+        alertMsg('Error', errorMessage(e, 'No se pudo descartar el pendiente'));
+      } finally {
+        setQuitandoRemesa(false);
+      }
+      return;
+    }
     const esGenerada = remesaActiva.estado === 'Generada';
     const ok = await confirmar(
       'Quitar de la remesa',
@@ -1143,10 +1169,11 @@ export default function FacturaDetalleScreen() {
               <Text style={styles.remesaActivaBannerText}> ({remesaActiva.estado})</Text>
             </View>
             <Text style={styles.remesaActivaBannerHint}>
-              No se pueden registrar, editar ni eliminar pagos mientras figure en esta remesa.
+              {avisoPagosFacturaEnRemesa(remesaActiva)}
             </Text>
           </View>
-          {hasPermiso('remesas.gestionar') ? (
+          {hasPermiso('remesas.gestionar')
+            && (remesaActiva.estado !== 'Ejecutada' || hasPermiso('facturacion.cobrar_pagar')) ? (
             <TouchableOpacity
               style={styles.btnQuitarRemesa}
               onPress={quitarDeRemesa}
@@ -1157,7 +1184,9 @@ export default function FacturaDetalleScreen() {
               ) : (
                 <>
                   <MaterialIcons name="remove-circle-outline" size={16} color={tasksColor.acentoTexto} />
-                  <Text style={styles.btnQuitarRemesaText}>Quitar de la remesa</Text>
+                  <Text style={styles.btnQuitarRemesaText}>
+                    {remesaActiva.estado === 'Ejecutada' ? 'Descartar pendiente en la remesa' : 'Quitar de la remesa'}
+                  </Text>
                 </>
               )}
             </TouchableOpacity>

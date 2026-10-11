@@ -1,6 +1,7 @@
 import { apiFetch } from '../utils/api';
 import { esMetodoAplicacionExceso, mapTipoReciboToFormaPago } from '../utils/facturacion';
 import { esMetodoCompensacion, type CompensacionDetalle } from './compensacionFactura';
+import { avisoPagosFacturaEnRemesa } from './remesas';
 import type { RegistrarPagoInitial, RegistrarPagoPayloadFactura } from '../components/RegistrarPagoModal';
 import type { FacturaListado } from '../types/factura';
 import type { RemesaActivaFactura } from '../types/remesas';
@@ -24,6 +25,10 @@ type ErrorPagoBody = {
 function mensajeErrorPago(status: number, data: ErrorPagoBody, fallback: string): string {
   if (status === 409 && data?.code === 'FACTURA_EN_REMESA') {
     const nombre = String(data.remesaActiva?.nombre ?? '').trim();
+    if (data.remesaActiva?.estado === 'Ejecutada') {
+      const base = data.error ? String(data.error).replace(/\.?\s*$/, '.') : 'Esta factura está pendiente en una remesa ejecutada.';
+      return `${base} ${avisoPagosFacturaEnRemesa(data.remesaActiva)}`;
+    }
     if (data.error) return String(data.error);
     return nombre
       ? `Esta factura está incluida en la remesa «${nombre}». No se pueden registrar, editar ni eliminar pagos manualmente.`

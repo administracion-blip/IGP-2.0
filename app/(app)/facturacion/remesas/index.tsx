@@ -28,6 +28,7 @@ import {
   FILTROS_ESTADO_REMESA,
   labelEstadoRemesa,
   lineasPendientesPagoRemesa,
+  mensajeErrorAccionRemesa,
   resumenEjecucionParcial,
 } from '../../../lib/remesas';
 import type { Remesa, EstadoRemesa, FallidaEjecucionRemesa } from '../../../types/remesas';
@@ -109,7 +110,7 @@ export default function RemesasIndexScreen() {
         });
         return;
       }
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(mensajeErrorAccionRemesa(data, 'No se pudo ejecutar la remesa'));
       setRemesaPago(null);
       const n = Array.isArray(data.pagos) ? data.pagos.length : remesaPago.lineas?.length ?? 0;
       showToast('Remesa pagada', `Se han registrado ${n} pago(s) en las facturas.`, detectToastType('Remesa pagada', ''));

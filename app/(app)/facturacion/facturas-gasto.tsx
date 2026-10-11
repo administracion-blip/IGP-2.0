@@ -74,6 +74,7 @@ import { apiFetch } from '../../utils/api';
 import {
   ESTADOS_FACTURA_REMESABLES,
   agruparFacturasRemesaPorSociedad,
+  avisoPagosFacturaEnRemesa,
   esFacturaSeleccionableEnListado,
 } from '../../lib/remesas';
 import { descargarAdjuntoFacturaRecibida } from '../../lib/descargarAdjuntoFactura';
@@ -1005,7 +1006,9 @@ export default function FacturasGastoScreen() {
   const avisarFacturaEnRemesa = useCallback(async (remesa: RemesaActivaFactura) => {
     showToast(
       'En remesa',
-      `Incluida en «${remesa.nombre}» (${remesa.estado}). No se pueden registrar, editar ni eliminar pagos manualmente.`,
+      remesa.estado === 'Ejecutada'
+        ? `Incluida en «${remesa.nombre}» (${remesa.estado}). ${avisoPagosFacturaEnRemesa(remesa)}`
+        : `Incluida en «${remesa.nombre}» (${remesa.estado}). No se pueden registrar, editar ni eliminar pagos manualmente.`,
       'warning',
     );
     if (!hasPermiso('remesas.ver')) return;
@@ -2660,7 +2663,7 @@ export default function FacturasGastoScreen() {
                     {' '}({detallePagosFactura.remesaActiva.estado})
                   </Text>
                   <Text style={styles.remesaActivaBannerHint}>
-                    No se pueden registrar, editar ni eliminar pagos mientras figure en esta remesa.
+                    {avisoPagosFacturaEnRemesa(detallePagosFactura.remesaActiva)}
                   </Text>
                   {hasPermiso('remesas.ver') ? (
                     <TouchableOpacity
