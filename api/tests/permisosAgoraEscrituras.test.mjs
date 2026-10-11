@@ -40,7 +40,7 @@ const INTERNO = 'interno';
 // Como en la BD real: Local ve productos/puntos de venta/almacenes pero no los edita.
 const PERMISOS = {
   Local: ['productos.ver', 'puntos_venta.ver', 'almacenes.ver', 'planning_dia.ver'],
-  SuperUser: ['productos.ver', 'productos.editar', 'objetivos.ver', 'puntos_venta.editar', 'almacenes.sincronizar'],
+  SuperUser: ['productos.ver', 'productos.editar', 'objetivos.ver', 'franjas.editar', 'puntos_venta.editar', 'almacenes.sincronizar'],
 };
 
 let usuarioActual = LOCAL;
@@ -168,14 +168,18 @@ test('products PATCH (ficha, IGP y zona): sin productos.editar 403', async () =>
   assert.equal(db.obtener(tables.agoraProducts, { PK: 'GLOBAL', SK: '7' }).Zona, 'B');
 });
 
-test('franjas-plantillas: crear, editar y borrar exigen objetivos.ver', async () => {
+test('franjas-plantillas: crear, editar y borrar exigen franjas.editar; objetivos.ver (rol Local) no basta', async () => {
   montar();
+  db.sembrar(tables.rolesPermisos, { PK: 'ROL#Local', SK: 'PERMISO#objetivos.ver' });
   const plantilla = { nombre: 'Noche', franjas: [{ desde: '20:00', hasta: '23:00' }] };
   const sinPermiso = { sub: '000060', email: 'mkt@grupo.test', rol: 'Marketing' };
-  sinEfecto(await api('POST', '/api/agora/franjas-plantillas', sinPermiso, plantilla));
-  sinEfecto(await api('PUT', '/api/agora/franjas-plantillas', sinPermiso, { ...plantilla, plantillaId: 'p_1' }));
-  sinEfecto(await api('DELETE', '/api/agora/franjas-plantillas?plantillaId=p_1', sinPermiso));
+  for (const quien of [sinPermiso, LOCAL]) {
+    sinEfecto(await api('POST', '/api/agora/franjas-plantillas', quien, plantilla));
+    sinEfecto(await api('PUT', '/api/agora/franjas-plantillas', quien, { ...plantilla, plantillaId: 'p_1' }));
+    sinEfecto(await api('DELETE', '/api/agora/franjas-plantillas?plantillaId=p_1', quien));
+  }
   assert.equal(db.obtener(tables.franjasHorarias, { PK: 'GLOBAL', SK: 'p_1' }).nombre, 'Tarde');
+  assert.equal((await api('GET', '/api/agora/franjas-plantillas', LOCAL)).body.plantillas.length, 1);
 
   assert.equal((await api('POST', '/api/agora/franjas-plantillas', SUPER, plantilla)).status, 200);
   assert.equal((await api('PUT', '/api/agora/franjas-plantillas', SUPER, { ...plantilla, plantillaId: 'p_1' })).status, 200);

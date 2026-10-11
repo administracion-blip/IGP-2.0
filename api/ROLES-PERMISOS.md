@@ -153,6 +153,7 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `comparativa.exportar` | Comparativa fechas · Exportar |
 | `objetivos.ver` | Objetivos · Ver |
 | `objetivos.compartir` | Objetivos · Compartir |
+| `franjas.editar` | Plantillas de franjas horarias · Crear, editar y borrar (son globales del grupo) |
 | `excepciones.ver` | Control de excepciones · Ver |
 | `excepciones.exportar` | Control de excepciones · Exportar |
 | `top.ver` | Top · Ver |

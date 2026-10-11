@@ -3436,7 +3436,7 @@ router.get('/agora/franjas-plantillas', async (_req, res) => {
   res.json({ plantillas });
 });
 
-router.post('/agora/franjas-plantillas', requirePermission('objetivos.ver'), async (req, res) => {
+router.post('/agora/franjas-plantillas', requirePermission('franjas.editar'), async (req, res) => {
   const nombre = String(req.body?.nombre ?? '').trim();
   if (!nombre) return res.status(400).json({ error: 'nombre es obligatorio' });
   const franjas = normalizarFranjas(req.body?.franjas);
@@ -3453,7 +3453,7 @@ router.post('/agora/franjas-plantillas', requirePermission('objetivos.ver'), asy
   res.json({ ok: true, plantilla: { plantillaId, nombre, franjas } });
 });
 
-router.put('/agora/franjas-plantillas', requirePermission('objetivos.ver'), async (req, res) => {
+router.put('/agora/franjas-plantillas', requirePermission('franjas.editar'), async (req, res) => {
   const plantillaId = String(req.body?.plantillaId ?? '').trim();
   if (!plantillaId) return res.status(400).json({ error: 'plantillaId es obligatorio' });
   const nombre = String(req.body?.nombre ?? '').trim();
@@ -3483,7 +3483,7 @@ router.put('/agora/franjas-plantillas', requirePermission('objetivos.ver'), asyn
   }
 });
 
-router.delete('/agora/franjas-plantillas', requirePermission('objetivos.ver'), async (req, res) => {
+router.delete('/agora/franjas-plantillas', requirePermission('franjas.editar'), async (req, res) => {
   const plantillaId = String(req.query.plantillaId ?? req.body?.plantillaId ?? '').trim();
   if (!plantillaId) return res.status(400).json({ error: 'plantillaId es obligatorio' });
   await docClient.send(

@@ -27,6 +27,8 @@ CRUD de plantillas:
 - **PUT** `/api/agora/franjas-plantillas` body `{ plantillaId, nombre, franjas }` → actualiza
 - **DELETE** `/api/agora/franjas-plantillas?plantillaId=...` → borra
 
+POST, PUT y DELETE exigen `franjas.editar` (las plantillas son de todo el grupo).
+
 Ventas por hora (calculadas desde las facturas de Ágora de un business-day):
 
 - **GET** `/api/agora/invoices/sales-by-hour?workplaceId=...&businessDay=YYYY-MM-DD`
