@@ -9,6 +9,7 @@ import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { ScanCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
+import { requirePermission } from '../middleware/auth.js';
 import {
   mgTodosLosIdsPregunta,
   computeMediasPorCategoria,
@@ -125,7 +126,7 @@ function localIdItem(it) {
 }
 
 /** GET /mystery-guest — lista valoraciones; query: fechaDesde, fechaHasta (YYYY-MM-DD), localId (opcional) */
-router.get('/mystery-guest', async (req, res) => {
+router.get('/mystery-guest', requirePermission('mystery_guest.ver'), async (req, res) => {
   const fechaDesde = req.query.fechaDesde != null ? String(req.query.fechaDesde).trim() : '';
   const fechaHasta = req.query.fechaHasta != null ? String(req.query.fechaHasta).trim() : '';
   const localId = req.query.localId != null ? String(req.query.localId).trim() : '';
@@ -175,7 +176,7 @@ router.get('/mystery-guest', async (req, res) => {
 });
 
 /** POST /mystery-guest — alta: Respuestas (cuestionario) + ExperienciaGeneral, o legado tres puntuaciones. */
-router.post('/mystery-guest', async (req, res) => {
+router.post('/mystery-guest', requirePermission('mystery_guest.ver'), async (req, res) => {
   const body = req.body || {};
   const rawFecha = body.Fecha != null ? String(body.Fecha).trim() : '';
   const LocalId = body.LocalId != null ? String(body.LocalId).trim() : '';

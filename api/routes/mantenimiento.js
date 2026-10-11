@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import express from 'express';
 import { GetCommand, PutCommand, QueryCommand, ScanCommand, UpdateCommand, DeleteCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
-import { requirePermission } from '../middleware/auth.js';
+import { requireAnyPermission, requirePermission } from '../middleware/auth.js';
 import {
   previsualizarFacturacionMantenimiento,
   generarFacturacionMantenimiento,
@@ -584,7 +584,7 @@ function throwSiTablaMantenimientoFalta(err) {
   throw err;
 }
 
-router.post('/mantenimiento/incidencias', async (req, res) => {
+router.post('/mantenimiento/incidencias', requirePermission('mantenimiento.crear'), async (req, res) => {
   const body = req.body || {};
   const localId = (body.local_id ?? body.id_Locales ?? '').toString().trim();
   const zona = (body.zona ?? '').toString().trim().toLowerCase();
@@ -647,9 +647,9 @@ router.post('/mantenimiento/incidencias', async (req, res) => {
 
 /**
  * Anti-duplicados: incidencias Nuevo/Programado del mismo local con texto similar.
- * Misma protección que POST /incidencias (sin requirePermission en ruta).
+ * Misma protección que POST /incidencias.
  */
-router.post('/mantenimiento/incidencias/similares', async (req, res) => {
+router.post('/mantenimiento/incidencias/similares', requirePermission('mantenimiento.crear'), async (req, res) => {
   const body = req.body || {};
   const localId = (body.local_id ?? body.id_Locales ?? '').toString().trim();
   const titulo = (body.titulo ?? '').toString().trim();
@@ -686,7 +686,8 @@ router.post('/mantenimiento/incidencias/similares', async (req, res) => {
   return res.json({ ok: true, similares });
 });
 
-router.get('/mantenimiento/incidencias', async (req, res) => {
+// mantenimiento.crear: «Reportar incidencia» (planning del día) vuelve al listado tras crear.
+router.get('/mantenimiento/incidencias', requireAnyPermission('mantenimiento.ver', 'mantenimiento.crear'), async (req, res) => {
   const localId = (req.query.local_id ?? '').toString().trim();
   const creadoPor = (req.query.creado_por ?? '').toString().trim();
   const estado = (req.query.estado ?? '').toString().trim().toUpperCase();
@@ -766,7 +767,7 @@ router.get('/mantenimiento/incidencias', async (req, res) => {
   return res.json({ incidencias });
 });
 
-router.post('/mantenimiento/incidencias/lote', async (req, res) => {
+router.post('/mantenimiento/incidencias/lote', requirePermission('mantenimiento.crear'), async (req, res) => {
   const body = req.body || {};
   const localIds = Array.isArray(body.local_ids) ? body.local_ids.map((v) => String(v).trim()).filter(Boolean) : [];
   const fechas = Array.isArray(body.fechas_programadas) ? body.fechas_programadas.filter((f) => /^\d{4}-\d{2}-\d{2}$/.test(String(f))) : [];
@@ -830,7 +831,7 @@ router.post('/mantenimiento/incidencias/lote', async (req, res) => {
   return res.json({ ok: true, creados, total: localIds.length * fechas.length, errores });
 });
 
-router.patch('/mantenimiento/incidencias', async (req, res) => {
+router.patch('/mantenimiento/incidencias', requirePermission('mantenimiento.editar'), async (req, res) => {
   const body = req.body || {};
   const localId = (body.local_id ?? '').toString().trim();
   const idIncidencia = (body.id_incidencia ?? '').toString().trim();
@@ -1289,7 +1290,7 @@ router.patch('/mantenimiento/incidencias', async (req, res) => {
   return res.json({ ok: true });
 });
 
-router.delete('/mantenimiento/incidencias', async (req, res) => {
+router.delete('/mantenimiento/incidencias', requirePermission('mantenimiento.borrar'), async (req, res) => {
   const body = req.body || {};
   const localId = (body.local_id ?? '').toString().trim();
   const idIncidencia = (body.id_incidencia ?? '').toString().trim();
