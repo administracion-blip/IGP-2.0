@@ -21,6 +21,8 @@ import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import * as XLSX from 'xlsx-js-style';
 import { apiFetch } from '../../utils/api';
+import { useAuth } from '../../contexts/AuthContext';
+import { useConfirmar } from '../../hooks/useConfirmar';
 
 const REFETCH_INTERVAL_MS = 15_000;
 const PAGE_SIZE = 100;
@@ -317,6 +319,8 @@ type LocalItem = { AgoraCode?: string; agoraCode?: string; Nombre?: string; nomb
 
 export default function CierresTeoricosScreen() {
   const router = useRouter();
+  const { localPermitido, user } = useAuth();
+  const { confirmar, ConfirmarView } = useConfirmar();
   const [closeouts, setCloseouts] = useState<CloseOut[]>([]);
   const [formasPago, setFormasPago] = useState<FormaPago[]>([]);
   const [locales, setLocales] = useState<LocalItem[]>([]);
@@ -410,7 +414,30 @@ export default function CierresTeoricosScreen() {
       });
   }, []);
 
+  const localesPermitidos = useMemo(
+    () =>
+      locales
+        .map((l) => ({
+          code: String(l.agoraCode ?? l.AgoraCode ?? '').trim(),
+          nombre: String(l.nombre ?? l.Nombre ?? '').trim(),
+        }))
+        .filter((l) => l.code && localPermitido(l.nombre)),
+    [locales, localPermitido],
+  );
+
+  /** Usuarios con alcance global: sin `workplaces` el backend sincroniza todos los locales. */
+  const accesoTodosLocales = user?.Rol === 'Administrador' || !user?.Locales || user.Locales.length === 0;
+
   const syncRangoFechas = useCallback(async (desde: string, hasta: string) => {
+    const workplaces = localesPermitidos.map((l) => l.code);
+    if (!accesoTodosLocales && workplaces.length === 0) {
+      await confirmar(
+        'No se puede sincronizar',
+        'No tienes ningún local con código de Ágora asignado. Revisa tus locales o vuelve a intentarlo cuando terminen de cargar.',
+        { confirmarLabel: 'Aceptar', cancelarLabel: 'Cerrar' },
+      );
+      return;
+    }
     setSyncing(true);
     setSyncProgress(0);
     setSyncElapsedSeconds(0);
@@ -432,16 +459,18 @@ export default function CierresTeoricosScreen() {
       setSyncElapsedSeconds((prev) => prev + 1);
     }, 1000);
 
+    const fallidos: string[] = [];
     for (let i = 0; i < days.length; i++) {
       const day = days[i];
       try {
         const res = await apiFetch('/api/agora/closeouts/sync', {
-      method: 'POST',
-          body: JSON.stringify({ businessDay: day }),
+          method: 'POST',
+          body: JSON.stringify(accesoTodosLocales ? { businessDay: day } : { businessDay: day, workplaces }),
         });
-        await safeJson<{ ok?: boolean }>(res);
-      } catch {
-        // seguir con el siguiente día
+        const data = await safeJson<{ ok?: boolean; error?: string }>(res);
+        if (!res.ok || data.error) throw new Error(data.error || `Error ${res.status}`);
+      } catch (e) {
+        fallidos.push(`${formatBusinessDayLabel(day)}: ${e instanceof Error ? e.message : 'Error al sincronizar'}`);
       }
       const completed = i + 1;
       setSyncCurrentDay(completed);
@@ -462,7 +491,14 @@ export default function CierresTeoricosScreen() {
     setSyncProgress(100);
     setSyncEstimatedRemainingSeconds(0);
     refetchCloseouts(true);
-  }, [refetchCloseouts]);
+    if (fallidos.length > 0) {
+      await confirmar(
+        'Sincronización incompleta',
+        `No se pudieron sincronizar ${fallidos.length} de ${totalDays} día(s):\n${fallidos.join('\n')}`,
+        { confirmarLabel: 'Aceptar', cancelarLabel: 'Cerrar' },
+      );
+    }
+  }, [refetchCloseouts, localesPermitidos, accesoTodosLocales, confirmar]);
 
   useEffect(() => {
     return () => {
@@ -1748,6 +1784,7 @@ export default function CierresTeoricosScreen() {
           </ScrollView>
             </View>
       </ScrollView>
+      {ConfirmarView}
     </View>
   );
 }
