@@ -4,9 +4,10 @@
  * Auth: X-Api-Key (middleware propio; no JWT).
  */
 import { Router } from 'express';
-import { ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 import { camposFechaVirtuales } from '../lib/actuacionFechaVirtual.js';
+import { GSI_ACTUACIONES_LISTADO } from '../lib/actuacionesIndice.js';
 import {
   rejectNonGetIntegraciones,
   requireIntegracionApiKey,
@@ -17,6 +18,8 @@ const router = Router();
 const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 200;
+/** Días inclusivos. Un año natural (incluido el bisiesto) cabe; más, no. */
+const MAX_RANGO_DIAS = 366;
 
 router.use('/integraciones', rejectNonGetIntegraciones);
 router.use('/integraciones', requireIntegracionApiKey({ scope: 'actuaciones:read' }));
@@ -41,30 +44,19 @@ function normalizeIdLocal(v) {
   return String(Math.max(0, n)).padStart(6, '0');
 }
 
-async function scanAllActuaciones() {
-  const items = [];
-  let lastKey = null;
-  do {
-    const result = await docClient.send(
-      new ScanCommand({
-        TableName: tables.actuaciones,
-        ...(lastKey && { ExclusiveStartKey: lastKey }),
-      }),
-    );
-    items.push(...(result.Items || []));
-    lastKey = result.LastEvaluatedKey || null;
-  } while (lastKey);
-  return items;
+function diasInclusivos(desde, hasta) {
+  const a = Date.parse(`${desde}T12:00:00Z`);
+  const b = Date.parse(`${hasta}T12:00:00Z`);
+  return Math.round((b - a) / 86400000) + 1;
 }
 
-function compareActuacion(a, b) {
-  const cf = String(a.fecha || '').localeCompare(String(b.fecha || ''));
-  if (cf !== 0) return cf;
-  const ch = String(a.hora_inicio || '').localeCompare(String(b.hora_inicio || ''));
-  if (ch !== 0) return ch;
-  return String(a.id_actuacion || '').localeCompare(String(b.id_actuacion || ''));
-}
-
+/**
+ * Cursor:
+ * - v1 (el de siempre): `{ fecha, hora_inicio, id_actuacion }`. Sigue válido:
+ *   se salta todo lo que no quede estrictamente después, en el mismo orden.
+ * - v2: `{ v: 2, k }` con la ExclusiveStartKey del GSI Listado-Fecha. Es el que
+ *   devuelve esta ruta a partir de ahora, para no releer las páginas ya vistas.
+ */
 function encodeCursor(obj) {
   return Buffer.from(JSON.stringify(obj), 'utf8').toString('base64url');
 }
@@ -74,7 +66,10 @@ function decodeCursor(raw) {
   try {
     const o = JSON.parse(Buffer.from(String(raw), 'base64url').toString('utf8'));
     if (!o || typeof o !== 'object') return null;
+    if (o.v === 2 && o.k && typeof o.k === 'object') return { tipo: 'v2', k: o.k };
+    if (!o.fecha && !o.id_actuacion) return null;
     return {
+      tipo: 'v1',
       fecha: String(o.fecha || ''),
       hora_inicio: String(o.hora_inicio || ''),
       id_actuacion: String(o.id_actuacion || ''),
@@ -82,6 +77,92 @@ function decodeCursor(raw) {
   } catch {
     return null;
   }
+}
+
+function claveContinuacionActuacion(item) {
+  return {
+    id_actuacion: item.id_actuacion,
+    gsi_listado: 'ACTUACION',
+    gsi_fecha: item.gsi_fecha,
+  };
+}
+
+function pasaFiltroActuacion(x, { localFiltro, localNombreNorm, filtrarPorId, localIdNorm }) {
+  const fecha = String(x.fecha || '').trim();
+  if (!RE_FECHA.test(fecha)) return false;
+  if (isBlank(x.id_artista) && isBlank(x.artista_nombre_snapshot)) return false;
+  if (localFiltro) {
+    const nombreOk = String(x.local_nombre_snapshot || '').trim().toLowerCase() === localNombreNorm;
+    const idOk = filtrarPorId && normalizeIdLocal(x.id_local) === localIdNorm;
+    if (!nombreOk && !idOk) return false;
+  }
+  return true;
+}
+
+/**
+ * Página del GSI Listado-Fecha. El rango ya está en la clave; el filtro de
+ * hueco y de local se aplica aquí, y se sigue leyendo hasta llenar `limit`.
+ */
+async function paginaActuaciones({ fechaDesde, fechaHasta, limit, cursor, filtro }) {
+  const out = [];
+  let esk = cursor?.tipo === 'v2' ? cursor.k : undefined;
+  let saltarV1 = cursor?.tipo === 'v1';
+  let hayMas = false;
+
+  while (out.length < limit) {
+    const r = await docClient.send(new QueryCommand({
+      TableName: tables.actuaciones,
+      IndexName: GSI_ACTUACIONES_LISTADO,
+      KeyConditionExpression: 'gsi_listado = :t AND gsi_fecha BETWEEN :a AND :b',
+      ExpressionAttributeValues: {
+        ':t': 'ACTUACION',
+        ':a': `${fechaDesde}#`,
+        ':b': `${fechaHasta}#\uffff`,
+      },
+      Limit: Math.max(limit, 50),
+      ...(esk && { ExclusiveStartKey: esk }),
+    }));
+    const batch = r.Items || [];
+    if (batch.length === 0) break;
+
+    let corte = -1;
+    for (let i = 0; i < batch.length; i += 1) {
+      const x = batch[i];
+      if (saltarV1 && compareActuacion(x, cursor) <= 0) continue;
+      saltarV1 = false;
+      if (!pasaFiltroActuacion(x, filtro)) continue;
+      out.push(x);
+      if (out.length >= limit) {
+        corte = i;
+        break;
+      }
+    }
+
+    if (out.length >= limit) {
+      const restoPasa = corte >= 0 && batch.slice(corte + 1).some((x) => {
+        if (saltarV1 && compareActuacion(x, cursor) <= 0) return false;
+        return pasaFiltroActuacion(x, filtro);
+      });
+      hayMas = restoPasa || Boolean(r.LastEvaluatedKey);
+      esk = claveContinuacionActuacion(out[out.length - 1]);
+      break;
+    }
+
+    if (!r.LastEvaluatedKey) break;
+    esk = r.LastEvaluatedKey;
+  }
+
+  const last = out[out.length - 1];
+  const nextCursor = hayMas && last ? encodeCursor({ v: 2, k: claveContinuacionActuacion(last) }) : null;
+  return { page: out, nextCursor };
+}
+
+function compareActuacion(a, b) {
+  const cf = String(a.fecha || '').localeCompare(String(b.fecha || ''));
+  if (cf !== 0) return cf;
+  const ch = String(a.hora_inicio || '').localeCompare(String(b.hora_inicio || ''));
+  if (ch !== 0) return ch;
+  return String(a.id_actuacion || '').localeCompare(String(b.id_actuacion || ''));
 }
 
 function toDto(item) {
@@ -115,6 +196,9 @@ router.get('/integraciones/v1/actuaciones', async (req, res) => {
   if (fechaDesde > fechaHasta) {
     return res.status(400).json({ error: 'fechaDesde no puede ser posterior a fechaHasta' });
   }
+  if (diasInclusivos(fechaDesde, fechaHasta) > MAX_RANGO_DIAS) {
+    return res.status(400).json({ error: `El rango no puede superar ${MAX_RANGO_DIAS} días` });
+  }
 
   let limit = parseInt(String(req.query.limit ?? DEFAULT_LIMIT), 10);
   if (Number.isNaN(limit) || limit < 1) limit = DEFAULT_LIMIT;
@@ -131,52 +215,23 @@ router.get('/integraciones/v1/actuaciones', async (req, res) => {
   const filtrarPorId = localFiltro && pareceIdLocal(localFiltro);
   const localIdNorm = filtrarPorId ? normalizeIdLocal(localFiltro) : null;
 
-  let items;
+  let page;
+  let nextCursor;
   try {
-    items = await scanAllActuaciones();
+    ({ page, nextCursor } = await paginaActuaciones({
+      fechaDesde,
+      fechaHasta,
+      limit,
+      cursor,
+      filtro: { localFiltro, localNombreNorm, filtrarPorId, localIdNorm },
+    }));
   } catch (err) {
     console.error('[integraciones actuaciones]', err?.message || err);
     return res.status(500).json({ error: 'Error al leer actuaciones' });
   }
 
-  // Filtros de negocio: rango inclusivo por fecha; NO por estado;
-  // excluir huecos (sin artista); fecha válida.
-  items = items.filter((x) => {
-    const fecha = String(x.fecha || '').trim();
-    if (!RE_FECHA.test(fecha)) return false;
-    if (fecha < fechaDesde || fecha > fechaHasta) return false;
-    if (isBlank(x.id_artista) && isBlank(x.artista_nombre_snapshot)) return false;
-
-    if (localFiltro) {
-      const nombreOk =
-        String(x.local_nombre_snapshot || '')
-          .trim()
-          .toLowerCase() === localNombreNorm;
-      const idOk = filtrarPorId && normalizeIdLocal(x.id_local) === localIdNorm;
-      if (!nombreOk && !idOk) return false;
-    }
-    return true;
-  });
-
-  items.sort(compareActuacion);
-
-  if (cursor) {
-    items = items.filter((x) => compareActuacion(x, cursor) > 0);
-  }
-
-  const page = items.slice(0, limit);
-  const hasMore = items.length > limit;
-  const last = page[page.length - 1];
-  const nextCursor =
-    hasMore && last
-      ? encodeCursor({
-          fecha: String(last.fecha || ''),
-          hora_inicio: String(last.hora_inicio || ''),
-          id_actuacion: String(last.id_actuacion || ''),
-        })
-      : null;
-
-  // Solo Scan/Get implícito vía Scan: sin Put/Update/Delete/TransactWrite sobre actuaciones.
+  // Lectura por el GSI Listado-Fecha. El cursor v2 es su ExclusiveStartKey;
+  // un cursor v1 (fecha + hora + id) sigue saltando por ese orden.
   return res.json({
     data: page.map(toDto),
     nextCursor,
