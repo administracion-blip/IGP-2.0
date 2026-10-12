@@ -49,6 +49,7 @@ beforeEach(() => {
   db.sembrar(tables.facturas, dentro('F-C', { fecha_emision: '2026-08-01', estado: 'pagada' }));
   db.sembrar(tables.facturas, dentro('F-D', { fecha_emision: '2026-05-20', numero_factura: 'D-1' }));
   db.sembrar(tables.facturas, dentro('F-VIEJA', { fecha_emision: '2024-06-01' }));
+  db.sembrar(tables.facturas, dentro('F-FUTURA', { fecha_emision: '2026-12-20' }));
   db.sembrar(tables.facturas, aplicarClavesFactura({
     id_factura: 'F-OUT', tipo: 'OUT', estado: 'emitida', emisor_id: '000001', fecha_emision: '2026-03-11',
   }));
@@ -86,18 +87,34 @@ test('listado por tipo y rango: solo las del índice, con las fechas aplicadas',
   assert.deepEqual(r.body.facturas.map((f) => f.id_factura), ['F-D', 'F-A', 'F-B']);
 });
 
-test('sin fechas el rango es el año en curso hasta hoy, y el filtro de estado queda en JS', async () => {
+test('sin fechas el rango es el año en curso hasta el 31 de diciembre, y el filtro de estado queda en JS', async () => {
   const hoy = new Date().toISOString().slice(0, 10);
   const anio = hoy.slice(0, 4);
   const r = await api(`/api/facturacion/facturas?tipo=IN&estado=pagada&busqueda=F-C`);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.rango.desde, `${anio}-01-01`);
-  assert.equal(r.body.rango.hasta, hoy);
+  assert.equal(r.body.rango.hasta, `${anio}-12-31`);
   if (anio === '2026' && hoy >= '2026-08-01') {
     assert.deepEqual(r.body.facturas.map((f) => f.id_factura), ['F-C']);
   } else {
     assert.deepEqual(r.body.facturas, []);
   }
+});
+
+test('pedir 2024 devuelve solo las facturas de 2024', async () => {
+  const r = await api('/api/facturacion/facturas?tipo=IN&fechaDesde=2024-01-01&fechaHasta=2024-12-31');
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.rango, { desde: '2024-01-01', hasta: '2024-12-31' });
+  assert.deepEqual(r.body.facturas.map((f) => f.id_factura), ['F-VIEJA']);
+});
+
+test('sin fechas entra una emisión futura del mismo año', async () => {
+  const anio = new Date().toISOString().slice(0, 4);
+  const r = await api('/api/facturacion/facturas?tipo=IN');
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const ids = r.body.facturas.map((f) => f.id_factura);
+  if (anio === '2026') assert.ok(ids.includes('F-FUTURA'));
+  else assert.ok(!ids.includes('F-FUTURA'));
 });
 
 test('fechas inválidas no disparan una lectura', async () => {

@@ -451,13 +451,13 @@ async function facturasTipoFecha(desde, hasta) {
 
 /**
  * El listado siempre va por rango de `gsi_fecha`. Sin fechas, el año en curso
- * hasta hoy (UTC, igual que `now()`).
+ * completo (1 de enero a 31 de diciembre, UTC como `now()`).
  */
 function rangoListadoFacturas(query) {
-  const hoy = now().slice(0, 10);
+  const anio = now().slice(0, 4);
   const desde = String(query.fechaDesde || '').trim();
   const hasta = String(query.fechaHasta || '').trim();
-  if (!desde && !hasta) return { desde: `${hoy.slice(0, 4)}-01-01`, hasta: hoy };
+  if (!desde && !hasta) return { desde: `${anio}-01-01`, hasta: `${anio}-12-31` };
   if (!RE_DIA.test(desde) || !RE_DIA.test(hasta) || desde > hasta) {
     return { error: 'fechaDesde y fechaHasta deben ser YYYY-MM-DD, y desde no puede ser posterior a hasta' };
   }
