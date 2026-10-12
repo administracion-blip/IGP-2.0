@@ -25,6 +25,7 @@ const { docClient, tables } = await import('../lib/db.js');
 const { crearDynamoMemoria } = await import('./dynamoMemoria.mjs');
 const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
 const { invalidarMaestroLocales } = await import('../lib/alcance.js');
+const { aplicarClavesGsi, clavesActuacion } = await import('../lib/clavesIndice.js');
 const { default: actuacionesRouter } = await import('../routes/artistasActuaciones.js');
 
 const ROL = 'Encargado';
@@ -75,7 +76,7 @@ after(() => {
 let db = null;
 
 function actuacion(id, idLocal, extra = {}) {
-  return {
+  const item = {
     id_actuacion: id,
     id_local: idLocal,
     fecha: '2026-09-05',
@@ -86,6 +87,7 @@ function actuacion(id, idLocal, extra = {}) {
     fecha_firma: '',
     ...extra,
   };
+  return aplicarClavesGsi(item, clavesActuacion(item));
 }
 
 function montar() {
@@ -93,7 +95,13 @@ function montar() {
   db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
   db.crearTabla(tables.locales, { hashKey: 'id_Locales' });
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
-  db.crearTabla(tables.actuaciones, { hashKey: 'id_actuacion' });
+  db.crearTabla(tables.actuaciones, {
+    hashKey: 'id_actuacion',
+    indices: {
+      'Listado-Fecha-index': { hashKey: 'gsi_listado', rangeKey: 'gsi_fecha' },
+      'Artista-Fecha-index': { hashKey: 'gsi_artista', rangeKey: 'gsi_fecha' },
+    },
+  });
   db.crearTabla(tables.artistas, { hashKey: 'id_artista' });
   db.crearTabla(tables.gestionFestivos, { hashKey: 'id' });
   db.instalar(docClient);

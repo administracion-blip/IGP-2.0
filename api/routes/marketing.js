@@ -32,6 +32,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { queryActuacionesListado } from '../lib/actuacionesIndice.js';
 import { docClient, tables } from '../lib/db.js';
 import { requirePermission } from '../middleware/auth.js';
 import {
@@ -1117,17 +1118,7 @@ router.post('/marketing/carteles-musico/generar', requirePermission('marketing.g
   const refImagenesCount = normalizeEstiloImagenKeysFromItem(lr.Item.estilo_visual_imagen_keys).length;
   const estiloWeb = String(lr.Item.web || '').trim();
 
-  // Scan + filtro en memoria por id_local + rango de fechas (mismo patrón que /actuaciones).
-  const allActuaciones = [];
-  let lastKey = null;
-  do {
-    const r = await docClient.send(new ScanCommand({
-      TableName: tables.actuaciones,
-      ...(lastKey && { ExclusiveStartKey: lastKey }),
-    }));
-    allActuaciones.push(...(r.Items || []));
-    lastKey = r.LastEvaluatedKey || null;
-  } while (lastKey);
+  const allActuaciones = await queryActuacionesListado(fechaInicio, fechaFin);
 
   const actuacionesFiltradas = allActuaciones.filter((a) => {
     const idl = formatId6(String(a.id_local || ''));

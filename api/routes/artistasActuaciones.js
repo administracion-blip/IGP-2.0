@@ -12,6 +12,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { docClient, tables, keyForFacturaPrincipalId } from '../lib/db.js';
 import { aplicarClavesGsi, clavesActuacion } from '../lib/clavesIndice.js';
+import { queryActuacionesListado, queryActuacionesArtista } from '../lib/actuacionesIndice.js';
 import { calcularPropuestaImporte, sanitizeTarifas, tarifasMatrizVacia } from '../lib/tarifaActuacion.js';
 import { empresaTieneEtiquetaMusicos } from '../lib/etiquetaMusicos.js';
 import { getIdEmpresaFromItem } from '../lib/empresaCif.js';
@@ -133,13 +134,12 @@ function enumerarFechasIso(fechaInicio, fechaFin) {
 
 async function findConflictoArtistaExcluyendo({ id_excluir, id_artista, fecha, hora_inicio }) {
   if (!id_artista || String(id_artista).trim() === '') return null;
-  const items = await scanAll(tables.actuaciones);
   const f = fechaAIso(String(fecha));
   const h = normalizarHoraActuacion(hora_inicio);
+  const items = await queryActuacionesArtista(id_artista, f);
   for (const x of items) {
     if (id_excluir != null && String(x.id_actuacion) === String(id_excluir)) continue;
-    if (String(x.id_artista || '') !== String(id_artista)) continue;
-    if (String(x.fecha || '') !== f) continue;
+    if (fechaAIso(String(x.fecha || '')) !== f) continue;
     if (normalizarHoraActuacion(x.hora_inicio) !== h) continue;
     return x;
   }
@@ -186,11 +186,7 @@ function throwSiTablaArtistasFalta(err) {
 async function recomputarValoracionMediaArtista(idArtista) {
   const id = String(idArtista || '').trim();
   if (!id) return;
-  const actsArtista = await scanAll(
-    tables.actuaciones,
-    'id_artista = :a',
-    { ':a': id },
-  );
+  const actsArtista = await queryActuacionesArtista(id);
   const valoraciones = actsArtista
     .map((a) => Number(a.valoracion))
     .filter((n) => Number.isFinite(n) && n > 0);
@@ -494,12 +490,8 @@ router.post('/actuaciones/asociar-factura', requirePermission('actuaciones.factu
 
   const key = await keyForFacturaPrincipalId(id_factura);
   const fr = await docClient.send(new GetCommand({ TableName: tables.facturas, Key: key }));
-  let factura = fr.Item;
-  if (!factura) {
-    const all = await scanAll(tables.facturas);
-    factura = all.find((x) => (x.id_factura || x.id_entrada) === id_factura);
-  }
-  // [SEC S-08] Factura de otra sociedad: no existe.
+  const factura = fr.Item;
+  // [SEC S-08] Sin la factura por clave no se recorre la tabla: no existe.
   const alcance = await cargarAlcance(req);
   if (!factura || !permiteEmpresa(alcance, factura.emisor_id)) {
     return res.status(404).json({ error: 'Factura no encontrada' });
@@ -510,8 +502,11 @@ router.post('/actuaciones/asociar-factura', requirePermission('actuaciones.factu
     return res.status(400).json({ error: 'La factura no está en un estado asociable' });
   }
 
-  const empresas = await scanAll(tables.empresas);
-  const emp = empresas.find((e) => String(getIdEmpresaFromItem(e)) === String(factura.empresa_id));
+  const idEmp = String(factura.empresa_id || '').trim();
+  const er = idEmp
+    ? await docClient.send(new GetCommand({ TableName: tables.empresas, Key: { id_empresa: idEmp } }))
+    : { Item: undefined };
+  const emp = er.Item;
   if (!emp || !empresaTieneEtiquetaMusicos(emp.Etiqueta)) {
     return res.status(400).json({ error: 'El proveedor de la factura no está etiquetado como músicos' });
   }
@@ -749,8 +744,7 @@ const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 router.get('/actuaciones/dia/total', requireAnyPermission('actuaciones.ver', 'planning_dia.actuaciones'), async (req, res) => {
   try {
     const fecha = RE_FECHA.test(String(req.query.fecha || '')) ? String(req.query.fecha) : jornadaNegocioHoyIso();
-    const items = await scanAll(tables.actuaciones);
-    const delDia = items.filter((a) => String(a.fecha || '') === fecha);
+    const delDia = await queryActuacionesListado(fecha, fecha);
     const total = (await filtrarActuacionesPorLocal(req, delDia)).length;
     return res.json({ total, fecha });
   } catch (err) {
@@ -763,8 +757,12 @@ router.get('/actuaciones', async (req, res) => {
   if (!(await puedeLeerActuaciones(req.user))) {
     return res.status(403).json({ error: 'Permiso insuficiente' });
   }
-  let items = await scanAll(tables.actuaciones);
   const { fechaDesde, fechaHasta, id_artista, id_local, id_locales, estado } = req.query;
+  const desde = fechaAIso(fechaDesde);
+  const hasta = fechaAIso(fechaHasta);
+  let items = (desde || hasta)
+    ? await queryActuacionesListado(desde || '0000-01-01', hasta || '9999-12-31')
+    : await queryActuacionesListado();
   if (id_artista) items = items.filter((x) => x.id_artista === id_artista);
   if (id_locales != null && String(id_locales).trim() !== '') {
     const ids = String(id_locales)
