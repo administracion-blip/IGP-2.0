@@ -58,7 +58,7 @@ import {
   updateFacturaVersionado,
 } from '../lib/facturacion/versionFactura.js';
 import { aplicarClavesFactura, aplicarClavesPago, conClavesFactura } from '../lib/facturacion/clavesIndice.js';
-import { facturasPorTipo } from '../lib/facturacion/consultaIndice.js';
+import { facturasPorEstado, facturasPorTipo } from '../lib/facturacion/consultaIndice.js';
 import {
   indexRemesasActivasPorFactura,
   findRemesaActivaDeFactura,
@@ -1992,23 +1992,29 @@ router.get('/facturacion/metricas-avanzadas', requirePermission('facturacion.ver
 // ─── Automatización: marcar facturas vencidas ───
 
 // [SEC S-01]
+const ESTADOS_REVISION_VENCIMIENTO = ['emitida', 'parcialmente_cobrada', 'pendiente_pago', 'parcialmente_pagada'];
+
 router.post('/facturacion/check-vencimientos', requirePermission('facturacion.editar'), async (req, res) => {
   try {
     const hoy = now().slice(0, 10);
+    const leidas = [];
+    for (const estado of ESTADOS_REVISION_VENCIMIENTO) {
+      leidas.push(...await facturasPorEstado(estado, { hasta: hoy }));
+    }
     // [SEC S-08] Internas y globales revisan todo; el resto, solo sus sociedades.
-    const facturas = filtrarPorEmpresa(await cargarAlcance(req), await scanAll(tables.facturas), (f) => f.emisor_id);
+    const facturas = filtrarPorEmpresa(await cargarAlcance(req), leidas, (f) => f.emisor_id);
 
     const pendientes = facturas.filter(
       (f) =>
         f.fecha_vencimiento &&
         f.fecha_vencimiento < hoy &&
-        ['emitida', 'parcialmente_cobrada', 'pendiente_pago', 'parcialmente_pagada'].includes(f.estado),
+        ESTADOS_REVISION_VENCIMIENTO.includes(f.estado),
     );
 
     let actualizadas = 0;
     let omitidas = 0;
     for (const f of pendientes) {
-      // Solo si sigue en el estado leído en el Scan: un pago que la deja pagada
+      // Solo si sigue en el estado leído: un pago que la deja pagada
       // entretanto no se convierte en 'vencida'.
       try {
         await docClient.send(

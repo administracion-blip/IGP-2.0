@@ -23,6 +23,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'secreto-solo-para-las-prueba
 const { montarEscenario, tables, local, EMPRESA_NORTE, EMPRESA_SUR } = await import('./escenarioFacturacion.mjs');
 const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
 const { invalidarMaestroLocales } = await import('../lib/alcance.js');
+const { aplicarClavesFactura } = await import('../lib/facturacion/clavesIndice.js');
 const { default: facturacionRouter } = await import('../routes/facturacion.js');
 
 const ROL = 'Administracion';
@@ -36,7 +37,14 @@ const avisos = [];
 const warnOriginal = console.warn;
 
 function factura(id, emisor, extra = {}) {
-  return { id_factura: id, tipo: 'IN', emisor_id: emisor, estado: 'pendiente_pago', ...extra };
+  return aplicarClavesFactura({
+    id_factura: id,
+    tipo: 'IN',
+    emisor_id: emisor,
+    estado: 'pendiente_pago',
+    fecha_emision: '2026-01-15',
+    ...extra,
+  });
 }
 
 beforeEach(() => {

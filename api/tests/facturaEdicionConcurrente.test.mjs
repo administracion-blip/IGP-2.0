@@ -21,6 +21,7 @@ const { montarEscenario, tables, local, EMPRESA_NORTE } = await import('./escena
 const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
 const { invalidarMaestroLocales } = await import('../lib/alcance.js');
 const { registrarPagoFactura } = await import('../lib/facturacion/registrarPago.js');
+const { aplicarClavesFactura } = await import('../lib/facturacion/clavesIndice.js');
 const { default: facturacionRouter } = await import('../routes/facturacion.js');
 
 const ROL = 'Administracion';
@@ -239,8 +240,8 @@ test('cambiar el emisor mientras entra un pago: el reintento compara con el emis
   assert.equal(factura().total_cobrado, 40);
 });
 
-test('check-vencimientos: si un pago la deja pagada entre el Scan y el Update, no se marca vencida (omitida)', async () => {
-  db.sembrar(tables.facturas, { ...factura(), fecha_vencimiento: '2020-01-01' });
+test('check-vencimientos: si un pago la deja pagada entre la lectura y el Update, no se marca vencida (omitida)', async () => {
+  db.sembrar(tables.facturas, aplicarClavesFactura({ ...factura(), fecha_emision: '2020-01-01', fecha_vencimiento: '2020-01-01' }));
   db.interceptar('UpdateCommand', tables.facturas, () => registrarPagoFactura({
     id_factura: 'F-1', fecha: '2026-10-02', importe: 90, metodo_pago: 'transferencia',
   }));
@@ -253,7 +254,7 @@ test('check-vencimientos: si un pago la deja pagada entre el Scan y el Update, n
 });
 
 test('check-vencimientos sin carrera marca vencida y sube la versión', async () => {
-  db.sembrar(tables.facturas, { ...factura(), fecha_vencimiento: '2020-01-01' });
+  db.sembrar(tables.facturas, aplicarClavesFactura({ ...factura(), fecha_emision: '2020-01-01', fecha_vencimiento: '2020-01-01' }));
   const r = await api('POST', '/api/facturacion/check-vencimientos');
   assert.equal(r.body.actualizadas, 1);
   assert.equal(r.body.omitidas, 0);
