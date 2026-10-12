@@ -327,35 +327,33 @@ export async function putFicheroCarga(item) {
 }
 
 /**
- * Listado de cargas (Scan filtrado), lo más reciente primero.
+ * Listado de cargas por el GSI Listado-Fecha (gsi_listado = CARGA).
  * @param {{ desde?: string, hasta?: string, estado?: string, iban?: string, limite?: number }} filtros
  */
 export async function listarFicherosCarga({ desde, hasta, estado, iban, limite } = {}) {
-  const partes = [];
-  const values = {};
-  if (desde) {
-    partes.push('importadoEn >= :desde');
-    values[':desde'] = String(desde);
-  }
-  if (hasta) {
-    partes.push('importadoEn <= :hasta');
-    values[':hasta'] = `${String(hasta)}\uffff`;
-  }
-  if (estado) {
-    partes.push('estado = :estado');
-    values[':estado'] = String(estado);
+  const values = { ':t': 'CARGA' };
+  let keyExpr = 'gsi_listado = :t';
+  if (desde && hasta) {
+    keyExpr += ' AND gsi_fecha BETWEEN :a AND :b';
+    values[':a'] = String(desde);
+    values[':b'] = `${String(hasta)}\uffff`;
+  } else if (desde) {
+    keyExpr += ' AND gsi_fecha >= :a';
+    values[':a'] = String(desde);
+  } else if (hasta) {
+    keyExpr += ' AND gsi_fecha <= :b';
+    values[':b'] = `${String(hasta)}\uffff`;
   }
 
   const items = [];
   let lastKey = null;
   do {
     const result = await docClient.send(
-      new ScanCommand({
+      new QueryCommand({
         TableName: tablaFicheros(),
-        ...(partes.length && {
-          FilterExpression: partes.join(' AND '),
-          ExpressionAttributeValues: values,
-        }),
+        IndexName: 'Listado-Fecha-index',
+        KeyConditionExpression: keyExpr,
+        ExpressionAttributeValues: values,
         ...(lastKey && { ExclusiveStartKey: lastKey }),
       }),
     );
@@ -363,10 +361,13 @@ export async function listarFicherosCarga({ desde, hasta, estado, iban, limite }
     lastKey = result.LastEvaluatedKey || null;
   } while (lastKey);
 
+  const estadoFiltro = String(estado || '').trim();
   const ibanFiltro = String(iban || '').trim();
-  const filtrados = ibanFiltro
-    ? items.filter((f) => (f.cuentas || []).some((c) => c.iban === ibanFiltro || c.cuentaRef === ibanFiltro))
-    : items;
+  const filtrados = items.filter((f) => {
+    if (estadoFiltro && String(f.estado || '') !== estadoFiltro) return false;
+    if (!ibanFiltro) return true;
+    return (f.cuentas || []).some((c) => c.iban === ibanFiltro || c.cuentaRef === ibanFiltro);
+  });
 
   filtrados.sort((a, b) => String(b.importadoEn || '').localeCompare(String(a.importadoEn || '')));
   const max = normalizarLimite(limite);

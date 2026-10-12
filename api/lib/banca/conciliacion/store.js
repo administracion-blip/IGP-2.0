@@ -13,7 +13,7 @@
  * `derivarEstado()` y nunca a mano.
  */
 
-import { GetCommand, QueryCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables, keyForFacturaPrincipalId } from '../../db.js';
 import { formatId6 } from '../../usuarioLocales.js';
 import {
@@ -280,39 +280,34 @@ export async function getFactura(idFactura) {
 }
 
 /**
- * Facturas conciliables de un tipo.
- *
- * Scan filtrado, como el resto de las consultas de `Igp_Facturas` (la tabla no
- * tiene GSI por tipo ni por estado). El filtro de estado se manda al servicio
- * para no traerse las pagadas y las anuladas, que son la mayoría con el tiempo.
+ * Facturas conciliables de un tipo, por el GSI Estado-Fecha (un Query por
+ * estado elegible). El tipo y la sociedad se filtran después.
  *
  * @param {string} tipo 'IN' | 'OUT'
  * @param {{ empresaId?: string }} [filtros] `empresaId` = sociedad del grupo (emisor_id).
  * @returns {Promise<Array<Record<string, any>>>}
  */
 export async function listarFacturasElegibles(tipo, { empresaId } = {}) {
-  const estados = [...ESTADOS_FACTURA_ELEGIBLES];
-  const valores = { ':tipo': String(tipo) };
-  estados.forEach((estado, i) => {
-    valores[`:e${i}`] = estado;
-  });
-  const filtroEstados = estados.map((_, i) => `#estado = :e${i}`).join(' OR ');
-
   const items = [];
-  let lastKey = null;
-  do {
-    const result = await docClient.send(
-      new ScanCommand({
-        TableName: tables.facturas,
-        FilterExpression: `#tipo = :tipo AND (${filtroEstados})`,
-        ExpressionAttributeNames: { '#tipo': 'tipo', '#estado': 'estado' },
-        ExpressionAttributeValues: valores,
-        ...(lastKey && { ExclusiveStartKey: lastKey }),
-      }),
-    );
-    items.push(...(result.Items || []));
-    lastKey = result.LastEvaluatedKey || null;
-  } while (lastKey);
+  for (const estado of ESTADOS_FACTURA_ELEGIBLES) {
+    let lastKey = null;
+    do {
+      const result = await docClient.send(
+        new QueryCommand({
+          TableName: tables.facturas,
+          IndexName: 'Estado-Fecha-index',
+          KeyConditionExpression: 'gsi_estado = :e',
+          ExpressionAttributeValues: { ':e': estado },
+          ...(lastKey && { ExclusiveStartKey: lastKey }),
+        }),
+      );
+      for (const factura of result.Items || []) {
+        if (String(factura.tipo || '') !== String(tipo)) continue;
+        items.push(factura);
+      }
+      lastKey = result.LastEvaluatedKey || null;
+    } while (lastKey);
+  }
 
   // El maestro no guarda los id normalizados: la misma sociedad está unas veces
   // como "7" y otras como "000007". Comparar en crudo dejaría el barrido sin una

@@ -20,6 +20,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'secreto-solo-para-las-prueba
 const { montarEscenario, tables, local, empresa, EMPRESA_NORTE, EMPRESA_SUR } = await import('./escenarioFacturacion.mjs');
 const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
 const { invalidarMaestroLocales } = await import('../lib/alcance.js');
+const { aplicarClavesGsi, clavesFicheroBanca } = await import('../lib/clavesIndice.js');
 const { default: bancaRouter } = await import('../routes/banca.js');
 
 const ROL = 'Administracion';
@@ -61,7 +62,10 @@ beforeEach(() => {
   db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.bankAccounts, { hashKey: 'PK', rangeKey: 'SK' });
-  db.crearTabla(tables.bankFiles, { hashKey: 'hashFichero' });
+  db.crearTabla(tables.bankFiles, {
+    hashKey: 'hashFichero',
+    indices: { 'Listado-Fecha-index': { hashKey: 'gsi_listado', rangeKey: 'gsi_fecha' } },
+  });
   db.crearTabla(tables.bankMovements, {
     hashKey: 'PK',
     rangeKey: 'SK',
@@ -77,9 +81,13 @@ beforeEach(() => {
   db.sembrar(tables.bankAccounts, { PK: `ACCOUNT#${IBAN_SUR}`, SK: 'META', iban: IBAN_SUR, empresaId: EMPRESA_SUR });
   db.sembrar(tables.bankAccounts, { PK: `ACCOUNT#${IBAN_NORTE}`, SK: 'META', iban: IBAN_NORTE, empresaId: EMPRESA_NORTE });
 
-  db.sembrar(tables.bankFiles, { hashFichero: 'F-SUR', estado: 'cargado', importadoEn: '2026-03-01', cuentas: [cuenta(IBAN_SUR, EMPRESA_SUR)] });
-  db.sembrar(tables.bankFiles, { hashFichero: 'F-NORTE', estado: 'cargado', importadoEn: '2026-03-02', cuentas: [cuenta(IBAN_NORTE, EMPRESA_NORTE)] });
-  db.sembrar(tables.bankFiles, {
+  const sembrarCarga = (item) => {
+    aplicarClavesGsi(item, clavesFicheroBanca(item));
+    db.sembrar(tables.bankFiles, item);
+  };
+  sembrarCarga({ hashFichero: 'F-SUR', estado: 'cargado', importadoEn: '2026-03-01', cuentas: [cuenta(IBAN_SUR, EMPRESA_SUR)] });
+  sembrarCarga({ hashFichero: 'F-NORTE', estado: 'cargado', importadoEn: '2026-03-02', cuentas: [cuenta(IBAN_NORTE, EMPRESA_NORTE)] });
+  sembrarCarga({
     hashFichero: 'F-MIXTO',
     estado: 'cargado',
     importadoEn: '2026-03-03',
