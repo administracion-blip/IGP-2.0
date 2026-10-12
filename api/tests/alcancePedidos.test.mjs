@@ -21,6 +21,7 @@ const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
 const { invalidarMaestroLocales } = await import('../lib/alcance.js');
 const { olvidarAlmacenGeneralCacheado } = await import('../lib/pedidos/almacenGeneral.js');
 const { default: pedidosRouter } = await import('../routes/pedidos.js');
+const { aplicarClavesGsi, clavesPedido } = await import('../lib/clavesIndice.js');
 
 /** Encargado de Bar Norte (destino de PED-2). */
 const LOCAL_NORTE = { sub: '000090', email: 'norte@grupo.test', rol: 'Local' };
@@ -96,7 +97,13 @@ function montar() {
   db.crearTabla(tables.almacenes, { hashKey: 'Id' });
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.ajustes, { hashKey: 'PK', rangeKey: 'SK' });
-  db.crearTabla(tables.pedidos, { hashKey: 'Id' });
+  db.crearTabla(tables.pedidos, {
+    hashKey: 'Id',
+    indices: {
+      'Estado-Fecha-index': { hashKey: 'gsi_estado', rangeKey: 'gsi_fecha' },
+      'Local-Fecha-index': { hashKey: 'gsi_local', rangeKey: 'gsi_fecha' },
+    },
+  });
   db.crearTabla(tables.pedidosLineas, { hashKey: 'PedidoId', rangeKey: 'LineaIndex' });
   db.instalar(docClient);
   for (const p of ['pedidos.borrar', 'pedidos.borrar_enviado', 'pedidos.editar_enviado']) {
@@ -112,15 +119,20 @@ function montar() {
   db.sembrar(tables.usuarios, { id_usuario: '000091', Email: ALMACENERO.email, Rol: 'SuperUser', Local: ['DISTRIBUIDORA'] });
   db.sembrar(tables.usuarios, { id_usuario: '000092', Email: INTRUSO.email, Rol: 'Local', Local: ['Bar Este'] });
   // PED-1: de Bar Sur, sale del Almacén General y ya está enviado al almacén.
-  db.sembrar(tables.pedidos, { Id: 'PED-1', LocalId: '000020', AlmacenOrigenId: '1', Estado: 'Enviado', Fecha: '2026-10-01', Notas: '' });
+  sembrarPedido({ Id: 'PED-1', LocalId: '000020', AlmacenOrigenId: '1', Estado: 'Enviado', Fecha: '2026-10-01', Notas: '' });
   db.sembrar(tables.pedidosLineas, linea('PED-1', 0));
   db.sembrar(tables.pedidosLineas, linea('PED-1', 1));
   // PED-2: de Bar Norte, en borrador.
-  db.sembrar(tables.pedidos, { Id: 'PED-2', LocalId: '000010', AlmacenOrigenId: '1', Estado: 'Borrador', Fecha: '2026-10-02', Notas: '' });
+  sembrarPedido({ Id: 'PED-2', LocalId: '000010', AlmacenOrigenId: '1', Estado: 'Borrador', Fecha: '2026-10-02', Notas: '' });
   db.sembrar(tables.pedidosLineas, linea('PED-2', 0));
   invalidarContextoAcceso();
   invalidarMaestroLocales();
   olvidarAlmacenGeneralCacheado();
+}
+
+function sembrarPedido(item) {
+  aplicarClavesGsi(item, clavesPedido(item));
+  db.sembrar(tables.pedidos, item);
 }
 
 function pedido(id) {
@@ -205,7 +217,7 @@ test('si el pedido cambia de local entre la lectura y la escritura: 409 y no se 
 
 test('pedido sin AlmacenOrigenId: la condición lo acepta si sigue sin él', async () => {
   montar();
-  db.sembrar(tables.pedidos, { Id: 'PED-4', LocalId: '000010', Estado: 'Borrador', Fecha: '2026-10-06', Notas: '' });
+  sembrarPedido({ Id: 'PED-4', LocalId: '000010', Estado: 'Borrador', Fecha: '2026-10-06', Notas: '' });
   const r = await api('PUT', '/api/pedidos', { Id: 'PED-4', Notas: 'ok' }, LOCAL_NORTE);
   assert.equal(r.status, 200);
   assert.equal(pedido('PED-4').Notas, 'ok');

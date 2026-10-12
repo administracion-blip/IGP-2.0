@@ -369,6 +369,111 @@ function fechaReferenciaVentas(pedido) {
   return fechaPedidoToIso(pedido?.Fecha) || String(pedido?.Fecha ?? '').trim().slice(0, 10);
 }
 
+/**
+ * Estados que escribe este módulo. El listado global consulta uno por uno:
+ * son menos queries que un Local-Fecha por cada local del grupo, y después
+ * `filtrarPedidosLectura` sigue aplicando destino u origen de almacén. Un
+ * Local-Fecha solo de los locales del usuario dejaría fuera los pedidos que
+ * el almacén prepara para otros locales.
+ */
+const ESTADOS_PEDIDO_LISTADO = ['Borrador', 'Enviado', 'Pendiente', 'Completado', 'Exportado'];
+const GSI_PEDIDOS_ESTADO = 'Estado-Fecha-index';
+const GSI_PEDIDOS_LOCAL = 'Local-Fecha-index';
+
+function rangoAnioEnCurso() {
+  const y = new Date().toISOString().slice(0, 4);
+  return { desde: `${y}-01-01`, hasta: `${y}-12-31` };
+}
+
+function resolverRangoPedidos(query) {
+  let desde = fechaPedidoToIso(query?.desde);
+  let hasta = fechaPedidoToIso(query?.hasta);
+  if (!desde && !hasta) return rangoAnioEnCurso();
+  if (!desde) desde = `${hasta.slice(0, 4)}-01-01`;
+  if (!hasta) hasta = new Date().toISOString().slice(0, 10);
+  if (desde > hasta) return { error: 'desde no puede ser mayor que hasta' };
+  return { desde, hasta };
+}
+
+async function queryPedidosGsi(index, hashName, hashValue, desde, hasta) {
+  const items = [];
+  let lastKey = null;
+  const conRango = Boolean(desde && hasta);
+  do {
+    const r = await docClient.send(new QueryCommand({
+      TableName: tables.pedidos,
+      IndexName: index,
+      KeyConditionExpression: conRango
+        ? '#h = :h AND gsi_fecha BETWEEN :a AND :b'
+        : '#h = :h',
+      ExpressionAttributeNames: { '#h': hashName },
+      ExpressionAttributeValues: conRango
+        ? { ':h': hashValue, ':a': desde, ':b': hasta }
+        : { ':h': hashValue },
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    }));
+    items.push(...(r.Items || []));
+    lastKey = r.LastEvaluatedKey || null;
+  } while (lastKey);
+  return items;
+}
+
+async function listarPedidosPorEstados(desde, hasta, estados = ESTADOS_PEDIDO_LISTADO) {
+  const listas = [];
+  for (let i = 0; i < estados.length; i += 5) {
+    const trozo = await Promise.all(estados.slice(i, i + 5).map((estado) =>
+      queryPedidosGsi(GSI_PEDIDOS_ESTADO, 'gsi_estado', estado, desde, hasta)));
+    listas.push(...trozo);
+  }
+  return listas.flat();
+}
+
+async function listarPedidosPorLocales(locales, desde, hasta) {
+  const ids = [...locales];
+  const listas = [];
+  for (let i = 0; i < ids.length; i += 6) {
+    const trozo = await Promise.all(ids.slice(i, i + 6).map((localId) =>
+      queryPedidosGsi(GSI_PEDIDOS_LOCAL, 'gsi_local', localId, desde, hasta)));
+    listas.push(...trozo);
+  }
+  return listas.flat();
+}
+
+async function lineasDePedido(pedidoId) {
+  const items = [];
+  let lastKey = null;
+  do {
+    const q = await docClient.send(new QueryCommand({
+      TableName: tables.pedidosLineas,
+      KeyConditionExpression: 'PedidoId = :pid',
+      ExpressionAttributeValues: { ':pid': pedidoId },
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    }));
+    items.push(...(q.Items || []));
+    lastKey = q.LastEvaluatedKey || null;
+  } while (lastKey);
+  return items;
+}
+
+/** Totales de las líneas de los pedidos ya filtrados. No lee el resto de la tabla. */
+async function rellenarTotalesLineas(pedidos) {
+  for (let i = 0; i < pedidos.length; i += 8) {
+    await Promise.all(pedidos.slice(i, i + 8).map(async (p) => {
+      const pid = String(p.Id ?? '');
+      const lineas = pid ? await lineasDePedido(pid) : [];
+      let total = 0;
+      let preparadas = 0;
+      for (const linea of lineas) {
+        total += Number(linea.TotalLinea ?? 0);
+        if (linea.Preparada) preparadas += 1;
+      }
+      p.TotalAlbaran = total;
+      p.LineasTotal = lineas.length;
+      p.LineasPreparadas = preparadas;
+    }));
+  }
+}
+
 /** Mayor secuencial usado para PED-AAAA-NNNNN en un año (0 si no hay ninguno). */
 async function maxSecuencialPedidoAño(año) {
   const re = new RegExp(`^PED-${año}-(\\d+)$`, 'i');
@@ -541,52 +646,15 @@ async function recomputarEstadoPorPreparacion(pedidoId, usuarioEmail = '') {
 // GET /pedidos
 router.get('/pedidos', async (req, res) => {
   try {
-    const items = [];
-    let lastKey = null;
-    do {
-      const result = await docClient.send(new ScanCommand({
-        TableName: tables.pedidos,
-        ...(lastKey && { ExclusiveStartKey: lastKey }),
-      }));
-      items.push(...(result.Items || []));
-      lastKey = result.LastEvaluatedKey || null;
-    } while (lastKey);
+    const rango = resolverRangoPedidos(req.query);
+    if (rango.error) return res.status(400).json({ error: rango.error });
 
-    // Calcular TotalAlbaran como suma de TotalLinea del detalle de cada pedido
-    const lineasItems = [];
-    let lineasLastKey = null;
-    do {
-      const lineasResult = await docClient.send(new ScanCommand({
-        TableName: tables.pedidosLineas,
-        ...(lineasLastKey && { ExclusiveStartKey: lineasLastKey }),
-      }));
-      lineasItems.push(...(lineasResult.Items || []));
-      lineasLastKey = lineasResult.LastEvaluatedKey || null;
-    } while (lineasLastKey);
-
-    const totalesPorPedido = {};
-    const conteoLineasPorPedido = {};
-    for (const linea of lineasItems) {
-      const pid = String(linea.PedidoId ?? '');
-      if (!pid) continue;
-      const totalLinea = Number(linea.TotalLinea ?? 0);
-      totalesPorPedido[pid] = (totalesPorPedido[pid] ?? 0) + totalLinea;
-      const c = conteoLineasPorPedido[pid] ?? { total: 0, preparadas: 0 };
-      c.total += 1;
-      if (linea.Preparada) c.preparadas += 1;
-      conteoLineasPorPedido[pid] = c;
-    }
-
-    for (const p of items) {
-      const pid = String(p.Id ?? '');
-      p.TotalAlbaran = totalesPorPedido[pid] ?? 0;
-      const c = conteoLineasPorPedido[pid] ?? { total: 0, preparadas: 0 };
-      p.LineasTotal = c.total;
-      p.LineasPreparadas = c.preparadas;
-    }
+    const crudos = await listarPedidosPorEstados(rango.desde, rango.hasta);
+    const items = await filtrarPedidosLectura(req, crudos);
+    await rellenarTotalesLineas(items);
 
     items.sort((a, b) => String(b.Fecha ?? b.Id ?? '').localeCompare(String(a.Fecha ?? a.Id ?? '')));
-    res.json({ pedidos: await filtrarPedidosLectura(req, items) });
+    res.json({ pedidos: items, desde: rango.desde, hasta: rango.hasta });
   } catch (err) {
     console.error('DynamoDB error:', err);
     responderError(res, err, { mensaje: 'Error al listar pedidos' });
@@ -644,17 +712,9 @@ router.get('/pedidos/abonos', async (req, res) => {
       return res.json({ ok: true, empresa, local: local || null, anio, mes: mes || null, modo, total: 0, items: [], pedidos: [] });
     }
 
-    // 2) Pedidos de esos locales.
-    const pedidos = [];
-    let lastKey = null;
-    do {
-      const r = await docClient.send(new ScanCommand({
-        TableName: tables.pedidos,
-        ...(lastKey && { ExclusiveStartKey: lastKey }),
-      }));
-      pedidos.push(...(r.Items || []));
-      lastKey = r.LastEvaluatedKey || null;
-    } while (lastKey);
+    // 2) Pedidos de esos locales, por Local-Fecha del año (el mes se afina abajo).
+    //    Menos queries que los cinco estados del grupo, y no lee locales de otra empresa.
+    const pedidos = await listarPedidosPorLocales(localIdsEmpresa, `${anio}-01-01`, `${anio}-12-31`);
 
     const pedidosPeriodo = await filtrarPedidosLectura(req, pedidos.filter((p) => {
       const lid = String(p.LocalId ?? '').trim();
@@ -681,13 +741,9 @@ router.get('/pedidos/abonos', async (req, res) => {
       // Una devolución resta en ambos informes: en ventas anula el importe a cobrar
       // y en abonos anula el rappel que generó la compra original (neto = 0).
       const signo = esDevolucion ? -1 : 1;
-      const q = await docClient.send(new QueryCommand({
-        TableName: tables.pedidosLineas,
-        KeyConditionExpression: 'PedidoId = :pid',
-        ExpressionAttributeValues: { ':pid': pid },
-      }));
+      const qItems = await lineasDePedido(pid);
       let totalPedido = 0;
-      for (const l of q.Items || []) {
+      for (const l of qItems) {
         const base = modo === 'ventas' ? Number(l.TotalLinea ?? 0) : Number(l.TotalRappel ?? 0);
         if (!(base > 0)) continue;
         const importe = signo * base;
@@ -758,17 +814,9 @@ router.get('/pedidos/traspaso-export', async (req, res) => {
     return res.status(400).json({ error: 'El rango de fechas es inválido (desde > hasta)' });
   }
   try {
-    // 1) Pedidos completados del rango.
-    const pedidos = [];
-    let lastKey = null;
-    do {
-      const r = await docClient.send(new ScanCommand({
-        TableName: tables.pedidos,
-        ...(lastKey && { ExclusiveStartKey: lastKey }),
-      }));
-      pedidos.push(...(r.Items || []));
-      lastKey = r.LastEvaluatedKey || null;
-    } while (lastKey);
+    // gsi_fecha de un completado es el día de CompletadoEn, y este informe
+    // sigue filtrando por Fecha. El Query es por estado; el rango se aplica abajo.
+    const pedidos = await listarPedidosPorEstados('', '', ['Completado']);
 
     const completadosRango = await filtrarPedidosLectura(req, pedidos.filter((p) => {
       if (String(p.Estado ?? '').trim() !== 'Completado') return false;
@@ -791,12 +839,7 @@ router.get('/pedidos/traspaso-export', async (req, res) => {
       const almacenOrigenId = String(p.AlmacenOrigenId ?? '').trim();
       const almacenDestinoId = String(p.AlmacenDestinoId ?? '').trim();
 
-      const q = await docClient.send(new QueryCommand({
-        TableName: tables.pedidosLineas,
-        KeyConditionExpression: 'PedidoId = :pid',
-        ExpressionAttributeValues: { ':pid': pedidoId },
-      }));
-      const lineas = q.Items || [];
+      const lineas = await lineasDePedido(pedidoId);
       let lineasValidas = 0;
       for (const l of lineas) {
         const productId = String(l.ProductId ?? '').trim();
