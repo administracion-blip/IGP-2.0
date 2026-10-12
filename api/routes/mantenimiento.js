@@ -13,6 +13,7 @@ import {
 } from '../lib/facturacion/facturarMantenimiento.js';
 import { rankearSimilares } from '../lib/mantenimiento/similaresIncidencia.js';
 import { imagenDataUrlSegura, MENSAJE_TIPO_NO_PERMITIDO } from '../lib/seguridad/subidas.js';
+import { aplicarClavesGsi, clavesMantenimiento } from '../lib/clavesIndice.js';
 
 const router = express.Router();
 
@@ -641,6 +642,7 @@ router.post('/mantenimiento/incidencias', requirePermission('mantenimiento.crear
     estado: 'Nuevo',
     ...(fotos.length > 0 && { fotos }),
   };
+  aplicarClavesGsi(item, clavesMantenimiento(item));
 
   try {
     await docClient.send(
@@ -815,27 +817,29 @@ router.post('/mantenimiento/incidencias/lote', requirePermission('mantenimiento.
         const uuid = crypto.randomUUID();
         const sk = `INC#${now}#${uuid}`;
         const pk = `LOCAL#${localId}`;
+        const itemLote = {
+          PK: pk,
+          SK: sk,
+          tipo: 'INC',
+          id_incidencia: uuid,
+          fecha_creacion: now,
+          creado_por_id_usuario: creadoPor || undefined,
+          local_id: localId,
+          zona,
+          categoria,
+          titulo,
+          descripcion,
+          prioridad_reportada: prioridadReportada,
+          estado: 'Programado',
+          fecha_programada: fecha,
+          id_serie: idSerie,
+          origen: 'recurrente',
+        };
+        aplicarClavesGsi(itemLote, clavesMantenimiento(itemLote));
         await docClient.send(
           new PutCommand({
             TableName: tables.mantenimiento,
-            Item: {
-              PK: pk,
-              SK: sk,
-              tipo: 'INC',
-              id_incidencia: uuid,
-              fecha_creacion: now,
-              creado_por_id_usuario: creadoPor || undefined,
-              local_id: localId,
-              zona,
-              categoria,
-              titulo,
-              descripcion,
-              prioridad_reportada: prioridadReportada,
-              estado: 'Programado',
-              fecha_programada: fecha,
-              id_serie: idSerie,
-              origen: 'recurrente',
-            },
+            Item: itemLote,
           })
         );
         creados++;
