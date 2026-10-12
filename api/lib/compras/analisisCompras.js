@@ -13,10 +13,7 @@
  * e importes agregados.
  */
 
-import { ScanCommand } from '@aws-sdk/lib-dynamodb';
-import { docClient, tables } from '../db.js';
-
-const TABLE_NAME = tables.comprasProveedor;
+import { queryComprasPorMesFecha } from '../dynamo/comprasProveedor.js';
 
 const AGRUPACIONES = {
   proveedor: { campoNombre: 'SupplierName', campoId: 'SupplierId', etiqueta: 'proveedor' },
@@ -67,19 +64,7 @@ export async function buildAnalisisComprasVariaciones(opts = {}) {
   const finAnterior = fechaIso(-dias - 1);
   const inicioAnterior = fechaIso(-2 * dias);
 
-  const items = [];
-  let lastKey = null;
-  do {
-    // eslint-disable-next-line no-await-in-loop
-    const r = await docClient.send(new ScanCommand({
-      TableName: TABLE_NAME,
-      FilterExpression: 'AlbaranFecha BETWEEN :ini AND :fin',
-      ExpressionAttributeValues: { ':ini': inicioAnterior, ':fin': finActual },
-      ...(lastKey && { ExclusiveStartKey: lastKey }),
-    }));
-    items.push(...(r.Items || []));
-    lastKey = r.LastEvaluatedKey || null;
-  } while (lastKey);
+  const items = await queryComprasPorMesFecha(inicioAnterior, finActual);
 
   const grupos = new Map();
   let gastoActualTotal = 0;
