@@ -4,8 +4,9 @@
  * `Igp_BankMovements`: PK = ACCOUNT#<cuenta>, SK = TXN#<fechaOperacion>#<movementHash>.
  *   GSI EmpresaId-FechaOperacion-index (empresaId → fechaOperacion).
  *   GSI Estado-FechaOperacion-index (estadoConciliacion → fechaOperacion).
- * `Igp_BankFiles`: PK = hashFichero. Sin GSI: el listado de cargas es un Scan
- *   filtrado (decenas de ficheros al mes), igual que en `Igp_Refacturaciones`.
+ * `Igp_BankFiles`: PK = hashFichero. El alta escribe gsi_listado/gsi_fecha
+ *   (GSI Listado-Fecha); el listado sigue en Scan hasta rellenar el histórico.
+ * `Igp_BankMovements` también escribe gsi_fichero (GSI Fichero) en cada alta.
  */
 
 import {
@@ -18,6 +19,7 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
+import { aplicarClavesGsi, clavesFicheroBanca, clavesMovimientoBanca } from '../clavesIndice.js';
 import { limpiarIban } from '../remesas/iban.js';
 
 export const GSI_EMPRESA_FECHA = 'EmpresaId-FechaOperacion-index';
@@ -214,6 +216,7 @@ export function queryMovimientosEstado(estado, opciones = {}) {
  * @returns {Promise<'nuevo'|'duplicado'>}
  */
 export async function putMovimientoSiNuevo(item) {
+  aplicarClavesGsi(item, clavesMovimientoBanca(item?.hashFichero));
   try {
     await docClient.send(
       new PutCommand({
@@ -297,6 +300,7 @@ export async function getFicheroCarga(hashFichero) {
  * @returns {Promise<{ creado: boolean, existente: Record<string, any>|null }>}
  */
 export async function putFicheroCargaSiNueva(item) {
+  aplicarClavesGsi(item, clavesFicheroBanca(item));
   try {
     await docClient.send(
       new PutCommand({
@@ -318,6 +322,7 @@ export async function putFicheroCargaSiNueva(item) {
  * @param {Record<string, any>} item
  */
 export async function putFicheroCarga(item) {
+  aplicarClavesGsi(item, clavesFicheroBanca(item));
   await docClient.send(new PutCommand({ TableName: tablaFicheros(), Item: item }));
 }
 
