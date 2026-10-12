@@ -55,7 +55,8 @@ import {
 } from '../lib/agora/closeoutSyncHelpers.js';
 import {
   GSI_COMPRAS_NAME,
-  isGsiReady,
+  queryComprasPorMesFecha,
+  rangoMesEnCurso,
 } from '../lib/dynamo/comprasProveedor.js';
 import { aplicarClavesGsi, clavesComprasProveedor } from '../lib/clavesIndice.js';
 import {
@@ -4424,7 +4425,7 @@ router.get('/agora/purchases/por-producto', async (req, res) => {
   {
     let items = [];
 
-    if (isGsiReady()) {
+    {
       let keyExpr = 'ProductId = :pid';
       const exprVals = { ':pid': String(productId) };
       if (fechaInicio && fechaFin) {
@@ -4464,23 +4465,6 @@ router.get('/agora/purchases/por-producto', async (req, res) => {
           items.push(...(r.Responses?.[tableComprasProveedorName] || []));
         }
       }
-    } else {
-      let cKey = null;
-      const all = [];
-      do {
-        const r = await docClient.send(new ScanCommand({ TableName: tableComprasProveedorName, ...(cKey && { ExclusiveStartKey: cKey }) }));
-        all.push(...(r.Items || []));
-        cKey = r.LastEvaluatedKey || null;
-      } while (cKey);
-
-      const pid = String(productId).trim();
-      items = all.filter((c) => {
-        if (String(c.ProductId || '').trim() !== pid) return false;
-        const f = c.AlbaranFecha || '';
-        if (fechaInicio && f < fechaInicio) return false;
-        if (fechaFin && f > fechaFin) return false;
-        return true;
-      });
     }
 
     items.sort((a, b) => (b.AlbaranFecha || '').localeCompare(a.AlbaranFecha || ''));
@@ -4497,30 +4481,41 @@ function parsePurchasesIsoDate(val) {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
 }
 
-function purchasesCacheKey({ all, dateFrom, dateTo }) {
-  if (all) return 'all';
-  return `${dateFrom || ''}|${dateTo || ''}`;
-}
-
-function albaranFechaEnRango(fecha, dateFrom, dateTo) {
-  const f = String(fecha || '').trim();
-  if (!f) return true;
-  if (dateFrom && f < dateFrom) return false;
-  if (dateTo && f > dateTo) return false;
-  return true;
+function purchasesCacheKey(dateFrom, dateTo) {
+  return `${dateFrom}|${dateTo}`;
 }
 
 function invalidatePurchasesCache() {
   _purchasesCache.clear();
 }
 
+/**
+ * Rango aplicado al listado. Sin fechas: mes en curso.
+ * `all=1` ya no recorre la tabla: hay que acotar el rango.
+ */
+function resolverRangoPurchases(query) {
+  if (query?.all === '1') {
+    return { error: 'El listado completo ya no está disponible. Indica dateFrom y dateTo (YYYY-MM-DD).' };
+  }
+  const hoy = new Date().toISOString().slice(0, 10);
+  let dateFrom = parsePurchasesIsoDate(query?.dateFrom);
+  let dateTo = parsePurchasesIsoDate(query?.dateTo);
+  if (!dateFrom && !dateTo) return rangoMesEnCurso(hoy);
+  if (!dateFrom) dateFrom = `${dateTo.slice(0, 7)}-01`;
+  if (!dateTo) dateTo = hoy;
+  if (dateFrom > dateTo) {
+    return { error: 'dateFrom no puede ser mayor que dateTo' };
+  }
+  return { dateFrom, dateTo };
+}
+
 router.get('/agora/purchases', async (req, res) => {
   {
     const forceRefresh = req.query.refresh === '1';
-    const loadAll = req.query.all === '1';
-    const dateFrom = loadAll ? null : parsePurchasesIsoDate(req.query.dateFrom);
-    const dateTo = loadAll ? null : parsePurchasesIsoDate(req.query.dateTo);
-    const cacheKey = purchasesCacheKey({ all: loadAll, dateFrom, dateTo });
+    const rango = resolverRangoPurchases(req.query);
+    if (rango.error) return res.status(400).json({ error: rango.error });
+    const { dateFrom, dateTo } = rango;
+    const cacheKey = purchasesCacheKey(dateFrom, dateTo);
     const now = Date.now();
 
     const cached = _purchasesCache.get(cacheKey);
@@ -4528,21 +4523,7 @@ router.get('/agora/purchases', async (req, res) => {
       return res.json({ ...cached.data, cached: true });
     }
 
-    const items = [];
-    let lastKey = null;
-    do {
-      const cmd = new ScanCommand({
-        TableName: tableComprasProveedorName,
-        ...(lastKey && { ExclusiveStartKey: lastKey }),
-      });
-      const result = await docClient.send(cmd);
-      for (const item of (result.Items || [])) {
-        if (loadAll || albaranFechaEnRango(item.AlbaranFecha, dateFrom, dateTo)) {
-          items.push(item);
-        }
-      }
-      lastKey = result.LastEvaluatedKey || null;
-    } while (lastKey);
+    const items = await queryComprasPorMesFecha(dateFrom, dateTo);
 
     items.sort((a, b) => {
       const da = a.AlbaranFecha || '';
@@ -4557,9 +4538,9 @@ router.get('/agora/purchases', async (req, res) => {
       ok: true,
       items,
       total: items.length,
-      dateFrom: loadAll ? null : dateFrom,
-      dateTo: loadAll ? null : dateTo,
-      all: loadAll,
+      dateFrom,
+      dateTo,
+      all: false,
     };
     _purchasesCache.set(cacheKey, { data: payload, ts: now });
 
@@ -4594,30 +4575,25 @@ router.post('/agora/purchases/sync', requireAnyPermission('ajustes.sincronizacio
     /** @type {Map<string, Array<{ PK: string, SK: string }>>} */
     const dynamoKeysByFecha = new Map();
     if (deleteMissing) {
-      let lastKey = null;
-      do {
-        const scanRes = await docClient.send(
-          new ScanCommand({
-            TableName: tableComprasProveedorName,
-            ProjectionExpression: 'PK, SK, AlbaranFecha',
-            ...(lastKey && { ExclusiveStartKey: lastKey }),
-          })
-        );
-        for (const item of scanRes.Items || []) {
-          const fechaRaw = item.AlbaranFecha;
-          const fecha =
-            typeof fechaRaw === 'string' && /^\d{4}-\d{2}-\d{2}/.test(fechaRaw)
-              ? fechaRaw.slice(0, 10)
-              : null;
-          if (!fecha || fecha < dateFrom || fecha > dateTo) continue;
-          const pk = item.PK ?? item.pk;
-          const sk = item.SK ?? item.sk;
-          if (!pk || sk == null || sk === '') continue;
-          if (!dynamoKeysByFecha.has(fecha)) dynamoKeysByFecha.set(fecha, []);
-          dynamoKeysByFecha.get(fecha).push({ PK: String(pk), SK: String(sk) });
-        }
-        lastKey = scanRes.LastEvaluatedKey || null;
-      } while (lastKey);
+      // Lectura eventual del GSI Mes-Fecha: el histórico ya está rellenado y
+      // no se recorre la tabla. Una línea recién escrita puede no aparecer
+      // hasta el siguiente sync.
+      const existentes = await queryComprasPorMesFecha(dateFrom, dateTo, {
+        projection: 'PK, SK, gsi_fecha',
+      });
+      for (const item of existentes) {
+        const fechaRaw = item.gsi_fecha;
+        const fecha =
+          typeof fechaRaw === 'string' && /^\d{4}-\d{2}-\d{2}/.test(fechaRaw)
+            ? fechaRaw.slice(0, 10)
+            : null;
+        if (!fecha || fecha < dateFrom || fecha > dateTo) continue;
+        const pk = item.PK ?? item.pk;
+        const sk = item.SK ?? item.sk;
+        if (!pk || sk == null || sk === '') continue;
+        if (!dynamoKeysByFecha.has(fecha)) dynamoKeysByFecha.set(fecha, []);
+        dynamoKeysByFecha.get(fecha).push({ PK: String(pk), SK: String(sk) });
+      }
       console.log(
         '[agora/purchases/sync] Índice Dynamo para purge:',
         [...dynamoKeysByFecha.values()].reduce((n, arr) => n + arr.length, 0),

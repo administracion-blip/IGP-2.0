@@ -7,12 +7,14 @@
  */
 
 import { DescribeTableCommand, UpdateTableCommand } from '@aws-sdk/client-dynamodb';
-import { BatchGetCommand, ScanCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { BatchGetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { client, docClient, tables } from '../db.js';
 
 const TABLE_NAME = tables.comprasProveedor;
 
 export const GSI_COMPRAS_NAME = 'ProductId-AlbaranFecha-index';
+/** GSI de listado por mes (gsi_mes) y día de albarán (gsi_fecha = AlbaranFecha). */
+export const GSI_COMPRAS_MES_FECHA = 'Mes-Fecha-index';
 
 let gsiReady = false;
 
@@ -27,7 +29,7 @@ export async function ensureComprasGSI() {
     const existing = gsis.find((g) => g.IndexName === GSI_COMPRAS_NAME);
     if (existing) {
       gsiReady = existing.IndexStatus === 'ACTIVE';
-      if (!gsiReady) console.log(`[GSI] ${GSI_COMPRAS_NAME} existe pero está en estado ${existing.IndexStatus}, usando Scan como fallback`);
+      if (!gsiReady) console.log(`[GSI] ${GSI_COMPRAS_NAME} existe pero está en estado ${existing.IndexStatus}`);
       else console.log(`[GSI] ${GSI_COMPRAS_NAME} activo y listo`);
       return;
     }
@@ -50,7 +52,7 @@ export async function ensureComprasGSI() {
         },
       }],
     }));
-    console.log(`[GSI] ${GSI_COMPRAS_NAME} creación iniciada. Estará activo en unos minutos. Usando Scan como fallback mientras tanto.`);
+    console.log(`[GSI] ${GSI_COMPRAS_NAME} creación iniciada. Estará activo en unos minutos.`);
   } catch (err) {
     console.warn('[GSI] No se pudo crear/verificar el GSI:', err.message || err);
   }
@@ -60,8 +62,7 @@ export async function queryComprasPorProductos(productIds, fechaInicio, fechaFin
   const comprasPorProducto = {};
   if (!productIds || productIds.size === 0) return comprasPorProducto;
 
-  if (gsiReady) {
-    const queries = [...productIds].map(async (pid) => {
+  const queries = [...productIds].map(async (pid) => {
       let keyExpr = 'ProductId = :pid';
       const exprVals = { ':pid': pid };
       if (fechaInicio && fechaFin) {
@@ -92,25 +93,71 @@ export async function queryComprasPorProductos(productIds, fechaInicio, fechaFin
       } while (lastKey);
       comprasPorProducto[pid] = total;
     });
-    await Promise.all(queries);
-  } else {
-    let cKey = null;
-    const allCompras = [];
-    do {
-      const r = await docClient.send(new ScanCommand({ TableName: TABLE_NAME, ...(cKey && { ExclusiveStartKey: cKey }) }));
-      allCompras.push(...(r.Items || []));
-      cKey = r.LastEvaluatedKey || null;
-    } while (cKey);
-    for (const c of allCompras) {
-      const pid = String(c.ProductId || '').trim();
-      if (!productIds.has(pid)) continue;
-      const fecha = c.AlbaranFecha || '';
-      if (fechaInicio && fecha < fechaInicio) continue;
-      if (fechaFin && fecha > fechaFin) continue;
-      comprasPorProducto[pid] = (comprasPorProducto[pid] || 0) + (Number(c.Quantity) || 0);
+  await Promise.all(queries);
+  return comprasPorProducto;
+}
+
+/** Meses `YYYY-MM` cubiertos por un rango inclusivo de días. */
+export function mesesDelRango(desde, hasta) {
+  const out = [];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(desde) || !/^\d{4}-\d{2}-\d{2}$/.test(hasta) || desde > hasta) {
+    return out;
+  }
+  let y = Number(desde.slice(0, 4));
+  let m = Number(desde.slice(5, 7));
+  const yFin = Number(hasta.slice(0, 4));
+  const mFin = Number(hasta.slice(5, 7));
+  while (y < yFin || (y === yFin && m <= mFin)) {
+    out.push(`${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}`);
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
     }
   }
-  return comprasPorProducto;
+  return out;
+}
+
+function ultimoDiaMes(mes) {
+  const [y, m] = mes.split('-').map(Number);
+  const dia = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${mes}-${String(dia).padStart(2, '0')}`;
+}
+
+/**
+ * Líneas de compra del rango por el GSI Mes-Fecha (un Query por mes).
+ * Los ítems sin `gsi_mes`/`gsi_fecha` no salen: el histórico ya está rellenado.
+ * @param {string} dateFrom YYYY-MM-DD
+ * @param {string} dateTo YYYY-MM-DD
+ * @param {{ projection?: string }} [opts]
+ */
+export async function queryComprasPorMesFecha(dateFrom, dateTo, opts = {}) {
+  const items = [];
+  for (const mes of mesesDelRango(dateFrom, dateTo)) {
+    const ini = dateFrom.startsWith(mes) ? dateFrom : `${mes}-01`;
+    const finTope = ultimoDiaMes(mes);
+    const fin = dateTo.startsWith(mes) && dateTo < finTope ? dateTo : finTope;
+    let lastKey = null;
+    do {
+      const r = await docClient.send(new QueryCommand({
+        TableName: TABLE_NAME,
+        IndexName: GSI_COMPRAS_MES_FECHA,
+        KeyConditionExpression: 'gsi_mes = :m AND gsi_fecha BETWEEN :a AND :b',
+        ExpressionAttributeValues: { ':m': mes, ':a': ini, ':b': fin },
+        ...(opts.projection && { ProjectionExpression: opts.projection }),
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      items.push(...(r.Items || []));
+      lastKey = r.LastEvaluatedKey || null;
+    } while (lastKey);
+  }
+  return items;
+}
+
+/** Si no hay fechas, el mes natural en curso (UTC, igual que el resto de compras). */
+export function rangoMesEnCurso(hoy = new Date().toISOString().slice(0, 10)) {
+  const mes = String(hoy).slice(0, 7);
+  return { dateFrom: `${mes}-01`, dateTo: ultimoDiaMes(mes) };
 }
 
 const ULTIMA_QUERY_CONCURRENCY = 8;
@@ -292,26 +339,9 @@ async function batchGetCompras(keys) {
   return items;
 }
 
-async function scanComprasDeProductos(idSet) {
-  const items = [];
-  let cKey = null;
-  do {
-    const r = await docClient.send(new ScanCommand({
-      TableName: TABLE_NAME,
-      ...(cKey && { ExclusiveStartKey: cKey }),
-    }));
-    for (const c of r.Items || []) {
-      const pid = String(c.ProductId || '').trim();
-      if (idSet.has(pid)) items.push(c);
-    }
-    cKey = r.LastEvaluatedKey || null;
-  } while (cKey);
-  return items;
-}
-
 /**
  * Última línea de compra por producto (unidad / proveedor para MIA).
- * GSI ProductId-AlbaranFecha-index si está ACTIVE; Scan si no.
+ * Siempre por el GSI ProductId-AlbaranFecha-index.
  *
  * @param {Set<string>|string[]} productIds
  * @param {{ warehouseId?: string|number }} [opts]
@@ -322,35 +352,14 @@ export async function queryUltimaCompraPorProductos(productIds, { warehouseId } 
   const out = new Map();
   if (!requested.length) return out;
 
-  const lookupIds = new Set(requested);
-  for (const pid of requested) {
+  const found = await mapPool(requested, ULTIMA_QUERY_CONCURRENCY, async (pid) => {
+    const lookupPids = [pid];
     const alt = numericIdVariant(pid);
-    if (alt) lookupIds.add(alt);
-  }
-
-  if (isGsiReady()) {
-    const found = await mapPool(requested, ULTIMA_QUERY_CONCURRENCY, async (pid) => {
-      const lookupPids = [pid];
-      const alt = numericIdVariant(pid);
-      if (alt) lookupPids.push(alt);
-      const best = await queryUltimaViaGsi(lookupPids, warehouseId);
-      return { pid, best };
-    });
-    for (const { pid, best } of found) {
-      if (!best) continue;
-      const resumen = toUltimaResumen(best);
-      out.set(pid, resumen);
-      const alt = numericIdVariant(pid);
-      if (alt) out.set(alt, resumen);
-      if (resumen.ProductId) out.set(resumen.ProductId, resumen);
-    }
-    return out;
-  }
-
-  const items = await scanComprasDeProductos(lookupIds);
-  for (const pid of requested) {
-    const mine = items.filter((it) => itemMatchesProductId(it, pid));
-    const best = pickUltimaLinea(mine, warehouseId);
+    if (alt) lookupPids.push(alt);
+    const best = await queryUltimaViaGsi(lookupPids, warehouseId);
+    return { pid, best };
+  });
+  for (const { pid, best } of found) {
     if (!best) continue;
     const resumen = toUltimaResumen(best);
     out.set(pid, resumen);
