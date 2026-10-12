@@ -534,6 +534,7 @@ export default function ArqueoCajaScreen() {
           businessDay: businessDayIso,
           workplaces: formLocal.trim(),
         }),
+        timeoutMs: 180_000,
       });
       const data = await safeJson<{ ok?: boolean; error?: string; upserted?: number }>(res);
       if (!res.ok || (data as { error?: string }).error) {
@@ -541,7 +542,11 @@ export default function ArqueoCajaScreen() {
       }
       fetchCompare();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al sincronizar cierres teóricos');
+      if (e instanceof Error && e.name === 'AbortError') {
+        setError('Ágora está tardando en responder. La sincronización continúa en el servidor; actualiza en unos minutos.');
+      } else {
+        setError(e instanceof Error ? e.message : 'Error al sincronizar cierres teóricos');
+      }
     } finally {
       setSyncingCloseouts(false);
     }

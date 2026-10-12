@@ -469,17 +469,23 @@ export default function CierresTeoricosScreen() {
     }, 1000);
 
     const fallidos: string[] = [];
+    const sinRespuesta: string[] = [];
     for (let i = 0; i < days.length; i++) {
       const day = days[i];
       try {
         const res = await apiFetch('/api/agora/closeouts/sync', {
           method: 'POST',
           body: JSON.stringify(accesoTodosLocales ? { businessDay: day } : { businessDay: day, workplaces }),
+          timeoutMs: 180_000,
         });
         const data = await safeJson<{ ok?: boolean; error?: string }>(res);
         if (!res.ok || data.error) throw new Error(data.error || `Error ${res.status}`);
       } catch (e) {
-        fallidos.push(`${formatBusinessDayLabel(day)}: ${e instanceof Error ? e.message : 'Error al sincronizar'}`);
+        if (e instanceof Error && e.name === 'AbortError') {
+          sinRespuesta.push(formatBusinessDayLabel(day));
+        } else {
+          fallidos.push(`${formatBusinessDayLabel(day)}: ${e instanceof Error ? e.message : 'Error al sincronizar'}`);
+        }
       }
       const completed = i + 1;
       setSyncCurrentDay(completed);
@@ -504,6 +510,13 @@ export default function CierresTeoricosScreen() {
       await confirmar(
         'Sincronización incompleta',
         `No se pudieron sincronizar ${fallidos.length} de ${totalDays} día(s):\n${fallidos.join('\n')}`,
+        { soloAceptar: true },
+      );
+    }
+    if (sinRespuesta.length > 0) {
+      await confirmar(
+        'Sincronización en curso',
+        `Ágora está tardando en responder para: ${sinRespuesta.join(', ')}.\nLa sincronización continúa en el servidor. Refresca la tabla en unos minutos para ver los cierres actualizados.`,
         { soloAceptar: true },
       );
     }
