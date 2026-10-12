@@ -28,6 +28,7 @@ import {
 import { validarIban } from '../lib/remesas/iban.js';
 import { esCuentaDeSociedad } from '../lib/remesas/cuentaOrdenante.js';
 import { truncarNombreFit } from '../lib/remesas/concepto.js';
+import { aplicarClavesRemesa, conClavesRemesa } from '../lib/facturacion/clavesIndice.js';
 import { generarFicheroRemesa } from '../lib/remesas/index.js';
 import { facturaEnRemesaActiva } from '../lib/remesas/facturaEnRemesa.js';
 import { normalizarLineasEntrada, recalcularLineasRemesa } from '../lib/remesas/recalcularLineas.js';
@@ -266,6 +267,7 @@ router.post('/remesas', requirePermission('remesas.gestionar'), async (req, res)
       actualizadoEn: now(),
     };
 
+    aplicarClavesRemesa(remesa);
     await docClient.send(new PutCommand({ TableName: TABLE, Item: remesa }));
     res.status(201).json({ remesa, excluidas });
   } catch (err) {
@@ -291,6 +293,7 @@ router.patch('/remesas/:remesaId', requirePermission('remesas.gestionar'), async
       remesa.estado = 'Borrador';
       remesa.generadaEn = null;
       remesa.actualizadoEn = now();
+      aplicarClavesRemesa(remesa);
       await docClient.send(new PutCommand({ TableName: TABLE, Item: remesa }));
       return res.json({ remesa });
     }
@@ -369,6 +372,7 @@ router.patch('/remesas/:remesaId', requirePermission('remesas.gestionar'), async
 
     remesa.importeTotal = sumaLineas(remesa.lineas);
     remesa.actualizadoEn = now();
+    aplicarClavesRemesa(remesa);
     await docClient.send(new PutCommand({ TableName: TABLE, Item: remesa }));
     res.json({ remesa });
   } catch (err) {
@@ -418,6 +422,7 @@ router.post('/remesas/:remesaId/revalidar', requirePermission('remesas.gestionar
       remesa.estado = 'Borrador';
       remesa.generadaEn = null;
     }
+    aplicarClavesRemesa(remesa);
     await docClient.send(new PutCommand({ TableName: TABLE, Item: remesa }));
     res.json({ remesa, excluidas });
   } catch (err) {
@@ -457,6 +462,7 @@ router.get('/remesas/:remesaId/fichero', requirePermission('remesas.gestionar'),
     remesa.estado = 'Generada';
     remesa.generadaEn = now();
     remesa.actualizadoEn = now();
+    aplicarClavesRemesa(remesa);
     try {
       await docClient.send(new PutCommand({
         TableName: TABLE,
@@ -520,13 +526,13 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
     if (reanudar) {
       if (procesoActivo(remesa)) return res.status(409).json({ error: MENSAJE_EN_PROCESO });
       const token = uuid();
-      const reclamada = await reclamarReanudacion(remesa.remesaId, token);
+      const reclamada = await reclamarReanudacion(remesa, token);
       if (!reclamada) {
         const actual = await getRemesa(remesa.remesaId);
         return res.status(409).json({ error: procesoActivo(actual) ? MENSAJE_EN_PROCESO : 'La remesa ya está ejecutada' });
       }
       tokenProceso = token;
-      remesaProceso = remesa.remesaId;
+      remesaProceso = remesa;
       // Las pendientes y descartadas valen las del reclamo, no las de la primera lectura.
       Object.assign(remesa, reclamada);
       const c = await clasificarPendientes(remesa, remesa.lineasPendientesPago.map(String));
@@ -561,8 +567,9 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
       const tsEjecucion = now();
       const todas = remesa.lineas.map((l) => String(l.id_factura));
       const token = uuid();
+      const remesaReclamada = { ...remesa, estado: 'Ejecutada', lineasPendientesPago: todas };
       try {
-        await docClient.send(new UpdateCommand({
+        await docClient.send(new UpdateCommand(conClavesRemesa({
           TableName: TABLE,
           Key: { remesaId: remesa.remesaId },
           UpdateExpression: 'SET estado = :ejecutada, ejecutadaEn = :ts, actualizadoEn = :ts, lineasPendientesPago = :pend, '
@@ -576,7 +583,7 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
             ':pend': todas,
             ':tok': token,
           },
-        }));
+        }, remesaReclamada)));
       } catch (claimErr) {
         if (claimErr?.name === 'ConditionalCheckFailedException') {
           return res.status(409).json({ error: 'La remesa ya está ejecutada o no se puede ejecutar' });
@@ -584,10 +591,11 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
         throw claimErr;
       }
       tokenProceso = token;
-      remesaProceso = remesa.remesaId;
       remesa.estado = 'Ejecutada';
+      remesa.lineasPendientesPago = todas;
       remesa.ejecutadaEn = tsEjecucion;
       remesa.actualizadoEn = tsEjecucion;
+      remesaProceso = remesa;
     }
 
     // Fase 2: registrar pagos (idempotentes por línea). El fallo de una línea
@@ -642,15 +650,16 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
       valores[':desc'] = descartadas;
     }
     const quitar = ['procesandoToken', 'procesandoDesde', ...(pendientes.length > 0 ? [] : ['lineasPendientesPago'])];
+    const remesaCerrada = { ...remesa, actualizadoEn: tsFin, lineasPendientesPago: pendientes };
     try {
       // Solo quien tiene el reclamo cierra: si caducó y otro lo tomó, su cierre manda.
-      await docClient.send(new UpdateCommand({
+      await docClient.send(new UpdateCommand(conClavesRemesa({
         TableName: TABLE,
         Key: { remesaId: remesa.remesaId },
         UpdateExpression: `SET ${sets.join(', ')} REMOVE ${quitar.join(', ')}`,
         ConditionExpression: 'procesandoToken = :tok',
         ExpressionAttributeValues: { ...valores, ':tok': tokenProceso },
-      }));
+      }, remesaCerrada)));
     } catch (err) {
       if (err?.name !== 'ConditionalCheckFailedException') throw err;
       tokenProceso = null;
@@ -667,6 +676,7 @@ router.post('/remesas/:remesaId/ejecutar', requirePermission('remesas.gestionar'
     if (pendientes.length > 0) remesa.lineasPendientesPago = pendientes;
     else delete remesa.lineasPendientesPago;
     if (descartadasAhora.length > 0) remesa.pendientesDescartadas = descartadas;
+    aplicarClavesRemesa(remesa);
 
     if (fallidas.length > 0) {
       const quitadas = fallidas.length - pendientes.length;
@@ -707,18 +717,18 @@ function procesoActivo(remesa) {
  * remesa tal y como queda tras el reclamo, o null si otra ejecución la tiene o
  * ya no quedan pendientes.
  */
-async function reclamarReanudacion(remesaId, token) {
+async function reclamarReanudacion(remesa, token) {
   const ts = now();
   try {
-    const r = await docClient.send(new UpdateCommand({
+    const r = await docClient.send(new UpdateCommand(conClavesRemesa({
       TableName: TABLE,
-      Key: { remesaId },
+      Key: { remesaId: remesa.remesaId },
       UpdateExpression: 'SET procesandoToken = :tok, procesandoDesde = :ts',
       ConditionExpression: 'estado = :ejecutada AND attribute_exists(lineasPendientesPago) '
         + 'AND (attribute_not_exists(procesandoToken) OR procesandoDesde < :caduca)',
       ExpressionAttributeValues: { ':tok': token, ':ts': ts, ':ejecutada': 'Ejecutada', ':caduca': limiteCaducidad() },
       ReturnValues: 'ALL_NEW',
-    }));
+    }, remesa)));
     return r.Attributes;
   } catch (err) {
     if (err?.name === 'ConditionalCheckFailedException') return null;
@@ -727,15 +737,17 @@ async function reclamarReanudacion(remesaId, token) {
 }
 
 /** Suelta el reclamo tras un error inesperado; si no se puede, caduca solo. */
-async function liberarProceso(remesaId, token, req) {
+async function liberarProceso(remesa, token, req) {
+  const remesaId = remesa?.remesaId;
+  if (!remesaId) return;
   try {
-    await docClient.send(new UpdateCommand({
+    await docClient.send(new UpdateCommand(conClavesRemesa({
       TableName: TABLE,
       Key: { remesaId },
       UpdateExpression: 'REMOVE procesandoToken, procesandoDesde',
       ConditionExpression: 'procesandoToken = :tok',
       ExpressionAttributeValues: { ':tok': token },
-    }));
+    }, remesa)));
   } catch (err) {
     (req.log?.warn ? req.log : logger).warn({ err, remesaId }, '[remesas/ejecutar] no se pudo soltar el reclamo');
   }
@@ -863,8 +875,9 @@ router.post('/remesas/:remesaId/descartar-pendientes', requirePermission('remesa
         ...(motivo && { motivo }),
       })),
     ];
+    const remesaTrasDescarte = { ...remesa, pendientesDescartadas: descartadas, actualizadoEn: ts, lineasPendientesPago: restantes };
     try {
-      await docClient.send(new UpdateCommand({
+      await docClient.send(new UpdateCommand(conClavesRemesa({
         TableName: TABLE,
         Key: { remesaId: remesa.remesaId },
         UpdateExpression: `SET pendientesDescartadas = :desc, actualizadoEn = :ts${restantes.length > 0 ? ', lineasPendientesPago = :rest' : ' REMOVE lineasPendientesPago'}`,
@@ -877,7 +890,7 @@ router.post('/remesas/:remesaId/descartar-pendientes', requirePermission('remesa
           ...(remesa.actualizadoEn && { ':leido': remesa.actualizadoEn }),
           ...(restantes.length > 0 && { ':rest': restantes }),
         },
-      }));
+      }, remesaTrasDescarte)));
     } catch (err) {
       if (err?.name === 'ConditionalCheckFailedException') {
         return res.status(409).json({ error: 'La remesa ha cambiado, vuelve a cargarla' });
@@ -888,6 +901,7 @@ router.post('/remesas/:remesaId/descartar-pendientes', requirePermission('remesa
     remesa.actualizadoEn = ts;
     if (restantes.length > 0) remesa.lineasPendientesPago = restantes;
     else delete remesa.lineasPendientesPago;
+    aplicarClavesRemesa(remesa);
     res.json({ ok: true, remesa, descartadas: pedidas });
   } catch (err) {
     responderError(res, err);
@@ -906,6 +920,7 @@ router.post('/remesas/:remesaId/anular', requirePermission('remesas.gestionar'),
     }
     remesa.estado = 'Anulada';
     remesa.actualizadoEn = now();
+    aplicarClavesRemesa(remesa);
     await docClient.send(new PutCommand({ TableName: TABLE, Item: remesa }));
     res.json({ remesa });
   } catch (err) {
