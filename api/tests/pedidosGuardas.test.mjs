@@ -186,7 +186,7 @@ test('el PUT sobre un pedido que desaparece a la vez devuelve 404 y no lo resuci
   assert.equal(db.listar(tables.pedidos).length, 0);
 });
 
-test('una edición normal escribe exactamente los mismos campos que antes', async () => {
+test('una edición normal conserva el resto de campos y sella las claves gsi', async () => {
   const db = escenario();
   const original = {
     Id: 'PED-1',
@@ -207,7 +207,14 @@ test('una edición normal escribe exactamente los mismos campos que antes', asyn
   const r = await api('PUT', '/api/pedidos', { Id: 'PED-1', Notas: 'Falta una caja', TotalAlbaran: '30,5' });
   assert.equal(r.status, 200);
   const guardado = db.obtener(tables.pedidos, { Id: 'PED-1' });
-  assert.deepEqual(guardado, { ...original, Notas: 'Falta una caja', TotalAlbaran: 30 });
+  assert.deepEqual(guardado, {
+    ...original,
+    Notas: 'Falta una caja',
+    TotalAlbaran: 30,
+    gsi_local: '000010',
+    gsi_estado: 'Borrador',
+    gsi_fecha: '2026-06-10',
+  });
   assert.deepEqual(r.body.pedido, guardado, 'la respuesta es el pedido tal como quedó');
 });
 

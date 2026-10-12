@@ -13,6 +13,7 @@ import {
   permiteLecturaPedido,
   filtrarPedidosLectura,
 } from '../lib/pedidos/alcancePedido.js';
+import { aplicarClavesGsi, clavesPedido, fusionarClavesUpdate } from '../lib/clavesIndice.js';
 
 const router = express.Router();
 
@@ -476,35 +477,57 @@ async function recomputarEstadoPorPreparacion(pedidoId, usuarioEmail = '') {
       // maestro de locales siga igual semanas después.
       const yaCongelada = String(cabecera.factura_id_empresa_local ?? '').trim();
       const idEmpresaLocal = yaCongelada ? '' : await resolverSociedadLocal(cabecera.LocalId);
-      await docClient.send(new UpdateCommand({
-        TableName: tables.pedidos,
-        Key: { Id: pedidoId },
-        UpdateExpression: 'SET Estado = :e, CompletadoEn = :c, CompletadoPor = :p'
+      const completadoEn = new Date().toISOString();
+      const claves = fusionarClavesUpdate(
+        'SET Estado = :e, CompletadoEn = :c, CompletadoPor = :p'
           + (idEmpresaLocal ? ', factura_id_empresa_local = :emp' : ''),
-        ConditionExpression: sinFacturar,
-        ExpressionAttributeValues: {
+        {
           ':e': nuevoEstado,
-          ':c': new Date().toISOString(),
+          ':c': completadoEn,
           ':p': String(usuarioEmail ?? '').trim(),
           ...(idEmpresaLocal && { ':emp': idEmpresaLocal }),
         },
+        clavesPedido({
+          LocalId: cabecera.LocalId,
+          Estado: nuevoEstado,
+          Fecha: cabecera.Fecha,
+          CompletadoEn: completadoEn,
+        }),
+      );
+      await docClient.send(new UpdateCommand({
+        TableName: tables.pedidos,
+        Key: { Id: pedidoId },
+        UpdateExpression: claves.UpdateExpression,
+        ConditionExpression: sinFacturar,
+        ExpressionAttributeValues: claves.ExpressionAttributeValues,
       }));
     } else {
       // EnviadoEn se sella la primera vez que el pedido queda Enviado (0 líneas
       // preparadas). No se borra al descompletar: el cronómetro de preparación
       // cuenta desde el primer envío.
       const sellarEnviado = nuevoEstado === 'Enviado' && !cabecera.EnviadoEn;
+      const enviadoEn = sellarEnviado ? new Date().toISOString() : '';
+      const claves = fusionarClavesUpdate(
+        sellarEnviado
+          ? 'SET Estado = :e, EnviadoEn = :env REMOVE CompletadoEn, CompletadoPor'
+          : 'SET Estado = :e REMOVE CompletadoEn, CompletadoPor',
+        {
+          ':e': nuevoEstado,
+          ...(sellarEnviado && { ':env': enviadoEn }),
+        },
+        clavesPedido({
+          LocalId: cabecera.LocalId,
+          Estado: nuevoEstado,
+          Fecha: cabecera.Fecha,
+          CompletadoEn: '',
+        }),
+      );
       await docClient.send(new UpdateCommand({
         TableName: tables.pedidos,
         Key: { Id: pedidoId },
-        UpdateExpression: sellarEnviado
-          ? 'SET Estado = :e, EnviadoEn = :env REMOVE CompletadoEn, CompletadoPor'
-          : 'SET Estado = :e REMOVE CompletadoEn, CompletadoPor',
+        UpdateExpression: claves.UpdateExpression,
         ConditionExpression: sinFacturar,
-        ExpressionAttributeValues: {
-          ':e': nuevoEstado,
-          ...(sellarEnviado && { ':env': new Date().toISOString() }),
-        },
+        ExpressionAttributeValues: claves.ExpressionAttributeValues,
       }));
     }
   } catch (err) {
@@ -913,6 +936,7 @@ router.post('/pedidos', async (req, res) => {
     for (let intento = 0; intento < MAX_REINTENTOS_ID; intento++) {
       const id = buildPedidoId(año, n);
       const item = { Id: id, ...baseItem };
+      aplicarClavesGsi(item, clavesPedido(item));
       try {
         await docClient.send(new PutCommand({
           TableName: tables.pedidos,
@@ -1069,6 +1093,17 @@ router.put('/pedidos', async (req, res) => {
     } else if (cambiaLocal && congelada) {
       borrar.push('factura_id_empresa_local');
     }
+    const completadoEnIndice = fijar.CompletadoEn !== undefined
+      ? fijar.CompletadoEn
+      : (borrar.includes('CompletadoEn') ? '' : existing.CompletadoEn);
+    const clavesIndice = clavesPedido({
+      LocalId: fijar.LocalId,
+      Estado: fijar.Estado,
+      Fecha: fijar.Fecha,
+      CompletadoEn: completadoEnIndice,
+    });
+    Object.assign(fijar, clavesIndice.set);
+    borrar.push(...clavesIndice.remove);
 
     let pedido;
     try {
