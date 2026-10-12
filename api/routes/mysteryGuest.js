@@ -19,6 +19,7 @@ import {
   computeMediaGlobalCategorias,
 } from '../lib/mysteryGuestCuestionario.js';
 import { imagenDataUrlSegura } from '../lib/seguridad/subidas.js';
+import { aplicarClavesGsi, clavesMysteryGuest } from '../lib/clavesIndice.js';
 
 const router = express.Router();
 const TABLE = tables.mysteryGuest;
@@ -334,6 +335,7 @@ router.post('/mystery-guest', requirePermission('mystery_guest.ver'), requireLoc
   }
 
   const ddbItem = toDynamoItem(item);
+  aplicarClavesGsi(ddbItem, clavesMysteryGuest(ddbItem));
   try {
     await docClient.send(new PutCommand({ TableName: TABLE, Item: ddbItem, ...condicionLeido }));
   } catch (err) {
