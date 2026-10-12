@@ -76,6 +76,7 @@ import {
 } from '../empresaCif.js';
 import { ibanPredeterminadoDeEmpresa } from '../empresaIban.js';
 import { getSerieConfig, errorSerieTipoIncompatible } from './series.js';
+import { facturasPorPeriodo } from './consultaIndice.js';
 import { validarDatosEmision } from './emitirFactura.js';
 import { aplicarClavesFactura } from './clavesIndice.js';
 
@@ -667,8 +668,18 @@ async function facturaExiste(idFactura, etiqueta) {
  * @param {{ campoPeriodo: string, periodo: string, clave: (factura: object) => string }} params
  * @returns {Promise<Map<string, object[]>>}
  */
+const DOMINIO_PERIODO = {
+  rappel_periodo: 'rappel',
+  mantenimiento_periodo: 'mantenimiento',
+  ventas_internas_periodo: 'ventas_internas',
+};
+
 export async function facturasDelPeriodo({ campoPeriodo, periodo, clave }) {
-  const items = await scanTodo(tables.facturas);
+  const dominio = DOMINIO_PERIODO[campoPeriodo];
+  const gsiPeriodo = dominio && String(periodo ?? '').trim()
+    ? `${dominio}#${String(periodo).trim()}`
+    : '';
+  const items = gsiPeriodo ? await facturasPorPeriodo(gsiPeriodo) : [];
   const porClave = new Map();
   for (const f of items) {
     if (String(f[campoPeriodo] ?? '').trim() !== periodo) continue;
