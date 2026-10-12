@@ -104,7 +104,7 @@ import {
   nombreFicheroAdjuntoFacturaRecibida,
   fechaEmisionFacturaAIso,
 } from '../lib/facturacion/idDocumento.js';
-import { esDuplicadoFacturaProveedor } from '../lib/facturacion/duplicadosProveedor.js';
+import { anioEmisionFactura, esDuplicadoFacturaProveedor } from '../lib/facturacion/duplicadosProveedor.js';
 import { errorFechaEmisionDemasiadoFutura } from '../lib/facturacion/fechaEmisionLimite.js';
 import {
   ERROR_PROVEEDOR_IGUAL_SOCIEDAD,
@@ -3493,7 +3493,11 @@ router.post('/facturacion/check-duplicados', requirePermission('facturacion.crea
   const { proveedor_cif, numero_factura_proveedor, fecha_emision } = req.body || {};
   try {
     const ref = { proveedor_cif, numero_factura_proveedor, fecha_emision };
-    const facturas = await scanAll(tables.facturas, '#t = :t', { ':t': 'IN' }, { '#t': 'tipo' });
+    const cif = normalizeCif(proveedor_cif);
+    const anio = anioEmisionFactura(fecha_emision);
+    const facturas = cif && anio
+      ? await facturasPorProveedor(cif, { prefijo: `${anio}-` })
+      : [];
     // [SEC S-08]
     const posibles = await filtrarLecturaPorEmpresa(
       req,
