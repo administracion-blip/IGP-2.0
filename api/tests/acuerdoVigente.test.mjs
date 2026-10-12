@@ -10,8 +10,16 @@ import { resolveAcuerdoVigenteProducto } from '../lib/mayorista/acuerdoVigente.j
 function montar() {
   const db = crearDynamoMemoria();
   db.crearTabla(tables.acuerdos, { hashKey: 'PK', rangeKey: 'SK' });
-  db.crearTabla(tables.acuerdosDetalles, { hashKey: 'PK', rangeKey: 'SK' });
-  db.crearTabla(tables.comprasProveedor, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.acuerdosDetalles, {
+    hashKey: 'PK',
+    rangeKey: 'SK',
+    indices: { 'Producto-index': { hashKey: 'gsi_producto' } },
+  });
+  db.crearTabla(tables.comprasProveedor, {
+    hashKey: 'PK',
+    rangeKey: 'SK',
+    indices: { 'ProductId-AlbaranFecha-index': { hashKey: 'ProductId', rangeKey: 'AlbaranFecha' } },
+  });
   db.instalar(docClient);
   return db;
 }
@@ -32,6 +40,7 @@ function sembrarDetalle(db, { pk, productId, cantidad, aportacion = 0, rappel = 
     PK: pk,
     SK: productId,
     ProductId: productId,
+    gsi_producto: String(productId).replace(/^0+/, '') || '0',
     Cantidad: cantidad,
     Aportacion: aportacion,
     Rappel: rappel,

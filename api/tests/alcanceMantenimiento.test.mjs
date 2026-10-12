@@ -18,6 +18,7 @@ const { docClient, tables } = await import('../lib/db.js');
 const { crearDynamoMemoria } = await import('./dynamoMemoria.mjs');
 const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
 const { invalidarMaestroLocales } = await import('../lib/alcance.js');
+const { aplicarClavesGsi, clavesMantenimiento } = await import('../lib/clavesIndice.js');
 const { default: mantenimientoRouter } = await import('../routes/mantenimiento.js');
 
 const TECNICO_CENTRO = { sub: '000060', email: 'tecnico@grupo.test', rol: 'Mantenimiento' };
@@ -84,7 +85,7 @@ const NUEVA = { zona: 'barra', categoria: 'otros', titulo: 'Cámara no enfría' 
 let db = null;
 
 function incidencia(clave, localId, id) {
-  return {
+  const item = {
     ...clave,
     tipo: 'INC',
     id_incidencia: id,
@@ -96,13 +97,18 @@ function incidencia(clave, localId, id) {
     estado: 'Programado',
     fecha_programada: '2099-01-01',
   };
+  return aplicarClavesGsi(item, clavesMantenimiento(item));
 }
 
 function montar() {
   db = crearDynamoMemoria();
   db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
   db.crearTabla(tables.locales, { hashKey: 'id_Locales' });
-  db.crearTabla(tables.mantenimiento, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.mantenimiento, {
+    hashKey: 'PK',
+    rangeKey: 'SK',
+    indices: { 'Tipo-Fecha-index': { hashKey: 'gsi_tipo', rangeKey: 'gsi_fecha' } },
+  });
   db.crearTabla(tables.ajustes, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
   db.instalar(docClient);

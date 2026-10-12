@@ -17,6 +17,7 @@ const { docClient, tables } = await import('../lib/db.js');
 const { crearDynamoMemoria } = await import('./dynamoMemoria.mjs');
 const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
 const { invalidarMaestroLocales } = await import('../lib/alcance.js');
+const { aplicarClavesGsi, clavesMantenimiento, clavesMysteryGuest } = await import('../lib/clavesIndice.js');
 const { default: mantenimientoRouter } = await import('../routes/mantenimiento.js');
 const { default: mysteryGuestRouter } = await import('../routes/mysteryGuest.js');
 const { mgTodosLosIdsPregunta } = await import('../lib/mysteryGuestCuestionario.js');
@@ -66,9 +67,16 @@ const REF_INC = { local_id: '000010', id_incidencia: 'inc-1', fecha_creacion: FE
 function montar() {
   const db = crearDynamoMemoria();
   db.crearTabla(tables.locales, { hashKey: 'id_Locales' });
-  db.crearTabla(tables.mantenimiento, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.mantenimiento, {
+    hashKey: 'PK',
+    rangeKey: 'SK',
+    indices: { 'Tipo-Fecha-index': { hashKey: 'gsi_tipo', rangeKey: 'gsi_fecha' } },
+  });
   db.crearTabla(tables.ajustes, { hashKey: 'PK', rangeKey: 'SK' });
-  db.crearTabla(tables.mysteryGuest, { hashKey: 'ud_mysteryguest' });
+  db.crearTabla(tables.mysteryGuest, {
+    hashKey: 'ud_mysteryguest',
+    indices: { 'Local-Fecha-index': { hashKey: 'gsi_local', rangeKey: 'gsi_fecha' } },
+  });
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
   db.instalar(docClient);
@@ -87,7 +95,7 @@ function montar() {
   db.sembrar(tables.rolesPermisos, { PK: 'ROL#Local', SK: 'PERMISO#planning_dia.ver' });
   db.sembrar(tables.rolesPermisos, { PK: 'ROL#Socio', SK: 'PERMISO#mystery_guest.ver' });
   db.sembrar(tables.locales, { id_Locales: '000010', nombre: 'Bar Centro' });
-  db.sembrar(tables.mantenimiento, {
+  const inc = {
     ...CLAVE_INC,
     tipo: 'INC',
     id_incidencia: 'inc-1',
@@ -98,8 +106,12 @@ function montar() {
     titulo: 'Grifo roto',
     estado: 'Programado',
     fecha_programada: '2099-01-01',
-  });
-  db.sembrar(tables.mysteryGuest, { ud_mysteryguest: 'mg-1', Fecha: '2026-09-01', FechaDia: '2026-09-01', LocalId: '000010' });
+  };
+  aplicarClavesGsi(inc, clavesMantenimiento(inc));
+  db.sembrar(tables.mantenimiento, inc);
+  const mg = { ud_mysteryguest: 'mg-1', Fecha: '2026-09-01', FechaDia: '2026-09-01', LocalId: '000010' };
+  aplicarClavesGsi(mg, clavesMysteryGuest(mg));
+  db.sembrar(tables.mysteryGuest, mg);
   return db;
 }
 

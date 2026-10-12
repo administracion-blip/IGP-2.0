@@ -102,7 +102,11 @@ function escenario(opciones) {
   const db = montarEscenario(opciones);
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
   db.crearTabla(tables.acuerdos, { hashKey: 'PK', rangeKey: 'SK' });
-  db.crearTabla(tables.acuerdosDetalles, { hashKey: 'PK', rangeKey: 'SK' });
+  db.crearTabla(tables.acuerdosDetalles, {
+    hashKey: 'PK',
+    rangeKey: 'SK',
+    indices: { 'Producto-index': { hashKey: 'gsi_producto' } },
+  });
   db.sembrar(tables.almacenes, almacen('ALM-GEN', 'ALMACEN GENERAL'));
   db.sembrar(tables.almacenes, almacen('ALM-NORTE', 'Almacen Norte'));
   db.sembrar(tables.locales, local('000010', 'Bar Norte', EMPRESA_NORTE, ['Almacen Norte']));

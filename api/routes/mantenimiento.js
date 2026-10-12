@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import express from 'express';
-import { GetCommand, PutCommand, QueryCommand, ScanCommand, UpdateCommand, DeleteCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, PutCommand, QueryCommand, UpdateCommand, DeleteCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 import { requireAnyPermission, requirePermission } from '../middleware/auth.js';
 import { requireLocal, desde } from '../middleware/alcance.js';
@@ -726,10 +726,11 @@ router.get('/mantenimiento/incidencias', requireAnyPermission('mantenimiento.ver
     } else {
       let lastKey = null;
       do {
-        const cmd = new ScanCommand({
+        const cmd = new QueryCommand({
           TableName: tables.mantenimiento,
-          FilterExpression: 'tipo = :tipo',
-          ExpressionAttributeValues: { ':tipo': 'INC' },
+          IndexName: 'Tipo-Fecha-index',
+          KeyConditionExpression: 'gsi_tipo = :t',
+          ExpressionAttributeValues: { ':t': 'INC' },
           ...(lastKey && { ExclusiveStartKey: lastKey }),
         });
         const result = await docClient.send(cmd);

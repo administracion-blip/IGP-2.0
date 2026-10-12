@@ -7,11 +7,11 @@
  */
 import express from 'express';
 import { randomUUID } from 'node:crypto';
-import { ScanCommand, PutCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { QueryCommand, PutCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
 import { requirePermission } from '../middleware/auth.js';
 import { requireLocal, desde } from '../middleware/alcance.js';
-import { cargarAlcance, permiteLocal, MENSAJE_SIN_ACCESO_LOCAL } from '../lib/alcance.js';
+import { cargarAlcance, permiteLocal, MENSAJE_SIN_ACCESO_LOCAL, maestroLocales, modoLecturas } from '../lib/alcance.js';
 import { filtrarLecturaPorLocal, permiteLecturaLocal } from '../lib/alcanceLecturas.js';
 import {
   mgTodosLosIdsPregunta,
@@ -178,18 +178,31 @@ router.get('/mystery-guest', requirePermission('mystery_guest.ver'), async (req,
     return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
   }
 
+  const locales = localId
+    ? [localId]
+    : await (async () => {
+      const maestro = await maestroLocales();
+      const ids = [...maestro.porId.keys()];
+      const alcance = await cargarAlcance(req);
+      if (alcance.global || modoLecturas() !== 'bloquear') return ids;
+      return ids.filter((id) => alcance.localIds.has(id));
+    })();
+
   const items = [];
-  let lastKey = null;
-  do {
-    const r = await docClient.send(
-      new ScanCommand({
+  for (const local of locales) {
+    let lastKey = null;
+    do {
+      const r = await docClient.send(new QueryCommand({
         TableName: TABLE,
+        IndexName: 'Local-Fecha-index',
+        KeyConditionExpression: 'gsi_local = :l AND gsi_fecha BETWEEN :a AND :b',
+        ExpressionAttributeValues: { ':l': local, ':a': fechaDesde, ':b': fechaHasta },
         ...(lastKey && { ExclusiveStartKey: lastKey }),
-      })
-    );
-    items.push(...(r.Items || []));
-    lastKey = r.LastEvaluatedKey || null;
-  } while (lastKey);
+      }));
+      items.push(...(r.Items || []));
+      lastKey = r.LastEvaluatedKey || null;
+    } while (lastKey);
+  }
 
   const enRango = items.filter((it) => {
     const f = fechaDiaParaFiltro(it);

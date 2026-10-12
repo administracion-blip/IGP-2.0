@@ -1,5 +1,6 @@
-import { ScanCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
+import { queryDetallesPorProducto } from '../dynamo/acuerdosDetalles.js';
 
 /** Compara IDs de producto tolerando ceros a la izquierda. */
 function idsProductoCoinciden(a, b) {
@@ -48,16 +49,7 @@ export async function resolveTotalAportacionUnitaria(productId, fechaPedido) {
   const fecha = fechaAIso(fechaPedido);
   if (!pid || !fecha) return 0;
 
-  const detalles = [];
-  let lastKey = null;
-  do {
-    const r = await docClient.send(new ScanCommand({
-      TableName: tables.acuerdosDetalles,
-      ...(lastKey && { ExclusiveStartKey: lastKey }),
-    }));
-    detalles.push(...(r.Items || []));
-    lastKey = r.LastEvaluatedKey || null;
-  } while (lastKey);
+  const detalles = await queryDetallesPorProducto(pid);
 
   const candidatos = detalles.filter((d) => idsProductoCoinciden(String(d.ProductId ?? d.SK ?? '').trim(), pid));
   let mejor = 0;

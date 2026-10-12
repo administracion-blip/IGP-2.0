@@ -16,6 +16,7 @@ const { docClient, tables } = await import('../lib/db.js');
 const { crearDynamoMemoria } = await import('./dynamoMemoria.mjs');
 const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
 const { invalidarMaestroLocales } = await import('../lib/alcance.js');
+const { aplicarClavesGsi, clavesMysteryGuest } = await import('../lib/clavesIndice.js');
 const { default: mysteryGuestRouter } = await import('../routes/mysteryGuest.js');
 const { mgTodosLosIdsPregunta } = await import('../lib/mysteryGuestCuestionario.js');
 
@@ -79,7 +80,10 @@ function montar() {
   db = crearDynamoMemoria();
   db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
   db.crearTabla(tables.locales, { hashKey: 'id_Locales' });
-  db.crearTabla(tables.mysteryGuest, { hashKey: 'ud_mysteryguest' });
+  db.crearTabla(tables.mysteryGuest, {
+    hashKey: 'ud_mysteryguest',
+    indices: { 'Local-Fecha-index': { hashKey: 'gsi_local', rangeKey: 'gsi_fecha' } },
+  });
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
   db.instalar(docClient);
   db.sembrar(tables.rolesPermisos, { PK: 'ROL#Socio', SK: 'PERMISO#mystery_guest.ver' });
@@ -87,8 +91,12 @@ function montar() {
   db.sembrar(tables.locales, { id_Locales: '000020', nombre: 'Bar Sur' });
   db.sembrar(tables.usuarios, { id_usuario: '000070', Email: AUDITOR.email, Rol: 'Socio', Local: ['Bar Centro'] });
   db.sembrar(tables.usuarios, { id_usuario: '000071', Email: OFICINA.email, Rol: 'Socio', Local: [] });
-  db.sembrar(tables.mysteryGuest, { ud_mysteryguest: 'mg-centro', Fecha: '2026-09-01', FechaDia: '2026-09-01', LocalId: '000010', CreadoEn: '1' });
-  db.sembrar(tables.mysteryGuest, { ud_mysteryguest: 'mg-sur', Fecha: '2026-09-01', FechaDia: '2026-09-01', LocalId: '000020', CreadoEn: '2', Notas: 'original' });
+  const sembrarMg = (item) => {
+    aplicarClavesGsi(item, clavesMysteryGuest(item));
+    db.sembrar(tables.mysteryGuest, item);
+  };
+  sembrarMg({ ud_mysteryguest: 'mg-centro', Fecha: '2026-09-01', FechaDia: '2026-09-01', LocalId: '000010', CreadoEn: '1' });
+  sembrarMg({ ud_mysteryguest: 'mg-sur', Fecha: '2026-09-01', FechaDia: '2026-09-01', LocalId: '000020', CreadoEn: '2', Notas: 'original' });
   invalidarContextoAcceso();
   invalidarMaestroLocales();
 }

@@ -2,9 +2,10 @@
  * Resuelve acuerdo vigente para un producto en una fecha de operación.
  * Persistir siempre acuerdo_id + acuerdo_fecha_fin (FechaFin real), no inventar fechas.
  */
-import { ScanCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
 import { queryComprasPorProductos } from '../dynamo/comprasProveedor.js';
+import { queryDetallesPorProducto } from '../dynamo/acuerdosDetalles.js';
 import {
   totalAportacionUnitaria,
   fechaEnRangoAcuerdo,
@@ -51,16 +52,7 @@ export async function resolveAcuerdoVigenteProducto(productId, fechaOperacion) {
   const fecha = fechaAIso(fechaOperacion);
   if (!pid || !fecha) return vacio;
 
-  const detalles = [];
-  let lastKey = null;
-  do {
-    const r = await docClient.send(new ScanCommand({
-      TableName: tables.acuerdosDetalles,
-      ...(lastKey && { ExclusiveStartKey: lastKey }),
-    }));
-    detalles.push(...(r.Items || []));
-    lastKey = r.LastEvaluatedKey || null;
-  } while (lastKey);
+  const detalles = await queryDetallesPorProducto(pid);
 
   const candidatos = detalles.filter((d) =>
     idsProductoCoinciden(String(d.ProductId ?? d.SK ?? '').trim(), pid),

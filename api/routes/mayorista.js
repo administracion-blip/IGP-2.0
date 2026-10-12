@@ -173,10 +173,11 @@ async function scanMetas() {
   const items = [];
   let lastKey = null;
   do {
-    const r = await docClient.send(new ScanCommand({
+    const r = await docClient.send(new QueryCommand({
       TableName: tNeg,
-      FilterExpression: 'SK = :meta',
-      ExpressionAttributeValues: { ':meta': 'META' },
+      IndexName: 'Listado-Fecha-index',
+      KeyConditionExpression: 'gsi_listado = :n',
+      ExpressionAttributeValues: { ':n': 'NEG' },
       ...(lastKey && { ExclusiveStartKey: lastKey }),
     }));
     items.push(...(r.Items || []));
