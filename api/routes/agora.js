@@ -78,7 +78,7 @@ import {
 import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
 import { requireLocal, requireLocales, requireAlcanceGlobal, requireLocalLectura, desde } from '../middleware/alcance.js';
 import { filtrarLecturaPorLocal, permiteLecturaLocal, workplacesLectura } from '../lib/alcanceLecturas.js';
-import { MENSAJE_SIN_ACCESO_LOCAL } from '../lib/alcance.js';
+import { MENSAJE_SIN_ACCESO_LOCAL, maestroLocales, cargarAlcance, modoLecturas } from '../lib/alcance.js';
 import { invalidarMapaAlmacenes } from '../lib/alcanceAlmacenes.js';
 import { buildObjetivoMensualCard } from '../lib/agora/objetivoMensual.js';
 import {
@@ -786,6 +786,60 @@ function validateAgoraCloseOut(raw) {
   return { valid: true };
 }
 
+const CIERRES_QUERY_CHUNK = 6;
+
+function nombresPorAgora(maestro) {
+  const pkToNombre = {};
+  for (const [code, loc] of maestro.porAgora) {
+    pkToNombre[code] = loc.nombre || code;
+  }
+  return pkToNombre;
+}
+
+/**
+ * Cierres por PK (agoraCode) y, si hay rango, por SK. Sin GSI: la clave de
+ * tabla ya es workplace + fecha. Sin locales, no hay Scan de respaldo.
+ */
+async function queryCierresPorWorkplace(workplaces, skFrom = '', skTo = '') {
+  const items = [];
+  const lista = [...new Set((workplaces || []).map((w) => String(w ?? '').trim()).filter(Boolean))];
+  for (let i = 0; i < lista.length; i += CIERRES_QUERY_CHUNK) {
+    const slice = lista.slice(i, i + CIERRES_QUERY_CHUNK);
+    const lists = await Promise.all(slice.map(async (wp) => {
+      const out = [];
+      let lastKey = null;
+      const conRango = Boolean(skFrom);
+      do {
+        const r = await docClient.send(new QueryCommand({
+          TableName: tableSalesCloseOutsName,
+          KeyConditionExpression: conRango
+            ? 'PK = :pk AND SK BETWEEN :skFrom AND :skTo'
+            : 'PK = :pk',
+          ExpressionAttributeValues: conRango
+            ? { ':pk': wp, ':skFrom': skFrom, ':skTo': skTo }
+            : { ':pk': wp },
+          ...(lastKey && { ExclusiveStartKey: lastKey }),
+        }));
+        out.push(...(r.Items || []));
+        lastKey = r.LastEvaluatedKey || null;
+      } while (lastKey);
+      return out;
+    }));
+    for (const list of lists) items.push(...list);
+  }
+  return items;
+}
+
+/** Un workplace pedido, o cada agoraCode del maestro. En 'bloquear', solo los permitidos. */
+async function workplacesDelListado(req, workplaceId) {
+  if (workplaceId) return [workplaceId];
+  const maestro = await maestroLocales();
+  const codigos = [...maestro.porAgora.keys()];
+  const alcance = await cargarAlcance(req);
+  if (alcance.global || modoLecturas() !== 'bloquear') return codigos;
+  return codigos.filter((c) => alcance.agoraCodes.has(c));
+}
+
 // --- Rutas ---
 
 // --- Fase C: lectura / dashboard de cierres ---
@@ -796,22 +850,9 @@ router.get('/agora/closeouts', requirePermission('cierres.ver'), async (req, res
   if (workplaceId && !(await permiteLecturaLocal(req, { workplaceId }))) {
     return res.status(403).json({ error: MENSAJE_SIN_ACCESO_LOCAL });
   }
-  const items = [];
-  let lastKey = null;
-  do {
-    const result = await docClient.send(new ScanCommand({
-      TableName: tableSalesCloseOutsName,
-      ...(lastKey && { ExclusiveStartKey: lastKey }),
-    }));
-    items.push(...(result.Items || []));
-    lastKey = result.LastEvaluatedKey || null;
-  } while (lastKey);
-  let list = items;
-  if (workplaceId) list = list.filter((i) => (i.PK ?? i.pk) === workplaceId);
-  if (businessDay && /^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
-    const sk = (i) => i.SK ?? i.sk ?? '';
-    list = list.filter((i) => sk(i) && sk(i).startsWith(businessDay));
-  }
+  const dia = businessDay && /^\d{4}-\d{2}-\d{2}$/.test(businessDay) ? businessDay : '';
+  const workplaces = await workplacesDelListado(req, workplaceId);
+  let list = await queryCierresPorWorkplace(workplaces, dia, dia ? `${dia}\uffff` : '');
   if (!workplaceId) list = await filtrarLecturaPorLocal(req, list, (i) => ({ workplaceId: String(i.PK ?? i.pk ?? '') }));
   list.sort((a, b) => ((a.SK ?? a.sk) || '').localeCompare((b.SK ?? b.sk) || ''));
   for (const item of list) {
@@ -937,20 +978,8 @@ router.get('/agora/closeouts/totals-by-local', async (req, res) => {
   if (!businessDay || !/^\d{4}-\d{2}-\d{2}$/.test(businessDay)) {
     return res.status(400).json({ error: 'businessDay obligatorio (YYYY-MM-DD)' });
   }
-  const items = [];
-  let lastKey = null;
-  do {
-    const result = await docClient.send(new ScanCommand({
-      TableName: tableSalesCloseOutsName,
-      ...(lastKey && { ExclusiveStartKey: lastKey }),
-    }));
-    items.push(...(result.Items || []));
-    lastKey = result.LastEvaluatedKey || null;
-  } while (lastKey);
-  const list = items.filter((i) => {
-    const sk = String(i.SK ?? i.sk ?? '').trim();
-    return sk && sk.startsWith(businessDay);
-  });
+  const workplaces = await workplacesDelListado(req, '');
+  const list = await queryCierresPorWorkplace(workplaces, businessDay, `${businessDay}\uffff`);
   const totalsByPk = {};
   for (const item of list) {
     const pk = String(item.PK ?? item.pk ?? '').trim();
@@ -965,22 +994,7 @@ router.get('/agora/closeouts/totals-by-local', async (req, res) => {
       totalsByPk[pk] = (totalsByPk[pk] || 0) + total;
     }
   }
-  const localeItems = [];
-  let locLastKey = null;
-  do {
-    const locResult = await docClient.send(new ScanCommand({
-      TableName: tableLocalesName,
-      ...(locLastKey && { ExclusiveStartKey: locLastKey }),
-    }));
-    localeItems.push(...(locResult.Items || []));
-    locLastKey = locResult.LastEvaluatedKey || null;
-  } while (locLastKey);
-  const pkToNombre = {};
-  for (const loc of localeItems) {
-    const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
-    const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
-    if (code) pkToNombre[code] = nombre || code;
-  }
+  const pkToNombre = nombresPorAgora(await maestroLocales());
   const result = Object.entries(totalsByPk)
     .filter(([, total]) => total > 0)
     .map(([workplaceId, total]) => ({
@@ -1004,16 +1018,9 @@ router.get('/agora/closeouts/totals-by-local-ytd', async (req, res) => {
   }
   const prefix = year + '-';
   const useDateTo = dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateTo) && dateTo.startsWith(year + '-');
-  const items = [];
-  let lastKey = null;
-  do {
-    const result = await docClient.send(new ScanCommand({
-      TableName: tableSalesCloseOutsName,
-      ...(lastKey && { ExclusiveStartKey: lastKey }),
-    }));
-    items.push(...(result.Items || []));
-    lastKey = result.LastEvaluatedKey || null;
-  } while (lastKey);
+  const maestro = await maestroLocales();
+  const skTo = useDateTo ? `${dateTo}\uffff` : `${year}-12-31\uffff`;
+  const items = await queryCierresPorWorkplace([...maestro.porAgora.keys()], `${year}-01-01`, skTo);
   const list = items.filter((i) => {
     const sk = String(i.SK ?? i.sk ?? '').trim();
     if (!sk || !sk.startsWith(prefix)) return false;
@@ -1037,22 +1044,7 @@ router.get('/agora/closeouts/totals-by-local-ytd', async (req, res) => {
       totalsByPk[pk] = (totalsByPk[pk] || 0) + total;
     }
   }
-  const localeItems = [];
-  let locLastKey = null;
-  do {
-    const locResult = await docClient.send(new ScanCommand({
-      TableName: tableLocalesName,
-      ...(locLastKey && { ExclusiveStartKey: locLastKey }),
-    }));
-    localeItems.push(...(locResult.Items || []));
-    locLastKey = locResult.LastEvaluatedKey || null;
-  } while (locLastKey);
-  const pkToNombre = {};
-  for (const loc of localeItems) {
-    const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
-    const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
-    if (code) pkToNombre[code] = nombre || code;
-  }
+  const pkToNombre = nombresPorAgora(maestro);
   const result = Object.entries(totalsByPk)
     .filter(([, total]) => total > 0)
     .map(([workplaceId, total]) => ({
@@ -1072,16 +1064,9 @@ router.get('/agora/closeouts/totals-by-month', async (req, res) => {
   }
   const prefix = year + '-';
   const useDateTo = dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateTo) && dateTo.startsWith(year + '-');
-  const items = [];
-  let lastKey = null;
-  do {
-    const result = await docClient.send(new ScanCommand({
-      TableName: tableSalesCloseOutsName,
-      ...(lastKey && { ExclusiveStartKey: lastKey }),
-    }));
-    items.push(...(result.Items || []));
-    lastKey = result.LastEvaluatedKey || null;
-  } while (lastKey);
+  const maestro = await maestroLocales();
+  const skTo = useDateTo ? `${dateTo}\uffff` : `${year}-12-31\uffff`;
+  const items = await queryCierresPorWorkplace([...maestro.porAgora.keys()], `${year}-01-01`, skTo);
   const list = items.filter((i) => {
     const sk = String(i.SK ?? i.sk ?? '').trim();
     if (!sk || !sk.startsWith(prefix)) return false;
@@ -1141,34 +1126,13 @@ router.get('/agora/closeouts/dashboard-home', async (req, res) => {
     return total;
   };
 
-  const [items, localeItems] = await Promise.all([
-      (async () => {
-        const acc = [];
-        let lastKey = null;
-        do {
-          const result = await docClient.send(new ScanCommand({
-            TableName: tableSalesCloseOutsName,
-            ...(lastKey && { ExclusiveStartKey: lastKey }),
-          }));
-          acc.push(...(result.Items || []));
-          lastKey = result.LastEvaluatedKey || null;
-        } while (lastKey);
-        return acc;
-      })(),
-      (async () => {
-        const acc = [];
-        let locLastKey = null;
-        do {
-          const locResult = await docClient.send(new ScanCommand({
-            TableName: tableLocalesName,
-            ...(locLastKey && { ExclusiveStartKey: locLastKey }),
-          }));
-          acc.push(...(locResult.Items || []));
-          locLastKey = locResult.LastEvaluatedKey || null;
-        } while (locLastKey);
-        return acc;
-      })(),
-    ]);
+  const maestro = await maestroLocales();
+  const items = await queryCierresPorWorkplace(
+    [...maestro.porAgora.keys()],
+    `${lastYearNum}-01-01`,
+    `${dateTo}\uffff`,
+  );
+  const pkToNombre = nombresPorAgora(maestro);
 
     const totalsTickerPk = {};
     const totalsPrevPk = {};
@@ -1211,13 +1175,6 @@ router.get('/agora/closeouts/dashboard-home', async (req, res) => {
           }
         }
       }
-    }
-
-    const pkToNombre = {};
-    for (const loc of localeItems) {
-      const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
-      const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
-      if (code) pkToNombre[code] = nombre || code;
     }
 
     const mapPkToTotals = (totalsByPk) =>
@@ -2054,77 +2011,23 @@ router.get('/cajas/top', async (req, res) => {
   }
 
   // ---- 1) Maestro de locales (nombre por agoraCode) ----
-  const localeItems = [];
-  let locLastKey = null;
-  do {
-    const locResult = await docClient.send(new ScanCommand({
-      TableName: tableLocalesName,
-      ...(locLastKey && { ExclusiveStartKey: locLastKey }),
-    }));
-    localeItems.push(...(locResult.Items || []));
-    locLastKey = locResult.LastEvaluatedKey || null;
-  } while (locLastKey);
-  const pkToNombre = {};
-  for (const loc of localeItems) {
-    const code = String(loc.agoraCode ?? loc.AgoraCode ?? '').trim();
-    const nombre = String(loc.nombre ?? loc.Nombre ?? '').trim();
-    if (code) pkToNombre[code] = nombre || code;
-  }
+  const maestro = await maestroLocales();
+  const pkToNombre = nombresPorAgora(maestro);
   const workplaceFilterSet = new Set(workplaceIds);
 
-  // Cuando el usuario elige "Todos" (workplaceIds vacío) usamos la lista del maestro
-  // de locales para hacer Query por PK en paralelo en lugar de un Scan completo de
-  // Igp_SalesCloseouts. Si por alguna razón el maestro está vacío, mantenemos el
-  // fallback a Scan para no romper el comportamiento previo.
-  const allLocaleCodes = Object.keys(pkToNombre);
+  // "Todos" consulta cada agoraCode del maestro. Sin locales no hay Scan.
+  const allLocaleCodes = [...maestro.porAgora.keys()];
   const effectiveWorkplaceIds = workplaceIds.length > 0 ? workplaceIds : allLocaleCodes;
 
   // ---- 2) Cierres del rango actual (real) y del rango comparativo ----
   const dateFromComp = fechaUnAnoAtras(dateFromRaw);
   const dateToComp = fechaUnAnoAtras(dateToRaw);
 
-  const QUERY_CHUNK = 6;
-  const fetchCloseoutsRange = async (dFrom, dTo) => {
-    const items = [];
-    if (effectiveWorkplaceIds.length > 0) {
-      for (let i = 0; i < effectiveWorkplaceIds.length; i += QUERY_CHUNK) {
-        const slice = effectiveWorkplaceIds.slice(i, i + QUERY_CHUNK);
-        const lists = await Promise.all(
-          slice.map(async (wp) => {
-            const out = [];
-            let lk = null;
-            do {
-              const r = await docClient.send(new QueryCommand({
-                TableName: tableSalesCloseOutsName,
-                KeyConditionExpression: 'PK = :pk AND SK BETWEEN :skFrom AND :skTo',
-                ExpressionAttributeValues: {
-                  ':pk': wp,
-                  ':skFrom': dFrom,
-                  ':skTo': `${dTo}\uffff`,
-                },
-                ...(lk && { ExclusiveStartKey: lk }),
-              }));
-              out.push(...(r.Items || []));
-              lk = r.LastEvaluatedKey || null;
-            } while (lk);
-            return out;
-          }),
-        );
-        for (const list of lists) items.push(...list);
-      }
-    } else {
-      let lk = null;
-      do {
-        const r = await docClient.send(new ScanCommand({
-          TableName: tableSalesCloseOutsName,
-          ...(lk && { ExclusiveStartKey: lk }),
-        }));
-        items.push(...(r.Items || []));
-        lk = r.LastEvaluatedKey || null;
-      } while (lk);
-    }
-    return items;
-  };
+  const fetchCloseoutsRange = async (dFrom, dTo) => queryCierresPorWorkplace(
+    effectiveWorkplaceIds,
+    dFrom,
+    `${dTo}\uffff`,
+  );
 
   const [closeoutsReal, closeoutsComp, festivosResp] = await Promise.all([
     fetchCloseoutsRange(dateFromRaw, dateToRaw),
@@ -3794,6 +3697,9 @@ router.post('/agora/closeouts/full-sync', requirePermission('ajustes.sincronizac
   {
     let deletedOutOfRange = 0;
     if (deleteOutOfRange) {
+      // Excepción: barrido de administración (deleteOutOfRange), solo con
+      // alcance global. Tiene que ver todos los cierres, también los de un
+      // workplace que ya no está en el maestro. Va paginado por ExclusiveStartKey.
       const allItems = [];
       let lastKey = null;
       do {
@@ -4041,6 +3947,9 @@ router.post('/agora/closeouts/complete-fields', permisoSyncCierres, requireLocal
         if (items.length >= limit) break;
       } while (lastKey);
     } else {
+      // Excepción: complete-fields sin workplace es un repaso manual de
+      // administración y tiene que alcanzar cierres fuera del maestro.
+      // El Scan ya va paginado (Limit + ExclusiveStartKey).
       const filterExpr = [];
       const exprValues = {};
       if (dateFrom && /^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
