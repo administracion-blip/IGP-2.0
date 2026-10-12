@@ -13,6 +13,7 @@
  */
 
 import { tables } from '../db.js';
+import { aplicarClavesFactura } from './clavesIndice.js';
 
 export const MENSAJE_FACTURA_CAMBIADA = 'La factura ha cambiado, vuelve a intentarlo';
 export const INTENTOS_ESCRITURA_FACTURA = 3;
@@ -27,6 +28,10 @@ export const INTENTOS_ESCRITURA_FACTURA = 3;
  *   Condición adicional que tiene que cumplirse a la vez (se une con AND).
  */
 export function putFacturaVersionada(factura, versionLeida, extra = {}) {
+  // Siempre, también si el ítem ya traía gsi_* de una copia: un estado o una
+  // fecha recién cambiados tienen que quedar en el índice, y una clave vacía
+  // no puede viajar en el Put.
+  aplicarClavesFactura(factura);
   const tieneVersion = versionLeida !== undefined && versionLeida !== null;
   factura.version = (Number(versionLeida) || 1) + 1;
   const condVersion = tieneVersion ? '#ver = :verLeida' : 'attribute_not_exists(#ver)';

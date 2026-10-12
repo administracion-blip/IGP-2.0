@@ -1,3 +1,5 @@
+import { aplicarClavesFactura } from './clavesIndice.js';
+
 /**
  * Construcción del ítem de factura y de sus líneas.
  *
@@ -207,6 +209,10 @@ export function construirFacturaConLineas({ id_factura, numero = 0, numero_factu
     verifactu_cadena_encadenamiento: '',
     impuestos_resumen: buildImpuestosResumenFromLineas(calculo.lineas),
   };
+
+  // Los `*_periodo` de la facturación periódica se añaden después: quien
+  // persista la factura tiene que volver a calcular las claves al final.
+  aplicarClavesFactura(factura);
 
   return { factura, lineas: calculo.lineas };
 }

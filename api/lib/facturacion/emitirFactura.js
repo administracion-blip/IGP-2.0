@@ -2,6 +2,7 @@ import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables, keyForFacturaPrincipalId } from '../db.js';
 import { queryLineasByFactura } from '../dynamo/facturasRelacionadas.js';
 import { reservarNumeroSerie, existeCorrelativoDuplicado } from './series.js';
+import { aplicarClavesFactura } from './clavesIndice.js';
 import crypto from 'crypto';
 
 /** Reintentos de reserva cuando el correlativo obtenido ya está ocupado. */
@@ -247,6 +248,7 @@ export async function emitirOValidarFacturaPorId(id, { usuario_id = '', usuario_
   }
 
   try {
+    aplicarClavesFactura(factura);
     await docClient.send(
       new PutCommand({
         TableName: tables.facturas,

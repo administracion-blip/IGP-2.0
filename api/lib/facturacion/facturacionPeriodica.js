@@ -77,6 +77,7 @@ import {
 import { ibanPredeterminadoDeEmpresa } from '../empresaIban.js';
 import { getSerieConfig, errorSerieTipoIncompatible } from './series.js';
 import { validarDatosEmision } from './emitirFactura.js';
+import { aplicarClavesFactura } from './clavesIndice.js';
 
 export function ahoraIso() {
   return new Date().toISOString();
@@ -1040,6 +1041,9 @@ export async function generarPeriodo(
         for (const linea of lineas) {
           await docClient.send(new PutCommand({ TableName: tables.facturasLineas, Item: linea }));
         }
+        // Los `*_periodo` ya están en la factura (se añaden al construir el
+        // grupo). Las claves se calculan aquí, no dentro de construirFactura.
+        aplicarClavesFactura(factura);
         await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
       } catch (err) {
         console.error(

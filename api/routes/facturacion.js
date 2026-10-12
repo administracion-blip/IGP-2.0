@@ -57,6 +57,7 @@ import {
   putFacturaVersionada,
   updateFacturaVersionado,
 } from '../lib/facturacion/versionFactura.js';
+import { aplicarClavesFactura, conClavesFactura } from '../lib/facturacion/clavesIndice.js';
 import {
   indexRemesasActivasPorFactura,
   findRemesaActivaDeFactura,
@@ -526,6 +527,7 @@ router.post('/facturacion/facturas', requirePermission('facturacion.crear'), asy
     });
     const total_factura = factura.total_factura;
 
+    aplicarClavesFactura(factura);
     await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
 
     for (const linea of lineasToSave) {
@@ -1010,6 +1012,7 @@ router.post('/facturacion/facturas/:id/duplicar', requirePermission('facturacion
       nueva.contabilizado_por_id = usuario_id || '';
     }
 
+    aplicarClavesFactura(nueva);
     await docClient.send(new PutCommand({ TableName: tables.facturas, Item: nueva }));
 
     const lineas = await queryLineasByFactura(id);
@@ -1103,6 +1106,7 @@ router.post('/facturacion/facturas/:id/rectificar', requirePermission('facturaci
     rectificativa.verifactu_registro_anulacion = '';
     rectificativa.verifactu_estado = 'no_enviado';
 
+    aplicarClavesFactura(rectificativa);
     await docClient.send(new PutCommand({ TableName: tables.facturas, Item: rectificativa }));
 
     const lineas = await queryLineasByFactura(id);
@@ -1976,13 +1980,13 @@ router.post('/facturacion/check-vencimientos', requirePermission('facturacion.ed
       // entretanto no se convierte en 'vencida'.
       try {
         await docClient.send(
-          new UpdateCommand(updateFacturaVersionado({
+          new UpdateCommand(updateFacturaVersionado(conClavesFactura({
             Key: await keyForFacturaItem(f),
             UpdateExpression: 'SET estado = :e, actualizado_en = :ts',
             ConditionExpression: '#estado = :estadoLeido',
             ExpressionAttributeNames: { '#estado': 'estado' },
             ExpressionAttributeValues: { ':e': 'vencida', ':ts': now(), ':estadoLeido': f.estado },
-          })),
+          }, { ...f, estado: 'vencida' }))),
         );
       } catch (err) {
         if (err?.name !== 'ConditionalCheckFailedException') throw err;
@@ -2045,11 +2049,11 @@ router.put('/facturacion/facturas/:id/albaranes-conciliados', requirePermission(
 
     const ts = now();
     await docClient.send(
-      new UpdateCommand(updateFacturaVersionado({
+      new UpdateCommand(updateFacturaVersionado(conClavesFactura({
         Key: await keyForFacturaPrincipalId(id),
         UpdateExpression: 'SET albaranes_conciliados = :a, actualizado_en = :ts',
         ExpressionAttributeValues: { ':a': sanitized.items, ':ts': ts },
-      })),
+      }, factura))),
     );
 
     await registrarAuditoria(id, 'albaranes_conciliados', usuario_id, usuario_nombre, {
@@ -2211,7 +2215,7 @@ async function reescribirAdjuntosFactura(id, leida, cambiar) {
     }
     const resultado = cambiar(Array.isArray(factura.adjuntos) ? [...factura.adjuntos] : [], factura);
     const tieneVersion = factura.version !== undefined && factura.version !== null;
-    await docClient.send(new UpdateCommand(updateFacturaVersionado({
+    await docClient.send(new UpdateCommand(updateFacturaVersionado(conClavesFactura({
       Key,
       UpdateExpression: 'SET adjuntos = :adj, actualizado_en = :ts',
       ConditionExpression: `attribute_exists(#pk) AND ${tieneVersion ? '#ver = :verLeida' : 'attribute_not_exists(#ver)'}`,
@@ -2221,7 +2225,7 @@ async function reescribirAdjuntosFactura(id, leida, cambiar) {
         ':ts': now(),
         ...(tieneVersion && { ':verLeida': factura.version }),
       },
-    })));
+    }, factura))));
     return resultado;
   });
 }
@@ -3314,6 +3318,7 @@ router.post('/facturacion/ocr/confirmar', requirePermission('facturacion.crear')
         contabilizado_por_id: usuario_id || '',
       };
 
+      aplicarClavesFactura(factura);
       await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
       await registrarAuditoria(id_factura, 'creacion_ocr', usuario_id, usuario_nombre, {
         archivo: b.archivo?.nombre,
@@ -3361,11 +3366,11 @@ router.post('/facturacion/enviar-recordatorios', requirePermission('facturacion.
           `,
         });
 
-        await docClient.send(new UpdateCommand(updateFacturaVersionado({
+        await docClient.send(new UpdateCommand(updateFacturaVersionado(conClavesFactura({
           Key: await keyForFacturaItem(f),
           UpdateExpression: 'SET ultimo_recordatorio = :h',
           ExpressionAttributeValues: { ':h': hoy },
-        })));
+        }, f))));
 
         await registrarAuditoria(f.id_entrada, 'recordatorio_cobro', 'sistema', 'Sistema', {
           destinatario: f.empresa_email,

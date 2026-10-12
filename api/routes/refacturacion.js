@@ -5,7 +5,8 @@
  * Tabla Igp_Refacturaciones:
  *   PK = SOCIEDAD#<empresa_destino_id>
  *   SK = LINEA#<creado_en_iso>#<uuid>
- * Sin GSI: con empresa_destino_id → Query; sin ella → Scan filtrado (volumen bajo OK).
+ * El alta escribe gsi_estado y gsi_fecha (GSI Estado-Fecha). Las lecturas siguen
+ * en Query/Scan: el histórico aún no tiene esos atributos.
  */
 import { responderError } from '../lib/http/responderError.js';
 import { Router } from 'express';
@@ -17,6 +18,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import crypto from 'crypto';
 import { docClient, tables } from '../lib/db.js';
+import { aplicarClavesGsi, clavesRefacturacion } from '../lib/clavesIndice.js';
 import { requirePermission } from '../middleware/auth.js';
 import { formatId6 } from '../lib/usuarioLocales.js';
 import {
@@ -28,6 +30,7 @@ import {
   datosEmpresaFiscal,
 } from '../lib/facturacion/facturacionPeriodica.js';
 import { construirFacturaConLineas } from '../lib/facturacion/construirFactura.js';
+import { aplicarClavesFactura } from '../lib/facturacion/clavesIndice.js';
 import {
   getSerieConfig,
   errorSerieTipoIncompatible,
@@ -186,7 +189,7 @@ function construirItemLinea(raw, { usuario, creadoEn, idLinea }) {
   const ts = creadoEn || now();
   const id = idLinea || uuid();
 
-  return {
+  return sellarRefacturacion({
     PK: pkSociedad(empresa_destino_id),
     SK: skLinea(ts, id),
     id_linea: id,
@@ -214,7 +217,11 @@ function construirItemLinea(raw, { usuario, creadoEn, idLinea }) {
     factura_id: '',
     factura_numero: '',
     refacturada_en: '',
-  };
+  });
+}
+
+function sellarRefacturacion(item) {
+  return aplicarClavesGsi(item, clavesRefacturacion(item));
 }
 
 // ─── POST /refacturacion/lineas ───
@@ -402,6 +409,7 @@ router.patch(
       const skAnterior = existente.SK;
       const pkNuevo = pkSociedad(empresaDestinoId);
       const cambiaSociedad = pkNuevo !== pkAnterior;
+      sellarRefacturacion(actualizado);
 
       if (cambiaSociedad) {
         // Reasignar sociedad cambia la PK. Put nuevo primero, luego Delete viejo:
@@ -614,6 +622,7 @@ router.post(
       factura.origen_refacturacion = true;
       factura.refacturacion_lineas_ids = lineasSel.map((l) => l.id_linea);
 
+      aplicarClavesFactura(factura);
       await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));
       for (const linea of lineasToSave) {
         await docClient.send(
@@ -626,13 +635,13 @@ router.post(
       // crear la factura → 409 con factura_id (puede quedar borrador huérfano; mejor que 2 facturas).
       const refacturada_en = now();
       for (const l of lineasSel) {
-        const marcado = {
+        const marcado = sellarRefacturacion({
           ...l,
           estado: 'refacturada',
           factura_id: id_factura,
           factura_numero: '',
           refacturada_en,
-        };
+        });
         try {
           await docClient.send(
             new PutCommand({
