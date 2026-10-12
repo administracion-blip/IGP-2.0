@@ -7,6 +7,7 @@ import {
   getCifFromEmpresaItem,
   getIdEmpresaFromItem,
 } from '../lib/empresaCif.js';
+import { aplicarClavesGsi, clavesEmpresa } from '../lib/clavesIndice.js';
 import { ibanPredeterminadoDeEmpresa } from '../lib/empresaIban.js';
 import { limpiarIban } from '../lib/remesas/iban.js';
 import {
@@ -50,6 +51,8 @@ function trimCampoString(val) {
 // Ojo: PUT /empresas reescribe el ítem completo, así que todo atributo que no
 // esté en esta lista se pierde al editar una empresa. `IbanPredeterminado` es
 // el puntero a la cuenta bancaria predeterminada (tabla Igp_BankAccounts).
+// `gsi_cif` no va en la lista: se sella después con el CIF normalizado. Si se
+// copiara del body, un valor vacío tumbaría el Put (clave de GSI).
 const TABLE_EMPRESAS_ATTRS = ['id_empresa', 'Nombre', 'Cif', 'Iban', 'IbanAlternativo', 'IbanPredeterminado', 'Direccion', 'Cp', 'Municipio', 'Provincia', 'Email', 'Telefono', 'Tipo de recibo', 'Vencimiento', 'Etiqueta', 'Cuenta contable', 'Administrador', 'Sede', 'CCC'];
 
 // [SEC S-02]
@@ -154,6 +157,7 @@ router.post('/empresas', requirePermission('empresas.crear'), async (req, res) =
         item[key] = trimCampoString(body[key]);
       }
     }
+    aplicarClavesGsi(item, clavesEmpresa(item.Cif));
     await docClient.send(new PutCommand({
       TableName: tableEmpresasName,
       Item: item,
@@ -220,6 +224,7 @@ router.put('/empresas', requirePermission('empresas.editar'), async (req, res) =
             : trimCampoString(existing[key] ?? '');
       }
     }
+    aplicarClavesGsi(item, clavesEmpresa(item.Cif));
     await docClient.send(new PutCommand({
       TableName: tableEmpresasName,
       Item: item,
