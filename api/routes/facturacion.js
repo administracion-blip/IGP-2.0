@@ -57,7 +57,7 @@ import {
   putFacturaVersionada,
   updateFacturaVersionado,
 } from '../lib/facturacion/versionFactura.js';
-import { aplicarClavesFactura, conClavesFactura } from '../lib/facturacion/clavesIndice.js';
+import { aplicarClavesFactura, aplicarClavesPago, conClavesFactura } from '../lib/facturacion/clavesIndice.js';
 import {
   indexRemesasActivasPorFactura,
   findRemesaActivaDeFactura,
@@ -1453,7 +1453,7 @@ async function guardarEdicionPago(pagoLeido, factura, { fechaIso, importeNum, me
       {
         Put: {
           TableName: tables.facturasPagos,
-          Item: pagoActualizado,
+          Item: aplicarClavesPago(pagoActualizado),
           ConditionExpression: 'attribute_exists(id_pago)',
         },
       },

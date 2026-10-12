@@ -10,6 +10,7 @@ import { queryPagosByFactura } from '../dynamo/facturasRelacionadas.js';
 import { ordinalMaximoIdPago } from './registrarPago.js';
 import { normalizeCif } from '../empresaCif.js';
 import { errorFacturaCambiada, esConflictoEscritura, putFacturaVersionada } from './versionFactura.js';
+import { aplicarClavesPago } from './clavesIndice.js';
 
 export const METODO_PAGO_COMPENSACION = 'compensacion';
 
@@ -261,7 +262,7 @@ async function cargarConteosPagos(ids) {
 function putPagoNuevo(pago) {
   return {
     TableName: tables.facturasPagos,
-    Item: pago,
+    Item: aplicarClavesPago(pago),
     ConditionExpression: 'attribute_not_exists(id_pago)',
   };
 }

@@ -8,6 +8,7 @@ import {
   recalcularExcesoPendiente,
 } from './excesoPago.js';
 import { conReintentoFactura, putFacturaVersionada } from './versionFactura.js';
+import { aplicarClavesPago } from './clavesIndice.js';
 
 function uuid() {
   return crypto.randomUUID();
@@ -273,7 +274,7 @@ async function registrarPagoUnaVez({
       {
         Put: {
           TableName: tables.facturasPagos,
-          Item: pago,
+          Item: aplicarClavesPago(pago),
           ConditionExpression: 'attribute_not_exists(id_pago)',
         },
       },

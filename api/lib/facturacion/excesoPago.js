@@ -13,6 +13,7 @@ import {
   etiquetaFacturaCompensable,
 } from './compensacionFactura.js';
 import { esConflictoEscritura, putFacturaVersionada } from './versionFactura.js';
+import { aplicarClavesPago } from './clavesIndice.js';
 
 export const METODO_PAGO_APLICACION_EXCESO = 'aplicacion_exceso';
 
@@ -381,8 +382,8 @@ export async function aplicarExcesoPago(opts) {
           valores: { ':tcLeido': tcDestinoLeido },
         }),
       },
-      { Put: { TableName: tables.facturasPagos, Item: pagoOrigen, ConditionExpression: 'attribute_not_exists(id_pago)' } },
-      { Put: { TableName: tables.facturasPagos, Item: pagoDestino, ConditionExpression: 'attribute_not_exists(id_pago)' } },
+      { Put: { TableName: tables.facturasPagos, Item: aplicarClavesPago(pagoOrigen), ConditionExpression: 'attribute_not_exists(id_pago)' } },
+      { Put: { TableName: tables.facturasPagos, Item: aplicarClavesPago(pagoDestino), ConditionExpression: 'attribute_not_exists(id_pago)' } },
     ]);
   } catch (err) {
     if (esConflictoEscritura(err)) {
