@@ -42,12 +42,14 @@ db.crearTabla(tables.pedidos, {
   pedido({ Id: 'OTRO-ANIO', LocalId: '000020', Estado: 'Completado', Fecha: `${anioPrevio}-03-01`, CompletadoEn: `${anioPrevio}-03-02T10:00:00.000Z` }),
   pedido({ Id: 'SIN-GSI', LocalId: '000020', Estado: 'Borrador', Fecha: `${anio}-06-11` }, { sellar: false }),
   pedido({ Id: 'TRASPASO', LocalId: '000020', Estado: 'Completado', Fecha: `${anio}-04-01`, CompletadoEn: `${anio}-04-02T08:00:00.000Z` }),
+  pedido({ Id: 'CRUCE', LocalId: '000020', Estado: 'Completado', Fecha: `${anioPrevio}-12-20`, CompletadoEn: `${anio}-01-05T10:00:00.000Z` }),
 ]);
 db.crearTabla(tables.pedidosLineas, { hashKey: 'PedidoId', rangeKey: 'LineaIndex' }, [
   { PedidoId: 'EN-ANIO', LineaIndex: '0', TotalLinea: 3, TotalRappel: 1, Preparada: true },
   { PedidoId: 'EN-ANIO', LineaIndex: '1', TotalLinea: 4, TotalRappel: 2, Preparada: false },
   { PedidoId: 'SIN-GSI', LineaIndex: '0', TotalLinea: 99, TotalRappel: 50, Preparada: false },
   { PedidoId: 'TRASPASO', LineaIndex: '0', ProductId: 'P1', ProductoNombre: 'Cola', Cantidad: 2, TotalLinea: 8 },
+  { PedidoId: 'CRUCE', LineaIndex: '0', TotalRappel: 7 },
 ]);
 db.instalar(docClient);
 invalidarMaestroLocales();
@@ -79,7 +81,7 @@ test('sin fechas el listado es el año en curso y suma solo sus líneas', async 
   assert.equal(body.desde, `${anio}-01-01`);
   assert.equal(body.hasta, `${anio}-12-31`);
   const ids = body.pedidos.map((p) => p.Id).sort();
-  assert.deepEqual(ids, ['EN-ANIO', 'TRASPASO']);
+  assert.deepEqual(ids, ['CRUCE', 'EN-ANIO', 'TRASPASO']);
   const enAnio = body.pedidos.find((p) => p.Id === 'EN-ANIO');
   assert.equal(enAnio.TotalAlbaran, 7);
   assert.equal(enAnio.LineasTotal, 2);
@@ -98,6 +100,17 @@ test('abonos consulta el local de la empresa y no la línea sin índice', async 
   assert.equal(status, 200);
   assert.deepEqual(body.pedidos.map((p) => p.Id), ['EN-ANIO']);
   assert.equal(body.total, 3);
+});
+
+test('abonos clasifica por Fecha aunque CompletadoEn caiga en el año siguiente', async () => {
+  const previo = await get(`/api/pedidos/abonos?empresa=Sur%20SL&anio=${anioPrevio}&modo=abonos`);
+  assert.equal(previo.status, 200);
+  assert.deepEqual(previo.body.pedidos.map((p) => p.Id), ['CRUCE']);
+  assert.equal(previo.body.total, 7);
+
+  const actual = await get(`/api/pedidos/abonos?empresa=Sur%20SL&anio=${anio}&modo=abonos`);
+  assert.equal(actual.status, 200);
+  assert.deepEqual(actual.body.pedidos.map((p) => p.Id), ['EN-ANIO']);
 });
 
 test('el traspaso solo incluye completados del rango', async () => {

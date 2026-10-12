@@ -359,6 +359,15 @@ function fechaPedidoToIso(fecha) {
   return '';
 }
 
+/** Suma días a un YYYY-MM-DD en UTC. */
+function sumarDiasIso(iso, dias) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + dias));
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${dt.getUTCFullYear()}-${mm}-${dd}`;
+}
+
 /** Fecha de referencia para el informe de ventas: CompletadoEn (OK almacén) o Fecha pedido (legacy). */
 function fechaReferenciaVentas(pedido) {
   const completadoEn = String(pedido?.CompletadoEn ?? '').trim();
@@ -714,7 +723,12 @@ router.get('/pedidos/abonos', async (req, res) => {
 
     // 2) Pedidos de esos locales, por Local-Fecha del año (el mes se afina abajo).
     //    Menos queries que los cinco estados del grupo, y no lee locales de otra empresa.
-    const pedidos = await listarPedidosPorLocales(localIdsEmpresa, `${anio}-01-01`, `${anio}-12-31`);
+    //    gsi_fecha de un completado es el día de CompletadoEn, pero abonos clasifica
+    //    por Fecha. 45 días por cada lado recogen el cambio de año; el filtro de
+    //    Fecha de abajo decide el periodo.
+    const desdeIndice = modo === 'abonos' ? sumarDiasIso(`${anio}-01-01`, -45) : `${anio}-01-01`;
+    const hastaIndice = modo === 'abonos' ? sumarDiasIso(`${anio}-12-31`, 45) : `${anio}-12-31`;
+    const pedidos = await listarPedidosPorLocales(localIdsEmpresa, desdeIndice, hastaIndice);
 
     const pedidosPeriodo = await filtrarPedidosLectura(req, pedidos.filter((p) => {
       const lid = String(p.LocalId ?? '').trim();
