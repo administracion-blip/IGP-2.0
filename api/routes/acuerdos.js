@@ -13,6 +13,7 @@ import {
 import { S3Client, PutObjectCommand, GetObjectCommand as S3GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { docClient, tables } from '../lib/db.js';
+import { aplicarClavesGsi, clavesAcuerdoDetalle } from '../lib/clavesIndice.js';
 import { queryComprasPorProductos } from '../lib/dynamo/comprasProveedor.js';
 import { buildInformeCompras } from '../lib/acuerdos/informeCompras.js';
 import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
@@ -518,6 +519,7 @@ router.post('/acuerdos/:id/detalles', requirePermission('acuerdos.editar'), asyn
     DescuentoExtra: descuentoExtra,
     createdAt: now,
   };
+  aplicarClavesGsi(item, clavesAcuerdoDetalle(item.ProductId));
   try {
     await docClient.send(new PutCommand({ TableName: tableAcuerdosDetalles, Item: item }));
     return res.json({ ok: true, item });
@@ -537,6 +539,11 @@ router.patch('/acuerdos/:id/detalles/:productId', requirePermission('acuerdos.ed
   if (body.Rappel !== undefined) { const v = typeof body.Rappel === 'number' ? body.Rappel : parseFloat(body.Rappel) || 0; updates.push('Rappel = :ra'); values[':ra'] = v; }
   if (body.DescuentoExtra !== undefined) { const v = typeof body.DescuentoExtra === 'number' ? body.DescuentoExtra : parseFloat(body.DescuentoExtra) || 0; updates.push('DescuentoExtra = :de'); values[':de'] = v; }
   if (updates.length === 0) return res.status(400).json({ error: 'Nada que actualizar' });
+  const clavesDetalle = clavesAcuerdoDetalle(req.params.productId);
+  if (clavesDetalle.set.gsi_producto) {
+    updates.push('gsi_producto = :gp');
+    values[':gp'] = clavesDetalle.set.gsi_producto;
+  }
   try {
     await docClient.send(new UpdateCommand({
       TableName: tableAcuerdosDetalles,
