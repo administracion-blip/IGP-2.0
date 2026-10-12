@@ -23,6 +23,7 @@ const { montarEscenario, tables, local, EMPRESA_NORTE } = await import('./escena
 const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
 const { invalidarMaestroLocales } = await import('../lib/alcance.js');
 const { establecerTransporteEmail, escapeHtml } = await import('../lib/email.js');
+const { aplicarClavesFactura } = await import('../lib/facturacion/clavesIndice.js');
 const { requireAuth } = await import('../middleware/auth.js');
 const { default: facturacionRouter } = await import('../routes/facturacion.js');
 const { default: authRouter } = await import('../routes/auth.js');
@@ -124,10 +125,11 @@ test('enviar factura con mensaje propio: el texto del usuario se escapa y conser
 });
 
 test('recordatorios de cobro: el nombre del cliente sale escapado', async () => {
-  db.sembrar(tables.facturas, {
+  db.sembrar(tables.facturas, aplicarClavesFactura({
     id_factura: 'F-V', id_entrada: 'F-V', tipo: 'OUT', emisor_id: EMPRESA_NORTE, estado: 'vencida',
+    fecha_emision: '2026-02-01',
     empresa_nombre: MALICIOSO, empresa_email: 'cliente@x.test', saldo_pendiente: 50,
-  });
+  }));
   const r = await api('POST', '/api/facturacion/enviar-recordatorios');
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.enviados, 1);

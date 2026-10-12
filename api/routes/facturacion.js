@@ -3380,7 +3380,11 @@ router.post('/facturacion/enviar-recordatorios', requirePermission('facturacion.
 
   try {
     // [SEC S-08]
-    const facturas = filtrarPorEmpresa(await cargarAlcance(req), await scanAll(tables.facturas), (f) => f.emisor_id);
+    const facturas = filtrarPorEmpresa(
+      await cargarAlcance(req),
+      await facturasPorEstado('vencida'),
+      (f) => f.emisor_id,
+    );
     const vencidas = facturas.filter(
       (f) => f.tipo === 'OUT' && f.estado === 'vencida' && f.empresa_email && (f.saldo_pendiente || 0) > 0
     );
