@@ -11,6 +11,7 @@ import {
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { docClient, tables, keyForFacturaPrincipalId } from '../lib/db.js';
+import { aplicarClavesGsi, clavesActuacion } from '../lib/clavesIndice.js';
 import { calcularPropuestaImporte, sanitizeTarifas, tarifasMatrizVacia } from '../lib/tarifaActuacion.js';
 import { empresaTieneEtiquetaMusicos } from '../lib/etiquetaMusicos.js';
 import { getIdEmpresaFromItem } from '../lib/empresaCif.js';
@@ -220,8 +221,14 @@ async function puedeLocalActuacion(req, idLocal) {
 
 const MENSAJE_ACTUACION_CAMBIADA = 'La actuación ha cambiado, vuelve a cargarla';
 
+/** Sella las claves de índice. `id_artista` puede seguir en '' ; `gsi_artista` no. */
+function sellarActuacion(item) {
+  return aplicarClavesGsi(item, clavesActuacion(item));
+}
+
 /** Put de una actuación leída: solo se aplica si sigue en el local con el que se decidió el acceso. */
 async function putActuacionLeida(prev, item) {
+  sellarActuacion(item);
   const leido = prev.id_local;
   try {
     await docClient.send(new PutCommand({
@@ -540,7 +547,7 @@ router.post('/actuaciones/asociar-factura', requirePermission('actuaciones.factu
       estado: 'asociada',
       updated_at: fechaAsoc,
     };
-    updates.push(item);
+    updates.push(sellarActuacion(item));
   }
 
   for (let i = 0; i < updates.length; i += 25) {
@@ -561,7 +568,7 @@ async function crearItemHuecoActuacion({ fechaIso, horaIni, idLocFormatted, loca
   const esFestivo = await esFechaFestiva(fechaIso);
   const prop = calcularPropuestaImporte(fechaIso, horaIni, tarifasMatrizVacia(), esFestivo);
   const ts = now();
-  return {
+  return sellarActuacion({
     id_actuacion: uuid(),
     id_artista: '',
     artista_nombre_snapshot: '',
@@ -588,7 +595,7 @@ async function crearItemHuecoActuacion({ fechaIso, horaIni, idLocFormatted, loca
     usuario_asociacion_pago: '',
     created_at: ts,
     updated_at: ts,
-  };
+  });
 }
 
 /** Genera huecos del calendario (sin unicidad fecha+local+hora). */
@@ -723,6 +730,8 @@ router.post('/actuaciones/mover-artista-aqui', requireAnyPermission('actuaciones
     estado: body.estado != null ? String(body.estado) : 'pendiente',
     updated_at: ts,
   };
+  sellarActuacion(vaciar);
+  sellarActuacion(asignar);
   await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: vaciar }));
   await docClient.send(new PutCommand({ TableName: tables.actuaciones, Item: asignar }));
   res.json({
@@ -877,6 +886,7 @@ router.post('/actuaciones', async (req, res) => {
   }
   const errorLocal = await errorLocalEscritura(req, item.id_local);
   if (errorLocal) return res.status(errorLocal.status).json({ error: errorLocal.error });
+  sellarActuacion(item);
   // [SEC S-07] Con id_actuacion del body, crear no puede pisar una actuación existente (de otro local o firmada).
   try {
     await docClient.send(new PutCommand({
