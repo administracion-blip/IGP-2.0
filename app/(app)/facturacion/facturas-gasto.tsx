@@ -25,6 +25,7 @@ import {
   esFacturaPagableGasto,
 } from '../../components/MultipagoFacturasModal';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
+import { SelectorAnioListado } from '../../components/SelectorAnioListado';
 import { SelectorDesplegableMulti } from '../../components/SelectorDesplegableMulti';
 import {
   colorEstado,
@@ -71,6 +72,7 @@ import {
 import { esMetodoCompensacion } from '../../lib/compensacionFactura';
 import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
 import { apiFetch } from '../../utils/api';
+import { anioConcreto, anioEnCurso, urlFacturasPorAnio } from '../../lib/rangoAnioListado';
 import {
   ESTADOS_FACTURA_REMESABLES,
   agruparFacturasRemesaPorSociedad,
@@ -316,7 +318,7 @@ export default function FacturasGastoScreen() {
   const [fechaHasta, setFechaHasta] = useState('');
   const [empresasFiltroIds, setEmpresasFiltroIds] = useState<string[]>([]);
   const [etiquetasProveedorFiltro, setEtiquetasProveedorFiltro] = useState<string[]>([]);
-  const [anioFiltro, setAnioFiltro] = useState(() => String(new Date().getFullYear()));
+  const [anioFiltro, setAnioFiltro] = useState(anioEnCurso);
   const [filtroColaPago, setFiltroColaPago] = useState<FiltroColaPago>('todos');
   const [filtroProveedorNombre, setFiltroProveedorNombre] = useState('');
   const [soloVenceEsteMes, setSoloVenceEsteMes] = useState(false);
@@ -375,7 +377,7 @@ export default function FacturasGastoScreen() {
   const fetchFacturas = useCallback(() => {
     setLoading(true);
     setError(null);
-    apiFetch(`/api/facturacion/facturas?tipo=IN`)
+    apiFetch(urlFacturasPorAnio('IN', anioFiltro))
       .then((r) => {
         if (!r.ok) throw new Error(`Error ${r.status}`);
         return r.json();
@@ -383,7 +385,7 @@ export default function FacturasGastoScreen() {
       .then((data) => setFacturas(data.facturas || []))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [anioFiltro]);
 
   useEffect(() => { fetchFacturas(); }, [fetchFacturas]);
 
@@ -580,20 +582,6 @@ export default function FacturasGastoScreen() {
     [empresasCatalogo],
   );
 
-  const aniosFiltroOpciones = useMemo(() => {
-    const set = new Set<number>();
-    set.add(new Date().getFullYear());
-    for (const f of facturas) {
-      const iso = fechaEmisionComparable(f.fecha_emision);
-      if (!iso || iso.length < 4) continue;
-      const y = parseInt(iso.slice(0, 4), 10);
-      if (Number.isFinite(y) && y >= 2000 && y <= 2100) set.add(y);
-    }
-    return [...set]
-      .sort((a, b) => b - a)
-      .map((y) => ({ id: String(y), titulo: String(y), icono: 'calendar-today' as const }));
-  }, [facturas]);
-
   /** Duplicados CIF + nº factura proveedor + año (todo el listado cargado). */
   const idsDuplicadosProveedor = useMemo(
     () => idsFacturasProveedorDuplicadas(facturas),
@@ -606,10 +594,11 @@ export default function FacturasGastoScreen() {
 
   const facturasBaseFiltradas = useMemo(() => {
     let list = facturas;
-    if (anioFiltro) {
+    const anioCliente = anioConcreto(anioFiltro);
+    if (anioCliente) {
       list = list.filter((f) => {
         const iso = fechaEmisionComparable(f.fecha_emision);
-        return iso.length >= 4 && iso.slice(0, 4) === anioFiltro;
+        return iso.length >= 4 && iso.slice(0, 4) === anioCliente;
       });
     }
     if (empresasFiltroIds.length > 0) {
@@ -1674,7 +1663,7 @@ export default function FacturasGastoScreen() {
         <Text style={styles.title}>Facturas de gasto</Text>
       </View>
 
-      <View style={styles.filtrosRow}>
+      <View style={[styles.filtrosRow, shouldStackToolbar && styles.filtrosRowStacked]}>
         {empresasFiltroOpciones.length > 0 ? (
           <SelectorDesplegableMulti
             style={styles.empresaFiltroSelector}
@@ -1705,15 +1694,11 @@ export default function FacturasGastoScreen() {
             vacioTexto="No hay etiquetas en el maestro de empresas."
           />
         ) : null}
-        <SelectorDesplegable
-          style={styles.anioFiltroSelector}
-          placeholder="Año"
-          icono="calendar-today"
-          tituloLista="Filtrar por año"
-          iconoLista="calendar-today"
+        <SelectorAnioListado
+          incluirTodos
+          estirar={shouldStackToolbar}
           valorId={anioFiltro}
-          opciones={aniosFiltroOpciones}
-          onSeleccionar={setAnioFiltro}
+          onChange={setAnioFiltro}
         />
         <SelectorDesplegable
           style={styles.empresaFiltroSelector}
@@ -2236,7 +2221,9 @@ export default function FacturasGastoScreen() {
                         ? 'No hay facturas de gasto'
                         : busqueda.trim() || fechaDesde || fechaHasta || empresasFiltroIds.length > 0 || etiquetasProveedorFiltro.length > 0 || filtroProveedorNombre || soloVenceEsteMes || tabActivo !== 'todas' || filtroColaPago !== 'todos'
                           ? 'Ningún resultado con los filtros aplicados'
-                          : `No hay facturas de gasto en ${anioFiltro}`}
+                          : anioConcreto(anioFiltro)
+                            ? `No hay facturas de gasto en ${anioFiltro}`
+                            : 'No hay facturas de gasto'}
                     </Text>
                   </View>
                 </View>
@@ -2786,8 +2773,8 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 8,
   },
+  filtrosRowStacked: { flexDirection: 'column', alignItems: 'stretch' },
   empresaFiltroSelector: { flex: 1, minWidth: 200, maxWidth: 360 },
-  anioFiltroSelector: { width: 132, minWidth: 120, maxWidth: 160 },
 
   estadoTabsRow: {
     flexDirection: 'row',

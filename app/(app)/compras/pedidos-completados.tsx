@@ -28,6 +28,8 @@ import { fetchPorcentajeBeneficio, aplicarPorcentajeBeneficio } from '../../lib/
 import { siguienteIdParaNuevoPedido } from '../../lib/pedidosId';
 import { idAlmacenGeneral } from '../../lib/pedidosEntreLocales';
 import { apiFetch } from '../../utils/api';
+import { anioEnCurso, urlPedidosPorAnio } from '../../lib/rangoAnioListado';
+import { SelectorAnioListado } from '../../components/SelectorAnioListado';
 import { formatCreadoEn } from '../../utils/formatFecha';
 import { MIN_TOUCH } from '../../constants/layout';
 import {
@@ -112,7 +114,7 @@ const READ_ONLY = true;
 export default function PedidosCompletadosScreen() {
   const router = useRouter();
   const { localPermitido, hasPermiso } = useAuth();
-  const { shouldUseComfortableTable } = useBreakpoint();
+  const { shouldStackToolbar, shouldUseComfortableTable } = useBreakpoint();
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [locales, setLocales] = useState<Local[]>([]);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
@@ -120,6 +122,7 @@ export default function PedidosCompletadosScreen() {
   const [error, setError] = useState<string | null>(null);
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
+  const [anioListado, setAnioListado] = useState(anioEnCurso);
 
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
@@ -168,7 +171,7 @@ export default function PedidosCompletadosScreen() {
     setError(null);
     setLoading(true);
     Promise.all([
-      apiFetch('/api/pedidos').then((r) => r.json()),
+      apiFetch(urlPedidosPorAnio(anioListado)).then((r) => r.json()),
       apiFetch('/api/locales').then((r) => r.json()),
       apiFetch('/api/almacenes').then((r) => r.json()),
     ])
@@ -181,7 +184,7 @@ export default function PedidosCompletadosScreen() {
       })
       .catch((e) => setError(e.message || 'Error de conexión'))
       .finally(() => setLoading(false));
-  }, [localPermitido]);
+  }, [localPermitido, anioListado]);
 
   useEffect(() => {
     refetch();
@@ -824,7 +827,13 @@ export default function PedidosCompletadosScreen() {
             hideSearch
             extraToolbarLeft={
               <View style={styles.filtrosInlineWrap}>
-                <View style={styles.filtrosInlineRow}>
+                <View style={[styles.filtrosInlineRow, shouldStackToolbar && styles.filtrosInlineRowStacked]}>
+                  <SelectorAnioListado
+                    label="Año"
+                    estirar={shouldStackToolbar}
+                    valorId={anioListado}
+                    onChange={setAnioListado}
+                  />
                   <View style={styles.filtroField}>
                     <Text style={styles.filtroFieldLabel}>Desde</Text>
                     <InputFecha valueIso={fechaDesde} onChangeIso={setFechaDesde} placeholder="dd/mm/aaaa" style={styles.filtroFechaInput} />
@@ -1564,6 +1573,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
   },
+  filtrosInlineRowStacked: { flexDirection: 'column', alignItems: 'stretch' },
   filtroField: { minWidth: 120 },
   filtroFieldLabel: {
     fontSize: 10,

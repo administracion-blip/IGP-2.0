@@ -31,6 +31,8 @@ import { fetchPorcentajeBeneficio, aplicarPorcentajeBeneficio } from '../../lib/
 import { siguienteIdParaNuevoPedido } from '../../lib/pedidosId';
 import { idAlmacenGeneral } from '../../lib/pedidosEntreLocales';
 import { apiFetch } from '../../utils/api';
+import { anioEnCurso, urlPedidosPorAnio } from '../../lib/rangoAnioListado';
+import { SelectorAnioListado } from '../../components/SelectorAnioListado';
 
 const COLUMNAS = ['Id', 'Fecha', 'CreadoEn', 'LocalId', 'Local', 'AlmacenOrigen', 'AlmacenDestino', 'TotalAlbaran', 'Estado'] as const;
 const ESTADOS = ['Borrador', 'Pendiente', 'Enviado', 'Exportado', 'Completado'] as const;
@@ -59,6 +61,7 @@ export default function PedidosBase({
   const [error, setError] = useState<string | null>(null);
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
+  const [anioListado, setAnioListado] = useState(anioEnCurso);
 
   const [modalFormVisible, setModalFormVisible] = useState(false);
   const [editingPedidoId, setEditingPedidoId] = useState<string | null>(null);
@@ -98,7 +101,7 @@ export default function PedidosBase({
     setError(null);
     setLoading(true);
     Promise.all([
-      apiFetch('/api/pedidos').then((r) => r.json()),
+      apiFetch(urlPedidosPorAnio(anioListado)).then((r) => r.json()),
       apiFetch('/api/locales').then((r) => r.json()),
       apiFetch('/api/almacenes').then((r) => r.json()),
     ])
@@ -111,7 +114,7 @@ export default function PedidosBase({
       })
       .catch((e) => setError(e.message || 'Error de conexión'))
       .finally(() => setLoading(false));
-  }, [localPermitido]);
+  }, [localPermitido, anioListado]);
 
   useFocusEffect(
     useCallback(() => {
@@ -636,6 +639,9 @@ export default function PedidosBase({
             onRetry={refetch}
             filtroBusqueda={filtroBusqueda}
             onFiltroChange={setFiltroBusqueda}
+            extraToolbarRight={(
+              <SelectorAnioListado valorId={anioListado} onChange={setAnioListado} />
+            )}
             selectedRowIndex={selectedRowIndex}
             onSelectRow={handleSelectRow}
             onCrear={handleCrear}

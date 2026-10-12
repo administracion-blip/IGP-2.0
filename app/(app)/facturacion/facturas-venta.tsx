@@ -42,7 +42,7 @@ import {
 } from '../../components/RegistrarPagoModal';
 import { useConfirmar } from '../../hooks/useConfirmar';
 import { buildConceptoRemesaFacturaRecibida } from '../../lib/conceptoRemesa';
-import { SelectorDesplegable } from '../../components/SelectorDesplegable';
+import { SelectorAnioListado } from '../../components/SelectorAnioListado';
 import { SelectorDesplegableMulti } from '../../components/SelectorDesplegableMulti';
 import { useLocalToast } from '../../components/Toast';
 import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
@@ -56,6 +56,7 @@ import {
 import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { apiFetch } from '../../utils/api';
+import { anioConcreto, anioEnCurso, urlFacturasPorAnio } from '../../lib/rangoAnioListado';
 import { buildEmpresasDesdeFacturasHref } from '../../lib/navegacionEmpresas';
 import IconoSugerenciaConciliacion from '../../components/conciliacion/IconoSugerenciaConciliacion';
 import { PanelMovimientosFactura } from '../../components/conciliacion/PanelMovimientosFactura';
@@ -198,7 +199,7 @@ export default function FacturasVentaScreen() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [emisoresFiltroIds, setEmisoresFiltroIds] = useState<string[]>([]);
   const [receptoresFiltroIds, setReceptoresFiltroIds] = useState<string[]>([]);
-  const [anioFiltro, setAnioFiltro] = useState(() => String(new Date().getFullYear()));
+  const [anioFiltro, setAnioFiltro] = useState(anioEnCurso);
 
   const [modalAnularVisible, setModalAnularVisible] = useState(false);
   const [modalCobrarVisible, setModalCobrarVisible] = useState(false);
@@ -271,7 +272,7 @@ export default function FacturasVentaScreen() {
   const refetch = useCallback(() => {
     setError(null);
     setLoading(true);
-    apiFetch(`/api/facturacion/facturas?tipo=OUT`)
+    apiFetch(urlFacturasPorAnio('OUT', anioFiltro))
       .then((r) => r.json())
       .then((data) => {
         if (data.error) setError(data.error);
@@ -279,7 +280,7 @@ export default function FacturasVentaScreen() {
       })
       .catch((e) => setError(e?.message || 'Error de conexión'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [anioFiltro]);
 
   useEffect(() => { refetch(); }, [refetch]);
 
@@ -440,20 +441,6 @@ export default function FacturasVentaScreen() {
       .map(([id, titulo]) => ({ id, titulo, icono: 'person' as const }));
   }, [facturas]);
 
-  const aniosFiltroOpciones = useMemo(() => {
-    const set = new Set<number>();
-    set.add(new Date().getFullYear());
-    for (const f of facturas) {
-      const iso = fechaEmisionComparable(f.fecha_emision);
-      if (!iso || iso.length < 4) continue;
-      const y = parseInt(iso.slice(0, 4), 10);
-      if (Number.isFinite(y) && y >= 2000 && y <= 2100) set.add(y);
-    }
-    return [...set]
-      .sort((a, b) => b - a)
-      .map((y) => ({ id: String(y), titulo: String(y), icono: 'calendar-today' as const }));
-  }, [facturas]);
-
   const toggleSort = useCallback((col: string) => {
     if (sortCol === col) setSortDir((d) => d === 'asc' ? 'desc' : 'asc');
     else { setSortCol(col); setSortDir('asc'); }
@@ -461,10 +448,11 @@ export default function FacturasVentaScreen() {
 
   const facturasBaseFiltradas = useMemo(() => {
     let resultado = facturas;
-    if (anioFiltro) {
+    const anioCliente = anioConcreto(anioFiltro);
+    if (anioCliente) {
       resultado = resultado.filter((f) => {
         const iso = fechaEmisionComparable(f.fecha_emision);
-        return iso.length >= 4 && iso.slice(0, 4) === anioFiltro;
+        return iso.length >= 4 && iso.slice(0, 4) === anioCliente;
       });
     }
     if (emisoresFiltroIds.length > 0) {
@@ -958,15 +946,11 @@ export default function FacturasVentaScreen() {
             vacioTexto="No hay clientes en el listado."
           />
         ) : null}
-        <SelectorDesplegable
-          style={styles.anioFiltroSelector}
-          placeholder="Año"
-          icono="calendar-today"
-          tituloLista="Filtrar por año"
-          iconoLista="calendar-today"
+        <SelectorAnioListado
+          incluirTodos
+          estirar={shouldStackToolbar}
           valorId={anioFiltro}
-          opciones={aniosFiltroOpciones}
-          onSeleccionar={setAnioFiltro}
+          onChange={setAnioFiltro}
         />
       </View>
 
@@ -1228,7 +1212,9 @@ export default function FacturasVentaScreen() {
                     ? 'No hay facturas'
                     : filtroBusqueda.trim() || fechaDesde || fechaHasta || emisoresFiltroIds.length > 0 || receptoresFiltroIds.length > 0 || tabActivo !== 'todas'
                       ? 'Sin resultados para el filtro aplicado'
-                      : `No hay facturas emitidas en ${anioFiltro}`}
+                      : anioConcreto(anioFiltro)
+                        ? `No hay facturas emitidas en ${anioFiltro}`
+                        : 'No hay facturas emitidas'}
                 </Text>
               </View>
             ) : (
@@ -1596,7 +1582,6 @@ const styles = StyleSheet.create({
   },
   filtrosRowStacked: { flexDirection: 'column', alignItems: 'stretch' },
   filtroSelector: { flex: 1, minWidth: 180, maxWidth: 320 },
-  anioFiltroSelector: { width: 132, minWidth: 120, maxWidth: 160 },
 
   estadoTabsRow: {
     flexDirection: 'row',

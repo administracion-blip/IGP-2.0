@@ -33,6 +33,8 @@ import {
   localDeAlmacen,
 } from '../../lib/pedidosEntreLocales';
 import { apiFetch } from '../../utils/api';
+import { anioEnCurso, urlPedidosPorAnio } from '../../lib/rangoAnioListado';
+import { SelectorAnioListado } from '../../components/SelectorAnioListado';
 import { formatCreadoEn } from '../../utils/formatFecha';
 import {
   CeldaFacturacionPedido,
@@ -133,6 +135,7 @@ export default function PedidosScreen() {
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<string | null>(null);
+  const [anioListado, setAnioListado] = useState(anioEnCurso);
   /** Motivo por el que no se puede tocar un pedido ya facturado. */
   const [avisoFacturado, setAvisoFacturado] = useState<string | null>(null);
 
@@ -181,7 +184,7 @@ export default function PedidosScreen() {
     setError(null);
     setLoading(true);
     Promise.all([
-      apiFetch('/api/pedidos').then((r) => r.json()),
+      apiFetch(urlPedidosPorAnio(anioListado)).then((r) => r.json()),
       apiFetch('/api/locales').then((r) => r.json()),
       apiFetch('/api/almacenes').then((r) => r.json()),
     ])
@@ -194,7 +197,7 @@ export default function PedidosScreen() {
       })
       .catch((e) => setError(e.message || 'Error de conexión'))
       .finally(() => setLoading(false));
-  }, [localPermitido]);
+  }, [localPermitido, anioListado]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1132,6 +1135,9 @@ export default function PedidosScreen() {
           ) : null}
           <TablaBasica<Pedido>
             extraToolbarLeft={chipsEstado}
+            extraToolbarRight={(
+              <SelectorAnioListado valorId={anioListado} onChange={setAnioListado} />
+            )}
             title="Pedidos"
             onBack={() => router.back()}
             columnas={[...COLUMNAS]}

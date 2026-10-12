@@ -22,6 +22,8 @@ import { EtiquetaZona, ordenarLineasPorZona, useMapaZonas } from '../../componen
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../../constants/layout';
 import { apiFetch } from '../../utils/api';
+import { anioEnCurso, urlPedidosPorAnio } from '../../lib/rangoAnioListado';
+import { SelectorAnioListado } from '../../components/SelectorAnioListado';
 import { valorEnLocal } from '../../utils/valorEnLocal';
 import { formatMoneda } from '../../utils/formatMoneda';
 import { formatFecha } from '../../utils/formatFecha';
@@ -103,7 +105,7 @@ function etiquetaEstado(estado: string): string {
 export default function PedidosAlmacenScreen() {
   const router = useRouter();
   const { localPermitido, hasPermiso } = useAuth();
-  const { isDesktop } = useBreakpoint();
+  const { isDesktop, shouldStackToolbar } = useBreakpoint();
   // Lista + detalle en paralelo solo en escritorio. En móvil y tablet (también
   // en horizontal) el detalle va a pantalla completa: con la barra lateral no
   // cabe una columna de 320 px y el texto se partía letra a letra.
@@ -117,6 +119,7 @@ export default function PedidosAlmacenScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filtroEstado, setFiltroEstado] = useState<FiltroKey>('activos');
+  const [anioListado, setAnioListado] = useState(anioEnCurso);
   const [busqueda, setBusqueda] = useState('');
   const [nuevoPedidoVisible, setNuevoPedidoVisible] = useState(false);
 
@@ -152,8 +155,9 @@ export default function PedidosAlmacenScreen() {
         setError(null);
         setLoading(true);
       }
+      const urlPedidos = urlPedidosPorAnio(anioListado);
       const peticion = silencioso
-        ? apiFetch('/api/pedidos')
+        ? apiFetch(urlPedidos)
             .then((r) => r.json())
             .then((dataPedidos: { pedidos?: Registro[]; error?: string }) => {
               if (dataPedidos.error) throw new Error(dataPedidos.error);
@@ -161,7 +165,7 @@ export default function PedidosAlmacenScreen() {
               setError(null);
             })
         : Promise.all([
-            apiFetch('/api/pedidos').then((r) => r.json()),
+            apiFetch(urlPedidos).then((r) => r.json()),
             apiFetch('/api/locales').then((r) => r.json()),
           ]).then(([dataPedidos, dataLocales]) => {
             if (dataPedidos.error) setError(dataPedidos.error);
@@ -178,7 +182,7 @@ export default function PedidosAlmacenScreen() {
           if (!silencioso) setLoading(false);
         });
     },
-    [aplicarLocales],
+    [aplicarLocales, anioListado],
   );
 
   const refetch = useCallback(() => cargar({ silencioso: false }), [cargar]);
@@ -406,7 +410,7 @@ export default function PedidosAlmacenScreen() {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.filtrosRow}>
+      <View style={[styles.filtrosRow, shouldStackToolbar && styles.filtrosRowStacked]}>
         {hasPermiso('pedidos.crear') ? (
           <TouchableOpacity
             onPress={() => setNuevoPedidoVisible(true)}
@@ -450,7 +454,12 @@ export default function PedidosAlmacenScreen() {
             );
           })}
         </ScrollView>
-        <View style={styles.searchWrap}>
+        <SelectorAnioListado
+          estirar={shouldStackToolbar}
+          valorId={anioListado}
+          onChange={setAnioListado}
+        />
+        <View style={[styles.searchWrap, shouldStackToolbar && styles.searchWrapStacked]}>
           <MaterialIcons name="search" size={18} color="#64748b" />
           <TextInput
             style={styles.searchInput}
@@ -753,6 +762,7 @@ const styles = StyleSheet.create({
 
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   filtrosRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  filtrosRowStacked: { flexDirection: 'column', alignItems: 'stretch' },
   chipsScroll: { flex: 1, flexGrow: 1, flexShrink: 1, minWidth: 0, maxHeight: MIN_TOUCH + 14 },
   backBtn: {
     width: 40,
@@ -814,6 +824,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     minHeight: MIN_TOUCH,
   },
+  searchWrapStacked: { width: '100%', maxWidth: '100%' },
   searchInput: { flex: 1, fontSize: 15, color: '#334155', ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}) },
 
   card: {

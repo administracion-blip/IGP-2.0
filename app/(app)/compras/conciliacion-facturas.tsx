@@ -3,7 +3,8 @@
  *
  * Cruza los albaranes de entrada de Ágora (Igp_ComprasAProveedor, vía
  * ComprasProveedorCache) con las facturas de gasto de IGP
- * (GET /api/facturacion/facturas?tipo=IN) agrupando por proveedor (CIF
+ * (GET /api/facturacion/facturas?tipo=IN con el mismo rango que las compras)
+ * agrupando por proveedor (CIF
  * normalizado, con fallback a nombre). Para cada proveedor compara el total
  * de albaranes del periodo con las facturas registradas y señala descuadres,
  * albaranes sin factura y facturas sin albarán.
@@ -749,10 +750,39 @@ export default function ConciliacionFacturasScreen() {
     ];
   }, [empresas]);
 
+  /**
+   * Mismo rango que la carga de compras (`dateFrom`/`dateTo`, ISO).
+   * Si la caché aún no tiene rango, se usa el default de compras (90 días),
+   * que es lo que pide el primer `recargar`.
+   */
+  const rangoFacturasApi = useMemo(() => {
+    const cargadoDesde = rangoCargado && !rangoCargado.all ? rangoCargado.dateFrom : null;
+    const cargadoHasta = rangoCargado && !rangoCargado.all ? rangoCargado.dateTo : null;
+    if (
+      cargadoDesde
+      && cargadoHasta
+      && /^\d{4}-\d{2}-\d{2}$/.test(cargadoDesde)
+      && /^\d{4}-\d{2}-\d{2}$/.test(cargadoHasta)
+    ) {
+      if (cargadoDesde > cargadoHasta) return { desde: cargadoHasta, hasta: cargadoDesde };
+      return { desde: cargadoDesde, hasta: cargadoHasta };
+    }
+    const def = rangoApiDesdeFiltroFechas(fechaDesde, fechaHasta);
+    const desde = def.dateFrom;
+    const hasta = def.dateTo;
+    if (desde > hasta) return { desde: hasta, hasta: desde };
+    return { desde, hasta };
+  }, [rangoCargado, fechaDesde, fechaHasta]);
+
   const cargarFacturas = useCallback(() => {
     setLoadingFacturas(true);
     setErrorFacturas(null);
-    apiFetch('/api/facturacion/facturas?tipo=IN')
+    const q = new URLSearchParams({
+      tipo: 'IN',
+      fechaDesde: rangoFacturasApi.desde,
+      fechaHasta: rangoFacturasApi.hasta,
+    });
+    apiFetch(`/api/facturacion/facturas?${q.toString()}`)
       .then(async (r) => {
         const data = await r.json();
         if (!r.ok || data.error) throw new Error(data.error || `HTTP ${r.status}`);
@@ -762,7 +792,7 @@ export default function ConciliacionFacturasScreen() {
       })
       .catch((e) => setErrorFacturas(errorMessage(e, 'No se pudieron cargar las facturas de gasto')))
       .finally(() => setLoadingFacturas(false));
-  }, []);
+  }, [rangoFacturasApi.desde, rangoFacturasApi.hasta]);
 
   useEffect(() => {
     cargarFacturas();

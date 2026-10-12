@@ -17,6 +17,9 @@ import { EtiquetaZona, ordenarLineasPorZona, useMapaZonas } from '../../componen
 import { useProductosCache } from '../../contexts/ProductosCache';
 import { fetchPorcentajeBeneficio, aplicarPorcentajeBeneficio } from '../../lib/personalizacion';
 import { apiFetch } from '../../utils/api';
+import { anioEnCurso, urlPedidosPorAnio } from '../../lib/rangoAnioListado';
+import { SelectorAnioListado } from '../../components/SelectorAnioListado';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 
 const COLUMNAS = ['PedidoId', 'LineaIndex', 'ProductId', 'ProductoNombre', 'Zona', 'Formato', 'Cantidad', 'PrecioUnitario', 'TotalLinea'];
 
@@ -38,6 +41,7 @@ function formatMoneda(val: string | number | undefined): string {
 
 export default function DetallesPedidosScreen() {
   const router = useRouter();
+  const { shouldStackToolbar } = useBreakpoint();
   const { productos } = useProductosCache();
   const formatos = useMapaFormatosBase(productos);
   const zonas = useMapaZonas(productos);
@@ -49,20 +53,30 @@ export default function DetallesPedidosScreen() {
   const [error, setError] = useState<string | null>(null);
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [filtroBusqueda, setFiltroBusqueda] = useState('');
+  const [anioListado, setAnioListado] = useState(anioEnCurso);
   const [porcentajeBeneficio, setPorcentajeBeneficio] = useState(0);
 
   const refetchPedidos = useCallback(() => {
     setError(null);
     setLoadingPedidos(true);
-    apiFetch('/api/pedidos')
+    apiFetch(urlPedidosPorAnio(anioListado))
       .then((res) => res.json())
       .then((data) => {
-        if (data.error) setError(data.error);
-        else setPedidos(data.pedidos || []);
+        if (data.error) {
+          setError(data.error);
+          return;
+        }
+        const lista: Pedido[] = data.pedidos || [];
+        setPedidos(lista);
+        setPedidoSeleccionado((prev) => {
+          if (!prev) return prev;
+          const sigue = lista.some((p) => String(valorEnLocal(p, 'Id') ?? '') === prev);
+          return sigue ? prev : null;
+        });
       })
       .catch((e) => setError(e.message || 'Error de conexión'))
       .finally(() => setLoadingPedidos(false));
-  }, []);
+  }, [anioListado]);
 
   const refetchDetails = useCallback((pedidoId: string) => {
     setLoadingDetails(true);
@@ -133,6 +147,15 @@ export default function DetallesPedidosScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.subtitle}>Artículos asociados a cada pedido (Igp_PedidosDetails)</Text>
+
+      <View style={[styles.anioRow, shouldStackToolbar && styles.anioRowStacked]}>
+        <SelectorAnioListado
+          label="Año"
+          estirar={shouldStackToolbar}
+          valorId={anioListado}
+          onChange={setAnioListado}
+        />
+      </View>
 
       <View style={styles.selectorWrap}>
         <Text style={styles.selectorLabel}>Pedido:</Text>
@@ -210,6 +233,8 @@ export default function DetallesPedidosScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 10 },
   subtitle: { fontSize: 14, color: '#64748b', marginBottom: 12 },
+  anioRow: { marginBottom: 12, maxWidth: 200 },
+  anioRowStacked: { maxWidth: '100%', alignSelf: 'stretch' },
   selectorWrap: { marginBottom: 12 },
   selectorLabel: { fontSize: 12, fontWeight: '600', color: '#64748b', marginBottom: 6 },
   chipsWrap: { maxHeight: 40 },
