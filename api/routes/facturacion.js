@@ -58,7 +58,7 @@ import {
   updateFacturaVersionado,
 } from '../lib/facturacion/versionFactura.js';
 import { aplicarClavesFactura, aplicarClavesPago, conClavesFactura } from '../lib/facturacion/clavesIndice.js';
-import { facturasPorEstado, facturasPorTipo } from '../lib/facturacion/consultaIndice.js';
+import { facturasPorEstado, facturasPorTipo, pagosPorListado } from '../lib/facturacion/consultaIndice.js';
 import {
   indexRemesasActivasPorFactura,
   findRemesaActivaDeFactura,
@@ -404,6 +404,28 @@ router.delete('/facturacion/series', requirePermission('facturacion.series'), as
 });
 
 const RE_DIA = /^\d{4}-\d{2}-\d{2}$/;
+
+function isoDiaLocal(fecha) {
+  const y = fecha.getFullYear();
+  const m = String(fecha.getMonth() + 1).padStart(2, '0');
+  const d = String(fecha.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/** Primer día del mes `mesesAtras` antes de `ancla`, y último día del mes de `ancla`. */
+function rangoMesesLocal(ancla, meses) {
+  const inicio = new Date(ancla.getFullYear(), ancla.getMonth() - (meses - 1), 1);
+  const fin = new Date(ancla.getFullYear(), ancla.getMonth() + 1, 0);
+  return { desde: isoDiaLocal(inicio), hasta: isoDiaLocal(fin) };
+}
+
+async function facturasTipoFecha(desde, hasta) {
+  const [entradas, salidas] = await Promise.all([
+    facturasPorTipo('IN', desde, hasta),
+    facturasPorTipo('OUT', desde, hasta),
+  ]);
+  return [...entradas, ...salidas];
+}
 
 /**
  * El listado siempre va por rango de `gsi_fecha`. Sin fechas, el año en curso
@@ -1636,7 +1658,18 @@ router.get('/facturacion/metricas', requirePermission('facturacion.ver'), async 
       : null;
     const prefijoAnio = (!tieneFiltroMes && tieneAnio) ? `${anioQ}-` : null;
 
-    let facturas = await scanAll(tables.facturas);
+    let desdeIndice;
+    let hastaIndice;
+    if (tieneFiltroMes) {
+      const ancla = new Date(anioQ, mesQ - 1, 1);
+      ({ desde: desdeIndice, hasta: hastaIndice } = rangoMesesLocal(ancla, 12));
+    } else if (tieneAnio) {
+      desdeIndice = `${anioQ}-01-01`;
+      hastaIndice = `${anioQ}-12-31`;
+    } else {
+      ({ desde: desdeIndice, hasta: hastaIndice } = rangoMesesLocal(new Date(), 12));
+    }
+    let facturas = await facturasTipoFecha(desdeIndice, hastaIndice);
     // [SEC S-08]
     const empresasOk = await empresasPermitidasDelUsuario(req.user);
     facturas = facturas.filter((f) => facturaEmisorPermitido(f, empresasOk));
@@ -1828,13 +1861,14 @@ router.post('/facturacion/facturas/:id/enviar-email', requirePermission('factura
 // [SEC S-01]
 router.get('/facturacion/metricas-avanzadas', requirePermission('facturacion.ver'), async (req, res) => {
   try {
-    let facturas = await scanAll(tables.facturas);
+    const hoy = new Date();
+    const { desde: desdeIndice, hasta: hastaIndice } = rangoMesesLocal(hoy, 24);
+    let facturas = await facturasTipoFecha(desdeIndice, hastaIndice);
     // [SEC S-08]
     const empresasOk = await empresasPermitidasDelUsuario(req.user);
     facturas = facturas.filter((f) => facturaEmisorPermitido(f, empresasOk));
 
-    const pagos = await scanAll(tables.facturasPagos);
-    const hoy = new Date();
+    const pagos = await pagosPorListado({ desde: desdeIndice, hasta: hastaIndice });
     const anioActual = hoy.getFullYear();
     const mesActual = hoy.getMonth();
 
