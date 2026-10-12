@@ -58,7 +58,13 @@ import {
   updateFacturaVersionado,
 } from '../lib/facturacion/versionFactura.js';
 import { aplicarClavesFactura, aplicarClavesPago, conClavesFactura } from '../lib/facturacion/clavesIndice.js';
-import { facturasPorEstado, facturasPorTipo, pagosPorListado } from '../lib/facturacion/consultaIndice.js';
+import {
+  facturasPorEmisor,
+  facturasPorEstado,
+  facturasPorProveedor,
+  facturasPorTipo,
+  pagosPorListado,
+} from '../lib/facturacion/consultaIndice.js';
 import {
   indexRemesasActivasPorFactura,
   findRemesaActivaDeFactura,
@@ -417,6 +423,21 @@ function rangoMesesLocal(ancla, meses) {
   const inicio = new Date(ancla.getFullYear(), ancla.getMonth() - (meses - 1), 1);
   const fin = new Date(ancla.getFullYear(), ancla.getMonth() + 1, 0);
   return { desde: isoDiaLocal(inicio), hasta: isoDiaLocal(fin) };
+}
+
+/**
+ * Facturas del mismo par emisor+proveedor. Con CIF de proveedor se lee
+ * Proveedor-Fecha; si no hay CIF, Emisor-Fecha. El otro lado del par se filtra
+ * después, en JS.
+ */
+async function facturasDelPar(factura) {
+  const cifProveedor = normalizeCif(factura?.empresa_cif);
+  if (cifProveedor) return facturasPorProveedor(cifProveedor);
+  const idEmisor = String(factura?.emisor_id || '').trim();
+  if (idEmisor) return facturasPorEmisor(formatId6(idEmisor));
+  const cifEmisor = normalizeCif(factura?.emisor_cif);
+  if (cifEmisor) return facturasPorEmisor(`CIF#${cifEmisor}`);
+  return [];
 }
 
 async function facturasTipoFecha(desde, hasta) {
@@ -1233,7 +1254,7 @@ router.get('/facturacion/facturas/:id/compensables', requirePermission('facturac
       return res.status(400).json({ error: 'La compensación solo aplica a facturas de gasto' });
     }
 
-    const todas = await scanAll(tables.facturas, '#t = :t', { ':t': 'IN' }, { '#t': 'tipo' });
+    const todas = await facturasDelPar(origen);
     const candidatas = filtrarFacturasCompensables(origen, todas).map((f) => ({
       id_factura: f.id_factura,
       numero_factura: f.numero_factura || '',
@@ -1269,7 +1290,7 @@ router.get('/facturacion/facturas/:id/excesos-disponibles', requirePermission('f
       return res.status(400).json({ error: 'La aplicación de exceso solo aplica a facturas de gasto' });
     }
 
-    const todas = await scanAll(tables.facturas, '#t = :t', { ':t': 'IN' }, { '#t': 'tipo' });
+    const todas = await facturasDelPar(destino);
     const candidatas = filtrarFacturasConExceso(destino, todas).map((f) => ({
       id_factura: f.id_factura,
       numero_factura: f.numero_factura || '',
