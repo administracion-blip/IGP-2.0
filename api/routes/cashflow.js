@@ -5,9 +5,10 @@ import { Router } from 'express';
 import { multerPerfil, rechazaArchivo } from '../lib/seguridad/subidas.js';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { ScanCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import { requirePermission, hasPermission } from '../middleware/auth.js';
 import { usuarioPuedeAccederLocal, formatId6, jornadaNegocioHoyIso } from '../lib/usuarioLocales.js';
+import { maestroLocales } from '../lib/alcance.js';
 import { docClient, tables } from '../lib/db.js';
 import { generarPdfReciboCashflow } from '../lib/cashflow/pdfRecibo.js';
 import {
@@ -46,12 +47,12 @@ function parseEmails(raw) {
 }
 
 async function localesVisiblesUsuario(user) {
-  const scan = await docClient.send(new ScanCommand({ TableName: tables.locales }));
-  const all = scan.Items || [];
+  const maestro = await maestroLocales();
   const out = [];
-  for (const l of all) {
-    const id = formatId6(l.id_Locales);
-    if (await usuarioPuedeAccederLocal(user, id)) out.push(l);
+  for (const entrada of maestro.porId.values()) {
+    if (await usuarioPuedeAccederLocal(user, entrada.idLocal)) {
+      out.push({ id_Locales: entrada.idLocal });
+    }
   }
   return out;
 }

@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { GetCommand, PutCommand, QueryCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
 import { formatId6 } from '../usuarioLocales.js';
 
@@ -92,10 +92,20 @@ export async function resolveLocalEmpresa(localId) {
   let empresaId = '';
   let empresaCif = '';
   if (empresaNombre) {
-    const { ScanCommand } = await import('@aws-sdk/lib-dynamodb');
-    const empScan = await docClient.send(new ScanCommand({ TableName: tables.empresas }));
+    // [SEC S-18] igp_Empresas no tiene GSI por nombre: el Scan se pagina
+    // para no quedarse en la primera página del maestro.
+    const empresas = [];
+    let lastKey = null;
+    do {
+      const empScan = await docClient.send(new ScanCommand({
+        TableName: tables.empresas,
+        ...(lastKey && { ExclusiveStartKey: lastKey }),
+      }));
+      empresas.push(...(empScan.Items || []));
+      lastKey = empScan.LastEvaluatedKey || null;
+    } while (lastKey);
     const norm = empresaNombre.toLowerCase();
-    const emp = (empScan.Items || []).find(
+    const emp = empresas.find(
       (e) => String(e.Nombre ?? '').trim().toLowerCase() === norm,
     );
     if (emp) {
