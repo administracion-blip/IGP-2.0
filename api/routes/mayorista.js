@@ -16,6 +16,7 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../lib/db.js';
+import { aplicarClavesGsi, clavesNegociacionMeta, omitirClavesGsi } from '../lib/clavesIndice.js';
 import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
 import { recalcularLinea, agregarTotales, costeNetoDesdeCompra, diasEntre, round4, round2 } from '../lib/mayorista/calculos.js';
 import { resolveAcuerdoVigenteProducto } from '../lib/mayorista/acuerdoVigente.js';
@@ -315,6 +316,7 @@ async function persistirNegociacion(meta, lineas) {
     ...meta,
     updatedAt: nowIso(),
   };
+  aplicarClavesGsi(metaItem, clavesNegociacionMeta(metaItem));
   await docClient.send(new PutCommand({ TableName: tNeg, Item: metaItem }));
 
   for (let i = 0; i < toDelete.length; i += 25) {
@@ -327,15 +329,16 @@ async function persistirNegociacion(meta, lineas) {
   }
 
   for (const l of lineas) {
+    const lineaItem = omitirClavesGsi({
+      PK: id,
+      SK: skLinea(l.id_linea),
+      entityType: 'LINEA',
+      ...l,
+      negociacion_id: id,
+    });
     await docClient.send(new PutCommand({
       TableName: tNeg,
-      Item: {
-        PK: id,
-        SK: skLinea(l.id_linea),
-        entityType: 'LINEA',
-        ...l,
-        negociacion_id: id,
-      },
+      Item: lineaItem,
     }));
   }
   return mapMeta(metaItem);
