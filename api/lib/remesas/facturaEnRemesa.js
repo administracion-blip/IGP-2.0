@@ -4,8 +4,7 @@
  * meterlas en otra remesa o pagarlas a mano sería pagarlas dos veces).
  * Enfoque B: flag derivado `remesaActiva`, sin estado `en_remesa` en la factura.
  */
-import { ScanCommand } from '@aws-sdk/lib-dynamodb';
-import { docClient, tables } from '../db.js';
+import { remesasActivas } from '../facturacion/consultaIndice.js';
 
 export const ESTADOS_ACTIVOS = new Set(['Borrador', 'Generada']);
 
@@ -66,27 +65,14 @@ export function indexRemesasActivasPorFactura(remesas) {
   return map;
 }
 
-async function scanRemesas() {
-  const items = [];
-  let lastKey = null;
-  do {
-    const r = await docClient.send(new ScanCommand({
-      TableName: tables.remesas,
-      ...(lastKey && { ExclusiveStartKey: lastKey }),
-    }));
-    items.push(...(r.Items || []));
-    lastKey = r.LastEvaluatedKey || null;
-  } while (lastKey);
-  return items;
-}
-
 /**
- * Scan de remesas + lookup de remesa activa para una factura.
+ * Remesas del índice Activa + lookup de la que incluye la factura.
+ * Ejecutada solo sigue activa si conserva `lineasPendientesPago`.
  * @param {string} facturaId
  * @returns {Promise<{ remesaId: string, nombre: string, estado: string }|null>}
  */
 export async function findRemesaActivaDeFactura(facturaId) {
   if (!facturaId) return null;
-  const remesas = await scanRemesas();
+  const remesas = await remesasActivas();
   return infoRemesaActiva(facturaEnRemesaActiva(remesas, facturaId));
 }

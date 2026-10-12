@@ -21,7 +21,13 @@ const { eliminarPagoFactura } = await import('../lib/facturacion/eliminarPago.js
 function escenarioPagos() {
   const db = montarEscenario();
   db.crearTabla(tables.facturasPagos, { hashKey: 'id_factura', rangeKey: 'id_pago' });
-  db.crearTabla(tables.remesas, { hashKey: 'remesaId' });
+  db.crearTabla(tables.remesas, {
+    hashKey: 'remesaId',
+    indices: {
+      'Listado-Fecha-index': { hashKey: 'gsi_listado', rangeKey: 'gsi_fecha' },
+      'Activa-index': { hashKey: 'gsi_activa', rangeKey: 'gsi_fecha' },
+    },
+  });
   return db;
 }
 

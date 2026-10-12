@@ -64,6 +64,7 @@ import {
   facturasPorProveedor,
   facturasPorTipo,
   pagosPorListado,
+  remesasActivas,
 } from '../lib/facturacion/consultaIndice.js';
 import {
   indexRemesasActivasPorFactura,
@@ -479,7 +480,7 @@ router.get('/facturacion/facturas', requirePermission('facturacion.ver'), async 
     }
     items.sort((a, b) => (b.fecha_emision || '').localeCompare(a.fecha_emision || ''));
 
-    const remesas = await scanAll(tables.remesas);
+    const remesas = await remesasActivas();
     const idxRemesas = indexRemesasActivasPorFactura(remesas);
     items = items.map((f) => {
       const conRemesa = f.tipo === 'OUT'

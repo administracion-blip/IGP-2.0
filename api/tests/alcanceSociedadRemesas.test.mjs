@@ -17,6 +17,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'secreto-solo-para-las-prueba
 const { montarEscenario, tables, local, EMPRESA_NORTE, EMPRESA_SUR } = await import('./escenarioFacturacion.mjs');
 const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
 const { invalidarMaestroLocales } = await import('../lib/alcance.js');
+const { aplicarClavesRemesa } = await import('../lib/facturacion/clavesIndice.js');
 const { default: remesasRouter } = await import('../routes/remesas.js');
 
 const ROL = 'Administracion';
@@ -66,15 +67,16 @@ function facturaIn(id, emisor) {
 }
 
 function remesa(id, sociedadId, cuenta, factura) {
-  return {
+  return aplicarClavesRemesa({
     remesaId: id, nombre: `Remesa ${id}`, banco: 'BBVA_FIT', estado: 'Borrador', sociedadId,
     sociedadNombre: sociedadId, sociedadCif: `B${sociedadId}`, cuentaOrdenante: cuenta, sufijoOrdenante: '',
-    fechaEjecucion: '', excluidas: [], importeTotal: 100, creadoEn: `2026-10-0${sociedadId === EMPRESA_SUR ? 2 : 1}`,
+    fechaEjecucion: '', excluidas: [], importeTotal: 100,
+    creadoEn: sociedadId === EMPRESA_SUR ? '2026-10-02T00:00:00.000Z' : '2026-10-01T00:00:00.000Z',
     lineas: [{
       id_factura: factura, importe: 100, importeMaximo: 100, saldoPendiente: 100,
       ibanBeneficiario: IBAN_PROVEEDOR, nombreBeneficiario: 'Proveedor S.L.', concepto: factura,
     }],
-  };
+  });
 }
 
 beforeEach(() => {
@@ -88,7 +90,13 @@ beforeEach(() => {
   db = montarEscenario();
   db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
-  db.crearTabla(tables.remesas, { hashKey: 'remesaId' });
+  db.crearTabla(tables.remesas, {
+    hashKey: 'remesaId',
+    indices: {
+      'Listado-Fecha-index': { hashKey: 'gsi_listado', rangeKey: 'gsi_fecha' },
+      'Activa-index': { hashKey: 'gsi_activa', rangeKey: 'gsi_fecha' },
+    },
+  });
   db.crearTabla(tables.facturasPagos, { hashKey: 'id_factura', rangeKey: 'id_pago' });
   db.crearTabla(tables.bankAccounts, {
     hashKey: 'PK',
@@ -188,10 +196,10 @@ test('lecturas en modo observar: listado y detalle se sirven y avisan por la soc
 });
 
 function ejecutadaConPendiente(id, sociedadId, cuenta, factura) {
-  db.sembrar(tables.remesas, {
+  db.sembrar(tables.remesas, aplicarClavesRemesa({
     ...remesa(id, sociedadId, cuenta, factura), estado: 'Ejecutada', lineasPendientesPago: [factura],
     actualizadoEn: '2026-10-05T10:00:00.000Z',
-  });
+  }));
 }
 
 test('descartar pendientes: sociedad ajena 403, sin cobrar_pagar 403; en la propia registra quién y no toca pagos', async () => {

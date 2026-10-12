@@ -15,6 +15,7 @@
 
 import test from 'node:test';
 import { strict as assert } from 'node:assert';
+import { aplicarClavesRemesa } from '../lib/facturacion/clavesIndice.js';
 import {
   aplicarConciliacion,
   claveIdempotencia,
@@ -987,7 +988,13 @@ test('el pago guardado apunta al movimiento del que salió, y los demás pagos n
 
   const db = montarEscenario();
   db.crearTabla(tables.facturasPagos, { hashKey: 'id_factura', rangeKey: 'id_pago' });
-  db.crearTabla(tables.remesas, { hashKey: 'remesaId' });
+  db.crearTabla(tables.remesas, {
+    hashKey: 'remesaId',
+    indices: {
+      'Listado-Fecha-index': { hashKey: 'gsi_listado', rangeKey: 'gsi_fecha' },
+      'Activa-index': { hashKey: 'gsi_activa', rangeKey: 'gsi_fecha' },
+    },
+  });
   const sembrar = (id) => db.sembrar(tables.facturas, {
     id_factura: id,
     tipo: 'IN',
@@ -1037,7 +1044,13 @@ test('deshacer desde banca reutiliza el borrado de pagos de facturación', async
 
   const db = montarEscenario();
   db.crearTabla(tables.facturasPagos, { hashKey: 'id_factura', rangeKey: 'id_pago' });
-  db.crearTabla(tables.remesas, { hashKey: 'remesaId' });
+  db.crearTabla(tables.remesas, {
+    hashKey: 'remesaId',
+    indices: {
+      'Listado-Fecha-index': { hashKey: 'gsi_listado', rangeKey: 'gsi_fecha' },
+      'Activa-index': { hashKey: 'gsi_activa', rangeKey: 'gsi_fecha' },
+    },
+  });
   db.sembrar(tables.facturas, {
     id_factura: 'FAC-DESHACER',
     tipo: 'IN',
@@ -1085,12 +1098,13 @@ test('deshacer desde banca reutiliza el borrado de pagos de facturación', async
     importe: 50,
     metodo_pago: 'transferencia',
   });
-  db.sembrar(tables.remesas, {
+  db.sembrar(tables.remesas, aplicarClavesRemesa({
     remesaId: 'REM-1',
     nombre: 'Julio',
     estado: 'Generada',
+    creadoEn: '2026-07-01T00:00:00.000Z',
     lineas: [{ id_factura: 'FAC-EN-REMESA', importe: 50 }],
-  });
+  }));
 
   await assert.rejects(
     () => eliminarPagoFactura({ id_factura: 'FAC-EN-REMESA', id_pago: 'P001' }),
@@ -1149,7 +1163,13 @@ test('el id del pago no se reutiliza tras borrar uno anterior', async () => {
 
   const db = montarEscenario();
   db.crearTabla(tables.facturasPagos, { hashKey: 'id_factura', rangeKey: 'id_pago' });
-  db.crearTabla(tables.remesas, { hashKey: 'remesaId' });
+  db.crearTabla(tables.remesas, {
+    hashKey: 'remesaId',
+    indices: {
+      'Listado-Fecha-index': { hashKey: 'gsi_listado', rangeKey: 'gsi_fecha' },
+      'Activa-index': { hashKey: 'gsi_activa', rangeKey: 'gsi_fecha' },
+    },
+  });
   db.sembrar(tables.facturas, {
     id_factura: 'FAC-IDS',
     tipo: 'IN',

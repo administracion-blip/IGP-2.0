@@ -92,7 +92,13 @@ test('un registro antiguo sin gsi queda con las claves de una escritura nueva', 
   assert.equal(pedidoGuardado.gsi_fecha, '2026-03-12');
   assert.equal((await planBackfill('pedidos', pedidoGuardado)).cambia, false);
 
-  db.crearTabla(tables.remesas, { hashKey: 'remesaId' });
+  db.crearTabla(tables.remesas, {
+    hashKey: 'remesaId',
+    indices: {
+      'Listado-Fecha-index': { hashKey: 'gsi_listado', rangeKey: 'gsi_fecha' },
+      'Activa-index': { hashKey: 'gsi_activa', rangeKey: 'gsi_fecha' },
+    },
+  });
   const remesa = {
     remesaId: 'R1',
     estado: 'Ejecutada',

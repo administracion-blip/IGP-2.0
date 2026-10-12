@@ -77,7 +77,13 @@ after(() => {
 
 function escenario() {
   const db = montarEscenario();
-  db.crearTabla(tables.remesas, { hashKey: 'remesaId' });
+  db.crearTabla(tables.remesas, {
+    hashKey: 'remesaId',
+    indices: {
+      'Listado-Fecha-index': { hashKey: 'gsi_listado', rangeKey: 'gsi_fecha' },
+      'Activa-index': { hashKey: 'gsi_activa', rangeKey: 'gsi_fecha' },
+    },
+  });
   db.crearTabla(tables.facturasPagos, { hashKey: 'id_factura', rangeKey: 'id_pago' });
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
   db.sembrar(tables.empresas, { id_empresa: '000001', Nombre: 'Central', Cif: 'B00000001', IbanPredeterminado: IBAN_ORDENANTE });

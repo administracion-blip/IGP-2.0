@@ -26,7 +26,13 @@ let base = '';
 
 beforeEach(() => {
   const db = montarEscenario({ paginaTam: 2 });
-  db.crearTabla(tables.remesas, { hashKey: 'remesaId' });
+  db.crearTabla(tables.remesas, {
+    hashKey: 'remesaId',
+    indices: {
+      'Listado-Fecha-index': { hashKey: 'gsi_listado', rangeKey: 'gsi_fecha' },
+      'Activa-index': { hashKey: 'gsi_activa', rangeKey: 'gsi_fecha' },
+    },
+  });
   const dentro = (id, extra) => aplicarClavesFactura({
     id_factura: id,
     tipo: 'IN',

@@ -29,6 +29,7 @@ import { validarIban } from '../lib/remesas/iban.js';
 import { esCuentaDeSociedad } from '../lib/remesas/cuentaOrdenante.js';
 import { truncarNombreFit } from '../lib/remesas/concepto.js';
 import { aplicarClavesRemesa, conClavesRemesa } from '../lib/facturacion/clavesIndice.js';
+import { remesasPorListado } from '../lib/facturacion/consultaIndice.js';
 import { generarFicheroRemesa } from '../lib/remesas/index.js';
 import { facturaEnRemesaActiva } from '../lib/remesas/facturaEnRemesa.js';
 import { normalizarLineasEntrada, recalcularLineasRemesa } from '../lib/remesas/recalcularLineas.js';
@@ -72,17 +73,7 @@ function slugNombreArchivoRemesa(nombre) {
 }
 
 async function scanRemesas() {
-  const items = [];
-  let lastKey = null;
-  do {
-    const r = await docClient.send(new ScanCommand({
-      TableName: TABLE,
-      ...(lastKey && { ExclusiveStartKey: lastKey }),
-    }));
-    items.push(...(r.Items || []));
-    lastKey = r.LastEvaluatedKey || null;
-  } while (lastKey);
-  return items;
+  return remesasPorListado();
 }
 
 async function scanEmpresas() {

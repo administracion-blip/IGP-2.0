@@ -18,7 +18,13 @@ const { MENSAJE_FACTURA_CAMBIADA } = await import('../lib/facturacion/versionFac
 function escenario(extra = {}) {
   const db = montarEscenario();
   db.crearTabla(tables.facturasPagos, { hashKey: 'id_factura', rangeKey: 'id_pago' });
-  db.crearTabla(tables.remesas, { hashKey: 'remesaId' });
+  db.crearTabla(tables.remesas, {
+    hashKey: 'remesaId',
+    indices: {
+      'Listado-Fecha-index': { hashKey: 'gsi_listado', rangeKey: 'gsi_fecha' },
+      'Activa-index': { hashKey: 'gsi_activa', rangeKey: 'gsi_fecha' },
+    },
+  });
   db.sembrar(tables.facturas, {
     id_factura: 'FAC-1',
     tipo: 'IN',
