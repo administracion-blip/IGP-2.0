@@ -23,7 +23,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'secreto-solo-para-las-prueba
 const { montarEscenario, tables, local, EMPRESA_NORTE, EMPRESA_SUR } = await import('./escenarioFacturacion.mjs');
 const { invalidarContextoAcceso } = await import('../lib/tasks/acceso.js');
 const { invalidarMaestroLocales } = await import('../lib/alcance.js');
-const { aplicarClavesFactura } = await import('../lib/facturacion/clavesIndice.js');
+const { aplicarClavesFactura, aplicarClavesPago } = await import('../lib/facturacion/clavesIndice.js');
 const { default: facturacionRouter } = await import('../routes/facturacion.js');
 
 const ROL = 'Administracion';
@@ -57,7 +57,11 @@ beforeEach(() => {
   db = montarEscenario();
   db.crearTabla(tables.usuarios, { hashKey: 'id_usuario' });
   db.crearTabla(tables.rolesPermisos, { hashKey: 'PK', rangeKey: 'SK' });
-  db.crearTabla(tables.facturasPagos, { hashKey: 'id_factura', rangeKey: 'id_pago' });
+  db.crearTabla(tables.facturasPagos, {
+    hashKey: 'id_factura',
+    rangeKey: 'id_pago',
+    indices: { 'Listado-Fecha-index': { hashKey: 'gsi_listado', rangeKey: 'gsi_fecha' } },
+  });
   db.sembrar(tables.locales, local('000010', 'Local Norte', EMPRESA_NORTE));
   db.sembrar(tables.locales, local('000020', 'Local Sur', EMPRESA_SUR));
   db.sembrar(tables.usuarios, { id_usuario: 'u-norte', Email: NORTE.email, Local: ['Local Norte'], Rol: ROL });
@@ -173,8 +177,8 @@ test('editar factura: un administrador sí cambia la sociedad emisora', async ()
 function sembrarPagosYDuplicados() {
   db.sembrar(tables.facturas, factura('P-NORTE', EMPRESA_NORTE));
   db.sembrar(tables.facturas, factura('P-SUR', EMPRESA_SUR));
-  db.sembrar(tables.facturasPagos, { id_factura: 'P-NORTE', id_pago: '1', fecha: '2026-01-02', importe: 5 });
-  db.sembrar(tables.facturasPagos, { id_factura: 'P-SUR', id_pago: '1', fecha: '2026-01-01', importe: 7 });
+  db.sembrar(tables.facturasPagos, aplicarClavesPago({ id_factura: 'P-NORTE', id_pago: '1', fecha: '2026-01-02', importe: 5 }));
+  db.sembrar(tables.facturasPagos, aplicarClavesPago({ id_factura: 'P-SUR', id_pago: '1', fecha: '2026-01-01', importe: 7 }));
   const dup = { empresa_cif: 'B99999999', numero_factura_proveedor: 'A-1', fecha_emision: '2026-02-01' };
   db.sembrar(tables.facturas, factura('D-NORTE', EMPRESA_NORTE, dup));
   db.sembrar(tables.facturas, factura('D-SUR', EMPRESA_SUR, dup));

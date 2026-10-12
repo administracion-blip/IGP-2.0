@@ -1186,7 +1186,7 @@ router.post('/facturacion/facturas/:id/rectificar', requirePermission('facturaci
 // [SEC S-01]
 router.get('/facturacion/pagos', requirePermission('facturacion.cobrar_pagar'), async (req, res) => {
   try {
-    let items = await scanAll(tables.facturasPagos);
+    let items = await pagosPorListado();
     // [SEC S-08]
     if (!(await cargarAlcance(req)).global) {
       const emisores = await emisoresDeFacturas(items.map((p) => p.id_factura));
