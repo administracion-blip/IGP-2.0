@@ -956,7 +956,7 @@ export default function PedidosScreen() {
     abrirModalBorrar(item);
   };
 
-  const { shouldStackPanels, shouldUseComfortableTable } = useBreakpoint();
+  const { shouldStackPanels, shouldStackToolbar, shouldUseComfortableTable } = useBreakpoint();
   const insets = useSafeAreaInsets();
   // Tabla de líneas estirada cuando hay espacio horizontal (tablet/escritorio horizontal).
   const isWide = !shouldStackPanels;
@@ -1133,11 +1133,23 @@ export default function PedidosScreen() {
               </TouchableOpacity>
             </View>
           ) : null}
+          {shouldStackToolbar ? (
+            <View style={styles.anioApilado}>
+              <SelectorAnioListado
+                label="Año"
+                estirar
+                valorId={anioListado}
+                onChange={setAnioListado}
+              />
+            </View>
+          ) : null}
           <TablaBasica<Pedido>
             extraToolbarLeft={chipsEstado}
-            extraToolbarRight={(
-              <SelectorAnioListado valorId={anioListado} onChange={setAnioListado} />
-            )}
+            extraToolbarRight={
+              shouldStackToolbar ? undefined : (
+                <SelectorAnioListado valorId={anioListado} onChange={setAnioListado} />
+              )
+            }
             title="Pedidos"
             onBack={() => router.back()}
             columnas={[...COLUMNAS]}
@@ -1683,6 +1695,7 @@ const styles = StyleSheet.create({
   },
   mainRowColumn: { flexDirection: 'column' },
   pedidosSection: { flex: 1, minWidth: 0, minHeight: 0 },
+  anioApilado: { marginBottom: 8, alignSelf: 'stretch' },
   lineasSection: {
     flex: 1,
     minWidth: 280,

@@ -33,6 +33,7 @@ import { idAlmacenGeneral } from '../../lib/pedidosEntreLocales';
 import { apiFetch } from '../../utils/api';
 import { anioEnCurso, urlPedidosPorAnio } from '../../lib/rangoAnioListado';
 import { SelectorAnioListado } from '../../components/SelectorAnioListado';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 
 const COLUMNAS = ['Id', 'Fecha', 'CreadoEn', 'LocalId', 'Local', 'AlmacenOrigen', 'AlmacenDestino', 'TotalAlbaran', 'Estado'] as const;
 const ESTADOS = ['Borrador', 'Pendiente', 'Enviado', 'Exportado', 'Completado'] as const;
@@ -546,6 +547,7 @@ export default function PedidosBase({
   const handleBorrar = readOnly ? (_item: Pedido) => {} : (item: Pedido) => abrirModalBorrar(item);
 
   const { width } = useWindowDimensions();
+  const { shouldStackToolbar } = useBreakpoint();
   const isWide = width > 768;
 
   const renderLineasTable = (stretchWide: boolean) => (
@@ -627,6 +629,16 @@ export default function PedidosBase({
     <View style={styles.container}>
       <View style={[styles.mainRow, !isWide && styles.mainRowColumn]}>
         <View style={styles.pedidosSection}>
+          {shouldStackToolbar ? (
+            <View style={styles.anioApilado}>
+              <SelectorAnioListado
+                label="Año"
+                estirar
+                valorId={anioListado}
+                onChange={setAnioListado}
+              />
+            </View>
+          ) : null}
           <TablaBasica<Pedido>
             title={title}
             onBack={() => router.back()}
@@ -639,9 +651,11 @@ export default function PedidosBase({
             onRetry={refetch}
             filtroBusqueda={filtroBusqueda}
             onFiltroChange={setFiltroBusqueda}
-            extraToolbarRight={(
-              <SelectorAnioListado valorId={anioListado} onChange={setAnioListado} />
-            )}
+            extraToolbarRight={
+              shouldStackToolbar ? undefined : (
+                <SelectorAnioListado valorId={anioListado} onChange={setAnioListado} />
+              )
+            }
             selectedRowIndex={selectedRowIndex}
             onSelectRow={handleSelectRow}
             onCrear={handleCrear}
@@ -1062,6 +1076,7 @@ const styles = StyleSheet.create({
   },
   mainRowColumn: { flexDirection: 'column' },
   pedidosSection: { flex: 1, minWidth: 0, minHeight: 0 },
+  anioApilado: { marginBottom: 8, alignSelf: 'stretch' },
   lineasSection: {
     flex: 1,
     minWidth: 280,
