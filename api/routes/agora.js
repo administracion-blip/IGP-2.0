@@ -80,7 +80,7 @@ import { requireLocal, requireLocales, requireAlcanceGlobal, requireLocalLectura
 import { filtrarLecturaPorLocal, permiteLecturaLocal, workplacesLectura } from '../lib/alcanceLecturas.js';
 import { MENSAJE_SIN_ACCESO_LOCAL, maestroLocales, cargarAlcance, modoLecturas } from '../lib/alcance.js';
 import { invalidarMapaAlmacenes } from '../lib/alcanceAlmacenes.js';
-import { buildObjetivoMensualCard } from '../lib/agora/objetivoMensual.js';
+import { buildObjetivoMensualCard, loadFestivosByFecha } from '../lib/agora/objetivoMensual.js';
 import {
   buildExcepcionesFromInvoices,
   pickUserId,
@@ -2029,18 +2029,11 @@ router.get('/cajas/top', async (req, res) => {
     `${dTo}\uffff`,
   );
 
-  const [closeoutsReal, closeoutsComp, festivosResp] = await Promise.all([
+  const [closeoutsReal, closeoutsComp, festivosByFecha] = await Promise.all([
     fetchCloseoutsRange(dateFromRaw, dateToRaw),
     fetchCloseoutsRange(dateFromComp, dateToComp),
-    docClient.send(new ScanCommand({ TableName: tables.gestionFestivos })).catch(() => ({ Items: [] })),
+    loadFestivosByFecha(dateFromRaw, dateToRaw),
   ]);
-
-  // Mapa fecha → fecha comparativa (festivos pueden cambiarla)
-  const festivosByFecha = new Map();
-  for (const f of festivosResp.Items || []) {
-    const pk = String(f.PK ?? f.FechaComparativa ?? '').slice(0, 10);
-    if (pk) festivosByFecha.set(pk, f);
-  }
   const fechaToComp = {};
   for (const fecha of days) {
     const fest = festivosByFecha.get(fecha);

@@ -123,7 +123,7 @@ export async function resolverAjusteFacturacion(ctx = {}) {
     };
   }
 
-  const festivosByFecha = await loadFestivosByFecha();
+  const festivosByFecha = await loadFestivosByFecha(fechaDesde, fechaHasta);
   const { fechaToComp, minComp, maxComp } = buildFechaToComp(
     fechaDesde,
     fechaHasta,

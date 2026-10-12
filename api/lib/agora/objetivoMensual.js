@@ -2,7 +2,7 @@
  * Consecución mensual «hasta ayer» para el card de Planning del Día.
  * Fuente de verdad del endpoint objetivo-mensual-card (solo porcentajes, sin importes).
  */
-import { QueryCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { BatchGetCommand, QueryCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
 import {
   usuarioPuedeAccederLocal,
@@ -127,23 +127,46 @@ export async function queryTotalsByDay(workplaceId, dateFrom, dateTo) {
   return totalsByDay;
 }
 
-export async function loadFestivosByFecha() {
-  const map = new Map();
-  try {
-    const items = [];
-    let lastKey = null;
-    do {
-      const result = await docClient.send(new ScanCommand({
-        TableName: tables.gestionFestivos,
-        ...(lastKey && { ExclusiveStartKey: lastKey }),
-      }));
-      items.push(...(result.Items || []));
-      lastKey = result.LastEvaluatedKey || null;
-    } while (lastKey);
+function diasIso(desde, hasta) {
+  const inicio = String(desde || '').slice(0, 10);
+  const fin = String(hasta || '').slice(0, 10);
+  if (!RE_FECHA.test(inicio) || !RE_FECHA.test(fin) || inicio > fin) return [];
+  const dias = [];
+  const cursor = new Date(`${inicio}T12:00:00Z`);
+  const end = new Date(`${fin}T12:00:00Z`);
+  while (cursor <= end) {
+    dias.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dias;
+}
 
-    for (const f of items) {
-      const pk = String(f.PK ?? f.Fecha ?? f.FechaComparativa ?? '').slice(0, 10);
-      if (/^\d{4}-\d{2}-\d{2}$/.test(pk)) map.set(pk, f);
+/**
+ * Festivos del rango por BatchGet ({ PK: fecha, SK: '0' }), el formato que
+ * escribe generar-rango. Los ítems PK=GLOBAL son solo informativos y no entran.
+ * @param {string} desde YYYY-MM-DD
+ * @param {string} hasta YYYY-MM-DD
+ */
+export async function loadFestivosByFecha(desde, hasta) {
+  const map = new Map();
+  const dias = diasIso(desde, hasta);
+  if (!dias.length) return map;
+  try {
+    for (let i = 0; i < dias.length; i += 100) {
+      let pendientes = dias.slice(i, i + 100).map((fecha) => ({ PK: fecha, SK: '0' }));
+      let intentos = 0;
+      while (pendientes.length && intentos < 8) {
+        intentos += 1;
+        const result = await docClient.send(new BatchGetCommand({
+          RequestItems: { [tables.gestionFestivos]: { Keys: pendientes } },
+        }));
+        for (const f of result.Responses?.[tables.gestionFestivos] || []) {
+          const pk = String(f.PK ?? '').slice(0, 10);
+          if (pk === 'GLOBAL' || !RE_FECHA.test(pk)) continue;
+          map.set(pk, f);
+        }
+        pendientes = result.UnprocessedKeys?.[tables.gestionFestivos]?.Keys || [];
+      }
     }
   } catch {
     // tabla opcional
@@ -182,7 +205,7 @@ export async function resolverFechaComparativa(fecha) {
   if (!RE_FECHA.test(f)) {
     throw new Error('fecha debe tener formato YYYY-MM-DD');
   }
-  const festivosByFecha = await loadFestivosByFecha();
+  const festivosByFecha = await loadFestivosByFecha(f, f);
   const festivo = festivosByFecha.get(f);
   const fcRaw = festivo?.FechaComparativa != null ? String(festivo.FechaComparativa).slice(0, 10) : '';
   if (RE_FECHA.test(fcRaw)) {
@@ -295,7 +318,7 @@ export async function buildObjetivoMensualCard(user) {
     return cached.payload;
   }
 
-  const festivosByFecha = await loadFestivosByFecha();
+  const festivosByFecha = await loadFestivosByFecha(fechaInicioMes, fechaFinMes);
   const todosLocales = await scanLocales();
 
   const visibles = [];
@@ -377,7 +400,7 @@ export async function buildObjetivoMensualConImportes(user, params = {}) {
     : mesEnCurso();
   const hastaFecha = resolverHastaFechaMtd(fechaInicioMes, fechaFinMes, fechaAncla);
 
-  const festivosByFecha = await loadFestivosByFecha();
+  const festivosByFecha = await loadFestivosByFecha(fechaInicioMes, fechaFinMes);
   const todosLocales = await scanLocales();
   const filtroLocalId = params.localId ? String(params.localId) : '';
   const localIdsSet = Array.isArray(params.localIds)
