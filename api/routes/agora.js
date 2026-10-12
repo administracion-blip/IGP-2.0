@@ -57,6 +57,7 @@ import {
   GSI_COMPRAS_NAME,
   isGsiReady,
 } from '../lib/dynamo/comprasProveedor.js';
+import { aplicarClavesGsi, clavesComprasProveedor } from '../lib/clavesIndice.js';
 import {
   getLastSalesLinesSync,
   setLastSalesLinesSync,
@@ -4724,7 +4725,7 @@ router.post('/agora/purchases/sync', requireAnyPermission('ajustes.sincronizacio
             const pk = `${serie}#${number}`;
             const sk = `${String(idx).padStart(4, '0')}`;
 
-            flatLines.push({
+            const lineaCompra = {
               PK: pk,
               SK: sk,
               AlbaranSerie: serie,
@@ -4758,7 +4759,9 @@ router.post('/agora/purchases/sync', requireAnyPermission('ajustes.sincronizacio
               AlbaranNetAmount: totals.NetAmount ?? totals.netAmount ?? null,
               AlbaranDiscountRate: discounts.DiscountRate ?? discounts.discountRate ?? 0,
               syncedAt: new Date().toISOString(),
-            });
+            };
+            aplicarClavesGsi(lineaCompra, clavesComprasProveedor(noteDate));
+            flatLines.push(lineaCompra);
           }
         }
 
