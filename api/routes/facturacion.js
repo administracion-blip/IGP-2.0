@@ -58,6 +58,7 @@ import {
   updateFacturaVersionado,
 } from '../lib/facturacion/versionFactura.js';
 import { aplicarClavesFactura, aplicarClavesPago, conClavesFactura } from '../lib/facturacion/clavesIndice.js';
+import { facturasPorTipo } from '../lib/facturacion/consultaIndice.js';
 import {
   indexRemesasActivasPorFactura,
   findRemesaActivaDeFactura,
@@ -402,17 +403,36 @@ router.delete('/facturacion/series', requirePermission('facturacion.series'), as
   }
 });
 
+const RE_DIA = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * El listado siempre va por rango de `gsi_fecha`. Sin fechas, el año en curso
+ * hasta hoy (UTC, igual que `now()`).
+ */
+function rangoListadoFacturas(query) {
+  const hoy = now().slice(0, 10);
+  const desde = String(query.fechaDesde || '').trim();
+  const hasta = String(query.fechaHasta || '').trim();
+  if (!desde && !hasta) return { desde: `${hoy.slice(0, 4)}-01-01`, hasta: hoy };
+  if (!RE_DIA.test(desde) || !RE_DIA.test(hasta) || desde > hasta) {
+    return { error: 'fechaDesde y fechaHasta deben ser YYYY-MM-DD, y desde no puede ser posterior a hasta' };
+  }
+  return { desde, hasta };
+}
+
 // ─── FACTURAS ───
 
 // [SEC S-01]
 router.get('/facturacion/facturas', requirePermission('facturacion.ver'), async (req, res) => {
   try {
-    const { tipo } = req.query;
-    let items;
-    if (tipo) {
-      items = await scanAll(tables.facturas, '#t = :t', { ':t': tipo }, { '#t': 'tipo' });
-    } else {
-      items = await scanAll(tables.facturas);
+    const rango = rangoListadoFacturas(req.query);
+    if (rango.error) return res.status(400).json({ error: rango.error });
+
+    const tipo = String(req.query.tipo || '').trim().toUpperCase();
+    const tipos = tipo ? [tipo] : ['IN', 'OUT'];
+    let items = [];
+    for (const t of tipos) {
+      items.push(...await facturasPorTipo(t, rango.desde, rango.hasta));
     }
     items.sort((a, b) => (b.fecha_emision || '').localeCompare(a.fecha_emision || ''));
 
@@ -430,7 +450,19 @@ router.get('/facturacion/facturas', requirePermission('facturacion.ver'), async 
     const empresasOk = await empresasPermitidasDelUsuario(req.user);
     items = items.filter((f) => facturaEmisorPermitido(f, empresasOk));
 
-    res.json({ facturas: items });
+    const estado = String(req.query.estado || '').trim();
+    if (estado) items = items.filter((f) => f.estado === estado);
+    const empresaId = String(req.query.empresaId || '').trim();
+    if (empresaId) items = items.filter((f) => String(f.emisor_id || '').trim() === empresaId);
+    const busqueda = String(req.query.busqueda || req.query.q || '').trim().toLowerCase();
+    if (busqueda) {
+      items = items.filter((f) =>
+        [f.numero_factura, f.numero_factura_proveedor, f.empresa_nombre, f.empresa_cif]
+          .some((v) => String(v || '').toLowerCase().includes(busqueda)),
+      );
+    }
+
+    res.json({ facturas: items, rango: { desde: rango.desde, hasta: rango.hasta } });
   } catch (err) {
     responderError(res, err);
   }

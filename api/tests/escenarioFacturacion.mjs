@@ -22,7 +22,17 @@ const ESQUEMAS = [
   [tables.agoraProducts, { hashKey: 'PK', rangeKey: 'SK' }],
   [tables.mantenimiento, { hashKey: 'PK', rangeKey: 'SK' }],
   [tables.ajustes, { hashKey: 'PK', rangeKey: 'SK' }],
-  [tables.facturas, { hashKey: 'id_factura' }],
+  [tables.facturas, {
+    hashKey: 'id_factura',
+    indices: {
+      'Tipo-Fecha-index': { hashKey: 'gsi_tipo', rangeKey: 'gsi_fecha' },
+      'Estado-Fecha-index': { hashKey: 'gsi_estado', rangeKey: 'gsi_fecha' },
+      'Proveedor-Fecha-index': { hashKey: 'gsi_proveedor', rangeKey: 'gsi_fecha' },
+      'Emisor-Fecha-index': { hashKey: 'gsi_emisor', rangeKey: 'gsi_fecha' },
+      'Serie-Fecha-index': { hashKey: 'gsi_serie', rangeKey: 'gsi_fecha' },
+      'Periodo-index': { hashKey: 'gsi_periodo' },
+    },
+  }],
   [tables.facturasLineas, { hashKey: 'id_factura', rangeKey: 'id_linea' }],
   [tables.facturasSeries, { hashKey: 'serie' }],
   [tables.facturasAuditoria, { hashKey: 'id_entrada' }],
