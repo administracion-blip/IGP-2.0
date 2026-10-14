@@ -1,11 +1,20 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { labelEstado, colorEstado } from '../utils/facturacion';
 
-export function BadgeEstado({ estado, compact }: { estado: string; compact?: boolean }) {
+export function BadgeEstado({
+  estado,
+  compact,
+  etiqueta,
+}: {
+  estado: string;
+  compact?: boolean;
+  /** Texto a mostrar en lugar de `labelEstado(estado)` (solo visual; el color sigue al estado). */
+  etiqueta?: string;
+}) {
   const { bg, text } = colorEstado(estado);
   return (
     <View style={[styles.badge, compact && styles.badgeCompact, { backgroundColor: bg }]}>
-      <Text style={[styles.text, compact && styles.textCompact, { color: text }]}>{labelEstado(estado)}</Text>
+      <Text style={[styles.text, compact && styles.textCompact, { color: text }]}>{etiqueta ?? labelEstado(estado)}</Text>
     </View>
   );
 }

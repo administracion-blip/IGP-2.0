@@ -9,6 +9,7 @@ import {
   totalesFromLineas,
   updateLineaInArray,
 } from '../utils/facturaFormLogic';
+import { condicionesDesdeDias } from '../utils/plazoVencimiento';
 
 export type UseFacturaFormLogicOptions = {
   modo: 'crear' | 'editar';
@@ -19,10 +20,19 @@ export type UseFacturaFormLogicOptions = {
    * El panel puede pasar '' hasta hidratar desde API.
    */
   initialFechaEmision?: string;
+  /** Si true, el vencimiento no se recalcula al cambiar emisión/condiciones (editado a mano). */
+  vencimientoManual?: boolean;
+  /**
+   * Días a usar cuando `condicionesPago` está vacío (p. ej. plazo del proveedor en IN).
+   * Cambiarlo no recalcula por sí solo: solo se usa en el siguiente recálculo.
+   */
+  diasPlazoDefecto?: number | null;
 };
 
 export function useFacturaFormLogic(options: UseFacturaFormLogicOptions) {
-  const { loading, initialFechaEmision } = options;
+  const { loading, initialFechaEmision, vencimientoManual = false, diasPlazoDefecto = null } = options;
+  const diasPlazoDefectoRef = useRef(diasPlazoDefecto);
+  diasPlazoDefectoRef.current = diasPlazoDefecto;
 
   const [fechaEmision, setFechaEmision] = useState(() =>
     initialFechaEmision !== undefined ? initialFechaEmision : hoyISO(),
@@ -59,10 +69,15 @@ export function useFacturaFormLogic(options: UseFacturaFormLogicOptions) {
       skipVencimientoSyncRef.current = false;
       return;
     }
+    if (vencimientoManual) return;
 
-    const nueva = calcularFechaVencimientoIso(fechaEmision, condicionesPago);
+    const diasDefecto = !condicionesPago.trim() ? diasPlazoDefectoRef.current : null;
+    const nueva = calcularFechaVencimientoIso(
+      fechaEmision,
+      diasDefecto != null ? condicionesDesdeDias(diasDefecto) : condicionesPago,
+    );
     if (nueva) setFechaVencimiento(nueva);
-  }, [condicionesPago, fechaEmision, loading]);
+  }, [condicionesPago, fechaEmision, loading, vencimientoManual]);
 
   return {
     fechaEmision,

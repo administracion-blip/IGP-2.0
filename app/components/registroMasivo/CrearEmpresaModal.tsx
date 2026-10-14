@@ -19,6 +19,7 @@ import { MIN_TOUCH } from '../../constants/layout';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import type { CampoEmpresa, UseCrearEmpresaModalReturn } from '../../hooks/useCrearEmpresaModal';
 import { CampoTipoReciboEmpresa } from '../CampoTipoReciboEmpresa';
+import { CampoPlazoVencimientoEmpresa } from '../CampoPlazoVencimientoEmpresa';
 import { CampoEtiquetasEmpresa } from '../CampoEtiquetasEmpresa';
 import { PreviewDocumentoArchivo } from '../PreviewDocumentoArchivo';
 import type { EmpresaConTipoRecibo } from '../../utils/empresaTipoRecibo';
@@ -102,7 +103,7 @@ const SECCIONES: Seccion[] = [
     titulo: 'Administrativos',
     campos: [
       { key: 'Tipo de recibo', label: 'Tipo de recibo' },
-      { key: 'Vencimiento', label: 'Vencimiento', placeholder: '30 días' },
+      { key: 'Vencimiento', label: 'Plazo de vencimiento' },
       { key: 'Cuenta contable', label: 'Cuenta contable', placeholder: '400000001' },
       { key: 'Administrador', label: 'Administrador', placeholder: 'Persona de contacto' },
     ],
@@ -223,6 +224,13 @@ export function CrearEmpresaModal({
                       <CampoTipoReciboEmpresa
                         value={modal.form[campo.key]}
                         onChange={(stored) => modal.setCampo(campo.key, stored)}
+                        inputStyle={[styles.modalInput, isCompact && styles.inputTactil]}
+                        otroInputStyle={[styles.modalInput, isCompact && styles.inputTactil]}
+                      />
+                    ) : campo.key === 'Vencimiento' ? (
+                      <CampoPlazoVencimientoEmpresa
+                        value={modal.form[campo.key]}
+                        onChange={(v) => modal.setCampo(campo.key, v)}
                         inputStyle={[styles.modalInput, isCompact && styles.inputTactil]}
                         otroInputStyle={[styles.modalInput, isCompact && styles.inputTactil]}
                       />

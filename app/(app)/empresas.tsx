@@ -28,6 +28,8 @@ import {
   parseContextoRetornoEmpresas,
 } from '../lib/navegacionEmpresas';
 import { CampoTipoReciboEmpresa } from '../components/CampoTipoReciboEmpresa';
+import { CampoPlazoVencimientoEmpresa } from '../components/CampoPlazoVencimientoEmpresa';
+import { etiquetaPlazo, parseDiasPlazo } from '../utils/plazoVencimiento';
 import { CampoEtiquetasEmpresa } from '../components/CampoEtiquetasEmpresa';
 import { CuentasBancariasEmpresa } from '../components/CuentasBancariasEmpresa';
 import { useBreakpoint } from '../hooks/useBreakpoint';
@@ -104,6 +106,22 @@ const INITIAL_FORM = Object.fromEntries(
 
 function trimValorCampoEmpresa(val: unknown): string {
   return typeof val === 'string' ? val.trim() : '';
+}
+
+const MSG_PLAZO_NO_VALIDO = 'Plazo de vencimiento no válido: indica los días (0 = contado)';
+
+/**
+ * `Vencimiento` para el body de POST/PUT: días (Number), '' si sin plazo, o
+ * `undefined` (no enviar → el backend conserva el valor) si es texto antiguo
+ * no reconocido que el usuario no ha tocado. `error` si el texto cambió y no se entiende.
+ */
+function vencimientoParaBody(valor: string, original: string | null): { valor?: number | ''; error?: string } {
+  const v = valor.trim();
+  if (!v) return { valor: '' };
+  const n = parseDiasPlazo(v);
+  if (n != null) return { valor: n };
+  if (original != null && v === original.trim()) return {};
+  return { error: MSG_PLAZO_NO_VALIDO };
 }
 
 type Empresa = Record<string, string | number | undefined>;
@@ -400,6 +418,7 @@ export default function EmpresasScreen() {
   const [modalNuevoVisible, setModalNuevoVisible] = useState(false);
   const [editingEmpresaId, setEditingEmpresaId] = useState<string | null>(null);
   const [editingCifOriginal, setEditingCifOriginal] = useState('');
+  const [editingVencimientoOriginal, setEditingVencimientoOriginal] = useState<string | null>(null);
   const [formNuevo, setFormNuevo] = useState<Record<string, string | string[]>>(INITIAL_FORM);
   const [guardando, setGuardando] = useState(false);
   const [errorForm, setErrorForm] = useState<string | null>(null);
@@ -431,6 +450,7 @@ export default function EmpresasScreen() {
   const abrirModalNuevo = () => {
     setEditingEmpresaId(null);
     setEditingCifOriginal('');
+    setEditingVencimientoOriginal(null);
     setFormNuevo(INITIAL_FORM);
     setCifExists(false);
     setCifCheckError(null);
@@ -465,6 +485,7 @@ export default function EmpresasScreen() {
     const idEdit = idVal != null ? formatId6(idVal) : null;
     setEditingEmpresaId(idEdit);
     setEditingCifOriginal(String(form.Cif ?? '').trim());
+    setEditingVencimientoOriginal(String(form.Vencimiento ?? ''));
     setCifExists(false);
     setCifCheckError(null);
     setModalNuevoVisible(true);
@@ -653,7 +674,10 @@ export default function EmpresasScreen() {
         setImportError(`El archivo debe tener exactamente las mismas columnas y en el mismo orden: ${expected.join(', ')}`);
         return;
       }
-      const dataRows = raw.slice(1).filter((row) => row && row.some((c) => c != null && String(c).trim() !== ''));
+      const dataRows = raw
+        .slice(1)
+        .map((row, k) => ({ row, fila: k + 2 }))
+        .filter(({ row }) => row && row.some((c) => c != null && String(c).trim() !== ''));
       const idColIndex = expected.indexOf('id_empresa');
       let nextIdNum = 1;
       try {
@@ -673,8 +697,10 @@ export default function EmpresasScreen() {
       }
       let ok = 0;
       let fail = 0;
-      for (const row of dataRows) {
-        const body: Record<string, string | string[]> = {};
+      const avisos: string[] = [];
+      for (const { row, fila } of dataRows) {
+        const body: Record<string, string | string[] | number> = {};
+        const nombreFila = () => String(body.Nombre ?? '').trim() || 'sin nombre';
         expected.forEach((col, i) => {
           if (CAMPOS_CUENTA_BANCARIA.has(col)) return;
           const rawVal = row[i] != null ? String(row[i]).trim() : '';
@@ -684,6 +710,15 @@ export default function EmpresasScreen() {
             body[col] = rawVal;
           }
         });
+        if (typeof body.Vencimiento === 'string') {
+          const venc = vencimientoParaBody(body.Vencimiento, null);
+          if (venc.error) {
+            avisos.push(`Fila ${fila} (${nombreFila()}): plazo '${body.Vencimiento}' no reconocido, importada sin plazo`);
+            body.Vencimiento = '';
+          } else {
+            body.Vencimiento = venc.valor ?? '';
+          }
+        }
         const idEmptyOrZero =
           !body.id_empresa ||
           body.id_empresa === '' ||
@@ -701,14 +736,19 @@ export default function EmpresasScreen() {
             method: 'POST',
             body: JSON.stringify(body),
           });
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           if (res.ok && !data.error) ok++;
-          else fail++;
-        } catch {
+          else {
+            fail++;
+            avisos.push(`Fila ${fila} (${nombreFila()}): ${data.error || `error ${res.status}`}`);
+          }
+        } catch (e) {
           fail++;
+          avisos.push(`Fila ${fila} (${nombreFila()}): ${e instanceof Error ? e.message : 'error de conexión'}`);
         }
       }
-      setImportMessage(`${ok} registro(s) importados correctamente${fail > 0 ? `; ${fail} fallaron` : ''}.`);
+      const resumen = `${ok} registro(s) importados correctamente${fail > 0 ? `; ${fail} fallaron` : ''}.`;
+      setImportMessage(avisos.length ? `${resumen}\n${avisos.join('\n')}` : resumen);
       refetchEmpresas();
     } catch (e) {
       setImportError(e instanceof Error ? e.message : 'Error al leer el archivo');
@@ -734,6 +774,14 @@ export default function EmpresasScreen() {
       setErrorForm('CIF ya existe');
       return;
     }
+    const venc = vencimientoParaBody(
+      trimValorCampoEmpresa(formNuevo.Vencimiento),
+      isEdit ? editingVencimientoOriginal : null,
+    );
+    if (venc.error) {
+      setErrorForm(venc.error);
+      return;
+    }
     setErrorForm(null);
     setGuardando(true);
     try {
@@ -742,7 +790,9 @@ export default function EmpresasScreen() {
         if (CAMPOS_CUENTA_BANCARIA.has(key)) continue;
         if (key === 'id_empresa') body[key] = isEdit ? formatId6(editingEmpresaId!) : próximoId;
         else if (key === 'Etiqueta') body[key] = Array.isArray(formNuevo.Etiqueta) ? formNuevo.Etiqueta : [];
-        else body[key] = trimValorCampoEmpresa(formNuevo[key]);
+        else if (key === 'Vencimiento') {
+          if (venc.valor !== undefined) body[key] = venc.valor;
+        } else body[key] = trimValorCampoEmpresa(formNuevo[key]);
       }
       const res = await apiFetch('/api/empresas', {
         method: isEdit ? 'PUT' : 'POST',
@@ -833,7 +883,13 @@ export default function EmpresasScreen() {
     // Resolver valor por clave (soporta distinta capitalización desde API/DynamoDB)
     const key = Object.keys(empresa).find((k) => k.toLowerCase() === col.toLowerCase());
     const raw = key != null ? empresa[key] : empresa[col as keyof Empresa];
-    if (raw !== undefined && raw !== null && String(raw).trim() !== '') return String(raw);
+    if (raw !== undefined && raw !== null && String(raw).trim() !== '') {
+      if (col === 'Vencimiento') {
+        const dias = parseDiasPlazo(raw);
+        return dias != null ? etiquetaPlazo(dias) : String(raw);
+      }
+      return String(raw);
+    }
     return '—';
   }, []);
 
@@ -992,12 +1048,17 @@ export default function EmpresasScreen() {
         }
         if (!changed) continue;
 
-        const body: Record<string, string | string[]> = { id_empresa: formatId6(id) };
+        const body: Record<string, string | number | string[]> = { id_empresa: formatId6(id) };
         for (const col of ATRIBUTOS_TABLA_EMPRESAS) {
           if (col === 'id_empresa' || CAMPOS_CUENTA_BANCARIA.has(col)) continue;
           if (col === 'Etiqueta') {
             const v = editValues[id][col] ?? '';
             body[col] = v ? v.split(',').map((s) => s.trim()).filter(Boolean) : [];
+          } else if (col === 'Vencimiento') {
+            const original = valorEnLocal(empresa, col);
+            const venc = vencimientoParaBody(editValues[id][col] ?? '', original != null ? String(original) : '');
+            if (venc.valor !== undefined) body[col] = venc.valor;
+            else if (venc.error) body[col] = (editValues[id][col] ?? '').trim();
           } else {
             body[col] = editValues[id][col] ?? '';
           }
@@ -1136,6 +1197,19 @@ export default function EmpresasScreen() {
           <CampoTipoReciboEmpresa
             value={(formNuevo[campo.key] ?? '') as string}
             onChange={(stored) => setFormNuevo((prev) => ({ ...prev, [campo.key]: stored }))}
+            inputStyle={inputStyle}
+            otroInputStyle={styles.formInput}
+          />
+        </View>
+      );
+    }
+    if (campo.key === 'Vencimiento') {
+      return (
+        <View key={campo.key} style={wrapStyle}>
+          <Text style={styles.formLabel}>Plazo de vencimiento{requiredMark}</Text>
+          <CampoPlazoVencimientoEmpresa
+            value={(formNuevo[campo.key] ?? '') as string}
+            onChange={(v) => setFormNuevo((prev) => ({ ...prev, [campo.key]: v }))}
             inputStyle={inputStyle}
             otroInputStyle={styles.formInput}
           />

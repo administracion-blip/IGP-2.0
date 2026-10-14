@@ -31,9 +31,19 @@ export const CONDICIONES_PAGO = [
   'contado',
   '15 días',
   '30 días',
+  '45 días',
   '60 días',
   '90 días',
+  '120 días',
 ] as const;
+
+/** Opciones del selector de condiciones: catálogo + el valor actual si no está en él (no perderlo al editar). */
+export function opcionesCondicionesPago(actual?: string | null): string[] {
+  const base: string[] = [...CONDICIONES_PAGO];
+  const v = String(actual ?? '').trim();
+  if (v && !base.includes(v)) base.push(v);
+  return base;
+}
 
 export const ESTADOS_OUT = [
   'borrador',
@@ -483,6 +493,8 @@ export type EmpresaFactura = {
   sede: string;
   /** Desde Igp_empresas «Tipo de recibo» */
   tipoRecibo?: string;
+  /** Plazo de vencimiento del maestro en días (0 = contado); `null` si no tiene o no se reconoce. */
+  vencimientoDias?: number | null;
 };
 
 /**

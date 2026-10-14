@@ -38,7 +38,7 @@ import {
   TIPOS_IVA,
   TIPOS_RETENCION,
   FORMAS_PAGO,
-  CONDICIONES_PAGO,
+  opcionesCondicionesPago,
   calcularLinea,
   formatMoneda,
   importeExcesoPendiente,
@@ -64,15 +64,25 @@ import {
 import { useFacturaFormLogic } from '../../hooks/useFacturaFormLogic';
 import { fechaEmisionFacturaAIso, formatCreadoEn, formatFechaPagoRow, textoFechaContabilizacionGasto } from '../../utils/formatFecha';
 import {
+  calcularFechaVencimiento,
+  condicionesDesdeDias,
+  estadoRelativoVencimiento,
+  etiquetaPlazo,
+  parseDiasPlazo,
+  textoEstadoVencimiento,
+} from '../../utils/plazoVencimiento';
+import {
   errorFechaEmisionDemasiadoFutura,
   fechaEmisionMaximaPermitidaIso,
 } from '../../lib/fechaEmisionLimite';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalToast, detectToastType } from '../../components/Toast';
 import { MIN_TOUCH } from '../../constants/layout';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { tasksColor, tasksRadius } from '../../constants/tasksUiTokens';
 import { useConfirmar } from '../../hooks/useConfirmar';
 import { apiFetch, errorMessage } from '../../utils/api';
+import { mismoId6 } from '../../utils/idFormat';
 import { resolverIbanBeneficiarioFactura } from '../../lib/resolverIbanFactura';
 import { buildConceptoRemesaFacturaRecibida } from '../../lib/conceptoRemesa';
 import { avisoPagosFacturaEnRemesa, mensajeErrorAccionRemesa } from '../../lib/remesas';
@@ -112,6 +122,7 @@ export default function FacturaDetalleScreen() {
   const { user, hasPermiso } = useAuth();
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
+  const { isPhone } = useBreakpoint();
 
   const esVenta = tipo === 'OUT';
   const backPath = esVenta ? '/facturacion/facturas-venta' : '/facturacion/facturas-gasto';
@@ -120,11 +131,28 @@ export default function FacturaDetalleScreen() {
   const [loading, setLoading] = useState(modo === 'editar');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  /**
+   * Solo IN: el vencimiento se fijó a mano (o el guardado no cuadra con emisión + plazo)
+   * y no se recalcula al cambiar emisión/condiciones.
+   */
+  const [vencimientoManual, setVencimientoManual] = useState(false);
+  /** Vencimiento guardado con condiciones vacías: se decide si es manual cuando llega el plazo del proveedor. */
+  const [vencPendienteProveedor, setVencPendienteProveedor] = useState<{ venc: string; emision: string } | null>(null);
+
+  // Receptor (contraparte) y maestro de empresas: el plazo del proveedor alimenta el recálculo del vencimiento.
+  const [empresaId, setEmpresaId] = useState('');
+  const [empresas, setEmpresas] = useState<EmpresaFactura[]>([]);
+  const plazoProveedorDias = useMemo(
+    () => (tipo === 'IN' ? empresas.find((x) => mismoId6(x.id_empresa, empresaId))?.vencimientoDias ?? null : null),
+    [tipo, empresas, empresaId],
+  );
 
   const facturaForm = useFacturaFormLogic({
     modo,
     loading,
     initialFechaEmision: modo === 'crear' ? undefined : hoyISO(),
+    vencimientoManual: tipo === 'IN' && vencimientoManual,
+    diasPlazoDefecto: plazoProveedorDias,
   });
   const {
     fechaEmision,
@@ -176,7 +204,6 @@ export default function FacturaDetalleScreen() {
   const [emisorIbanAlt, setEmisorIbanAlt] = useState('');
 
   // Receptor (contraparte)
-  const [empresaId, setEmpresaId] = useState('');
   const [empresaNombre, setEmpresaNombre] = useState('');
   const [empresaCif, setEmpresaCif] = useState('');
   const [empresaDireccion, setEmpresaDireccion] = useState('');
@@ -192,7 +219,6 @@ export default function FacturaDetalleScreen() {
   const [version, setVersion] = useState(1);
 
   // ── Catalogs ──
-  const [empresas, setEmpresas] = useState<EmpresaFactura[]>([]);
   const [series, setSeries] = useState<SerieFactura[]>([]);
   const [locales, setLocales] = useState<LocalFactura[]>([]);
   const [emisorSearch, setEmisorSearch] = useState('');
@@ -396,6 +422,7 @@ export default function FacturaDetalleScreen() {
           ibanAlternativo: str(e.IbanAlternativo ?? e.ibanAlternativo),
           sede: str(e.Sede ?? e.sede),
           tipoRecibo: e['Tipo de recibo'] != null ? String(e['Tipo de recibo']).trim() : undefined,
+          vencimientoDias: parseDiasPlazo(e.Vencimiento),
         };
       }));
     }).catch(() => {});
@@ -430,10 +457,28 @@ export default function FacturaDetalleScreen() {
       setExcesoPendiente(importeExcesoPendiente(f));
       setNumeroFactura(f.numero_factura ?? '');
       setSerie(f.serie);
-      setFechaEmision(fechaEmisionFacturaAIso(f.fecha_emision ?? '') ?? '');
+      const emisionGuardada = fechaEmisionFacturaAIso(f.fecha_emision ?? '') ?? '';
+      setFechaEmision(emisionGuardada);
       setFechaOperacion(fechaEmisionFacturaAIso(f.fecha_operacion ?? '') ?? '');
-      setFechaVencimiento(fechaEmisionFacturaAIso(f.fecha_vencimiento ?? '') ?? '');
-      setCondicionesPago(f.condiciones_pago ?? 'contado');
+      const vencGuardado = fechaEmisionFacturaAIso(f.fecha_vencimiento ?? '') ?? '';
+      const condicionesGuardadas = f.condiciones_pago ?? 'contado';
+      setFechaVencimiento(vencGuardado);
+      // Manual solo si el guardado no cuadra con emisión + plazo (o el plazo no se conoce). Con
+      // condiciones vacías el plazo es el del proveedor, que puede no haber cargado aún: se queda
+      // manual hasta comprobarlo.
+      setVencPendienteProveedor(null);
+      const diasCondiciones = parseDiasPlazo(condicionesGuardadas);
+      if (!vencGuardado) {
+        setVencimientoManual(false);
+      } else if (diasCondiciones != null) {
+        setVencimientoManual(vencGuardado !== calcularFechaVencimiento(emisionGuardada, diasCondiciones));
+      } else if (condicionesGuardadas.trim()) {
+        setVencimientoManual(true);
+      } else {
+        setVencimientoManual(true);
+        setVencPendienteProveedor({ venc: vencGuardado, emision: emisionGuardada });
+      }
+      setCondicionesPago(condicionesGuardadas);
       setFormaPago(f.forma_pago ?? 'transferencia');
       setObservaciones(f.observaciones ?? '');
       setLocalId(f.local_id ?? '');
@@ -514,7 +559,54 @@ export default function FacturaDetalleScreen() {
     setEmpresaIbanAlt('');
     setEmpresaSearch('');
     setShowEmpresaDropdown(false);
+    setVencPendienteProveedor(null);
+    if (tipo === 'IN' && e.vencimientoDias != null && (modo === 'crear' || !vencimientoManual)) {
+      aplicarPlazoProveedor(e.vencimientoDias);
+    }
   };
+
+  // ── Vencimiento (solo IN) ──
+  const vencimientoSegunProveedor =
+    plazoProveedorDias != null ? calcularFechaVencimiento(fechaEmision, plazoProveedorDias) : '';
+
+  useEffect(() => {
+    if (!vencPendienteProveedor || plazoProveedorDias == null) return;
+    setVencPendienteProveedor(null);
+    if (vencPendienteProveedor.venc === calcularFechaVencimiento(vencPendienteProveedor.emision, plazoProveedorDias)) {
+      setVencimientoManual(false);
+    }
+  }, [vencPendienteProveedor, plazoProveedorDias]);
+
+  function aplicarPlazoProveedor(dias: number) {
+    setCondicionesPago(condicionesDesdeDias(dias));
+    const venc = calcularFechaVencimiento(fechaEmision, dias);
+    if (venc) setFechaVencimiento(venc);
+    setVencimientoManual(false);
+    setVencPendienteProveedor(null);
+  }
+
+  const onChangeFechaVencimiento = (iso: string) => {
+    if (iso === fechaVencimiento) return;
+    setFechaVencimiento(iso);
+    setVencPendienteProveedor(null);
+    if (tipo === 'IN') setVencimientoManual(true);
+  };
+
+  const onSeleccionarCondicionesPago = (id: string) => {
+    setCondicionesPago(id);
+    setVencimientoManual(false);
+    setVencPendienteProveedor(null);
+  };
+
+  const estadoVencimientoIn = useMemo(() => {
+    if (tipo !== 'IN' || !fechaVencimiento) return null;
+    if (estado === 'pagada' || estado === 'anulada') return null;
+    const est = estadoRelativoVencimiento(fechaVencimiento);
+    if (!est) return null;
+    const saldo = modo === 'crear' ? totales.total_factura : saldoPendiente;
+    if (est.tipo === 'vencida' && !(saldo > 0.001)) return null;
+    return est;
+  }, [tipo, fechaVencimiento, estado, modo, totales.total_factura, saldoPendiente]);
 
   // ── Products modal ──
   const openProductModal = async () => {
@@ -807,7 +899,7 @@ export default function FacturaDetalleScreen() {
   };
 
   const abrirModalPago = () => {
-    const emp = empresas.find((e) => e.id_empresa === empresaId);
+    const emp = empresas.find((e) => mismoId6(e.id_empresa, empresaId));
     const { clave, otroTexto } = mapTipoReciboToFormaPago(emp?.tipoRecibo ?? '');
 
     const hoy = hoyISO();
@@ -1429,7 +1521,28 @@ export default function FacturaDetalleScreen() {
           {/* Fecha vencimiento */}
           <View style={styles.field}>
             <Text style={styles.label}>Fecha vencimiento</Text>
-            <InputFecha valueIso={fechaVencimiento} onChangeIso={setFechaVencimiento} placeholder="dd/mm/aaaa" editable={esEditable} />
+            <InputFecha valueIso={fechaVencimiento} onChangeIso={onChangeFechaVencimiento} placeholder="dd/mm/aaaa" editable={esEditable} />
+            {tipo === 'IN' && plazoProveedorDias != null ? (
+              vencimientoSegunProveedor && fechaVencimiento === vencimientoSegunProveedor ? (
+                <Text style={styles.vencHint}>Según plazo del proveedor: {etiquetaPlazo(plazoProveedorDias)}</Text>
+              ) : vencimientoManual && esEditable ? (
+                <TouchableOpacity
+                  onPress={() => aplicarPlazoProveedor(plazoProveedorDias)}
+                  accessibilityRole="button"
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  style={isPhone ? styles.vencLinkTouch : undefined}
+                >
+                  <Text style={styles.vencLink}>
+                    Restablecer según proveedor ({etiquetaPlazo(plazoProveedorDias)})
+                  </Text>
+                </TouchableOpacity>
+              ) : null
+            ) : null}
+            {estadoVencimientoIn ? (
+              <Text style={[styles.vencEstado, { color: estadoVencimientoIn.color }]}>
+                {textoEstadoVencimiento(estadoVencimientoIn)}
+              </Text>
+            ) : null}
           </View>
 
           {/* Condiciones + forma de pago: una fila, ambos desplegables */}
@@ -1442,8 +1555,8 @@ export default function FacturaDetalleScreen() {
                   tituloLista="Condiciones de pago"
                   iconoLista="event"
                   valorId={condicionesPago}
-                  opciones={CONDICIONES_PAGO.map((c) => ({ id: c, titulo: c }))}
-                  onSeleccionar={(id) => setCondicionesPago(id)}
+                  opciones={opcionesCondicionesPago(condicionesPago).map((c) => ({ id: c, titulo: c }))}
+                  onSeleccionar={onSeleccionarCondicionesPago}
                 />
               ) : (
                 <Text style={styles.readOnlyInline}>{condicionesPago}</Text>
@@ -2441,6 +2554,28 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: tasksColor.textoTerciario,
     lineHeight: 14,
+  },
+  vencHint: {
+    fontSize: 11,
+    fontWeight: '400',
+    color: '#64748b',
+    marginTop: 4,
+  },
+  vencLink: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#0ea5e9',
+    marginTop: 4,
+    textDecorationLine: 'underline',
+  },
+  vencLinkTouch: {
+    minHeight: MIN_TOUCH,
+    justifyContent: 'center',
+  },
+  vencEstado: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
   },
   labelSmall: {
     fontSize: 11,

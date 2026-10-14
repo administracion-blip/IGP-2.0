@@ -40,7 +40,9 @@ import {
   recalcImportesDesdePct,
 } from '../../lib/registroMasivo';
 import { esEmpresaSedeGrupoParipe } from '../../utils/facturacion';
-import { fechaEmisionFacturaAIso } from '../../utils/formatFecha';
+import { fechaEmisionFacturaAIso, formatFecha } from '../../utils/formatFecha';
+import { calcularFechaVencimiento, etiquetaPlazo, parseDiasPlazo } from '../../utils/plazoVencimiento';
+import { mismoId6 } from '../../utils/idFormat';
 import {
   errorFechaEmisionDemasiadoFutura,
   fechaEmisionMaximaPermitidaIso,
@@ -395,6 +397,17 @@ export default function RegistroMasivoScreen() {
 
   const selectedBorrador = selectedIdx !== null ? borradores.find((b) => b.idx === selectedIdx) : null;
 
+  /** Vencimiento orientativo con el plazo del maestro; el definitivo lo calcula el backend al confirmar. */
+  const textoVencimientoPropuesto = (b: Borrador): string | null => {
+    if (b.pago_al_confirmar || !b.empresa_id) return null;
+    const emp = empresasCatalogo.find((e) => mismoId6(e.id_empresa, b.empresa_id));
+    const dias = parseDiasPlazo(emp?.Vencimiento);
+    if (dias == null) return null;
+    const venc = calcularFechaVencimiento(fechaEmisionFacturaAIso(b.fecha_emision ?? '') ?? '', dias);
+    if (!venc) return null;
+    return `Vence: ${formatFecha(venc)} (plazo proveedor ${etiquetaPlazo(dias)})`;
+  };
+
   /** Duplicados dentro del propio lote (el backend solo mira lo ya registrado). */
   const duplicadosLotePorIdx = useMemo(() => calcularDuplicadosDeLote(borradores), [borradores]);
 
@@ -590,6 +603,7 @@ export default function RegistroMasivoScreen() {
             Nombre: emp?.Nombre != null ? String(emp.Nombre) : nombre,
             Cif: emp?.Cif != null ? String(emp.Cif) : '',
             Sede: emp?.Sede != null ? String(emp.Sede) : '',
+            Vencimiento: emp?.Vencimiento,
           },
         ];
       });
@@ -1799,6 +1813,12 @@ export default function RegistroMasivoScreen() {
                   focusFieldId="fecha_emision"
                   maxIso={fechaEmisionMaximaPermitidaIso()}
                 />
+                {textoVencimientoPropuesto(selectedBorrador) ? (
+                  <View style={styles.vencPropuestoRow}>
+                    <MaterialIcons name="event" size={13} color="#64748b" />
+                    <Text style={styles.vencPropuestoText}>{textoVencimientoPropuesto(selectedBorrador)}</Text>
+                  </View>
+                ) : null}
                 <CampoIdDocumentoFacturaRecibida
                   empresaNombre={selectedBorrador.sociedad_grupo_nombre}
                   fechaEmision={selectedBorrador.fecha_emision}
@@ -2332,6 +2352,8 @@ const styles = StyleSheet.create({
   metodoHint: { fontSize: 10, color: '#0ea5e9', fontWeight: '500' as const },
 
   formGrid: { gap: 6, zIndex: 1 },
+  vencPropuestoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingLeft: 2 },
+  vencPropuestoText: { fontSize: 12, color: '#64748b' },
 
   fieldRow: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 280 },
   fieldLabelWrap: { flexDirection: 'row', alignItems: 'center', gap: 3, width: 110 },

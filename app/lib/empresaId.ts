@@ -18,6 +18,7 @@ export type EmpresaMaestro = {
   Nombre?: string;
   Cif?: string;
   Sede?: string;
+  Vencimiento?: string | number;
 };
 
 /** Cuerpo del alta: todos los atributos de la tabla (`Etiqueta` es array). */

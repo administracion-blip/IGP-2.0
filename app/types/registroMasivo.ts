@@ -52,6 +52,8 @@ export type EmpresaCatalogo = {
   Nombre?: string;
   Cif?: string;
   Sede?: string;
+  /** Plazo de vencimiento en días (Number); registros antiguos pueden traer texto. */
+  Vencimiento?: string | number;
 };
 
 /**

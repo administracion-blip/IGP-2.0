@@ -19,7 +19,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   calcularLinea,
   formatMoneda,
-  CONDICIONES_PAGO,
+  opcionesCondicionesPago,
   FORMAS_PAGO,
   labelFormaPago,
   avisoSignoAbono,
@@ -1054,7 +1054,7 @@ export function FacturaVentaDetallePanel({
               tituloLista="Condiciones de pago"
               iconoLista="event"
               valorId={condicionesPago}
-              opciones={CONDICIONES_PAGO.map((c) => ({ id: c, titulo: c }))}
+              opciones={opcionesCondicionesPago(condicionesPago).map((c) => ({ id: c, titulo: c }))}
               onSeleccionar={(id) => setCondicionesPago(id)}
             />
           ) : (

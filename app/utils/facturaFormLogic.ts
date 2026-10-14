@@ -3,6 +3,7 @@
  * No altera el contrato API; los componentes siguen montando el body completo como hasta ahora.
  */
 import { calcularLinea, calcularTotales, round2, type Factura, type LineaFactura } from './facturacion';
+import { calcularFechaVencimiento, parseDiasPlazo } from './plazoVencimiento';
 
 /** Texto fijo en líneas sintéticas cuando solo existen importes en cabecera (p. ej. OCR sin `facturasLineas`). */
 export const DESCRIPCION_LINEA_SINTETICA_CABECERA =
@@ -33,19 +34,7 @@ export function hoyDmy(): string {
 /** Vencimiento = fecha emisión + plazo según condiciones (contado = +0 días). Estado en ISO yyyy-mm-dd. */
 export function calcularFechaVencimientoIso(fechaEmisionIso: string, condicion: string): string {
   if (!fechaEmisionIso || !/^\d{4}-\d{2}-\d{2}$/.test(fechaEmisionIso)) return '';
-  const [y, m, d] = fechaEmisionIso.split('-').map(Number);
-  const base = new Date(y, m - 1, d);
-  if (isNaN(base.getTime())) return '';
-  let dias = 0;
-  if (condicion === '15 días') dias = 15;
-  else if (condicion === '30 días') dias = 30;
-  else if (condicion === '60 días') dias = 60;
-  else if (condicion === '90 días') dias = 90;
-  base.setDate(base.getDate() + dias);
-  const ry = base.getFullYear();
-  const rm = String(base.getMonth() + 1).padStart(2, '0');
-  const rd = String(base.getDate()).padStart(2, '0');
-  return `${ry}-${rm}-${rd}`;
+  return calcularFechaVencimiento(fechaEmisionIso, parseDiasPlazo(condicion) ?? 0);
 }
 
 /** @deprecated Usar calcularFechaVencimientoIso; mantiene compatibilidad con estado DMY legacy. */

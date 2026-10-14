@@ -47,6 +47,11 @@ import {
 } from '../../utils/formatFecha';
 import { hoyISO } from '../../utils/facturaFormLogic';
 import {
+  estadoRelativoVencimiento,
+  hoyMadridIso,
+  textoCortoEstadoVencimiento,
+} from '../../utils/plazoVencimiento';
+import {
   facturaProveedorCoincideEtiquetas,
   filtrarFacturasPorColaPago,
   getProveedorEtiquetasFromEmpresasList,
@@ -60,6 +65,7 @@ import {
 import { useLocalToast } from '../../components/Toast';
 import { useConfirmar } from '../../hooks/useConfirmar';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
+import { FONT } from '../../constants/layout';
 import { ModalDetallePagosTabla } from '../../components/ModalDetallePagosTabla';
 import {
   actualizarPagoFactura,
@@ -207,9 +213,41 @@ function mesVencimientoFactura(f: FacturaListado): string {
   return iso.length >= 7 ? iso.slice(0, 7) : '';
 }
 
+function vencimientoIsoFactura(f: FacturaListado): string {
+  return fechaEmisionFacturaAIso(String(f.fecha_vencimiento ?? '')) ?? '';
+}
+
+/** Estados en los que el vencimiento no cuenta como deuda viva. */
+const ESTADOS_SIN_DEUDA_VIVA = new Set(['anulada', 'borrador', 'pagada']);
+
+function tieneDeudaViva(f: FacturaListado): boolean {
+  return !ESTADOS_SIN_DEUDA_VIVA.has(String(f.estado ?? '')) && saldoPendientePositivo(f) > 0;
+}
+
+/**
+ * Vencida por fecha (no por el estado persistido): saldo > 0, vencimiento < hoy
+ * (fecha natural Madrid) y estado vivo. Mismo criterio que «Deuda con proveedores».
+ */
+function esVencidaPorFecha(f: FacturaListado, hoyIso: string): boolean {
+  if (!tieneDeudaViva(f)) return false;
+  const venc = vencimientoIsoFactura(f);
+  return !!venc && venc < hoyIso;
+}
+
+/**
+ * Estado para pestañas, KPI y badge: una 'vencida' guardada que ya no lo está por fecha
+ * (le ampliaron el vencimiento) se trata como 'pendiente_pago'. Solo visual: no cambia datos.
+ */
+function estadoVisibleGasto(f: FacturaListado, hoyIso: string): string {
+  const estado = String(f.estado ?? '').trim();
+  if (estado === 'vencida' && tieneDeudaViva(f) && !esVencidaPorFecha(f, hoyIso)) return 'pendiente_pago';
+  return estado;
+}
+
 const COLUMNAS = [
   'id_factura',
   'fecha_emision',
+  'fecha_vencimiento',
   'trimestre',
   'emisor_nombre',
   'empresa_nombre',
@@ -231,6 +269,7 @@ const COLUMNAS = [
 const COL_LABELS: Record<string, string> = {
   id_factura: 'ID',
   fecha_emision: 'Fecha',
+  fecha_vencimiento: 'Vencimiento',
   trimestre: 'Trimestre',
   fecha_contabilizacion: 'F. contabilización',
   emisor_nombre: 'Empresa',
@@ -252,6 +291,7 @@ const COL_LABELS: Record<string, string> = {
 const DEFAULT_WIDTHS: Record<string, number> = {
   id_factura: 74,
   fecha_emision: 82,
+  fecha_vencimiento: 100,
   trimestre: 72,
   fecha_contabilizacion: 180,
   emisor_nombre: 150,
@@ -313,6 +353,8 @@ export default function FacturasGastoScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const [tabActivo, setTabActivo] = useState<TabEstado>('todas');
+  /** Fecha natural en Madrid (no jornada de negocio), como el backend en la deuda con proveedores. */
+  const hoyMadrid = hoyMadridIso();
   const [busqueda, setBusqueda] = useState('');
   const [busquedaFoco, setBusquedaFoco] = useState(false);
   const [fechaDesde, setFechaDesde] = useState('');
@@ -678,13 +720,14 @@ export default function FacturasGastoScreen() {
     const counts = Object.fromEntries(TABS.map((t) => [t.key, 0])) as Record<TabEstado, number>;
     counts.todas = facturasBaseFiltradas.length;
     for (const f of facturasBaseFiltradas) {
-      const estado = String(f.estado ?? '').trim();
-      if (ESTADOS_GASTO_CHIP.has(estado)) {
+      const estado = estadoVisibleGasto(f, hoyMadrid);
+      if (estado !== 'vencida' && ESTADOS_GASTO_CHIP.has(estado)) {
         counts[estado as TabEstado] += 1;
       }
+      if (esVencidaPorFecha(f, hoyMadrid)) counts.vencida += 1;
     }
     return counts;
-  }, [facturasBaseFiltradas]);
+  }, [facturasBaseFiltradas, hoyMadrid]);
 
   const cifrasGasto = useMemo(() => {
     const list = filtrarFacturasPorColaPago(facturasBaseFiltradas, filtroColaPago, empresasCatalogo);
@@ -697,8 +740,8 @@ export default function FacturasGastoScreen() {
     for (const f of list) {
       const saldo = saldoPendientePositivo(f);
       const estado = String(f.estado ?? '');
-      if (estado === 'pendiente_pago') pendiente += saldo;
-      if (estado === 'vencida') vencido += saldo;
+      if (estadoVisibleGasto(f, hoyMadrid) === 'pendiente_pago') pendiente += saldo;
+      if (esVencidaPorFecha(f, hoyMadrid)) vencido += saldo;
       if (
         mesVencimientoFactura(f) === mes
         && saldo > 0
@@ -724,11 +767,12 @@ export default function FacturasGastoScreen() {
       }
     }
     return { pendiente, vencido, esteMes, mayorNombre, mayorImporte, trimestres };
-  }, [facturasBaseFiltradas, filtroColaPago, empresasCatalogo]);
+  }, [facturasBaseFiltradas, filtroColaPago, empresasCatalogo, hoyMadrid]);
 
   const filtradas = useMemo(() => {
     let list = facturasBaseFiltradas;
-    if (tabActivo !== 'todas') list = list.filter((f) => f.estado === tabActivo);
+    if (tabActivo === 'vencida') list = list.filter((f) => esVencidaPorFecha(f, hoyMadrid));
+    else if (tabActivo !== 'todas') list = list.filter((f) => estadoVisibleGasto(f, hoyMadrid) === tabActivo);
     if (soloVenceEsteMes) {
       const mes = hoyISO().slice(0, 7);
       list = list.filter((f) => {
@@ -751,6 +795,10 @@ export default function FacturasGastoScreen() {
         }
         if (sortCol === 'trimestre') {
           const cmp = trimestreComparable(a.fecha_emision).localeCompare(trimestreComparable(b.fecha_emision));
+          return sortDir === 'desc' ? -cmp : cmp;
+        }
+        if (sortCol === 'fecha_vencimiento') {
+          const cmp = vencimientoIsoFactura(a).localeCompare(vencimientoIsoFactura(b));
           return sortDir === 'desc' ? -cmp : cmp;
         }
         if (sortCol === 'fecha_contabilizacion') {
@@ -811,7 +859,7 @@ export default function FacturasGastoScreen() {
       });
     }
     return list;
-  }, [facturasBaseFiltradas, tabActivo, soloVenceEsteMes, filtroColaPago, empresasCatalogo, sortCol, sortDir, soloDuplicadosProveedor]);
+  }, [facturasBaseFiltradas, tabActivo, soloVenceEsteMes, filtroColaPago, empresasCatalogo, sortCol, sortDir, soloDuplicadosProveedor, hoyMadrid]);
 
   const totalPages = Math.max(1, Math.ceil(filtradas.length / PAGE_SIZE));
   const pageClamped = Math.min(Math.max(0, pageIndex), totalPages - 1);
@@ -950,6 +998,7 @@ export default function FacturasGastoScreen() {
     if (val == null) return '';
     if (MONEDA_COLS.has(col)) return formatMoneda(Number(val));
     if (col === 'fecha_emision' && typeof val === 'string') return formatFechaEmisionCelda(val);
+    if (col === 'fecha_vencimiento' && typeof val === 'string') return formatFechaEmisionCelda(val);
     if (col === 'emisor_nombre') {
       const t = String(val ?? '').trim();
       return t || '—';
@@ -2327,11 +2376,45 @@ export default function FacturasGastoScreen() {
                           </View>
                         );
                       }
+                      if (col === 'fecha_vencimiento') {
+                        const vencIso = vencimientoIsoFactura(f);
+                        const deudaViva = tieneDeudaViva(f);
+                        const rel = deudaViva && vencIso ? estadoRelativoVencimiento(vencIso, hoyMadrid) : null;
+                        const marca = rel && rel.tipo !== 'futura' ? rel : null;
+                        return (
+                          <View key={col} style={[styles.cell, { width: getColWidth(col) }]}>
+                            <Text style={styles.cellText} numberOfLines={1}>
+                              {vencIso ? formatFecha(vencIso) : '—'}
+                            </Text>
+                            {marca ? (
+                              <Text
+                                style={[styles.vencMarca, shouldUseComfortableTable && styles.vencMarcaComodo, { color: marca.color }]}
+                                numberOfLines={1}
+                              >
+                                {textoCortoEstadoVencimiento(marca)}
+                              </Text>
+                            ) : deudaViva && !vencIso ? (
+                              <Text
+                                style={[styles.vencMarca, shouldUseComfortableTable && styles.vencMarcaComodo, styles.vencMarcaGris]}
+                                numberOfLines={1}
+                              >
+                                sin vencimiento
+                              </Text>
+                            ) : null}
+                          </View>
+                        );
+                      }
                       if (col === 'estado') {
+                        const estadoVisible = estadoVisibleGasto(f, hoyMadrid);
+                        const vencidaParcial = estadoVisible === 'vencida' && Number(f.total_cobrado ?? 0) > 0.001;
                         return (
                           <View key={col} style={[styles.cell, { width: getColWidth(col) }]}>
                             <View style={styles.estadoBadgesRow}>
-                              <BadgeEstado estado={f.estado ?? ''} compact />
+                              <BadgeEstado
+                                estado={estadoVisible}
+                                etiqueta={vencidaParcial ? 'Vencida · parcial' : undefined}
+                                compact
+                              />
                               {tieneExcesoPendiente(f) ? (
                                 <BadgeExceso importe={importeExcesoPendiente(f)} compact />
                               ) : null}
@@ -3195,6 +3278,9 @@ const styles = StyleSheet.create({
   },
   cellTextRight: { textAlign: 'right' as const, alignSelf: 'stretch' as const },
   cellTextBold: { fontWeight: '700', color: '#334155' },
+  vencMarca: { fontSize: FONT.compacto.label, fontWeight: '600', lineHeight: 14 },
+  vencMarcaComodo: { fontSize: FONT.comodo.small, lineHeight: 16 },
+  vencMarcaGris: { color: '#94a3b8', fontWeight: '400' },
   trimestreChip: {
     alignSelf: 'flex-start',
     paddingHorizontal: 6,
