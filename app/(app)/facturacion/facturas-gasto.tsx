@@ -167,10 +167,11 @@ function formatoTipoIvaPct(f: FacturaListado): string {
   return `${s} %`;
 }
 
-type TabEstado = 'todas' | (typeof ESTADOS_IN)[number];
+type TabEstado = 'todas' | 'sin_pagar' | (typeof ESTADOS_IN)[number];
 
 const TABS: { key: TabEstado; label: string }[] = [
   { key: 'todas', label: 'Todas' },
+  { key: 'sin_pagar', label: 'Sin pagar' },
   { key: 'borrador', label: 'Borrador' },
   { key: 'pendiente_revision', label: 'Pte. revisión' },
   { key: 'pendiente_pago', label: 'Pte. pago' },
@@ -198,6 +199,7 @@ function empresaFiltroKey(f: FacturaListado): string {
 
 function pastelChipEstado(key: TabEstado): { bg: string; text: string; border: string } {
   if (key === 'todas') return { bg: '#f1f5f9', text: '#475569', border: '#cbd5e1' };
+  if (key === 'sin_pagar') return { bg: '#e0f2fe', text: '#0369a1', border: '#7dd3fc' };
   const { bg, text } = colorEstado(key);
   const border = key === 'parcialmente_pagada' ? '#fed7aa' : bg;
   return { bg, text, border };
@@ -242,6 +244,13 @@ function estadoVisibleGasto(f: FacturaListado, hoyIso: string): string {
   const estado = String(f.estado ?? '').trim();
   if (estado === 'vencida' && tieneDeudaViva(f) && !esVencidaPorFecha(f, hoyIso)) return 'pendiente_pago';
   return estado;
+}
+
+/** Sin pagar: pendiente de revisión, de pago, parcial o vencida. Fuera: pagada, anulada y borrador. */
+const ESTADOS_SIN_PAGAR = new Set(['pendiente_revision', 'pendiente_pago', 'parcialmente_pagada', 'vencida']);
+
+function esFacturaSinPagar(f: FacturaListado, hoyIso: string): boolean {
+  return ESTADOS_SIN_PAGAR.has(estadoVisibleGasto(f, hoyIso)) || esVencidaPorFecha(f, hoyIso);
 }
 
 const COLUMNAS = [
@@ -725,6 +734,7 @@ export default function FacturasGastoScreen() {
         counts[estado as TabEstado] += 1;
       }
       if (esVencidaPorFecha(f, hoyMadrid)) counts.vencida += 1;
+      if (esFacturaSinPagar(f, hoyMadrid)) counts.sin_pagar += 1;
     }
     return counts;
   }, [facturasBaseFiltradas, hoyMadrid]);
@@ -771,7 +781,8 @@ export default function FacturasGastoScreen() {
 
   const filtradas = useMemo(() => {
     let list = facturasBaseFiltradas;
-    if (tabActivo === 'vencida') list = list.filter((f) => esVencidaPorFecha(f, hoyMadrid));
+    if (tabActivo === 'sin_pagar') list = list.filter((f) => esFacturaSinPagar(f, hoyMadrid));
+    else if (tabActivo === 'vencida') list = list.filter((f) => esVencidaPorFecha(f, hoyMadrid));
     else if (tabActivo !== 'todas') list = list.filter((f) => estadoVisibleGasto(f, hoyMadrid) === tabActivo);
     if (soloVenceEsteMes) {
       const mes = hoyISO().slice(0, 7);
