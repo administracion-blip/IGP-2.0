@@ -1,3 +1,4 @@
+import { apiFetch } from '../utils/api';
 import type {
   EstadoRemesa,
   FallidaEjecucionRemesa,
@@ -82,6 +83,70 @@ export function agruparFacturasRemesaPorSociedad(facturas: FacturaRemesaAgrupabl
     }
   }
   return [...map.values()];
+}
+
+export type RemesaCreadaResumen = { remesaId: string; nombre: string; excluidas: number };
+
+export type ResultadoCrearRemesas = {
+  creadas: RemesaCreadaResumen[];
+  totalExcluidas: number;
+  /** Error de la sociedad en la que se detuvo; las anteriores ya quedaron creadas. */
+  error?: string;
+};
+
+/**
+ * Crea una remesa por sociedad ordenante (`POST /api/remesas`). Con varias
+ * sociedades el nombre lleva el sufijo « — sociedad». Se detiene en el primer
+ * error y lo devuelve en `error` junto a las ya creadas; nunca lanza.
+ */
+export async function crearRemesasPorSociedad({
+  grupos,
+  nombreBase,
+  fechaEjecucion,
+}: {
+  grupos: GrupoRemesaPorSociedad[];
+  nombreBase: string;
+  fechaEjecucion?: string;
+}): Promise<ResultadoCrearRemesas> {
+  const variasSociedades = grupos.length > 1;
+  const creadas: RemesaCreadaResumen[] = [];
+  let totalExcluidas = 0;
+  for (const grupo of grupos) {
+    const nombre = variasSociedades ? `${nombreBase} — ${grupo.sociedadNombre}` : nombreBase;
+    let res: Response;
+    let data: { error?: unknown; excluidas?: unknown; remesa?: { remesaId: string; nombre?: string } };
+    try {
+      res = await apiFetch('/api/remesas', {
+        method: 'POST',
+        body: JSON.stringify({
+          nombre,
+          sociedadId: grupo.sociedadId,
+          facturaIds: grupo.facturas.map((f) => f.id_factura),
+          fechaEjecucion: fechaEjecucion || undefined,
+        }),
+      });
+      data = await res.json().catch(() => ({}));
+    } catch {
+      return { creadas, totalExcluidas, error: `${grupo.sociedadNombre}: no se pudo conectar con el servidor` };
+    }
+    if (!res.ok || !data.remesa?.remesaId) {
+      return {
+        creadas,
+        totalExcluidas,
+        error: typeof data.error === 'string' && data.error
+          ? `${grupo.sociedadNombre}: ${data.error}`
+          : `Error al crear remesa de ${grupo.sociedadNombre}`,
+      };
+    }
+    const excl = Array.isArray(data.excluidas) ? data.excluidas.length : 0;
+    totalExcluidas += excl;
+    creadas.push({
+      remesaId: data.remesa.remesaId,
+      nombre: data.remesa.nombre || nombre,
+      excluidas: excl,
+    });
+  }
+  return { creadas, totalExcluidas };
 }
 
 /** Slug seguro para nombre de fichero de remesa (sociedad ordenante). */

@@ -5,6 +5,9 @@ import { avisoPagosFacturaEnRemesa } from './remesas';
 import type { RegistrarPagoInitial, RegistrarPagoPayloadFactura } from '../components/RegistrarPagoModal';
 import type { FacturaListado } from '../types/factura';
 import type { RemesaActivaFactura } from '../types/remesas';
+import { getTipoReciboFromEmpresasList, type EmpresaConTipoRecibo } from '../utils/empresaTipoRecibo';
+import { hoyISO } from '../utils/facturaFormLogic';
+import { fechaEmisionFacturaAIso } from '../utils/formatFecha';
 
 export type PagoDetalleRow = {
   id_pago?: string;
@@ -60,6 +63,24 @@ export function pagoRecordToInitial(p: PagoDetalleRow): RegistrarPagoInitial {
     referencia: String(p.referencia ?? ''),
     observaciones: String(p.observaciones ?? ''),
     importe: p.importe != null ? String(p.importe) : '',
+  };
+}
+
+/** Valores iniciales del modal «Pagar» de una factura de gasto (mismo criterio que el listado). */
+export function initialPagoFacturaGasto(
+  f: Pick<FacturaListado, 'saldo_pendiente' | 'empresa_id' | 'fecha_emision'>,
+  empresasCatalogo: EmpresaConTipoRecibo[],
+): RegistrarPagoInitial {
+  const saldo = Number(f.saldo_pendiente ?? 0);
+  const tipoRecibo = getTipoReciboFromEmpresasList(empresasCatalogo, f.empresa_id);
+  const { clave, otroTexto } = mapTipoReciboToFormaPago(tipoRecibo);
+  const hoy = hoyISO();
+  const fechaFactura = fechaEmisionFacturaAIso(f.fecha_emision ?? '') ?? hoy;
+  return {
+    importe: String(Math.abs(saldo) || ''),
+    metodo: clave,
+    metodoOtro: clave === 'otro' ? otroTexto : '',
+    fecha: clave === 'tarjeta' ? fechaFactura : hoy,
   };
 }
 

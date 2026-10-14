@@ -16,6 +16,7 @@ export type EmpresaConTipoRecibo = {
   iban?: string;
   IbanAlternativo?: string;
   ibanAlternativo?: string;
+  Sede?: string;
 };
 
 /** Estados IN con saldo pendiente de gestionar en tesorería. */

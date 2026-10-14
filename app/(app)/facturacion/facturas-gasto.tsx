@@ -90,6 +90,7 @@ import {
 } from '../../lib/registroMasivo';
 import IconoSugerenciaConciliacion from '../../components/conciliacion/IconoSugerenciaConciliacion';
 import { BarraSeleccionFacturas } from '../../components/facturacion/BarraSeleccionFacturas';
+import { DeudaProveedoresModal } from '../../components/facturacion/DeudaProveedoresModal';
 import ModalElegirMovimientoConciliacion from '../../components/conciliacion/ModalElegirMovimientoConciliacion';
 import ConciliarMovimientoModal, {
   type ResultadoConciliacion,
@@ -323,6 +324,7 @@ export default function FacturasGastoScreen() {
   const [filtroProveedorNombre, setFiltroProveedorNombre] = useState('');
   const [soloVenceEsteMes, setSoloVenceEsteMes] = useState(false);
   const [menuMasAbierto, setMenuMasAbierto] = useState(false);
+  const [modalDeudaAbierto, setModalDeudaAbierto] = useState(false);
   const [soloDuplicadosProveedor, setSoloDuplicadosProveedor] = useState(false);
   const [soloPendientesConciliacion, setSoloPendientesConciliacion] = useState(false);
   const [soloConExceso, setSoloConExceso] = useState(false);
@@ -548,6 +550,7 @@ export default function FacturasGastoScreen() {
               Etiqueta,
               tipoRecibo: tipoReciboRaw != null ? String(tipoReciboRaw).trim() : undefined,
               'Tipo de recibo': typeof tipoReciboRaw === 'string' ? tipoReciboRaw : undefined,
+              Sede: e.Sede != null ? String(e.Sede).trim() : undefined,
             };
           }),
         );
@@ -1902,7 +1905,7 @@ export default function FacturasGastoScreen() {
           </View>
         )}
 
-        {hasPermiso('empresas.ver') || hasPermiso('remesas.ver') || hasPermiso('facturacion.crear') ? (
+        {hasPermiso('empresas.ver') || hasPermiso('remesas.ver') || hasPermiso('facturacion.crear') || hasPermiso('facturacion.ver') ? (
           <View style={styles.menuMasWrap}>
             <TouchableOpacity
               style={[styles.menuMasBtn, menuMasAbierto && styles.toolbarBtnHover]}
@@ -1949,6 +1952,18 @@ export default function FacturasGastoScreen() {
                   >
                     <MaterialIcons name="upload-file" size={16} color="#5b21b6" />
                     <Text style={styles.menuMasItemText}>Registro masivo</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {hasPermiso('facturacion.ver') ? (
+                  <TouchableOpacity
+                    style={styles.menuMasItem}
+                    onPress={() => {
+                      setMenuMasAbierto(false);
+                      setModalDeudaAbierto(true);
+                    }}
+                  >
+                    <MaterialIcons name="account-balance-wallet" size={16} color="#0ea5e9" />
+                    <Text style={styles.menuMasItemText}>Deuda con proveedores</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -2412,6 +2427,13 @@ export default function FacturasGastoScreen() {
         onAbrirCompleto={(id) =>
           router.push(`/facturacion/factura-detalle?id=${id}&modo=editar&tipo=IN` as never)
         }
+      />
+
+      <DeudaProveedoresModal
+        visible={modalDeudaAbierto}
+        onClose={() => setModalDeudaAbierto(false)}
+        empresasCatalogo={empresasCatalogo}
+        onCambios={refrescarListadoYSugerencias}
       />
 
       {/* Modal crear remesa */}

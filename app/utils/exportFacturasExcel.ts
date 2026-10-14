@@ -5,6 +5,7 @@ import {
   resolverFormaPagoEfectiva,
   type EmpresaConTipoRecibo,
 } from './empresaTipoRecibo';
+import type { DeudaProveedoresResp, FacturaDeuda } from '../types/deudaProveedores';
 
 type FacturaRow = Record<string, unknown>;
 
@@ -107,6 +108,82 @@ export function exportarFacturasVentaExcel(facturas: FacturaRow[], filename?: st
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Facturas emitidas');
   download(wb, filename || `facturas-emitidas-${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
+const ETIQUETA_ESTADO_DEUDA_EXCEL: Record<string, string> = {
+  cuadrado: 'Cuadrado',
+  pendiente: 'Pendiente',
+  vencido: 'Vencido',
+};
+
+const TRAMO_DEUDA_EXCEL: Record<string, string> = {
+  no_vencido: 'No vencido',
+  d0_30: '0-30 días',
+  d31_60: '31-60 días',
+  d61_90: '61-90 días',
+  d90mas: 'Más de 90 días',
+};
+
+/** Hojas «Resumen proveedores» y, si se pasan, «Facturas» de la ventana de deuda. */
+export function exportarDeudaProveedoresExcel(resumen: DeudaProveedoresResp, facturas?: FacturaDeuda[]) {
+  const num = (v: unknown) => Number(v) || 0;
+  const filasResumen = resumen.proveedores.map((p) => ({
+    Proveedor: p.nombre,
+    CIF: p.cif ?? '',
+    Estado: ETIQUETA_ESTADO_DEUDA_EXCEL[p.estado] ?? p.estado,
+    Facturado: num(p.facturado),
+    Pagado: num(p.pagado),
+    Pendiente: num(p.pendiente),
+    Vencido: num(p.vencido),
+    '% pagado': num(p.pctPagado),
+    'Nº facturas': num(p.numFacturas),
+    'Nº pendientes': num(p.numPendientes),
+    'Nº vencidas': num(p.numVencidas),
+    'Vencimiento más antiguo': p.vencimientoMasAntiguo ?? '',
+    'Pendiente anterior al periodo': num(p.anterior?.pendiente),
+    'No vencido': num(p.antiguedad?.noVencido),
+    '0-30 días': num(p.antiguedad?.d0_30),
+    '31-60 días': num(p.antiguedad?.d31_60),
+    '61-90 días': num(p.antiguedad?.d61_90),
+    'Más de 90 días': num(p.antiguedad?.d90mas),
+    'Saldo a favor': p.saldoAFavor ? 'Sí' : '',
+    Intragrupo: p.intragrupo ? 'Sí' : '',
+    'Le debemos': p.intragrupo ? num(p.intragrupo.leDebemos) : '',
+    'Nos debe': p.intragrupo ? num(p.intragrupo.nosDebe) : '',
+  }));
+  const wb = XLSX.utils.book_new();
+  const wsResumen = XLSX.utils.json_to_sheet(filasResumen);
+  wsResumen['!cols'] = Object.keys(filasResumen[0] ?? { Proveedor: '' }).map((k) => ({
+    wch: k === 'Proveedor' ? 34 : Math.max(k.length + 2, 12),
+  }));
+  XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen proveedores');
+
+  if (facturas) {
+    const filasFacturas = facturas.map((f) => ({
+      'ID factura': f.id_factura,
+      'Nº factura proveedor': f.numero_factura_proveedor ?? f.numero_factura ?? '',
+      Proveedor: f.empresa_nombre ?? '',
+      CIF: f.empresa_cif ?? '',
+      Sociedad: f.emisor_nombre ?? '',
+      Emisión: f.fecha_emision ?? '',
+      Vencimiento: f.fecha_vencimiento ?? '',
+      Total: num(f.total_factura),
+      Pagado: num(f.total_cobrado),
+      Pendiente: num(f.saldo_pendiente),
+      Estado: labelEstado(String(f.estado ?? '')),
+      Antigüedad: f.tramo ? TRAMO_DEUDA_EXCEL[f.tramo] ?? '' : '',
+      'Días vencida': f.diasVencida ?? '',
+      'Anterior al periodo': f.anteriorAlPeriodo ? 'Sí' : '',
+      'En remesa': f.remesaActiva ? f.remesaActiva.nombre || 'Sí' : '',
+    }));
+    const wsFacturas = XLSX.utils.json_to_sheet(filasFacturas);
+    wsFacturas['!cols'] = Object.keys(filasFacturas[0] ?? { Proveedor: '' }).map((k) => ({
+      wch: k === 'Proveedor' || k === 'Sociedad' ? 30 : Math.max(k.length + 2, 12),
+    }));
+    XLSX.utils.book_append_sheet(wb, wsFacturas, 'Facturas');
+  }
+
+  download(wb, `deuda-proveedores-${resumen.rango.desde}_${resumen.rango.hasta}.xlsx`);
 }
 
 export function exportarFacturasGastoExcel(
