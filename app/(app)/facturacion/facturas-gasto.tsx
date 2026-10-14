@@ -87,7 +87,13 @@ import {
 } from '../../lib/remesas';
 import { descargarAdjuntoFacturaRecibida } from '../../lib/descargarAdjuntoFactura';
 import { textoTrimestreFactura, trimestreDesdeFechaEmision } from '../../lib/idDocumentoFactura';
-import { buildEmpresasDesdeFacturasHref } from '../../lib/navegacionEmpresas';
+import { buildEmpresasDesdeFacturasHref, consumirRetornoListadoFacturas } from '../../lib/navegacionEmpresas';
+import {
+  anioFiltroGuardado,
+  guardarFiltrosGasto,
+  leerFiltrosGasto,
+  type FiltrosListadoGasto,
+} from '../../lib/filtrosListadoFacturas';
 import { buildConceptoRemesaFacturaRecibida } from '../../lib/conceptoRemesa';
 import { resolverIbanBeneficiarioFactura } from '../../lib/resolverIbanFactura';
 import {
@@ -240,6 +246,17 @@ function esVencidaPorFecha(f: FacturaListado, hoyIso: string): boolean {
  * Estado para pestañas, KPI y badge: una 'vencida' guardada que ya no lo está por fecha
  * (le ampliaron el vencimiento) se trata como 'pendiente_pago'. Solo visual: no cambia datos.
  */
+function tabGastoGuardado(tab: string): TabEstado {
+  if (tab === 'todas' || tab === 'sin_pagar') return tab;
+  if ((ESTADOS_IN as readonly string[]).includes(tab)) return tab as TabEstado;
+  return 'todas';
+}
+
+function colaGastoGuardada(cola: string): FiltroColaPago {
+  if (cola === 'cola_transferencia' || cola === 'otro_metodo') return cola;
+  return 'todos';
+}
+
 function estadoVisibleGasto(f: FacturaListado, hoyIso: string): string {
   const estado = String(f.estado ?? '').trim();
   if (estado === 'vencida' && tieneDeudaViva(f) && !esVencidaPorFecha(f, hoyIso)) return 'pendiente_pago';
@@ -361,24 +378,28 @@ export default function FacturasGastoScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [tabActivo, setTabActivo] = useState<TabEstado>('todas');
+  const filtrosIniciales = useRef<FiltrosListadoGasto | null | undefined>(undefined);
+  if (filtrosIniciales.current === undefined) filtrosIniciales.current = leerFiltrosGasto();
+  const filtros0 = filtrosIniciales.current;
+
+  const [tabActivo, setTabActivo] = useState<TabEstado>(tabGastoGuardado(filtros0?.tab ?? ''));
   /** Fecha natural en Madrid (no jornada de negocio), como el backend en la deuda con proveedores. */
   const hoyMadrid = hoyMadridIso();
-  const [busqueda, setBusqueda] = useState('');
+  const [busqueda, setBusqueda] = useState(filtros0?.busqueda ?? '');
   const [busquedaFoco, setBusquedaFoco] = useState(false);
-  const [fechaDesde, setFechaDesde] = useState('');
-  const [fechaHasta, setFechaHasta] = useState('');
-  const [empresasFiltroIds, setEmpresasFiltroIds] = useState<string[]>([]);
-  const [etiquetasProveedorFiltro, setEtiquetasProveedorFiltro] = useState<string[]>([]);
-  const [anioFiltro, setAnioFiltro] = useState(anioEnCurso);
-  const [filtroColaPago, setFiltroColaPago] = useState<FiltroColaPago>('todos');
-  const [filtroProveedorNombre, setFiltroProveedorNombre] = useState('');
-  const [soloVenceEsteMes, setSoloVenceEsteMes] = useState(false);
+  const [fechaDesde, setFechaDesde] = useState(filtros0?.fechaDesde ?? '');
+  const [fechaHasta, setFechaHasta] = useState(filtros0?.fechaHasta ?? '');
+  const [empresasFiltroIds, setEmpresasFiltroIds] = useState<string[]>(filtros0?.empresasIds ?? []);
+  const [etiquetasProveedorFiltro, setEtiquetasProveedorFiltro] = useState<string[]>(filtros0?.etiquetas ?? []);
+  const [anioFiltro, setAnioFiltro] = useState(anioFiltroGuardado(filtros0?.anio ?? '', anioEnCurso()));
+  const [filtroColaPago, setFiltroColaPago] = useState<FiltroColaPago>(colaGastoGuardada(filtros0?.cola ?? ''));
+  const [filtroProveedorNombre, setFiltroProveedorNombre] = useState(filtros0?.proveedor ?? '');
+  const [soloVenceEsteMes, setSoloVenceEsteMes] = useState(filtros0?.soloVenceEsteMes ?? false);
   const [menuMasAbierto, setMenuMasAbierto] = useState(false);
   const [modalDeudaAbierto, setModalDeudaAbierto] = useState(false);
-  const [soloDuplicadosProveedor, setSoloDuplicadosProveedor] = useState(false);
-  const [soloPendientesConciliacion, setSoloPendientesConciliacion] = useState(false);
-  const [soloConExceso, setSoloConExceso] = useState(false);
+  const [soloDuplicadosProveedor, setSoloDuplicadosProveedor] = useState(filtros0?.soloDuplicados ?? false);
+  const [soloPendientesConciliacion, setSoloPendientesConciliacion] = useState(filtros0?.soloConciliacion ?? false);
+  const [soloConExceso, setSoloConExceso] = useState(filtros0?.soloExceso ?? false);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalFacturaId, setModalFacturaId] = useState<string | null>(null);
@@ -389,8 +410,8 @@ export default function FacturasGastoScreen() {
   const resizeRef = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
 
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
-  const [sortCol, setSortCol] = useState<string>('fecha_emision');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [sortCol, setSortCol] = useState<string>(filtros0?.sortCol || 'fecha_emision');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(filtros0?.sortDir === 'asc' ? 'asc' : 'desc');
 
   const [procesando, setProcesando] = useState(false);
 
@@ -524,21 +545,60 @@ export default function FacturasGastoScreen() {
     [showToast, refrescarListadoYSugerencias],
   );
 
+  useEffect(() => {
+    guardarFiltrosGasto({
+      tab: tabActivo,
+      busqueda,
+      fechaDesde,
+      fechaHasta,
+      empresasIds: empresasFiltroIds,
+      etiquetas: etiquetasProveedorFiltro,
+      anio: anioFiltro,
+      cola: filtroColaPago,
+      proveedor: filtroProveedorNombre,
+      soloVenceEsteMes,
+      soloDuplicados: soloDuplicadosProveedor,
+      soloConciliacion: soloPendientesConciliacion,
+      soloExceso: soloConExceso,
+      sortCol,
+      sortDir,
+    });
+  }, [
+    tabActivo,
+    busqueda,
+    fechaDesde,
+    fechaHasta,
+    empresasFiltroIds,
+    etiquetasProveedorFiltro,
+    anioFiltro,
+    filtroColaPago,
+    filtroProveedorNombre,
+    soloVenceEsteMes,
+    soloDuplicadosProveedor,
+    soloPendientesConciliacion,
+    soloConExceso,
+    sortCol,
+    sortDir,
+  ]);
+
   // Refrescar al volver de la ficha completa: sin esto el listado mostraba
   // datos antiguos tras guardar y parecía que el cambio no se había guardado.
   const primerFocoListado = useRef(true);
   useFocusEffect(
     useCallback(() => {
-      const modalId = (
+      const aviso = consumirRetornoListadoFacturas('IN');
+      const modalEnUrl = (
         Array.isArray(searchParams.modalFactura)
           ? searchParams.modalFactura[0]
           : searchParams.modalFactura
       )?.trim() ?? '';
-      const maestroOk = (
+      const maestroEnUrl = (
         Array.isArray(searchParams.maestroActualizado)
           ? searchParams.maestroActualizado[0]
           : searchParams.maestroActualizado
       ) === '1';
+      const modalId = modalEnUrl || aviso?.modalFactura || '';
+      const maestroOk = maestroEnUrl || aviso?.maestro === true;
 
       if (modalId || maestroOk) {
         if (modalId) {
@@ -559,7 +619,11 @@ export default function FacturasGastoScreen() {
             }, 800);
           }
         }
-        router.replace('/facturacion/facturas-gasto' as never);
+        // Solo si el aviso venía en la URL: limpiarla monta otra pantalla.
+        // El aviso en memoria (vuelta con atrás) no toca la ruta y conserva los filtros.
+        if (modalEnUrl || maestroEnUrl) {
+          router.replace('/facturacion/facturas-gasto' as never);
+        }
       }
 
       if (primerFocoListado.current) {
@@ -607,7 +671,7 @@ export default function FacturasGastoScreen() {
         );
       })
       .catch(() => {});
-  }, []);
+  }, [resyncMaestroToken]);
 
   const toggleSort = useCallback((col: string) => {
     if (sortCol === col) setSortDir((d) => d === 'asc' ? 'desc' : 'asc');

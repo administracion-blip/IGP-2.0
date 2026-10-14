@@ -24,8 +24,9 @@ import { formatId6 } from '../utils/idFormat';
 import { apiFetch } from '../utils/api';
 import { copyToClipboard } from '../utils/clipboard';
 import {
-  buildReturnFromEmpresasHref,
+  marcarRetornoListadoFacturas,
   parseContextoRetornoEmpresas,
+  tipoListadoDesdeReturnTo,
 } from '../lib/navegacionEmpresas';
 import { CampoTipoReciboEmpresa } from '../components/CampoTipoReciboEmpresa';
 import { CampoPlazoVencimientoEmpresa } from '../components/CampoPlazoVencimientoEmpresa';
@@ -408,6 +409,8 @@ export default function EmpresasScreen() {
     [searchParams.returnTo, searchParams.returnModalFactura],
   );
   const deepLinkEditDoneRef = useRef(false);
+  /** La ficha o la edición rápida guardaron algo: al volver, el listado recarga el maestro. */
+  const maestroCambiadoRef = useRef(false);
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -463,9 +466,22 @@ export default function EmpresasScreen() {
         router.back();
         return;
       }
-      router.replace(
-        buildReturnFromEmpresasHref({ ...returnCtx, maestroActualizado }) as never,
-      );
+      const tipo = tipoListadoDesdeReturnTo(returnCtx.returnTo);
+      const maestro = maestroActualizado || maestroCambiadoRef.current;
+      if (tipo && (maestro || returnCtx.returnModalFactura)) {
+        marcarRetornoListadoFacturas({
+          tipo,
+          maestro,
+          modalFactura: returnCtx.returnModalFactura,
+        });
+      }
+      // Volver a la pantalla que ya estaba montada conserva sus filtros.
+      // Sin historial (recarga en Empresas), se abre el listado y él recupera los filtros guardados.
+      if (router.canGoBack()) {
+        router.back();
+        return;
+      }
+      router.replace(returnCtx.returnTo as never);
     },
     [returnCtx, router],
   );
@@ -803,6 +819,7 @@ export default function EmpresasScreen() {
         setErrorForm(data.error || 'Error al guardar');
         return;
       }
+      maestroCambiadoRef.current = true;
       refetchEmpresas();
       setSelectedRowIndex(null);
       cerrarModalNuevo();
@@ -1029,6 +1046,7 @@ export default function EmpresasScreen() {
     setGuardandoRapido(true);
     try {
       let errores = 0;
+      let guardados = 0;
       for (const empresa of empresasPagina) {
         const id = String(valorEnLocal(empresa, 'id_empresa') ?? '');
         if (!id || !editValues[id]) continue;
@@ -1070,8 +1088,10 @@ export default function EmpresasScreen() {
         });
         const data = await res.json();
         if (!res.ok) errores++;
+        else guardados++;
       }
       if (errores > 0) setError(`${errores} registro(s) fallaron al guardar`);
+      if (guardados > 0) maestroCambiadoRef.current = true;
       setEdicionRapidaMode(false);
       setEditValues({});
       refetchEmpresas();

@@ -45,6 +45,35 @@ export function buildReturnFromEmpresasHref(
   return q ? `${ctx.returnTo}?${q}` : ctx.returnTo;
 }
 
+export function tipoListadoDesdeReturnTo(returnTo: string): 'IN' | 'OUT' | null {
+  if (returnTo.includes('facturas-gasto')) return 'IN';
+  if (returnTo.includes('facturas-venta')) return 'OUT';
+  return null;
+}
+
+/**
+ * Aviso al listado cuando se vuelve con router.back(), sin cambiar la URL.
+ * Así no se monta un listado nuevo y no se pierden los filtros.
+ */
+export type RetornoListadoFacturas = {
+  tipo: 'IN' | 'OUT';
+  maestro: boolean;
+  modalFactura?: string;
+};
+
+let retornoPendiente: RetornoListadoFacturas | null = null;
+
+export function marcarRetornoListadoFacturas(retorno: RetornoListadoFacturas) {
+  retornoPendiente = retorno;
+}
+
+export function consumirRetornoListadoFacturas(tipo: 'IN' | 'OUT'): RetornoListadoFacturas | null {
+  if (!retornoPendiente || retornoPendiente.tipo !== tipo) return null;
+  const retorno = retornoPendiente;
+  retornoPendiente = null;
+  return retorno;
+}
+
 export function parseContextoRetornoEmpresas(params: {
   returnTo?: string | string[];
   returnModalFactura?: string | string[];

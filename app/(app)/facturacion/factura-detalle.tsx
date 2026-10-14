@@ -1224,7 +1224,14 @@ export default function FacturaDetalleScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       {/* ── HEADER ── */}
       <View style={styles.headerRow}>
-        <TouchableOpacity onPress={() => router.push(backPath as any)} style={styles.backBtn}>
+        <TouchableOpacity
+          onPress={() => {
+            if (router.canGoBack()) router.back();
+            else router.push(backPath as never);
+          }}
+          style={styles.backBtn}
+          accessibilityLabel="Volver al listado"
+        >
           <MaterialIcons name="arrow-back" size={20} color={tasksColor.textoSecundario} />
         </TouchableOpacity>
         <View style={styles.headerTitleWrap}>

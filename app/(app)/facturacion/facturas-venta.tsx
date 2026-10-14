@@ -57,7 +57,13 @@ import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
 import { apiFetch } from '../../utils/api';
 import { anioConcreto, anioEnCurso, urlFacturasPorAnio } from '../../lib/rangoAnioListado';
-import { buildEmpresasDesdeFacturasHref } from '../../lib/navegacionEmpresas';
+import { buildEmpresasDesdeFacturasHref, consumirRetornoListadoFacturas } from '../../lib/navegacionEmpresas';
+import {
+  anioFiltroGuardado,
+  guardarFiltrosVenta,
+  leerFiltrosVenta,
+  type FiltrosListadoVenta,
+} from '../../lib/filtrosListadoFacturas';
 import IconoSugerenciaConciliacion from '../../components/conciliacion/IconoSugerenciaConciliacion';
 import { PanelMovimientosFactura } from '../../components/conciliacion/PanelMovimientosFactura';
 import ConciliarMovimientoModal, {
@@ -125,6 +131,12 @@ const TABS: { key: TabEstado; label: string }[] = [
 
 const ESTADOS_VENTA_CHIP = new Set<string>(ESTADOS_OUT);
 
+function tabVentaGuardado(tab: string): TabEstado {
+  if (tab === 'todas') return 'todas';
+  if ((ESTADOS_OUT as readonly string[]).includes(tab)) return tab as TabEstado;
+  return 'todas';
+}
+
 function pastelChipEstado(key: TabEstado): { bg: string; text: string; border: string } {
   if (key === 'todas') return { bg: '#f1f5f9', text: '#475569', border: '#cbd5e1' };
   const { bg, text } = colorEstado(key);
@@ -185,21 +197,25 @@ export default function FacturasVentaScreen() {
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalFacturaId, setModalFacturaId] = useState<string | null>(null);
-  const [filtroBusqueda, setFiltroBusqueda] = useState('');
+  const filtrosIniciales = useRef<FiltrosListadoVenta | null | undefined>(undefined);
+  if (filtrosIniciales.current === undefined) filtrosIniciales.current = leerFiltrosVenta();
+  const filtros0 = filtrosIniciales.current;
+
+  const [filtroBusqueda, setFiltroBusqueda] = useState(filtros0?.busqueda ?? '');
   const [busquedaFoco, setBusquedaFoco] = useState(false);
-  const [tabActivo, setTabActivo] = useState<TabEstado>('todas');
-  const [fechaDesde, setFechaDesde] = useState('');
-  const [fechaHasta, setFechaHasta] = useState('');
+  const [tabActivo, setTabActivo] = useState<TabEstado>(tabVentaGuardado(filtros0?.tab ?? ''));
+  const [fechaDesde, setFechaDesde] = useState(filtros0?.fechaDesde ?? '');
+  const [fechaHasta, setFechaHasta] = useState(filtros0?.fechaHasta ?? '');
   const [pageIndex, setPageIndex] = useState(0);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ ...DEFAULT_WIDTHS });
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
   const [operando, setOperando] = useState(false);
-  const [sortCol, setSortCol] = useState<string>('fecha_emision');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [emisoresFiltroIds, setEmisoresFiltroIds] = useState<string[]>([]);
-  const [receptoresFiltroIds, setReceptoresFiltroIds] = useState<string[]>([]);
-  const [anioFiltro, setAnioFiltro] = useState(anioEnCurso);
+  const [sortCol, setSortCol] = useState<string>(filtros0?.sortCol || 'fecha_emision');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(filtros0?.sortDir === 'asc' ? 'asc' : 'desc');
+  const [emisoresFiltroIds, setEmisoresFiltroIds] = useState<string[]>(filtros0?.emisoresIds ?? []);
+  const [receptoresFiltroIds, setReceptoresFiltroIds] = useState<string[]>(filtros0?.receptoresIds ?? []);
+  const [anioFiltro, setAnioFiltro] = useState(anioFiltroGuardado(filtros0?.anio ?? '', anioEnCurso()));
 
   const [modalAnularVisible, setModalAnularVisible] = useState(false);
   const [modalCobrarVisible, setModalCobrarVisible] = useState(false);
@@ -267,7 +283,7 @@ export default function FacturasVentaScreen() {
         );
       })
       .catch(() => {});
-  }, []);
+  }, [resyncMaestroToken]);
 
   const refetch = useCallback(() => {
     setError(null);
@@ -368,21 +384,48 @@ export default function FacturasVentaScreen() {
     [showToast, cargarSugerencias],
   );
 
+  useEffect(() => {
+    guardarFiltrosVenta({
+      tab: tabActivo,
+      busqueda: filtroBusqueda,
+      fechaDesde,
+      fechaHasta,
+      emisoresIds: emisoresFiltroIds,
+      receptoresIds: receptoresFiltroIds,
+      anio: anioFiltro,
+      sortCol,
+      sortDir,
+    });
+  }, [
+    tabActivo,
+    filtroBusqueda,
+    fechaDesde,
+    fechaHasta,
+    emisoresFiltroIds,
+    receptoresFiltroIds,
+    anioFiltro,
+    sortCol,
+    sortDir,
+  ]);
+
   // Refrescar al volver de la ficha completa: sin esto el listado mostraba
   // datos antiguos tras guardar y parecía que el cambio no se había guardado.
   const primerFocoListado = useRef(true);
   useFocusEffect(
     useCallback(() => {
-      const modalId = (
+      const aviso = consumirRetornoListadoFacturas('OUT');
+      const modalEnUrl = (
         Array.isArray(searchParams.modalFactura)
           ? searchParams.modalFactura[0]
           : searchParams.modalFactura
       )?.trim() ?? '';
-      const maestroOk = (
+      const maestroEnUrl = (
         Array.isArray(searchParams.maestroActualizado)
           ? searchParams.maestroActualizado[0]
           : searchParams.maestroActualizado
       ) === '1';
+      const modalId = modalEnUrl || aviso?.modalFactura || '';
+      const maestroOk = maestroEnUrl || aviso?.maestro === true;
 
       if (modalId || maestroOk) {
         if (modalId) {
@@ -403,7 +446,9 @@ export default function FacturasVentaScreen() {
             }, 800);
           }
         }
-        router.replace('/facturacion/facturas-venta' as never);
+        if (modalEnUrl || maestroEnUrl) {
+          router.replace('/facturacion/facturas-venta' as never);
+        }
       }
 
       if (primerFocoListado.current) {
