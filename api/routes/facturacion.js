@@ -57,7 +57,14 @@ import {
   putFacturaVersionada,
   updateFacturaVersionado,
 } from '../lib/facturacion/versionFactura.js';
-import { aplicarClavesFactura, aplicarClavesPago, conClavesFactura } from '../lib/facturacion/clavesIndice.js';
+import { aplicarClavesFactura, aplicarClavesPago, conClavesFactura, fechaIndiceIso } from '../lib/facturacion/clavesIndice.js';
+import {
+  cargarDeudaProveedores,
+  cargarDetalleProveedor,
+  hoyMadridIso,
+  superaRangoMaximo,
+  MAX_ANIOS_RANGO_DEUDA,
+} from '../lib/facturacion/deudaProveedores.js';
 import {
   facturasPorEmisor,
   facturasPorEstado,
@@ -507,6 +514,71 @@ router.get('/facturacion/facturas', requirePermission('facturacion.ver'), async 
     }
 
     res.json({ facturas: items, rango: { desde: rango.desde, hasta: rango.hasta } });
+  } catch (err) {
+    responderError(res, err);
+  }
+});
+
+/**
+ * Rango de la deuda con proveedores. Sin fechas, del 1 de enero del año en curso
+ * a hoy (Madrid). Mismo formato que el listado y como mucho tres años.
+ */
+function rangoDeudaProveedores(query, hoy) {
+  const sinFechas = !String(query.fechaDesde || '').trim() && !String(query.fechaHasta || '').trim();
+  const rango = sinFechas ? { desde: `${hoy.slice(0, 4)}-01-01`, hasta: hoy } : rangoListadoFacturas(query);
+  if (rango.error) return rango;
+  if (!fechaIndiceIso(rango.desde) || !fechaIndiceIso(rango.hasta)) {
+    return { error: 'fechaDesde y fechaHasta deben ser fechas válidas (YYYY-MM-DD)' };
+  }
+  if (superaRangoMaximo(rango.desde, rango.hasta)) {
+    return { error: `El rango de fechas no puede superar ${MAX_ANIOS_RANGO_DEUDA} años` };
+  }
+  return rango;
+}
+
+// [SEC S-01]
+router.get('/facturacion/deuda-proveedores', requirePermission('facturacion.ver'), async (req, res) => {
+  try {
+    const hoy = hoyMadridIso();
+    const rango = rangoDeudaProveedores(req.query, hoy);
+    if (rango.error) return res.status(400).json({ error: rango.error });
+    // [SEC S-08]
+    const empresasOk = await empresasPermitidasDelUsuario(req.user);
+    const incluir = String(req.query.incluirFacturas || '').trim().toLowerCase();
+    res.json(await cargarDeudaProveedores({
+      desde: rango.desde,
+      hasta: rango.hasta,
+      empresasOk,
+      emisorId: String(req.query.emisorId || '').trim(),
+      q: String(req.query.proveedor || '').trim(),
+      hoy,
+      incluirFacturas: incluir === '1' || incluir === 'true',
+    }));
+  } catch (err) {
+    responderError(res, err);
+  }
+});
+
+// [SEC S-01]
+router.get('/facturacion/deuda-proveedores/facturas', requirePermission('facturacion.ver'), async (req, res) => {
+  try {
+    const clave = String(req.query.clave || '').trim();
+    if (!/^(CIF|ID|NOM):/.test(clave) || clave === 'CIF:' || clave === 'ID:') {
+      return res.status(400).json({ error: 'clave de proveedor obligatoria (CIF:..., ID:... o NOM:...)' });
+    }
+    const hoy = hoyMadridIso();
+    const rango = rangoDeudaProveedores(req.query, hoy);
+    if (rango.error) return res.status(400).json({ error: rango.error });
+    // [SEC S-08]
+    const empresasOk = await empresasPermitidasDelUsuario(req.user);
+    res.json(await cargarDetalleProveedor({
+      clave,
+      desde: rango.desde,
+      hasta: rango.hasta,
+      empresasOk,
+      emisorId: String(req.query.emisorId || '').trim(),
+      hoy,
+    }));
   } catch (err) {
     responderError(res, err);
   }
