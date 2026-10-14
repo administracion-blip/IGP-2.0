@@ -95,6 +95,7 @@ import {
   METODO_PAGO_APLICACION_EXCESO,
 } from '../lib/facturacion/excesoPago.js';
 import { emitirOValidarFacturaPorId } from '../lib/facturacion/emitirFactura.js';
+import { completarVencimientoFactura } from '../lib/facturacion/plazoProveedor.js';
 import {
   getSerieConfig,
   buildNumeroFactura,
@@ -932,6 +933,7 @@ router.post('/facturacion/facturas/validar-revision', requirePermission('factura
     const fallidas = [];
     // [SEC S-08]
     const alcance = await cargarAlcance(req);
+    const cachePlazos = new Map();
 
     for (const id of ids) {
       if (!alcance.global) {
@@ -943,7 +945,9 @@ router.post('/facturacion/facturas/validar-revision', requirePermission('factura
           continue;
         }
       }
-      const result = await emitirOValidarFacturaPorId(id, { usuario_id, usuario_nombre, soloRevision: true });
+      const result = await emitirOValidarFacturaPorId(id, {
+        usuario_id, usuario_nombre, soloRevision: true, cachePlazos,
+      });
       if (result.ok) {
         validadas.push({ id_factura: id, estado: result.factura.estado });
       } else {
@@ -3353,6 +3357,7 @@ router.post('/facturacion/ocr/confirmar', requirePermission('facturacion.crear')
 
     const creados = [];
     const ibanEmisorCache = new Map();
+    const plazoProveedorCache = new Map();
     for (const b of borradores) {
       if (b.descartado) continue;
 
@@ -3483,6 +3488,10 @@ router.post('/facturacion/ocr/confirmar', requirePermission('facturacion.crear')
         contabilizado_por: usuario_nombre || '',
         contabilizado_por_id: usuario_id || '',
       };
+
+      // Sin vencimiento en el documento: emisión + plazo (condiciones del
+      // documento o, si no, el `Vencimiento` del proveedor en el maestro).
+      await completarVencimientoFactura(factura, { cache: plazoProveedorCache });
 
       aplicarClavesFactura(factura);
       await docClient.send(new PutCommand({ TableName: tables.facturas, Item: factura }));

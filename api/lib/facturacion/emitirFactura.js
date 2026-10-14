@@ -3,6 +3,8 @@ import { docClient, tables, keyForFacturaPrincipalId } from '../db.js';
 import { queryLineasByFactura } from '../dynamo/facturasRelacionadas.js';
 import { reservarNumeroSerie, existeCorrelativoDuplicado } from './series.js';
 import { aplicarClavesFactura } from './clavesIndice.js';
+import { completarVencimientoFactura } from './plazoProveedor.js';
+import { vencimientoVentaPorCondiciones } from './plazoVencimiento.js';
 import crypto from 'crypto';
 
 /** Reintentos de reserva cuando el correlativo obtenido ya está ocupado. */
@@ -158,7 +160,10 @@ export function validarDatosEmision(factura, lineas) {
  * Emite o valida revisión de una factura por id.
  * @returns {Promise<{ ok: true, factura, esValidacionRevision } | { ok: false, status: number, error?: string, errores?: string[] }>}
  */
-export async function emitirOValidarFacturaPorId(id, { usuario_id = '', usuario_nombre = '', soloRevision = false } = {}) {
+export async function emitirOValidarFacturaPorId(
+  id,
+  { usuario_id = '', usuario_nombre = '', soloRevision = false, cachePlazos = new Map() } = {},
+) {
   const existing = await docClient.send(
     new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }),
   );
@@ -212,14 +217,11 @@ export async function emitirOValidarFacturaPorId(id, { usuario_id = '', usuario_
   factura.estado = 'emitida';
   if (factura.tipo === 'IN') factura.estado = 'pendiente_pago';
 
-  if (!factura.fecha_vencimiento && factura.condiciones_pago) {
-    const diasMap = { contado: 0, '15_dias': 15, '30_dias': 30, '60_dias': 60, '90_dias': 90 };
-    const dias = diasMap[factura.condiciones_pago];
-    if (dias != null) {
-      const base = new Date(factura.fecha_emision || now().slice(0, 10));
-      base.setDate(base.getDate() + dias);
-      factura.fecha_vencimiento = base.toISOString().slice(0, 10);
-    }
+  if (factura.tipo === 'IN') {
+    await completarVencimientoFactura(factura, { cache: cachePlazos });
+  } else if (!factura.fecha_vencimiento && factura.condiciones_pago) {
+    const vencimiento = vencimientoVentaPorCondiciones(factura.condiciones_pago, factura.fecha_emision || now().slice(0, 10));
+    if (vencimiento) factura.fecha_vencimiento = vencimiento;
   }
 
   factura.modificado_por = usuario_id || '';

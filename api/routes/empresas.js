@@ -23,6 +23,7 @@ import {
   httpErrorAltaCuenta,
 } from '../lib/empresaCuentaAlta.js';
 import { requirePermission, requireAnyPermission, requireRole } from '../middleware/auth.js';
+import { parseDiasPlazo } from '../lib/facturacion/plazoVencimiento.js';
 
 const router = Router();
 const tableEmpresasName = tables.empresas;
@@ -46,6 +47,19 @@ function normalizarEtiqueta(val) {
 
 function trimCampoString(val) {
   return val != null && val !== '' ? String(val).trim() : '';
+}
+
+const ERROR_VENCIMIENTO = 'Plazo de vencimiento no válido: indica los días (0 = contado)';
+
+/**
+ * `Vencimiento` se guarda como Number (días desde la fecha de factura; 0 =
+ * contado). Vacío → sin atributo.
+ * @returns {{ vacio: true } | { dias: number } | { invalido: true }}
+ */
+function leerVencimiento(val) {
+  if (val == null || (typeof val === 'string' && val.trim() === '')) return { vacio: true };
+  const dias = parseDiasPlazo(val);
+  return dias == null ? { invalido: true } : { dias };
 }
 
 // Ojo: PUT /empresas reescribe el ítem completo, así que todo atributo que no
@@ -128,6 +142,8 @@ router.post('/empresas', requirePermission('empresas.crear'), async (req, res) =
     return res.status(400).json({ error: 'id_empresa es obligatorio y debe ser mayor que 0' });
   }
   const cifValue = normalizeCif(body.Cif);
+  const vencimiento = leerVencimiento(body.Vencimiento);
+  if (vencimiento.invalido) return res.status(400).json({ error: ERROR_VENCIMIENTO });
   try {
     const items = [];
     let lastKey = null;
@@ -149,6 +165,8 @@ router.post('/empresas', requirePermission('empresas.crear'), async (req, res) =
     for (const key of TABLE_EMPRESAS_ATTRS) {
       if (key === 'id_empresa') {
         item[key] = idEmpresa;
+      } else if (key === 'Vencimiento') {
+        if (vencimiento.dias != null) item[key] = vencimiento.dias;
       } else if (key === 'Etiqueta') {
         item[key] = normalizarEtiqueta(body[key]);
       } else if (key === 'Cif') {
@@ -209,10 +227,27 @@ router.put('/empresas', requirePermission('empresas.editar'), async (req, res) =
 
     const idEmpresa = getIdEmpresaFromItem(existingItem);
     const existing = existingItem;
+
+    // Un texto antiguo que no se entiende solo se rechaza si lo cambian: reenviar
+    // la ficha tal cual (editando otro campo) lo conserva sin normalizar.
+    const textoVencimientoPrevio = typeof existing.Vencimiento === 'string' ? existing.Vencimiento.trim() : null;
+    const entradaVencimiento = body.Vencimiento !== undefined ? body.Vencimiento : existing.Vencimiento;
+    const vencimiento = leerVencimiento(entradaVencimiento);
+    if (
+      vencimiento.invalido
+      && body.Vencimiento !== undefined
+      && !(textoVencimientoPrevio && String(body.Vencimiento).trim() === textoVencimientoPrevio)
+    ) {
+      return res.status(400).json({ error: ERROR_VENCIMIENTO });
+    }
+
     const item = {};
     for (const key of TABLE_EMPRESAS_ATTRS) {
       if (key === 'id_empresa') item[key] = idEmpresa;
-      else if (key === 'Etiqueta') {
+      else if (key === 'Vencimiento') {
+        if (vencimiento.dias != null) item[key] = vencimiento.dias;
+        else if (vencimiento.invalido) item[key] = existing.Vencimiento;
+      } else if (key === 'Etiqueta') {
         item[key] = body[key] != null ? normalizarEtiqueta(body[key]) : normalizarEtiqueta(existing[key] ?? existing.Alias);
       } else if (key === 'Cif') {
         item[key] = cifValue;
