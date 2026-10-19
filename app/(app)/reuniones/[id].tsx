@@ -56,6 +56,7 @@ import { HistorialActividad } from '../../components/tasks/HistorialActividad';
 import {
   CabeceraMetaActa,
   ModalActaReunion,
+  ModalTranscripcionReunion,
   type MetaActaReunion,
 } from '../../components/tasks/ModalActaReunion';
 import { estilosFormTasks as form, estilosModalTasks as modal } from '../../components/tasks/estilosTasks';
@@ -171,6 +172,10 @@ export default function FichaReunionScreen() {
 
   const [historialVisible, setHistorialVisible] = useState(false);
   const [actaVisible, setActaVisible] = useState(false);
+  const [transcripcionVisible, setTranscripcionVisible] = useState(false);
+  const [transcripcionTexto, setTranscripcionTexto] = useState<string | null>(null);
+  const [transcripcionOrigen, setTranscripcionOrigen] = useState<string | null>(null);
+  const [cargandoTranscripcion, setCargandoTranscripcion] = useState(false);
   const [descargandoPdf, setDescargandoPdf] = useState(false);
 
   const puedeVer = puedeVerReuniones(acceso);
@@ -485,6 +490,33 @@ export default function FichaReunionScreen() {
     void cargarFicha();
   }
 
+  async function verTranscripcion() {
+    if (!idReunion || cargandoTranscripcion) return;
+    if (transcripcionTexto) {
+      setTranscripcionVisible(true);
+      return;
+    }
+    setCargandoTranscripcion(true);
+    try {
+      const res = await apiFetch(`/api/reuniones/${encodeURIComponent(idReunion)}/transcripcion`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          (data as { error?: string }).error || 'No se pudo leer la transcripción',
+        );
+      }
+      const cuerpo = data as { texto?: string; origen?: string | null };
+      setTranscripcionTexto(String(cuerpo.texto ?? ''));
+      setTranscripcionOrigen(cuerpo.origen ?? null);
+      setTranscripcionVisible(true);
+    } catch (e) {
+      console.error('[reuniones] fallo al leer la transcripción', e);
+      setMsgAccion(errorMessage(e, 'No se pudo leer la transcripción'));
+    } finally {
+      setCargandoTranscripcion(false);
+    }
+  }
+
   async function descargarPdfActa() {
     if (!idReunion || !(reunion?.resumen ?? '').trim() || descargandoPdf) return;
     setDescargandoPdf(true);
@@ -545,6 +577,10 @@ export default function FichaReunionScreen() {
     ? departamentos.nombrePorId(reunion.departamento_id)
     : '—';
   const resumenTexto = (reunion.resumen ?? '').trim();
+  const tieneTranscripcion = !!(reunion.transcripcion_s3_key ?? '').trim();
+  const transcripcionImportada =
+    transcripcionOrigen === 'importada' || reunion.origen_audio === 'transcripcion_importada';
+  const tituloTranscripcion = transcripcionImportada ? 'Transcripción importada' : 'Transcripción';
   const modalidadTxt = reunion.modalidad
     ? ETIQUETA_MODALIDAD_REUNION[reunion.modalidad] ?? reunion.modalidad
     : null;
@@ -641,6 +677,32 @@ export default function FichaReunionScreen() {
           </Text>
         )}
       </SeccionFicha>
+
+      {tieneTranscripcion ? (
+        <SeccionFicha titulo={tituloTranscripcion} icono="notes" variante="destacada">
+          <Text style={styles.vacioSeccion}>
+            {transcripcionImportada
+              ? 'Texto que se subió a la reunión. El acta de arriba es el resumen de la IA.'
+              : 'Texto de la transcripción del audio. El acta de arriba es el resumen de la IA.'}
+          </Text>
+          <TouchableOpacity
+            style={[styles.btnSecundario, isCompact && styles.btnSecundarioTactil]}
+            onPress={() => void verTranscripcion()}
+            disabled={cargandoTranscripcion}
+            accessibilityRole="button"
+            accessibilityLabel="Ver transcripción"
+          >
+            {cargandoTranscripcion ? (
+              <ActivityIndicator size="small" color="#0ea5e9" />
+            ) : (
+              <MaterialIcons name="visibility" size={16} color="#0ea5e9" />
+            )}
+            <Text style={styles.btnSecundarioTexto}>
+              {cargandoTranscripcion ? 'Cargando…' : 'Ver'}
+            </Text>
+          </TouchableOpacity>
+        </SeccionFicha>
+      ) : null}
 
       <SeccionPropuestasReunion
         idReunion={idReunion}
@@ -994,6 +1056,15 @@ export default function FichaReunionScreen() {
           departamentos={departamentos}
           onCerrar={() => setEditarVisible(false)}
           onGuardado={trasEdicion}
+        />
+      ) : null}
+
+      {transcripcionVisible && transcripcionTexto ? (
+        <ModalTranscripcionReunion
+          visible
+          onCerrar={() => setTranscripcionVisible(false)}
+          titulo={tituloTranscripcion}
+          texto={transcripcionTexto}
         />
       ) : null}
 

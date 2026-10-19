@@ -50,6 +50,7 @@ const PERMISO_POR_SINCRONIZACION = {
   formas_pago: 'ajustes.sincronizaciones.closeouts',
   almacenes: 'ajustes.sincronizaciones.almacenes',
   ventas_producto: 'ajustes.sincronizaciones.ventas_producto',
+  ventas_hora: 'ajustes.sincronizaciones.ventas_hora',
   empleados_factorial: 'ajustes.sincronizaciones.empleados',
 };
 

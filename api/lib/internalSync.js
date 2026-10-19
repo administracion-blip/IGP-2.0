@@ -22,6 +22,7 @@ export const INTERNAL_SYNC_POST_PATHS = new Set([
   '/api/compras/facturacion/rappel/generar',
   '/api/mia/stocks/sync',
   '/api/reuniones/pipeline/tick',
+  '/api/prevision-franjas/ventas-hora/sync',
 ]);
 
 /**

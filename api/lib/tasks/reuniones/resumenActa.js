@@ -140,6 +140,31 @@ export function textoDesdeCuerpoTranscripcion(cuerpo) {
   return trimmed;
 }
 
+/**
+ * Texto guardado más el origen (`importada` si se subió a mano).
+ * @param {string} cuerpo
+ * @returns {{ texto: string, origen: string | null, generado_en: string | null }}
+ */
+export function documentoDesdeCuerpoTranscripcion(cuerpo) {
+  const raw = String(cuerpo ?? '');
+  const trimmed = raw.trim();
+  if (!trimmed) return { texto: '', origen: null, generado_en: null };
+  let origen = null;
+  let generado_en = null;
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed?.origen === 'string' && parsed.origen.trim()) origen = parsed.origen.trim();
+      if (typeof parsed?.generado_en === 'string' && parsed.generado_en.trim()) {
+        generado_en = parsed.generado_en.trim();
+      }
+    } catch {
+      // el texto plano lo resuelve textoDesdeCuerpoTranscripcion
+    }
+  }
+  return { texto: textoDesdeCuerpoTranscripcion(trimmed), origen, generado_en };
+}
+
 async function leerObjetoS3ComoTexto(key) {
   const r = await s3.send(
     new GetObjectCommand({
@@ -157,6 +182,19 @@ async function leerObjetoS3ComoTexto(key) {
     chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
   }
   return Buffer.concat(chunks).toString('utf-8');
+}
+
+/**
+ * Documento de la transcripción guardada (texto subido o STT), no el acta.
+ * @param {object} reunion
+ */
+export async function cargarDocumentoTranscripcion(reunion) {
+  const key = texto(reunion?.transcripcion_s3_key);
+  if (!key) {
+    throw new Error('La reunión no tiene transcripcion_s3_key');
+  }
+  const cuerpo = await leerObjetoS3ComoTexto(key);
+  return documentoDesdeCuerpoTranscripcion(cuerpo);
 }
 
 /**

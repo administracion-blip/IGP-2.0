@@ -124,6 +124,7 @@ import {
   sanitizeAlbaranesConciliados,
   numeroFacturaParaConciliacion,
 } from '../lib/facturacion/albaranesConciliados.js';
+import { sanitizeAlbaranesFaltantes } from '../lib/facturacion/albaranesFaltantes.js';
 import { requirePermission, requireAnyPermission } from '../middleware/auth.js';
 import {
   empresasPermitidasDelUsuario,
@@ -2240,6 +2241,82 @@ router.put('/facturacion/facturas/:id/albaranes-conciliados', requirePermission(
         actualizado_en: ts,
       },
     });
+  } catch (err) {
+    responderError(res, err);
+  }
+});
+
+/**
+ * Reemplaza el array `albaranes_faltantes` de una factura IN (albaranes citados
+ * en la factura que no están en Ágora). A diferencia de los conciliados, se
+ * puede anotar después de validar la factura.
+ */
+// [SEC S-01]
+router.put('/facturacion/facturas/:id/albaranes-faltantes', requirePermission('facturacion.emitir'), async (req, res) => {
+  const id = req.params.id;
+  const body = req.body || {};
+  const { usuario_id, usuario_nombre } = usuarioAuditoria(req);
+
+  try {
+    const existing = await docClient.send(
+      new GetCommand({ TableName: tables.facturas, Key: await keyForFacturaPrincipalId(id) }),
+    );
+    if (!existing.Item) return res.status(404).json({ error: 'Factura no encontrada' });
+    // [SEC S-08]
+    if (await rejectFacturaEmisorNoPermitido(req, existing.Item, res)) return;
+
+    const factura = existing.Item;
+    if (String(factura.tipo || '').toUpperCase() !== 'IN') {
+      return res.status(400).json({ error: 'Solo facturas de tipo IN admiten albaranes que faltan' });
+    }
+    if (String(factura.estado || '').toLowerCase() === 'anulada') {
+      return res.status(409).json({ error: 'No se pueden anotar albaranes que faltan en una factura anulada' });
+    }
+
+    const sanitized = sanitizeAlbaranesFaltantes(body.albaranes_faltantes, {
+      ahoraIso: now(),
+      creado_por: req.user?.Nombre || req.user?.email || '',
+      creado_por_id: req.user?.sub || '',
+      previos: factura.albaranes_faltantes,
+    });
+    if (!sanitized.ok) {
+      return res.status(400).json({ error: sanitized.error });
+    }
+
+    const versionEsperada = body.version ?? null;
+    if (versionEsperada !== null && !(Number.isInteger(versionEsperada) && versionEsperada >= 1)) {
+      return res.status(400).json({ error: 'version debe ser un entero mayor o igual que 1' });
+    }
+
+    const ts = now();
+    let escrito;
+    try {
+      escrito = await docClient.send(
+        new UpdateCommand(updateFacturaVersionado(conClavesFactura({
+          Key: await keyForFacturaPrincipalId(id),
+          UpdateExpression: 'SET albaranes_faltantes = :a, actualizado_en = :ts',
+          ...(versionEsperada !== null && {
+            ConditionExpression: '#ver = :vEsp OR (attribute_not_exists(#ver) AND :vEsp = :verUno)',
+          }),
+          ExpressionAttributeValues: {
+            ':a': sanitized.items,
+            ':ts': ts,
+            ...(versionEsperada !== null && { ':vEsp': versionEsperada }),
+          },
+          ReturnValues: 'UPDATED_NEW',
+        }, factura))),
+      );
+    } catch (err) {
+      if (versionEsperada !== null && esConflictoEscritura(err)) throw errorFacturaCambiada();
+      throw err;
+    }
+
+    await registrarAuditoria(id, 'albaranes_faltantes', usuario_id, usuario_nombre, {
+      count: sanitized.items.length,
+      numeros: sanitized.items.map((x) => x.numero_norm),
+    });
+
+    res.json({ ok: true, albaranes_faltantes: sanitized.items, version: escrito?.Attributes?.version });
   } catch (err) {
     responderError(res, err);
   }

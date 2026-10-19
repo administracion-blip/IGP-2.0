@@ -108,6 +108,50 @@ export function CuerpoActaParseado({ texto }: { texto: string }) {
   );
 }
 
+/** Texto guardado en S3 (importado o del audio), no el acta de la IA. */
+export function ModalTranscripcionReunion({
+  visible,
+  onCerrar,
+  titulo,
+  texto,
+}: {
+  visible: boolean;
+  onCerrar: () => void;
+  titulo: string;
+  texto: string;
+}) {
+  const { isCompact } = useBreakpoint();
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCerrar}>
+      <Pressable style={modal.overlay} onPress={onCerrar}>
+        <Pressable
+          style={[modal.cardWrap, { maxWidth: 720 }, isCompact && modal.cardWrapAncho]}
+          onPress={(e) => e?.stopPropagation?.()}
+        >
+          <View style={modal.card}>
+            <View style={modal.header}>
+              <Text style={modal.title}>{titulo}</Text>
+              <TouchableOpacity
+                style={[modal.close, isCompact && { minWidth: MIN_TOUCH, minHeight: MIN_TOUCH }]}
+                onPress={onCerrar}
+                accessibilityLabel="Cerrar"
+              >
+                <MaterialIcons name="close" size={22} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={modal.body} contentContainerStyle={styles.cuerpo}>
+              <Text style={styles.transcripcion} selectable>
+                {texto}
+              </Text>
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 export function ModalActaReunion({
   visible,
   onCerrar,
@@ -166,5 +210,6 @@ const styles = StyleSheet.create({
   itemNum: { fontSize: 13, fontWeight: '700', color: '#0ea5e9', minWidth: 22 },
   itemTexto: { flex: 1, fontSize: 13, color: '#334155', lineHeight: 20 },
   parrafo: { fontSize: 13, color: '#334155', lineHeight: 20 },
+  transcripcion: { fontSize: 13, color: '#334155', lineHeight: 21 },
   vacio: { fontSize: 12, color: '#94a3b8' },
 });

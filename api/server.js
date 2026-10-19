@@ -100,6 +100,7 @@ import tareasRouter from './routes/tareas.js';
 import reunionesRouter from './routes/reuniones.js';
 import notificacionesRouter from './routes/notificaciones.js';
 import activosRouter from './routes/activos.js';
+import previsionRouter from './routes/prevision.js';
 
 // Valida variables críticas al arranque. Si falta alguna REQUIRED, aborta el proceso.
 validateEnv();
@@ -258,6 +259,7 @@ app.use('/api', tareasRouter);
 app.use('/api', reunionesRouter);
 app.use('/api', notificacionesRouter);
 app.use('/api', activosRouter);
+app.use('/api', previsionRouter);
 
 // --- Middleware central de errores: DEBE ir tras todos los routers ---
 app.use(errorHandler);

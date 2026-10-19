@@ -27,6 +27,7 @@ const CAJAS_ACCENTS: Record<string, { accentBg: string; accentFg: string; varian
   'comparativa-fechas-cajas': { accentBg: '#e0e7ff', accentFg: '#4f46e5' },
   objetivos: { accentBg: '#fce7f3', accentFg: '#db2777' },
   'franjas-horarias': { accentBg: '#d1fae5', accentFg: '#059669' },
+  'prevision-franjas': { accentBg: '#e0f2fe', accentFg: '#0369a1' },
   'control-excepciones': { accentBg: '#dbeafe', accentFg: '#2563eb' },
   top: { accentBg: '#cffafe', accentFg: '#0891b2' },
   cashflow: { accentBg: '#ffedd5', accentFg: '#d97706' },
@@ -41,6 +42,7 @@ const OPCIONES: OpcionCaja[] = [
   { id: 'comparativa-fechas-cajas', label: 'Comparativa Fechas Cajas', descripcion: 'Comparar cierres de caja entre fechas', icon: 'event', permiso: 'comparativa.ver' },
   { id: 'objetivos', label: 'Objetivos', descripcion: 'Objetivos de venta por local y periodo', icon: 'flag', permiso: 'objetivos.ver' },
   { id: 'franjas-horarias', label: 'Plantillas de franjas', descripcion: 'Plantillas horarias para objetivos', icon: 'schedule', permiso: 'objetivos.ver' },
+  { id: 'prevision-franjas', label: 'Previsión de ventas por franjas', descripcion: 'Venta y personal previstos por día y franja', icon: 'query-stats', permiso: 'prevision.ver' },
   { id: 'control-excepciones', label: 'Control de Excepciones', descripcion: 'Seguimiento de excepciones en cierres', icon: 'rule', permiso: 'excepciones.ver' },
   { id: 'top', label: 'Top', descripcion: 'Ranking de locales por ventas', icon: 'emoji-events', permiso: 'top.ver' },
   { id: 'cashflow', label: 'Cashflow', descripcion: 'Entradas, salidas, cobros y pagos fuera de caja', icon: 'trending-up', permiso: 'cashflow.ver' },
@@ -68,6 +70,7 @@ export default function CajasIndexScreen() {
     if (id === 'comparativa-fechas-cajas') router.push('/cajas/comparativa-fechas-cajas');
     if (id === 'objetivos') router.push('/cajas/objetivos');
     if (id === 'franjas-horarias') router.push('/cajas/franjas-horarias');
+    if (id === 'prevision-franjas') router.push('/cajas/prevision-franjas');
     if (id === 'control-excepciones') router.push('/cajas/control-excepciones');
     if (id === 'top') router.push('/cajas/top');
     if (id === 'cashflow') router.push('/cashflow');

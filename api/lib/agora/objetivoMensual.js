@@ -148,8 +148,17 @@ function diasIso(desde, hasta) {
  * @param {string} hasta YYYY-MM-DD
  */
 export async function loadFestivosByFecha(desde, hasta) {
+  return loadFestivosPorFechas(diasIso(desde, hasta));
+}
+
+/**
+ * Como `loadFestivosByFecha`, para una lista suelta de fechas YYYY-MM-DD.
+ * @param {string[]} fechas
+ */
+export async function loadFestivosPorFechas(fechas) {
   const map = new Map();
-  const dias = diasIso(desde, hasta);
+  const dias = [...new Set((Array.isArray(fechas) ? fechas : []).map((f) => String(f ?? '').slice(0, 10)))]
+    .filter((f) => RE_FECHA.test(f));
   if (!dias.length) return map;
   try {
     for (let i = 0; i < dias.length; i += 100) {

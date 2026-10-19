@@ -11,7 +11,8 @@ import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../../db.js';
 import { PK, SK } from '../tipos.js';
 import { ACCIONES, registrarActividad } from '../actividad.js';
-import { cargarParaGestionar } from '../reuniones.js';
+import { cargarParaGestionar, cargarParaVer } from '../reuniones.js';
+import { cargarDocumentoTranscripcion } from './resumenActa.js';
 import { pipelineYaIniciado } from './audio.js';
 import { hashTexto } from './hashTexto.js';
 import { claveTranscripcionReunion } from './transcripcionAws.js';
@@ -94,6 +95,40 @@ async function leerMeta(id) {
     }),
   );
   return res.Item || null;
+}
+
+/**
+ * Lee la transcripción guardada en S3 (la subida o la del STT), no el resumen de la IA.
+ *
+ * @param {object} ctx
+ * @param {string} idReunion
+ */
+export async function obtenerTranscripcionReunion(ctx, idReunion) {
+  const cargado = await cargarParaVer(ctx, idReunion);
+  if (!cargado.ok) return cargado.fallo;
+
+  if (!texto(cargado.reunion?.transcripcion_s3_key)) {
+    return rechazar(404, 'Esta reunión no tiene transcripción guardada');
+  }
+
+  let doc;
+  try {
+    doc = await cargarDocumentoTranscripcion(cargado.reunion);
+  } catch (err) {
+    console.error('[reuniones] no se pudo leer la transcripción', err?.message || err);
+    return rechazar(502, 'No se pudo leer la transcripción');
+  }
+
+  if (!texto(doc?.texto)) {
+    return rechazar(404, 'La transcripción guardada está vacía');
+  }
+
+  return {
+    ok: true,
+    texto: doc.texto,
+    origen: doc.origen,
+    generado_en: doc.generado_en,
+  };
 }
 
 /**

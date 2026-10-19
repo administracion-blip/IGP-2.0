@@ -248,6 +248,16 @@ export const tables = {
    * Activos — correlativos de etiqueta por categoría. PK CAT#<id>, SK CONTADOR.
    */
   activosContadores: process.env.DDB_ACTIVOS_CONTADORES || 'Igp_ActivosContadores',
+  /**
+   * Venta por hora de días cerrados (facturas de Ágora agregadas).
+   * PK = workplaceId (agoraCode), SK = businessDay (YYYY-MM-DD). Sin GSI.
+   */
+  ventasHora: process.env.DDB_VENTAS_HORA_TABLE || 'Igp_VentasHora',
+  /**
+   * Escenarios guardados de Previsión de ventas por franjas.
+   * PK = USER#<id_usuario> | GLOBAL, SK = ESC#<uuid>. Sin GSI.
+   */
+  previsionEscenarios: process.env.DDB_PREVISION_ESCENARIOS_TABLE || 'Igp_PrevisionEscenarios',
 };
 
 /**

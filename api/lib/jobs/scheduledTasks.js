@@ -28,6 +28,8 @@ import { leerAjustesPipeline } from '../tasks/reuniones/pipelineTick.js';
 import { arrastrarTareasVencidas } from '../tasks/arrastreVencimiento.js';
 import { fechaHoyMadrid } from '../tasks/tareas.js';
 import { traerCambiosDesdeCalendar } from '../tasks/syncCalendarEntrante.js';
+import { jornadaNegocioHoyIso } from '../usuarioLocales.js';
+import { sumarDias } from '../prevision/franjas.js';
 
 const tableAjustesName = tables.ajustes;
 
@@ -74,6 +76,15 @@ const SYNC_ENDPOINTS = {
   almacenes: { path: '/api/agora/warehouses/sync', body: {} },
   formas_pago: { path: '/api/agora/payment-methods/sync', body: {} },
   mia_stocks: { path: '/api/mia/stocks/sync', body: { force: true } },
+  // Recalcula los 3 últimos días cerrados de todos los locales. Solo corre si se
+  // activa en Ajustes (Igp_Ajustes PK 'sincronizaciones', SK 'ventas_hora').
+  ventas_hora: {
+    path: '/api/prevision-franjas/ventas-hora/sync',
+    body: () => {
+      const hoy = jornadaNegocioHoyIso();
+      return { fechaDesde: sumarDias(hoy, -3), fechaHasta: sumarDias(hoy, -1), force: true };
+    },
+  },
 };
 
 const DAY_MAP = { 0: 'sun', 1: 'mon', 2: 'tue', 3: 'wed', 4: 'thu', 5: 'fri', 6: 'sat' };
@@ -109,7 +120,7 @@ export async function checkAutoSyncs(port) {
         const r = await fetch(`http://127.0.0.1:${port}${ep.path}`, {
           method: 'POST',
           headers: internalSyncFetchHeaders(),
-          body: JSON.stringify(ep.body),
+          body: JSON.stringify(typeof ep.body === 'function' ? ep.body() : ep.body),
         });
         const d = await r.json();
 

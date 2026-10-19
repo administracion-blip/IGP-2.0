@@ -302,19 +302,26 @@ export default function ModalElegirMovimientoConciliacion({
                     return (
                       <TouchableOpacity
                         key={m.movementHash}
-                        style={[styles.fila, activo && styles.filaActiva]}
+                        style={[styles.fila, cuadra && styles.filaCuadra, activo && styles.filaActiva]}
                         onPress={() => setElegido(m.movementHash)}
                       >
                         <View style={{ flex: 1, minWidth: 0 }}>
                           <Text style={styles.filaConcepto} numberOfLines={1}>
                             {conceptoCortoMovimiento(m) || 'Sin concepto'}
-                            {cuadra ? ' · Cuadra' : ''}
                           </Text>
                           <Text style={styles.filaMeta}>
                             {formatFecha(m.fechaOperacion || '')} · libre {formatMoneda(libre)}
                           </Text>
+                          {cuadra ? (
+                            <View style={styles.badgeCuadra}>
+                              <MaterialIcons name="check-circle" size={12} color="#16a34a" />
+                              <Text style={styles.badgeCuadraText}>Cuadra</Text>
+                            </View>
+                          ) : null}
                         </View>
-                        <Text style={styles.filaImporte}>{formatMoneda(importeMovimiento(m))}</Text>
+                        <Text style={[styles.filaImporte, cuadra && styles.filaImporteCuadra, activo && styles.filaImporteActiva]}>
+                          {formatMoneda(importeMovimiento(m))}
+                        </Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -401,10 +408,27 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#eef1f5',
   },
-  filaActiva: { backgroundColor: '#e0f2fe', borderRadius: 8 },
+  filaCuadra: {
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#16a34a',
+    borderRadius: 8,
+    borderBottomWidth: 1,
+  },
+  filaActiva: {
+    backgroundColor: '#fdf2f8',
+    borderWidth: 1,
+    borderColor: '#f9a8d4',
+    borderRadius: 8,
+    borderBottomWidth: 1,
+  },
   filaConcepto: { fontSize: 13, color: '#334155', fontWeight: '600' },
   filaMeta: { fontSize: 11, color: '#64748b', marginTop: 2 },
   filaImporte: { fontSize: 13, fontWeight: '700', color: '#334155' },
+  filaImporteCuadra: { color: '#16a34a' },
+  filaImporteActiva: { color: '#be185d' },
+  badgeCuadra: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
+  badgeCuadraText: { fontSize: 11, fontWeight: '700', color: '#16a34a' },
   aviso: { fontSize: 13, color: '#b45309', marginVertical: 12, lineHeight: 18 },
   hayMas: { fontSize: 11, color: '#d97706', fontWeight: '600', marginBottom: 6 },
   footer: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 12 },

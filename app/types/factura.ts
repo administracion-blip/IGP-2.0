@@ -16,6 +16,9 @@
 
 import type { Factura } from '../utils/facturacion';
 import type { RemesaActivaFactura } from './remesas';
+import type { AlbaranFaltante } from './albaranesFaltantes';
+
+export type { AlbaranFaltante } from './albaranesFaltantes';
 
 export type {
   Factura,
@@ -57,6 +60,10 @@ export type FacturaListado = {
   id_factura: string;
   /** Presente si la factura IN está en una remesa Borrador/Generada */
   remesaActiva?: RemesaActivaFactura | null;
+  /** Albaranes citados en la factura IN que no están en Ágora (anotados a mano). */
+  albaranes_faltantes?: AlbaranFaltante[];
+  /** Versión del ítem (bloqueo optimista en PUT de albaranes que faltan). */
+  version?: number;
 } & Partial<Pick<Factura,
   | 'estado'
   | 'fecha_emision'

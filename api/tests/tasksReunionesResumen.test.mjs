@@ -147,6 +147,19 @@ test('textoDesdeCuerpoTranscripcion lee JSON de 2D', () => {
   assert.equal(textoDesdeCuerpoTranscripcion(cuerpo), 'Hablante 1: Hola');
 });
 
+test('documentoDesdeCuerpoTranscripcion conserva el texto importado y su origen', async () => {
+  const { documentoDesdeCuerpoTranscripcion } = await import('../lib/tasks/reuniones/resumenActa.js');
+  const cuerpo = JSON.stringify({
+    texto: 'Juan: quedamos el martes',
+    origen: 'importada',
+    generado_en: '2026-10-19T10:00:00.000Z',
+  });
+  const doc = documentoDesdeCuerpoTranscripcion(cuerpo);
+  assert.equal(doc.texto, 'Juan: quedamos el martes');
+  assert.equal(doc.origen, 'importada');
+  assert.equal(doc.generado_en, '2026-10-19T10:00:00.000Z');
+});
+
 test('tick transcrita → acta_borrador con propuestas y puntos (mock IA)', async () => {
   const db = montar();
   activarPipeline(db);

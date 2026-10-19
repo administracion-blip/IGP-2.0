@@ -10,6 +10,7 @@ export default function CajasLayout() {
       <Stack.Screen name="comparativa-fechas-cajas" />
       <Stack.Screen name="objetivos" />
       <Stack.Screen name="franjas-horarias" />
+      <Stack.Screen name="prevision-franjas" />
       <Stack.Screen name="control-excepciones" />
       <Stack.Screen name="efectivo-ingresar" />
       <Stack.Screen name="top" />

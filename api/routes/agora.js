@@ -60,6 +60,11 @@ import {
 } from '../lib/dynamo/comprasProveedor.js';
 import { aplicarClavesGsi, clavesComprasProveedor } from '../lib/clavesIndice.js';
 import {
+  validarConsultas,
+  comprobarAlbaranesFaltantes,
+  invalidarCacheComprobacionAlbaranes,
+} from '../lib/compras/albaranesFaltantesComprobar.js';
+import {
   getLastSalesLinesSync,
   setLastSalesLinesSync,
   shouldSkipSalesLinesSyncByThrottle,
@@ -81,6 +86,7 @@ import { filtrarLecturaPorLocal, permiteLecturaLocal, workplacesLectura } from '
 import { MENSAJE_SIN_ACCESO_LOCAL, maestroLocales, cargarAlcance, modoLecturas } from '../lib/alcance.js';
 import { invalidarMapaAlmacenes } from '../lib/alcanceAlmacenes.js';
 import { buildObjetivoMensualCard, loadFestivosByFecha } from '../lib/agora/objetivoMensual.js';
+import { agregarFacturasPorHora } from '../lib/agora/ventasHoraStore.js';
 import {
   buildExcepcionesFromInvoices,
   pickUserId,
@@ -3422,15 +3428,6 @@ function salesByHourCacheSet(key, value) {
   SALES_BY_HOUR_CACHE.set(key, { ...value, cachedAt: Date.now() });
 }
 
-/** Extrae la hora (0-23) de un string de fecha/hora de Ágora (ISO o "YYYY-MM-DD HH:MM:SS"). */
-function horaDesdeFecha(fechaStr) {
-  if (!fechaStr) return null;
-  const m = String(fechaStr).match(/[T\s](\d{2}):\d{2}/);
-  if (!m) return null;
-  const h = parseInt(m[1], 10);
-  return Number.isInteger(h) && h >= 0 && h <= 23 ? h : null;
-}
-
 router.get('/agora/invoices/sales-by-hour', requireLocalLectura(desde.query('workplaceId')), async (req, res) => {
   const workplaceId = String(req.query.workplaceId ?? '').trim();
   const businessDay = String(req.query.businessDay ?? '').trim();
@@ -3455,21 +3452,7 @@ router.get('/agora/invoices/sales-by-hour', requireLocalLectura(desde.query('wor
     return responderError(res, err, { mensaje: 'No se pudieron obtener facturas de Ágora', status: 502 });
   }
   const invoices = extractCloseOutsArray(data, ['Invoices', 'invoices']);
-
-  const porHora = {};
-  let totalDia = 0;
-  let nFacturas = 0;
-  for (const inv of invoices) {
-    const fecha = inv?.Date ?? inv?.date ?? inv?.DateTime ?? inv?.dateTime;
-    const hora = horaDesdeFecha(fecha);
-    const gross = toNumberSafe(
-      inv?.Totals?.GrossAmount ?? inv?.totals?.grossAmount ?? inv?.GrossAmount ?? inv?.grossAmount
-    );
-    if (hora == null || !(gross > 0)) continue;
-    porHora[hora] = (porHora[hora] ?? 0) + gross;
-    totalDia += gross;
-    nFacturas++;
-  }
+  const { porHora, totalDia, nFacturas } = agregarFacturasPorHora(invoices, { toNum: toNumberSafe });
 
   const payload = { businessDay, workplaceId, porHora, totalDia, nFacturas };
   salesByHourCacheSet(cacheKey, { payload });
@@ -4389,6 +4372,7 @@ function purchasesCacheKey(dateFrom, dateTo) {
 
 function invalidatePurchasesCache() {
   _purchasesCache.clear();
+  invalidarCacheComprobacionAlbaranes();
 }
 
 /**
@@ -4448,6 +4432,18 @@ router.get('/agora/purchases', async (req, res) => {
 
     return res.json({ ...payload, cached: false });
   }
+});
+
+/**
+ * Busca nº de documento del proveedor de «albaranes que faltan» en las compras
+ * del año. Sin filtro de alcance, como `GET /agora/purchases`. 400 solo si el
+ * lote no vale; una consulta suelta inválida devuelve sus números con
+ * `error: 'consulta_invalida'` (ver `validarConsultas`).
+ */
+router.post('/compras/albaranes-faltantes/comprobar', requirePermission('compras_proveedor.ver'), async (req, res) => {
+  const v = validarConsultas(req.body);
+  if (!v.ok) return res.status(400).json({ error: v.error });
+  return res.json(await comprobarAlbaranesFaltantes(v.consultas));
 });
 
 router.post('/agora/purchases/sync', requireAnyPermission('ajustes.sincronizaciones.compras_proveedor', 'compras_proveedor.sincronizar'), async (req, res) => {

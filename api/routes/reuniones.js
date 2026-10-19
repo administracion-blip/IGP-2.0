@@ -42,7 +42,10 @@ import {
 import { presignarAudioReunion } from '../lib/tasks/reuniones/audio.js';
 import { procesarAudioReunion } from '../lib/tasks/reuniones/pipeline.js';
 import { ejecutarTickPipeline } from '../lib/tasks/reuniones/pipelineTick.js';
-import { importarTranscripcionReunion } from '../lib/tasks/reuniones/importarTranscripcion.js';
+import {
+  importarTranscripcionReunion,
+  obtenerTranscripcionReunion,
+} from '../lib/tasks/reuniones/importarTranscripcion.js';
 import {
   listarPropuestasDeReunion,
   listarPropuestasPendientes,
@@ -186,6 +189,16 @@ router.post(
     });
     if (fallo(res, r)) return;
     return res.json({ ok: true, ya_iniciado: r.ya_iniciado, reunion: r.reunion });
+  },
+);
+
+router.get(
+  '/reuniones/:id/transcripcion',
+  requirePermission(PERMISOS.reunionesVer),
+  async (req, res) => {
+    const r = await obtenerTranscripcionReunion(await contexto(req), req.params.id);
+    if (fallo(res, r)) return;
+    return res.json({ texto: r.texto, origen: r.origen, generado_en: r.generado_en });
   },
 );
 

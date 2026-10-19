@@ -281,14 +281,14 @@ const COLUMNAS = [
   'numero_factura_proveedor',
   'total_factura',
   'forma_pago',
+  'saldo_pendiente',
   'proveedor_etiquetas',
+  'estado',
   'base_imponible',
   'iva_tipo',
   'total_iva',
   'total_retencion',
-  'estado',
   'pagado',
-  'saldo_pendiente',
   'fecha_contabilizacion',
 ] as const;
 
@@ -331,7 +331,7 @@ const DEFAULT_WIDTHS: Record<string, number> = {
   total_iva: 68,
   total_retencion: 80,
   total_factura: 88,
-  estado: 168,
+  estado: 112,
   pagado: 108,
   saldo_pendiente: 88,
 };
@@ -2458,22 +2458,20 @@ export default function FacturasGastoScreen() {
                         const marca = rel && rel.tipo !== 'futura' ? rel : null;
                         return (
                           <View key={col} style={[styles.cell, { width: getColWidth(col) }]}>
-                            <Text style={styles.cellText} numberOfLines={1}>
-                              {vencIso ? formatFecha(vencIso) : '—'}
-                            </Text>
+                            <View style={styles.vencimientoChip}>
+                              <Text
+                                style={[styles.vencimientoChipText, shouldUseComfortableTable && styles.vencimientoChipTextComodo]}
+                                numberOfLines={1}
+                              >
+                                {vencIso ? formatFecha(vencIso) : 'sin vencimiento'}
+                              </Text>
+                            </View>
                             {marca ? (
                               <Text
                                 style={[styles.vencMarca, shouldUseComfortableTable && styles.vencMarcaComodo, { color: marca.color }]}
                                 numberOfLines={1}
                               >
                                 {textoCortoEstadoVencimiento(marca)}
-                              </Text>
-                            ) : deudaViva && !vencIso ? (
-                              <Text
-                                style={[styles.vencMarca, shouldUseComfortableTable && styles.vencMarcaComodo, styles.vencMarcaGris]}
-                                numberOfLines={1}
-                              >
-                                sin vencimiento
                               </Text>
                             ) : null}
                           </View>
@@ -2530,6 +2528,7 @@ export default function FacturasGastoScreen() {
                               col === 'total_factura' && styles.cellTextBold,
                               col === 'empresa_nombre' && styles.cellTextBold,
                               col === 'numero_factura_proveedor' && styles.cellTextBold,
+                              col === 'fecha_emision' && styles.cellTextBold,
                             ]}
                             numberOfLines={1}
                             ellipsizeMode="tail"
@@ -3355,7 +3354,23 @@ const styles = StyleSheet.create({
   cellTextBold: { fontWeight: '700', color: '#334155' },
   vencMarca: { fontSize: FONT.compacto.label, fontWeight: '600', lineHeight: 14 },
   vencMarcaComodo: { fontSize: FONT.comodo.small, lineHeight: 16 },
-  vencMarcaGris: { color: '#94a3b8', fontWeight: '400' },
+  vencimientoChip: {
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    backgroundColor: '#f1f5f9',
+    borderColor: '#e2e8f0',
+  },
+  vencimientoChipText: {
+    fontSize: 10,
+    fontWeight: '600',
+    lineHeight: 13,
+    color: '#475569',
+  },
+  vencimientoChipTextComodo: { fontSize: FONT.comodo.small, lineHeight: 16 },
   trimestreChip: {
     alignSelf: 'flex-start',
     paddingHorizontal: 6,
@@ -3538,5 +3553,5 @@ const styles = StyleSheet.create({
   cellPagadoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0, justifyContent: 'flex-end' },
   cellTextFlex: { flex: 1, minWidth: 0 },
   cellPagadoIconBtn: { padding: 2 },
-  estadoBadgesRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
+  estadoBadgesRow: { flexDirection: 'column', alignItems: 'flex-start', gap: 2, maxWidth: '100%' },
 });

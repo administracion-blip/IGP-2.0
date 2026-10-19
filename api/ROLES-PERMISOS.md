@@ -154,6 +154,9 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `objetivos.ver` | Objetivos · Ver |
 | `objetivos.compartir` | Objetivos · Compartir |
 | `franjas.editar` | Plantillas de franjas horarias · Crear, editar y borrar (son globales del grupo) |
+| `prevision.ver` | Previsión de ventas por franjas · Calcular (`POST /api/prevision-franjas/calcular`, solo locales del alcance) y gestionar escenarios propios |
+| `prevision.escenarios_globales` | Previsión de ventas por franjas · Crear, editar y borrar escenarios globales (además de `prevision.ver`) |
+| `ajustes.sincronizaciones.ventas_hora` | Ajustes · Sincronizar venta por hora (Igp_VentasHora) desde Ágora; exige además alcance a todos los locales |
 | `excepciones.ver` | Control de excepciones · Ver |
 | `excepciones.exportar` | Control de excepciones · Exportar |
 | `top.ver` | Top · Ver |
@@ -228,6 +231,10 @@ En la matriz aparecen dentro de su familia (Acuerdos, Facturación, Compras, etc
 | `reuniones.gestionar` | Reuniones · Convocar, editar el acta y validar propuestas |
 | `reuniones.ver_direccion` | Reuniones · Ver las de `visibilidad = direccion` |
 | `reuniones.borrar_audio` | Reuniones · Borrar el audio conservando transcripción y acta |
+
+Los permisos de Previsión (`prevision.ver`, `prevision.escenarios_globales`,
+`ajustes.sincronizaciones.ventas_hora`) se asignan a SuperUser y Administracion con
+`node api/scripts/seed-permisos-prevision.js --aplicar` (sin `--aplicar` solo simula).
 
 Propuesta `escandallos.ver` / `escandallos.editar` (solo catálogo; **no asignar a roles en Dynamo** desde este cambio): SuperUser y Administracion. Administrador ya tiene todos los permisos. Local, Socio y Marketing: no.
 

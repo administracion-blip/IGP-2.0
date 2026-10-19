@@ -15,6 +15,7 @@ import { ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { docClient, tables } from '../db.js';
 import { usuarioPuedeAccederLocal, jornadaNegocioInformeDefaultIso } from '../usuarioLocales.js';
 import { exportInvoices } from './client.js';
+import { agregarFacturasPorHora, extraerFacturas } from './ventasHoraStore.js';
 
 /** Tramos horarios fijos para ayudar a la narración (hostelería). */
 const FRANJAS = [
@@ -32,29 +33,6 @@ function round2(n) {
 function toNum(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
-}
-
-/** Extrae la hora (0-23) de una fecha/hora de Ágora (ISO o "YYYY-MM-DD HH:MM:SS"). */
-function horaDesdeFecha(fechaStr) {
-  if (!fechaStr) return null;
-  const m = String(fechaStr).match(/[T\s](\d{2}):\d{2}/);
-  if (!m) return null;
-  const h = parseInt(m[1], 10);
-  return Number.isInteger(h) && h >= 0 && h <= 23 ? h : null;
-}
-
-/** Localiza el array de facturas dentro de la respuesta de Ágora. */
-function extraerFacturas(data) {
-  if (!data) return [];
-  const unwrap = (d) => d?.Data ?? d?.data ?? d?.Result ?? d?.result ?? d?.Export ?? d?.export ?? d;
-  const cur = unwrap(data);
-  for (const key of ['Invoices', 'invoices']) {
-    const v = cur?.[key];
-    if (Array.isArray(v)) return v;
-    if (Array.isArray(v?.Items)) return v.Items;
-    if (Array.isArray(v?.items)) return v.items;
-  }
-  return Array.isArray(cur) ? cur : [];
 }
 
 async function scanLocales() {
@@ -193,20 +171,11 @@ export async function buildVentasPorHora(user, params = {}) {
         console.warn('[ia/ventas-hora] Ágora falló para', v.workplaceId, fecha, err.message || err);
         return { localId: v.localId, nombre: v.nombre, total: 0, nFacturas: 0, porHora: {}, sinDatos: true };
       }
-      const facturas = extraerFacturas(data);
+      const agg = agregarFacturasPorHora(extraerFacturas(data), { toNum });
       const horas = new Array(24).fill(0);
-      let total = 0;
-      let n = 0;
-      for (const inv of facturas) {
-        const hora = horaDesdeFecha(inv?.Date ?? inv?.date ?? inv?.DateTime ?? inv?.dateTime);
-        const gross = toNum(
-          inv?.Totals?.GrossAmount ?? inv?.totals?.grossAmount ?? inv?.GrossAmount ?? inv?.grossAmount,
-        );
-        if (hora == null || !(gross > 0)) continue;
-        horas[hora] += gross;
-        total += gross;
-        n += 1;
-      }
+      for (const [h, v] of Object.entries(agg.porHora)) horas[Number(h)] = v;
+      const total = agg.totalDia;
+      const n = agg.nFacturas;
       for (let h = 0; h < 24; h += 1) grupoHoras[h] += horas[h];
       grupoTotal += total;
       grupoFacturas += n;

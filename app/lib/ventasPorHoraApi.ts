@@ -107,12 +107,15 @@ function aMinutos(hhmm: string): number {
 /**
  * Suma el importe de un mapa hora→importe dentro de una franja [desde, hasta).
  * Si `hasta` <= `desde` (franja nocturna, p. ej. 22:00→02:00) se considera que cruza medianoche.
- * El reparto es por hora completa (granularidad del dato de Ágora).
+ * El reparto es por hora completa (granularidad del dato de Ágora): cada hora va a la franja que
+ * contiene su minuto :00. Un inicio HH:01 cuenta como HH:00 (18:01–21:00 incluye la hora 18) sin
+ * duplicar horas entre franjas encadenadas. Misma regla que `horasDeFranja` en el backend.
  */
 function sumarFranja(porHora: Record<string, number>, franja: Franja): number {
-  const ini = aMinutos(franja.desde);
+  const desde = aMinutos(franja.desde);
+  const ini = desde % 60 === 1 ? desde - 1 : desde;
   const fin = aMinutos(franja.hasta);
-  const cruzaMedianoche = fin <= ini;
+  const cruzaMedianoche = fin <= desde;
   let total = 0;
   for (let h = 0; h <= 23; h++) {
     const minutoHora = h * 60;

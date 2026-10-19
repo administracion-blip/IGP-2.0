@@ -35,6 +35,12 @@ type Props = {
   buscadorPlaceholder?: string;
   /** Trigger más bajo y tipografía reducida (formularios densos). */
   compact?: boolean;
+  /**
+   * Si se indica, el disparador es una pastilla con este texto (p. ej. «+ Local»)
+   * y no resume la selección. La lista modal no cambia.
+   */
+  etiquetaBoton?: string;
+  triggerStyle?: StyleProp<ViewStyle>;
 };
 
 /**
@@ -57,6 +63,8 @@ export function SelectorDesplegableMulti({
   buscador,
   buscadorPlaceholder = 'Buscar…',
   compact = false,
+  etiquetaBoton,
+  triggerStyle,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [filtro, setFiltro] = useState('');
@@ -98,36 +106,54 @@ export function SelectorDesplegableMulti({
   return (
     <View style={style}>
       {label ? <Text style={[styles.label, compact && styles.labelCompact]}>{label}</Text> : null}
-      <TouchableOpacity
-        style={[
-          styles.trigger,
-          compact && styles.triggerCompact,
-          open && styles.triggerActive,
-          disabled && styles.triggerDisabled,
-        ]}
-        onPress={() => !disabled && setOpen(true)}
-        activeOpacity={0.7}
-        disabled={disabled}
-      >
-        {icono ? (
-          <MaterialIcons name={icono} size={compact ? 14 : 16} color={seleccionadas.length > 0 ? '#0ea5e9' : '#94a3b8'} />
-        ) : null}
-        <View style={styles.triggerTextWrap}>
+      {etiquetaBoton ? (
+        <TouchableOpacity
+          style={[styles.botonAnadir, triggerStyle, open && styles.botonAnadirActivo, disabled && styles.triggerDisabled]}
+          onPress={() => !disabled && setOpen(true)}
+          activeOpacity={0.7}
+          disabled={disabled}
+          accessibilityLabel={etiquetaBoton}
+        >
           {loading ? (
-            <Text style={[styles.placeholder, compact && styles.textCompact]}>Cargando…</Text>
-          ) : resumen ? (
-            <Text style={[styles.value, compact && styles.textCompact]} numberOfLines={1}>{resumen}</Text>
+            <ActivityIndicator size="small" color="#0369a1" />
           ) : (
-            <Text style={[styles.placeholder, compact && styles.textCompact]} numberOfLines={1}>{placeholder}</Text>
+            <MaterialIcons name="add" size={18} color="#0369a1" />
           )}
-        </View>
-        {seleccionadas.length > 1 ? (
-          <View style={[styles.countBadge, compact && styles.countBadgeCompact]}>
-            <Text style={[styles.countBadgeText, compact && styles.countBadgeTextCompact]}>{seleccionadas.length}</Text>
+          <Text style={styles.botonAnadirText}>{loading ? 'Cargando…' : etiquetaBoton}</Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          style={[
+            styles.trigger,
+            compact && styles.triggerCompact,
+            triggerStyle,
+            open && styles.triggerActive,
+            disabled && styles.triggerDisabled,
+          ]}
+          onPress={() => !disabled && setOpen(true)}
+          activeOpacity={0.7}
+          disabled={disabled}
+        >
+          {icono ? (
+            <MaterialIcons name={icono} size={compact ? 14 : 16} color={seleccionadas.length > 0 ? '#0ea5e9' : '#94a3b8'} />
+          ) : null}
+          <View style={styles.triggerTextWrap}>
+            {loading ? (
+              <Text style={[styles.placeholder, compact && styles.textCompact]}>Cargando…</Text>
+            ) : resumen ? (
+              <Text style={[styles.value, compact && styles.textCompact]} numberOfLines={1}>{resumen}</Text>
+            ) : (
+              <Text style={[styles.placeholder, compact && styles.textCompact]} numberOfLines={1}>{placeholder}</Text>
+            )}
           </View>
-        ) : null}
-        <MaterialIcons name={open ? 'arrow-drop-up' : 'arrow-drop-down'} size={compact ? 20 : 22} color="#64748b" />
-      </TouchableOpacity>
+          {seleccionadas.length > 1 ? (
+            <View style={[styles.countBadge, compact && styles.countBadgeCompact]}>
+              <Text style={[styles.countBadgeText, compact && styles.countBadgeTextCompact]}>{seleccionadas.length}</Text>
+            </View>
+          ) : null}
+          <MaterialIcons name={open ? 'arrow-drop-up' : 'arrow-drop-down'} size={compact ? 20 : 22} color="#64748b" />
+        </TouchableOpacity>
+      )}
 
       {open && (
         <Modal visible transparent animationType="fade" onRequestClose={cerrar}>
@@ -269,6 +295,27 @@ const styles = StyleSheet.create({
   },
   triggerActive: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
   triggerDisabled: { opacity: 0.6 },
+  botonAnadir: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 2,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    minHeight: 36,
+  },
+  botonAnadirActivo: {
+    backgroundColor: '#f0f9ff',
+    borderColor: '#7dd3fc',
+  },
+  botonAnadirText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0369a1',
+  },
   triggerTextWrap: { flex: 1, minWidth: 0, overflow: 'hidden' },
   value: {
     fontSize: 13,

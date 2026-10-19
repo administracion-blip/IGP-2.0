@@ -36,6 +36,8 @@ import { useAjustesFacturacionCompras } from '../hooks/useAjustesFacturacionComp
 import { normalizarIdEmpresa, type EmpresaMaestro } from '../lib/empresaId';
 import { labelPeriodo } from '../lib/facturacionPeriodica';
 import type { SerieFactura } from '../utils/facturacion';
+import { fechaJornadaNegocioIso } from '../lib/jornadaNegocio';
+import { sumarDiasIso } from '../lib/previsionFranjasApi';
 
 /** Límite aproximado para caber en un ítem DynamoDB (~400 KB con base64). */
 const MAX_IMAGEN_BASE64_LENGTH = 380000;
@@ -101,6 +103,18 @@ const SYNC_ITEMS: SyncConfig[] = [
     permiso: 'ajustes.sincronizaciones.ventas_producto',
     descripcion: 'Líneas de venta de Agora (incentivos, planning…). El automático sincroniza el día anterior.',
     bodyBuilder: () => ({ force: true }),
+  },
+  {
+    id: 'ventas_hora',
+    label: 'Ventas por hora (previsión)',
+    icon: 'query-stats',
+    endpoint: '/api/prevision-franjas/ventas-hora/sync',
+    permiso: 'ajustes.sincronizaciones.ventas_hora',
+    descripcion: 'Histórico de ventas por hora de Ágora para la previsión por franjas. Trae los 3 últimos días cerrados.',
+    bodyBuilder: () => {
+      const hoy = fechaJornadaNegocioIso();
+      return { fechaDesde: sumarDiasIso(hoy, -3), fechaHasta: sumarDiasIso(hoy, -1), force: true };
+    },
   },
   {
     id: 'empleados_factorial',
@@ -740,6 +754,10 @@ export default function AjustesScreen() {
         resultMsg = `Registros obtenidos: ${data.totalFetched} | Guardados: ${data.totalUpserted ?? 0}`;
       } else if (data.upserted != null) {
         resultMsg = `Sincronizados: ${data.upserted}`;
+      } else if (data.traidos != null) {
+        resultMsg =
+          `${data.dias ?? 0} días · ${data.locales ?? 0} locales · Traídos: ${data.traidos} | Ya guardados: ${data.existentes ?? 0}`
+          + (data.ok ? '' : ` · ${data.error || 'con errores'}`);
       } else {
         resultMsg = data.ok ? 'Sincronización completada' : (data.error || 'Error desconocido');
       }

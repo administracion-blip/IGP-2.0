@@ -81,6 +81,10 @@ import {
   toneChipFacturaConciliacion,
   serieNumeroDesdeKey,
 } from '../../lib/conciliacionAsignacion';
+import type { AlbaranFaltante, CoincidenciaAgora } from '../../types/albaranesFaltantes';
+import { useAutoComprobarAlbaranesFaltantes } from '../../hooks/useAutoComprobarAlbaranesFaltantes';
+import { ModalAlbaranesFaltantes } from '../../components/compras/ModalAlbaranesFaltantes';
+import { InformeAlbaranesFaltantesModal } from '../../components/compras/InformeAlbaranesFaltantesModal';
 
 /**
  * Umbral absoluto (€) para considerar que albaranes y facturas «cuadran».
@@ -520,9 +524,15 @@ export default function ConciliacionFacturasScreen() {
   asignacionesSesionRef.current = asignacionesSesion;
   const facturasRef = useRef<FacturaListado[]>([]);
   facturasRef.current = facturas;
+  /** Sube en cada carga completa de facturas: relanza la comprobación de albaranes que faltan. */
+  const [tokenRecargaAF, setTokenRecargaAF] = useState(0);
+  /** Factura cuyo panel «Albaranes que faltan» está abierto. */
+  const [afFacturaId, setAfFacturaId] = useState<string | null>(null);
+  const [informeAFVisible, setInformeAFVisible] = useState(false);
 
   const puedeValidarRevision = hasPermiso('facturacion.emitir');
   const puedeEmitir = puedeValidarRevision;
+  const puedeComprobarAF = hasPermiso('compras_proveedor.ver');
   const puedeSincronizar =
     hasPermiso('compras_proveedor.sincronizar') || hasPermiso('ajustes.sincronizaciones.compras_proveedor');
 
@@ -713,7 +723,7 @@ export default function ConciliacionFacturasScreen() {
     });
     return {
       /** CIF de la empresa asociada al almacén del albarán ('' si no resuelve). */
-      cifDeCompra(it: CompraLinea): string {
+      cifDeCompra(it: Pick<CompraLinea, 'WarehouseId' | 'WarehouseName'>): string {
         const wid = idNorm(it.WarehouseId);
         return cifPorAlmacenId.get(wid) || cifPorAlmacenNombre.get(normNombre(it.WarehouseName)) || '';
       },
@@ -789,6 +799,7 @@ export default function ConciliacionFacturasScreen() {
         const list: FacturaListado[] = Array.isArray(data.facturas) ? data.facturas : [];
         setFacturas(list);
         setAsignacionesSesion(hidratarAsignacionesDesdeFacturas(list));
+        setTokenRecargaAF((t) => t + 1);
       })
       .catch((e) => setErrorFacturas(errorMessage(e, 'No se pudieron cargar las facturas de gasto')))
       .finally(() => setLoadingFacturas(false));
@@ -1384,6 +1395,66 @@ export default function ConciliacionFacturasScreen() {
     return map;
   }, [facturas]);
 
+  // ── Albaranes que faltan (citados en factura, no están en Ágora) ──
+  /** Sociedad de la factura para comparar con Ágora: la del grupo o, si no resuelve, el CIF emisor. */
+  const cifSociedadComparar = useCallback(
+    (f: FacturaListado) => resolverEmpresaGrupo.cifDeFactura(f) || normalizeCif(f.emisor_cif),
+    [resolverEmpresaGrupo],
+  );
+  const cifSociedadInforme = useCallback(
+    (f: FacturaListado) => resolverEmpresaGrupo.cifDeFactura(f),
+    [resolverEmpresaGrupo],
+  );
+  const nombreSociedad = useCallback(
+    (cif: string) => resolverEmpresaGrupo.empresaPorCif.get(cif) || cif,
+    [resolverEmpresaGrupo],
+  );
+
+  /** Empresa del grupo del almacén de una coincidencia de Ágora (mismo cruce que los albaranes). */
+  const empresaDeCoincidenciaAF = useCallback(
+    (c: CoincidenciaAgora) => {
+      const cif = resolverEmpresaGrupo.cifDeCompra({ WarehouseId: c.warehouse_id, WarehouseName: c.almacen });
+      return { cif, nombre: cif ? nombreSociedad(cif) : '' };
+    },
+    [resolverEmpresaGrupo, nombreSociedad],
+  );
+
+  const aplicarAlbaranesFaltantes = useCallback((facturaId: string, items: AlbaranFaltante[], version?: number) => {
+    setFacturas((prev) =>
+      prev.map((f) =>
+        f.id_factura === facturaId
+          ? { ...f, albaranes_faltantes: items, ...(version != null ? { version } : {}) }
+          : f,
+      ),
+    );
+  }, []);
+
+  const onResueltasAF = useCallback(
+    (n: number) => {
+      showToast(
+        'Albaranes encontrados',
+        n === 1
+          ? 'Se ha resuelto 1 albarán que faltaba al encontrarlo en Ágora'
+          : `Se han resuelto ${n} albaranes que faltaban al encontrarlos en Ágora`,
+        'success',
+      );
+    },
+    [showToast],
+  );
+
+  useAutoComprobarAlbaranesFaltantes({
+    facturas,
+    facturasRef,
+    tokenRecarga: tokenRecargaAF,
+    habilitado: puedeEmitir && puedeComprobarAF && !maestrosLoading,
+    cifSociedadDeFactura: cifSociedadComparar,
+    empresaDeCoincidencia: empresaDeCoincidenciaAF,
+    onFacturaActualizada: aplicarAlbaranesFaltantes,
+    onResueltas: onResueltasAF,
+  });
+
+  const facturaAF = afFacturaId ? facturaListadoPorId.get(afFacturaId) ?? null : null;
+
   /** Meta de factura en comparador / listado para el body de conciliación. */
   const metaFacturaConciliacion = useCallback(
     (facturaId: string, existentesOverride?: AlbaranConciliado[] | null) => {
@@ -1866,6 +1937,14 @@ export default function ConciliacionFacturasScreen() {
               color={nodosDiferenciasPdf.length === 0 ? '#cbd5e1' : '#dc2626'}
             />
           )}
+        </ComprasToolbarIconBtn>
+        <ComprasToolbarIconBtn
+          tooltip="Albaranes que faltan"
+          onPress={() => setInformeAFVisible(true)}
+          accessibilityLabel="Albaranes que faltan"
+          variant="outline"
+        >
+          <MaterialIcons name="assignment-late" size={TOOLBAR_ICON_SIZE} color="#d97706" />
         </ComprasToolbarIconBtn>
         <ComprasToolbarIconBtn
           tooltip="Recargar albaranes y facturas"
@@ -2706,6 +2785,36 @@ export default function ConciliacionFacturasScreen() {
                           </TouchableOpacity>
                         </View>
                       ) : null}
+                      {compFactura ? (() => {
+                        const notasAF = facturaListadoPorId.get(compFactura.id)?.albaranes_faltantes ?? [];
+                        const nPendAF = notasAF.filter((n) => n.estado === 'pendiente').length;
+                        return (
+                          <View style={local.compFaltaRow}>
+                            <TouchableOpacity
+                              style={local.compFaltaBtn}
+                              onPress={() => setAfFacturaId(compFactura.id)}
+                              accessibilityLabel="Albaranes que faltan en esta factura"
+                            >
+                              <MaterialIcons name="playlist-add" size={16} color="#b45309" />
+                              <Text style={local.compFaltaBtnText}>Falta albarán</Text>
+                            </TouchableOpacity>
+                            {nPendAF > 0 ? (
+                              <TouchableOpacity
+                                style={local.compFaltaBadge}
+                                onPress={() => setAfFacturaId(compFactura.id)}
+                                accessibilityLabel={`Faltan ${nPendAF} albaranes`}
+                              >
+                                <MaterialIcons name="report-problem" size={13} color="#b45309" />
+                                <Text style={local.compFaltaBadgeText}>Faltan {nPendAF}</Text>
+                              </TouchableOpacity>
+                            ) : notasAF.length > 0 ? (
+                              <Text style={local.compFaltaResueltas}>
+                                {notasAF.length} anotado{notasAF.length !== 1 ? 's' : ''}, sin pendientes
+                              </Text>
+                            ) : null}
+                          </View>
+                        );
+                      })() : null}
                       <View style={local.compPreviewBox}>
                         {comparador.facturas.length === 0 ? (
                           <View style={local.compPreviewCentro}>
@@ -2754,6 +2863,32 @@ export default function ConciliacionFacturasScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+      <ModalAlbaranesFaltantes
+        visible={facturaAF !== null}
+        onClose={() => setAfFacturaId(null)}
+        factura={facturaAF}
+        sociedadNombre={facturaAF ? (() => {
+          const cif = resolverEmpresaGrupo.cifDeFactura(facturaAF);
+          return cif ? nombreSociedad(cif) : String(facturaAF.emisor_nombre ?? '').trim();
+        })() : ''}
+        cifSociedad={facturaAF ? cifSociedadComparar(facturaAF) : ''}
+        empresaDeCoincidencia={empresaDeCoincidenciaAF}
+        puedeEditar={puedeEmitir}
+        puedeComprobar={puedeComprobarAF}
+        onGuardado={aplicarAlbaranesFaltantes}
+      />
+      <InformeAlbaranesFaltantesModal
+        visible={informeAFVisible}
+        onClose={() => setInformeAFVisible(false)}
+        facturas={facturas}
+        fechaDesde={fechaDesde}
+        fechaHasta={fechaHasta}
+        rangoCargado={rangoFacturasApi}
+        sociedadOpciones={empresaOpciones}
+        cifSociedadDeFactura={cifSociedadInforme}
+        nombreSociedad={nombreSociedad}
+        onError={(msg) => showToast('Error', msg, 'error')}
+      />
       {ToastView}
       {ConfirmarView}
     </View>
@@ -3027,6 +3162,30 @@ const local = StyleSheet.create({
     textTransform: 'capitalize',
   },
   compFactChips: { flexDirection: 'row', gap: 6, paddingVertical: 2 },
+  compFaltaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  compFaltaBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    backgroundColor: '#fffbeb',
+  },
+  compFaltaBtnText: { fontSize: 12, fontWeight: '600', color: '#b45309' },
+  compFaltaBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    backgroundColor: '#fef3c7',
+  },
+  compFaltaBadgeText: { fontSize: 11, fontWeight: '700', color: '#b45309' },
+  compFaltaResueltas: { fontSize: 11, color: '#15803d', fontStyle: 'italic' },
   compPreviewBox: { flex: 1, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, overflow: 'hidden', backgroundColor: '#f8fafc' },
   compPreviewCentro: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 20 },
   compAbrirBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, backgroundColor: '#0ea5e9' },

@@ -32,6 +32,8 @@ export const PERMISOS_DESCRIPCIONES: Record<string, string> = {
     'Permite lanzar desde Ajustes la sincronización de empleados desde Factorial.',
   'ajustes.sincronizaciones.ventas_producto':
     'Permite lanzar desde Ajustes la sincronización de ventas por producto desde Ágora.',
+  'ajustes.sincronizaciones.ventas_hora':
+    'Sincronizar el histórico de ventas por hora con Ágora (lo usa la Previsión de ventas por franjas). Requiere acceso a todos los locales.',
 
   // Base de datos
   'base_datos.ver':
@@ -134,6 +136,10 @@ export const PERMISOS_DESCRIPCIONES: Record<string, string> = {
     'Permite entrar en Objetivos, consultar las Plantillas de franjas horarias y modificar la agrupación de locales de los objetivos. Crear, modificar o borrar plantillas de franjas requiere «Franjas horarias · Editar plantillas».',
   'objetivos.compartir': SIN_EFECTO,
   'franjas.editar': 'Permite crear, modificar y borrar las plantillas de franjas horarias.',
+  'prevision.ver':
+    'Ver y calcular la previsión de ventas por franjas de sus locales, y guardar escenarios propios.',
+  'prevision.escenarios_globales':
+    'Crear y editar escenarios de previsión compartidos (visibles para todos los usuarios con acceso a la previsión).',
   'excepciones.ver':
     'Permite entrar en Control de excepciones y consultar las excepciones de los cierres de caja.',
   'excepciones.exportar': 'Permite exportar el listado de Control de excepciones.',
