@@ -17,8 +17,24 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { ICONS, ICON_SIZE } from '../../constants/icons';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { TablaBasica } from '../../components/TablaBasica';
 import { apiFetch } from '../../utils/api';
+
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+/** Sin token: entre SPACING.lg (16) y SPACING.xl (24). */
+const PADDING_MODAL = 20;
+/** Ámbar más claro que colors.warning. */
+const ICONO_AVISO = '#f59e0b';
 
 /**
  * Representación completa de una serie de facturación tal como vive en la
@@ -216,10 +232,10 @@ export default function SeriesScreen() {
   if (!permitido) {
     return (
       <View style={styles.center}>
-        <MaterialIcons name="lock" size={48} color="#94a3b8" />
+        <MaterialIcons name="lock" size={48} color={colors.textMuted} />
         <Text style={styles.noPermisoText}>No tienes permiso para acceder a esta sección</Text>
         <TouchableOpacity style={styles.backLink} onPress={() => router.push('/facturacion')}>
-          <MaterialIcons name="arrow-back" size={18} color="#0ea5e9" />
+          <MaterialIcons name="arrow-back" size={18} color={colors.accent} />
           <Text style={styles.backLinkText}>Volver a facturación</Text>
         </TouchableOpacity>
       </View>
@@ -278,9 +294,9 @@ export default function SeriesScreen() {
             accessibilityLabel="Refrescar"
           >
             {loading ? (
-              <ActivityIndicator size="small" color="#0ea5e9" />
+              <ActivityIndicator size="small" color={colors.accent} />
             ) : (
-              <MaterialIcons name="refresh" size={ICON_SIZE} color="#0ea5e9" />
+              <MaterialIcons name="refresh" size={ICON_SIZE} color={colors.accent} />
             )}
           </TouchableOpacity>
         }
@@ -301,7 +317,7 @@ export default function SeriesScreen() {
                     {editingMode ? 'Editar serie' : 'Nueva serie'}
                   </Text>
                   <TouchableOpacity onPress={cerrarModal} style={styles.modalClose} disabled={guardando}>
-                    <MaterialIcons name="close" size={22} color="#64748b" />
+                    <MaterialIcons name="close" size={22} color={colors.textMuted} />
                   </TouchableOpacity>
                 </View>
                 <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
@@ -312,7 +328,7 @@ export default function SeriesScreen() {
                       value={form.serie}
                       onChangeText={(t) => setForm((p) => ({ ...p, serie: t }))}
                       placeholder="Ej: FV, FR, GA…"
-                      placeholderTextColor="#94a3b8"
+                      placeholderTextColor={colors.textMuted}
                       editable={!guardando && !editingMode}
                       autoCapitalize="characters"
                     />
@@ -324,7 +340,7 @@ export default function SeriesScreen() {
                       value={form.descripcion}
                       onChangeText={(t) => setForm((p) => ({ ...p, descripcion: t }))}
                       placeholder="Descripción de la serie"
-                      placeholderTextColor="#94a3b8"
+                      placeholderTextColor={colors.textMuted}
                       editable={!guardando}
                     />
                   </View>
@@ -355,7 +371,7 @@ export default function SeriesScreen() {
                         {form.serie || '??'}-{new Date().getFullYear()}-{'0'.repeat(form.num_digitos || 6).slice(0, -1)}1
                       </Text>
                     </View>
-                    <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
+                    <Text style={styles.formHint}>
                       Se genera como: Código serie + Año de factura + Nº correlativo
                     </Text>
                   </View>
@@ -365,8 +381,8 @@ export default function SeriesScreen() {
                       value={form.activa}
                       onValueChange={(v) => setForm((p) => ({ ...p, activa: v }))}
                       disabled={guardando}
-                      trackColor={{ false: '#e2e8f0', true: '#0ea5e9' }}
-                      thumbColor="#fff"
+                      trackColor={{ false: colors.border, true: colors.accent }}
+                      thumbColor={colors.surface}
                     />
                   </View>
                   <View style={styles.formGroup}>
@@ -376,11 +392,11 @@ export default function SeriesScreen() {
                         value={form.reinicio_anual}
                         onValueChange={(v) => setForm((p) => ({ ...p, reinicio_anual: v }))}
                         disabled={guardando}
-                        trackColor={{ false: '#e2e8f0', true: '#0ea5e9' }}
-                        thumbColor="#fff"
+                        trackColor={{ false: colors.border, true: colors.accent }}
+                        thumbColor={colors.surface}
                       />
                     </View>
-                    <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
+                    <Text style={styles.formHint}>
                       El contador se reinicia a 1 cada año nuevo
                     </Text>
                   </View>
@@ -393,9 +409,9 @@ export default function SeriesScreen() {
                       keyboardType="number-pad"
                       editable={!guardando}
                       placeholder="6"
-                      placeholderTextColor="#94a3b8"
+                      placeholderTextColor={colors.textMuted}
                     />
-                    <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
+                    <Text style={styles.formHint}>
                       Ej: 6 → 000001, 4 → 0001
                     </Text>
                   </View>
@@ -406,7 +422,7 @@ export default function SeriesScreen() {
                       value={form.notas}
                       onChangeText={(t) => setForm((p) => ({ ...p, notas: t }))}
                       placeholder="Notas adicionales…"
-                      placeholderTextColor="#94a3b8"
+                      placeholderTextColor={colors.textMuted}
                       editable={!guardando}
                       multiline
                       numberOfLines={3}
@@ -429,7 +445,7 @@ export default function SeriesScreen() {
                     disabled={guardando}
                   >
                     {guardando ? (
-                      <ActivityIndicator size="small" color="#fff" />
+                      <ActivityIndicator size="small" color={colors.surface} />
                     ) : (
                       <Text style={styles.modalFooterBtnTextPrimary}>
                         {editingMode ? 'Guardar' : 'Crear'}
@@ -447,11 +463,11 @@ export default function SeriesScreen() {
       <Modal visible={confirmDeleteVisible} transparent animationType="fade" onRequestClose={cancelarBorrado}>
         <Pressable style={styles.modalOverlay} onPress={cancelarBorrado}>
           <Pressable style={styles.confirmCard} onPress={(e) => e.stopPropagation()}>
-            <MaterialIcons name="warning" size={36} color="#f59e0b" style={{ alignSelf: 'center' }} />
+            <MaterialIcons name="warning" size={36} color={ICONO_AVISO} style={{ alignSelf: 'center' }} />
             <Text style={styles.confirmTitle}>Eliminar serie</Text>
             <Text style={styles.confirmText}>
               ¿Estás seguro de que quieres eliminar la serie{' '}
-              <Text style={{ fontWeight: '700' }}>{serieToDelete?.serie}</Text>?{'\n'}
+              <Text style={styles.confirmStrong}>{serieToDelete?.serie}</Text>?{'\n'}
               Esta acción no se puede deshacer.
             </Text>
             <View style={styles.confirmButtons}>
@@ -468,7 +484,7 @@ export default function SeriesScreen() {
                 disabled={guardando}
               >
                 {guardando ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={colors.surface} />
                 ) : (
                   <Text style={styles.modalFooterBtnTextDanger}>Eliminar</Text>
                 )}
@@ -501,54 +517,68 @@ function getValorCelda(item: Serie, col: string): string {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12, padding: 20 },
-  noPermisoText: { fontSize: 14, color: '#64748b', textAlign: 'center' },
-  backLink: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
-  backLinkText: { fontSize: 13, color: '#0ea5e9', fontWeight: '500' },
+  container: { flex: 1, backgroundColor: colors.bg },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: SPACING.md, padding: PADDING_MODAL },
+  noPermisoText: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[14],
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
+  backLink: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: SPACING.sm },
+  backLinkText: {
+    fontFamily: fontFamily.medium,
+    fontSize: fontSizes[13],
+    color: colors.accent,
+    fontWeight: typography.nav.fontWeight,
+  },
 
   badge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     alignSelf: 'flex-start',
   },
-  badgeText: { fontSize: 10, fontWeight: '600' },
-  badgeActiva: { backgroundColor: '#dcfce7' },
-  badgeInactiva: { backgroundColor: '#fee2e2' },
-  badgeTextoActiva: { color: '#16a34a' },
-  badgeTextoInactiva: { color: '#dc2626' },
-  badgeTipoOut: { backgroundColor: '#dbeafe' },
-  badgeTipoIn: { backgroundColor: '#fef3c7' },
-  badgeTextoOut: { color: '#2563eb' },
-  badgeTextoIn: { color: '#b45309' },
+  badgeText: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes.badge,
+    fontWeight: typography.boton.fontWeight,
+  },
+  badgeActiva: { backgroundColor: statusColors.success.bg },
+  badgeInactiva: { backgroundColor: statusColors.danger.bg },
+  badgeTextoActiva: { color: colors.success },
+  badgeTextoInactiva: { color: colors.danger },
+  badgeTipoOut: { backgroundColor: '#dbeafe' }, // azul de tipo OUT, sin token
+  badgeTipoIn: { backgroundColor: statusColors.warning.bg },
+  badgeTextoOut: { color: '#2563eb' }, // azul de tipo OUT, sin token
+  badgeTextoIn: { color: statusColors.warning.text },
 
   refreshBtn: {
     padding: 6,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.bg,
   },
 
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    backgroundColor: 'rgba(15, 23, 42, 0.45)', // más oscuro que colors.overlay
   },
   modalCenter: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     width: '100%',
-    padding: 20,
+    padding: PADDING_MODAL,
   },
   modalCardTouch: { width: '100%', maxWidth: 440 },
   modalCard: {
     width: '100%',
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 16,
+    borderRadius: radius.xl,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
@@ -560,110 +590,176 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: PADDING_MODAL,
+    paddingVertical: SPACING.lg,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
   },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: '#334155' },
-  modalClose: { padding: 4 },
-  modalBody: { paddingHorizontal: 20, paddingVertical: 16, maxHeight: 420 },
+  modalTitle: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes[18],
+    fontWeight: typography.boton.fontWeight,
+    color: colors.textPrimary,
+  },
+  modalClose: { padding: SPACING.xs },
+  modalBody: { paddingHorizontal: PADDING_MODAL, paddingVertical: SPACING.lg, maxHeight: 420 },
 
-  formGroup: { marginBottom: 12 },
+  formGroup: { marginBottom: SPACING.md },
   formGroupRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: SPACING.md,
   },
-  formLabel: { fontSize: 11, fontWeight: '500', color: '#475569', marginBottom: 4 },
+  formLabel: {
+    fontFamily: fontFamily.medium,
+    fontSize: typography.etiqueta.fontSize,
+    fontWeight: typography.nav.fontWeight,
+    color: colors.textPrimary,
+    marginBottom: SPACING.xs,
+  },
+  formHint: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes.badge,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
   formInput: {
-    fontSize: 12,
-    padding: 8,
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[12],
+    padding: SPACING.sm,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 4,
-    backgroundColor: '#fff',
-    color: '#334155',
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
+    color: colors.textPrimary,
   },
-  formInputReadonly: { backgroundColor: '#f1f5f9', color: '#94a3b8' },
+  formInputReadonly: { backgroundColor: colors.navActive, color: colors.textMuted },
   formatPreview: {
-    padding: 8,
+    padding: SPACING.sm,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 4,
-    backgroundColor: '#f0f9ff',
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.accentMuted,
   },
-  formatPreviewText: { fontSize: 13, fontWeight: '600', color: '#0369a1', fontFamily: Platform.OS === 'web' ? 'monospace' : undefined },
+  formatPreviewText: {
+    fontSize: fontSizes[13],
+    fontWeight: typography.boton.fontWeight,
+    color: statusColors.info.text,
+    fontFamily: Platform.OS === 'web' ? 'monospace' : fontFamily.semibold,
+  },
   formInputMultiline: { minHeight: 64, textAlignVertical: 'top' },
 
-  chipsRow: { flexDirection: 'row', gap: 8 },
+  chipsRow: { flexDirection: 'row', gap: SPACING.sm },
   chip: {
     flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.bg,
     alignItems: 'center',
   },
   chipSelected: {
-    borderColor: '#0ea5e9',
-    backgroundColor: '#e0f2fe',
+    borderColor: colors.accent,
+    backgroundColor: colors.accentMuted,
   },
-  chipText: { fontSize: 12, fontWeight: '500', color: '#64748b' },
-  chipTextSelected: { color: '#0ea5e9', fontWeight: '600' },
+  chipText: {
+    fontFamily: fontFamily.medium,
+    fontSize: fontSizes[12],
+    fontWeight: typography.nav.fontWeight,
+    color: colors.textMuted,
+  },
+  chipTextSelected: {
+    color: colors.accent,
+    fontFamily: fontFamily.semibold,
+    fontWeight: typography.boton.fontWeight,
+  },
 
-  modalError: { fontSize: 11, color: '#f87171', paddingHorizontal: 20, paddingBottom: 4 },
+  modalError: {
+    fontFamily: fontFamily.regular,
+    fontSize: typography.etiqueta.fontSize,
+    color: colors.danger,
+    paddingHorizontal: PADDING_MODAL,
+    paddingBottom: SPACING.xs,
+  },
   modalFooter: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    gap: SPACING.sm,
+    paddingHorizontal: PADDING_MODAL,
+    paddingVertical: 14, // sin token: entre SPACING.md (12) y SPACING.lg (16)
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
+    borderTopColor: colors.border,
   },
   modalFooterBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.lg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.bg,
   },
-  modalFooterBtnText: { fontSize: 12, fontWeight: '500', color: '#64748b' },
+  modalFooterBtnText: {
+    fontFamily: fontFamily.medium,
+    fontSize: fontSizes[12],
+    fontWeight: typography.nav.fontWeight,
+    color: colors.textMuted,
+  },
   modalFooterBtnPrimary: {
-    backgroundColor: '#0ea5e9',
-    borderColor: '#0ea5e9',
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
   },
-  modalFooterBtnTextPrimary: { fontSize: 12, fontWeight: '600', color: '#fff' },
+  modalFooterBtnTextPrimary: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes[12],
+    fontWeight: typography.boton.fontWeight,
+    color: colors.surface,
+  },
   modalFooterBtnDanger: {
-    backgroundColor: '#ef4444',
-    borderColor: '#ef4444',
+    backgroundColor: colors.danger,
+    borderColor: colors.danger,
   },
-  modalFooterBtnTextDanger: { fontSize: 12, fontWeight: '600', color: '#fff' },
+  modalFooterBtnTextDanger: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes[12],
+    fontWeight: typography.boton.fontWeight,
+    color: colors.surface,
+  },
 
   confirmCard: {
     width: '90%',
     maxWidth: 380,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 24,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: SPACING.xl,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
     shadowRadius: 24,
     elevation: 12,
-    gap: 12,
+    gap: SPACING.md,
   },
-  confirmTitle: { fontSize: 16, fontWeight: '700', color: '#334155', textAlign: 'center' },
-  confirmText: { fontSize: 13, color: '#475569', textAlign: 'center', lineHeight: 20 },
+  confirmTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSizes[16],
+    fontWeight: typography.titulo.fontWeight,
+    color: colors.textPrimary,
+    textAlign: 'center',
+  },
+  confirmText: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[13],
+    color: colors.textPrimary,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  confirmStrong: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   confirmButtons: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 10,
-    marginTop: 4,
+    gap: 10, // sin token: entre SPACING.sm (8) y SPACING.md (12)
+    marginTop: SPACING.xs,
   },
 });
