@@ -5,6 +5,15 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  shadow,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 
 export default function PagosCobrosScreen() {
   const router = useRouter();
@@ -13,12 +22,12 @@ export default function PagosCobrosScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.push('/facturacion' as never)} style={styles.backBtn} accessibilityLabel="Volver">
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Pagos y cobros</Text>
       </View>
       <View style={styles.card}>
-        <MaterialIcons name="account-balance-wallet" size={40} color="#94a3b8" style={styles.icon} />
+        <MaterialIcons name="account-balance-wallet" size={40} color={colors.textMuted} style={styles.icon} />
         <Text style={styles.lead}>
           Consulta los movimientos desde el cuadro de mando o revisa el detalle por factura en las listas de facturas emitidas y recibidas.
         </Text>
@@ -31,18 +40,25 @@ export default function PagosCobrosScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f8fafc' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
-  backBtn: { padding: 4 },
-  title: { fontSize: 20, fontWeight: '700', color: '#334155' },
+  container: { flex: 1, padding: SPACING.lg, backgroundColor: colors.bg },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.lg },
+  backBtn: { padding: SPACING.xs },
+  title: { ...typography.titulo },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    ...shadow.card,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    padding: 20,
+    borderColor: colors.border,
+    padding: 20, // sin token: entre SPACING.lg (16) y SPACING.xl (24)
   },
-  icon: { alignSelf: 'center', marginBottom: 12 },
-  lead: { fontSize: 14, color: '#475569', lineHeight: 22, marginBottom: 10 },
-  muted: { fontSize: 12, color: '#94a3b8', lineHeight: 18, fontStyle: 'italic' },
+  icon: { alignSelf: 'center', marginBottom: SPACING.md },
+  lead: { ...typography.cuerpo, lineHeight: 22, marginBottom: 10 }, // 10 y 22 sin token
+  muted: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[12],
+    color: colors.textMuted,
+    lineHeight: 18,
+    fontStyle: 'italic',
+  },
 });
