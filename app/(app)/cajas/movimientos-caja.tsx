@@ -20,6 +20,15 @@ import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { puedeVerArqueoCaja } from '../../lib/permisosModulos';
 import { apiFetch } from '../../utils/api';
@@ -31,17 +40,17 @@ const TIPO_RETIRADA = 'retirada';
 const TIPO_TRANSFERENCIA = 'transferencia';
 
 const TIPO_META: Record<string, { label: string; icon: React.ComponentProps<typeof MaterialIcons>['name']; color: string; bg: string; border: string }> = {
-  [TIPO_RETIRADA]: { label: 'Retirada', icon: 'payments', color: '#92400e', bg: '#fffbeb', border: '#fde68a' },
-  [TIPO_TRANSFERENCIA]: { label: 'Transferencia', icon: 'swap-horiz', color: '#075985', bg: '#e0f2fe', border: '#7dd3fc' },
+  [TIPO_RETIRADA]: { label: 'Retirada', icon: 'payments', color: '#92400e', bg: statusColors.warning.bg, border: '#fde68a' },
+  [TIPO_TRANSFERENCIA]: { label: 'Transferencia', icon: 'swap-horiz', color: '#075985', bg: colors.accentMuted, border: '#7dd3fc' },
 };
 
 const CHIP_TIPO_PASTEL: Record<
   'todos' | typeof TIPO_RETIRADA | typeof TIPO_TRANSFERENCIA,
   { bg: string; bgSel: string; border: string; borderSel: string; text: string }
 > = {
-  todos: { bg: '#f8fafc', bgSel: '#e2e8f0', border: '#e2e8f0', borderSel: '#cbd5e1', text: '#475569' },
-  [TIPO_RETIRADA]: { bg: '#fffbeb', bgSel: '#fde68a', border: '#fde68a', borderSel: '#fcd34d', text: '#92400e' },
-  [TIPO_TRANSFERENCIA]: { bg: '#e0f2fe', bgSel: '#bae6fd', border: '#bae6fd', borderSel: '#7dd3fc', text: '#075985' },
+  todos: { bg: colors.bg, bgSel: colors.border, border: colors.border, borderSel: colors.borderStrong, text: colors.textPrimary },
+  [TIPO_RETIRADA]: { bg: statusColors.warning.bg, bgSel: '#fde68a', border: '#fde68a', borderSel: '#fcd34d', text: '#92400e' },
+  [TIPO_TRANSFERENCIA]: { bg: colors.accentMuted, bgSel: '#bae6fd', border: '#bae6fd', borderSel: '#7dd3fc', text: '#075985' },
 };
 
 function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
@@ -371,7 +380,7 @@ export default function MovimientosCajaScreen() {
   if (!puedeVerArqueoCaja(hasPermiso)) {
     return (
       <View style={styles.center}>
-        <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={28} color={colors.textMuted} />
         <Text style={styles.errorText}>No tienes permiso para ver esta pantalla.</Text>
       </View>
     );
@@ -390,12 +399,12 @@ export default function MovimientosCajaScreen() {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={64}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Movimientos de caja</Text>
         {tpvSeleccionado ? (
           <TouchableOpacity style={styles.createBtn} onPress={abrirNuevo} activeOpacity={0.8}>
-            <MaterialIcons name="add" size={16} color="#fff" />
+            <MaterialIcons name="add" size={16} color={colors.surface} />
             <Text style={styles.createBtnText}>Nuevo</Text>
           </TouchableOpacity>
         ) : null}
@@ -485,8 +494,8 @@ export default function MovimientosCajaScreen() {
             </View>
 
             <View style={styles.kpiRow}>
-              <KpiCard label="Retiradas" value={formatMoneda(totales.retiradas)} color="#d97706" />
-              <KpiCard label="Transferencias" value={formatMoneda(totales.transferencias)} color="#0ea5e9" />
+              <KpiCard label="Retiradas" value={formatMoneda(totales.retiradas)} color={colors.warning} />
+              <KpiCard label="Transferencias" value={formatMoneda(totales.transferencias)} color={colors.accent} />
               <KpiCard label="Movimientos" value={String(totales.total)} />
             </View>
           </>
@@ -503,11 +512,11 @@ export default function MovimientosCajaScreen() {
 
       {!tpvSeleccionado ? (
         <View style={styles.emptyWrap}>
-          <MaterialIcons name="point-of-sale" size={40} color="#cbd5e1" />
+          <MaterialIcons name="point-of-sale" size={40} color={colors.borderStrong} />
           <Text style={styles.emptyText}>Selecciona fecha, local y TPV para ver y registrar movimientos.</Text>
         </View>
       ) : loading ? (
-        <View style={styles.center}><ActivityIndicator color="#0ea5e9" /></View>
+        <View style={styles.center}><ActivityIndicator color={colors.accent} /></View>
       ) : (
         <ScrollView style={styles.list} contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled">
           {tpvSeleccionado ? (
@@ -520,7 +529,7 @@ export default function MovimientosCajaScreen() {
 
           {movimientosFiltrados.length === 0 ? (
             <View style={styles.emptyWrap}>
-              <MaterialIcons name="receipt-long" size={40} color="#cbd5e1" />
+              <MaterialIcons name="receipt-long" size={40} color={colors.borderStrong} />
               <Text style={styles.emptyText}>
                 {movimientos.length === 0
                   ? 'No hay movimientos registrados para este TPV y jornada.'
@@ -545,21 +554,21 @@ export default function MovimientosCajaScreen() {
                     <View style={styles.cardActions}>
                       {m.justificanteKey ? (
                         <TouchableOpacity style={styles.cardActionBtn} onPress={() => verJustificante(m)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                          <MaterialIcons name="image" size={18} color="#0ea5e9" />
+                          <MaterialIcons name="image" size={18} color={colors.accent} />
                         </TouchableOpacity>
                       ) : null}
                       <TouchableOpacity style={styles.cardActionBtn} onPress={() => abrirEditar(m)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                        <MaterialIcons name="edit" size={18} color="#64748b" />
+                        <MaterialIcons name="edit" size={18} color={colors.textMuted} />
                       </TouchableOpacity>
                       <TouchableOpacity style={styles.cardActionBtn} onPress={() => eliminarMovimiento(m)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                        <MaterialIcons name="delete-outline" size={18} color="#ef4444" />
+                        <MaterialIcons name="delete-outline" size={18} color={colors.danger} />
                       </TouchableOpacity>
                     </View>
                   </View>
                   <View style={styles.cardBody}>
                     <View style={styles.cardField}>
                       <Text style={styles.cardFieldLabel}>Importe</Text>
-                      <Text style={[styles.cardFieldValue, { fontWeight: '700', color: meta.color }]}>
+                      <Text style={[styles.cardFieldValue, { fontVariant: ['tabular-nums'], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: meta.color }]}>
                         {formatMoneda(Number(m.importe) || 0)}
                       </Text>
                     </View>
@@ -584,7 +593,7 @@ export default function MovimientosCajaScreen() {
                     {m.justificanteKey ? (
                       <View style={styles.cardField}>
                         <Text style={styles.cardFieldLabel}>Justificante</Text>
-                        <Text style={[styles.cardFieldValue, { color: '#0ea5e9' }]}>Adjunto</Text>
+                        <Text style={[styles.cardFieldValue, { color: colors.accent }]}>Adjunto</Text>
                       </View>
                     ) : null}
                   </View>
@@ -601,7 +610,7 @@ export default function MovimientosCajaScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editSK ? 'Editar movimiento' : 'Nuevo movimiento'}</Text>
               <TouchableOpacity onPress={() => setModalOpen(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-                <MaterialIcons name="close" size={24} color="#64748b" />
+                <MaterialIcons name="close" size={24} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
 
@@ -617,7 +626,7 @@ export default function MovimientosCajaScreen() {
                     onPress={() => setTipo(t)}
                     activeOpacity={0.8}
                   >
-                    <MaterialIcons name={meta.icon} size={18} color={sel ? meta.color : '#94a3b8'} />
+                    <MaterialIcons name={meta.icon} size={18} color={sel ? meta.color : colors.textMuted} />
                     <Text style={[styles.tipoBtnText, sel && { color: meta.color }]}>
                       {t === TIPO_RETIRADA ? 'Retirada de efectivo' : 'Transferencia prepago'}
                     </Text>
@@ -628,12 +637,12 @@ export default function MovimientosCajaScreen() {
 
             <Text style={styles.fieldLabel}>Importe (€)</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { fontVariant: ['tabular-nums'] }]}
               value={importe}
               onChangeText={setImporte}
               keyboardType="decimal-pad"
               placeholder="0,00"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
             />
 
             <View style={styles.field2}>
@@ -644,7 +653,7 @@ export default function MovimientosCajaScreen() {
                   value={hora}
                   onChangeText={setHora}
                   placeholder="hh:mm"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={colors.textMuted}
                   maxLength={5}
                 />
               </View>
@@ -656,7 +665,7 @@ export default function MovimientosCajaScreen() {
               value={concepto}
               onChangeText={setConcepto}
               placeholder={tipo === TIPO_RETIRADA ? 'Motivo de la retirada…' : 'Detalle de la transferencia…'}
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
               multiline
             />
 
@@ -664,13 +673,13 @@ export default function MovimientosCajaScreen() {
             <View style={styles.justifRow}>
               {Platform.OS !== 'web' ? (
                 <TouchableOpacity style={styles.justifBtn} onPress={() => subirJustificante('camera')} disabled={subiendoJustif}>
-                  <MaterialIcons name="photo-camera" size={20} color="#0369a1" />
+                  <MaterialIcons name="photo-camera" size={20} color={statusColors.info.text} />
                 </TouchableOpacity>
               ) : null}
               <TouchableOpacity style={styles.justifBtn} onPress={() => subirJustificante('library')} disabled={subiendoJustif}>
-                <MaterialIcons name="photo-library" size={20} color="#0369a1" />
+                <MaterialIcons name="photo-library" size={20} color={statusColors.info.text} />
               </TouchableOpacity>
-              {subiendoJustif ? <ActivityIndicator size="small" color="#0ea5e9" /> : null}
+              {subiendoJustif ? <ActivityIndicator size="small" color={colors.accent} /> : null}
               {justificanteUri ? (
                 <TouchableOpacity onPress={() => setLightboxUri(justificanteUri)} activeOpacity={0.85}>
                   <Image source={{ uri: justificanteUri }} style={styles.justifThumb} resizeMode="cover" />
@@ -688,10 +697,10 @@ export default function MovimientosCajaScreen() {
               disabled={saving || subiendoJustif}
             >
               {saving ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={colors.surface} />
               ) : (
                 <>
-                  <MaterialIcons name="save" size={20} color="#fff" />
+                  <MaterialIcons name="save" size={20} color={colors.surface} />
                   <Text style={styles.saveBtnText}>{editSK ? 'Guardar cambios' : 'Registrar movimiento'}</Text>
                 </>
               )}
@@ -703,7 +712,7 @@ export default function MovimientosCajaScreen() {
       <Modal visible={lightboxUri != null} transparent animationType="fade" onRequestClose={() => setLightboxUri(null)}>
         <View style={styles.lightboxWrap}>
           <TouchableOpacity style={styles.lightboxClose} onPress={() => setLightboxUri(null)} hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}>
-            <MaterialIcons name="close" size={28} color="#f8fafc" />
+            <MaterialIcons name="close" size={28} color={colors.bg} />
           </TouchableOpacity>
           <Pressable style={styles.lightboxInner} onPress={() => setLightboxUri(null)}>
             {lightboxUri ? <Image source={{ uri: lightboxUri }} style={styles.lightboxImg} resizeMode="contain" /> : null}
@@ -714,49 +723,52 @@ export default function MovimientosCajaScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  center: { padding: 40, alignItems: 'center', gap: 8 },
-  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12, paddingHorizontal: 24 },
-  emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
+  container: { flex: 1, backgroundColor: colors.bg },
+  center: { padding: 40, alignItems: 'center', gap: SPACING.sm },
+  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: SPACING.md, paddingHorizontal: SPACING.xl },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center' },
 
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    gap: 12,
+    borderBottomColor: colors.border,
+    gap: SPACING.md,
   },
-  backBtn: { padding: 4 },
-  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#0f172a' },
+  backBtn: { padding: SPACING.xs },
+  headerTitle: { flex: 1, fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
   createBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 8,
+    gap: SPACING.xs,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: '#0ea5e9',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accent,
   },
-  createBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
+  createBtnText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
 
   toolbar: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 8,
+    borderBottomColor: colors.border,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    gap: SPACING.sm,
   },
-  filtrosRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 8 },
+  filtrosRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: SPACING.sm },
   filtrosRowStack: { flexDirection: 'column' },
   filtrosColFecha: { flexGrow: 1, flexShrink: 1, minWidth: 132, maxWidth: 200 },
   filtrosColSelect: { flexGrow: 1, flexShrink: 1, minWidth: 140, maxWidth: 280 },
-  labelFiltros: { fontSize: 10, fontWeight: '600', color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.3 },
-  inputFechaCompact: { fontSize: 13, paddingVertical: 8, paddingHorizontal: 10, minHeight: 40 },
+  labelFiltros: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, marginBottom: SPACING.xs, textTransform: 'uppercase', letterSpacing: 0.3 },
+  inputFechaCompact: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], paddingVertical: SPACING.sm, paddingHorizontal: 10, minHeight: 40 },
 
   chipRowEstado: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   estadoChip: {
@@ -765,60 +777,60 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingLeft: 10,
     paddingRight: 6,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingVertical: SPACING.xs,
+    borderRadius: radius.lg,
     borderWidth: 1,
   },
-  estadoChipText: { fontSize: 11, fontWeight: '600' },
-  estadoChipTextSel: { fontWeight: '800' },
+  estadoChipText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  estadoChipTextSel: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   estadoChipCount: {
     minWidth: 20,
     paddingHorizontal: 6,
     paddingVertical: 1,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     backgroundColor: 'rgba(15,23,42,0.06)',
     alignItems: 'center',
   },
   estadoChipCountSel: { backgroundColor: 'rgba(15,23,42,0.10)' },
-  estadoChipCountText: { fontSize: 10, fontWeight: '700' },
+  estadoChipCountText: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
 
   kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   kpiCard: {
     flex: 1,
     minWidth: 100,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 6,
   },
-  kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
-  kpiValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 2 },
+  kpiLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, textTransform: 'uppercase' },
+  kpiValue: { fontVariant: ['tabular-nums'], fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, marginTop: 2 },
 
-  lead: { fontSize: 11, color: '#94a3b8', lineHeight: 16 },
+  lead: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, lineHeight: 16 },
 
   errorBar: {
-    marginHorizontal: 16,
-    marginTop: 8,
+    marginHorizontal: SPACING.lg,
+    marginTop: SPACING.sm,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 6,
-    backgroundColor: '#fef2f2',
+    borderRadius: radius.sm,
+    backgroundColor: statusColors.danger.bg,
     borderWidth: 1,
     borderColor: '#fecaca',
   },
-  errorText: { fontSize: 12, color: '#dc2626' },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger },
 
   list: { flex: 1 },
-  listContent: { padding: 12, gap: 10, paddingBottom: 32, maxWidth: 720, width: '100%', alignSelf: 'center' },
+  listContent: { padding: SPACING.md, gap: 10, paddingBottom: 32, maxWidth: 720, width: '100%', alignSelf: 'center' },
   contextBar: {
-    paddingHorizontal: 4,
-    paddingBottom: 4,
+    paddingHorizontal: SPACING.xs,
+    paddingBottom: SPACING.xs,
   },
-  contextText: { fontSize: 11, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.3 },
+  contextText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.3 },
 
-  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
+  card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -826,58 +838,58 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 7,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-    gap: 8,
+    borderBottomColor: colors.navActive,
+    gap: SPACING.sm,
   },
-  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
-  cardTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', flexShrink: 1 },
-  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
-  badgeText: { fontSize: 11, fontWeight: '600' },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flex: 1, minWidth: 0 },
+  cardTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, flexShrink: 1 },
+  badge: { paddingHorizontal: SPACING.sm, paddingVertical: 2, borderRadius: radius.md, borderWidth: 1 },
+  badgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   cardActions: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   cardActionBtn: { padding: 6 },
-  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: 8 },
-  cardField: { minWidth: 84, marginRight: 8 },
-  cardFieldLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 1 },
-  cardFieldValue: { fontSize: 13, color: '#334155' },
+  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: SPACING.sm },
+  cardField: { minWidth: 84, marginRight: SPACING.sm },
+  cardFieldLabel: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, textTransform: 'uppercase', marginBottom: 1 },
+  cardFieldValue: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary },
 
   modalBackdrop: {
     flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'center', padding: 20,
     ...(Platform.OS === 'web' ? { zIndex: 9999 } as object : {}),
   },
   modalSheet: {
-    alignSelf: 'center', width: '100%', maxWidth: 460, backgroundColor: '#fff', borderRadius: 12,
+    alignSelf: 'center', width: '100%', maxWidth: 460, backgroundColor: colors.surface, borderRadius: radius.lg,
     maxHeight: '90%', padding: 18,
     ...(Platform.OS === 'web' ? { boxShadow: '0 16px 48px rgba(0,0,0,0.2)', zIndex: 10000 } as object : { elevation: 12 }),
   },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', flex: 1, marginRight: 8 },
-  fieldLabel: { fontSize: 11, fontWeight: '600', color: '#64748b', marginBottom: 6, marginTop: 10, textTransform: 'uppercase', letterSpacing: 0.3 },
-  tipoRow: { flexDirection: 'row', gap: 8 },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.md },
+  modalTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, flex: 1, marginRight: SPACING.sm },
+  fieldLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, marginBottom: 6, marginTop: 10, textTransform: 'uppercase', letterSpacing: 0.3 },
+  tipoRow: { flexDirection: 'row', gap: SPACING.sm },
   tipoBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc',
+    paddingVertical: 10, paddingHorizontal: SPACING.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bg,
   },
-  tipoBtnText: { fontSize: 11, fontWeight: '600', color: '#94a3b8', textAlign: 'center' },
+  tipoBtnText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, textAlign: 'center' },
   input: {
-    borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 10,
-    fontSize: 15, color: '#334155', backgroundColor: '#f8fafc',
+    borderWidth: 1, borderColor: colors.borderStrong, borderRadius: RADIO_MEDIO, paddingHorizontal: 10, paddingVertical: 10,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[16], color: colors.textPrimary, backgroundColor: colors.bg,
   },
   inputMultiline: { minHeight: 60, textAlignVertical: 'top' },
   field2: { flexDirection: 'row', gap: 10 },
   field2Col: { flex: 1 },
   justifRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
-  justifBtn: { padding: 10, borderRadius: 10, backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd' },
-  justifThumb: { width: 44, height: 44, borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-  justifHint: { fontSize: 12, color: '#94a3b8', flexShrink: 1 },
-  justifOk: { fontSize: 12, color: '#059669', fontWeight: '600' },
+  justifBtn: { padding: 10, borderRadius: radius.md, backgroundColor: colors.accentMuted, borderWidth: 1, borderColor: '#bae6fd' },
+  justifThumb: { width: 44, height: 44, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: colors.border },
+  justifHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, flexShrink: 1 },
+  justifOk: { fontSize: fontSizes[12], color: '#059669', fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   saveBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    marginTop: 18, paddingVertical: 14, backgroundColor: '#0ea5e9', borderRadius: 10,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm,
+    marginTop: 18, paddingVertical: 14, backgroundColor: colors.accent, borderRadius: radius.md,
   },
   saveBtnDis: { opacity: 0.6 },
-  saveBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
-  lightboxWrap: { flex: 1, backgroundColor: 'rgba(15,23,42,0.92)', justifyContent: 'center', padding: 12 },
-  lightboxClose: { position: 'absolute', top: Platform.OS === 'ios' ? 48 : 24, right: 16, zIndex: 2, padding: 8 },
+  saveBtnText: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
+  lightboxWrap: { flex: 1, backgroundColor: 'rgba(15,23,42,0.92)', justifyContent: 'center', padding: SPACING.md },
+  lightboxClose: { position: 'absolute', top: Platform.OS === 'ios' ? 48 : 24, right: 16, zIndex: 2, padding: SPACING.sm },
   lightboxInner: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   lightboxImg: { width: '100%', height: '100%', maxHeight: 720 },
 });
