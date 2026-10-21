@@ -8,12 +8,21 @@ import {
   TextInput,
   ActivityIndicator,
   Platform,
-  useWindowDimensions,
   Switch,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useNavigation } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatMoneda, round2 } from '../../utils/facturacion';
 import { useLocalToast, detectToastType } from '../../components/Toast';
@@ -108,11 +117,11 @@ function uploadAreaWebStyle(active: boolean, deshabilitado = false): React.CSSPr
     alignItems: 'center',
     justifyContent: 'center',
     padding: 40,
-    margin: 16,
-    border: `2px dashed ${deshabilitado ? '#e2e8f0' : active ? '#0ea5e9' : '#e2e8f0'}`,
-    borderRadius: 12,
-    backgroundColor: deshabilitado ? '#f8fafc' : active ? '#f0f9ff' : '#fff',
-    gap: 8,
+    margin: SPACING.lg,
+    border: `2px dashed ${deshabilitado ? colors.border : active ? colors.accent : colors.border}`,
+    borderRadius: radius.lg,
+    backgroundColor: deshabilitado ? colors.bg : active ? colors.accentMuted : colors.surface,
+    gap: SPACING.sm,
     minHeight: 220,
     boxSizing: 'border-box',
     cursor: deshabilitado ? 'not-allowed' : 'default',
@@ -126,7 +135,7 @@ function OcrPrewarmIndicador({ estado }: { estado: OcrPrewarmEstado }) {
   if (estado === 'loading') {
     return (
       <View style={styles.ocrChipLoading} accessibilityLabel="Preparando motor OCR">
-        <ActivityIndicator size="small" color="#0369a1" />
+        <ActivityIndicator size="small" color={statusColors.info.text} />
         <Text style={styles.ocrChipLoadingText}>Preparando OCR…</Text>
       </View>
     );
@@ -134,14 +143,14 @@ function OcrPrewarmIndicador({ estado }: { estado: OcrPrewarmEstado }) {
   if (estado === 'error') {
     return (
       <View style={styles.ocrChipWarn} accessibilityLabel="OCR no precalentado">
-        <MaterialIcons name="warning-amber" size={14} color="#b45309" />
+        <MaterialIcons name="warning-amber" size={14} color={statusColors.warning.text} />
         <Text style={styles.ocrChipWarnText}>OCR sin precalentar</Text>
       </View>
     );
   }
   return (
     <View style={styles.ocrChipReady} accessibilityLabel="OCR listo">
-      <MaterialIcons name="document-scanner" size={14} color="#059669" />
+      <MaterialIcons name="document-scanner" size={14} color={colors.success} />
       <Text style={styles.ocrChipReadyText}>OCR listo</Text>
     </View>
   );
@@ -152,7 +161,7 @@ function previewPaneWebStyle(active: boolean): React.CSSProperties {
     flex: 1,
     flexShrink: 1,
     minWidth: 260,
-    backgroundColor: active ? '#dbeafe' : '#e2e8f0',
+    backgroundColor: active ? colors.accentMuted : colors.border,
     display: 'flex',
     flexDirection: 'column',
     position: 'relative',
@@ -258,7 +267,8 @@ export default function RegistroMasivoScreen() {
     Array.isArray(searchParams.docS3Key) ? searchParams.docS3Key[0] : searchParams.docS3Key
   )?.trim() || '';
   const { user, hasPermiso } = useAuth();
-  const { width } = useWindowDimensions();
+  const { width } = useBreakpoint();
+  /** 900 px: formulario y PDF en fila. No es un breakpoint del sistema. */
   const isWide = width >= 900;
   const { show: showToast, ToastView } = useLocalToast();
   const alertMsg = useCallback((t: string, m: string) => {
@@ -1402,7 +1412,7 @@ export default function RegistroMasivoScreen() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <TouchableOpacity onPress={() => void solicitarSalida()} style={styles.backBtn}>
-            <MaterialIcons name="arrow-back" size={20} color="#334155" />
+            <MaterialIcons name="arrow-back" size={20} color={colors.textPrimary} />
           </TouchableOpacity>
           <View>
             <Text style={styles.title}>Registro masivo de facturas</Text>
@@ -1412,8 +1422,8 @@ export default function RegistroMasivoScreen() {
               <Switch
                 value={usarEnriquecimientoIa}
                 onValueChange={setUsarEnriquecimientoIa}
-                trackColor={{ false: '#cbd5e1', true: '#bae6fd' }}
-                thumbColor={usarEnriquecimientoIa ? '#0ea5e9' : '#f4f4f5'}
+                trackColor={{ false: colors.borderStrong, true: '#bae6fd' }}
+                thumbColor={usarEnriquecimientoIa ? colors.accent : '#f4f4f5'}
               />
               <Text style={styles.iaToggleHint}>Requiere OPENAI_API_KEY en el API</Text>
             </View>
@@ -1424,7 +1434,7 @@ export default function RegistroMasivoScreen() {
           {step === 'review' && (
             <View style={styles.navBtns}>
               <TouchableOpacity onPress={navPrev} disabled={currentPos <= 1} style={styles.navArrow}>
-                <MaterialIcons name="chevron-left" size={20} color={currentPos <= 1 ? '#cbd5e1' : '#334155'} />
+                <MaterialIcons name="chevron-left" size={20} color={currentPos <= 1 ? colors.borderStrong : colors.textPrimary} />
               </TouchableOpacity>
               <Text style={styles.navLabel}>
                 {currentPos} / {borradores.length}
@@ -1433,7 +1443,7 @@ export default function RegistroMasivoScreen() {
                 ) : null}
               </Text>
               <TouchableOpacity onPress={navNext} disabled={currentPos >= borradores.length} style={styles.navArrow}>
-                <MaterialIcons name="chevron-right" size={20} color={currentPos >= borradores.length ? '#cbd5e1' : '#334155'} />
+                <MaterialIcons name="chevron-right" size={20} color={currentPos >= borradores.length ? colors.borderStrong : colors.textPrimary} />
               </TouchableOpacity>
             </View>
           )}
@@ -1443,19 +1453,19 @@ export default function RegistroMasivoScreen() {
             disabled={subidaDeshabilitada}
           >
             {subidaDeshabilitada ? (
-              <ActivityIndicator size="small" color="#0ea5e9" />
+              <ActivityIndicator size="small" color={colors.accent} />
             ) : (
               <>
-                <MaterialIcons name="cloud-upload" size={16} color="#0ea5e9" />
+                <MaterialIcons name="cloud-upload" size={16} color={colors.accent} />
                 <Text style={styles.addMoreText}>{step === 'upload' ? 'Seleccionar archivos' : 'Añadir más'}</Text>
               </>
             )}
           </TouchableOpacity>
           {step === 'review' && (
             <TouchableOpacity style={styles.confirmBtn} onPress={confirmar} disabled={guardando}>
-              {guardando ? <ActivityIndicator size="small" color="#fff" /> : (
+              {guardando ? <ActivityIndicator size="small" color={colors.surface} /> : (
                 <>
-                  <MaterialIcons name="check" size={16} color="#fff" />
+                  <MaterialIcons name="check" size={16} color={colors.surface} />
                   <Text style={styles.confirmBtnText}>
                     Confirmar {borradores.filter((b) => !b.descartado).length}
                   </Text>
@@ -1470,14 +1480,14 @@ export default function RegistroMasivoScreen() {
         Platform.OS === 'web' ? (
           <div {...fileDropHandlers} style={uploadAreaWebStyle(dragOverUpload && !ocrCargando, ocrCargando)}>
             {procesando ? (
-              <ActivityIndicator size="large" color="#0ea5e9" />
+              <ActivityIndicator size="large" color={colors.accent} />
             ) : ocrCargando ? (
-              <ActivityIndicator size="large" color="#0369a1" />
+              <ActivityIndicator size="large" color={statusColors.info.text} />
             ) : (
               <MaterialIcons
                 name={ocrPrewarm === 'ready' ? 'document-scanner' : 'cloud-upload'}
                 size={48}
-                color={dragOverUpload ? '#0ea5e9' : ocrPrewarm === 'error' ? '#b45309' : '#94a3b8'}
+                color={dragOverUpload ? colors.accent : ocrPrewarm === 'error' ? statusColors.warning.text : colors.textMuted}
               />
             )}
             <Text style={styles.uploadTitle}>
@@ -1504,11 +1514,11 @@ export default function RegistroMasivoScreen() {
         ) : (
           <View style={[styles.uploadArea, dragOverUpload && styles.uploadAreaActive, ocrCargando && styles.uploadAreaDisabled]}>
             {procesando ? (
-              <ActivityIndicator size="large" color="#0ea5e9" />
+              <ActivityIndicator size="large" color={colors.accent} />
             ) : ocrCargando ? (
-              <ActivityIndicator size="large" color="#0369a1" />
+              <ActivityIndicator size="large" color={statusColors.info.text} />
             ) : (
-              <MaterialIcons name="cloud-upload" size={48} color={dragOverUpload ? '#0ea5e9' : '#94a3b8'} />
+              <MaterialIcons name="cloud-upload" size={48} color={dragOverUpload ? colors.accent : colors.textMuted} />
             )}
             <Text style={styles.uploadTitle}>
               {procesando
@@ -1545,30 +1555,30 @@ export default function RegistroMasivoScreen() {
                 <MaterialIcons
                   name={selectedBorrador.archivo.tipo.includes('pdf') ? 'picture-as-pdf' : 'image'}
                   size={16}
-                  color={selectedBorrador.archivo.tipo.includes('pdf') ? '#dc2626' : '#0ea5e9'}
+                  color={selectedBorrador.archivo.tipo.includes('pdf') ? colors.danger : colors.accent}
                 />
                 <Text style={styles.fileInfoName} numberOfLines={1}>{selectedBorrador.archivo.nombre}</Text>
                 {selectedBorrador.checkingDup ? (
                   <View style={styles.dupCheckingChip}>
-                    <ActivityIndicator size="small" color="#64748b" />
+                    <ActivityIndicator size="small" color={colors.textMuted} />
                     <Text style={styles.dupCheckingText}>Comprobando…</Text>
                   </View>
                 ) : null}
                 {tieneAlgunDuplicado(selectedBorrador) && !selectedBorrador.descartado ? (
                   <View style={styles.dupChip}>
-                    <MaterialIcons name="content-copy" size={12} color="#b91c1c" />
+                    <MaterialIcons name="content-copy" size={12} color={statusColors.danger.text} />
                     <Text style={styles.dupChipText}>Duplicado</Text>
                   </View>
                 ) : null}
                 {selectedBorrador.descartado ? (
                   <TouchableOpacity style={styles.restoreBtn} onPress={() => patchBorrador(selectedBorrador.idx, { descartado: false })}>
-                    <MaterialIcons name="undo" size={14} color="#059669" />
-                    <Text style={{ fontSize: 11, color: '#059669', fontWeight: '500' }}>Restaurar</Text>
+                    <MaterialIcons name="undo" size={14} color={colors.success} />
+                    <Text style={{ fontSize: typography.etiqueta.fontSize, color: colors.success, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight }}>Restaurar</Text>
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity style={styles.discardBtn} onPress={() => patchBorrador(selectedBorrador.idx, { descartado: true })}>
-                    <MaterialIcons name="close" size={14} color="#dc2626" />
-                    <Text style={{ fontSize: 11, color: '#dc2626', fontWeight: '500' }}>Descartar</Text>
+                    <MaterialIcons name="close" size={14} color={colors.danger} />
+                    <Text style={{ fontSize: typography.etiqueta.fontSize, color: colors.danger, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight }}>Descartar</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -1584,7 +1594,7 @@ export default function RegistroMasivoScreen() {
                     <MaterialIcons
                       name={selectedBorrador.ocr_pipeline_meta.importes_coherentes ? 'check-circle' : 'error-outline'}
                       size={16}
-                      color={selectedBorrador.ocr_pipeline_meta.importes_coherentes ? '#059669' : '#b45309'}
+                      color={selectedBorrador.ocr_pipeline_meta.importes_coherentes ? colors.success : statusColors.warning.text}
                     />
                     <Text style={styles.pipelineTitle}>
                       {selectedBorrador.ocr_pipeline_meta.importes_coherentes
@@ -1623,7 +1633,7 @@ export default function RegistroMasivoScreen() {
               {selectedBorrador.ia_meta?.aplicada ? (
                 <View style={styles.iaBanner}>
                   <View style={styles.iaBadge}>
-                    <MaterialIcons name="auto-awesome" size={12} color="#0369a1" />
+                    <MaterialIcons name="auto-awesome" size={12} color={statusColors.info.text} />
                     <Text style={styles.iaBadgeText}>IA aplicada</Text>
                   </View>
                   {selectedBorrador.ia_meta.tipo_documento ? (
@@ -1693,14 +1703,14 @@ export default function RegistroMasivoScreen() {
 
               {!!selectedBorrador.reconciliacion_warning?.trim() && (
                 <View style={styles.reconWarn}>
-                  <MaterialIcons name="info-outline" size={14} color="#0369a1" />
+                  <MaterialIcons name="info-outline" size={14} color={statusColors.info.text} />
                   <Text style={styles.reconWarnText}>{selectedBorrador.reconciliacion_warning}</Text>
                 </View>
               )}
 
               {proveedorCoincideConSociedad(selectedBorrador) && (
                 <View style={styles.provSocWarn}>
-                  <MaterialIcons name="warning-amber" size={16} color="#b45309" />
+                  <MaterialIcons name="warning-amber" size={16} color={statusColors.warning.text} />
                   <Text style={styles.provSocWarnText}>{MENSAJE_PROVEEDOR_IGUAL_SOCIEDAD}</Text>
                 </View>
               )}
@@ -1719,7 +1729,7 @@ export default function RegistroMasivoScreen() {
                         onPress={() => crearEmpresaModal.abrir(selectedBorrador, proximoIdEmpresa)}
                         activeOpacity={0.85}
                       >
-                        <MaterialIcons name="add-business" size={16} color="#fff" />
+                        <MaterialIcons name="add-business" size={16} color={colors.surface} />
                         <Text style={styles.maestroBtnText}>Crear empresa en maestro</Text>
                       </TouchableOpacity>
                     ) : (
@@ -1731,9 +1741,9 @@ export default function RegistroMasivoScreen() {
 
               <View style={styles.legendRow}>
                 <Text style={styles.legendText}>
-                  Confianza OCR: <Text style={{ color: '#059669' }}>●</Text> Alta{'  '}
-                  <Text style={{ color: '#b45309' }}>●</Text> Media{'  '}
-                  <Text style={{ color: '#dc2626' }}>●</Text> Baja
+                  Confianza OCR: <Text style={{ color: colors.success }}>●</Text> Alta{'  '}
+                  <Text style={{ color: statusColors.warning.text }}>●</Text> Media{'  '}
+                  <Text style={{ color: colors.danger }}>●</Text> Baja
                   {selectedBorrador.metodo_extraccion ? (
                     <Text style={styles.metodoHint}>
                       {'  ·  '}
@@ -1748,7 +1758,7 @@ export default function RegistroMasivoScreen() {
 
               {zona.activa && (
                 <View style={styles.zonaActivaBanner}>
-                  <MaterialIcons name="crop-free" size={14} color="#0369a1" />
+                  <MaterialIcons name="crop-free" size={14} color={statusColors.info.text} />
                   <Text style={styles.zonaActivaText}>
                     Dibuja un rectángulo sobre el documento para capturar «{zona.activa.field}»
                   </Text>
@@ -1817,7 +1827,7 @@ export default function RegistroMasivoScreen() {
                 />
                 {textoVencimientoPropuesto(selectedBorrador) ? (
                   <View style={styles.vencPropuestoRow}>
-                    <MaterialIcons name="event" size={13} color="#64748b" />
+                    <MaterialIcons name="event" size={13} color={colors.textMuted} />
                     <Text style={styles.vencPropuestoText}>{textoVencimientoPropuesto(selectedBorrador)}</Text>
                   </View>
                 ) : null}
@@ -1866,8 +1876,8 @@ export default function RegistroMasivoScreen() {
                     <Switch
                       value={!!selectedBorrador.pago_al_confirmar}
                       onValueChange={(v) => togglePagoAlConfirmar(selectedBorrador.idx, v)}
-                      trackColor={{ false: '#cbd5e1', true: '#86efac' }}
-                      thumbColor={selectedBorrador.pago_al_confirmar ? '#16a34a' : '#fff'}
+                      trackColor={{ false: colors.borderStrong, true: '#86efac' }}
+                      thumbColor={selectedBorrador.pago_al_confirmar ? colors.success : colors.surface}
                     />
                   </View>
                   {selectedBorrador.pago_al_confirmar ? (
@@ -1885,7 +1895,7 @@ export default function RegistroMasivoScreen() {
                         style={styles.pagoIntegradoBtn}
                         onPress={() => setModalPagoBorradorIdx(selectedBorrador.idx)}
                       >
-                        <MaterialIcons name="payments" size={16} color="#0369a1" />
+                        <MaterialIcons name="payments" size={16} color={statusColors.info.text} />
                         <Text style={styles.pagoIntegradoBtnText}>
                           {selectedBorrador.pago_datos ? 'Editar pago' : 'Registrar pago'}
                         </Text>
@@ -1911,12 +1921,12 @@ export default function RegistroMasivoScreen() {
                     justifyContent: 'center',
                     backgroundColor: 'rgba(14, 165, 233, 0.12)',
                     border: '2px dashed #0ea5e9',
-                    borderRadius: 8,
+                    borderRadius: RADIO_MEDIO,
                     margin: 8,
                     pointerEvents: 'none',
                   }}
                 >
-                  <span style={{ fontSize: 14, fontWeight: 600, color: '#0369a1' }}>
+                  <span style={{ fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: 600, color: statusColors.info.text }}>
                     Suelta para añadir más archivos
                   </span>
                 </div>
@@ -1943,7 +1953,7 @@ export default function RegistroMasivoScreen() {
 
       {step === 'review' && !selectedBorrador && (
         <View style={styles.emptyDetail}>
-          <MaterialIcons name="description" size={40} color="#cbd5e1" />
+          <MaterialIcons name="description" size={40} color={colors.borderStrong} />
           <Text style={styles.emptyDetailText}>Selecciona un archivo para revisar</Text>
         </View>
       )}
@@ -2002,212 +2012,216 @@ export default function RegistroMasivoScreen() {
   );
 }
 
+/** Radio 8: entre `radius.sm` (6) y `radius.md` (10). No hay token. */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+  container: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  errorText: { fontSize: 14, color: '#dc2626' },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.danger },
 
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 10,
-    paddingHorizontal: 16,
-    backgroundColor: '#fff',
+    paddingHorizontal: SPACING.lg,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
     flexWrap: 'wrap',
-    gap: 8,
+    gap: SPACING.sm,
   },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  backBtn: { padding: 4 },
-  title: { fontSize: 15, fontWeight: '700', color: '#334155' },
-  subtitle: { fontSize: 10, color: '#64748b', marginTop: 1 },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  backBtn: { padding: SPACING.xs },
+  title: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  subtitle: { fontSize: fontSizes.badge, color: colors.textMuted, marginTop: 1 },
   iaToggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     marginTop: 6,
     flexWrap: 'wrap',
   },
-  iaToggleLabel: { fontSize: 11, fontWeight: '600', color: '#475569' },
-  iaToggleHint: { fontSize: 9, color: '#94a3b8', flexShrink: 1 },
+  iaToggleLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  iaToggleHint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, flexShrink: 1 },
   iaBanner: {
-    backgroundColor: '#f0f9ff',
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     padding: 10,
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
     gap: 6,
   },
   iaBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    gap: 4,
-    backgroundColor: '#e0f2fe',
+    gap: SPACING.xs,
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
     borderColor: '#7dd3fc',
-    borderRadius: 999,
+    borderRadius: radius.pill,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
-  iaBadgeText: { fontSize: 10, fontWeight: '800', color: '#0369a1' },
-  iaTipoDoc: { fontSize: 10, color: '#64748b', textTransform: 'capitalize' as const },
-  iaRevision: { fontSize: 10, color: '#b45309', lineHeight: 14 },
-  iaOk: { fontSize: 10, color: '#059669' },
+  iaBadgeText: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.info.text },
+  iaTipoDoc: { fontSize: fontSizes.badge, color: colors.textMuted, textTransform: 'capitalize' as const },
+  iaRevision: { fontSize: fontSizes.badge, color: statusColors.warning.text, lineHeight: 14 },
+  iaOk: { fontSize: fontSizes.badge, color: colors.success },
   pipelineBanner: {
     backgroundColor: '#f0fdf4',
     borderWidth: 1,
     borderColor: '#86efac',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     padding: 10,
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
     gap: 6,
   },
   pipelineBannerWarn: {
-    backgroundColor: '#fffbeb',
+    backgroundColor: statusColors.warning.bg,
     borderColor: '#fcd34d',
   },
-  pipelineRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  pipelineTitle: { fontSize: 12, fontWeight: '700', color: '#14532d', flex: 1 },
-  pipelineDetail: { fontSize: 10, color: '#64748b', lineHeight: 14 },
-  pipelineMotivos: { fontSize: 10, color: '#92400e', lineHeight: 14 },
+  pipelineRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  pipelineTitle: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#14532d', flex: 1 },
+  pipelineDetail: { fontSize: fontSizes.badge, color: colors.textMuted, lineHeight: 14 },
+  pipelineMotivos: { fontSize: fontSizes.badge, color: '#92400e', lineHeight: 14 },
   totalFacturaReadonly: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
     paddingHorizontal: 8,
     paddingVertical: 6,
-    fontSize: 14,
-    color: '#0f172a',
-    backgroundColor: '#f1f5f9',
+    fontSize: fontSizes[14],
+    color: colors.textStrong,
+    backgroundColor: colors.navActive,
     textAlign: 'right' as const,
-    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
   },
-  headerActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  headerActions: { flexDirection: 'row', gap: SPACING.sm, alignItems: 'center' },
 
   navBtns: { flexDirection: 'row', alignItems: 'center', gap: 2, marginRight: 4 },
   navArrow: { padding: 2 },
-  navLabel: { fontSize: 11, fontWeight: '600', color: '#64748b', minWidth: 40, textAlign: 'center' },
-  navDupHint: { fontSize: 10, fontWeight: '700', color: '#b91c1c' },
+  navLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, minWidth: 40, textAlign: 'center' },
+  navDupHint: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.danger.text },
 
   addMoreBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderWidth: 1,
-    borderColor: '#0ea5e9',
-    borderRadius: 6,
-    backgroundColor: '#f0f9ff',
+    borderColor: colors.accent,
+    borderRadius: radius.sm,
+    backgroundColor: colors.accentMuted,
   },
-  addMoreBtnDisabled: { opacity: 0.65, borderColor: '#cbd5e1', backgroundColor: '#f8fafc' },
-  addMoreText: { fontSize: 11, color: '#0ea5e9', fontWeight: '500' },
+  addMoreBtnDisabled: { opacity: 0.65, borderColor: colors.borderStrong, backgroundColor: colors.bg },
+  addMoreText: { fontSize: typography.etiqueta.fontSize, color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   ocrChipLoading: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: '#f0f9ff',
+    borderRadius: radius.sm,
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
     borderColor: '#bae6fd',
   },
-  ocrChipLoadingText: { fontSize: 11, fontWeight: '600', color: '#0369a1' },
+  ocrChipLoadingText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
   ocrChipReady: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     backgroundColor: '#f0fdf4',
     borderWidth: 1,
     borderColor: '#bbf7d0',
   },
-  ocrChipReadyText: { fontSize: 11, fontWeight: '600', color: '#059669' },
+  ocrChipReadyText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.success },
   ocrChipWarn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: '#fffbeb',
+    borderRadius: radius.sm,
+    backgroundColor: statusColors.warning.bg,
     borderWidth: 1,
     borderColor: '#fde68a',
   },
-  ocrChipWarnText: { fontSize: 11, fontWeight: '600', color: '#b45309' },
+  ocrChipWarnText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.warning.text },
   confirmBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
+    gap: SPACING.xs,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 5,
-    borderRadius: 6,
-    backgroundColor: '#059669',
+    borderRadius: radius.sm,
+    backgroundColor: colors.success,
   },
-  confirmBtnText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+  confirmBtnText: { color: colors.surface, fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
 
   pagoIntegradoBlock: {
-    marginTop: 8,
-    marginBottom: 12,
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.md,
     padding: 10,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    borderRadius: 8,
-    backgroundColor: '#f0f9ff',
-    gap: 8,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accentMuted,
+    gap: SPACING.sm,
   },
   pagoIntegradoHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  pagoIntegradoTitle: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
-  pagoIntegradoHint: { fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 15 },
-  pagoIntegradoResumen: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  pagoIntegradoResumenText: { flex: 1, fontSize: 12, color: '#0369a1', fontWeight: '600', minWidth: 140 },
-  pagoIntegradoResumenPending: { flex: 1, fontSize: 12, color: '#b45309', fontStyle: 'italic' },
+  pagoIntegradoTitle: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  pagoIntegradoHint: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: 2, lineHeight: 15 },
+  pagoIntegradoResumen: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flexWrap: 'wrap' },
+  pagoIntegradoResumenText: { flex: 1, fontSize: fontSizes[12], color: statusColors.info.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, minWidth: 140 },
+  pagoIntegradoResumenPending: { flex: 1, fontSize: fontSizes[12], color: statusColors.warning.text, fontStyle: 'italic' },
   pagoIntegradoBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: '#7dd3fc',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
   },
-  pagoIntegradoBtnText: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
+  pagoIntegradoBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
 
   uploadArea: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 40,
-    margin: 16,
+    margin: SPACING.lg,
     borderWidth: 2,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     borderStyle: 'dashed',
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    gap: 8,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    gap: SPACING.sm,
     minHeight: 220,
   },
   uploadAreaActive: {
-    borderColor: '#0ea5e9',
-    backgroundColor: '#f0f9ff',
+    borderColor: colors.accent,
+    backgroundColor: colors.accentMuted,
   },
   uploadAreaDisabled: {
     opacity: 0.65,
-    borderColor: '#cbd5e1',
-    backgroundColor: '#f8fafc',
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.bg,
   },
-  uploadTitle: { fontSize: 14, fontWeight: '500', color: '#334155' },
-  uploadHint: { fontSize: 12, color: '#94a3b8' },
+  uploadTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.textPrimary },
+  uploadHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
 
   splitHorizontal: {
     flex: 1,
@@ -2216,9 +2230,9 @@ const styles = StyleSheet.create({
 
   formPane: {
     flexShrink: 0,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderRightWidth: 1,
-    borderRightColor: '#e2e8f0',
+    borderRightColor: colors.border,
     overflow: 'visible' as const,
     zIndex: 1,
   },
@@ -2227,16 +2241,16 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
     minWidth: 260,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: colors.border,
   },
   previewPaneInner: {
     flex: 1,
     minWidth: 260,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: colors.border,
   },
   formScroll: {
-    padding: 12,
-    gap: 8,
+    padding: SPACING.md,
+    gap: SPACING.sm,
   },
 
   fileInfoBar: {
@@ -2245,169 +2259,170 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingBottom: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
     marginBottom: 2,
   },
-  fileInfoName: { flex: 1, fontSize: 12, fontWeight: '600', color: '#334155' },
+  fileInfoName: { flex: 1, fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   dupChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
     paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 4,
-    backgroundColor: '#fef2f2',
+    borderRadius: radius.sm,
+    backgroundColor: statusColors.danger.bg,
     borderWidth: 1,
     borderColor: '#fecaca',
   },
-  dupChipText: { fontSize: 10, fontWeight: '700', color: '#b91c1c' },
+  dupChipText: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: statusColors.danger.text },
   dupCheckingChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 4,
-    backgroundColor: '#f8fafc',
+    borderRadius: radius.sm,
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  dupCheckingText: { fontSize: 10, fontWeight: '500', color: '#64748b' },
-  discardBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca' },
-  restoreBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0' },
+  dupCheckingText: { fontSize: fontSizes.badge, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.textMuted },
+  discardBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.sm, backgroundColor: statusColors.danger.bg, borderWidth: 1, borderColor: '#fecaca' },
+  restoreBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.sm, backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0' },
 
   dupWarn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#fef2f2',
-    borderRadius: 6,
+    backgroundColor: statusColors.danger.bg,
+    borderRadius: radius.sm,
     padding: 6,
     borderWidth: 1,
     borderColor: '#fecaca',
   },
-  dupWarnText: { fontSize: 10, color: '#b91c1c', flex: 1 },
+  dupWarnText: { fontSize: fontSizes.badge, color: statusColors.danger.text, flex: 1 },
 
   reconWarn: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 5,
-    backgroundColor: '#f0f9ff',
-    borderRadius: 6,
+    backgroundColor: colors.accentMuted,
+    borderRadius: radius.sm,
     padding: 6,
     borderWidth: 1,
     borderColor: '#bae6fd',
     marginBottom: 4,
   },
-  reconWarnText: { fontSize: 10, color: '#0c4a6e', flex: 1, lineHeight: 14 },
+  reconWarnText: { fontSize: fontSizes.badge, color: '#0c4a6e', flex: 1, lineHeight: 14 },
 
   provSocWarn: {
     flexDirection: 'row' as const,
     alignItems: 'flex-start' as const,
-    gap: 8,
+    gap: SPACING.sm,
     padding: 10,
-    marginBottom: 8,
-    borderRadius: 8,
-    backgroundColor: '#fffbeb',
+    marginBottom: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: statusColors.warning.bg,
     borderWidth: 1,
     borderColor: '#fcd34d',
   },
-  provSocWarnText: { fontSize: 10, color: '#92400e', flex: 1, lineHeight: 14 },
+  provSocWarnText: { fontSize: fontSizes.badge, color: '#92400e', flex: 1, lineHeight: 14 },
 
   maestroWarn: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
+    gap: SPACING.sm,
     backgroundColor: '#fff7ed',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     padding: 10,
     borderWidth: 1,
     borderColor: '#fdba74',
     marginBottom: 6,
   },
   maestroWarnBody: { flex: 1, gap: 6 },
-  maestroWarnTitle: { fontSize: 12, fontWeight: '700' as const, color: '#9a3412' },
-  maestroWarnText: { fontSize: 10, color: '#7c2d12', lineHeight: 14 },
+  maestroWarnTitle: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#9a3412' },
+  maestroWarnText: { fontSize: fontSizes.badge, color: '#7c2d12', lineHeight: 14 },
   maestroBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: 6,
     backgroundColor: '#ea580c',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: radius.sm,
     marginTop: 4,
   },
-  maestroBtnText: { fontSize: 11, color: '#fff', fontWeight: '600' as const },
-  maestroNoPerm: { fontSize: 10, color: '#9a3412', fontStyle: 'italic' as const, marginTop: 2 },
+  maestroBtnText: { fontSize: typography.etiqueta.fontSize, color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  maestroNoPerm: { fontSize: fontSizes.badge, color: '#9a3412', fontStyle: 'italic' as const, marginTop: 2 },
 
   legendRow: { paddingVertical: 2 },
   keyboardHint: {
-    fontSize: 10,
-    color: '#64748b',
-    marginBottom: 8,
+    fontSize: fontSizes.badge,
+    color: colors.textMuted,
+    marginBottom: SPACING.sm,
     lineHeight: 14,
     fontStyle: 'italic',
   },
-  legendText: { fontSize: 10, color: '#64748b', flexWrap: 'wrap' as const },
-  metodoHint: { fontSize: 10, color: '#0ea5e9', fontWeight: '500' as const },
+  legendText: { fontSize: fontSizes.badge, color: colors.textMuted, flexWrap: 'wrap' as const },
+  metodoHint: { fontSize: fontSizes.badge, color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
 
   formGrid: { gap: 6, zIndex: 1 },
-  vencPropuestoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingLeft: 2 },
-  vencPropuestoText: { fontSize: 12, color: '#64748b' },
+  vencPropuestoRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingLeft: 2 },
+  vencPropuestoText: { fontSize: fontSizes[12], color: colors.textMuted },
 
   fieldRow: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 280 },
   fieldLabelWrap: { flexDirection: 'row', alignItems: 'center', gap: 3, width: 110 },
-  fieldLabel: { fontSize: 11, color: '#64748b', fontWeight: '500' },
-  confDot: { width: 7, height: 7, borderRadius: 4 },
+  fieldLabel: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  confDot: { width: 7, height: 7, borderRadius: radius.sm },
   fieldInput: {
     flex: 1,
-    fontSize: 12,
-    color: '#334155',
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[12],
+    color: colors.textPrimary,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 5,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
   },
 
   zonaBtn: {
     width: 26,
     height: 26,
-    borderRadius: 5,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: '#0ea5e9',
+    borderColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f0f9ff',
+    backgroundColor: colors.accentMuted,
   },
   zonaBtnActive: {
-    backgroundColor: '#0ea5e9',
-    borderColor: '#0369a1',
+    backgroundColor: colors.accent,
+    borderColor: statusColors.info.text,
   },
   zonaActivaBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#e0f2fe',
-    borderRadius: 6,
+    backgroundColor: colors.accentMuted,
+    borderRadius: radius.sm,
     padding: 8,
     marginBottom: 6,
     borderWidth: 1,
     borderColor: '#7dd3fc',
   },
-  zonaActivaText: { flex: 1, fontSize: 10, color: '#0369a1', fontWeight: '500' },
-  zonaActivaCancelBtn: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, backgroundColor: '#fff', borderWidth: 1, borderColor: '#bae6fd' },
-  zonaActivaCancelText: { fontSize: 10, color: '#0369a1', fontWeight: '600' },
+  zonaActivaText: { flex: 1, fontSize: fontSizes.badge, color: statusColors.info.text, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  zonaActivaCancelBtn: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: '#bae6fd' },
+  zonaActivaCancelText: { fontSize: fontSizes.badge, color: statusColors.info.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
 
   emptyDetail: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     padding: 40,
   },
-  emptyDetailText: { fontSize: 13, color: '#94a3b8', textAlign: 'center' },
+  emptyDetailText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, textAlign: 'center' },
 });
