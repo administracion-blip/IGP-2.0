@@ -6,7 +6,6 @@ import {
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
-  useWindowDimensions,
   Modal,
   Platform,
 } from 'react-native';
@@ -42,11 +41,15 @@ import {
 import { apiFetch } from '../../utils/api';
 import { useGruposFamilias } from '../../hooks/useGruposFamilias';
 import { useAuth } from '../../contexts/AuthContext';
+import { useBreakpoint } from '../../hooks/useBreakpoint';
+import { colors, statusColors } from '../../constants/theme';
 import {
   DIAS_CARGA_COMPRAS,
   rangoApiDesdeFiltroFechas,
   rangoComprasDefault,
 } from '../../lib/comprasProveedorRango';
+
+const COLOR_MIA = '#7c3aed'; // violeta del acceso a MIA, sin token de acento
 
 type SyncOpcion = number | 'completo';
 
@@ -60,7 +63,7 @@ const OPCIONES_SYNC: { id: SyncOpcion; titulo: string; subtitulo: string; icono:
 
 export default function ComprasProveedorScreen() {
   const router = useRouter();
-  const { width: winWidth } = useWindowDimensions();
+  const { width: winWidth } = useBreakpoint();
 
   const { compras: items, loading, error, lastFetch, rangoCargado, recargar } = useComprasProveedorCache();
 
@@ -328,7 +331,7 @@ export default function ComprasProveedorScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#475569" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle}>Compras a Proveedor</Text>
@@ -343,17 +346,17 @@ export default function ComprasProveedorScreen() {
       <View style={styles.toolbar}>
         <View style={styles.toolbarLeft}>
           <View style={styles.searchWrap}>
-            <MaterialIcons name="search" size={18} color="#94a3b8" />
+            <MaterialIcons name="search" size={18} color={colors.textMuted} />
             <TextInput
               style={styles.searchInput}
               value={busqueda}
               onChangeText={setBusqueda}
               placeholder="Buscar producto, proveedor, albarán…"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
             />
             {busqueda.length > 0 && (
               <TouchableOpacity onPress={() => setBusqueda('')} hitSlop={8}>
-                <MaterialIcons name="close" size={16} color="#94a3b8" />
+                <MaterialIcons name="close" size={16} color={colors.textMuted} />
               </TouchableOpacity>
             )}
           </View>
@@ -381,7 +384,7 @@ export default function ComprasProveedorScreen() {
               accessibilityLabel="Informe IA de compras"
               variant="neutral"
             >
-              <MaterialIcons name="auto-awesome" size={TOOLBAR_ICON_SIZE} color="#7c3aed" />
+              <MaterialIcons name="auto-awesome" size={TOOLBAR_ICON_SIZE} color={COLOR_MIA} />
             </ComprasToolbarIconBtn>
           ) : null}
           <ComprasToolbarIconBtn
@@ -390,7 +393,7 @@ export default function ComprasProveedorScreen() {
             accessibilityLabel="Resumen por empresa y proveedor"
             variant="neutral"
           >
-            <MaterialIcons name="account-tree" size={TOOLBAR_ICON_SIZE} color="#475569" />
+            <MaterialIcons name="account-tree" size={TOOLBAR_ICON_SIZE} color={colors.textPrimary} />
           </ComprasToolbarIconBtn>
           <ComprasToolbarIconBtn
             tooltip="Conciliación de albaranes con facturas de gasto"
@@ -398,7 +401,7 @@ export default function ComprasProveedorScreen() {
             accessibilityLabel="Conciliación con facturas"
             variant="neutral"
           >
-            <MaterialIcons name="fact-check" size={TOOLBAR_ICON_SIZE} color="#475569" />
+            <MaterialIcons name="fact-check" size={TOOLBAR_ICON_SIZE} color={colors.textPrimary} />
           </ComprasToolbarIconBtn>
           <ComprasToolbarIconBtn
             tooltip="Última compra por producto (una fila por artículo)"
@@ -406,7 +409,7 @@ export default function ComprasProveedorScreen() {
             accessibilityLabel="Última compra por producto"
             variant="neutral"
           >
-            <MaterialIcons name="layers" size={TOOLBAR_ICON_SIZE} color="#475569" />
+            <MaterialIcons name="layers" size={TOOLBAR_ICON_SIZE} color={colors.textPrimary} />
           </ComprasToolbarIconBtn>
           <ComprasToolbarIconBtn
             tooltip="Exportar resultados filtrados a Excel"
@@ -418,7 +421,7 @@ export default function ComprasProveedorScreen() {
             <MaterialIcons
               name="table-chart"
               size={TOOLBAR_ICON_SIZE}
-              color={filtrados.length === 0 ? '#cbd5e1' : '#0ea5e9'}
+              color={filtrados.length === 0 ? colors.borderStrong : colors.accent}
             />
           </ComprasToolbarIconBtn>
           <ComprasToolbarIconBtn
@@ -432,9 +435,9 @@ export default function ComprasProveedorScreen() {
             variant="outline"
           >
             {loading ? (
-              <ActivityIndicator size="small" color="#0ea5e9" />
+              <ActivityIndicator size="small" color={colors.accent} />
             ) : (
-              <MaterialIcons name="refresh" size={TOOLBAR_ICON_SIZE} color="#0ea5e9" />
+              <MaterialIcons name="refresh" size={TOOLBAR_ICON_SIZE} color={colors.accent} />
             )}
           </ComprasToolbarIconBtn>
           {puedeSincronizar ? (
@@ -445,7 +448,7 @@ export default function ComprasProveedorScreen() {
 
       {hayBusquedaOFiltros ? (
         <View style={styles.toolbarResumenFiltrados}>
-          <MaterialIcons name="functions" size={15} color="#b45309" />
+          <MaterialIcons name="functions" size={15} color={statusColors.warning.text} />
           <Text style={styles.toolbarResumenFiltradosText}>
             Vista filtrada — Cantidad total:{' '}
             <Text style={styles.toolbarResumenFiltradosStrong}>
@@ -463,17 +466,17 @@ export default function ComprasProveedorScreen() {
 
       {syncResult ? (
         <View style={[styles.syncResultBar, syncResult.startsWith('Error') && styles.syncResultBarError]}>
-          <MaterialIcons name={syncResult.startsWith('Error') ? 'error-outline' : 'check-circle'} size={16} color={syncResult.startsWith('Error') ? '#dc2626' : '#16a34a'} />
+          <MaterialIcons name={syncResult.startsWith('Error') ? 'error-outline' : 'check-circle'} size={16} color={syncResult.startsWith('Error') ? colors.danger : colors.success} />
           <Text style={[styles.syncResultText, syncResult.startsWith('Error') && styles.syncResultTextError]}>{syncResult}</Text>
           <TouchableOpacity onPress={() => setSyncResult('')} hitSlop={8}>
-            <MaterialIcons name="close" size={14} color="#94a3b8" />
+            <MaterialIcons name="close" size={14} color={colors.textMuted} />
           </TouchableOpacity>
         </View>
       ) : null}
 
       {error ? (
         <View style={styles.errorBar}>
-          <MaterialIcons name="error-outline" size={16} color="#dc2626" />
+          <MaterialIcons name="error-outline" size={16} color={colors.danger} />
           <Text style={styles.errorText}>{error}</Text>
         </View>
       ) : null}
@@ -485,7 +488,7 @@ export default function ComprasProveedorScreen() {
               <View style={styles.modalFiltrosHeader}>
                 <Text style={styles.modalFiltrosTitle}>Filtros</Text>
                 <TouchableOpacity onPress={cerrarModalFiltros} hitSlop={8}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               <ScrollView
@@ -568,10 +571,10 @@ export default function ComprasProveedorScreen() {
           <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.syncMenuWrap}>
             <View style={styles.syncMenuCard}>
               <View style={styles.syncMenuHeader}>
-                <MaterialIcons name="sync" size={18} color="#0ea5e9" />
+                <MaterialIcons name="sync" size={18} color={colors.accent} />
                 <Text style={styles.syncMenuTitle}>Sincronizar compras</Text>
                 <TouchableOpacity onPress={() => setMenuSyncVisible(false)} hitSlop={8}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               {OPCIONES_SYNC.map((op) => (
@@ -582,17 +585,17 @@ export default function ComprasProveedorScreen() {
                   activeOpacity={0.7}
                 >
                   <View style={styles.syncMenuIconBox}>
-                    <MaterialIcons name={op.icono} size={18} color="#0ea5e9" />
+                    <MaterialIcons name={op.icono} size={18} color={colors.accent} />
                   </View>
                   <View style={styles.syncMenuRowTextWrap}>
                     <Text style={styles.syncMenuRowTitle}>{op.titulo}</Text>
                     <Text style={styles.syncMenuRowSub}>{op.subtitulo}</Text>
                   </View>
-                  <MaterialIcons name="chevron-right" size={20} color="#cbd5e1" />
+                  <MaterialIcons name="chevron-right" size={20} color={colors.borderStrong} />
                 </TouchableOpacity>
               ))}
               <View style={styles.syncMenuHint}>
-                <MaterialIcons name="info-outline" size={14} color="#b45309" />
+                <MaterialIcons name="info-outline" size={14} color={statusColors.warning.text} />
                 <Text style={styles.syncMenuHintText}>
                   Cuanto mayor sea el rango, más tarda la sincronización con Ágora. Para el uso diario suele bastar con 20 o 60 días.
                 </Text>
@@ -604,6 +607,7 @@ export default function ComprasProveedorScreen() {
 
       {/* Table */}
       <ScrollView style={styles.tableWrap} horizontal>
+        {/* 40 sin token: margen para que la tabla no pegue al borde */}
         <View style={{ minWidth: Math.max(totalWidth, winWidth - 40) }}>
           {/* Table Header */}
           <View style={styles.tableHeader}>
@@ -620,12 +624,12 @@ export default function ComprasProveedorScreen() {
           <ScrollView style={styles.tableBody}>
             {loading && items.length === 0 ? (
               <View style={styles.emptyWrap}>
-                <ActivityIndicator size="large" color="#0ea5e9" />
+                <ActivityIndicator size="large" color={colors.accent} />
                 <Text style={styles.emptyText}>Cargando datos…</Text>
               </View>
             ) : paginados.length === 0 ? (
               <View style={styles.emptyWrap}>
-                <MaterialIcons name="inbox" size={48} color="#cbd5e1" />
+                <MaterialIcons name="inbox" size={48} color={colors.borderStrong} />
                 <Text style={styles.emptyText}>
                   {items.length === 0
                     ? puedeSincronizar
@@ -663,13 +667,13 @@ export default function ComprasProveedorScreen() {
           {totalPages > 1 && (
             <View style={styles.pagination}>
               <TouchableOpacity onPress={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} style={styles.pageBtn}>
-                <MaterialIcons name="chevron-left" size={20} color={page === 0 ? '#cbd5e1' : '#0ea5e9'} />
+                <MaterialIcons name="chevron-left" size={20} color={page === 0 ? colors.borderStrong : colors.accent} />
               </TouchableOpacity>
               <Text style={styles.pageText}>
                 Pág. {page + 1} de {totalPages}
               </Text>
               <TouchableOpacity onPress={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} style={styles.pageBtn}>
-                <MaterialIcons name="chevron-right" size={20} color={page >= totalPages - 1 ? '#cbd5e1' : '#0ea5e9'} />
+                <MaterialIcons name="chevron-right" size={20} color={page >= totalPages - 1 ? colors.borderStrong : colors.accent} />
               </TouchableOpacity>
             </View>
           )}
