@@ -21,6 +21,15 @@ import * as XLSX from 'xlsx';
 import { TablaBasica } from '../../components/TablaBasica';
 import { InputFecha } from '../../components/InputFecha';
 import { apiFetch } from '../../utils/api';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 
 
 const PAGE_SIZE = 50;
@@ -356,6 +365,7 @@ export default function ComparativaFechasCajasScreen() {
   const getRowStyle = useCallback(
     (item: Registro) => {
       const fecha = String(item.Fecha ?? item.PK ?? '');
+      // Rosa de la fila de hoy; no hay token.
       if (fecha === hoy) return { backgroundColor: '#fce7f3' };
       return undefined;
     },
@@ -474,7 +484,7 @@ export default function ComparativaFechasCajasScreen() {
           onBlur={() => guardarFilaInline(id)}
           editable={!saving}
           placeholder="Anotación"
-          placeholderTextColor="#94a3b8"
+          placeholderTextColor={colors.textMuted}
           selectTextOnFocus
         />
       );
@@ -571,7 +581,7 @@ export default function ComparativaFechasCajasScreen() {
               style={[styles.btnFiltro, filtroAño && styles.btnFiltroActivo]}
               onPress={() => setModalFiltroAño(true)}
             >
-              <MaterialIcons name="calendar-today" size={14} color={filtroAño ? '#fff' : '#64748b'} />
+              <MaterialIcons name="calendar-today" size={14} color={filtroAño ? colors.surface : colors.textMuted} />
               <Text style={[styles.btnFiltroText, filtroAño && styles.btnFiltroTextActivo]}>
                 Año {filtroAño ?? 'Todos'}
               </Text>
@@ -580,7 +590,7 @@ export default function ComparativaFechasCajasScreen() {
               style={[styles.btnFiltro, filtroMes && styles.btnFiltroActivo]}
               onPress={() => setModalFiltroMes(true)}
             >
-              <MaterialIcons name="date-range" size={14} color={filtroMes ? '#fff' : '#64748b'} />
+              <MaterialIcons name="date-range" size={14} color={filtroMes ? colors.surface : colors.textMuted} />
               <Text style={[styles.btnFiltroText, filtroMes && styles.btnFiltroTextActivo]}>
                 Mes {filtroMes ? mesesNombres[filtroMes] : 'Todos'}
               </Text>
@@ -594,13 +604,13 @@ export default function ComparativaFechasCajasScreen() {
               onPress={toggleModoEdicion}
               disabled={registros.length === 0}
             >
-              <MaterialIcons name="edit" size={16} color={modoEdicion ? '#fff' : '#0ea5e9'} />
+              <MaterialIcons name="edit" size={16} color={modoEdicion ? colors.surface : colors.accent} />
               <Text style={[styles.btnEdicionText, modoEdicion && styles.btnEdicionTextActivo]}>
                 {modoEdicion ? 'Terminar edición' : 'Editar tabla'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.btnGenerar} onPress={abrirModalGenerar} disabled={guardando}>
-              <MaterialIcons name="add-circle-outline" size={18} color="#16a34a" />
+              <MaterialIcons name="add-circle-outline" size={18} color={colors.success} />
               <Text style={styles.btnGenerarText}>Generar registros</Text>
             </TouchableOpacity>
           </View>
@@ -637,7 +647,7 @@ export default function ComparativaFechasCajasScreen() {
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{editingId ? 'Editar registro' : 'Nuevo registro'}</Text>
                 <TouchableOpacity onPress={cerrarModal} style={styles.modalClose}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
@@ -656,8 +666,8 @@ export default function ComparativaFechasCajasScreen() {
                     <Switch
                       value={formFestivo}
                       onValueChange={setFormFestivo}
-                      trackColor={{ false: '#e2e8f0', true: '#0ea5e9' }}
-                      thumbColor="#fff"
+                      trackColor={{ false: colors.border, true: colors.accent }}
+                      thumbColor={colors.surface}
                       style={styles.switch}
                     />
                   </View>
@@ -669,7 +679,7 @@ export default function ComparativaFechasCajasScreen() {
                     value={formNombreFestivo}
                     onChangeText={setFormNombreFestivo}
                     placeholder="Nombre del festivo o anotación del día"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                   />
                 </View>
               </ScrollView>
@@ -681,9 +691,9 @@ export default function ComparativaFechasCajasScreen() {
                   disabled={guardando}
                 >
                   {guardando ? (
-                    <ActivityIndicator size="small" color="#0ea5e9" />
+                    <ActivityIndicator size="small" color={colors.accent} />
                   ) : (
-                    <MaterialIcons name="save" size={20} color="#0ea5e9" />
+                    <MaterialIcons name="save" size={20} color={colors.accent} />
                   )}
                   <Text style={styles.modalBtnText}>{editingId ? 'Guardar' : 'Crear'}</Text>
                 </TouchableOpacity>
@@ -700,7 +710,7 @@ export default function ComparativaFechasCajasScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Filtrar por año</Text>
               <TouchableOpacity onPress={() => setModalFiltroAño(false)} style={styles.modalClose}>
-                <MaterialIcons name="close" size={22} color="#64748b" />
+                <MaterialIcons name="close" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalFiltroList}>
@@ -732,7 +742,7 @@ export default function ComparativaFechasCajasScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Filtrar por mes</Text>
               <TouchableOpacity onPress={() => setModalFiltroMes(false)} style={styles.modalClose}>
-                <MaterialIcons name="close" size={22} color="#64748b" />
+                <MaterialIcons name="close" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalFiltroList}>
@@ -766,7 +776,7 @@ export default function ComparativaFechasCajasScreen() {
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Generar registros por rango</Text>
                 <TouchableOpacity onPress={() => setModalGenerarVisible(false)} style={styles.modalClose}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
@@ -797,9 +807,9 @@ export default function ComparativaFechasCajasScreen() {
                   disabled={generandoRango}
                 >
                   {generandoRango ? (
-                    <ActivityIndicator size="small" color="#0ea5e9" />
+                    <ActivityIndicator size="small" color={colors.accent} />
                   ) : (
-                    <MaterialIcons name="play-arrow" size={20} color="#0ea5e9" />
+                    <MaterialIcons name="play-arrow" size={20} color={colors.accent} />
                   )}
                   <Text style={styles.modalBtnText}>Generar</Text>
                 </TouchableOpacity>
@@ -812,10 +822,13 @@ export default function ComparativaFechasCajasScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  cellPk: { backgroundColor: '#f1f5f9' },
-  cellPkText: { fontWeight: '700', color: '#334155' },
+  cellPk: { backgroundColor: colors.navActive },
+  cellPkText: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
   filtrosToolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   btnGenerar: {
     flexDirection: 'row',
@@ -823,53 +836,54 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    backgroundColor: '#dcfce7',
-    borderRadius: 8,
+    backgroundColor: statusColors.success.bg,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#86efac',
   },
-  btnGenerarText: { fontSize: 12, fontWeight: '600', color: '#16a34a' },
+  btnGenerarText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.success },
   btnFiltro: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    gap: SPACING.xs,
+    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
     height: 28,
     justifyContent: 'center',
-    backgroundColor: '#f8fafc',
-    borderRadius: 6,
+    backgroundColor: colors.bg,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  btnFiltroActivo: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  btnFiltroText: { fontSize: 11, fontWeight: '500', color: '#64748b' },
-  btnFiltroTextActivo: { color: '#fff' },
+  btnFiltroActivo: { backgroundColor: colors.accent, borderColor: colors.accent },
+  btnFiltroText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.textMuted },
+  btnFiltroTextActivo: { color: colors.surface },
   modalFiltroWrap: { width: '100%', maxWidth: 280, alignItems: 'center' },
-  modalFiltroCard: { width: '100%', backgroundColor: '#fff', borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8, overflow: 'hidden' },
-  modalFiltroList: { maxHeight: 320, paddingVertical: 8 },
-  modalFiltroItem: { paddingVertical: 12, paddingHorizontal: 20 },
-  modalFiltroItemActivo: { backgroundColor: '#f0f9ff' },
-  modalFiltroItemText: { fontSize: 14, color: '#334155' },
-  modalFiltroItemTextActivo: { color: '#0ea5e9', fontWeight: '600' },
+  modalFiltroCard: { width: '100%', backgroundColor: colors.surface, borderRadius: radius.lg, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8, overflow: 'hidden' },
+  modalFiltroList: { maxHeight: 320, paddingVertical: SPACING.sm },
+  modalFiltroItem: { paddingVertical: SPACING.md, paddingHorizontal: 20 },
+  modalFiltroItemActivo: { backgroundColor: colors.accentMuted },
+  modalFiltroItemText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary },
+  modalFiltroItemTextActivo: { color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  /** Más oscuro que colors.overlay. */
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
-  modalWrap: { width: '100%', maxWidth: 420, padding: 24, alignItems: 'center' },
-  modalCard: { width: '100%', backgroundColor: '#fff', borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: '#334155' },
-  modalClose: { padding: 4 },
-  modalBody: { paddingHorizontal: 20, paddingVertical: 16, maxHeight: 400 },
-  formGroup: { marginBottom: 12 },
+  modalWrap: { width: '100%', maxWidth: 420, padding: SPACING.xl, alignItems: 'center' },
+  modalCard: { width: '100%', backgroundColor: colors.surface, borderRadius: radius.xl, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 12, overflow: 'hidden' },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: SPACING.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
+  modalTitle: { fontSize: fontSizes[18], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  modalClose: { padding: SPACING.xs },
+  modalBody: { paddingHorizontal: 20, paddingVertical: SPACING.lg, maxHeight: 400 },
+  formGroup: { marginBottom: SPACING.md },
   formRowSwitch: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   formLabelInRow: { marginBottom: 0 },
-  formLabel: { fontSize: 12, fontWeight: '500', color: '#475569', marginBottom: 4 },
-  formInput: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: '#334155' },
-  formInputDisabled: { backgroundColor: '#f1f5f9', color: '#94a3b8' },
+  formLabel: { fontSize: fontSizes[12], fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.textPrimary, marginBottom: SPACING.xs },
+  formInput: { backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO, paddingHorizontal: SPACING.md, paddingVertical: 10, fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary },
+  formInputDisabled: { backgroundColor: colors.navActive, color: colors.textMuted },
   switch: { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] },
-  formError: { fontSize: 12, color: '#dc2626', paddingHorizontal: 20, paddingVertical: 8 },
-  modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 20, paddingVertical: 16, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
-  modalBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 16, backgroundColor: '#f0f9ff', borderRadius: 10, borderWidth: 1, borderColor: '#0ea5e9' },
-  modalBtnText: { fontSize: 14, fontWeight: '600', color: '#0ea5e9' },
+  formError: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, paddingHorizontal: 20, paddingVertical: SPACING.sm },
+  modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 20, paddingVertical: SPACING.lg, borderTopWidth: 1, borderTopColor: colors.border },
+  modalBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, paddingVertical: 10, paddingHorizontal: SPACING.lg, backgroundColor: colors.accentMuted, borderRadius: radius.md, borderWidth: 1, borderColor: colors.accent },
+  modalBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
   toolbarRightGroup: { flexDirection: 'row', gap: 6, alignItems: 'center' },
   btnEdicion: {
     flexDirection: 'row',
@@ -877,38 +891,38 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    backgroundColor: '#f0f9ff',
-    borderRadius: 8,
+    backgroundColor: colors.accentMuted,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#0ea5e9',
+    borderColor: colors.accent,
   },
-  btnEdicionActivo: { backgroundColor: '#0ea5e9' },
-  btnEdicionText: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
-  btnEdicionTextActivo: { color: '#fff' },
+  btnEdicionActivo: { backgroundColor: colors.accent },
+  btnEdicionText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
+  btnEdicionTextActivo: { color: colors.surface },
   editInput: {
-    fontSize: 10,
-    color: '#334155',
-    backgroundColor: '#f0f9ff',
+    fontFamily: fontFamily.regular, fontSize: fontSizes.badge,
+    color: colors.textPrimary,
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    borderRadius: 4,
-    paddingHorizontal: 4,
+    borderRadius: radius.sm,
+    paddingHorizontal: SPACING.xs,
     paddingVertical: 1,
   },
   editInputDisabled: {
-    backgroundColor: '#f1f5f9',
-    borderColor: '#e2e8f0',
-    color: '#94a3b8',
+    backgroundColor: colors.navActive,
+    borderColor: colors.border,
+    color: colors.textMuted,
   },
   editFestivoBadge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 2,
-    borderRadius: 10,
+    borderRadius: radius.md,
     alignSelf: 'flex-start',
   },
-  editFestivoSi: { backgroundColor: '#dcfce7' },
-  editFestivoNo: { backgroundColor: '#f1f5f9' },
-  editFestivoText: { fontSize: 10, fontWeight: '600' },
-  editFestivoTextSi: { color: '#16a34a' },
-  editFestivoTextNo: { color: '#94a3b8' },
+  editFestivoSi: { backgroundColor: statusColors.success.bg },
+  editFestivoNo: { backgroundColor: colors.navActive },
+  editFestivoText: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  editFestivoTextSi: { color: colors.success },
+  editFestivoTextNo: { color: colors.textMuted },
 });
