@@ -11,7 +11,6 @@ import {
   Platform,
   KeyboardAvoidingView,
   Pressable,
-  useWindowDimensions,
   type GestureResponderEvent,
 } from 'react-native';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -56,6 +55,15 @@ import {
 } from '../../lib/pagosFacturaDetalle';
 import { FacturaDetalleModal } from '../../components/FacturaDetalleModal';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { apiFetch } from '../../utils/api';
 import { anioConcreto, anioEnCurso, urlFacturasPorAnio } from '../../lib/rangoAnioListado';
 import { buildEmpresasDesdeFacturasHref, consumirRetornoListadoFacturas } from '../../lib/navegacionEmpresas';
@@ -139,7 +147,7 @@ function tabVentaGuardado(tab: string): TabEstado {
 }
 
 function pastelChipEstado(key: TabEstado): { bg: string; text: string; border: string } {
-  if (key === 'todas') return { bg: '#f1f5f9', text: '#475569', border: '#cbd5e1' };
+  if (key === 'todas') return { bg: colors.navActive, text: colors.textPrimary, border: colors.borderStrong };
   const { bg, text } = colorEstado(key);
   const border = key === 'parcialmente_cobrada' ? '#fed7aa' : bg;
   return { bg, text, border };
@@ -189,9 +197,8 @@ export default function FacturasVentaScreen() {
   const router = useRouter();
   const searchParams = useLocalSearchParams<{ modalFactura?: string; maestroActualizado?: string }>();
   const { hasPermiso, user } = useAuth();
-  const { width: winW } = useWindowDimensions();
-  const { shouldStackToolbar, shouldUseComfortableTable } = useBreakpoint();
-  const layoutSplit = Platform.OS === 'web' && winW >= 1024;
+  const { isDesktop, shouldStackToolbar, shouldUseComfortableTable } = useBreakpoint();
+  const layoutSplit = Platform.OS === 'web' && isDesktop;
 
   const [facturas, setFacturas] = useState<FacturaListado[]>([]);
   const [loading, setLoading] = useState(true);
@@ -918,7 +925,7 @@ export default function FacturasVentaScreen() {
     return (
       <View style={styles.container}>
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#0ea5e9" />
+          <ActivityIndicator size="large" color={colors.accent} />
           <Text style={styles.loadingText}>Cargando facturas…</Text>
         </View>
       </View>
@@ -930,12 +937,12 @@ export default function FacturasVentaScreen() {
       <View style={styles.container}>
         <View style={styles.headerRow}>
           <TouchableOpacity onPress={() => router.push('/facturacion' as any)} style={styles.backBtn}>
-            <MaterialIcons name="arrow-back" size={22} color="#334155" />
+            <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.title}>Facturas emitidas</Text>
         </View>
         <View style={styles.center}>
-          <MaterialIcons name="error-outline" size={48} color="#f87171" />
+          <MaterialIcons name="error-outline" size={48} color={colors.danger} />
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={refetch}>
             <Text style={styles.retryBtnText}>Reintentar</Text>
@@ -949,7 +956,7 @@ export default function FacturasVentaScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.push('/facturacion' as any)} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Facturas emitidas</Text>
         <View style={styles.headerActions}>
@@ -959,7 +966,7 @@ export default function FacturasVentaScreen() {
               onPress={() => router.push(buildEmpresasDesdeFacturasHref('OUT') as never)}
               accessibilityLabel="Ir al maestro de empresas"
             >
-              <MaterialIcons name="business" size={16} color="#0ea5e9" />
+              <MaterialIcons name="business" size={16} color={colors.accent} />
               <Text style={styles.headerActionText}>Empresas</Text>
             </TouchableOpacity>
           ) : null}
@@ -1031,7 +1038,7 @@ export default function FacturasVentaScreen() {
                   {t.label}
                 </Text>
                 <View style={[styles.estadoChipCount, { backgroundColor: activo ? pastel.text : 'rgba(15, 23, 42, 0.08)' }]}>
-                  <Text style={[styles.estadoChipCountText, { color: activo ? '#fff' : pastel.text }]}>
+                  <Text style={[styles.estadoChipCountText, { color: activo ? colors.surface : pastel.text }]}>
                     {conteosPorTab[t.key]}
                   </Text>
                 </View>
@@ -1069,7 +1076,7 @@ export default function FacturasVentaScreen() {
                   disabled={disabled}
                   accessibilityLabel={btn.label}
                 >
-                  <MaterialIcons name={btn.icon} size={18} color={disabled ? '#94a3b8' : '#0ea5e9'} />
+                  <MaterialIcons name={btn.icon} size={18} color={disabled ? colors.textMuted : colors.accent} />
                 </TouchableOpacity>
               </View>
             );
@@ -1095,7 +1102,7 @@ export default function FacturasVentaScreen() {
               }}
               accessibilityLabel="Selección múltiple"
             >
-              <MaterialIcons name="checklist" size={18} color={modoSeleccion ? '#fff' : '#0ea5e9'} />
+              <MaterialIcons name="checklist" size={18} color={modoSeleccion ? colors.surface : colors.accent} />
             </TouchableOpacity>
           </View>
           {modoSeleccion ? (
@@ -1122,7 +1129,7 @@ export default function FacturasVentaScreen() {
             disabled={loading}
             accessibilityLabel="Actualizar"
           >
-            <MaterialIcons name="refresh" size={18} color={loading ? '#94a3b8' : '#0ea5e9'} />
+            <MaterialIcons name="refresh" size={18} color={loading ? colors.textMuted : colors.accent} />
           </TouchableOpacity>
         </View>
 
@@ -1142,13 +1149,13 @@ export default function FacturasVentaScreen() {
               }}
               accessibilityLabel="Exportar Excel"
             >
-              <MaterialIcons name="file-download" size={18} color="#059669" />
+              <MaterialIcons name="file-download" size={18} color={colors.success} />
             </TouchableOpacity>
           </View>
         )}
 
         <View style={[styles.searchWrap, busquedaFoco && styles.filtroFoco]}>
-          <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
+          <MaterialIcons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             value={filtroBusqueda}
@@ -1156,7 +1163,7 @@ export default function FacturasVentaScreen() {
             onFocus={() => setBusquedaFoco(true)}
             onBlur={() => setBusquedaFoco(false)}
             placeholder="Nº, cliente, CIF, ID…"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
           />
         </View>
 
@@ -1173,13 +1180,13 @@ export default function FacturasVentaScreen() {
         <View style={styles.resumenRow}>
           <View style={styles.resumenItem}>
             <Text style={styles.resumenLabel}>Total facturado</Text>
-            <Text style={[styles.resumenVal, { color: '#059669' }]}>
+            <Text style={[styles.resumenVal, { color: colors.success }]}>
               {formatMoneda(facturasFiltradas.reduce((s, f) => s + (f.total_factura ?? 0), 0))}
             </Text>
           </View>
           <View style={styles.resumenItem}>
             <Text style={styles.resumenLabel}>Pendiente cobro</Text>
-            <Text style={[styles.resumenVal, { color: '#b45309' }]}>
+            <Text style={[styles.resumenVal, { color: statusColors.warning.text }]}>
               {formatMoneda(facturasFiltradas.reduce((s, f) => s + (f.saldo_pendiente ?? 0), 0))}
             </Text>
           </View>
@@ -1206,7 +1213,7 @@ export default function FacturasVentaScreen() {
               onPress={goPrevPage}
               disabled={pageIndexClamped <= 0}
             >
-              <MaterialIcons name="chevron-left" size={20} color={pageIndexClamped <= 0 ? '#94a3b8' : '#0ea5e9'} />
+              <MaterialIcons name="chevron-left" size={20} color={pageIndexClamped <= 0 ? colors.textMuted : colors.accent} />
             </TouchableOpacity>
             <Text style={styles.pageText}>Página {pageIndexClamped + 1} de {totalPages}</Text>
             <TouchableOpacity
@@ -1214,7 +1221,7 @@ export default function FacturasVentaScreen() {
               onPress={goNextPage}
               disabled={pageIndexClamped >= totalPages - 1}
             >
-              <MaterialIcons name="chevron-right" size={20} color={pageIndexClamped >= totalPages - 1 ? '#94a3b8' : '#0ea5e9'} />
+              <MaterialIcons name="chevron-right" size={20} color={pageIndexClamped >= totalPages - 1 ? colors.textMuted : colors.accent} />
             </TouchableOpacity>
           </View>
         )}
@@ -1241,7 +1248,7 @@ export default function FacturasVentaScreen() {
                 >
                   <Text style={styles.cellHeaderText} numberOfLines={1} ellipsizeMode="tail">{col.label}</Text>
                   {sortCol === col.key && (
-                    <MaterialIcons name={sortDir === 'asc' ? 'arrow-upward' : 'arrow-downward'} size={10} color="#334155" />
+                    <MaterialIcons name={sortDir === 'asc' ? 'arrow-upward' : 'arrow-downward'} size={10} color={colors.textPrimary} />
                   )}
                   {Platform.OS === 'web' && (
                     <View
@@ -1297,7 +1304,7 @@ export default function FacturasVentaScreen() {
                         <MaterialIcons
                           name={selectedMultiIds.has(item.id_factura) ? 'check-box' : 'check-box-outline-blank'}
                           size={18}
-                          color="#0ea5e9"
+                          color={colors.accent}
                         />
                       </Pressable>
                     ) : (
@@ -1311,7 +1318,7 @@ export default function FacturasVentaScreen() {
                       }}
                       style={styles.actionBtn}
                     >
-                      <MaterialIcons name="vertical-split" size={16} color="#0369a1" />
+                      <MaterialIcons name="vertical-split" size={16} color={statusColors.info.text} />
                     </Pressable>
                     )}
                     {!modoSeleccion && puedeVerConciliacion ? (
@@ -1356,14 +1363,14 @@ export default function FacturasVentaScreen() {
                             }}
                             style={styles.cellPagadoIconBtn}
                           >
-                            <MaterialIcons name="receipt-long" size={16} color="#0369a1" />
+                            <MaterialIcons name="receipt-long" size={16} color={statusColors.info.text} />
                           </Pressable>
                         </View>
                       ) : (
                         <Text
                           style={[
                             styles.cellText,
-                            col.key === 'total_factura' && Number(item.total_factura) < 0 && { color: '#dc2626' },
+                            col.key === 'total_factura' && Number(item.total_factura) < 0 && { color: colors.danger },
                           ]}
                           numberOfLines={col.key === 'impuestos_resumen' ? 2 : 1}
                           ellipsizeMode="tail"
@@ -1429,12 +1436,12 @@ export default function FacturasVentaScreen() {
                     </Text>
                   </View>
                   <TouchableOpacity onPress={() => setModalAnularVisible(false)} style={styles.modalClose}>
-                    <MaterialIcons name="close" size={22} color="#64748b" />
+                    <MaterialIcons name="close" size={22} color={colors.textMuted} />
                   </TouchableOpacity>
                 </View>
                 {errorModal && (
                   <View style={styles.modalErrorWrap}>
-                    <MaterialIcons name="error-outline" size={16} color="#dc2626" />
+                    <MaterialIcons name="error-outline" size={16} color={colors.danger} />
                     <Text style={styles.modalError}>{errorModal}</Text>
                   </View>
                 )}
@@ -1448,10 +1455,10 @@ export default function FacturasVentaScreen() {
                     disabled={operando}
                   >
                     {operando ? (
-                      <ActivityIndicator size="small" color="#fff" />
+                      <ActivityIndicator size="small" color={colors.surface} />
                     ) : (
                       <>
-                        <MaterialIcons name="block" size={18} color="#fff" />
+                        <MaterialIcons name="block" size={18} color={colors.surface} />
                         <Text style={styles.modalFooterBtnDangerText}>Anular</Text>
                       </>
                     )}
@@ -1551,7 +1558,7 @@ export default function FacturasVentaScreen() {
                 </Text>
               </View>
               <TouchableOpacity onPress={cerrarModalDetallePagos} style={styles.modalDetalleClose} accessibilityLabel="Cerrar">
-                <MaterialIcons name="close" size={22} color="#64748b" />
+                <MaterialIcons name="close" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
 
@@ -1595,14 +1602,17 @@ export default function FacturasVentaScreen() {
   );
 }
 
+/** Radio 8: entre `radius.sm` (6) y `radius.md` (10). No hay token. */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, margin: -10, padding: 16, backgroundColor: '#ffffff' },
+  container: { flex: 1, margin: -10, padding: SPACING.lg, backgroundColor: colors.surface },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
-  loadingText: { fontSize: 12, color: '#64748b' },
-  errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
-  retryBtn: { paddingVertical: 8, paddingHorizontal: 16, backgroundColor: '#fef2f2', borderRadius: 8 },
-  retryBtnText: { fontSize: 12, color: '#dc2626', fontWeight: '600' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8 },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, textAlign: 'center' },
+  retryBtn: { paddingVertical: SPACING.sm, paddingHorizontal: SPACING.lg, backgroundColor: statusColors.danger.bg, borderRadius: RADIO_MEDIO },
+  retryBtnText: { fontSize: fontSizes[12], color: colors.danger, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.xs, gap: SPACING.sm },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1612,32 +1622,32 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'flex-end',
   },
-  headerActionText: { fontSize: 11, color: '#0ea5e9', fontWeight: '500' },
+  headerActionText: { fontSize: typography.etiqueta.fontSize, color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   empresasBtnHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderWidth: 1,
-    borderColor: '#0ea5e9',
-    borderRadius: 6,
-    backgroundColor: '#f0f9ff',
+    borderColor: colors.accent,
+    borderRadius: radius.sm,
+    backgroundColor: colors.accentMuted,
   },
-  backBtn: { padding: 4 },
-  title: { fontSize: 20, fontWeight: '700', color: '#334155' },
+  backBtn: { padding: SPACING.xs },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
 
-  resumenRow: { flexDirection: 'row', gap: 12, marginBottom: 8, flexWrap: 'wrap' },
-  resumenItem: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#eef1f5', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
-  resumenLabel: { fontSize: 10, color: '#94a3b8' },
-  resumenVal: { fontSize: 14, fontWeight: '700', color: '#334155' },
+  resumenRow: { flexDirection: 'row', gap: SPACING.md, marginBottom: SPACING.sm, flexWrap: 'wrap' },
+  resumenItem: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: RADIO_MEDIO, paddingHorizontal: 10, paddingVertical: 5 },
+  resumenLabel: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textMuted },
+  resumenVal: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
 
   filtrosRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
   },
   filtrosRowStacked: { flexDirection: 'column', alignItems: 'stretch' },
   filtroSelector: { flex: 1, minWidth: 180, maxWidth: 320 },
@@ -1645,8 +1655,8 @@ const styles = StyleSheet.create({
   estadoTabsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
   },
   estadoTabsRowStacked: {
     flexDirection: 'column',
@@ -1657,14 +1667,14 @@ const styles = StyleSheet.create({
     minWidth: 0,
     maxHeight: 32,
   },
-  tabsContent: { flexDirection: 'row', gap: 4, paddingRight: 4, alignItems: 'center' },
+  tabsContent: { flexDirection: 'row', gap: SPACING.xs, paddingRight: 4, alignItems: 'center' },
   estadoChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     borderWidth: 1,
   },
   estadoChipActive: {
@@ -1672,19 +1682,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 2,
   },
-  estadoChipText: { fontSize: 10, fontWeight: '500' },
-  estadoChipTextActive: { fontWeight: '700' },
+  estadoChipText: { fontSize: fontSizes.badge, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  estadoChipTextActive: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   estadoChipCount: {
     minWidth: 18,
     height: 16,
     paddingHorizontal: 4,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  estadoChipCountText: { fontSize: 9, fontWeight: '700' },
+  estadoChipCountText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
 
-  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12, flexWrap: 'wrap' },
+  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm, gap: SPACING.md, flexWrap: 'wrap' },
   toolbarRowStacked: { flexDirection: 'column', alignItems: 'stretch' },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   toolbarBtnWrap: { position: 'relative' },
@@ -1692,70 +1702,71 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: '100%',
     alignSelf: 'center',
-    marginBottom: 4,
-    backgroundColor: '#334155',
+    marginBottom: SPACING.xs,
+    backgroundColor: colors.textPrimary,
     paddingHorizontal: 4,
     paddingVertical: 2,
-    borderRadius: 4,
+    borderRadius: radius.sm,
     zIndex: 10,
   },
-  tooltipText: { fontSize: 9, color: '#f8fafc', fontWeight: '400' },
-  toolbarBtn: { padding: 6, borderWidth: 1, borderColor: '#eef1f5', borderRadius: 10, backgroundColor: '#ffffff' },
-  toolbarBtnHover: { backgroundColor: '#f8fafc' },
-  toolbarBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
+  tooltipText: { fontSize: typography.etiqueta.fontSize, color: colors.bg, fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight },
+  toolbarBtn: { padding: 6, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface },
+  toolbarBtnHover: { backgroundColor: colors.bg },
+  toolbarBtnActive: { backgroundColor: colors.accent, borderColor: colors.accent },
   toolbarBtnDisabled: { opacity: 0.5 },
-  filtroFoco: { borderColor: '#0ea5e9' },
+  filtroFoco: { borderColor: colors.accent },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     minWidth: 140,
     maxWidth: 280,
     height: 32,
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#eef1f5',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 8,
   },
   searchIcon: { marginRight: 6 },
-  searchInput: { flex: 1, fontSize: 12, color: '#334155', paddingVertical: 0 },
+  searchInput: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary, paddingVertical: 0 },
 
   fechaFilterWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  fechaLabel: { fontSize: 11, color: '#64748b', fontWeight: '500' },
+  fechaLabel: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   fechaInput: {
-    fontSize: 11,
+    fontFamily: fontFamily.regular,
+    fontSize: typography.etiqueta.fontSize,
     paddingVertical: 3,
     paddingHorizontal: 8,
     minHeight: 32,
     height: 32,
-    color: '#334155',
+    color: colors.textPrimary,
     width: 118,
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#eef1f5',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
 
   subtitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
-    gap: 12,
+    marginBottom: SPACING.sm,
+    gap: SPACING.md,
     flexWrap: 'wrap',
   },
-  subtitle: { fontSize: 14, color: '#64748b' },
-  pagination: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  pageBtn: { padding: 4 },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted },
+  pagination: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
+  pageBtn: { padding: SPACING.xs },
   pageBtnDisabled: { opacity: 0.5 },
-  pageText: { fontSize: 11, color: '#64748b', marginHorizontal: 4 },
+  pageText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginHorizontal: SPACING.xs },
 
   tableSplitWrap: { flex: 1, minHeight: 0 },
   tableSplitRow: { flexDirection: 'row', alignItems: 'stretch' },
   tableSplitCol: { flexDirection: 'column' },
   detailPanel: {
-    backgroundColor: '#ffffff',
-    borderColor: '#eef1f5',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
   },
   detailPanelFlex: {
     flex: 1,
@@ -1775,9 +1786,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
   },
   detailPanelTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#64748b',
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
+    color: colors.textMuted,
     paddingHorizontal: 10,
     paddingTop: 6,
     paddingBottom: 3,
@@ -1791,27 +1802,27 @@ const styles = StyleSheet.create({
   table: {
     minWidth: '100%',
     borderWidth: 1,
-    borderColor: '#eef1f5',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     overflow: 'hidden',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     direction: 'ltr',
   },
   rowHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#eef1f5',
+    borderBottomColor: colors.border,
   },
   cellHeader: {
     minWidth: MIN_COL_WIDTH,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 6,
     borderRightWidth: 0,
     position: 'relative',
   },
-  cellHeaderText: { fontSize: 10, fontWeight: '600', color: '#94a3b8', lineHeight: 12, letterSpacing: 0.3 },
+  cellHeaderText: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, lineHeight: 12, letterSpacing: 0.3 },
   resizeHandle: {
     position: 'absolute',
     top: 0,
@@ -1824,19 +1835,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: '#eef1f5',
-    backgroundColor: '#fff',
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  rowSelected: { backgroundColor: '#e0f2fe' },
+  rowSelected: { backgroundColor: colors.accentMuted },
   actionHeaderCell: { width: 40, flexShrink: 0 },
   actionCell: { width: 40, flexShrink: 0, alignItems: 'center', justifyContent: 'center', paddingVertical: 2 },
   /** Con conciliación la celda hospeda dos iconos: detalle + movimientos candidatos. */
   actionHeaderCellAncha: { width: 70 },
-  actionCellAncha: { width: 70, flexDirection: 'row', gap: 4 },
+  actionCellAncha: { width: 70, flexDirection: 'row', gap: SPACING.xs },
   actionBtn: {
     padding: 5,
-    borderRadius: 6,
-    backgroundColor: '#e0f2fe',
+    borderRadius: radius.sm,
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
     borderColor: '#bae6fd',
   },
@@ -1847,46 +1858,46 @@ const styles = StyleSheet.create({
     borderRightWidth: 0,
     justifyContent: 'center',
   },
-  cellPagadoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 },
-  cellAbonoRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 },
-  estadoBadgesRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
+  cellPagadoRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, flex: 1, minWidth: 0 },
+  cellAbonoRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, flex: 1, minWidth: 0 },
+  estadoBadgesRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACING.xs },
   cellTextFlex: { flex: 1, minWidth: 0 },
   cellPagadoIconBtn: { padding: 2 },
-  cellText: { fontSize: 9, color: '#475569', lineHeight: 12, ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}) },
-  emptyRow: { padding: 24, alignItems: 'center' },
-  emptyText: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
+  cellText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textPrimary, lineHeight: 14, ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}) },
+  emptyRow: { padding: SPACING.xl, alignItems: 'center' },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, fontStyle: 'italic' },
 
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    backgroundColor: 'rgba(15, 23, 42, 0.45)', // más oscuro que colors.overlay (0.35)
   },
   /** Misma base que facturas recibidas: overlay + tarjeta compacta para detalle de cobros */
   modalDetalleOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     padding: 20,
     width: '90%',
     maxWidth: 400,
   },
   modalDetalleModal: { maxWidth: 480 },
   modalDetalleHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
-  modalDetalleTitle: { fontSize: 16, fontWeight: '700', color: '#334155', marginBottom: 4 },
-  modalDetalleSubtitle: { fontSize: 12, color: '#64748b', lineHeight: 18 },
-  modalDetalleClose: { padding: 4, marginTop: -4 },
-  modalContentWrap: { width: '100%', maxWidth: 480, padding: 24, alignItems: 'center' },
+  modalDetalleTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, marginBottom: SPACING.xs },
+  modalDetalleSubtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, lineHeight: 18 },
+  modalDetalleClose: { padding: SPACING.xs, marginTop: -4 },
+  modalContentWrap: { width: '100%', maxWidth: 480, padding: SPACING.xl, alignItems: 'center' },
   modalCardTouch: { width: '100%' },
   modalCard: {
     width: '100%',
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 16,
+    borderRadius: radius.xl,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
@@ -1901,23 +1912,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#eef1f5',
+    borderBottomColor: colors.border,
   },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#334155', marginBottom: 4 },
-  modalSubtitle: { fontSize: 13, color: '#64748b', lineHeight: 18 },
-  modalClose: { padding: 4, marginTop: -4 },
-  modalBody: { paddingHorizontal: 24, paddingVertical: 20, gap: 12 },
-  formLabel: { fontSize: 12, fontWeight: '600', color: '#334155', marginBottom: 4 },
-  formLabelInline: { fontSize: 12, fontWeight: '600', color: '#334155', marginBottom: 4 },
+  modalTitle: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, marginBottom: SPACING.xs },
+  modalSubtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, lineHeight: 18 },
+  modalClose: { padding: SPACING.xs, marginTop: -4 },
+  modalBody: { paddingHorizontal: 24, paddingVertical: 20, gap: SPACING.md },
+  formLabel: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: SPACING.xs },
+  formLabelInline: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: SPACING.xs },
   formInput: {
-    fontSize: 13,
-    color: '#334155',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[13],
+    color: colors.textPrimary,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
     borderWidth: 1,
-    borderColor: '#eef1f5',
-    borderRadius: 8,
-    backgroundColor: '#ffffff',
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
   },
   modalErrorWrap: {
     flexDirection: 'row',
@@ -1925,51 +1937,51 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 24,
     paddingVertical: 10,
-    backgroundColor: '#fef2f2',
+    backgroundColor: statusColors.danger.bg,
     marginHorizontal: 24,
-    marginBottom: 8,
-    borderRadius: 8,
+    marginBottom: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
   },
-  modalError: { fontSize: 12, color: '#dc2626', flex: 1 },
+  modalError: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, flex: 1 },
   modalFooter: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
-    gap: 12,
+    gap: SPACING.md,
     paddingHorizontal: 24,
     paddingVertical: 16,
     borderTopWidth: 1,
-    borderTopColor: '#eef1f5',
-    backgroundColor: '#ffffff',
+    borderTopColor: colors.border,
+    backgroundColor: colors.surface,
   },
   modalFooterBtnSecondary: {
     paddingVertical: 10,
     paddingHorizontal: 18,
-    borderRadius: 10,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#eef1f5',
-    backgroundColor: '#fff',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  modalFooterBtnSecondaryText: { fontSize: 14, color: '#64748b', fontWeight: '500' },
+  modalFooterBtnSecondaryText: { fontSize: fontSizes[14], color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   modalFooterBtnPrimary: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     paddingVertical: 10,
     paddingHorizontal: 18,
-    borderRadius: 10,
-    backgroundColor: '#0ea5e9',
+    borderRadius: radius.md,
+    backgroundColor: colors.accent,
   },
-  modalFooterBtnPrimaryText: { fontSize: 14, color: '#fff', fontWeight: '600' },
+  modalFooterBtnPrimaryText: { fontSize: fontSizes[14], color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   modalFooterBtnDanger: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     paddingVertical: 10,
     paddingHorizontal: 18,
-    borderRadius: 10,
-    backgroundColor: '#dc2626',
+    borderRadius: radius.md,
+    backgroundColor: colors.danger,
   },
-  modalFooterBtnDangerText: { fontSize: 14, color: '#fff', fontWeight: '600' },
+  modalFooterBtnDangerText: { fontSize: fontSizes[14], color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   modalFooterBtnDisabled: { opacity: 0.7 },
 });
