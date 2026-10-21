@@ -16,6 +16,15 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { MIN_TOUCH } from '../../constants/layout';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TablaBasica } from '../../components/TablaBasica';
@@ -999,12 +1008,12 @@ export default function PedidosScreen() {
                   style={[styles.lineasCheckBtn, preparada && styles.lineasCheckBtnActive]}
                 >
                   {guardandoPreparada === key ? (
-                    <ActivityIndicator size="small" color={preparada ? '#fff' : '#0ea5e9'} />
+                    <ActivityIndicator size="small" color={preparada ? colors.surface : colors.accent} />
                   ) : (
                     <MaterialIcons
                       name={preparada ? 'check-circle' : 'check-circle-outline'}
                       size={22}
-                      color={pedidoActualFacturado ? '#d1d5db' : preparada ? '#16a34a' : '#94a3b8'}
+                      color={pedidoActualFacturado ? '#d1d5db' : preparada ? colors.success : colors.textMuted}
                     />
                   )}
                 </TouchableOpacity>
@@ -1017,7 +1026,7 @@ export default function PedidosScreen() {
                     onChangeText={(v) => setLineasEditValues((prev) => ({ ...prev, [key]: v }))}
                     keyboardType="numeric"
                     placeholder="0"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                   />
                 ) : (
                   <Text style={[styles.lineasTableCell, styles.lineasCellCantidad]}>{String(cant)}</Text>
@@ -1046,9 +1055,9 @@ export default function PedidosScreen() {
                   style={styles.lineasDeleteBtn}
                 >
                   {borrandoLinea === key ? (
-                    <ActivityIndicator size="small" color="#ef4444" />
+                    <ActivityIndicator size="small" color={colors.danger} />
                   ) : (
-                    <MaterialIcons name="delete-outline" size={18} color={bloqueadoBorrar ? '#d1d5db' : '#ef4444'} />
+                    <MaterialIcons name="delete-outline" size={18} color={bloqueadoBorrar ? '#d1d5db' : colors.danger} />
                   )}
                 </TouchableOpacity>
               </View>
@@ -1121,7 +1130,7 @@ export default function PedidosScreen() {
               pulsa «Editar», no pasa nada y el motivo queda fuera de pantalla. */}
           {avisoFacturado ? (
             <View style={[styles.avisoFacturadoBox, styles.avisoFacturadoBoxTop]}>
-              <MaterialIcons name="lock-outline" size={16} color="#b45309" />
+              <MaterialIcons name="lock-outline" size={16} color={statusColors.warning.text} />
               <Text style={styles.avisoFacturadoText}>{avisoFacturado}</Text>
               <TouchableOpacity
                 onPress={() => setAvisoFacturado(null)}
@@ -1129,7 +1138,7 @@ export default function PedidosScreen() {
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 accessibilityLabel="Cerrar aviso"
               >
-                <MaterialIcons name="close" size={16} color="#b45309" />
+                <MaterialIcons name="close" size={16} color={statusColors.warning.text} />
               </TouchableOpacity>
             </View>
           ) : null}
@@ -1167,13 +1176,13 @@ export default function PedidosScreen() {
             onEditar={handleEditar}
             onBorrar={handleBorrar}
             columnasMoneda={['TotalAlbaran']}
-            getColumnCellStyle={(col) => col === 'TotalAlbaran' ? { text: { fontWeight: '700' } } : undefined}
+            getColumnCellStyle={(col) => col === 'TotalAlbaran' ? { text: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight } } : undefined}
             renderCell={(item, col) =>
               col === COLUMNA_FACTURACION ? (
                 <CeldaFacturacionPedido pedido={item} comodo={shouldUseComfortableTable} />
               ) : null
             }
-            getRowStyle={(item) => String(valorEnLocal(item, 'Estado') ?? '') === 'Completado' ? { backgroundColor: '#dcfce7' } : undefined}
+            getRowStyle={(item) => String(valorEnLocal(item, 'Estado') ?? '') === 'Completado' ? { backgroundColor: statusColors.success.bg } : undefined}
             emptyMessage="No hay pedidos"
             emptyFilterMessage="Ningún pedido coincide con el filtro"
           />
@@ -1199,26 +1208,26 @@ export default function PedidosScreen() {
           </View>
           {pedidoActualFacturado ? (
             <View style={styles.avisoFacturadoBox}>
-              <MaterialIcons name="lock-outline" size={16} color="#b45309" />
+              <MaterialIcons name="lock-outline" size={16} color={statusColors.warning.text} />
               <Text style={styles.avisoFacturadoText}>{facturacionPedidoActual.detalle}</Text>
             </View>
           ) : null}
           {!pedidoParaLineas ? (
             <Text style={styles.lineasEmptyHint}>Selecciona un pedido para ver sus líneas</Text>
           ) : loadingLineas ? (
-            <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 24 }} />
+            <ActivityIndicator size="small" color={colors.accent} style={{ marginVertical: SPACING.xl }} />
           ) : (
             <>
             <View style={styles.lineasEditBar}>
               {!editModeLineas ? (
                 <>
                   <TouchableOpacity style={[styles.lineasEditarBtn, bloqueadoEditar && styles.btnDisabledOpacity]} onPress={entrarModoEditarLineas} disabled={loadingLineas || lineas.length === 0 || bloqueadoEditar}>
-                    <MaterialIcons name="edit" size={14} color={bloqueadoEditar ? '#94a3b8' : '#0ea5e9'} />
-                    <Text style={[styles.lineasEditarBtnText, bloqueadoEditar && { color: '#94a3b8' }]}>Editar</Text>
+                    <MaterialIcons name="edit" size={14} color={bloqueadoEditar ? colors.textMuted : colors.accent} />
+                    <Text style={[styles.lineasEditarBtnText, bloqueadoEditar && { color: colors.textMuted }]}>Editar</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={[styles.lineasAddBtn, bloqueadoEditar && styles.btnDisabledOpacity]} onPress={() => setModalLineaFormVisible(true)} disabled={loadingLineas || modalLineaFormVisible || bloqueadoEditar}>
-                    <MaterialIcons name="add" size={14} color={modalLineaFormVisible || bloqueadoEditar ? '#94a3b8' : '#16a34a'} />
-                    <Text style={[styles.lineasAddBtnText, (modalLineaFormVisible || bloqueadoEditar) && { color: '#94a3b8' }]}>Añadir línea</Text>
+                    <MaterialIcons name="add" size={14} color={modalLineaFormVisible || bloqueadoEditar ? colors.textMuted : colors.success} />
+                    <Text style={[styles.lineasAddBtnText, (modalLineaFormVisible || bloqueadoEditar) && { color: colors.textMuted }]}>Añadir línea</Text>
                   </TouchableOpacity>
                   {!pedidoEnviado && (
                     <TouchableOpacity style={styles.enviarPedidoBtn} onPress={enviarPedido}>
@@ -1230,11 +1239,11 @@ export default function PedidosScreen() {
               ) : (
                 <View style={styles.lineasEditActions}>
                   <TouchableOpacity style={styles.lineasGuardarBtn} onPress={guardarCantidadesLineas} disabled={guardandoCantidades}>
-                    {guardandoCantidades ? <ActivityIndicator size="small" color="#fff" /> : <MaterialIcons name="check" size={14} color="#fff" />}
+                    {guardandoCantidades ? <ActivityIndicator size="small" color={colors.surface} /> : <MaterialIcons name="check" size={14} color={colors.surface} />}
                     <Text style={styles.lineasGuardarBtnText}>{guardandoCantidades ? 'Guardando...' : 'Guardar'}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.lineasCancelarBtn} onPress={cancelarEdicionLineas} disabled={guardandoCantidades}>
-                    <MaterialIcons name="close" size={14} color="#64748b" />
+                    <MaterialIcons name="close" size={14} color={colors.textMuted} />
                     <Text style={styles.lineasCancelarBtnText}>Cancelar</Text>
                   </TouchableOpacity>
                 </View>
@@ -1316,7 +1325,7 @@ export default function PedidosScreen() {
                     }
                     editable={false}
                     placeholder="Selecciona producto"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                   />
                 </View>
                 <View style={[styles.formGroup, styles.formGroupFlex]}>
@@ -1326,7 +1335,7 @@ export default function PedidosScreen() {
                     value={formLinea.Iva ? `${formLinea.Iva} %` : ''}
                     editable={false}
                     placeholder="Selecciona producto"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                   />
                 </View>
                 <View style={[styles.formGroup, styles.formGroupFlex]}>
@@ -1344,7 +1353,7 @@ export default function PedidosScreen() {
                     }
                     editable={false}
                     placeholder="Según acuerdo activo"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                   />
                 </View>
               </View>
@@ -1361,9 +1370,9 @@ export default function PedidosScreen() {
               <View style={styles.lineaFormBtns}>
                 <TouchableOpacity style={styles.modalBtn} onPress={handleAddLinea} disabled={guardandoLinea || !formLinea.ProductId?.trim()}>
                   {guardandoLinea ? (
-                    <ActivityIndicator size="small" color="#0ea5e9" />
+                    <ActivityIndicator size="small" color={colors.accent} />
                   ) : (
-                    <MaterialIcons name="save" size={20} color="#0ea5e9" />
+                    <MaterialIcons name="save" size={20} color={colors.accent} />
                   )}
                   <Text style={styles.modalBtnText}>Guardar</Text>
                 </TouchableOpacity>
@@ -1377,7 +1386,7 @@ export default function PedidosScreen() {
               <View style={[styles.detalleFullscreen, { paddingTop: insets.top }]}>
                 <View style={styles.detalleFullscreenBar}>
                   <TouchableOpacity onPress={solicitarCerrarDetalle} style={styles.detalleVolverBtn} activeOpacity={0.7}>
-                    <MaterialIcons name="arrow-back" size={20} color="#0ea5e9" />
+                    <MaterialIcons name="arrow-back" size={20} color={colors.accent} />
                     <Text style={styles.detalleVolverText}>Volver a pedidos</Text>
                   </TouchableOpacity>
                 </View>
@@ -1398,7 +1407,7 @@ export default function PedidosScreen() {
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{editingPedidoId ? 'Editar pedido' : 'Nuevo pedido'}</Text>
                 <TouchableOpacity onPress={cerrarModalForm} style={styles.modalClose}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
@@ -1408,7 +1417,7 @@ export default function PedidosScreen() {
                     style={[styles.formInput, styles.formInputDisabled]}
                     value={form.Id}
                     placeholder={`PED-${new Date().getFullYear()}-00001`}
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                     editable={false}
                   />
                 </View>
@@ -1544,7 +1553,7 @@ export default function PedidosScreen() {
                     value={formatMoneda(totalAlbaranCalculado)}
                     editable={false}
                     placeholder="0"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                   />
                 </View>
                 <View style={styles.formGroup}>
@@ -1580,7 +1589,7 @@ export default function PedidosScreen() {
                     value={form.Notas}
                     onChangeText={(v) => setForm((f) => ({ ...f, Notas: v }))}
                     placeholder="Observaciones"
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
                     multiline
                   />
                 </View>
@@ -1589,9 +1598,9 @@ export default function PedidosScreen() {
               <View style={styles.modalFooter}>
                 <TouchableOpacity style={styles.modalBtn} onPress={guardar} disabled={guardando}>
                   {guardando ? (
-                    <ActivityIndicator size="small" color="#0ea5e9" />
+                    <ActivityIndicator size="small" color={colors.accent} />
                   ) : (
-                    <MaterialIcons name="save" size={20} color="#0ea5e9" />
+                    <MaterialIcons name="save" size={20} color={colors.accent} />
                   )}
                   <Text style={styles.modalBtnText}>{editingPedidoId ? 'Guardar' : 'Crear'}</Text>
                 </TouchableOpacity>
@@ -1613,7 +1622,7 @@ export default function PedidosScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Borrar pedido</Text>
               <TouchableOpacity onPress={cerrarModalBorrar} style={styles.modalClose}>
-                <MaterialIcons name="close" size={22} color="#64748b" />
+                <MaterialIcons name="close" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             <View style={styles.modalBody}>
@@ -1634,9 +1643,9 @@ export default function PedidosScreen() {
                 disabled={borrando}
               >
                 {borrando ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={colors.surface} />
                 ) : (
-                  <MaterialIcons name="delete" size={20} color="#fff" />
+                  <MaterialIcons name="delete" size={20} color={colors.surface} />
                 )}
                 <Text style={styles.modalBtnDangerText}>Borrar</Text>
               </TouchableOpacity>
@@ -1651,7 +1660,7 @@ export default function PedidosScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Pedido sin enviar</Text>
               <TouchableOpacity onPress={cancelarSalida} style={styles.modalClose}>
-                <MaterialIcons name="close" size={22} color="#64748b" />
+                <MaterialIcons name="close" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             <View style={styles.modalBody}>
@@ -1671,9 +1680,9 @@ export default function PedidosScreen() {
               </TouchableOpacity>
               <TouchableOpacity style={styles.modalBtn} onPress={() => resolverSalida(true)} disabled={enviandoSalida}>
                 {enviandoSalida ? (
-                  <ActivityIndicator size="small" color="#0ea5e9" />
+                  <ActivityIndicator size="small" color={colors.accent} />
                 ) : (
-                  <MaterialIcons name="send" size={18} color="#0ea5e9" />
+                  <MaterialIcons name="send" size={18} color={colors.accent} />
                 )}
                 <Text style={styles.modalBtnText}>Enviar a almacén</Text>
               </TouchableOpacity>
@@ -1686,6 +1695,9 @@ export default function PedidosScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
   mainRow: {
@@ -1695,57 +1707,57 @@ const styles = StyleSheet.create({
   },
   mainRowColumn: { flexDirection: 'column' },
   pedidosSection: { flex: 1, minWidth: 0, minHeight: 0 },
-  anioApilado: { marginBottom: 8, alignSelf: 'stretch' },
+  anioApilado: { marginBottom: SPACING.sm, alignSelf: 'stretch' },
   lineasSection: {
     flex: 1,
     minWidth: 280,
     borderLeftWidth: 1,
-    borderLeftColor: '#e2e8f0',
+    borderLeftColor: colors.border,
     backgroundColor: '#fafafa',
   },
   lineasSectionColumn: {
     borderLeftWidth: 0,
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
+    borderTopColor: colors.border,
     minWidth: 0,
   },
   lineasPanelHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    gap: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    backgroundColor: '#fff',
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  lineasPanelTitle: { fontSize: 15, fontWeight: '600', color: '#334155', flex: 1 },
-  lineasPanelTotal: { fontSize: 15, fontWeight: '700', color: '#334155' },
-  lineasEmptyHint: { fontSize: 14, color: '#94a3b8', textAlign: 'center', paddingVertical: 24, paddingHorizontal: 16 },
-  detalleFullscreen: { flex: 1, backgroundColor: '#fff' },
+  lineasPanelTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, flex: 1 },
+  lineasPanelTotal: { fontVariant: ['tabular-nums'], fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  lineasEmptyHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center', paddingVertical: SPACING.xl, paddingHorizontal: SPACING.lg },
+  detalleFullscreen: { flex: 1, backgroundColor: colors.surface },
   detalleFullscreenBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderBottomColor: colors.border,
+    backgroundColor: colors.bg,
   },
-  detalleVolverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4, paddingHorizontal: 4 },
-  detalleVolverText: { fontSize: 15, fontWeight: '600', color: '#0ea5e9' },
+  detalleVolverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: SPACING.xs, paddingHorizontal: SPACING.xs },
+  detalleVolverText: { fontSize: fontSizes[16], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(15, 23, 42, 0.45)',
   },
-  modalWrap: { width: '100%', maxWidth: 420, padding: 24, alignItems: 'center' },
+  modalWrap: { width: '100%', maxWidth: 420, padding: SPACING.xl, alignItems: 'center' },
   modalCard: {
     width: '100%',
-    backgroundColor: '#fff',
-    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
@@ -1756,8 +1768,8 @@ const styles = StyleSheet.create({
   modalCardBorrar: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: '#fff',
-    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
@@ -1770,60 +1782,61 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: SPACING.lg,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
   },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: '#334155' },
-  modalClose: { padding: 4 },
-  modalBody: { paddingHorizontal: 20, paddingVertical: 16, maxHeight: 400 },
-  formGroup: { marginBottom: 12 },
-  formRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+  modalTitle: { fontSize: fontSizes[18], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  modalClose: { padding: SPACING.xs },
+  modalBody: { paddingHorizontal: 20, paddingVertical: SPACING.lg, maxHeight: 400 },
+  formGroup: { marginBottom: SPACING.md },
+  formRow: { flexDirection: 'row', gap: SPACING.md, marginBottom: SPACING.md },
   formGroupFlex: { flex: 1, marginBottom: 0 },
-  formLabel: { fontSize: 12, fontWeight: '500', color: '#475569', marginBottom: 4 },
+  formLabel: { fontSize: fontSizes[12], fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.textPrimary, marginBottom: SPACING.xs },
   formInput: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
-    fontSize: 14,
-    color: '#334155',
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
+    color: colors.textPrimary,
   },
-  formInputCompact: { paddingVertical: 4, minHeight: 36 },
-  formInputDisabled: { backgroundColor: '#f1f5f9', color: '#94a3b8' },
-  formInputPrecioReadonly: { backgroundColor: '#fafbfc', color: '#64748b' },
+  formInputCompact: { paddingVertical: SPACING.xs, minHeight: 36 },
+  formInputDisabled: { backgroundColor: colors.navActive, color: colors.textMuted },
+  formInputPrecioReadonly: { backgroundColor: '#fafbfc', color: colors.textMuted },
   formInputMultiline: { minHeight: 60, textAlignVertical: 'top' },
-  rappelHintOk: { fontSize: 11, color: '#16a34a', marginTop: 6 },
-  rappelHintWarn: { fontSize: 11, color: '#d97706', marginTop: 6 },
-  formHint: { fontSize: 12, color: '#64748b', marginTop: 6, lineHeight: 17 },
+  rappelHintOk: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.success, marginTop: 6 },
+  rappelHintWarn: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.warning, marginTop: 6 },
+  formHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: 6, lineHeight: 17 },
   formAvisoFactura: {
-    fontSize: 12,
-    color: '#b45309',
-    backgroundColor: '#fffbeb',
+    fontFamily: fontFamily.medium,
+    fontSize: fontSizes[12],
+    fontWeight: typography.nav.fontWeight,
+    color: statusColors.warning.text,
+    backgroundColor: statusColors.warning.bg,
     borderWidth: 1,
     borderColor: '#fde68a',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     padding: 10,
     marginTop: 6,
     lineHeight: 17,
-    fontWeight: '500',
   },
   avisoFacturadoBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 6,
     marginTop: 6,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
-    backgroundColor: '#fffbeb',
+    backgroundColor: statusColors.warning.bg,
     borderWidth: 1,
     borderColor: '#fde68a',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
   },
   avisoFacturadoBoxTop: { marginTop: 0, marginBottom: 6 },
-  avisoFacturadoText: { flex: 1, minWidth: 0, fontSize: 12, color: '#b45309', lineHeight: 17 },
+  avisoFacturadoText: { flex: 1, minWidth: 0, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.warning.text, lineHeight: 17 },
   avisoFacturadoCerrar: {
     width: 28,
     height: 28,
@@ -1831,47 +1844,47 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexShrink: 0,
   },
-  formError: { fontSize: 12, color: '#dc2626', paddingHorizontal: 20, paddingVertical: 8 },
+  formError: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, paddingHorizontal: 20, paddingVertical: SPACING.sm },
   modalFooter: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 12,
+    gap: SPACING.md,
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: SPACING.lg,
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
+    borderTopColor: colors.border,
   },
   modalBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: '#f0f9ff',
-    borderRadius: 10,
+    paddingHorizontal: SPACING.lg,
+    backgroundColor: colors.accentMuted,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#0ea5e9',
+    borderColor: colors.accent,
   },
-  modalBtnText: { fontSize: 14, fontWeight: '600', color: '#0ea5e9' },
-  modalBtnCancel: { backgroundColor: '#f8fafc', borderColor: '#e2e8f0' },
-  modalBtnCancelText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
-  modalBtnDanger: { backgroundColor: '#dc2626', borderColor: '#dc2626' },
-  modalBtnDangerText: { fontSize: 14, fontWeight: '600', color: '#fff' },
-  modalBorrarText: { fontSize: 14, color: '#475569', lineHeight: 22 },
-  modalBorrarId: { fontWeight: '700', color: '#334155' },
-  pickerRow: { flexDirection: 'row', marginTop: 4 },
+  modalBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
+  modalBtnCancel: { backgroundColor: colors.bg, borderColor: colors.border },
+  modalBtnCancelText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
+  modalBtnDanger: { backgroundColor: colors.danger, borderColor: colors.danger },
+  modalBtnDangerText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  modalBorrarText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary, lineHeight: 22 },
+  modalBorrarId: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  pickerRow: { flexDirection: 'row', marginTop: SPACING.xs },
   pickerChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginRight: 8,
-    borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    marginRight: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  pickerChipActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  pickerChipText: { fontSize: 13, color: '#64748b' },
-  pickerChipTextActive: { color: '#fff', fontWeight: '600' },
+  pickerChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  pickerChipText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted },
+  pickerChipTextActive: { color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   chipsEstadoRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingRight: 6 },
   chipEstado: {
     flexDirection: 'row',
@@ -1880,110 +1893,110 @@ const styles = StyleSheet.create({
     minHeight: MIN_TOUCH,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  chipEstadoActivo: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
+  chipEstadoActivo: { backgroundColor: colors.accent, borderColor: colors.accent },
   chipEstadoCompletado: { backgroundColor: '#f0fdf4', borderColor: '#86efac' },
-  chipEstadoCompletadoActivo: { backgroundColor: '#16a34a', borderColor: '#16a34a' },
-  chipEstadoText: { fontSize: 13, color: '#64748b', fontWeight: '500' },
-  chipEstadoTextCompletado: { color: '#15803d' },
-  chipEstadoTextActivo: { color: '#fff', fontWeight: '700' },
+  chipEstadoCompletadoActivo: { backgroundColor: colors.success, borderColor: colors.success },
+  chipEstadoText: { fontSize: fontSizes[13], color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  chipEstadoTextCompletado: { color: statusColors.success.text },
+  chipEstadoTextActivo: { color: colors.surface, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   chipEstadoBadge: {
     minWidth: 22,
     paddingHorizontal: 6,
     paddingVertical: 1,
-    borderRadius: 999,
-    backgroundColor: '#e2e8f0',
+    borderRadius: radius.pill,
+    backgroundColor: colors.border,
     alignItems: 'center',
   },
   chipEstadoBadgeActivo: { backgroundColor: 'rgba(255,255,255,0.3)' },
-  chipEstadoBadgeText: { fontSize: 11, fontWeight: '700', color: '#475569' },
-  chipEstadoBadgeTextActivo: { color: '#fff' },
-  lineasEditBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 6, gap: 6 },
-  lineasEditarBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: '#f0f9ff', borderRadius: 6, borderWidth: 1, borderColor: '#0ea5e9' },
-  lineasEditarBtnText: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+  chipEstadoBadgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  chipEstadoBadgeTextActivo: { color: colors.surface },
+  lineasEditBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SPACING.lg, paddingVertical: 6, gap: 6 },
+  lineasEditarBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: SPACING.xs, paddingHorizontal: SPACING.sm, backgroundColor: colors.accentMuted, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.accent },
+  lineasEditarBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
   lineasEditActions: { flexDirection: 'row', gap: 6 },
-  lineasGuardarBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: '#22c55e', borderRadius: 6 },
-  lineasGuardarBtnText: { fontSize: 12, fontWeight: '600', color: '#fff' },
-  lineasCancelarBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: '#f1f5f9', borderRadius: 6 },
-  lineasCancelarBtnText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
-  lineasEditInput: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 6, paddingVertical: 4, paddingHorizontal: 6, backgroundColor: '#fff' },
-  lineasList: { flex: 1, maxHeight: 300, marginBottom: 12, paddingHorizontal: 16 },
+  lineasGuardarBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: SPACING.xs, paddingHorizontal: SPACING.sm, backgroundColor: colors.success, borderRadius: radius.sm },
+  lineasGuardarBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  lineasCancelarBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: SPACING.xs, paddingHorizontal: SPACING.sm, backgroundColor: colors.navActive, borderRadius: radius.sm },
+  lineasCancelarBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
+  lineasEditInput: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: SPACING.xs, paddingHorizontal: 6, backgroundColor: colors.surface },
+  lineasList: { flex: 1, maxHeight: 300, marginBottom: SPACING.md, paddingHorizontal: SPACING.lg },
   lineasListFull: { maxHeight: undefined },
-  lineasEmpty: { fontSize: 14, color: '#94a3b8', textAlign: 'center', paddingVertical: 20 },
+  lineasEmpty: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center', paddingVertical: 20 },
   lineasTable: { minWidth: 520 },
   lineasTableWide: { width: '100%', minWidth: 0, alignSelf: 'stretch' },
-  lineasTableHeader: { flexDirection: 'row', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 8, borderBottomWidth: 2, borderBottomColor: '#e2e8f0', backgroundColor: '#f8fafc' },
-  lineasTableHeaderCell: { fontWeight: '600', color: '#475569' },
+  lineasTableHeader: { flexDirection: 'row', alignItems: 'center', paddingVertical: 2, paddingHorizontal: SPACING.sm, borderBottomWidth: 2, borderBottomColor: colors.border, backgroundColor: colors.bg },
+  lineasTableHeaderCell: { fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   lineasHeaderTwoLines: { lineHeight: 14 },
-  lineasTableRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  lineasTableCell: { fontSize: 13, color: '#334155' },
-  lineasCellCantidad: { textAlign: 'center', fontWeight: '700', color: '#E91E63' },
-  lineasCellTotal: { textAlign: 'right', fontWeight: '700' },
-  lineasCellRappelAbono: { color: '#dc2626', fontWeight: '600' },
+  lineasTableRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 2, paddingHorizontal: SPACING.sm, borderBottomWidth: 1, borderBottomColor: colors.navActive },
+  lineasTableCell: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary },
+  lineasCellCantidad: { textAlign: 'center', fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#E91E63' },
+  lineasCellTotal: { fontVariant: ['tabular-nums'], textAlign: 'right', fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  lineasCellRappelAbono: { fontVariant: ['tabular-nums'], color: colors.danger, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   lineasColPreparada: { width: 44, alignItems: 'center', justifyContent: 'center' },
-  lineasCheckBtn: { padding: 4 },
+  lineasCheckBtn: { padding: SPACING.xs },
   lineasCheckBtnActive: {},
   lineasColCantidad: { width: 52 },
   lineasColId: { width: 60, alignItems: 'center', justifyContent: 'center' },
   lineasColDelete: { width: 36, alignItems: 'center', justifyContent: 'center' },
-  lineasDeleteBtn: { padding: 4 },
+  lineasDeleteBtn: { padding: SPACING.xs },
   lineasColArticulo: { flex: 1, minWidth: 120 },
-  lineasArticulo: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, minWidth: 0 },
+  lineasArticulo: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm, minWidth: 0 },
   lineasArticuloNombre: { flexShrink: 1 },
-  lineasColArticuloPreparada: { backgroundColor: '#dcfce7' },
-  lineasCellArticuloPreparada: { color: '#16a34a', fontWeight: '600' },
-  lineasCellIdBadge: { backgroundColor: '#dbeafe', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, alignSelf: 'center' },
-  lineasCellIdText: { fontSize: 10, color: '#1e40af', fontWeight: '500' },
+  lineasColArticuloPreparada: { backgroundColor: statusColors.success.bg },
+  lineasCellArticuloPreparada: { color: colors.success, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  lineasCellIdBadge: { backgroundColor: '#dbeafe', paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm, alignSelf: 'center' },
+  lineasCellIdText: { fontSize: fontSizes.badge, color: '#1e40af', fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   lineasColPrecio: { width: 70 },
   lineasColIva: { width: 44 },
   lineasColTotal: { width: 78 },
   lineasColTotalRappel: { width: 66 },
-  lineasTableEmpty: { paddingVertical: 24 },
+  lineasTableEmpty: { paddingVertical: SPACING.xl },
   lineasAddBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    backgroundColor: '#dcfce7',
-    borderRadius: 6,
+    gap: SPACING.xs,
+    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
+    backgroundColor: statusColors.success.bg,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: '#86efac',
   },
-  lineasAddBtnText: { fontSize: 12, fontWeight: '600', color: '#16a34a' },
+  lineasAddBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.success },
   enviarPedidoBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    gap: SPACING.xs,
+    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
     backgroundColor: '#fed7aa',
-    borderRadius: 6,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: '#fdba74',
   },
-  enviarPedidoBtnText: { fontSize: 12, fontWeight: '600', color: '#9a3412' },
+  enviarPedidoBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: '#9a3412' },
   btnDisabledOpacity: { opacity: 0.5 },
   lineaForm: {
-    marginTop: 8,
+    marginTop: SPACING.sm,
     paddingTop: 12,
     paddingBottom: 12,
-    paddingHorizontal: 16,
+    paddingHorizontal: SPACING.lg,
     marginHorizontal: 0,
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-    backgroundColor: '#f1f5f9',
+    borderTopColor: colors.border,
+    backgroundColor: colors.navActive,
   },
   lineaFormProductoRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: SPACING.md,
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: SPACING.md,
   },
   lineaFormLabelLinea: {
     minHeight: 16,
@@ -2000,7 +2013,7 @@ const styles = StyleSheet.create({
   lineaFormValoresRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: SPACING.md,
     alignItems: 'flex-end',
   },
   formGroupCantidadLinea: {
@@ -2009,5 +2022,5 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     marginBottom: 0,
   },
-  lineaFormBtns: { flexDirection: 'row', gap: 12, marginTop: 12, justifyContent: 'flex-end' },
+  lineaFormBtns: { flexDirection: 'row', gap: SPACING.md, marginTop: SPACING.md, justifyContent: 'flex-end' },
 });
