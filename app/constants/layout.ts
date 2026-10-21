@@ -74,7 +74,7 @@ export const FONT = {
 
   comodo: { body: 14, label: 13, small: 12 },
 
-  compacto: { body: 11, label: 11, small: 9 },
+  compacto: { body: 11, label: 11, small: 11 },
 
 } as const;
 

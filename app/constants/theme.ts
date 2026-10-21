@@ -3,14 +3,16 @@ import { FONT, MIN_TOUCH, SPACING } from './layout';
 
 /** Tokens semánticos de color — paleta Slate + sky (IGP 2.0). */
 export const colors = {
-  bg: '#e2e8f0',
+  bg: '#f8fafc',
   bgSubtle: '#f8fafc',
   surface: '#ffffff',
   border: '#e2e8f0',
   borderStrong: '#cbd5e1',
   textPrimary: '#334155',
+  /** Títulos y cifras que deben leerse antes que el cuerpo. */
+  textStrong: '#0f172a',
   textSecondary: '#64748b',
-  textMuted: '#94a3b8',
+  textMuted: '#64748b',
   accent: '#0ea5e9',
   accentMuted: '#e0f2fe',
   accentPressed: '#0284c7',
@@ -51,7 +53,29 @@ export const statusColors = {
 export const radius = {
   sm: 6,
   md: 10,
+  lg: 12,
+  xl: 16,
   pill: 999,
+} as const;
+
+/** Escala única de tamaños de letra. `badge` (10) solo en etiquetas pequeñas. */
+export const fontSizes = {
+  badge: 10,
+  12: 12,
+  13: 13,
+  14: 14,
+  16: 16,
+  18: 18,
+  20: 20,
+  24: 24,
+  30: 30,
+} as const;
+
+/** Anillo de foco. El CSS global `:focus-visible` llega en la fase de la fuente. */
+export const focus = {
+  width: 2,
+  color: colors.accent,
+  offset: 2,
 } as const;
 
 export const typography = {
@@ -109,6 +133,25 @@ export const duration = {
   fast: 150,
   normal: 200,
 } as const;
+
+/**
+ * Sombra de tarjeta del diseño 2026. En nativo solo cabe una capa:
+ * se aproxima la segunda (desplazamiento 4, radio 12).
+ */
+export const shadow = {
+  card: Platform.select({
+    web: {
+      boxShadow: '0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.06)',
+    },
+    default: {
+      elevation: 2,
+      shadowColor: '#0f172a',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.06,
+      shadowRadius: 12,
+    },
+  }) as ViewStyle,
+};
 
 /** Elevación sutil para cards y dropdowns. */
 export function shadowCard(): ViewStyle {
