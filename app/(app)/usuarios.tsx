@@ -17,7 +17,14 @@ import { MaterialIcons } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 import { ICONS, ICON_SIZE } from '../constants/icons';
 import { erpTableStyles } from '../constants/erpTableStyles';
-import { colors, iconSize } from '../constants/theme';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  iconSize,
+  typography,
+  SPACING,
+} from '../constants/theme';
 import { EstadoVacio } from '../components/ui/EstadoVacio';
 import { emailValido } from '../utils/validation';
 import { formatId6 } from '../utils/idFormat';
@@ -951,7 +958,7 @@ export default function UsuariosScreen() {
                               name={localDropdownOpen ? 'expand-less' : 'expand-more'}
                               size={iconSize.chip}
                               color={colors.textSecondary}
-                              style={{ marginLeft: 4 }}
+                              style={{ marginLeft: SPACING.xs }}
                             />
                           </TouchableOpacity>
                           {formLocales.length > 0 ? (
@@ -1047,12 +1054,12 @@ export default function UsuariosScreen() {
                                             name={isSelected ? 'check-box' : 'check-box-outline-blank'}
                                             size={18}
                                             color={isSelected ? colors.accent : colors.textMuted}
-                                            style={{ marginRight: 8 }}
+                                            style={{ marginRight: SPACING.sm }}
                                           />
                                           <Text
                                             style={[
                                               erpTableStyles.dropdownOptionText,
-                                              isSelected && { color: colors.accentPressed, fontWeight: '600' },
+                                              isSelected && { color: colors.accentPressed, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
                                             ]}
                                           >
                                             {nombre || '—'}
@@ -1109,17 +1116,17 @@ export default function UsuariosScreen() {
                           name={deptoDropdownOpen ? 'expand-less' : 'expand-more'}
                           size={iconSize.chip}
                           color={colors.textSecondary}
-                          style={{ marginLeft: 4 }}
+                          style={{ marginLeft: SPACING.xs }}
                         />
                       </TouchableOpacity>
-                      <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 4, lineHeight: 16 }}>
+                      <Text style={{ fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginTop: SPACING.xs, lineHeight: 16 }}>
                         Informativo, para agrupar y filtrar. No es un permiso: no restringe a qué proyectos, tareas o
                         reuniones se puede asignar a esta persona.
                       </Text>
                       {errorDepartamentos ? (
-                        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 4 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: SPACING.xs }}>
                           <MaterialIcons name="info-outline" size={14} color={colors.warning} />
-                          <Text style={{ flex: 1, fontSize: 11, color: colors.warning, lineHeight: 16 }}>
+                          <Text style={{ flex: 1, fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.warning, lineHeight: 16 }}>
                             No se ha podido cargar la lista de departamentos. Inténtalo de nuevo en unos segundos; los
                             que ya tuviera asignados se conservan.
                           </Text>
@@ -1197,12 +1204,12 @@ export default function UsuariosScreen() {
                                       name={isSelected ? 'check-box' : 'check-box-outline-blank'}
                                       size={18}
                                       color={isSelected ? colors.accent : colors.textMuted}
-                                      style={{ marginRight: 8 }}
+                                      style={{ marginRight: SPACING.sm }}
                                     />
                                     <Text
                                       style={[
                                         erpTableStyles.dropdownOptionText,
-                                        isSelected && { color: colors.accentPressed, fontWeight: '600' },
+                                        isSelected && { color: colors.accentPressed, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
                                       ]}
                                     >
                                       {depto.nombre || '—'}
@@ -1285,20 +1292,23 @@ export default function UsuariosScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   screen: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
   },
   backBtn: {
     width: 36,
     height: 36,
     padding: 0,
-    borderRadius: 8,
-    backgroundColor: '#ffffff',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#eef1f5',
+    borderColor: colors.border,
   },
   backBtnPhone: {
     width: MIN_TOUCH,
@@ -1307,60 +1317,60 @@ const styles = StyleSheet.create({
     minHeight: MIN_TOUCH,
   },
   title: {
-    fontSize: 20,
-    fontWeight: '600',
+    fontSize: fontSizes[20],
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
     lineHeight: 26,
-    color: '#0f172a',
+    color: colors.textStrong,
   },
   btnCrear: {
-    backgroundColor: '#0ea5e9',
+    backgroundColor: colors.accent,
   },
   toolbarBtnOutline: {
-    backgroundColor: '#ffffff',
-    borderColor: '#e2e8f0',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
   },
   searchWrap: {
-    backgroundColor: '#ffffff',
-    borderColor: '#e2e8f0',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
   },
   searchInput: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: '#0f172a',
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textStrong,
   },
   rowHeader: {
-    backgroundColor: '#f8fafc',
-    borderBottomColor: '#eef1f5',
+    backgroundColor: colors.bg,
+    borderBottomColor: colors.border,
     borderLeftWidth: 2,
     borderLeftColor: 'transparent',
   },
   cellHeader: {
-    borderRightColor: '#eef1f5',
+    borderRightColor: colors.border,
   },
   cellHeaderText: {
-    fontSize: 11,
-    fontWeight: '400',
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
     lineHeight: 14,
     letterSpacing: 0.1,
-    color: '#94a3b8',
+    color: colors.textMuted,
     textTransform: 'none',
   },
   row: {
-    borderBottomColor: '#eef1f5',
-    backgroundColor: '#ffffff',
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
     borderLeftWidth: 2,
     borderLeftColor: 'transparent',
   },
   rowSelected: {
-    backgroundColor: '#e0f2fe',
+    backgroundColor: colors.accentMuted,
     borderLeftWidth: 2,
-    borderLeftColor: '#0ea5e9',
+    borderLeftColor: colors.accent,
   },
   cellText: {
-    fontSize: 12,
-    fontWeight: '400',
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
     lineHeight: 16,
-    color: '#475569',
+    color: colors.textPrimary,
   },
   modalWrap: {
     flex: 1,
@@ -1370,7 +1380,7 @@ const styles = StyleSheet.create({
   modalWrapDesktop: {
     maxWidth: 720,
     width: '100%',
-    padding: 24,
+    padding: SPACING.xl,
   },
   modalWrapTablet: {
     maxWidth: 640,
@@ -1380,11 +1390,11 @@ const styles = StyleSheet.create({
   modalWrapPhone: {
     maxWidth: '100%',
     width: '100%',
-    padding: 12,
+    padding: SPACING.md,
   },
   modalWrapFull: {
     maxWidth: '100%',
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
   },
   modalWrapLocal: {
     maxWidth: 400,
@@ -1408,8 +1418,8 @@ const styles = StyleSheet.create({
     maxHeight: 280,
   },
   modalHeader: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.lg,
     flexShrink: 0,
   },
   modalHeaderLeft: {
@@ -1420,39 +1430,39 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   modalHeaderTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#0f172a',
+    fontSize: fontSizes[16],
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
+    color: colors.textStrong,
     flexShrink: 1,
     minWidth: 0,
   },
   modalIdChip: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: '#94a3b8',
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
     flexShrink: 0,
   },
   modalBodyScroll: {
     flex: 1,
     minHeight: 0,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
   },
   modalFooter: {
     flexShrink: 0,
   },
   modalBodyContent: {
-    paddingBottom: 4,
+    paddingBottom: SPACING.xs,
     overflow: 'visible' as const,
   },
   modalBodyLocal: {
     maxHeight: 140,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
   },
   formRow2: {
     flexDirection: 'row',
-    gap: 12,
+    gap: SPACING.md,
     alignItems: 'flex-start',
   },
   formCol1: {
@@ -1469,25 +1479,25 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   formLabel: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: '#64748b',
-    marginBottom: 4,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
+    marginBottom: SPACING.xs,
   },
   formInput: {
-    fontSize: 12,
-    fontWeight: '400',
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
     minHeight: 36,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
   },
   formInputPhone: {
     minHeight: MIN_TOUCH,
   },
   formInputText: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: '#0f172a',
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textStrong,
   },
   dropdownAnchor: {
     position: 'relative',
@@ -1506,10 +1516,10 @@ const styles = StyleSheet.create({
       : { elevation: 16 }),
   },
   errorForm: {
-    fontSize: 12,
-    fontWeight: '400',
-    paddingHorizontal: 16,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    paddingHorizontal: SPACING.lg,
     marginBottom: 0,
-    paddingTop: 4,
+    paddingTop: SPACING.xs,
   },
 });
