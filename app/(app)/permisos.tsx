@@ -22,6 +22,15 @@ import { MODULOS, PERMISOS_MENU_CONFIGURACION } from '../constants/modulos';
 import { MIN_TOUCH } from '../constants/layout';
 import { descripcionPermiso } from '../constants/permisosDescripciones';
 import { useBreakpoint } from '../hooks/useBreakpoint';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../constants/theme';
 
 type RolCatalogo = {
   nombre: string;
@@ -549,7 +558,7 @@ function BotonAyudaPermiso({
       accessibilityRole="button"
       accessibilityLabel="Ver qué permite este permiso"
     >
-      <MaterialIcons name="visibility" size={18} color="#64748b" />
+      <MaterialIcons name="visibility" size={18} color={colors.textMuted} />
     </Pressable>
   );
 }
@@ -598,7 +607,7 @@ function PanelAyudaPermiso({ ancla, onCerrar }: { ancla: AnclaAyuda | null; onCe
           ]}
         >
           <View style={styles.ayudaHeader}>
-            <MaterialIcons name="visibility" size={18} color="#0ea5e9" />
+            <MaterialIcons name="visibility" size={18} color={colors.accent} />
             <Text style={styles.ayudaTitulo}>{etiqueta}</Text>
             <Pressable
               onPress={onCerrar}
@@ -607,7 +616,7 @@ function PanelAyudaPermiso({ ancla, onCerrar }: { ancla: AnclaAyuda | null; onCe
               accessibilityRole="button"
               accessibilityLabel="Cerrar"
             >
-              <MaterialIcons name="close" size={18} color="#64748b" />
+              <MaterialIcons name="close" size={18} color={colors.textMuted} />
             </Pressable>
           </View>
           <Text style={styles.ayudaCodigo}>{ancla.codigo}</Text>
@@ -895,7 +904,7 @@ export default function PermisosScreen() {
   if (loading && items.length === 0) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text style={styles.loadingText}>Cargando permisos…</Text>
       </View>
     );
@@ -906,12 +915,12 @@ export default function PermisosScreen() {
       <View style={styles.container}>
         <View style={styles.headerRow}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <MaterialIcons name="arrow-back" size={22} color="#334155" />
+            <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.title}>Permisos</Text>
         </View>
         <View style={styles.center}>
-          <MaterialIcons name="error-outline" size={48} color="#f87171" />
+          <MaterialIcons name="error-outline" size={48} color={colors.danger} />
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={refetch}>
             <Text style={styles.retryBtnText}>Reintentar</Text>
@@ -927,7 +936,7 @@ export default function PermisosScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Permisos</Text>
         <View style={styles.headerSpacer} />
@@ -942,7 +951,7 @@ export default function PermisosScreen() {
           <MaterialIcons
             name={todoColapsado ? 'unfold-more' : 'unfold-less'}
             size={20}
-            color="#0ea5e9"
+            color={colors.accent}
           />
         </TouchableOpacity>
         <TouchableOpacity
@@ -950,7 +959,7 @@ export default function PermisosScreen() {
           onPress={abrirModalNuevoRol}
           accessibilityLabel="Nuevo rol"
         >
-          <MaterialIcons name="person-add" size={18} color="#fff" />
+          <MaterialIcons name="person-add" size={18} color={colors.surface} />
           <Text style={styles.headerActionBtnPrimaryText}>Nuevo rol</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -959,29 +968,29 @@ export default function PermisosScreen() {
           disabled={loading}
           accessibilityLabel="Actualizar"
         >
-          <MaterialIcons name="refresh" size={20} color={loading ? '#94a3b8' : '#0ea5e9'} />
+          <MaterialIcons name="refresh" size={20} color={loading ? colors.textMuted : colors.accent} />
         </TouchableOpacity>
       </View>
 
       <View style={styles.searchWrap}>
-        <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
+        <MaterialIcons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
           value={busqueda}
           onChangeText={setBusqueda}
           placeholder="Buscar permiso o familia…"
-          placeholderTextColor="#94a3b8"
+          placeholderTextColor={colors.textMuted}
         />
         {busqueda.length > 0 && (
           <TouchableOpacity onPress={() => setBusqueda('')} hitSlop={8}>
-            <MaterialIcons name="close" size={16} color="#94a3b8" />
+            <MaterialIcons name="close" size={16} color={colors.textMuted} />
           </TouchableOpacity>
         )}
       </View>
 
       {error ? (
         <View style={styles.errorBar}>
-          <MaterialIcons name="error-outline" size={16} color="#dc2626" />
+          <MaterialIcons name="error-outline" size={16} color={colors.danger} />
           <Text style={styles.errorBarText}>{error}</Text>
         </View>
       ) : null}
@@ -1022,7 +1031,7 @@ export default function PermisosScreen() {
           <ScrollView style={styles.matrixBody} nestedScrollEnabled>
             {grupos.length === 0 ? (
               <View style={styles.emptyWrap}>
-                <MaterialIcons name="search-off" size={40} color="#cbd5e1" />
+                <MaterialIcons name="search-off" size={40} color={colors.borderStrong} />
                 <Text style={styles.emptyText}>Sin permisos que coincidan con «{busqueda}».</Text>
               </View>
             ) : (
@@ -1039,7 +1048,7 @@ export default function PermisosScreen() {
                         <MaterialIcons
                           name={colapsado ? 'chevron-right' : 'expand-more'}
                           size={20}
-                          color="#475569"
+                          color={colors.textPrimary}
                         />
                         <Text style={styles.groupHeaderText}>{g.titulo}</Text>
                         <Text style={styles.groupHeaderCount}>{g.codigos.length}</Text>
@@ -1067,7 +1076,7 @@ export default function PermisosScreen() {
                                     : 'check-box-outline-blank'
                               }
                               size={18}
-                              color={estado === 'none' ? '#cbd5e1' : '#0ea5e9'}
+                              color={estado === 'none' ? colors.borderStrong : colors.accent}
                             />
                           </TouchableOpacity>
                         );
@@ -1105,9 +1114,9 @@ export default function PermisosScreen() {
                                 accessibilityLabel={`${activo ? 'Quitar' : 'Dar'} ${codigo} a ${rol}`}
                               >
                                 {saving ? (
-                                  <ActivityIndicator size="small" color="#0ea5e9" />
+                                  <ActivityIndicator size="small" color={colors.accent} />
                                 ) : activo ? (
-                                  <MaterialIcons name="check" size={18} color="#16a34a" />
+                                  <MaterialIcons name="check" size={18} color={colors.success} />
                                 ) : (
                                   <Text style={styles.matrixDash}>—</Text>
                                 )}
@@ -1140,7 +1149,7 @@ export default function PermisosScreen() {
               value={nombreNuevoRol}
               onChangeText={setNombreNuevoRol}
               placeholder="Ej. Contabilidad"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
               autoCapitalize="words"
             />
             <Text style={styles.modalLabel}>Descripción (opcional)</Text>
@@ -1149,7 +1158,7 @@ export default function PermisosScreen() {
               value={descNuevoRol}
               onChangeText={setDescNuevoRol}
               placeholder="Uso del rol"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
             />
             <SelectorDesplegable
               label="Copiar permisos de"
@@ -1174,7 +1183,7 @@ export default function PermisosScreen() {
                 disabled={guardandoRol}
               >
                 {guardandoRol ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={colors.surface} />
                 ) : (
                   <Text style={styles.modalBtnPriText}>Crear rol</Text>
                 )}
@@ -1189,119 +1198,123 @@ export default function PermisosScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 10 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
-  loadingText: { fontSize: 12, color: '#64748b' },
-  errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
-  retryBtn: { paddingVertical: 8, paddingHorizontal: 16, backgroundColor: '#fef2f2', borderRadius: 8 },
-  retryBtnText: { fontSize: 12, color: '#dc2626', fontWeight: '600' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 },
-  backBtn: { padding: 4 },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, textAlign: 'center' },
+  retryBtn: { paddingVertical: SPACING.sm, paddingHorizontal: SPACING.lg, backgroundColor: statusColors.danger.bg, borderRadius: RADIO_MEDIO },
+  retryBtnText: { fontSize: fontSizes[12], color: colors.danger, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm, gap: SPACING.sm },
+  backBtn: { padding: SPACING.xs },
+  title: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
   headerSpacer: { flex: 1 },
   headerActionBtn: {
     padding: 6,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.bg,
   },
   headerActionBtnPrimary: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 10,
-    backgroundColor: '#0ea5e9',
+    borderRadius: radius.md,
+    backgroundColor: colors.accent,
   },
-  headerActionBtnPrimaryText: { fontSize: 12, fontWeight: '600', color: '#fff' },
-  roleDeleteBtn: { marginTop: 4, padding: 2 },
+  headerActionBtnPrimaryText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  roleDeleteBtn: { marginTop: SPACING.xs, padding: 2 },
+  /** Más oscuro que colors.overlay. */
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
+    padding: SPACING.lg,
   },
   modalCard: {
     width: '100%',
     maxWidth: 420,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    gap: 8,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: SPACING.lg,
+    gap: SPACING.sm,
     ...(Platform.OS === 'web' ? { boxShadow: '0 8px 32px rgba(0,0,0,0.12)' } : {}),
   },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  modalHint: { fontSize: 12, color: '#64748b', marginBottom: 4 },
-  modalLabel: { fontSize: 12, fontWeight: '600', color: '#475569', marginTop: 4 },
+  modalTitle: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  modalHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginBottom: SPACING.xs },
+  modalLabel: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginTop: SPACING.xs },
   modalInput: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 10,
     paddingVertical: Platform.OS === 'web' ? 8 : 10,
-    fontSize: 14,
-    color: '#334155',
-    backgroundColor: '#f8fafc',
-    outlineStyle: 'none' as any,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[14],
+    color: colors.textPrimary,
+    backgroundColor: colors.bg,
   },
-  modalError: { fontSize: 12, color: '#dc2626', marginTop: 4 },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 12 },
+  modalError: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, marginTop: SPACING.xs },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: SPACING.sm, marginTop: SPACING.md },
   modalBtnSec: {
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 14,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  modalBtnSecText: { fontSize: 13, color: '#475569', fontWeight: '600' },
+  modalBtnSecText: { fontSize: fontSizes[13], color: colors.textPrimary, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   modalBtnPri: {
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: '#0ea5e9',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accent,
     minWidth: 100,
     alignItems: 'center',
   },
-  modalBtnPriText: { fontSize: 13, color: '#fff', fontWeight: '600' },
+  modalBtnPriText: { fontSize: fontSizes[13], color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   modalBtnDisabled: { opacity: 0.7 },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     height: 36,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 10,
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
     gap: 6,
   },
   searchIcon: { marginRight: 2 },
-  searchInput: { flex: 1, fontSize: 13, color: '#334155', paddingVertical: 0, outlineStyle: 'none' as any },
+  searchInput: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, paddingVertical: 0 },
   errorBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 6,
-    backgroundColor: '#fef2f2',
+    borderRadius: radius.sm,
+    backgroundColor: statusColors.danger.bg,
     borderWidth: 1,
     borderColor: '#fecaca',
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
   },
-  errorBarText: { flex: 1, fontSize: 12, color: '#dc2626' },
+  errorBarText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 20 },
+  /** Cromo oscuro de la matriz; no es colors.textStrong. */
   matrixHeader: {
     flexDirection: 'row',
     backgroundColor: '#1e293b',
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
+    borderTopLeftRadius: RADIO_MEDIO,
+    borderTopRightRadius: RADIO_MEDIO,
     overflow: 'hidden',
   },
   labelCell: {
@@ -1310,44 +1323,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     justifyContent: 'center',
     borderRightWidth: 1,
-    borderRightColor: '#e2e8f0',
+    borderRightColor: colors.border,
   },
-  labelHeaderCell: { borderRightColor: '#334155' },
-  labelHeaderText: { fontSize: 12, fontWeight: '700', color: '#f8fafc' },
+  labelHeaderCell: { borderRightColor: colors.textPrimary },
+  labelHeaderText: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.bg },
   roleHeadCell: {
     width: ROLE_COL_WIDTH,
     paddingVertical: 6,
-    paddingHorizontal: 4,
+    paddingHorizontal: SPACING.xs,
     alignItems: 'center',
     justifyContent: 'center',
     borderRightWidth: 1,
-    borderRightColor: '#334155',
+    borderRightColor: colors.textPrimary,
   },
-  roleHeadText: { fontSize: 11, fontWeight: '700', color: '#f8fafc', textAlign: 'center' },
-  roleHeadCount: { fontSize: 10, color: '#94a3b8', marginTop: 2 },
+  roleHeadText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.bg, textAlign: 'center' },
+  roleHeadCount: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: '#94a3b8', marginTop: 2 }, // Sobre el cromo oscuro; textMuted queda demasiado oscuro.
   matrixBody: { flex: 1 },
   groupHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#e2e8f0',
+    backgroundColor: colors.border,
     borderBottomWidth: 1,
-    borderBottomColor: '#cbd5e1',
+    borderBottomColor: colors.borderStrong,
   },
   groupHeaderLabel: {
     width: LABEL_COL_WIDTH,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingVertical: 7,
     paddingHorizontal: 6,
   },
-  groupHeaderText: { fontSize: 12, fontWeight: '700', color: '#334155', flex: 1 },
+  groupHeaderText: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, flex: 1 },
   groupHeaderCount: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#64748b',
-    backgroundColor: '#f8fafc',
-    borderRadius: 8,
+    fontSize: fontSizes.badge,
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
+    color: colors.textMuted,
+    backgroundColor: colors.bg,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 6,
     paddingVertical: 1,
     overflow: 'hidden',
@@ -1358,16 +1371,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 7,
     borderLeftWidth: 1,
-    borderLeftColor: '#cbd5e1',
+    borderLeftColor: colors.borderStrong,
   },
   matrixRow: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
   },
   matrixRowAlt: { backgroundColor: '#fafbfc' },
-  labelCellRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 4 },
+  labelCellRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: SPACING.xs },
   labelTexts: { flex: 1, minWidth: 0 },
   ayudaBtn: {
     width: AYUDA_ICON_BOX,
@@ -1377,19 +1390,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as object) : {}),
   },
-  ayudaBtnPressed: { backgroundColor: '#e2e8f0' },
+  ayudaBtnPressed: { backgroundColor: colors.border },
+  /** Más claro que colors.overlay. */
   ayudaOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.08)' },
+  /** Más oscuro que colors.overlay. */
   ayudaOverlayCentrado: {
     backgroundColor: 'rgba(15, 23, 42, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
+    padding: SPACING.lg,
   },
   ayudaPanel: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     padding: 14,
     gap: 6,
     zIndex: 10,
@@ -1397,22 +1412,22 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' ? ({ boxShadow: '0 8px 24px rgba(0,0,0,0.12)' } as object) : {}),
   },
   ayudaHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  ayudaTitulo: { flex: 1, fontSize: 14, fontWeight: '700', color: '#334155' },
+  ayudaTitulo: { flex: 1, fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
   ayudaCerrar: { width: AYUDA_ICON_BOX, height: AYUDA_ICON_BOX, alignItems: 'center', justifyContent: 'center' },
-  ayudaCodigo: { fontSize: 12, color: '#94a3b8' },
-  ayudaTexto: { fontSize: 14, lineHeight: 20, color: '#475569' },
-  labelText: { fontSize: 12, color: '#334155', fontWeight: '500' },
-  labelCode: { fontSize: 10, color: '#94a3b8', marginTop: 1 },
+  ayudaCodigo: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  ayudaTexto: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], lineHeight: 20, color: colors.textPrimary },
+  labelText: { fontSize: fontSizes[12], color: colors.textPrimary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  labelCode: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textMuted, marginTop: 1 },
   matrixCell: {
     width: ROLE_COL_WIDTH,
     minHeight: 38,
     alignItems: 'center',
     justifyContent: 'center',
     borderLeftWidth: 1,
-    borderLeftColor: '#f1f5f9',
+    borderLeftColor: colors.navActive,
   },
   matrixCellOn: { backgroundColor: '#f0fdf4' },
-  matrixDash: { fontSize: 13, color: '#cbd5e1' },
+  matrixDash: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.borderStrong },
   emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 50, gap: 10 },
-  emptyText: { fontSize: 13, color: '#94a3b8', textAlign: 'center' },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted, textAlign: 'center' },
 });
