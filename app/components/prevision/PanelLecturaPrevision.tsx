@@ -3,7 +3,7 @@ import { Text, TouchableOpacity, View, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { formatEur, type FranjaPrevision, type LocalPrevision } from '../../lib/previsionFranjasApi';
 import { LeyendaEscala } from './PiezasPrevision';
-import { colores, estiloCifras, nombreFranjaVisible, peso, radios, rangoFranja, type ModoPrevision } from './tokens';
+import { colores, estiloCifras, nombreFranjaVisible, familia, peso, radios, rangoFranja, type ModoPrevision } from './tokens';
 
 type Props = {
   local: LocalPrevision;
@@ -100,16 +100,16 @@ const styles = StyleSheet.create({
   textoCol: { gap: 10, minWidth: 0 },
   barrasCol: { gap: 10, minWidth: 0 },
   flex: { flex: 1 },
-  titulo: { fontSize: 13, fontWeight: peso.semibold, color: colores.texto },
+  titulo: { fontSize: 13, fontFamily: familia.semibold, fontWeight: peso.semibold, color: colores.texto },
   frase: { fontSize: 13, lineHeight: 18, color: colores.textoSecundario },
   separador: { height: 1, backgroundColor: colores.separador },
-  barrasTitulo: { fontSize: 13, fontWeight: peso.semibold, color: colores.texto },
+  barrasTitulo: { fontSize: 13, fontFamily: familia.semibold, fontWeight: peso.semibold, color: colores.texto },
   barra: { gap: 4 },
   barraCab: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   barraNombreCol: { flex: 1, minWidth: 0 },
-  barraNombre: { fontSize: 13, fontWeight: peso.medio, color: colores.texto },
+  barraNombre: { fontSize: 13, fontFamily: familia.medio, fontWeight: peso.medio, color: colores.texto },
   barraRango: { fontSize: 11, color: colores.textoTerciario, marginTop: 1 },
-  barraImporte: { fontSize: 13, fontWeight: peso.semibold, color: colores.texto },
+  barraImporte: { fontSize: 13, fontFamily: familia.semibold, fontWeight: peso.semibold, color: colores.texto },
   track: {
     height: 4,
     borderRadius: radios.pastilla,
@@ -124,5 +124,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  cabeceraTexto: { fontSize: 14, fontWeight: peso.semibold, color: colores.texto },
+  cabeceraTexto: { fontSize: 14, fontFamily: familia.semibold, fontWeight: peso.semibold, color: colores.texto },
 });

@@ -27,7 +27,7 @@ import {
   type PeticionPrevision,
 } from '../../lib/previsionFranjasApi';
 import { BotonPrevision } from './BotonPrevision';
-import { altoControl, colores, estiloCifras, modoPrevision, peso, radios, sombraMenu } from './tokens';
+import { altoControl, colores, estiloCifras, modoPrevision, familia, peso, radios, sombraMenu } from './tokens';
 
 type Props = {
   visible: boolean;
@@ -310,14 +310,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colores.separador,
   },
-  headerText: { flex: 1, fontSize: 17, fontWeight: peso.semibold, color: colores.texto },
+  headerText: { flex: 1, fontSize: 17, fontFamily: familia.semibold, fontWeight: peso.semibold, color: colores.texto },
   cerrar: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
-  cerrarTexto: { fontSize: 14, fontWeight: peso.medio, color: colores.textoSecundario },
+  cerrarTexto: { fontSize: 14, fontFamily: familia.medio, fontWeight: peso.medio, color: colores.textoSecundario },
   guardar: { padding: 16, gap: 8, borderBottomWidth: 1, borderBottomColor: colores.separador },
-  seccion: { fontSize: 11, fontWeight: peso.etiqueta, color: colores.textoSecundario },
+  seccion: { fontSize: 11, fontFamily: familia.etiqueta, fontWeight: peso.etiqueta, color: colores.textoSecundario },
   seccionLista: {
     fontSize: 11,
-    fontWeight: peso.etiqueta,
+    fontFamily: familia.etiqueta, fontWeight: peso.etiqueta,
     color: colores.textoSecundario,
     paddingHorizontal: 16,
     paddingTop: 14,
@@ -331,7 +331,7 @@ const styles = StyleSheet.create({
     backgroundColor: colores.superficie,
     borderRadius: radios.control,
     paddingHorizontal: 10,
-    fontSize: 13,
+    fontFamily: familia.regular, fontSize: 13,
     color: colores.texto,
   },
   ambitos: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
@@ -341,9 +341,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   ambitoOn: { backgroundColor: colores.acento },
-  ambitoTexto: { fontSize: 13, fontWeight: peso.medio, color: colores.textoPestana },
-  ambitoTextoOn: { color: colores.textoSobreAcento, fontWeight: peso.semibold },
-  errorText: { fontSize: 13, color: colores.negativa, paddingHorizontal: 16, paddingTop: 10 },
+  ambitoTexto: { fontSize: 13, fontFamily: familia.medio, fontWeight: peso.medio, color: colores.textoPestana },
+  ambitoTextoOn: { color: colores.textoSobreAcento, fontFamily: familia.semibold, fontWeight: peso.semibold },
+  errorText: { fontFamily: familia.regular, fontSize: 13, color: colores.negativa, paddingHorizontal: 16, paddingTop: 10 },
   carga: { marginVertical: 24 },
   lista: { paddingHorizontal: 16 },
   listaInner: { paddingBottom: 12 },
@@ -357,14 +357,14 @@ const styles = StyleSheet.create({
   },
   filaTextos: { flex: 1, minWidth: 0, gap: 2 },
   filaTitulo: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  nombre: { fontSize: 14, fontWeight: peso.semibold, color: colores.texto, flexShrink: 1 },
+  nombre: { fontSize: 14, fontFamily: familia.semibold, fontWeight: peso.semibold, color: colores.texto, flexShrink: 1 },
   sub: { fontSize: 12, color: colores.textoSecundario },
   badge: { borderRadius: radios.pastilla, paddingHorizontal: 8, paddingVertical: 2 },
   badgePropio: { backgroundColor: colores.separador },
   badgeGlobal: { backgroundColor: colores.filaMarcada },
-  badgeText: { fontSize: 11, fontWeight: peso.etiqueta, color: colores.textoSecundario },
+  badgeText: { fontSize: 11, fontFamily: familia.etiqueta, fontWeight: peso.etiqueta, color: colores.textoSecundario },
   badgeTextGlobal: { color: colores.enlace },
   acciones: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   iconBtn: { alignItems: 'center', justifyContent: 'center', borderRadius: radios.control },
-  vacioText: { fontSize: 13, color: colores.textoSecundario, paddingHorizontal: 16, paddingVertical: 28 },
+  vacioText: { fontFamily: familia.regular, fontSize: 13, color: colores.textoSecundario, paddingHorizontal: 16, paddingVertical: 28 },
 });

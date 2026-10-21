@@ -1,5 +1,5 @@
 import { Text, View, StyleSheet } from 'react-native';
-import { ESCALA_CALOR, colorDesvio, colores, estiloCifras, formatDesvio, peso, radios } from './tokens';
+import { ESCALA_CALOR, colorDesvio, colores, estiloCifras, formatDesvio, familia, peso, radios } from './tokens';
 
 export function PastillaFestivo({ nombre }: { nombre: string }) {
   return (
@@ -72,7 +72,7 @@ const styles = StyleSheet.create({
   },
   festivoTexto: {
     fontSize: 11,
-    fontWeight: peso.etiqueta,
+    fontFamily: familia.etiqueta, fontWeight: peso.etiqueta,
     color: colores.festivoTexto,
   },
   desvio: {
@@ -81,12 +81,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 1,
   },
-  desvioTexto: { fontSize: 11, fontWeight: peso.semibold },
+  desvioTexto: { fontSize: 11, fontFamily: familia.semibold, fontWeight: peso.semibold },
   completa: { alignSelf: 'flex-start', width: 168, gap: 6 },
   mini: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   cuadrados: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   cuadradosAnchos: { width: '100%', justifyContent: 'space-between' },
   extremos: { flexDirection: 'row', justifyContent: 'space-between' },
   extremo: { fontSize: 11, color: colores.textoSecundario },
-  miniExt: { fontSize: 11, color: colores.textoTerciario },
+  miniExt: { fontFamily: familia.regular, fontSize: 11, color: colores.textoTerciario },
 });

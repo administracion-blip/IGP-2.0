@@ -1,5 +1,6 @@
 import { Platform, type TextStyle, type ViewStyle } from 'react-native';
 import { MIN_TOUCH } from '../../constants/layout';
+import { fontFamily } from '../../constants/theme';
 import { diaSemanaIso, formatEur, formatPct, type FranjaPrevision } from '../../lib/previsionFranjasApi';
 
 /** Colores semánticos de Previsión. Los componentes no repiten estos hex. */
@@ -83,11 +84,22 @@ export const peso = {
   titulo: (Platform.OS === 'web' ? '650' : '600') as unknown as TextStyle['fontWeight'],
 };
 
+/** Inter alineada con el peso. El título de web (650) usa la semibold: no hay un corte 650. */
+export const familia = {
+  regular: fontFamily.regular,
+  etiqueta: fontFamily.medium,
+  medio: fontFamily.medium,
+  semibold: fontFamily.semibold,
+  negrita: fontFamily.bold,
+  titulo: fontFamily.semibold,
+} as const;
+
 export const estiloCifras: TextStyle = {
   fontVariant: ['tabular-nums'],
 };
 
 export const estiloEtiqueta: TextStyle = {
+  fontFamily: familia.etiqueta,
   fontSize: 11,
   fontWeight: peso.etiqueta,
   color: colores.textoSecundario,

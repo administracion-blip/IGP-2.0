@@ -1,7 +1,7 @@
 import { type ComponentProps } from 'react';
 import { ActivityIndicator, Text, TouchableOpacity, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { colores, peso, radios } from './tokens';
+import { colores, familia, peso, radios } from './tokens';
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
 
@@ -63,7 +63,7 @@ export function BotonPrevision({
           <Text
             style={[
               styles.texto,
-              { color: colorTexto, fontWeight: primario ? peso.semibold : peso.medio },
+              { color: colorTexto, fontFamily: primario ? familia.semibold : familia.medio, fontWeight: primario ? peso.semibold : peso.medio },
             ]}
             numberOfLines={1}
           >
@@ -83,6 +83,6 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 14,
   },
-  texto: { fontSize: 13 },
+  texto: { fontFamily: familia.regular, fontSize: 13 },
   off: { opacity: 0.45 },
 });

@@ -3,7 +3,7 @@ import { SelectorDesplegable } from '../SelectorDesplegable';
 import { BotonPrevision } from './BotonPrevision';
 import { SelectorDiasRango } from './SelectorDiasRango';
 import { SelectorLocalesPrevision, type OpcionLocalPrevision } from './SelectorLocalesPrevision';
-import { colores, estiloCifras, estiloEtiqueta, peso, radios, type ModoPrevision } from './tokens';
+import { colores, estiloCifras, estiloEtiqueta, familia, peso, radios, type ModoPrevision } from './tokens';
 
 type AccionVacio = { texto: string; onPress: () => void };
 
@@ -258,7 +258,7 @@ const styles = StyleSheet.create({
   },
   triggerTexto: {
     fontSize: 13,
-    fontWeight: peso.medio,
+    fontFamily: familia.medio, fontWeight: peso.medio,
     color: colores.texto,
   },
   input: {
@@ -269,10 +269,10 @@ const styles = StyleSheet.create({
     backgroundColor: colores.superficie,
     paddingHorizontal: 10,
     fontSize: 13,
-    fontWeight: peso.medio,
+    fontFamily: familia.medio, fontWeight: peso.medio,
     color: colores.texto,
     ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : null),
   },
   botonAncho: { width: '100%' },
-  error: { fontSize: 13, color: colores.negativa },
+  error: { fontFamily: familia.regular, fontSize: 13, color: colores.negativa },
 });

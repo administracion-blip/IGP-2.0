@@ -3,7 +3,7 @@ import { BotonPrevision } from './BotonPrevision';
 import { CampoCoste, CampoPlantilla } from './FiltrosPrevision';
 import { SelectorDiasRango } from './SelectorDiasRango';
 import { SelectorLocalesPrevision, type OpcionLocalPrevision } from './SelectorLocalesPrevision';
-import { colores, peso, radios, sombraMenu } from './tokens';
+import { colores, familia, peso, radios, sombraMenu } from './tokens';
 
 type AccionVacio = { texto: string; onPress: () => void };
 
@@ -142,9 +142,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  titulo: { flex: 1, fontSize: 17, fontWeight: peso.semibold, color: colores.texto },
+  titulo: { flex: 1, fontSize: 17, fontFamily: familia.semibold, fontWeight: peso.semibold, color: colores.texto },
   cerrar: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
-  cerrarTexto: { fontSize: 14, fontWeight: peso.medio, color: colores.textoSecundario },
+  cerrarTexto: { fontSize: 14, fontFamily: familia.medio, fontWeight: peso.medio, color: colores.textoSecundario },
   cuerpo: { flexGrow: 0 },
   cuerpoInner: { paddingHorizontal: 16, paddingBottom: 16, gap: 14 },
   dos: { flexDirection: 'row', gap: 10, alignItems: 'flex-end' },
@@ -157,5 +157,5 @@ const styles = StyleSheet.create({
     borderTopColor: colores.separador,
   },
   calcular: { width: '100%' },
-  error: { fontSize: 13, color: colores.negativa },
+  error: { fontFamily: familia.regular, fontSize: 13, color: colores.negativa },
 });

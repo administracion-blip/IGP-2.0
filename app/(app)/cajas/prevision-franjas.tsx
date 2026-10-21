@@ -46,7 +46,7 @@ import {
   gapPagina,
   modoPrevision,
   paddingPagina,
-  peso,
+  familia, peso,
   radios,
 } from '../../components/prevision/tokens';
 
@@ -631,8 +631,8 @@ const styles = StyleSheet.create({
   tituloBloque: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, minWidth: 0 },
   tituloTextos: { flexShrink: 1, minWidth: 0, gap: 2 },
   volver: { alignItems: 'center', justifyContent: 'center' },
-  titulo: { fontWeight: peso.titulo, color: colores.texto },
-  subtitulo: { fontSize: 13, color: colores.textoSecundario },
+  titulo: { fontFamily: familia.titulo, fontWeight: peso.titulo, color: colores.texto },
+  subtitulo: { fontFamily: familia.regular, fontSize: 13, color: colores.textoSecundario },
   acciones: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   accionesMovil: { width: '100%' },
   accionMovil: { flex: 1 },
@@ -648,8 +648,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   resumenTextos: { flex: 1, minWidth: 0, gap: 2 },
-  resumenLinea: { fontSize: 13, fontWeight: peso.semibold, color: colores.texto },
-  resumenCoste: { fontSize: 12, color: colores.textoSecundario },
+  resumenLinea: { fontSize: 13, fontFamily: familia.semibold, fontWeight: peso.semibold, color: colores.texto },
+  resumenCoste: { fontFamily: familia.regular, fontSize: 12, color: colores.textoSecundario },
   estado: {
     backgroundColor: colores.superficie,
     borderWidth: 1,
@@ -659,9 +659,9 @@ const styles = StyleSheet.create({
     paddingVertical: 22,
     gap: 8,
   },
-  estadoTitulo: { fontSize: 15, fontWeight: peso.semibold, color: colores.texto },
+  estadoTitulo: { fontSize: 15, fontFamily: familia.semibold, fontWeight: peso.semibold, color: colores.texto },
   estadoTexto: { fontSize: 13, lineHeight: 19, color: colores.textoSecundario },
-  errorTexto: { fontSize: 13, lineHeight: 19, color: colores.negativa },
+  errorTexto: { fontFamily: familia.regular, fontSize: 13, lineHeight: 19, color: colores.negativa },
   resultado: { position: 'relative', zIndex: 0 },
   aviso: {
     flexDirection: 'row',
@@ -676,7 +676,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   avisoTextos: { flex: 1, minWidth: 180, gap: 2 },
-  avisoTexto: { fontSize: 13, lineHeight: 18, color: colores.festivoTexto },
+  avisoTexto: { fontFamily: familia.regular, fontSize: 13, lineHeight: 18, color: colores.festivoTexto },
   tabs: { gap: 4, alignItems: 'stretch' },
   tab: {
     paddingHorizontal: 12,
@@ -687,9 +687,9 @@ const styles = StyleSheet.create({
   },
   tabTactil: { minHeight: 44 },
   tabActivo: { backgroundColor: colores.acento },
-  tabText: { fontSize: 14, fontWeight: peso.semibold, color: colores.textoPestana },
+  tabText: { fontSize: 14, fontFamily: familia.semibold, fontWeight: peso.semibold, color: colores.textoPestana },
   tabTextActivo: { color: colores.textoSobreAcento },
-  tabSub: { fontSize: 12, color: colores.textoPestana, marginTop: 1 },
+  tabSub: { fontFamily: familia.regular, fontSize: 12, color: colores.textoPestana, marginTop: 1 },
   filaPrincipal: { flexDirection: 'row', alignItems: 'flex-start', gap: 20 },
   mapaFlex: { flex: 1, minWidth: 0 },
   sinPermiso: {
@@ -700,5 +700,5 @@ const styles = StyleSheet.create({
     padding: 24,
     backgroundColor: colores.lienzo,
   },
-  sinPermisoText: { fontSize: 14, color: colores.textoPestana, textAlign: 'center' },
+  sinPermisoText: { fontFamily: familia.regular, fontSize: 14, color: colores.textoPestana, textAlign: 'center' },
 });

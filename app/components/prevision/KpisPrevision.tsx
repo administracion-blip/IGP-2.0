@@ -11,7 +11,7 @@ import {
   estiloCifras,
   formatDesvio,
   nombreFranjaKpi,
-  peso,
+  familia, peso,
   radios,
   tamanoCifra,
   trackingCifra,
@@ -113,7 +113,7 @@ export function KpisPrevision({ kpis, modo }: Props) {
         ) : (
           <Text style={styles.realTexto}>
             Real días pasados <Text style={[styles.realImporte, estiloCifras]}>{importeReal}</Text>
-            {desvio ? <Text style={[estiloCifras, { color: colorReal, fontWeight: peso.semibold }]}>{`  ${desvio}`}</Text> : null}
+            {desvio ? <Text style={[estiloCifras, { color: colorReal, fontFamily: familia.semibold, fontWeight: peso.semibold }]}>{`  ${desvio}`}</Text> : null}
             <Text style={styles.aclaracion}>{'  solo días ya cerrados'}</Text>
           </Text>
         )}
@@ -134,9 +134,9 @@ const styles = StyleSheet.create({
   metrica: { flex: 1, paddingHorizontal: 16, paddingVertical: 14, gap: 4, minWidth: 0 },
   bordeDer: { borderRightWidth: 1, borderRightColor: colores.borde },
   bordeAbajo: { borderBottomWidth: 1, borderBottomColor: colores.borde },
-  etiqueta: { fontSize: 12, color: colores.textoSecundario, fontWeight: peso.medio },
-  cifra: { fontWeight: peso.semibold, color: colores.texto },
-  detalle: { fontSize: 13, color: colores.textoSecundario },
+  etiqueta: { fontSize: 12, color: colores.textoSecundario, fontFamily: familia.medio, fontWeight: peso.medio },
+  cifra: { fontFamily: familia.semibold, fontWeight: peso.semibold, color: colores.texto },
+  detalle: { fontFamily: familia.regular, fontSize: 13, color: colores.textoSecundario },
   real: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
   },
   realIzq: { flex: 1, minWidth: 0, gap: 2 },
   realTexto: { fontSize: 13, color: colores.texto },
-  realImporte: { fontWeight: peso.semibold, color: colores.texto },
-  realDesvio: { fontSize: 13, fontWeight: peso.semibold },
-  aclaracion: { fontSize: 13, color: colores.textoTerciario },
+  realImporte: { fontFamily: familia.semibold, fontWeight: peso.semibold, color: colores.texto },
+  realDesvio: { fontSize: 13, fontFamily: familia.semibold, fontWeight: peso.semibold },
+  aclaracion: { fontFamily: familia.regular, fontSize: 13, color: colores.textoTerciario },
 });

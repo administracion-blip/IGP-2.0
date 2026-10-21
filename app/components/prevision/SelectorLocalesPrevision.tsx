@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { MenuAnclado, useAnclaMenu } from './menuAnclado';
-import { colores, estiloEtiqueta, peso, radios } from './tokens';
+import { colores, estiloEtiqueta, familia, peso, radios } from './tokens';
 
 export type OpcionLocalPrevision = {
   id: string;
@@ -194,12 +194,12 @@ const styles = StyleSheet.create({
   triggerTexto: {
     flex: 1,
     fontSize: 13,
-    fontWeight: peso.medio,
+    fontFamily: familia.medio, fontWeight: peso.medio,
     color: colores.texto,
   },
   embebido: { gap: 6 },
   embebidoCab: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  contador: { fontSize: 12, color: colores.textoSecundario },
+  contador: { fontFamily: familia.regular, fontSize: 12, color: colores.textoSecundario },
   bloque: {
     borderWidth: 1,
     borderColor: colores.borde,
@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
   },
   buscadorInput: {
     flex: 1,
-    fontSize: 13,
+    fontFamily: familia.regular, fontSize: 13,
     color: colores.texto,
     paddingVertical: 8,
   },
@@ -242,8 +242,8 @@ const styles = StyleSheet.create({
   },
   casillaOn: { backgroundColor: colores.acento, borderColor: colores.acento },
   textos: { flex: 1, minWidth: 0 },
-  nombre: { fontSize: 13, fontWeight: peso.medio, color: colores.texto },
-  sub: { fontSize: 11, color: colores.textoSecundario, marginTop: 1 },
+  nombre: { fontSize: 13, fontFamily: familia.medio, fontWeight: peso.medio, color: colores.texto },
+  sub: { fontFamily: familia.regular, fontSize: 11, color: colores.textoSecundario, marginTop: 1 },
   pie: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -253,8 +253,8 @@ const styles = StyleSheet.create({
     borderTopColor: colores.separador,
   },
   pieBtn: { justifyContent: 'center', paddingHorizontal: 8 },
-  todo: { fontSize: 13, fontWeight: peso.semibold, color: colores.enlace },
-  limpiar: { fontSize: 13, fontWeight: peso.medio, color: colores.textoSecundario },
-  vacio: { fontSize: 13, color: colores.textoSecundario, padding: 14 },
+  todo: { fontSize: 13, fontFamily: familia.semibold, fontWeight: peso.semibold, color: colores.enlace },
+  limpiar: { fontSize: 13, fontFamily: familia.medio, fontWeight: peso.medio, color: colores.textoSecundario },
+  vacio: { fontFamily: familia.regular, fontSize: 13, color: colores.textoSecundario, padding: 14 },
   carga: { marginVertical: 16 },
 });

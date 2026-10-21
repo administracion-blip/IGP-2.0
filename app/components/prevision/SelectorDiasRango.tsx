@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-nati
 import { MaterialIcons } from '@expo/vector-icons';
 import { InputFecha } from '../InputFecha';
 import { MenuAnclado, useAnclaMenu } from './menuAnclado';
-import { colores, estiloCifras, estiloEtiqueta, peso, radios } from './tokens';
+import { colores, estiloCifras, estiloEtiqueta, familia, peso, radios } from './tokens';
 import {
   MAX_DIAS_PREVISION,
   diaSemanaIso,
@@ -40,7 +40,7 @@ function estiloFecha(alto: number) {
     width: '100%' as const,
     height: alto,
     minHeight: alto,
-    fontSize: 14,
+    fontFamily: familia.regular, fontSize: 14,
     borderRadius: radios.control,
     borderWidth: 1,
     borderColor: colores.borde,
@@ -252,14 +252,14 @@ const styles = StyleSheet.create({
   },
   triggerAbierto: { borderColor: colores.acento },
   triggerOff: { opacity: 0.5 },
-  triggerTexto: { flex: 1, fontSize: 13, fontWeight: peso.medio, color: colores.texto },
+  triggerTexto: { flex: 1, fontSize: 13, fontFamily: familia.medio, fontWeight: peso.medio, color: colores.texto },
   embebido: { gap: 6 },
   fechas: { flexDirection: 'row', gap: 8 },
   fechaCelda: { flex: 1, minWidth: 0 },
   panelScroll: { maxHeight: 420 },
   panel: { padding: 12, gap: 10 },
-  resumenDias: { fontSize: 12, color: colores.textoSecundario, fontWeight: peso.medio },
-  error: { fontSize: 12, color: colores.negativa, fontWeight: peso.medio },
+  resumenDias: { fontSize: 12, color: colores.textoSecundario, fontFamily: familia.medio, fontWeight: peso.medio },
+  error: { fontSize: 12, color: colores.negativa, fontFamily: familia.medio, fontWeight: peso.medio },
   dias: { gap: 8 },
   atajos: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   atajo: {
@@ -271,8 +271,8 @@ const styles = StyleSheet.create({
     minHeight: 32,
   },
   atajoOn: { backgroundColor: colores.acento, borderColor: colores.acento },
-  atajoTexto: { fontSize: 12, fontWeight: peso.medio, color: colores.textoSecundario },
-  atajoTextoOn: { color: colores.textoSobreAcento, fontWeight: peso.semibold },
+  atajoTexto: { fontSize: 12, fontFamily: familia.medio, fontWeight: peso.medio, color: colores.textoSecundario },
+  atajoTextoOn: { color: colores.textoSobreAcento, fontFamily: familia.semibold, fontWeight: peso.semibold },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: {
     paddingHorizontal: 10,
@@ -283,9 +283,9 @@ const styles = StyleSheet.create({
   },
   chipOn: { backgroundColor: colores.filaMarcada, borderColor: colores.bordeCalorClaro },
   chipOff: { backgroundColor: colores.superficie, borderColor: colores.borde },
-  chipTexto: { fontSize: 12, fontWeight: peso.semibold },
+  chipTexto: { fontSize: 12, fontFamily: familia.semibold, fontWeight: peso.semibold },
   chipTextoOn: { color: colores.enlace },
-  chipTextoOff: { color: colores.textoTerciario, textDecorationLine: 'line-through', fontWeight: peso.medio },
+  chipTextoOff: { color: colores.textoTerciario, textDecorationLine: 'line-through', fontFamily: familia.medio, fontWeight: peso.medio },
   tactil: { minHeight: 44, paddingHorizontal: 12 },
   disclosure: {
     minHeight: 44,
@@ -293,5 +293,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  disclosureTexto: { fontSize: 13, fontWeight: peso.medio, color: colores.texto },
+  disclosureTexto: { fontSize: 13, fontFamily: familia.medio, fontWeight: peso.medio, color: colores.texto },
 });

@@ -22,7 +22,7 @@ import {
   fechaLargaA11y,
   nombreFranjaVisible,
   rangoFranja,
-  peso,
+  familia, peso,
   radios,
 } from './tokens';
 
@@ -229,8 +229,8 @@ const styles = StyleSheet.create({
   },
   flechaOff: { opacity: 0.4 },
   centro: { flex: 1, alignItems: 'center', gap: 2 },
-  rango: { fontSize: 15, fontWeight: peso.semibold, color: colores.texto },
-  meta: { fontSize: 12, color: colores.textoSecundario },
+  rango: { fontSize: 15, fontFamily: familia.semibold, fontWeight: peso.semibold, color: colores.texto },
+  meta: { fontFamily: familia.regular, fontSize: 12, color: colores.textoSecundario },
   leyenda: { alignItems: 'flex-end' },
   tarjeta: {
     backgroundColor: colores.superficie,
@@ -243,8 +243,8 @@ const styles = StyleSheet.create({
   tarjetaCab: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   tarjetaIzq: { flex: 1, minWidth: 0, gap: 2 },
   fechaFila: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  fecha: { fontSize: 15, fontWeight: peso.semibold, color: colores.texto },
-  comp: { fontSize: 11, color: colores.textoTerciario },
+  fecha: { fontSize: 15, fontFamily: familia.semibold, fontWeight: peso.semibold, color: colores.texto },
+  comp: { fontFamily: familia.regular, fontSize: 11, color: colores.textoTerciario },
   total: {
     minWidth: 118,
     borderRadius: radios.control,
@@ -254,7 +254,7 @@ const styles = StyleSheet.create({
   },
   totalCab: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
   totalEtiqueta: { fontSize: 11, opacity: 0.85 },
-  totalImporte: { fontSize: 16, fontWeight: peso.negrita, marginTop: 2 },
+  totalImporte: { fontSize: 16, fontFamily: familia.negrita, fontWeight: peso.negrita, marginTop: 2 },
   grid: { gap: 6 },
   gridFila: { flexDirection: 'row', gap: 6 },
   celda: {
@@ -275,8 +275,8 @@ const styles = StyleSheet.create({
   pillCelda: { position: 'absolute', top: 6, right: 6 },
   franjaNombre: { fontSize: 11, opacity: 0.75, paddingRight: 48 },
   franjaRango: { fontSize: 11, opacity: 0.6 },
-  celdaImporte: { fontSize: 16, fontWeight: peso.negrita },
-  pers: { fontSize: 11, opacity: 0.8 },
+  celdaImporte: { fontSize: 16, fontFamily: familia.negrita, fontWeight: peso.negrita },
+  pers: { fontFamily: familia.regular, fontSize: 11, opacity: 0.8 },
   noValida: {
     borderRadius: radios.control,
     backgroundColor: colores.lienzo,
@@ -284,5 +284,5 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   noValidaTexto: { fontSize: 11, color: colores.textoSecundario },
-  vacio: { fontSize: 13, color: colores.textoSecundario },
+  vacio: { fontFamily: familia.regular, fontSize: 13, color: colores.textoSecundario },
 });
