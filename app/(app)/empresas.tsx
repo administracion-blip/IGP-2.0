@@ -35,6 +35,15 @@ import { CampoEtiquetasEmpresa } from '../components/CampoEtiquetasEmpresa';
 import { CuentasBancariasEmpresa } from '../components/CuentasBancariasEmpresa';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../constants/layout';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../constants/theme';
 
 const DEFAULT_COL_WIDTH = 90;
 const MIN_COL_WIDTH = 40;
@@ -213,7 +222,7 @@ function CampoFichaEmpresa({
             <MaterialIcons
               name={copiado ? 'check' : 'content-copy'}
               size={15}
-              color={copiado ? '#16a34a' : '#64748b'}
+              color={copiado ? colors.success : colors.textMuted}
             />
           </TouchableOpacity>
         ) : null}
@@ -316,7 +325,7 @@ function FichaEmpresaModal({
               style={[styles.fichaClose, isPhone && styles.fichaClosePhone]}
               accessibilityLabel="Cerrar"
             >
-              <MaterialIcons name="close" size={20} color="#64748b" />
+              <MaterialIcons name="close" size={20} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
           <ScrollView style={styles.fichaBody} contentContainerStyle={styles.fichaBodyContent}>
@@ -349,7 +358,7 @@ function FichaEmpresaModal({
               <MaterialIcons
                 name={fichaCopiada ? 'check' : 'content-copy'}
                 size={16}
-                color={fichaCopiada ? '#16a34a' : sinDatos ? '#94a3b8' : '#334155'}
+                color={fichaCopiada ? colors.success : sinDatos ? colors.textMuted : colors.textPrimary}
               />
               <Text
                 style={[
@@ -368,7 +377,7 @@ function FichaEmpresaModal({
               activeOpacity={0.8}
               accessibilityLabel="Enviar por WhatsApp"
             >
-              <MaterialIcons name="chat" size={16} color={sinDatos ? '#94a3b8' : '#16a34a'} />
+              <MaterialIcons name="chat" size={16} color={sinDatos ? colors.textMuted : colors.success} />
               <Text style={[styles.fichaBtnChipText, sinDatos && styles.fichaBtnDisabledText]}>WhatsApp</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -378,7 +387,7 @@ function FichaEmpresaModal({
               activeOpacity={0.8}
               accessibilityLabel="Enviar por Telegram"
             >
-              <MaterialIcons name="send" size={16} color={sinDatos ? '#94a3b8' : '#0284c7'} />
+              <MaterialIcons name="send" size={16} color={sinDatos ? colors.textMuted : colors.accentPressed} />
               <Text style={[styles.fichaBtnChipText, sinDatos && styles.fichaBtnDisabledText]}>Telegram</Text>
             </TouchableOpacity>
           </View>
@@ -1254,7 +1263,7 @@ export default function EmpresasScreen() {
             if (campo.key === 'Cp') handleCpBlur();
           }}
           placeholder={`${campo.label}…`}
-          placeholderTextColor="#94a3b8"
+          placeholderTextColor={colors.textMuted}
           autoCapitalize="words"
         />
         {campo.key === 'Cif' ? (
@@ -1275,7 +1284,7 @@ export default function EmpresasScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text style={styles.loadingText}>Cargando empresas…</Text>
       </View>
     );
@@ -1284,7 +1293,7 @@ export default function EmpresasScreen() {
   if (error) {
     return (
       <View style={styles.center}>
-        <MaterialIcons name="error-outline" size={48} color="#f87171" />
+        <MaterialIcons name="error-outline" size={48} color={colors.danger} />
         <Text style={styles.errorText}>{error}</Text>
       </View>
     );
@@ -1298,14 +1307,14 @@ export default function EmpresasScreen() {
           style={[styles.backBtn, isPhone && styles.backBtnPhone]}
           accessibilityLabel="Volver"
         >
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Empresas</Text>
       </View>
 
       {returnCtx ? (
         <View style={styles.returnBanner}>
-          <MaterialIcons name="info-outline" size={16} color="#0369a1" />
+          <MaterialIcons name="info-outline" size={16} color={statusColors.info.text} />
           <Text style={styles.returnBannerText}>
             Edición desde factura. Al guardar volverás al detalle; con atrás regresas sin guardar cambios del maestro.
           </Text>
@@ -1320,7 +1329,7 @@ export default function EmpresasScreen() {
             disabled={guardando}
             accessibilityLabel="Nueva empresa"
           >
-            <MaterialIcons name={ICONS.add} size={18} color="#ffffff" />
+            <MaterialIcons name={ICONS.add} size={18} color={colors.surface} />
             <Text style={styles.btnCrearText}>Nueva empresa</Text>
           </TouchableOpacity>
           {toolbarSecundarios.map((btn) => {
@@ -1355,7 +1364,7 @@ export default function EmpresasScreen() {
                   disabled={disabled}
                   accessibilityLabel={btn.label}
                 >
-                  <MaterialIcons name={btn.icon} size={ICON_SIZE} color={disabled ? '#94a3b8' : '#64748b'} />
+                  <MaterialIcons name={btn.icon} size={ICON_SIZE} color={disabled ? colors.textMuted : colors.textMuted} />
                 </TouchableOpacity>
               </View>
             );
@@ -1384,7 +1393,7 @@ export default function EmpresasScreen() {
               disabled={guardando || importing}
               accessibilityLabel="Importar"
             >
-              <MaterialIcons name="upload-file" size={ICON_SIZE} color={guardando || importing ? '#94a3b8' : '#64748b'} />
+              <MaterialIcons name="upload-file" size={ICON_SIZE} color={guardando || importing ? colors.textMuted : colors.textMuted} />
             </TouchableOpacity>
           </View>
           <View
@@ -1407,7 +1416,7 @@ export default function EmpresasScreen() {
               disabled={guardando}
               accessibilityLabel="Exportar"
             >
-              <MaterialIcons name="download" size={ICON_SIZE} color={guardando ? '#94a3b8' : '#64748b'} />
+              <MaterialIcons name="download" size={ICON_SIZE} color={guardando ? colors.textMuted : colors.textMuted} />
             </TouchableOpacity>
           </View>
           <View
@@ -1436,19 +1445,19 @@ export default function EmpresasScreen() {
               <MaterialIcons
                 name="speed"
                 size={ICON_SIZE}
-                color={edicionRapidaMode ? '#fff' : '#64748b'}
+                color={edicionRapidaMode ? colors.surface : colors.textMuted}
               />
             </TouchableOpacity>
           </View>
         </View>
         <View style={[styles.searchWrap, shouldStackToolbar && styles.searchWrapStacked]}>
-          <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
+          <MaterialIcons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             value={filtroBusqueda}
             onChangeText={setFiltroBusqueda}
             placeholder="Buscar en la tabla…"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
           />
         </View>
       </View>
@@ -1456,7 +1465,7 @@ export default function EmpresasScreen() {
       {edicionRapidaMode && (
         <View style={styles.quickEditBar}>
           <View style={styles.quickEditBarLeft}>
-            <MaterialIcons name="edit" size={16} color="#0ea5e9" />
+            <MaterialIcons name="edit" size={16} color={colors.accent} />
             <Text style={styles.quickEditBarText}>Edición rápida activa — modifica las celdas directamente</Text>
           </View>
           <View style={styles.quickEditBarRight}>
@@ -1465,7 +1474,7 @@ export default function EmpresasScreen() {
               onPress={cancelarEdicionRapida}
               disabled={guardandoRapido}
             >
-              <MaterialIcons name="close" size={16} color="#64748b" />
+              <MaterialIcons name="close" size={16} color={colors.textMuted} />
               <Text style={styles.quickEditCancelBtnText}>Cancelar</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -1474,9 +1483,9 @@ export default function EmpresasScreen() {
               disabled={guardandoRapido}
             >
               {guardandoRapido ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <ActivityIndicator size="small" color={colors.surface} />
               ) : (
-                <MaterialIcons name="check" size={16} color="#fff" />
+                <MaterialIcons name="check" size={16} color={colors.surface} />
               )}
               <Text style={styles.quickEditSaveBtnText}>{guardandoRapido ? 'Guardando…' : 'Guardar cambios'}</Text>
             </TouchableOpacity>
@@ -1500,7 +1509,7 @@ export default function EmpresasScreen() {
               disabled={pageIndexClamped <= 0}
               accessibilityLabel="Página anterior"
             >
-              <MaterialIcons name="chevron-left" size={20} color={pageIndexClamped <= 0 ? '#94a3b8' : '#0ea5e9'} />
+              <MaterialIcons name="chevron-left" size={20} color={pageIndexClamped <= 0 ? colors.textMuted : colors.accent} />
             </TouchableOpacity>
             <Text style={styles.pageText}>
               Página {pageIndexClamped + 1} de {totalPages}
@@ -1511,7 +1520,7 @@ export default function EmpresasScreen() {
               disabled={pageIndexClamped >= totalPages - 1}
               accessibilityLabel="Página siguiente"
             >
-              <MaterialIcons name="chevron-right" size={20} color={pageIndexClamped >= totalPages - 1 ? '#94a3b8' : '#0ea5e9'} />
+              <MaterialIcons name="chevron-right" size={20} color={pageIndexClamped >= totalPages - 1 ? colors.textMuted : colors.accent} />
             </TouchableOpacity>
           </View>
         )}
@@ -1565,7 +1574,7 @@ export default function EmpresasScreen() {
                         return (
                           <View key={col} style={[styles.cell, { width: getColWidth(col) }, styles.cellBloqueada]}>
                             <View style={styles.cellBloqueadaRow}>
-                              <MaterialIcons name="lock-outline" size={11} color="#94a3b8" />
+                              <MaterialIcons name="lock-outline" size={11} color={colors.textMuted} />
                               <Text style={styles.cellBloqueadaText} numberOfLines={1} ellipsizeMode="tail">
                                 {valorCelda(empresa, col)}
                               </Text>
@@ -1593,7 +1602,7 @@ export default function EmpresasScreen() {
                                 }));
                               }}
                               placeholder={col}
-                              placeholderTextColor="#cbd5e1"
+                              placeholderTextColor={colors.borderStrong}
                             />
                           </View>
                         );
@@ -1640,7 +1649,7 @@ export default function EmpresasScreen() {
                     </Text>
                   </View>
                   <TouchableOpacity onPress={cerrarModalNuevo} style={styles.modalClose}>
-                    <MaterialIcons name="close" size={22} color="#64748b" />
+                    <MaterialIcons name="close" size={22} color={colors.textMuted} />
                   </TouchableOpacity>
                 </View>
                 <ScrollView
@@ -1684,7 +1693,7 @@ export default function EmpresasScreen() {
                     />
                   ) : (
                     <View style={styles.cuentasNota}>
-                      <MaterialIcons name="account-balance" size={16} color="#0369a1" />
+                      <MaterialIcons name="account-balance" size={16} color={statusColors.info.text} />
                       <Text style={styles.cuentasNotaTexto}>
                         Guarda la empresa para poder añadir sus cuentas bancarias.
                       </Text>
@@ -1698,7 +1707,7 @@ export default function EmpresasScreen() {
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.modalBtnSave} onPress={guardarNuevo} disabled={guardando} accessibilityLabel="Guardar">
                     {guardando ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
+                      <ActivityIndicator size="small" color={colors.surface} />
                     ) : (
                       <Text style={styles.modalBtnSaveText}>Guardar</Text>
                     )}
@@ -1717,7 +1726,7 @@ export default function EmpresasScreen() {
               <View style={styles.dialogHeader}>
                 <Text style={styles.dialogTitle}>Importar datos</Text>
                 <TouchableOpacity onPress={cerrarModalImport} style={styles.modalClose}>
-                  <MaterialIcons name="close" size={22} color="#64748b" />
+                  <MaterialIcons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               <View style={styles.dialogBody}>
@@ -1731,7 +1740,7 @@ export default function EmpresasScreen() {
                     disabled={importing}
                     accessibilityLabel="Descargar archivo modelo"
                   >
-                    <MaterialIcons name="download" size={22} color="#0ea5e9" />
+                    <MaterialIcons name="download" size={22} color={colors.accent} />
                     <Text style={styles.importOptionLabel}>Descargar archivo modelo</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -1741,9 +1750,9 @@ export default function EmpresasScreen() {
                     accessibilityLabel="Importar Excel"
                   >
                     {importing ? (
-                      <ActivityIndicator size="small" color="#0ea5e9" />
+                      <ActivityIndicator size="small" color={colors.accent} />
                     ) : (
-                      <MaterialIcons name="upload-file" size={22} color="#0ea5e9" />
+                      <MaterialIcons name="upload-file" size={22} color={colors.accent} />
                     )}
                     <Text style={styles.importOptionLabel}>Importar Excel</Text>
                   </TouchableOpacity>
@@ -1761,11 +1770,11 @@ export default function EmpresasScreen() {
           <View style={styles.dialogCard}>
             <View style={styles.dialogHeader}>
               <View style={styles.fichaHeaderLeft}>
-                <MaterialIcons name="download" size={20} color="#0ea5e9" />
+                <MaterialIcons name="download" size={20} color={colors.accent} />
                 <Text style={styles.dialogTitle}>Exportar datos</Text>
               </View>
               <TouchableOpacity onPress={() => setModalExportarVisible(false)} style={styles.fichaClose}>
-                <MaterialIcons name="close" size={20} color="#64748b" />
+                <MaterialIcons name="close" size={20} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             <View style={styles.dialogBody}>
@@ -1775,11 +1784,11 @@ export default function EmpresasScreen() {
               </Text>
               <View style={styles.importButtonsRow}>
                 <TouchableOpacity style={styles.importOptionBtn} onPress={exportarExcel}>
-                  <MaterialIcons name="table-chart" size={22} color="#16a34a" />
+                  <MaterialIcons name="table-chart" size={22} color={colors.success} />
                   <Text style={styles.importOptionLabel}>Excel (.xlsx)</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.importOptionBtn} onPress={exportarPDF}>
-                  <MaterialIcons name="picture-as-pdf" size={22} color="#ef4444" />
+                  <MaterialIcons name="picture-as-pdf" size={22} color={colors.danger} />
                   <Text style={styles.importOptionLabel}>PDF</Text>
                 </TouchableOpacity>
               </View>
@@ -1802,35 +1811,38 @@ export default function EmpresasScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 12, backgroundColor: '#f8fafc' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10, backgroundColor: '#f8fafc' },
-  loadingText: { fontSize: 12, color: '#64748b' },
-  errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 8 },
+  container: { flex: 1, padding: SPACING.md, backgroundColor: colors.bg },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10, backgroundColor: colors.bg },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, textAlign: 'center' },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.xs, gap: SPACING.sm },
   returnBanner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
-    marginBottom: 8,
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#f0f9ff',
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
     borderColor: '#bae6fd',
   },
-  returnBannerText: { flex: 1, fontSize: 12, fontWeight: '400', color: '#0369a1', lineHeight: 17 },
+  returnBannerText: { flex: 1, fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: statusColors.info.text, lineHeight: 17 },
   backBtn: {
     width: 36,
     height: 36,
     padding: 0,
-    borderRadius: 8,
-    backgroundColor: '#ffffff',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#eef1f5',
+    borderColor: colors.border,
   },
   backBtnPhone: {
     width: MIN_TOUCH,
@@ -1838,21 +1850,21 @@ const styles = StyleSheet.create({
     minWidth: MIN_TOUCH,
     minHeight: MIN_TOUCH,
   },
-  title: { fontSize: 20, fontWeight: '600', lineHeight: 26, color: '#0f172a' },
-  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12, flexWrap: 'wrap' },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, lineHeight: 26, color: colors.textStrong },
+  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm, gap: SPACING.md, flexWrap: 'wrap' },
   toolbarRowStacked: { flexDirection: 'column', alignItems: 'stretch' },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   btnCrear: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#0ea5e9',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    backgroundColor: colors.accent,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
   },
   btnCrearPhone: { minHeight: MIN_TOUCH },
-  btnCrearText: { fontSize: 12, fontWeight: '600', color: '#ffffff' },
+  btnCrearText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
   searchWrap: {
     flex: 1,
     flexDirection: 'row',
@@ -1860,24 +1872,25 @@ const styles = StyleSheet.create({
     minWidth: 140,
     maxWidth: 280,
     height: 32,
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 8,
   },
   searchWrapStacked: { maxWidth: '100%', width: '100%', flexGrow: 1 },
   searchIcon: { marginRight: 6 },
-  searchInput: { flex: 1, fontSize: 12, fontWeight: '400', color: '#0f172a', paddingVertical: 0 },
+  searchInput: { flex: 1, fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textStrong, paddingVertical: 0 },
   toolbarBtnWrap: { position: 'relative' },
-  tooltip: { position: 'absolute', bottom: '100%', alignSelf: 'center', marginBottom: 4, backgroundColor: '#334155', paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4, zIndex: 10 },
-  tooltipText: { fontSize: 9, color: '#f8fafc', fontWeight: '400' },
+  /** El texto de 9 px sube al suelo de etiqueta (11). */
+  tooltip: { position: 'absolute', bottom: '100%', alignSelf: 'center', marginBottom: SPACING.xs, backgroundColor: colors.textPrimary, paddingHorizontal: SPACING.xs, paddingVertical: 2, borderRadius: 4, zIndex: 10 },
+  tooltipText: { fontSize: typography.etiqueta.fontSize, color: colors.bg, fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight },
   toolbarBtn: {
     padding: 6,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    backgroundColor: '#ffffff',
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
   },
   toolbarBtnPhone: { minHeight: MIN_TOUCH, minWidth: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
   toolbarBtnDisabled: { opacity: 0.6 },
@@ -1885,15 +1898,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
-    gap: 12,
+    marginBottom: SPACING.sm,
+    gap: SPACING.md,
     flexWrap: 'wrap',
   },
-  subtitle: { fontSize: 12, color: '#64748b' },
-  pagination: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  pagination: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
   pageBtn: { padding: 4 },
   pageBtnDisabled: { opacity: 0.5 },
-  pageText: { fontSize: 11, color: '#64748b', marginHorizontal: 4 },
+  pageText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginHorizontal: SPACING.xs },
   tableWrapper: { flex: 1, minHeight: 0 },
   scroll: { flex: 1, minHeight: 0 },
   scrollContent: { flexGrow: 1, minWidth: '100%' as unknown as number },
@@ -1901,17 +1914,17 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: '100%',
     borderWidth: 1,
-    borderColor: '#eef1f5',
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
   },
   tableBodyScroll: { flex: 1, minHeight: 0 },
   tableBodyContent: { paddingBottom: 24 },
   rowHeader: {
     flexDirection: 'row',
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderBottomWidth: 1,
-    borderBottomColor: '#eef1f5',
+    borderBottomColor: colors.border,
     borderLeftWidth: 2,
     borderLeftColor: 'transparent',
   },
@@ -1920,15 +1933,15 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 8,
     borderRightWidth: 1,
-    borderRightColor: '#eef1f5',
+    borderRightColor: colors.border,
     position: 'relative',
   },
   cellHeaderText: {
-    fontSize: 11,
-    fontWeight: '400',
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
     lineHeight: 14,
     letterSpacing: 0.1,
-    color: '#94a3b8',
+    color: colors.textMuted,
     textTransform: 'none',
   },
   resizeHandle: {
@@ -1942,32 +1955,33 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: '#eef1f5',
-    backgroundColor: '#fff',
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
     borderLeftWidth: 2,
     borderLeftColor: 'transparent',
   },
   rowSelected: {
-    backgroundColor: '#e0f2fe',
+    backgroundColor: colors.accentMuted,
     borderLeftWidth: 2,
-    borderLeftColor: '#0ea5e9',
+    borderLeftColor: colors.accent,
   },
   cell: {
     minWidth: MIN_COL_WIDTH,
-    paddingVertical: 4,
+    paddingVertical: SPACING.xs,
     paddingHorizontal: 8,
     borderRightWidth: 1,
-    borderRightColor: '#eef1f5',
+    borderRightColor: colors.border,
   },
-  cellText: { fontSize: 12, fontWeight: '400', lineHeight: 16, color: '#475569' },
-  cellEmpty: { flex: 1, paddingVertical: 16, paddingHorizontal: 12, alignItems: 'center' },
-  cellEmptyText: { fontSize: 12, color: '#94a3b8' },
+  cellText: { fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, lineHeight: 16, color: colors.textPrimary },
+  cellEmpty: { flex: 1, paddingVertical: 16, paddingHorizontal: SPACING.md, alignItems: 'center' },
+  cellEmptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  /** Más oscuro que colors.overlay. */
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' },
   modalWrap: { flex: 1, maxHeight: '100%', justifyContent: 'center' },
   modalWrapDesktop: { maxWidth: 720, width: '100%', padding: 24 },
   modalWrapTablet: { maxWidth: 640, width: '100%', padding: 20 },
-  modalWrapPhone: { maxWidth: '100%', width: '100%', padding: 12 },
-  modalWrapFull: { maxWidth: '100%', paddingHorizontal: 12 },
+  modalWrapPhone: { maxWidth: '100%', width: '100%', padding: SPACING.md },
+  modalWrapFull: { maxWidth: '100%', paddingHorizontal: SPACING.md },
   modalCardHost: { width: '100%', height: '88%', maxHeight: '88%' },
   modalCardHostFull: { height: '92%', maxHeight: '92%' },
   modalCard: {
@@ -1975,122 +1989,122 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     maxHeight: '100%',
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
     overflow: 'hidden',
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#eef1f5',
+    borderBottomColor: colors.border,
     flexShrink: 0,
   },
   modalHeaderLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
-  modalTitle: { fontSize: 16, fontWeight: '600', color: '#0f172a', flexShrink: 1, minWidth: 0 },
-  modalIdChip: { fontSize: 11, fontWeight: '400', color: '#94a3b8', flexShrink: 0 },
+  modalTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong, flexShrink: 1, minWidth: 0 },
+  modalIdChip: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted, flexShrink: 0 },
   modalClose: { padding: 4 },
-  modalBody: { flex: 1, minHeight: 0, paddingHorizontal: 16, paddingVertical: 12 },
-  modalBodyContent: { paddingBottom: 4 },
-  formRow2: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  modalBody: { flex: 1, minHeight: 0, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md },
+  modalBodyContent: { paddingBottom: SPACING.xs },
+  formRow2: { flexDirection: 'row', gap: SPACING.md, alignItems: 'flex-start' },
   formCol1: { flexDirection: 'column' },
   formFieldCol: { flex: 1, minWidth: 0 },
   formFieldFull: { width: '100%' },
   formGroup: { marginBottom: 10 },
-  formLabel: { fontSize: 11, fontWeight: '400', color: '#64748b', marginBottom: 4 },
+  formLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted, marginBottom: SPACING.xs },
   formInput: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#eef1f5',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 12,
-    fontWeight: '400',
-    color: '#334155',
+    paddingVertical: SPACING.sm,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textPrimary,
     minHeight: 36,
   },
   formInputPhone: { minHeight: MIN_TOUCH },
   cuentasNota: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
+    gap: SPACING.sm,
     marginTop: 12,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#f0f9ff',
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
     borderColor: '#bae6fd',
   },
-  cuentasNotaTexto: { flex: 1, fontSize: 12, color: '#0369a1', lineHeight: 17 },
-  formHelpWrap: { marginTop: 4 },
-  formHelpText: { fontSize: 10, color: '#64748b' },
-  formErrorText: { fontSize: 10, color: '#f87171' },
-  modalError: { fontSize: 12, fontWeight: '400', color: '#f87171', paddingHorizontal: 16, paddingVertical: 4, flexShrink: 0 },
+  cuentasNotaTexto: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.info.text, lineHeight: 17 },
+  formHelpWrap: { marginTop: SPACING.xs },
+  formHelpText: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textMuted },
+  formErrorText: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.danger },
+  modalError: { fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.danger, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.xs, flexShrink: 0 },
   modalFooter: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
     borderTopWidth: 1,
-    borderTopColor: '#eef1f5',
+    borderTopColor: colors.border,
     flexShrink: 0,
   },
-  modalBtnCancel: { paddingVertical: 10, paddingHorizontal: 16 },
-  modalBtnCancelText: { fontSize: 14, color: '#64748b' },
+  modalBtnCancel: { paddingVertical: 10, paddingHorizontal: SPACING.lg },
+  modalBtnCancelText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted },
   modalBtnSave: {
-    backgroundColor: '#0ea5e9',
+    backgroundColor: colors.accent,
     paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 6,
+    paddingHorizontal: SPACING.lg,
+    borderRadius: radius.sm,
     minWidth: 100,
     alignItems: 'center',
   },
-  modalBtnSaveText: { fontSize: 14, fontWeight: '600', color: '#ffffff' },
+  modalBtnSaveText: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
   dialogWrap: { width: '100%', maxWidth: 480, padding: 20 },
   dialogCard: {
     width: '94%',
     maxWidth: 480,
-    backgroundColor: '#ffffff',
-    borderRadius: 8,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#eef1f5',
+    borderColor: colors.border,
   },
   dialogHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#eef1f5',
+    borderBottomColor: colors.border,
   },
-  dialogTitle: { fontSize: 16, fontWeight: '600', color: '#0f172a' },
-  dialogBody: { paddingHorizontal: 16, paddingVertical: 12 },
-  importHelpText: { fontSize: 12, fontWeight: '400', color: '#475569', marginBottom: 16, lineHeight: 18 },
-  exportHintText: { fontSize: 12, fontWeight: '400', color: '#64748b', marginBottom: 14 },
-  importButtonsRow: { flexDirection: 'row', gap: 12, marginBottom: 8 },
+  dialogTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong },
+  dialogBody: { paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md },
+  importHelpText: { fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textPrimary, marginBottom: SPACING.lg, lineHeight: 18 },
+  exportHintText: { fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted, marginBottom: 14 },
+  importButtonsRow: { flexDirection: 'row', gap: SPACING.md, marginBottom: SPACING.sm },
   importOptionBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    gap: SPACING.sm,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.md,
     borderWidth: 1,
-    borderColor: '#eef1f5',
-    borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.bg,
   },
-  importOptionLabel: { fontSize: 12, fontWeight: '400', color: '#334155' },
-  importSuccessText: { fontSize: 11, fontWeight: '400', color: '#22c55e', paddingHorizontal: 16, paddingVertical: 4 },
-  toolbarBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
+  importOptionLabel: { fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textPrimary },
+  importSuccessText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: '#22c55e', paddingHorizontal: SPACING.lg, paddingVertical: SPACING.xs },
+  toolbarBtnActive: { backgroundColor: colors.accent, borderColor: colors.accent },
   quickEditBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2098,63 +2112,64 @@ const styles = StyleSheet.create({
     backgroundColor: '#eff6ff',
     borderWidth: 1,
     borderColor: '#bfdbfe',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 8,
-    gap: 12,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    marginBottom: SPACING.sm,
+    gap: SPACING.md,
     flexWrap: 'wrap',
   },
   quickEditBarLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  quickEditBarText: { fontSize: 12, color: '#1e40af', fontWeight: '500' },
-  quickEditBarRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  quickEditBarText: { fontSize: fontSizes[12], color: '#1e40af', fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  quickEditBarRight: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   quickEditCancelBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    backgroundColor: '#f1f5f9',
-    borderRadius: 6,
+    backgroundColor: colors.navActive,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  quickEditCancelBtnText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
+  quickEditCancelBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
   quickEditSaveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    backgroundColor: '#0ea5e9',
-    borderRadius: 6,
+    backgroundColor: colors.accent,
+    borderRadius: radius.sm,
   },
-  quickEditSaveBtnText: { fontSize: 12, fontWeight: '600', color: '#fff' },
+  quickEditSaveBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
   cellEditing: {
     paddingVertical: 0,
     paddingHorizontal: 2,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
   },
   cellModified: {
     backgroundColor: '#fef9c3',
     borderBottomColor: '#facc15',
   },
-  cellBloqueada: { backgroundColor: '#f1f5f9', justifyContent: 'center' },
+  cellBloqueada: { backgroundColor: colors.navActive, justifyContent: 'center' },
   cellBloqueadaRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  cellBloqueadaText: { flex: 1, fontSize: 12, fontWeight: '400', color: '#94a3b8', fontStyle: 'italic' },
+  cellBloqueadaText: { flex: 1, fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted, fontStyle: 'italic' },
   cellEditInput: {
     flex: 1,
-    fontSize: 12,
-    fontWeight: '400',
-    color: '#334155',
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textPrimary,
     paddingVertical: 3,
-    paddingHorizontal: 4,
+    paddingHorizontal: SPACING.xs,
     borderWidth: 1,
-    borderColor: '#eef1f5',
+    borderColor: colors.border,
     borderRadius: 4,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     minHeight: 24,
   },
+  /** Más oscuro que colors.overlay. */
   fichaOverlay: {
     flex: 1,
     justifyContent: 'center',
@@ -2164,44 +2179,44 @@ const styles = StyleSheet.create({
   fichaCard: {
     width: '94%',
     maxWidth: 420,
-    backgroundColor: '#fff',
-    borderRadius: 8,
+    backgroundColor: colors.surface,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#eef1f5',
+    borderColor: colors.border,
   },
   fichaCardWide: { maxWidth: 640 },
   fichaHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#eef1f5',
-    gap: 12,
+    borderBottomColor: colors.border,
+    gap: SPACING.md,
   },
-  fichaHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  fichaHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   fichaHeaderTextos: { flex: 1, minWidth: 0, flexDirection: 'column', gap: 2 },
-  fichaTitle: { fontSize: 16, fontWeight: '600', color: '#0f172a' },
-  fichaSubtitle: { fontSize: 12, fontWeight: '400', color: '#64748b' },
+  fichaTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong },
+  fichaSubtitle: { fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted },
   fichaClose: {
     width: 36,
     height: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     flexShrink: 0,
   },
   fichaClosePhone: { width: MIN_TOUCH, height: MIN_TOUCH, minWidth: MIN_TOUCH, minHeight: MIN_TOUCH },
-  fichaBody: { paddingHorizontal: 16, paddingVertical: 8, maxHeight: 360 },
-  fichaBodyContent: { paddingBottom: 4 },
-  fichaRow2: { flexDirection: 'row', gap: 16 },
+  fichaBody: { paddingHorizontal: SPACING.lg, paddingVertical: SPACING.sm, maxHeight: 360 },
+  fichaBodyContent: { paddingBottom: SPACING.xs },
+  fichaRow2: { flexDirection: 'row', gap: SPACING.lg },
   fichaCol1: { flexDirection: 'column' },
-  fichaCampo: { flex: 1, minWidth: 0, paddingVertical: 8 },
-  fichaLabel: { fontSize: 11, fontWeight: '400', color: '#94a3b8', marginBottom: 2 },
+  fichaCampo: { flex: 1, minWidth: 0, paddingVertical: SPACING.sm },
+  fichaLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted, marginBottom: 2 },
   fichaValorRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  fichaValue: { flex: 1, fontSize: 13, fontWeight: '400', color: '#1e293b' },
-  fichaValueEmpty: { color: '#94a3b8' },
+  fichaValue: { flex: 1, fontSize: fontSizes[13], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textStrong },
+  fichaValueEmpty: { color: colors.textMuted },
   fichaCopyBtn: {
     width: 32,
     height: 32,
@@ -2214,11 +2229,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
     borderTopWidth: 1,
-    borderTopColor: '#eef1f5',
+    borderTopColor: colors.border,
   },
   fichaFooterStacked: { flexDirection: 'row', flexWrap: 'wrap' },
   fichaBtnOutline: {
@@ -2226,29 +2241,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   fichaBtnChip: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
   },
   fichaBtnPhone: { minHeight: MIN_TOUCH },
   fichaBtnDisabled: { opacity: 0.55 },
-  fichaBtnOutlineText: { fontSize: 12, fontWeight: '600', color: '#334155' },
-  fichaBtnCopiedText: { color: '#16a34a' },
-  fichaBtnChipText: { fontSize: 12, fontWeight: '500', color: '#475569' },
-  fichaBtnDisabledText: { color: '#94a3b8' },
+  fichaBtnOutlineText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  fichaBtnCopiedText: { color: colors.success },
+  fichaBtnChipText: { fontSize: fontSizes[12], fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.textPrimary },
+  fichaBtnDisabledText: { color: colors.textMuted },
 });
