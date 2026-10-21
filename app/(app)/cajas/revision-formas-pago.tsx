@@ -19,6 +19,15 @@ import * as XLSX from 'xlsx-js-style';
 import { exportRevisionFormasPagoPdf } from './pdfRevisionFormasPago';
 import { apiFetch } from '../../utils/api';
 import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
+import {
   ERP_LIST_HEADER_TEXT_PROPS,
   ERP_LIST_MIN_COL_WIDTH,
   erpListTableStyles,
@@ -829,7 +838,7 @@ export default function RevisionFormasPagoScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Revisión formas de pago</Text>
         {consultedFrom && consultedTo ? (
@@ -843,20 +852,20 @@ export default function RevisionFormasPagoScreen() {
 
       <View style={styles.toolbarRow}>
         <View style={styles.searchWrap}>
-          <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
+          <MaterialIcons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             value={filtroBusquedaInput}
             onChangeText={setFiltroBusquedaInput}
             placeholder="Buscar por local, TPV, Nº ticket, Nº factura…"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
           />
         </View>
         <TouchableOpacity
           style={[styles.toolbarBtn, showFilterPanel && styles.toolbarBtnActive]}
           onPress={() => setShowFilterPanel((v) => !v)}
         >
-          <MaterialIcons name="filter-list" size={16} color={showFilterPanel ? '#fff' : '#64748b'} />
+          <MaterialIcons name="filter-list" size={16} color={showFilterPanel ? colors.surface : colors.textMuted} />
           <Text style={[styles.toolbarBtnText, showFilterPanel && styles.toolbarBtnTextActive]}>Filtro</Text>
         </TouchableOpacity>
         <View style={styles.downloadWrap}>
@@ -865,7 +874,7 @@ export default function RevisionFormasPagoScreen() {
             onPress={() => setShowDownloadMenu((v) => !v)}
             disabled={rowsFiltrados.length === 0}
           >
-            <MaterialIcons name="download" size={16} color={rowsFiltrados.length === 0 ? '#94a3b8' : '#0ea5e9'} />
+            <MaterialIcons name="download" size={16} color={rowsFiltrados.length === 0 ? colors.textMuted : colors.accent} />
             <Text style={[styles.toolbarBtnText, rowsFiltrados.length === 0 && styles.toolbarBtnTextDisabled]}>Descargar</Text>
           </TouchableOpacity>
           {showDownloadMenu && (
@@ -873,7 +882,7 @@ export default function RevisionFormasPagoScreen() {
               <Pressable style={styles.downloadOverlay} onPress={() => setShowDownloadMenu(false)} />
               <View style={styles.downloadMenu}>
                 <TouchableOpacity style={styles.downloadMenuItem} onPress={handleExportExcel}>
-                  <MaterialIcons name="table-chart" size={16} color="#16a34a" />
+                  <MaterialIcons name="table-chart" size={16} color={colors.success} />
                   <Text style={styles.downloadMenuText}>Excel (.xlsx)</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -881,7 +890,7 @@ export default function RevisionFormasPagoScreen() {
                   onPress={handleExportPdf}
                   disabled={Platform.OS !== 'web'}
                 >
-                  <MaterialIcons name="picture-as-pdf" size={16} color="#dc2626" />
+                  <MaterialIcons name="picture-as-pdf" size={16} color={colors.danger} />
                   <Text style={styles.downloadMenuText}>
                     PDF (.pdf){Platform.OS !== 'web' ? ' · solo web' : ''}
                   </Text>
@@ -931,7 +940,7 @@ export default function RevisionFormasPagoScreen() {
                       ? (agoraCodeToNombre[filtroLocales[0]] ?? filtroLocales[0])
                       : `${filtroLocales.length} locales`}
                 </Text>
-                <MaterialIcons name={localesOpen ? 'expand-less' : 'expand-more'} size={18} color="#64748b" />
+                <MaterialIcons name={localesOpen ? 'expand-less' : 'expand-more'} size={18} color={colors.textMuted} />
               </TouchableOpacity>
               {localesOpen && (
                 <>
@@ -944,7 +953,7 @@ export default function RevisionFormasPagoScreen() {
                       <Text style={[styles.builderDropdownOptionText, filtroLocales.length === 0 && styles.builderDropdownOptionTextSelected]}>
                         Todos
                       </Text>
-                      {filtroLocales.length === 0 ? <MaterialIcons name="check" size={16} color="#0ea5e9" /> : null}
+                      {filtroLocales.length === 0 ? <MaterialIcons name="check" size={16} color={colors.accent} /> : null}
                     </TouchableOpacity>
                     <View style={styles.ddDivider} />
                     <ScrollView style={styles.builderDropdownScroll} nestedScrollEnabled>
@@ -964,7 +973,7 @@ export default function RevisionFormasPagoScreen() {
                             }
                           >
                             <View style={styles.ddCheckbox}>
-                              {sel ? <MaterialIcons name="check-box" size={16} color="#0ea5e9" /> : <MaterialIcons name="check-box-outline-blank" size={16} color="#94a3b8" />}
+                              {sel ? <MaterialIcons name="check-box" size={16} color={colors.accent} /> : <MaterialIcons name="check-box-outline-blank" size={16} color={colors.textMuted} />}
                             </View>
                             <Text style={[styles.builderDropdownOptionText, sel && styles.builderDropdownOptionTextSelected, { flex: 1 }]} numberOfLines={1}>
                               {nombre}
@@ -989,10 +998,10 @@ export default function RevisionFormasPagoScreen() {
             disabled={loading || !validacionRango.ok}
           >
             {loading ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color={colors.surface} />
             ) : (
               <>
-                <MaterialIcons name={hasPendingChanges ? 'flash-on' : 'search'} size={16} color="#fff" />
+                <MaterialIcons name={hasPendingChanges ? 'flash-on' : 'search'} size={16} color={colors.surface} />
                 <Text style={styles.toolbarBtnPrimaryText}>
                   {hasPendingChanges ? 'Aplicar' : 'Consultar'}
                 </Text>
@@ -1005,13 +1014,13 @@ export default function RevisionFormasPagoScreen() {
             onPress={() => runConsulta(true)}
             disabled={loading || !validacionRango.ok}
           >
-            <MaterialIcons name="refresh" size={16} color="#64748b" />
+            <MaterialIcons name="refresh" size={16} color={colors.textMuted} />
             <Text style={styles.toolbarBtnText}>Refrescar</Text>
           </TouchableOpacity>
 
           {cachedAt ? (
             <View style={styles.cacheBadge}>
-              <MaterialIcons name={fromCache ? 'bolt' : 'cloud-done'} size={12} color={fromCache ? '#d97706' : '#0ea5e9'} />
+              <MaterialIcons name={fromCache ? 'bolt' : 'cloud-done'} size={12} color={fromCache ? colors.warning : colors.accent} />
               <Text style={[styles.cacheBadgeText, fromCache && styles.cacheBadgeTextCached]}>
                 {cachedAgoLabel}{fromCache ? ' · caché' : ''}
               </Text>
@@ -1037,10 +1046,10 @@ export default function RevisionFormasPagoScreen() {
             size={14}
             color={
               validacionRango.estado === 'error'
-                ? '#b91c1c'
+                ? statusColors.danger.text
                 : validacionRango.estado === 'ampliado'
                   ? '#047857'
-                  : '#475569'
+                  : colors.textPrimary
             }
           />
           <Text
@@ -1064,7 +1073,7 @@ export default function RevisionFormasPagoScreen() {
               <Text style={styles.builderDropdownText} numberOfLines={1}>
                 {builderMetodo || 'Selecciona'}
               </Text>
-              <MaterialIcons name={builderMetodoOpen ? 'expand-less' : 'expand-more'} size={18} color="#64748b" />
+              <MaterialIcons name={builderMetodoOpen ? 'expand-less' : 'expand-more'} size={18} color={colors.textMuted} />
             </TouchableOpacity>
             {builderMetodoOpen && (
               <>
@@ -1084,7 +1093,7 @@ export default function RevisionFormasPagoScreen() {
                             <View style={[styles.methodDot, presente ? styles.methodDotPresent : styles.methodDotAbsent]} />
                             <Text style={[styles.builderDropdownOptionText, sel && styles.builderDropdownOptionTextSelected]}>{m}</Text>
                           </View>
-                          {sel ? <MaterialIcons name="check" size={16} color="#0ea5e9" /> : null}
+                          {sel ? <MaterialIcons name="check" size={16} color={colors.accent} /> : null}
                         </TouchableOpacity>
                       );
                     })}
@@ -1102,7 +1111,7 @@ export default function RevisionFormasPagoScreen() {
               <Text style={styles.builderDropdownText} numberOfLines={1}>
                 {currentOperator?.label ?? 'Operador'}
               </Text>
-              <MaterialIcons name={builderOpOpen ? 'expand-less' : 'expand-more'} size={18} color="#64748b" />
+              <MaterialIcons name={builderOpOpen ? 'expand-less' : 'expand-more'} size={18} color={colors.textMuted} />
             </TouchableOpacity>
             {builderOpOpen && (
               <>
@@ -1120,7 +1129,7 @@ export default function RevisionFormasPagoScreen() {
                           <Text style={[styles.builderDropdownOptionText, sel && styles.builderDropdownOptionTextSelected]}>
                             <Text style={styles.builderOpShort}>{op.short}</Text>  {op.label}
                           </Text>
-                          {sel ? <MaterialIcons name="check" size={16} color="#0ea5e9" /> : null}
+                          {sel ? <MaterialIcons name="check" size={16} color={colors.accent} /> : null}
                         </TouchableOpacity>
                       );
                     })}
@@ -1137,7 +1146,7 @@ export default function RevisionFormasPagoScreen() {
                 value={builderValor}
                 onChangeText={setBuilderValor}
                 placeholder={currentOperator.hasSecond ? 'Min' : 'Valor'}
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
                 keyboardType="decimal-pad"
               />
               <Text style={styles.builderValueSuffix}>€</Text>
@@ -1152,7 +1161,7 @@ export default function RevisionFormasPagoScreen() {
                   value={builderValor2}
                   onChangeText={setBuilderValor2}
                   placeholder="Max"
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={colors.textMuted}
                   keyboardType="decimal-pad"
                 />
                 <Text style={styles.builderValueSuffix}>€</Text>
@@ -1165,7 +1174,7 @@ export default function RevisionFormasPagoScreen() {
             onPress={addRule}
             disabled={!canAddRule}
           >
-            <MaterialIcons name="add" size={16} color="#fff" />
+            <MaterialIcons name="add" size={16} color={colors.surface} />
             <Text style={styles.builderAddBtnText}>Añadir</Text>
           </TouchableOpacity>
         </View>
@@ -1196,12 +1205,12 @@ export default function RevisionFormasPagoScreen() {
                 <View key={r.id} style={styles.reglaChip}>
                   <Text style={styles.reglaChipText}>{describeRule(r)}</Text>
                   <TouchableOpacity onPress={() => removeRule(r.id)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }} style={styles.reglaChipClose}>
-                    <MaterialIcons name="close" size={14} color="#64748b" />
+                    <MaterialIcons name="close" size={14} color={colors.textMuted} />
                   </TouchableOpacity>
                 </View>
               ))}
               <TouchableOpacity onPress={clearRules} style={styles.reglasClearBtn}>
-                <MaterialIcons name="clear-all" size={14} color="#64748b" />
+                <MaterialIcons name="clear-all" size={14} color={colors.textMuted} />
                 <Text style={styles.reglasClearText}>Eliminar todas</Text>
               </TouchableOpacity>
             </View>
@@ -1235,7 +1244,7 @@ export default function RevisionFormasPagoScreen() {
                 setFiltroBusquedaInput('');
               }}
             >
-              <MaterialIcons name="clear" size={14} color="#64748b" />
+              <MaterialIcons name="clear" size={14} color={colors.textMuted} />
               <Text style={styles.filterClearText}>Limpiar</Text>
             </TouchableOpacity>
           </View>
@@ -1286,7 +1295,7 @@ export default function RevisionFormasPagoScreen() {
               onPress={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={effectivePage <= 1}
             >
-              <MaterialIcons name="chevron-left" size={20} color={effectivePage <= 1 ? '#94a3b8' : '#334155'} />
+              <MaterialIcons name="chevron-left" size={20} color={effectivePage <= 1 ? colors.textMuted : colors.textPrimary} />
               <Text style={[styles.pageBtnText, effectivePage <= 1 && styles.pageBtnTextDisabled]}>Anterior</Text>
             </TouchableOpacity>
             <Text style={styles.pageInfo}>Página {effectivePage} de {totalPages}</Text>
@@ -1296,7 +1305,7 @@ export default function RevisionFormasPagoScreen() {
               disabled={effectivePage >= totalPages}
             >
               <Text style={[styles.pageBtnText, effectivePage >= totalPages && styles.pageBtnTextDisabled]}>Siguiente</Text>
-              <MaterialIcons name="chevron-right" size={20} color={effectivePage >= totalPages ? '#94a3b8' : '#334155'} />
+              <MaterialIcons name="chevron-right" size={20} color={effectivePage >= totalPages ? colors.textMuted : colors.textPrimary} />
             </TouchableOpacity>
           </View>
         )}
@@ -1309,13 +1318,13 @@ export default function RevisionFormasPagoScreen() {
             style={styles.retryBtn}
             onPress={() => runConsulta(false)}
           >
-            <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
+            <MaterialIcons name="refresh" size={20} color={colors.accent} />
             <Text style={styles.retryBtnText}>Reintentar</Text>
           </TouchableOpacity>
         </View>
       ) : loading && rows.length === 0 ? (
         <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color="#0ea5e9" />
+          <ActivityIndicator size="large" color={colors.accent} />
           <Text style={styles.loadingText}>Consultando Ágora…</Text>
         </View>
       ) : (
@@ -1401,160 +1410,165 @@ export default function RevisionFormasPagoScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+/** Entre radius.lg (12) y radius.xl (16). */
+const RADIO_TARJETA = 14;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10, backgroundColor: '#fff', minHeight: 0 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
-  backBtn: { padding: 4 },
-  title: { fontSize: 17, fontWeight: '600', color: '#1e293b', letterSpacing: -0.3 },
-  subtitle: { fontSize: 13, color: '#64748b', fontWeight: '500' },
-  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8, position: 'relative', zIndex: 100, flexWrap: 'wrap' },
-  searchWrap: { flex: 1, minWidth: 200, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 8, paddingHorizontal: 10 },
+  container: { flex: 1, padding: 10, backgroundColor: colors.surface, minHeight: 0 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md, gap: SPACING.sm },
+  backBtn: { padding: SPACING.xs },
+  title: { fontSize: 17, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong, letterSpacing: -0.3 },
+  subtitle: { fontSize: fontSizes[13], color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  toolbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm, gap: SPACING.sm, position: 'relative', zIndex: 100, flexWrap: 'wrap' },
+  searchWrap: { flex: 1, minWidth: 200, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg, borderRadius: RADIO_MEDIO, paddingHorizontal: 10 },
   searchIcon: { marginRight: 6 },
-  searchInput: { flex: 1, paddingVertical: 8, fontSize: 13, color: '#334155' },
+  searchInput: { flex: 1, paddingVertical: SPACING.sm, fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary },
   dateWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dateLabel: { fontSize: 11, color: '#64748b', fontWeight: '600' },
-  dateInput: { backgroundColor: '#fff', borderRadius: 6, paddingVertical: 4, paddingHorizontal: 6, fontSize: 12, color: '#334155', borderWidth: StyleSheet.hairlineWidth, borderColor: '#cbd5e1', minHeight: 30, minWidth: 120 },
-  toolbarBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#f8fafc', borderRadius: 6, borderWidth: 1, borderColor: '#e2e8f0' },
-  toolbarBtnPrimary: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: '#0ea5e9', borderRadius: 6 },
-  toolbarBtnPrimaryText: { fontSize: 12, color: '#fff', fontWeight: '600' },
-  toolbarBtnPending: { backgroundColor: '#f97316' },
+  dateLabel: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  dateInput: { backgroundColor: colors.surface, borderRadius: radius.sm, paddingVertical: SPACING.xs, paddingHorizontal: 6, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderStrong, minHeight: 30, minWidth: 120 },
+  toolbarBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: colors.bg, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border },
+  toolbarBtnPrimary: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: SPACING.sm, paddingHorizontal: 14, backgroundColor: colors.accent, borderRadius: radius.sm },
+  toolbarBtnPrimaryText: { fontSize: fontSizes[12], color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  toolbarBtnPending: { backgroundColor: colors.warning },
   toolbarBtnDisabled: { opacity: 0.6 },
-  toolbarBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  toolbarBtnText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
-  toolbarBtnTextActive: { color: '#fff' },
-  toolbarBtnTextDisabled: { color: '#94a3b8' },
+  toolbarBtnActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  toolbarBtnText: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  toolbarBtnTextActive: { color: colors.surface },
+  toolbarBtnTextDisabled: { color: colors.textMuted },
   downloadWrap: { position: 'relative', zIndex: 50 },
   downloadOverlay: { position: 'fixed' as 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 49 },
   downloadMenu: {
-    position: 'absolute', top: '100%', right: 0, marginTop: 4,
-    backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0',
+    position: 'absolute', top: '100%', right: 0, marginTop: SPACING.xs,
+    backgroundColor: colors.surface, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: colors.border,
     minWidth: 150, zIndex: 100,
     ...(Platform.OS === 'web' && { boxShadow: '0 4px 12px rgba(0,0,0,0.12)' } as object),
   },
-  downloadMenuItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 12 },
-  downloadMenuText: { fontSize: 12, color: '#334155', fontWeight: '500' },
-  totalFacturadoBox: { backgroundColor: '#d1fae5', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  totalFacturadoLabel: { fontSize: 14, fontWeight: '600', color: '#065f46' },
-  totalFacturadoValue: { fontSize: 15, fontWeight: '700', color: '#047857' },
-  totalesChipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
-  totalChip: { backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd', borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  totalChipLabel: { fontSize: 11, color: '#0369a1', fontWeight: '600' },
-  totalChipValue: { fontSize: 12, color: '#0c4a6e', fontWeight: '700' },
+  downloadMenuItem: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, paddingVertical: 10, paddingHorizontal: SPACING.md },
+  downloadMenuText: { fontSize: fontSizes[12], color: colors.textPrimary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  totalFacturadoBox: { backgroundColor: '#d1fae5', borderRadius: radius.lg, paddingVertical: SPACING.md, paddingHorizontal: SPACING.lg, marginBottom: SPACING.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  totalFacturadoLabel: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: '#065f46' },
+  totalFacturadoValue: { fontVariant: ['tabular-nums'], fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#047857' },
+  totalesChipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginBottom: 10 },
+  totalChip: { backgroundColor: colors.accentMuted, borderWidth: 1, borderColor: '#bae6fd', borderRadius: RADIO_MEDIO, paddingVertical: 6, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  totalChipLabel: { fontSize: typography.etiqueta.fontSize, color: statusColors.info.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  totalChipValue: { fontSize: fontSizes[12], color: '#0c4a6e', fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   filterPanel: {
-    backgroundColor: '#fafbfc', borderRadius: 6, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 8,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: '#e5e7eb',
+    backgroundColor: '#fafbfc', borderRadius: radius.sm, paddingVertical: SPACING.sm, paddingHorizontal: 10, marginBottom: SPACING.sm,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border,
     ...(Platform.OS === 'web' && { boxShadow: '0 1px 2px rgba(0,0,0,0.04)' } as object),
   },
   queryBlock: {
-    backgroundColor: '#f8fafc', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 10,
-    borderWidth: 1, borderColor: '#e2e8f0',
+    backgroundColor: colors.bg, borderRadius: RADIO_MEDIO, paddingVertical: 10, paddingHorizontal: SPACING.md, marginBottom: 10,
+    borderWidth: 1, borderColor: colors.border,
     position: 'relative', zIndex: 90,
   },
-  queryBlockTitle: { fontSize: 10, fontWeight: '700', color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
+  queryBlockTitle: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, marginBottom: SPACING.sm, textTransform: 'uppercase', letterSpacing: 0.5 },
   queryRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10, position: 'relative', zIndex: 90 },
-  builderRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', position: 'relative', zIndex: 60 },
-  builderLabel: { fontSize: 10, fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.3 },
+  builderRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flexWrap: 'wrap', position: 'relative', zIndex: 60 },
+  builderLabel: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.3 },
   builderDropdownWrap: { position: 'relative', zIndex: 70 },
   builderDropdownTrigger: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: '#fff', borderRadius: 6, borderWidth: 1, borderColor: '#cbd5e1',
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.xs,
+    backgroundColor: colors.surface, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong,
     paddingVertical: 6, paddingHorizontal: 10, minWidth: 150, minHeight: 32,
   },
-  builderDropdownText: { fontSize: 12, color: '#334155', fontWeight: '500', flex: 1 },
-  builderOpShort: { fontFamily: (Platform.OS === 'web' ? 'monospace' : undefined), fontWeight: '700', color: '#0ea5e9' },
+  builderDropdownText: { fontSize: fontSizes[12], color: colors.textPrimary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, flex: 1 },
+  builderOpShort: { fontFamily: (Platform.OS === 'web' ? 'monospace' : undefined), fontWeight: typography.titulo.fontWeight, color: colors.accent },
   ddOverlay: { position: 'fixed' as 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 199 },
   builderDropdownList: {
-    position: 'absolute', top: '100%', left: 0, marginTop: 4,
-    backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0',
+    position: 'absolute', top: '100%', left: 0, marginTop: SPACING.xs,
+    backgroundColor: colors.surface, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: colors.border,
     minWidth: 220, zIndex: 200,
     ...(Platform.OS === 'web' && { boxShadow: '0 4px 12px rgba(0,0,0,0.12)' } as object),
   },
   builderDropdownScroll: { maxHeight: 240 },
-  builderDropdownOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, paddingHorizontal: 10, gap: 8 },
-  ddDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#e2e8f0' },
+  builderDropdownOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: SPACING.sm, paddingHorizontal: 10, gap: SPACING.sm },
+  ddDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   methodDot: { width: 6, height: 6, borderRadius: 3 },
-  methodDotPresent: { backgroundColor: '#22c55e' },
-  methodDotAbsent: { backgroundColor: '#cbd5e1' },
+  methodDotPresent: { backgroundColor: colors.success },
+  methodDotAbsent: { backgroundColor: colors.borderStrong },
   ddCheckbox: { width: 18, alignItems: 'center' },
-  cacheBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: '#f0f9ff', borderRadius: 10, borderWidth: 1, borderColor: '#bae6fd' },
-  cacheBadgeText: { fontSize: 10, color: '#0369a1', fontWeight: '600' },
+  cacheBadge: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: SPACING.xs, paddingHorizontal: SPACING.sm, backgroundColor: colors.accentMuted, borderRadius: radius.md, borderWidth: 1, borderColor: '#bae6fd' },
+  cacheBadgeText: { fontSize: fontSizes.badge, color: statusColors.info.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   cacheBadgeTextCached: { color: '#92400e' },
   rangoBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     alignSelf: 'flex-start',
-    paddingVertical: 4, paddingHorizontal: 10,
-    backgroundColor: '#f8fafc', borderRadius: 6,
-    borderWidth: 1, borderColor: '#e2e8f0',
+    paddingVertical: SPACING.xs, paddingHorizontal: 10,
+    backgroundColor: colors.bg, borderRadius: radius.sm,
+    borderWidth: 1, borderColor: colors.border,
     marginTop: 6,
   },
   rangoBadgeAmpliado: { backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' },
-  rangoBadgeError: { backgroundColor: '#fef2f2', borderColor: '#fecaca' },
-  rangoBadgeText: { fontSize: 11, color: '#475569', fontWeight: '500' },
-  rangoBadgeTextAmpliado: { color: '#047857', fontWeight: '600' },
-  rangoBadgeTextError: { color: '#b91c1c', fontWeight: '600' },
-  builderDropdownOptionSelected: { backgroundColor: '#f0f9ff' },
-  builderDropdownOptionText: { fontSize: 12, color: '#334155' },
-  builderDropdownOptionTextSelected: { color: '#0369a1', fontWeight: '600' },
+  rangoBadgeError: { backgroundColor: statusColors.danger.bg, borderColor: '#fecaca' },
+  rangoBadgeText: { fontSize: typography.etiqueta.fontSize, color: colors.textPrimary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  rangoBadgeTextAmpliado: { color: '#047857', fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  rangoBadgeTextError: { color: statusColors.danger.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  builderDropdownOptionSelected: { backgroundColor: colors.accentMuted },
+  builderDropdownOptionText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary },
+  builderDropdownOptionTextSelected: { color: statusColors.info.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   builderValueWrap: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#fff', borderRadius: 6, borderWidth: 1, borderColor: '#cbd5e1',
-    paddingHorizontal: 8, minHeight: 32,
+    backgroundColor: colors.surface, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong,
+    paddingHorizontal: SPACING.sm, minHeight: 32,
   },
-  builderValueInput: { paddingVertical: 6, fontSize: 12, color: '#334155', minWidth: 80, outlineStyle: 'none' as any },
-  builderValueSuffix: { fontSize: 11, color: '#64748b', marginLeft: 4, fontWeight: '600' },
-  builderRangeSep: { fontSize: 11, color: '#64748b' },
-  builderAddBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 7, paddingHorizontal: 12, backgroundColor: '#0ea5e9', borderRadius: 6 },
-  builderAddBtnText: { fontSize: 12, color: '#fff', fontWeight: '600' },
+  builderValueInput: { paddingVertical: 6, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary, minWidth: 80 },
+  builderValueSuffix: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginLeft: SPACING.xs, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  builderRangeSep: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted },
+  builderAddBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: 7, paddingHorizontal: SPACING.md, backgroundColor: colors.accent, borderRadius: radius.sm },
+  builderAddBtnText: { fontSize: fontSizes[12], color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   reglasRow: { marginTop: 10, gap: 6 },
-  combSwitchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  combSwitch: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 6, borderWidth: 1, borderColor: '#cbd5e1', overflow: 'hidden' },
-  combSwitchBtn: { paddingVertical: 4, paddingHorizontal: 10 },
-  combSwitchBtnActive: { backgroundColor: '#0ea5e9' },
-  combSwitchText: { fontSize: 11, color: '#64748b', fontWeight: '600' },
-  combSwitchTextActive: { color: '#fff' },
+  combSwitchWrap: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.xs },
+  combSwitch: { flexDirection: 'row', backgroundColor: colors.surface, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderStrong, overflow: 'hidden' },
+  combSwitchBtn: { paddingVertical: SPACING.xs, paddingHorizontal: 10 },
+  combSwitchBtnActive: { backgroundColor: colors.accent },
+  combSwitchText: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  combSwitchTextActive: { color: colors.surface },
   reglasChipsWrap: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
   reglaChip: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe',
-    borderRadius: 14, paddingVertical: 3, paddingHorizontal: 10, gap: 4,
+    borderRadius: RADIO_TARJETA, paddingVertical: 3, paddingHorizontal: 10, gap: SPACING.xs,
   },
-  reglaChipText: { fontSize: 11, color: '#1e40af', fontWeight: '600' },
+  reglaChipText: { fontSize: typography.etiqueta.fontSize, color: '#1e40af', fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   reglaChipClose: { marginLeft: 2 },
-  reglasClearBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8 },
-  reglasClearText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
+  reglasClearBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: SPACING.xs, paddingHorizontal: SPACING.sm },
+  reglasClearText: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   filterRow: { flexDirection: 'row', alignItems: 'flex-end', flexWrap: 'wrap', gap: 10 },
-  filterRowLocal: { marginTop: 8, width: '100%' },
-  filterLabel: { fontSize: 10, fontWeight: '600', color: '#6b7280', marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.3 },
+  filterRowLocal: { marginTop: SPACING.sm, width: '100%' },
+  filterLabel: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.3 },
   filterLocalesWrap: { maxHeight: 26 },
   filterLocalesContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  filterChip: { paddingVertical: 2, paddingHorizontal: 6, backgroundColor: '#f3f4f6', borderRadius: 4, borderWidth: StyleSheet.hairlineWidth, borderColor: '#e5e7eb' },
-  filterChipActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  filterChipText: { fontSize: 10, color: '#6b7280', fontWeight: '500' },
-  filterChipTextActive: { color: '#fff' },
-  filterClearBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 8 },
-  filterClearText: { fontSize: 11, color: '#64748b', fontWeight: '500' },
-  infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 },
-  infoLine: { fontSize: 11, color: '#64748b', flex: 1 },
-  pagination: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  pageBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#f8fafc', borderRadius: 8 },
+  filterChip: { paddingVertical: 2, paddingHorizontal: 6, backgroundColor: colors.navActive, borderRadius: radius.sm, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  filterChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  filterChipText: { fontSize: fontSizes.badge, color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  filterChipTextActive: { color: colors.surface },
+  filterClearBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: 5, paddingHorizontal: SPACING.sm },
+  filterClearText: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.sm, flexWrap: 'wrap', gap: SPACING.sm },
+  infoLine: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, flex: 1 },
+  pagination: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+  pageBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 10, backgroundColor: colors.bg, borderRadius: RADIO_MEDIO },
   pageBtnDisabled: { opacity: 0.5 },
-  pageBtnText: { fontSize: 12, color: '#334155', fontWeight: '500' },
-  pageBtnTextDisabled: { color: '#94a3b8' },
-  pageInfo: { fontSize: 12, color: '#64748b', fontWeight: '500' },
+  pageBtnText: { fontSize: fontSizes[12], color: colors.textPrimary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  pageBtnTextDisabled: { color: colors.textMuted },
+  pageInfo: { fontSize: fontSizes[12], color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   cellRight: { alignItems: 'flex-end' },
-  cellTextRight: { textAlign: 'right' as const, alignSelf: 'stretch' as const },
-  cellBold: { fontWeight: '700' },
+  cellTextRight: { textAlign: 'right' as const, alignSelf: 'stretch' as const, fontVariant: ['tabular-nums'] },
+  cellBold: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   cellTooltip: {
     position: 'absolute', left: 0, bottom: '100%', marginBottom: 2,
-    backgroundColor: '#fef9c3', paddingHorizontal: 6, paddingVertical: 4,
-    borderRadius: 4, maxWidth: 280, zIndex: 1000,
+    backgroundColor: '#fef9c3', paddingHorizontal: 6, paddingVertical: SPACING.xs,
+    borderRadius: radius.sm, maxWidth: 280, zIndex: 1000,
     ...(Platform.OS === 'web' && { boxShadow: '0 1px 3px rgba(0,0,0,0.08)' } as object),
   },
-  cellTooltipText: { fontSize: 10, color: '#713f12', lineHeight: 14 },
-  loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
-  loadingText: { fontSize: 13, color: '#64748b' },
-  errorWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
-  errorText: { fontSize: 13, color: '#dc2626', textAlign: 'center' },
+  cellTooltipText: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: '#713f12', lineHeight: 14 },
+  loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: SPACING.md },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textMuted },
+  errorWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: SPACING.md },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.danger, textAlign: 'center' },
   retryBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 10 },
-  retryBtnText: { fontSize: 13, color: '#0ea5e9', fontWeight: '500' },
+  retryBtnText: { fontSize: fontSizes[13], color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
 });
