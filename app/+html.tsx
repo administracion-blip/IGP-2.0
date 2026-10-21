@@ -1,5 +1,6 @@
 import { ScrollViewStyleReset } from 'expo-router/html';
 import type { PropsWithChildren } from 'react';
+import { focus, fontFamily } from './constants/theme';
 
 /**
  * Asegura altura completa en web (html/body/#root). Sin esto la app puede verse en blanco.
@@ -13,6 +14,17 @@ export default function RootHtml({ children }: PropsWithChildren) {
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
         <ScrollViewStyleReset />
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+              body { font-family: '${fontFamily.regular}', sans-serif; }
+              :focus-visible {
+                outline: ${focus.width}px solid ${focus.color};
+                outline-offset: ${focus.offset}px;
+              }
+            `,
+          }}
+        />
       </head>
       <body>{children}</body>
     </html>

@@ -71,30 +71,42 @@ export const fontSizes = {
   30: 30,
 } as const;
 
-/** Anillo de foco. El CSS global `:focus-visible` llega en la fase de la fuente. */
+/** Anillo de foco. En web lo aplica `:focus-visible` en `app/+html.tsx`. */
 export const focus = {
   width: 2,
   color: colors.accent,
   offset: 2,
 } as const;
 
+/** Nombres que registra `useFonts` en `app/_layout.tsx`. Un nombre por peso. */
+export const fontFamily = {
+  regular: 'Inter_400Regular',
+  medium: 'Inter_500Medium',
+  semibold: 'Inter_600SemiBold',
+  bold: 'Inter_700Bold',
+} as const;
+
 export const typography = {
   titulo: {
+    fontFamily: fontFamily.bold,
     fontSize: 20,
     fontWeight: '700' as TextStyle['fontWeight'],
     color: colors.textPrimary,
   },
   subtitulo: {
+    fontFamily: fontFamily.semibold,
     fontSize: 16,
     fontWeight: '600' as TextStyle['fontWeight'],
     color: colors.textPrimary,
   },
   cuerpo: {
+    fontFamily: fontFamily.regular,
     fontSize: 14,
     fontWeight: '400' as TextStyle['fontWeight'],
     color: colors.textPrimary,
   },
   etiqueta: {
+    fontFamily: fontFamily.semibold,
     fontSize: 11,
     fontWeight: '600' as TextStyle['fontWeight'],
     color: colors.textSecondary,
@@ -102,15 +114,18 @@ export const typography = {
     textTransform: 'uppercase' as TextStyle['textTransform'],
   },
   boton: {
+    fontFamily: fontFamily.semibold,
     fontSize: 14,
     fontWeight: '600' as TextStyle['fontWeight'],
   },
   tabla: {
+    fontFamily: fontFamily.regular,
     fontSize: 13,
     fontWeight: '400' as TextStyle['fontWeight'],
     color: colors.textPrimary,
   },
   nav: {
+    fontFamily: fontFamily.medium,
     fontSize: 13,
     fontWeight: '500' as TextStyle['fontWeight'],
   },
