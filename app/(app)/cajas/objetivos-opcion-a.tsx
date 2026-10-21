@@ -27,6 +27,15 @@ import * as Clipboard from 'expo-clipboard';
 import { toPng } from 'html-to-image';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 type jsPDF = import('jspdf').jsPDF;
 import * as XLSX from 'xlsx';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
@@ -113,8 +122,8 @@ function variacionPctMediasVsComp(
 }
 
 function colorDesvio(valor: number | null): { color: string } {
-  if (valor == null) return { color: '#64748b' };
-  return { color: valor < 0 ? '#dc2626' : '#059669' };
+  if (valor == null) return { color: colors.textMuted };
+  return { color: valor < 0 ? colors.danger : '#059669' };
 }
 
 function formatPctTicker(n: number | null): string {
@@ -125,19 +134,19 @@ function formatPctTicker(n: number | null): string {
 }
 
 function colorSemDesvio(pct: number | null): string {
-  if (pct == null) return '#94a3b8';
-  return pct >= 0 ? '#16a34a' : '#dc2626';
+  if (pct == null) return colors.textMuted;
+  return pct >= 0 ? colors.success : colors.danger;
 }
 
 const CHIP_MES_PASTEL = {
-  anterior: { bg: '#f8fafc', bgSel: '#e2e8f0', border: '#e2e8f0', borderSel: '#cbd5e1', text: '#475569' },
-  actual: { bg: '#e0f2fe', bgSel: '#bae6fd', border: '#bae6fd', borderSel: '#7dd3fc', text: '#075985' },
+  anterior: { bg: colors.bg, bgSel: colors.border, border: colors.border, borderSel: colors.borderStrong, text: colors.textPrimary },
+  actual: { bg: colors.accentMuted, bgSel: '#bae6fd', border: '#bae6fd', borderSel: '#7dd3fc', text: '#075985' },
   proximo: { bg: '#f5f3ff', bgSel: '#ddd6fe', border: '#ddd6fe', borderSel: '#c4b5fd', text: '#6d28d9' },
 } as const;
 
 const CHIP_TAB_PASTEL = {
-  tabla: { bg: '#f8fafc', bgSel: '#e0f2fe', border: '#e2e8f0', borderSel: '#7dd3fc', text: '#475569', textSel: '#075985' },
-  medias: { bg: '#f8fafc', bgSel: '#fef3c7', border: '#e2e8f0', borderSel: '#fcd34d', text: '#475569', textSel: '#92400e' },
+  tabla: { bg: colors.bg, bgSel: colors.accentMuted, border: colors.border, borderSel: '#7dd3fc', text: colors.textPrimary, textSel: '#075985' },
+  medias: { bg: colors.bg, bgSel: statusColors.warning.bg, border: colors.border, borderSel: '#fcd34d', text: colors.textPrimary, textSel: '#92400e' },
 } as const;
 
 function KpiCard({ label, value, color, compact }: { label: string; value: string; color?: string; compact?: boolean }) {
@@ -150,9 +159,9 @@ function KpiCard({ label, value, color, compact }: { label: string; value: strin
 }
 
 function estiloTicker(valor: number | null): { backgroundColor: string; color: string } {
-  if (valor == null) return { backgroundColor: '#f1f5f9', color: '#64748b' };
+  if (valor == null) return { backgroundColor: colors.navActive, color: colors.textMuted };
   return valor < 0
-    ? { backgroundColor: 'rgba(220, 38, 38, 0.12)', color: '#b91c1c' }
+    ? { backgroundColor: 'rgba(220, 38, 38, 0.12)', color: statusColors.danger.text }
     : { backgroundColor: 'rgba(5, 150, 105, 0.12)', color: '#047857' };
 }
 
@@ -1293,7 +1302,7 @@ export default function ObjetivosOpcionAScreen() {
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: Math.max(12, insets.top), paddingLeft: Math.max(16, insets.left), paddingRight: Math.max(16, insets.right) }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} accessibilityLabel="Volver">
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Objetivos</Text>
         <View style={styles.headerActions}>
@@ -1308,12 +1317,12 @@ export default function ObjetivosOpcionAScreen() {
             accessibilityLabel="Descargas"
           >
             {capturing ? (
-              <ActivityIndicator size="small" color="#0ea5e9" />
+              <ActivityIndicator size="small" color={colors.accent} />
             ) : (
-              <MaterialIcons name="download" size={16} color="#0ea5e9" />
+              <MaterialIcons name="download" size={16} color={colors.accent} />
             )}
             <Text style={styles.outlineBtnBlueText}>Descargas</Text>
-            <MaterialIcons name="expand-more" size={16} color="#0ea5e9" />
+            <MaterialIcons name="expand-more" size={16} color={colors.accent} />
           </TouchableOpacity>
         </View>
       </View>
@@ -1413,10 +1422,10 @@ export default function ObjetivosOpcionAScreen() {
               accessibilityLabel="Recalcular"
             >
               {generando ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <ActivityIndicator size="small" color={colors.surface} />
               ) : (
                 <>
-                  <MaterialIcons name="refresh" size={16} color="#fff" />
+                  <MaterialIcons name="refresh" size={16} color={colors.surface} />
                   {shouldStackToolbar ? <Text style={styles.btnFiltrarText}>Recalcular</Text> : null}
                 </>
               )}
@@ -1436,7 +1445,7 @@ export default function ObjetivosOpcionAScreen() {
                   compact={!shouldStackToolbar}
                   label="Comparativa"
                   value={formatMoneda(registrosHastaAyer.length > 0 && registrosHastaAyer.length < registros.length ? sumCompHoy : sumComp)}
-                  color="#64748b"
+                  color={colors.textMuted}
                 />
                 <KpiCard
                   compact={!shouldStackToolbar}
@@ -1479,7 +1488,7 @@ export default function ObjetivosOpcionAScreen() {
               activeOpacity={0.7}
             >
               <Text style={styles.visionGlobalTitle}>Visión global — {tituloWidgetPeriodo}</Text>
-              <MaterialIcons name={visionGlobalAbierta ? 'expand-less' : 'expand-more'} size={22} color="#64748b" />
+              <MaterialIcons name={visionGlobalAbierta ? 'expand-less' : 'expand-more'} size={22} color={colors.textMuted} />
             </TouchableOpacity>
             {!visionGlobalAbierta && localSeleccionado ? (
               <Text style={styles.visionGlobalCompact} numberOfLines={1}>
@@ -1494,7 +1503,7 @@ export default function ObjetivosOpcionAScreen() {
             ) : null}
             {visionGlobalAbierta ? (
               loadingLocalesObjetivos ? (
-                <View style={styles.center}><ActivityIndicator size="small" color="#64748b" /></View>
+                <View style={styles.center}><ActivityIndicator size="small" color={colors.textMuted} /></View>
               ) : (
                 <View style={styles.listContent}>
                   {agrupacionesCalculadas.map((grupo) => {
@@ -1513,7 +1522,7 @@ export default function ObjetivosOpcionAScreen() {
                             </View>
                           </View>
                           <View style={[styles.syncBadge, datosAlDia ? styles.syncBadgeOk : styles.syncBadgeWarn]}>
-                            <MaterialIcons name={datosAlDia ? 'check-circle' : 'warning'} size={10} color={datosAlDia ? '#16a34a' : '#d97706'} />
+                            <MaterialIcons name={datosAlDia ? 'check-circle' : 'warning'} size={10} color={datosAlDia ? colors.success : colors.warning} />
                             <Text style={[styles.syncBadgeText, datosAlDia ? styles.syncBadgeTextOk : styles.syncBadgeTextWarn]} numberOfLines={1}>
                               {datosAlDia ? 'Actualizado' : grupo.ultimaFechaConDatos ? `Último: ${formatFechaCorta(grupo.ultimaFechaConDatos)}` : 'Sin datos'}
                             </Text>
@@ -1570,7 +1579,7 @@ export default function ObjetivosOpcionAScreen() {
                               <View style={[styles.dotSem, { backgroundColor: semColor }]} />
                             </View>
                             <View style={[styles.syncBadge, datosAlDia ? styles.syncBadgeOk : styles.syncBadgeWarn]}>
-                              <MaterialIcons name={datosAlDia ? 'check-circle' : 'warning'} size={10} color={datosAlDia ? '#16a34a' : '#d97706'} />
+                              <MaterialIcons name={datosAlDia ? 'check-circle' : 'warning'} size={10} color={datosAlDia ? colors.success : colors.warning} />
                               <Text style={[styles.syncBadgeText, datosAlDia ? styles.syncBadgeTextOk : styles.syncBadgeTextWarn]} numberOfLines={1}>
                                 {datosAlDia ? 'OK' : item.ultimaFechaConDatos ? formatFechaCorta(item.ultimaFechaConDatos) : '—'}
                               </Text>
@@ -1603,7 +1612,7 @@ export default function ObjetivosOpcionAScreen() {
                     })}
                   {localesObjetivos.length === 0 ? (
                     <View style={styles.emptyWrap}>
-                      <MaterialIcons name="store" size={40} color="#cbd5e1" />
+                      <MaterialIcons name="store" size={40} color={colors.borderStrong} />
                       <Text style={styles.emptyText}>No hay datos de locales para este periodo.</Text>
                     </View>
                   ) : null}
@@ -1616,12 +1625,12 @@ export default function ObjetivosOpcionAScreen() {
         <View style={[styles.panelDetalle, shouldStackPanels && styles.panelDetalleStack]}>
           {!localSeleccionado ? (
             <View style={styles.emptyWrap}>
-              <MaterialIcons name="touch-app" size={40} color="#cbd5e1" />
+              <MaterialIcons name="touch-app" size={40} color={colors.borderStrong} />
               <Text style={styles.emptyText}>Selecciona un local en la lista o en el filtro superior.</Text>
             </View>
           ) : registros.length === 0 ? (
             <View style={styles.emptyWrap}>
-              <MaterialIcons name="bar-chart" size={40} color="#cbd5e1" />
+              <MaterialIcons name="bar-chart" size={40} color={colors.borderStrong} />
               <Text style={styles.emptyText}>No hay registros para {nombreLocal}. Pulsa Recalcular.</Text>
             </View>
           ) : (
@@ -1646,12 +1655,12 @@ export default function ObjetivosOpcionAScreen() {
               })}
               {detalleTab === 'medias' && (
                 <TouchableOpacity style={styles.detailTabInfo} onPress={() => setMediasAyudaOpen((v) => !v)}>
-                  <MaterialIcons name="info-outline" size={18} color="#64748b" />
+                  <MaterialIcons name="info-outline" size={18} color={colors.textMuted} />
                 </TouchableOpacity>
               )}
               {detalleTab === 'tabla' && (
                 <TouchableOpacity style={styles.exportTablaBtn} onPress={abrirHorasModal} accessibilityLabel="Ventas por horas">
-                  <MaterialIcons name="schedule" size={16} color="#0369a1" />
+                  <MaterialIcons name="schedule" size={16} color={statusColors.info.text} />
                   <Text style={styles.exportTablaBtnText}>Por horas</Text>
                 </TouchableOpacity>
               )}
@@ -1855,7 +1864,7 @@ export default function ObjetivosOpcionAScreen() {
                 disabled={localesObjetivos.length === 0 || capturing}
                 onPress={handleCopiarResumenTexto}
               >
-                <MaterialIcons name="content-copy" size={16} color="#64748b" />
+                <MaterialIcons name="content-copy" size={16} color={colors.textMuted} />
                 <View style={styles.shareMenuItemTextCol}>
                   <Text style={styles.shareMenuText}>Copiar resumen texto</Text>
                   <Text style={styles.shareMenuHint}>Pegar directamente en WhatsApp</Text>
@@ -1863,22 +1872,22 @@ export default function ObjetivosOpcionAScreen() {
               </TouchableOpacity>
               <View style={styles.shareMenuDivider} />
               <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); handleShareJPG(); }}>
-                <MaterialIcons name="image" size={16} color="#0ea5e9" />
+                <MaterialIcons name="image" size={16} color={colors.accent} />
                 <Text style={styles.shareMenuText}>Captura pantalla (JPG)</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); handleSharePDF(); }}>
-                <MaterialIcons name="picture-as-pdf" size={16} color="#dc2626" />
+                <MaterialIcons name="picture-as-pdf" size={16} color={colors.danger} />
                 <Text style={styles.shareMenuText}>Captura pantalla (PDF)</Text>
               </TouchableOpacity>
               {registros.length > 0 && (
                 <>
                   <View style={styles.shareMenuDivider} />
                   <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); exportarTablaObjetivosExcel(); }}>
-                    <MaterialIcons name="table-chart" size={16} color="#16a34a" />
+                    <MaterialIcons name="table-chart" size={16} color={colors.success} />
                     <Text style={styles.shareMenuText}>Detalle Excel</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); exportarTablaObjetivosPDF(); }}>
-                    <MaterialIcons name="picture-as-pdf" size={16} color="#dc2626" />
+                    <MaterialIcons name="picture-as-pdf" size={16} color={colors.danger} />
                     <Text style={styles.shareMenuText}>Detalle PDF</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.shareMenuItem} onPress={() => { setDescargasMenuOpen(false); handleOpenMassDownload(); }}>
@@ -1913,7 +1922,7 @@ export default function ObjetivosOpcionAScreen() {
                 <MaterialIcons
                   name={massSelectedLocals.size === localesDropdownOrdenados.length ? 'check-box' : 'check-box-outline-blank'}
                   size={20}
-                  color={massSelectedLocals.size === localesDropdownOrdenados.length ? '#0ea5e9' : '#94a3b8'}
+                  color={massSelectedLocals.size === localesDropdownOrdenados.length ? colors.accent : colors.textMuted}
                 />
                 <Text style={styles.massSelectAllText}>Seleccionar todos</Text>
               </TouchableOpacity>
@@ -1928,7 +1937,7 @@ export default function ObjetivosOpcionAScreen() {
                 const checked = massSelectedLocals.has(code);
                 return (
                   <TouchableOpacity key={code} style={styles.massCheckRow} onPress={() => toggleMassLocal(code)} disabled={massDownloading}>
-                    <MaterialIcons name={checked ? 'check-box' : 'check-box-outline-blank'} size={20} color={checked ? '#0ea5e9' : '#cbd5e1'} />
+                    <MaterialIcons name={checked ? 'check-box' : 'check-box-outline-blank'} size={20} color={checked ? colors.accent : colors.borderStrong} />
                     <Text style={[styles.massLocalName, checked && styles.massLocalNameSelected]}>{nombre}</Text>
                   </TouchableOpacity>
                 );
@@ -1954,10 +1963,10 @@ export default function ObjetivosOpcionAScreen() {
                 disabled={massSelectedLocals.size === 0 || massDownloading}
               >
                 {massDownloading ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={colors.surface} />
                 ) : (
                   <>
-                    <MaterialIcons name="download" size={16} color="#fff" />
+                    <MaterialIcons name="download" size={16} color={colors.surface} />
                     <Text style={styles.massDownloadText}>
                       Descargar {massSelectedLocals.size > 0 ? `(${massSelectedLocals.size})` : ''}
                     </Text>
@@ -1975,7 +1984,7 @@ export default function ObjetivosOpcionAScreen() {
             <View style={styles.horasHeader}>
               <Text style={styles.horasTitle}>Ventas por horas — {nombreLocal}</Text>
               <TouchableOpacity onPress={() => setHorasModalOpen(false)} accessibilityLabel="Cerrar">
-                <MaterialIcons name="close" size={20} color="#64748b" />
+                <MaterialIcons name="close" size={20} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
 
@@ -2022,14 +2031,14 @@ export default function ObjetivosOpcionAScreen() {
             </View>
 
             <TouchableOpacity style={styles.horasGestionarLink} onPress={() => { setHorasModalOpen(false); router.push('/cajas/franjas-horarias'); }}>
-              <MaterialIcons name="settings" size={13} color="#0ea5e9" />
+              <MaterialIcons name="settings" size={13} color={colors.accent} />
               <Text style={styles.horasGestionarText}>Gestionar plantillas de franjas</Text>
             </TouchableOpacity>
 
             {horasError ? (
               <Text style={styles.errorText}>{horasError}</Text>
             ) : horasLoading ? (
-              <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 20 }} />
+              <ActivityIndicator size="small" color={colors.accent} style={{ marginVertical: 20 }} />
             ) : !filaHorasSel || !plantillaSel ? (
               <Text style={styles.horasHint}>Elige un día y una plantilla para ver el desglose por franjas.</Text>
             ) : filasFranja && filasFranja.length > 0 ? (
@@ -2079,52 +2088,55 @@ export default function ObjetivosOpcionAScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+  container: { flex: 1, backgroundColor: colors.bg },
   center: { padding: 24, alignItems: 'center', justifyContent: 'center' },
-  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 48, gap: 12, paddingHorizontal: 24 },
-  emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
+  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 48, gap: SPACING.md, paddingHorizontal: 24 },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center' },
 
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    gap: 12,
+    borderBottomColor: colors.border,
+    gap: SPACING.md,
   },
-  backBtn: { padding: 4 },
-  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#0f172a' },
+  backBtn: { padding: SPACING.xs },
+  headerTitle: { flex: 1, fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, flexWrap: 'wrap', justifyContent: 'flex-end' },
   outlineBtnPurple: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8,
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.xs,
+    paddingVertical: 6, paddingHorizontal: 10, borderRadius: RADIO_MEDIO,
     backgroundColor: '#f5f3ff', borderWidth: 1, borderColor: '#ddd6fe',
   },
-  outlineBtnPurpleText: { fontSize: 11, fontWeight: '600', color: '#7c3aed' },
+  outlineBtnPurpleText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: '#7c3aed' },
   outlineBtnBlue: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8,
-    backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd',
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.xs,
+    paddingVertical: 6, paddingHorizontal: 10, borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accentMuted, borderWidth: 1, borderColor: '#bae6fd',
   },
-  outlineBtnBlueText: { fontSize: 11, fontWeight: '600', color: '#0ea5e9' },
+  outlineBtnBlueText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
 
   toolbar: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 8,
+    borderBottomColor: colors.border,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    gap: SPACING.sm,
     position: 'relative' as const,
     zIndex: 1,
   },
   toolbarOnTop: { zIndex: 50, ...(Platform.OS !== 'web' ? { elevation: 24 } : {}) },
-  filaPeriodo: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+  filaPeriodo: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACING.sm },
   filaPeriodoStack: { flexDirection: 'column', alignItems: 'stretch' },
-  filaFechas: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' },
+  filaFechas: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, alignItems: 'flex-end' },
   filaFechasStack: { flexDirection: 'column', alignItems: 'stretch' },
   toolbarFilaUnica: {
     flexDirection: 'row',
@@ -2135,12 +2147,12 @@ const styles = StyleSheet.create({
   toolbarFilaUnicaStack: {
     flexDirection: 'column',
     alignItems: 'stretch',
-    gap: 8,
+    gap: SPACING.sm,
   },
   toolbarFiltros: {
     flexDirection: 'row',
     flexWrap: 'nowrap',
-    gap: 8,
+    gap: SPACING.sm,
     alignItems: 'flex-end',
     flexShrink: 1,
     minWidth: 0,
@@ -2152,7 +2164,7 @@ const styles = StyleSheet.create({
   toolbarDivider: {
     width: 1,
     alignSelf: 'stretch',
-    backgroundColor: '#e2e8f0',
+    backgroundColor: colors.border,
     marginVertical: 2,
     marginHorizontal: 4,
     flexShrink: 0,
@@ -2162,73 +2174,73 @@ const styles = StyleSheet.create({
   btnFiltrarIcon: {
     width: 40,
     height: 40,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0ea5e9',
+    backgroundColor: colors.accent,
     flexShrink: 0,
   },
   formGroupWide: { flex: 2, minWidth: 180 },
   btnFiltrar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: '#0ea5e9', paddingVertical: 10, paddingHorizontal: 14,
-    borderRadius: 8, minHeight: 40, alignSelf: 'flex-end',
+    backgroundColor: colors.accent, paddingVertical: 10, paddingHorizontal: 14,
+    borderRadius: RADIO_MEDIO, minHeight: 40, alignSelf: 'flex-end',
   },
   btnFiltrarDisabled: { opacity: 0.65 },
-  btnFiltrarText: { color: '#fff', fontWeight: '600', fontSize: 13 },
-  toolbarHint: { fontSize: 11, color: '#94a3b8', lineHeight: 16 },
+  btnFiltrarText: { color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, fontSize: fontSizes[13] },
+  toolbarHint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, lineHeight: 16 },
 
   chipRowEstado: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   estadoChip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1,
+    paddingHorizontal: 10, paddingVertical: SPACING.xs, borderRadius: radius.lg, borderWidth: 1,
   },
-  estadoChipText: { fontSize: 11, fontWeight: '600' },
-  estadoChipTextSel: { fontWeight: '800' },
+  estadoChipText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  estadoChipTextSel: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
 
   errorBar: {
-    marginTop: 8, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6,
-    backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca',
+    marginTop: SPACING.sm, paddingVertical: 6, paddingHorizontal: 10, borderRadius: radius.sm,
+    backgroundColor: statusColors.danger.bg, borderWidth: 1, borderColor: '#fecaca',
   },
-  errorBarText: { fontSize: 12, color: '#dc2626' },
+  errorBarText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger },
 
   split: { flexDirection: 'row', alignSelf: 'stretch' },
   splitStack: { flexDirection: 'column' },
   panelLista: { flex: 1, minWidth: 0, alignSelf: 'stretch' },
-  panelListaBorder: { borderRightWidth: 1, borderRightColor: '#e2e8f0', maxWidth: 480 },
+  panelListaBorder: { borderRightWidth: 1, borderRightColor: colors.border, maxWidth: 480 },
   panelListaInner: { alignSelf: 'stretch' },
   panelDetalle: {
-    flex: 1.2, minWidth: 320, backgroundColor: '#fff', padding: 14, alignSelf: 'stretch',
+    flex: 1.2, minWidth: 320, backgroundColor: colors.surface, padding: 14, alignSelf: 'stretch',
   },
-  panelDetalleStack: { flex: 1, minWidth: 0, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
+  panelDetalleStack: { flex: 1, minWidth: 0, borderTopWidth: 1, borderTopColor: colors.border },
 
-  listContent: { padding: 12, gap: 10, paddingBottom: 24 },
+  listContent: { padding: SPACING.md, gap: 10, paddingBottom: 24 },
 
   visionGlobalHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#e2e8f0',
-    backgroundColor: '#fff',
+    paddingHorizontal: SPACING.md, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  visionGlobalTitle: { fontSize: 14, fontWeight: '700', color: '#334155' },
-  visionGlobalCompact: { fontSize: 11, color: '#64748b', paddingHorizontal: 12, paddingBottom: 8, backgroundColor: '#fff' },
+  visionGlobalTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  visionGlobalCompact: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, paddingHorizontal: SPACING.md, paddingBottom: SPACING.sm, backgroundColor: colors.surface },
 
-  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
-  cardActiva: { borderColor: '#7dd3fc', backgroundColor: '#f0f9ff' },
+  card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
+  cardActiva: { borderColor: '#7dd3fc', backgroundColor: colors.accentMuted },
   cardHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 14, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', gap: 8,
+    paddingHorizontal: 14, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.navActive, gap: SPACING.sm,
   },
-  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
-  cardTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', flexShrink: 1 },
-  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
-  badgeText: { fontSize: 11, fontWeight: '600' },
-  dotSem: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
-  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: 8 },
-  cardField: { minWidth: 84, marginRight: 8 },
-  cardFieldFull: { width: '100%', marginRight: 0, marginBottom: 4 },
-  cardFieldLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 1 },
-  cardFieldValue: { fontSize: 13, color: '#334155' },
-  cardFieldMuted: { color: '#64748b' },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flex: 1, minWidth: 0 },
+  cardTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, flexShrink: 1 },
+  badge: { paddingHorizontal: SPACING.sm, paddingVertical: 2, borderRadius: radius.md, borderWidth: 1 },
+  badgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  dotSem: { width: 8, height: 8, borderRadius: radius.sm, flexShrink: 0 },
+  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: SPACING.sm },
+  cardField: { minWidth: 84, marginRight: SPACING.sm },
+  cardFieldFull: { width: '100%', marginRight: 0, marginBottom: SPACING.xs },
+  cardFieldLabel: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, textTransform: 'uppercase', marginBottom: 1 },
+  cardFieldValue: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary },
+  cardFieldMuted: { color: colors.textMuted },
 
   mainScroll: { flex: 1 },
   mainScrollContent: { flexGrow: 1, paddingBottom: 24 },
@@ -2237,7 +2249,7 @@ const styles = StyleSheet.create({
   /** Panel formulario + widget mes (~40% del ancho; más ancho que antes) */
   leftColumn: {
     flexDirection: 'column',
-    gap: 12,
+    gap: SPACING.md,
     flex: 4,
     minWidth: 300,
     maxWidth: 420,
@@ -2251,12 +2263,12 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
   },
   widget: {
-    backgroundColor: '#f8fafc',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    backgroundColor: colors.bg,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     alignSelf: 'flex-start',
   },
   /** Misma anchura que el resto de widgets de la columna izquierda */
@@ -2266,20 +2278,20 @@ const styles = StyleSheet.create({
   tableWrapper: { flex: 6, minWidth: 0, flexShrink: 1 },
   tableWrapperNarrow: { flex: 0, width: '100%', minWidth: 0, alignSelf: 'stretch' },
   tableOuterNoHScroll: { width: '100%', minWidth: 0, flex: 1 },
-  widgetTitle: { fontSize: 12, fontWeight: '600', color: '#475569', marginBottom: 12 },
+  widgetTitle: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginBottom: SPACING.md },
   formRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'flex-end' },
   formGroup: { flex: 1, minWidth: 120 },
   formGroupNarrow: { maxWidth: 320 },
-  formLabel: { fontSize: 10, fontWeight: '600', color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.3 },
+  formLabel: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, marginBottom: SPACING.xs, textTransform: 'uppercase', letterSpacing: 0.3 },
   formInput: {
-    fontSize: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    fontFamily: fontFamily.regular, fontSize: fontSizes[12],
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.sm,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
-    backgroundColor: '#fff',
-    color: '#334155',
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
+    color: colors.textPrimary,
     minHeight: 40,
   },
   inputFechaToolbar: {
@@ -2288,52 +2300,52 @@ const styles = StyleSheet.create({
     height: 40,
     minHeight: 40,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
-    backgroundColor: '#fff',
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
     overflow: 'hidden',
   },
-  formInputDisabled: { backgroundColor: '#f1f5f9', color: '#94a3b8' },
+  formInputDisabled: { backgroundColor: colors.navActive, color: colors.textMuted },
   btnGenerar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#0ea5e9',
-    paddingVertical: 4,
+    backgroundColor: colors.accent,
+    paddingVertical: SPACING.xs,
     paddingHorizontal: 10,
     borderRadius: 5,
   },
   btnGenerarDisabled: { opacity: 0.7 },
-  btnGenerarText: { fontSize: 12, fontWeight: '600', color: '#fff' },
-  controlBar: { alignSelf: 'stretch', marginBottom: 12, position: 'relative' as const, zIndex: 1 },
+  btnGenerarText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.surface },
+  controlBar: { alignSelf: 'stretch', marginBottom: SPACING.md, position: 'relative' as const, zIndex: 1 },
   controlBarOnTop: { zIndex: 50, ...(Platform.OS !== 'web' ? { elevation: 24 } : {}) },
   contentBelow: { position: 'relative' as const, zIndex: 0 },
-  sectionLabel: { fontSize: 11, fontWeight: '600', color: '#64748b', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.4 },
-  controlPeriodRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 8 },
+  sectionLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.4 },
+  controlPeriodRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.sm },
   chipMes: {
-    paddingVertical: 5, paddingHorizontal: 10, borderRadius: 14,
-    borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#fff',
+    paddingVertical: 5, paddingHorizontal: 10, borderRadius: 14, // entre radius.lg (12) y radius.xl (16)
+    borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface,
   },
-  chipMesOn: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  chipMesText: { fontSize: 11, fontWeight: '600', color: '#64748b' },
-  chipMesTextOn: { color: '#fff' },
-  controlActionsRow: { alignItems: 'center', marginTop: 4 },
+  chipMesOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  chipMesText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted },
+  chipMesTextOn: { color: colors.surface },
+  controlActionsRow: { alignItems: 'center', marginTop: SPACING.xs },
   agrupBtnOutline: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8,
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.xs,
+    paddingVertical: 6, paddingHorizontal: 10, borderRadius: RADIO_MEDIO,
     backgroundColor: '#f5f3ff', borderWidth: 1, borderColor: '#ddd6fe',
   },
-  agrupBtnOutlineText: { fontSize: 11, fontWeight: '600', color: '#7c3aed' },
+  agrupBtnOutlineText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: '#7c3aed' },
   descargasAnchor: { position: 'relative' as const },
   descargasBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8,
-    backgroundColor: '#e0f2fe', borderWidth: 1, borderColor: '#bae6fd',
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.xs,
+    paddingVertical: 6, paddingHorizontal: 10, borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accentMuted, borderWidth: 1, borderColor: '#bae6fd',
   },
-  descargasBtnText: { fontSize: 12, fontWeight: '700', color: '#0ea5e9' },
+  descargasBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.accent },
   btnRefresh: {
-    width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#bae6fd',
+    width: 36, height: 36, borderRadius: RADIO_MEDIO, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.accentMuted, borderWidth: 1, borderColor: '#bae6fd',
   },
   kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   kpiRowInline: {
@@ -2341,15 +2353,15 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     flexBasis: 'auto',
     flexWrap: 'nowrap',
-    gap: 12,
+    gap: SPACING.md,
     minWidth: 280,
     justifyContent: 'flex-end',
     alignItems: 'flex-end',
     ...(Platform.OS === 'web' ? ({ marginLeft: 'auto' } as object) : {}),
   },
   kpiCard: {
-    flex: 1, minWidth: 88, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0',
-    borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6,
+    flex: 1, minWidth: 88, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border,
+    borderRadius: RADIO_MEDIO, paddingHorizontal: SPACING.sm, paddingVertical: 6,
   },
   kpiCardCompact: {
     flex: 0,
@@ -2362,75 +2374,75 @@ const styles = StyleSheet.create({
     minWidth: 72,
     alignItems: 'flex-end',
   },
-  kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
+  kpiLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, textTransform: 'uppercase' },
   kpiLabelCompact: { textAlign: 'right' as const },
-  kpiValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 2 },
-  kpiValueCompact: { fontSize: 12, fontWeight: '800', marginTop: 1, textAlign: 'right' as const },
+  kpiValue: { fontVariant: ['tabular-nums'], fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, marginTop: 2 },
+  kpiValueCompact: { fontVariant: ['tabular-nums'], fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, marginTop: 1, textAlign: 'right' as const },
   detailSection: { alignSelf: 'stretch' },
-  detailHeader: { marginBottom: 8 },
-  detailTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 8 },
+  detailHeader: { marginBottom: SPACING.sm },
+  detailTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, marginBottom: SPACING.sm },
   detailTabsRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   detailTabInfo: { padding: 6 },
   localesListItemSelected: {
-    borderWidth: 2, borderColor: '#0ea5e9', backgroundColor: '#f0f9ff',
+    borderWidth: 2, borderColor: colors.accent, backgroundColor: colors.accentMuted,
   },
   widgetLocales: { alignSelf: 'stretch', minHeight: 48, marginTop: 0, position: 'relative' as const, zIndex: 0 },
-  widgetLocalesHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  widgetLocalesTitle: { fontSize: 15, fontWeight: '700', color: '#334155' },
+  widgetLocalesHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.sm },
+  widgetLocalesTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
   widgetLocalesActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   agrupBtn: {
     padding: 6,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     backgroundColor: '#f5f3ff',
     borderWidth: 1,
     borderColor: '#ddd6fe',
   },
-  agrupacionesWrap: { marginBottom: 4 },
+  agrupacionesWrap: { marginBottom: SPACING.xs },
   agrupacionItem: {
     borderLeftWidth: 3,
-    paddingLeft: 8,
+    paddingLeft: SPACING.sm,
     backgroundColor: '#fafafa',
-    borderRadius: 6,
+    borderRadius: radius.sm,
     marginBottom: 6,
   },
-  agrupacionNombreWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginRight: 8 },
+  agrupacionNombreWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginRight: SPACING.sm },
   agrupacionDot: { width: 10, height: 10, borderRadius: 5 },
-  agrupacionNombre: { fontSize: 12, fontWeight: '700', color: '#334155', flexShrink: 1 },
-  agrupacionMeta: { fontSize: 9, color: '#94a3b8', fontWeight: '500' },
+  agrupacionNombre: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, flexShrink: 1 },
+  agrupacionMeta: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   shareWrap: { position: 'relative', zIndex: 50 },
   shareBtn: {
     padding: 6,
-    borderRadius: 8,
-    backgroundColor: '#f0f9ff',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
     borderColor: '#bae6fd',
   },
   shareOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(15, 23, 42, 0.3)' },
   shareMenu: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     minWidth: 200,
     ...(Platform.OS === 'web' && { boxShadow: '0 8px 24px rgba(0,0,0,0.15)' } as object),
   },
   shareMenuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
   },
   shareMenuItemTextCol: { flex: 1, minWidth: 0 },
-  shareMenuHint: { fontSize: 10, color: '#94a3b8', marginTop: 1 },
+  shareMenuHint: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textMuted, marginTop: 1 },
   shareCaptureHost: {
     position: 'absolute',
     left: -12000,
     top: 0,
     zIndex: -1,
   },
-  shareMenuText: { fontSize: 12, color: '#334155', fontWeight: '500' },
-  shareMenuDivider: { height: 1, backgroundColor: '#f1f5f9' },
+  shareMenuText: { fontSize: fontSizes[12], color: colors.textPrimary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  shareMenuDivider: { height: 1, backgroundColor: colors.navActive },
   widgetLocalesLoader: { marginVertical: 20 },
   localesListWrap: {},
   localesListItem: {
@@ -2438,33 +2450,33 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
     paddingTop: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
   },
-  localesListHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  localesListNombre: { fontSize: 12, fontWeight: '500', color: '#334155', flex: 1, marginRight: 8 },
-  localesListPct: { fontSize: 9, color: '#64748b', fontWeight: '400' },
+  localesListHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.xs },
+  localesListNombre: { fontSize: fontSizes[12], fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.textPrimary, flex: 1, marginRight: SPACING.sm },
+  localesListPct: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight },
   localesListProgressTrack: {
     height: 6,
-    backgroundColor: '#e2e8f0',
-    borderRadius: 4,
+    backgroundColor: colors.border,
+    borderRadius: radius.sm,
     overflow: 'hidden',
   },
   localesListProgressFill: {
     height: '100%',
-    borderRadius: 4,
-    backgroundColor: '#0ea5e9',
+    borderRadius: radius.sm,
+    backgroundColor: colors.accent,
   },
   localesListProgressTrackSecondary: {
-    marginTop: 4,
+    marginTop: SPACING.xs,
   },
   localesListProgressFillSecondary: {
-    backgroundColor: '#94a3b8',
+    backgroundColor: colors.textMuted,
   },
   localesListHastaAyerInfo: {
     flexDirection: 'column',
     alignItems: 'flex-start',
     gap: 6,
-    marginTop: 4,
+    marginTop: SPACING.xs,
   },
   localesListValoresRow: {
     flexDirection: 'row',
@@ -2475,37 +2487,37 @@ const styles = StyleSheet.create({
   localesListValorItem: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    gap: 4,
+    gap: SPACING.xs,
   },
-  localesListValorLabel: { fontSize: 9, color: '#64748b', fontWeight: '500' },
-  localesListValorNum: { fontSize: 10, fontWeight: '600', color: '#334155' },
-  localesListValorSecundario: { color: '#64748b', fontWeight: '500' },
+  localesListValorLabel: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  localesListValorNum: { fontVariant: ['tabular-nums'], fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  localesListValorSecundario: { color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   syncBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
     paddingHorizontal: 5,
     paddingVertical: 2,
-    borderRadius: 4,
+    borderRadius: radius.sm,
   },
-  syncBadgeOk: { backgroundColor: '#dcfce7' },
-  syncBadgeWarn: { backgroundColor: '#fef3c7' },
-  syncBadgeText: { fontSize: 8, fontWeight: '600' },
-  syncBadgeTextOk: { color: '#16a34a' },
-  syncBadgeTextWarn: { color: '#d97706' },
-  localesListHastaAyerLabel: { fontSize: 9, color: '#475569', fontWeight: '600' },
+  syncBadgeOk: { backgroundColor: statusColors.success.bg },
+  syncBadgeWarn: { backgroundColor: statusColors.warning.bg },
+  syncBadgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  syncBadgeTextOk: { color: colors.success },
+  syncBadgeTextWarn: { color: colors.warning },
+  localesListHastaAyerLabel: { fontSize: typography.etiqueta.fontSize, color: colors.textPrimary, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   localesListHastaAyerRangoWrap: { position: 'relative' as const, alignSelf: 'flex-start', flexShrink: 0 },
-  localesListHastaAyerRango: { fontSize: 8, color: '#94a3b8', maxWidth: 200 },
+  localesListHastaAyerRango: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, maxWidth: 200 },
   localesListRangoTooltip: {
     position: 'absolute' as const,
     bottom: '100%',
     left: 0,
-    marginBottom: 4,
+    marginBottom: SPACING.xs,
     backgroundColor: '#fef08a',
     borderWidth: 1,
     borderColor: '#eab308',
-    borderRadius: 6,
-    paddingHorizontal: 8,
+    borderRadius: radius.sm,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 6,
     zIndex: 1000,
     maxWidth: 320,
@@ -2515,81 +2527,81 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 8,
   },
-  localesListRangoTooltipText: { fontSize: 10, color: '#334155', lineHeight: 16 },
+  localesListRangoTooltipText: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textPrimary, lineHeight: 16 },
   tickerBadgeSmall: { paddingHorizontal: 6, paddingVertical: 2 },
   tableWithProgress: { width: '100%', alignSelf: 'stretch', minWidth: 0 },
-  progressSection: { marginBottom: 8 },
+  progressSection: { marginBottom: SPACING.sm },
   progressLocalRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
-    marginBottom: 4,
+    gap: SPACING.sm,
+    marginBottom: SPACING.xs,
   },
   progressLocalTextCol: { flex: 1, minWidth: 0 },
   exportTablaBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 8,
-    backgroundColor: '#f0f9ff',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.accentMuted,
     borderWidth: 1,
     borderColor: '#bae6fd',
     flexShrink: 0,
   },
   exportTablaBtnDisabled: { opacity: 0.55 },
-  exportTablaBtnText: { fontSize: 12, fontWeight: '600', color: '#0369a1' },
-  exportTablaBtnTextDisabled: { color: '#94a3b8' },
+  exportTablaBtnText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
+  exportTablaBtnTextDisabled: { color: colors.textMuted },
   exportMenuTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#64748b',
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
+    color: colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.4,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     paddingTop: 10,
-    paddingBottom: 4,
+    paddingBottom: SPACING.xs,
   },
-  progressLocalName: { fontSize: 14, fontWeight: '700', color: '#334155' },
-  progressRegistrosCount: { fontSize: 11, color: '#94a3b8', fontStyle: 'italic' },
+  progressLocalName: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  progressRegistrosCount: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontStyle: 'italic' },
   progressHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: SPACING.xs,
   },
-  progressHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  progressLabel: { fontSize: 11, color: '#64748b', fontWeight: '500' },
-  progressPct: { fontSize: 12, fontWeight: '700', color: '#334155' },
+  progressHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  progressLabel: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  progressPct: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
   progressRestanteBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    borderRadius: radius.sm,
   },
   progressRestanteAlcanzado: { backgroundColor: '#d1fae5' },
-  progressRestantePendiente: { backgroundColor: '#fef3c7' },
-  progressRestanteText: { fontSize: 11, fontWeight: '600', color: '#475569' },
+  progressRestantePendiente: { backgroundColor: statusColors.warning.bg },
+  progressRestanteText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   progressTrack: {
     height: 14,
-    backgroundColor: '#e2e8f0',
-    borderRadius: 6,
+    backgroundColor: colors.border,
+    borderRadius: radius.sm,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    borderRadius: 6,
-    backgroundColor: '#0ea5e9',
+    borderRadius: radius.sm,
+    backgroundColor: colors.accent,
   },
-  errorText: { fontSize: 12, color: '#dc2626', marginBottom: 8 },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, marginBottom: SPACING.sm },
   table: {
     width: '100%',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     overflow: 'hidden',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     flexDirection: 'column',
   },
   /** Altura máxima base del cuerpo con scroll (en web se amplía con estilo inline). */
@@ -2605,15 +2617,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
-    backgroundColor: '#e2e8f0',
+    backgroundColor: colors.border,
     borderBottomWidth: 1,
-    borderBottomColor: '#cbd5e1',
+    borderBottomColor: colors.borderStrong,
   },
   cellHeader: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: '#334155',
-    paddingVertical: 4,
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
+    color: colors.textPrimary,
+    paddingVertical: SPACING.xs,
     paddingHorizontal: 3,
     flexShrink: 1,
   },
@@ -2621,50 +2633,50 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
-    backgroundColor: '#f1f5f9',
+    backgroundColor: colors.navActive,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
   },
-  cellSummary: { fontSize: 10, fontWeight: '600', color: '#334155', paddingVertical: 3, paddingHorizontal: 6 },
+  cellSummary: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, paddingVertical: 3, paddingHorizontal: 6 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
   },
   /** Fila cuyo campo Fecha coincide con la jornada de negocio actual (corte 09:30, como arqueo de caja). */
   rowJornadaActual: {
-    backgroundColor: '#e0f2fe',
+    backgroundColor: colors.accentMuted,
     borderLeftWidth: 3,
-    borderLeftColor: '#0284c7',
+    borderLeftColor: colors.accentPressed,
   },
-  cell: { fontSize: 10, color: '#475569', paddingVertical: 3, paddingHorizontal: 6, lineHeight: 14 },
-  cellBold: { fontWeight: '700' },
+  cell: { fontSize: fontSizes.badge, color: colors.textPrimary, paddingVertical: 3, paddingHorizontal: 6, lineHeight: 14 },
+  cellBold: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   /** Anchos flex para caber en pantalla sin scroll horizontal */
   cellDia: { flex: 1, minWidth: 38, flexShrink: 1 },
   cellFecha: { flex: 1.15, minWidth: 52, flexShrink: 1 },
   cellFestivo: { flex: 0.7, minWidth: 34, flexShrink: 1 },
   cellNombre: { flex: 1.4, minWidth: 56, flexShrink: 1 },
-  cellText: { fontSize: 10, color: '#475569', lineHeight: 14 },
+  cellText: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textPrimary, lineHeight: 14 },
   nombreFestivoStack: { gap: 2, alignSelf: 'flex-start' },
   nombreFestivoBadge: {
     backgroundColor: '#fce7f3',
-    paddingHorizontal: 4,
+    paddingHorizontal: SPACING.xs,
     paddingVertical: 1,
     borderRadius: 3,
     alignSelf: 'flex-start',
   },
-  nombreFestivoText: { fontSize: 10, color: '#9d174d', lineHeight: 13 },
+  nombreFestivoText: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: '#9d174d', lineHeight: 13 },
   nombreFestivoBadgeComp: {
-    backgroundColor: '#fef3c7',
-    paddingHorizontal: 4,
+    backgroundColor: statusColors.warning.bg,
+    paddingHorizontal: SPACING.xs,
     paddingVertical: 1,
     borderRadius: 3,
     alignSelf: 'flex-start',
   },
-  nombreFestivoTextComp: { fontSize: 10, color: '#b45309', lineHeight: 13 },
-  cellMoneda: { flex: 1.1, minWidth: 52, flexShrink: 1, textAlign: 'right' },
+  nombreFestivoTextComp: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: statusColors.warning.text, lineHeight: 13 },
+  cellMoneda: { fontVariant: ['tabular-nums'], flex: 1.1, minWidth: 52, flexShrink: 1, textAlign: 'right' },
   cellPct: { flex: 0.9, minWidth: 40, flexShrink: 1, textAlign: 'right' },
   cellPctWrapper: {
     flex: 0.9,
@@ -2679,80 +2691,80 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 4,
+    borderRadius: radius.sm,
     alignSelf: 'flex-end',
     gap: 2,
   },
   massModal: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     padding: 20,
     width: '100%',
     maxWidth: 400,
     maxHeight: '80%',
   },
-  massTitle: { fontSize: 16, fontWeight: '700', color: '#1e293b', marginBottom: 4 },
-  massSubtitle: { fontSize: 11, color: '#64748b', marginBottom: 12 },
+  massTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, marginBottom: SPACING.xs },
+  massSubtitle: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, marginBottom: SPACING.md },
   massSelectAllRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingBottom: 8,
+    paddingBottom: SPACING.sm,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    marginBottom: 4,
+    borderBottomColor: colors.border,
+    marginBottom: SPACING.xs,
   },
-  massSelectAllText: { fontSize: 12, fontWeight: '600', color: '#334155', marginLeft: 8 },
-  massCountText: { fontSize: 11, color: '#94a3b8' },
-  massListScroll: { maxHeight: 260, marginBottom: 12 },
+  massSelectAllText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary, marginLeft: SPACING.sm },
+  massCountText: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted },
+  massListScroll: { maxHeight: 260, marginBottom: SPACING.md },
   massCheckRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    gap: 8,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.xs,
+    gap: SPACING.sm,
   },
-  massLocalName: { fontSize: 12, color: '#475569' },
-  massLocalNameSelected: { color: '#0ea5e9', fontWeight: '500' },
-  massProgressWrap: { marginBottom: 12 },
-  massProgressBarBg: { height: 6, backgroundColor: '#e2e8f0', borderRadius: 3, overflow: 'hidden', marginBottom: 4 },
-  massProgressBarFill: { height: '100%', backgroundColor: '#0ea5e9', borderRadius: 3 },
-  massProgressText: { fontSize: 11, color: '#64748b', textAlign: 'center' },
+  massLocalName: { fontSize: fontSizes[12], color: colors.textPrimary },
+  massLocalNameSelected: { color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  massProgressWrap: { marginBottom: SPACING.md },
+  massProgressBarBg: { height: 6, backgroundColor: colors.border, borderRadius: 3, overflow: 'hidden', marginBottom: SPACING.xs },
+  massProgressBarFill: { height: '100%', backgroundColor: colors.accent, borderRadius: 3 },
+  massProgressText: { fontSize: typography.etiqueta.fontSize, color: colors.textMuted, textAlign: 'center' },
   massActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
-  massCancelBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: '#f1f5f9' },
-  massCancelText: { fontSize: 13, color: '#64748b', fontWeight: '500' },
+  massCancelBtn: { paddingVertical: 10, paddingHorizontal: SPACING.lg, borderRadius: RADIO_MEDIO, backgroundColor: colors.navActive },
+  massCancelText: { fontSize: fontSizes[13], color: colors.textMuted, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   massDownloadBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    paddingHorizontal: SPACING.lg,
+    borderRadius: RADIO_MEDIO,
     backgroundColor: '#7c3aed',
   },
   massDownloadBtnDisabled: { opacity: 0.5 },
-  massDownloadText: { fontSize: 13, color: '#fff', fontWeight: '600' },
-  tickerText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.2 },
+  massDownloadText: { fontSize: fontSizes[13], color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  tickerText: { fontVariant: ['tabular-nums'], fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, letterSpacing: 0.2 },
   parcialBox: {
-    marginTop: 12,
-    backgroundColor: '#f8fafc',
+    marginTop: SPACING.md,
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    padding: 12,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: SPACING.md,
     alignItems: 'center',
   },
   parcialTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#64748b',
-    marginBottom: 8,
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
+    color: colors.textMuted,
+    marginBottom: SPACING.sm,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   parcialRow: {
     flexDirection: 'row',
-    gap: 16,
+    gap: SPACING.lg,
     flexWrap: 'wrap',
     justifyContent: 'center',
     alignItems: 'center',
@@ -2762,24 +2774,24 @@ const styles = StyleSheet.create({
     minWidth: 80,
   },
   parcialLabel: {
-    fontSize: 10,
-    fontWeight: '500',
-    color: '#94a3b8',
+    fontSize: fontSizes.badge,
+    fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight,
+    color: colors.textMuted,
     marginBottom: 2,
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
-  parcialValue: {
-    fontSize: 14,
-    fontWeight: '700',
+  parcialValue: { fontVariant: ['tabular-nums'],
+    fontSize: fontSizes[14],
+    fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight,
   },
   mediasPorDiaWidget: {
     alignSelf: 'stretch',
     marginTop: 0,
   },
   mediasPorDiaHint: {
-    fontSize: 10,
-    color: '#94a3b8',
+    fontFamily: fontFamily.regular, fontSize: fontSizes.badge,
+    color: colors.textMuted,
     marginBottom: 10,
     lineHeight: 14,
   },
@@ -2787,15 +2799,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingBottom: 6,
-    marginBottom: 4,
+    marginBottom: SPACING.xs,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
     gap: 6,
   },
   mediasPorDiaHeaderCell: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#64748b',
+    fontSize: fontSizes.badge,
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
+    color: colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
@@ -2804,15 +2816,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 5,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
     gap: 6,
   },
   mediasPorDiaCell: {
-    fontSize: 11,
-    color: '#334155',
+    fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize,
+    color: colors.textPrimary,
   },
   mediasPorDiaColDia: { width: 36, flexShrink: 0 },
-  mediasPorDiaDiaNegrita: { fontWeight: '700', color: '#1e293b' },
+  mediasPorDiaDiaNegrita: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
   mediasPorDiaRealWrap: {
     flex: 1,
     minWidth: 0,
@@ -2826,7 +2838,7 @@ const styles = StyleSheet.create({
   mediasPorDiaVarBadge: {
     paddingHorizontal: 5,
     paddingVertical: 2,
-    borderRadius: 4,
+    borderRadius: radius.sm,
     borderWidth: 1,
     flexShrink: 0,
   },
@@ -2838,56 +2850,56 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(220, 38, 38, 0.12)',
     borderColor: 'rgba(220, 38, 38, 0.35)',
   },
-  mediasPorDiaVarText: { fontSize: 9, fontWeight: '700' },
+  mediasPorDiaVarText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   mediasPorDiaVarTextUp: { color: '#047857' },
-  mediasPorDiaVarTextDown: { color: '#b91c1c' },
-  mediasPorDiaColNum: { flex: 1, minWidth: 0, textAlign: 'right' as const },
+  mediasPorDiaVarTextDown: { color: statusColors.danger.text },
+  mediasPorDiaColNum: { fontVariant: ['tabular-nums'], flex: 1, minWidth: 0, textAlign: 'right' as const },
   horasModal: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     padding: 20,
     width: '100%',
     maxWidth: 620,
     maxHeight: '85%',
   },
-  horasHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-  horasTitle: { fontSize: 15, fontWeight: '700', color: '#1e293b', flex: 1, marginRight: 8 },
+  horasHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.md },
+  horasTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, flex: 1, marginRight: SPACING.sm },
   horasSelectoresRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   horasSelectorGroup: { flex: 1, minWidth: 220 },
-  horasGestionarLink: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10 },
-  horasGestionarText: { fontSize: 11, color: '#0ea5e9', fontWeight: '600' },
-  horasHint: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', marginVertical: 20, textAlign: 'center' },
-  horasTablaScroll: { marginTop: 12, maxHeight: 360 },
+  horasGestionarLink: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, marginTop: 10 },
+  horasGestionarText: { fontSize: typography.etiqueta.fontSize, color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  horasHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, fontStyle: 'italic', marginVertical: 20, textAlign: 'center' },
+  horasTablaScroll: { marginTop: SPACING.md, maxHeight: 360 },
   horasTablaHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#e2e8f0',
+    backgroundColor: colors.border,
     borderTopLeftRadius: 6,
     borderTopRightRadius: 6,
     paddingVertical: 5,
     paddingHorizontal: 6,
-    gap: 4,
+    gap: SPACING.xs,
   },
-  horasHeaderCell: { fontSize: 10, fontWeight: '600', color: '#334155' },
+  horasHeaderCell: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   horasTablaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 5,
     paddingHorizontal: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-    gap: 4,
+    borderBottomColor: colors.navActive,
+    gap: SPACING.xs,
   },
   horasTotalRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 6,
     paddingHorizontal: 6,
-    backgroundColor: '#f8fafc',
-    gap: 4,
+    backgroundColor: colors.bg,
+    gap: SPACING.xs,
   },
-  horasCell: { fontSize: 11, color: '#475569' },
+  horasCell: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textPrimary },
   horasColFranja: { flex: 1.8, minWidth: 0 },
-  horasColNum: { flex: 1.1, minWidth: 0, textAlign: 'right' as const },
+  horasColNum: { fontVariant: ['tabular-nums'], flex: 1.1, minWidth: 0, textAlign: 'right' as const },
   horasColPct: { flex: 0.8, minWidth: 0, textAlign: 'right' as const },
 });
