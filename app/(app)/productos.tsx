@@ -23,7 +23,16 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLocalToast } from '../components/Toast';
 import { apiFetch } from '../utils/api';
 import { erpTableStyles } from '../constants/erpTableStyles';
-import { colors, iconSize, radius, SPACING, statusColors } from '../constants/theme';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  iconSize,
+  radius,
+  SPACING,
+  statusColors,
+  typography,
+} from '../constants/theme';
 import { EstadoVacio } from '../components/ui/EstadoVacio';
 
 const PAGE_SIZE = 50;
@@ -1054,7 +1063,7 @@ export default function ProductosScreen() {
                     <View key={f.FamilyId || f.FamilyName} style={styles.familiasRow}>
                       <View style={{ width: 60 }}><Text style={styles.familiasCellId}>{f.FamilyId || '—'}</Text></View>
                       <View style={{ flex: 1 }}><Text style={styles.familiasCell} numberOfLines={1}>{f.FamilyName}</Text></View>
-                      <View style={{ width: 70 }}><Text style={[styles.familiasCell, { textAlign: 'right', fontWeight: '600' }]}>{f.count}</Text></View>
+                      <View style={{ width: 70 }}><Text style={[styles.familiasCell, { textAlign: 'right', fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight }]}>{f.count}</Text></View>
                     </View>
                   ))
                 )}
@@ -1201,7 +1210,7 @@ export default function ProductosScreen() {
 const styles = StyleSheet.create({
   agoraContent: { flex: 1 },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs + 2 },
-  switchLabel: { fontSize: 12, color: colors.textSecondary, fontWeight: '500' },
+  switchLabel: { fontSize: fontSizes[12], color: colors.textSecondary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   searchWrapFlex: {
     flex: 1,
     flexDirection: 'row',
@@ -1215,7 +1224,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.sm,
     gap: SPACING.xs,
   },
-  searchInputFlex: { flex: 1, minWidth: 80, fontSize: 12, color: colors.textPrimary, paddingVertical: 0 },
+  searchInputFlex: { flex: 1, minWidth: 80, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary, paddingVertical: 0 },
   limpiarBusquedaBtn: { padding: SPACING.xs + 2 },
   editCell: {
     width: 36,
@@ -1233,54 +1242,54 @@ const styles = StyleSheet.create({
   tableFlex: { flex: 1 },
   agoraBodyScroll: { flex: 1, minHeight: 200 },
   selectionInfo: { backgroundColor: colors.accentMuted, borderRadius: radius.sm, paddingHorizontal: SPACING.sm + 2, paddingVertical: SPACING.xs + 2 },
-  selectionInfoText: { fontSize: 12, fontWeight: '600', color: statusColors.info.text },
-  lastFetchText: { fontSize: 10, color: colors.textMuted, fontStyle: 'italic' },
+  selectionInfoText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
+  lastFetchText: { fontFamily: fontFamily.regular, fontSize: fontSizes.badge, color: colors.textMuted, fontStyle: 'italic' },
   paginacionAgora: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.lg, marginTop: SPACING.md, paddingVertical: SPACING.sm },
   pagBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: SPACING.sm, paddingHorizontal: SPACING.md, backgroundColor: colors.bgSubtle, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
   pagBtnDisabled: { opacity: 0.6 },
-  pagBtnText: { fontSize: 13, color: colors.accent, fontWeight: '500' },
+  pagBtnText: { fontSize: fontSizes[13], color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
   pagBtnTextDisabled: { color: colors.textMuted },
-  pagInfo: { fontSize: 12, color: colors.textSecondary },
+  pagInfo: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textSecondary },
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.overlay },
   modalCenter: { flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%', padding: SPACING.lg - 4 },
   modalCardTouch: { width: '100%' },
   modalCard: { width: '100%', backgroundColor: colors.surface, borderRadius: radius.md, overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.lg - 4, paddingVertical: SPACING.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: colors.textPrimary },
+  modalTitle: { fontSize: fontSizes[18], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   modalClose: { padding: SPACING.xs },
   modalBodyRow: { flexDirection: 'row' },
   modalIdSide: { width: 56, paddingVertical: SPACING.md, paddingHorizontal: SPACING.sm, borderRightWidth: 1, borderRightColor: colors.border, alignItems: 'center', justifyContent: 'flex-start' },
-  modalIdLabel: { fontSize: 10, fontWeight: '600', color: colors.textMuted, marginBottom: 2 },
-  modalIdValue: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
+  modalIdLabel: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, marginBottom: 2 },
+  modalIdValue: { fontSize: fontSizes[14], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
   modalBody: { flex: 1, maxHeight: 400, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md },
   formGroup: { marginBottom: SPACING.sm },
-  formLabel: { fontSize: 10, fontWeight: '500', color: colors.textSecondary, marginBottom: 2 },
-  formInput: { backgroundColor: colors.bgSubtle, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: SPACING.sm + 2, paddingVertical: SPACING.xs, fontSize: 13, color: colors.textPrimary },
-  modalError: { fontSize: 11, color: colors.danger, paddingHorizontal: SPACING.lg - 4, paddingVertical: SPACING.xs },
+  formLabel: { fontSize: fontSizes.badge, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.textSecondary, marginBottom: 2 },
+  formInput: { backgroundColor: colors.bgSubtle, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: SPACING.sm + 2, paddingVertical: SPACING.xs, fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary },
+  modalError: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.danger, paddingHorizontal: SPACING.lg - 4, paddingVertical: SPACING.xs },
   modalFooter: { flexDirection: 'row', justifyContent: 'flex-end', gap: SPACING.xs + 2, paddingHorizontal: SPACING.lg - 4, paddingVertical: SPACING.md, borderTopWidth: 1, borderTopColor: colors.border },
   modalFooterBtn: { padding: SPACING.xs + 2, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.bgSubtle },
   modalFooterBtnPrimary: { backgroundColor: colors.accent, borderColor: colors.accent },
-  modalFooterBtnPrimaryText: { fontSize: 13, color: colors.surface, fontWeight: '600' },
-  modalFooterBtnText: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
-  emptyText: { fontSize: 12, color: colors.textMuted, textAlign: 'center', marginTop: SPACING.md },
+  modalFooterBtnPrimaryText: { fontSize: fontSizes[13], color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  modalFooterBtnText: { fontSize: fontSizes[13], color: colors.textSecondary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, textAlign: 'center', marginTop: SPACING.md },
   filterPanel: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: SPACING.md, marginBottom: SPACING.sm + 2, gap: SPACING.sm },
   filterRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   filterSelect: { width: 150, flexShrink: 1 },
-  filterValueInput: { flex: 1, backgroundColor: colors.bgSubtle, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: SPACING.sm + 2, paddingVertical: SPACING.xs + 2, fontSize: 12, color: colors.textPrimary, minWidth: 80 },
+  filterValueInput: { flex: 1, backgroundColor: colors.bgSubtle, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: SPACING.sm + 2, paddingVertical: SPACING.xs + 2, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary, minWidth: 80 },
   filterRemoveBtn: { padding: SPACING.xs },
   filterActions: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, marginTop: SPACING.xs },
   filterAddBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: SPACING.xs + 1, paddingHorizontal: SPACING.sm + 2, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.accent, borderStyle: 'dashed' },
-  filterAddBtnText: { fontSize: 12, color: colors.accent, fontWeight: '600' },
+  filterAddBtnText: { fontSize: fontSizes[12], color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
   filterClearBtn: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, paddingVertical: SPACING.xs + 1, paddingHorizontal: SPACING.sm + 2 },
-  filterClearBtnText: { fontSize: 12, color: colors.textMuted },
+  filterClearBtnText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
   familiasModalCard: { width: '90%', maxWidth: 520, maxHeight: '80%', backgroundColor: colors.surface, borderRadius: radius.md, overflow: 'hidden' },
   familiasSearchWrap: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.sm + 2, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.bgSubtle },
-  familiasSearchInput: { flex: 1, fontSize: 13, color: colors.textPrimary, paddingVertical: SPACING.xs },
-  familiasCount: { fontSize: 11, color: colors.textMuted, paddingHorizontal: SPACING.lg, paddingTop: SPACING.sm, paddingBottom: SPACING.xs },
+  familiasSearchInput: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, paddingVertical: SPACING.xs },
+  familiasCount: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, paddingHorizontal: SPACING.lg, paddingTop: SPACING.sm, paddingBottom: SPACING.xs },
   familiasTableHeader: { flexDirection: 'row', paddingHorizontal: SPACING.lg, paddingVertical: SPACING.xs + 2, borderBottomWidth: 1, borderBottomColor: colors.borderStrong, backgroundColor: colors.bgSubtle },
-  familiasHeaderCell: { fontSize: 10, fontWeight: '600', color: colors.textSecondary, letterSpacing: 0.3, textTransform: 'uppercase' },
+  familiasHeaderCell: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textSecondary, letterSpacing: 0.3, textTransform: 'uppercase' },
   familiasBody: { maxHeight: 400, paddingHorizontal: 0 },
   familiasRow: { flexDirection: 'row', paddingHorizontal: SPACING.lg, paddingVertical: SPACING.xs + 2, borderBottomWidth: 1, borderBottomColor: colors.borderStrong },
-  familiasCell: { fontSize: 12, color: colors.textPrimary },
-  familiasCellId: { fontSize: 11, color: colors.textSecondary, fontFamily: Platform.OS === 'web' ? 'monospace' : undefined },
+  familiasCell: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textPrimary },
+  familiasCellId: { fontSize: typography.etiqueta.fontSize, color: colors.textSecondary, fontFamily: Platform.OS === 'web' ? 'monospace' : undefined },
 });
