@@ -6,7 +6,14 @@ import { useAuth } from '../../contexts/AuthContext';
 import { EstrellaFavorito } from '../../components/EstrellaFavorito';
 import { FacturacionYtdWidget } from '../../components/FacturacionYtdWidget';
 import { HubNavCard, HubNavGrid } from '../../components/ui/HubNavCard';
-import { SPACING } from '../../constants/theme';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { useHubNavGrid } from '../../hooks/useHubNavGrid';
 import { hubAccentById } from '../../lib/hubNavAccent';
 
@@ -19,18 +26,18 @@ type OpcionCaja = {
 };
 
 const CAJAS_ACCENTS: Record<string, { accentBg: string; accentFg: string; variant?: 'accent' }> = {
-  'arqueo-caja': { accentBg: '#ffedd5', accentFg: '#d97706', variant: 'accent' },
-  'cierres-teoricos': { accentBg: '#e0f2fe', accentFg: '#0ea5e9' },
-  'revision-formas-pago': { accentBg: '#dcfce7', accentFg: '#16a34a' },
+  'arqueo-caja': { accentBg: '#ffedd5', accentFg: colors.warning, variant: 'accent' },
+  'cierres-teoricos': { accentBg: colors.accentMuted, accentFg: colors.accent },
+  'revision-formas-pago': { accentBg: statusColors.success.bg, accentFg: colors.success },
   'movimientos-caja': { accentBg: '#ede9fe', accentFg: '#7c3aed' },
   'revision-cajas': { accentBg: '#ccfbf1', accentFg: '#0d9488' },
   'comparativa-fechas-cajas': { accentBg: '#e0e7ff', accentFg: '#4f46e5' },
   objetivos: { accentBg: '#fce7f3', accentFg: '#db2777' },
   'franjas-horarias': { accentBg: '#d1fae5', accentFg: '#059669' },
-  'prevision-franjas': { accentBg: '#e0f2fe', accentFg: '#0369a1' },
+  'prevision-franjas': { accentBg: colors.accentMuted, accentFg: statusColors.info.text },
   'control-excepciones': { accentBg: '#dbeafe', accentFg: '#2563eb' },
   top: { accentBg: '#cffafe', accentFg: '#0891b2' },
-  cashflow: { accentBg: '#ffedd5', accentFg: '#d97706' },
+  cashflow: { accentBg: '#ffedd5', accentFg: colors.warning },
 };
 
 const OPCIONES: OpcionCaja[] = [
@@ -122,16 +129,35 @@ export default function CajasIndexScreen() {
 }
 
 const styles = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: '#f8fafc' },
-  scrollContent: { padding: SPACING.xl, paddingBottom: 32 },
-  title: { fontSize: 20, fontWeight: '600', color: '#0f172a', marginBottom: 2 },
-  subtitle: { fontSize: 12, fontWeight: '400', color: '#475569', marginBottom: 16 },
-  gridMargin: { marginBottom: 18 },
-  empty: { fontSize: 13, color: '#94a3b8', fontStyle: 'italic', marginBottom: 12 },
+  scroll: { flex: 1, backgroundColor: colors.bg },
+  scrollContent: { padding: SPACING.xl, paddingBottom: 32 }, // 32 sin token
+  title: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes[20],
+    fontWeight: typography.boton.fontWeight,
+    color: colors.textStrong,
+    marginBottom: 2,
+  },
+  subtitle: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[12],
+    fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textPrimary,
+    marginBottom: SPACING.lg,
+  },
+  gridMargin: { marginBottom: 18 }, // sin token: entre SPACING.lg (16) y SPACING.xl (24)
+  empty: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[13],
+    color: colors.textMuted,
+    fontStyle: 'italic',
+    marginBottom: SPACING.md,
+  },
   sectionLabel: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: '#94a3b8',
-    marginBottom: 8,
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[12],
+    fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
+    marginBottom: SPACING.sm,
   },
 });
