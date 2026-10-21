@@ -17,6 +17,15 @@ import { InputFecha } from '../../components/InputFecha';
 import { SelectorDesplegable } from '../../components/SelectorDesplegable';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBreakpoint } from '../../hooks/useBreakpoint';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../constants/theme';
 import { fechaJornadaNegocioIso } from '../../lib/jornadaNegocio';
 import { apiFetch } from '../../utils/api';
 
@@ -75,12 +84,12 @@ type Item = Seleccion & { key: string; estado: EstadoCelda };
 type EstadoCelda = 'sin_arqueo' | 'incidencia' | 'borrador' | 'ok' | 'revisado' | 'vacio';
 
 const STATUS_META: Record<EstadoCelda, { color: string; bg: string; border: string; label: string }> = {
-  sin_arqueo: { color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1', label: 'Sin arqueo' },
-  incidencia: { color: '#dc2626', bg: '#fef2f2', border: '#fecaca', label: 'Incidencia' },
-  borrador: { color: '#b45309', bg: '#fffbeb', border: '#fcd34d', label: 'Borrador' },
-  ok: { color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0', label: 'Cuadra' },
-  revisado: { color: '#15803d', bg: '#dcfce7', border: '#86efac', label: 'Revisada' },
-  vacio: { color: '#cbd5e1', bg: '#f8fafc', border: '#e2e8f0', label: 'Sin datos' },
+  sin_arqueo: { color: colors.textMuted, bg: colors.navActive, border: colors.borderStrong, label: 'Sin arqueo' },
+  incidencia: { color: colors.danger, bg: statusColors.danger.bg, border: '#fecaca', label: 'Incidencia' },
+  borrador: { color: statusColors.warning.text, bg: statusColors.warning.bg, border: '#fcd34d', label: 'Borrador' },
+  ok: { color: colors.success, bg: '#f0fdf4', border: '#bbf7d0', label: 'Cuadra' },
+  revisado: { color: statusColors.success.text, bg: statusColors.success.bg, border: '#86efac', label: 'Revisada' },
+  vacio: { color: colors.borderStrong, bg: colors.bg, border: colors.border, label: 'Sin datos' },
 };
 
 const DIAS_SEMANA = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
@@ -145,8 +154,8 @@ const CHIP_MODO_PASTEL: Record<
   'pendientes' | 'revisadas',
   { bg: string; bgSel: string; border: string; borderSel: string; text: string }
 > = {
-  pendientes: { bg: '#fffbeb', bgSel: '#fde68a', border: '#fde68a', borderSel: '#fcd34d', text: '#92400e' },
-  revisadas: { bg: '#dcfce7', bgSel: '#bbf7d0', border: '#bbf7d0', borderSel: '#86efac', text: '#166534' },
+  pendientes: { bg: statusColors.warning.bg, bgSel: '#fde68a', border: '#fde68a', borderSel: '#fcd34d', text: '#92400e' },
+  revisadas: { bg: statusColors.success.bg, bgSel: '#bbf7d0', border: '#bbf7d0', borderSel: '#86efac', text: '#166534' },
 };
 
 function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
@@ -464,14 +473,14 @@ export default function RevisionCajasScreen() {
           </View>
           {conCerrar ? (
             <TouchableOpacity onPress={() => setSelKey(null)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-              <MaterialIcons name="close" size={24} color="#64748b" />
+              <MaterialIcons name="close" size={24} color={colors.textMuted} />
             </TouchableOpacity>
           ) : null}
         </View>
 
         {t.estadoArqueo === 'sin_arqueo' ? (
           <View style={styles.modalAvisoSin}>
-            <MaterialIcons name="info-outline" size={16} color="#b45309" />
+            <MaterialIcons name="info-outline" size={16} color={statusColors.warning.text} />
             <Text style={styles.modalAvisoSinText}>Hay cierre teórico pero no se ha hecho el arqueo de esta caja.</Text>
           </View>
         ) : (
@@ -535,9 +544,9 @@ export default function RevisionCajasScreen() {
             disabled={accionBusy}
           >
             {accionBusy ? (
-              <ActivityIndicator size="small" color={t.revisado ? '#b45309' : '#fff'} />
+              <ActivityIndicator size="small" color={t.revisado ? statusColors.warning.text : colors.surface} />
             ) : (
-              <MaterialIcons name={t.revisado ? 'undo' : 'verified'} size={18} color={t.revisado ? '#b45309' : '#fff'} />
+              <MaterialIcons name={t.revisado ? 'undo' : 'verified'} size={18} color={t.revisado ? statusColors.warning.text : colors.surface} />
             )}
             <Text style={[styles.accionBtnText, t.revisado ? styles.accionBtnTextQuitar : null]}>
               {t.revisado ? 'Quitar revisión' : 'Marcar como revisada'}
@@ -548,11 +557,11 @@ export default function RevisionCajasScreen() {
 
         <View style={styles.navRow}>
           <TouchableOpacity style={styles.navBtn} onPress={() => irAPantalla('/cajas/arqueo-caja', sel)}>
-            <MaterialIcons name="account-balance-wallet" size={16} color="#0369a1" />
+            <MaterialIcons name="account-balance-wallet" size={16} color={statusColors.info.text} />
             <Text style={styles.navBtnText}>Abrir arqueo</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.navBtn} onPress={() => irAPantalla('/cajas/movimientos-caja', sel)}>
-            <MaterialIcons name="swap-horiz" size={16} color="#0369a1" />
+            <MaterialIcons name="swap-horiz" size={16} color={statusColors.info.text} />
             <Text style={styles.navBtnText}>Movimientos</Text>
           </TouchableOpacity>
         </View>
@@ -614,7 +623,7 @@ export default function RevisionCajasScreen() {
   if (!hasPermiso('cierres.ver')) {
     return (
       <View style={styles.center}>
-        <MaterialIcons name="lock-outline" size={28} color="#94a3b8" />
+        <MaterialIcons name="lock-outline" size={28} color={colors.textMuted} />
         <Text style={styles.errorText}>No tienes permiso para ver esta pantalla.</Text>
       </View>
     );
@@ -625,17 +634,17 @@ export default function RevisionCajasScreen() {
   const listaPanel = (
     <View style={[styles.panelLista, !shouldStackPanels && styles.panelListaBorder]}>
       {loading ? (
-        <View style={styles.center}><ActivityIndicator color="#0ea5e9" /></View>
+        <View style={styles.center}><ActivityIndicator color={colors.accent} /></View>
       ) : (
         <ScrollView style={styles.list} contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled">
           {!hayDatos ? (
             <View style={styles.emptyWrap}>
-              <MaterialIcons name="date-range" size={40} color="#cbd5e1" />
+              <MaterialIcons name="date-range" size={40} color={colors.borderStrong} />
               <Text style={styles.emptyText}>Selecciona un rango de fechas y local con datos para revisar.</Text>
             </View>
           ) : lista.length === 0 ? (
             <View style={styles.emptyWrap}>
-              <MaterialIcons name={modo === 'pendientes' ? 'check-circle' : 'inbox'} size={40} color={modo === 'pendientes' ? '#86efac' : '#cbd5e1'} />
+              <MaterialIcons name={modo === 'pendientes' ? 'check-circle' : 'inbox'} size={40} color={modo === 'pendientes' ? '#86efac' : colors.borderStrong} />
               <Text style={styles.emptyText}>
                 {modo === 'pendientes' ? '¡Todo revisado! No quedan cajas pendientes.' : 'Aún no hay cajas marcadas como revisadas.'}
               </Text>
@@ -644,7 +653,7 @@ export default function RevisionCajasScreen() {
             listaAgrupada.map((g) => (
               <View key={g.workplaceId} style={styles.grupoLocal}>
                 <View style={styles.grupoHeader}>
-                  <MaterialIcons name="store" size={14} color="#64748b" />
+                  <MaterialIcons name="store" size={14} color={colors.textMuted} />
                   <Text style={styles.grupoNombre} numberOfLines={1}>{g.workplaceName}</Text>
                   <View style={styles.grupoCount}>
                     <Text style={styles.grupoCountText}>{g.items.length}</Text>
@@ -665,7 +674,7 @@ export default function RevisionCajasScreen() {
         renderDetalle(seleccion, false)
       ) : (
         <View style={styles.detalleVacio}>
-          <MaterialIcons name="touch-app" size={40} color="#cbd5e1" />
+          <MaterialIcons name="touch-app" size={40} color={colors.borderStrong} />
           <Text style={styles.detalleVacioText}>Selecciona una caja de la lista para revisarla.</Text>
           <Text style={styles.detalleVacioHint}>En escritorio puedes moverte con las flechas ↑ / ↓.</Text>
         </View>
@@ -677,7 +686,7 @@ export default function RevisionCajasScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Revisión de cajas</Text>
         <TouchableOpacity
@@ -689,7 +698,7 @@ export default function RevisionCajasScreen() {
             })
           }
         >
-          <MaterialIcons name="account-balance" size={16} color="#0ea5e9" />
+          <MaterialIcons name="account-balance" size={16} color={colors.accent} />
           <Text style={styles.createBtnOutlineText}>Efectivo a ingresar</Text>
         </TouchableOpacity>
       </View>
@@ -729,7 +738,7 @@ export default function RevisionCajasScreen() {
               onChangeText={setTolStr}
               keyboardType="decimal-pad"
               placeholder="1"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
             />
           </View>
         </View>
@@ -766,11 +775,11 @@ export default function RevisionCajasScreen() {
         </View>
 
         <View style={styles.kpiRow}>
-          <KpiCard label="Pendientes" value={String(resumenKpi.pendientes)} color="#d97706" />
-          <KpiCard label="Revisadas" value={String(resumenKpi.revisadas)} color="#16a34a" />
-          <KpiCard label="Incidencias" value={String(resumenKpi.incidencias)} color="#dc2626" />
+          <KpiCard label="Pendientes" value={String(resumenKpi.pendientes)} color={colors.warning} />
+          <KpiCard label="Revisadas" value={String(resumenKpi.revisadas)} color={colors.success} />
+          <KpiCard label="Incidencias" value={String(resumenKpi.incidencias)} color={colors.danger} />
           <KpiCard label="Sin arqueo" value={String(resumenKpi.sinArqueo)} />
-          <KpiCard label="Cobertura" value={resumenKpi.cobertura} color="#0ea5e9" />
+          <KpiCard label="Cobertura" value={resumenKpi.cobertura} color={colors.accent} />
         </View>
       </View>
 
@@ -800,55 +809,58 @@ export default function RevisionCajasScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  center: { padding: 40, alignItems: 'center', gap: 8 },
-  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12 },
-  emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
+  container: { flex: 1, backgroundColor: colors.bg },
+  center: { padding: 40, alignItems: 'center', gap: SPACING.sm },
+  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: SPACING.md },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center' },
 
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    gap: 12,
+    borderBottomColor: colors.border,
+    gap: SPACING.md,
   },
-  backBtn: { padding: 4 },
-  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#0f172a' },
+  backBtn: { padding: SPACING.xs },
+  headerTitle: { flex: 1, fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
   createBtnOutline: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    gap: SPACING.xs,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    backgroundColor: '#f0f9ff',
+    backgroundColor: colors.accentMuted,
   },
-  createBtnOutlineText: { fontSize: 12, fontWeight: '600', color: '#0ea5e9' },
+  createBtnOutlineText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.accent },
 
   toolbar: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 8,
+    borderBottomColor: colors.border,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    gap: SPACING.sm,
   },
-  filtrosRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 8 },
+  filtrosRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: SPACING.sm },
   filtrosRowStack: { flexDirection: 'column' },
   filtroCol: { flexGrow: 1, flexShrink: 1, minWidth: 120, maxWidth: 170 },
   filtroColWide: { flexGrow: 1, flexShrink: 1, minWidth: 160, maxWidth: 280 },
   filtroColTol: { flexGrow: 0, flexShrink: 0, width: 96 },
-  labelFiltros: { fontSize: 10, fontWeight: '600', color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.3 },
-  inputFechaCompact: { fontSize: 13, paddingVertical: 8, paddingHorizontal: 10, minHeight: 40 },
+  labelFiltros: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, marginBottom: SPACING.xs, textTransform: 'uppercase', letterSpacing: 0.3 },
+  inputFechaCompact: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], paddingVertical: SPACING.sm, paddingHorizontal: 10, minHeight: 40 },
   inputTol: {
-    borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 9,
-    fontSize: 14, color: '#334155', backgroundColor: '#fff', minHeight: 40, textAlign: 'center',
+    borderWidth: 1, borderColor: colors.borderStrong, borderRadius: RADIO_MEDIO, paddingHorizontal: 10, paddingVertical: 9,
+    fontVariant: ['tabular-nums'], fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textPrimary, backgroundColor: colors.surface, minHeight: 40, textAlign: 'center',
   },
 
   chipRowEstado: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
@@ -858,79 +870,79 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingLeft: 10,
     paddingRight: 6,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingVertical: SPACING.xs,
+    borderRadius: radius.lg,
     borderWidth: 1,
   },
-  estadoChipText: { fontSize: 11, fontWeight: '600' },
-  estadoChipTextSel: { fontWeight: '800' },
+  estadoChipText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  estadoChipTextSel: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
   estadoChipCount: {
     minWidth: 20,
     paddingHorizontal: 6,
     paddingVertical: 1,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     backgroundColor: 'rgba(15,23,42,0.06)',
     alignItems: 'center',
   },
   estadoChipCountSel: { backgroundColor: 'rgba(15,23,42,0.10)' },
-  estadoChipCountText: { fontSize: 10, fontWeight: '700' },
+  estadoChipCountText: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
 
   kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   kpiCard: {
     flex: 1,
     minWidth: 88,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 6,
   },
-  kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
-  kpiValue: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginTop: 2 },
+  kpiLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, textTransform: 'uppercase' },
+  kpiValue: { fontVariant: ['tabular-nums'], fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, marginTop: 2 },
 
   errorBar: {
-    marginHorizontal: 16,
-    marginTop: 8,
+    marginHorizontal: SPACING.lg,
+    marginTop: SPACING.sm,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 6,
-    backgroundColor: '#fef2f2',
+    borderRadius: radius.sm,
+    backgroundColor: statusColors.danger.bg,
     borderWidth: 1,
     borderColor: '#fecaca',
   },
-  errorText: { fontSize: 12, color: '#dc2626' },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger },
 
   split: { flex: 1, flexDirection: 'row', minHeight: 0 },
   splitStack: { flexDirection: 'column' },
   panelLista: { flex: 1, minWidth: 0 },
-  panelListaBorder: { borderRightWidth: 1, borderRightColor: '#e2e8f0', maxWidth: 420 },
-  panelDetalle: { flex: 1.2, minWidth: 0, backgroundColor: '#fff' },
+  panelListaBorder: { borderRightWidth: 1, borderRightColor: colors.border, maxWidth: 420 },
+  panelDetalle: { flex: 1.2, minWidth: 0, backgroundColor: colors.surface },
 
   list: { flex: 1 },
-  listContent: { padding: 12, gap: 10, paddingBottom: 24 },
+  listContent: { padding: SPACING.md, gap: 10, paddingBottom: SPACING.xl },
 
-  grupoLocal: { gap: 8 },
+  grupoLocal: { gap: SPACING.sm },
   grupoHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
+    paddingHorizontal: SPACING.xs,
+    paddingVertical: SPACING.xs,
   },
-  grupoNombre: { flex: 1, minWidth: 0, fontSize: 11, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.3 },
+  grupoNombre: { flex: 1, minWidth: 0, fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.3 },
   grupoCount: {
     minWidth: 20,
     paddingHorizontal: 6,
     paddingVertical: 1,
-    borderRadius: 8,
-    backgroundColor: '#e2e8f0',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.border,
     alignItems: 'center',
   },
-  grupoCountText: { fontSize: 10, fontWeight: '700', color: '#475569' },
+  grupoCountText: { fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
 
-  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
-  cardActiva: { borderColor: '#7dd3fc', backgroundColor: '#f0f9ff' },
+  card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
+  cardActiva: { borderColor: '#7dd3fc', backgroundColor: colors.accentMuted },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -938,65 +950,65 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 7,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-    gap: 8,
+    borderBottomColor: colors.navActive,
+    gap: SPACING.sm,
   },
-  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
-  cardTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', flexShrink: 1 },
-  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
-  badgeText: { fontSize: 11, fontWeight: '600' },
-  dotSem: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
-  cardImporte: { fontSize: 13, fontWeight: '700' },
-  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: 8 },
-  cardField: { minWidth: 84, marginRight: 8 },
-  cardFieldLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 1 },
-  cardFieldValue: { fontSize: 13, color: '#334155' },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flex: 1, minWidth: 0 },
+  cardTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, flexShrink: 1 },
+  badge: { paddingHorizontal: SPACING.sm, paddingVertical: 2, borderRadius: radius.md, borderWidth: 1 },
+  badgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  dotSem: { width: 8, height: 8, borderRadius: radius.sm, flexShrink: 0 },
+  cardImporte: { fontVariant: ['tabular-nums'], fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: SPACING.sm },
+  cardField: { minWidth: 84, marginRight: SPACING.sm },
+  cardFieldLabel: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, textTransform: 'uppercase', marginBottom: 1 },
+  cardFieldValue: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary },
 
-  detalleVacio: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8 },
-  detalleVacioText: { fontSize: 14, color: '#94a3b8', textAlign: 'center', fontWeight: '600' },
-  detalleVacioHint: { fontSize: 12, color: '#cbd5e1', textAlign: 'center' },
+  detalleVacio: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: SPACING.sm },
+  detalleVacioText: { fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center', fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  detalleVacioHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.borderStrong, textAlign: 'center' },
   detalleScroll: { padding: 20, maxWidth: 640, width: '100%', alignSelf: 'center' },
 
   modalBackdrop: {
-    flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'center', padding: 16,
+    flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'center', padding: SPACING.lg,
     ...(Platform.OS === 'web' ? { zIndex: 9999 } as object : {}),
   },
   modalSheet: {
-    alignSelf: 'center', width: '100%', maxWidth: 520, backgroundColor: '#fff', borderRadius: 12,
+    alignSelf: 'center', width: '100%', maxWidth: 520, backgroundColor: colors.surface, borderRadius: radius.lg,
     maxHeight: '88%', overflow: 'hidden',
     ...(Platform.OS === 'web' ? { boxShadow: '0 16px 48px rgba(0,0,0,0.2)', zIndex: 10000 } as object : { elevation: 12 }),
   },
-  modalHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 10 },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
-  modalSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  modalAvisoSin: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, backgroundColor: '#fffbeb', borderRadius: 8, borderWidth: 1, borderColor: '#fcd34d', marginBottom: 12 },
-  modalAvisoSinText: { flex: 1, fontSize: 12, color: '#92400e' },
-  modalDescBox: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderRadius: 8, borderWidth: 1, marginBottom: 12 },
+  modalHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: SPACING.sm, marginBottom: 10 },
+  modalTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
+  modalSub: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: 2 },
+  modalAvisoSin: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, padding: 10, backgroundColor: statusColors.warning.bg, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: '#fcd34d', marginBottom: SPACING.md },
+  modalAvisoSinText: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: '#92400e' },
+  modalDescBox: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: SPACING.md, borderRadius: RADIO_MEDIO, borderWidth: 1, marginBottom: SPACING.md },
   modalDescOk: { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' },
-  modalDescBad: { backgroundColor: '#fef2f2', borderColor: '#fecaca' },
-  modalDescLabel: { fontSize: 13, fontWeight: '600', color: '#334155' },
-  modalDescVal: { fontSize: 18, fontWeight: '700' },
-  tablaHead: { flexDirection: 'row', alignItems: 'center', paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  thMetodo: { flex: 1, fontSize: 10, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase' },
-  thNum: { width: 76, fontSize: 10, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', textAlign: 'right' },
-  tablaRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  tdMetodo: { flex: 1, minWidth: 0, fontSize: 13, color: '#334155', fontWeight: '500' },
-  tdNum: { width: 76, fontSize: 13, color: '#334155', textAlign: 'right' },
-  bloque: { marginTop: 12, padding: 10, backgroundColor: '#f8fafc', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0' },
-  bloqueTitle: { fontSize: 12, fontWeight: '700', color: '#334155', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.3 },
-  bloqueLinea: { fontSize: 13, color: '#475569', marginBottom: 2 },
-  bloqueLineaMini: { fontSize: 11, color: '#94a3b8', fontStyle: 'italic', marginTop: 6 },
-  bloqueWarn: { fontSize: 12, color: '#b45309', marginTop: 4 },
-  accionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 16, paddingVertical: 13, borderRadius: 10 },
-  accionBtnRevisar: { backgroundColor: '#16a34a' },
-  accionBtnQuitar: { backgroundColor: '#fffbeb', borderWidth: 1, borderColor: '#fcd34d' },
-  accionBtnText: { fontSize: 14, fontWeight: '700', color: '#fff' },
-  accionBtnTextQuitar: { color: '#b45309' },
+  modalDescBad: { backgroundColor: statusColors.danger.bg, borderColor: '#fecaca' },
+  modalDescLabel: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  modalDescVal: { fontVariant: ['tabular-nums'], fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
+  tablaHead: { flexDirection: 'row', alignItems: 'center', paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: colors.border },
+  thMetodo: { flex: 1, fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, textTransform: 'uppercase' },
+  thNum: { width: 76, fontSize: fontSizes.badge, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, textTransform: 'uppercase', textAlign: 'right' },
+  tablaRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.navActive },
+  tdMetodo: { flex: 1, minWidth: 0, fontSize: fontSizes[13], color: colors.textPrimary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  tdNum: { fontVariant: ['tabular-nums'], width: 76, fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, textAlign: 'right' },
+  bloque: { marginTop: SPACING.md, padding: 10, backgroundColor: colors.bg, borderRadius: RADIO_MEDIO, borderWidth: 1, borderColor: colors.border },
+  bloqueTitle: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.3 },
+  bloqueLinea: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, marginBottom: 2 },
+  bloqueLineaMini: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, fontStyle: 'italic', marginTop: 6 },
+  bloqueWarn: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: statusColors.warning.text, marginTop: SPACING.xs },
+  accionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm, marginTop: SPACING.lg, paddingVertical: 13, borderRadius: radius.md },
+  accionBtnRevisar: { backgroundColor: colors.success },
+  accionBtnQuitar: { backgroundColor: statusColors.warning.bg, borderWidth: 1, borderColor: '#fcd34d' },
+  accionBtnText: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.surface },
+  accionBtnTextQuitar: { color: statusColors.warning.text },
   btnDis: { opacity: 0.6 },
-  revisadoMeta: { fontSize: 11, color: '#94a3b8', textAlign: 'center', marginTop: 6 },
+  revisadoMeta: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, textAlign: 'center', marginTop: 6 },
   navRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  navBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 11, borderRadius: 10, borderWidth: 1, borderColor: '#bae6fd', backgroundColor: '#f0f9ff' },
-  navBtnText: { fontSize: 13, fontWeight: '600', color: '#0369a1' },
+  navBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 11, borderRadius: radius.md, borderWidth: 1, borderColor: '#bae6fd', backgroundColor: colors.accentMuted },
+  navBtnText: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: statusColors.info.text },
   diffOk: { color: '#059669' },
-  diffBad: { color: '#dc2626' },
+  diffBad: { color: colors.danger },
 });
