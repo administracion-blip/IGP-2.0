@@ -34,6 +34,16 @@ import {
 import type { Remesa, EstadoRemesa, FallidaEjecucionRemesa } from '../../../types/remesas';
 import { hoyISO } from '../../../utils/facturaFormLogic';
 import { SoftPulseBorderWrap } from '../../../components/ui/SoftPulseBorderWrap';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  shadow,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../../constants/theme';
 
 export default function RemesasIndexScreen() {
   const router = useRouter();
@@ -139,7 +149,7 @@ export default function RemesasIndexScreen() {
             style={styles.backBtn}
             accessibilityLabel="Volver"
           >
-            <MaterialIcons name="arrow-back" size={22} color="#334155" />
+            <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.title}>Remesas de pago</Text>
         </View>
@@ -148,7 +158,7 @@ export default function RemesasIndexScreen() {
         <View style={[styles.toolbar, shouldStackToolbar && styles.toolbarStack]}>
           <View style={styles.toolbarSpacer} />
           <TouchableOpacity style={styles.btnSecondary} onPress={() => router.push('/facturacion/facturas-gasto' as never)}>
-            <MaterialIcons name="description" size={18} color="#0ea5e9" />
+            <MaterialIcons name="description" size={18} color={colors.accent} />
             <Text style={styles.btnSecondaryText}>Ir a facturas recibidas</Text>
           </TouchableOpacity>
         </View>
@@ -166,12 +176,12 @@ export default function RemesasIndexScreen() {
         </ScrollView>
 
         {loading ? (
-          <ActivityIndicator size="large" color="#0ea5e9" style={{ marginTop: 32 }} />
+          <ActivityIndicator size="large" color={colors.accent} style={{ marginTop: 32 }} />
         ) : error ? (
           <Text style={styles.error}>{error}</Text>
         ) : items.length === 0 ? (
           <View style={styles.empty}>
-            <MaterialIcons name="account-balance" size={48} color="#94a3b8" />
+            <MaterialIcons name="account-balance" size={48} color={colors.textMuted} />
             <Text style={styles.emptyText}>No hay remesas{puedeGestionar ? '. Selecciona facturas en Facturas recibidas.' : '.'}</Text>
           </View>
         ) : (
@@ -197,7 +207,7 @@ export default function RemesasIndexScreen() {
                     <Text style={styles.cardMeta}>{r.lineas?.length || 0} facturas · {formatMoneda(r.importeTotal)}</Text>
                     {numPendientesPago > 0 ? (
                       <View style={styles.badgePendientes}>
-                        <MaterialIcons name="warning-amber" size={14} color="#d97706" />
+                        <MaterialIcons name="warning-amber" size={14} color={colors.warning} />
                         <Text style={styles.badgePendientesText}>
                           Pagos pendientes: {numPendientesPago} {numPendientesPago === 1 ? 'factura' : 'facturas'}
                         </Text>
@@ -214,7 +224,7 @@ export default function RemesasIndexScreen() {
                       disabled={accionando}
                     >
                       {accionando && remesaPago?.remesaId === r.remesaId ? (
-                        <ActivityIndicator size="small" color="#fff" />
+                        <ActivityIndicator size="small" color={colors.surface} />
                       ) : (
                         <Text style={styles.btnSuccessText}>Marcar como pagada</Text>
                       )}
@@ -271,65 +281,62 @@ export default function RemesasIndexScreen() {
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: '#ffffff' },
+  page: { flex: 1, backgroundColor: colors.surface },
   scroll: { flex: 1 },
-  pageContent: { padding: 16, paddingBottom: 40 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  denied: { color: '#64748b', fontSize: 15 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  backBtn: { padding: 4 },
-  toolbar: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'flex-start', marginBottom: 16, gap: 12 },
+  pageContent: { padding: SPACING.lg, paddingBottom: 40 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: SPACING.xl },
+  denied: { fontFamily: fontFamily.regular, color: colors.textMuted, fontSize: fontSizes[16] },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.xs },
+  backBtn: { padding: SPACING.xs },
+  toolbar: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'flex-start', marginBottom: SPACING.lg, gap: SPACING.md },
   toolbarStack: { flexDirection: 'column', alignItems: 'stretch' },
   toolbarSpacer: { flex: 1 },
-  title: { fontSize: 22, fontWeight: '700', color: '#0f172a', flex: 1 },
-  subtitle: { fontSize: 14, color: '#64748b', marginBottom: 12 },
+  title: { fontSize: 22, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, flex: 1 }, // 22: entre fontSizes[20] y [24]
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, marginBottom: SPACING.md },
   btnSecondary: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#fff',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    backgroundColor: colors.surface,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: 8, // entre radius.sm y radius.md,
     borderWidth: 1,
     borderColor: '#bae6fd',
   },
-  btnSecondaryText: { color: '#0ea5e9', fontWeight: '600', fontSize: 14 },
-  filtros: { marginBottom: 16, maxHeight: 44 },
+  btnSecondaryText: { color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, fontSize: fontSizes[14] },
+  filtros: { marginBottom: SPACING.lg, maxHeight: 44 },
   chip: {
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#fff',
-    marginRight: 8,
+    paddingVertical: SPACING.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    marginRight: SPACING.sm,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  chipActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  chipText: { color: '#475569', fontSize: 13, fontWeight: '500' },
-  chipTextActive: { color: '#fff' },
-  error: { color: '#b91c1c', marginTop: 16 },
-  empty: { alignItems: 'center', marginTop: 48, gap: 12 },
-  emptyText: { color: '#64748b', fontSize: 15, textAlign: 'center' },
+  chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  chipText: { color: colors.textPrimary, fontSize: fontSizes[13], fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  chipTextActive: { color: colors.surface },
+  error: { fontFamily: fontFamily.regular, color: statusColors.danger.text, marginTop: SPACING.lg },
+  empty: { alignItems: 'center', marginTop: 48, gap: SPACING.md },
+  emptyText: { fontFamily: fontFamily.regular, color: colors.textMuted, fontSize: fontSizes[16], textAlign: 'center' },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: SPACING.md,
   },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: SPACING.lg,
     minWidth: Platform.OS === 'web' ? 280 : '100%',
     flexGrow: 1,
     flexBasis: 280,
     maxWidth: Platform.OS === 'web' ? 360 : '100%',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    ...Platform.select({
-      web: { boxShadow: '0 1px 3px rgba(0,0,0,0.06)' as unknown as undefined },
-      default: {},
-    }),
+    borderColor: colors.border,
+    ...shadow.card,
   },
   cardLaser: {
     minWidth: Platform.OS === 'web' ? 280 : '100%',
@@ -346,38 +353,38 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
     ...Platform.select({
       web: { boxShadow: 'none' as unknown as undefined },
-      default: {},
+      default: { elevation: 0, shadowOpacity: 0 },
     }),
   },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 8 },
-  cardTitle: { fontSize: 16, fontWeight: '600', color: '#0f172a', flex: 1 },
-  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  badgeText: { fontSize: 11, fontWeight: '600' },
-  cardMeta: { fontSize: 13, color: '#475569', marginBottom: 2 },
-  cardDate: { fontSize: 12, color: '#94a3b8', marginTop: 8 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: SPACING.sm, marginBottom: SPACING.sm },
+  cardTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textStrong, flex: 1 },
+  badge: { paddingHorizontal: SPACING.sm, paddingVertical: 3, borderRadius: radius.sm },
+  badgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  cardMeta: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, marginBottom: 2 },
+  cardDate: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, marginTop: SPACING.sm },
   badgePendientes: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    gap: 4,
+    gap: SPACING.xs,
     marginTop: 6,
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: '#fcd34d',
-    backgroundColor: '#fffbeb',
+    backgroundColor: statusColors.warning.bg,
   },
-  badgePendientesText: { fontSize: 12, fontWeight: '700', color: '#d97706' },
+  badgePendientesText: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.warning },
   btnSuccess: {
-    marginTop: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#16a34a',
+    marginTop: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: 8, // entre radius.sm y radius.md,
+    backgroundColor: colors.success,
     alignItems: 'center',
     alignSelf: 'flex-start',
   },
-  btnSuccessText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+  btnSuccessText: { color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, fontSize: fontSizes[13] },
   btnDisabled: { opacity: 0.7 },
 });
