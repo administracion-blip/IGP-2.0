@@ -18,6 +18,15 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import { MIN_TOUCH } from '../constants/layout';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../constants/theme';
 import { apiFetch } from '../utils/api';
 
 const COLUMNAS: { key: string; label: string; width: number }[] = [
@@ -141,13 +150,13 @@ export default function UsuariosAgoraScreen() {
 
       <View style={[styles.toolbar, shouldStackToolbar && styles.toolbarStacked]}>
         <View style={[styles.searchWrap, shouldStackToolbar && styles.searchWrapStacked]}>
-          <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
+          <MaterialIcons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             value={filtroBusqueda}
             onChangeText={setFiltroBusqueda}
             placeholder="Buscar en la tabla…"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
           />
         </View>
         <View style={styles.toolbarActions}>
@@ -159,9 +168,9 @@ export default function UsuariosAgoraScreen() {
               activeOpacity={0.8}
             >
               {sincronizando ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <ActivityIndicator size="small" color={colors.surface} />
               ) : (
-                <MaterialIcons name="sync" size={18} color="#fff" />
+                <MaterialIcons name="sync" size={18} color={colors.surface} />
               )}
               <Text style={styles.syncBtnText}>{sincronizando ? 'Sincronizando…' : 'Sincronizar'}</Text>
             </TouchableOpacity>
@@ -173,9 +182,9 @@ export default function UsuariosAgoraScreen() {
             accessibilityLabel="Actualizar"
           >
             {loading ? (
-              <ActivityIndicator size="small" color="#0ea5e9" />
+              <ActivityIndicator size="small" color={colors.accent} />
             ) : (
-              <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
+              <MaterialIcons name="refresh" size={20} color={colors.accent} />
             )}
           </TouchableOpacity>
         </View>
@@ -183,7 +192,7 @@ export default function UsuariosAgoraScreen() {
 
       {error ? (
         <View style={styles.bannerError}>
-          <MaterialIcons name="error-outline" size={16} color="#dc2626" />
+          <MaterialIcons name="error-outline" size={16} color={colors.danger} />
           <Text style={styles.bannerErrorText}>{error}</Text>
           <TouchableOpacity onPress={cargar}>
             <Text style={styles.retryLink}>Reintentar</Text>
@@ -193,7 +202,7 @@ export default function UsuariosAgoraScreen() {
 
       {loading && usuarios.length === 0 ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#0ea5e9" />
+          <ActivityIndicator size="large" color={colors.accent} />
           <Text style={styles.loadingText}>Cargando usuarios Ágora…</Text>
         </View>
       ) : (
@@ -295,19 +304,22 @@ export default function UsuariosAgoraScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 12, backgroundColor: '#f8fafc', minHeight: 0 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 10 },
+  container: { flex: 1, padding: SPACING.md, backgroundColor: colors.bg, minHeight: 0 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md, gap: 10 },
   backBtn: {
     width: 36,
     height: 36,
     padding: 0,
-    borderRadius: 8,
-    backgroundColor: '#ffffff',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#eef1f5',
+    borderColor: colors.border,
   },
   backBtnPhone: {
     width: MIN_TOUCH,
@@ -315,17 +327,17 @@ const styles = StyleSheet.create({
     minWidth: MIN_TOUCH,
     minHeight: MIN_TOUCH,
   },
-  title: { fontSize: 20, fontWeight: '600', lineHeight: 26, color: '#0f172a' },
-  subtitle: { fontSize: 12, fontWeight: '400', color: '#64748b', marginTop: 2 },
+  title: { fontSize: fontSizes[20], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, lineHeight: 26, color: colors.textStrong },
+  subtitle: { fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted, marginTop: 2 },
   toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     marginBottom: 10,
     flexWrap: 'wrap',
   },
   toolbarStacked: { flexDirection: 'column', alignItems: 'stretch' },
-  toolbarActions: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  toolbarActions: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flexWrap: 'wrap' },
   searchWrap: {
     flex: 1,
     minWidth: 160,
@@ -333,110 +345,110 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     height: 36,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    backgroundColor: '#ffffff',
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.sm,
+    backgroundColor: colors.surface,
   },
   searchWrapStacked: { maxWidth: '100%', width: '100%', flexGrow: 1 },
   searchIcon: { marginRight: 6 },
-  searchInput: { flex: 1, fontSize: 12, fontWeight: '400', color: '#0f172a', paddingVertical: 0 },
+  searchInput: { flex: 1, fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textStrong, paddingVertical: 0 },
   lastSync: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: '#64748b',
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textMuted,
     ...(Platform.OS === 'web' ? { whiteSpace: 'nowrap' as unknown as 'normal' } : {}),
   },
   syncBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#0ea5e9',
+    backgroundColor: colors.accent,
     paddingVertical: 7,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIO_MEDIO,
   },
   syncBtnPhone: { minHeight: MIN_TOUCH },
   syncBtnDisabled: { opacity: 0.6 },
-  syncBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+  syncBtnText: { color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, fontSize: fontSizes[13] },
   refreshBtn: {
     padding: 6,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    backgroundColor: '#ffffff',
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
   },
   refreshBtnPhone: { minHeight: MIN_TOUCH, minWidth: MIN_TOUCH, alignItems: 'center', justifyContent: 'center' },
   bannerError: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    padding: 8,
-    backgroundColor: '#fef2f2',
-    borderRadius: 8,
+    gap: SPACING.sm,
+    padding: SPACING.sm,
+    backgroundColor: statusColors.danger.bg,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#fecaca',
-    marginBottom: 8,
+    marginBottom: SPACING.sm,
   },
-  bannerErrorText: { fontSize: 12, fontWeight: '400', color: '#dc2626', flex: 1 },
-  retryLink: { fontSize: 12, fontWeight: '400', color: '#0ea5e9' },
+  bannerErrorText: { fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.danger, flex: 1 },
+  retryLink: { fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.accent },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
-  loadingText: { marginTop: 8, fontSize: 12, fontWeight: '400', color: '#64748b' },
+  loadingText: { marginTop: SPACING.sm, fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: SPACING.md,
     marginBottom: 6,
     flexWrap: 'wrap',
   },
-  countText: { fontSize: 12, fontWeight: '400', color: '#64748b' },
-  table: { borderColor: '#eef1f5' },
+  countText: { fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, color: colors.textMuted },
+  table: { borderColor: colors.border },
   rowHeader: {
-    backgroundColor: '#f8fafc',
-    borderBottomColor: '#eef1f5',
+    backgroundColor: colors.bg,
+    borderBottomColor: colors.border,
   },
-  cellHeader: { borderRightColor: '#eef1f5' },
+  cellHeader: { borderRightColor: colors.border },
   cellHeaderText: {
-    fontSize: 11,
-    fontWeight: '400',
+    fontSize: typography.etiqueta.fontSize,
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
     lineHeight: 14,
     letterSpacing: 0.1,
-    color: '#94a3b8',
+    color: colors.textMuted,
     textTransform: 'none',
   },
-  row: { borderBottomColor: '#eef1f5', backgroundColor: '#ffffff' },
-  cell: { borderRightColor: '#eef1f5' },
+  row: { borderBottomColor: colors.border, backgroundColor: colors.surface },
+  cell: { borderRightColor: colors.border },
   cellText: {
-    fontSize: 12,
-    fontWeight: '400',
+    fontSize: fontSizes[12],
+    fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight,
     lineHeight: 16,
-    color: '#475569',
+    color: colors.textPrimary,
   },
   chipActivo: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 2,
-    borderRadius: 999,
+    borderRadius: radius.pill,
   },
   chipActivoSi: { backgroundColor: '#d1fae5' },
-  chipActivoNo: { backgroundColor: '#fee2e2' },
-  chipActivoText: { fontSize: 12, fontWeight: '400', lineHeight: 16 },
+  chipActivoNo: { backgroundColor: statusColors.danger.bg },
+  chipActivoText: { fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, lineHeight: 16 },
   chipActivoTextSi: { color: '#047857' },
-  chipActivoTextNo: { color: '#b91c1c' },
+  chipActivoTextNo: { color: statusColors.danger.text },
   resultadoSync: {
     position: 'absolute',
     bottom: 12,
     right: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: SPACING.md,
     backgroundColor: '#ccfbf1',
     borderColor: '#5eead4',
     borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    borderRadius: RADIO_MEDIO,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
     maxWidth: 480,
   },
-  resultadoSyncText: { color: '#0f766e', fontSize: 12, fontWeight: '400', flexShrink: 1 },
+  resultadoSyncText: { color: '#0f766e', fontSize: fontSizes[12], fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight, flexShrink: 1 },
 });
