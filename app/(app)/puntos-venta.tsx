@@ -18,6 +18,15 @@ import {
 } from '../constants/erpListTableStyles';
 import { MIN_TOUCH } from '../constants/layout';
 import { useBreakpoint } from '../hooks/useBreakpoint';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../constants/theme';
 import { useAuth } from '../contexts/AuthContext';
 import { SelectorDesplegable, type OpcionDesplegable } from '../components/SelectorDesplegable';
 import { apiFetch, errorMessage } from '../utils/api';
@@ -407,7 +416,7 @@ export default function PuntosVentaScreen() {
   if (loading && saleCenters.length === 0) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#0ea5e9" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text style={styles.loadingText}>Cargando puntos de venta…</Text>
       </View>
     );
@@ -416,10 +425,10 @@ export default function PuntosVentaScreen() {
   if (error && saleCenters.length === 0) {
     return (
       <View style={styles.center}>
-        <MaterialIcons name="error-outline" size={48} color="#f87171" />
+        <MaterialIcons name="error-outline" size={48} color={colors.danger} />
         <Text style={styles.errorText}>{error}</Text>
         <TouchableOpacity style={styles.retryBtn} onPress={() => refetch()}>
-          <MaterialIcons name="refresh" size={20} color="#0ea5e9" />
+          <MaterialIcons name="refresh" size={20} color={colors.accent} />
           <Text style={styles.retryBtnText}>Reintentar</Text>
         </TouchableOpacity>
       </View>
@@ -430,7 +439,7 @@ export default function PuntosVentaScreen() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} accessibilityLabel="Volver">
-          <MaterialIcons name="arrow-back" size={22} color="#334155" />
+          <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Puntos de venta</Text>
         <View style={styles.headerSpacer} />
@@ -442,9 +451,9 @@ export default function PuntosVentaScreen() {
             accessibilityLabel="Sincronizar"
           >
             {syncing ? (
-              <ActivityIndicator size="small" color="#0ea5e9" />
+              <ActivityIndicator size="small" color={colors.accent} />
             ) : (
-              <MaterialIcons name="sync" size={20} color="#0ea5e9" />
+              <MaterialIcons name="sync" size={20} color={colors.accent} />
             )}
             <Text style={styles.syncBtnText}>{syncing ? 'Sincronizando…' : 'Sincronizar'}</Text>
           </TouchableOpacity>
@@ -481,16 +490,16 @@ export default function PuntosVentaScreen() {
       {pestana === 'tarifas' ? (
         <View style={styles.tabPanel}>
           <View style={styles.tarifaHeader}>
-            <MaterialIcons name="sell" size={18} color="#0ea5e9" />
+            <MaterialIcons name="sell" size={18} color={colors.accent} />
             <Text style={styles.tarifaTitle}>Tarifa de venta por local</Text>
-            {loadingTarifas ? <ActivityIndicator size="small" color="#0ea5e9" /> : null}
+            {loadingTarifas ? <ActivityIndicator size="small" color={colors.accent} /> : null}
           </View>
           <Text style={styles.tarifaHelp}>
             Elige el centro de venta de Ágora de cada local. Esa tarifa es la que usa Escandallos para el P. venta.
           </Text>
           {!puedeEditarTarifa ? (
             <View style={styles.tarifaSoloLecturaBanner}>
-              <MaterialIcons name="visibility" size={16} color="#d97706" />
+              <MaterialIcons name="visibility" size={16} color={colors.warning} />
               <Text style={styles.tarifaSoloLectura}>
                 Solo lectura: no tienes permiso para cambiar la asignación.
               </Text>
@@ -498,13 +507,13 @@ export default function PuntosVentaScreen() {
           ) : null}
 
           <View style={styles.searchWrap}>
-            <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
+            <MaterialIcons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
             <TextInput
               style={styles.searchInput}
               value={filtroLocalTarifa}
               onChangeText={setFiltroLocalTarifa}
               placeholder="Buscar local…"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textMuted}
             />
           </View>
 
@@ -512,7 +521,7 @@ export default function PuntosVentaScreen() {
             <View style={styles.tarifaErrorRow}>
               <Text style={styles.tarifaErrorText}>{errorTarifas}</Text>
               <TouchableOpacity style={styles.tarifaRetryBtn} onPress={() => cargarTarifas()}>
-                <MaterialIcons name="refresh" size={16} color="#0ea5e9" />
+                <MaterialIcons name="refresh" size={16} color={colors.accent} />
                 <Text style={styles.tarifaRetryText}>Reintentar</Text>
               </TouchableOpacity>
             </View>
@@ -570,7 +579,7 @@ export default function PuntosVentaScreen() {
                       />
                       <View style={styles.tarifaChipWrap}>
                         {guardandoLocalId === local.id ? (
-                          <ActivityIndicator size="small" color="#0ea5e9" />
+                          <ActivityIndicator size="small" color={colors.accent} />
                         ) : (
                           <View style={[styles.tarifaChip, !tieneTarifa && styles.tarifaChipVacio]}>
                             <Text
@@ -593,13 +602,13 @@ export default function PuntosVentaScreen() {
         <View style={styles.tabPanel}>
           <View style={styles.tpvToolbar}>
             <View style={[styles.searchWrap, styles.searchWrapTpv]}>
-              <MaterialIcons name="search" size={18} color="#64748b" style={styles.searchIcon} />
+              <MaterialIcons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
               <TextInput
                 style={styles.searchInput}
                 value={filtroBusqueda}
                 onChangeText={setFiltroBusqueda}
                 placeholder="Buscar en la tabla…"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
               />
             </View>
           </View>
@@ -688,7 +697,7 @@ export default function PuntosVentaScreen() {
                                     <MaterialIcons
                                       name={activo ? 'check-box' : 'check-box-outline-blank'}
                                       size={16}
-                                      color={activo ? '#0ea5e9' : '#94a3b8'}
+                                      color={activo ? colors.accent : colors.textMuted}
                                     />
                                   </TouchableOpacity>
                                 ) : (
@@ -711,13 +720,13 @@ export default function PuntosVentaScreen() {
           {filtrados.length > PAGE_SIZE ? (
             <View style={styles.paginationRow}>
               <TouchableOpacity style={[styles.pageBtn, safePage <= 1 && styles.pageBtnDisabled]} onPress={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}>
-                <MaterialIcons name="chevron-left" size={20} color={safePage <= 1 ? '#94a3b8' : '#334155'} />
+                <MaterialIcons name="chevron-left" size={20} color={safePage <= 1 ? colors.textMuted : colors.textPrimary} />
                 <Text style={[styles.pageBtnText, safePage <= 1 && styles.pageBtnTextDisabled]}>Anterior</Text>
               </TouchableOpacity>
               <Text style={styles.pageInfo}>{(safePage - 1) * PAGE_SIZE + 1}-{Math.min(safePage * PAGE_SIZE, filtrados.length)} de {filtrados.length}</Text>
               <TouchableOpacity style={[styles.pageBtn, safePage >= totalPages && styles.pageBtnDisabled]} onPress={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}>
                 <Text style={[styles.pageBtnText, safePage >= totalPages && styles.pageBtnTextDisabled]}>Siguiente</Text>
-                <MaterialIcons name="chevron-right" size={20} color={safePage >= totalPages ? '#94a3b8' : '#334155'} />
+                <MaterialIcons name="chevron-right" size={20} color={safePage >= totalPages ? colors.textMuted : colors.textPrimary} />
               </TouchableOpacity>
             </View>
           ) : null}
@@ -727,26 +736,29 @@ export default function PuntosVentaScreen() {
   );
 }
 
+/** Entre radius.sm (6) y radius.md (10). */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 10, minHeight: 0 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10 },
-  loadingText: { fontSize: 12, color: '#64748b' },
-  errorText: { fontSize: 12, color: '#f87171', textAlign: 'center' },
+  loadingText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  errorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, textAlign: 'center' },
   retryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginTop: 8,
-    padding: 8,
-    backgroundColor: '#f8fafc',
-    borderRadius: 8,
+    marginTop: SPACING.sm,
+    padding: SPACING.sm,
+    backgroundColor: colors.bg,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
   },
-  retryBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '500' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 },
+  retryBtnText: { fontSize: fontSizes[12], color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm, gap: SPACING.sm },
   backBtn: { padding: 4, minHeight: MIN_TOUCH, minWidth: MIN_TOUCH, justifyContent: 'center', alignItems: 'center' },
-  title: { fontSize: 18, fontWeight: '700', color: '#334155' },
+  title: { fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
   headerSpacer: { flex: 1 },
   syncBtn: {
     flexDirection: 'row',
@@ -754,128 +766,128 @@ const styles = StyleSheet.create({
     gap: 6,
     minHeight: MIN_TOUCH,
     paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    backgroundColor: '#ffffff',
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
   },
-  syncBtnText: { fontSize: 12, color: '#0ea5e9', fontWeight: '600' },
-  syncErrorText: { fontSize: 12, color: '#f87171', marginBottom: 8 },
+  syncBtnText: { fontSize: fontSizes[12], color: colors.accent, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  syncErrorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, marginBottom: SPACING.sm },
   tabsRow: {
     flexDirection: 'row',
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    marginBottom: 12,
+    borderBottomColor: colors.border,
+    marginBottom: SPACING.md,
   },
   tab: {
     flex: 1,
     minHeight: MIN_TOUCH,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
   },
-  tabActive: { borderBottomColor: '#0ea5e9' },
-  tabText: { fontSize: 13, fontWeight: '500', color: '#94a3b8' },
-  tabTextActive: { fontWeight: '700', color: '#0ea5e9' },
-  tabPanel: { flex: 1, minHeight: 0, gap: 8 },
+  tabActive: { borderBottomColor: colors.accent },
+  tabText: { fontSize: fontSizes[13], fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight, color: colors.textMuted },
+  tabTextActive: { fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.accent },
+  tabPanel: { flex: 1, minHeight: 0, gap: SPACING.sm },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     minHeight: MIN_TOUCH,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    paddingHorizontal: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.sm,
   },
   searchWrapTpv: { flex: 1, maxWidth: 320 },
   searchIcon: { marginRight: 6 },
-  searchInput: { flex: 1, fontSize: 13, color: '#334155', paddingVertical: 0 },
+  searchInput: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary, paddingVertical: 0 },
   tpvToolbar: { flexDirection: 'row', alignItems: 'center' },
-  subtitle: { fontSize: 12, color: '#64748b' },
-  subtitlePage: { fontSize: 11, color: '#94a3b8' },
+  subtitle: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  subtitlePage: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted },
   tableFlex: { flex: 1, minHeight: 0 },
   paginationRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
-    marginTop: 4,
-    marginBottom: 4,
+    gap: SPACING.lg,
+    marginTop: SPACING.xs,
+    marginBottom: SPACING.xs,
   },
   pageBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     minHeight: MIN_TOUCH,
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.bg,
   },
   pageBtnDisabled: { opacity: 0.6 },
-  pageBtnText: { fontSize: 12, color: '#334155', fontWeight: '500' },
-  pageBtnTextDisabled: { color: '#94a3b8' },
-  pageInfo: { fontSize: 12, color: '#64748b' },
+  pageBtnText: { fontSize: fontSizes[12], color: colors.textPrimary, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  pageBtnTextDisabled: { color: colors.textMuted },
+  pageInfo: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
   tarifaHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  tarifaTitle: { fontSize: 15, fontWeight: '700', color: '#334155' },
-  tarifaHelp: { fontSize: 12, color: '#64748b', lineHeight: 18 },
+  tarifaTitle: { fontSize: fontSizes[16], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textPrimary },
+  tarifaHelp: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted, lineHeight: 18 },
   tarifaSoloLecturaBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
+    gap: SPACING.sm,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 10,
-    backgroundColor: '#fffbeb',
+    backgroundColor: statusColors.warning.bg,
     borderWidth: 1,
     borderColor: '#fde68a',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
   },
-  tarifaSoloLectura: { flex: 1, fontSize: 12, color: '#d97706' },
+  tarifaSoloLectura: { flex: 1, fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.warning },
   tarifaErrorRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
-  tarifaErrorText: { fontSize: 12, color: '#f87171', flexShrink: 1 },
+  tarifaErrorText: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.danger, flexShrink: 1 },
   tarifaRetryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     minHeight: MIN_TOUCH,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.bg,
   },
-  tarifaRetryText: { fontSize: 12, color: '#0ea5e9', fontWeight: '500' },
-  tarifaVacio: { fontSize: 12, color: '#94a3b8' },
+  tarifaRetryText: { fontSize: fontSizes[12], color: colors.accent, fontFamily: fontFamily.medium, fontWeight: typography.nav.fontWeight },
+  tarifaVacio: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
   tarifaScroll: { flex: 1, minHeight: 0 },
-  tarifaLista: { gap: 8, paddingBottom: 8 },
+  tarifaLista: { gap: SPACING.sm, paddingBottom: SPACING.sm },
   tarifaRow: {
     position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: SPACING.md,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    backgroundColor: '#ffffff',
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
     minHeight: MIN_TOUCH,
   },
-  tarifaRowStack: { flexDirection: 'column', alignItems: 'stretch', gap: 8 },
+  tarifaRowStack: { flexDirection: 'column', alignItems: 'stretch', gap: SPACING.sm },
   tarifaLocalNombre: {
     width: '28%',
     minWidth: 120,
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#334155',
+    fontSize: fontSizes[13],
+    fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight,
+    color: colors.textPrimary,
   },
   tarifaLocalNombreStack: { width: '100%', minWidth: 0 },
   tarifaControl: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -886,15 +898,15 @@ const styles = StyleSheet.create({
   tarifaChip: {
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: '#dcfce7',
+    borderRadius: radius.pill,
+    backgroundColor: statusColors.success.bg,
   },
-  tarifaChipVacio: { backgroundColor: '#f1f5f9' },
-  tarifaChipText: { fontSize: 12, fontWeight: '600', color: '#16a34a' },
-  tarifaChipTextVacio: { color: '#94a3b8', fontStyle: 'italic', fontWeight: '400' },
+  tarifaChipVacio: { backgroundColor: colors.navActive },
+  tarifaChipText: { fontSize: fontSizes[12], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.success },
+  tarifaChipTextVacio: { color: colors.textMuted, fontStyle: 'italic', fontFamily: fontFamily.regular, fontWeight: typography.cuerpo.fontWeight },
   cellHeaderCenter: { alignItems: 'center' },
   cellCenter: { alignItems: 'center', justifyContent: 'center' },
-  rowInactiva: { backgroundColor: '#f8fafc' },
-  cellTextInactiva: { color: '#94a3b8' },
+  rowInactiva: { backgroundColor: colors.bg },
+  cellTextInactiva: { color: colors.textMuted },
   checkboxTouch: { padding: 2, minHeight: MIN_TOUCH, minWidth: MIN_TOUCH, justifyContent: 'center', alignItems: 'center' },
 });
