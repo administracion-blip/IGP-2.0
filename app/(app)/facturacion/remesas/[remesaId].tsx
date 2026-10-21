@@ -17,6 +17,15 @@ import * as FileSystemLegacy from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useBreakpoint } from '../../../hooks/useBreakpoint';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../../../constants/theme';
 import { apiFetch } from '../../../utils/api';
 import { formatMoneda } from '../../../utils/facturacion';
 import { formatFecha } from '../../../utils/formatFecha';
@@ -489,7 +498,7 @@ export default function RemesaDetalleScreen() {
   const renderHeader = (titulo: string, estado?: Remesa['estado']) => (
     <View style={styles.header}>
       <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} accessibilityLabel="Volver">
-        <MaterialIcons name="arrow-back" size={22} color="#334155" />
+        <MaterialIcons name="arrow-back" size={22} color={colors.textPrimary} />
       </TouchableOpacity>
       <Text style={styles.headerTitle} numberOfLines={2}>{titulo}</Text>
       {estado ? (
@@ -518,7 +527,7 @@ export default function RemesaDetalleScreen() {
       <View style={styles.container}>
         {renderHeader('Remesa de pago')}
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#0ea5e9" />
+          <ActivityIndicator size="large" color={colors.accent} />
         </View>
       </View>
     );
@@ -529,7 +538,7 @@ export default function RemesaDetalleScreen() {
       <View style={styles.container}>
         {renderHeader('Remesa de pago')}
         <View style={styles.centered}>
-          <MaterialIcons name="error-outline" size={40} color="#fca5a5" />
+          <MaterialIcons name="error-outline" size={40} color={colors.danger} />
           <Text style={styles.error}>{error || 'Remesa no encontrada'}</Text>
           <TouchableOpacity style={styles.btnOutline} onPress={() => router.back()}>
             <Text style={styles.btnOutlineText}>Volver</Text>
@@ -561,15 +570,15 @@ export default function RemesaDetalleScreen() {
           <KpiCard label="Ordenante" value={remesa.sociedadNombre || '—'} />
           <KpiCard label="CIF" value={remesa.sociedadCif || '—'} />
           <KpiCard label="Cuenta" value={remesa.cuentaOrdenante || '—'} />
-          <KpiCard label={remesa.fechaEjecucion ? 'Ejecución' : 'Envío'} value={envioLabel} color="#0ea5e9" />
-          <KpiCard label="Total remesa" value={formatMoneda(remesa.importeTotal)} color="#16a34a" />
+          <KpiCard label={remesa.fechaEjecucion ? 'Ejecución' : 'Envío'} value={envioLabel} color={colors.accent} />
+          <KpiCard label="Total remesa" value={formatMoneda(remesa.importeTotal)} color={colors.success} />
           <KpiCard label="Líneas" value={String(lineasEdit.length)} />
         </View>
 
         <View style={[styles.actions, shouldStackToolbar && styles.actionsStack]}>
           {puedeGestionar && remesa.estado !== 'Ejecutada' && remesa.estado !== 'Anulada' ? (
             <TouchableOpacity style={styles.btnPrimary} onPress={descargarFichero} disabled={accionando}>
-              <MaterialIcons name="download" size={16} color="#fff" />
+              <MaterialIcons name="download" size={16} color={colors.surface} />
               <Text style={styles.btnPrimaryText}>Descargar fichero BBVA</Text>
             </TouchableOpacity>
           ) : null}
@@ -590,7 +599,7 @@ export default function RemesaDetalleScreen() {
           ) : null}
           {puedeEjecutar && pendientesPago.length > 0 ? (
             <TouchableOpacity style={styles.btnWarning} onPress={abrirModalPagar} disabled={accionando}>
-              <MaterialIcons name="replay" size={16} color="#fff" />
+              <MaterialIcons name="replay" size={16} color={colors.surface} />
               <Text style={styles.btnSuccessText}>Reintentar pagos pendientes</Text>
             </TouchableOpacity>
           ) : null}
@@ -609,7 +618,7 @@ export default function RemesaDetalleScreen() {
         {pendientesPago.length > 0 ? (
           <View style={styles.avisoPendientes}>
             <View style={styles.avisoPendientesHeader}>
-              <MaterialIcons name="warning-amber" size={18} color="#d97706" />
+              <MaterialIcons name="warning-amber" size={18} color={colors.warning} />
               <Text style={styles.avisoPendientesTitulo}>
                 Pagos pendientes: {pendientesPago.length} {pendientesPago.length === 1 ? 'factura' : 'facturas'}
                 {' · '}{formatMoneda(importePendientePago)}
@@ -634,7 +643,7 @@ export default function RemesaDetalleScreen() {
                   value={motivoDescarte}
                   onChangeText={(t) => setMotivoDescarte(t.slice(0, 300))}
                   placeholder="Motivo del descarte (opcional)"
-                  placeholderTextColor="#b45309"
+                  placeholderTextColor={statusColors.warning.text}
                   editable={!accionando}
                 />
                 <TouchableOpacity
@@ -643,9 +652,9 @@ export default function RemesaDetalleScreen() {
                   disabled={accionando}
                 >
                   {descartandoId === 'todas' ? (
-                    <ActivityIndicator size="small" color="#b45309" />
+                    <ActivityIndicator size="small" color={statusColors.warning.text} />
                   ) : (
-                    <MaterialIcons name="playlist-remove" size={16} color="#b45309" />
+                    <MaterialIcons name="playlist-remove" size={16} color={statusColors.warning.text} />
                   )}
                   <Text style={styles.btnDescartarText}>Descartar pendientes</Text>
                 </TouchableOpacity>
@@ -663,14 +672,14 @@ export default function RemesaDetalleScreen() {
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
         {lineasEdit.length === 0 ? (
           <View style={styles.emptyWrap}>
-            <MaterialIcons name="receipt-long" size={40} color="#cbd5e1" />
+            <MaterialIcons name="receipt-long" size={40} color={colors.borderStrong} />
             <Text style={styles.emptyText}>No hay líneas en esta remesa.</Text>
           </View>
         ) : (
           lineasEdit.map((l) => {
             const pendiente = l.saldoPendiente ?? l.importeMaximo ?? 0;
             const importeOk = (l.importe ?? 0) > 0 && (l.importe ?? 0) <= pendiente;
-            const semColor = importeOk ? '#16a34a' : '#d97706';
+            const semColor = importeOk ? colors.success : colors.warning;
             return (
               <View key={l.id_factura} style={styles.card}>
                 <View style={styles.cardHeader}>
@@ -693,9 +702,9 @@ export default function RemesaDetalleScreen() {
                         >
                           <Text style={styles.badgePendientePagoText}>Pago pendiente</Text>
                           {descartandoId === String(l.id_factura) ? (
-                            <ActivityIndicator size="small" color="#d97706" />
+                            <ActivityIndicator size="small" color={colors.warning} />
                           ) : (
-                            <MaterialIcons name="close" size={14} color="#d97706" />
+                            <MaterialIcons name="close" size={14} color={colors.warning} />
                           )}
                         </TouchableOpacity>
                       ) : (
@@ -713,9 +722,9 @@ export default function RemesaDetalleScreen() {
                       accessibilityLabel="Ver documento"
                     >
                       {viendoDocId === l.id_factura ? (
-                        <ActivityIndicator size="small" color="#475569" />
+                        <ActivityIndicator size="small" color={colors.textPrimary} />
                       ) : (
-                        <MaterialIcons name="visibility" size={18} color="#475569" />
+                        <MaterialIcons name="visibility" size={18} color={colors.textPrimary} />
                       )}
                       <Text style={styles.cardActionText}>Ver</Text>
                     </TouchableOpacity>
@@ -727,9 +736,9 @@ export default function RemesaDetalleScreen() {
                         accessibilityLabel="Quitar de la remesa"
                       >
                         {quitandoId === l.id_factura ? (
-                          <ActivityIndicator size="small" color="#dc2626" />
+                          <ActivityIndicator size="small" color={colors.danger} />
                         ) : (
-                          <MaterialIcons name="remove-circle-outline" size={18} color="#dc2626" />
+                          <MaterialIcons name="remove-circle-outline" size={18} color={colors.danger} />
                         )}
                         <Text style={[styles.cardActionText, styles.cardActionTextDanger]}>Quitar</Text>
                       </TouchableOpacity>
@@ -861,55 +870,58 @@ export default function RemesaDetalleScreen() {
   );
 }
 
+/** Radio 8: entre `radius.sm` (6) y `radius.md` (10). No hay token. */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 12 },
-  muted: { color: '#64748b', fontSize: 14 },
-  error: { color: '#dc2626', fontSize: 14, textAlign: 'center' },
+  container: { flex: 1, backgroundColor: colors.bg },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: SPACING.xl, gap: SPACING.md },
+  muted: { fontFamily: fontFamily.regular, color: colors.textMuted, fontSize: fontSizes[14] },
+  error: { fontFamily: fontFamily.regular, color: colors.danger, fontSize: fontSizes[14], textAlign: 'center' },
 
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    gap: 12,
+    borderBottomColor: colors.border,
+    gap: SPACING.md,
   },
-  backBtn: { padding: 4 },
-  headerTitle: { flex: 1, fontSize: 18, fontWeight: '700', color: '#0f172a' },
+  backBtn: { padding: SPACING.xs },
+  headerTitle: { flex: 1, fontSize: fontSizes[18], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong },
   badgeHeader: {
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 10,
+    borderRadius: radius.md,
     borderWidth: 1,
   },
-  badgeHeaderText: { fontSize: 11, fontWeight: '700' },
+  badgeHeaderText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight },
 
   toolbar: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 8,
+    borderBottomColor: colors.border,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    gap: SPACING.sm,
   },
   toolbarStack: { gap: 10 },
   kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   kpiCard: {
     flex: 1,
     minWidth: 100,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 8,
     paddingVertical: 6,
   },
-  kpiLabel: { fontSize: 9, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
-  kpiValue: { fontSize: 13, fontWeight: '700', color: '#0f172a', marginTop: 2 },
-  toolbarHint: { fontSize: 11, color: '#94a3b8', lineHeight: 16 },
+  kpiLabel: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, textTransform: 'uppercase' },
+  kpiValue: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontVariant: ['tabular-nums'], color: colors.textStrong, marginTop: 2 },
+  toolbarHint: { fontFamily: fontFamily.regular, fontSize: typography.etiqueta.fontSize, color: colors.textMuted, lineHeight: 16 },
 
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' },
   actionsStack: { flexDirection: 'column', alignItems: 'stretch' },
@@ -918,30 +930,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#0ea5e9',
+    backgroundColor: colors.accent,
     paddingHorizontal: 14,
     paddingVertical: 9,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
   },
-  btnPrimaryText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+  btnPrimaryText: { color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, fontSize: fontSizes[13] },
   btnOutline: {
     paddingHorizontal: 14,
     paddingVertical: 9,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
     borderColor: '#bae6fd',
-    backgroundColor: '#f0f9ff',
+    backgroundColor: colors.accentMuted,
     alignItems: 'center',
   },
-  btnOutlineText: { color: '#0284c7', fontWeight: '600', fontSize: 13 },
+  btnOutlineText: { color: colors.accentPressed, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, fontSize: fontSizes[13] },
   btnSuccess: {
     paddingHorizontal: 14,
     paddingVertical: 9,
-    borderRadius: 8,
-    backgroundColor: '#16a34a',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.success,
     alignItems: 'center',
   },
-  btnSuccessText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+  btnSuccessText: { color: colors.surface, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, fontSize: fontSizes[13] },
   btnWarning: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -949,47 +961,48 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 14,
     paddingVertical: 9,
-    borderRadius: 8,
-    backgroundColor: '#d97706',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.warning,
   },
   avisoPendientes: {
-    backgroundColor: '#fffbeb',
+    backgroundColor: statusColors.warning.bg,
     borderWidth: 1,
     borderColor: '#fcd34d',
     borderLeftWidth: 4,
-    borderLeftColor: '#d97706',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 4,
+    borderLeftColor: colors.warning,
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    gap: SPACING.xs,
   },
   avisoPendientesHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  avisoPendientesTitulo: { fontSize: 14, fontWeight: '700', color: '#92400e', flexShrink: 1 },
-  avisoPendientesLinea: { fontSize: 13, color: '#78350f', lineHeight: 18 },
-  avisoPendientesHint: { fontSize: 12, color: '#92400e', marginTop: 2 },
+  avisoPendientesTitulo: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: '#92400e', flexShrink: 1 },
+  avisoPendientesLinea: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: '#78350f', lineHeight: 18 },
+  avisoPendientesHint: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: '#92400e', marginTop: 2 },
   badgePendientePago: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 10,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: '#fcd34d',
-    backgroundColor: '#fffbeb',
+    backgroundColor: statusColors.warning.bg,
   },
-  badgePendientePagoText: { fontSize: 11, fontWeight: '700', color: '#d97706' },
-  badgePendientePagoAccion: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  descartarRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  badgePendientePagoText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.warning },
+  badgePendientePagoAccion: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
+  descartarRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginTop: SPACING.xs },
   descartarRowStack: { flexDirection: 'column', alignItems: 'stretch' },
   inputMotivoDescarte: {
     flex: 1,
     minHeight: 38,
     borderWidth: 1,
     borderColor: '#fcd34d',
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: '#fff',
-    fontSize: 13,
-    color: '#0f172a',
+    paddingVertical: SPACING.sm,
+    backgroundColor: colors.surface,
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[13],
+    color: colors.textStrong,
   },
   btnDescartar: {
     flexDirection: 'row',
@@ -998,35 +1011,35 @@ const styles = StyleSheet.create({
     gap: 6,
     minHeight: 38,
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#d97706',
-    backgroundColor: '#fff',
+    borderColor: colors.warning,
+    backgroundColor: colors.surface,
   },
-  btnDescartarText: { color: '#b45309', fontWeight: '600', fontSize: 13 },
-  historialDescartes: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', paddingHorizontal: 14, paddingBottom: 10 },
-  descarteItem: { paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', gap: 2 },
-  descarteFactura: { fontSize: 13, fontWeight: '600', color: '#334155' },
-  descarteMeta: { fontSize: 12, color: '#64748b' },
-  descarteMotivo: { fontSize: 12, color: '#475569', fontStyle: 'italic' },
+  btnDescartarText: { color: statusColors.warning.text, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, fontSize: fontSizes[13] },
+  historialDescartes: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 14, paddingBottom: 10 },
+  descarteItem: { paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.navActive, gap: 2 },
+  descarteFactura: { fontSize: fontSizes[13], fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  descarteMeta: { fontFamily: fontFamily.regular, fontSize: fontSizes[12], color: colors.textMuted },
+  descarteMotivo: { fontSize: fontSizes[12], color: colors.textPrimary, fontStyle: 'italic' },
   btnDanger: {
     paddingHorizontal: 14,
     paddingVertical: 9,
-    borderRadius: 8,
-    backgroundColor: '#fef2f2',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: statusColors.danger.bg,
     borderWidth: 1,
     borderColor: '#fecaca',
     alignItems: 'center',
   },
-  btnDangerText: { color: '#dc2626', fontWeight: '600', fontSize: 13 },
+  btnDangerText: { color: colors.danger, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, fontSize: fontSizes[13] },
 
   list: { flex: 1 },
-  listContent: { padding: 12, gap: 10, paddingBottom: 32 },
-  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12 },
-  emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
+  listContent: { padding: SPACING.md, gap: 10, paddingBottom: 32 },
+  emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: SPACING.md },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSizes[14], color: colors.textMuted, textAlign: 'center' },
 
-  card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
+  card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1034,38 +1047,38 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 7,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-    gap: 8,
+    borderBottomColor: colors.navActive,
+    gap: SPACING.sm,
   },
-  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
-  cardTitle: { fontSize: 14, fontWeight: '700', color: '#0f172a', flexShrink: 1 },
-  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
-  badgeText: { fontSize: 11, fontWeight: '600' },
-  dotSem: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  cardTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flex: 1, minWidth: 0 },
+  cardTitle: { fontSize: fontSizes[14], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textStrong, flexShrink: 1 },
+  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.md, borderWidth: 1 },
+  badgeText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight },
+  dotSem: { width: 8, height: 8, borderRadius: radius.sm, flexShrink: 0 },
   cardActions: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 },
   cardActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACING.xs,
     paddingHorizontal: 8,
     paddingVertical: 5,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
     minHeight: 30,
   },
   cardActionBtnDanger: {
     borderColor: '#fecaca',
-    backgroundColor: '#fef2f2',
+    backgroundColor: statusColors.danger.bg,
   },
-  cardActionText: { fontSize: 11, fontWeight: '600', color: '#475569' },
-  cardActionTextDanger: { color: '#dc2626' },
-  cardImporte: { fontSize: 13, fontWeight: '700' },
+  cardActionText: { fontSize: typography.etiqueta.fontSize, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textPrimary },
+  cardActionTextDanger: { color: colors.danger },
+  cardImporte: { fontSize: fontSizes[13], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, fontVariant: ['tabular-nums'] },
   cardBody: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingVertical: 7, gap: 8 },
   cardField: { minWidth: 84, marginRight: 8 },
-  cardFieldLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 1 },
-  cardFieldValue: { fontSize: 13, color: '#334155' },
+  cardFieldLabel: { fontSize: fontSizes.badge, fontFamily: fontFamily.semibold, fontWeight: typography.boton.fontWeight, color: colors.textMuted, textTransform: 'uppercase', marginBottom: 1 },
+  cardFieldValue: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: colors.textPrimary },
   cardEditBody: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1073,41 +1086,43 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: colors.navActive,
     backgroundColor: '#fafafa',
   },
   editField: { minWidth: 140 },
   input: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     padding: 10,
-    backgroundColor: '#fff',
-    fontSize: 14,
-    color: '#0f172a',
+    backgroundColor: colors.surface,
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[14],
+    color: colors.textStrong,
     minHeight: 40,
   },
   inputConcepto: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
     padding: 10,
-    backgroundColor: '#fff',
-    fontSize: 13,
-    color: '#0f172a',
+    backgroundColor: colors.surface,
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[13],
+    color: colors.textStrong,
     minHeight: 56,
     textAlignVertical: 'top',
   },
-  inputDisabled: { backgroundColor: '#f1f5f9', color: '#64748b' },
+  inputDisabled: { backgroundColor: colors.navActive, color: colors.textMuted },
 
-  excluidasSection: { marginTop: 8, gap: 8 },
-  sectionTitle: { fontSize: 12, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 2 },
+  excluidasSection: { marginTop: SPACING.sm, gap: SPACING.sm },
+  sectionTitle: { fontSize: fontSizes[12], fontFamily: fontFamily.bold, fontWeight: typography.titulo.fontWeight, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 2 },
   excluidaCard: {
     backgroundColor: '#fff7ed',
-    borderRadius: 12,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: '#fed7aa',
     overflow: 'hidden',
   },
-  excluidaMotivo: { fontSize: 13, color: '#9a3412', lineHeight: 18 },
+  excluidaMotivo: { fontFamily: fontFamily.regular, fontSize: fontSizes[13], color: '#9a3412', lineHeight: 18 },
 });
