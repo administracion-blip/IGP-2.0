@@ -15,6 +15,17 @@ import {
   type TextStyle,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  inputCursorProps,
+  inputCursorStyle,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../constants/theme';
 
 type IconName = keyof typeof MaterialIcons.glyphMap;
 
@@ -225,7 +236,7 @@ export function SelectorDesplegable({
           : {})}
       >
         {icono && !sinIconoTrigger ? (
-          <MaterialIcons name={icono} size={compact ? 14 : 16} color={seleccionada ? '#0ea5e9' : '#94a3b8'} />
+          <MaterialIcons name={icono} size={compact ? 14 : 16} color={seleccionada ? colors.accent : colors.textMuted} />
         ) : null}
         <View style={styles.triggerTextWrap}>
           {loading ? (
@@ -244,7 +255,7 @@ export function SelectorDesplegable({
         <MaterialIcons
           name={sinIconoTrigger ? (open ? 'expand-less' : 'expand-more') : (open ? 'arrow-drop-up' : 'arrow-drop-down')}
           size={sinIconoTrigger ? 20 : (compact ? 20 : 22)}
-          color="#64748b"
+          color={colors.textMuted}
         />
       </TouchableOpacity>
 
@@ -254,19 +265,20 @@ export function SelectorDesplegable({
             <Pressable onPress={() => {}} style={styles.card}>
               {tituloLista ? (
                 <View style={styles.header}>
-                  {iconoLista ? <MaterialIcons name={iconoLista} size={15} color="#0ea5e9" /> : null}
+                  {iconoLista ? <MaterialIcons name={iconoLista} size={15} color={colors.accent} /> : null}
                   <Text style={styles.headerText}>{tituloLista}</Text>
                 </View>
               ) : null}
               {buscador && !loading && opciones.length > 0 ? (
                 <View style={styles.searchWrap}>
-                  <MaterialIcons name="search" size={16} color="#94a3b8" />
+                  <MaterialIcons name="search" size={16} color={colors.textMuted} />
                   <TextInput
-                    style={styles.searchInput}
+                    style={[styles.searchInput, Platform.OS === 'web' ? (inputCursorStyle as TextStyle) : null]}
                     value={filtro}
                     onChangeText={setFiltro}
                     placeholder={buscadorPlaceholder}
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
+                    {...inputCursorProps}
                     autoCorrect={false}
                     autoFocus={Platform.OS === 'web'}
                     {...(Platform.OS === 'web' && tabConfirmaPrimero
@@ -274,17 +286,17 @@ export function SelectorDesplegable({
                       : {})}
                   />
                   {filtro ? (
-                    <TouchableOpacity onPress={() => setFiltro('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                      <MaterialIcons name="close" size={16} color="#94a3b8" />
+                    <TouchableOpacity onPress={() => setFiltro('')} hitSlop={{ top: SPACING.sm, bottom: SPACING.sm, left: SPACING.sm, right: SPACING.sm }}>
+                      <MaterialIcons name="close" size={16} color={colors.textMuted} />
                     </TouchableOpacity>
                   ) : null}
                 </View>
               ) : null}
               {loading ? (
-                <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 24 }} />
+                <ActivityIndicator size="small" color={colors.accent} style={{ marginVertical: SPACING.xl }} />
               ) : pendienteMinChars && opcionesVisibles.length === 0 ? (
                 <View style={styles.empty}>
-                  <MaterialIcons name="keyboard" size={28} color="#cbd5e1" />
+                  <MaterialIcons name="keyboard" size={28} color={colors.borderStrong} />
                   <Text style={styles.emptyText}>
                     {`Escribe al menos ${minCharsBusqueda} caracteres para buscar…`}
                   </Text>
@@ -311,7 +323,7 @@ export function SelectorDesplegable({
                           </View>
                         ) : o.icono ? (
                           <View style={[styles.iconBox, sel && styles.iconBoxSelected]}>
-                            <MaterialIcons name={o.icono} size={16} color={sel ? '#0ea5e9' : '#94a3b8'} />
+                            <MaterialIcons name={o.icono} size={16} color={sel ? colors.accent : colors.textMuted} />
                           </View>
                         ) : null}
                         <View style={styles.rowTextWrap}>
@@ -322,7 +334,7 @@ export function SelectorDesplegable({
                             <Text style={styles.rowSub} numberOfLines={1}>{o.subtitulo}</Text>
                           ) : null}
                         </View>
-                        {sel ? <MaterialIcons name="check-circle" size={18} color="#0ea5e9" /> : null}
+                        {sel ? <MaterialIcons name="check-circle" size={18} color={colors.accent} /> : null}
                       </TouchableOpacity>
                     );
                   })}
@@ -332,19 +344,19 @@ export function SelectorDesplegable({
                 </ScrollView>
               ) : opciones.length > 0 ? (
                 <View style={styles.empty}>
-                  <MaterialIcons name="search-off" size={28} color="#cbd5e1" />
+                  <MaterialIcons name="search-off" size={28} color={colors.borderStrong} />
                   <Text style={styles.emptyText}>Sin resultados para «{filtro.trim()}».</Text>
                 </View>
               ) : (
                 <View style={styles.empty}>
-                  <MaterialIcons name="inbox" size={28} color="#cbd5e1" />
+                  <MaterialIcons name="inbox" size={28} color={colors.borderStrong} />
                   <Text style={styles.emptyText}>{vacioTexto}</Text>
                   {vacioAccion ? (
                     <TouchableOpacity
                       style={styles.emptyBtn}
                       onPress={() => { cerrar(); vacioAccion.onPress(); }}
                     >
-                      <MaterialIcons name="add" size={15} color="#fff" />
+                      <MaterialIcons name="add" size={15} color={colors.surface} />
                       <Text style={styles.emptyBtnText}>{vacioAccion.texto}</Text>
                     </TouchableOpacity>
                   ) : null}
@@ -358,36 +370,34 @@ export function SelectorDesplegable({
   );
 }
 
+/** Radio 8: entre `radius.sm` (6) y `radius.md` (10). No hay token. */
+const RADIO_MEDIO = 8;
+
 const styles = StyleSheet.create({
   label: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#94a3b8',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginBottom: 4,
+    ...typography.etiqueta,
+    marginBottom: SPACING.xs,
   },
   labelCompact: {
-    fontSize: 9,
     marginBottom: 3,
   },
   trigger: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#f8fafc',
+    gap: SPACING.sm,
+    backgroundColor: colors.bg,
     borderWidth: 1.5,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     minHeight: 46,
   },
   triggerCompact: {
     minHeight: 30,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 999,
+    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
+    borderRadius: radius.pill,
     borderWidth: 1,
     gap: 6,
   },
@@ -395,50 +405,61 @@ const styles = StyleSheet.create({
     minHeight: 0,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 8,
+    borderRadius: RADIO_MEDIO,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#fff',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     gap: 0,
   },
   textToolbar: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: '#334155',
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[12],
+    fontWeight: typography.cuerpo.fontWeight,
+    color: colors.textPrimary,
   },
-  triggerActive: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
+  triggerActive: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
   triggerDisabled: { opacity: 0.6 },
   triggerTextWrap: { flex: 1, minWidth: 0, overflow: 'hidden' },
   value: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1e293b',
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes[13],
+    fontWeight: typography.subtitulo.fontWeight,
+    color: colors.textStrong,
     ...(Platform.OS === 'web' ? ({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as object) : {}),
   },
   sub: {
-    fontSize: 10,
-    color: '#64748b',
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes.badge,
+    color: colors.textMuted,
     marginTop: 1,
     ...(Platform.OS === 'web' ? ({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as object) : {}),
   },
-  placeholder: { fontSize: 13, color: '#94a3b8' },
-  textCompact: { fontSize: 11, fontWeight: '500' },
+  placeholder: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[13],
+    color: colors.textMuted,
+  },
+  textCompact: {
+    fontFamily: fontFamily.medium,
+    fontSize: typography.etiqueta.fontSize,
+    fontWeight: typography.nav.fontWeight,
+  },
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: SPACING.xl,
   },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     width: '100%',
     maxWidth: 380,
     maxHeight: '70%',
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     ...(Platform.OS === 'web' && ({ boxShadow: '0 12px 32px rgba(0,0,0,0.18)' } as object)),
   },
   header: {
@@ -447,93 +468,130 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
   },
-  headerText: { fontSize: 12, fontWeight: '700', color: '#334155' },
+  headerText: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSizes[12],
+    fontWeight: typography.titulo.fontWeight,
+    color: colors.textPrimary,
+  },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    margin: 8,
-    backgroundColor: '#f8fafc',
+    margin: SPACING.sm,
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
   searchInput: {
     flex: 1,
-    fontSize: 13,
-    color: '#1e293b',
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[13],
+    color: colors.textStrong,
     paddingVertical: Platform.OS === 'web' ? 2 : 0,
-    ...(Platform.OS === 'web' && ({ outlineStyle: 'none' } as object)),
   },
   scroll: { maxHeight: 320 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 9,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
   },
-  rowSelected: { backgroundColor: '#f0f9ff' },
+  rowSelected: { backgroundColor: colors.accentMuted },
   rowTextWrap: { flex: 1, minWidth: 0 },
-  rowTitle: { fontSize: 13, fontWeight: '500', color: '#334155' },
-  rowTitleSelected: { color: '#0369a1', fontWeight: '700' },
-  rowSub: { fontSize: 10, color: '#94a3b8', marginTop: 1 },
+  rowTitle: {
+    fontFamily: fontFamily.medium,
+    fontSize: fontSizes[13],
+    fontWeight: typography.nav.fontWeight,
+    color: colors.textPrimary,
+  },
+  rowTitleSelected: {
+    color: statusColors.info.text,
+    fontFamily: fontFamily.bold,
+    fontWeight: typography.titulo.fontWeight,
+  },
+  rowSub: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes.badge,
+    color: colors.textMuted,
+    marginTop: 1,
+  },
   badge: {
     minWidth: 38,
     height: 32,
-    borderRadius: 8,
-    paddingHorizontal: 4,
-    backgroundColor: '#f1f5f9',
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.xs,
+    backgroundColor: colors.navActive,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  badgeSelected: { backgroundColor: '#0ea5e9' },
-  badgeText: { fontSize: 11, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
-  badgeTextSelected: { color: '#fff' },
+  badgeSelected: { backgroundColor: colors.accent },
+  badgeText: {
+    fontFamily: fontFamily.bold,
+    fontSize: typography.etiqueta.fontSize,
+    fontWeight: typography.titulo.fontWeight,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+  },
+  badgeTextSelected: { color: colors.surface },
   iconBox: {
     width: 34,
     height: 34,
-    borderRadius: 8,
-    backgroundColor: '#f1f5f9',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.navActive,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  iconBoxSelected: { backgroundColor: '#e0f2fe' },
-  empty: { alignItems: 'center', gap: 8, paddingVertical: 28, paddingHorizontal: 16 },
-  emptyText: { fontSize: 12, color: '#94a3b8', textAlign: 'center' },
-  hintMinChars: {
-    fontSize: 11,
-    color: '#94a3b8',
+  iconBoxSelected: { backgroundColor: colors.accentMuted },
+  empty: { alignItems: 'center', gap: SPACING.sm, paddingVertical: 28, paddingHorizontal: SPACING.lg },
+  emptyText: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[12],
+    color: colors.textMuted,
     textAlign: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  },
+  hintMinChars: {
+    fontFamily: fontFamily.regular,
+    fontSize: typography.etiqueta.fontSize,
+    color: colors.textMuted,
+    textAlign: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
   },
   pieLimite: {
-    fontSize: 11,
-    color: '#64748b',
+    fontFamily: fontFamily.regular,
+    fontSize: typography.etiqueta.fontSize,
+    color: colors.textMuted,
     textAlign: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: colors.navActive,
   },
   emptyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#0ea5e9',
+    gap: SPACING.xs,
+    backgroundColor: colors.accent,
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
-    marginTop: 4,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
+    marginTop: SPACING.xs,
   },
-  emptyBtnText: { fontSize: 12, fontWeight: '600', color: '#fff' },
+  emptyBtnText: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes[12],
+    fontWeight: typography.boton.fontWeight,
+    color: colors.surface,
+  },
 });

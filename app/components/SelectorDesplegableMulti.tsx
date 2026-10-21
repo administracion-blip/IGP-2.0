@@ -11,9 +11,21 @@ import {
   Platform,
   ActivityIndicator,
   type StyleProp,
+  type TextStyle,
   type ViewStyle,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import {
+  colors,
+  fontFamily,
+  fontSizes,
+  inputCursorProps,
+  inputCursorStyle,
+  radius,
+  statusColors,
+  typography,
+  SPACING,
+} from '../constants/theme';
 import type { OpcionDesplegable } from './SelectorDesplegable';
 
 type IconName = keyof typeof MaterialIcons.glyphMap;
@@ -115,9 +127,9 @@ export function SelectorDesplegableMulti({
           accessibilityLabel={etiquetaBoton}
         >
           {loading ? (
-            <ActivityIndicator size="small" color="#0369a1" />
+            <ActivityIndicator size="small" color={statusColors.info.text} />
           ) : (
-            <MaterialIcons name="add" size={18} color="#0369a1" />
+            <MaterialIcons name="add" size={18} color={statusColors.info.text} />
           )}
           <Text style={styles.botonAnadirText}>{loading ? 'Cargando…' : etiquetaBoton}</Text>
         </TouchableOpacity>
@@ -135,7 +147,7 @@ export function SelectorDesplegableMulti({
           disabled={disabled}
         >
           {icono ? (
-            <MaterialIcons name={icono} size={compact ? 14 : 16} color={seleccionadas.length > 0 ? '#0ea5e9' : '#94a3b8'} />
+            <MaterialIcons name={icono} size={compact ? 14 : 16} color={seleccionadas.length > 0 ? colors.accent : colors.textMuted} />
           ) : null}
           <View style={styles.triggerTextWrap}>
             {loading ? (
@@ -151,7 +163,7 @@ export function SelectorDesplegableMulti({
               <Text style={[styles.countBadgeText, compact && styles.countBadgeTextCompact]}>{seleccionadas.length}</Text>
             </View>
           ) : null}
-          <MaterialIcons name={open ? 'arrow-drop-up' : 'arrow-drop-down'} size={compact ? 20 : 22} color="#64748b" />
+          <MaterialIcons name={open ? 'arrow-drop-up' : 'arrow-drop-down'} size={compact ? 20 : 22} color={colors.textMuted} />
         </TouchableOpacity>
       )}
 
@@ -161,7 +173,7 @@ export function SelectorDesplegableMulti({
             <Pressable onPress={() => {}} style={styles.card}>
               {tituloLista ? (
                 <View style={styles.header}>
-                  {iconoLista ? <MaterialIcons name={iconoLista} size={15} color="#0ea5e9" /> : null}
+                  {iconoLista ? <MaterialIcons name={iconoLista} size={15} color={colors.accent} /> : null}
                   <Text style={styles.headerText}>{tituloLista}</Text>
                   {valorIds.length > 0 ? (
                     <Text style={styles.headerCount}>{valorIds.length} sel.</Text>
@@ -170,25 +182,26 @@ export function SelectorDesplegableMulti({
               ) : null}
               {buscador && !loading && opciones.length > 0 ? (
                 <View style={styles.searchWrap}>
-                  <MaterialIcons name="search" size={16} color="#94a3b8" />
+                  <MaterialIcons name="search" size={16} color={colors.textMuted} />
                   <TextInput
-                    style={styles.searchInput}
+                    style={[styles.searchInput, Platform.OS === 'web' ? (inputCursorStyle as TextStyle) : null]}
                     value={filtro}
                     onChangeText={setFiltro}
                     placeholder={buscadorPlaceholder}
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor={colors.textMuted}
+                    {...inputCursorProps}
                     autoCorrect={false}
                     autoFocus={Platform.OS === 'web'}
                   />
                   {filtro ? (
-                    <TouchableOpacity onPress={() => setFiltro('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                      <MaterialIcons name="close" size={16} color="#94a3b8" />
+                    <TouchableOpacity onPress={() => setFiltro('')} hitSlop={{ top: SPACING.sm, bottom: SPACING.sm, left: SPACING.sm, right: SPACING.sm }}>
+                      <MaterialIcons name="close" size={16} color={colors.textMuted} />
                     </TouchableOpacity>
                   ) : null}
                 </View>
               ) : null}
               {loading ? (
-                <ActivityIndicator size="small" color="#0ea5e9" style={{ marginVertical: 24 }} />
+                <ActivityIndicator size="small" color={colors.accent} style={{ marginVertical: SPACING.xl }} />
               ) : opcionesFiltradas.length > 0 ? (
                 <ScrollView style={styles.scroll} nestedScrollEnabled showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
                   {opcionesFiltradas.map((o) => {
@@ -203,7 +216,7 @@ export function SelectorDesplegableMulti({
                         <MaterialIcons
                           name={sel ? 'check-box' : 'check-box-outline-blank'}
                           size={20}
-                          color={sel ? '#0ea5e9' : '#94a3b8'}
+                          color={sel ? colors.accent : colors.textMuted}
                         />
                         {o.badge !== undefined ? (
                           <View style={[styles.badge, sel && styles.badgeSelected]}>
@@ -211,7 +224,7 @@ export function SelectorDesplegableMulti({
                           </View>
                         ) : o.icono ? (
                           <View style={[styles.iconBox, sel && styles.iconBoxSelected]}>
-                            <MaterialIcons name={o.icono} size={16} color={sel ? '#0ea5e9' : '#94a3b8'} />
+                            <MaterialIcons name={o.icono} size={16} color={sel ? colors.accent : colors.textMuted} />
                           </View>
                         ) : null}
                         <View style={styles.rowTextWrap}>
@@ -228,12 +241,12 @@ export function SelectorDesplegableMulti({
                 </ScrollView>
               ) : opciones.length > 0 ? (
                 <View style={styles.empty}>
-                  <MaterialIcons name="search-off" size={28} color="#cbd5e1" />
+                  <MaterialIcons name="search-off" size={28} color={colors.borderStrong} />
                   <Text style={styles.emptyText}>Sin resultados para «{filtro.trim()}».</Text>
                 </View>
               ) : (
                 <View style={styles.empty}>
-                  <MaterialIcons name="inbox" size={28} color="#cbd5e1" />
+                  <MaterialIcons name="inbox" size={28} color={colors.borderStrong} />
                   <Text style={styles.emptyText}>{vacioTexto}</Text>
                 </View>
               )}
@@ -260,103 +273,114 @@ export function SelectorDesplegableMulti({
   );
 }
 
+/** Radio 8: entre `radius.sm` (6) y `radius.md` (10). No hay token. */
+const RADIO_MEDIO = 8;
+/** Borde cielo de la pastilla «añadir». No hay token. */
+const CHIP_BORDE = '#bae6fd';
+const CHIP_BORDE_ACTIVO = '#7dd3fc';
+
 const styles = StyleSheet.create({
   label: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#94a3b8',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginBottom: 4,
+    ...typography.etiqueta,
+    marginBottom: SPACING.xs,
   },
   labelCompact: {
-    fontSize: 9,
     marginBottom: 3,
   },
   trigger: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#f8fafc',
+    gap: SPACING.sm,
+    backgroundColor: colors.bg,
     borderWidth: 1.5,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
     minHeight: 46,
   },
   triggerCompact: {
     minHeight: 34,
     paddingVertical: 5,
-    paddingHorizontal: 8,
-    borderRadius: 6,
+    paddingHorizontal: SPACING.sm,
+    borderRadius: radius.sm,
     borderWidth: 1,
     gap: 6,
   },
-  triggerActive: { borderColor: '#0ea5e9', backgroundColor: '#f0f9ff' },
+  triggerActive: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
   triggerDisabled: { opacity: 0.6 },
   botonAnadir: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: 2,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#bae6fd',
-    borderRadius: 999,
-    paddingHorizontal: 12,
+    borderColor: CHIP_BORDE,
+    borderRadius: radius.pill,
+    paddingHorizontal: SPACING.md,
     minHeight: 36,
   },
   botonAnadirActivo: {
-    backgroundColor: '#f0f9ff',
-    borderColor: '#7dd3fc',
+    backgroundColor: colors.accentMuted,
+    borderColor: CHIP_BORDE_ACTIVO,
   },
   botonAnadirText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#0369a1',
+    fontFamily: fontFamily.bold,
+    fontSize: fontSizes[13],
+    fontWeight: typography.titulo.fontWeight,
+    color: statusColors.info.text,
   },
   triggerTextWrap: { flex: 1, minWidth: 0, overflow: 'hidden' },
   value: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1e293b',
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes[13],
+    fontWeight: typography.subtitulo.fontWeight,
+    color: colors.textStrong,
   },
-  placeholder: { fontSize: 13, color: '#94a3b8' },
-  textCompact: { fontSize: 12 },
+  placeholder: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[13],
+    color: colors.textMuted,
+  },
+  textCompact: { fontFamily: fontFamily.regular, fontSize: fontSizes[12] },
   countBadge: {
     minWidth: 22,
     height: 22,
-    borderRadius: 11,
-    backgroundColor: '#0ea5e9',
+    borderRadius: radius.pill,
+    backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 6,
   },
-  countBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  countBadgeText: {
+    fontFamily: fontFamily.bold,
+    fontSize: typography.etiqueta.fontSize,
+    fontWeight: typography.titulo.fontWeight,
+    color: colors.surface,
+  },
   countBadgeCompact: {
     minWidth: 18,
     height: 18,
-    borderRadius: 9,
-    paddingHorizontal: 4,
+    paddingHorizontal: SPACING.xs,
   },
-  countBadgeTextCompact: { fontSize: 10 },
+  countBadgeTextCompact: { fontSize: fontSizes.badge },
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: SPACING.xl,
   },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     width: '100%',
     maxWidth: 420,
     maxHeight: '75%',
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     ...(Platform.OS === 'web' && ({ boxShadow: '0 12px 32px rgba(0,0,0,0.18)' } as object)),
   },
   header: {
@@ -365,86 +389,132 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.bg,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: colors.border,
   },
-  headerText: { flex: 1, fontSize: 12, fontWeight: '700', color: '#334155' },
-  headerCount: { fontSize: 11, fontWeight: '600', color: '#0ea5e9' },
+  headerText: {
+    flex: 1,
+    fontFamily: fontFamily.bold,
+    fontSize: fontSizes[12],
+    fontWeight: typography.titulo.fontWeight,
+    color: colors.textPrimary,
+  },
+  headerCount: {
+    fontFamily: fontFamily.semibold,
+    fontSize: typography.etiqueta.fontSize,
+    fontWeight: typography.boton.fontWeight,
+    color: colors.accent,
+  },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    margin: 8,
-    backgroundColor: '#f8fafc',
+    margin: SPACING.sm,
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: RADIO_MEDIO,
   },
   searchInput: {
     flex: 1,
-    fontSize: 13,
-    color: '#1e293b',
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[13],
+    color: colors.textStrong,
     paddingVertical: Platform.OS === 'web' ? 2 : 0,
-    ...(Platform.OS === 'web' && ({ outlineStyle: 'none' } as object)),
   },
   scroll: { maxHeight: 360 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 9,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: colors.navActive,
   },
-  rowSelected: { backgroundColor: '#f0f9ff' },
+  rowSelected: { backgroundColor: colors.accentMuted },
   rowTextWrap: { flex: 1, minWidth: 0 },
-  rowTitle: { fontSize: 13, fontWeight: '500', color: '#334155' },
-  rowTitleSelected: { color: '#0369a1', fontWeight: '700' },
-  rowSub: { fontSize: 10, color: '#94a3b8', marginTop: 1 },
+  rowTitle: {
+    fontFamily: fontFamily.medium,
+    fontSize: fontSizes[13],
+    fontWeight: typography.nav.fontWeight,
+    color: colors.textPrimary,
+  },
+  rowTitleSelected: {
+    color: statusColors.info.text,
+    fontFamily: fontFamily.bold,
+    fontWeight: typography.titulo.fontWeight,
+  },
+  rowSub: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes.badge,
+    color: colors.textMuted,
+    marginTop: 1,
+  },
   badge: {
     minWidth: 38,
     height: 32,
-    borderRadius: 8,
-    paddingHorizontal: 4,
-    backgroundColor: '#f1f5f9',
+    borderRadius: RADIO_MEDIO,
+    paddingHorizontal: SPACING.xs,
+    backgroundColor: colors.navActive,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  badgeSelected: { backgroundColor: '#0ea5e9' },
-  badgeText: { fontSize: 11, fontWeight: '700', color: '#64748b', textTransform: 'uppercase' },
-  badgeTextSelected: { color: '#fff' },
+  badgeSelected: { backgroundColor: colors.accent },
+  badgeText: {
+    fontFamily: fontFamily.bold,
+    fontSize: typography.etiqueta.fontSize,
+    fontWeight: typography.titulo.fontWeight,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+  },
+  badgeTextSelected: { color: colors.surface },
   iconBox: {
     width: 34,
     height: 34,
-    borderRadius: 8,
-    backgroundColor: '#f1f5f9',
+    borderRadius: RADIO_MEDIO,
+    backgroundColor: colors.navActive,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  iconBoxSelected: { backgroundColor: '#e0f2fe' },
-  empty: { alignItems: 'center', gap: 8, paddingVertical: 28, paddingHorizontal: 16 },
-  emptyText: { fontSize: 12, color: '#94a3b8', textAlign: 'center' },
+  iconBoxSelected: { backgroundColor: colors.accentMuted },
+  empty: { alignItems: 'center', gap: SPACING.sm, paddingVertical: 28, paddingHorizontal: SPACING.lg },
+  emptyText: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[12],
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderTopColor: colors.border,
+    backgroundColor: colors.bg,
   },
   footerClearBtn: { paddingHorizontal: 10, paddingVertical: 6 },
-  footerClearText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
-  footerOkBtn: {
-    backgroundColor: '#0ea5e9',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
+  footerClearText: {
+    fontFamily: fontFamily.semibold,
+    fontSize: fontSizes[12],
+    fontWeight: typography.boton.fontWeight,
+    color: colors.textMuted,
   },
-  footerOkText: { fontSize: 12, fontWeight: '700', color: '#fff' },
+  footerOkBtn: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIO_MEDIO,
+  },
+  footerOkText: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSizes[12],
+    fontWeight: typography.titulo.fontWeight,
+    color: colors.surface,
+  },
 });

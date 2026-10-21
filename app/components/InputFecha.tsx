@@ -26,7 +26,7 @@ import {
   isoDesdeValor,
   valorDesdeIso,
 } from '../utils/fechaInput';
-import { MIN_TOUCH } from '../constants/layout';
+import { colors, fontFamily, fontSizes, radius, MIN_TOUCH, SPACING } from '../constants/theme';
 
 export type { FechaInputFormat as InputFechaFormat };
 
@@ -94,7 +94,7 @@ export function InputFecha(props: InputFechaProps) {
     placeholder = 'dd/mm/aaaa',
     style,
     editable = true,
-    placeholderTextColor = '#94a3b8',
+    placeholderTextColor = colors.textMuted,
     showCalendar = true,
     compact = false,
     modoToolbar = false,
@@ -172,10 +172,11 @@ export function InputFecha(props: InputFechaProps) {
         flex: 1,
         borderWidth: 0,
         paddingVertical: 0,
-        paddingHorizontal: 8,
+        paddingHorizontal: SPACING.sm,
         paddingRight: 4,
-        fontSize: (style as { fontSize?: number } | undefined)?.fontSize ?? 12,
-        color: '#334155',
+        fontSize: (style as { fontSize?: number } | undefined)?.fontSize ?? fontSizes[12],
+        fontFamily: fontFamily.regular,
+        color: colors.textPrimary,
         textAlignVertical: 'center' as const,
         backgroundColor: 'transparent',
         minHeight: compactHeight,
@@ -360,7 +361,7 @@ export function InputFecha(props: InputFechaProps) {
             disabled={!editable}
             accessibilityLabel="Abrir calendario"
           >
-            <MaterialIcons name="calendar-today" size={18} color="#64748b" />
+            <MaterialIcons name="calendar-today" size={18} color={colors.textMuted} />
           </TouchableOpacity>
           <input
             ref={webDateInputRef}
@@ -421,7 +422,7 @@ export function InputFecha(props: InputFechaProps) {
           disabled={!editable}
           accessibilityLabel="Abrir calendario"
         >
-          <MaterialIcons name="calendar-today" size={compact ? 16 : 18} color="#64748b" />
+          <MaterialIcons name="calendar-today" size={compact ? 16 : 18} color={colors.textMuted} />
         </TouchableOpacity>
       </View>
     );
@@ -454,7 +455,7 @@ export function InputFecha(props: InputFechaProps) {
         hitSlop={compact ? { top: 4, bottom: 4, left: 4, right: 4 } : { top: 10, bottom: 10, left: 10, right: 10 }}
         accessibilityLabel="Abrir calendario"
       >
-        <MaterialIcons name="calendar-today" size={modoToolbar ? 18 : 16} color="#64748b" />
+        <MaterialIcons name="calendar-today" size={modoToolbar ? 18 : 16} color={colors.textMuted} />
       </TouchableOpacity>
       {showPicker && Platform.OS === 'android' && (
         <DateTimePicker
@@ -479,7 +480,7 @@ export function InputFecha(props: InputFechaProps) {
                 {...(minimumDate ? { minimumDate } : {})}
               />
               <TouchableOpacity style={styles.closeBtn} onPress={() => setShowPicker(false)}>
-                <MaterialIcons name="check" size={24} color="#0ea5e9" />
+                <MaterialIcons name="check" size={24} color={colors.accent} />
               </TouchableOpacity>
             </Pressable>
           </Pressable>
@@ -518,9 +519,9 @@ const styles = StyleSheet.create({
   webInputRow: {
     minWidth: 130,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#e5e7eb',
-    borderRadius: 4,
-    backgroundColor: '#fff',
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
     overflow: 'hidden',
   },
   webFieldWrap: {
@@ -538,15 +539,16 @@ const styles = StyleSheet.create({
     minWidth: 90,
   },
   inputDefault: {
-    fontSize: 12,
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[12],
     paddingVertical: 3,
     paddingHorizontal: 6,
     minHeight: 24,
-    color: '#334155',
-    backgroundColor: '#fff',
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 4,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
   },
   iconBtn: {
     position: 'absolute',
@@ -573,7 +575,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'stretch',
     borderLeftWidth: StyleSheet.hairlineWidth,
-    borderLeftColor: '#e5e7eb',
+    borderLeftColor: colors.border,
   },
   webIconBtnCompact: {
     width: 28,
@@ -584,7 +586,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'center',
     borderLeftWidth: StyleSheet.hairlineWidth,
-    borderLeftColor: '#e2e8f0',
+    borderLeftColor: colors.border,
   },
   webDateInputOverlay: {
     position: 'absolute',
@@ -612,26 +614,26 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: SPACING.lg,
   },
   closeBtn: {
     alignSelf: 'center',
-    marginTop: 12,
-    padding: 8,
+    marginTop: SPACING.md,
+    padding: SPACING.sm,
   },
   wrapToolbar: {
     width: '100%' as unknown as number,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: 8, // entre radius.sm (6) y radius.md (10); alto de toolbar fijo
     minHeight: 34,
     height: 34,
     overflow: 'hidden',
@@ -644,15 +646,16 @@ const styles = StyleSheet.create({
     minWidth: 0,
     borderWidth: 0,
     paddingVertical: 0,
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACING.sm,
     paddingRight: 2,
-    fontSize: 12,
-    color: '#334155',
+    fontFamily: fontFamily.regular,
+    fontSize: fontSizes[12],
+    color: colors.textPrimary,
     backgroundColor: 'transparent',
     minHeight: 32,
     height: 32,
     ...(Platform.OS === 'web'
-      ? ({ lineHeight: '32px', outlineStyle: 'none' } as object)
+      ? ({ lineHeight: '32px' } as object)
       : { lineHeight: 32 }),
   },
   toolbarIconBtn: {
